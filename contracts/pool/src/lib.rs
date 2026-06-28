@@ -268,14 +268,13 @@ impl LiquidityPool {
 #[contractimpl]
 impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
-    fn create_market(env: Env, params: MarketParamsRaw) {
+    fn create_market(env: Env, hub_id: u32, params: MarketParamsRaw) {
         renew_pool_instance(&env);
         params.verify(&env);
 
         let asset = params.asset_id.clone();
-        // Phase 0: every market is created on hub 0.
         let hub_asset = HubAssetKey {
-            hub_id: 0,
+            hub_id,
             asset: asset.clone(),
         };
         assert_with_error!(
@@ -343,17 +342,15 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn update_indexes(env: Env, asset: Address) {
-        let hub_asset = HubAssetKey { hub_id: 0, asset };
+    fn update_indexes(env: Env, hub_asset: HubAssetKey) {
         let cache = load_synced_cache(&env, &hub_asset);
         cache.save();
         events::publish_market_state(&env, cache.market_snapshot());
     }
 
     #[only_owner]
-    fn add_rewards(env: Env, asset: Address, amount: i128) {
+    fn add_rewards(env: Env, hub_asset: HubAssetKey, amount: i128) {
         require_nonneg_amount(&env, amount);
-        let hub_asset = HubAssetKey { hub_id: 0, asset };
         let mut cache = load_synced_cache(&env, &hub_asset);
 
         assert_with_error!(
@@ -379,7 +376,7 @@ impl LiquidityPoolInterface for LiquidityPool {
     // Repayment is checked against the loaned token balance.
     fn flash_loan(
         env: Env,
-        asset: Address,
+        hub_asset: HubAssetKey,
         initiator: Address,
         receiver: Address,
         amount: i128,
@@ -389,7 +386,6 @@ impl LiquidityPoolInterface for LiquidityPool {
         require_positive_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 
-        let hub_asset = HubAssetKey { hub_id: 0, asset };
         let mut cache = load_synced_cache(&env, &hub_asset);
 
         cache.require_reserves(amount);
@@ -503,11 +499,10 @@ impl LiquidityPoolInterface for LiquidityPool {
     // Deposit dust is moved into revenue.
     fn seize_position(
         env: Env,
-        asset: Address,
+        hub_asset: HubAssetKey,
         side: AccountPositionType,
         position: ScaledPositionRaw,
     ) -> PoolPositionMutation {
-        let hub_asset = HubAssetKey { hub_id: 0, asset };
         let mut cache = load_synced_cache(&env, &hub_asset);
 
         let scaled = Ray::from(position.scaled_amount_ray);
@@ -533,8 +528,7 @@ impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
     // Claim burns scaled revenue from revenue and supplied totals, capped by reserves.
     // Solvency is checked before transfer.
-    fn claim_revenue(env: Env, asset: Address) -> PoolAmountMutation {
-        let hub_asset = HubAssetKey { hub_id: 0, asset };
+    fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
         let mut cache = load_synced_cache(&env, &hub_asset);
 
         // dimensional: claim burns Ray<Share(asset, supply)> and returns Token(asset).
@@ -558,11 +552,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn update_params(env: Env, asset: Address, model: InterestRateModel) {
-        let hub_asset = HubAssetKey {
-            hub_id: 0,
-            asset: asset.clone(),
-        };
+    fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel) {
+        let asset = hub_asset.asset.clone();
         // Accrue at the existing rate model before replacing it.
         let cache = load_synced_cache(&env, &hub_asset);
         cache.save();
@@ -574,11 +565,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn update_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128) {
-        let hub_asset = HubAssetKey {
-            hub_id: 0,
-            asset: asset.clone(),
-        };
+    fn update_caps(env: Env, hub_asset: HubAssetKey, supply_cap: i128, borrow_cap: i128) {
+        let asset = hub_asset.asset.clone();
         let cache = load_synced_cache(&env, &hub_asset);
         cache.save();
         apply_hub_caps(&env, &hub_asset, supply_cap, borrow_cap);
@@ -592,47 +580,46 @@ impl LiquidityPoolInterface for LiquidityPool {
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
-    fn get_utilisation(env: Env, asset: Address) -> i128 {
-        views::capital_utilisation(&env, &HubAssetKey { hub_id: 0, asset })
+    fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::capital_utilisation(&env, &hub_asset)
     }
 
-    fn get_reserves(env: Env, asset: Address) -> i128 {
-        views::reserves(&env, &HubAssetKey { hub_id: 0, asset })
+    fn get_reserves(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::reserves(&env, &hub_asset)
     }
 
-    fn get_deposit_rate(env: Env, asset: Address) -> i128 {
-        views::deposit_rate(&env, &HubAssetKey { hub_id: 0, asset })
+    fn get_deposit_rate(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::deposit_rate(&env, &hub_asset)
     }
 
-    fn get_borrow_rate(env: Env, asset: Address) -> i128 {
-        views::borrow_rate(&env, &HubAssetKey { hub_id: 0, asset })
+    fn get_borrow_rate(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::borrow_rate(&env, &hub_asset)
     }
 
-    fn get_revenue(env: Env, asset: Address) -> i128 {
-        views::protocol_revenue(&env, &HubAssetKey { hub_id: 0, asset })
+    fn get_revenue(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::protocol_revenue(&env, &hub_asset)
     }
 
-    fn get_supplied_amount(env: Env, asset: Address) -> i128 {
-        views::supplied_amount(&env, &HubAssetKey { hub_id: 0, asset })
+    fn get_supplied_amount(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::supplied_amount(&env, &hub_asset)
     }
 
-    fn get_borrowed_amount(env: Env, asset: Address) -> i128 {
-        views::borrowed_amount(&env, &HubAssetKey { hub_id: 0, asset })
+    fn get_borrowed_amount(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::borrowed_amount(&env, &hub_asset)
     }
 
-    fn get_delta_time(env: Env, asset: Address) -> u64 {
-        views::delta_time(&env, &HubAssetKey { hub_id: 0, asset })
+    fn get_delta_time(env: Env, hub_asset: HubAssetKey) -> u64 {
+        views::delta_time(&env, &hub_asset)
     }
 
-    fn get_sync_data(env: Env, asset: Address) -> PoolSyncData {
-        views::load_sync_data(&env, &HubAssetKey { hub_id: 0, asset })
+    fn get_sync_data(env: Env, hub_asset: HubAssetKey) -> PoolSyncData {
+        views::load_sync_data(&env, &hub_asset)
     }
 
-    fn get_bulk_indexes(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw> {
+    fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw> {
         let now = now_ms(&env);
         let mut indexes: Vec<MarketIndexRaw> = Vec::new(&env);
-        for asset in assets.iter() {
-            let hub_asset = HubAssetKey { hub_id: 0, asset };
+        for hub_asset in hub_assets.iter() {
             let sync = views::load_sync_data(&env, &hub_asset);
             indexes.push_back(MarketIndexRaw::from(&simulate_update_indexes(
                 &env, now, &sync,

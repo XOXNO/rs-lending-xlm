@@ -49,7 +49,7 @@ impl TestSetup {
             asset_decimals: 7,
         };
         let contract = env.register(LiquidityPool, (admin.clone(),));
-        LiquidityPoolClient::new(&env, &contract).create_market(&params);
+        LiquidityPoolClient::new(&env, &contract).create_market(&0u32, &params);
 
         // Seed liquidity for repay/overpay scenarios.
         let tok_admin = token::StellarAssetClient::new(&env, &asset);
@@ -104,7 +104,7 @@ fn test_add_rewards_emits_snapshot_and_increases_supply_index() {
     };
     let _ = client.supply(&vec![&t.env, sup]);
 
-    client.add_rewards(&t.asset, &10_000_000);
-    let snap = client.get_sync_data(&t.asset).state;
+    client.add_rewards(&hub(&t.asset), &10_000_000);
+    let snap = client.get_sync_data(&hub(&t.asset)).state;
     assert!(snap.supply_index_ray > RAY);
 }

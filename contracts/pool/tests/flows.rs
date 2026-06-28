@@ -161,7 +161,7 @@ impl TestSetup {
         // Pool owner receives claimed revenue; controller forwards it to the
         // protocol accumulator.
         let pool_address = env.register(LiquidityPool, (admin.clone(),));
-        LiquidityPoolClient::new(&env, &pool_address).create_market(&market_params(&asset_address));
+        LiquidityPoolClient::new(&env, &pool_address).create_market(&0u32, &market_params(&asset_address));
 
         // Mint tokens to the pool for reserves.
         let token_admin = token::StellarAssetClient::new(&env, &asset_address);
@@ -230,7 +230,7 @@ impl TestSetup {
     }
 
     fn set_caps(&self, asset: &Address, supply_cap: i128, borrow_cap: i128) {
-        self.client().update_caps(asset, &supply_cap, &borrow_cap);
+        self.client().update_caps(&hub(asset), &supply_cap, &borrow_cap);
     }
 
     /// Singleton withdraw batch against the default market.
@@ -262,7 +262,7 @@ impl TestSetup {
             .register_stellar_asset_contract_v2(self.admin.clone())
             .address()
             .clone();
-        self.client().create_market(&market_params(&asset));
+        self.client().create_market(&0u32, &market_params(&asset));
         token::StellarAssetClient::new(&self.env, &asset)
             .mint(&self.pool, &100_000_000_000_000i128);
         self.env.as_contract(&self.pool, || {
@@ -360,7 +360,7 @@ fn test_supply() {
         "position should have scaled amount"
     );
 
-    let supplied = client.get_supplied_amount(&t.asset);
+    let supplied = client.get_supplied_amount(&hub(&t.asset));
     assert!(supplied > 0, "supplied_amount should be positive");
 }
 #[test]
@@ -373,7 +373,7 @@ fn test_borrow() {
     let borrower = Address::generate(&t.env);
     let borrow_amount = 100_0000000i128;
 
-    let reserves_before = client.get_reserves(&t.asset);
+    let reserves_before = client.get_reserves(&hub(&t.asset));
     let updated = client
         .borrow(&borrower, &t.bor(0, borrow_amount))
         .get_unchecked(0);
@@ -383,7 +383,7 @@ fn test_borrow() {
         "borrow position should have debt"
     );
 
-    let reserves_after = client.get_reserves(&t.asset);
+    let reserves_after = client.get_reserves(&hub(&t.asset));
     assert!(
         reserves_after < reserves_before,
         "reserves should decrease after borrow"
@@ -671,14 +671,14 @@ fn test_interest_accrual() {
     let borrower = Address::generate(&t.env);
     client.borrow(&borrower, &t.bor(0, 10_000_000_000i128));
 
-    client.update_indexes(&t.asset);
-    let initial_indexes = client.get_sync_data(&t.asset).state;
+    client.update_indexes(&hub(&t.asset));
+    let initial_indexes = client.get_sync_data(&hub(&t.asset)).state;
 
     // Advance time by ~1 year.
     t.advance_time(31_556_926);
 
-    client.update_indexes(&t.asset);
-    let new_indexes = client.get_sync_data(&t.asset).state;
+    client.update_indexes(&hub(&t.asset));
+    let new_indexes = client.get_sync_data(&hub(&t.asset)).state;
 
     assert!(
         new_indexes.borrow_index_ray > initial_indexes.borrow_index_ray,
@@ -706,16 +706,16 @@ fn test_flash_loan() {
 
     let tok = token::Client::new(&t.env, &t.asset);
     let pool_balance_before = tok.balance(&t.pool);
-    let revenue_before = client.get_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&hub(&t.asset));
     client.flash_loan(
-        &t.asset,
+        &hub(&t.asset),
         &t.admin,
         &receiver,
         &flash_amount,
         &flash_fee,
         &Bytes::new(&t.env),
     );
-    let revenue_after = client.get_revenue(&t.asset);
+    let revenue_after = client.get_revenue(&hub(&t.asset));
     let pool_balance_after = tok.balance(&t.pool);
 
     assert_eq!(pool_balance_after, pool_balance_before + flash_fee);
@@ -729,7 +729,7 @@ fn test_flash_loan_rejects_zero_amount_at_pool() {
     let receiver = t.env.register(PoolFlashLoanReceiver, ());
 
     let result = flatten_contract_result(client.try_flash_loan(
-        &t.asset,
+        &hub(&t.asset),
         &t.admin,
         &receiver,
         &0i128,
@@ -750,7 +750,7 @@ fn test_flash_loan_rejects_non_contract_receiver_at_pool() {
     let receiver = Address::generate(&t.env);
 
     let result = flatten_contract_result(client.try_flash_loan(
-        &t.asset,
+        &hub(&t.asset),
         &t.admin,
         &receiver,
         &1_0000000i128,
@@ -773,7 +773,7 @@ fn test_flash_loan_rejects_direct_non_owner_pool_call() {
     let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
 
     let result = client.set_auths(&no_auths).try_flash_loan(
-        &t.asset,
+        &hub(&t.asset),
         &attacker,
         &receiver,
         &1_0000000i128,
@@ -800,7 +800,7 @@ fn test_flash_loan_rejects_under_repay_with_invalid_flashloan_repay() {
     token::StellarAssetClient::new(&t.env, &t.asset).mint(&receiver, &flash_fee);
 
     let result = flatten_contract_result(client.try_flash_loan(
-        &t.asset,
+        &hub(&t.asset),
         &t.admin,
         &receiver,
         &flash_amount,
@@ -822,11 +822,11 @@ fn test_flash_loan_callback_failure_rolls_back_pool_state() {
     let tok = token::Client::new(&t.env, &t.asset);
 
     let balance_before = tok.balance(&t.pool);
-    let revenue_before = client.get_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&hub(&t.asset));
     let state_before = t.state_snapshot();
 
     let result = client.try_flash_loan(
-        &t.asset,
+        &hub(&t.asset),
         &t.admin,
         &receiver,
         &1_0000000i128,
@@ -836,7 +836,7 @@ fn test_flash_loan_callback_failure_rolls_back_pool_state() {
 
     assert!(result.is_err(), "receiver that does not repay must fail");
     assert_eq!(tok.balance(&t.pool), balance_before);
-    assert_eq!(client.get_revenue(&t.asset), revenue_before);
+    assert_eq!(client.get_revenue(&hub(&t.asset)), revenue_before);
     assert_pool_state_eq(&t.state_snapshot(), &state_before);
 }
 
@@ -847,7 +847,7 @@ fn test_flash_loan_rejects_insufficient_liquidity() {
     let receiver = Address::generate(&t.env);
 
     let result = flatten_contract_result(client.try_flash_loan(
-        &t.asset,
+        &hub(&t.asset),
         &t.admin,
         &receiver,
         &200_000_000_000_000i128,
@@ -867,7 +867,7 @@ fn test_flash_loan_rejects_negative_fee() {
     let receiver = Address::generate(&t.env);
 
     let result = flatten_contract_result(client.try_flash_loan(
-        &t.asset,
+        &hub(&t.asset),
         &t.admin,
         &receiver,
         &1_0000000i128,
@@ -939,11 +939,11 @@ fn test_seize_position_bad_debt() {
         .borrow(&borrower, &t.bor(0, 100_0000000i128))
         .get_unchecked(0);
 
-    client.update_indexes(&t.asset);
-    let idx_before = client.get_sync_data(&t.asset).state;
+    client.update_indexes(&hub(&t.asset));
+    let idx_before = client.get_sync_data(&hub(&t.asset)).state;
 
     let seized = client.seize_position(
-        &t.asset,
+        &hub(&t.asset),
         &AccountPositionType::Borrow,
         &updated_borrow.position,
     );
@@ -953,8 +953,8 @@ fn test_seize_position_bad_debt() {
         "position should be zeroed"
     );
 
-    client.update_indexes(&t.asset);
-    let idx_after = client.get_sync_data(&t.asset).state;
+    client.update_indexes(&hub(&t.asset));
+    let idx_after = client.get_sync_data(&hub(&t.asset)).state;
     assert!(
         idx_after.supply_index_ray <= idx_before.supply_index_ray,
         "supply index should decrease or stay same after bad debt"
@@ -978,7 +978,7 @@ fn test_seize_position_rejects_borrowed_accounting_underflow() {
     });
 
     let result = flatten_contract_result(client.try_seize_position(
-        &t.asset,
+        &hub(&t.asset),
         &AccountPositionType::Borrow,
         &updated_borrow.position,
     ));
@@ -991,15 +991,15 @@ fn test_seize_position_deposit_dust() {
 
     let updated = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
 
-    let revenue_before = client.get_revenue(&t.asset);
-    let seized = client.seize_position(&t.asset, &AccountPositionType::Deposit, &updated.position);
+    let revenue_before = client.get_revenue(&hub(&t.asset));
+    let seized = client.seize_position(&hub(&t.asset), &AccountPositionType::Deposit, &updated.position);
 
     assert_eq!(
         seized.position.scaled_amount_ray, 0,
         "position should be zeroed"
     );
 
-    let revenue_after = client.get_revenue(&t.asset);
+    let revenue_after = client.get_revenue(&hub(&t.asset));
     assert!(
         revenue_after > revenue_before,
         "protocol revenue should increase from absorbed dust"
@@ -1019,13 +1019,13 @@ fn test_claim_revenue() {
     t.advance_time(31_556_926);
 
     // Sync indexes to accrue revenue.
-    client.update_indexes(&t.asset);
+    client.update_indexes(&hub(&t.asset));
 
-    let revenue = client.get_revenue(&t.asset);
+    let revenue = client.get_revenue(&hub(&t.asset));
     if revenue > 0 {
         let tok = token::Client::new(&t.env, &t.asset);
         let admin_balance_before = tok.balance(&t.admin);
-        let claimed = client.claim_revenue(&t.asset).actual_amount;
+        let claimed = client.claim_revenue(&hub(&t.asset)).actual_amount;
         let admin_balance_after = tok.balance(&t.admin);
 
         if claimed > 0 {
@@ -1046,7 +1046,7 @@ fn test_claim_revenue_handles_partial_claim_when_reserves_are_lower_than_revenue
         .supply(&t.sup(0, 200_000_000_000_000i128))
         .get_unchecked(0);
     let _ = client.seize_position(
-        &t.asset,
+        &hub(&t.asset),
         &AccountPositionType::Deposit,
         &oversized_supply.position,
     );
@@ -1055,8 +1055,8 @@ fn test_claim_revenue_handles_partial_claim_when_reserves_are_lower_than_revenue
     // residual revenue.
     t.edit_state(|s| s.cash = 100_000_000_000_000i128);
 
-    let claimed = client.claim_revenue(&t.asset).actual_amount;
-    let remaining_revenue = client.get_revenue(&t.asset);
+    let claimed = client.claim_revenue(&hub(&t.asset)).actual_amount;
+    let remaining_revenue = client.get_revenue(&hub(&t.asset));
 
     assert!(
         claimed > 0,
@@ -1086,7 +1086,7 @@ fn test_claim_revenue_rejects_utilization_above_max_after_revenue_burn() {
         state.cash = 10_0000000i128;
     });
 
-    let result = flatten_contract_result(client.try_claim_revenue(&t.asset));
+    let result = flatten_contract_result(client.try_claim_revenue(&hub(&t.asset)));
     assert_contract_error(
         result,
         common::errors::CollateralError::UtilizationAboveMax as u32,
@@ -1101,12 +1101,12 @@ fn test_claim_revenue_rejects_revenue_above_supplied() {
     let supplied = client
         .supply(&t.sup(0, 10_000_000_000i128))
         .get_unchecked(0);
-    let _ = client.seize_position(&t.asset, &AccountPositionType::Deposit, &supplied.position);
+    let _ = client.seize_position(&hub(&t.asset), &AccountPositionType::Deposit, &supplied.position);
     t.edit_state(|state| {
         state.supplied_ray = 1;
     });
 
-    let result = flatten_contract_result(client.try_claim_revenue(&t.asset));
+    let result = flatten_contract_result(client.try_claim_revenue(&hub(&t.asset)));
     assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
 }
 
@@ -1126,7 +1126,7 @@ fn test_update_params_rejects_invalid_utilization_range() {
         max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: 1000,
     };
-    let result = flatten_contract_result(client.try_update_params(&t.asset, &model));
+    let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidUtilRange as u32,
@@ -1149,7 +1149,7 @@ fn test_update_params_rejects_optimal_utilization_above_one() {
         max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: 1000,
     };
-    let result = flatten_contract_result(client.try_update_params(&t.asset, &model));
+    let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
         common::errors::CollateralError::OptUtilTooHigh as u32,
@@ -1172,7 +1172,7 @@ fn test_update_params_rejects_invalid_reserve_factor() {
         max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: 10_000,
     };
-    let result = flatten_contract_result(client.try_update_params(&t.asset, &model));
+    let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidReserveFactor as u32,
@@ -1195,7 +1195,7 @@ fn test_update_params_rejects_negative_base_rate() {
         max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: 1000,
     };
-    let result = flatten_contract_result(client.try_update_params(&t.asset, &model));
+    let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
         common::errors::CollateralError::BaseRateNegative as u32,
@@ -1219,7 +1219,7 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
         max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: 1000,
     };
-    let result = flatten_contract_result(client.try_update_params(&t.asset, &model));
+    let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
         common::errors::CollateralError::MaxRateBelowBase as u32,
@@ -1243,7 +1243,7 @@ fn test_update_params_rejects_max_borrow_rate_above_cap() {
         max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: 1000,
     };
-    let result = flatten_contract_result(client.try_update_params(&t.asset, &model));
+    let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
         common::errors::CollateralError::MaxBorrowRateTooHigh as u32,
@@ -1255,47 +1255,47 @@ fn test_views() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let util = client.get_utilisation(&t.asset);
+    let util = client.get_utilisation(&hub(&t.asset));
     assert_eq!(util, 0, "utilization should be zero initially");
 
     client.supply(&t.sup(0, 10_000_000_000i128));
 
-    let supplied = client.get_supplied_amount(&t.asset);
+    let supplied = client.get_supplied_amount(&hub(&t.asset));
     assert!(
         supplied > 0,
         "supplied_amount should be positive after supply"
     );
 
-    let reserves = client.get_reserves(&t.asset);
+    let reserves = client.get_reserves(&hub(&t.asset));
     assert!(reserves > 0, "reserves should be positive");
 
     let borrower = Address::generate(&t.env);
     client.borrow(&borrower, &t.bor(0, 100_0000000i128));
 
-    let borrowed = client.get_borrowed_amount(&t.asset);
+    let borrowed = client.get_borrowed_amount(&hub(&t.asset));
     assert!(borrowed > 0, "borrowed_amount should be positive");
 
-    let util_after = client.get_utilisation(&t.asset);
+    let util_after = client.get_utilisation(&hub(&t.asset));
     assert!(
         util_after > 0,
         "utilization should be positive after borrow"
     );
 
     assert!(
-        client.get_deposit_rate(&t.asset) >= 0,
+        client.get_deposit_rate(&hub(&t.asset)) >= 0,
         "deposit rate view should be callable"
     );
     assert!(
-        client.get_borrow_rate(&t.asset) >= 0,
+        client.get_borrow_rate(&hub(&t.asset)) >= 0,
         "borrow rate view should be callable"
     );
     assert!(
-        client.get_revenue(&t.asset) >= 0,
+        client.get_revenue(&hub(&t.asset)) >= 0,
         "protocol revenue view should be callable"
     );
     t.advance_time(60);
     assert!(
-        client.get_delta_time(&t.asset) > 0,
+        client.get_delta_time(&hub(&t.asset)) > 0,
         "delta_time should be positive"
     );
 }
@@ -1309,7 +1309,7 @@ fn test_withdraw_liquidation_fee_accrues_to_revenue() {
     let supply_amount = 10_000_000_000i128;
     let updated_pos = client.supply(&t.sup(0, supply_amount)).get_unchecked(0);
 
-    let revenue_before = client.get_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&hub(&t.asset));
 
     let user = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
@@ -1331,7 +1331,7 @@ fn test_withdraw_liquidation_fee_accrues_to_revenue() {
         gross - fee,
         "user should receive gross minus protocol fee"
     );
-    let revenue_after = client.get_revenue(&t.asset);
+    let revenue_after = client.get_revenue(&hub(&t.asset));
     assert!(
         revenue_after > revenue_before,
         "protocol revenue should increase by fee"
@@ -1349,7 +1349,7 @@ fn test_withdraw_liquidation_with_zero_protocol_fee_is_no_op() {
     let supply_amount = 10_000_000_000i128;
     let updated_pos = client.supply(&t.sup(0, supply_amount)).get_unchecked(0);
 
-    let revenue_before = client.get_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&hub(&t.asset));
     let user = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
     let user_balance_before = tok.balance(&user);
@@ -1364,7 +1364,7 @@ fn test_withdraw_liquidation_with_zero_protocol_fee_is_no_op() {
         .get_unchecked(0);
 
     assert_eq!(tok.balance(&user) - user_balance_before, gross);
-    assert_eq!(client.get_revenue(&t.asset), revenue_before);
+    assert_eq!(client.get_revenue(&hub(&t.asset)), revenue_before);
     assert_eq!(final_pos.actual_amount, gross);
 }
 
@@ -1402,8 +1402,8 @@ fn test_add_rewards_zero_amount_is_no_op() {
     client.supply(&t.sup(0, 10_000_000_000i128));
 
     let snapshot_before = t.state_snapshot();
-    client.add_rewards(&t.asset, &0i128);
-    let result = client.get_sync_data(&t.asset).state;
+    client.add_rewards(&hub(&t.asset), &0i128);
+    let result = client.get_sync_data(&hub(&t.asset)).state;
 
     assert_eq!(result.supply_index_ray, snapshot_before.supply_index_ray);
 }
@@ -1463,13 +1463,13 @@ fn test_add_rewards_increases_supply_index() {
 
     client.supply(&t.sup(0, 50_000_000_000i128));
 
-    client.update_indexes(&t.asset);
-    let idx_before = client.get_sync_data(&t.asset).state;
+    client.update_indexes(&hub(&t.asset));
+    let idx_before = client.get_sync_data(&hub(&t.asset)).state;
 
-    client.add_rewards(&t.asset, &1_000_000_000i128);
+    client.add_rewards(&hub(&t.asset), &1_000_000_000i128);
 
-    client.update_indexes(&t.asset);
-    let idx_after = client.get_sync_data(&t.asset).state;
+    client.update_indexes(&hub(&t.asset));
+    let idx_after = client.get_sync_data(&hub(&t.asset)).state;
     assert!(
         idx_after.supply_index_ray > idx_before.supply_index_ray,
         "supply index should increase after add_rewards"
@@ -1488,7 +1488,7 @@ fn test_create_strategy_emits_position_and_transfers_net() {
     let caller = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
     let caller_before = tok.balance(&caller);
-    let revenue_before = client.get_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&hub(&t.asset));
 
     let amount = 100_0000000i128;
     let fee = 1_0000000i128;
@@ -1506,7 +1506,7 @@ fn test_create_strategy_emits_position_and_transfers_net() {
         amount - fee,
         "caller receives net amount"
     );
-    let revenue_after = client.get_revenue(&t.asset);
+    let revenue_after = client.get_revenue(&hub(&t.asset));
     assert!(
         revenue_after > revenue_before,
         "protocol revenue should increase by fee"
@@ -1520,7 +1520,7 @@ fn test_claim_revenue_zero_revenue_early_returns() {
     let client = t.client();
 
     // No supply, no accrual; revenue is zero.
-    let claimed = client.claim_revenue(&t.asset).actual_amount;
+    let claimed = client.claim_revenue(&hub(&t.asset)).actual_amount;
     assert_eq!(claimed, 0, "claim_revenue should return 0 when no revenue");
 }
 
@@ -1550,10 +1550,10 @@ fn test_update_params_happy_path() {
         max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: new_reserve,
     };
-    client.update_params(&t.asset, &model);
+    client.update_params(&hub(&t.asset), &model);
 
     // Updated fields round-trip through get_sync_data().
-    let sync = client.get_sync_data(&t.asset);
+    let sync = client.get_sync_data(&hub(&t.asset));
     assert_eq!(
         sync.params.max_borrow_rate_ray, new_max,
         "max_borrow_rate_ray"
@@ -1602,7 +1602,7 @@ fn test_update_params_rejects_invalid_slope_ordering() {
         max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: 1000,
     };
-    let result = flatten_contract_result(client.try_update_params(&t.asset, &model));
+    let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
         common::errors::CollateralError::SlopeNonMonotonic as u32,
@@ -1626,7 +1626,7 @@ fn test_update_params_rejects_mid_utilization_zero() {
         max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: 1000,
     };
-    let result = flatten_contract_result(client.try_update_params(&t.asset, &model));
+    let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidUtilRange as u32,
@@ -1651,7 +1651,7 @@ fn test_update_params_rejects_reserve_factor_at_bps() {
         max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: BPS as u32,
     };
-    let result = flatten_contract_result(client.try_update_params(&t.asset, &model));
+    let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidReserveFactor as u32,
@@ -1672,7 +1672,7 @@ fn test_create_market_rejects_invalid_rate_model() {
     let mut params = market_params(&Address::generate(&env));
     params.base_borrow_rate_ray = -1;
 
-    let result = flatten_contract_result(client.try_create_market(&params));
+    let result = flatten_contract_result(client.try_create_market(&0u32, &params));
     assert_contract_error(
         result,
         common::errors::CollateralError::BaseRateNegative as u32,
@@ -1685,7 +1685,7 @@ fn test_create_market_rejects_duplicate_asset() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let result = flatten_contract_result(client.try_create_market(&market_params(&t.asset)));
+    let result = flatten_contract_result(client.try_create_market(&0u32, &market_params(&t.asset)));
     assert_contract_error(
         result,
         common::errors::GenericError::AssetAlreadySupported as u32,
@@ -1715,9 +1715,9 @@ fn test_create_market_initializes_state() {
     let client = t.client();
 
     let asset_b = Address::generate(&t.env);
-    client.create_market(&market_params(&asset_b));
+    client.create_market(&0u32, &market_params(&asset_b));
 
-    let sync = client.get_sync_data(&asset_b);
+    let sync = client.get_sync_data(&hub(&asset_b));
     if sync.state.supply_index_ray != RAY {
         panic!("supply index must start at RAY");
     }
@@ -1742,7 +1742,7 @@ fn test_two_market_isolation() {
     let client = t.client();
 
     let asset_b = Address::generate(&t.env);
-    client.create_market(&market_params(&asset_b));
+    client.create_market(&0u32, &market_params(&asset_b));
     let b_initial = t.state_of(&asset_b);
 
     let a_before = t.state_snapshot();
@@ -1784,7 +1784,7 @@ fn test_create_market_rejects_non_owner() {
 
     let result = client
         .set_auths(&no_auths)
-        .try_create_market(&market_params(&asset_b));
+        .try_create_market(&0u32, &market_params(&asset_b));
 
     assert!(
         result.is_err(),
@@ -1805,7 +1805,7 @@ fn test_bulk_get_indexes_matches_per_asset() {
 
     t.advance_time(86_400);
 
-    let assets = soroban_sdk::vec![&t.env, t.asset.clone()];
+    let assets = soroban_sdk::vec![&t.env, hub(&t.asset)];
     let bulk = client.get_bulk_indexes(&assets);
     assert_eq!(bulk.len(), 1, "one entry per requested asset");
 
@@ -1813,7 +1813,7 @@ fn test_bulk_get_indexes_matches_per_asset() {
     let reference = common::types::MarketIndexRaw::from(&common::rates::simulate_update_indexes(
         &t.env,
         now_ms,
-        &client.get_sync_data(&t.asset),
+        &client.get_sync_data(&hub(&t.asset)),
     ));
     assert_eq!(
         bulk.get_unchecked(0),
@@ -1834,7 +1834,7 @@ fn test_bulk_get_indexes_multi_asset_alignment() {
     let client = t.client();
 
     let asset_b = Address::generate(&t.env);
-    client.create_market(&market_params(&asset_b));
+    client.create_market(&0u32, &market_params(&asset_b));
 
     // Only market A gets utilization, so only its indexes accrue.
     client.supply(&t.sup(0, 10_000_000_000i128));
@@ -1843,7 +1843,7 @@ fn test_bulk_get_indexes_multi_asset_alignment() {
 
     t.advance_time(86_400);
 
-    let assets = soroban_sdk::vec![&t.env, t.asset.clone(), asset_b.clone()];
+    let assets = soroban_sdk::vec![&t.env, hub(&t.asset), hub(&asset_b)];
     let bulk = client.get_bulk_indexes(&assets);
     assert_eq!(bulk.len(), 2);
 
@@ -1860,12 +1860,12 @@ fn test_bulk_get_indexes_multi_asset_alignment() {
     let ref_a = common::types::MarketIndexRaw::from(&common::rates::simulate_update_indexes(
         &t.env,
         now_ms,
-        &client.get_sync_data(&t.asset),
+        &client.get_sync_data(&hub(&t.asset)),
     ));
     let ref_b = common::types::MarketIndexRaw::from(&common::rates::simulate_update_indexes(
         &t.env,
         now_ms,
-        &client.get_sync_data(&asset_b),
+        &client.get_sync_data(&hub(&asset_b)),
     ));
     assert_eq!(a, ref_a, "entry 0 matches market A");
     assert_eq!(b, ref_b, "entry 1 matches market B");
@@ -1884,7 +1884,7 @@ fn test_bulk_get_indexes_empty_request() {
 fn test_bulk_get_indexes_unknown_asset_panics() {
     let t = TestSetup::new();
     let unknown = Address::generate(&t.env);
-    let assets = soroban_sdk::vec![&t.env, unknown];
+    let assets = soroban_sdk::vec![&t.env, hub(&unknown)];
     let result = t.client().try_get_bulk_indexes(&assets);
     assert!(result.is_err(), "unknown asset must fail the bulk read");
 }
