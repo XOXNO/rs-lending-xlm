@@ -11,7 +11,7 @@
 # collateralizable/borrowable) → resolve_market_oracle_config (governance view) →
 # set_market_oracle_config → edit_asset_in_spoke spoke 0 (activate). Oracle
 # configs for mock markets must use Twap (Spot-only primaries reject with
-# SpotOnlyNotProductionSafe #38) and market params must include max_utilization_ray.
+# SpotOnlyNotProductionSafe #38) and market params must include max_utilization.
 
 # Uploads pool wasm, deploys controller + central pool + flash receiver,
 # wires aggregator/accumulator/roles, unpauses. Persists:
@@ -128,19 +128,19 @@ deploy_protocol() {
 market_params_json() {
     local sac="$1" decimals="$2"
     jq -nc --arg sac "$sac" --argjson dec "$decimals" '{
-        max_borrow_rate_ray: "2000000000000000000000000000",
-        base_borrow_rate_ray: "10000000000000000000000000",
-        slope1_ray: "40000000000000000000000000",
-        slope2_ray: "100000000000000000000000000",
-        slope3_ray: "1500000000000000000000000000",
-        mid_utilization_ray: "500000000000000000000000000",
-        optimal_utilization_ray: "800000000000000000000000000",
-        max_utilization_ray: "950000000000000000000000000",
-        reserve_factor_bps: 1000,
+        max_borrow_rate: "2000000000000000000000000000",
+        base_borrow_rate: "10000000000000000000000000",
+        slope1: "40000000000000000000000000",
+        slope2: "100000000000000000000000000",
+        slope3: "1500000000000000000000000000",
+        mid_utilization: "500000000000000000000000000",
+        optimal_utilization: "800000000000000000000000000",
+        max_utilization: "950000000000000000000000000",
+        reserve_factor: 1000,
         supply_cap: "0",
         borrow_cap: "0",
         is_flashloanable: true,
-        flashloan_fee_bps: 5,
+        flashloan_fee: 5,
         asset_id: $sac,
         asset_decimals: $dec
     }'
@@ -156,10 +156,10 @@ asset_config_json() {
         is_borrowable: true,
         paused: false,
         frozen: false,
-        loan_to_value_bps: $ltv,
-        liquidation_threshold_bps: $thr,
-        liquidation_bonus_bps: $bonus,
-        liquidation_fees_bps: 100,
+        loan_to_value: $ltv,
+        liquidation_threshold: $thr,
+        liquidation_bonus: $bonus,
+        liquidation_fees: 100,
         supply_cap: "0",
         borrow_cap: "0",
         oracle_override: "None"
@@ -304,9 +304,9 @@ create_market() {
     # active config's risk bps. edit_asset_in_spoke replaces the removed
     # edit_asset_config; spoke 0 holds the asset's base risk listing.
     local ltv thr bonus
-    ltv=$(jq -r '.loan_to_value_bps' <<<"$active_cfg")
-    thr=$(jq -r '.liquidation_threshold_bps' <<<"$active_cfg")
-    bonus=$(jq -r '.liquidation_bonus_bps' <<<"$active_cfg")
+    ltv=$(jq -r '.loan_to_value' <<<"$active_cfg")
+    thr=$(jq -r '.liquidation_threshold' <<<"$active_cfg")
+    bonus=$(jq -r '.liquidation_bonus' <<<"$active_cfg")
     inv "activate_$name" "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$sac" 0 true true "$ltv" "$thr" "$bonus")" >/dev/null || return 1
     # Confirm the listing is visible + active before later supply/borrow rely on

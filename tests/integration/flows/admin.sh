@@ -28,15 +28,15 @@ flow_admin() {
     # Market param + asset config edits on EURC (idle real market: edits here
     # disturb nothing else, and it is disabled at the end of this flow).
     inv update_pool_params "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
-        --hub_asset "$(hub_key "$EURC_SAC")" --params "$(market_params_json "$EURC_SAC" 7 | jq -c 'del(.asset_id, .asset_decimals, .supply_cap, .borrow_cap, .is_flashloanable, .flashloan_fee_bps) | .reserve_factor_bps=1500')" >/dev/null
+        --hub_asset "$(hub_key "$EURC_SAC")" --params "$(market_params_json "$EURC_SAC" 7 | jq -c 'del(.asset_id, .asset_decimals, .supply_cap, .borrow_cap, .is_flashloanable, .flashloan_fee) | .reserve_factor=1500')" >/dev/null
     # edit_asset_in_spoke on the base spoke 0 is the canonical per-asset risk edit
     # (replaces the removed edit_asset_config).
     inv edit_asset_config_admin "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$EURC_SAC" 0 true true 6500 7000 900)" >/dev/null
     # Read-back: the edit must land (LTV / threshold / bonus parsed from storage).
-    assert_market_field market_cfg_ltv "$EURC_SAC" loan_to_value_bps 6500
-    assert_market_field market_cfg_thr "$EURC_SAC" liquidation_threshold_bps 7000
-    assert_market_field market_cfg_bonus "$EURC_SAC" liquidation_bonus_bps 900
+    assert_market_field market_cfg_ltv "$EURC_SAC" loan_to_value 6500
+    assert_market_field market_cfg_thr "$EURC_SAC" liquidation_threshold 7000
+    assert_market_field market_cfg_bonus "$EURC_SAC" liquidation_bonus 900
     # validate_risk_bounds: threshold must exceed LTV (#113 when ltv >= threshold).
     xfail asset_cfg_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$EURC_SAC" 0 true true 9000 7000 900)"

@@ -135,8 +135,8 @@ assert_int_view_nonneg() {
 }
 
 # Reads the base spoke-0 listing (SpokeAssetConfig) for an asset and asserts a
-# single top-level BPS field (loan_to_value_bps / liquidation_threshold_bps /
-# liquidation_bonus_bps).
+# single top-level BPS field (loan_to_value / liquidation_threshold /
+# liquidation_bonus).
 #   assert_market_field <label> <asset> <jq-field> <expected>
 assert_market_field() {
   local label="$1" asset="$2" field="$3" expected="$4"
