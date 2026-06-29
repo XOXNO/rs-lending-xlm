@@ -6,7 +6,7 @@
 extern crate std;
 
 use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs};
-use controller_interface::types::{
+use common::types::{
     ControllerKey, HubAssetKey, MarketOracleConfigInput, OracleAssetRef, OracleReadMode,
     OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
     ReflectorSourceConfigInput,
@@ -332,7 +332,7 @@ fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
     let (admin, _, gov) = register_governance(&env);
     let asset = Address::generate(&env);
 
-    let cfg = controller_interface::types::SpokeAssetConfig {
+    let cfg = common::types::SpokeAssetConfig {
         is_collateralizable: true,
         is_borrowable: true,
         paused: false,
@@ -344,7 +344,7 @@ fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
         liquidation_fees: 100,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: controller_interface::types::MarketOracleConfigOption::None,
+        oracle_override: common::types::MarketOracleConfigOption::None,
     };
     gov.execute_immediate(
         &admin,

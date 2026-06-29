@@ -6,13 +6,13 @@
 use crate::events::FlashLoanEvent;
 use common::errors::FlashLoanError;
 use common::math::fp::Bps;
-use controller_interface::types::HubAssetKey;
+use common::types::HubAssetKey;
 use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::external::pool::pool_flash_loan_call;
-use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
@@ -60,7 +60,9 @@ pub fn process_flash_loan(
 
     // Reentrancy guard.
     storage::with_flash_guard(env, || {
-        pool_flash_loan_call(env, &pool_addr, hub_asset, caller, receiver, amount, fee, data);
+        pool_flash_loan_call(
+            env, &pool_addr, hub_asset, caller, receiver, amount, fee, data,
+        );
     });
 
     FlashLoanEvent {

@@ -4,20 +4,19 @@
 //! prefetch → withdraw → swap → deposit → `strategy_finalize`.
 
 use common::errors::{CollateralError, GenericError};
-use controller_interface::types::{
-    Account, AccountPosition, AccountPositionType, HubAssetKey, StrategySwap,
-};
+use common::types::{Account, AccountPosition, AccountPositionType, HubAssetKey, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::events;
 use crate::strategies::{
     prefetch_strategy_oracles, strategy_finalize, swap_tokens, withdraw_collateral_to_controller,
     StrategyWithdraw,
 };
 use crate::{
-    spoke, positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient,
+    positions::supply, risk::validation, spoke, storage, Controller, ControllerArgs,
+    ControllerClient,
 };
 
 /// Parameters for `process_swap_collateral`.
@@ -79,7 +78,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     validation::require_hub_active(env, current.hub_id);
 
     let mut account = storage::get_account(env, account_id);
-    crate::helpers::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let mut cache = Cache::new(env);
 

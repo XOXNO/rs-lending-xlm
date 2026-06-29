@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use controller::types::PositionMode;
 use soroban_sdk::{token, Address};
 
-use crate::presets::{AssetConfigPreset, SpokePreset, MarketParamsPreset, MarketPreset};
+use crate::presets::{AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset};
 
 pub struct UserState {
     pub address: Address,

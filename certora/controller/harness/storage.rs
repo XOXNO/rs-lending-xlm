@@ -4,6 +4,7 @@
 //! under the `certora` feature. The spec models hub 0 (single-hub): asset-keyed
 //! reads project onto `HubAssetKey { hub_id: 0, asset }`.
 
+#![allow(dead_code)]
 use super::*;
 use crate::types::{
     AccountAttributes, AccountPositionRaw, AccountPositionType, HubAssetKey, MarketIndex,

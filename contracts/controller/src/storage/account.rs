@@ -5,7 +5,7 @@
 
 use super::renew_user_key;
 use common::errors::GenericError;
-use controller_interface::types::{
+use common::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,
     DebtPositionRaw, HubAssetKey,
 };
@@ -130,8 +130,7 @@ pub(crate) fn iter_typed_positions(
 pub(crate) fn iter_debt_positions(
     map: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> impl Iterator<Item = (HubAssetKey, DebtPosition)> + '_ {
-    map.iter()
-        .map(|(key, raw)| (key, DebtPosition::from(&raw)))
+    map.iter().map(|(key, raw)| (key, DebtPosition::from(&raw)))
 }
 
 pub(crate) fn get_account(env: &Env, account_id: u64) -> Account {

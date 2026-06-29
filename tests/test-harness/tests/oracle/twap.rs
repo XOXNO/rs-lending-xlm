@@ -1,6 +1,6 @@
 use controller::types::{ControllerKey, MarketOracleConfig, OracleReadMode, OracleSourceConfig};
 use soroban_sdk::vec;
-use test_harness::{hub_asset, assert_contract_error, errors, usd_cents, LendingTest, ALICE};
+use test_harness::{assert_contract_error, errors, hub_asset, usd_cents, LendingTest, ALICE};
 
 fn setup() -> LendingTest {
     LendingTest::new().dual_source_two_asset()

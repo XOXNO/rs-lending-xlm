@@ -1,19 +1,20 @@
 //! Shared validation gates for account ownership, market status, health factor,
 //! LTV, and position limits.
 
+use crate::risk;
 use common::errors::*;
 use common::math::fp::Wad;
+use common::types::{Account, AccountPositionType, HubAssetKey};
 pub use common::validation::{require_positive_amount, require_wasm_receiver};
-use controller_interface::types::{Account, AccountPositionType, HubAssetKey};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Map, Vec};
 
 use crate::positions::AggregatedPayments;
 
-use crate::{cache::Cache, helpers, storage};
+use crate::{context::Cache, storage};
 
 /// Hub-active gate, defined in `governance::config` beside the hub lifecycle and
 /// surfaced here so position flows call it alongside the other `require_*` gates.
-pub(crate) use crate::governance::config::require_hub_active;
+pub(crate) use crate::config::require_hub_active;
 
 /// Unwraps a controller-built value or panics with `InternalError`.
 /// Missing values indicate corrupted storage or caller logic bugs after checks.
@@ -55,7 +56,7 @@ pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Acco
         return;
     }
 
-    let totals = helpers::calculate_account_risk_totals(
+    let totals = risk::calculate_account_risk_totals(
         env,
         cache,
         account.spoke_id,
@@ -133,5 +134,5 @@ pub fn validate_bulk_position_limits(
 }
 
 #[cfg(test)]
-#[path = "../tests/validation.rs"]
+#[path = "../../tests/validation.rs"]
 mod tests;

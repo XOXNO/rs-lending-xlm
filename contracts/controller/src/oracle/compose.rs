@@ -5,18 +5,19 @@
 
 use common::errors::OracleError;
 use common::oracle::observation::is_stale;
-use controller_interface::types::{MarketOracleConfig, OracleStrategy};
+use common::types::{MarketOracleConfig, OracleStrategy};
 use soroban_sdk::panic_with_error;
 
 use super::observation::OracleObservation;
 use super::providers;
 use super::tolerance::calculate_final_price;
-use crate::cache::Cache;
+use crate::context::Cache;
 
 pub struct ResolvedOracleComponents {
     pub primary_price_wad: Option<i128>,
     pub anchor_price_wad: Option<i128>,
     pub final_price_wad: i128,
+    #[allow(dead_code)]
     pub timestamp: u64,
 }
 

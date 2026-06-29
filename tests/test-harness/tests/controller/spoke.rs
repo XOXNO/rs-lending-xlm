@@ -1,7 +1,8 @@
 use controller::types::SpokeAssetArgs;
-use test_harness::{HARNESS_HUB, HARNESS_SPOKE, hub_asset,
-    assert_contract_error, errors, eth_preset, f64_to_i128, usd, usd_cents, usdc_preset,
-    usdt_stable_preset, LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_SPOKE,
+use test_harness::{
+    assert_contract_error, errors, eth_preset, f64_to_i128, hub_asset, usd, usd_cents, usdc_preset,
+    usdt_stable_preset, LendingTest, PositionType, ALICE, HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR,
+    STABLECOIN_SPOKE,
 };
 // 1. test_spoke_category_creation
 
@@ -19,10 +20,7 @@ fn test_spoke_category_creation() {
     let account_id = t.create_spoke_account(ALICE, 2);
     assert!(account_id > 0, "should create spoke account");
     let attrs = t.get_account_attributes(ALICE);
-    assert_eq!(
-        attrs.spoke_id, 2,
-        "account should be in spoke category 1"
-    );
+    assert_eq!(attrs.spoke_id, 2, "account should be in spoke category 1");
 }
 // 2. test_spoke_enhanced_ltv_and_threshold
 
@@ -368,22 +366,20 @@ fn test_spoke_deprecated_category_operations_rejected() {
 
     // 2. Trying to edit an asset in the deprecated category must fail.
     let asset_address = t.resolve_asset("USDC");
-    let edit_asset_result = t
-        .ctrl_client()
-        .try_edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: asset_address.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_000,
-            threshold: 9_300,
-            bonus: 200,
-            supply_cap: 0,
-            borrow_cap: 0,
-        });
+    let edit_asset_result = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: asset_address.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_000,
+        threshold: 9_300,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: 0,
+    });
     let flat_edit_asset: Result<(), soroban_sdk::Error> = match edit_asset_result {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
@@ -596,12 +592,14 @@ fn test_deprecated_spoke_views_block_new_borrow_but_preserve_exit_preview() {
     t.remove_spoke_category(2);
 
     assert_eq!(
-        t.ctrl_client().max_borrow(&account_id, &hub_asset(usdt.clone())),
+        t.ctrl_client()
+            .max_borrow(&account_id, &hub_asset(usdt.clone())),
         0,
         "deprecated spoke must preview no additional borrow capacity"
     );
     assert!(
-        t.ctrl_client().max_withdraw(&account_id, &hub_asset(usdc.clone()))
+        t.ctrl_client()
+            .max_withdraw(&account_id, &hub_asset(usdc.clone()))
             >= f64_to_i128(4_000.0, t.resolve_market("USDC").decimals),
         "deprecated spoke must preview exits using the stored position params, not base fallback"
     );
@@ -754,22 +752,20 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
     let usdc = t.resolve_asset("USDC");
 
     // ltv >= threshold must reject (the borrow-buffer invariant).
-    let inverted = t
-        .ctrl_client()
-        .try_edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 8_500,
-            threshold: 8_000,
-            bonus: 200,
-            supply_cap: 0,
-            borrow_cap: 0,
-        });
+    let inverted = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 8_500,
+        threshold: 8_000,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: 0,
+    });
     let flat_inverted: Result<(), soroban_sdk::Error> = match inverted {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
@@ -779,22 +775,20 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
 
     // Gap preserved (9_500 > 9_400) but threshold*(1+bonus) > 100% must still
     // reject: 9_500 * (10_000 + 600) = 1.007e8 > 1e8.
-    let unsafe_bonus = t
-        .ctrl_client()
-        .try_edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_400,
-            threshold: 9_500,
-            bonus: 600,
-            supply_cap: 0,
-            borrow_cap: 0,
-        });
+    let unsafe_bonus = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_400,
+        threshold: 9_500,
+        bonus: 600,
+        supply_cap: 0,
+        borrow_cap: 0,
+    });
     let flat_unsafe: Result<(), soroban_sdk::Error> = match unsafe_bonus {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
@@ -804,7 +798,9 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
 
     // A valid edit still succeeds and the stored asset keeps threshold > ltv.
     t.edit_asset_in_spoke("USDC", 2, true, true, 9_000, 9_300, 200);
-    let cfg = t.ctrl_client().get_spoke_asset(&2u32, &hub_asset(usdc.clone()));
+    let cfg = t
+        .ctrl_client()
+        .get_spoke_asset(&2u32, &hub_asset(usdc.clone()));
     assert_eq!(cfg.loan_to_value, 9_000);
     assert_eq!(cfg.liquidation_threshold, 9_300);
     assert!(cfg.liquidation_threshold > cfg.loan_to_value);
@@ -867,21 +863,20 @@ fn test_spoke_spoke_supply_cap_enforced_below_hub() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client()
-        .edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: spoke_cap,
-            borrow_cap: 0,
-        });
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: spoke_cap,
+        borrow_cap: 0,
+    });
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
@@ -907,21 +902,20 @@ fn test_spoke_spoke_borrow_cap_enforced_below_hub() {
         .build();
 
     let usdt = t.resolve_asset("USDT");
-    t.ctrl_client()
-        .edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdt.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: 0,
-            borrow_cap: spoke_borrow_cap,
-        });
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdt.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: spoke_borrow_cap,
+    });
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -1030,41 +1024,38 @@ fn test_edit_spoke_rejects_supply_cap_below_usage() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client()
-        .edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: spoke_cap,
-            borrow_cap: 0,
-        });
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: spoke_cap,
+        borrow_cap: 0,
+    });
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
 
-    let result = match t
-        .ctrl_client()
-        .try_edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: 100 * UNIT,
-            borrow_cap: 0,
-        }) {
+    let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 100 * UNIT,
+        borrow_cap: 0,
+    }) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -1089,21 +1080,20 @@ fn test_update_pool_caps_allows_hub_below_spoke_no_enumeration() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client()
-        .edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: spoke_cap,
-            borrow_cap: 0,
-        });
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: spoke_cap,
+        borrow_cap: 0,
+    });
 
     // No reverse hub-vs-spoke validation remains; the call succeeds.
     t.ctrl_client()
@@ -1124,34 +1114,39 @@ fn test_max_supply_respects_spoke_cap_headroom() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client()
-        .edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: spoke_cap,
-            borrow_cap: 0,
-        });
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: spoke_cap,
+        borrow_cap: 0,
+    });
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
 
     let account_id = t.resolve_account_id(ALICE);
-    let headroom = t.ctrl_client().max_supply(&account_id, &hub_asset(usdc.clone()));
+    let headroom = t
+        .ctrl_client()
+        .max_supply(&account_id, &hub_asset(usdc.clone()));
     assert!(
         headroom > 400 * UNIT && headroom <= 500 * UNIT,
         "spoke headroom should be ~500 USDC, got {headroom}"
     );
 
     t.supply_raw(ALICE, "USDC", headroom);
-    assert_eq!(t.ctrl_client().max_supply(&account_id, &hub_asset(usdc.clone())), 0);
+    assert_eq!(
+        t.ctrl_client()
+            .max_supply(&account_id, &hub_asset(usdc.clone())),
+        0
+    );
 }
 
 // Borrow-side twin of `test_update_pool_caps_rejects_hub_below_spoke`: a spoke
@@ -1170,22 +1165,20 @@ fn test_spoke_spoke_borrow_cap_above_hub_rejected() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    let result = match t
-        .ctrl_client()
-        .try_edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: 0,
-            borrow_cap: 2_000 * UNIT, // spoke borrow cap above the hub borrow cap
-        }) {
+    let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: 2_000 * UNIT, // spoke borrow cap above the hub borrow cap
+    }) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -1211,42 +1204,39 @@ fn test_edit_spoke_rejects_borrow_cap_below_usage() {
         .build();
 
     let usdt = t.resolve_asset("USDT");
-    t.ctrl_client()
-        .edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdt.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: 0,
-            borrow_cap: spoke_cap,
-        });
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdt.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: spoke_cap,
+    });
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 500.0); // ~500 USDT of borrow usage
 
-    let result = match t
-        .ctrl_client()
-        .try_edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdt.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: 0,
-            borrow_cap: 100 * UNIT, // spoke borrow cap below the ~500 current usage
-        }) {
+    let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdt.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: 100 * UNIT, // spoke borrow cap below the ~500 current usage
+    }) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -1268,22 +1258,20 @@ fn test_spoke_spoke_cap_above_from_asset_domain_rejected() {
     let usdc = t.resolve_asset("USDC");
     // At 7 decimals the ceiling is ~i128::MAX / 10^20 (~1.7e18); 2e21 overflows.
     let overflowing_cap = 2_000_000_000_000_000_000_000i128;
-    let result = match t
-        .ctrl_client()
-        .try_edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: overflowing_cap,
-            borrow_cap: 0,
-        }) {
+    let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: overflowing_cap,
+        borrow_cap: 0,
+    }) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -1306,21 +1294,20 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client()
-        .edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: spoke_cap,
-            borrow_cap: 0,
-        });
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: spoke_cap,
+        borrow_cap: 0,
+    });
 
     t.create_spoke_account(ALICE, 2);
     let account_id = t.resolve_account_id(ALICE);
@@ -1328,7 +1315,9 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
     // Fill to the spoke cap: headroom collapses and one more unit reverts.
     t.supply(ALICE, "USDC", 1_000.0);
     assert!(
-        t.ctrl_client().max_supply(&account_id, &hub_asset(usdc.clone())) <= 1,
+        t.ctrl_client()
+            .max_supply(&account_id, &hub_asset(usdc.clone()))
+            <= 1,
         "headroom must collapse at the spoke cap"
     );
     assert_contract_error(
@@ -1338,7 +1327,9 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
 
     // Withdraw frees usage; headroom is restored and a re-supply executes.
     t.withdraw(ALICE, "USDC", 400.0);
-    let restored = t.ctrl_client().max_supply(&account_id, &hub_asset(usdc.clone()));
+    let restored = t
+        .ctrl_client()
+        .max_supply(&account_id, &hub_asset(usdc.clone()));
     assert!(
         restored > 390 * UNIT && restored <= 400 * UNIT,
         "headroom should restore to ~400 USDC after withdraw, got {restored}"
@@ -1369,21 +1360,20 @@ fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
         .build();
 
     let usdt = t.resolve_asset("USDT");
-    t.ctrl_client()
-        .edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdt.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: 0,
-            borrow_cap: spoke_cap,
-        });
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdt.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: spoke_cap,
+    });
 
     // A non-spoke USDT supplier so utilization is defined and interest accrues.
     t.supply(LIQUIDATOR, "USDT", 5_000.0);
@@ -1394,14 +1384,17 @@ fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
 
     let account_id = t.resolve_account_id(ALICE);
     assert!(
-        t.ctrl_client().max_borrow(&account_id, &hub_asset(usdt.clone())) <= 1,
+        t.ctrl_client()
+            .max_borrow(&account_id, &hub_asset(usdt.clone()))
+            <= 1,
         "headroom must be ~0 right at the cap"
     );
 
     t.advance_time(60 * 60 * 24 * 365);
 
     assert_eq!(
-        t.ctrl_client().max_borrow(&account_id, &hub_asset(usdt.clone())),
+        t.ctrl_client()
+            .max_borrow(&account_id, &hub_asset(usdt.clone())),
         0,
         "accrued debt must push the spoke position past the fixed spoke cap"
     );
@@ -1429,37 +1422,35 @@ fn test_update_pool_caps_no_longer_enumerates_spokes() {
 
     let usdc = t.resolve_asset("USDC");
     // Category 1 spoke cap below the proposed hub (will pass the check)...
-    t.ctrl_client()
-        .edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 2,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: 800 * UNIT,
-            borrow_cap: 0,
-        });
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 800 * UNIT,
+        borrow_cap: 0,
+    });
     // ...category 2 spoke cap above it (will fail on the second iteration).
-    t.ctrl_client()
-        .edit_asset_in_spoke(&SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: 3,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 9_700,
-            threshold: 9_800,
-            bonus: 200,
-            supply_cap: 1_500 * UNIT,
-            borrow_cap: 0,
-        });
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: 3,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 1_500 * UNIT,
+        borrow_cap: 0,
+    });
 
     // A hub supply cap of 1000 sits below category 2's 1500 spoke cap, but with
     // no hub-side enumeration the call now succeeds.

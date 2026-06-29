@@ -17,9 +17,7 @@
 //! block) collapses the timelock for single-frame harness setup.
 
 use common::errors::GenericError;
-use controller_interface::types::{
-    MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
-};
+use common::types::{MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation};
 use controller_interface::ControllerAdminClient;
 #[cfg(any(test, feature = "testing"))]
 use soroban_sdk::IntoVal;
@@ -123,7 +121,7 @@ fn resolve_market_oracle(
     env: &Env,
     asset: &Address,
     cfg: &MarketOracleConfigInput,
-) -> controller_interface::types::MarketOracleConfig {
+) -> common::types::MarketOracleConfig {
     let tolerance = validate::tolerance::validate_and_calculate_tolerances(env, cfg.tolerance_bps);
     validate::oracle_probe::validate_market_oracle_sources(env, asset, cfg, tolerance)
 }

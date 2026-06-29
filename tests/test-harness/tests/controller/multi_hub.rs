@@ -10,8 +10,8 @@ use controller::constants::RAY;
 use controller::types::{AccountPositionRaw, ControllerKey, DebtPositionRaw};
 use soroban_sdk::Map;
 use test_harness::{
-    amount_raw, hub_asset, usd, usd_cents, HubAssetKey, LendingTest, MarketPreset, HARNESS_HUB,
-    DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS,
+    amount_raw, hub_asset, usd, usd_cents, HubAssetKey, LendingTest, MarketPreset,
+    DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, HARNESS_HUB,
 };
 use test_harness::{eth_preset, usdc_preset, ALICE, BOB, CAROL, LIQUIDATOR};
 
@@ -26,7 +26,9 @@ fn borrow_scaled_on_hub(t: &LendingTest, account_id: u64, hub_id: u32, asset_nam
         t.env
             .storage()
             .persistent()
-            .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&ControllerKey::BorrowPositions(account_id))
+            .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&ControllerKey::BorrowPositions(
+                account_id,
+            ))
             .and_then(|m| m.get(key))
             .map(|p| p.scaled_amount)
             .unwrap_or(0)
@@ -63,7 +65,6 @@ fn usdc_no_seed() -> MarketPreset {
         params: DEFAULT_MARKET_PARAMS,
     }
 }
-
 
 // 1. The same asset on two hubs keeps independent indices, totals, and cash.
 #[test]

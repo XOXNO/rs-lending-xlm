@@ -2,19 +2,21 @@
 //!
 //! Borrows and supplies through an aggregator route in one transaction.
 
+use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
-use controller_interface::types::{HubAssetKey, PositionMode, StrategySwap};
+use common::types::{HubAssetKey, PositionMode, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::spoke;
-use crate::helpers;
 use crate::strategies::{
     borrow_for_strategy, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
 };
-use crate::{positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{
+    positions::supply, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
+};
 
 /// Parameters for `process_multiply`.
 pub struct MultiplyParams<'a> {
@@ -111,13 +113,13 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     // Strategy borrows are risk-increasing.
     let mut cache = Cache::new(env);
 
-    let (account_id, mut account) = helpers::load_or_create_account(
+    let (account_id, mut account) = account::load_or_create_account(
         env,
         caller,
         account_id,
         spoke_id,
         mode,
-        helpers::AccountGuard::Multiply,
+        account::AccountGuard::Multiply,
         &mut cache,
     );
 
@@ -130,8 +132,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         CollateralError::NotCollateral
     );
 
-    let extra_assets =
-        soroban_sdk::vec![env, collateral.asset.clone(), debt.asset.clone()];
+    let extra_assets = soroban_sdk::vec![env, collateral.asset.clone(), debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     // D{debt_token.decimals}{Token(debt_token)} net borrow received after protocol fee
@@ -171,7 +172,13 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
 
-    emit_multiply_initial_payment(env, &mut cache, account.spoke_id, account_id, initial_payment);
+    emit_multiply_initial_payment(
+        env,
+        &mut cache,
+        account.spoke_id,
+        account_id,
+        initial_payment,
+    );
 
     account_id
 }

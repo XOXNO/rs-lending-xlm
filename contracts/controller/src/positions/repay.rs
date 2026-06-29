@@ -5,21 +5,19 @@
 
 use common::errors::GenericError;
 use common::math::fp::Ray;
-use controller_interface::types::{
-    Account, DebtPosition, HubAssetKey, PoolAction, PoolPositionMutation,
-};
+use common::types::{Account, DebtPosition, HubAssetKey, PoolAction, PoolPositionMutation};
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
 use super::{finalize_position_flow, AggregatedPayments, PositionSides};
-use crate::cache::Cache;
+use crate::account::update_or_remove_debt_position;
+use crate::context::Cache;
 use crate::events;
 use crate::external::pool::pool_repay_call;
-use crate::helpers::update_or_remove_debt_position;
-use crate::helpers::utils::{self, EventContext};
+use crate::payments::{self as utils, EventContext};
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, make_pool_action, HubPayment,
 };
-use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
 /// Per-asset repayment inputs after the payer's transfer has been measured.
 pub(crate) struct RepaymentRequest<'a> {
@@ -142,7 +140,7 @@ pub(crate) fn finish_repayment(
     cache.put_market_index(hub_asset, &result.market_index);
     cache.record_debt_position_update(
         action,
-        &hub_asset.asset,
+        hub_asset,
         result.market_index.borrow_index,
         result.actual_amount,
         &position,
@@ -161,7 +159,11 @@ pub fn execute_repayment(
     let EventContext { caller, action } = ctx;
 
     let mut actions: Vec<PoolAction> = Vec::new(env);
-    actions.push_back(make_pool_action(req.position, req.amount, req.hub_asset.clone()));
+    actions.push_back(make_pool_action(
+        req.position,
+        req.amount,
+        req.hub_asset.clone(),
+    ));
     let results = settle_repay_actions(env, account, &caller, action, &actions, cache);
     validation::expect_invariant(env, results.get(0))
 }

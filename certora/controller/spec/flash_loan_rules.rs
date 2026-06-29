@@ -11,7 +11,7 @@ use crate::types::HubAssetKey;
 fn flash_loan_guard_blocks_callers(e: Env) {
     crate::storage::set_flash_loan_ongoing(&e, true);
 
-    crate::validation::require_not_flash_loaning(&e);
+    crate::risk::validation::require_not_flash_loaning(&e);
 
     cvlr_satisfy!(false);
 }
@@ -21,7 +21,7 @@ fn flash_loan_guard_blocks_callers(e: Env) {
 fn flash_loan_guard_allows_when_clear(e: Env) {
     crate::storage::set_flash_loan_ongoing(&e, false);
 
-    crate::validation::require_not_flash_loaning(&e);
+    crate::risk::validation::require_not_flash_loaning(&e);
 
     cvlr_satisfy!(true);
 }
@@ -43,7 +43,7 @@ fn flash_loan_guard_cleared_after_completion(
         hub_id: 0,
         asset: asset.clone(),
     };
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
     // Flash-loan eligibility now lives on the pool's `MarketParamsRaw`.
     let sync = cache.cached_pool_sync_data(&hub_asset);
     cvlr_assume!(sync.params.is_flashloanable);
@@ -77,7 +77,7 @@ fn flash_loan_guard_cleared_sanity(
         hub_id: 0,
         asset: asset.clone(),
     };
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
     let sync = cache.cached_pool_sync_data(&hub_asset);
     cvlr_assume!(sync.params.is_flashloanable);
     cvlr_assume!(crate::storage::get_spoke_asset(&e, 0, &hub_asset).is_some());

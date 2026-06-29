@@ -304,7 +304,7 @@ impl LiquidityPoolInterface for LiquidityPool {
             .set(&PoolKey::State(hub_asset.clone()), &state);
 
         renew_market_keys(&env, &hub_asset);
-        events::publish_market_params(&env, asset, params);
+        events::publish_market_params(&env, hub_asset.hub_id, asset, params);
     }
 
     #[only_owner]
@@ -564,7 +564,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         model.verify(&env);
         apply_rate_model(&env, &hub_asset, &model);
         let params = views::load_params(&env, &hub_asset);
-        events::publish_market_params(&env, asset, params);
+        events::publish_market_params(&env, hub_asset.hub_id, asset, params);
     }
 
     #[only_owner]
@@ -574,7 +574,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         cache.save();
         apply_hub_caps(&env, &hub_asset, supply_cap, borrow_cap);
         let params = views::load_params(&env, &hub_asset);
-        events::publish_market_params(&env, asset, params);
+        events::publish_market_params(&env, hub_asset.hub_id, asset, params);
     }
 
     #[only_owner]

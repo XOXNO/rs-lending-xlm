@@ -8,7 +8,7 @@
 use crate::types::{MarketOracleConfig, PriceFeedRaw};
 use soroban_sdk::Address;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::spec::summaries::token_price_summary;
 
 pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {

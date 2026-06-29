@@ -1,8 +1,8 @@
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Vec};
-use test_harness::{hub_asset, HubAssetKey,
-    assert_contract_error, errors, eth_preset, liquidatable_usdc_eth, usd_cents, usdc_preset,
-    LendingTest, ALICE, LIQUIDATOR,
+use test_harness::{
+    assert_contract_error, errors, eth_preset, hub_asset, liquidatable_usdc_eth, usd_cents,
+    usdc_preset, HubAssetKey, LendingTest, ALICE, LIQUIDATOR,
 };
 
 fn try_liquidate_payments(

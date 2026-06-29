@@ -1,12 +1,13 @@
 //! USD-aggregate views.
 
+use crate::risk;
+use crate::storage;
 use common::math::fp::Wad;
 use soroban_sdk::Env;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::oracle;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
-use crate::{helpers, storage};
 
 pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let spoke_id = match storage::try_get_account_meta(env, account_id) {
@@ -21,7 +22,7 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     // Bulk-prefetch all RedStone feeds before the per-market price reads below.
     let supply_keys = supply.keys();
-    let priced_assets = helpers::position_assets(env, &supply_keys);
+    let priced_assets = risk::position_assets(env, &supply_keys);
     oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
     cache.prefetch_market_indexes(&supply_keys);
 
@@ -32,7 +33,7 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
         let market_index = cache.cached_market_index(&hub_asset);
 
         // dimensional: Ray<Share> * Ray<Index> * Wad<USD/asset> -> Wad<USD>.
-        let value = helpers::position_value(
+        let value = risk::position_value(
             env,
             position.scaled_amount,
             market_index.supply_index,
@@ -58,7 +59,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     // Bulk-prefetch all RedStone feeds before the per-market price reads below.
     let borrow_keys = borrow.keys();
-    let priced_assets = helpers::position_assets(env, &borrow_keys);
+    let priced_assets = risk::position_assets(env, &borrow_keys);
     oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
     cache.prefetch_market_indexes(&borrow_keys);
 
@@ -69,7 +70,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
         let market_index = cache.cached_market_index(&hub_asset);
 
         // dimensional: Ray<DebtShare> * Ray<BorrowIndex> * Wad<USD/asset> -> Wad<USD>.
-        let value = helpers::position_value(
+        let value = risk::position_value(
             env,
             position.scaled_amount,
             market_index.borrow_index,
@@ -90,14 +91,9 @@ pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     // Bulk-prefetch all RedStone feeds before the per-market price reads inside
     // calculate_ltv_collateral_wad.
-    let priced_assets = helpers::position_assets(env, &account.supply_positions.keys());
+    let priced_assets = risk::position_assets(env, &account.supply_positions.keys());
     oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
     // dimensional: return is Wad<USD> raw (1e18) LTV-weighted collateral value.
-    helpers::calculate_ltv_collateral_wad(
-        env,
-        &mut cache,
-        account.spoke_id,
-        &account.supply_positions,
-    )
-    .raw()
+    risk::calculate_ltv_collateral_wad(env, &mut cache, account.spoke_id, &account.supply_positions)
+        .raw()
 }

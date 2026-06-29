@@ -1,4 +1,4 @@
-use crate::types::{
+use common::types::{
     HubAssetKey, MarketOracleConfig, OraclePriceFluctuation, PositionLimits, SpokeAssetArgs,
     SpokeAssetConfig,
 };

@@ -3,7 +3,6 @@
 pub mod boundary_rules;
 pub mod compat;
 pub mod consistency_rules;
-pub mod spoke_rules;
 pub mod flash_loan_rules;
 pub mod health_ghost;
 pub mod health_rules;
@@ -15,6 +14,7 @@ pub mod math_rules;
 pub mod oracle_rules;
 pub mod position_rules;
 pub mod solvency_rules;
+pub mod spoke_rules;
 pub mod strategy_rules;
 pub mod tolerance_math_rules;
 

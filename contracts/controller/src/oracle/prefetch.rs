@@ -4,10 +4,11 @@
 
 use soroban_sdk::{Address, Vec};
 
-use crate::cache::Cache;
+use crate::context::Cache;
 
 /// Minimum distinct feeds per adapter for bulk prefetch.
 /// A single-feed bulk call can price an asset the flow does not read.
+#[cfg(not(feature = "certora"))]
 const MIN_BULK_FEEDS: u32 = 2;
 
 /// Certora stub: lazy per-feed reads preserve semantics.
@@ -61,9 +62,9 @@ fn collect_redstone_feed(
     cache: &Cache,
     env: &soroban_sdk::Env,
     by_adapter: &mut Map<Address, Vec<String>>,
-    source: &controller_interface::types::OracleSourceConfig,
+    source: &common::types::OracleSourceConfig,
 ) {
-    let controller_interface::types::OracleSourceConfig::RedStone(r) = source else {
+    let common::types::OracleSourceConfig::RedStone(r) = source else {
         return;
     };
     if cache

@@ -198,16 +198,16 @@ impl LendingTest {
                 }
                 source => source,
             };
-            oracle.anchor = OracleSourceConfigOption::Some(
-                OracleSourceConfig::Reflector(ReflectorSourceConfig {
+            oracle.anchor = OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(
+                ReflectorSourceConfig {
                     contract: dex_oracle,
                     asset: OracleAssetRef::Stellar(asset.clone()),
                     read_mode: OracleReadMode::Spot,
                     decimals: 14,
                     resolution_seconds: 300,
                     base: ReflectorBase::Usd,
-                }),
-            );
+                },
+            ));
             self.env.storage().persistent().set(&key, &oracle);
         });
     }

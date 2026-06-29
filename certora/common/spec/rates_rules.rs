@@ -167,11 +167,11 @@ fn simulate_indexes_no_time_noop(
     let sync = PoolSyncData {
         params: (&valid_params(asset)).into(),
         state: PoolStateRaw {
-            supplied: supplied,
-            borrowed: borrowed,
+            supplied,
+            borrowed,
             revenue: 0,
-            borrow_index: borrow_index,
-            supply_index: supply_index,
+            borrow_index,
+            supply_index,
             last_timestamp: timestamp,
             cash: supplied.saturating_sub(borrowed),
         },

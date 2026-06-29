@@ -1,5 +1,5 @@
 use super::setup;
-use test_harness::{HARNESS_HUB, eth_preset, usdc_preset, LendingTest, ALICE};
+use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, HARNESS_HUB};
 
 // 6. Oracle tolerance config update (thin owner setter)
 
@@ -102,15 +102,16 @@ fn test_edit_asset_in_spoke_category() {
     let usdc_asset = t.resolve_market("USDC").asset.clone();
     let config: Option<controller::types::SpokeAssetConfig> =
         t.env.as_contract(&t.controller, || {
-            t.env.storage().persistent().get(
-                &controller::types::ControllerKey::SpokeAsset(
+            t.env
+                .storage()
+                .persistent()
+                .get(&controller::types::ControllerKey::SpokeAsset(
                     2,
                     controller::types::HubAssetKey {
                         hub_id: HARNESS_HUB,
                         asset: usdc_asset,
                     },
-                ),
-            )
+                ))
         });
     let config = config.expect("spoke asset config should exist");
     assert!(

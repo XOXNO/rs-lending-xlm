@@ -37,9 +37,9 @@ fn valid_params(asset: Address) -> MarketParamsRaw {
 
 fn valid_state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolStateRaw {
     PoolStateRaw {
-        supplied: supplied,
-        borrowed: borrowed,
-        revenue: revenue,
+        supplied,
+        borrowed,
+        revenue,
         borrow_index: RAY,
         supply_index: RAY,
         last_timestamp: timestamp * 1000,
@@ -322,9 +322,9 @@ fn update_params_keeps_rate_domain(
     let model = InterestRateModel {
         max_borrow_rate: max_rate,
         base_borrow_rate: base,
-        slope1: slope1,
-        slope2: slope2,
-        slope3: slope3,
+        slope1,
+        slope2,
+        slope3,
         mid_utilization: RAY / 2,
         optimal_utilization: RAY * 8 / 10,
         max_utilization: RAY * 95 / 100,
@@ -367,9 +367,9 @@ fn revenue_le_supplied_after_add_rewards(
     revenue_init: i128,
     rewards: i128,
 ) {
-    cvlr_assume!(supplied_init >= 0 && supplied_init <= 1_000_000 * RAY);
-    cvlr_assume!(revenue_init >= 0 && revenue_init <= supplied_init);
-    cvlr_assume!(rewards >= 0 && rewards <= 1_000_000);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied_init));
+    cvlr_assume!((0..=supplied_init).contains(&revenue_init));
+    cvlr_assume!((0..=1_000_000).contains(&rewards));
 
     seed_pool(
         &e,
@@ -378,7 +378,7 @@ fn revenue_le_supplied_after_add_rewards(
         valid_state(supplied_init, 0, revenue_init, e.ledger().timestamp()),
     );
 
-    let _ = crate::LiquidityPool::add_rewards(e.clone(), hub(asset.clone()), rewards);
+    crate::LiquidityPool::add_rewards(e.clone(), hub(asset.clone()), rewards);
 
     let state = read_state(&e, &asset);
     cvlr_assert!(state.revenue <= state.supplied);

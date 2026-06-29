@@ -1,6 +1,7 @@
 use controller::constants::RAY;
-use test_harness::{hub_asset, HubAssetKey,
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
+use test_harness::{
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, HubAssetKey, LendingTest,
+    ALICE, BOB,
 };
 // Borrow gate
 

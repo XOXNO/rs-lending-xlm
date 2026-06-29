@@ -337,8 +337,16 @@ fn test_delegated_borrow_routes_funds_to_owner() {
     let bob_gain = t.token_balance(BOB, "ETH") - bob_before;
 
     // Funds land on the owner, not the delegate caller.
-    assert!(alice_gain > 0.99, "owner should receive ~1 ETH, got {}", alice_gain);
-    assert!(bob_gain < 0.01, "delegate must receive nothing, got {}", bob_gain);
+    assert!(
+        alice_gain > 0.99,
+        "owner should receive ~1 ETH, got {}",
+        alice_gain
+    );
+    assert!(
+        bob_gain < 0.01,
+        "delegate must receive nothing, got {}",
+        bob_gain
+    );
 
     // Debt is recorded on the account regardless of destination.
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
@@ -367,8 +375,16 @@ fn test_delegated_borrow_to_none_routes_to_caller() {
     let alice_gain = t.token_balance(ALICE, "ETH") - alice_before;
     let bob_gain = t.token_balance(BOB, "ETH") - bob_before;
 
-    assert!(bob_gain > 0.99, "caller should receive ~1 ETH, got {}", bob_gain);
-    assert!(alice_gain.abs() < 0.01, "owner wallet must be unchanged, got {}", alice_gain);
+    assert!(
+        bob_gain > 0.99,
+        "caller should receive ~1 ETH, got {}",
+        bob_gain
+    );
+    assert!(
+        alice_gain.abs() < 0.01,
+        "owner wallet must be unchanged, got {}",
+        alice_gain
+    );
 
     // Debt still lands on the account, not the caller.
     t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);

@@ -5,15 +5,16 @@
 //! against the exact `partial_ok` replica of the mutating path. Indexes keep
 //! accruing after the read, so callers acting later should leave a margin.
 
+use crate::risk;
+use crate::storage;
 use common::constants::RAY;
 use common::math::fp::{Ray, Wad};
 use common::math::fp_core;
 use common::rates::{scaled_to_original, utilization};
-use controller_interface::types::{Account, HubAssetKey};
+use common::types::{Account, HubAssetKey};
 use soroban_sdk::Env;
 
-use crate::cache::Cache;
-use crate::{helpers, storage};
+use crate::context::Cache;
 
 mod borrow;
 mod supply;
@@ -106,7 +107,7 @@ fn account_gates_ok(env: &Env, cache: &mut Cache, account: &Account) -> bool {
     if account.borrow_positions.is_empty() {
         return true;
     }
-    let totals = helpers::calculate_account_risk_totals(
+    let totals = risk::calculate_account_risk_totals(
         env,
         cache,
         account.spoke_id,

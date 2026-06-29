@@ -7,10 +7,8 @@
 
 use common::errors::SpokeError;
 use common::math::fp::Ray;
+use common::types::{HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
 use common::validation::cap_is_enabled;
-use controller_interface::types::{
-    HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
-};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
 use crate::storage;
@@ -179,7 +177,12 @@ impl SpokeUsageContext {
         self.set_usage(hub_asset, usage);
     }
 
-    pub fn apply_repay_after_pool(&mut self, env: &Env, hub_asset: &HubAssetKey, delta_scaled: Ray) {
+    pub fn apply_repay_after_pool(
+        &mut self,
+        env: &Env,
+        hub_asset: &HubAssetKey,
+        delta_scaled: Ray,
+    ) {
         if delta_scaled == Ray::ZERO {
             return;
         }

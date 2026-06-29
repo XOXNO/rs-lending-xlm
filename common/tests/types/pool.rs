@@ -33,7 +33,10 @@ fn test_hub_asset_key_equal_when_hub_and_asset_match() {
         hub_id: 0,
         asset: a.clone(),
     };
-    let rhs = HubAssetKey { hub_id: 0, asset: a };
+    let rhs = HubAssetKey {
+        hub_id: 0,
+        asset: a,
+    };
     assert_eq!(lhs, rhs);
 }
 
@@ -45,7 +48,10 @@ fn test_hub_asset_key_unequal_when_hub_id_differs() {
         hub_id: 0,
         asset: a.clone(),
     };
-    let rhs = HubAssetKey { hub_id: 1, asset: a };
+    let rhs = HubAssetKey {
+        hub_id: 1,
+        asset: a,
+    };
     assert_ne!(lhs, rhs);
 }
 

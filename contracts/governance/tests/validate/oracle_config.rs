@@ -1,8 +1,8 @@
 use super::*;
 use common::constants::MAX_REASONABLE_PRICE_WAD;
 #[cfg(not(feature = "testing"))]
-use controller_interface::types::RedStoneSourceConfigInput;
-use controller_interface::types::{
+use common::types::RedStoneSourceConfigInput;
+use common::types::{
     MarketOracleConfigInput, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
     OracleSourceConfigInputOption, OracleStrategy, ReflectorSourceConfigInput,
 };

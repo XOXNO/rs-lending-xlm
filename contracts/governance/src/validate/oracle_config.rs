@@ -5,9 +5,9 @@ use common::oracle::observation::{
     MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS, MIN_ORACLE_DECIMALS,
     MIN_PRICE_STALE_SECONDS,
 };
-use controller_interface::types::{MarketOracleConfigInput, OracleStrategy};
+use common::types::{MarketOracleConfigInput, OracleStrategy};
 #[cfg(not(feature = "testing"))]
-use controller_interface::types::{OracleReadMode, OracleSourceConfigInput};
+use common::types::{OracleReadMode, OracleSourceConfigInput};
 #[cfg(not(feature = "testing"))]
 use soroban_sdk::panic_with_error;
 use soroban_sdk::{assert_with_error, Env};

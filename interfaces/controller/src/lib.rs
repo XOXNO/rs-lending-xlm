@@ -2,16 +2,13 @@
 #![allow(clippy::too_many_arguments)]
 
 pub mod admin;
-pub mod types;
-
 pub use admin::{ControllerAdmin, ControllerAdminClient};
-
-use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
-use types::{
+use common::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
     LiquidationEstimate, MarketIndexRaw, MarketIndexView, PositionMode, SpokeAssetConfig,
     SpokeConfig,
 };
+use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
 #[contractclient(name = "ControllerClient")]
 /// Contract interface for lending accounts, markets, and views.

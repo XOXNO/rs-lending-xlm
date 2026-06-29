@@ -1,7 +1,7 @@
 use soroban_sdk::vec;
-use test_harness::{hub_asset, HubAssetKey,
-    assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
-    LendingTest, PositionType, ALICE, BOB, STABLECOIN_SPOKE,
+use test_harness::{
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, usdt_stable_preset,
+    wbtc_preset, HubAssetKey, LendingTest, PositionType, ALICE, BOB, STABLECOIN_SPOKE,
 };
 // 1. test_supply_single_asset
 
@@ -191,7 +191,11 @@ fn test_supply_duplicate_raw_amount_overflow_reverts() {
 
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
-    let assets = vec![&t.env, (hub_asset(usdc.clone()), i128::MAX), (hub_asset(usdc), 1i128)];
+    let assets = vec![
+        &t.env,
+        (hub_asset(usdc.clone()), i128::MAX),
+        (hub_asset(usdc), 1i128),
+    ];
     let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -385,7 +389,8 @@ fn test_third_party_supply_cannot_force_low_threshold_update() {
         .expect("third-party top-up should still be allowed");
 
     let (supplies, _borrows) = t.ctrl_client().get_account_positions(&account_id);
-    let position = supplies.get(hub_asset(usdc))
+    let position = supplies
+        .get(hub_asset(usdc))
         .expect("USDC supply position should remain");
     assert_eq!(
         position.liquidation_threshold, 8000,
@@ -483,18 +488,24 @@ fn poc_non_owner_can_supply_into_victims_account() {
     t.resolve_market("USDC")
         .token_admin
         .mint(&alice, &100_000_000);
-    let alice_id =
-        t.ctrl_client()
-            .supply(&alice, &0u64, &1u32, &vec![&t.env, (hub_asset(usdc), 100_000_000i128)]);
+    let alice_id = t.ctrl_client().supply(
+        &alice,
+        &0u64,
+        &1u32,
+        &vec![&t.env, (hub_asset(usdc), 100_000_000i128)],
+    );
     assert!(alice_id > 0);
 
     // BOB — a stranger, not the owner — supplies ETH straight into ALICE's account.
     let bob = t.get_or_create_user(BOB);
     let eth = t.resolve_market("ETH").asset.clone();
     t.resolve_market("ETH").token_admin.mint(&bob, &50_000_000);
-    let returned =
-        t.ctrl_client()
-            .supply(&bob, &alice_id, &1u32, &vec![&t.env, (hub_asset(eth), 50_000_000i128)]);
+    let returned = t.ctrl_client().supply(
+        &bob,
+        &alice_id,
+        &1u32,
+        &vec![&t.env, (hub_asset(eth), 50_000_000i128)],
+    );
 
     // No owner-match revert: the deposit lands on ALICE's account, BOB consumed
     // one of her supply-position slots, and ALICE still owns the account.

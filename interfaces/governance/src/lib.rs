@@ -8,21 +8,20 @@
 //! generates `GovernanceClient`; the governance contract does NOT formally
 //! `impl` this trait — its entrypoints match by ABI name.
 
-use common::types::{InterestRateModel, MarketParamsRaw};
-use controller_interface::types::{
+use common::types::{
     HubAssetKey, MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
     PositionLimits, SpokeAssetConfig,
 };
+use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
 pub use stellar_governance::timelock::OperationState;
 
 pub use stellar_governance::timelock::OperationState as GovernanceOperationState;
 
 /// Spoke asset input forwarded verbatim to the controller's `add_asset_to_spoke`
-/// / `edit_asset_in_spoke` entrypoints. Defined in `controller-interface` (the
-/// call's owner) and re-exported here so `AdminOperation` keeps a single source
-/// of truth.
-pub use controller_interface::types::SpokeAssetArgs;
+/// / `edit_asset_in_spoke` entrypoints. Defined in `common` with the controller
+/// ABI DTOs so `AdminOperation` keeps a single source of truth.
+pub use common::types::SpokeAssetArgs;
 
 #[contracttype]
 #[derive(Clone, Debug)]

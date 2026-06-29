@@ -81,13 +81,10 @@ impl LendingTest {
         let caller_addr = self.get_or_create_user(caller);
         let asset = hub_asset(self.resolve_asset(asset_name));
 
-        match self.ctrl_client().try_flash_loan(
-            &caller_addr,
-            &asset,
-            &amount_raw,
-            receiver,
-            data,
-        ) {
+        match self
+            .ctrl_client()
+            .try_flash_loan(&caller_addr, &asset, &amount_raw, receiver, data)
+        {
             Ok(Ok(())) => Ok(()),
             Ok(Err(_)) => panic!("flash loan output conversion failed"),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),

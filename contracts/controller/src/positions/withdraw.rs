@@ -6,22 +6,23 @@
 //! `RiskDecreasing` and skip gates.
 
 use common::math::fp::Ray;
-use controller_interface::types::{
+use common::types::{
     Account, AccountPosition, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry, SpokeConfig,
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
-use crate::cache::Cache;
-use crate::spoke;
+use crate::account::update_or_remove_supply_position;
+use crate::context::Cache;
 use crate::events;
 use crate::external::pool::pool_withdraw_call;
-use crate::helpers::utils::{self, EventContext};
-use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
+use crate::payments::{self as utils, EventContext};
 use crate::positions::{
     enforce_spoke_asset_flags, finalize_position_flow, get_supply_position_or_panic,
     make_pool_action, AggregatedPayments, HubPayment, PositionSides,
 };
-use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::risk::refresh_supply_risk_params;
+use crate::spoke;
+use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
 /// Pool ABI sentinel for full-position withdraw (`withdraw` maps user `0` here).
 pub(crate) const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
@@ -72,7 +73,7 @@ pub fn process_withdraw(
 
     let mut account = storage::get_account(env, account_id);
 
-    crate::helpers::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let recipient = to.unwrap_or_else(|| caller.clone());
 
@@ -187,7 +188,11 @@ fn withdraw_refresh_spoke_for_asset(
     let Some(spoke) = spoke else {
         return SpokeRefresh::Frozen;
     };
-    if spoke.is_deprecated || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
+    if spoke.is_deprecated
+        || cache
+            .cached_spoke_asset(account.spoke_id, hub_asset)
+            .is_none()
+    {
         return SpokeRefresh::Frozen;
     }
 
@@ -217,7 +222,14 @@ pub(crate) fn finish_withdrawal(
     // account's active spoke config.
     if matches!(refresh_spoke, SpokeRefresh::Refresh) {
         let config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);
-        refresh_supply_risk_params(env, cache, account, hub_asset, &mut result_position, &config);
+        refresh_supply_risk_params(
+            env,
+            cache,
+            account,
+            hub_asset,
+            &mut result_position,
+            &config,
+        );
     }
     update_or_remove_supply_position(account, hub_asset, &result_position);
 
@@ -225,7 +237,7 @@ pub(crate) fn finish_withdrawal(
     // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, supply)>.
     cache.record_position_update(
         action,
-        &hub_asset.asset,
+        hub_asset,
         result.market_index.supply_index,
         result.actual_amount,
         &result_position,

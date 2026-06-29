@@ -3,7 +3,7 @@
 use common::constants::{BPS_DECIMALS, RAY, RAY_DECIMALS};
 use common::errors::{GenericError, OracleError};
 use common::math::fp_core;
-use controller_interface::types::OraclePriceFluctuation;
+use common::types::OraclePriceFluctuation;
 use soroban_sdk::{panic_with_error, Env};
 
 /// Final Wad price from a required primary/anchor pair: the midpoint when the

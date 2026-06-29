@@ -1,5 +1,5 @@
 use super::*;
-use controller_interface::types::{
+use common::types::{
     MarketOracleConfig, MarketOracleConfigOption, OracleAssetRef, OraclePriceFluctuation,
     OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, PositionMode,
     ReflectorBase, ReflectorSourceConfig, SpokeAssetConfig,
@@ -211,6 +211,7 @@ fn emit_helpers_publish_without_panicking() {
         let oracle = dummy_oracle_config(&env);
 
         CreateMarketEvent {
+            hub_id: 1,
             base_asset: asset.clone(),
             max_borrow_rate: 0,
             base_borrow_rate: 0,
@@ -242,6 +243,7 @@ fn emit_helpers_publish_without_panicking() {
         let mut deposits = Vec::new(&env);
         deposits.push_back(EventDepositDelta(
             PositionAction::Supply,
+            1,
             asset.clone(),
             0,
             0,
@@ -297,12 +299,14 @@ fn emit_helpers_publish_without_panicking() {
                 oracle_override: MarketOracleConfigOption::None,
             },
             spoke_id: 1,
+            hub_id: 1,
         }
         .publish(&env);
 
         RemoveSpokeAssetEvent {
             asset: asset.clone(),
             spoke_id: 1,
+            hub_id: 1,
         }
         .publish(&env);
 
@@ -330,4 +334,66 @@ fn emit_helpers_publish_without_panicking() {
         // Reference vec! to keep it used even if the macro path changes.
         let _ignored: Vec<Address> = vec![&env];
     });
+}
+
+#[test]
+fn create_market_event_carries_hub_id() {
+    let env = Env::default();
+    let asset = dummy_address(&env);
+    let ev = CreateMarketEvent {
+        hub_id: 2,
+        base_asset: asset.clone(),
+        max_borrow_rate: 0,
+        base_borrow_rate: 0,
+        slope1: 0,
+        slope2: 0,
+        slope3: 0,
+        mid_utilization: 0,
+        optimal_utilization: 0,
+        max_utilization: 0,
+        reserve_factor: 0,
+        market_address: asset.clone(),
+    };
+    assert_eq!(ev.hub_id, 2);
+}
+
+#[test]
+fn position_deltas_carry_hub_id() {
+    let env = Env::default();
+    let asset = dummy_address(&env);
+    let dep = EventDepositDelta(PositionAction::Supply, 4, asset.clone(), 0, 0, 0, 0, 0, 0);
+    let bor = EventBorrowDelta(PositionAction::Repay, 9, asset.clone(), 0, 0, 0);
+    assert_eq!(dep.1, 4);
+    assert_eq!(bor.1, 9);
+}
+
+#[test]
+fn spoke_asset_events_carry_hub_id() {
+    let env = Env::default();
+    let asset = dummy_address(&env);
+    let upd = UpdateSpokeAssetEvent {
+        asset: asset.clone(),
+        config: SpokeAssetConfig {
+            is_collateralizable: true,
+            is_borrowable: true,
+            paused: false,
+            frozen: false,
+            loan_to_value: 9000,
+            liquidation_threshold: 9500,
+            liquidation_bonus: 200,
+            liquidation_fees: 0,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: MarketOracleConfigOption::None,
+        },
+        spoke_id: 1,
+        hub_id: 3,
+    };
+    let rem = RemoveSpokeAssetEvent {
+        asset,
+        spoke_id: 1,
+        hub_id: 3,
+    };
+    assert_eq!(upd.hub_id, 3);
+    assert_eq!(rem.hub_id, 3);
 }

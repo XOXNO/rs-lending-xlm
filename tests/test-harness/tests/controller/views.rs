@@ -1,7 +1,7 @@
 use controller::constants::{RAY, WAD};
-use test_harness::{hub_asset,
-    eth_preset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, ALICE,
-    STABLECOIN_SPOKE,
+use test_harness::{
+    eth_preset, hub_asset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest,
+    ALICE, STABLECOIN_SPOKE,
 };
 // 1. test_total_collateral_usd_multi_asset
 
@@ -307,7 +307,8 @@ fn test_liquidation_estimations_basic() {
 
     let account_id = t.resolve_account_id(ALICE);
     let ctrl = t.ctrl_client();
-    let payments = soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
+    let payments =
+        soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
     let estimate = ctrl.get_liquidation_estimate(&account_id, &payments);
     let hf = ctrl.get_health_factor(&account_id);
 
@@ -425,7 +426,9 @@ fn test_collateral_amount_for_token_happy() {
 
     let account_id = t.resolve_account_id(ALICE);
     let usdc = t.resolve_asset("USDC");
-    let amount = t.ctrl_client().get_collateral_amount(&account_id, &hub_asset(usdc.clone()));
+    let amount = t
+        .ctrl_client()
+        .get_collateral_amount(&account_id, &hub_asset(usdc.clone()));
 
     // USDC has 7 decimals: 10_000 USDC == 10_000 * 10^7 raw units.
     let expected = 10_000i128 * 10_000_000;
@@ -451,7 +454,9 @@ fn test_borrow_amount_for_token_happy() {
 
     let account_id = t.resolve_account_id(ALICE);
     let eth = t.resolve_asset("ETH");
-    let amount = t.ctrl_client().get_borrow_amount(&account_id, &hub_asset(eth.clone()));
+    let amount = t
+        .ctrl_client()
+        .get_borrow_amount(&account_id, &hub_asset(eth.clone()));
 
     // ETH has 7 decimals: 2 ETH == 2 * 10^7 raw units.
     let expected = 2i128 * 10_000_000;

@@ -1,11 +1,11 @@
 use crate::config::config;
-use controller::types::SpokeAssetArgs;
 use controller::types::InterestRateModel;
+use controller::types::SpokeAssetArgs;
 use governance_interface::AdminOperation;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Vec as SVec};
-use test_harness::{HARNESS_HUB, hub_asset, HubAssetKey, LendingTest};
+use test_harness::{hub_asset, HubAssetKey, LendingTest, HARNESS_HUB};
 
 fn expect_rejected<F, R, InnerErr, OuterErr>(label: &str, call: F) -> Result<(), String>
 where

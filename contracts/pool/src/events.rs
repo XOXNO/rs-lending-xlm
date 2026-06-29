@@ -4,11 +4,12 @@ use soroban_sdk::{contractevent, contracttype, Address, Env, Vec};
 /// Pool market accounting snapshot emitted after successful pool mutations.
 ///
 /// Field order is wire ABI; do not reorder:
-/// `[asset, timestamp, supply_index, borrow_index, cash,
+/// `[hub_id, asset, timestamp, supply_index, borrow_index, cash,
 ///   supplied, borrowed, revenue]`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolMarketStateEvent(
+    pub u32,
     pub Address,
     pub u64,
     pub i128,
@@ -22,6 +23,7 @@ pub struct PoolMarketStateEvent(
 impl From<&MarketStateSnapshot> for PoolMarketStateEvent {
     fn from(s: &MarketStateSnapshot) -> Self {
         Self(
+            s.hub_asset.hub_id,
             s.hub_asset.asset.clone(),
             s.timestamp,
             s.supply_index,
@@ -43,6 +45,7 @@ pub struct PoolMarketStateBatchEvent {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolMarketParamsEvent {
+    pub hub_id: u32,
     pub asset: Address,
     pub params: MarketParamsRaw,
 }
@@ -90,9 +93,18 @@ pub(crate) fn publish_market_params_batch(env: &Env, updates: Vec<PoolMarketPara
 }
 
 /// Emits a single market-params update as a one-element batch.
-pub(crate) fn publish_market_params(env: &Env, asset: Address, params: MarketParamsRaw) {
+pub(crate) fn publish_market_params(
+    env: &Env,
+    hub_id: u32,
+    asset: Address,
+    params: MarketParamsRaw,
+) {
     let mut updates = Vec::new(env);
-    updates.push_back(PoolMarketParamsEvent { asset, params });
+    updates.push_back(PoolMarketParamsEvent {
+        hub_id,
+        asset,
+        params,
+    });
     publish_market_params_batch(env, updates);
 }
 

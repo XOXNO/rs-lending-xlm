@@ -3,9 +3,11 @@
 //! Risk parameters are per-asset, so bound validation happens when an asset
 //! joins a category, not at category creation.
 
-use governance::op::{AdminOperation, SpokeAssetArgs, PoolCapsArgs};
+use governance::op::{AdminOperation, PoolCapsArgs, SpokeAssetArgs};
 use soroban_sdk::{BytesN, Env, TryFromVal};
-use test_harness::{HARNESS_HUB, assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest};
+use test_harness::{
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, HARNESS_HUB,
+};
 
 fn salt(env: &Env, byte: u8) -> BytesN<32> {
     BytesN::<32>::from_array(env, &[byte; 32])
@@ -69,7 +71,9 @@ fn test_spoke_accepts_valid_asset_bounds() {
     let usdc = t.resolve_asset("USDC");
     try_add_asset(&t, &usdc, id, 8000, 8500, 200).expect("valid asset should be accepted");
 
-    let cfg = t.ctrl_client().get_spoke_asset(&id, &hub_asset(usdc.clone()));
+    let cfg = t
+        .ctrl_client()
+        .get_spoke_asset(&id, &hub_asset(usdc.clone()));
     assert_eq!(cfg.loan_to_value, 8000);
     assert_eq!(cfg.liquidation_threshold, 8500);
     assert_eq!(cfg.liquidation_bonus, 200);
@@ -106,7 +110,9 @@ fn test_spoke_add_asset_via_gov_forwarder() {
     );
 
     assert!(
-        t.ctrl_client().try_get_spoke_asset(&id, &hub_asset(usdc.clone())).is_ok(),
+        t.ctrl_client()
+            .try_get_spoke_asset(&id, &hub_asset(usdc.clone()))
+            .is_ok(),
         "USDC must be registered in the forwarded spoke"
     );
 }

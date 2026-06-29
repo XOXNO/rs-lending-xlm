@@ -3,26 +3,26 @@
 //! Holds market bootstrap, keeper index updates, revenue claiming, and
 //! threshold propagation; pool and token calls go through `external`.
 
-use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
+use crate::account;
+use crate::events::UpdateMarketParamsEvent;
+use crate::risk;
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
-use controller_interface::types::{
-    AccountPosition, HubAssetKey, InterestRateModel, MarketParamsRaw,
-};
+use common::types::{AccountPosition, HubAssetKey, InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, when_not_paused};
 
-use crate::cache::Cache;
-use crate::spoke;
+use crate::context::Cache;
 use crate::events;
 use crate::external::pool::{
-    pool_add_rewards_call, pool_claim_revenue_call, pool_create_market_call, pool_update_caps_call,
+    pool_add_rewards_call, pool_claim_revenue_call, pool_update_caps_call,
     pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
 };
 use crate::external::sac::sac_transfer_call;
+use crate::risk::THRESHOLD_UPDATE_MIN_HF_RAW;
+use crate::spoke;
 use crate::{
-    helpers::{self, utils, THRESHOLD_UPDATE_MIN_HF_RAW},
-    storage, validation, Controller, ControllerArgs, ControllerClient,
+    payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
 };
 
 /// Deterministic salt for the one-time central pool deployment; the pool
@@ -42,20 +42,24 @@ impl Controller {
 
     pub fn renew_account(env: Env, caller: Address, account_id: u64) {
         storage::renew_controller_instance(&env);
-        renew_account(&env, &caller, account_id);
+        crate::account::delegation::renew_account(&env, &caller, account_id);
     }
 
     /// Owner-only: opts `delegate` into acting on `account_id`. Effective only
     /// while `delegate` is also a registered, active position manager.
     pub fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
-        set_account_delegate(&env, &caller, account_id, &delegate, true);
+        crate::account::delegation::set_account_delegate(
+            &env, &caller, account_id, &delegate, true,
+        );
     }
 
     /// Owner-only: revokes `delegate` from `account_id`.
     pub fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
-        set_account_delegate(&env, &caller, account_id, &delegate, false);
+        crate::account::delegation::set_account_delegate(
+            &env, &caller, account_id, &delegate, false,
+        );
     }
 
     /// One-time deployment of the central liquidity pool owned by this
@@ -88,7 +92,7 @@ impl Controller {
         asset: Address,
         params: MarketParamsRaw,
     ) -> Address {
-        create_liquidity_pool(&env, hub_id, &asset, &params)
+        crate::setup::create_liquidity_pool(&env, hub_id, &asset, &params)
     }
 
     #[only_owner]
@@ -157,55 +161,6 @@ fn sync_market_indexes(env: &Env, cache: &mut Cache, hub_assets: &Vec<HubAssetKe
         pool_update_indexes_call(env, &pool_addr, &hub_asset);
     }
 }
-
-/// Registers the asset's market on the central pool under `hub_id`. The market
-/// record lives on the pool (`pool_create_market_call`, which reverts
-/// `AssetAlreadySupported` on a duplicate (hub, asset)); the controller keeps no
-/// listing shadow. The asset stays inactive (unpriceable) until
-/// `set_market_oracle_config` writes its token-rooted `AssetOracle` entry, and
-/// becomes usable on a spoke once `add_asset_to_spoke` lists it there. Consumes
-/// the token approval.
-pub fn create_liquidity_pool(
-    env: &Env,
-    hub_id: u32,
-    asset: &Address,
-    params: &MarketParamsRaw,
-) -> Address {
-    validation::require_hub_active(env, hub_id);
-
-    assert_with_error!(
-        env,
-        storage::is_token_approved(env, asset),
-        GenericError::TokenNotApproved
-    );
-
-    let pool_address = storage::get_pool(env);
-    // dimensional: params carries Ray rates/utilization, Bps reserve factor, and Token(asset) caps.
-    pool_create_market_call(env, &pool_address, hub_id, params);
-
-    storage::renew_controller_instance(env);
-
-    // dimensional: event fields preserve raw Ray rate/utilization and Bps reserve-factor inputs.
-    CreateMarketEvent {
-        base_asset: asset.clone(),
-        max_borrow_rate: params.max_borrow_rate,
-        base_borrow_rate: params.base_borrow_rate,
-        slope1: params.slope1,
-        slope2: params.slope2,
-        slope3: params.slope3,
-        mid_utilization: params.mid_utilization,
-        optimal_utilization: params.optimal_utilization,
-        max_utilization: params.max_utilization,
-        reserve_factor: params.reserve_factor,
-        market_address: pool_address.clone(),
-    }
-    .publish(env);
-
-    storage::set_token_approved(env, asset, false);
-
-    pool_address
-}
-
 /// Updates hub supply/borrow caps on the central pool for one `(hub_id, asset)`
 /// market.
 pub fn update_pool_caps(env: &Env, hub_asset: &HubAssetKey, supply_cap: i128, borrow_cap: i128) {
@@ -333,36 +288,7 @@ pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(HubAssetKey,
         add_reward(env, caller, &hub_asset, amount, &mut cache);
     }
 }
-
-pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
-    caller.require_auth();
-    let meta = storage::get_account_meta(env, account_id);
-    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
-
-    storage::renew_user_account(env, account_id);
-}
-
-/// Owner-only mutation of an account's delegate list. Only the account owner
-/// manages delegates; a delegate cannot add or remove other delegates.
-fn set_account_delegate(
-    env: &Env,
-    caller: &Address,
-    account_id: u64,
-    delegate: &Address,
-    add: bool,
-) {
-    caller.require_auth();
-    let meta = storage::get_account_meta(env, account_id);
-    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
-
-    if add {
-        storage::add_delegate(env, account_id, delegate);
-    } else {
-        storage::remove_delegate(env, account_id, delegate);
-    }
-}
-
-/// Syncs risk params on each supply position for one account, then runs a
+// Syncs risk params on each supply position for one account, then runs a
 /// single HF gate when `has_risks` propagates liquidation thresholds.
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
     // No-op when the account is gone (bad-debt cleanup, full exit).
@@ -408,13 +334,13 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         }
 
         let updated = AccountPosition::from(&updated_pos);
-        helpers::update_or_remove_supply_position(&mut account, &hub_asset, &updated);
+        account::update_or_remove_supply_position(&mut account, &hub_asset, &updated);
 
         // amount = 0: parameter change only, no deposit or withdraw.
         let market_index = cache.cached_market_index(&hub_asset);
         cache.record_position_update(
             events::PositionAction::ParamUpd,
-            &hub_asset.asset,
+            &hub_asset,
             market_index.supply_index.raw(),
             0,
             &updated,
@@ -424,7 +350,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     storage::set_supply_positions(env, account_id, &account.supply_positions);
 
     if has_risks {
-        let hf = helpers::calculate_account_risk_totals(
+        let hf = risk::calculate_account_risk_totals(
             env,
             cache,
             account.spoke_id,

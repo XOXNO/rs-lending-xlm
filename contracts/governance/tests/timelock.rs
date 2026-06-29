@@ -2,7 +2,7 @@ use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol};
 use stellar_governance::timelock::OperationState;
 
-use controller_interface::types::{ControllerKey, PositionLimits};
+use common::types::{ControllerKey, PositionLimits};
 
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, PROPOSER_ROLE};
 use crate::constants::{

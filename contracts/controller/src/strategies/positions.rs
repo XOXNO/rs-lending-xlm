@@ -4,12 +4,12 @@
 //! must reach `strategy_finalize` before the transaction ends when debt is opened.
 
 use common::errors::GenericError;
-use controller_interface::types::{Account, AccountPosition, DebtPosition, HubAssetKey};
+use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey};
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::events;
-use crate::helpers::utils::{self, EventContext};
+use crate::payments::{self as utils, EventContext};
 use crate::positions::repay::{self, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawalRequest, WITHDRAW_ALL_SENTINEL};
 use crate::strategies::swap::balance_delta;
@@ -70,7 +70,12 @@ pub(crate) fn repay_debt_from_controller(
         cache,
     );
 
-    refund_controller_balance_delta(env, &req.debt.asset, controller_balance_before_repay, caller);
+    refund_controller_balance_delta(
+        env,
+        &req.debt.asset,
+        controller_balance_before_repay,
+        caller,
+    );
 }
 
 pub(crate) fn withdraw_collateral_to_controller(

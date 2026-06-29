@@ -3,7 +3,9 @@
 use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
-use test_harness::{HARNESS_HUB, HARNESS_SPOKE, hub_asset, assert_contract_error, errors, usdc_preset, LendingTest};
+use test_harness::{
+    assert_contract_error, errors, hub_asset, usdc_preset, LendingTest, HARNESS_HUB, HARNESS_SPOKE,
+};
 
 // `validate_and_fetch_token_decimals` rejects SACs without a `symbol` (#6).
 #[test]
@@ -68,12 +70,16 @@ fn test_edit_asset_config_rejects_threshold_above_bps() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let admin = t.admin();
     let asset = t.resolve_market("USDC").asset.clone();
-    let mut cfg = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
+    let mut cfg = t
+        .ctrl_client()
+        .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
     cfg.loan_to_value = 5_000;
     cfg.liquidation_threshold = 10_001;
     cfg.liquidation_bonus = 0;
-    t.gov_client()
-        .execute_immediate(&admin, &AdminOperation::EditAssetConfig(hub_asset(asset), cfg));
+    t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::EditAssetConfig(hub_asset(asset), cfg),
+    );
 }
 
 // Configure-time tolerance below the minimum (#208).
@@ -86,6 +92,9 @@ fn test_configure_market_oracle_rejects_tolerance_below_min() {
     let cfg = test_harness::reflector_primary_anchor_config(&t.mock_reflector, &asset, 10);
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs { hub_asset: hub_asset(asset), cfg }),
+        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
+            hub_asset: hub_asset(asset),
+            cfg,
+        }),
     );
 }

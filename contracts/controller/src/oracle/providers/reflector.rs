@@ -9,12 +9,12 @@ use common::oracle::observation::{
 use common::oracle::providers::reflector::{
     min_twap_observations, reflector_lastprice_call, reflector_prices_call, to_reflector_asset,
 };
-use controller_interface::types::{
+use common::types::{
     OracleReadMode, OracleSourceConfig, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::oracle;
 use crate::oracle::observation::{reflector_observation_from_price_data, OracleObservation};
 use crate::storage;

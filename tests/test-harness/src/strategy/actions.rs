@@ -180,14 +180,10 @@ impl LendingTest {
         let decimals = self.resolve_market(new_debt).decimals;
         let raw = f64_to_i128(new_amount, decimals);
 
-        match self.ctrl_client().try_swap_debt(
-            &addr,
-            &account_id,
-            &existing,
-            &raw,
-            &new,
-            steps,
-        ) {
+        match self
+            .ctrl_client()
+            .try_swap_debt(&addr, &account_id, &existing, &raw, &new, steps)
+        {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -209,14 +205,8 @@ impl LendingTest {
         let decimals = self.resolve_market(current_collateral).decimals;
         let raw = f64_to_i128(amount, decimals);
 
-        self.ctrl_client().swap_collateral(
-            &addr,
-            &account_id,
-            &current,
-            &raw,
-            &new,
-            steps,
-        );
+        self.ctrl_client()
+            .swap_collateral(&addr, &account_id, &current, &raw, &new, steps);
     }
 
     pub fn try_swap_collateral(

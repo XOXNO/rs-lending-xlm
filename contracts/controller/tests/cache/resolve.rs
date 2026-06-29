@@ -1,6 +1,6 @@
 use super::*;
 use crate::Controller;
-use controller_interface::types::MarketOracleConfigOption;
+use common::types::MarketOracleConfigOption;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
 

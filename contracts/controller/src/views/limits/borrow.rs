@@ -2,11 +2,11 @@
 
 use common::math::fp::Ray;
 use common::rates::{scaled_to_original, utilization};
+use common::types::{Account, DebtPositionRaw, HubAssetKey, SpokeUsageRaw};
 use common::validation::cap_is_enabled;
-use controller_interface::types::{Account, DebtPositionRaw, HubAssetKey, SpokeUsageRaw};
 use soroban_sdk::Env;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::{spoke, storage};
 
 use super::{account_gates_ok, MarketLimitCtx};
@@ -86,7 +86,11 @@ fn account_can_borrow_asset(
     // The account's spoke must be active and must list the asset (the spoke
     // listing is the membership signal).
     let active = matches!(cache.cached_spoke(account.spoke_id), Some(s) if !s.is_deprecated);
-    if !active || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
+    if !active
+        || cache
+            .cached_spoke_asset(account.spoke_id, hub_asset)
+            .is_none()
+    {
         return false;
     }
 

@@ -6,10 +6,10 @@ use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs, SpokeA
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, TryFromVal};
 
-use crate::core::types::{LendingTest, MarketState, PendingSpoke, PendingMarket};
+use crate::core::types::{LendingTest, MarketState, PendingMarket, PendingSpoke};
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::presets::{
-    AssetConfigPreset, SpokePreset, MarketParamsPreset, MarketPreset, DEFAULT_TOLERANCE,
+    AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset, DEFAULT_TOLERANCE,
 };
 
 pub struct LendingTestBuilder {

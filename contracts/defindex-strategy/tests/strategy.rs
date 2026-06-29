@@ -9,7 +9,7 @@ use soroban_sdk::testutils::{Address as _, Events};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{vec, Address, Env, IntoVal, Val, Vec};
 use test_harness::{
-    hub_asset, eth_preset, usdc_preset, LendingTest, ALICE, BOB, HARNESS_HUB, HARNESS_SPOKE,
+    eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB, HARNESS_HUB, HARNESS_SPOKE,
 };
 
 const UNIT: i128 = 10_000_000; // 1.0 at the presets' 7 decimals

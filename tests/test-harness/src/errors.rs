@@ -1,7 +1,7 @@
 //! Contract error codes for test assertions — sourced from `common::errors`.
 
 pub use common::errors::{
-    CollateralError, SpokeError, FlashLoanError, GenericError, OracleError, StrategyError,
+    CollateralError, FlashLoanError, GenericError, OracleError, SpokeError, StrategyError,
 };
 
 /// Stable `u32` aliases used by `assert_contract_error` and integration tests.

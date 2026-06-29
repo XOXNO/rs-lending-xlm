@@ -7,19 +7,22 @@
 pub mod constants;
 pub mod events;
 
-pub use controller_interface::types;
+pub use common::types;
 
-mod cache;
-mod spoke;
+mod account;
+mod config;
+mod context;
 mod external;
 mod governance;
-mod helpers;
 mod oracle;
+mod payments;
+mod pool_ops;
 mod positions;
-mod router;
+mod risk;
+mod setup;
+mod spoke;
 mod storage;
 mod strategies;
-mod validation;
 mod views;
 
 #[cfg(feature = "certora")]

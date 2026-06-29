@@ -9,8 +9,6 @@ mod bad_debt_index;
 mod borrow;
 mod bulk_indexes;
 mod decimal_diversity;
-mod spoke;
-mod spoke_liquidation_combo;
 mod events;
 mod flash_loan;
 mod keeper;
@@ -26,6 +24,8 @@ mod min_borrow_collateral;
 mod multi_hub;
 mod ownership;
 mod repay;
+mod spoke;
+mod spoke_liquidation_combo;
 
 mod supply;
 mod validation_admin;

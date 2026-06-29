@@ -29,9 +29,9 @@ pub(crate) mod tolerance;
 #[path = "../../../../certora/controller/harness/oracle_tolerance.rs"]
 pub(crate) mod tolerance;
 
-use controller_interface::types::HubAssetKey;
+use common::types::HubAssetKey;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 
 pub use compose::ResolvedOracleComponents;
 

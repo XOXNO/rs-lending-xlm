@@ -122,10 +122,12 @@ impl LendingTest {
         // Supply and debt maps hold different value types; extract the
         // scaled share each carries.
         let scaled_ray = match position_type {
-            AccountPositionType::Deposit => {
-                supplies.get(hub_asset(asset.clone())).map(|p| p.scaled_amount)
-            }
-            AccountPositionType::Borrow => borrows.get(hub_asset(asset.clone())).map(|p| p.scaled_amount),
+            AccountPositionType::Deposit => supplies
+                .get(hub_asset(asset.clone()))
+                .map(|p| p.scaled_amount),
+            AccountPositionType::Borrow => borrows
+                .get(hub_asset(asset.clone()))
+                .map(|p| p.scaled_amount),
         };
 
         if let Some(scaled_amount) = scaled_ray {
@@ -169,7 +171,9 @@ impl LendingTest {
 
     pub fn pool_utilization(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_utilisation(&hub_asset(asset));
+        let raw = self
+            .pool_client(asset_name)
+            .get_utilisation(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
 
@@ -182,13 +186,17 @@ impl LendingTest {
 
     pub fn pool_borrow_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_borrow_rate(&hub_asset(asset));
+        let raw = self
+            .pool_client(asset_name)
+            .get_borrow_rate(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
 
     pub fn pool_supply_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_deposit_rate(&hub_asset(asset));
+        let raw = self
+            .pool_client(asset_name)
+            .get_deposit_rate(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
     // Revenue snapshots
@@ -232,7 +240,10 @@ impl LendingTest {
         let spoke = self
             .ctrl_client()
             .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
-        let params = self.pool_client(asset_name).get_sync_data(&hub_asset(asset)).params;
+        let params = self
+            .pool_client(asset_name)
+            .get_sync_data(&hub_asset(asset))
+            .params;
         AssetConfigView {
             loan_to_value: spoke.loan_to_value,
             liquidation_threshold: spoke.liquidation_threshold,

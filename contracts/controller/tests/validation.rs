@@ -1,7 +1,7 @@
 use super::*;
 use crate::Controller;
 use common::types::pool::{AccountPositionRaw, DebtPositionRaw, HubAssetKey};
-use controller_interface::types::{
+use common::types::{
     Account, AccountPositionType, MarketOracleConfig, PositionLimits, PositionMode,
 };
 use soroban_sdk::testutils::Address as _;
@@ -64,12 +64,7 @@ fn account_with(env: &Env, supply: Option<&Address>, borrow: Option<&Address>) -
     }
     let mut borrow_positions = Map::new(env);
     if let Some(asset) = borrow {
-        borrow_positions.set(
-            hub(asset),
-            DebtPositionRaw {
-                scaled_amount: 1,
-            },
-        );
+        borrow_positions.set(hub(asset), DebtPositionRaw { scaled_amount: 1 });
     }
     Account {
         owner: Address::generate(env),

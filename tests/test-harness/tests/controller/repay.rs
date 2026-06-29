@@ -1,6 +1,6 @@
-use test_harness::{hub_asset, HubAssetKey,
-    assert_contract_error, errors, eth_preset, usdc_preset, wbtc_preset, LendingTest, PositionType,
-    ALICE, BOB,
+use test_harness::{
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, wbtc_preset, HubAssetKey,
+    LendingTest, PositionType, ALICE, BOB,
 };
 // 1. test_repay_partial
 
@@ -193,7 +193,11 @@ fn test_repay_multiple_assets() {
     let wbtc_before = t.token_balance(ALICE, "WBTC");
 
     let ctrl = t.ctrl_client();
-    let payments = soroban_sdk::vec![&t.env, (hub_asset(eth_addr), eth_repay), (hub_asset(wbtc_addr), wbtc_repay)];
+    let payments = soroban_sdk::vec![
+        &t.env,
+        (hub_asset(eth_addr), eth_repay),
+        (hub_asset(wbtc_addr), wbtc_repay)
+    ];
     ctrl.repay(&addr, &account_id, &payments);
 
     let eth_borrow = t.borrow_balance(ALICE, "ETH");
@@ -293,7 +297,11 @@ fn test_repay_duplicate_asset_payments_aggregate() {
     let eth = eth_market.asset.clone();
     eth_market.token_admin.mint(&caller, &1_0100000i128);
 
-    let payments = soroban_sdk::vec![&t.env, (hub_asset(eth.clone()), 5000000i128), (hub_asset(eth), 5100000i128)];
+    let payments = soroban_sdk::vec![
+        &t.env,
+        (hub_asset(eth.clone()), 5000000i128),
+        (hub_asset(eth), 5100000i128)
+    ];
     t.ctrl_client().repay(&caller, &account_id, &payments);
 
     let borrow = t.borrow_balance(ALICE, "ETH");

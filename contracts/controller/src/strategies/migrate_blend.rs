@@ -6,8 +6,9 @@
 //! state with `strategy_finalize`. Looped same-asset positions use separate
 //! repay and withdraw submits so balance deltas do not alias.
 
+use crate::account;
 use common::errors::GenericError;
-use controller_interface::types::{Account, DebtPosition, HubAssetKey, PositionMode};
+use common::types::{Account, DebtPosition, HubAssetKey, PositionMode};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, IntoVal, Map,
@@ -15,7 +16,7 @@ use soroban_sdk::{
 };
 use stellar_macros::when_not_paused;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::events::{self, BlendMigrationEvent};
 use crate::external::blend::{
     blend_submit_call, BlendRequest, REQ_REPAY, REQ_WITHDRAW, REQ_WITHDRAW_COLLATERAL,
@@ -23,10 +24,10 @@ use crate::external::blend::{
 use crate::positions::supply;
 use crate::strategies::swap::balance_delta;
 use crate::strategies::{
-    borrow_for_migration, prefetch_strategy_oracles, repay_debt_from_controller,
-    strategy_finalize, StrategyRepay,
+    borrow_for_migration, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
+    StrategyRepay,
 };
-use crate::{helpers, storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
 /// Parameters for `process_migrate_blend`.
 pub struct MigrateBlendParams {
@@ -103,13 +104,13 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     // Debt-opening flow: prices must be risk-increasing.
     let mut cache = Cache::new(env);
 
-    let (account_id, mut account) = helpers::load_or_create_account(
+    let (account_id, mut account) = account::load_or_create_account(
         env,
         caller,
         account_id,
         spoke_id,
         PositionMode::Normal,
-        helpers::AccountGuard::Migrate,
+        account::AccountGuard::Migrate,
         &mut cache,
     );
 

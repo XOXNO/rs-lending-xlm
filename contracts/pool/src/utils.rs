@@ -52,11 +52,7 @@ pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
 
     let cap = Ray::from_asset(supply_cap, cache.params.asset_decimals);
     let next_total = (cache.supplied + scaled_delta).mul(env, cache.supply_index);
-    assert_with_error!(
-        env,
-        next_total <= cap,
-        CollateralError::SupplyCapReached
-    );
+    assert_with_error!(env, next_total <= cap, CollateralError::SupplyCapReached);
 }
 
 /// Rejects a borrow that would put current underlying debt above the hub cap.
@@ -68,11 +64,7 @@ pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
 
     let cap = Ray::from_asset(borrow_cap, cache.params.asset_decimals);
     let next_total = (cache.borrowed + scaled_delta).mul(env, cache.borrow_index);
-    assert_with_error!(
-        env,
-        next_total <= cap,
-        CollateralError::BorrowCapReached
-    );
+    assert_with_error!(env, next_total <= cap, CollateralError::BorrowCapReached);
 }
 
 pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestRateModel) {
@@ -96,7 +88,12 @@ pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestR
     env.storage().persistent().set(&key, &params);
 }
 
-pub(crate) fn apply_hub_caps(env: &Env, hub_asset: &HubAssetKey, supply_cap: i128, borrow_cap: i128) {
+pub(crate) fn apply_hub_caps(
+    env: &Env,
+    hub_asset: &HubAssetKey,
+    supply_cap: i128,
+    borrow_cap: i128,
+) {
     assert_with_error!(
         env,
         supply_cap >= 0 && borrow_cap >= 0,

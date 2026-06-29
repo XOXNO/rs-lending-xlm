@@ -13,9 +13,9 @@ use soroban_sdk::{Address, Vec as SorobanVec};
 use test_harness::mock_blend::{
     MockBlend, MockBlendClient, MockBlendError, KIND_COLLATERAL, KIND_LIABILITY, KIND_SUPPLY,
 };
-use test_harness::{HARNESS_HUB, 
+use test_harness::{
     assert_contract_error, errors, eth_preset, helpers::f64_to_i128, usdc_preset, LendingTest,
-    ALICE,
+    ALICE, HARNESS_HUB,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────

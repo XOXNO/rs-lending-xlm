@@ -6,9 +6,7 @@
 //! specific `(hub_id, asset)`, and reading a hub-scoped pool `State`.
 
 use common::types::HubAssetKey;
-use controller::types::{
-    MarketParamsRaw, PoolKey, PoolStateRaw, PositionMode, SpokeAssetConfig,
-};
+use controller::types::{MarketParamsRaw, PoolKey, PoolStateRaw, PositionMode, SpokeAssetConfig};
 use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::{token, vec, TryFromVal, Vec};
 
@@ -142,13 +140,7 @@ impl LendingTest {
 
     /// Supplies `amount` of `asset_name` on `hub_id`. Mints to the user, creates
     /// the account on first call, registers it, and returns the account id.
-    pub fn supply_on_hub(
-        &mut self,
-        hub_id: u32,
-        user: &str,
-        asset_name: &str,
-        amount: f64,
-    ) -> u64 {
+    pub fn supply_on_hub(&mut self, hub_id: u32, user: &str, asset_name: &str, amount: f64) -> u64 {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
         let addr = self.get_or_create_user(user);
@@ -218,7 +210,12 @@ impl LendingTest {
     ) {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
-        let addr = self.users.get(user).expect("user must exist").address.clone();
+        let addr = self
+            .users
+            .get(user)
+            .expect("user must exist")
+            .address
+            .clone();
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
@@ -246,7 +243,12 @@ impl LendingTest {
     ) -> Result<(), soroban_sdk::Error> {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
-        let addr = self.users.get(user).expect("user must exist").address.clone();
+        let addr = self
+            .users
+            .get(user)
+            .expect("user must exist")
+            .address
+            .clone();
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();

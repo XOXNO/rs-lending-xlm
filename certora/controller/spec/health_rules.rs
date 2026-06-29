@@ -17,14 +17,14 @@ fn hub0(asset: &Address) -> HubAssetKey {
 }
 
 /// Sums borrow-side USD WAD by iterating `borrow_positions` without the summarised aggregate.
-fn inline_total_borrow_wad(env: &Env, cache: &mut crate::cache::Cache, account_id: u64) -> Wad {
+fn inline_total_borrow_wad(env: &Env, cache: &mut crate::context::Cache, account_id: u64) -> Wad {
     let account = crate::storage::get_account(env, account_id);
     let mut total = Wad::ZERO;
     for hub_asset in account.borrow_positions.keys() {
         let position = account.borrow_positions.get(hub_asset.clone()).unwrap();
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
-        let value = crate::helpers::position_value(
+        let value = crate::risk::position_value(
             env,
             Ray::from(position.scaled_amount),
             market_index.borrow_index,
@@ -38,7 +38,7 @@ fn inline_total_borrow_wad(env: &Env, cache: &mut crate::cache::Cache, account_i
 /// Sums liquidation-threshold-weighted collateral USD WAD from `supply_positions`.
 fn inline_weighted_collateral_wad(
     env: &Env,
-    cache: &mut crate::cache::Cache,
+    cache: &mut crate::context::Cache,
     account_id: u64,
 ) -> Wad {
     let account = crate::storage::get_account(env, account_id);
@@ -47,17 +47,14 @@ fn inline_weighted_collateral_wad(
         let position = account.supply_positions.get(hub_asset.clone()).unwrap();
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
-        let value = crate::helpers::position_value(
+        let value = crate::risk::position_value(
             env,
             Ray::from(position.scaled_amount),
             market_index.supply_index,
             feed.price,
         );
-        weighted += crate::helpers::weighted_collateral(
-            env,
-            value,
-            Bps::from(position.liquidation_threshold),
-        );
+        weighted +=
+            crate::risk::weighted_collateral(env, value, Bps::from(position.liquidation_threshold));
     }
     weighted
 }
@@ -74,7 +71,7 @@ fn hf_safe_after_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
 
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
 
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
     let weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let total_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
 
@@ -93,7 +90,7 @@ fn hf_safe_after_withdraw(e: Env, caller: Address, asset: Address, amount: i128)
 
     crate::spec::compat::withdraw_single(e.clone(), caller, account_id, asset, amount);
 
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
     let weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let total_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
 
@@ -112,7 +109,7 @@ fn liquidation_requires_unhealthy_account(e: Env) {
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
     let weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let debt = inline_total_borrow_wad(&e, &mut cache, account_id);
     cvlr_assume!(debt.raw() > 0);
@@ -134,14 +131,14 @@ fn supply_cannot_decrease_hf(e: Env, caller: Address, asset: Address, amount: i1
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
     let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let pre_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
     cvlr_assume!(pre_weighted.raw() >= pre_debt.raw());
 
     crate::spec::compat::supply_single(e.clone(), caller, account_id, asset, amount);
 
-    let mut cache2 = crate::cache::Cache::new(&e);
+    let mut cache2 = crate::context::Cache::new(&e);
     let post_weighted = inline_weighted_collateral_wad(&e, &mut cache2, account_id);
     let post_debt = inline_total_borrow_wad(&e, &mut cache2, account_id);
 

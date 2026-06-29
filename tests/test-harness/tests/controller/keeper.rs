@@ -1,7 +1,7 @@
 use controller::types::ControllerKey;
-use test_harness::{hub_asset, HubAssetKey,
-    assert_contract_error, days, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE,
-    BOB, STABLECOIN_SPOKE,
+use test_harness::{
+    assert_contract_error, days, errors, eth_preset, hub_asset, usd_cents, usdc_preset,
+    HubAssetKey, LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
 };
 
 fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u32 {

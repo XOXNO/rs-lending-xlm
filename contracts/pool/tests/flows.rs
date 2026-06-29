@@ -161,7 +161,8 @@ impl TestSetup {
         // Pool owner receives claimed revenue; controller forwards it to the
         // protocol accumulator.
         let pool_address = env.register(LiquidityPool, (admin.clone(),));
-        LiquidityPoolClient::new(&env, &pool_address).create_market(&0u32, &market_params(&asset_address));
+        LiquidityPoolClient::new(&env, &pool_address)
+            .create_market(&0u32, &market_params(&asset_address));
 
         // Mint tokens to the pool for reserves.
         let token_admin = token::StellarAssetClient::new(&env, &asset_address);
@@ -210,12 +211,7 @@ impl TestSetup {
         self.sup_for(&self.asset, scaled_amount, amount)
     }
 
-    fn sup_for(
-        &self,
-        asset: &Address,
-        scaled_amount: i128,
-        amount: i128,
-    ) -> Vec<PoolSupplyEntry> {
+    fn sup_for(&self, asset: &Address, scaled_amount: i128, amount: i128) -> Vec<PoolSupplyEntry> {
         vec![&self.env, self.sup_entry(asset, scaled_amount, amount)]
     }
 
@@ -230,16 +226,12 @@ impl TestSetup {
     }
 
     fn set_caps(&self, asset: &Address, supply_cap: i128, borrow_cap: i128) {
-        self.client().update_caps(&hub(asset), &supply_cap, &borrow_cap);
+        self.client()
+            .update_caps(&hub(asset), &supply_cap, &borrow_cap);
     }
 
     /// Singleton withdraw batch against the default market.
-    fn wdr(
-        &self,
-        scaled_amount: i128,
-        amount: i128,
-        protocol_fee: i128,
-    ) -> Vec<PoolWithdrawEntry> {
+    fn wdr(&self, scaled_amount: i128, amount: i128, protocol_fee: i128) -> Vec<PoolWithdrawEntry> {
         vec![
             &self.env,
             PoolWithdrawEntry {
@@ -487,11 +479,7 @@ fn test_withdraw() {
         .withdraw(
             &user,
             &false,
-            &t.wdr(
-                updated_pos.position.scaled_amount,
-                withdraw_amount,
-                0i128,
-            ),
+            &t.wdr(updated_pos.position.scaled_amount, withdraw_amount, 0i128),
         )
         .get_unchecked(0);
 
@@ -992,7 +980,11 @@ fn test_seize_position_deposit_dust() {
     let updated = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
 
     let revenue_before = client.get_revenue(&hub(&t.asset));
-    let seized = client.seize_position(&hub(&t.asset), &AccountPositionType::Deposit, &updated.position);
+    let seized = client.seize_position(
+        &hub(&t.asset),
+        &AccountPositionType::Deposit,
+        &updated.position,
+    );
 
     assert_eq!(
         seized.position.scaled_amount, 0,
@@ -1101,7 +1093,11 @@ fn test_claim_revenue_rejects_revenue_above_supplied() {
     let supplied = client
         .supply(&t.sup(0, 10_000_000_000i128))
         .get_unchecked(0);
-    let _ = client.seize_position(&hub(&t.asset), &AccountPositionType::Deposit, &supplied.position);
+    let _ = client.seize_position(
+        &hub(&t.asset),
+        &AccountPositionType::Deposit,
+        &supplied.position,
+    );
     t.edit_state(|state| {
         state.supplied = 1;
     });
@@ -1554,29 +1550,17 @@ fn test_update_params_happy_path() {
 
     // Updated fields round-trip through get_sync_data().
     let sync = client.get_sync_data(&hub(&t.asset));
-    assert_eq!(
-        sync.params.max_borrow_rate, new_max,
-        "max_borrow_rate"
-    );
-    assert_eq!(
-        sync.params.base_borrow_rate, new_base,
-        "base_borrow_rate"
-    );
+    assert_eq!(sync.params.max_borrow_rate, new_max, "max_borrow_rate");
+    assert_eq!(sync.params.base_borrow_rate, new_base, "base_borrow_rate");
     assert_eq!(sync.params.slope1, new_s1, "slope1");
     assert_eq!(sync.params.slope2, new_s2, "slope2");
     assert_eq!(sync.params.slope3, new_s3, "slope3");
-    assert_eq!(
-        sync.params.mid_utilization, new_mid,
-        "mid_utilization"
-    );
+    assert_eq!(sync.params.mid_utilization, new_mid, "mid_utilization");
     assert_eq!(
         sync.params.optimal_utilization, new_opt,
         "optimal_utilization"
     );
-    assert_eq!(
-        sync.params.reserve_factor, new_reserve,
-        "reserve_factor"
-    );
+    assert_eq!(sync.params.reserve_factor, new_reserve, "reserve_factor");
 
     // With base rate still 1% and higher slopes, 50% utilization uses updated slope1.
     client.supply(&t.sup(0, 10_000_000_000i128));
@@ -1983,10 +1967,7 @@ fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
     let actions = vec![
         &t.env,
         t.action(first_borrow.position.scaled_amount, debt_one),
-        t.action(
-            second_borrow.position.scaled_amount,
-            debt_two + overpayment,
-        ),
+        t.action(second_borrow.position.scaled_amount, debt_two + overpayment),
     ];
     let results = client.repay(&borrower, &actions);
     assert_eq!(results.len(), 2, "one mutation per entry");
@@ -2045,9 +2026,7 @@ fn test_bulk_supply_duplicate_asset_applies_sequentially() {
     let state_after = t.state_snapshot();
     assert_eq!(
         state_after.supplied,
-        state_before.supplied
-            + first.position.scaled_amount
-            + second.position.scaled_amount,
+        state_before.supplied + first.position.scaled_amount + second.position.scaled_amount,
         "total supplied is the sum of both entries"
     );
     assert_eq!(
@@ -2162,10 +2141,7 @@ fn test_cash_conservation_across_supply_borrow_overpaid_repay_withdraw() {
     let repaid = client
         .repay(
             &borrower,
-            &t.ract(
-                borrowed.position.scaled_amount,
-                borrow_amount + overpayment,
-            ),
+            &t.ract(borrowed.position.scaled_amount, borrow_amount + overpayment),
         )
         .get_unchecked(0);
     assert_eq!(repaid.actual_amount, borrow_amount);

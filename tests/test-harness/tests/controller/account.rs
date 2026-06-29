@@ -1,6 +1,6 @@
-use test_harness::{hub_asset,
-    assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
-    BOB, STABLECOIN_SPOKE,
+use test_harness::{
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, usdt_stable_preset,
+    LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
 };
 // 1. test_create_normal_account
 

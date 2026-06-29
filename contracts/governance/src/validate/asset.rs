@@ -4,7 +4,7 @@
 use common::constants::{BPS, POSITION_LIMIT_MAX};
 use common::errors::{CollateralError, GenericError};
 use common::types::MarketParamsRaw;
-use controller_interface::types::{PositionLimits, SpokeAssetConfig};
+use common::types::{PositionLimits, SpokeAssetConfig};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 // SAC decimal range for RAY/WAD conversions. Assets below 6 decimals can

@@ -3,8 +3,9 @@
 //! front ends or indexers. Reads can still renew shared-tier TTLs.
 
 use crate::constants::{MAX_VIEW_INPUTS, WAD};
+use crate::risk;
 use common::errors::GenericError;
-use controller_interface::types::{
+use common::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
     LiquidationEstimate, MarketIndexRaw, MarketIndexView, PaymentTuple, SpokeAssetConfig,
     SpokeConfig,
@@ -22,10 +23,10 @@ mod limits;
 
 pub use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::oracle::{price_components, token_price};
 use crate::positions::{liquidation::execute_liquidation, HubPayment};
-use crate::{helpers, storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
 fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
     assert_with_error!(
@@ -153,7 +154,7 @@ pub fn health_factor(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     match storage::try_get_account(env, account_id) {
         // dimensional: return is HealthFactor raw WAD; i128::MAX is no-debt/no-account sentinel.
-        Some(account) => helpers::calculate_account_risk_totals(
+        Some(account) => risk::calculate_account_risk_totals(
             env,
             &mut cache,
             account.spoke_id,
@@ -244,7 +245,7 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
     };
     let mut cache = Cache::new_view(env);
     // dimensional: return is Wad<USD> raw (1e18) liquidation collateral.
-    helpers::calculate_account_risk_totals(
+    risk::calculate_account_risk_totals(
         env,
         &mut cache,
         account.spoke_id,

@@ -1,8 +1,11 @@
-use common::errors::{SpokeError, GenericError};
+use common::errors::{GenericError, SpokeError};
 use controller::types::{ControllerKey, SpokeConfig};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN};
-use test_harness::{hub_asset, HubAssetKey, assert_contract_error, usdc_preset, LendingTest, ALICE, STABLECOIN_SPOKE};
+use test_harness::{
+    assert_contract_error, hub_asset, usdc_preset, HubAssetKey, LendingTest, ALICE,
+    STABLECOIN_SPOKE,
+};
 
 // 1. upgrade_pool -- admin path. Reuses the pool template hash so the Soroban
 //    host accepts a no-op upgrade without a second wasm blob.

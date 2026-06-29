@@ -199,8 +199,7 @@ impl InterestRateModel {
             self.optimal_utilization < RAY,
             CollateralError::OptUtilTooHigh
         );
-        if self.max_utilization < self.optimal_utilization || self.max_utilization > RAY
-        {
+        if self.max_utilization < self.optimal_utilization || self.max_utilization > RAY {
             panic_with_error!(env, CollateralError::InvalidUtilRange);
         }
         assert_with_error!(

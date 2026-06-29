@@ -163,10 +163,7 @@ fn test_position_and_market_batch_v2_wire_shape() {
     let attrs = as_vec(&data[1]);
     assert_eq!(attrs.len(), 3, "attrs arity is wire ABI");
     assert!(matches!(attrs[0], ScVal::Address(_)), "attrs.owner");
-    assert!(
-        matches!(attrs[1], ScVal::U32(_)),
-        "attrs.spoke_id"
-    );
+    assert!(matches!(attrs[1], ScVal::U32(_)), "attrs.spoke_id");
     assert!(matches!(attrs[2], ScVal::U32(_)), "attrs.mode");
     let deposits = as_vec(&data[2]);
     let borrows = as_vec(&data[3]);

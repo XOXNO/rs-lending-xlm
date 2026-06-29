@@ -2,12 +2,10 @@
 //! supply positions from the effective (spoke-aware) market config.
 
 use common::math::fp::{Bps, Wad};
-use controller_interface::types::{
-    Account, AccountPosition, AccountPositionRaw, AssetConfig, HubAssetKey,
-};
+use common::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig, HubAssetKey};
 use soroban_sdk::{Env, Map};
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::spoke;
 
 use super::calculate_account_risk_totals;
@@ -48,7 +46,11 @@ pub fn refresh_supply_risk_params_for_asset(
     position: &mut AccountPosition,
 ) {
     let active = matches!(cache.cached_spoke(account.spoke_id), Some(s) if !s.is_deprecated);
-    if !active || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
+    if !active
+        || cache
+            .cached_spoke_asset(account.spoke_id, hub_asset)
+            .is_none()
+    {
         return;
     }
     let config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);

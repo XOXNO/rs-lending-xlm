@@ -196,12 +196,9 @@ fn multiply_requires_collateralizable(
     cvlr_assume!(collateral_token != debt_token);
     cvlr_assume!((1..=3).contains(&mode));
 
-    let mut cache = crate::cache::Cache::new(&e);
-    let config = crate::spoke::effective_asset_config(
-        &mut cache,
-        spoke_id,
-        &hub0(collateral_token.clone()),
-    );
+    let mut cache = crate::context::Cache::new(&e);
+    let config =
+        crate::spoke::effective_asset_config(&mut cache, spoke_id, &hub0(collateral_token.clone()));
     cvlr_assume!(!config.is_collateralizable);
 
     crate::spec::compat::multiply_minimal(
@@ -487,12 +484,12 @@ fn repay_with_collateral_full_close_removes_account(
 /// clean_bad_debt reverts when the account does not qualify for cleanup.
 #[rule]
 fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
 
     let account = crate::storage::get_account(&e, account_id);
     cvlr_assume!(!account.borrow_positions.is_empty());
 
-    let totals = crate::helpers::calculate_account_risk_totals(
+    let totals = crate::risk::calculate_account_risk_totals(
         &e,
         &mut cache,
         account.spoke_id,

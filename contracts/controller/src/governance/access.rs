@@ -6,7 +6,7 @@
 //! governance remain callable while paused.
 
 use common::errors::GenericError;
-use controller_interface::types::{ControllerKey, PositionLimits};
+use common::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env};
 use stellar_access::{access_control, ownable};
 use stellar_macros::only_owner;

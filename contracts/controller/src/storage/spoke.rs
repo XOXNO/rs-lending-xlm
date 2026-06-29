@@ -9,14 +9,11 @@
 
 use super::renew_protocol_shared_key;
 use common::errors::SpokeError;
-use controller_interface::types::{
-    ControllerKey, HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
-};
+use common::types::{ControllerKey, HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
 use soroban_sdk::{panic_with_error, Env};
 
 pub(crate) fn get_spoke(env: &Env, id: u32) -> SpokeConfig {
-    try_get_spoke(env, id)
-        .unwrap_or_else(|| panic_with_error!(env, SpokeError::SpokeNotFound))
+    try_get_spoke(env, id).unwrap_or_else(|| panic_with_error!(env, SpokeError::SpokeNotFound))
 }
 
 pub(crate) fn try_get_spoke(env: &Env, id: u32) -> Option<SpokeConfig> {

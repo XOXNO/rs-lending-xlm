@@ -367,7 +367,7 @@ fn test_multiply_spoke_wrong_category_debt() {
         &2u32, // spoke_id = 2
         &hub_asset(collateral_addr.clone()),
         &10_0000000i128,                            // 1 ETH worth of debt
-        &hub_asset(debt_addr.clone()), // ETH -- not in spoke category 2
+        &hub_asset(debt_addr.clone()),              // ETH -- not in spoke category 2
         &controller::types::PositionMode::Multiply, // mode = 1 (multiply)
         &steps,
         &None, // initial_payment
@@ -410,8 +410,8 @@ fn test_multiply_spoke_wrong_category_collateral() {
     let ctrl = t.ctrl_client();
     let result = ctrl.try_multiply(
         &caller,
-        &0u64,            // account_id = 0 (create new)
-        &2u32,            // spoke_id = 2
+        &0u64,                               // account_id = 0 (create new)
+        &2u32,                               // spoke_id = 2
         &hub_asset(collateral_addr.clone()), // ETH: not in spoke category
         &1000_0000000i128,
         &hub_asset(debt_addr.clone()),

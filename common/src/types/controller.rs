@@ -1,9 +1,9 @@
-use crate::types::oracle::MarketOracleConfigOption;
-use common::math::fp::{Bps, Ray};
-use common::types::pool::{
+use crate::math::fp::{Bps, Ray};
+use crate::types::oracle::{MarketOracleConfigOption, PriceFeedRaw};
+use crate::types::pool::{
     AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw, HubAssetKey,
 };
-use common::types::shared::PositionMode;
+use crate::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
 /// Typed asset risk and collateral/borrow flags, projected from the per-spoke
@@ -199,8 +199,8 @@ pub struct SeizeEntry {
     pub hub_asset: HubAssetKey,
     pub amount: i128,
     pub protocol_fee: i128,
-    pub feed: crate::types::oracle::PriceFeedRaw,
-    pub market_index: common::types::pool::MarketIndexRaw,
+    pub feed: PriceFeedRaw,
+    pub market_index: crate::types::pool::MarketIndexRaw,
 }
 
 #[contracttype]
@@ -209,8 +209,8 @@ pub struct RepayEntry {
     pub hub_asset: HubAssetKey,
     pub amount: i128,
     pub usd_wad: i128,
-    pub feed: crate::types::oracle::PriceFeedRaw,
-    pub market_index: common::types::pool::MarketIndexRaw,
+    pub feed: PriceFeedRaw,
+    pub market_index: crate::types::pool::MarketIndexRaw,
 }
 
 #[contracttype]
@@ -443,7 +443,7 @@ mod tests {
             asset: Address::generate(&env),
         };
         let stored = AccountPositionRaw {
-            scaled_amount: 42 * common::constants::RAY,
+            scaled_amount: 42 * crate::constants::RAY,
             liquidation_threshold: 8_000,
             liquidation_bonus: 500,
             loan_to_value: 7_500,

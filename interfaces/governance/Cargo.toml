@@ -9,7 +9,6 @@ crate-type = ["rlib"]
 [dependencies]
 soroban-sdk = { workspace = true }
 common = { path = "../../common" }
-controller-interface = { path = "../../interfaces/controller" }
 stellar-governance = { workspace = true }
 
 [dev-dependencies]

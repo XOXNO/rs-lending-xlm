@@ -1,12 +1,15 @@
 use common::errors::{CollateralError, GenericError, OracleError};
-use soroban_sdk::{assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec};
+use soroban_sdk::{
+    assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
+};
 
 use crate::timelock::{validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
     AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EditToleranceArgs, PoolCapsArgs,
-    RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
+    RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, TransferOwnershipArgs,
+    UpgradePoolParamsArgs,
 };
 
 pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Vec<Val>, DelayTier) {
@@ -284,11 +287,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
         AdminOperation::SetPositionManager(manager, is_active) => (
             storage::get_controller(env),
             Symbol::new(env, "set_position_manager"),
-            vec![
-                env,
-                manager.clone().into_val(env),
-                is_active.into_val(env),
-            ],
+            vec![env, manager.clone().into_val(env), is_active.into_val(env)],
             DelayTier::Standard,
         ),
         AdminOperation::UpgradeController(hash) => {

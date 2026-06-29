@@ -4,10 +4,10 @@
 //! go through `Cache`.
 
 use common::math::fp::{Bps, Ray, Wad};
-use controller_interface::types::{AccountPositionRaw, DebtPositionRaw, HubAssetKey};
+use common::types::{AccountPositionRaw, DebtPositionRaw, HubAssetKey};
 use soroban_sdk::{Address, Env, Map, Vec};
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::oracle;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 

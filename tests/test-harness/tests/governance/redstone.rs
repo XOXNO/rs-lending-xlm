@@ -3,8 +3,8 @@
 use governance::op::{AdminOperation, ConfigureOracleArgs};
 use soroban_sdk::String;
 use test_harness::oracle::redstone::register_redstone_adapter;
-use test_harness::{hub_asset, 
-    assert_contract_error, errors, usd, usdc_preset, LendingTest, DEFAULT_TOLERANCE,
+use test_harness::{
+    assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, DEFAULT_TOLERANCE,
 };
 
 fn try_configure_usdc(
@@ -46,7 +46,10 @@ fn test_redstone_source_stale_window_rejects_invalid_config() {
     );
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs { hub_asset: hub_asset(asset), cfg }),
+        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
+            hub_asset: hub_asset(asset),
+            cfg,
+        }),
     );
 }
 

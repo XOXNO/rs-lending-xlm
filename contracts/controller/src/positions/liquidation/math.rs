@@ -9,18 +9,18 @@ use crate::constants::{
 };
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
-use controller_interface::types::{
+use common::types::{
     Account, AccountPositionRaw, DebtPosition, HubAssetKey, LiquidationResult, PaymentTuple,
     RepayEntry, SeizeEntry, SpokeConfig,
 };
 use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
-use crate::cache::Cache;
-use crate::helpers;
-use crate::helpers::utils;
+use crate::context::Cache;
+use crate::payments as utils;
 use crate::positions::HubPayment;
+use crate::risk;
+use crate::risk::validation;
 use crate::storage::iter_typed_positions;
-use crate::validation;
 
 /// Aggregate position metrics for liquidation helpers.
 #[derive(Clone, Copy)]
@@ -234,8 +234,7 @@ pub(crate) fn calculate_liquidation_amounts(
     total_payment_usd: Wad,
     curve: &LiquidationCurve,
 ) -> (Wad, Bps) {
-    let (ideal_repayment_usd, bonus) =
-        estimate_liquidation_amount(env, snap, bonus_bounds, curve);
+    let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
 
     // dimensional: both candidates are Wad<USD>; min preserves close amount units.
     let final_repayment_usd = total_payment_usd.min(ideal_repayment_usd);
@@ -265,7 +264,8 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        let asset_config = crate::spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
+        let asset_config =
+            crate::spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         // dimensional: supply share/index -> Token(asset) -> Wad<USD>; share is Wad<1>.
@@ -437,7 +437,10 @@ impl LiquidationCurve {
         match self.hf_for_max_bonus {
             // Legacy default: max bonus at `hf == target / 2`. The integer
             // doubling reproduces today's exact `2 * gap_wad` scale per tier.
-            None => gap.div(env, target).mul(env, Wad::from(2 * WAD)).min(Wad::ONE),
+            None => gap
+                .div(env, target)
+                .mul(env, Wad::from(2 * WAD))
+                .min(Wad::ONE),
             // Configured: scale reaches 1 once `hf <= hf_for_max_bonus`.
             Some(hf_for_max_bonus) => {
                 if target <= hf_for_max_bonus {
@@ -656,7 +659,7 @@ pub(crate) fn get_account_bonus_params(
         let feed = cache.cached_price_for(spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
-        let value = helpers::position_value(
+        let value = risk::position_value(
             env,
             position.scaled_amount,
             market_index.supply_index,
@@ -690,5 +693,5 @@ pub(crate) fn get_account_bonus_params(
 }
 
 #[cfg(test)]
-#[path = "../../tests/positions/liquidation_math.rs"]
+#[path = "../../../tests/positions/liquidation_math.rs"]
 mod tests;

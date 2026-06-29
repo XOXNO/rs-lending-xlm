@@ -57,7 +57,8 @@ impl LendingTest {
         market.token_admin.mint(&addr, &raw_amount);
 
         let ctrl = self.ctrl_client();
-        let payments: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        let payments: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), raw_amount)];
         match ctrl.try_repay(&addr, &account_id, &payments) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),

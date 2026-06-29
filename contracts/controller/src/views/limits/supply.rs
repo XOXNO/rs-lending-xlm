@@ -2,11 +2,11 @@
 
 use common::math::fp::Ray;
 use common::rates::scaled_to_original;
+use common::types::{Account, AssetConfig, HubAssetKey, SpokeUsageRaw};
 use common::validation::cap_is_enabled;
-use controller_interface::types::{Account, AssetConfig, HubAssetKey, SpokeUsageRaw};
 use soroban_sdk::Env;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::storage;
 
 use super::MarketLimitCtx;

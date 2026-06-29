@@ -38,10 +38,10 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
 
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
 
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
     let post_account = crate::storage::get_account(&e, account_id);
 
-    let ltv_collateral = crate::helpers::calculate_ltv_collateral_wad(
+    let ltv_collateral = crate::risk::calculate_ltv_collateral_wad(
         &e,
         &mut cache,
         post_account.spoke_id,
@@ -50,10 +50,13 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
 
     let mut total_debt = Wad::ZERO;
     for hub_asset in post_account.borrow_positions.keys() {
-        let position = post_account.borrow_positions.get(hub_asset.clone()).unwrap();
+        let position = post_account
+            .borrow_positions
+            .get(hub_asset.clone())
+            .unwrap();
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
-        let value = crate::helpers::position_value(
+        let value = crate::risk::position_value(
             &e,
             Ray::from(position.scaled_amount),
             market_index.borrow_index,
@@ -128,8 +131,8 @@ fn supply_position_limit_enforced(
         account_id,
         crate::types::AccountPositionType::Deposit,
     );
-    cvlr_assume!(current_list.len() == limits.max_supply_positions as u32);
-    cvlr_assume!(limits.max_supply_positions as u32 <= 10);
+    cvlr_assume!(current_list.len() == limits.max_supply_positions);
+    cvlr_assume!(limits.max_supply_positions <= 10);
 
     // `new_asset` is genuinely new, so the supply adds a position above the limit.
     // Expressed via `get_position` (not a scan of `current_list`): an
@@ -163,8 +166,8 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
         account_id,
         crate::types::AccountPositionType::Borrow,
     );
-    cvlr_assume!(current_list.len() == limits.max_borrow_positions as u32);
-    cvlr_assume!(limits.max_borrow_positions as u32 <= 10);
+    cvlr_assume!(current_list.len() == limits.max_borrow_positions);
+    cvlr_assume!(limits.max_borrow_positions <= 10);
 
     // `new_asset` is genuinely new, so the borrow adds a position above the limit.
     // Expressed via `get_position` (not a scan): an `optimistic_loop` over the
@@ -186,13 +189,7 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
 }
 
 #[rule]
-fn solvency_sanity_supply(
-    e: Env,
-    caller: Address,
-    spoke_id: u32,
-    asset: Address,
-    amount: i128,
-) {
+fn solvency_sanity_supply(e: Env, caller: Address, spoke_id: u32, asset: Address, amount: i128) {
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0);
     let mut assets = Vec::new(&e);
@@ -224,7 +221,7 @@ fn solvency_sanity_repay(e: Env, caller: Address, asset: Address, amount: i128) 
 /// cached_market_index returns the same snapshot within one transaction.
 #[rule]
 fn index_cache_single_snapshot(e: Env, asset: Address) {
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
 
     let hub_asset = hub0(asset);
     let index1 = cache.cached_market_index(&hub_asset);
@@ -267,7 +264,7 @@ fn borrow_repay_roundtrip_no_profit(e: Env) {
 /// Clearing prices_cache forces a fresh oracle fetch.
 #[rule]
 fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
 
     let _feed1 = cache.cached_price(&asset);
 
@@ -322,7 +319,7 @@ fn compound_interest_no_wrap(e: Env) {
 
 #[rule]
 fn index_cache_snapshot_sanity(e: Env, asset: Address) {
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
     let index = cache.cached_market_index(&hub0(asset));
     cvlr_satisfy!(index.supply_index.raw() >= RAY);
 }

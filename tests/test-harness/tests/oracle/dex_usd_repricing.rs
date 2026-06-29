@@ -1,7 +1,7 @@
 use soroban_sdk::{Address, String, Vec};
-use test_harness::{hub_asset, 
-    eth_preset, reflector_primary_redstone_anchor_config, reflector_single_spot_config, usd,
-    usd_frac, usdc_preset, xlm_preset, LendingTest, ALICE, DEFAULT_TOLERANCE,
+use test_harness::{
+    eth_preset, hub_asset, reflector_primary_redstone_anchor_config, reflector_single_spot_config,
+    usd, usd_frac, usdc_preset, xlm_preset, LendingTest, ALICE, DEFAULT_TOLERANCE,
 };
 
 /// Register a DEX-style Reflector oracle quoted in `quote` (a Stellar SAC).
@@ -193,7 +193,8 @@ fn test_oracle_config_execute_rejects_disabled_quote_market() {
     t.ctrl_client().disable_token_oracle(&usdc);
 
     // Executing the stale op re-asserts the quote invariant and reverts.
-    t.ctrl_client().set_market_oracle_config(&hub_asset(xlm.clone()), &stale);
+    t.ctrl_client()
+        .set_market_oracle_config(&hub_asset(xlm.clone()), &stale);
 }
 
 /// Happy path: re-applying the same resolved config while the quote market is
@@ -227,7 +228,8 @@ fn test_oracle_config_execute_accepts_active_usd_quote_market() {
     });
 
     // USDC stays Active+USD: replaying the resolved config still applies.
-    t.ctrl_client().set_market_oracle_config(&hub_asset(xlm.clone()), &resolved);
+    t.ctrl_client()
+        .set_market_oracle_config(&hub_asset(xlm.clone()), &resolved);
     assert_eq!(index_view(&t, &xlm).price_wad, usd(2));
 }
 

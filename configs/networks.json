@@ -3,12 +3,12 @@
     "rpc_url": "https://stellar-testnet-gateway.xoxno.com",
     "network_passphrase": "Test SDF Network ; September 2015",
     "timelock_min_delay_ledgers": 12,
-    "governance": "CDXSXXQYLIODKKS56LSAVEXL7TRRJLDTUFGXEJM4Z4BMHTPWEO6OZBVN",
-    "controller": "CAUPFS5V7FKPEI6KVL4KVGLVGYCS3K472NMFZB6NWPWJRNZYMR64RGDU",
+    "governance": " Explain now the full trace of checks and functions called for a simple supply endpoint",
+    "controller": "CDULPVIO4FXIBDZEWRQRIPWQCWDT5OZXYHQ3U52XOMQAOTTTVFD4BTM4",
     "aggregator": "CBAS56L66AUKYZB6KIXX6LYXM76OQXFBJ4A7ORITBIRUO5ZV7SOYRAK7",
     "accumulator": "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV",
     "pool_wasm_hash": "105d52e0f692215ee351aef6aa520861c8d5bbb901bc5be3d2b36a626b27e5a2",
-    "controller_wasm_hash": "384f52a915372be810aac0ba8ff0a269ff91579cf431391de16d4212c00cf912",
+    "controller_wasm_hash": "b9470c074ee8bbe57876b0666d5c5b2fcf61129bcb757c705d893c234c911999",
     "ledger_index": 0,
     "reflector_cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
     "reflector_dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
@@ -19,7 +19,7 @@
       "1": 1,
       "2": 2
     },
-    "pool": "CCQ5UQAFSYRWDJT6AMJXW3D3VGGWYWYMNIGDO5WRPURUQ5CQYZPWBXVN",
+    "pool": "CDNJXMDX4B4ESQSPO7MZPLT4GUWLEL5G6K5W2XRLIXVPPP43CIGPW7OJ",
     "governance_wasm_hash": "1d6d1f6b503ebaae76a5e2123fb1acbfd34836c643815892eeb077c2b3fc02ce"
   },
   "mainnet": {

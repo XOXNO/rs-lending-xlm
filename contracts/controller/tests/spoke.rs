@@ -1,9 +1,7 @@
 use super::*;
 use crate::storage;
 use crate::Controller;
-use controller_interface::types::{
-    Account, MarketOracleConfigOption, PositionMode, SpokeAssetConfig,
-};
+use common::types::{Account, MarketOracleConfigOption, PositionMode, SpokeAssetConfig};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Map};
 
@@ -65,12 +63,16 @@ fn effective_asset_config_reads_each_spoke_directly() {
         // through its own cache (mirroring one account = one spoke per tx).
         let mut cache_spoke_1 = Cache::new_view(&env);
         assert_eq!(
-            effective_asset_config(&mut cache_spoke_1, 1, &hub(&asset)).loan_to_value.raw() as u32,
+            effective_asset_config(&mut cache_spoke_1, 1, &hub(&asset))
+                .loan_to_value
+                .raw() as u32,
             9_000
         );
         let mut cache_spoke_2 = Cache::new_view(&env);
         assert_eq!(
-            effective_asset_config(&mut cache_spoke_2, 2, &hub(&asset)).loan_to_value.raw() as u32,
+            effective_asset_config(&mut cache_spoke_2, 2, &hub(&asset))
+                .loan_to_value
+                .raw() as u32,
             5_000
         );
     });

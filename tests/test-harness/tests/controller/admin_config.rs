@@ -6,9 +6,9 @@ use controller::types::{
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
-use test_harness::{HARNESS_HUB, 
+use test_harness::{
     assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
-    DEFAULT_TOLERANCE,
+    DEFAULT_TOLERANCE, HARNESS_HUB,
 };
 
 /// Pre-resolved config for the thin `set_market_oracle_config` setter:
@@ -54,10 +54,7 @@ fn test_edit_asset_config() {
     });
 
     let config = t.get_asset_config("USDC");
-    assert_eq!(
-        config.loan_to_value, 6000,
-        "LTV should be updated to 6000"
-    );
+    assert_eq!(config.loan_to_value, 6000, "LTV should be updated to 6000");
     // Threshold must remain unchanged.
     assert_eq!(
         config.liquidation_threshold, 8000,
@@ -449,5 +446,8 @@ fn test_market_initialization_cascade() {
     t.configure_market_oracle(&asset, &reflector_cfg);
 
     // 3. Confirm the market is Active (its AssetOracle entry now exists).
-    assert!(t.market_is_active(&asset), "market should be in Active status");
+    assert!(
+        t.market_is_active(&asset),
+        "market should be in Active status"
+    );
 }

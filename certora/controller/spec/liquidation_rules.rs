@@ -120,8 +120,8 @@ fn bonus_bounded(
     // Real production bonus math (NOT the certora summary `calculate_linear_bonus`,
     // which would assume the very bounds asserted here). Proves the production
     // function keeps the bonus in [base, max] for any liquidation target.
-    let curve = crate::positions::liquidation_math::LiquidationCurve::from_config(None);
-    let bonus = crate::positions::liquidation_math::calculate_linear_bonus_with_target(
+    let curve = crate::positions::liquidation::math::LiquidationCurve::from_config(None);
+    let bonus = crate::positions::liquidation::math::calculate_linear_bonus_with_target(
         &e,
         Wad::from(hf_wad),
         Bps::from(base_bonus_bps),
@@ -140,18 +140,12 @@ fn derived_bonus_respects_threshold(e: Env, proportion_seized_wad: i128) {
     cvlr_assume!(proportion_seized_wad > 0);
     cvlr_assume!(proportion_seized_wad <= WAD);
 
-    let max = crate::positions::liquidation_math::max_bonus_for_threshold(
+    let max = crate::positions::liquidation::math::max_bonus_for_threshold(
         &e,
         Wad::from(proportion_seized_wad),
     );
 
-    let mut eff_thr_bps = (proportion_seized_wad * BPS + (WAD - 1)) / WAD;
-    if eff_thr_bps < 1 {
-        eff_thr_bps = 1;
-    }
-    if eff_thr_bps > BPS {
-        eff_thr_bps = BPS;
-    }
+    let eff_thr_bps = ((proportion_seized_wad * BPS + (WAD - 1)) / WAD).clamp(1, BPS);
 
     cvlr_assert!(eff_thr_bps * (BPS + max.raw()) <= BPS * BPS);
 }
@@ -241,20 +235,20 @@ fn ideal_repayment_targets_102(
     let proportion_seized_wad = mul_div_half_up(&e, weighted_collateral_wad, WAD, total_debt_wad);
     let total_collateral_wad = total_debt_wad;
 
-    let snap = crate::positions::liquidation_math::LiquidationSnapshot {
+    let snap = crate::positions::liquidation::math::LiquidationSnapshot {
         total_debt: Wad::from(total_debt_wad),
         total_collateral: Wad::from(total_collateral_wad),
         weighted_coll: Wad::from(weighted_collateral_wad),
         proportion_seized: Wad::from(proportion_seized_wad),
         hf: Wad::from(hf_wad),
     };
-    let bounds = crate::positions::liquidation_math::BonusBounds {
+    let bounds = crate::positions::liquidation::math::BonusBounds {
         base: Bps::from(base_bonus_bps),
         max: Bps::from(max_bonus_bps),
     };
-    let curve = crate::positions::liquidation_math::LiquidationCurve::from_config(None);
+    let curve = crate::positions::liquidation::math::LiquidationCurve::from_config(None);
     let (ideal, bonus) =
-        crate::positions::liquidation_math::estimate_liquidation_amount(&e, &snap, bounds, &curve);
+        crate::positions::liquidation::math::estimate_liquidation_amount(&e, &snap, bounds, &curve);
 
     cvlr_assert!(ideal.raw() > 0);
     cvlr_assert!(ideal.raw() <= total_debt_wad);
@@ -277,8 +271,8 @@ fn liquidation_bonus_sanity(e: Env) {
     cvlr_assume!(max >= base && max <= BPS);
     cvlr_assume!(target > 0 && target <= 2 * WAD);
 
-    let curve = crate::positions::liquidation_math::LiquidationCurve::from_config(None);
-    let bonus = crate::positions::liquidation_math::calculate_linear_bonus_with_target(
+    let curve = crate::positions::liquidation::math::LiquidationCurve::from_config(None);
+    let bonus = crate::positions::liquidation::math::calculate_linear_bonus_with_target(
         &e,
         Wad::from(hf),
         Bps::from(base),
@@ -299,19 +293,19 @@ fn estimate_liquidation_sanity(e: Env) {
     cvlr_assume!(weighted_col > 0 && weighted_col < total_debt);
     cvlr_assume!(hf > 0 && hf < WAD);
 
-    let snap = crate::positions::liquidation_math::LiquidationSnapshot {
+    let snap = crate::positions::liquidation::math::LiquidationSnapshot {
         total_debt: Wad::from(total_debt),
         total_collateral: Wad::from(total_debt),
         weighted_coll: Wad::from(weighted_col),
         proportion_seized: Wad::from(WAD / 2),
         hf: Wad::from(hf),
     };
-    let bounds = crate::positions::liquidation_math::BonusBounds {
+    let bounds = crate::positions::liquidation::math::BonusBounds {
         base: Bps::from(500),
         max: Bps::from(1000),
     };
-    let curve = crate::positions::liquidation_math::LiquidationCurve::from_config(None);
+    let curve = crate::positions::liquidation::math::LiquidationCurve::from_config(None);
     let (ideal, _bonus) =
-        crate::positions::liquidation_math::estimate_liquidation_amount(&e, &snap, bounds, &curve);
+        crate::positions::liquidation::math::estimate_liquidation_amount(&e, &snap, bounds, &curve);
     cvlr_satisfy!(ideal.raw() > 0);
 }

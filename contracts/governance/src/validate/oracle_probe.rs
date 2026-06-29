@@ -17,7 +17,7 @@ use common::oracle::providers::reflector::{
     reflector_prices_call, reflector_resolution_call, to_reflector_asset, ReflectorAsset,
     ReflectorPriceData,
 };
-use controller_interface::types::{
+use common::types::{
     MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation, OracleReadMode,
     OracleSourceConfig, RedStoneSourceConfig, ReflectorBase, ReflectorSourceConfig,
 };
@@ -46,15 +46,13 @@ pub(crate) fn validate_market_oracle_sources(
     let asset_decimals = validate_and_fetch_token_decimals(env, asset);
     let primary = validate_source(env, asset, &config.primary, config.max_price_stale_seconds);
     let anchor = match config.anchor.as_ref() {
-        Some(anchor) => {
-            controller_interface::types::OracleSourceConfigOption::Some(validate_source(
-                env,
-                asset,
-                anchor,
-                config.max_price_stale_seconds,
-            ))
-        }
-        None => controller_interface::types::OracleSourceConfigOption::None,
+        Some(anchor) => common::types::OracleSourceConfigOption::Some(validate_source(
+            env,
+            asset,
+            anchor,
+            config.max_price_stale_seconds,
+        )),
+        None => common::types::OracleSourceConfigOption::None,
     };
 
     MarketOracleConfig {
@@ -72,11 +70,11 @@ pub(crate) fn validate_market_oracle_sources(
 fn validate_source(
     env: &Env,
     asset: &Address,
-    source: &controller_interface::types::OracleSourceConfigInput,
+    source: &common::types::OracleSourceConfigInput,
     max_stale: u64,
 ) -> OracleSourceConfig {
     match source {
-        controller_interface::types::OracleSourceConfigInput::Reflector(config) => {
+        common::types::OracleSourceConfigInput::Reflector(config) => {
             let base = validate_base(env, asset, &config.contract);
             let reflector_asset = to_reflector_asset(env, &config.asset);
             let decimals = reflector_decimals_call(env, &config.contract);
@@ -114,7 +112,7 @@ fn validate_source(
                 base,
             })
         }
-        controller_interface::types::OracleSourceConfigInput::RedStone(config) => {
+        common::types::OracleSourceConfigInput::RedStone(config) => {
             validate_max_stale(env, config.max_stale_seconds);
 
             // Redstone has no on-chain base() accessor; quote currency is

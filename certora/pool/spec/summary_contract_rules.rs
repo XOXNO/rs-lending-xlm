@@ -36,9 +36,9 @@ fn params(asset: Address) -> MarketParamsRaw {
 
 fn state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolStateRaw {
     PoolStateRaw {
-        supplied: supplied,
-        borrowed: borrowed,
-        revenue: revenue,
+        supplied,
+        borrowed,
+        revenue,
         borrow_index: RAY,
         supply_index: RAY,
         last_timestamp: timestamp * 1000,
@@ -336,11 +336,11 @@ fn view_state(
     timestamp: u64,
 ) -> PoolStateRaw {
     PoolStateRaw {
-        supplied: supplied,
-        borrowed: borrowed,
-        revenue: revenue,
-        borrow_index: borrow_index,
-        supply_index: supply_index,
+        supplied,
+        borrowed,
+        revenue,
+        borrow_index,
+        supply_index,
         last_timestamp: timestamp * 1000,
         cash,
     }
@@ -349,7 +349,7 @@ fn view_state(
 /// `get_reserves` is non-negative when `cash >= 0`.
 #[rule]
 fn reserves_view_nonneg(e: Env, admin: Address, asset: Address, cash: i128) {
-    cvlr_assume!(cash >= 0 && cash <= 1_000_000_000_000i128);
+    cvlr_assume!((0..=1_000_000_000_000i128).contains(&cash));
     seed(
         &e,
         admin,
@@ -368,8 +368,8 @@ fn supplied_amount_view_nonneg(
     supplied: i128,
     supply_index: i128,
 ) {
-    cvlr_assume!(supplied >= 0 && supplied <= 1_000_000 * RAY);
-    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= 10 * RAY);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=10 * RAY).contains(&supply_index));
     seed(
         &e,
         admin,
@@ -396,8 +396,8 @@ fn borrowed_amount_view_nonneg(
     borrowed: i128,
     borrow_index: i128,
 ) {
-    cvlr_assume!(borrowed >= 0 && borrowed <= 1_000_000 * RAY);
-    cvlr_assume!(borrow_index >= RAY && borrow_index <= 10 * RAY);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&borrowed));
+    cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
     seed(
         &e,
         admin,
@@ -425,9 +425,9 @@ fn protocol_revenue_view_nonneg(
     revenue: i128,
     supply_index: i128,
 ) {
-    cvlr_assume!(supplied >= 0 && supplied <= 1_000_000 * RAY);
-    cvlr_assume!(revenue >= 0 && revenue <= supplied);
-    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= 10 * RAY);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied));
+    cvlr_assume!((0..=supplied).contains(&revenue));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=10 * RAY).contains(&supply_index));
     seed(
         &e,
         admin,
@@ -455,9 +455,9 @@ fn protocol_revenue_le_supplied_view(
     revenue: i128,
     supply_index: i128,
 ) {
-    cvlr_assume!(supplied >= 0 && supplied <= 1_000_000 * RAY);
-    cvlr_assume!(revenue >= 0 && revenue <= supplied);
-    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= 10 * RAY);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied));
+    cvlr_assume!((0..=supplied).contains(&revenue));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=10 * RAY).contains(&supply_index));
     seed(
         &e,
         admin,
@@ -488,10 +488,10 @@ fn capital_utilisation_view_nonneg(
     supply_index: i128,
     borrow_index: i128,
 ) {
-    cvlr_assume!(supplied >= 0 && supplied <= 1_000_000 * RAY);
-    cvlr_assume!(borrowed >= 0 && borrowed <= 1_000_000 * RAY);
-    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= 10 * RAY);
-    cvlr_assume!(borrow_index >= RAY && borrow_index <= 10 * RAY);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied));
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&borrowed));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=10 * RAY).contains(&supply_index));
+    cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
     seed(
         &e,
         admin,
@@ -577,8 +577,8 @@ fn borrow_within_reserves(
     amount: i128,
     cash: i128,
 ) {
-    cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
-    cvlr_assume!(cash >= 0 && cash <= 1_000_000_000_000i128);
+    cvlr_assume!((1..=1_000_000_000_000i128).contains(&amount));
+    cvlr_assume!((0..=1_000_000_000_000i128).contains(&cash));
     seed(
         &e,
         admin,

@@ -5,7 +5,7 @@
 
 use crate::constants;
 use common::errors::GenericError;
-use controller_interface::types::{
+use common::types::{
     ControllerKey, HubConfig, MarketOracleConfig, PositionLimits, PositionManagerConfig,
 };
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, BytesN, Env};

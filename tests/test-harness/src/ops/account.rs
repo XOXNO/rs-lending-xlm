@@ -25,12 +25,7 @@ impl LendingTest {
     /// Create an account with full control over the spoke and position mode.
     /// `spoke_id` is the target spoke id (>= 1); use [`HARNESS_SPOKE`] for
     /// a regular account.
-    pub fn create_account_full(
-        &mut self,
-        user: &str,
-        spoke_id: u32,
-        mode: PositionMode,
-    ) -> u64 {
+    pub fn create_account_full(&mut self, user: &str, spoke_id: u32, mode: PositionMode) -> u64 {
         let _ = self.get_or_create_user(user);
         let account_id = self.create_account_direct(user, spoke_id, mode);
         self.register_account(user, account_id, spoke_id, mode);

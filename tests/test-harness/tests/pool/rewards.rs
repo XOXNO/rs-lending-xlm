@@ -1,5 +1,7 @@
 use controller::constants::RAY;
-use test_harness::{hub_asset, days, eth_preset, usdc_preset, LendingTest, ALICE, BOB, CAROL, DAVE};
+use test_harness::{
+    days, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB, CAROL, DAVE,
+};
 // Rigorous add_rewards tests: verify the supply index math.
 //
 // Formula: new_index = old_index * (1 + rewards / total_supplied_value),

@@ -1,6 +1,6 @@
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
 
-use controller_interface::types::{
+use common::types::{
     Account, AccountMeta, AccountPosition, DebtPosition, MarketOracleConfig, OracleAssetRef,
     OraclePriceFluctuation, OracleProviderKind, OracleReadMode, OracleSourceConfig, OracleStrategy,
     PositionMode, ReflectorBase, SpokeAssetConfig, SpokeConfig,
@@ -244,6 +244,7 @@ fn read_mode_parts(read_mode: &OracleReadMode) -> (u32, u32) {
 #[contractevent(topics = ["market", "create"])]
 #[derive(Clone, Debug)]
 pub struct CreateMarketEvent {
+    pub hub_id: u32,
     pub base_asset: Address,
     pub max_borrow_rate: i128,
     pub base_borrow_rate: i128,
@@ -301,6 +302,7 @@ pub enum PositionAction {
 #[derive(Clone, Debug)]
 pub struct EventDepositDelta(
     pub PositionAction,
+    pub u32,
     pub Address,
     pub i128,
     pub i128,
@@ -313,6 +315,7 @@ pub struct EventDepositDelta(
 impl EventDepositDelta {
     pub fn new(
         action: PositionAction,
+        hub_id: u32,
         asset: Address,
         index_ray: i128,
         amount: i128,
@@ -320,6 +323,7 @@ impl EventDepositDelta {
     ) -> Self {
         Self(
             action,
+            hub_id,
             asset,
             position.scaled_amount.raw(),
             index_ray,
@@ -339,6 +343,7 @@ impl EventDepositDelta {
 #[derive(Clone, Debug)]
 pub struct EventBorrowDelta(
     pub PositionAction,
+    pub u32,
     pub Address,
     pub i128,
     pub i128,
@@ -348,6 +353,7 @@ pub struct EventBorrowDelta(
 impl EventBorrowDelta {
     pub fn new(
         action: PositionAction,
+        hub_id: u32,
         asset: Address,
         index_ray: i128,
         amount: i128,
@@ -355,6 +361,7 @@ impl EventBorrowDelta {
     ) -> Self {
         Self(
             action,
+            hub_id,
             asset,
             position.scaled_amount.raw(),
             index_ray,
@@ -422,6 +429,7 @@ pub struct UpdateSpokeAssetEvent {
     pub asset: Address,
     pub config: SpokeAssetConfig,
     pub spoke_id: u32,
+    pub hub_id: u32,
 }
 
 #[contractevent(topics = ["config", "remove_spoke_asset"])]
@@ -429,6 +437,7 @@ pub struct UpdateSpokeAssetEvent {
 pub struct RemoveSpokeAssetEvent {
     pub asset: Address,
     pub spoke_id: u32,
+    pub hub_id: u32,
 }
 
 #[contractevent(topics = ["debt", "bad_debt"])]

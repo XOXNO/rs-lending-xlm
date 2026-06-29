@@ -1,16 +1,17 @@
 //! `max_withdraw` preview: full close, then an analytical partial cap settled
 //! with a short stroop walk against the exact `partial_ok` mutating-path replica.
 
+use crate::risk;
+use crate::storage;
 use common::constants::WAD;
 use common::math::fp::{Ray, Wad};
 use common::math::fp_core;
 use common::rates::scaled_to_original;
-use controller_interface::types::PriceFeed;
-use controller_interface::types::{Account, AccountPosition, HubAssetKey};
+use common::types::PriceFeed;
+use common::types::{Account, AccountPosition, HubAssetKey};
 use soroban_sdk::Env;
 
-use crate::cache::Cache;
-use crate::{helpers, storage};
+use crate::context::Cache;
 
 use super::{account_gates_ok, MarketLimitCtx};
 
@@ -33,7 +34,7 @@ pub fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128
     // The mutating path refreshes the withdrawn asset's risk params before
     // its LTV/HF gates; mirror that on the in-memory account.
     if !account.borrow_positions.is_empty() {
-        helpers::refresh_supply_risk_params_for_asset(
+        risk::refresh_supply_risk_params_for_asset(
             env,
             &mut cache,
             &account,
@@ -130,7 +131,7 @@ fn risk_partial_cap(
     market: &MarketLimitCtx,
     full_request: i128,
 ) -> i128 {
-    let totals = helpers::calculate_account_risk_totals(
+    let totals = risk::calculate_account_risk_totals(
         env,
         cache,
         account.spoke_id,
@@ -210,14 +211,30 @@ fn settle_partial_max(
 
     let mut steps = 0;
     while amount < ceiling && steps < PARTIAL_SETTLE_STEPS {
-        if !partial_ok(env, cache, account, hub_asset, market, pos_scaled, amount + 1) {
+        if !partial_ok(
+            env,
+            cache,
+            account,
+            hub_asset,
+            market,
+            pos_scaled,
+            amount + 1,
+        ) {
             break;
         }
         amount += 1;
         steps += 1;
     }
     if amount < ceiling
-        && partial_ok(env, cache, account, hub_asset, market, pos_scaled, amount + 1)
+        && partial_ok(
+            env,
+            cache,
+            account,
+            hub_asset,
+            market,
+            pos_scaled,
+            amount + 1,
+        )
     {
         return binary_search_partial(
             env,

@@ -1,5 +1,5 @@
 use super::*;
-use controller_interface::types::HubAssetKey;
+use common::types::HubAssetKey;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Env, Vec};
 

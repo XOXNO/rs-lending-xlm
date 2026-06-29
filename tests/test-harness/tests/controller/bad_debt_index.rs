@@ -1,4 +1,6 @@
-use test_harness::{hub_asset, days, usd, usd_cents, LendingTest, ALICE, BOB, CAROL, DAVE, LIQUIDATOR};
+use test_harness::{
+    days, hub_asset, usd, usd_cents, LendingTest, ALICE, BOB, CAROL, DAVE, LIQUIDATOR,
+};
 // Bad debt supply index tests -- the only case where supply_index decreases.
 //
 // When debt exceeds collateral and collateral < $5:

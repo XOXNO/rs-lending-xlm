@@ -1,7 +1,7 @@
 use super::*;
 use crate::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use crate::Controller;
-use controller_interface::types::MarketOracleConfigOption;
+use common::types::MarketOracleConfigOption;
 use soroban_sdk::testutils::storage::Persistent as _;
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{Address, Env};

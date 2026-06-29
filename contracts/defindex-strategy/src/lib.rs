@@ -10,12 +10,12 @@
 //! - `harvest` publishes Blend-compatible `price_per_share` from the supply index.
 
 use common::constants::RAY;
-use controller_interface::types::HubAssetKey;
+use common::types::HubAssetKey;
 use controller_interface::ControllerClient;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token, vec, Address, Bytes,
-    Env, IntoVal, Symbol, TryFromVal, Val, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
+    vec, Address, Bytes, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
 
 /// Harvest event with 12-decimal `price_per_share`.
@@ -164,24 +164,21 @@ impl Strategy {
     /// market on `hub_id`; the strategy's positions are bound to `spoke_id`.
     /// There is no default hub or spoke — both are fixed here.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
-        let controller_val = init_args.get(0).unwrap_or_else(|| {
-            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
-        });
-        let controller = Address::try_from_val(&env, &controller_val).unwrap_or_else(|_| {
-            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
-        });
-        let hub_id_val = init_args.get(1).unwrap_or_else(|| {
-            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
-        });
-        let hub_id = u32::try_from_val(&env, &hub_id_val).unwrap_or_else(|_| {
-            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
-        });
-        let spoke_id_val = init_args.get(2).unwrap_or_else(|| {
-            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
-        });
-        let spoke_id = u32::try_from_val(&env, &spoke_id_val).unwrap_or_else(|_| {
-            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
-        });
+        let controller_val = init_args
+            .get(0)
+            .unwrap_or_else(|| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
+        let controller = Address::try_from_val(&env, &controller_val)
+            .unwrap_or_else(|_| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
+        let hub_id_val = init_args
+            .get(1)
+            .unwrap_or_else(|| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
+        let hub_id = u32::try_from_val(&env, &hub_id_val)
+            .unwrap_or_else(|_| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
+        let spoke_id_val = init_args
+            .get(2)
+            .unwrap_or_else(|| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
+        let spoke_id = u32::try_from_val(&env, &spoke_id_val)
+            .unwrap_or_else(|_| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
 
         let controller_client = ControllerClient::new(&env, &controller);
         let hub_asset = HubAssetKey {
@@ -226,9 +223,12 @@ impl DeFindexStrategyTrait for Strategy {
         let stored_id = prepare_vault_account_for_supply(ctx.env, &ctx.controller, &from);
         ctx.authorize_supply_to_pool(amount);
         // dimensional: Token(asset) enters controller; supply shares are internal.
-        let new_or_existing_id =
-            ctx.controller
-                .supply(&ctx.strategy, &stored_id, &ctx.cfg.spoke_id, &ctx.to_payment(amount));
+        let new_or_existing_id = ctx.controller.supply(
+            &ctx.strategy,
+            &stored_id,
+            &ctx.cfg.spoke_id,
+            &ctx.to_payment(amount),
+        );
         set_vault_account(ctx.env, &from, new_or_existing_id);
 
         // D{AssetDecimals(asset)}{Token(asset)} post-deposit strategy balance.

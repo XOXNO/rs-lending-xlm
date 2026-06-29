@@ -8,7 +8,7 @@ use crate::types::PriceFeedRaw;
 use common::math::fp::Wad;
 use common::types::MarketIndexRaw;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 
 pub mod pool;
 pub mod reflector;
@@ -49,9 +49,15 @@ pub(crate) fn calculate_account_risk_totals_summary(
     env: &Env,
     _cache: &mut Cache,
     _spoke_id: u32,
-    _supply_positions: &soroban_sdk::Map<common::types::HubAssetKey, common::types::AccountPositionRaw>,
-    _borrow_positions: &soroban_sdk::Map<common::types::HubAssetKey, common::types::DebtPositionRaw>,
-) -> crate::helpers::AccountRiskTotals {
+    _supply_positions: &soroban_sdk::Map<
+        common::types::HubAssetKey,
+        common::types::AccountPositionRaw,
+    >,
+    _borrow_positions: &soroban_sdk::Map<
+        common::types::HubAssetKey,
+        common::types::DebtPositionRaw,
+    >,
+) -> crate::risk::AccountRiskTotals {
     let total_collateral_raw: i128 = nondet();
     let ltv_collateral_raw: i128 = nondet();
     let weighted_coll_raw: i128 = nondet();
@@ -71,7 +77,7 @@ pub(crate) fn calculate_account_risk_totals_summary(
         weighted_collateral.div_floor(env, total_debt)
     };
 
-    crate::helpers::AccountRiskTotals {
+    crate::risk::AccountRiskTotals {
         total_collateral: Wad::from(total_collateral_raw),
         ltv_collateral: Wad::from(ltv_collateral_raw),
         weighted_collateral,

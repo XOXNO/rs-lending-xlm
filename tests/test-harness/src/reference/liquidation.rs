@@ -624,8 +624,8 @@ pub fn snapshot_debt(t: &LendingTest, user: &str) -> Vec<RefDebtPosition> {
     for (i, (key, position)) in borrows.iter().enumerate() {
         let asset = key.asset;
         let market = t.resolve_market_by_asset(&asset);
-        let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool)
-            .get_sync_data(&hub_asset(asset));
+        let sync =
+            pool::LiquidityPoolClient::new(&t.env, &market.pool).get_sync_data(&hub_asset(asset));
         out.push(RefDebtPosition {
             asset_id: i as u32,
             borrow_scaled_ray: br_from_i128(position.scaled_amount),

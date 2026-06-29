@@ -1,6 +1,6 @@
 use super::*;
 use crate::Controller;
-use controller_interface::types::PositionManagerConfig;
+use common::types::PositionManagerConfig;
 use soroban_sdk::testutils::Address as _;
 
 /// Seeds account `1` owned by `owner` and returns its id.

@@ -17,7 +17,8 @@ impl LendingTest {
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
-        let withdrawals: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), amount)];
+        let withdrawals: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), amount)];
         ctrl.withdraw(&addr, &account_id, &withdrawals, &None);
     }
 
@@ -34,7 +35,8 @@ impl LendingTest {
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
-        let withdrawals: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), amount)];
+        let withdrawals: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), amount)];
         ctrl.withdraw(&addr, &account_id, &withdrawals, &Some(recipient.clone()))
     }
 
@@ -50,7 +52,8 @@ impl LendingTest {
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
-        let withdrawals: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), amount)];
+        let withdrawals: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), amount)];
         ctrl.withdraw(&addr, &account_id, &withdrawals, &None)
     }
 
@@ -67,7 +70,8 @@ impl LendingTest {
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
-        let withdrawals: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        let withdrawals: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), raw_amount)];
         match ctrl.try_withdraw(&addr, &account_id, &withdrawals, &None) {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(err)) => Err(err.into()),

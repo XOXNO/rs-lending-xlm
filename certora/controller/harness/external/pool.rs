@@ -150,7 +150,15 @@ pub(crate) fn pool_flash_loan_call(
     fee: i128,
     data: &Bytes,
 ) {
-    flash_loan_summary(env, &hub_asset.asset, initiator, receiver, amount, fee, data)
+    flash_loan_summary(
+        env,
+        &hub_asset.asset,
+        initiator,
+        receiver,
+        amount,
+        fee,
+        data,
+    )
 }
 
 pub(crate) fn pool_update_indexes_call(env: &Env, _pool_addr: &Address, hub_asset: &HubAssetKey) {

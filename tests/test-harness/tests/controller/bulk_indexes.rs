@@ -69,7 +69,11 @@ fn test_index_view_with_unlisted_asset_still_fails() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let unlisted = soroban_sdk::Address::generate(&t.env);
-    let assets = soroban_sdk::vec![&t.env, hub_asset(t.resolve_asset("USDC")), hub_asset(unlisted)];
+    let assets = soroban_sdk::vec![
+        &t.env,
+        hub_asset(t.resolve_asset("USDC")),
+        hub_asset(unlisted)
+    ];
     let result = t.ctrl_client().try_get_market_indexes_detailed(&assets);
     assert!(result.is_err(), "unlisted asset must still fail the view");
 }

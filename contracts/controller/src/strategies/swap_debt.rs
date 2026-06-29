@@ -4,17 +4,17 @@
 //! borrow → swap → repay → `strategy_finalize`.
 
 use common::errors::{CollateralError, GenericError};
-use controller_interface::types::{Account, DebtPosition, HubAssetKey, StrategySwap};
+use common::types::{Account, DebtPosition, HubAssetKey, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::events;
 use crate::strategies::{
     borrow_for_strategy, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
     swap_tokens, StrategyRepay,
 };
-use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
 /// Parameters for `process_swap_debt`.
 pub struct SwapDebtParams<'a> {
@@ -76,7 +76,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     validation::require_hub_active(env, existing_debt.hub_id);
 
     let mut account = storage::get_account(env, account_id);
-    crate::helpers::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let mut cache = Cache::new(env);
 
@@ -84,8 +84,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
 
     let existing_pos = load_existing_debt_position(env, &account, existing_debt);
 
-    let extra_assets =
-        soroban_sdk::vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
+    let extra_assets = soroban_sdk::vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     // D{new_debt_token.decimals}{Token(new_debt_token)} net borrow received after

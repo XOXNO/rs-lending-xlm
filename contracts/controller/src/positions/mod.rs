@@ -1,23 +1,22 @@
 //! Core position lifecycle operations.
 //!
 //! Each submodule owns one public position flow and its `process_*` pipeline.
-//! Shared stages are auth, cache setup, account resolution, validation, pool
+//! Shared stages are auth, cache setup, account resolution, risk::validation, pool
 //! calls, post-checks, then `finalize_position_flow` (or `persist_account_positions`
 //! + `emit_account_updates` when a hook is needed, e.g. liquidation bad-debt).
 
+use crate::account;
 use common::errors::{CollateralError, SpokeError};
-use controller_interface::types::{
+use common::types::{
     Account, AccountPosition, DebtPosition, HubAssetKey, PoolAction, ScaledPositionRaw,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
-use crate::cache::Cache;
-use crate::helpers;
+use crate::context::Cache;
 use crate::storage;
 
 pub mod borrow;
 pub mod liquidation;
-pub mod liquidation_math;
 pub mod repay;
 pub mod supply;
 pub mod withdraw;
@@ -59,8 +58,8 @@ pub(crate) fn persist_account_positions(
     sides: PositionSides,
     remove_if_empty: bool,
 ) {
-    if remove_if_empty && account.is_empty() {
-        helpers::remove_account(env, account_id);
+    if remove_if_empty {
+        account::cleanup_account_if_empty(env, account, account_id);
         return;
     }
     if sides.supply {

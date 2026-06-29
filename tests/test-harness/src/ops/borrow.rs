@@ -28,7 +28,8 @@ impl LendingTest {
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
-        let borrows: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        let borrows: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), raw_amount)];
         ctrl.borrow(&addr, &account_id, &borrows, &None);
     }
 
@@ -49,7 +50,8 @@ impl LendingTest {
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
-        let borrows: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        let borrows: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), raw_amount)];
         ctrl.borrow(&caller_addr, &account_id, &borrows, &Some(to_addr));
     }
 
@@ -66,7 +68,8 @@ impl LendingTest {
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
-        let borrows: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        let borrows: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), raw_amount)];
         match ctrl.try_borrow(&addr, &account_id, &borrows, &None) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),

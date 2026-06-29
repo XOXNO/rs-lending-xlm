@@ -1,11 +1,11 @@
 //! Public price entry point (`token_price`).
 
 use common::errors::OracleError;
-use controller_interface::types::{MarketOracleConfig, OracleSourceConfig, PriceFeedRaw};
+use common::types::{MarketOracleConfig, OracleSourceConfig, PriceFeedRaw};
 use soroban_sdk::{assert_with_error, panic_with_error, Address};
 
 use super::compose;
-use crate::cache::Cache;
+use crate::context::Cache;
 
 pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
     if let Some(feed) = cache.prices_cache.get(asset.clone()) {

@@ -989,7 +989,6 @@ name = "governance-interface"
 version = "0.1.0"
 dependencies = [
  "common",
- "controller-interface",
  "soroban-sdk",
  "stellar-governance",
 ]

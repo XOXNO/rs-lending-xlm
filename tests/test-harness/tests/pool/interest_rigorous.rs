@@ -1,5 +1,8 @@
 use controller::constants::RAY;
-use test_harness::{hub_asset, HubAssetKey, days, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL};
+use test_harness::{
+    days, eth_preset, hub_asset, usdc_preset, wbtc_preset, HubAssetKey, LendingTest, ALICE, BOB,
+    CAROL,
+};
 // Rigorous interest tests: verify amounts, not just direction.
 //
 // The lending protocol's interest model:

@@ -4,17 +4,17 @@
 //! → withdraw → swap/net → repay → [close] → `strategy_finalize`.
 
 use common::errors::CollateralError;
-use controller_interface::types::{Account, AccountPosition, DebtPosition, HubAssetKey, StrategySwap};
+use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::events;
 use crate::strategies::{
     execute_withdraw_all, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
     swap_tokens, withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
 };
-use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
 /// Parameters for `process_repay_debt_with_collateral`.
 pub struct RepayWithCollateralParams<'a> {
@@ -78,7 +78,7 @@ pub fn process_repay_debt_with_collateral(
     validation::require_hub_active(env, debt.hub_id);
 
     let mut account = storage::get_account(env, account_id);
-    crate::helpers::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let mut cache = Cache::new(env);
 

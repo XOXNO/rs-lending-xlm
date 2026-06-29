@@ -5,11 +5,14 @@
 //! full config — there is no spoke 0 base and no base+overlay; each spoke is the
 //! single source of truth for its assets.
 
+pub(crate) mod caps;
+pub(crate) use caps::SpokeUsageContext;
+
 use common::errors::SpokeError;
-use controller_interface::types::{AssetConfig, HubAssetKey, SpokeConfig};
+use common::types::{AssetConfig, HubAssetKey, SpokeConfig};
 use soroban_sdk::{assert_with_error, Env};
 
-use crate::cache::Cache;
+use crate::context::Cache;
 
 /// Risk config for the account's spoke, projected to [`AssetConfig`]. Serves
 /// `SpokeAsset(spoke_id, hub_asset)` from the per-tx cache memo. A deactivated
@@ -26,11 +29,7 @@ pub fn effective_asset_config(
 
 pub fn ensure_spoke_not_deprecated(env: &Env, spoke: &Option<SpokeConfig>) {
     if let Some(spoke) = spoke {
-        assert_with_error!(
-            env,
-            !spoke.is_deprecated,
-            SpokeError::SpokeDeprecated
-        );
+        assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
     }
 }
 
@@ -51,5 +50,5 @@ pub fn validate_spoke_lists_asset(
 }
 
 #[cfg(test)]
-#[path = "../tests/spoke.rs"]
+#[path = "../../tests/spoke.rs"]
 mod tests;

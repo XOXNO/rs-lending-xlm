@@ -18,9 +18,9 @@ use governance_interface::{
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, IntoVal, Symbol};
-use test_harness::{hub_asset, 
-    assert_contract_error, errors, reflector_single_spot_config, usdc_preset, LendingTest,
-    DEFAULT_TOLERANCE,
+use test_harness::{
+    assert_contract_error, errors, hub_asset, reflector_single_spot_config, usdc_preset,
+    LendingTest, DEFAULT_TOLERANCE,
 };
 
 const SET_POSITION_LIMITS: &str = "set_position_limits";

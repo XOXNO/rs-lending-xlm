@@ -7,22 +7,22 @@
 
 use common::errors::CollateralError;
 use common::math::fp::{Bps, Ray};
-use controller_interface::types::{
+use common::types::{
     Account, AccountPositionType, DebtPosition, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
 };
 use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::{
-    enforce_spoke_asset_flags, finalize_position_flow, AggregatedPayments, PositionSides,
-};
-use crate::cache::Cache;
-use crate::spoke;
+use super::{enforce_spoke_asset_flags, finalize_position_flow, AggregatedPayments, PositionSides};
+use crate::account::update_or_remove_debt_position;
+use crate::context::Cache;
 use crate::events;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
-use crate::helpers::update_or_remove_debt_position;
 use crate::positions::{make_pool_action, HubPayment};
-use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::spoke;
+use crate::{
+    payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
+};
 
 #[contractimpl]
 impl Controller {
@@ -53,7 +53,7 @@ pub fn process_borrow(
     validation::require_not_flash_loaning(env);
 
     let mut account = storage::get_account(env, account_id);
-    crate::helpers::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let recipient = to.unwrap_or_else(|| caller.clone());
 
@@ -163,19 +163,13 @@ fn merge_borrow_result(
     let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
     if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
         let delta = position.scaled_amount - old_scaled;
-        ctx.apply_borrow_after_pool(
-            env,
-            hub_asset,
-            delta,
-            &result.market_index,
-            asset_decimals,
-        );
+        ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
     }
     cache.put_market_index(hub_asset, &result.market_index);
     // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, borrow)>.
     cache.record_debt_position_update(
         action,
-        &hub_asset.asset,
+        hub_asset,
         result.market_index.borrow_index,
         result.actual_amount,
         &position,

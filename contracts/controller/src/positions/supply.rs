@@ -4,25 +4,22 @@
 //! validate → settle → persist → emit. Deposits cannot worsen account health,
 //! so no LTV, health, or min-collateral gates run at the entrypoint.
 
+use crate::account;
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
-use controller_interface::types::{
-    Account, AccountPositionType, HubAssetKey, PoolSupplyEntry, PositionMode,
-};
+use common::types::{Account, AccountPositionType, HubAssetKey, PoolSupplyEntry, PositionMode};
 use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::{
-    enforce_spoke_asset_flags, finalize_position_flow, AggregatedPayments, PositionSides,
-};
-use crate::cache::Cache;
-use crate::spoke;
+use super::{enforce_spoke_asset_flags, finalize_position_flow, AggregatedPayments, PositionSides};
+use crate::account::update_or_remove_supply_position;
+use crate::context::Cache;
 use crate::events;
 use crate::external::pool::pool_supply_call;
-use crate::helpers;
-use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
 use crate::positions::{make_pool_action, HubPayment};
-use crate::{helpers::utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::risk::refresh_supply_risk_params;
+use crate::spoke;
+use crate::{payments as utils, risk::validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
@@ -51,15 +48,16 @@ pub fn process_supply(
 ) -> u64 {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
-
     let aggregated = utils::aggregate_positive_payments(env, assets);
     let mut cache = Cache::new(env);
-    let (acct_id, mut account) = resolve_supply_account(
+
+    let (acct_id, mut account) = account::load_or_create_account(
         env,
         caller,
         account_id,
         spoke_id,
-        &aggregated,
+        PositionMode::Normal,
+        account::AccountGuard::Supply,
         &mut cache,
     );
 
@@ -75,27 +73,6 @@ pub fn process_supply(
     );
 
     acct_id
-}
-
-fn resolve_supply_account(
-    env: &Env,
-    caller: &Address,
-    account_id: u64,
-    spoke_id: u32,
-    aggregated: &AggregatedPayments,
-    cache: &mut Cache,
-) -> (u64, Account) {
-    validation::require_non_empty_payments(env, aggregated);
-
-    helpers::load_or_create_account(
-        env,
-        caller,
-        account_id,
-        spoke_id,
-        PositionMode::Normal,
-        helpers::AccountGuard::Supply,
-        cache,
-    )
 }
 
 /// Applies deduped positive deposits to an account.
@@ -204,7 +181,7 @@ fn settle_deposit(
         // Emit with the exact supply index the pool used, not a re-read.
         cache.record_position_update(
             events::PositionAction::Supply,
-            &hub_asset.asset,
+            hub_asset,
             result.market_index.supply_index,
             entry.action.amount,
             &position,

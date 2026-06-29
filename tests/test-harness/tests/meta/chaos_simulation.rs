@@ -1,7 +1,7 @@
 use controller::constants::RAY;
-use test_harness::{hub_asset, 
-    days, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL, DAVE, EVE,
-    LIQUIDATOR,
+use test_harness::{
+    days, eth_preset, hub_asset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL,
+    DAVE, EVE, LIQUIDATOR,
 };
 
 /// LCG for deterministic test "randomness".

@@ -1,6 +1,7 @@
 use soroban_sdk::{vec, Vec};
-use test_harness::{hub_asset, HubAssetKey,
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, PositionType, ALICE,
+use test_harness::{
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, HubAssetKey, LendingTest,
+    PositionType, ALICE,
 };
 
 fn try_withdraw_payments(

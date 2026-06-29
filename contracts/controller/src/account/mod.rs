@@ -3,14 +3,16 @@
 //! Post-pool solvency gates (LTV, health factor, min borrow collateral) live in
 //! `validation::require_post_pool_risk_gates`.
 
-use common::errors::{SpokeError, GenericError};
+pub(crate) mod delegation;
+
+use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
-use controller_interface::types::{
+use common::types::{
     Account, AccountMeta, AccountPosition, DebtPosition, HubAssetKey, PositionMode,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::storage;
 
 /// Creates account metadata and returns an empty in-memory account snapshot.
@@ -122,13 +124,9 @@ fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
     }
 }
 
-pub fn remove_account(env: &Env, account_id: u64) {
-    storage::remove_account_entry(env, account_id);
-}
-
 pub fn cleanup_account_if_empty(env: &Env, account: &Account, account_id: u64) {
     if account.is_empty() {
-        remove_account(env, account_id);
+        storage::remove_account_entry(env, account_id);
     }
 }
 

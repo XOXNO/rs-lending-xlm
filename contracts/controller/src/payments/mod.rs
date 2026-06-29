@@ -3,13 +3,13 @@
 //! Pure helpers with no policy or storage side effects.
 
 use common::errors::GenericError;
-use controller_interface::types::HubAssetKey;
+use common::types::HubAssetKey;
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
 use crate::events;
 use crate::external::sac::sac_transfer_call;
 use crate::positions::HubPayment;
-use crate::validation;
+use crate::risk::validation;
 
 /// Deduplicates by hub asset and sums amounts; panics on zero or negative entries.
 pub fn aggregate_positive_payments(env: &Env, payments: &Vec<HubPayment>) -> Vec<HubPayment> {
@@ -42,6 +42,7 @@ pub fn aggregate_payments(
     payments: &Vec<HubPayment>,
     zero_is_withdraw_all: bool,
 ) -> Vec<HubPayment> {
+    validation::require_non_empty_payments(env, payments);
     if payments.len() == 1 {
         // Single-payment fast path: skip the dedup machinery but still enforce
         // the positive-amount gate (and withdraw-all sentinel) the loop applies.

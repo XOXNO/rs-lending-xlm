@@ -184,12 +184,8 @@ fn deprecated_spoke_allows_withdraw(
     let spoke = crate::storage::get_spoke(&e, attrs.spoke_id);
     cvlr_assume!(spoke.is_deprecated);
 
-    let position = crate::storage::get_position(
-        &e,
-        account_id,
-        AccountPositionType::Deposit,
-        &asset,
-    );
+    let position =
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &asset);
     cvlr_assume!(position.is_some());
     let pos_before = position.unwrap();
     cvlr_assume!(pos_before.scaled_amount > 0);
@@ -199,12 +195,8 @@ fn deprecated_spoke_allows_withdraw(
     withdrawals.push_back((hub0(&asset), amount));
     crate::positions::withdraw::process_withdraw(&e, &caller, account_id, &withdrawals, None);
 
-    let position_after = crate::storage::get_position(
-        &e,
-        account_id,
-        AccountPositionType::Deposit,
-        &asset,
-    );
+    let position_after =
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &asset);
     match position_after {
         None => {
             cvlr_assert!(true);
@@ -233,13 +225,11 @@ fn spoke_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     // Self-contained per-spoke resolution (no base+overlay): the effective
     // config is the spoke's `SpokeAssetConfig` projected to `AssetConfig`,
     // served from the per-tx cache memo (one `SpokeAsset` read per asset).
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
     let asset_config = crate::spoke::effective_asset_config(&mut cache, category_id, &hub_asset);
 
     cvlr_assert!(asset_config.loan_to_value.raw() == i128::from(cfg.loan_to_value));
-    cvlr_assert!(
-        asset_config.liquidation_threshold.raw() == i128::from(cfg.liquidation_threshold)
-    );
+    cvlr_assert!(asset_config.liquidation_threshold.raw() == i128::from(cfg.liquidation_threshold));
     cvlr_assert!(asset_config.liquidation_bonus.raw() == i128::from(cfg.liquidation_bonus));
 
     cvlr_assert!(asset_config.is_collateralizable == cfg.is_collateralizable);
@@ -270,7 +260,7 @@ fn add_asset_enforces_valid_bounds(
 ) {
     cvlr_assume!(category_id > 0);
 
-    crate::governance::config::add_asset_to_spoke(
+    crate::config::add_asset_to_spoke(
         &e,
         &SpokeAssetArgs {
             hub_id: 0,
@@ -304,7 +294,7 @@ fn edit_asset_enforces_valid_bounds(
 ) {
     cvlr_assume!(category_id > 0);
 
-    crate::governance::config::edit_asset_in_spoke(
+    crate::config::edit_asset_in_spoke(
         &e,
         &SpokeAssetArgs {
             hub_id: 0,
@@ -342,7 +332,7 @@ fn spoke_remove_category(e: Env, category_id: u32) {
     let before = crate::storage::try_get_spoke(&e, category_id);
     cvlr_assume!(matches!(&before, Some(spoke) if !spoke.is_deprecated));
 
-    crate::governance::config::remove_spoke(&e, category_id);
+    crate::config::remove_spoke(&e, category_id);
 
     let spoke = crate::storage::get_spoke(&e, category_id);
     cvlr_assert!(spoke.is_deprecated);
@@ -357,7 +347,7 @@ fn spoke_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
     cvlr_assume!(spoke.is_some());
     cvlr_assume!(spoke.unwrap().is_deprecated);
 
-    crate::governance::config::add_asset_to_spoke(
+    crate::config::add_asset_to_spoke(
         &e,
         &SpokeAssetArgs {
             hub_id: 0,

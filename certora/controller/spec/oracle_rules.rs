@@ -89,7 +89,7 @@ fn second_band_price_within_inputs(
 ) {
     cvlr_assume!(aggregator_price > 0 && aggregator_price <= MAX_REALISTIC_PRICE);
     cvlr_assume!(safe_price > 0 && safe_price <= MAX_REALISTIC_PRICE);
-    cvlr_assume!(tolerance_bps >= MIN_TOLERANCE && tolerance_bps <= MAX_TOLERANCE);
+    cvlr_assume!((MIN_TOLERANCE..=MAX_TOLERANCE).contains(&tolerance_bps));
 
     assert_blend_within_inputs(&e, aggregator_price, safe_price, tolerance_bps);
 }
@@ -106,7 +106,7 @@ fn beyond_band_price_within_inputs(e: Env, aggregator_price: i128, safe_price: i
 /// On a cache hit, `token_price` returns the stored feed unchanged.
 #[rule]
 fn price_cache_consistency(e: Env, asset: Address) {
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
 
     let price_wad: i128 = nondet();
     let asset_decimals: u32 = nondet();
@@ -148,7 +148,7 @@ fn oracle_tolerance_sanity(e: Env) {
 /// Single oracle. Activeness is now the presence of an `AssetOracle` entry.
 #[rule]
 fn price_cache_sanity(e: Env, asset: Address, oracle: Address) {
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
     crate::storage::set_asset_oracle(&e, &asset, &pinned_oracle_config(&asset, oracle));
 
     let feed = crate::oracle::token_price(&mut cache, &asset);

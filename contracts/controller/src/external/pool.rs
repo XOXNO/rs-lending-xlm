@@ -1,7 +1,7 @@
 //! Pool calls exchange `ScaledPositionRaw` only.
 //! The controller owns collateral risk parameters and merges them after pool mutations.
 
-use controller_interface::types::{
+use common::types::{
     AccountPositionType, HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw,
     PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
     PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
@@ -75,11 +75,8 @@ pub(crate) fn pool_seize_position_call(
     side: AccountPositionType,
     position: ScaledPositionRaw,
 ) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).seize_position(
-        hub_asset,
-        &side,
-        &position,
-    )
+    pool_interface::LiquidityPoolClient::new(env, pool_addr)
+        .seize_position(hub_asset, &side, &position)
 }
 
 pub(crate) fn pool_flash_loan_call(

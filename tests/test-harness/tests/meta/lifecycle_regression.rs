@@ -1,5 +1,5 @@
 use soroban_sdk::token;
-use test_harness::{HARNESS_HUB, eth_preset, usdc_preset, LendingTest, ALICE};
+use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, HARNESS_HUB};
 
 fn create_asset_contract(t: &LendingTest) -> soroban_sdk::Address {
     t.env
