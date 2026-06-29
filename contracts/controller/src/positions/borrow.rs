@@ -105,7 +105,7 @@ fn validate_borrow(
 
         assert_with_error!(
             env,
-            asset_config.is_borrowable,
+            asset_config.can_borrow(),
             CollateralError::AssetNotBorrowable
         );
     }
@@ -165,7 +165,13 @@ fn merge_borrow_result(
         let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
         if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
             let delta = position.scaled_amount - old_scaled;
-            ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
+            ctx.apply_borrow_after_pool(
+                env,
+                hub_asset,
+                delta,
+                &result.market_index,
+                asset_decimals,
+            );
         }
     }
     cache.put_market_index(hub_asset, &result.market_index);
