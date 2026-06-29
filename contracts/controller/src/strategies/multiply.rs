@@ -12,7 +12,7 @@ use crate::cache::Cache;
 use crate::spoke;
 use crate::helpers;
 use crate::strategies::{
-    open_strategy_borrow, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
+    borrow_for_strategy, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
 };
 use crate::{positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -137,7 +137,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     // D{debt_token.decimals}{Token(debt_token)} net borrow received after protocol fee
     // on `debt`'s hub market.
     let amount_received =
-        open_strategy_borrow(env, &mut cache, &mut account, debt, debt_to_flash_loan);
+        borrow_for_strategy(env, &mut account, debt, debt_to_flash_loan, &mut cache);
 
     // D{debt_token.decimals}{Token(debt_token)} net borrow plus same-token extra payment.
     let swap_amount_in = amount_received

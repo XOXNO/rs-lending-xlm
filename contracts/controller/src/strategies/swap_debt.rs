@@ -11,7 +11,7 @@ use stellar_macros::when_not_paused;
 use crate::cache::Cache;
 use crate::events;
 use crate::strategies::{
-    open_strategy_borrow, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
+    borrow_for_strategy, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
     swap_tokens, StrategyRepay,
 };
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
@@ -76,7 +76,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     validation::require_hub_active(env, existing_debt.hub_id);
 
     let mut account = storage::get_account(env, account_id);
-    crate::helpers::require_owner_or_delegate(env, account_id, caller);
+    crate::helpers::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let mut cache = Cache::new(env);
 
@@ -91,7 +91,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     // D{new_debt_token.decimals}{Token(new_debt_token)} net borrow received after
     // protocol fee on `new_debt`'s hub market.
     let amount_received =
-        open_strategy_borrow(env, &mut cache, &mut account, new_debt, new_debt_amount);
+        borrow_for_strategy(env, &mut account, new_debt, new_debt_amount, &mut cache);
 
     // Same underlying token (cross-hub refinance) needs no swap; otherwise route
     // the borrowed token into the existing debt token.

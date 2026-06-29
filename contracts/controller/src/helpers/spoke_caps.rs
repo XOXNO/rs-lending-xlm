@@ -23,6 +23,14 @@ use crate::storage;
 pub(crate) struct SpokeUsageContext {
     spoke_id: u32,
     usage: Map<HubAssetKey, SpokeUsageRaw>,
+    /// The spoke config, loaded once on first access. Memoized because the Cache
+    /// is fresh per transaction and no governance write to `Spoke` happens inside
+    /// a user flow.
+    spoke: Option<SpokeConfig>,
+    /// Per-asset spoke config, keyed by `hub_asset`. Loaded on first touch. A
+    /// missing entry is never memoized, so an unlisted asset still reverts on
+    /// every touch.
+    spoke_assets: Map<HubAssetKey, SpokeAssetConfig>,
 }
 
 impl SpokeUsageContext {
@@ -30,6 +38,8 @@ impl SpokeUsageContext {
         Some(Self {
             spoke_id,
             usage: Map::new(env),
+            spoke: None,
+            spoke_assets: Map::new(env),
         })
     }
 
@@ -43,16 +53,26 @@ impl SpokeUsageContext {
         self.spoke_id
     }
 
-    pub(crate) fn as_spoke(&self, env: &Env) -> SpokeConfig {
-        storage::get_spoke(env, self.spoke_id)
+    pub(crate) fn as_spoke(&mut self, env: &Env) -> SpokeConfig {
+        if let Some(spoke) = &self.spoke {
+            return spoke.clone();
+        }
+        let spoke = storage::get_spoke(env, self.spoke_id);
+        self.spoke = Some(spoke.clone());
+        spoke
     }
 
     pub(crate) fn spoke_asset(
-        &self,
+        &mut self,
         env: &Env,
         hub_asset: &HubAssetKey,
     ) -> Option<SpokeAssetConfig> {
-        storage::get_spoke_asset(env, self.spoke_id, hub_asset)
+        if let Some(cfg) = self.spoke_assets.get(hub_asset.clone()) {
+            return Some(cfg);
+        }
+        let loaded = storage::get_spoke_asset(env, self.spoke_id, hub_asset)?;
+        self.spoke_assets.set(hub_asset.clone(), loaded.clone());
+        Some(loaded)
     }
 
     /// Buffered usage for `hub_asset`, lazily loaded from storage (default zero).

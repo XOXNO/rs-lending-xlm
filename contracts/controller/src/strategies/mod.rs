@@ -13,9 +13,10 @@ pub(crate) mod swap;
 mod swap_collateral;
 mod swap_debt;
 
+pub(crate) use crate::positions::borrow::{borrow_for_migration, borrow_for_strategy};
 pub(crate) use positions::{
-    execute_withdraw_all, open_migration_borrow, open_strategy_borrow, repay_debt_from_controller,
-    withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
+    execute_withdraw_all, repay_debt_from_controller, withdraw_collateral_to_controller,
+    StrategyRepay, StrategyWithdraw,
 };
 pub(crate) use swap::swap_tokens;
 

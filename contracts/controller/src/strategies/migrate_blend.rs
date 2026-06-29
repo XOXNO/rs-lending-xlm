@@ -23,7 +23,7 @@ use crate::external::blend::{
 use crate::positions::supply;
 use crate::strategies::swap::balance_delta;
 use crate::strategies::{
-    open_migration_borrow, prefetch_strategy_oracles, repay_debt_from_controller,
+    borrow_for_migration, prefetch_strategy_oracles, repay_debt_from_controller,
     strategy_finalize, StrategyRepay,
 };
 use crate::{helpers, storage, validation, Controller, ControllerArgs, ControllerClient};
@@ -137,7 +137,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
                 hub_id,
                 asset: debt_asset,
             };
-            open_migration_borrow(env, &mut cache, &mut account, &hub_debt, max);
+            borrow_for_migration(env, &mut account, &hub_debt, max, &mut cache);
         }
         let repay_requests = build_repay_requests(env, &debt_caps);
         authorize_repay_pulls(env, &blend_pool, &debt_caps);

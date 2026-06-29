@@ -32,7 +32,7 @@ pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) 
         }
         // Pending/disabled assets have no `AssetOracle`; prefetch must not add a
         // panic site, so skip them. Prefetch uses the token-rooted base config.
-        let Some(oracle_config) = crate::storage::get_asset_oracle(&env, &asset) else {
+        let Some(oracle_config) = cache.cached_asset_oracle_opt(&asset) else {
             continue;
         };
         collect_redstone_feed(cache, &env, &mut by_adapter, &oracle_config.primary);

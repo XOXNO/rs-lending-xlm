@@ -35,6 +35,11 @@ pub struct Cache {
     /// Stores provider data, not resolved prices, so per-flow policy checks
     /// (staleness, sanity, tolerance) are unaffected.
     redstone_prefetch: Map<(Address, String), RedStonePriceData>,
+    /// Token-rooted `AssetOracle` configs, memoized per transaction. Stores only
+    /// the config record; `prices_cache` independently memoizes the resolved
+    /// `PriceFeedRaw`, so staleness/sanity/tolerance policy is unaffected. A
+    /// missing entry is never cached, so a disabled asset still reverts.
+    asset_oracle: Map<Address, MarketOracleConfig>,
     /// Borrow/supply indexes, populated only from the pool: either returned by a
     /// pool mutation (`put_market_index`) or bulk-read via `bulk_get_indexes`.
     /// The controller never simulates indexes itself.
@@ -69,6 +74,7 @@ impl Cache {
             prices_cache: Map::new(env),
             spoke_prices: Map::new(env),
             redstone_prefetch: Map::new(env),
+            asset_oracle: Map::new(env),
             market_indexes: Map::new(env),
             pool_address: None,
             pool_sync_data: Map::new(env),
@@ -147,12 +153,30 @@ impl Cache {
             .set((adapter.clone(), feed_id.clone()), data);
     }
 
+    /// Token-rooted oracle config under `AssetOracle(asset)`, memoized for the
+    /// transaction. `None` when the asset has no entry; the `None` case is never
+    /// cached, so a disabled asset reverts identically on every touch.
+    pub(crate) fn cached_asset_oracle_opt(&mut self, asset: &Address) -> Option<MarketOracleConfig> {
+        if let Some(config) = self.asset_oracle.get(asset.clone()) {
+            return Some(config);
+        }
+        let config = storage::get_asset_oracle(&self.env, asset)?;
+        self.asset_oracle.set(asset.clone(), config.clone());
+        Some(config)
+    }
+
     /// Token-rooted oracle config under `AssetOracle(asset)`. Panics
     /// `OracleNotConfigured` when absent. Absence is the pending/disabled gate:
     /// price resolution reverts for any asset with no `AssetOracle` entry.
     pub(crate) fn cached_asset_oracle(&mut self, asset: &Address) -> MarketOracleConfig {
-        storage::get_asset_oracle(&self.env, asset)
+        self.cached_asset_oracle_opt(asset)
             .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured))
+    }
+
+    /// Whether `asset` has a token-rooted `AssetOracle` entry. Backs the
+    /// `require_market_active` pending/disabled gate.
+    pub(crate) fn asset_oracle_exists(&mut self, asset: &Address) -> bool {
+        self.cached_asset_oracle_opt(asset).is_some()
     }
 
     /// Token-rooted `AssetOracle` base config for `asset`. This is the bare,
@@ -306,14 +330,14 @@ impl Cache {
         self.ensure_spoke_loaded(spoke_id);
         let env = self.env.clone();
         self.spoke_usage
-            .as_ref()
+            .as_mut()
             .and_then(|ctx| ctx.spoke_asset(&env, hub_asset))
     }
 
     pub fn cached_spoke(&mut self, spoke_id: u32) -> Option<SpokeConfig> {
         self.ensure_spoke_loaded(spoke_id);
         let env = self.env.clone();
-        self.spoke_usage.as_ref().map(|ctx| ctx.as_spoke(&env))
+        self.spoke_usage.as_mut().map(|ctx| ctx.as_spoke(&env))
     }
 
     pub fn active_spoke(&mut self, env: &Env, spoke_id: u32) -> Option<SpokeConfig> {

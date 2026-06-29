@@ -72,7 +72,7 @@ pub fn process_withdraw(
 
     let mut account = storage::get_account(env, account_id);
 
-    crate::helpers::require_owner_or_delegate(env, account_id, caller);
+    crate::helpers::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let recipient = to.unwrap_or_else(|| caller.clone());
 

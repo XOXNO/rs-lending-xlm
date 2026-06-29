@@ -84,11 +84,11 @@ pub fn load_or_create_account(
     match guard {
         AccountGuard::Supply => require_spoke_match(env, &account, spoke_id),
         AccountGuard::Migrate => {
-            require_owner_or_delegate(env, account_id, caller);
+            require_owner_or_delegate(env, account_id, caller, &account.owner);
             require_spoke_match(env, &account, spoke_id);
         }
         AccountGuard::Multiply => {
-            require_owner_or_delegate(env, account_id, caller);
+            require_owner_or_delegate(env, account_id, caller, &account.owner);
             assert_with_error!(env, account.mode == mode, GenericError::AccountModeMismatch);
         }
     }
@@ -97,13 +97,13 @@ pub fn load_or_create_account(
 
 /// Authorizes `caller` for an owner-gated verb on `account_id`.
 ///
-/// The account owner always passes. A delegate passes only when it is both a
-/// registered, active position manager and listed in the account's delegates.
-/// With no registered manager and no delegates this reduces exactly to the
-/// owner-only check it replaces.
-pub fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address) {
-    let owner = storage::get_account_meta(env, account_id).owner;
-    if *caller == owner {
+/// `owner` is the account's stored owner (`account.owner`), supplied by the
+/// caller that already loaded the account. The account owner always passes. A
+/// delegate passes only when it is both a registered, active position manager
+/// and listed in the account's delegates. With no registered manager and no
+/// delegates this reduces exactly to the owner-only check it replaces.
+pub fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, owner: &Address) {
+    if caller == owner {
         return;
     }
     let active_manager =

@@ -28,10 +28,10 @@ pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
 /// market is owned by the pool and enforced by the subsequent pool call; the
 /// spoke listing (`spoke::validate_spoke_lists_asset` + the spoke config read)
 /// proves per-spoke usability. Panics `PairNotActive` when not oracle-configured.
-pub fn require_market_active(env: &Env, _cache: &mut Cache, hub_asset: &HubAssetKey) {
+pub fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetKey) {
     assert_with_error!(
         env,
-        storage::get_asset_oracle(env, &hub_asset.asset).is_some(),
+        cache.asset_oracle_exists(&hub_asset.asset),
         GenericError::PairNotActive
     );
 }

@@ -10,7 +10,6 @@ use soroban_sdk::{Address, Env, Vec};
 use crate::cache::Cache;
 use crate::events;
 use crate::helpers::utils::{self, EventContext};
-use crate::positions::borrow;
 use crate::positions::repay::{self, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawalRequest, WITHDRAW_ALL_SENTINEL};
 use crate::strategies::swap::balance_delta;
@@ -34,29 +33,6 @@ fn controller_event_context(env: &Env, action: events::PositionAction) -> EventC
         caller: env.current_contract_address(),
         action,
     }
-}
-
-pub(crate) fn open_strategy_borrow(
-    env: &Env,
-    cache: &mut Cache,
-    account: &mut Account,
-    hub_asset: &HubAssetKey,
-    amount: i128,
-) -> i128 {
-    // D{asset.decimals}{Token(asset)} debt opens for `amount`; return is net balance after Token(asset) fee.
-    borrow::borrow_for_strategy(env, account, hub_asset, amount, cache)
-}
-
-/// Zero-fee strategy borrow for Blend migration; returns the amount received.
-pub(crate) fn open_migration_borrow(
-    env: &Env,
-    cache: &mut Cache,
-    account: &mut Account,
-    hub_debt: &HubAssetKey,
-    amount: i128,
-) -> i128 {
-    // D{asset.decimals}{Token(asset)} zero-fee migration borrow; debt amount equals received token delta.
-    borrow::borrow_for_migration(env, account, hub_debt, amount, cache)
 }
 
 pub(crate) fn repay_debt_from_controller(

@@ -27,7 +27,7 @@ fn owner_passes() {
     env.as_contract(&contract_id, || {
         let owner = Address::generate(&env);
         let account_id = seed_account(&env, &owner);
-        require_owner_or_delegate(&env, account_id, &owner);
+        require_owner_or_delegate(&env, account_id, &owner, &owner);
     });
 }
 
@@ -41,7 +41,7 @@ fn stranger_rejected() {
     env.as_contract(&contract_id, || {
         let owner = Address::generate(&env);
         let account_id = seed_account(&env, &owner);
-        require_owner_or_delegate(&env, account_id, &Address::generate(&env));
+        require_owner_or_delegate(&env, account_id, &Address::generate(&env), &owner);
     });
 }
 
@@ -59,7 +59,7 @@ fn active_registered_opted_in_delegate_passes() {
         storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active: true });
         storage::add_delegate(&env, account_id, &manager);
 
-        require_owner_or_delegate(&env, account_id, &manager);
+        require_owner_or_delegate(&env, account_id, &manager, &owner);
     });
 }
 
@@ -77,7 +77,7 @@ fn registered_but_not_opted_in_rejected() {
 
         storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active: true });
 
-        require_owner_or_delegate(&env, account_id, &manager);
+        require_owner_or_delegate(&env, account_id, &manager, &owner);
     });
 }
 
@@ -96,6 +96,6 @@ fn opted_in_but_manager_inactive_rejected() {
         storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active: false });
         storage::add_delegate(&env, account_id, &manager);
 
-        require_owner_or_delegate(&env, account_id, &manager);
+        require_owner_or_delegate(&env, account_id, &manager, &owner);
     });
 }
