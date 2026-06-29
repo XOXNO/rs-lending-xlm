@@ -45,7 +45,6 @@ pub struct CreatePoolArgs {
     pub hub_id: u32,
     pub asset: Address,
     pub params: MarketParamsRaw,
-    pub config: SpokeAssetConfig,
 }
 
 #[contracttype]
@@ -86,8 +85,9 @@ pub struct RoleArgs {
 #[contracttype]
 #[derive(Clone, Debug)]
 // `#[contracttype]` enums cannot box variants (Soroban has no `Box` codec); the
-// `CreateLiquidityPool`/`EditAssetConfig` variants carry the large
-// `SpokeAssetConfig`. Mirrors the allow on `MarketOracleConfigOption`.
+// `EditAssetConfig` variant carries the large `SpokeAssetConfig` and
+// `CreateLiquidityPool` embeds the large `MarketParamsRaw`. Mirrors the allow on
+// `MarketOracleConfigOption`.
 #[allow(clippy::large_enum_variant)]
 pub enum AdminOperation {
     // Controller target

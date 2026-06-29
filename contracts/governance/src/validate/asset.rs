@@ -60,7 +60,6 @@ pub(crate) fn validate_market_creation(
     env: &Env,
     asset: &Address,
     params: &MarketParamsRaw,
-    config: &SpokeAssetConfig,
     _token_decimals: u32,
 ) {
     assert_with_error!(env, params.asset_id == *asset, GenericError::WrongToken);
@@ -77,7 +76,6 @@ pub(crate) fn validate_market_creation(
         GenericError::InvalidAsset
     );
 
-    validate_asset_config(env, config);
     params.verify(env);
 }
 

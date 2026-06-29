@@ -1,24 +1,7 @@
 use super::*;
 use common::constants::RAY;
-use controller_interface::types::MarketOracleConfigOption;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Env;
-
-fn sample_asset_config() -> SpokeAssetConfig {
-    SpokeAssetConfig {
-        is_collateralizable: true,
-        is_borrowable: true,
-        paused: false,
-        frozen: false,
-        loan_to_value: 7_500,
-        liquidation_threshold: 8_000,
-        liquidation_bonus: 500,
-        liquidation_fees: 100,
-        supply_cap: 0,
-        borrow_cap: 0,
-        oracle_override: MarketOracleConfigOption::None,
-    }
-}
 
 fn sample_market_params(asset: &Address, decimals: u32) -> MarketParamsRaw {
     MarketParamsRaw {
@@ -87,8 +70,7 @@ fn test_validate_market_creation_rejects_wrong_asset_id() {
     let asset = Address::generate(&env);
     let other = Address::generate(&env);
     let params = sample_market_params(&other, 7);
-    let cfg = sample_asset_config();
-    validate_market_creation(&env, &asset, &params, &cfg, 7);
+    validate_market_creation(&env, &asset, &params, 7);
 }
 
 #[test]
@@ -97,6 +79,5 @@ fn test_validate_market_creation_rejects_decimals_out_of_range() {
     let env = Env::default();
     let asset = Address::generate(&env);
     let params = sample_market_params(&asset, MAX_ASSET_DECIMALS + 1);
-    let cfg = sample_asset_config();
-    validate_market_creation(&env, &asset, &params, &cfg, MAX_ASSET_DECIMALS + 1);
+    validate_market_creation(&env, &asset, &params, MAX_ASSET_DECIMALS + 1);
 }

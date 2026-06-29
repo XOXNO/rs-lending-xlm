@@ -231,7 +231,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 env,
                 &args.asset,
                 &args.params,
-                &args.config,
                 token_decimals,
             );
             (
@@ -242,7 +241,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                     args.hub_id.into_val(env),
                     args.asset.clone().into_val(env),
                     args.params.clone().into_val(env),
-                    args.config.clone().into_val(env),
                 ],
                 DelayTier::Standard,
             )
