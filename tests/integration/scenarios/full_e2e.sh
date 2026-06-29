@@ -62,7 +62,7 @@ if want liquidation; then
     flow_liq_setup
     flow_liq_single
     flow_liq_bulk
-    flow_liq_emode
+    flow_liq_spoke
     flow_clean_bad_debt
     flow_caps
     unset INV_TRANSIENT_CONTRACT_RE

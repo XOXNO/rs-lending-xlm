@@ -12,7 +12,7 @@
 #
 # Config files:
 #   configs/networks.json          — RPC URLs, contract addresses
-#   configs/emodes.json            — E-Mode categories per network
+#   configs/spokes.json            — Spoke categories per network
 #   configs/testnet_markets.json   — Market configs (testnet)
 #   configs/mainnet_markets.json   — Market configs (mainnet)
 # ===========================================================================
@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 NETWORKS_FILE="$SCRIPT_DIR/networks.json"
-EMODES_FILE="$SCRIPT_DIR/emodes.json"
+SPOKES_FILE="$SCRIPT_DIR/spokes.json"
 MARKET_CONFIG_FILE="$SCRIPT_DIR/${NETWORK}_markets.json"
 BLEND_POOLS_FILE="$SCRIPT_DIR/blend_pools.json"
 
@@ -99,12 +99,12 @@ require_static_config() {
         echo "ERROR: Every configured market must have name and asset_address in $MARKET_CONFIG_FILE" >&2
         exit 1
     fi
-    if [ ! -f "$EMODES_FILE" ]; then
-        echo "ERROR: Config file not found: $EMODES_FILE" >&2
+    if [ ! -f "$SPOKES_FILE" ]; then
+        echo "ERROR: Config file not found: $SPOKES_FILE" >&2
         exit 1
     fi
-    if ! jq -e --arg network "$NETWORK" '.[$network] | type == "object"' "$EMODES_FILE" >/dev/null; then
-        echo "ERROR: E-mode config for '$NETWORK' not found in $EMODES_FILE" >&2
+    if ! jq -e --arg network "$NETWORK" '.[$network] | type == "object"' "$SPOKES_FILE" >/dev/null; then
+        echo "ERROR: Spoke config for '$NETWORK' not found in $SPOKES_FILE" >&2
         exit 1
     fi
 }
@@ -115,17 +115,17 @@ get_market_value() {
     jq -r ".markets[] | select(.name == \"$market\") | .$field" "$MARKET_CONFIG_FILE"
 }
 
-get_emode_value() {
+get_spoke_value() {
     local category_id=$1
     local path=$2
-    jq -r ".\"$NETWORK\".\"$category_id\"$path" "$EMODES_FILE"
+    jq -r ".\"$NETWORK\".\"$category_id\"$path" "$SPOKES_FILE"
 }
 
 get_controller() {
     stellar contract alias show controller --network "$NETWORK" 2>/dev/null || get_network_value "controller"
 }
 
-# Governance owns the controller: all admin writes (markets, oracles, e-modes,
+# Governance owns the controller: all admin writes (markets, oracles, spokes,
 # pause, roles) route through it. Views and operational role-gated calls
 # (update_indexes, claim_revenue) stay controller-direct.
 get_governance() {
@@ -956,17 +956,17 @@ list_markets() {
     fi
 }
 
-list_emode_categories() {
-    echo "E-Mode categories (${NETWORK}):"
-    if [ -f "$EMODES_FILE" ]; then
+list_spokes() {
+    echo "Spoke categories (${NETWORK}):"
+    if [ -f "$SPOKES_FILE" ]; then
         jq -r --arg network "$NETWORK" --slurpfile networks "$NETWORKS_FILE" '
             .[$network] as $cats |
-            ($networks[0][$network].emode_category_ids // {}) as $ids |
+            ($networks[0][$network].spoke_ids // {}) as $ids |
             $cats | to_entries[] |
             "  \(.key) -> on-chain \($ids[.key] // "unmapped"): \(.value.name) — assets: \(.value.assets | keys | join(", "))"
-        ' "$EMODES_FILE"
+        ' "$SPOKES_FILE"
     else
-        echo "  No emodes config found: $EMODES_FILE"
+        echo "  No spokes config found: $SPOKES_FILE"
     fi
 }
 
@@ -1004,18 +1004,18 @@ build_hub_assets_json() {
 }
 
 # ---------------------------------------------------------------------------
-# E-Mode functions
+# Spoke functions
 # ---------------------------------------------------------------------------
 
-add_emode_category() {
+add_spoke() {
     local category_id=$1
 
     local name
-    name=$(get_emode_value "$category_id" ".name")
+    name=$(get_spoke_value "$category_id" ".name")
 
-    echo "Adding E-Mode category ${category_id}: ${name}" >&2
+    echo "Adding Spoke category ${category_id}: ${name}" >&2
 
-    # add_spoke() — no on-chain args; risk params are per-asset (e-mode categories
+    # add_spoke() — no on-chain args; risk params are per-asset (spoke categories
     # are now spokes). The salt is seeded with the config category id so that
     # creating several spokes in one setup run derives distinct timelock op ids
     # (the call args stay []; a shared salt would collide on the second spoke).
@@ -1028,46 +1028,46 @@ add_emode_category() {
         add_spoke "$(admin_op AddSpoke)" "$args_json" true "$salt")
 
     if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
-        echo "Scheduled e-mode category ${category_id} as op ${op_id} (AUTO_EXECUTE=0)." >&2
+        echo "Scheduled spoke category ${category_id} as op ${op_id} (AUTO_EXECUTE=0)." >&2
         echo "$op_id"
         return 0
     fi
 
     await_op_ready "$op_id"
-    # The controller's add_e_mode_category returns the new on-chain id; the
+    # The controller's add_spoke returns the new on-chain id; the
     # generic execute prints that returned Val on its last line.
     local result
     result=$(execute_op "$op_id" 2>/dev/null)
     local onchain_id
     onchain_id=$(echo "$result" | sed -nE 's/.*([0-9]+).*/\1/p' | tail -n1)
     if [ -z "$onchain_id" ]; then
-        echo "ERROR: Could not parse on-chain e-mode category id from execute result: $result" >&2
+        echo "ERROR: Could not parse on-chain spoke category id from execute result: $result" >&2
         exit 1
     fi
 
-    echo "E-Mode category ${category_id} created with on-chain id ${onchain_id}." >&2
+    echo "Spoke category ${category_id} created with on-chain id ${onchain_id}." >&2
     echo "$onchain_id"
 }
 
-get_mapped_emode_category_id() {
+get_mapped_spoke_id() {
     local config_category_id=$1
     jq -r --arg network "$NETWORK" --arg config_id "$config_category_id" \
-        '.[$network].emode_category_ids[$config_id] // empty' "$NETWORKS_FILE"
+        '.[$network].spoke_ids[$config_id] // empty' "$NETWORKS_FILE"
 }
 
-persist_emode_category_id() {
+persist_spoke_id() {
     local config_category_id=$1
     local onchain_id=$2
     local tmp
     tmp=$(mktemp)
     jq --arg network "$NETWORK" --arg config_id "$config_category_id" --argjson onchain_id "$onchain_id" \
-        '.[$network].emode_category_ids = (.[$network].emode_category_ids // {}) |
-         .[$network].emode_category_ids[$config_id] = $onchain_id' \
+        '.[$network].spoke_ids = (.[$network].spoke_ids // {}) |
+         .[$network].spoke_ids[$config_id] = $onchain_id' \
         "$NETWORKS_FILE" > "$tmp" && mv "$tmp" "$NETWORKS_FILE"
 }
 
-fetch_emode_category_json() {
-    # E-mode reads stay on the controller; only writes route through governance.
+fetch_spoke_json() {
+    # Spoke reads stay on the controller; only writes route through governance.
     local onchain_id=$1
     local ctrl
     ctrl=$(get_controller)
@@ -1075,7 +1075,7 @@ fetch_emode_category_json() {
         --send=no -- get_spoke --spoke_id "$onchain_id"
 }
 
-emode_is_deprecated() {
+spoke_is_deprecated() {
     local category_json=$1
     printf '%s' "$category_json" | jq -e '.is_deprecated == true' >/dev/null
 }
@@ -1087,7 +1087,7 @@ emode_is_deprecated() {
 # (setup will populate it). On-chain categories carry no name, so a foreign
 # category whose assets are a strict subset of this config's assets cannot be
 # distinguished here — closing that residual needs an on-chain identity field.
-emode_category_assets_match_config() {
+spoke_assets_match_config() {
     local config_category_id=$1
     local category_json=$2
 
@@ -1095,7 +1095,7 @@ emode_category_assets_match_config() {
     # empty `{}`) cannot be verified; refuse reuse instead of masking it as an
     # empty (compatible) category.
     if ! printf '%s' "$category_json" | jq -e '.assets | type == "object"' >/dev/null 2>&1; then
-        echo "ERROR: on-chain E-Mode category for config ${config_category_id} has no readable .assets map; refusing to reuse." >&2
+        echo "ERROR: on-chain Spoke category for config ${config_category_id} has no readable .assets map; refusing to reuse." >&2
         return 1
     fi
 
@@ -1106,13 +1106,13 @@ emode_category_assets_match_config() {
 
     local expected_addrs=" "
     local asset_name asset_addr
-    for asset_name in $(jq -r ".\"$NETWORK\".\"$config_category_id\".assets | keys[]" "$EMODES_FILE"); do
+    for asset_name in $(jq -r ".\"$NETWORK\".\"$config_category_id\".assets | keys[]" "$SPOKES_FILE"); do
         asset_addr=$(get_market_value "$asset_name" "asset_address")
         # An unresolved asset means the config references something the markets
         # file lacks; fail with that specific reason rather than silently
         # dropping it (which would later mislabel an on-chain asset as foreign).
         if [ -z "$asset_addr" ] || [ "$asset_addr" = "null" ]; then
-            echo "ERROR: e-mode config ${config_category_id} lists asset '${asset_name}' missing from the markets file; cannot verify category reuse." >&2
+            echo "ERROR: spoke config ${config_category_id} lists asset '${asset_name}' missing from the markets file; cannot verify category reuse." >&2
             return 1
         fi
         expected_addrs="${expected_addrs}${asset_addr} "
@@ -1129,80 +1129,80 @@ emode_category_assets_match_config() {
 }
 
 # A category only groups assets and tracks deprecation; risk params live on the
-# per-asset configs (ensured by `ensure_asset_in_emode`). Reuse therefore
+# per-asset configs (ensured by `ensure_asset_in_spoke`). Reuse therefore
 # requires two checks: the category must not be deprecated, and every asset it
 # already holds on-chain must belong to this config category — otherwise we
 # would silently rewrite a different category's (possibly live) risk params.
-ensure_emode_category() {
+ensure_spoke() {
     local config_category_id=$1
     local mapped_id
     local category_json
 
-    mapped_id=$(get_mapped_emode_category_id "$config_category_id")
+    mapped_id=$(get_mapped_spoke_id "$config_category_id")
     if [ -n "$mapped_id" ] && [ "$mapped_id" != "null" ]; then
-        if category_json=$(fetch_emode_category_json "$mapped_id" 2>/dev/null); then
-            if emode_is_deprecated "$category_json"; then
-                echo "Mapped E-Mode id ${mapped_id} for config ${config_category_id} is deprecated; creating a replacement."
-            elif ! emode_category_assets_match_config "$config_category_id" "$category_json"; then
-                echo "ERROR: mapped E-Mode id ${mapped_id} for config ${config_category_id} holds assets this config does not list." >&2
+        if category_json=$(fetch_spoke_json "$mapped_id" 2>/dev/null); then
+            if spoke_is_deprecated "$category_json"; then
+                echo "Mapped Spoke id ${mapped_id} for config ${config_category_id} is deprecated; creating a replacement."
+            elif ! spoke_assets_match_config "$config_category_id" "$category_json"; then
+                echo "ERROR: mapped Spoke id ${mapped_id} for config ${config_category_id} holds assets this config does not list." >&2
                 echo "       Refusing to apply config ${config_category_id} to an unverified on-chain category; it may be a different category or have live users." >&2
                 echo "       Fix the mapping in ${NETWORKS_FILE}, or deprecate the on-chain category, then re-run." >&2
                 return 1
             else
-                echo "E-Mode config ${config_category_id} already mapped to on-chain id ${mapped_id}."
+                echo "Spoke config ${config_category_id} already mapped to on-chain id ${mapped_id}."
                 echo "$mapped_id"
                 return 0
             fi
         else
-            echo "Mapped E-Mode id ${mapped_id} for config ${config_category_id} is not readable; creating a replacement."
+            echo "Mapped Spoke id ${mapped_id} for config ${config_category_id} is not readable; creating a replacement."
         fi
     fi
 
-    if category_json=$(fetch_emode_category_json "$config_category_id" 2>/dev/null); then
-        if emode_is_deprecated "$category_json"; then
-            echo "On-chain E-Mode id ${config_category_id} is deprecated; creating a new category."
-        elif ! emode_category_assets_match_config "$config_category_id" "$category_json"; then
-            echo "ERROR: on-chain E-Mode id ${config_category_id} holds assets config category ${config_category_id} does not list." >&2
+    if category_json=$(fetch_spoke_json "$config_category_id" 2>/dev/null); then
+        if spoke_is_deprecated "$category_json"; then
+            echo "On-chain Spoke id ${config_category_id} is deprecated; creating a new category."
+        elif ! spoke_assets_match_config "$config_category_id" "$category_json"; then
+            echo "ERROR: on-chain Spoke id ${config_category_id} holds assets config category ${config_category_id} does not list." >&2
             echo "       Refusing to reuse it by numeric id; it may be a different category or have live users." >&2
             echo "       Map config ${config_category_id} to the correct on-chain id in ${NETWORKS_FILE}, or deprecate the on-chain category, then re-run." >&2
             return 1
         else
-            persist_emode_category_id "$config_category_id" "$config_category_id"
-            echo "E-Mode config ${config_category_id} reuses existing on-chain id ${config_category_id}."
+            persist_spoke_id "$config_category_id" "$config_category_id"
+            echo "Spoke config ${config_category_id} reuses existing on-chain id ${config_category_id}."
             echo "$config_category_id"
             return 0
         fi
     fi
 
     local onchain_id
-    onchain_id=$(add_emode_category "$config_category_id")
-    persist_emode_category_id "$config_category_id" "$onchain_id"
+    onchain_id=$(add_spoke "$config_category_id")
+    persist_spoke_id "$config_category_id" "$onchain_id"
     echo "$onchain_id"
 }
 
-add_asset_to_emode() {
+add_asset_to_spoke() {
     local category_id=$1
     local asset_name=$2
     local config_category_id=${3:-$category_id}
 
-    echo "Adding asset ${asset_name} to E-Mode category ${category_id}..."
+    echo "Adding asset ${asset_name} to Spoke category ${category_id}..."
 
     local asset_address
     asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral
-    can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
-    can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
     local ltv
-    ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
-    threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    threshold=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
     local bonus
-    bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    bonus=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local supply_cap
-    supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    supply_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
     local borrow_cap
-    borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
+    borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
 
@@ -1219,9 +1219,9 @@ add_asset_to_emode() {
     fi
 
     local hub_id
-    hub_id=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
+    hub_id=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
     if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
-        die "e-mode asset ${asset_name} (category ${config_category_id}) missing hub_id in ${EMODES_FILE}"
+        die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
     fi
 
     # add_asset_to_spoke(SpokeAssetArgs). resolve_op schedules a single
@@ -1245,10 +1245,10 @@ add_asset_to_emode() {
         add_asset_to_spoke "$admin_op_json" "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
 
-    echo "Asset ${asset_name} scheduled into E-Mode category ${category_id}."
+    echo "Asset ${asset_name} scheduled into Spoke category ${category_id}."
 }
 
-edit_asset_in_emode() {
+edit_asset_in_spoke() {
     local category_id=$1
     local asset_name=$2
     local config_category_id=${3:-$category_id}
@@ -1256,28 +1256,28 @@ edit_asset_in_emode() {
     local asset_address
     asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral
-    can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
-    can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
     local ltv
-    ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
-    threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    threshold=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
     local bonus
-    bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    bonus=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local supply_cap
-    supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    supply_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
     local borrow_cap
-    borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
+    borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
 
-    echo "Editing asset ${asset_name} in E-Mode category ${category_id}..." >&2
+    echo "Editing asset ${asset_name} in Spoke category ${category_id}..." >&2
 
     local hub_id
-    hub_id=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
+    hub_id=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
     if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
-        die "e-mode asset ${asset_name} (category ${config_category_id}) missing hub_id in ${EMODES_FILE}"
+        die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
     fi
 
     # edit_asset_in_spoke(SpokeAssetArgs). resolve_op schedules a single
@@ -1302,7 +1302,7 @@ edit_asset_in_emode() {
     schedule_and_maybe_execute "$op_id"
 }
 
-ensure_asset_in_emode() {
+ensure_asset_in_spoke() {
     local category_id=$1
     local asset_name=$2
     local config_category_id=${3:-$category_id}
@@ -1310,19 +1310,19 @@ ensure_asset_in_emode() {
     local asset_address
     asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral
-    can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
-    can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
     local ltv
-    ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
-    threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    threshold=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
     local bonus
-    bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    bonus=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local supply_cap
-    supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    supply_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
     local borrow_cap
-    borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
+    borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
     local category_json
@@ -1332,7 +1332,7 @@ ensure_asset_in_emode() {
         exit 1
     fi
 
-    category_json=$(fetch_emode_category_json "$category_id")
+    category_json=$(fetch_spoke_json "$category_id")
     if printf '%s' "$category_json" | jq -e --arg asset "$asset_address" '.assets[$asset] != null' >/dev/null; then
         if printf '%s' "$category_json" | jq -e \
             --arg asset "$asset_address" \
@@ -1350,39 +1350,39 @@ ensure_asset_in_emode() {
              .assets[$asset].liquidation_bonus == $bonus and
              (.assets[$asset].supply_cap | tostring) == $supply_cap and
              (.assets[$asset].borrow_cap | tostring) == $borrow_cap' >/dev/null; then
-            echo "Asset ${asset_name} already configured in E-Mode category ${category_id}."
+            echo "Asset ${asset_name} already configured in Spoke category ${category_id}."
         else
-            edit_asset_in_emode "$category_id" "$asset_name" "$config_category_id"
+            edit_asset_in_spoke "$category_id" "$asset_name" "$config_category_id"
         fi
     else
-        add_asset_to_emode "$category_id" "$asset_name" "$config_category_id"
+        add_asset_to_spoke "$category_id" "$asset_name" "$config_category_id"
     fi
 }
 
-setup_all_emodes() {
-    echo "=== Setting up all E-Mode categories for ${NETWORK} ==="
+setup_all_spokes() {
+    echo "=== Setting up all Spoke categories for ${NETWORK} ==="
     local categories
-    categories=$(jq -r ".\"$NETWORK\" | keys[]" "$EMODES_FILE")
+    categories=$(jq -r ".\"$NETWORK\" | keys[]" "$SPOKES_FILE")
 
     for cat_id in $categories; do
         local onchain_id
         # Bare assignment (declared separately so `local` doesn't mask the
         # status): a command substitution inside an `if` condition would suppress
-        # `set -e` within ensure_emode_category and its callees, silently
+        # `set -e` within ensure_spoke and its callees, silently
         # continuing on an inner failure or the content guard's `return 1`. With
         # a plain assignment, `set -e` stays active inside the function and
         # aborts the deploy on any non-zero exit; the guard prints the specific
         # reason to stderr before returning.
-        onchain_id=$(ensure_emode_category "$cat_id")
+        onchain_id=$(ensure_spoke "$cat_id")
         onchain_id=$(printf '%s\n' "$onchain_id" | tail -n1)
 
         local assets
-        assets=$(jq -r ".\"$NETWORK\".\"$cat_id\".assets | keys[]" "$EMODES_FILE")
+        assets=$(jq -r ".\"$NETWORK\".\"$cat_id\".assets | keys[]" "$SPOKES_FILE")
         for asset_name in $assets; do
-            ensure_asset_in_emode "$onchain_id" "$asset_name" "$cat_id"
+            ensure_asset_in_spoke "$onchain_id" "$asset_name" "$cat_id"
         done
     done
-    echo "=== All E-Mode categories configured ==="
+    echo "=== All Spoke categories configured ==="
 }
 
 # ---------------------------------------------------------------------------
@@ -1394,7 +1394,7 @@ setup_all_emodes() {
 # carries an explicit hub_id, so the hubs referenced by the market config must
 # exist on-chain before any market is listed. `create_hub` is a governance-
 # timelocked admin op (AdminOperation::CreateHub, no on-chain args) returning the
-# new u32 id — mirrors add_spoke / add_e_mode_category.
+# new u32 id — mirrors add_spoke.
 # ---------------------------------------------------------------------------
 
 get_mapped_hub_id() {
@@ -1947,12 +1947,12 @@ set_accumulator() {
 # ---------------------------------------------------------------------------
 
 # `supply` — deposit collateral.
-# Args: <market> <amount_raw> [<account_id:0>] [<e_mode_category:0>]
+# Args: <market> <amount_raw> [<account_id:0>] [<spoke_id:0>]
 supply_position() {
     local market=$1
     local amount_raw=$2
     local account_id=${3:-0}
-    local e_mode_category=${4:-0}
+    local spoke_id=${4:-0}
 
     local ctrl
     ctrl=$(get_controller)
@@ -1967,7 +1967,7 @@ supply_position() {
 
     echo "=== supply ==="
     echo "  Account:  $account_id  (0 = create new)"
-    echo "  E-mode:   $e_mode_category  (0 = none)"
+    echo "  Spoke:   $spoke_id  (0 = none)"
     echo "  Asset:    $market ($asset_addr)"
     echo "  Amount:   $amount_raw"
     echo
@@ -1977,7 +1977,7 @@ supply_position() {
         -- supply \
         --caller "$caller" \
         --account_id "$account_id" \
-        --spoke_id "$e_mode_category" \
+        --spoke_id "$spoke_id" \
         --assets "[[{\"hub_id\":$hub_id,\"asset\":\"$asset_addr\"}, \"$amount_raw\"]]"
 }
 
@@ -2478,7 +2478,7 @@ show_info() {
     echo "Configured Aggregator: $(get_aggregator_address 2>/dev/null || echo 'not set (set networks.json or AGGREGATOR_CONTRACT)')"
     echo "Configured Accumulator: $(get_accumulator_address 2>/dev/null || echo 'not set (required for claimRevenue)')"
     echo "Pool WASM Hash: $(get_network_value "pool_wasm_hash")"
-    echo "E-Mode ID Map: $(jq -c --arg network "$NETWORK" '.[$network].emode_category_ids // {}' "$NETWORKS_FILE")"
+    echo "Spoke ID Map: $(jq -c --arg network "$NETWORK" '.[$network].spoke_ids // {}' "$NETWORKS_FILE")"
     echo "Reflector CEX: $(get_cex_oracle)"
     echo "Reflector DEX: $(get_dex_oracle)"
     echo "Reflector FX:  $(get_fx_oracle)"
@@ -2527,7 +2527,7 @@ get_index_cmd() {
     invoke_view "$ctrl" get_market_indexes_detailed --assets "[\"$asset_address\"]"
 }
 
-get_emode_cmd() {
+get_spoke_cmd() {
     local cat_id=$1
     local ctrl
     ctrl=$(get_controller)
@@ -2809,27 +2809,27 @@ case "$1" in
     "listMarkets")
         list_markets
         ;;
-    "listEModeCategories")
-        list_emode_categories
+    "listSpokes")
+        list_spokes
         ;;
-    "addEModeCategory")
+    "addSpoke")
         if [ -z "$2" ]; then
-            echo "Usage: $0 addEModeCategory <category_id>"
-            list_emode_categories
+            echo "Usage: $0 addSpoke <category_id>"
+            list_spokes
             exit 1
         fi
-        add_emode_category "$2"
+        add_spoke "$2"
         ;;
-    "addAssetToEMode")
+    "addAssetToSpoke")
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 addAssetToEMode <category_id> <asset_name>"
-            list_emode_categories
+            echo "Usage: $0 addAssetToSpoke <category_id> <asset_name>"
+            list_spokes
             exit 1
         fi
-        add_asset_to_emode "$2" "$3"
+        add_asset_to_spoke "$2" "$3"
         ;;
-    "setupAllEModes")
-        setup_all_emodes
+    "setupAllSpokes")
+        setup_all_spokes
         ;;
     "createMarket")
         if [ -z "$2" ]; then
@@ -2905,7 +2905,7 @@ case "$1" in
         ;;
     "setupAll")
         setup_all_markets
-        setup_all_emodes
+        setup_all_spokes
         echo "=== Full setup complete ==="
         ;;
     "whitelistBlendPools")
@@ -2919,7 +2919,7 @@ case "$1" in
         ;;
     "supply")
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 supply <market> <amount_raw> [<account_id:0>] [<e_mode_category:0>]" >&2
+            echo "Usage: $0 supply <market> <amount_raw> [<account_id:0>] [<spoke_id:0>]" >&2
             list_markets >&2
             exit 1
         fi
@@ -3038,9 +3038,9 @@ case "$1" in
     "getAllIndexes")
         get_all_indexes_cmd
         ;;
-    "getEMode")
-        if [ -z "$2" ]; then echo "Usage: $0 getEMode <category_id>" >&2; list_emode_categories >&2; exit 1; fi
-        get_emode_cmd "$2"
+    "getSpoke")
+        if [ -z "$2" ]; then echo "Usage: $0 getSpoke <category_id>" >&2; list_spokes >&2; exit 1; fi
+        get_spoke_cmd "$2"
         ;;
     "getHealth")
         if [ -z "$2" ]; then echo "Usage: $0 getHealth <account_id>" >&2; exit 1; fi
@@ -3124,14 +3124,14 @@ case "$1" in
         echo "  updateIndexes <name> [...]      Sync indexes for one or more markets"
         echo "  setupAllMarkets                 Idempotently configure markets; no deploy/unpause"
         echo ""
-        echo "E-Mode (writes):"
-        echo "  listEModeCategories             List configured e-mode categories"
-        echo "  addEModeCategory <id>           Create e-mode category from config"
-        echo "  addAssetToEMode <id> <asset>    Add asset to e-mode from config"
-        echo "  setupAllEModes                  Idempotently configure e-modes; no deploy/unpause"
+        echo "Spoke (writes):"
+        echo "  listSpokes             List configured spoke categories"
+        echo "  addSpoke <id>           Create spoke category from config"
+        echo "  addAssetToSpoke <id> <asset>    Add asset to spoke from config"
+        echo "  setupAllSpokes                  Idempotently configure spokes; no deploy/unpause"
         echo ""
         echo "Timelock (admin writes are scheduled then executed after the delay):"
-        echo "  Admin verbs (createMarket, editAssetConfig, configureMarketOracle, e-mode,"
+        echo "  Admin verbs (createMarket, editAssetConfig, configureMarketOracle, spoke,"
         echo "  setAggregator, disableTokenOracle, ...) SCHEDULE a governance op and, by default"
         echo "  (AUTO_EXECUTE=1), await the min-delay then execute it. Set AUTO_EXECUTE=0"
         echo "  to schedule-only and execute later with executeOp."
@@ -3154,7 +3154,7 @@ case "$1" in
         echo "  setAggregator                   Set aggregator (networks.json or AGGREGATOR_CONTRACT)"
         echo "  setAccumulator                  Set revenue treasury (networks.json accumulator or ACCUMULATOR_CONTRACT)"
         echo "  Env: AGGREGATOR_CONTRACT, ACCUMULATOR_CONTRACT, AWAIT_MAX_WAIT_SECONDS"
-        echo "  setupAll                        Markets + E-Modes only; no deploy/unpause"
+        echo "  setupAll                        Markets + Spokes only; no deploy/unpause"
         echo "  claimRevenue <name> [...]       Claim revenue for one or more markets (REVENUE role)"
         echo "  claimRevenueAll                 Claim revenue for every configured market"
         echo ""
@@ -3166,7 +3166,7 @@ case "$1" in
         echo "  getIndex <market>               Supply/borrow index (RAY)"
         echo "  getAllMarkets                   All markets detailed"
         echo "  getAllIndexes                   All market indexes"
-        echo "  getEMode <id>                   E-Mode category params"
+        echo "  getSpoke <id>                   Spoke category params"
         echo "  getHealth <id>                  Health factor (RAY)"
         echo "  getAccount <id>                 Positions + attributes"
         echo "  getCollateralUsd <id>           Aggregate collateral in USD"

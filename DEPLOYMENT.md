@@ -2,7 +2,7 @@
 
 End-to-end guide for deploying and operating the Stellar lending protocol
 (governance + controller + central pool) on testnet and mainnet, and for the
-day-to-day management of markets, oracles, e-modes, and roles.
+day-to-day management of markets, oracles, spokes, and roles.
 
 Everything is driven by `make <network> <action>` and the JSON config under
 `configs/`. The same commands work on `testnet` and `mainnet`; only the config
@@ -22,9 +22,9 @@ values and the timelock delay differ.
 - Config files (all under `configs/`):
   | File | Purpose |
   |------|---------|
-  | `networks.json` | RPC URL, passphrase, contract addresses, timelock delay, e-mode id map (per network) |
+  | `networks.json` | RPC URL, passphrase, contract addresses, timelock delay, spoke id map (per network) |
   | `<network>_markets.json` | Market list: asset address, risk params, oracle config |
-  | `emodes.json` | E-mode categories and their per-asset risk params (per network) |
+  | `spokes.json` | Spoke categories and their per-asset risk params (per network) |
 
 ---
 
@@ -88,12 +88,12 @@ the documented target.
    `networks.json` — `aggregator`, `accumulator` — or passed via
    `AGGREGATOR_CONTRACT` / `ACCUMULATOR_CONTRACT`).
 4. `setupAll`: create every market in `<network>_markets.json`, wire its oracle,
-   activate it; then create every e-mode category in `emodes.json` and add its assets.
+   activate it; then create every spoke category in `spokes.json` and add its assets.
 5. `unpause` (owner-immediate — no timelock wait).
-6. Print status (`info`, `listMarkets`, `listEModeCategories`).
+6. Print status (`info`, `listMarkets`, `listSpokeCategories`).
 
 New addresses are written back to `networks.json` (`governance`, `controller`,
-`pool`, `*_wasm_hash`, `emode_category_ids`).
+`pool`, `*_wasm_hash`, `spoke_ids`).
 
 ```bash
 # testnet — one shot
@@ -145,24 +145,24 @@ make <network> getPrice USDC                # verify the oracle resolves within 
 
 ---
 
-## 6. E-modes
+## 6. Spokes
 
-E-mode categories live in `configs/emodes.json` per network. Each has a `name`
+Spoke categories live in `configs/spokes.json` per network. Each has a `name`
 and per-asset risk params (LTV, threshold, bonus, optional caps).
 
 ```bash
-make <network> setupAllEModes            # create every category + add its assets (idempotent)
-make <network> addEModeCategory 1        # create category 1 from config → records its on-chain id
-make <network> addAssetToEMode 1 USDC    # add USDC to category 1
-make <network> getEMode 1                # inspect category + assets
-make <network> listEModeCategories       # list all
+make <network> setupAllSpokes            # create every category + add its assets (idempotent)
+make <network> addSpoke 1        # create category 1 from config → records its on-chain id
+make <network> addAssetToSpoke 1 USDC    # add USDC to category 1
+make <network> getSpoke 1                # inspect category + assets
+make <network> listSpokeCategories       # list all
 ```
 
-The on-chain category id is stored in `networks.json` under `emode_category_ids`
+The on-chain category id is stored in `networks.json` under `spoke_ids`
 (config-id → on-chain-id). To re-create a category, remove its entry there first
 so the idempotent setup re-creates it.
 
-> Each `add_e_mode_category` op derives a category-id-seeded salt, so creating
+> Each `add_spoke` op derives a category-id-seeded salt, so creating
 > several categories in one run produces distinct timelock op ids. (A shared
 > salt previously collided on the second category with `#4000`.)
 
@@ -173,9 +173,9 @@ so the idempotent setup re-creates it.
 ```bash
 make <network> info                  # governance/controller/aggregator/accumulator + min_delay + paused
 make <network> listMarkets           # configured markets
-make <network> listEModeCategories   # categories + their assets
+make <network> listSpokeCategories   # categories + their assets
 make <network> getPrice USDC         # oracle pipeline (price within tolerance)
-make <network> getEMode 1            # category params
+make <network> getSpoke 1            # category params
 ```
 
 A live, usable deployment shows: governance owns the controller, all markets
@@ -197,7 +197,7 @@ failed, re-run the idempotent post-deploy phases against the addresses already
 in `networks.json` (skips the contract deploy):
 
 ```bash
-make <network> resume     # configure-controller → markets → oracles → e-modes → unpause
+make <network> resume     # configure-controller → markets → oracles → spokes → unpause
 ```
 
 **Manual op recovery.** Scheduled ops are recorded under `tmp/ops/<network>/`.

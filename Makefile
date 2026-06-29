@@ -16,16 +16,16 @@
 #   make testnet upgradeController  Upgrade controller in-place on testnet
 #   make testnet upgradeGovernance  Upgrade governance in-place on testnet
 #   make testnet upgradeAll         Upgrade pool template, controller, pools, then unpause
-#   make testnet setup              Deploy + configure markets/e-modes, then unpause
-#   make mainnet setup              Deploy + configure markets/e-modes, then unpause
-#   make testnet resume             Re-run configure/markets/e-modes/unpause (skips deploy)
+#   make testnet setup              Deploy + configure markets/spokes, then unpause
+#   make mainnet setup              Deploy + configure markets/spokes, then unpause
+#   make testnet resume             Re-run configure/markets/spokes/unpause (skips deploy)
 #
 # Mainnet bootstrap (avoid 48h-per-op waits): deploy with a 1-ledger delay, then
 # raise to the production delay once everything is configured (increase-only):
 #   DEPLOY_MIN_DELAY=1 make mainnet setup
 #   make mainnet updateDelay 34560
 #
-# Full runbook (markets / oracles / e-modes / roles / recovery): DEPLOYMENT.md
+# Full runbook (markets / oracles / spokes / roles / recovery): DEPLOYMENT.md
 #
 # Ledger signing:
 #   SIGNER=ledger make testnet deploy
@@ -663,8 +663,8 @@ _preflight-network-config: _preflight-tools
 	@test -f $(CONFIG_DIR)/$(NETWORK)_markets.json || { echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)_markets.json"; exit 1; }
 	@jq -e '.markets | type == "array" and length > 0' $(CONFIG_DIR)/$(NETWORK)_markets.json >/dev/null || { echo "No configured markets in $(CONFIG_DIR)/$(NETWORK)_markets.json"; exit 1; }
 	@jq -e 'all(.markets[]; (.name // "") != "" and (.asset_address // "") != "")' $(CONFIG_DIR)/$(NETWORK)_markets.json >/dev/null || { echo "Every configured market must have name and asset_address"; exit 1; }
-	@test -f $(CONFIG_DIR)/emodes.json || { echo "Config file not found: $(CONFIG_DIR)/emodes.json"; exit 1; }
-	@jq -e '.["$(NETWORK)"] | type == "object"' $(CONFIG_DIR)/emodes.json >/dev/null || { echo "E-mode config for $(NETWORK) not found in $(CONFIG_DIR)/emodes.json"; exit 1; }
+	@test -f $(CONFIG_DIR)/spokes.json || { echo "Config file not found: $(CONFIG_DIR)/spokes.json"; exit 1; }
+	@jq -e '.["$(NETWORK)"] | type == "object"' $(CONFIG_DIR)/spokes.json >/dev/null || { echo "Spoke config for $(NETWORK) not found in $(CONFIG_DIR)/spokes.json"; exit 1; }
 
 _preflight-setup: _preflight-network-config
 	@AGG=$$(jq -r '.["$(NETWORK)"].aggregator // empty' $(CONFIG_DIR)/networks.json); \
@@ -717,7 +717,7 @@ _post-setup-status:
 	@echo "=== Setup status ($(NETWORK)) ==="
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh info
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh listMarkets
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh listEModeCategories
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh listSpokes
 
 ## Deploy all contracts to a network
 deploy-testnet: NETWORK=testnet
@@ -1073,7 +1073,7 @@ configure-controller: _preflight-configure-controller
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) REVENUE
 	@echo "Controller configured."
 
-## Full setup: deploy + configure + create/configure markets and e-modes, then unpause.
+## Full setup: deploy + configure + create/configure markets and spokes, then unpause.
 ## Constructor pauses the controller; the final unpause turns the protocol live.
 setup-testnet: NETWORK=testnet
 setup-testnet: _preflight-setup deploy-testnet configure-controller _setup-markets _unpause-after-setup _post-setup-status
@@ -1118,8 +1118,8 @@ create-market:
 # markets / categories / accounts by their config name or id.
 #
 # Examples:
-#   make testnet addEModeCategory 1
-#   make testnet addAssetToEMode 1 USDC
+#   make testnet addSpoke 1
+#   make testnet addAssetToSpoke 1 USDC
 #   make testnet createMarket USDC
 #   make testnet updateIndexes USDC XLM
 #   make testnet setupAll
@@ -1134,8 +1134,8 @@ create-market:
 
 # Action classification — the dispatcher routes each action to script.sh
 # passing positional args verbatim. Adding a new verb = add here + script.sh.
-SIMPLE_ACTIONS := listMarkets listEModeCategories \
-                  setupAll setupAllMarkets setupAllEModes \
+SIMPLE_ACTIONS := listMarkets listSpokes \
+                  setupAll setupAllMarkets setupAllSpokes \
                   whitelistBlendPools \
                   setAggregator setAccumulator pause unpause info \
                   getAllMarkets getAllIndexes \
@@ -1144,9 +1144,9 @@ POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig updateMarketParams upd
                              configureMarketOracle \
                              getPrice getMarket getIndex \
                              getReflector
-POSITIONAL_ID_ACTIONS := addEModeCategory getEMode \
+POSITIONAL_ID_ACTIONS := addSpoke getSpoke \
                          executeOp cancelOp opState awaitOp
-POSITIONAL_ID_ASSET_ACTIONS := addAssetToEMode
+POSITIONAL_ID_ASSET_ACTIONS := addAssetToSpoke
 POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd \
                               getLtvUsd getLiqAvailable canLiquidate
 POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow
@@ -1306,7 +1306,7 @@ help:
 	@echo "  make testnet deployFlashReceiver    Deploy flash-loan test receiver"
 	@echo "  make testnet fundFlashReceiver      Fund flash receiver with FLASH_MARKET"
 	@echo "  make testnet testFlashReceiver      Run flash receiver smoke cases"
-	@echo "  make testnet setup                  Full setup (deploy + config + markets/e-modes + unpause)"
+	@echo "  make testnet setup                  Full setup (deploy + config + markets/spokes + unpause)"
 	@echo "  make testnet info                   Show deployed contract IDs"
 	@echo ""
 	@echo "Config-driven operations (pattern: make <network> <action> [args]):"
@@ -1321,12 +1321,12 @@ help:
 	@echo "    make testnet setupAllMarkets       Configure markets only; does not deploy or unpause"
 	@echo "    make testnet listMarkets"
 	@echo ""
-	@echo "  E-Mode (writes):"
-	@echo "    make testnet addEModeCategory 1"
-	@echo "    make testnet addAssetToEMode 1 USDC"
-	@echo "    make testnet setupAllEModes        Configure e-modes only; does not deploy or unpause"
-	@echo "    make testnet setupAll              Configure markets/e-modes only; does not deploy or unpause"
-	@echo "    make testnet listEModeCategories"
+	@echo "  Spoke (writes):"
+	@echo "    make testnet addSpoke 1"
+	@echo "    make testnet addAssetToSpoke 1 USDC"
+	@echo "    make testnet setupAllSpokes        Configure spokes only; does not deploy or unpause"
+	@echo "    make testnet setupAll              Configure markets/spokes only; does not deploy or unpause"
+	@echo "    make testnet listSpokes"
 	@echo ""
 	@echo "  Positions (writes):"
 	@echo "    make testnet supply USDC 1000000000                  100 USDC at 7 dec, into account 0"
@@ -1355,7 +1355,7 @@ help:
 	@echo "    make testnet getIndex USDC             Supply / borrow RAY index"
 	@echo "    make testnet getAllMarkets"
 	@echo "    make testnet getAllIndexes"
-	@echo "    make testnet getEMode 1"
+	@echo "    make testnet getSpoke 1"
 	@echo "    make testnet getHealth 1"
 	@echo "    make testnet getAccount 1"
 	@echo "    make testnet getCollateralUsd 1"

@@ -44,7 +44,7 @@ oracles, routers, or other pools.
 
 The implementation enforces these properties:
 
-- Risk-increasing operations perform market, oracle, cap, e-mode, LTV,
+- Risk-increasing operations perform market, oracle, cap, spoke, LTV,
   health-factor, and liquidity checks before final state persistence
   (`contracts/controller/src/positions/*.rs`, `contracts/controller/src/strategies/`,
   `contracts/controller/src/validation.rs`).
@@ -54,13 +54,13 @@ The implementation enforces these properties:
   caller other than the controller through the `#[only_owner]` macro
   (`contracts/pool/src/lib.rs`).
 - An account can hold supply and borrow positions in multiple assets within
-  per-account limits stored in `ControllerKey::PositionLimits`. E-mode accounts
+  per-account limits stored in `ControllerKey::PositionLimits`. Spoke accounts
   apply additional asset and category constraints.
 - Strategy flows (`multiply`, `swap_collateral`, `swap_debt`,
   `repay_debt_with_collateral`) route through the same controller risk model
   as `supply`, `borrow`, `repay`, `withdraw`.
 - Storage records are split per concern (account meta, per-side position
-  maps, market config, e-mode category). Numeric
+  maps, market config, spoke category). Numeric
   domains are explicit per field (BPS, WAD, RAY, asset-native).
 
 ## 3. System Topology
@@ -145,7 +145,7 @@ Implemented entrypoints (`contracts/controller/src/*`):
   `set_liquidity_pool_template`, `create_liquidity_pool`,
   `set_market_oracle_config`, `set_oracle_tolerance`,
   `disable_token_oracle`.
-- Asset, e-mode, caps, position-limit, aggregator, accumulator configuration.
+- Asset, spoke, caps, position-limit, aggregator, accumulator configuration.
 - Central-pool deployment, pool parameter updates, and pool WASM upgrades
   (`deploy_pool`, `upgrade_liquidity_pool_params`, `upgrade_pool`).
 - `claim_revenue`, `add_rewards`.
@@ -157,7 +157,7 @@ Implemented entrypoints (`contracts/controller/src/*`):
 - `pause`, `unpause`, `transfer_ownership`, `accept_ownership`,
   `grant_role`, `revoke_role`, `upgrade`.
 - View surface: health, collateral, debt, positions, account attributes,
-  market and e-mode configs, batch market and index views, liquidation
+  market and spoke configs, batch market and index views, liquidation
   estimation.
 
 Production admin callers normally reach these thin setters through governance
@@ -213,7 +213,7 @@ Implemented in `contracts/pool/src/lib.rs`, `contracts/pool/src/cache.rs`, `cont
 - Upgrades pool WASM through `upgrade` when called by its owner
   (`#[only_owner]`).
 
-The pool stores no account ownership, oracle configuration, or e-mode state.
+The pool stores no account ownership, oracle configuration, or spoke state.
 
 ### 4.4 Pool Interface
 
@@ -235,7 +235,7 @@ map without loading borrow positions, which keeps storage work bounded.
 Account state is split into metadata plus two position maps:
 
 - `ControllerKey::AccountMeta(u64)` → `AccountMeta { owner,
-  e_mode_category_id, mode }`.
+  spoke_id, mode }`.
 - `ControllerKey::SupplyPositions(u64)` → `Map<Address, AccountPositionRaw>`.
 - `ControllerKey::BorrowPositions(u64)` → `Map<Address, DebtPositionRaw>`.
 
@@ -263,7 +263,7 @@ classDiagram
 
     class AccountMeta {
         +Address owner
-        +u32 e_mode_category_id
+        +u32 spoke_id
         +PositionMode mode
     }
 
@@ -336,9 +336,9 @@ Constraints enforced at listing or oracle configuration:
 - In non-`testing` builds, `MarketParamsRaw.asset_decimals` must equal the
   token contract's reported decimals; it must also fall within
   `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`.
-- `e_mode_categories` is controller-managed; membership is changed only
-  through `add_asset_to_e_mode_category` /
-  `edit_asset_in_e_mode_category` / `remove_asset_from_e_mode`.
+- `spokes` is controller-managed; membership is changed only
+  through `add_asset_to_spoke` /
+  `edit_asset_in_spoke` / `remove_asset_from_spoke`.
 - A `Single` strategy paired with a naked spot source is rejected in
   non-`testing` builds during oracle proposal validation
   (`SpotOnlyNotProductionSafe`).
@@ -363,7 +363,7 @@ parameters live in the central pool's `PoolKey::Params(asset)`, not in
 `liquidation_bonus_bps`, `liquidation_fees_bps`, `is_collateralizable`,
 `is_borrowable`, `is_flashloanable`,
 `flashloan_fee_bps`, `borrow_cap`,
-`supply_cap`, `e_mode_categories`.
+`supply_cap`, `spokes`.
 
 `validate_asset_config` (`contracts/controller/src/validation.rs`) rejects:
 
@@ -417,7 +417,7 @@ classDiagram
         +u32 flashloan_fee_bps
         +i128 borrow_cap
         +i128 supply_cap
-        +Vec~u32~ e_mode_categories
+        +Vec~u32~ spokes
     }
 
     class MarketOracleConfig {
@@ -622,7 +622,7 @@ from this skeleton.
 
 ### 10.1 Supply
 
-`supply(caller, account_id, e_mode_category, assets)`
+`supply(caller, account_id, spoke, assets)`
 (`contracts/controller/src/positions/supply.rs`):
 
 - `account_id == 0` creates a new account owned by `caller`. Existing-account
@@ -631,7 +631,7 @@ from this skeleton.
 - Cache uses `OraclePolicy::RiskDecreasing`.
 - The controller transfers the requested SAC amounts into the central pool,
   then makes one bulk `pool.supply(entries)` call.
-- Validates active markets, supply caps, e-mode, and bulk position limits
+- Validates active markets, supply caps, spoke, and bulk position limits
   before transferring.
 - Writes only the supply side.
 
@@ -642,7 +642,7 @@ from this skeleton.
 
 - Caller authorization and account-owner match.
 - Cache uses `OraclePolicy::RiskIncreasing`.
-- Validates borrowability, LTV, borrow caps, position limits, and e-mode.
+- Validates borrowability, LTV, borrow caps, position limits, and spoke.
 - Pool checks reserve availability before transferring tokens.
 - Post-batch `require_healthy_account` gates the entire borrow batch.
 
@@ -721,7 +721,7 @@ flowchart TD
 
 `contracts/controller/src/strategies/` exposes:
 
-- `multiply(caller, account_id, e_mode_category, collateral_token,
+- `multiply(caller, account_id, spoke, collateral_token,
   debt_to_flash_loan, debt_token, mode, swap, initial_payment,
   convert_swap)`
 - `swap_debt(caller, account_id, existing_debt_token, amount,
@@ -731,7 +731,7 @@ flowchart TD
 - `repay_debt_with_collateral(caller, account_id, collateral_token,
   collateral_amount, debt_token, swap, close_position)`
 
-All four require account-owner authorization and run market, oracle, e-mode,
+All four require account-owner authorization and run market, oracle, spoke,
 cap, and health checks shared with the underlying flows.
 
 `StrategySwap` shape (see `common/src/types/aggregator.rs`):
@@ -831,35 +831,35 @@ sequenceDiagram
     C->>C: clear FlashLoanOngoing, emit FlashLoanEvent
 ```
 
-## 12. E-Mode
+## 12. Spoke
 
-E-mode tunes risk for specific asset groups:
+Spoke tunes risk for specific asset groups:
 
-- **E-mode** groups assets that move together (for example, two stablecoins) and
+- **Spoke** groups assets that move together (for example, two stablecoins) and
   gives them a higher LTV and liquidation threshold, so users can borrow more
   against closely correlated collateral. Each asset in the category carries its
   own `can_collateral` / `can_borrow` flags and its own LTV, liquidation
   threshold, and liquidation bonus, so members of the same category can run
   different risk profiles.
 
-E-mode is category-based. `ControllerKey::EModeCategory(u32)` stores
-`EModeCategoryRaw { is_deprecated, assets: Map<Address, EModeAssetConfig> }`,
-where `EModeAssetConfig { is_collateralizable, is_borrowable,
+Spoke is category-based. `ControllerKey::Spoke(u32)` stores
+`SpokeConfig { is_deprecated, assets: Map<Address, SpokeAssetConfig> }`,
+where `SpokeAssetConfig { is_collateralizable, is_borrowable,
 loan_to_value_bps, liquidation_threshold_bps, liquidation_bonus_bps }` holds
 the per-asset risk parameters. Each market stores its reverse membership list
-in `AssetConfigRaw.e_mode_categories: Vec<u32>`.
+in `AssetConfigRaw.spokes: Vec<u32>`.
 
-`remove_e_mode_category` flags the category deprecated, clears its asset
+`remove_spoke` flags the category deprecated, clears its asset
 map, and removes the category id from each member market's reverse
 membership list. Deprecated categories remain readable; new activity is
 blocked.
 
 ```mermaid
 flowchart LR
-    Cat["EModeCategory(id)<br/>is_deprecated<br/>assets: Map&lt;Address, EModeAssetConfig&gt;<br/>(per-asset ltv / threshold / bonus)"]
-    AssetA["Market(asset A)<br/>AssetConfig.e_mode_categories"]
-    AssetB["Market(asset B)<br/>AssetConfig.e_mode_categories"]
-    Acct["AccountMeta<br/>e_mode_category_id"]
+    Cat["Spoke(id)<br/>is_deprecated<br/>assets: Map&lt;Address, SpokeAssetConfig&gt;<br/>(per-asset ltv / threshold / bonus)"]
+    AssetA["Market(asset A)<br/>AssetConfig.spokes"]
+    AssetB["Market(asset B)<br/>AssetConfig.spokes"]
+    Acct["AccountMeta<br/>spoke_id"]
 
     Cat -->|"member config"| AssetA
     Cat -->|"member config"| AssetB
@@ -893,7 +893,7 @@ Governance roles (`contracts/governance/src/access.rs`,
 Controller owner and roles (`contracts/controller/src/governance/access.rs`):
 
 - Owner (`#[only_owner]`): governance in production. Thin setters cover
-  upgrades, market listing, asset/e-mode/limits/aggregator/accumulator/template
+  upgrades, market listing, asset/spoke/limits/aggregator/accumulator/template
   configuration, pool parameter and pool WASM upgrades, token-listing approval,
   and controller role grants/revokes.
 - `KEEPER` (`#[only_role(caller, "KEEPER")]`): `update_indexes`,
@@ -984,12 +984,12 @@ Soroban storage is partitioned by entry kind:
 
 - **Instance** (`contracts/controller/src/storage/instance.rs`): the
   `ControllerKey::*` instance variants `PoolTemplate`, `Pool`, `Aggregator`,
-  `Accumulator`, `AccountNonce`, `PositionLimits`, `LastEModeCategoryId`,
+  `Accumulator`, `AccountNonce`, `PositionLimits`, `LastSpokeId`,
   `MinBorrowCollateralUsd`, `AppVersion`, plus the `ApprovedToken(asset)`
   allow-list (a `LocalKey` variant).
 - **Temporary**: the `FlashLoanOngoing` single-flight flag (a `SessionKey`
   variant).
-- **Persistent shared**: `Market(asset)`, `EModeCategory(id)`.
+- **Persistent shared**: `Market(asset)`, `Spoke(id)`.
 - **Persistent user**: `AccountMeta(id)`, `SupplyPositions(id)`,
   `BorrowPositions(id)`.
 - **Pool instance**: owner and WASM instance metadata.
@@ -1014,9 +1014,9 @@ it mutates.
 ```mermaid
 flowchart LR
     subgraph ControllerStorage["Controller storage"]
-        I["Instance<br/>PoolTemplate, Pool, Aggregator, Accumulator<br/>AccountNonce, PositionLimits<br/>LastEModeCategoryId<br/>MinBorrowCollateralUsd, AppVersion<br/>ApprovedToken(asset)"]
+        I["Instance<br/>PoolTemplate, Pool, Aggregator, Accumulator<br/>AccountNonce, PositionLimits<br/>LastSpokeId<br/>MinBorrowCollateralUsd, AppVersion<br/>ApprovedToken(asset)"]
         T["Temporary<br/>FlashLoanOngoing"]
-        M["Persistent shared<br/>Market(asset)<br/>EModeCategory(id)"]
+        M["Persistent shared<br/>Market(asset)<br/>Spoke(id)"]
         U["Persistent user<br/>AccountMeta(id)<br/>SupplyPositions(id)<br/>BorrowPositions(id)"]
     end
 
@@ -1106,7 +1106,7 @@ architecture.
 Areas with high implementation complexity remain the focus for extending
 tests, fuzzing targets, and rules: liquidation and bad-debt socialization,
 oracle fallback selection and disabled-market repayment, strategy router
-validation, e-mode category deprecation,
+validation, spoke category deprecation,
 low-liquidity revenue claims, flash-loan callback authorization, and storage
 TTL behavior.
 
@@ -1123,7 +1123,7 @@ flowchart LR
     C --> D["Governance deploys controller<br/>controller constructor pauses"]
     D --> E["Set template + deploy central pool<br/>aggregator + accumulator"]
     E --> F["Assign roles<br/>separate proposer/executor/canceller"]
-    F --> G["Create markets + oracles<br/>caps + e-mode while paused"]
+    F --> G["Create markets + oracles<br/>caps + spoke while paused"]
     G --> H["Verification matrix<br/>release evidence"]
     H --> I["14-day testnet soak"]
     I --> J["Monitoring live<br/>pause drill complete"]
@@ -1171,10 +1171,10 @@ flowchart TD
   upgrade, ownership transfer.
 - `contracts/controller/src/router.rs`: market listing, central-pool deployment, pool
   parameter and WASM upgrades, revenue claim, reward injection, keepalive.
-- `contracts/controller/src/governance/config.rs`: asset config, e-mode, oracle config,
+- `contracts/controller/src/governance/config.rs`: asset config, spoke, oracle config,
   aggregator, accumulator, token approval, position limits.
 - `contracts/controller/src/positions/*.rs`: supply, borrow, repay, withdraw,
-  liquidation, account lifecycle, e-mode application, threshold updates.
+  liquidation, account lifecycle, spoke application, threshold updates.
 - `contracts/controller/src/strategies/`: multiply, debt swap, collateral swap,
   collateral-funded repay, flash loan, aggregator route validation.
 - `contracts/controller/src/oracle/`: oracle resolution (`price.rs`),

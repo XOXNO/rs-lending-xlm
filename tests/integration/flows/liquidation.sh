@@ -1,5 +1,5 @@
 # Liquidation suite on mock-priced markets: partial / full / multi-debt bulk
-# liquidations, e-mode liquidation, clean_bad_debt, and the
+# liquidations, spoke liquidation, clean_bad_debt, and the
 # healthy-account guard reverts. Mock prices make HF crashes deterministic.
 #
 # Scenario ordering matters: price crashes are market-global, so accounts
@@ -26,7 +26,7 @@ flow_liq_setup() {
         mint_to "$sac" "$code" "$CAROL_ADDR" $((100000 * LIQ_UNIT))
         set_mock_price "$sac" "$WAD" "px_init_$code"
     done
-    # Markets: LIQE/LIQF get e-mode-friendly base config.
+    # Markets: LIQE/LIQF get spoke-friendly base config.
     create_market LIQA "$SAC_LIQA" 7 "$(oracle_cfg_mock_single "$SAC_LIQA")" "$(asset_config_json 7000 7500 800)"
     create_market LIQB "$SAC_LIQB" 7 "$(oracle_cfg_mock_single "$SAC_LIQB")" "$(asset_config_json 7000 7500 800)"
     create_market LIQC "$SAC_LIQC" 7 "$(oracle_cfg_mock_single "$SAC_LIQC")" "$(asset_config_json 7000 7500 800)"
@@ -130,33 +130,33 @@ flow_liq_bulk() {
     save_state LIQ2_ACCT "$acct"
 }
 
-# E-mode category lifecycle + liquidation inside the category.
-flow_liq_emode() {
-    phase liq_emode
-    if [ -z "${EMODE_ID:-}" ]; then
-        local emode_id
-        emode_id=$(inv emode_add_category "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '"')
-        save_state EMODE_ID "$emode_id"
-        inv emode_add_liqe "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
-            --input "$(spoke_args "$SAC_LIQE" "$emode_id" true false 9500 9700 200)" >/dev/null
-        inv emode_add_liqf "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
-            --input "$(spoke_args "$SAC_LIQF" "$emode_id" false true 9500 9700 200)" >/dev/null
+# Spoke category lifecycle + liquidation inside the category.
+flow_liq_spoke() {
+    phase liq_spoke
+    if [ -z "${SPOKE_ID:-}" ]; then
+        local spoke_id
+        spoke_id=$(inv spoke_add_category "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '"')
+        save_state SPOKE_ID "$spoke_id"
+        inv spoke_add_liqe "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+            --input "$(spoke_args "$SAC_LIQE" "$spoke_id" true false 9500 9700 200)" >/dev/null
+        inv spoke_add_liqf "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+            --input "$(spoke_args "$SAC_LIQF" "$spoke_id" false true 9500 9700 200)" >/dev/null
     fi
-    view emode_view "$CONTROLLER" -- get_spoke --spoke_id "$EMODE_ID" >/dev/null
+    view spoke_view "$CONTROLLER" -- get_spoke --spoke_id "$SPOKE_ID" >/dev/null
 
     local acct
-    acct=$(inv liq3_supply_emode "$BOB" "$CONTROLLER" -- supply \
-        --caller "$BOB_ADDR" --account_id 0 --spoke_id "$EMODE_ID" \
+    acct=$(inv liq3_supply_spoke "$BOB" "$CONTROLLER" -- supply \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id "$SPOKE_ID" \
         --assets "$(pay_vec "$SAC_LIQE" $((1000 * LIQ_UNIT)))" | tr -d '"')
-    # 92% LTV borrow — only possible inside the e-mode category (asset LTV is 70%).
-    inv liq3_borrow_emode "$BOB" "$CONTROLLER" -- borrow \
+    # 92% LTV borrow — only possible inside the spoke category (asset LTV is 70%).
+    inv liq3_borrow_spoke "$BOB" "$CONTROLLER" -- borrow \
         --caller "$BOB_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$SAC_LIQF" $((920 * LIQ_UNIT)))" --to null >/dev/null
-    # 6% price drop puts HF under 1 at the 97% e-mode threshold.
+    # 6% price drop puts HF under 1 at the 97% spoke threshold.
     set_mock_price "$SAC_LIQE" $((WAD / 100 * 94)) liq3_crash
     assert_hf_below_wad liq3_hf "$acct"
     local liq3_debt_pre=$((920 * LIQ_UNIT))
-    inv liq3_liquidate_emode "$CAROL" "$CONTROLLER" -- liquidate \
+    inv liq3_liquidate_spoke "$CAROL" "$CONTROLLER" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$SAC_LIQF" $((400 * LIQ_UNIT)))" >/dev/null
     assert_borrow_decreased liq3_debt_post "$acct" "$SAC_LIQF" "$liq3_debt_pre"

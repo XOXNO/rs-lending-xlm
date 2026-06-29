@@ -33,9 +33,9 @@ spec *requires* the post-op balance (iter 18).
 **~55 NOT-VALID / by-design / governance-trust** across every surface (iteration refs):
 - **Auth/gateway:** controller 100% authenticated (51), pool 100% owner-gated mutators (38), strategy no-admin (33), deploy one-time (21).
 - **Governance/timelock:** bypass (4), cancel=CANCELLER (29), role-grant PROPOSER-gated+timelocked (45), delay one-way ratchet (46), pause & market-deactivation freeze entry not exits (31/32).
-- **Cross-entrypoint invariants (direct == leverage):** e-mode spoke caps (20.1), hub cap (35), min-borrow floor incl. withdraw (47), position limits (48), capability flags (53), market-active (54).
+- **Cross-entrypoint invariants (direct == leverage):** spoke spoke caps (20.1), hub cap (35), min-borrow floor incl. withdraw (47), position limits (48), capability flags (53), market-active (54).
 - **Oracle:** manipulation/divergence fail-closed (8), invalid/zero price (36), cache-policy poisoning (44), read-reentrancy [DiD note] (59), RedStone pull-sourcing (60), Reflector pull + thin-TWAP guard (63).
-- **Value math:** accrual overflow (9), valuation overflow I256 (49), directional rounding (10/13), index inflation (2), e-mode per-asset params (34).
+- **Value math:** accrual overflow (9), valuation overflow I256 (49), directional rounding (10/13), index inflation (2), spoke per-asset params (34).
 - **Flash/strategy/migration:** reentrancy (5.2), fee derivation (24), repayment verification (37), fee accounting (57), callback-target griefing (62), aggregator extraction + no-lingering-allowance (6.1/52), Blend migration (7), strategy NAV/return-semantics (14/16), same-asset swap (55).
 - **Liquidation:** threshold-grief (3), same-asset netting (23), repeated-call over-seize + self-liq block (30), collateral cherry-pick (40).
 - **Funds/accounting:** flash-fee in (57), claim_revenue out (58), accumulator transfer-only (61).
@@ -49,7 +49,7 @@ spec *requires* the post-op balance (iter 18).
    no-reentrant-oracle trust assumption.
 3. **Documented governance-trust boundaries (no code bug)** — list only SAC / no-fee-on-transfer /
    no-clawback-freeze assets (11.1); oracle divergence intentionally pauses liquidations (8.1);
-   e-mode category deprecation abruptly reprices positions to base and can trigger liquidations
+   spoke category deprecation abruptly reprices positions to base and can trigger liquidations
    (56.1 — announce + wind down ahead of the flip).
 4. **Test hygiene (LOW) — FIXED.** The stale `test_permissionless_revenue_endpoints` (iter 27;
    pre-existing failure, not a vuln) now seeds a supplier and funds the caller before asserting
@@ -246,7 +246,7 @@ tracked). No POC (invalid).
 
 ### 5.1 — Permissionless dust account-creation spam → state-bloat / keeper-scan DoS — **VALID (LOW–MED)**
 
-**Assumption.** `supply(caller, account_id, e_mode, assets)` creates a brand-new controller account
+**Assumption.** `supply(caller, account_id, spoke_id, assets)` creates a brand-new controller account
 whenever `account_id == 0` (`supply.rs:90` → `create_account` → monotonic `AccountNonce`). If there
 is no minimum-deposit floor, one external address can call `supply(0, …, [(asset, 1)])` in a loop to
 mint unbounded accounts with 1-raw-unit deposits, each writing `AccountMeta` + `SupplyPositions`
@@ -254,7 +254,7 @@ persistent entries.
 
 **Analysis.** Confirmed there is **no dust/min-value floor** on supply: `validate_deposit`
 (`supply.rs:123`) enforces only `require_positive_amount` (> 0), `can_supply`, market-active,
-e-mode, and per-account position limits. Position limits cap positions *within* an account, not the
+spoke, and per-account position limits. Position limits cap positions *within* an account, not the
 *number of accounts*. So a single actor can create accounts without bound, each persisting in
 controller storage. Impact:
 
@@ -326,10 +326,10 @@ or under-spend the borrowed debt and pocket it while keeping a solvent-looking p
 input-spend cap/refund + reentrancy guard + post-pool HF gate. The opaque bytes only choose a
 route; they cannot fabricate collateral. No POC (invalid).
 
-### 6.2 — E-mode spoke-cap counter drift (DoS via over-count / bypass via under-count) — **NOT VALID**
+### 6.2 — Spoke spoke-cap counter drift (DoS via over-count / bypass via under-count) — **NOT VALID**
 
-**Assumption.** E-mode spoke caps are enforced against a per-(category, asset) scaled usage counter
-(`helpers/emode_caps.rs`) incremented on supply/borrow and decremented on withdraw/repay. If any
+**Assumption.** Spoke spoke caps are enforced against a per-(category, asset) scaled usage counter
+(`helpers/spoke_caps.rs`) incremented on supply/borrow and decremented on withdraw/repay. If any
 value-moving path updated the counter asymmetrically, it would drift: over-count → premature
 `SpokeSupplyCapReached`/`SpokeBorrowCapReached` (DoS for honest users), or under-count → cap bypass.
 
@@ -339,13 +339,13 @@ value-moving path updated the counter asymmetrically, it would drift: over-count
   (`repay.rs:134`), and **both** liquidation legs — normal seize/repay via the shared
   `settle_withdraw_entries`/`settle_repay_actions`, and bad-debt cleanup
   (`liquidation.rs:320-325`) — all route through `apply_*_after_pool`, with
-  `cache.persist_emode_usage()` committing.
+  `cache.persist_spoke_usage()` committing.
 - The increment delta (`new_scaled − old_scaled`, settle_deposit) and the decrement delta
   (`old_scaled − new_scaled`, `finish_withdrawal:212`) are derived from the *same* position-scaled
   transition + the pool's returned mutation, so a supply-then-withdraw cycle nets to zero (no
   rounding drift).
-- The account's `e_mode_category_id` is **immutable**: `resolve_supply_account` (`supply.rs`)
-  panics `EModeMismatch` if a non-zero category differs from the account's, so usage is always
+- The account's `spoke_id` is **immutable**: `resolve_supply_account` (`supply.rs`)
+  panics `SpokeMismatch` if a non-zero category differs from the account's, so usage is always
   updated under one category — no cross-category increment/decrement mismatch.
 - `set_usage` removes the entry only when *both* supplied and borrowed scaled reach 0, so a live
   position always keeps its entry for the matching decrement; `checked_sub` would panic (revert) on
@@ -576,7 +576,7 @@ the victim's bounded supply-position slots.
 **migrate_blend** (`migrate_blend.rs:212`), **repay_debt_with_collateral** (`:77`), **swap_debt**
 (`:74`), and **swap_collateral** (`:76`) — i.e. every value-extracting / collateral-moving flow, so
 **funds cannot be stolen** from another account. But `process_supply` (`supply.rs:45`) calls only
-`caller.require_auth()` + `resolve_supply_account` (which checks e-mode match, **not** ownership),
+`caller.require_auth()` + `resolve_supply_account` (which checks spoke match, **not** ownership),
 so any caller may `supply(victim_account_id, …)`. Consequences:
 
 - **Gifting (benign-to-victim):** the supplied tokens come from the caller and land on the victim's
@@ -719,7 +719,7 @@ accounting desync from a crafted bulk list. No POC (invalid).
 ### Convergence note (after 15 iterations)
 
 Coverage now spans every contract and every standard attack class (auth/theft, oracle
-manipulation/divergence, flash reentrancy, aggregator extraction, e-mode caps, IRM/accrual overflow,
+manipulation/divergence, flash reentrancy, aggregator extraction, spoke caps, IRM/accrual overflow,
 position-math + solvency-gate rounding, governance/timelock, Blend migration, token-trust, bulk
 aggregation, strategy NAV). **No fund-theft path exists**; the value-moving core is conservatively
 rounded, fail-closed, and comprehensively auth-gated.
@@ -834,13 +834,13 @@ All POCs green. The 4 VALID findings remain reproducible.
 
 ## Iteration 20 — 2026-06-22
 
-### 20.1 — E-mode spoke borrow-cap bypass via the leverage/strategy borrow path — **NOT VALID**
+### 20.1 — Spoke spoke borrow-cap bypass via the leverage/strategy borrow path — **NOT VALID**
 
-**Assumption.** Iteration 6.2 confirmed the e-mode spoke caps are enforced + counted on the *normal*
+**Assumption.** Iteration 6.2 confirmed the spoke spoke caps are enforced + counted on the *normal*
 `borrow`/`repay`/`withdraw`/`liquidation` paths. But `multiply`, `swap_debt`, and `migrate_from_blend`
 open debt through a *different* primitive — `open_strategy_borrow`/`open_migration_borrow` →
 `pool.create_strategy` (the zero/low-fee strategy "flash" borrow). If that leg skipped
-`apply_borrow_after_pool`, an attacker could open debt **beyond the e-mode spoke borrow cap** via a
+`apply_borrow_after_pool`, an attacker could open debt **beyond the spoke spoke borrow cap** via a
 leverage entrypoint (cap bypass), and under-count the usage counter (drift).
 
 **Analysis.** Code-traced: the strategy-borrow leg shares the *same* settlement as a normal borrow.
@@ -849,14 +849,14 @@ swap_debt) and `borrow_for_migration` (migrate) — calls `validate_borrow` and 
 `pool_create_strategy_call`, routes the result through **`merge_borrow_result`** (`borrow.rs:233`).
 `merge_borrow_result` (`borrow.rs:129`) is exactly where `apply_borrow_after_pool` runs
 (`borrow.rs:144-146`), and `apply_borrow_after_pool` calls `enforce_spoke_borrow_cap`
-(`emode_caps.rs`, asserts `next_scaled ≤ cap_scaled` → `SpokeBorrowCapReached`) **before**
+(`spoke_caps.rs`, asserts `next_scaled ≤ cap_scaled` → `SpokeBorrowCapReached`) **before**
 incrementing the per-(category, asset) usage. So the leverage paths enforce the spoke borrow cap and
 increment the counter identically to a plain `borrow`. No bypass; no under-count.
 
 **Verdict / defense.** Defended: every debt-opening path — plain `borrow` *and* the strategy/leverage
 legs (`multiply`/`swap_debt`/`migrate_from_blend`) — funnels through the shared `merge_borrow_result`
 → `apply_borrow_after_pool` → `enforce_spoke_borrow_cap`. This closes the residual question left open
-in 6.2 (which covered only the non-leverage paths): the e-mode spoke borrow cap cannot be evaded via
+in 6.2 (which covered only the non-leverage paths): the spoke spoke borrow cap cannot be evaded via
 leverage. No POC (invalid).
 
 ---
@@ -922,13 +922,13 @@ this file is complete, internally consistent, and reproducible for the 24h check
 
 ## Iteration 23 — 2026-06-22
 
-### 23.1 — Same-asset liquidation netting (looped e-mode collateral == debt) — **NOT VALID**
+### 23.1 — Same-asset liquidation netting (looped spoke collateral == debt) — **NOT VALID**
 
-**Assumption.** In an e-mode looped position the collateral and debt can be the *same* asset X.
+**Assumption.** In an spoke looped position the collateral and debt can be the *same* asset X.
 `process_liquidation` repays X-debt and seizes X-collateral in one call. If the seize and repay legs
 aliased the same ledger entry — or the liquidation bonus were sourced from the shared market's cash
 rather than the borrower's collateral — a liquidator could net the bonus from the *pool* (other
-suppliers), or double-count X's index / e-mode usage.
+suppliers), or double-count X's index / spoke usage.
 
 **Analysis.** Supply and borrow are **independent per-(asset, side) index-scaled ledgers**, so
 same-asset is structurally identical to cross-asset:
@@ -942,7 +942,7 @@ same-asset is structurally identical to cross-asset:
   `min(actual_ray)`), not minted from pool cash. The liquidator pays X in (repay) and receives X out
   (seized collateral + bonus); the borrower's supply share is burned by exactly the seized amount, so
   pool solvency is preserved and the bonus differential comes from the borrower, not other suppliers.
-- E-mode usage decrements on the **two independent sides** — borrow usage via the repay leg, supply
+- Spoke usage decrements on the **two independent sides** — borrow usage via the repay leg, supply
   usage via the seize leg — through the symmetric `apply_*_after_pool` (iter 6.2). No double-count.
 - `global_sync` runs once per market per tx; both legs read the same cached supply/borrow indexes, so
   there is no intra-tx index drift between the legs.
@@ -994,13 +994,13 @@ pool-side principal+fee repayment bracket. No free flash loan / revenue bypass. 
 
 ## Iteration 25 — 2026-06-22
 
-### 25.1 — E-mode spoke-cap exhaustion griefing (deny honest users entry to an e-mode category) — **NOT VALID (by-design capped-market property; LOW soft-DoS residual)**
+### 25.1 — Spoke spoke-cap exhaustion griefing (deny honest users entry to an spoke category) — **NOT VALID (by-design capped-market property; LOW soft-DoS residual)**
 
-**Assumption.** The e-mode spoke caps are **category-wide**, not per-account: `enforce_spoke_supply_cap`
-/`enforce_spoke_borrow_cap` (`emode_caps.rs:183-219`) check a per-(category, asset) usage counter
+**Assumption.** The spoke spoke caps are **category-wide**, not per-account: `enforce_spoke_supply_cap`
+/`enforce_spoke_borrow_cap` (`spoke_caps.rs:183-219`) check a per-(category, asset) usage counter
 shared across *all* accounts in that category against `cfg.supply_cap`/`cfg.borrow_cap`. So an
 attacker could supply (or borrow) up to the spoke cap with their own positions, exhausting the
-category-wide counter and **denying honest users entry** to that e-mode category for that asset — a
+category-wide counter and **denying honest users entry** to that spoke category for that asset — a
 griefing/DoS with no theft.
 
 **Analysis.** This is the inherent "fill the cap" property of *any* usage-capped market (Aave supply
@@ -1011,8 +1011,8 @@ it self-limiting:
   index)` converts the governance USD/asset cap to scaled units, so filling it requires committing the
   *full cap value* in real tokens (contrast the dust-spam of 5.1). For a sensibly-sized cap that is
   substantial capital the attacker must lock.
-- **Scoped to the e-mode overlay, not the asset.** E-mode is an *opt-in higher-LTV mode*. Exhausting
-  the spoke cap blocks only the e-mode path for that asset; honest users can still supply/borrow the
+- **Scoped to the spoke overlay, not the asset.** Spoke is an *opt-in higher-LTV mode*. Exhausting
+  the spoke cap blocks only the spoke path for that asset; honest users can still supply/borrow the
   same asset in **normal mode** under the asset's global caps. The DoS denies the LTV boost, not asset
   access.
 - **Borrow side is costly & self-limiting.** Holding the borrow cap full means over-collateralizing
@@ -1024,9 +1024,9 @@ it self-limiting:
 
 **Verdict / defense.** Not a bug — category-wide caps are intended ceilings; exhausting one is the
 unavoidable flip side of having a cap, and here it is capital-bonded (full cap value, not dust),
-scoped to the opt-in e-mode overlay (normal-mode access unaffected), costly on the borrow side, and
+scoped to the opt-in spoke overlay (normal-mode access unaffected), costly on the borrow side, and
 instantly reversible. Residual: a **LOW** supply-side soft-DoS (a well-capitalized actor can squat an
-e-mode supply cap while earning yield), mitigated by generous governance cap sizing and the
+spoke supply cap while earning yield), mitigated by generous governance cap sizing and the
 normal-mode fallback. No POC (by-design ceiling behavior, not a reproducible contract defect).
 
 ---
@@ -1034,7 +1034,7 @@ normal-mode fallback. No POC (by-design ceiling behavior, not a reproducible con
 ### Saturation note (25 iterations)
 
 Iterations 20–25 each probed a distinct concrete edge beyond the iter-18 baseline (leverage-path
-e-mode enforcement, pool deploy/ownership, same-asset liquidation netting, flash-fee derivation,
+spoke enforcement, pool deploy/ownership, same-asset liquidation netting, flash-fee derivation,
 spoke-cap exhaustion) — all confirmed defended or by-design, none surfacing a new VALID issue. The
 finding set is stable: **4 VALID (LOW: 1.2, 5.1, 12.1, 14.1), 16.1 resolved benign, all else
 NOT-VALID/governance-trust, no fund-theft path.** Full suites green (iter 22). Further iterations will
@@ -1335,40 +1335,40 @@ deposit/withdraw are `from`-auth-gated. No external config-hijack or re-init pat
 
 ## Iteration 34 — 2026-06-22
 
-### 34.1 — E-mode per-asset param confusion: boosted LTV on a non-qualifying asset (over-borrow) — **NOT VALID**
+### 34.1 — Spoke per-asset param confusion: boosted LTV on a non-qualifying asset (over-borrow) — **NOT VALID**
 
-**Assumption.** E-mode gives correlated assets boosted LTV/threshold. Risk params are now **per-asset**
-(`EModeAssetConfig`, the iter-context refactor). If an e-mode account could supply/borrow/swap into an
+**Assumption.** Spoke gives correlated assets boosted LTV/threshold. Risk params are now **per-asset**
+(`SpokeAssetConfig`, the iter-context refactor). If an spoke account could supply/borrow/swap into an
 asset that is *not* configured for its category and still receive the boosted params — or if a missing
 per-asset config silently defaulted to a boosted value — an attacker could over-borrow against an
-unqualified (uncorrelated, volatile) asset at e-mode LTV, then walk away as it depegs.
+unqualified (uncorrelated, volatile) asset at spoke LTV, then walk away as it depegs.
 
-**Analysis.** Resolution is fail-safe on two independent layers (`controller/src/emode.rs`):
+**Analysis.** Resolution is fail-safe on two independent layers (`controller/src/spoke.rs`):
 
-- **Entry gate rejects non-category assets.** `validate_e_mode_asset` (`emode.rs:74-106`), called on
+- **Entry gate rejects non-category assets.** `validate_spoke_lists_asset` (`spoke.rs:74-106`), called on
   `borrow` (`borrow.rs:83`) and `swap_collateral` (`swap_collateral.rs:140`) for any account with
-  `e_mode_category_id != 0`, asserts **both**: (a) the asset's market config
-  `e_mode_categories.contains(category_id)`, and (b) `cached_emode_asset(category_id, asset).is_some()`
-  — else `EModeCategoryNotFound`. So you cannot open e-mode-account borrow/swap exposure to an asset
+  `spoke_id != 0`, asserts **both**: (a) the asset's market config
+  `spokes.contains(category_id)`, and (b) `cached_spoke_asset(category_id, asset).is_some()`
+  — else `SpokeNotFound`. So you cannot open spoke-account borrow/swap exposure to an asset
   that the category hasn't registered with its own per-asset config.
 - **Param application requires the per-asset config — never defaults to boosted.**
-  `apply_e_mode_to_asset_config` (`emode.rs:16-32`) overrides LTV/threshold/bonus **only** when
-  `(category, asset_emode_config)` are *both* `Some`; if the asset has no `EModeAssetConfig` for the
-  category (`None`), the override is skipped and the asset keeps its **base** (non-e-mode, more
+  `apply_spoke_to_asset_config` (`spoke.rs:16-32`) overrides LTV/threshold/bonus **only** when
+  `(category, asset_spoke_config)` are *both* `Some`; if the asset has no `SpokeAssetConfig` for the
+  category (`None`), the override is skipped and the asset keeps its **base** (non-spoke, more
   conservative) config. A deprecated category (`cat.is_deprecated`) also short-circuits to base
-  (and `ensure_e_mode_not_deprecated` blocks new exposure under a deprecated category).
-- **Mixed positions are valued per-asset.** `effective_asset_config` (`emode.rs:35-46`) resolves each
-  asset independently (base, then boost only if its per-asset config exists), so an e-mode account
+  (and `ensure_spoke_not_deprecated` blocks new exposure under a deprecated category).
+- **Mixed positions are valued per-asset.** `effective_asset_config` (`spoke.rs:35-46`) resolves each
+  asset independently (base, then boost only if its per-asset config exists), so an spoke account
   holding a mix is valued with boosted params on category assets and base params on any other — never
   an over-credit.
 
 So the only way to get boosted params is for governance to have explicitly registered the asset in the
-category with an `EModeAssetConfig`; absent that, the asset is rejected at entry (borrow/swap) or
+category with an `SpokeAssetConfig`; absent that, the asset is rejected at entry (borrow/swap) or
 valued at conservative base params (valuation) — never wrongly boosted.
 
-**Verdict / defense.** Defended by the dual `validate_e_mode_asset` assert (asset must be
+**Verdict / defense.** Defended by the dual `validate_spoke_lists_asset` assert (asset must be
 category-registered *and* have a per-asset config) at borrow/swap entry, plus
-`apply_e_mode_to_asset_config` applying the boost only when the per-asset config is present
+`apply_spoke_to_asset_config` applying the boost only when the per-asset config is present
 (else base) and skipping deprecated categories. No boosted-LTV-on-unqualified-asset over-borrow. No
 POC (invalid).
 
@@ -1378,7 +1378,7 @@ POC (invalid).
 
 ### 35.1 — Hub-cap bypass: exceed the asset-global supply/borrow ceiling (hub-and-spoke) — **NOT VALID**
 
-**Assumption.** E-mode is a hub-and-spoke model: per-category **spoke** caps (verified enforced on
+**Assumption.** Spoke is a hub-and-spoke model: per-category **spoke** caps (verified enforced on
 normal + leverage paths, iter 6.2/20.1) sit under an asset-global **hub** cap. If the hub cap were
 only a governance-config value with no runtime enforcement — or enforced only on some paths — an
 attacker could push an asset's *aggregate* supply/borrow past the protocol-wide ceiling (concentration
@@ -1392,11 +1392,11 @@ the **pool on every supply/borrow** — beneath *all* controller flows:
   `SupplyCapReached` / `BorrowCapReached` past it; `cap_is_enabled` lets governance disable (0 =
   unlimited). These run inside the pool's core supply/borrow (`pool/src/lib.rs:116` / `:106`).
 - **Universal coverage.** The controller never books supply/borrow except via the pool, so *every*
-  flow — plain supply/borrow, e-mode, and the leverage/strategy legs (multiply/swap/migrate, which
+  flow — plain supply/borrow, spoke, and the leverage/strategy legs (multiply/swap/migrate, which
   go through `create_strategy` → same pool accounting, iter 20.1) — passes through the hub-cap check.
   There is no controller path that mutates supplied/borrowed without the pool enforcing the market
   cap.
-- **Two-tier consistency invariant.** `validate_spoke_caps_against_hub` (`emode_caps.rs:271-289`)
+- **Two-tier consistency invariant.** `validate_spoke_caps_against_hub` (`spoke_caps.rs:271-289`)
   asserts each `spoke_cap ≤ hub_cap` at governance config time, and
   `validate_hub_caps_against_category_spokes` (`:224`) the converse, so a spoke can never be
   configured to exceed its hub. `apply_hub_caps` (`pool/utils.rs:100`) is set via owner-gated
@@ -1501,7 +1501,7 @@ guard (5.2) and config-derived fee (24), the flash-loan path is fully closed. No
 ### 38.1 — Direct-to-pool bypass: call a pool mutator directly, skipping controller gates — **NOT VALID**
 
 **Assumption.** The security model assumes the controller is the *sole* gateway: it enforces
-`require_auth`, owner-match (12.1 aside), HF/LTV solvency, oracle policy, e-mode, caps, and the
+`require_auth`, owner-match (12.1 aside), HF/LTV solvency, oracle policy, spoke, caps, and the
 reentrancy guard, then calls the pool to execute. If **any mutating pool entrypoint were public** (not
 owner-gated), an external actor could invoke the pool **directly** — minting/moving supply, borrowing,
 seizing, or bumping indexes with *none* of those checks. That would collapse the entire model.
@@ -1561,7 +1561,7 @@ The external-actor attack-surface review is **complete**. Coverage, by area:
   accrual overflow/gas (9), index inflation (2).
 - **Oracle:** manipulation/divergence fail-closed (8); invalid (zero/negative/out-of-band) prices
   rejected (36).
-- **e-mode caps:** spoke drift (6.2), leverage-path enforcement (20), exhaustion (25), per-asset
+- **spoke caps:** spoke drift (6.2), leverage-path enforcement (20), exhaustion (25), per-asset
   config (34), hub enforcement + spoke≤hub (35).
 - **Flash / strategy / migration:** reentrancy (5.2), fee derivation (24), repayment verification
   (37), aggregator extraction (6.1), Blend migration (7), strategy NAV (14), return semantics (16).
@@ -1927,7 +1927,7 @@ account (and bad-debt risk).
   repeated assets can't inflate or evade the count.
 
 So the position cap is an invariant across *all* entrypoints — direct and strategy — exactly mirroring
-how the e-mode caps (20.1) and the min-borrow floor (47.1) hold on the leverage paths. An account
+how the spoke caps (20.1) and the min-borrow floor (47.1) hold on the leverage paths. An account
 cannot be packed beyond the cap, so HF iteration stays bounded and liquidation stays affordable.
 
 **Verdict / defense.** Defended: all position-adding flows (supply, borrow, multiply, swap_*, migrate)
@@ -1982,7 +1982,7 @@ size far below it. No bricked/over-borrowing account via valuation overflow. No 
 
 **Assumption.** The controller keys many persistent maps by attacker-influenceable values —
 `Market(asset)`, `AccountMeta(account_id)`, `SupplyPositions(account_id)`,
-`BorrowPositions(account_id)`, `EModeCategory(id)`, e-mode usage `(category, asset)`. If keys were
+`BorrowPositions(account_id)`, `Spoke(id)`, spoke usage `(category, asset)`. If keys were
 built by concatenating raw bytes (or shared a flat namespace), a crafted asset Address or account_id
 could **collide with a different key space** — e.g. make a `SupplyPositions` write land on another
 account's `BorrowPositions`, or an `AccountMeta` overwrite a `Market` config — corrupting unrelated
@@ -1993,7 +1993,7 @@ bytes, so every key space is namespaced by its enum variant in the canonical XDR
 
 - `ControllerKey` (`interfaces/controller/src/types/controller.rs`) is an enum:
   `Market(Address)`, `AccountMeta(u64)`, `SupplyPositions(u64)`, `BorrowPositions(u64)`,
-  `EModeCategory(u32)`, plus unit variants (`Pool`, `AccountNonce`, `PositionLimits`, …). Soroban
+  `Spoke(u32)`, plus unit variants (`Pool`, `AccountNonce`, `PositionLimits`, …). Soroban
   serializes each storage key with its **variant tag** plus the typed payload, so the encoding is
   injective per `(variant, value)`. `AccountMeta(5)`, `SupplyPositions(5)`, and `BorrowPositions(5)`
   are three *distinct* keys despite the shared `5`; an `Address`-keyed `Market` can never collide with
@@ -2118,7 +2118,7 @@ evading a risk control (e.g. borrowing a thin/volatile asset governance intended
   (`:146`). Strategy deposits route through `process_deposit` → `validate_deposit` (iter 48), so the
   leverage deposit legs cannot supply a non-suppliable asset.
 - **Collateral counting:** `is_collateralizable` is enforced in the *valuation* layer
-  (`effective_asset_config` / `apply_e_mode_to_asset_config`, iter 34) — a supplied but
+  (`effective_asset_config` / `apply_spoke_to_asset_config`, iter 34) — a supplied but
   non-collateralizable asset simply doesn't count toward borrow capacity, on every path. So even if an
   asset is suppliable-but-not-collateral, leverage can't conjure borrowing power from it.
 
@@ -2156,7 +2156,7 @@ leaking the wind-down.
 
 **This completes the cross-entrypoint invariant set.** Every entry-side guard enforced by the shared
 validators applies uniformly to direct *and* leverage paths — confirmed individually:
-**e-mode spoke caps** (20.1), **min-borrow-collateral floor** (47.1), **position limits** (48.1),
+**spoke spoke caps** (20.1), **min-borrow-collateral floor** (47.1), **position limits** (48.1),
 **capability flags `is_borrowable`/`can_supply`** (53.1), and **market-active** (here). The design
 funnels every position-opening path through `validate_deposit`/`validate_borrow` (+ the post-pool
 gate), so no leverage entrypoint can sidestep any entry control.
@@ -2174,7 +2174,7 @@ leverage cannot open new positions in a deactivated market. No POC (invalid).
 **Assumption.** `swap_collateral` rejects swapping an asset for itself (`AssetsAreTheSame`,
 `swap_collateral.rs:69-73`, iter 44). If `swap_debt` *lacked* the symmetric guard, swapping debt
 A→A could trigger a degenerate path — borrow A, "swap" A→A (no-op or self-transfer), repay A — that
-might double-count the debt position, mis-fire the e-mode usage delta, or leave dangling state. The
+might double-count the debt position, mis-fire the spoke usage delta, or leave dangling state. The
 hypothesis was an **asymmetry** between the two swap entrypoints.
 
 **Analysis.** No asymmetry — `swap_debt` carries the same guard plus the full stack
@@ -2198,31 +2198,31 @@ asymmetry. No POC (invalid).
 
 ## Iteration 56 — 2026-06-22
 
-### 56.1 — E-mode category deprecation reprices positions to base → forced liquidations — **NOT VALID (external-actor) / governance-operational note**
+### 56.1 — Spoke category deprecation reprices positions to base → forced liquidations — **NOT VALID (external-actor) / governance-operational note**
 
-**Assumption.** An attacker deprecates an e-mode category to instantly reprice every position in it
-from boosted LTV/threshold to base params, pushing borrowers who relied on the e-mode LTV below HF=1
+**Assumption.** An attacker deprecates an spoke category to instantly reprice every position in it
+from boosted LTV/threshold to base params, pushing borrowers who relied on the spoke LTV below HF=1
 and force-liquidating them.
 
 **Analysis.** The repricing is real but the trigger is governance-only, so it is not an external-actor
 attack — though it is a governance-operational consideration worth flagging:
 
-- **Repricing mechanism (confirmed).** `apply_e_mode_to_asset_config` early-returns on
-  `cat.is_deprecated` (`emode.rs:23`), so a deprecated category applies *no* override → positions are
-  valued at **base** LTV/threshold/bonus. `ensure_e_mode_not_deprecated` (`:68-70`) additionally
-  blocks *new* exposure under a deprecated category (`EModeCategoryDeprecated`).
+- **Repricing mechanism (confirmed).** `apply_spoke_to_asset_config` early-returns on
+  `cat.is_deprecated` (`spoke.rs:23`), so a deprecated category applies *no* override → positions are
+  valued at **base** LTV/threshold/bonus. `ensure_spoke_not_deprecated` (`:68-70`) additionally
+  blocks *new* exposure under a deprecated category (`SpokeDeprecated`).
 - **Trigger is governance-gated, not external.** The `is_deprecated` flag is set only through the
-  governance e-mode category config op (owner-gated / timelocked). An external actor cannot deprecate
+  governance spoke category config op (owner-gated / timelocked). An external actor cannot deprecate
   a category, so cannot use this to force-liquidate anyone — closing the attack framing.
 - **Consequence for the team.** Deprecating a category *can* make some of its positions immediately
   liquidatable (they lose the boosted LTV headroom and may fall below HF=1, then liquidate under base
   threshold/bonus). This is the intended wind-down semantics, but it is abrupt: it mirrors the
   documented governance-trust residuals (8.1 oracle-divergence pause, 11.1 asset selection). Practical
-  guidance: treat e-mode deprecation as a sensitive change — announce it, and prefer winding down
-  caps / discouraging new e-mode borrows ahead of flipping `is_deprecated`, so borrowers can de-risk
+  guidance: treat spoke deprecation as a sensitive change — announce it, and prefer winding down
+  caps / discouraging new spoke borrows ahead of flipping `is_deprecated`, so borrowers can de-risk
   before the reprice. (The timelock delay already provides a built-in notice window.)
 
-**Verdict / defense.** Not an external-actor attack: e-mode deprecation is governance-only
+**Verdict / defense.** Not an external-actor attack: spoke deprecation is governance-only
 (owner-gated + timelocked), so no attacker can trigger the boosted→base reprice to force liquidations.
 Documented as a governance-operational consideration (abrupt repricing on deprecation), alongside the
 timelock notice window. No POC (not externally triggerable).

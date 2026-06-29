@@ -1,5 +1,5 @@
 # Admin / owner / keeper endpoint coverage: pause gates, position limits,
-# params, oracle admin, revenue, keeper ops, e-mode admin lifecycle, and the
+# params, oracle admin, revenue, keeper ops, spoke admin lifecycle, and the
 # upgrade / migrate / ownership round-trip.
 #
 # Self-contained on lifecycle markets (XLM, USDC, idle EURC) plus
@@ -85,18 +85,18 @@ flow_admin() {
     # already listed on the base spoke 0). Spoke creation takes no args; risk-bound
     # validation happens when an asset joins.
     local tmp_cat
-    tmp_cat=$(inv emode_tmp_add "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '"')
-    inv emode_tmp_add_asset "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+    tmp_cat=$(inv spoke_tmp_add "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '"')
+    inv spoke_tmp_add_asset "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
         --input "$(spoke_args "$EURC_SAC" "$tmp_cat" true true 8000 8500 300)" >/dev/null
     # validate_risk_bounds on spoke assets (#113 when ltv >= threshold).
-    xfail emode_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+    xfail spoke_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
         --input "$(spoke_args "$EURC_SAC" "$tmp_cat" true true 8600 8500 300)"
-    inv emode_tmp_edit_asset "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
+    inv spoke_tmp_edit_asset "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$EURC_SAC" "$tmp_cat" true false 8100 8600 250)" >/dev/null
-    inv emode_tmp_remove_asset "$ADMIN" "$CONTROLLER" -- remove_asset_from_spoke \
+    inv spoke_tmp_remove_asset "$ADMIN" "$CONTROLLER" -- remove_asset_from_spoke \
         --asset "$EURC_SAC" --spoke_id "$tmp_cat" >/dev/null
-    inv emode_tmp_deprecate "$ADMIN" "$CONTROLLER" -- remove_spoke --id "$tmp_cat" >/dev/null
-    xfail emode_deprecated_supply 'Error\(Contract, #301\)' "$BOB" "$CONTROLLER" -- supply \
+    inv spoke_tmp_deprecate "$ADMIN" "$CONTROLLER" -- remove_spoke --id "$tmp_cat" >/dev/null
+    xfail spoke_deprecated_supply 'Error\(Contract, #301\)' "$BOB" "$CONTROLLER" -- supply \
         --caller "$BOB_ADDR" --account_id 0 --spoke_id "$tmp_cat" \
         --assets "$(pay_vec "$XLM_SAC" 1000000000)"
 
