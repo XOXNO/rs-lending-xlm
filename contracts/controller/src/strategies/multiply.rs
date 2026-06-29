@@ -184,46 +184,43 @@ fn collect_initial_multiply_payment(
     initial_payment: &Option<(HubAssetKey, i128)>,
     convert_swap: &Option<StrategySwap>,
 ) -> (i128, i128) {
-    let mut collateral_amount = 0;
-    let mut debt_extra = 0;
+    let Some((payment, payment_amount)) = initial_payment.as_ref() else {
+        return (0, 0);
+    };
 
-    if let Some((payment, payment_amount)) = initial_payment.as_ref() {
-        validation::require_positive_amount(env, *payment_amount);
+    validation::require_positive_amount(env, *payment_amount);
 
-        // Only active protocol assets may invoke token contracts; the payment
-        // asset is the user-supplied call target. An active asset has a
-        // token-rooted `AssetOracle` entry (the payment is priced downstream).
-        assert_with_error!(
+    // Only active protocol assets may invoke token contracts; the payment
+    // asset is the user-supplied call target. An active asset has a
+    // token-rooted `AssetOracle` entry (the payment is priced downstream).
+    assert_with_error!(
+        env,
+        storage::get_asset_oracle(env, &payment.asset).is_some(),
+        GenericError::AssetNotSupported
+    );
+
+    let payment_tok = soroban_sdk::token::Client::new(env, &payment.asset);
+    payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
+
+    if payment.asset == collateral.asset {
+        (*payment_amount, 0)
+    } else if payment.asset == debt.asset {
+        (0, *payment_amount)
+    } else {
+        let Some(convert) = convert_swap.as_ref() else {
+            panic_with_error!(env, StrategyError::ConvertStepsRequired);
+        };
+        // D{payment_token.decimals}{Token(payment_token)} -> Token(collateral_token).
+        let collateral_amount = swap_tokens(
             env,
-            storage::get_asset_oracle(env, &payment.asset).is_some(),
-            GenericError::AssetNotSupported
+            caller,
+            &payment.asset,
+            *payment_amount,
+            &collateral.asset,
+            convert,
         );
-
-        let payment_tok = soroban_sdk::token::Client::new(env, &payment.asset);
-        payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
-
-        if payment.asset == collateral.asset {
-            collateral_amount = *payment_amount;
-        } else if payment.asset == debt.asset {
-            debt_extra = *payment_amount;
-        } else {
-            let convert = match convert_swap.as_ref() {
-                Some(s) => s,
-                None => panic_with_error!(env, StrategyError::ConvertStepsRequired),
-            };
-            // D{payment_token.decimals}{Token(payment_token)} -> Token(collateral_token).
-            collateral_amount = swap_tokens(
-                env,
-                caller,
-                &payment.asset,
-                *payment_amount,
-                &collateral.asset,
-                convert,
-            );
-        }
+        (collateral_amount, 0)
     }
-
-    (collateral_amount, debt_extra)
 }
 
 fn emit_multiply_initial_payment(

@@ -429,16 +429,6 @@ impl LiquidationCurve {
         }
     }
 
-    /// Primary-tier target health factor.
-    fn primary_target(&self) -> Wad {
-        self.target_hf
-    }
-
-    /// Fallback-tier target: 0.01 WAD below the primary target.
-    fn fallback_target(&self) -> Wad {
-        self.target_hf - Wad::from(WAD / 100)
-    }
-
     /// Linear bonus scale in `[0, 1]` as `hf` falls below `target`. The caller
     /// guarantees `hf < target`.
     fn bonus_scale(&self, env: &Env, hf: Wad, target: Wad) -> Wad {
@@ -511,7 +501,7 @@ fn primary_tier(
     bounds: BonusBounds,
     curve: &LiquidationCurve,
 ) -> Option<(Wad, Bps)> {
-    let target = curve.primary_target();
+    let target = curve.target_hf;
     let bonus =
         calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, curve, target);
     let d = try_liquidation_at_target(env, snap, bonus, target)?;
@@ -530,7 +520,8 @@ fn fallback_tier(
     bounds: BonusBounds,
     curve: &LiquidationCurve,
 ) -> Option<(Wad, Bps)> {
-    let target = curve.fallback_target();
+    // Fallback-tier target: 0.01 WAD below the primary target.
+    let target = curve.target_hf - Wad::from(WAD / 100);
     let bonus =
         calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, curve, target);
     try_liquidation_at_target(env, snap, bonus, target).map(|d| (d, bonus))

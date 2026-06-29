@@ -116,19 +116,19 @@ fn hub_borrow_cap_headroom(env: &Env, market: &MarketLimitCtx, borrow_cap: i128)
     (borrow_cap - current).max(0)
 }
 
-/// Spoke borrow-cap headroom for the account's spoke; `i128::MAX` when disabled.
-fn spoke_borrow_cap_headroom(
+/// Scaled spoke borrow cap and current usage for the account's spoke.
+/// `None` when the spoke does not list the asset or the cap is disabled, i.e.
+/// no spoke borrow-cap constraint applies.
+fn spoke_borrow_cap_scaled(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
     hub_asset: &HubAssetKey,
     market: &MarketLimitCtx,
-) -> i128 {
-    let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
-        return i128::MAX;
-    };
+) -> Option<(Ray, Ray)> {
+    let spoke_cfg = cache.cached_spoke_asset(account.spoke_id, hub_asset)?;
     if !cap_is_enabled(spoke_cfg.borrow_cap) {
-        return i128::MAX;
+        return None;
     }
     let usage = cache
         .cached_spoke_usage(account.spoke_id, hub_asset)
@@ -140,6 +140,22 @@ fn spoke_borrow_cap_headroom(
     let cap_scaled =
         Ray::from_asset(spoke_cfg.borrow_cap, market.decimals).div_floor(env, market.borrow_index);
     let used_scaled = Ray::from(usage.borrowed_scaled_ray);
+    Some((cap_scaled, used_scaled))
+}
+
+/// Spoke borrow-cap headroom for the account's spoke; `i128::MAX` when disabled.
+fn spoke_borrow_cap_headroom(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    hub_asset: &HubAssetKey,
+    market: &MarketLimitCtx,
+) -> i128 {
+    let Some((cap_scaled, used_scaled)) =
+        spoke_borrow_cap_scaled(env, cache, account, hub_asset, market)
+    else {
+        return i128::MAX;
+    };
     if used_scaled >= cap_scaled {
         return 0;
     }
@@ -193,20 +209,11 @@ fn borrow_ok(
     }
 
     // Spoke borrow cap on post-borrow scaled usage.
-    if let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) {
-        if cap_is_enabled(spoke_cfg.borrow_cap) {
-            let usage = cache
-                .cached_spoke_usage(account.spoke_id, hub_asset)
-                .unwrap_or(SpokeUsageRaw {
-                    supplied_scaled_ray: 0,
-                    borrowed_scaled_ray: 0,
-                });
-            let cap_scaled = Ray::from_asset(spoke_cfg.borrow_cap, market.decimals)
-                .div_floor(env, market.borrow_index);
-            let next_scaled = Ray::from(usage.borrowed_scaled_ray) + new_scaled;
-            if next_scaled > cap_scaled {
-                return false;
-            }
+    if let Some((cap_scaled, used_scaled)) =
+        spoke_borrow_cap_scaled(env, cache, account, hub_asset, market)
+    {
+        if used_scaled + new_scaled > cap_scaled {
+            return false;
         }
     }
 

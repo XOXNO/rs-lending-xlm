@@ -63,7 +63,12 @@ impl MarketLimitCtx {
         if borrowed_orig == Ray::ZERO {
             return cap;
         }
-        let min_supplied = ray_div_ceil(env, borrowed_orig, self.max_utilization);
+        let min_supplied = Ray::from(fp_core::mul_div_ceil(
+            env,
+            borrowed_orig.raw(),
+            RAY,
+            self.max_utilization.raw(),
+        ));
         if self.supplied <= min_supplied {
             return 0;
         }
@@ -93,10 +98,6 @@ impl MarketLimitCtx {
         );
         util <= self.max_utilization
     }
-}
-
-fn ray_div_ceil(env: &Env, num: Ray, den: Ray) -> Ray {
-    Ray::from(fp_core::mul_div_ceil(env, num.raw(), RAY, den.raw()))
 }
 
 /// Replica of `require_post_pool_risk_gates` LTV/HF legs; HF >= 1 in
