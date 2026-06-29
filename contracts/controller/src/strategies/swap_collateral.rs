@@ -140,7 +140,7 @@ pub(crate) fn validate_swap_new_collateral_preflight(
     new: &HubAssetKey,
 ) {
     spoke::validate_spoke_lists_asset(env, cache, account.spoke_id, new);
-    let config = spoke::effective_asset_config(env, account.spoke_id, new);
+    let config = spoke::effective_asset_config(cache, account.spoke_id, new);
 
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
 

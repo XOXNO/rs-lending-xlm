@@ -265,7 +265,7 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        let asset_config = crate::spoke::effective_asset_config(env, account.spoke_id, &hub_asset);
+        let asset_config = crate::spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         // dimensional: supply share/index -> Token(asset) -> Wad<USD>; share is Wad<1>.

@@ -90,7 +90,7 @@ fn account_can_borrow_asset(
         return false;
     }
 
-    let config = spoke::effective_asset_config(env, account.spoke_id, hub_asset);
+    let config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);
     if !config.can_borrow() {
         return false;
     }

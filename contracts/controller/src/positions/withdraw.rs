@@ -216,7 +216,7 @@ pub(crate) fn finish_withdrawal(
     // `Frozen` keeps the snapshotted params; `Refresh` re-stamps from the
     // account's active spoke config.
     if matches!(refresh_spoke, SpokeRefresh::Refresh) {
-        let config = spoke::effective_asset_config(env, account.spoke_id, hub_asset);
+        let config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);
         refresh_supply_risk_params(env, cache, account, hub_asset, &mut result_position, &config);
     }
     update_or_remove_supply_position(account, hub_asset, &result_position);

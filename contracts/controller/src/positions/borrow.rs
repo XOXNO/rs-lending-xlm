@@ -97,7 +97,7 @@ fn validate_borrow(
         validation::require_market_active(env, cache, &hub_asset);
         // Risk config comes from the account's spoke (the single source of
         // truth); reverts `AssetNotSupported` when unlisted there.
-        let asset_config = spoke::effective_asset_config(env, account.spoke_id, &hub_asset);
+        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
         spoke::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
         // Frozen blocks new borrow; paused blocks every verb.
         enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);

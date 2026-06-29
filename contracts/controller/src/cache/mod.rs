@@ -7,7 +7,7 @@ use crate::constants::MS_PER_SECOND;
 use crate::events::{
     EventBorrowDelta, EventDepositDelta, PositionAction, UpdatePositionBatchEvent,
 };
-use common::errors::{SpokeError, OracleError};
+use common::errors::{GenericError, SpokeError, OracleError};
 use controller_interface::types::{
     Account, AccountPosition, DebtPosition, HubAssetKey, MarketIndex, MarketIndexRaw,
     MarketOracleConfig, MarketOracleConfigOption, PoolSyncData, PriceFeed, PriceFeedRaw,
@@ -332,6 +332,18 @@ impl Cache {
         self.spoke_usage
             .as_mut()
             .and_then(|ctx| ctx.spoke_asset(&env, hub_asset))
+    }
+
+    /// Per-spoke risk config for `hub_asset` on `spoke_id`, served from the
+    /// per-tx memo. Panics `AssetNotSupported` when the asset is not listed on
+    /// the spoke (the absence revert that risk resolution depends on).
+    pub(crate) fn require_spoke_asset(
+        &mut self,
+        spoke_id: u32,
+        hub_asset: &HubAssetKey,
+    ) -> SpokeAssetConfig {
+        self.cached_spoke_asset(spoke_id, hub_asset)
+            .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::AssetNotSupported))
     }
 
     pub fn cached_spoke(&mut self, spoke_id: u32) -> Option<SpokeConfig> {

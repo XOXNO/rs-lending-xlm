@@ -129,7 +129,7 @@ fn validate_deposit(
 
         // Risk config comes from the account's spoke (the single source of
         // truth); reverts `AssetNotSupported` when unlisted there.
-        let asset_config = spoke::effective_asset_config(env, account.spoke_id, &hub_asset);
+        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
 
         spoke::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
         // Frozen blocks new supply; paused blocks every verb.
@@ -155,7 +155,7 @@ fn settle_deposit(
     let pool_addr = cache.cached_pool_address();
     let mut entries: Vec<PoolSupplyEntry> = Vec::new(env);
     for (hub_asset, amount_in) in aggregated {
-        let asset_config = spoke::effective_asset_config(env, account.spoke_id, &hub_asset);
+        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
         utils::transfer_amount(
             env,
             &hub_asset.asset,
@@ -174,7 +174,7 @@ fn settle_deposit(
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
         let hub_asset = &entry.action.hub_asset;
-        let asset_config = spoke::effective_asset_config(env, account.spoke_id, hub_asset);
+        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);
 
         let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
         let old_scaled = position.scaled_amount;

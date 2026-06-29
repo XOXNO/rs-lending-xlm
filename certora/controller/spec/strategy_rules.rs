@@ -196,8 +196,9 @@ fn multiply_requires_collateralizable(
     cvlr_assume!(collateral_token != debt_token);
     cvlr_assume!((1..=3).contains(&mode));
 
+    let mut cache = crate::cache::Cache::new(&e);
     let config = crate::spoke::effective_asset_config(
-        &e,
+        &mut cache,
         spoke_id,
         &hub0(collateral_token.clone()),
     );

@@ -231,8 +231,10 @@ fn spoke_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     let cfg = spoke_asset.unwrap();
 
     // Self-contained per-spoke resolution (no base+overlay): the effective
-    // config is the spoke's `SpokeAssetConfig` projected to `AssetConfig`.
-    let asset_config = crate::spoke::effective_asset_config(&e, category_id, &hub_asset);
+    // config is the spoke's `SpokeAssetConfig` projected to `AssetConfig`,
+    // served from the per-tx cache memo (one `SpokeAsset` read per asset).
+    let mut cache = crate::cache::Cache::new(&e);
+    let asset_config = crate::spoke::effective_asset_config(&mut cache, category_id, &hub_asset);
 
     cvlr_assert!(asset_config.loan_to_value.raw() == i128::from(cfg.loan_to_value));
     cvlr_assert!(

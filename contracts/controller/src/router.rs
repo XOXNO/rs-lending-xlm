@@ -390,7 +390,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     for hub_asset in assets.iter() {
         // `effective_asset_config` reverts `AssetNotSupported` when the held
         // asset is not listed on the account's spoke.
-        let asset_config = spoke::effective_asset_config(env, account.spoke_id, &hub_asset);
+        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
 
         let position =
             validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));

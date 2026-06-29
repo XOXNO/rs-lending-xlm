@@ -123,7 +123,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
 
     // Collateralizability resolves from the account's spoke (the single source
     // of risk params); reverts `AssetNotSupported` when unlisted there.
-    let collateral_config = spoke::effective_asset_config(env, account.spoke_id, collateral);
+    let collateral_config = spoke::effective_asset_config(&mut cache, account.spoke_id, collateral);
     assert_with_error!(
         env,
         collateral_config.can_supply(),
