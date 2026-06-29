@@ -20,8 +20,8 @@ fn spoke_asset_with_override(oracle_override: MarketOracleConfigOption) -> Spoke
     }
 }
 
-// Spoke 0 (no account) resolves to the token-rooted AssetOracle base, which is
-// what `set_market_oracle_config` dual-writes, so default pricing is unchanged.
+// Oracle resolution is token-rooted: it returns the `AssetOracle` entry that
+// `set_market_oracle_config` writes, independent of any spoke.
 #[test]
 fn resolve_default_returns_asset_oracle_base() {
     let env = Env::default();

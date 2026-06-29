@@ -47,11 +47,9 @@ pub fn refresh_supply_risk_params_for_asset(
     hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
 ) {
-    if account.spoke_id != 0 {
-        let active = matches!(cache.cached_spoke(account.spoke_id), Some(s) if !s.is_deprecated);
-        if !active || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
-            return;
-        }
+    let active = matches!(cache.cached_spoke(account.spoke_id), Some(s) if !s.is_deprecated);
+    if !active || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
+        return;
     }
     let config = emode::effective_asset_config(env, account.spoke_id, hub_asset);
     refresh_supply_risk_params(env, cache, account, hub_asset, position, &config);

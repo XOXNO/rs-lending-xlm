@@ -22,22 +22,13 @@ pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-/// A listed/supported asset has a base listing `SpokeAsset(0, hub_asset)` on its
-/// own hub. Panics `AssetNotSupported` otherwise.
-pub fn require_asset_supported(env: &Env, _cache: &mut Cache, hub_asset: &HubAssetKey) {
-    assert_with_error!(
-        env,
-        storage::get_spoke_asset(env, 0, hub_asset).is_some(),
-        GenericError::AssetNotSupported
-    );
-}
-
-/// An active asset is supported and has a token-rooted `AssetOracle` entry;
-/// oracle absence is the pending/disabled signal. The oracle is keyed by token
-/// (hub-independent), so the check reads `AssetOracle(hub_asset.asset)`. Panics
-/// `PairNotActive` when supported but not yet (or no longer) oracle-configured.
-pub fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetKey) {
-    require_asset_supported(env, cache, hub_asset);
+/// An active asset has a token-rooted `AssetOracle` entry; oracle absence is the
+/// pending/disabled signal. The oracle is keyed by token (hub-independent), so
+/// the check reads `AssetOracle(hub_asset.asset)`. Existence of the (hub, asset)
+/// market is owned by the pool and enforced by the subsequent pool call; the
+/// spoke listing (`emode::validate_spoke_lists_asset` + the spoke config read)
+/// proves per-spoke usability. Panics `PairNotActive` when not oracle-configured.
+pub fn require_market_active(env: &Env, _cache: &mut Cache, hub_asset: &HubAssetKey) {
     assert_with_error!(
         env,
         storage::get_asset_oracle(env, &hub_asset.asset).is_some(),

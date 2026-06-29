@@ -259,7 +259,7 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        let asset_config = cache.cached_asset_config(&hub_asset);
+        let asset_config = crate::emode::effective_asset_config(env, account.spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         // dimensional: supply share/index -> Token(asset) -> Wad<USD>; share is Wad<1>.
@@ -386,8 +386,8 @@ pub(crate) fn process_excess_payment(
     }
 }
 
-/// Resolved liquidation curve for an account's spoke. Absent or zero spoke
-/// fields fall back to the legacy defaults so spoke 0 reproduces today's math.
+/// Resolved liquidation curve for an account's spoke. Zero spoke fields fall
+/// back to the legacy defaults, so an unconfigured spoke reproduces today's math.
 pub(crate) struct LiquidationCurve {
     target_hf: Wad,
     // `None` keeps the legacy per-tier max-bonus point at `target / 2`.
@@ -396,7 +396,7 @@ pub(crate) struct LiquidationCurve {
 }
 
 impl LiquidationCurve {
-    /// Resolves the curve from the account's spoke; spoke 0 yields all defaults.
+    /// Resolves the curve from the account's spoke; zero fields yield defaults.
     pub(crate) fn resolve(cache: &mut Cache, spoke_id: u32) -> Self {
         Self::from_config(cache.cached_spoke(spoke_id).as_ref())
     }

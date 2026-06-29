@@ -29,9 +29,8 @@ pub(crate) const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 /// Per-asset decision for refreshing supply risk params during withdraw.
 ///
 /// - `Frozen`: keep the snapshotted risk params (liquidation, deprecated spoke,
-///   or asset removed from a named spoke).
-/// - `Refresh`: re-stamp risk params from the account's spoke config (spoke 0 or
-///   the active named spoke).
+///   or asset removed from the spoke).
+/// - `Refresh`: re-stamp risk params from the account's active spoke config.
 pub(crate) enum SpokeRefresh {
     Frozen,
     Refresh,
@@ -185,10 +184,6 @@ fn withdraw_refresh_spoke_for_asset(
     hub_asset: &HubAssetKey,
     spoke: &Option<SpokeConfig>,
 ) -> SpokeRefresh {
-    if account.spoke_id == 0 {
-        return SpokeRefresh::Refresh;
-    }
-
     let Some(spoke) = spoke else {
         return SpokeRefresh::Frozen;
     };
@@ -219,7 +214,7 @@ pub(crate) fn finish_withdrawal(
         ctx.apply_withdraw_after_pool(env, hub_asset, delta);
     }
     // `Frozen` keeps the snapshotted params; `Refresh` re-stamps from the
-    // account's spoke config (spoke 0 base or the active named spoke).
+    // account's active spoke config.
     if matches!(refresh_spoke, SpokeRefresh::Refresh) {
         let config = emode::effective_asset_config(env, account.spoke_id, hub_asset);
         refresh_supply_risk_params(env, cache, account, hub_asset, &mut result_position, &config);

@@ -7,16 +7,13 @@
 
 use common::errors::{CollateralError, EModeError};
 use controller_interface::types::{
-    Account, AccountPosition, AssetConfig, DebtPosition, HubAssetKey, PoolAction, ScaledPositionRaw,
-    SpokeAssetConfig,
+    Account, AccountPosition, DebtPosition, HubAssetKey, PoolAction, ScaledPositionRaw,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
 use crate::cache::Cache;
-use crate::emode;
 use crate::helpers;
 use crate::storage;
-use crate::validation;
 
 pub mod borrow;
 pub mod liquidation;
@@ -88,39 +85,10 @@ pub(crate) fn finalize_position_flow(
     cache.emit_position_batch(account_id, account);
 }
 
-/// Per-spoke risk configs resolved once per aggregated asset, shared by
-/// validation and pool execution. Stores the contract-type `SpokeAssetConfig`
-/// (`Map` values must be contract types); `get` projects to `AssetConfig`.
-pub(crate) struct AggregatedConfigs(Map<HubAssetKey, SpokeAssetConfig>);
-
-impl AggregatedConfigs {
-    /// Reads `SpokeAsset(account.spoke_id, hub_asset)` for each aggregated asset.
-    pub fn resolve(
-        env: &Env,
-        account: &Account,
-        aggregated: &AggregatedPayments,
-        cache: &mut Cache,
-    ) -> Self {
-        // Rejects a deprecated named spoke before any per-asset read.
-        cache.active_spoke(env, account.spoke_id);
-        let mut configs: Map<HubAssetKey, SpokeAssetConfig> = Map::new(env);
-        for (hub_asset, _) in aggregated.iter() {
-            let cfg = emode::resolve_spoke_asset_config(env, account.spoke_id, &hub_asset);
-            configs.set(hub_asset, cfg);
-        }
-        Self(configs)
-    }
-
-    /// Config for an aggregated hub asset; `resolve` populated each key.
-    pub fn get(&self, env: &Env, hub_asset: &HubAssetKey) -> AssetConfig {
-        (&validation::expect_invariant(env, self.0.get(hub_asset.clone()))).into()
-    }
-}
-
 /// Enforces the active spoke's per-asset trading flags. `paused` blocks every
 /// verb; `frozen` blocks only new supply/borrow (`block_when_frozen`). No-op
-/// when the asset has no spoke entry (e.g. spoke 0), preserving global-market
-/// behavior.
+/// when the asset has no entry on the spoke (e.g. an asset de-listed from the
+/// spoke while a position survives), so exits stay unblocked.
 pub(crate) fn enforce_spoke_asset_flags(
     env: &Env,
     cache: &mut Cache,

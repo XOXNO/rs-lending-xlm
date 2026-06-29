@@ -27,9 +27,6 @@ pub(crate) struct SpokeUsageContext {
 
 impl SpokeUsageContext {
     pub fn load(env: &Env, spoke_id: u32) -> Option<Self> {
-        if spoke_id == 0 {
-            return None;
-        }
         Some(Self {
             spoke_id,
             usage: Map::new(env),

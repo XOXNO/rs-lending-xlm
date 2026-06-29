@@ -43,12 +43,9 @@ pub(crate) use prefetch::prefetch_redstone_feeds;
 pub use price::token_price;
 
 pub fn price_components(cache: &mut Cache, hub_asset: &HubAssetKey) -> ResolvedOracleComponents {
-    // Reject unlisted `(hub, asset)` with `AssetNotSupported`; `resolve_oracle_config`
-    // then panics `OracleNotConfigured` for a listed-but-pending/disabled asset.
-    // The listed-gate uses the real hub from the key; the price itself is
-    // token-rooted (hub-independent) and keyed by the bare asset.
-    let env = cache.env().clone();
-    crate::validation::require_asset_supported(&env, cache, hub_asset);
+    // Pricing is token-rooted (hub-independent), keyed by the bare asset:
+    // `resolve_oracle_config` panics `OracleNotConfigured` for any asset with no
+    // `AssetOracle` entry (unlisted, pending, or disabled).
     let configs = cache.resolve_oracle_config(&hub_asset.asset);
     compose::resolve_components(cache, &configs)
 }

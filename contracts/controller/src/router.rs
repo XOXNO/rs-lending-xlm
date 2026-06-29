@@ -7,7 +7,7 @@ use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use controller_interface::types::{
-    AccountPosition, HubAssetKey, InterestRateModel, MarketParamsRaw, SpokeAssetConfig,
+    AccountPosition, HubAssetKey, InterestRateModel, MarketParamsRaw,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, when_not_paused};
@@ -87,9 +87,8 @@ impl Controller {
         hub_id: u32,
         asset: Address,
         params: MarketParamsRaw,
-        config: SpokeAssetConfig,
     ) -> Address {
-        create_liquidity_pool(&env, hub_id, &asset, &params, &config)
+        create_liquidity_pool(&env, hub_id, &asset, &params)
     }
 
     #[only_owner]
@@ -153,35 +152,26 @@ impl Controller {
 fn sync_market_indexes(env: &Env, cache: &mut Cache, hub_assets: &Vec<HubAssetKey>) {
     let pool_addr = cache.cached_pool_address();
     for hub_asset in hub_assets {
-        // Unlisted markets must still fail with AssetNotSupported; the shared
-        // pool address carries no per-(hub, asset) existence check.
-        validation::require_asset_supported(env, cache, &hub_asset);
+        // The pool owns the authoritative market record: `update_indexes`
+        // reverts `PoolNotInitialized` for an uncreated (hub, asset).
         pool_update_indexes_call(env, &pool_addr, &hub_asset);
     }
 }
 
-/// Lists the asset on the general spoke 0 of `hub_id` and registers its market
-/// on the central pool under that hub. The asset stays inactive (unpriceable)
-/// until `set_market_oracle_config` writes its token-rooted `AssetOracle` entry.
-/// Consumes the token approval.
+/// Registers the asset's market on the central pool under `hub_id`. The market
+/// record lives on the pool (`pool_create_market_call`, which reverts
+/// `AssetAlreadySupported` on a duplicate (hub, asset)); the controller keeps no
+/// listing shadow. The asset stays inactive (unpriceable) until
+/// `set_market_oracle_config` writes its token-rooted `AssetOracle` entry, and
+/// becomes usable on a spoke once `add_asset_to_spoke` lists it there. Consumes
+/// the token approval.
 pub fn create_liquidity_pool(
     env: &Env,
     hub_id: u32,
     asset: &Address,
     params: &MarketParamsRaw,
-    config: &SpokeAssetConfig,
 ) -> Address {
     validation::require_hub_active(env, hub_id);
-
-    let hub_asset = HubAssetKey {
-        hub_id,
-        asset: asset.clone(),
-    };
-    assert_with_error!(
-        env,
-        storage::get_spoke_asset(env, 0, &hub_asset).is_none(),
-        GenericError::AssetAlreadySupported
-    );
 
     assert_with_error!(
         env,
@@ -192,9 +182,6 @@ pub fn create_liquidity_pool(
     let pool_address = storage::get_pool(env);
     // dimensional: params carries Ray rates/utilization, Bps reserve factor, and Token(asset) caps.
     pool_create_market_call(env, &pool_address, hub_id, params);
-
-    // The general spoke 0 holds every listed (hub, asset)'s base risk config.
-    storage::set_spoke_asset(env, 0, &hub_asset, config);
 
     storage::renew_controller_instance(env);
 
@@ -211,7 +198,6 @@ pub fn create_liquidity_pool(
         max_utilization: params.max_utilization,
         reserve_factor: params.reserve_factor,
         market_address: pool_address.clone(),
-        config: config.clone(),
     }
     .publish(env);
 
@@ -231,11 +217,11 @@ pub fn update_pool_caps(env: &Env, hub_asset: &HubAssetKey, supply_cap: i128, bo
     );
     let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
-    validation::require_asset_supported(env, &mut cache, hub_asset);
     // The forward invariant (spoke cap <= hub cap) is enforced when each spoke
     // asset is configured. Spoke listings are not enumerable from an asset, so
     // the reverse check at cap-update time is dropped; at runtime the hub gate
-    // (pool) and spoke gate bind independently, the tighter one winning.
+    // (pool) and spoke gate bind independently, the tighter one winning. The
+    // pool reverts `PoolNotInitialized` for an uncreated (hub, asset).
     let pool_addr = cache.cached_pool_address();
     pool_update_caps_call(env, &pool_addr, hub_asset, supply_cap, borrow_cap);
 }
@@ -249,10 +235,9 @@ pub fn upgrade_liquidity_pool_params(
     let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
 
-    validation::require_asset_supported(env, &mut cache, hub_asset);
-
     let pool_addr = cache.cached_pool_address();
 
+    // `update_indexes` reverts `PoolNotInitialized` for an uncreated market.
     pool_update_indexes_call(env, &pool_addr, hub_asset);
 
     // dimensional: params carries Ray rates/utilization and Bps reserve factor.
@@ -279,8 +264,7 @@ fn claim_revenue_for_asset_with_cache(
     hub_asset: &HubAssetKey,
     cache: &mut Cache,
 ) -> i128 {
-    validation::require_asset_supported(env, cache, hub_asset);
-
+    // `claim_revenue` reverts `PoolNotInitialized` for an uncreated market.
     let accumulator = storage::try_get_accumulator(env)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::NoAccumulator));
 
@@ -326,7 +310,7 @@ pub fn add_reward(
     cache: &mut Cache,
 ) {
     // dimensional: amount is Token(asset) reward in asset-native units.
-    validation::require_asset_supported(env, cache, hub_asset);
+    // `add_rewards` reverts `PoolNotInitialized` for an uncreated market.
     validation::require_positive_amount(env, amount);
 
     let pool_addr = cache.cached_pool_address();
@@ -404,8 +388,8 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     let assets = account.supply_positions.keys();
 
     for hub_asset in assets.iter() {
-        validation::require_asset_supported(env, cache, &hub_asset);
-
+        // `effective_asset_config` reverts `AssetNotSupported` when the held
+        // asset is not listed on the account's spoke.
         let asset_config = emode::effective_asset_config(env, account.spoke_id, &hub_asset);
 
         let position =

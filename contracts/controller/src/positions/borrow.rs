@@ -14,8 +14,7 @@ use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use super::{
-    enforce_spoke_asset_flags, finalize_position_flow, AggregatedConfigs, AggregatedPayments,
-    PositionSides,
+    enforce_spoke_asset_flags, finalize_position_flow, AggregatedPayments, PositionSides,
 };
 use crate::cache::Cache;
 use crate::emode;
@@ -61,8 +60,7 @@ pub fn process_borrow(
     let mut cache = Cache::new(env);
     let aggregated = utils::aggregate_positive_payments(env, borrows);
 
-    let configs = AggregatedConfigs::resolve(env, &account, &aggregated, &mut cache);
-    validate_borrow(env, &account, &aggregated, &configs, &mut cache);
+    validate_borrow(env, &account, &aggregated, &mut cache);
     settle_borrow(env, &recipient, &mut account, &aggregated, &mut cache);
 
     // A failure in any gate panics and reverts the atomic tx.
@@ -85,7 +83,6 @@ fn validate_borrow(
     env: &Env,
     account: &Account,
     aggregated: &AggregatedPayments,
-    configs: &AggregatedConfigs,
     cache: &mut Cache,
 ) {
     validation::require_non_empty_payments(env, aggregated);
@@ -98,7 +95,9 @@ fn validate_borrow(
     for (hub_asset, _) in aggregated {
         validation::require_hub_active(env, hub_asset.hub_id);
         validation::require_market_active(env, cache, &hub_asset);
-        let asset_config = configs.get(env, &hub_asset);
+        // Risk config comes from the account's spoke (the single source of
+        // truth); reverts `AssetNotSupported` when unlisted there.
+        let asset_config = emode::effective_asset_config(env, account.spoke_id, &hub_asset);
         emode::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
         // Frozen blocks new borrow; paused blocks every verb.
         enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
@@ -159,20 +158,18 @@ fn merge_borrow_result(
         .unwrap_or(Ray::ZERO);
     let position: DebtPosition = DebtPosition::from(&result.position);
     // dimensional: scaled delta is Ray<Share(asset, borrow)>.
-    // Spoke-cap accounting (named spokes only) needs the asset decimals; source
-    // them from the active market's oracle config before re-borrowing `cache`.
-    if account.spoke_id != 0 {
-        let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
-        if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
-            let delta = position.scaled_amount - old_scaled;
-            ctx.apply_borrow_after_pool(
-                env,
-                hub_asset,
-                delta,
-                &result.market_index,
-                asset_decimals,
-            );
-        }
+    // Spoke-cap accounting needs the asset decimals; source them from the active
+    // market's oracle config before re-borrowing `cache`.
+    let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
+    if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
+        let delta = position.scaled_amount - old_scaled;
+        ctx.apply_borrow_after_pool(
+            env,
+            hub_asset,
+            delta,
+            &result.market_index,
+            asset_decimals,
+        );
     }
     cache.put_market_index(hub_asset, &result.market_index);
     // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, borrow)>.
@@ -243,8 +240,7 @@ fn borrow_strategy_inner(
     let mut payments: AggregatedPayments = Vec::new(env);
     payments.push_back((hub_debt.clone(), amount));
     let aggregated = utils::aggregate_positive_payments(env, &payments);
-    let configs = AggregatedConfigs::resolve(env, account, &aggregated, cache);
-    validate_borrow(env, account, &aggregated, &configs, cache);
+    validate_borrow(env, account, &aggregated, cache);
 
     // Flash-loan parameters live on the pool market params, not the spoke config.
     let flash_fee = fee_override.unwrap_or_else(|| {

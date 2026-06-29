@@ -1,8 +1,8 @@
 //! Spoke per-asset paused/frozen gate (`enforce_spoke_asset_flags`).
 //!
 //! `paused` blocks every verb; `frozen` blocks only new supply/borrow
-//! (`block_when_frozen == true`). A missing spoke-asset entry is a no-op, which
-//! preserves global-market behavior for spoke 0 and unlisted assets.
+//! (`block_when_frozen == true`). A missing spoke-asset entry is a no-op, so an
+//! asset de-listed from a spoke while a position survives stays exitable.
 
 use super::*;
 use crate::Controller;
@@ -79,7 +79,7 @@ fn clean_asset_allows_all_verbs() {
     run_gate(false, false, false);
 }
 
-// No spoke-asset entry (spoke 0 or unlisted asset) is a no-op for any flag.
+// No spoke-asset entry for the asset is a no-op for any flag.
 #[test]
 fn missing_spoke_asset_is_noop() {
     let env = Env::default();
@@ -91,9 +91,7 @@ fn missing_spoke_asset_is_noop() {
             asset: Address::generate(&env),
         };
         let mut cache = Cache::new_view(&env);
-        // Named spoke without an entry for this asset: no-op.
+        // Spoke without an entry for this asset: no-op.
         enforce_spoke_asset_flags(&env, &mut cache, SPOKE_ID, &hub_asset, true);
-        // Spoke 0 never has spoke-asset entries: no-op.
-        enforce_spoke_asset_flags(&env, &mut cache, 0, &hub_asset, true);
     });
 }

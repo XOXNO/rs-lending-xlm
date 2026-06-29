@@ -189,8 +189,9 @@ pub trait ControllerInterface {
     /// Returns account mode and spoke attributes.
     fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes;
 
-    /// Returns the per-spoke risk listing for `hub_asset` on `spoke_id` (spoke 0
-    /// is the general base listing). Panics `AssetNotSupported` when not listed.
+    /// Returns the per-spoke risk listing for `hub_asset` on `spoke_id`. Each
+    /// spoke (id `>= 1`) holds its own config. Panics `AssetNotSupported` when
+    /// not listed on the spoke.
     fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig;
 
     /// Returns spoke config by id.

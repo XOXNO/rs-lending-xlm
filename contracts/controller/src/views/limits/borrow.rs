@@ -22,10 +22,8 @@ pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
-    // Inactive: not listed, or listed without a token-rooted oracle.
-    if storage::get_spoke_asset(env, 0, hub_asset).is_none()
-        || storage::get_asset_oracle(env, &hub_asset.asset).is_none()
-    {
+    // Inactive: no token-rooted oracle entry.
+    if storage::get_asset_oracle(env, &hub_asset.asset).is_none() {
         return 0;
     }
 
@@ -85,13 +83,11 @@ fn account_can_borrow_asset(
     account: &Account,
     hub_asset: &HubAssetKey,
 ) -> bool {
-    // A named spoke must be active and must list the asset (the spoke listing is
-    // the membership signal now that the global e-mode list is gone).
-    if account.spoke_id > 0 {
-        let active = matches!(cache.cached_spoke(account.spoke_id), Some(s) if !s.is_deprecated);
-        if !active || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
-            return false;
-        }
+    // The account's spoke must be active and must list the asset (the spoke
+    // listing is the membership signal).
+    let active = matches!(cache.cached_spoke(account.spoke_id), Some(s) if !s.is_deprecated);
+    if !active || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
+        return false;
     }
 
     let config = emode::effective_asset_config(env, account.spoke_id, hub_asset);
@@ -120,7 +116,7 @@ fn hub_borrow_cap_headroom(env: &Env, market: &MarketLimitCtx, borrow_cap: i128)
     (borrow_cap - current).max(0)
 }
 
-/// Spoke borrow-cap headroom for a spoke account; `i128::MAX` when disabled.
+/// Spoke borrow-cap headroom for the account's spoke; `i128::MAX` when disabled.
 fn spoke_borrow_cap_headroom(
     env: &Env,
     cache: &mut Cache,
@@ -128,9 +124,6 @@ fn spoke_borrow_cap_headroom(
     hub_asset: &HubAssetKey,
     market: &MarketLimitCtx,
 ) -> i128 {
-    if account.spoke_id == 0 {
-        return i128::MAX;
-    }
     let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
         return i128::MAX;
     };
@@ -200,21 +193,19 @@ fn borrow_ok(
     }
 
     // Spoke borrow cap on post-borrow scaled usage.
-    if account.spoke_id > 0 {
-        if let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) {
-            if cap_is_enabled(spoke_cfg.borrow_cap) {
-                let usage = cache
-                    .cached_spoke_usage(account.spoke_id, hub_asset)
-                    .unwrap_or(SpokeUsageRaw {
-                        supplied_scaled_ray: 0,
-                        borrowed_scaled_ray: 0,
-                    });
-                let cap_scaled = Ray::from_asset(spoke_cfg.borrow_cap, market.decimals)
-                    .div_floor(env, market.borrow_index);
-                let next_scaled = Ray::from(usage.borrowed_scaled_ray) + new_scaled;
-                if next_scaled > cap_scaled {
-                    return false;
-                }
+    if let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) {
+        if cap_is_enabled(spoke_cfg.borrow_cap) {
+            let usage = cache
+                .cached_spoke_usage(account.spoke_id, hub_asset)
+                .unwrap_or(SpokeUsageRaw {
+                    supplied_scaled_ray: 0,
+                    borrowed_scaled_ray: 0,
+                });
+            let cap_scaled = Ray::from_asset(spoke_cfg.borrow_cap, market.decimals)
+                .div_floor(env, market.borrow_index);
+            let next_scaled = Ray::from(usage.borrowed_scaled_ray) + new_scaled;
+            if next_scaled > cap_scaled {
+                return false;
             }
         }
     }

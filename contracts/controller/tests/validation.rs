@@ -2,72 +2,18 @@ use super::*;
 use crate::Controller;
 use common::types::pool::{AccountPositionRaw, DebtPositionRaw, HubAssetKey};
 use controller_interface::types::{
-    Account, AccountPositionType, MarketOracleConfig, MarketOracleConfigOption, PositionLimits,
-    PositionMode, SpokeAssetConfig,
+    Account, AccountPositionType, MarketOracleConfig, PositionLimits, PositionMode,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, Vec};
 
-/// General-spoke (spoke 0) risk listing used to mark an asset as supported.
-fn base_spoke_asset_config() -> SpokeAssetConfig {
-    SpokeAssetConfig {
-        is_collateralizable: true,
-        is_borrowable: true,
-        paused: false,
-        frozen: false,
-        loan_to_value: 7_500,
-        liquidation_threshold: 8_000,
-        liquidation_bonus: 500,
-        liquidation_fees: 100,
-        supply_cap: 0,
-        borrow_cap: 0,
-        oracle_override: MarketOracleConfigOption::None,
-    }
-}
-
-fn list_on_spoke_zero(env: &Env, asset: &Address) {
-    storage::set_spoke_asset(
-        env,
-        0,
-        &HubAssetKey {
-            hub_id: 0,
-            asset: asset.clone(),
-        },
-        &base_spoke_asset_config(),
-    );
-}
-
-#[test]
-fn require_asset_supported_passes_for_listed_asset() {
-    let env = Env::default();
-    let contract = new_controller(&env);
-    let asset = Address::generate(&env);
-    env.as_contract(&contract, || {
-        list_on_spoke_zero(&env, &asset);
-        let mut cache = Cache::new_view(&env);
-        require_asset_supported(&env, &mut cache, &hub(&asset));
-    });
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #1)")]
-fn require_asset_supported_panics_for_unlisted_asset() {
-    let env = Env::default();
-    let contract = new_controller(&env);
-    let asset = Address::generate(&env);
-    env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
-        require_asset_supported(&env, &mut cache, &hub(&asset));
-    });
-}
-
+// An asset with a token-rooted `AssetOracle` entry is active.
 #[test]
 fn require_market_active_passes_with_oracle() {
     let env = Env::default();
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
-        list_on_spoke_zero(&env, &asset);
         let oracle: MarketOracleConfig = MarketOracleConfig::pending_for(asset.clone(), 7);
         storage::set_asset_oracle(&env, &asset, &oracle);
         let mut cache = Cache::new_view(&env);
@@ -82,8 +28,7 @@ fn require_market_active_panics_without_oracle() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
-        // Listed but no `AssetOracle` entry: pending/disabled -> PairNotActive.
-        list_on_spoke_zero(&env, &asset);
+        // No `AssetOracle` entry: pending/disabled -> PairNotActive.
         let mut cache = Cache::new_view(&env);
         require_market_active(&env, &mut cache, &hub(&asset));
     });

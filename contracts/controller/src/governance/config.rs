@@ -257,19 +257,15 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
         hub_id: args.hub_id,
         asset: args.asset.clone(),
     };
-    // The asset must be listed (base `SpokeAsset(0, hub_asset)`) on its hub before
-    // a named spoke lists it.
-    assert_with_error!(
-        env,
-        storage::get_spoke_asset(env, 0, &hub_asset).is_some(),
-        GenericError::AssetNotSupported
-    );
     assert_with_error!(
         env,
         storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_none(),
         EModeError::AssetAlreadyInEmode
     );
 
+    // The pool owns the market record; `fetch_pool_sync_data` reverts
+    // `PoolNotInitialized` when the (hub, asset) market was never created, so the
+    // asset must already have a created market before a spoke lists it.
     let pool_addr = storage::get_pool(env);
     let hub = fetch_pool_sync_data(env, &pool_addr, &hub_asset);
     validate_spoke_caps_against_hub(
@@ -410,12 +406,11 @@ pub fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32)
 /// "active" signal that price resolution and `require_market_active` read.
 pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: MarketOracleConfig) {
     let asset = &hub_asset.asset;
-    // Only a listed `(hub, asset)` (base `SpokeAsset(0, hub_asset)`) can be activated.
-    assert_with_error!(
-        env,
-        storage::get_spoke_asset(env, 0, &hub_asset).is_some(),
-        GenericError::AssetNotSupported
-    );
+    // Only an existing `(hub, asset)` market can be activated. The pool owns the
+    // market record; `fetch_pool_sync_data` reverts `PoolNotInitialized` when the
+    // market was never created.
+    let pool_addr = storage::get_pool(env);
+    let pool_decimals = fetch_pool_sync_data(env, &pool_addr, &hub_asset).params.asset_decimals;
 
     // Re-validate the sanity band at the controller boundary. Governance
     // validates the proposal; execution rejects unset or invalid bands before
@@ -432,12 +427,8 @@ pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: M
 
     // Test markets register pools with preset decimals that may diverge from
     // the live token probe; keep the pool-registered value authoritative.
-    if cfg!(feature = "testing") {
-        let pool_addr = storage::get_pool(env);
-        let pool_decimals = fetch_pool_sync_data(env, &pool_addr, &hub_asset).params.asset_decimals;
-        if pool_decimals != 0 {
-            config.asset_decimals = pool_decimals;
-        }
+    if cfg!(feature = "testing") && pool_decimals != 0 {
+        config.asset_decimals = pool_decimals;
     }
 
     // The oracle is token-rooted (hub-independent), keyed by the bare asset.

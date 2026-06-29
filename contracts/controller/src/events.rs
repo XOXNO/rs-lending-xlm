@@ -255,7 +255,6 @@ pub struct CreateMarketEvent {
     pub max_utilization: i128,
     pub reserve_factor: u32,
     pub market_address: Address,
-    pub config: SpokeAssetConfig,
 }
 
 #[contractevent(topics = ["market", "params_update"])]

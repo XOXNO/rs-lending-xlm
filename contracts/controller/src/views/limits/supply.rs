@@ -3,7 +3,7 @@
 use common::math::fp::Ray;
 use common::rates::scaled_to_original;
 use common::validation::cap_is_enabled;
-use controller_interface::types::{Account, HubAssetKey, SpokeUsageRaw};
+use controller_interface::types::{Account, AssetConfig, HubAssetKey, SpokeUsageRaw};
 use soroban_sdk::Env;
 
 use crate::cache::Cache;
@@ -15,10 +15,8 @@ pub fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
     }
-    // Inactive: not listed, or listed without a token-rooted oracle.
-    if storage::get_spoke_asset(env, 0, hub_asset).is_none()
-        || storage::get_asset_oracle(env, &hub_asset.asset).is_none()
-    {
+    // Inactive: no token-rooted oracle entry.
+    if storage::get_asset_oracle(env, &hub_asset.asset).is_none() {
         return 0;
     }
     let account = match storage::try_get_account(env, account_id) {
@@ -26,11 +24,12 @@ pub fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
         None => return 0,
     };
     let mut cache = Cache::new_view(env);
-    // Collateralizability is read from the base (spoke 0) config, as before.
-    if !cache.cached_asset_config(hub_asset).can_supply() {
+    // The asset must be listed on the account's spoke (the single source of risk
+    // params); collateralizability is read from that listing.
+    let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
         return 0;
-    }
-    if account.spoke_id > 0 && cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
+    };
+    if !AssetConfig::from(&spoke_cfg).can_supply() {
         return 0;
     }
     let hub_supply_cap = cache.cached_pool_sync_data(hub_asset).params.supply_cap;
@@ -68,7 +67,7 @@ fn hub_supply_cap_headroom(env: &Env, market: &MarketLimitCtx, supply_cap: i128)
     0
 }
 
-/// Spoke supply-cap headroom for a spoke account; `i128::MAX` when disabled.
+/// Spoke supply-cap headroom for the account's spoke; `i128::MAX` when disabled.
 fn spoke_supply_cap_headroom(
     env: &Env,
     cache: &mut Cache,
@@ -76,9 +75,6 @@ fn spoke_supply_cap_headroom(
     hub_asset: &HubAssetKey,
     market: &MarketLimitCtx,
 ) -> i128 {
-    if account.spoke_id == 0 {
-        return i128::MAX;
-    }
     let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
         return i128::MAX;
     };

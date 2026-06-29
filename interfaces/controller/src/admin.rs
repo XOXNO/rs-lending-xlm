@@ -32,7 +32,6 @@ pub trait ControllerAdmin {
         hub_id: u32,
         asset: Address,
         params: MarketParamsRaw,
-        config: SpokeAssetConfig,
     ) -> Address;
     fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel);
     fn update_pool_caps(env: Env, hub_asset: HubAssetKey, supply_cap: i128, borrow_cap: i128);
@@ -43,6 +42,6 @@ pub trait ControllerAdmin {
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     fn migrate(env: Env, new_version: u32);
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32);
-    /// Per-spoke risk listing read-back (spoke 0 is the general base listing).
+    /// Per-spoke risk listing read-back; each spoke (id `>= 1`) holds its own config.
     fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig;
 }

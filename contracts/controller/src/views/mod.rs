@@ -267,9 +267,8 @@ pub fn get_all_markets_detailed(
 
     for i in 0..hub_assets.len() {
         let hub_asset = validation::expect_invariant(env, hub_assets.get(i));
-        // Panics on unsupported (hub, asset); pool address is resolved per-row, so
-        // the view is safe on empty input.
-        validation::require_asset_supported(env, &mut cache, &hub_asset);
+        // Pool address is resolved per-row, so the view is safe on empty input.
+        // `token_price` panics `OracleNotConfigured` for an unpriced asset.
         let pool_address = cache.cached_pool_address();
         // dimensional: price_wad is Wad<USD/asset> raw. Price is token-rooted.
         let final_price = token_price(&mut cache, &hub_asset.asset).price_wad;

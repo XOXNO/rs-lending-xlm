@@ -20,22 +20,6 @@ fn dummy_address(env: &Env) -> Address {
     Address::generate(env)
 }
 
-fn dummy_spoke_asset_config() -> SpokeAssetConfig {
-    SpokeAssetConfig {
-        is_collateralizable: true,
-        is_borrowable: true,
-        paused: false,
-        frozen: false,
-        loan_to_value: 7500,
-        liquidation_threshold: 8000,
-        liquidation_bonus: 500,
-        liquidation_fees: 100,
-        supply_cap: 0,
-        borrow_cap: 0,
-        oracle_override: MarketOracleConfigOption::None,
-    }
-}
-
 fn dummy_oracle_config(env: &Env) -> MarketOracleConfig {
     let asset = dummy_address(env);
     let oracle = dummy_address(env);
@@ -238,7 +222,6 @@ fn emit_helpers_publish_without_panicking() {
             max_utilization: 0,
             reserve_factor: 0,
             market_address: asset.clone(),
-            config: dummy_spoke_asset_config(),
         }
         .publish(&env);
 

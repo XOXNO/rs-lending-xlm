@@ -32,33 +32,39 @@ fn new_controller(env: &Env) -> Address {
     env.register(Controller, (admin,))
 }
 
-// The general spoke 0 is every listed asset's base config.
+// A spoke resolves risk from its own self-contained SpokeAsset listing.
 #[test]
-fn effective_asset_config_reads_spoke_zero_base() {
+fn effective_asset_config_reads_listed_spoke() {
     let env = Env::default();
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
-        storage::set_spoke_asset(&env, 0, &hub(&asset), &spoke_asset_config(9_000));
-        let cfg = effective_asset_config(&env, 0, &hub(&asset));
+        storage::set_spoke_asset(&env, 1, &hub(&asset), &spoke_asset_config(9_000));
+        let cfg = effective_asset_config(&env, 1, &hub(&asset));
         assert_eq!(cfg.loan_to_value.raw() as u32, 9_000);
         assert!(cfg.can_supply());
         assert!(cfg.can_borrow());
     });
 }
 
-// An account on a named spoke resolves risk from SpokeAsset(spoke_id) directly,
-// with no overlay onto the spoke-0 base.
+// Each spoke resolves risk from its own SpokeAsset(spoke_id) listing; one spoke's
+// config does not bleed into another's.
 #[test]
-fn effective_asset_config_reads_named_spoke_directly() {
+fn effective_asset_config_reads_each_spoke_directly() {
     let env = Env::default();
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
-        storage::set_spoke_asset(&env, 0, &hub(&asset), &spoke_asset_config(9_000));
-        storage::set_spoke_asset(&env, 1, &hub(&asset), &spoke_asset_config(5_000));
-        let cfg = effective_asset_config(&env, 1, &hub(&asset));
-        assert_eq!(cfg.loan_to_value.raw() as u32, 5_000);
+        storage::set_spoke_asset(&env, 1, &hub(&asset), &spoke_asset_config(9_000));
+        storage::set_spoke_asset(&env, 2, &hub(&asset), &spoke_asset_config(5_000));
+        assert_eq!(
+            effective_asset_config(&env, 1, &hub(&asset)).loan_to_value.raw() as u32,
+            9_000
+        );
+        assert_eq!(
+            effective_asset_config(&env, 2, &hub(&asset)).loan_to_value.raw() as u32,
+            5_000
+        );
     });
 }
 
@@ -70,7 +76,7 @@ fn effective_asset_config_panics_when_unlisted_on_spoke() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
-        storage::set_spoke_asset(&env, 0, &hub(&asset), &spoke_asset_config(9_000));
+        storage::set_spoke_asset(&env, 1, &hub(&asset), &spoke_asset_config(9_000));
         effective_asset_config(&env, 2, &hub(&asset));
     });
 }
@@ -83,23 +89,23 @@ fn lowering_spoke_ltv_keeps_existing_position_ltv() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
-        storage::set_spoke_asset(&env, 0, &hub(&asset), &spoke_asset_config(9_000));
+        storage::set_spoke_asset(&env, 1, &hub(&asset), &spoke_asset_config(9_000));
 
         // First supply snapshots LTV 9000 into the position.
         let mut account = Account {
             owner: Address::generate(&env),
-            spoke_id: 0,
+            spoke_id: 1,
             mode: PositionMode::Normal,
             supply_positions: Map::new(&env),
             borrow_positions: Map::new(&env),
         };
-        let cfg_9000 = effective_asset_config(&env, 0, &hub(&asset));
+        let cfg_9000 = effective_asset_config(&env, 1, &hub(&asset));
         let seeded = account.get_or_create_supply_position(&hub(&asset), &cfg_9000);
         account.supply_positions.set(hub(&asset), (&seeded).into());
 
         // Governance lowers the spoke LTV to 5000.
-        storage::set_spoke_asset(&env, 0, &hub(&asset), &spoke_asset_config(5_000));
-        let cfg_5000 = effective_asset_config(&env, 0, &hub(&asset));
+        storage::set_spoke_asset(&env, 1, &hub(&asset), &spoke_asset_config(5_000));
+        let cfg_5000 = effective_asset_config(&env, 1, &hub(&asset));
         assert_eq!(cfg_5000.loan_to_value.raw() as u32, 5_000);
 
         // The existing position keeps the snapshotted 9000.

@@ -15,8 +15,9 @@ use crate::storage;
 
 /// Creates account metadata and returns an empty in-memory account snapshot.
 ///
-/// When `cache` is provided, spoke deprecation is checked via the transaction
-/// cache so a later `AggregatedConfigs::resolve` does not re-read storage.
+/// Every account binds to a real spoke (id `>= 1`); the spoke is the single
+/// source of risk params. `cache.active_spoke` loads the spoke once and rejects
+/// a deprecated one.
 pub fn create_account(
     env: &Env,
     owner: &Address,
@@ -24,6 +25,8 @@ pub fn create_account(
     mode: PositionMode,
     cache: &mut Cache,
 ) -> (u64, Account) {
+    // Accounts cannot be created on spoke 0: there is no spoke 0.
+    assert_with_error!(env, spoke_id >= 1, EModeError::EModeCategoryNotFound);
     cache.active_spoke(env, spoke_id);
 
     let account_id = storage::increment_account_nonce(env);
@@ -50,11 +53,11 @@ pub fn create_account(
 /// Existing-account guard applied by `load_or_create_account`, named for the
 /// entrypoint whose check shape it encodes.
 pub enum AccountGuard {
-    /// Third-party supply: no owner check; a non-zero spoke arg must match the
-    /// stored spoke.
+    /// Third-party supply: no owner check; the spoke arg must match the stored
+    /// spoke.
     Supply,
-    /// Blend migration: caller must own the account; a non-zero spoke arg must
-    /// match the stored spoke.
+    /// Blend migration: caller must own the account; the spoke arg must match the
+    /// stored spoke.
     Migrate,
     /// Multiply strategy: caller must own the account; the stored position mode
     /// must equal `mode`.
@@ -111,10 +114,10 @@ pub fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address) {
     panic_with_error!(env, GenericError::AccountNotInMarket);
 }
 
-/// Rejects a non-zero spoke arg that conflicts with the stored spoke.
-/// Zero is the unspecified sentinel; the stored spoke always governs.
+/// Rejects a spoke arg that does not match the account's stored spoke. The
+/// caller must specify the account's real spoke (there is no `0` sentinel).
 fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
-    if spoke_id != 0 && spoke_id != account.spoke_id {
+    if spoke_id != account.spoke_id {
         panic_with_error!(env, EModeError::EModeMismatch);
     }
 }

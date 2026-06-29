@@ -7,9 +7,9 @@ use crate::constants::MS_PER_SECOND;
 use crate::events::{
     EventBorrowDelta, EventDepositDelta, PositionAction, UpdatePositionBatchEvent,
 };
-use common::errors::{EModeError, GenericError, OracleError};
+use common::errors::{EModeError, OracleError};
 use controller_interface::types::{
-    Account, AccountPosition, AssetConfig, DebtPosition, HubAssetKey, MarketIndex, MarketIndexRaw,
+    Account, AccountPosition, DebtPosition, HubAssetKey, MarketIndex, MarketIndexRaw,
     MarketOracleConfig, PoolSyncData, PriceFeed, PriceFeedRaw, SpokeAssetConfig, SpokeConfig,
     SpokeUsageRaw,
 };
@@ -104,18 +104,6 @@ impl Cache {
             .set((adapter.clone(), feed_id.clone()), data);
     }
 
-    /// Base (general-spoke) risk config for `hub_asset` under
-    /// `SpokeAsset(0, hub_asset)`. The general spoke 0 is every listed
-    /// `(hub_id, asset)`'s base listing, so this is the non-spoke-adjusted config
-    /// that liquidation and strategy paths read. Callers must pass the position's
-    /// real hub so liquidation fees and thresholds resolve to that hub's listing.
-    /// Panics `AssetNotSupported` when the `(hub_id, asset)` is not listed.
-    pub fn cached_asset_config(&mut self, hub_asset: &HubAssetKey) -> AssetConfig {
-        let spoke_asset = storage::get_spoke_asset(&self.env, 0, hub_asset)
-            .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::AssetNotSupported));
-        (&spoke_asset).into()
-    }
-
     /// Token-rooted oracle config under `AssetOracle(asset)`. Panics
     /// `OracleNotConfigured` when absent. Absence is the pending/disabled gate:
     /// price resolution reverts for any asset with no `AssetOracle` entry.
@@ -153,15 +141,15 @@ impl Cache {
     #[cfg(feature = "certora")]
     pub fn prefetch_market_indexes(&mut self, _hub_assets: &Vec<HubAssetKey>) {}
 
-    /// Seeds `market_indexes` for listed, uncached hub-assets.
-    /// Skips duplicates and markets already loaded in this transaction.
+    /// Seeds `market_indexes` for uncached hub-assets.
+    /// Skips duplicates and markets already loaded in this transaction. The pool
+    /// reverts `PoolNotInitialized` for any uncreated (hub, asset) in the batch.
     #[cfg(not(feature = "certora"))]
     pub fn prefetch_market_indexes(&mut self, hub_assets: &Vec<HubAssetKey>) {
         let mut missing: Vec<HubAssetKey> = Vec::new(&self.env);
         for hub_asset in hub_assets.iter() {
             if self.market_indexes.contains_key(hub_asset.clone())
                 || missing.first_index_of(hub_asset.clone()).is_some()
-                || storage::get_spoke_asset(&self.env, 0, &hub_asset).is_none()
             {
                 continue;
             }
@@ -252,11 +240,9 @@ impl Cache {
         data
     }
 
-    /// Loads the account's spoke once per transaction when first needed.
+    /// Loads the account's spoke once per transaction when first needed. Every
+    /// account binds to a real spoke (id `>= 1`), so this always loads a context.
     pub(crate) fn ensure_spoke_loaded(&mut self, spoke_id: u32) {
-        if spoke_id == 0 {
-            return;
-        }
         if let Some(ctx) = &self.emode_usage {
             assert_with_error!(
                 &self.env,
@@ -273,9 +259,6 @@ impl Cache {
         spoke_id: u32,
         hub_asset: &HubAssetKey,
     ) -> Option<SpokeAssetConfig> {
-        if spoke_id == 0 {
-            return None;
-        }
         self.ensure_spoke_loaded(spoke_id);
         let env = self.env.clone();
         self.emode_usage
@@ -284,9 +267,6 @@ impl Cache {
     }
 
     pub fn cached_spoke(&mut self, spoke_id: u32) -> Option<SpokeConfig> {
-        if spoke_id == 0 {
-            return None;
-        }
         self.ensure_spoke_loaded(spoke_id);
         let env = self.env.clone();
         self.emode_usage.as_ref().map(|ctx| ctx.as_spoke(&env))
@@ -303,9 +283,6 @@ impl Cache {
         spoke_id: u32,
         hub_asset: &HubAssetKey,
     ) -> Option<SpokeUsageRaw> {
-        if spoke_id == 0 {
-            return None;
-        }
         self.ensure_spoke_loaded(spoke_id);
         let env = self.env.clone();
         self.emode_usage
@@ -314,9 +291,6 @@ impl Cache {
     }
 
     pub(crate) fn spoke_usage_mut(&mut self, spoke_id: u32) -> Option<&mut SpokeUsageContext> {
-        if spoke_id == 0 {
-            return None;
-        }
         self.ensure_spoke_loaded(spoke_id);
         self.emode_usage.as_mut()
     }

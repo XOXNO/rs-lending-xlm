@@ -275,9 +275,8 @@ pub(crate) fn increment_hub_id(env: &Env) -> u32 {
     next
 }
 
-/// Reads a hub registry entry. Hub 0 is seeded active in the constructor like
-/// every other hub, so all hubs — including 0 — resolve through this entry;
-/// returns `None` only for an id that was never created.
+/// Reads a hub registry entry. No hub is seeded; hubs are created on demand
+/// (ids from 1). Returns `None` for any uncreated id, including hub 0.
 pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
     env.storage().instance().get(&ControllerKey::Hub(hub_id))
 }

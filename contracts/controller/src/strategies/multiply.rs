@@ -9,6 +9,7 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, By
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
+use crate::emode;
 use crate::helpers;
 use crate::strategies::{
     open_strategy_borrow, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
@@ -110,13 +111,6 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     // Strategy borrows are risk-increasing.
     let mut cache = Cache::new(env);
 
-    let collateral_config = cache.cached_asset_config(collateral);
-    assert_with_error!(
-        env,
-        collateral_config.can_supply(),
-        CollateralError::NotCollateral
-    );
-
     let (account_id, mut account) = helpers::load_or_create_account(
         env,
         caller,
@@ -125,6 +119,15 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         mode,
         helpers::AccountGuard::Multiply,
         &mut cache,
+    );
+
+    // Collateralizability resolves from the account's spoke (the single source
+    // of risk params); reverts `AssetNotSupported` when unlisted there.
+    let collateral_config = emode::effective_asset_config(env, account.spoke_id, collateral);
+    assert_with_error!(
+        env,
+        collateral_config.can_supply(),
+        CollateralError::NotCollateral
     );
 
     let extra_assets =
@@ -187,11 +190,12 @@ fn collect_initial_multiply_payment(
     if let Some((payment, payment_amount)) = initial_payment.as_ref() {
         validation::require_positive_amount(env, *payment_amount);
 
-        // Only listed assets may invoke token contracts; payment asset is the
-        // user-supplied call target, gated on its own hub coordinate.
+        // Only active protocol assets may invoke token contracts; the payment
+        // asset is the user-supplied call target. An active asset has a
+        // token-rooted `AssetOracle` entry (the payment is priced downstream).
         assert_with_error!(
             env,
-            storage::get_spoke_asset(env, 0, payment).is_some(),
+            storage::get_asset_oracle(env, &payment.asset).is_some(),
             GenericError::AssetNotSupported
         );
 

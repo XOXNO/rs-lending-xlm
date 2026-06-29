@@ -51,12 +51,6 @@ pub struct AccountAttributes {
     pub mode: PositionMode,
 }
 
-impl AccountAttributes {
-    pub fn has_spoke(&self) -> bool {
-        self.spoke_id > 0
-    }
-}
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountMeta {
@@ -228,7 +222,8 @@ pub struct LiquidationResult {
 pub struct Account {
     /// Account owner authorized for owner-gated account mutations.
     pub owner: Address,
-    /// Active spoke; zero means no spoke.
+    /// Active spoke; always `>= 1`. Every account is bound to a real spoke
+    /// (there is no spoke 0); the spoke is the single source of risk params.
     pub spoke_id: u32,
     pub mode: PositionMode,
     /// Collateral positions keyed by hub asset.
@@ -240,10 +235,6 @@ pub struct Account {
 impl Account {
     pub fn attributes(&self) -> AccountAttributes {
         AccountAttributes::from(self)
-    }
-
-    pub fn has_spoke(&self) -> bool {
-        self.spoke_id > 0
     }
 
     /// Existing collateral position for `asset` (decoded to typed form) or a
@@ -405,32 +396,20 @@ mod tests {
         let account = empty_account(&env, meta);
         let from_account = AccountAttributes::from(&account);
         assert_eq!(from_meta, from_account);
-        assert!(from_account.has_spoke());
         assert_eq!(from_account.spoke_id, 4);
     }
 
     #[test]
-    fn test_account_attributes_no_spoke_without_id() {
+    fn test_account_attributes_carry_spoke_id() {
         let env = Env::default();
-        let attrs = AccountAttributes::from(&account_meta(&env, 0));
-        assert!(!attrs.has_spoke());
-    }
-
-    #[test]
-    fn test_account_has_spoke_and_attributes() {
-        let env = Env::default();
-        let normal = empty_account(&env, account_meta(&env, 0));
-        assert!(!normal.has_spoke());
-        assert_eq!(normal.attributes().spoke_id, 0);
-
-        let spoked = empty_account(&env, account_meta(&env, 1));
-        assert!(spoked.has_spoke());
+        let attrs = AccountAttributes::from(&account_meta(&env, 1));
+        assert_eq!(attrs.spoke_id, 1);
     }
 
     #[test]
     fn test_account_is_empty_only_when_both_sides_empty() {
         let env = Env::default();
-        let mut account = empty_account(&env, account_meta(&env, 0));
+        let mut account = empty_account(&env, account_meta(&env, 1));
         assert!(account.is_empty());
 
         let position = AccountPositionRaw {

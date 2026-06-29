@@ -6,7 +6,7 @@
 //! governance remain callable while paused.
 
 use common::errors::GenericError;
-use controller_interface::types::{ControllerKey, PositionLimits, SpokeConfig};
+use controller_interface::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env};
 use stellar_access::{access_control, ownable};
 use stellar_macros::only_owner;
@@ -75,19 +75,9 @@ impl Controller {
 
         storage::set_min_borrow_collateral_usd_wad(&env, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD);
 
-        // The general spoke 0 is every listed asset's base risk listing; its
-        // config holds the (currently inert) liquidation-curve defaults. Reserved
-        // id 0 never collides with `add_spoke`, which starts named spokes at 1.
-        storage::set_spoke(
-            &env,
-            0,
-            &SpokeConfig {
-                is_deprecated: false,
-                liquidation_target_hf_wad: 0,
-                hf_for_max_bonus_wad: 0,
-                liquidation_bonus_factor_bps: 0,
-            },
-        );
+        // No spoke is seeded. Spokes start at id 1 (`add_spoke`); there is no
+        // spoke 0. Every account binds to a real spoke that carries its own full
+        // risk params — the spoke is the single source of truth.
 
         // No hub is seeded. A fresh controller has zero hubs; the deployer must
         // `create_hub` (ids start at 1) before any `create_liquidity_pool`. With

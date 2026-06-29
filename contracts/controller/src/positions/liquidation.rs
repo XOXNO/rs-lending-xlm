@@ -65,7 +65,7 @@ pub fn process_liquidation(
     // price; inside the bands the standard primary/midpoint selection applies.
     let mut cache = Cache::new(env);
 
-    validate_liquidation_inputs(env, &account, liquidator, &aggregated, &mut cache);
+    validate_liquidation_inputs(env, &account, liquidator, &aggregated);
 
     let liquidation_plan = build_liquidation_plan(env, &account, &aggregated, &mut cache);
     let result = liquidation_plan.into_result();
@@ -102,7 +102,6 @@ fn validate_liquidation_inputs(
     account: &Account,
     liquidator: &Address,
     aggregated: &AggregatedPayments,
-    cache: &mut Cache,
 ) {
     validation::require_non_empty_payments(env, aggregated);
 
@@ -112,9 +111,8 @@ fn validate_liquidation_inputs(
         GenericError::AccountNotInMarket
     );
 
-    for (hub_asset, _) in aggregated.iter() {
-        validation::require_asset_supported(env, cache, &hub_asset);
-    }
+    // Debt assets are priced and repaid downstream; a non-market asset reverts
+    // `OracleNotConfigured`/`PoolNotInitialized` there.
 }
 
 /// Computes the liquidation outcome (repayments, seizures, refunds) from the
