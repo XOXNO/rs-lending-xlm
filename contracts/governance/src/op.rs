@@ -107,8 +107,10 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 ltv: cfg.loan_to_value,
                 threshold: cfg.liquidation_threshold,
                 bonus: cfg.liquidation_bonus,
+                liquidation_fees: cfg.liquidation_fees,
                 supply_cap: cfg.supply_cap,
                 borrow_cap: cfg.borrow_cap,
+                oracle_override: cfg.oracle_override.clone(),
             };
             (
                 storage::get_controller(env),

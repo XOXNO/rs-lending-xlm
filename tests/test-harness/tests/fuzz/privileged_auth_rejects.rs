@@ -120,6 +120,8 @@ proptest! {
         expect_rejected("add_asset_to_spoke", || {
             ctrl.set_auths(&no_auths)
                 .try_add_asset_to_spoke(&SpokeAssetArgs {
+                    liquidation_fees: 0,
+                    oracle_override: controller::types::MarketOracleConfigOption::None,
                     hub_id: HARNESS_HUB,
                     asset: usdc.clone(),
                     spoke_id: category_id,
@@ -135,6 +137,8 @@ proptest! {
         expect_rejected("edit_asset_in_spoke", || {
             ctrl.set_auths(&no_auths)
                 .try_edit_asset_in_spoke(&SpokeAssetArgs {
+                    liquidation_fees: 0,
+                    oracle_override: controller::types::MarketOracleConfigOption::None,
                     hub_id: HARNESS_HUB,
                     asset: usdc.clone(),
                     spoke_id: category_id,

@@ -9,9 +9,10 @@ use crate::storage::{iter_debt_positions, iter_typed_positions};
 use crate::{helpers, storage};
 
 pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
-    if storage::try_get_account_meta(env, account_id).is_none() {
-        return 0;
-    }
+    let spoke_id = match storage::try_get_account_meta(env, account_id) {
+        Some(meta) => meta.spoke_id,
+        None => return 0,
+    };
     let supply = storage::get_supply_positions(env, account_id);
     if supply.is_empty() {
         return 0;
@@ -27,7 +28,7 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut total_collateral = Wad::ZERO;
 
     for (hub_asset, position) in iter_typed_positions(&supply) {
-        let feed = cache.cached_price(&hub_asset.asset);
+        let feed = cache.cached_price_for(spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         // dimensional: Ray<Share> * Ray<Index> * Wad<USD/asset> -> Wad<USD>.
@@ -45,9 +46,10 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
 }
 
 pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
-    if storage::try_get_account_meta(env, account_id).is_none() {
-        return 0;
-    }
+    let spoke_id = match storage::try_get_account_meta(env, account_id) {
+        Some(meta) => meta.spoke_id,
+        None => return 0,
+    };
     let borrow = storage::get_debt_positions(env, account_id);
     if borrow.is_empty() {
         return 0;
@@ -63,7 +65,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut total_borrow = Wad::ZERO;
 
     for (hub_asset, position) in iter_debt_positions(&borrow) {
-        let feed = cache.cached_price(&hub_asset.asset);
+        let feed = cache.cached_price_for(spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         // dimensional: Ray<DebtShare> * Ray<BorrowIndex> * Wad<USD/asset> -> Wad<USD>.
@@ -91,5 +93,11 @@ pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let priced_assets = helpers::position_assets(env, &account.supply_positions.keys());
     oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
     // dimensional: return is Wad<USD> raw (1e18) LTV-weighted collateral value.
-    helpers::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw()
+    helpers::calculate_ltv_collateral_wad(
+        env,
+        &mut cache,
+        account.spoke_id,
+        &account.supply_positions,
+    )
+    .raw()
 }

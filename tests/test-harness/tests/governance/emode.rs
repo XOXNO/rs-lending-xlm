@@ -29,6 +29,8 @@ fn try_add_asset(
 ) -> Result<(), soroban_sdk::Error> {
     let admin = t.admin();
     let args = SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: asset.clone(),
         spoke_id: category_id,
@@ -88,6 +90,8 @@ fn test_emode_add_asset_via_gov_forwarder() {
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: id,
@@ -125,6 +129,8 @@ fn test_emode_rejects_spoke_supply_cap_above_hub() {
     let result = match t.gov_client().try_execute_immediate(
         &admin,
         &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: id,
@@ -165,6 +171,8 @@ fn test_update_pool_caps_no_longer_pre_checks_spokes_via_governance() {
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: id,

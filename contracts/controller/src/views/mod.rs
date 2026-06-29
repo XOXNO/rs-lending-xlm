@@ -156,6 +156,7 @@ pub fn health_factor(env: &Env, account_id: u64) -> i128 {
         Some(account) => helpers::calculate_account_risk_totals(
             env,
             &mut cache,
+            account.spoke_id,
             &account.supply_positions,
             &account.borrow_positions,
         )
@@ -246,6 +247,7 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
     helpers::calculate_account_risk_totals(
         env,
         &mut cache,
+        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     )

@@ -133,6 +133,7 @@ fn risk_partial_cap(
     let totals = helpers::calculate_account_risk_totals(
         env,
         cache,
+        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );
@@ -146,7 +147,7 @@ fn risk_partial_cap(
         return 0;
     }
 
-    let feed = cache.cached_price(&hub_asset.asset);
+    let feed = cache.cached_price_for(account.spoke_id, hub_asset);
     let ltv_ratio = position.loan_to_value.to_wad(env);
     let hf_ratio = position.liquidation_threshold.to_wad(env);
     // dimensional: slack Wad<USD> / dimensionless risk ratio -> Token(asset) cap.

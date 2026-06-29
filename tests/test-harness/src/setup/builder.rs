@@ -289,21 +289,6 @@ impl LendingTestBuilder {
                     HARNESS_SPOKE,
                 )),
             );
-            // `add_asset_to_spoke` always writes `liquidation_fees = 0`; stamp the
-            // preset's protocol liquidation fee directly onto the spoke listing so
-            // liquidation-fee math stays exercised.
-            if pm.config.liquidation_fees != 0 {
-                env.as_contract(&controller_address, || {
-                    let key = controller::types::ControllerKey::SpokeAsset(
-                        HARNESS_SPOKE,
-                        hub_asset(asset_address.clone()),
-                    );
-                    let mut cfg: controller::types::SpokeAssetConfig =
-                        env.storage().persistent().get(&key).unwrap();
-                    cfg.liquidation_fees = pm.config.liquidation_fees;
-                    env.storage().persistent().set(&key, &cfg);
-                });
-            }
 
             if pm.configure_oracle {
                 mock_reflector_client.set_price(&asset_address, &pm.price_wad);
@@ -382,8 +367,10 @@ impl LendingTestBuilder {
                         ltv: emode.preset.ltv,
                         threshold: emode.preset.threshold,
                         bonus: emode.preset.bonus,
+                        liquidation_fees: 0,
                         supply_cap: 0i128,
                         borrow_cap: 0i128,
+                        oracle_override: controller::types::MarketOracleConfigOption::None,
                     }),
                 );
             }

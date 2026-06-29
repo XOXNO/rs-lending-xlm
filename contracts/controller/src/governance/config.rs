@@ -296,10 +296,15 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
         loan_to_value: args.ltv,
         liquidation_threshold: args.threshold,
         liquidation_bonus: args.bonus,
-        liquidation_fees: 0,
+        liquidation_fees: args.liquidation_fees,
         supply_cap: args.supply_cap,
         borrow_cap: args.borrow_cap,
-        oracle_override: MarketOracleConfigOption::None,
+        oracle_override: resolve_spoke_oracle_override(
+            env,
+            &args.asset,
+            hub.params.asset_decimals,
+            &args.oracle_override,
+        ),
     };
     storage::set_spoke_asset(env, args.spoke_id, &hub_asset, &config);
 
@@ -370,10 +375,15 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
         loan_to_value: args.ltv,
         liquidation_threshold: args.threshold,
         liquidation_bonus: args.bonus,
-        liquidation_fees: 0,
+        liquidation_fees: args.liquidation_fees,
         supply_cap: args.supply_cap,
         borrow_cap: args.borrow_cap,
-        oracle_override: MarketOracleConfigOption::None,
+        oracle_override: resolve_spoke_oracle_override(
+            env,
+            &args.asset,
+            hub.params.asset_decimals,
+            &args.oracle_override,
+        ),
     };
     storage::set_spoke_asset(env, args.spoke_id, &hub_asset, &config);
 
@@ -383,6 +393,29 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
         spoke_id: args.spoke_id,
     }
     .publish(env);
+}
+
+/// Validates a per-spoke `oracle_override`. `None` passes through; `Some(cfg)`
+/// is validated exactly like the token-rooted `set_market_oracle_config` base
+/// (sanity band + quote markets active and USD-based), and the pool-registered
+/// decimals override the input under `testing` for parity with test markets.
+fn resolve_spoke_oracle_override(
+    env: &Env,
+    asset: &Address,
+    pool_decimals: u32,
+    input: &MarketOracleConfigOption,
+) -> MarketOracleConfigOption {
+    match input {
+        MarketOracleConfigOption::None => MarketOracleConfigOption::None,
+        MarketOracleConfigOption::Some(cfg) => {
+            let mut cfg = cfg.clone();
+            validate_market_oracle_config(env, asset, &cfg);
+            if cfg!(feature = "testing") && pool_decimals != 0 {
+                cfg.asset_decimals = pool_decimals;
+            }
+            MarketOracleConfigOption::Some(cfg)
+        }
+    }
 }
 
 pub fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
@@ -412,18 +445,10 @@ pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: M
     let pool_addr = storage::get_pool(env);
     let pool_decimals = fetch_pool_sync_data(env, &pool_addr, &hub_asset).params.asset_decimals;
 
-    // Re-validate the sanity band at the controller boundary. Governance
-    // validates the proposal; execution rejects unset or invalid bands before
-    // activation.
-    common::validation::validate_sanity_bounds(
-        env,
-        config.min_sanity_price_wad,
-        config.max_sanity_price_wad,
-    );
-
-    // Re-assert quote-market USD/active invariant at execution time.
-    // Timelock delay can make the proposed quote market stale.
-    require_quote_markets_active_usd(env, asset, &config);
+    // Re-validate the sanity band and quote-market USD/active invariant at the
+    // controller boundary. Governance validates the proposal; execution rejects
+    // unset or invalid bands, and timelock delay can make a quote market stale.
+    validate_market_oracle_config(env, asset, &config);
 
     // Test markets register pools with preset decimals that may diverge from
     // the live token probe; keep the pool-registered value authoritative.
@@ -439,6 +464,19 @@ pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: M
         oracle: EventOracleProvider::from_oracle(env, asset, &config),
     }
     .publish(env);
+}
+
+/// Validates a resolved `MarketOracleConfig` at the controller boundary: the
+/// sanity band must be set and ordered, and every quote source must point at an
+/// active, USD-based market. Shared by the token-rooted `set_market_oracle_config`
+/// and the per-spoke `oracle_override`.
+fn validate_market_oracle_config(env: &Env, asset: &Address, config: &MarketOracleConfig) {
+    common::validation::validate_sanity_bounds(
+        env,
+        config.min_sanity_price_wad,
+        config.max_sanity_price_wad,
+    );
+    require_quote_markets_active_usd(env, asset, config);
 }
 
 /// Checks that quote sources point at active USD-based markets.

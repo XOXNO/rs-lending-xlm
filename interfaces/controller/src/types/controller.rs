@@ -116,6 +116,10 @@ pub struct SpokeAssetConfig {
 /// Input for `add_asset_to_spoke` / `edit_asset_in_spoke`: the target
 /// (`hub_id`, `asset`, `spoke_id`) plus the spoke risk parameters. Bundles what
 /// were positional entrypoint arguments so governance forwards one value.
+/// `liquidation_fees` is the protocol fee taken from seized collateral, and
+/// `oracle_override` optionally points the spoke-asset at a price source other
+/// than the asset's token-rooted base oracle (`MarketOracleConfigOption::None`
+/// keeps the base).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetArgs {
@@ -127,8 +131,10 @@ pub struct SpokeAssetArgs {
     pub ltv: u32,
     pub threshold: u32,
     pub bonus: u32,
+    pub liquidation_fees: u32,
     pub supply_cap: i128,
     pub borrow_cap: i128,
+    pub oracle_override: MarketOracleConfigOption,
 }
 
 /// Running scaled-share totals for one asset within a spoke.

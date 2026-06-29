@@ -1,7 +1,7 @@
 //! Public price entry point (`token_price`).
 
 use common::errors::OracleError;
-use controller_interface::types::{OracleSourceConfig, PriceFeedRaw};
+use controller_interface::types::{MarketOracleConfig, OracleSourceConfig, PriceFeedRaw};
 use soroban_sdk::{assert_with_error, panic_with_error, Address};
 
 use super::compose;
@@ -15,7 +15,20 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
     // `resolve_oracle_config` panics `OracleNotConfigured` when `AssetOracle` is
     // absent; that absence is the pending/disabled gate (no status read).
     let config = cache.resolve_oracle_config(asset);
+    let feed = price_with_config(cache, asset, &config);
+    cache.prices_cache.set(asset.clone(), feed.clone());
+    feed
+}
 
+/// Resolves a USD price for `asset` from an already-chosen `config`, applying
+/// the same sentinel/positivity/sanity gates as `token_price` but writing no
+/// cache entry. `token_price` feeds it the token-rooted base; the per-spoke
+/// `oracle_override` path (`Cache::cached_price_for`) feeds it the override.
+pub fn price_with_config(
+    cache: &mut Cache,
+    asset: &Address,
+    config: &MarketOracleConfig,
+) -> PriceFeedRaw {
     // Reject the `MarketOracleConfig::pending_for` self-pointer sentinel.
     let primary_contract = match &config.primary {
         OracleSourceConfig::Reflector(r) => &r.contract,
@@ -26,7 +39,7 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
         primary_contract != asset,
         OracleError::OracleNotConfigured
     );
-    let resolved = compose::resolve_components(cache, &config);
+    let resolved = compose::resolve_components(cache, config);
     assert_with_error!(
         cache.env(),
         resolved.final_price_wad > 0,
@@ -38,12 +51,9 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
     {
         panic_with_error!(cache.env(), OracleError::SanityBoundViolated);
     }
-    let feed = PriceFeedRaw {
+    PriceFeedRaw {
         price_wad: resolved.final_price_wad,
         asset_decimals: config.asset_decimals,
         timestamp: resolved.timestamp,
-    };
-
-    cache.prices_cache.set(asset.clone(), feed.clone());
-    feed
+    }
 }

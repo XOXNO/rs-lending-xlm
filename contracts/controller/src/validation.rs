@@ -58,6 +58,7 @@ pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Acco
     let totals = helpers::calculate_account_risk_totals(
         env,
         cache,
+        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );

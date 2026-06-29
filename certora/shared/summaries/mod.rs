@@ -48,6 +48,7 @@ pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
 pub(crate) fn calculate_account_risk_totals_summary(
     env: &Env,
     _cache: &mut Cache,
+    _spoke_id: u32,
     _supply_positions: &soroban_sdk::Map<common::types::HubAssetKey, common::types::AccountPositionRaw>,
     _borrow_positions: &soroban_sdk::Map<common::types::HubAssetKey, common::types::DebtPositionRaw>,
 ) -> crate::helpers::AccountRiskTotals {

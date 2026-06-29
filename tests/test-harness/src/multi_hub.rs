@@ -7,7 +7,7 @@
 
 use common::types::HubAssetKey;
 use controller::types::{
-    ControllerKey, MarketParamsRaw, PoolKey, PoolStateRaw, PositionMode, SpokeAssetConfig,
+    MarketParamsRaw, PoolKey, PoolStateRaw, PositionMode, SpokeAssetConfig,
 };
 use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::{token, vec, TryFromVal, Vec};
@@ -179,9 +179,8 @@ impl LendingTest {
     }
 
     /// Lists the `(hub_id, asset)` market on the base harness spoke with the
-    /// supplied risk params, stamping `liquidation_fees` directly (the
-    /// `add_asset_to_spoke` endpoint always writes `0`). The pool for the market
-    /// must already exist.
+    /// supplied risk params and protocol `liquidation_fees`. The pool for the
+    /// market must already exist.
     fn list_hub_asset_on_base_spoke(
         &self,
         hub_id: u32,
@@ -200,25 +199,12 @@ impl LendingTest {
                 ltv: risk.loan_to_value,
                 threshold: risk.liquidation_threshold,
                 bonus: risk.liquidation_bonus,
+                liquidation_fees,
                 supply_cap: 0,
                 borrow_cap: 0,
+                oracle_override: risk.oracle_override.clone(),
             }),
         );
-        if liquidation_fees != 0 {
-            self.env.as_contract(&self.controller, || {
-                let key = ControllerKey::SpokeAsset(
-                    HARNESS_SPOKE,
-                    HubAssetKey {
-                        hub_id,
-                        asset: asset.clone(),
-                    },
-                );
-                let mut cfg: SpokeAssetConfig =
-                    self.env.storage().persistent().get(&key).unwrap();
-                cfg.liquidation_fees = liquidation_fees;
-                self.env.storage().persistent().set(&key, &cfg);
-            });
-        }
     }
 
     /// Borrows `amount` of `asset_name` on `hub_id` for `account_id`.

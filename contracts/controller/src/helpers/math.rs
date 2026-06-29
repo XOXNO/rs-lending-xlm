@@ -58,13 +58,14 @@ pub fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
 pub fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut Cache,
+    spoke_id: u32,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
 ) -> Wad {
     cache.prefetch_market_indexes(&supply_positions.keys());
 
     let mut ltv = Wad::ZERO;
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
-        let feed = cache.cached_price(&hub_asset.asset);
+        let feed = cache.cached_price_for(spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         // Floor the whole chain: borrowing capacity cannot round upward.
@@ -92,20 +93,22 @@ pub(crate) struct AccountRiskTotals {
 pub fn calculate_account_risk_totals(
     env: &Env,
     cache: &mut Cache,
+    spoke_id: u32,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> AccountRiskTotals {
-    _calculate_account_risk_totals_impl(env, cache, supply_positions, borrow_positions)
+    _calculate_account_risk_totals_impl(env, cache, spoke_id, supply_positions, borrow_positions)
 }
 
 #[cfg(not(feature = "certora"))]
 fn _calculate_account_risk_totals_impl(
     env: &Env,
     cache: &mut Cache,
+    spoke_id: u32,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> AccountRiskTotals {
-    calculate_account_risk_totals_body(env, cache, supply_positions, borrow_positions)
+    calculate_account_risk_totals_body(env, cache, spoke_id, supply_positions, borrow_positions)
 }
 
 #[cfg(feature = "certora")]
@@ -114,16 +117,18 @@ cvlr_soroban_macros::apply_summary!(
     pub(crate) fn _calculate_account_risk_totals_impl(
         env: &Env,
         cache: &mut Cache,
+        spoke_id: u32,
         supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
         borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
     ) -> AccountRiskTotals {
-        calculate_account_risk_totals_body(env, cache, supply_positions, borrow_positions)
+        calculate_account_risk_totals_body(env, cache, spoke_id, supply_positions, borrow_positions)
     }
 );
 
 fn calculate_account_risk_totals_body(
     env: &Env,
     cache: &mut Cache,
+    spoke_id: u32,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> AccountRiskTotals {
@@ -139,7 +144,7 @@ fn calculate_account_risk_totals_body(
     let mut ltv_collateral = Wad::ZERO;
     let mut weighted_coll = Wad::ZERO;
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
-        let feed = cache.cached_price(&hub_asset.asset);
+        let feed = cache.cached_price_for(spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         // Neutral valuation feeds proportions and socialization; the floored
@@ -165,7 +170,7 @@ fn calculate_account_risk_totals_body(
 
     let mut total_debt = Wad::ZERO;
     for (hub_asset, position) in iter_debt_positions(borrow_positions) {
-        let feed = cache.cached_price(&hub_asset.asset);
+        let feed = cache.cached_price_for(spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         // Ceil the whole chain: owed value cannot round downward.

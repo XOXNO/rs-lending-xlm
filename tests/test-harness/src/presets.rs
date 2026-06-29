@@ -172,11 +172,9 @@ pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
 impl AssetConfigPreset {
     /// Build the per-spoke risk-listing arguments for `add_asset_to_spoke` on
     /// `spoke_id`, listing `asset` (already a created market on `hub_id`). The
-    /// risk ratios, collateral/borrow flags come from the preset; spoke caps are
-    /// disabled (hub caps live on `MarketParamsRaw`). The protocol
-    /// `liquidation_fees` is NOT carried here -- `add_asset_to_spoke` always
-    /// writes `0`, so the builder stamps the preset fee onto the spoke listing
-    /// separately.
+    /// risk ratios, collateral/borrow flags, and protocol `liquidation_fees`
+    /// come from the preset; spoke caps are disabled (hub caps live on
+    /// `MarketParamsRaw`) and the asset keeps its token-rooted oracle.
     pub fn to_spoke_args(
         &self,
         hub_id: u32,
@@ -192,8 +190,10 @@ impl AssetConfigPreset {
             ltv: self.loan_to_value,
             threshold: self.liquidation_threshold,
             bonus: self.liquidation_bonus,
+            liquidation_fees: self.liquidation_fees,
             supply_cap: 0,
             borrow_cap: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
         }
     }
 }

@@ -44,6 +44,7 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
     let ltv_collateral = crate::helpers::calculate_ltv_collateral_wad(
         &e,
         &mut cache,
+        post_account.spoke_id,
         &post_account.supply_positions,
     );
 

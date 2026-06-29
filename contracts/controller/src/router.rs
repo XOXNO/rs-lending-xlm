@@ -427,6 +427,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         let hf = helpers::calculate_account_risk_totals(
             env,
             cache,
+            account.spoke_id,
             &account.supply_positions,
             &account.borrow_positions,
         )

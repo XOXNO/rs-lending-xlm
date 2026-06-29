@@ -34,10 +34,9 @@ impl LendingTest {
     // Asset config editing
 
     /// Edit asset config at runtime via a closure that mutates the current config.
-    /// Risk parameters write back to the base harness spoke; flash-loan
-    /// eligibility/fee write directly to the pool `MarketParamsRaw` (no endpoint
-    /// toggles them), and `liquidation_fees` is stamped directly because
-    /// `edit_asset_in_spoke` always writes `0`.
+    /// Risk parameters and `liquidation_fees` write back to the base harness
+    /// spoke through `edit_asset_in_spoke`; flash-loan eligibility/fee write
+    /// directly to the pool `MarketParamsRaw` (no endpoint toggles them).
     pub fn edit_asset_config(&self, asset_name: &str, f: impl FnOnce(&mut AssetConfigView)) {
         let asset = self.resolve_asset(asset_name);
         let mut config = self.get_asset_config(asset_name);
@@ -52,21 +51,10 @@ impl LendingTest {
             ltv: config.loan_to_value,
             threshold: config.liquidation_threshold,
             bonus: config.liquidation_bonus,
+            liquidation_fees: config.liquidation_fees,
             supply_cap: 0,
             borrow_cap: 0,
-        });
-
-        // `edit_asset_in_spoke` forces `liquidation_fees = 0`; preserve the
-        // caller's intended fee by stamping the spoke listing directly.
-        self.env.as_contract(&self.controller, || {
-            let key = controller::types::ControllerKey::SpokeAsset(
-                HARNESS_SPOKE,
-                hub_asset(asset.clone()),
-            );
-            let mut cfg: controller::types::SpokeAssetConfig =
-                self.env.storage().persistent().get(&key).unwrap();
-            cfg.liquidation_fees = config.liquidation_fees;
-            self.env.storage().persistent().set(&key, &cfg);
+            oracle_override: controller::types::MarketOracleConfigOption::None,
         });
 
         let pool = self.get_pool_address(asset_name);
@@ -126,8 +114,10 @@ impl LendingTest {
             ltv,
             threshold,
             bonus,
+            liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
         });
     }
 
@@ -152,8 +142,10 @@ impl LendingTest {
             ltv,
             threshold,
             bonus,
+            liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
         });
     }
 
@@ -190,8 +182,10 @@ impl LendingTest {
             ltv,
             threshold,
             bonus,
+            liquidation_fees: 0,
             supply_cap,
             borrow_cap,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
         });
     }
 }

@@ -106,7 +106,13 @@ pub(crate) fn calculate_seizure_proportions(
         Wad::ZERO
     };
 
-    let bounds = get_account_bonus_params(env, cache, &account.supply_positions, proportion_seized);
+    let bounds = get_account_bonus_params(
+        env,
+        cache,
+        account.spoke_id,
+        &account.supply_positions,
+        proportion_seized,
+    );
 
     (proportion_seized, bounds)
 }
@@ -125,7 +131,7 @@ pub(crate) fn calculate_repayment_amounts(
 
     for i in 0..merged.len() {
         let (hub_asset, amount) = validation::expect_invariant(env, merged.get(i));
-        let feed = cache.cached_price(&hub_asset.asset);
+        let feed = cache.cached_price_for(account.spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         let position: DebtPosition = (&account
@@ -254,7 +260,7 @@ pub(crate) fn calculate_seized_collateral(
     let total_seizure_usd = repayment.repay_usd.mul(env, one_plus_bonus);
 
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
-        let feed = cache.cached_price(&hub_asset.asset);
+        let feed = cache.cached_price_for(account.spoke_id, &hub_asset);
         if feed.price.raw() == 0 {
             continue;
         }
@@ -645,6 +651,7 @@ pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps 
 pub(crate) fn get_account_bonus_params(
     env: &Env,
     cache: &mut Cache,
+    spoke_id: u32,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
     proportion_seized: Wad,
 ) -> BonusBounds {
@@ -655,7 +662,7 @@ pub(crate) fn get_account_bonus_params(
 
     // dimensional: stores (collateral Wad<USD>.raw, bonus Bps.raw).
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
-        let feed = cache.cached_price(&hub_asset.asset);
+        let feed = cache.cached_price_for(spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         let value = helpers::position_value(

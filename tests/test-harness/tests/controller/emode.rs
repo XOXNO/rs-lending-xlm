@@ -1,6 +1,6 @@
 use controller::types::SpokeAssetArgs;
-use test_harness::{HARNESS_HUB, hub_asset,
-    assert_contract_error, errors, eth_preset, f64_to_i128, usd_cents, usdc_preset,
+use test_harness::{HARNESS_HUB, HARNESS_SPOKE, hub_asset,
+    assert_contract_error, errors, eth_preset, f64_to_i128, usd, usd_cents, usdc_preset,
     usdt_stable_preset, LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
 };
 // 1. test_emode_category_creation
@@ -371,6 +371,8 @@ fn test_emode_deprecated_category_operations_rejected() {
     let edit_asset_result = t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: asset_address.clone(),
             spoke_id: 2,
@@ -755,6 +757,8 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
     let inverted = t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -778,6 +782,8 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
     let unsafe_bonus = t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -863,6 +869,8 @@ fn test_emode_spoke_supply_cap_enforced_below_hub() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -901,6 +909,8 @@ fn test_emode_spoke_borrow_cap_enforced_below_hub() {
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdt.clone(),
             spoke_id: 2,
@@ -1022,6 +1032,8 @@ fn test_edit_emode_rejects_supply_cap_below_usage() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -1040,6 +1052,8 @@ fn test_edit_emode_rejects_supply_cap_below_usage() {
     let result = match t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -1077,6 +1091,8 @@ fn test_update_pool_caps_allows_hub_below_spoke_no_enumeration() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -1110,6 +1126,8 @@ fn test_max_supply_respects_spoke_cap_headroom() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -1155,6 +1173,8 @@ fn test_emode_spoke_borrow_cap_above_hub_rejected() {
     let result = match t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -1193,6 +1213,8 @@ fn test_edit_emode_rejects_borrow_cap_below_usage() {
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdt.clone(),
             spoke_id: 2,
@@ -1212,6 +1234,8 @@ fn test_edit_emode_rejects_borrow_cap_below_usage() {
     let result = match t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdt.clone(),
             spoke_id: 2,
@@ -1247,6 +1271,8 @@ fn test_emode_spoke_cap_above_from_asset_domain_rejected() {
     let result = match t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -1282,6 +1308,8 @@ fn test_emode_spoke_supply_cap_headroom_restored_after_withdraw() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -1343,6 +1371,8 @@ fn test_emode_spoke_borrow_cap_tightens_as_interest_accrues() {
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdt.clone(),
             spoke_id: 2,
@@ -1401,6 +1431,8 @@ fn test_update_pool_caps_no_longer_enumerates_spokes() {
     // Category 1 spoke cap below the proposed hub (will pass the check)...
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
@@ -1415,6 +1447,8 @@ fn test_update_pool_caps_no_longer_enumerates_spokes() {
     // ...category 2 spoke cap above it (will fail on the second iteration).
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            liquidation_fees: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 3,
@@ -1435,4 +1469,31 @@ fn test_update_pool_caps_no_longer_enumerates_spokes() {
     // A hub cap that clears both spoke caps also succeeds.
     t.ctrl_client()
         .update_pool_caps(&hub_asset(usdc.clone()), &(2_000 * UNIT), &0i128);
+}
+
+/// A per-spoke `oracle_override` reprices an asset for accounts on that spoke
+/// without touching the asset's token-rooted base price (Phase 3 wiring): the
+/// override config flows through `edit_asset_in_spoke` into storage, and the
+/// account valuation path consults it.
+#[test]
+fn test_spoke_oracle_override_reprices_collateral() {
+    let mut t = LendingTest::new().with_market(eth_preset()).build();
+
+    // eth_preset prices ETH at $2000. Supply 1 ETH on the base spoke.
+    t.supply(ALICE, "ETH", 1.0);
+    let collateral_base = t.total_collateral_raw(ALICE);
+    assert!(collateral_base > 0, "supplied collateral must be valued");
+
+    // Point ETH at a per-spoke override priced at $4000 (2x the base).
+    t.set_spoke_oracle_override("ETH", HARNESS_SPOKE, usd(4000));
+
+    let collateral_override = t.total_collateral_raw(ALICE);
+
+    // The spoke's view of ETH doubled while the token-rooted base is unchanged,
+    // so the account's collateral USD doubles.
+    let ratio = collateral_override as f64 / collateral_base as f64;
+    assert!(
+        (ratio - 2.0).abs() < 0.01,
+        "per-spoke override should reprice ETH ~2x: base={collateral_base} override={collateral_override} ratio={ratio}"
+    );
 }

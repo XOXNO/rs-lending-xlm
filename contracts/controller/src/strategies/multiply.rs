@@ -171,7 +171,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
 
-    emit_multiply_initial_payment(env, &mut cache, account_id, initial_payment);
+    emit_multiply_initial_payment(env, &mut cache, account.spoke_id, account_id, initial_payment);
 
     account_id
 }
@@ -229,11 +229,12 @@ fn collect_initial_multiply_payment(
 fn emit_multiply_initial_payment(
     env: &Env,
     cache: &mut Cache,
+    spoke_id: u32,
     account_id: u64,
     initial_payment: Option<(HubAssetKey, i128)>,
 ) {
     if let Some((payment, payment_amount)) = initial_payment {
-        let feed = cache.cached_price(&payment.asset);
+        let feed = cache.cached_price_for(spoke_id, &payment);
         let usd_value_wad = feed.usd_value_wad(env, payment_amount).raw();
         InitialMultiplyPaymentEvent {
             token: payment.asset,

@@ -9,7 +9,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::types::{AccountPositionType, HubAssetKey, SpokeAssetArgs};
+use crate::types::{AccountPositionType, HubAssetKey, MarketOracleConfigOption, SpokeAssetArgs};
 
 /// Hub-0 coordinate for `asset`; the spec models the single default hub.
 fn hub0(asset: &Address) -> HubAssetKey {
@@ -279,8 +279,10 @@ fn add_asset_enforces_valid_bounds(
             ltv,
             threshold,
             bonus,
+            liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
+            oracle_override: MarketOracleConfigOption::None,
         },
     );
 
@@ -311,8 +313,10 @@ fn edit_asset_enforces_valid_bounds(
             ltv,
             threshold,
             bonus,
+            liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
+            oracle_override: MarketOracleConfigOption::None,
         },
     );
 
@@ -362,8 +366,10 @@ fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
             ltv: 9_000,
             threshold: 9_300,
             bonus: 300,
+            liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
+            oracle_override: MarketOracleConfigOption::None,
         },
     );
 

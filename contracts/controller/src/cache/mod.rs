@@ -10,8 +10,8 @@ use crate::events::{
 use common::errors::{EModeError, OracleError};
 use controller_interface::types::{
     Account, AccountPosition, DebtPosition, HubAssetKey, MarketIndex, MarketIndexRaw,
-    MarketOracleConfig, PoolSyncData, PriceFeed, PriceFeedRaw, SpokeAssetConfig, SpokeConfig,
-    SpokeUsageRaw,
+    MarketOracleConfig, MarketOracleConfigOption, PoolSyncData, PriceFeed, PriceFeedRaw,
+    SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, String, Vec};
 
@@ -25,6 +25,12 @@ pub struct Cache {
     env: Env,
 
     pub prices_cache: Map<Address, PriceFeedRaw>,
+    /// Per-spoke override prices, keyed by `hub_asset`. Disjoint from the
+    /// token-rooted `prices_cache`: a spoke fixed for the transaction makes the
+    /// `(spoke, hub_asset)` price deterministic, and keeping it separate stops an
+    /// override price from poisoning a token-rooted (quote-leg or view) read of
+    /// the same bare asset.
+    spoke_prices: Map<HubAssetKey, PriceFeedRaw>,
     /// Raw RedStone payloads bulk-fetched once per tx, keyed by (adapter, feed_id).
     /// Stores provider data, not resolved prices, so per-flow policy checks
     /// (staleness, sanity, tolerance) are unaffected.
@@ -61,6 +67,7 @@ impl Cache {
         Cache {
             env: env.clone(),
             prices_cache: Map::new(env),
+            spoke_prices: Map::new(env),
             redstone_prefetch: Map::new(env),
             market_indexes: Map::new(env),
             pool_address: None,
@@ -83,6 +90,42 @@ impl Cache {
 
     pub fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         (&token_price(self, asset)).into()
+    }
+
+    /// USD price for an account position on `spoke_id`. Consults the spoke's
+    /// per-asset `oracle_override`: when set, prices `hub_asset` through that
+    /// config; otherwise falls back to the token-rooted base
+    /// (`cached_price`). The recursive quote-leg resolution inside an override
+    /// stays token-rooted (an override reprices the position asset, not the
+    /// USD legs its own config quotes against).
+    pub fn cached_price_for(&mut self, spoke_id: u32, hub_asset: &HubAssetKey) -> PriceFeed {
+        match self.spoke_oracle_override(spoke_id, hub_asset) {
+            Some(config) => (&self.spoke_price(hub_asset, &config)).into(),
+            None => self.cached_price(&hub_asset.asset),
+        }
+    }
+
+    /// The override `MarketOracleConfig` the spoke lists for `hub_asset`, or
+    /// `None` when the spoke does not list it or leaves it token-rooted.
+    fn spoke_oracle_override(
+        &mut self,
+        spoke_id: u32,
+        hub_asset: &HubAssetKey,
+    ) -> Option<MarketOracleConfig> {
+        match self.cached_spoke_asset(spoke_id, hub_asset)?.oracle_override {
+            MarketOracleConfigOption::Some(config) => Some(config),
+            MarketOracleConfigOption::None => None,
+        }
+    }
+
+    /// Memoized override price for `hub_asset`, resolved through `config`.
+    fn spoke_price(&mut self, hub_asset: &HubAssetKey, config: &MarketOracleConfig) -> PriceFeedRaw {
+        if let Some(feed) = self.spoke_prices.get(hub_asset.clone()) {
+            return feed;
+        }
+        let feed = crate::oracle::price_with_config(self, &hub_asset.asset, config);
+        self.spoke_prices.set(hub_asset.clone(), feed.clone());
+        feed
     }
 
     pub fn get_redstone_prefetch(
@@ -112,10 +155,11 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured))
     }
 
-    /// Oracle config for `asset`: the token-rooted `AssetOracle` base. Pricing is
-    /// hub-independent and keyed by the bare asset; there is no per-spoke override
-    /// resolution in this path (a hub-correct override would require the asset's
-    /// real hub, which the token-rooted price path does not carry).
+    /// Token-rooted `AssetOracle` base config for `asset`. This is the bare,
+    /// hub-independent price source used by `token_price`, market views, and the
+    /// recursive quote legs of any config. The per-spoke `oracle_override` is
+    /// resolved one level up in `cached_price_for`, which holds the `(spoke,
+    /// hub_asset)` context this path deliberately does not carry.
     pub(crate) fn resolve_oracle_config(&mut self, asset: &Address) -> MarketOracleConfig {
         self.cached_asset_oracle(asset)
     }

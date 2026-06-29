@@ -78,6 +78,7 @@ pub fn process_liquidation(
     let post_totals = helpers::calculate_account_risk_totals(
         env,
         &mut cache,
+        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );
@@ -141,6 +142,7 @@ fn build_liquidation_plan(
     let totals = helpers::calculate_account_risk_totals(
         env,
         cache,
+        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );
@@ -290,6 +292,7 @@ pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     let totals = helpers::calculate_account_risk_totals(
         env,
         &mut cache,
+        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );

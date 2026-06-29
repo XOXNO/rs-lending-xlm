@@ -50,6 +50,7 @@ pub enum DeFindexStrategyError {
 #[derive(Clone)]
 pub struct Config {
     pub hub_id: u32,
+    pub spoke_id: u32,
     pub asset: Address,
     pub controller: Address,
     pub pool: Address,
@@ -159,8 +160,9 @@ impl<'a> Ctx<'a> {
 
 #[contractimpl]
 impl Strategy {
-    /// `init_args = [controller, hub_id]`. `asset` must be a listed market on
-    /// `hub_id`. There is no default hub; the strategy is bound to one hub here.
+    /// `init_args = [controller, hub_id, spoke_id]`. `asset` must be a listed
+    /// market on `hub_id`; the strategy's positions are bound to `spoke_id`.
+    /// There is no default hub or spoke — both are fixed here.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         let controller_val = init_args.get(0).unwrap_or_else(|| {
             soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
@@ -172,6 +174,12 @@ impl Strategy {
             soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
         });
         let hub_id = u32::try_from_val(&env, &hub_id_val).unwrap_or_else(|_| {
+            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
+        });
+        let spoke_id_val = init_args.get(2).unwrap_or_else(|| {
+            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
+        });
+        let spoke_id = u32::try_from_val(&env, &spoke_id_val).unwrap_or_else(|_| {
             soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
         });
 
@@ -186,6 +194,7 @@ impl Strategy {
             &DataKey::Config,
             &Config {
                 hub_id,
+                spoke_id,
                 asset,
                 controller,
                 pool: controller_client.get_pool_address(),
@@ -219,7 +228,7 @@ impl DeFindexStrategyTrait for Strategy {
         // dimensional: Token(asset) enters controller; supply shares are internal.
         let new_or_existing_id =
             ctx.controller
-                .supply(&ctx.strategy, &stored_id, &0u32, &ctx.to_payment(amount));
+                .supply(&ctx.strategy, &stored_id, &ctx.cfg.spoke_id, &ctx.to_payment(amount));
         set_vault_account(ctx.env, &from, new_or_existing_id);
 
         // D{AssetDecimals(asset)}{Token(asset)} post-deposit strategy balance.

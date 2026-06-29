@@ -8,7 +8,9 @@ use defindex_strategy::{DataKey, DeFindexStrategyError, Strategy, StrategyClient
 use soroban_sdk::testutils::{Address as _, Events};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{vec, Address, Env, IntoVal, Val, Vec};
-use test_harness::{hub_asset, eth_preset, usdc_preset, LendingTest, ALICE, BOB, HARNESS_HUB};
+use test_harness::{
+    hub_asset, eth_preset, usdc_preset, LendingTest, ALICE, BOB, HARNESS_HUB, HARNESS_SPOKE,
+};
 
 const UNIT: i128 = 10_000_000; // 1.0 at the presets' 7 decimals
 const PPS_SCALAR: i128 = 1_000_000_000_000;
@@ -115,6 +117,7 @@ impl StrategyTest {
             &t.env,
             t.controller.clone().into_val(&t.env),
             HARNESS_HUB.into_val(&t.env),
+            HARNESS_SPOKE.into_val(&t.env),
         ];
         let client_address = t.env.register(Strategy, (asset.clone(), init_args));
 
@@ -409,7 +412,7 @@ fn poc_third_party_inflates_strategy_balance_via_controller_supply() {
     s.t.ctrl_client().supply(
         &attacker,
         &account_id,
-        &0u32,
+        &HARNESS_SPOKE,
         &vec![&s.t.env, (hub_asset(s.asset.clone()), 500 * UNIT)],
     );
 

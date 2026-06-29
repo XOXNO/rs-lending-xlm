@@ -150,6 +150,8 @@ fn test_validate_asset_config_accepts_high_bonus_low_threshold() {
     // The base-config op (EditAssetConfig) targets the removed spoke 0; drive the
     // same risk-bound invariant through the live per-spoke editor instead.
     let args = SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: asset.clone(),
         spoke_id: HARNESS_SPOKE,

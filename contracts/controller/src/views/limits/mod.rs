@@ -108,6 +108,7 @@ fn account_gates_ok(env: &Env, cache: &mut Cache, account: &Account) -> bool {
     let totals = helpers::calculate_account_risk_totals(
         env,
         cache,
+        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );

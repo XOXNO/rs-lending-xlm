@@ -1,12 +1,14 @@
 //! Runtime oracle controls: mock reflector prices and on-chain market oracle strategy.
 
 use crate::context::LendingTest;
+use crate::helpers::HARNESS_HUB;
 use crate::presets::TolerancePreset;
 use controller::types::{
-    OracleAssetRef, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy,
-    ReflectorBase, ReflectorSourceConfig,
+    MarketOracleConfig, MarketOracleConfigOption, OracleAssetRef, OraclePriceFluctuation,
+    OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, ReflectorBase,
+    ReflectorSourceConfig, SpokeAssetArgs,
 };
-use soroban_sdk::Address;
+use soroban_sdk::{testutils::Address as _, Address};
 
 impl LendingTest {
     /// Set the oracle price for an asset. Use with usd(), usd_cents(), usd_frac().
@@ -86,6 +88,65 @@ impl LendingTest {
         let asset = self.resolve_market(asset_name).asset.clone();
         self.mock_reflector_client()
             .set_twap_price(&asset, &price_wad);
+    }
+
+    /// Point `asset_name` at a per-spoke `oracle_override` priced at
+    /// `override_price_wad`, routed through the real `edit_asset_in_spoke` entry
+    /// (arg -> validation -> storage). The override reads a fresh mock-reflector
+    /// asset so the base token-rooted price stays untouched, proving the spoke
+    /// reprices the asset independently. Returns the override price source asset.
+    pub fn set_spoke_oracle_override(
+        &self,
+        asset_name: &str,
+        spoke_id: u32,
+        override_price_wad: i128,
+    ) -> Address {
+        let asset = self.resolve_asset(asset_name);
+        let config = self.get_asset_config(asset_name);
+
+        // Distinct price source so the override diverges from the token-rooted base.
+        let override_source = Address::generate(&self.env);
+        let reflector = self.mock_reflector_client();
+        reflector.set_price(&override_source, &override_price_wad);
+        reflector.set_twap_price(&override_source, &override_price_wad);
+
+        let override_cfg = MarketOracleConfig {
+            asset_decimals: config.asset_decimals,
+            max_price_stale_seconds: 900,
+            tolerance: OraclePriceFluctuation {
+                upper_ratio_bps: 500,
+                lower_ratio_bps: 500,
+            },
+            strategy: OracleStrategy::Single,
+            primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                contract: self.mock_reflector.clone(),
+                asset: OracleAssetRef::Stellar(override_source.clone()),
+                read_mode: OracleReadMode::Spot,
+                decimals: 14,
+                resolution_seconds: 300,
+                base: ReflectorBase::Usd,
+            }),
+            anchor: OracleSourceConfigOption::None,
+            min_sanity_price_wad: 1,
+            max_sanity_price_wad: controller::constants::MAX_REASONABLE_PRICE_WAD,
+        };
+
+        self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset,
+            spoke_id,
+            can_collateral: config.is_collateralizable,
+            can_borrow: config.is_borrowable,
+            ltv: config.loan_to_value,
+            threshold: config.liquidation_threshold,
+            bonus: config.liquidation_bonus,
+            liquidation_fees: config.liquidation_fees,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: MarketOracleConfigOption::Some(override_cfg),
+        });
+
+        override_source
     }
 
     pub fn set_oracle_single_spot(&self, asset_name: &str) {
