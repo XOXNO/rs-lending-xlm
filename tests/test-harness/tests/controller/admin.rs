@@ -85,9 +85,8 @@ fn test_create_liquidity_pool_panics_before_deploy_pool() {
 
     let preset = usdc_preset();
     let params = preset.params.to_market_params(&asset, preset.decimals);
-    let config = preset.config.to_asset_config(&env, preset.decimals);
 
-    let result = match ctrl.try_create_liquidity_pool(&hub, &asset, &params, &config) {
+    let result = match ctrl.try_create_liquidity_pool(&hub, &asset, &params) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -126,14 +125,14 @@ fn test_deploy_pool_panics_on_second_call() {
 fn test_supply_panics_on_deprecated_emode_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
         .build();
 
-    // Open an account in category 1 while it is still active.
-    let account_id = t.create_emode_account(ALICE, 1);
+    // Open an account in category 2 while it is still active.
+    let account_id = t.create_emode_account(ALICE, 2);
 
-    // Sanity check: the account's stored category id is 1.
+    // Sanity check: the account's stored category id is 2.
     let stored_id: u32 = t.env.as_contract(&t.controller_address(), || {
         let meta: controller::types::AccountMeta = t
             .env
@@ -143,10 +142,10 @@ fn test_supply_panics_on_deprecated_emode_category() {
             .expect("account meta must exist");
         meta.spoke_id
     });
-    assert_eq!(stored_id, 1, "account must be in e-mode category 1");
+    assert_eq!(stored_id, 2, "account must be in e-mode category 2");
 
     // Deprecate the category.
-    t.remove_e_mode_category(1);
+    t.remove_e_mode_category(2);
 
     // Confirm the category is flagged deprecated in storage.
     let deprecated: bool = t.env.as_contract(&t.controller_address(), || {
@@ -154,11 +153,11 @@ fn test_supply_panics_on_deprecated_emode_category() {
             .env
             .storage()
             .persistent()
-            .get(&ControllerKey::Spoke(1))
+            .get(&ControllerKey::Spoke(2))
             .expect("category must still exist (only flagged)");
         cat.is_deprecated
     });
-    assert!(deprecated, "category 1 must be flagged deprecated");
+    assert!(deprecated, "category 2 must be flagged deprecated");
 
     // The next supply on the same account must panic with
     // EModeCategoryDeprecated (#301) from `active_e_mode_category`.
@@ -171,7 +170,7 @@ fn test_supply_panics_on_deprecated_emode_category() {
     let payments: soroban_sdk::Vec<(HubAssetKey, i128)> =
         soroban_sdk::vec![&t.env, (hub_asset(asset_addr), amount)];
     let ctrl = t.ctrl_client();
-    let result = match ctrl.try_supply(&alice_addr, &account_id, &0u32, &payments) {
+    let result = match ctrl.try_supply(&alice_addr, &account_id, &2u32, &payments) {
         Ok(Ok(id)) => Ok(id),
         Ok(Err(err)) => Err(err),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),

@@ -88,14 +88,14 @@ fn test_edit_asset_in_e_mode_category() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
-        .with_emode(1, test_harness::STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
+        .with_emode(2, test_harness::STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
         .with_dust_disabled_all_markets()
         .build();
 
     // Initially: can_collateral=true, can_borrow=true.
     // Edit: set can_borrow=false.
-    t.edit_asset_in_e_mode("USDC", 1, true, false, 9700, 9800, 200);
+    t.edit_asset_in_e_mode("USDC", 2, true, false, 9700, 9800, 200);
 
     // Verify the update by reading storage. Spoke asset configs are discrete
     // `SpokeAsset(spoke_id, hub_asset)` keys in the spoke model.
@@ -104,7 +104,7 @@ fn test_edit_asset_in_e_mode_category() {
         t.env.as_contract(&t.controller, || {
             t.env.storage().persistent().get(
                 &controller::types::ControllerKey::SpokeAsset(
-                    1,
+                    2,
                     controller::types::HubAssetKey {
                         hub_id: HARNESS_HUB,
                         asset: usdc_asset,

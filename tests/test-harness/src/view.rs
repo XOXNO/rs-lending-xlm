@@ -4,7 +4,7 @@ use controller::types::{AccountPositionType, ControllerKey, PositionLimits};
 use soroban_sdk::token;
 
 use crate::context::LendingTest;
-use crate::helpers::{hub_asset, i128_to_f64, wad_to_f64};
+use crate::helpers::{hub_asset, i128_to_f64, wad_to_f64, HARNESS_SPOKE};
 
 /// Re-export for use in assertions.
 pub enum PositionType {
@@ -231,7 +231,7 @@ impl LendingTest {
         let asset = self.resolve_asset(asset_name);
         let spoke = self
             .ctrl_client()
-            .get_spoke_asset(&0u32, &hub_asset(asset.clone()));
+            .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
         let params = self.pool_client(asset_name).get_sync_data(&hub_asset(asset)).params;
         AssetConfigView {
             loan_to_value: spoke.loan_to_value,

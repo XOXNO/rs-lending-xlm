@@ -170,27 +170,30 @@ pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
 // Conversion helpers (preset -> contract types)
 
 impl AssetConfigPreset {
-    /// Build the general-spoke (spoke 0) base risk listing for market creation.
-    /// Flash-loan eligibility/fee and decimals live on `MarketParamsRaw`, so the
-    /// builder threads `is_flashloanable`/`flashloan_fee` there separately;
-    /// general-spoke caps are disabled (hub caps live on `MarketParamsRaw`).
-    pub fn to_asset_config(
+    /// Build the per-spoke risk-listing arguments for `add_asset_to_spoke` on
+    /// `spoke_id`, listing `asset` (already a created market on `hub_id`). The
+    /// risk ratios, collateral/borrow flags come from the preset; spoke caps are
+    /// disabled (hub caps live on `MarketParamsRaw`). The protocol
+    /// `liquidation_fees` is NOT carried here -- `add_asset_to_spoke` always
+    /// writes `0`, so the builder stamps the preset fee onto the spoke listing
+    /// separately.
+    pub fn to_spoke_args(
         &self,
-        _env: &soroban_sdk::Env,
-        _decimals: u32,
-    ) -> controller::types::SpokeAssetConfig {
-        controller::types::SpokeAssetConfig {
-            is_collateralizable: self.is_collateralizable,
-            is_borrowable: self.is_borrowable,
-            paused: false,
-            frozen: false,
-            loan_to_value: self.loan_to_value,
-            liquidation_threshold: self.liquidation_threshold,
-            liquidation_bonus: self.liquidation_bonus,
-            liquidation_fees: self.liquidation_fees,
+        hub_id: u32,
+        asset: soroban_sdk::Address,
+        spoke_id: u32,
+    ) -> controller::types::SpokeAssetArgs {
+        controller::types::SpokeAssetArgs {
+            hub_id,
+            asset,
+            spoke_id,
+            can_collateral: self.is_collateralizable,
+            can_borrow: self.is_borrowable,
+            ltv: self.loan_to_value,
+            threshold: self.liquidation_threshold,
+            bonus: self.liquidation_bonus,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
         }
     }
 }

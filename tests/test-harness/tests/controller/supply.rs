@@ -127,16 +127,16 @@ fn test_supply_with_emode_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
 
-    t.create_emode_account(ALICE, 1);
+    t.create_emode_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
     let attrs = t.get_account_attributes(ALICE);
-    assert_eq!(attrs.spoke_id, 1);
+    assert_eq!(attrs.spoke_id, 2);
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
     t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
     assert!(
@@ -162,7 +162,7 @@ fn test_supply_rejects_empty_asset_vector() {
 
     let caller = t.get_or_create_user(ALICE);
     let assets: soroban_sdk::Vec<(HubAssetKey, i128)> = vec![&t.env];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -177,7 +177,7 @@ fn test_supply_rejects_negative_raw_amount() {
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let assets = vec![&t.env, (hub_asset(usdc), -1i128)];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -192,7 +192,7 @@ fn test_supply_duplicate_raw_amount_overflow_reverts() {
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let assets = vec![&t.env, (hub_asset(usdc.clone()), i128::MAX), (hub_asset(usdc), 1i128)];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -209,7 +209,7 @@ fn test_supply_rejects_disabled_market_with_pair_not_active() {
     t.ctrl_client().disable_token_oracle(&usdc);
 
     let assets = vec![&t.env, (hub_asset(usdc), 10_000_000i128)];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -295,12 +295,12 @@ fn test_supply_emode_rejects_non_category_asset() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
         // ETH is NOT in the e-mode category
         .build();
 
-    t.create_emode_account(ALICE, 1);
+    t.create_emode_account(ALICE, 2);
 
     // Supplying ETH to an e-mode stablecoin account must fail: ETH is not
     // listed on the account's spoke, so the spoke model rejects it as
@@ -414,7 +414,7 @@ fn test_bulk_supply_duplicate_asset_counts_once() {
         (hub_asset(usdc.asset.clone()), 500_000_000_000_i128),
         (hub_asset(usdc.asset.clone()), 250_000_000_000_i128),
     ];
-    t.ctrl_client().supply(&alice, &account_id, &0u32, &assets);
+    t.ctrl_client().supply(&alice, &account_id, &1u32, &assets);
     t.assert_supply_near(ALICE, "USDC", 75_000.0, 1.0);
 }
 
@@ -444,7 +444,7 @@ fn poc_single_actor_spams_unbounded_dust_accounts() {
     for _ in 0..N {
         // account_id = 0 forces a brand-new account every call.
         let dust = vec![&t.env, (hub_asset(asset.clone()), 1i128)];
-        let id = ctrl.supply(&attacker, &0u64, &0u32, &dust);
+        let id = ctrl.supply(&attacker, &0u64, &1u32, &dust);
         assert!(id > 0, "1-unit deposit must be accepted (no dust floor)");
         // Strictly increasing => each call minted a fresh, distinct account.
         assert!(id > last_id, "each supply(id=0) must mint a new account id");
@@ -485,7 +485,7 @@ fn poc_non_owner_can_supply_into_victims_account() {
         .mint(&alice, &100_000_000);
     let alice_id =
         t.ctrl_client()
-            .supply(&alice, &0u64, &0u32, &vec![&t.env, (hub_asset(usdc), 100_000_000i128)]);
+            .supply(&alice, &0u64, &1u32, &vec![&t.env, (hub_asset(usdc), 100_000_000i128)]);
     assert!(alice_id > 0);
 
     // BOB — a stranger, not the owner — supplies ETH straight into ALICE's account.
@@ -494,7 +494,7 @@ fn poc_non_owner_can_supply_into_victims_account() {
     t.resolve_market("ETH").token_admin.mint(&bob, &50_000_000);
     let returned =
         t.ctrl_client()
-            .supply(&bob, &alice_id, &0u32, &vec![&t.env, (hub_asset(eth), 50_000_000i128)]);
+            .supply(&bob, &alice_id, &1u32, &vec![&t.env, (hub_asset(eth), 50_000_000i128)]);
 
     // No owner-match revert: the deposit lands on ALICE's account, BOB consumed
     // one of her supply-position slots, and ALICE still owns the account.

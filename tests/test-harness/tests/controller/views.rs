@@ -237,14 +237,14 @@ fn test_get_emode_category_view() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
 
     let ctrl = t.ctrl_client();
     let usdc = t.resolve_asset("USDC");
-    let cfg = ctrl.get_spoke_asset(&1u32, &hub_asset(usdc.clone()));
+    let cfg = ctrl.get_spoke_asset(&2u32, &hub_asset(usdc.clone()));
 
     // STABLECOIN_EMODE: ltv=9700, threshold=9800, bonus=200 (per-asset).
     assert_eq!(cfg.loan_to_value, 9700, "emode ltv should be 9700");

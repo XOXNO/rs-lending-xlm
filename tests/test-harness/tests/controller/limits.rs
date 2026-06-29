@@ -431,16 +431,16 @@ fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
         .with_market_params("USDT", |params| {
             params.borrow_cap = hub_borrow_cap;
         })
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
 
     // Set the USDT spoke borrow cap with the category's own risk params so the
     // edit leaves LTV/threshold/bonus untouched.
     t.edit_asset_in_e_mode_caps(
         "USDT",
-        1,
+        2,
         true,
         true,
         STABLECOIN_EMODE.ltv,
@@ -454,7 +454,7 @@ fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
     // utilization defined; this normal account is unaffected by the spoke cap.
     t.supply(BOB, "USDT", 50_000.0);
 
-    t.create_emode_account(ALICE, 1);
+    t.create_emode_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
     let usdt = t.resolve_asset("USDT");
@@ -495,13 +495,13 @@ fn test_max_supply_bounded_by_spoke_supply_cap_and_executable() {
         .with_market_params("USDC", |params| {
             params.supply_cap = hub_cap;
         })
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
         .build();
 
     t.edit_asset_in_e_mode_caps(
         "USDC",
-        1,
+        2,
         true,
         true,
         STABLECOIN_EMODE.ltv,
@@ -511,7 +511,7 @@ fn test_max_supply_bounded_by_spoke_supply_cap_and_executable() {
         0i128,
     );
 
-    t.create_emode_account(ALICE, 1);
+    t.create_emode_account(ALICE, 2);
     t.supply(ALICE, "USDC", 400.0);
 
     let usdc = t.resolve_asset("USDC");
@@ -541,12 +541,12 @@ fn test_max_withdraw_emode_account_respects_stored_emode_ltv() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
 
-    t.create_emode_account(ALICE, 1);
+    t.create_emode_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 9_000.0);
 

@@ -94,7 +94,7 @@ fn test_migrate_collateral_only() {
     let account_id = t.ctrl_client().migrate_from_blend(
         &caller,
         &0u64,
-        &0u32,
+        &1u32,
         &HARNESS_HUB,
         &blend_addr,
         &SorobanVec::from_array(&t.env, [usdc.clone()]),
@@ -130,7 +130,7 @@ fn test_migrate_supply_only() {
     let account_id = t.ctrl_client().migrate_from_blend(
         &caller,
         &0u64,
-        &0u32,
+        &1u32,
         &HARNESS_HUB,
         &blend_addr,
         &empty_assets(&t),
@@ -178,7 +178,7 @@ fn test_migrate_debt_and_collateral() {
     let account_id = t.ctrl_client().migrate_from_blend(
         &caller,
         &0u64,
-        &0u32,
+        &1u32,
         &HARNESS_HUB,
         &blend_addr,
         &SorobanVec::from_array(&t.env, [usdc.clone()]),
@@ -241,7 +241,7 @@ fn test_migrate_same_asset_loop() {
     let account_id = t.ctrl_client().migrate_from_blend(
         &caller,
         &0u64,
-        &0u32,
+        &1u32,
         &HARNESS_HUB,
         &blend_addr,
         &SorobanVec::from_array(&t.env, [usdc.clone()]),
@@ -296,7 +296,7 @@ fn test_migrate_into_existing_account() {
     let returned_id = t.ctrl_client().migrate_from_blend(
         &caller,
         &account_id,
-        &0u32,
+        &1u32,
         &HARNESS_HUB,
         &blend_addr,
         &SorobanVec::from_array(&t.env, [usdc]),
@@ -325,7 +325,7 @@ fn test_migrate_empty_params_rejected() {
         revert_result!(t.ctrl_client().try_migrate_from_blend(
             &caller,
             &0u64,
-            &0u32,
+            &1u32,
             &HARNESS_HUB,
             &blend_addr,
             &empty_assets(&t),
@@ -349,7 +349,7 @@ fn test_migrate_duplicate_debt_rejected() {
         revert_result!(t.ctrl_client().try_migrate_from_blend(
             &caller,
             &0u64,
-            &0u32,
+            &1u32,
             &HARNESS_HUB,
             &blend_addr,
             &empty_assets(&t),
@@ -390,7 +390,7 @@ fn test_migrate_debt_cap_too_low_reverts() {
         revert_result!(t.ctrl_client().try_migrate_from_blend(
             &caller,
             &0u64,
-            &0u32,
+            &1u32,
             &HARNESS_HUB,
             &blend_addr,
             &SorobanVec::from_array(&t.env, [usdc]),
@@ -431,7 +431,7 @@ fn test_migrate_unhealthy_end_state_reverts() {
         revert_result!(t.ctrl_client().try_migrate_from_blend(
             &caller,
             &0u64,
-            &0u32,
+            &1u32,
             &HARNESS_HUB,
             &blend_addr,
             &SorobanVec::from_array(&t.env, [usdc]),
@@ -465,7 +465,7 @@ fn test_migrate_unapproved_blend_pool_reverts() {
         revert_result!(t.ctrl_client().try_migrate_from_blend(
             &caller,
             &0u64,
-            &0u32,
+            &1u32,
             &HARNESS_HUB,
             &blend_addr,
             &SorobanVec::from_array(&t.env, [usdc]),

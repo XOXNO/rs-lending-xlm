@@ -6,9 +6,11 @@ use controller::types::{
     InterestRateModel, MarketOracleConfigInput, OracleReadMode, OracleSourceConfigInput,
     OracleSourceConfigInputOption, OracleStrategy,
 };
-use governance::op::{AdminOperation, ConfigureOracleArgs, UpgradePoolParamsArgs};
+use governance::op::{AdminOperation, ConfigureOracleArgs, SpokeAssetArgs, UpgradePoolParamsArgs};
 use soroban_sdk::{String, Symbol};
-use test_harness::{hub_asset, usdc_preset, LendingTest, DEFAULT_TOLERANCE};
+use test_harness::{
+    hub_asset, usdc_preset, LendingTest, DEFAULT_TOLERANCE, HARNESS_HUB, HARNESS_SPOKE,
+};
 
 // `InterestRateModel::verify` invariants, driven via
 // `upgrade_liquidity_pool_params`, which validates before forwarding.
@@ -127,7 +129,7 @@ fn test_validate_asset_config_rejects_excessive_liq_bonus() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
-    let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &hub_asset(asset.clone()));
+    let mut cfg = t.ctrl_client().get_spoke_asset(&1u32, &hub_asset(asset.clone()));
     // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
     cfg.loan_to_value = 8000;
     cfg.liquidation_threshold = 9500;
@@ -144,12 +146,23 @@ fn test_validate_asset_config_accepts_high_bonus_low_threshold() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
-    let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &hub_asset(asset.clone()));
-    cfg.loan_to_value = 4000;
-    cfg.liquidation_threshold = 5000;
-    cfg.liquidation_bonus = 5000;
+    let cfg = t.ctrl_client().get_spoke_asset(&1u32, &hub_asset(asset.clone()));
+    // The base-config op (EditAssetConfig) targets the removed spoke 0; drive the
+    // same risk-bound invariant through the live per-spoke editor instead.
+    let args = SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset: asset.clone(),
+        spoke_id: HARNESS_SPOKE,
+        can_collateral: cfg.is_collateralizable,
+        can_borrow: cfg.is_borrowable,
+        ltv: 4000,
+        threshold: 5000,
+        bonus: 5000,
+        supply_cap: cfg.supply_cap,
+        borrow_cap: cfg.borrow_cap,
+    };
     t.gov_client()
-        .execute_immediate(&admin, &AdminOperation::EditAssetConfig(hub_asset(asset), cfg));
+        .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
 
 // `configure_market_oracle` error paths against the live mock reflector.

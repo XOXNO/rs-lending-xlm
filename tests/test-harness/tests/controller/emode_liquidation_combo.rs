@@ -29,11 +29,11 @@ fn test_emode_threshold_supersedes_asset_threshold() {
     let mut emode = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
-    emode.create_emode_account(ALICE, 1);
+    emode.create_emode_account(ALICE, 2);
     emode.supply(ALICE, "USDC", 10_000.0);
     emode.borrow(ALICE, "USDT", 7_500.0);
     emode.set_price("USDC", usd_cents(93));
@@ -50,13 +50,13 @@ fn test_emode_bonus_bounded_by_category_bonus() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .with_dust_disabled_all_markets()
         .build();
 
-    t.create_emode_account(ALICE, 1);
+    t.create_emode_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 9_500.0);
     // Force deep crash — way past the standard liquidation threshold,
@@ -98,9 +98,9 @@ fn test_emode_liquidation_with_split_collateral() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .with_dust_disabled_all_markets()
         .build();
 
@@ -108,10 +108,10 @@ fn test_emode_liquidation_with_split_collateral() {
     // doesn't trip the utilization cap. (The pool's `initial_liquidity`
     // is minted as tokens but not registered as supplied, so utilization
     // only counts user supplies.)
-    t.create_emode_account(BOB, 1);
+    t.create_emode_account(BOB, 2);
     t.supply(BOB, "USDT", 100_000.0);
 
-    t.create_emode_account(ALICE, 1);
+    t.create_emode_account(ALICE, 2);
     // Two-sided collateral: $5000 USDC + $4000 USDT supply. Borrow
     // $8000 USDT.
     t.supply(ALICE, "USDC", 5_000.0);
@@ -151,13 +151,13 @@ fn test_emode_rejects_non_category_collateral_addition() {
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         // ETH intentionally not in the category.
         .build();
 
-    t.create_emode_account(ALICE, 1);
+    t.create_emode_account(ALICE, 2);
     t.supply(ALICE, "USDC", 1_000.0);
 
     // Adding ETH (non-category) must be rejected even though the

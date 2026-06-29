@@ -169,13 +169,13 @@ fn test_partial_chain_no_ratchet_emode() {
         let mut t = LendingTest::new()
             .with_market(usdc_preset())
             .with_market(usdt_stable_preset())
-            .with_emode(1, STABLECOIN_EMODE)
-            .with_emode_asset(1, "USDC", true, true)
-            .with_emode_asset(1, "USDT", true, true)
+            .with_emode(2, STABLECOIN_EMODE)
+            .with_emode_asset(2, "USDC", true, true)
+            .with_emode_asset(2, "USDT", true, true)
             .with_dust_disabled_all_markets()
             .build();
         t.get_or_create_user(LIQUIDATOR);
-        t.create_emode_account(ALICE, 1);
+        t.create_emode_account(ALICE, 2);
         t.supply(ALICE, "USDC", 10_000.0);
         t.borrow(ALICE, "USDT", 9_500.0);
         t.set_price("USDC", usd_cents(85)); // HF ~0.88

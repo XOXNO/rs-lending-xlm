@@ -96,6 +96,21 @@ impl LendingTest {
         self.find_account_id(user).unwrap_or(0)
     }
 
+    /// The spoke an account is bound to, or the base harness spoke when
+    /// `account_id == 0` (the "create a fresh account" sentinel). Supply and
+    /// strategy entrypoints take the spoke explicitly and the controller rejects
+    /// a mismatch against an existing account, so callers must pass the account's
+    /// real spoke rather than a `0` placeholder.
+    pub(crate) fn account_spoke_or_default(&self, account_id: u64) -> u32 {
+        if account_id == 0 {
+            crate::helpers::HARNESS_SPOKE
+        } else {
+            self.ctrl_client()
+                .get_account_attributes(&account_id)
+                .spoke_id
+        }
+    }
+
     #[allow(dead_code)]
     pub fn pool_client(&self, asset_name: &str) -> pool::LiquidityPoolClient<'_> {
         let market = self.resolve_market(asset_name);

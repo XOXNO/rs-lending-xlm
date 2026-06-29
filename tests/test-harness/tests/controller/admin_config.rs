@@ -237,9 +237,8 @@ fn test_set_market_oracle_config_activates_pending_market() {
         .register_stellar_asset_contract_v2(admin.clone())
         .address();
     let params = usdc_preset().params.to_market_params(&asset, 7);
-    let config = usdc_preset().config.to_asset_config(&t.env, 7);
     ctrl.approve_token(&asset);
-    ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params, &config);
+    ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params);
     assert!(
         !t.market_is_active(&asset),
         "market must start in PendingOracle"
@@ -277,7 +276,9 @@ fn test_set_market_oracle_config_rejects_unknown_asset() {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert_contract_error(mapped, errors::ASSET_NOT_SUPPORTED);
+    // An unknown asset has no created market; oracle config now fails the
+    // market-existence probe (`fetch_pool_sync_data`) with PoolNotInitialized.
+    assert_contract_error(mapped, errors::GenericError::PoolNotInitialized as u32);
 }
 // 8. test_set_aggregator
 
@@ -400,15 +401,15 @@ fn test_create_liquidity_pool_uniqueness() {
     let ctrl = t.ctrl_client();
     let asset = t.resolve_asset("USDC");
     let params = usdc_preset().params.to_market_params(&asset, 7);
-    let config = usdc_preset().config.to_asset_config(&t.env, 7);
 
-    // USDC was already initialized by the builder.
-    // Calling create_liquidity_pool again should fail with AssetAlreadySupported.
-    let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params, &config) {
+    // USDC was already initialized by the builder. `create_liquidity_pool`
+    // consumes the one-shot token approval on success, so re-creating the same
+    // market finds the token unapproved and rejects with TokenNotApproved.
+    let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error")),
     };
-    assert_contract_error(result, errors::ASSET_ALREADY_SUPPORTED);
+    assert_contract_error(result, errors::GenericError::TokenNotApproved as u32);
 }
 // 16. test_market_initialization_cascade
 
@@ -424,14 +425,13 @@ fn test_market_initialization_cascade() {
         .register_stellar_asset_contract_v2(admin.clone())
         .address();
     let params = usdc_preset().params.to_market_params(&asset, 7);
-    let config = usdc_preset().config.to_asset_config(&t.env, 7);
 
     // 0. Pre-approve the token contract (allow-list gate, T1-7).
     ctrl.approve_token(&asset);
 
     // 1. Create the liquidity pool with no oracle; the call succeeds and
     //    leaves the market in PendingOracle.
-    ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params, &config);
+    ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params);
 
     // Confirm the market is pending (no oracle yet).
     assert!(

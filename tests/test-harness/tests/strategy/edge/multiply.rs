@@ -32,7 +32,7 @@ fn test_multiply_with_debt_token_initial_payment() {
     let account_id = t.ctrl_client().multiply(
         &alice,
         &0u64,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128,
         &hub_asset(eth.clone()),
@@ -89,7 +89,7 @@ fn test_multiply_rejects_unlisted_initial_payment_token() {
     let result = t.ctrl_client().try_multiply(
         &alice,
         &0u64,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128,
         &hub_asset(eth.clone()),
@@ -167,7 +167,7 @@ fn test_multiply_preserves_existing_collateral_balance() {
         .with_market(eth_preset())
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
@@ -187,7 +187,7 @@ fn test_multiply_preserves_existing_collateral_balance() {
     let result = ctrl.try_multiply(
         &caller,
         &account_id,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128,
         &hub_asset(eth.clone()),
@@ -226,12 +226,12 @@ fn test_multiply_reuses_emode_account_with_zero_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
 
-    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 2, controller::types::PositionMode::Multiply);
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let usdt = t.resolve_asset("USDT");
@@ -248,7 +248,7 @@ fn test_multiply_reuses_emode_account_with_zero_category() {
     let result = t.ctrl_client().try_multiply(
         &caller,
         &account_id,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1000_0000000i128,
         &hub_asset(usdt.clone()),
@@ -264,7 +264,7 @@ fn test_multiply_reuses_emode_account_with_zero_category() {
 
     let attrs = t.ctrl_client().get_account_attributes(&account_id);
     assert_eq!(
-        attrs.spoke_id, 1,
+        attrs.spoke_id, 2,
         "zero e_mode_category must reuse the account's stored e-mode category"
     );
     assert!(
@@ -295,7 +295,7 @@ fn test_multiply_missing_owner_auth_rejects_before_validation() {
         t.ctrl_client().set_auths(&no_auths).try_multiply(
             &caller,
             &0u64,
-            &0u32,
+            &1u32,
             &hub_asset(usdc.clone()),
             &1_0000000i128,
             &hub_asset(eth.clone()),
@@ -323,7 +323,7 @@ fn test_multiply_existing_account_not_found() {
     let result = t.ctrl_client().try_multiply(
         &caller,
         &missing_account_id,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128,
         &hub_asset(eth.clone()),
@@ -347,13 +347,13 @@ fn test_multiply_emode_wrong_category_debt() {
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         // ETH is NOT in e-mode category 1
         .build();
 
-    // Use the raw controller client so `e_mode_category=1` can be passed
+    // Use the raw controller client so `e_mode_category=2` can be passed
     // explicitly.
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("USDC");
@@ -364,10 +364,10 @@ fn test_multiply_emode_wrong_category_debt() {
     let result = ctrl.try_multiply(
         &caller,
         &0u64, // account_id = 0 (create new)
-        &1u32, // e_mode_category = 1
+        &2u32, // e_mode_category = 2
         &hub_asset(collateral_addr.clone()),
         &10_0000000i128,                            // 1 ETH worth of debt
-        &hub_asset(debt_addr.clone()), // ETH -- not in e-mode category 1
+        &hub_asset(debt_addr.clone()), // ETH -- not in e-mode category 2
         &controller::types::PositionMode::Multiply, // mode = 1 (multiply)
         &steps,
         &None, // initial_payment
@@ -387,9 +387,9 @@ fn test_multiply_emode_wrong_category_collateral() {
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
 
     let caller = t.get_or_create_user(ALICE);
@@ -411,7 +411,7 @@ fn test_multiply_emode_wrong_category_collateral() {
     let result = ctrl.try_multiply(
         &caller,
         &0u64,            // account_id = 0 (create new)
-        &1u32,            // e_mode_category = 1
+        &2u32,            // e_mode_category = 2
         &hub_asset(collateral_addr.clone()), // ETH: not in e-mode category
         &1000_0000000i128,
         &hub_asset(debt_addr.clone()),
@@ -457,7 +457,7 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
         .with_position_limits(1, 4)
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
@@ -472,7 +472,7 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
     let result = ctrl.try_multiply(
         &caller,
         &account_id,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128,
         &hub_asset(eth.clone()),
@@ -493,7 +493,7 @@ fn test_multiply_existing_account_wrong_owner() {
         .with_market(eth_preset())
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     let bob = t.get_or_create_user(BOB);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -504,7 +504,7 @@ fn test_multiply_existing_account_wrong_owner() {
     let result = t.ctrl_client().try_multiply(
         &bob,
         &account_id,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128,
         &hub_asset(eth.clone()),
@@ -590,7 +590,7 @@ fn test_multiply_respects_borrow_position_limit() {
     let result = match t.ctrl_client().try_multiply(
         &alice,
         &account_id,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_000_000_000i128,
         &hub_asset(xlm.clone()),

@@ -1,7 +1,7 @@
 use controller::types::{PositionMode, StrategySwap};
 
 use crate::core::{AccountEntry, LendingTest};
-use crate::helpers::{f64_to_i128, hub_asset};
+use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
 use crate::strategy::swap::mock_swap_payload_xdr;
 
 impl LendingTest {
@@ -54,7 +54,7 @@ impl LendingTest {
         let account_id = ctrl.multiply(
             &caller_addr,
             &0u64,
-            &0u32,
+            &HARNESS_SPOKE,
             &collateral,
             &raw_debt,
             &debt,
@@ -137,7 +137,7 @@ impl LendingTest {
     ) -> Result<u64, soroban_sdk::Error> {
         self.try_multiply_with_category(
             user,
-            0,
+            HARNESS_SPOKE,
             collateral_asset,
             debt_amount,
             debt_asset,

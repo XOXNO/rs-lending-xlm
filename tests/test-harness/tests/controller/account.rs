@@ -12,7 +12,7 @@ fn test_create_normal_account() {
     assert!(account_id > 0, "account_id should be non-zero");
 
     let attrs = t.get_account_attributes(ALICE);
-    assert_eq!(attrs.spoke_id, 0);
+    assert_eq!(attrs.spoke_id, 1);
     assert_eq!(attrs.mode, controller::types::PositionMode::Normal);
 }
 // 2. test_create_emode_account
@@ -22,16 +22,16 @@ fn test_create_emode_account() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
 
-    let account_id = t.create_emode_account(ALICE, 1);
+    let account_id = t.create_emode_account(ALICE, 2);
     assert!(account_id > 0);
 
     let attrs = t.get_account_attributes(ALICE);
-    assert_eq!(attrs.spoke_id, 1);
+    assert_eq!(attrs.spoke_id, 2);
 }
 // 3. test_create_account_full_custom
 
@@ -40,12 +40,12 @@ fn test_create_account_full_custom() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     // mode=1 for Multiply.
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     assert!(account_id > 0);
 
     let attrs = t.get_account_attributes(ALICE);
     assert_eq!(attrs.mode, controller::types::PositionMode::Multiply);
-    assert_eq!(attrs.spoke_id, 0);
+    assert_eq!(attrs.spoke_id, 1);
 }
 // 4. test_remove_empty_account
 
@@ -89,7 +89,7 @@ fn test_multiple_accounts_per_user() {
         .build();
 
     let id1 = t.create_account(ALICE);
-    let id2 = t.create_account_full(ALICE, 0, controller::types::PositionMode::Normal);
+    let id2 = t.create_account_full(ALICE, 1, controller::types::PositionMode::Normal);
     assert_ne!(id1, id2, "accounts should have different IDs");
 
     // Supply to each account.

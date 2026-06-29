@@ -198,21 +198,8 @@ proptest! {
                 asset_id: usdc.clone(),
                 asset_decimals: 7,
             };
-            // Auth is rejected before the config is read; any shape suffices.
-            let config = controller::types::SpokeAssetConfig {
-                is_collateralizable: true,
-                is_borrowable: true,
-                paused: false,
-                frozen: false,
-                loan_to_value: 7500,
-                liquidation_threshold: 8000,
-                liquidation_bonus: 500,
-                liquidation_fees: 100,
-                supply_cap: 0,
-                borrow_cap: 0,
-                oracle_override: controller::types::MarketOracleConfigOption::None,
-            };
-            ctrl.set_auths(&no_auths).try_create_liquidity_pool(&HARNESS_HUB, &usdc, &params, &config)
+            // Auth is rejected before any params are read; any shape suffices.
+            ctrl.set_auths(&no_auths).try_create_liquidity_pool(&HARNESS_HUB, &usdc, &params)
         }).unwrap();
 
         let empty_assets: SVec<HubAssetKey> = SVec::new(&env);

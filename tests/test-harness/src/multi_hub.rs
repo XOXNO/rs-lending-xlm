@@ -6,12 +6,14 @@
 //! specific `(hub_id, asset)`, and reading a hub-scoped pool `State`.
 
 use common::types::HubAssetKey;
-use controller::types::{MarketParamsRaw, PoolKey, PoolStateRaw, PositionMode, SpokeAssetConfig};
-use governance::op::{AdminOperation, CreatePoolArgs};
+use controller::types::{
+    ControllerKey, MarketParamsRaw, PoolKey, PoolStateRaw, PositionMode, SpokeAssetConfig,
+};
+use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::{token, vec, TryFromVal, Vec};
 
 use crate::core::LendingTest;
-use crate::helpers::{f64_to_i128, hub_asset};
+use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
 
 impl LendingTest {
     /// Creates a new hub through governance and returns its id. Hub ids start at
@@ -42,9 +44,11 @@ impl LendingTest {
                 .get(&PoolKey::Params(hub_asset(asset.clone())))
                 .expect("base hub params must exist")
         });
-        let config: SpokeAssetConfig = self
+        // The base-hub market's risk listing on the base harness spoke; reused so
+        // the new hub's market lists with identical risk params.
+        let base_cfg: SpokeAssetConfig = self
             .ctrl_client()
-            .get_spoke_asset(&0u32, &hub_asset(asset.clone()));
+            .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
 
         let gov = self.gov_client();
         gov.execute_immediate(&self.admin, &AdminOperation::ApproveToken(asset.clone()));
@@ -54,9 +58,9 @@ impl LendingTest {
                 hub_id,
                 asset: asset.clone(),
                 params,
-                config,
             }),
         );
+        self.list_hub_asset_on_base_spoke(hub_id, &asset, &base_cfg, base_cfg.liquidation_fees);
 
         // Seed cash directly, mirroring the builder's base hub liquidity seed.
         let liquidity = f64_to_i128(initial_liquidity, decimals);
@@ -100,10 +104,9 @@ impl LendingTest {
                 .get(&PoolKey::Params(hub_asset(asset.clone())))
                 .expect("base hub params must exist")
         });
-        let mut config: SpokeAssetConfig = self
+        let base_cfg: SpokeAssetConfig = self
             .ctrl_client()
-            .get_spoke_asset(&0u32, &hub_asset(asset.clone()));
-        config.liquidation_fees = liquidation_fees;
+            .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
 
         let gov = self.gov_client();
         gov.execute_immediate(&self.admin, &AdminOperation::ApproveToken(asset.clone()));
@@ -113,9 +116,11 @@ impl LendingTest {
                 hub_id,
                 asset: asset.clone(),
                 params,
-                config,
             }),
         );
+        // Override the base spoke's protocol fee for this hub's listing to prove
+        // seizure resolves the fee from the position's own hub/spoke.
+        self.list_hub_asset_on_base_spoke(hub_id, &asset, &base_cfg, liquidation_fees);
 
         let liquidity = f64_to_i128(initial_liquidity, decimals);
         token::StellarAssetClient::new(&self.env, &asset).mint(&pool, &liquidity);
@@ -152,6 +157,7 @@ impl LendingTest {
         market.token_admin.mint(&addr, &raw_amount);
 
         let account_id = self.default_account_id_or_zero(user);
+        let spoke = self.account_spoke_or_default(account_id);
 
         let ctrl = self.ctrl_client();
         let assets: Vec<(HubAssetKey, i128)> = vec![
@@ -164,12 +170,55 @@ impl LendingTest {
                 raw_amount,
             ),
         ];
-        let returned_id = ctrl.supply(&addr, &account_id, &0u32, &assets);
+        let returned_id = ctrl.supply(&addr, &account_id, &spoke, &assets);
 
         if account_id == 0 {
-            self.register_account(user, returned_id, 0, PositionMode::Normal);
+            self.register_account(user, returned_id, HARNESS_SPOKE, PositionMode::Normal);
         }
         returned_id
+    }
+
+    /// Lists the `(hub_id, asset)` market on the base harness spoke with the
+    /// supplied risk params, stamping `liquidation_fees` directly (the
+    /// `add_asset_to_spoke` endpoint always writes `0`). The pool for the market
+    /// must already exist.
+    fn list_hub_asset_on_base_spoke(
+        &self,
+        hub_id: u32,
+        asset: &soroban_sdk::Address,
+        risk: &SpokeAssetConfig,
+        liquidation_fees: u32,
+    ) {
+        self.gov_client().execute_immediate(
+            &self.admin,
+            &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
+                hub_id,
+                asset: asset.clone(),
+                spoke_id: HARNESS_SPOKE,
+                can_collateral: risk.is_collateralizable,
+                can_borrow: risk.is_borrowable,
+                ltv: risk.loan_to_value,
+                threshold: risk.liquidation_threshold,
+                bonus: risk.liquidation_bonus,
+                supply_cap: 0,
+                borrow_cap: 0,
+            }),
+        );
+        if liquidation_fees != 0 {
+            self.env.as_contract(&self.controller, || {
+                let key = ControllerKey::SpokeAsset(
+                    HARNESS_SPOKE,
+                    HubAssetKey {
+                        hub_id,
+                        asset: asset.clone(),
+                    },
+                );
+                let mut cfg: SpokeAssetConfig =
+                    self.env.storage().persistent().get(&key).unwrap();
+                cfg.liquidation_fees = liquidation_fees;
+                self.env.storage().persistent().set(&key, &cfg);
+            });
+        }
     }
 
     /// Borrows `amount` of `asset_name` on `hub_id` for `account_id`.

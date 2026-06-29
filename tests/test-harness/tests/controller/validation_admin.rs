@@ -29,22 +29,22 @@ fn test_emode_user_supply_rejects_deprecated_category() {
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_emode(
-            1,
+            2,
             EModeCategoryPreset {
                 ltv: 9_700,
                 threshold: 9_800,
                 bonus: 200,
             },
         )
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
 
     // Deprecate the category via admin.
-    t.remove_e_mode_category(1);
+    t.remove_e_mode_category(2);
 
     // User attempts a fresh supply with the deprecated e-mode category. The
-    // controller resolves `active_e_mode_category(env, 1)` and panics with
+    // controller resolves `active_e_mode_category(env, 2)` and panics with
     // EModeCategoryDeprecated (#301).
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_market("USDC");
@@ -52,5 +52,5 @@ fn test_emode_user_supply_rejects_deprecated_category() {
     // 1_000 USDC at 7 decimals.
     usdc.token_admin.mint(&alice, &10_000_000_000_i128);
     let assets: soroban_sdk::Vec<(HubAssetKey, i128)> = vec![&t.env, (hub_asset(usdc_addr), 10_000_000_000_i128)];
-    t.ctrl_client().supply(&alice, &0u64, &1u32, &assets);
+    t.ctrl_client().supply(&alice, &0u64, &2u32, &assets);
 }

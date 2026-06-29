@@ -17,7 +17,7 @@ use num_traits::{Signed, ToPrimitive, Zero};
 use controller::constants::{BPS, RAY, WAD};
 
 use crate::context::LendingTest;
-use crate::helpers::hub_asset;
+use crate::helpers::{hub_asset, HARNESS_SPOKE};
 // Public types
 
 #[derive(Clone, Debug)]
@@ -590,12 +590,12 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
         let market = t.resolve_market_by_asset(&asset);
         let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool)
             .get_sync_data(&hub_asset(asset.clone()));
-        // Liquidation fee is a market-level parameter sourced from the general
-        // spoke 0 base listing (mirrors production, which reads the same
-        // `SpokeAsset(0)` config), not a per-position field.
+        // Liquidation fee is a spoke-level parameter sourced from the base
+        // harness spoke listing (mirrors production, which reads the account
+        // spoke's `SpokeAsset` config), not a per-position field.
         let liq_fees_bps = t
             .ctrl_client()
-            .get_spoke_asset(&0u32, &hub_asset(asset.clone()))
+            .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()))
             .liquidation_fees;
         out.push(RefCollateralPosition {
             asset_id: i as u32,

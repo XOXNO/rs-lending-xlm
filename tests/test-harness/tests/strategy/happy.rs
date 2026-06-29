@@ -409,9 +409,9 @@ fn test_multiply_emode_stablecoin() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
 
     // E-mode multiply: borrow USDT, collateral USDC.
@@ -434,7 +434,7 @@ fn test_multiply_emode_stablecoin() {
     let account_id = ctrl.multiply(
         &caller,
         &0u64, // create new account
-        &1u32, // e_mode_category = 1
+        &2u32, // e_mode_category = 2
         &hub_asset(collateral_addr.clone()),
         &1000_0000000i128, // borrow 1000 USDT
         &hub_asset(debt_addr.clone()),

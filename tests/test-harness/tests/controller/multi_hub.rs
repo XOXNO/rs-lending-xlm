@@ -409,7 +409,7 @@ fn liquidation_seizes_hub_one_collateral_without_hub_zero_listing() {
     // Delist USDC from hub 1's base spoke, leaving only the hub-2 listing. The
     // token-rooted oracle and the hub-2 market are untouched.
     t.ctrl_client()
-        .remove_asset_from_spoke(&hub_asset(t.resolve_asset("USDC")), &0u32);
+        .remove_asset_from_spoke(&hub_asset(t.resolve_asset("USDC")), &1u32);
 
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);

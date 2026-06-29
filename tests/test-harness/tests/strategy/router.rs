@@ -309,7 +309,7 @@ fn test_multiply_third_token_payment_without_convert_steps_rejects() {
     let result = ctrl.try_multiply(
         &alice,
         &0u64,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128,
         &hub_asset(eth.clone()),
@@ -332,7 +332,7 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
         .build();
 
     // Create an account explicitly in Multiply mode.
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
@@ -346,7 +346,7 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
     let result = ctrl.try_multiply(
         &alice,
         &account_id,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128,
         &hub_asset(eth.clone()),
@@ -510,7 +510,7 @@ fn test_multiply_with_collateral_token_initial_payment() {
     let account_id = ctrl.multiply(
         &alice,
         &0u64,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128, // 1 ETH flash debt
         &hub_asset(eth.clone()),
@@ -589,7 +589,7 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
     let account_id = ctrl.multiply(
         &alice,
         &0u64,
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128,
         &hub_asset(eth.clone()),
@@ -744,7 +744,7 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
     let result = ctrl.try_multiply(
         &bob,
         &alice_account, // Bob points at Alice's account_id
-        &0u32,
+        &1u32,
         &hub_asset(usdc.clone()),
         &1_0000000i128,
         &hub_asset(eth.clone()),

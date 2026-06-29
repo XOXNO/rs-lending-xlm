@@ -1,19 +1,20 @@
 use controller::types::{AccountMeta, ControllerKey, PositionMode, SpokeConfig};
 
 use crate::core::{AccountEntry, LendingTest};
+use crate::helpers::HARNESS_SPOKE;
 
 impl LendingTest {
     // Account creation
 
-    /// Create a normal account (e_mode=0, mode=Normal).
+    /// Create a normal account on the base harness spoke (mode=Normal).
     pub fn create_account(&mut self, user: &str) -> u64 {
         let _ = self.get_or_create_user(user);
-        let account_id = self.create_account_direct(user, 0, PositionMode::Normal);
-        self.register_account(user, account_id, 0, PositionMode::Normal);
+        let account_id = self.create_account_direct(user, HARNESS_SPOKE, PositionMode::Normal);
+        self.register_account(user, account_id, HARNESS_SPOKE, PositionMode::Normal);
         account_id
     }
 
-    /// Create an e-mode account.
+    /// Create an e-mode account on `category_id` (an e-mode spoke, id >= 2).
     pub fn create_emode_account(&mut self, user: &str, category_id: u32) -> u64 {
         let _ = self.get_or_create_user(user);
         let account_id = self.create_account_direct(user, category_id, PositionMode::Normal);
@@ -21,7 +22,9 @@ impl LendingTest {
         account_id
     }
 
-    /// Create an account with full control over e-mode category and position mode.
+    /// Create an account with full control over the spoke and position mode.
+    /// `e_mode_category` is the target spoke id (>= 1); use [`HARNESS_SPOKE`] for
+    /// a regular account.
     pub fn create_account_full(
         &mut self,
         user: &str,
@@ -37,7 +40,7 @@ impl LendingTest {
     pub(crate) fn create_account_direct(
         &self,
         user: &str,
-        e_mode_category: u32,
+        spoke_id: u32,
         mode: PositionMode,
     ) -> u64 {
         let owner = self
@@ -47,15 +50,14 @@ impl LendingTest {
             .unwrap_or_else(|| panic!("user '{}' not found", user));
 
         self.env.as_contract(&self.controller, || {
-            if e_mode_category > 0 {
-                let spoke = self
-                    .env
-                    .storage()
-                    .persistent()
-                    .get::<_, SpokeConfig>(&ControllerKey::Spoke(e_mode_category))
-                    .expect("spoke must exist");
-                assert!(!spoke.is_deprecated, "spoke is deprecated");
-            }
+            // Every account binds to a real spoke (id >= 1); there is no spoke 0.
+            let spoke = self
+                .env
+                .storage()
+                .persistent()
+                .get::<_, SpokeConfig>(&ControllerKey::Spoke(spoke_id))
+                .expect("spoke must exist");
+            assert!(!spoke.is_deprecated, "spoke is deprecated");
 
             let current = self
                 .env
@@ -73,7 +75,7 @@ impl LendingTest {
                 &ControllerKey::AccountMeta(next),
                 &AccountMeta {
                     owner,
-                    spoke_id: e_mode_category,
+                    spoke_id,
                     mode,
                 },
             );

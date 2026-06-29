@@ -2,7 +2,7 @@ use controller::types::{InterestRateModel, SpokeAssetArgs};
 use soroban_sdk::Address;
 
 use crate::context::LendingTest;
-use crate::helpers::{hub_asset, HARNESS_HUB};
+use crate::helpers::{hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::view::AssetConfigView;
 
 impl LendingTest {
@@ -34,8 +34,10 @@ impl LendingTest {
     // Asset config editing
 
     /// Edit asset config at runtime via a closure that mutates the current config.
-    /// Risk parameters write back to the general spoke 0; flash-loan eligibility/fee
-    /// write directly to the pool `MarketParamsRaw` (no endpoint toggles them).
+    /// Risk parameters write back to the base harness spoke; flash-loan
+    /// eligibility/fee write directly to the pool `MarketParamsRaw` (no endpoint
+    /// toggles them), and `liquidation_fees` is stamped directly because
+    /// `edit_asset_in_spoke` always writes `0`.
     pub fn edit_asset_config(&self, asset_name: &str, f: impl FnOnce(&mut AssetConfigView)) {
         let asset = self.resolve_asset(asset_name);
         let mut config = self.get_asset_config(asset_name);
@@ -44,7 +46,7 @@ impl LendingTest {
         self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
             hub_id: HARNESS_HUB,
             asset: asset.clone(),
-            spoke_id: 0,
+            spoke_id: HARNESS_SPOKE,
             can_collateral: config.is_collateralizable,
             can_borrow: config.is_borrowable,
             ltv: config.loan_to_value,
@@ -52,6 +54,19 @@ impl LendingTest {
             bonus: config.liquidation_bonus,
             supply_cap: 0,
             borrow_cap: 0,
+        });
+
+        // `edit_asset_in_spoke` forces `liquidation_fees = 0`; preserve the
+        // caller's intended fee by stamping the spoke listing directly.
+        self.env.as_contract(&self.controller, || {
+            let key = controller::types::ControllerKey::SpokeAsset(
+                HARNESS_SPOKE,
+                hub_asset(asset.clone()),
+            );
+            let mut cfg: controller::types::SpokeAssetConfig =
+                self.env.storage().persistent().get(&key).unwrap();
+            cfg.liquidation_fees = config.liquidation_fees;
+            self.env.storage().persistent().set(&key, &cfg);
         });
 
         let pool = self.get_pool_address(asset_name);

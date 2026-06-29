@@ -50,7 +50,7 @@ fn test_swap_debt_health_factor_guard_after_swap() {
 
     let usdc = t.resolve_asset("USDC");
     t.env.as_contract(&t.controller_address(), || {
-        let key = ControllerKey::SpokeAsset(0, hub_asset(usdc.clone()));
+        let key = ControllerKey::SpokeAsset(1, hub_asset(usdc.clone()));
         let mut config: SpokeAssetConfig = t
             .env
             .storage()
@@ -116,7 +116,7 @@ fn test_swap_debt_closes_existing_debt_even_if_existing_asset_disabled() {
 
     let eth = t.resolve_asset("ETH");
     t.env.as_contract(&t.controller_address(), || {
-        let key = ControllerKey::SpokeAsset(0, hub_asset(eth.clone()));
+        let key = ControllerKey::SpokeAsset(1, hub_asset(eth.clone()));
         let mut config: SpokeAssetConfig = t
             .env
             .storage()
@@ -186,12 +186,12 @@ fn test_swap_collateral_applies_emode_params_to_destination_position() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         .build();
 
-    let account_id = t.create_emode_account(ALICE, 1);
+    let account_id = t.create_emode_account(ALICE, 2);
     t.supply_to(ALICE, account_id, "USDC", 5_000.0);
 
     t.fund_router("USDT", 1_000.0);
@@ -285,14 +285,14 @@ fn test_swap_debt_emode_wrong_category() {
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .with_emode_asset(2, "USDT", true, true)
         // ETH not in e-mode
         .build();
 
     // Create an e-mode account, supply USDC, borrow USDT (both in e-mode).
-    t.create_emode_account(ALICE, 1);
+    t.create_emode_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 

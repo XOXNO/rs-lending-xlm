@@ -7,7 +7,7 @@ use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, TryFromVal};
 
 use crate::core::types::{LendingTest, MarketState, PendingEMode, PendingMarket};
-use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB};
+use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::presets::{
     AssetConfigPreset, EModeCategoryPreset, MarketParamsPreset, MarketPreset, DEFAULT_TOLERANCE,
 };
@@ -238,6 +238,17 @@ impl LendingTestBuilder {
             "the base setup hub must be the harness hub id"
         );
 
+        // There is no spoke 0: a fresh controller has zero spokes. Create the
+        // base harness spoke (returns id 1) before listing any market risk so
+        // every regular account binds to a real spoke. E-mode tests create extra
+        // spokes (ids 2+) on top of this one.
+        let base_spoke_val = gov.execute_immediate(&admin, &AdminOperation::AddSpoke);
+        let base_spoke: u32 = u32::try_from_val(&env, &base_spoke_val).unwrap();
+        assert_eq!(
+            base_spoke, HARNESS_SPOKE,
+            "the base setup spoke must be the harness spoke id"
+        );
+
         let mut markets = HashMap::new();
 
         for pm in &self.pending_markets {
@@ -252,7 +263,6 @@ impl LendingTestBuilder {
             // spoke model; thread them from the asset-config preset the test set.
             market_params.is_flashloanable = pm.config.is_flashloanable;
             market_params.flashloan_fee = pm.config.flashloan_fee;
-            let asset_config = pm.config.to_asset_config(&env, pm.decimals);
             gov.execute_immediate(&admin, &AdminOperation::ApproveToken(asset_address.clone()));
             let pool_address_val = gov.execute_immediate(
                 &admin,
@@ -260,7 +270,6 @@ impl LendingTestBuilder {
                     hub_id: HARNESS_HUB,
                     asset: asset_address.clone(),
                     params: market_params,
-                    config: asset_config,
                 }),
             );
             let pool_address: Address = Address::try_from_val(&env, &pool_address_val).unwrap();
@@ -268,6 +277,33 @@ impl LendingTestBuilder {
                 pool_address, global_pool,
                 "create_liquidity_pool must return the global pool address"
             );
+
+            // Market creation no longer carries risk config; list the asset on the
+            // base harness spoke with the preset's regular risk params. The pool
+            // already exists (required by `add_asset_to_spoke`).
+            gov.execute_immediate(
+                &admin,
+                &AdminOperation::AddAssetToSpoke(pm.config.to_spoke_args(
+                    HARNESS_HUB,
+                    asset_address.clone(),
+                    HARNESS_SPOKE,
+                )),
+            );
+            // `add_asset_to_spoke` always writes `liquidation_fees = 0`; stamp the
+            // preset's protocol liquidation fee directly onto the spoke listing so
+            // liquidation-fee math stays exercised.
+            if pm.config.liquidation_fees != 0 {
+                env.as_contract(&controller_address, || {
+                    let key = controller::types::ControllerKey::SpokeAsset(
+                        HARNESS_SPOKE,
+                        hub_asset(asset_address.clone()),
+                    );
+                    let mut cfg: controller::types::SpokeAssetConfig =
+                        env.storage().persistent().get(&key).unwrap();
+                    cfg.liquidation_fees = pm.config.liquidation_fees;
+                    env.storage().persistent().set(&key, &cfg);
+                });
+            }
 
             if pm.configure_oracle {
                 mock_reflector_client.set_price(&asset_address, &pm.price_wad);
@@ -311,7 +347,16 @@ impl LendingTestBuilder {
 
         for emode in &self.pending_emodes {
             let id_val = gov.execute_immediate(&admin, &AdminOperation::AddSpoke);
-            let _id: u32 = u32::try_from_val(&env, &id_val).unwrap();
+            let id: u32 = u32::try_from_val(&env, &id_val).unwrap();
+            // The base harness spoke owns id 1, so e-mode categories start at 2 and
+            // must be declared in ascending creation order. Assert the auto-assigned
+            // spoke id matches the test's category id so `create_emode_account(.., id)`
+            // and `with_emode_asset(id, ..)` land on the spoke created here.
+            assert_eq!(
+                id, emode.category_id,
+                "e-mode category id must match its created spoke id (base spoke is {HARNESS_SPOKE}, e-mode ids start at {})",
+                HARNESS_SPOKE + 1
+            );
 
             // Assets in a builder spoke share the preset's risk params; tests
             // that need per-asset divergence use `t.add_asset_to_e_mode(..)`.
