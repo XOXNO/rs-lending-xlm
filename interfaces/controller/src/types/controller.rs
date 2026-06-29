@@ -34,10 +34,10 @@ impl AssetConfig {
 impl From<&SpokeAssetConfig> for AssetConfig {
     fn from(c: &SpokeAssetConfig) -> Self {
         Self {
-            loan_to_value: Bps::from(i128::from(c.loan_to_value_bps)),
-            liquidation_threshold: Bps::from(i128::from(c.liquidation_threshold_bps)),
-            liquidation_bonus: Bps::from(i128::from(c.liquidation_bonus_bps)),
-            liquidation_fees: Bps::from(i128::from(c.liquidation_fees_bps)),
+            loan_to_value: Bps::from(i128::from(c.loan_to_value)),
+            liquidation_threshold: Bps::from(i128::from(c.liquidation_threshold)),
+            liquidation_bonus: Bps::from(i128::from(c.liquidation_bonus)),
+            liquidation_fees: Bps::from(i128::from(c.liquidation_fees)),
             is_collateralizable: c.is_collateralizable,
             is_borrowable: c.is_borrowable,
         }
@@ -97,10 +97,10 @@ pub struct SpokeConfig {
 }
 
 /// Per-asset spoke configuration: collateral/borrow flags plus the risk
-/// parameters applied while the owning spoke is active. `*_bps` fields use
-/// basis points. `paused` blocks risk-increasing actions on this spoke-asset,
+/// parameters applied while the owning spoke is active. The risk-ratio fields
+/// are basis points. `paused` blocks risk-increasing actions on this spoke-asset,
 /// `frozen` additionally blocks position increases while still allowing exits,
-/// `liquidation_fees_bps` is the protocol fee taken from seized collateral, and
+/// `liquidation_fees` is the protocol fee taken from seized collateral, and
 /// `oracle_override` supplies an optional per-spoke price source over the
 /// token-rooted base.
 #[contracttype]
@@ -110,10 +110,10 @@ pub struct SpokeAssetConfig {
     pub is_borrowable: bool,
     pub paused: bool,
     pub frozen: bool,
-    pub loan_to_value_bps: u32,
-    pub liquidation_threshold_bps: u32,
-    pub liquidation_bonus_bps: u32,
-    pub liquidation_fees_bps: u32,
+    pub loan_to_value: u32,
+    pub liquidation_threshold: u32,
+    pub liquidation_bonus: u32,
+    pub liquidation_fees: u32,
     pub supply_cap: i128,
     pub borrow_cap: i128,
     pub oracle_override: MarketOracleConfigOption,
@@ -149,8 +149,8 @@ pub struct SpokeUsageRaw {
 #[derive(Clone, Debug)]
 pub struct MarketIndexView {
     pub asset: Address,
-    pub supply_index_ray: i128,
-    pub borrow_index_ray: i128,
+    pub supply_index: i128,
+    pub borrow_index: i128,
     pub price_wad: i128,
     pub safe_price_wad: i128,
     pub aggregator_price_wad: i128,
@@ -310,10 +310,10 @@ mod tests {
             is_borrowable: true,
             paused: false,
             frozen: false,
-            loan_to_value_bps: 7_500,
-            liquidation_threshold_bps: 8_000,
-            liquidation_bonus_bps: 500,
-            liquidation_fees_bps: 100,
+            loan_to_value: 7_500,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            liquidation_fees: 100,
             supply_cap: 0,
             borrow_cap: 0,
             oracle_override: MarketOracleConfigOption::None,
@@ -324,13 +324,13 @@ mod tests {
     fn test_asset_config_projects_spoke_asset_risk() {
         let spoke = sample_spoke_asset_config();
         let cfg = AssetConfig::from(&spoke);
-        assert_eq!(cfg.loan_to_value.raw() as u32, spoke.loan_to_value_bps);
+        assert_eq!(cfg.loan_to_value.raw() as u32, spoke.loan_to_value);
         assert_eq!(
             cfg.liquidation_threshold.raw() as u32,
-            spoke.liquidation_threshold_bps
+            spoke.liquidation_threshold
         );
-        assert_eq!(cfg.liquidation_bonus.raw() as u32, spoke.liquidation_bonus_bps);
-        assert_eq!(cfg.liquidation_fees.raw() as u32, spoke.liquidation_fees_bps);
+        assert_eq!(cfg.liquidation_bonus.raw() as u32, spoke.liquidation_bonus);
+        assert_eq!(cfg.liquidation_fees.raw() as u32, spoke.liquidation_fees);
         assert_eq!(cfg.is_collateralizable, spoke.is_collateralizable);
         assert_eq!(cfg.is_borrowable, spoke.is_borrowable);
     }
@@ -357,10 +357,10 @@ mod tests {
             is_borrowable: true,
             paused: false,
             frozen: false,
-            loan_to_value_bps: 9_000,
-            liquidation_threshold_bps: 9_300,
-            liquidation_bonus_bps: 300,
-            liquidation_fees_bps: 0,
+            loan_to_value: 9_000,
+            liquidation_threshold: 9_300,
+            liquidation_bonus: 300,
+            liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
             oracle_override: MarketOracleConfigOption::None,
@@ -375,7 +375,7 @@ mod tests {
         let asset = spoke_asset_config();
         assert!(asset.is_collateralizable);
         assert!(asset.is_borrowable);
-        assert_eq!(asset.loan_to_value_bps, 9_000);
+        assert_eq!(asset.loan_to_value, 9_000);
         assert!(asset.oracle_override.as_ref().is_none());
     }
 
@@ -434,10 +434,10 @@ mod tests {
         assert!(account.is_empty());
 
         let position = AccountPositionRaw {
-            scaled_amount_ray: 1,
-            liquidation_threshold_bps: 0,
-            liquidation_bonus_bps: 0,
-            loan_to_value_bps: 0,
+            scaled_amount: 1,
+            liquidation_threshold: 0,
+            liquidation_bonus: 0,
+            loan_to_value: 0,
         };
         account.supply_positions.set(
             HubAssetKey {
@@ -458,10 +458,10 @@ mod tests {
             asset: Address::generate(&env),
         };
         let stored = AccountPositionRaw {
-            scaled_amount_ray: 42 * common::constants::RAY,
-            liquidation_threshold_bps: 8_000,
-            liquidation_bonus_bps: 500,
-            loan_to_value_bps: 7_500,
+            scaled_amount: 42 * common::constants::RAY,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
         };
         account
             .supply_positions
@@ -469,7 +469,7 @@ mod tests {
 
         let cfg = AssetConfig::from(&sample_spoke_asset_config());
         let got = account.get_or_create_supply_position(&hub_asset, &cfg);
-        assert_eq!(got.scaled_amount.raw(), stored.scaled_amount_ray);
+        assert_eq!(got.scaled_amount.raw(), stored.scaled_amount);
     }
 
     #[test]

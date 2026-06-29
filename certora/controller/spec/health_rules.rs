@@ -26,7 +26,7 @@ fn inline_total_borrow_wad(env: &Env, cache: &mut crate::cache::Cache, account_i
         let market_index = cache.cached_market_index(&hub_asset);
         let value = crate::helpers::position_value(
             env,
-            Ray::from(position.scaled_amount_ray),
+            Ray::from(position.scaled_amount),
             market_index.borrow_index,
             feed.price,
         );
@@ -49,14 +49,14 @@ fn inline_weighted_collateral_wad(
         let market_index = cache.cached_market_index(&hub_asset);
         let value = crate::helpers::position_value(
             env,
-            Ray::from(position.scaled_amount_ray),
+            Ray::from(position.scaled_amount),
             market_index.supply_index,
             feed.price,
         );
         weighted += crate::helpers::weighted_collateral(
             env,
             value,
-            Bps::from(position.liquidation_threshold_bps),
+            Bps::from(position.liquidation_threshold),
         );
     }
     weighted
@@ -172,7 +172,7 @@ fn scaled_supply_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
     account
         .supply_positions
         .get(hub0(asset))
-        .map(|p| p.scaled_amount_ray)
+        .map(|p| p.scaled_amount)
         .unwrap_or(0)
 }
 
@@ -182,7 +182,7 @@ fn scaled_borrow_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
     account
         .borrow_positions
         .get(hub0(asset))
-        .map(|p| p.scaled_amount_ray)
+        .map(|p| p.scaled_amount)
         .unwrap_or(0)
 }
 

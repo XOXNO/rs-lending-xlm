@@ -24,7 +24,7 @@ fn valid_params(asset: Address) -> MarketParams {
         supply_cap: 0,
         borrow_cap: 0,
         is_flashloanable: false,
-        flashloan_fee_bps: 0,
+        flashloan_fee: 0,
         asset_id: asset,
         asset_decimals: 7,
     }
@@ -167,11 +167,11 @@ fn simulate_indexes_no_time_noop(
     let sync = PoolSyncData {
         params: (&valid_params(asset)).into(),
         state: PoolStateRaw {
-            supplied_ray: supplied,
-            borrowed_ray: borrowed,
-            revenue_ray: 0,
-            borrow_index_ray: borrow_index,
-            supply_index_ray: supply_index,
+            supplied: supplied,
+            borrowed: borrowed,
+            revenue: 0,
+            borrow_index: borrow_index,
+            supply_index: supply_index,
             last_timestamp: timestamp,
             cash: supplied.saturating_sub(borrowed),
         },

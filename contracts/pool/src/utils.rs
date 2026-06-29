@@ -50,11 +50,11 @@ pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
         return;
     }
 
-    let cap_ray = Ray::from_asset(supply_cap, cache.params.asset_decimals);
+    let cap = Ray::from_asset(supply_cap, cache.params.asset_decimals);
     let next_total = (cache.supplied + scaled_delta).mul(env, cache.supply_index);
     assert_with_error!(
         env,
-        next_total <= cap_ray,
+        next_total <= cap,
         CollateralError::SupplyCapReached
     );
 }
@@ -66,11 +66,11 @@ pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
         return;
     }
 
-    let cap_ray = Ray::from_asset(borrow_cap, cache.params.asset_decimals);
+    let cap = Ray::from_asset(borrow_cap, cache.params.asset_decimals);
     let next_total = (cache.borrowed + scaled_delta).mul(env, cache.borrow_index);
     assert_with_error!(
         env,
-        next_total <= cap_ray,
+        next_total <= cap,
         CollateralError::BorrowCapReached
     );
 }
@@ -83,15 +83,15 @@ pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestR
         .get(&key)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
 
-    params.max_borrow_rate_ray = m.max_borrow_rate_ray;
-    params.base_borrow_rate_ray = m.base_borrow_rate_ray;
-    params.slope1_ray = m.slope1_ray;
-    params.slope2_ray = m.slope2_ray;
-    params.slope3_ray = m.slope3_ray;
-    params.mid_utilization_ray = m.mid_utilization_ray;
-    params.optimal_utilization_ray = m.optimal_utilization_ray;
-    params.max_utilization_ray = m.max_utilization_ray;
-    params.reserve_factor_bps = m.reserve_factor_bps;
+    params.max_borrow_rate = m.max_borrow_rate;
+    params.base_borrow_rate = m.base_borrow_rate;
+    params.slope1 = m.slope1;
+    params.slope2 = m.slope2;
+    params.slope3 = m.slope3;
+    params.mid_utilization = m.mid_utilization;
+    params.optimal_utilization = m.optimal_utilization;
+    params.max_utilization = m.max_utilization;
+    params.reserve_factor = m.reserve_factor;
 
     env.storage().persistent().set(&key, &params);
 }
@@ -156,8 +156,8 @@ pub(crate) fn apply_liquidation_fee(
         gross_amount >= protocol_fee,
         CollateralError::WithdrawLessThanFee
     );
-    let fee_ray = Ray::from_asset(protocol_fee, cache.params.asset_decimals);
-    interest::add_protocol_revenue_ray(cache, fee_ray);
+    let fee = Ray::from_asset(protocol_fee, cache.params.asset_decimals);
+    interest::add_protocol_revenue(cache, fee);
     gross_amount
         .checked_sub(protocol_fee)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))

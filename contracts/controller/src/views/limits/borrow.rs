@@ -224,12 +224,12 @@ fn borrow_ok(
     let existing = adjusted
         .borrow_positions
         .get(hub_asset.clone())
-        .map(|r| Ray::from(r.scaled_amount_ray))
+        .map(|r| Ray::from(r.scaled_amount))
         .unwrap_or(Ray::ZERO);
     adjusted.borrow_positions.set(
         hub_asset.clone(),
         DebtPositionRaw {
-            scaled_amount_ray: (existing + new_scaled).raw(),
+            scaled_amount: (existing + new_scaled).raw(),
         },
     );
     account_gates_ok(env, cache, &adjusted)

@@ -36,10 +36,10 @@ pub fn get_position(
             get_debt_positions(env, account_id)
                 .get(hub_asset)
                 .map(|debt| AccountPositionRaw {
-                    scaled_amount_ray: debt.scaled_amount_ray,
-                    liquidation_threshold_bps: 0,
-                    liquidation_bonus_bps: 0,
-                    loan_to_value_bps: 0,
+                    scaled_amount: debt.scaled_amount,
+                    liquidation_threshold: 0,
+                    liquidation_bonus: 0,
+                    loan_to_value: 0,
                 })
         }
     }
@@ -95,8 +95,8 @@ pub mod market_index {
             .get_sync_data(&hub0(asset))
             .state;
         MarketIndex {
-            borrow_index: Ray::from(state.borrow_index_ray),
-            supply_index: Ray::from(state.supply_index_ray),
+            borrow_index: Ray::from(state.borrow_index),
+            supply_index: Ray::from(state.supply_index),
         }
     }
 }
@@ -138,7 +138,7 @@ pub mod positions {
         asset: &Address,
     ) -> i128 {
         super::get_position(env, account_id, position_type, asset)
-            .map(|position| position.scaled_amount_ray)
+            .map(|position| position.scaled_amount)
             .unwrap_or(0)
     }
 

@@ -163,12 +163,12 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
         let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
         let index = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
         assert!(
-            index.supply_index_ray >= RAY,
+            index.supply_index >= RAY,
             "{} supply index should be >= 1.0 RAY",
             asset
         );
         assert!(
-            index.borrow_index_ray >= RAY,
+            index.borrow_index >= RAY,
             "{} borrow index should be >= 1.0 RAY",
             asset
         );
@@ -489,11 +489,11 @@ fn test_chaos_keeper_revenue_lifecycle() {
         .get(0)
         .unwrap();
     assert!(
-        usdc_index.borrow_index_ray > RAY,
+        usdc_index.borrow_index > RAY,
         "USDC borrow index should increase"
     );
     assert!(
-        eth_index.borrow_index_ray > RAY,
+        eth_index.borrow_index > RAY,
         "ETH borrow index should increase"
     );
 

@@ -237,7 +237,7 @@ pub(crate) fn simulate_update_indexes_body(
         supply_index = update_supply_index(env, supplied, supply_index, supplier_rewards);
         borrow_index = new_borrow_index;
 
-        // Mirror `add_protocol_revenue_ray`: the fee mints scaled supply, which
+        // Mirror `add_protocol_revenue`: the fee mints scaled supply, which
         // feeds the next chunk's utilization.
         if protocol_fee != Ray::ZERO
             && supply_index.raw() > SUPPLY_INDEX_FLOOR_RAW

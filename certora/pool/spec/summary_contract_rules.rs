@@ -16,19 +16,19 @@ fn hub(asset: Address) -> HubAssetKey {
 
 fn params(asset: Address) -> MarketParamsRaw {
     MarketParamsRaw {
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY / 2,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_borrow_rate_ray: 2 * RAY,
-        max_utilization_ray: RAY,
-        reserve_factor_bps: 1_000,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY / 2,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_borrow_rate: 2 * RAY,
+        max_utilization: RAY,
+        reserve_factor: 1_000,
         supply_cap: 0,
         borrow_cap: 0,
         is_flashloanable: false,
-        flashloan_fee_bps: 0,
+        flashloan_fee: 0,
         asset_id: asset,
         asset_decimals: 7,
     }
@@ -36,11 +36,11 @@ fn params(asset: Address) -> MarketParamsRaw {
 
 fn state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolStateRaw {
     PoolStateRaw {
-        supplied_ray: supplied,
-        borrowed_ray: borrowed,
-        revenue_ray: revenue,
-        borrow_index_ray: RAY,
-        supply_index_ray: RAY,
+        supplied: supplied,
+        borrowed: borrowed,
+        revenue: revenue,
+        borrow_index: RAY,
+        supply_index: RAY,
         last_timestamp: timestamp * 1000,
         cash: supplied.saturating_sub(borrowed),
     }
@@ -58,7 +58,7 @@ fn seed(env: &Env, admin: Address, asset: Address, state: PoolStateRaw) {
 
 fn position(scaled: i128) -> ScaledPositionRaw {
     ScaledPositionRaw {
-        scaled_amount_ray: scaled,
+        scaled_amount: scaled,
     }
 }
 
@@ -128,9 +128,9 @@ fn supply_satisfies_controller_summary_contract(
     let result = supply_first(&e, action(before.clone(), amount, asset), i128::MAX);
 
     cvlr_assert!(result.actual_amount == amount);
-    cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
-    cvlr_assert!(result.market_index.borrow_index_ray >= RAY);
-    cvlr_assert!(result.market_index.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(result.position.scaled_amount >= before.scaled_amount);
+    cvlr_assert!(result.market_index.borrow_index >= RAY);
+    cvlr_assert!(result.market_index.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
 #[rule]
@@ -153,9 +153,9 @@ fn borrow_satisfies_controller_summary_contract(
     let result = borrow_first(&e, caller, action(before.clone(), amount, asset), i128::MAX);
 
     cvlr_assert!(result.actual_amount == amount);
-    cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
-    cvlr_assert!(result.market_index.borrow_index_ray >= RAY);
-    cvlr_assert!(result.market_index.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(result.position.scaled_amount >= before.scaled_amount);
+    cvlr_assert!(result.market_index.borrow_index >= RAY);
+    cvlr_assert!(result.market_index.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
 #[rule]
@@ -184,8 +184,8 @@ fn withdraw_satisfies_controller_summary_contract(
     // holds unconditionally — matching the summary's bound.
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
-    cvlr_assert!(result.position.scaled_amount_ray <= before.scaled_amount_ray);
-    cvlr_assert!(result.position.scaled_amount_ray >= 0);
+    cvlr_assert!(result.position.scaled_amount <= before.scaled_amount);
+    cvlr_assert!(result.position.scaled_amount >= 0);
 }
 
 #[rule]
@@ -211,8 +211,8 @@ fn repay_satisfies_controller_summary_contract(
 
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
-    cvlr_assert!(result.position.scaled_amount_ray <= before.scaled_amount_ray);
-    cvlr_assert!(result.position.scaled_amount_ray >= 0);
+    cvlr_assert!(result.position.scaled_amount <= before.scaled_amount);
+    cvlr_assert!(result.position.scaled_amount >= 0);
 }
 
 #[rule]
@@ -243,9 +243,9 @@ fn create_strategy_satisfies_controller_summary_contract(
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.amount_received == amount - fee);
-    cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
-    cvlr_assert!(result.market_index.borrow_index_ray >= RAY);
-    cvlr_assert!(result.market_index.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(result.position.scaled_amount >= before.scaled_amount);
+    cvlr_assert!(result.market_index.borrow_index >= RAY);
+    cvlr_assert!(result.market_index.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
 #[rule]
@@ -269,7 +269,7 @@ fn seize_position_satisfies_controller_summary_contract(
         AccountPositionType::Borrow,
         position(scaled),
     );
-    cvlr_assert!(result.position.scaled_amount_ray == 0);
+    cvlr_assert!(result.position.scaled_amount == 0);
 }
 
 #[rule]
@@ -336,11 +336,11 @@ fn view_state(
     timestamp: u64,
 ) -> PoolStateRaw {
     PoolStateRaw {
-        supplied_ray: supplied,
-        borrowed_ray: borrowed,
-        revenue_ray: revenue,
-        borrow_index_ray: borrow_index,
-        supply_index_ray: supply_index,
+        supplied: supplied,
+        borrowed: borrowed,
+        revenue: revenue,
+        borrow_index: borrow_index,
+        supply_index: supply_index,
         last_timestamp: timestamp * 1000,
         cash,
     }
@@ -445,7 +445,7 @@ fn protocol_revenue_view_nonneg(
     cvlr_assert!(crate::LiquidityPool::get_revenue(e, hub(asset)) >= 0);
 }
 
-/// `get_revenue <= get_supplied_amount` when `revenue_ray <= supplied_ray`.
+/// `get_revenue <= get_supplied_amount` when `revenue <= supplied`.
 #[rule]
 fn protocol_revenue_le_supplied_view(
     e: Env,

@@ -34,14 +34,14 @@ pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u
 pub(crate) fn validate_asset_config(env: &Env, config: &SpokeAssetConfig) {
     validate_risk_bounds(
         env,
-        config.loan_to_value_bps,
-        config.liquidation_threshold_bps,
-        config.liquidation_bonus_bps,
+        config.loan_to_value,
+        config.liquidation_threshold,
+        config.liquidation_bonus,
     );
 
     assert_with_error!(
         env,
-        i128::from(config.liquidation_fees_bps) <= BPS,
+        i128::from(config.liquidation_fees) <= BPS,
         CollateralError::InvalidLiqThreshold
     );
 }

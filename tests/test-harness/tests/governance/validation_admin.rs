@@ -15,19 +15,19 @@ use test_harness::{hub_asset, usdc_preset, LendingTest, DEFAULT_TOLERANCE};
 
 fn baseline_irm() -> InterestRateModel {
     InterestRateModel {
-        max_borrow_rate_ray: 2 * RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY * 4 / 100,
-        slope2_ray: RAY * 10 / 100,
-        slope3_ray: RAY * 150 / 100,
-        mid_utilization_ray: RAY * 50 / 100,
-        optimal_utilization_ray: RAY * 80 / 100,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1000,
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 150 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
     }
 }
 
-// base_borrow_rate_ray < 0 -> BaseRateNegative (#128).
+// base_borrow_rate < 0 -> BaseRateNegative (#128).
 #[test]
 #[should_panic(expected = "Error(Contract, #128)")]
 fn test_validate_irm_rejects_negative_base_rate() {
@@ -35,7 +35,7 @@ fn test_validate_irm_rejects_negative_base_rate() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut irm = baseline_irm();
-    irm.base_borrow_rate_ray = -1;
+    irm.base_borrow_rate = -1;
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
@@ -45,7 +45,7 @@ fn test_validate_irm_rejects_negative_base_rate() {
     );
 }
 
-// mid_utilization_ray <= 0 rejects InvalidUtilRange (#117).
+// mid_utilization <= 0 rejects InvalidUtilRange (#117).
 #[test]
 #[should_panic(expected = "Error(Contract, #117)")]
 fn test_validate_irm_rejects_zero_mid_utilization() {
@@ -53,7 +53,7 @@ fn test_validate_irm_rejects_zero_mid_utilization() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut irm = baseline_irm();
-    irm.mid_utilization_ray = 0;
+    irm.mid_utilization = 0;
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
@@ -63,7 +63,7 @@ fn test_validate_irm_rejects_zero_mid_utilization() {
     );
 }
 
-// optimal_utilization_ray <= mid_utilization_ray rejects #117.
+// optimal_utilization <= mid_utilization rejects #117.
 #[test]
 #[should_panic(expected = "Error(Contract, #117)")]
 fn test_validate_irm_rejects_optimal_not_above_mid() {
@@ -71,7 +71,7 @@ fn test_validate_irm_rejects_optimal_not_above_mid() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut irm = baseline_irm();
-    irm.optimal_utilization_ray = irm.mid_utilization_ray;
+    irm.optimal_utilization = irm.mid_utilization;
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
@@ -81,7 +81,7 @@ fn test_validate_irm_rejects_optimal_not_above_mid() {
     );
 }
 
-// optimal_utilization_ray >= RAY rejects OptUtilTooHigh (#118).
+// optimal_utilization >= RAY rejects OptUtilTooHigh (#118).
 #[test]
 #[should_panic(expected = "Error(Contract, #118)")]
 fn test_validate_irm_rejects_optimal_at_or_above_ray() {
@@ -89,7 +89,7 @@ fn test_validate_irm_rejects_optimal_at_or_above_ray() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut irm = baseline_irm();
-    irm.optimal_utilization_ray = RAY;
+    irm.optimal_utilization = RAY;
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
@@ -99,7 +99,7 @@ fn test_validate_irm_rejects_optimal_at_or_above_ray() {
     );
 }
 
-// reserve_factor_bps >= BPS rejects InvalidReserveFactor (#119).
+// reserve_factor >= BPS rejects InvalidReserveFactor (#119).
 #[test]
 #[should_panic(expected = "Error(Contract, #119)")]
 fn test_validate_irm_rejects_reserve_factor_at_bps() {
@@ -107,7 +107,7 @@ fn test_validate_irm_rejects_reserve_factor_at_bps() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut irm = baseline_irm();
-    irm.reserve_factor_bps = BPS as u32;
+    irm.reserve_factor = BPS as u32;
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
@@ -129,9 +129,9 @@ fn test_validate_asset_config_rejects_excessive_liq_bonus() {
     let admin = t.admin();
     let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &hub_asset(asset.clone()));
     // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
-    cfg.loan_to_value_bps = 8000;
-    cfg.liquidation_threshold_bps = 9500;
-    cfg.liquidation_bonus_bps = 1000;
+    cfg.loan_to_value = 8000;
+    cfg.liquidation_threshold = 9500;
+    cfg.liquidation_bonus = 1000;
     t.gov_client()
         .execute_immediate(&admin, &AdminOperation::EditAssetConfig(hub_asset(asset), cfg));
 }
@@ -145,9 +145,9 @@ fn test_validate_asset_config_accepts_high_bonus_low_threshold() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &hub_asset(asset.clone()));
-    cfg.loan_to_value_bps = 4000;
-    cfg.liquidation_threshold_bps = 5000;
-    cfg.liquidation_bonus_bps = 5000;
+    cfg.loan_to_value = 4000;
+    cfg.liquidation_threshold = 5000;
+    cfg.liquidation_bonus = 5000;
     t.gov_client()
         .execute_immediate(&admin, &AdminOperation::EditAssetConfig(hub_asset(asset), cfg));
 }

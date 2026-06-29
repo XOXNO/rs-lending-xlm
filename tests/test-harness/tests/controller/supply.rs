@@ -377,8 +377,8 @@ fn test_third_party_supply_cannot_force_low_threshold_update() {
     let usdc = t.resolve_asset("USDC");
 
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value_bps = 5000;
-        c.liquidation_threshold_bps = 6100;
+        c.loan_to_value = 5000;
+        c.liquidation_threshold = 6100;
     });
 
     t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
@@ -388,7 +388,7 @@ fn test_third_party_supply_cannot_force_low_threshold_update() {
     let position = supplies.get(hub_asset(usdc))
         .expect("USDC supply position should remain");
     assert_eq!(
-        position.liquidation_threshold_bps, 8000,
+        position.liquidation_threshold, 8000,
         "supply must not force a lower LT snapshot while HF is below the update buffer"
     );
 }

@@ -14,8 +14,8 @@ const UNIT: i128 = 10_000_000; // 1.0 at the presets' 7 decimals
 const PPS_SCALAR: i128 = 1_000_000_000_000;
 const RAY: i128 = 1_000_000_000_000_000_000_000_000_000;
 
-fn pps_from_supply_index(supply_index_ray: i128) -> i128 {
-    supply_index_ray / (RAY / PPS_SCALAR)
+fn pps_from_supply_index(supply_index: i128) -> i128 {
+    supply_index / (RAY / PPS_SCALAR)
 }
 
 fn flatten_strategy_result<T>(
@@ -140,7 +140,7 @@ impl StrategyTest {
             .t
             .ctrl_client()
             .get_market_index(&hub_asset(self.asset.clone()))
-            .supply_index_ray;
+            .supply_index;
         pps_from_supply_index(index)
     }
 

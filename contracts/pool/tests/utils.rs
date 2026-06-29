@@ -33,19 +33,19 @@ impl TestSetup {
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
         let params = MarketParamsRaw {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY / 10,
-            slope2_ray: RAY / 5,
-            slope3_ray: RAY / 2,
-            mid_utilization_ray: RAY / 2,
-            optimal_utilization_ray: RAY * 8 / 10,
-            max_utilization_ray: RAY * 95 / 100,
-            reserve_factor_bps: 1_000,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY / 10,
+            slope2: RAY / 5,
+            slope3: RAY / 2,
+            mid_utilization: RAY / 2,
+            optimal_utilization: RAY * 8 / 10,
+            max_utilization: RAY * 95 / 100,
+            reserve_factor: 1_000,
             supply_cap: 0,
             borrow_cap: 0,
             is_flashloanable: false,
-            flashloan_fee_bps: 0,
+            flashloan_fee: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
@@ -150,7 +150,7 @@ fn test_require_utilization_below_max_early_returns_when_max_util_ge_one() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut params = t.params.clone();
-        params.max_utilization_ray = RAY;
+        params.max_utilization = RAY;
         let cache = cache_with(&t.env, &params, 10 * RAY, 11 * RAY, 0);
         require_utilization_below_max(&t.env, &cache);
     });

@@ -138,8 +138,8 @@ fn test_liquidation_collateral_extraction_via_averaging() {
     // Raise ETH LTV and threshold to make the position very sensitive.
     // Apply this before supplying so the position records these values.
     t.edit_asset_config("ETH", |c| {
-        c.loan_to_value_bps = 9450;
-        c.liquidation_threshold_bps = 9500;
+        c.loan_to_value = 9450;
+        c.liquidation_threshold = 9500;
     });
 
     // Use a loose tolerance to allow a wide 10% averaging band.

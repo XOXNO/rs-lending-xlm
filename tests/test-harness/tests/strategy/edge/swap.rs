@@ -57,8 +57,8 @@ fn test_swap_debt_health_factor_guard_after_swap() {
             .persistent()
             .get(&key)
             .expect("USDC spoke listing should exist");
-        config.loan_to_value_bps = 9000;
-        config.liquidation_threshold_bps = 5000;
+        config.loan_to_value = 9000;
+        config.liquidation_threshold = 5000;
         t.env.storage().persistent().set(&key, &config);
     });
 

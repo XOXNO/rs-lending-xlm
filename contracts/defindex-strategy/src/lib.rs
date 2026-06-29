@@ -126,12 +126,12 @@ impl<'a> Ctx<'a> {
 
     fn harvest_price_per_share(&self) -> Result<i128, DeFindexStrategyError> {
         // dimensional: supply index is D27{Token(asset)/Share(asset, supply)}.
-        let supply_index_ray = self
+        let supply_index = self
             .controller
             .get_market_index(&self.hub_asset())
-            .supply_index_ray;
+            .supply_index;
         // dimensional: D27{Token/Share} / D15{1} = D12{Token/Share}.
-        supply_index_ray
+        supply_index
             .checked_div(RAY_PER_PPS)
             .ok_or(DeFindexStrategyError::ArithmeticError)
     }

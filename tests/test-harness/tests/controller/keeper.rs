@@ -15,7 +15,7 @@ fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u
             .expect("supply side map should exist");
         map.get(hub_asset(asset))
             .expect("supply position should exist for asset")
-            .liquidation_threshold_bps
+            .liquidation_threshold
     })
 }
 
@@ -33,9 +33,9 @@ fn supply_risk_fields(t: &LendingTest, account_id: u64, asset_name: &str) -> (u3
             .get(hub_asset(asset))
             .expect("supply position should exist for asset");
         (
-            p.liquidation_threshold_bps,
-            p.liquidation_bonus_bps,
-            p.loan_to_value_bps,
+            p.liquidation_threshold,
+            p.liquidation_bonus,
+            p.loan_to_value,
         )
     })
 }
@@ -343,8 +343,8 @@ fn test_update_account_threshold_rejects_low_hf() {
     // threshold > LTV).
     // $10k * 61% = $6100 weighted collateral / $6000 debt = HF ~1.017 < 1.05.
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value_bps = 5000;
-        c.liquidation_threshold_bps = 6100;
+        c.loan_to_value = 5000;
+        c.liquidation_threshold = 6100;
     });
 
     let result = t.try_update_account_threshold(true, &[account_id]);
@@ -398,12 +398,12 @@ fn test_update_account_threshold_syncs_all_supply_assets() {
     assert_ne!(eth_threshold_before, 6100);
 
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value_bps = 5000;
-        c.liquidation_threshold_bps = 6100;
+        c.loan_to_value = 5000;
+        c.liquidation_threshold = 6100;
     });
     t.edit_asset_config("ETH", |c| {
-        c.loan_to_value_bps = 5000;
-        c.liquidation_threshold_bps = 6100;
+        c.loan_to_value = 5000;
+        c.liquidation_threshold = 6100;
     });
 
     t.update_account_threshold(true, &[account_id]);

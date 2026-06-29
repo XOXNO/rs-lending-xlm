@@ -4,8 +4,8 @@ use soroban_sdk::{contractevent, contracttype, Address, Env, Vec};
 /// Pool market accounting snapshot emitted after successful pool mutations.
 ///
 /// Field order is wire ABI; do not reorder:
-/// `[asset, timestamp, supply_index_ray, borrow_index_ray, reserves_ray,
-///   supplied_ray, borrowed_ray, revenue_ray]`.
+/// `[asset, timestamp, supply_index, borrow_index, cash,
+///   supplied, borrowed, revenue]`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolMarketStateEvent(
@@ -24,12 +24,12 @@ impl From<&MarketStateSnapshot> for PoolMarketStateEvent {
         Self(
             s.hub_asset.asset.clone(),
             s.timestamp,
-            s.supply_index_ray,
-            s.borrow_index_ray,
-            s.reserves_ray,
-            s.supplied_ray,
-            s.borrowed_ray,
-            s.revenue_ray,
+            s.supply_index,
+            s.borrow_index,
+            s.cash,
+            s.supplied,
+            s.borrowed,
+            s.revenue,
         )
     }
 }

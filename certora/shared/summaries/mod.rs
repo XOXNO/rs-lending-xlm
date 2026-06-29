@@ -32,13 +32,13 @@ pub fn token_price_summary(cache: &mut Cache, _asset: &Address) -> PriceFeedRaw 
 /// Pool market index for one asset: indexes >= production floors. Models the
 /// pool's `bulk_get_indexes` accrual that the controller caches.
 pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
-    let supply_index_ray: i128 = nondet();
-    let borrow_index_ray: i128 = nondet();
-    cvlr_assume!(supply_index_ray >= common::constants::SUPPLY_INDEX_FLOOR_RAW);
-    cvlr_assume!(borrow_index_ray >= common::constants::RAY);
+    let supply_index: i128 = nondet();
+    let borrow_index: i128 = nondet();
+    cvlr_assume!(supply_index >= common::constants::SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assume!(borrow_index >= common::constants::RAY);
     MarketIndexRaw {
-        supply_index_ray,
-        borrow_index_ray,
+        supply_index,
+        borrow_index,
     }
 }
 

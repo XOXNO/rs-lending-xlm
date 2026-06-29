@@ -93,17 +93,17 @@ fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
     let max_util = optimal + (RAY - optimal) * (i.max_util_pct as i128) / 256; // [optimal, RAY)
 
     MarketParamsRaw {
-        max_borrow_rate_ray: max_rate,
-        base_borrow_rate_ray: base,
-        slope1_ray: s1,
-        slope2_ray: s2,
-        slope3_ray: s3,
-        mid_utilization_ray: mid,
-        optimal_utilization_ray: optimal,
-        max_utilization_ray: max_util,
+        max_borrow_rate: max_rate,
+        base_borrow_rate: base,
+        slope1: s1,
+        slope2: s2,
+        slope3: s3,
+        mid_utilization: mid,
+        optimal_utilization: optimal,
+        max_utilization: max_util,
         // `reserve_pct % BPS` would be a no-op (u8 max 255). Scale the byte
         // across the full verified range [0, BPS), hitting the BPS-1 boundary.
-        reserve_factor_bps: (i.reserve_pct as u32) * (BPS as u32 - 1) / (u8::MAX as u32),
+        reserve_factor: (i.reserve_pct as u32) * (BPS as u32 - 1) / (u8::MAX as u32),
         supply_cap: 0,
         borrow_cap: 0,
         asset_id: Address::from_str(
@@ -213,7 +213,7 @@ fn assert_interest_split(
 
     // Zero reserve factor ⇒ no protocol fee.
     if params.reserve_factor.raw() == 0 {
-        assert_eq!(fee.raw(), 0, "fee non-zero with reserve_factor_bps=0");
+        assert_eq!(fee.raw(), 0, "fee non-zero with reserve_factor=0");
     }
 
     // Half-up bound on Bps::apply_to: |fee*BPS - rf*accrued| ≤ BPS/2 + 1.
@@ -311,12 +311,12 @@ fuzz_target!(|i: In| {
     let sync = PoolSyncData {
         params: params_raw,
         state: PoolStateRaw {
-            supplied_ray: supplied_raw,
-            borrowed_ray: borrowed_raw,
-            revenue_ray: 0,
+            supplied: supplied_raw,
+            borrowed: borrowed_raw,
+            revenue: 0,
             cash: 0,
-            borrow_index_ray: start_borrow_index,
-            supply_index_ray: start_supply_index,
+            borrow_index: start_borrow_index,
+            supply_index: start_supply_index,
             last_timestamp: 0,
         },
     };

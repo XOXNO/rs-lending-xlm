@@ -47,15 +47,15 @@ fn test_detailed_indexes_view_matches_pool_simulation() {
         let view = views.get_unchecked(i as u32);
 
         assert!(
-            expected.borrow_index_ray > controller::constants::RAY,
+            expected.borrow_index > controller::constants::RAY,
             "market must have accrued for the equality to be meaningful"
         );
         assert_eq!(
-            view.borrow_index_ray, expected.borrow_index_ray,
+            view.borrow_index, expected.borrow_index,
             "bulk-seeded borrow index must equal the lazy simulation"
         );
         assert_eq!(
-            view.supply_index_ray, expected.supply_index_ray,
+            view.supply_index, expected.supply_index,
             "bulk-seeded supply index must equal the lazy simulation"
         );
     }

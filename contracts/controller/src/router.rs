@@ -201,15 +201,15 @@ pub fn create_liquidity_pool(
     // dimensional: event fields preserve raw Ray rate/utilization and Bps reserve-factor inputs.
     CreateMarketEvent {
         base_asset: asset.clone(),
-        max_borrow_rate: params.max_borrow_rate_ray,
-        base_borrow_rate: params.base_borrow_rate_ray,
-        slope1: params.slope1_ray,
-        slope2: params.slope2_ray,
-        slope3: params.slope3_ray,
-        mid_utilization: params.mid_utilization_ray,
-        optimal_utilization: params.optimal_utilization_ray,
-        max_utilization: params.max_utilization_ray,
-        reserve_factor: params.reserve_factor_bps,
+        max_borrow_rate: params.max_borrow_rate,
+        base_borrow_rate: params.base_borrow_rate,
+        slope1: params.slope1,
+        slope2: params.slope2,
+        slope3: params.slope3,
+        mid_utilization: params.mid_utilization,
+        optimal_utilization: params.optimal_utilization,
+        max_utilization: params.max_utilization,
+        reserve_factor: params.reserve_factor,
         market_address: pool_address.clone(),
         config: config.clone(),
     }
@@ -261,15 +261,15 @@ pub fn upgrade_liquidity_pool_params(
     // dimensional: event fields mirror the raw Ray and Bps governance update.
     UpdateMarketParamsEvent {
         asset: hub_asset.asset.clone(),
-        max_borrow_rate_ray: params.max_borrow_rate_ray,
-        base_borrow_rate_ray: params.base_borrow_rate_ray,
-        slope1_ray: params.slope1_ray,
-        slope2_ray: params.slope2_ray,
-        slope3_ray: params.slope3_ray,
-        mid_utilization_ray: params.mid_utilization_ray,
-        optimal_utilization_ray: params.optimal_utilization_ray,
-        max_utilization_ray: params.max_utilization_ray,
-        reserve_factor_bps: params.reserve_factor_bps,
+        max_borrow_rate: params.max_borrow_rate,
+        base_borrow_rate: params.base_borrow_rate,
+        slope1: params.slope1,
+        slope2: params.slope2,
+        slope3: params.slope3,
+        mid_utilization: params.mid_utilization,
+        optimal_utilization: params.optimal_utilization,
+        max_utilization: params.max_utilization,
+        reserve_factor: params.reserve_factor,
     }
     .publish(env);
 }
@@ -412,15 +412,15 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
             validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));
         let mut updated_pos = position;
 
-        // dimensional: raw risk params are Bps snapshots; scaled_amount_ray is unchanged.
+        // dimensional: raw risk params are Bps snapshots; scaled_amount is unchanged.
         let cfg_lt = asset_config.liquidation_threshold.raw() as u32;
         let cfg_ltv = asset_config.loan_to_value.raw() as u32;
         let cfg_bonus = asset_config.liquidation_bonus.raw() as u32;
         if has_risks {
-            updated_pos.liquidation_threshold_bps = cfg_lt;
+            updated_pos.liquidation_threshold = cfg_lt;
         } else {
-            updated_pos.loan_to_value_bps = cfg_ltv;
-            updated_pos.liquidation_bonus_bps = cfg_bonus;
+            updated_pos.loan_to_value = cfg_ltv;
+            updated_pos.liquidation_bonus = cfg_bonus;
         }
 
         let updated = AccountPosition::from(&updated_pos);

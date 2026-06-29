@@ -56,16 +56,16 @@ fn sizes(label: &str, key_scval: ScVal, value_scval: ScVal) {
 
 fn pos() -> AccountPositionRaw {
     AccountPositionRaw {
-        scaled_amount_ray: i128::MAX / 2,
-        liquidation_threshold_bps: 9000,
-        liquidation_bonus_bps: 10500,
-        loan_to_value_bps: 8000,
+        scaled_amount: i128::MAX / 2,
+        liquidation_threshold: 9000,
+        liquidation_bonus: 10500,
+        loan_to_value: 8000,
     }
 }
 
 fn debt() -> DebtPositionRaw {
     DebtPositionRaw {
-        scaled_amount_ray: i128::MAX / 2,
+        scaled_amount: i128::MAX / 2,
     }
 }
 

@@ -192,8 +192,8 @@ fn deprecated_emode_allows_withdraw(
     );
     cvlr_assume!(position.is_some());
     let pos_before = position.unwrap();
-    cvlr_assume!(pos_before.scaled_amount_ray > 0);
-    let scaled_before = pos_before.scaled_amount_ray;
+    cvlr_assume!(pos_before.scaled_amount > 0);
+    let scaled_before = pos_before.scaled_amount;
 
     let mut withdrawals: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     withdrawals.push_back((hub0(&asset), amount));
@@ -210,7 +210,7 @@ fn deprecated_emode_allows_withdraw(
             cvlr_assert!(true);
         }
         Some(pos_after) => {
-            cvlr_assert!(pos_after.scaled_amount_ray < scaled_before);
+            cvlr_assert!(pos_after.scaled_amount < scaled_before);
         }
     }
 }
@@ -234,11 +234,11 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     // config is the spoke's `SpokeAssetConfig` projected to `AssetConfig`.
     let asset_config = crate::emode::effective_asset_config(&e, category_id, &hub_asset);
 
-    cvlr_assert!(asset_config.loan_to_value.raw() == i128::from(cfg.loan_to_value_bps));
+    cvlr_assert!(asset_config.loan_to_value.raw() == i128::from(cfg.loan_to_value));
     cvlr_assert!(
-        asset_config.liquidation_threshold.raw() == i128::from(cfg.liquidation_threshold_bps)
+        asset_config.liquidation_threshold.raw() == i128::from(cfg.liquidation_threshold)
     );
-    cvlr_assert!(asset_config.liquidation_bonus.raw() == i128::from(cfg.liquidation_bonus_bps));
+    cvlr_assert!(asset_config.liquidation_bonus.raw() == i128::from(cfg.liquidation_bonus));
 
     cvlr_assert!(asset_config.is_collateralizable == cfg.is_collateralizable);
     cvlr_assert!(asset_config.is_borrowable == cfg.is_borrowable);
@@ -253,7 +253,7 @@ fn emode_asset_has_valid_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(spoke_asset.is_some());
     let cfg = spoke_asset.unwrap();
 
-    cvlr_assert!(cfg.liquidation_threshold_bps > cfg.loan_to_value_bps);
+    cvlr_assert!(cfg.liquidation_threshold > cfg.loan_to_value);
 }
 
 /// `add_asset_to_spoke` persists only assets with threshold > LTV.
@@ -285,7 +285,7 @@ fn add_asset_enforces_valid_bounds(
     );
 
     let cfg = crate::storage::get_spoke_asset(&e, category_id, &hub0(&asset)).unwrap();
-    cvlr_assert!(cfg.liquidation_threshold_bps > cfg.loan_to_value_bps);
+    cvlr_assert!(cfg.liquidation_threshold > cfg.loan_to_value);
 }
 
 /// `edit_asset_in_spoke` leaves threshold > LTV in storage.
@@ -317,7 +317,7 @@ fn edit_asset_enforces_valid_bounds(
     );
 
     let cfg = crate::storage::get_spoke_asset(&e, category_id, &hub0(&asset)).unwrap();
-    cvlr_assert!(cfg.liquidation_threshold_bps > cfg.loan_to_value_bps);
+    cvlr_assert!(cfg.liquidation_threshold > cfg.loan_to_value);
 }
 
 /// `remove_spoke` deprecates the spoke.

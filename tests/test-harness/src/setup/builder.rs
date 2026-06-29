@@ -88,7 +88,7 @@ impl LendingTestBuilder {
 
     pub fn with_max_utilization_disabled_all_markets(mut self) -> Self {
         for pm in &mut self.pending_markets {
-            pm.params.max_utilization_ray = controller::constants::RAY;
+            pm.params.max_utilization = controller::constants::RAY;
         }
         self
     }
@@ -251,7 +251,7 @@ impl LendingTestBuilder {
             // Flash-loan eligibility/fee live on the pool `MarketParamsRaw` in the
             // spoke model; thread them from the asset-config preset the test set.
             market_params.is_flashloanable = pm.config.is_flashloanable;
-            market_params.flashloan_fee_bps = pm.config.flashloan_fee_bps;
+            market_params.flashloan_fee = pm.config.flashloan_fee;
             let asset_config = pm.config.to_asset_config(&env, pm.decimals);
             gov.execute_immediate(&admin, &AdminOperation::ApproveToken(asset_address.clone()));
             let pool_address_val = gov.execute_immediate(

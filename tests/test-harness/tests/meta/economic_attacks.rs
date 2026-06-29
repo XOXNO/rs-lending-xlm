@@ -8,7 +8,7 @@ use test_harness::{
 // to inflate the share price. The next depositor's deposit gets
 // rounded down to ~0 shares.
 //
-// In this protocol the supply ledger is index-driven (`supplied_ray`
+// In this protocol the supply ledger is index-driven (`supplied`
 // stored as a rate-tracked total, not a token-balance lookup) — a raw
 // token mint to the pool address does not affect the supply tracker,
 // so the share price stays constant and victim's supply is preserved.

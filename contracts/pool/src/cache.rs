@@ -71,11 +71,11 @@ impl Cache {
     /// revenue, last accrual timestamp) back to the asset-keyed persistent slot.
     pub fn save(&self) {
         let state = PoolStateRaw {
-            supplied_ray: self.supplied.raw(),
-            borrowed_ray: self.borrowed.raw(),
-            revenue_ray: self.revenue.raw(),
-            borrow_index_ray: self.borrow_index.raw(),
-            supply_index_ray: self.supply_index.raw(),
+            supplied: self.supplied.raw(),
+            borrowed: self.borrowed.raw(),
+            revenue: self.revenue.raw(),
+            borrow_index: self.borrow_index.raw(),
+            supply_index: self.supply_index.raw(),
             last_timestamp: self.last_timestamp,
             cash: self.cash,
         };
@@ -148,15 +148,13 @@ impl Cache {
     /// Converts an asset amount into scaled supply shares at the current index.
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {
         // dimensional: Token(asset) / Ray<Index(asset, supply)> -> Ray<Share(asset, supply)>.
-        let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
-        amount_ray.div(&self.env, self.supply_index)
+        Ray::from_asset(amount, self.params.asset_decimals).div(&self.env, self.supply_index)
     }
 
     /// Converts an asset amount into scaled debt shares at the current index.
     pub fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
         // dimensional: Token(asset) / Ray<Index(asset, debt)> -> Ray<Share(asset, debt)>.
-        let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
-        amount_ray.div(&self.env, self.borrow_index)
+        Ray::from_asset(amount, self.params.asset_decimals).div(&self.env, self.borrow_index)
     }
 
     /// Converts scaled supply shares to asset units using half-up rounding.
@@ -186,7 +184,7 @@ impl Cache {
     }
 
     /// Converts scaled debt shares to underlying debt in RAY.
-    pub fn unscale_borrow_ray(&self, scaled: Ray) -> Ray {
+    pub fn unscale_borrow_exact(&self, scaled: Ray) -> Ray {
         scaled_to_original(&self.env, scaled, self.borrow_index)
     }
 
@@ -253,8 +251,8 @@ impl Cache {
     /// Current borrow and supply indexes in event/wire form.
     pub fn market_index(&self) -> MarketIndexRaw {
         MarketIndexRaw {
-            borrow_index_ray: self.borrow_index.raw(),
-            supply_index_ray: self.supply_index.raw(),
+            borrow_index: self.borrow_index.raw(),
+            supply_index: self.supply_index.raw(),
         }
     }
 
@@ -263,13 +261,13 @@ impl Cache {
         MarketStateSnapshot {
             hub_asset: self.hub_asset.clone(),
             timestamp: self.current_timestamp,
-            supply_index_ray: self.supply_index.raw(),
-            borrow_index_ray: self.borrow_index.raw(),
-            // Carries asset-native `cash`, not a RAY value; field name is wire ABI.
-            reserves_ray: self.cash,
-            supplied_ray: self.supplied.raw(),
-            borrowed_ray: self.borrowed.raw(),
-            revenue_ray: self.revenue.raw(),
+            supply_index: self.supply_index.raw(),
+            borrow_index: self.borrow_index.raw(),
+            // Asset-native cash, not a scaled RAY share like the sibling fields.
+            cash: self.cash,
+            supplied: self.supplied.raw(),
+            borrowed: self.borrowed.raw(),
+            revenue: self.revenue.raw(),
         }
     }
 
@@ -278,7 +276,7 @@ impl Cache {
         PoolPositionMutation {
             position: ScaledPositionRaw {
                 // dimensional: Ray<Share(asset, side)> raw.
-                scaled_amount_ray: scaled.raw(),
+                scaled_amount: scaled.raw(),
             },
             market_index: self.market_index(),
             // dimensional: Token(asset) actual amount.
@@ -301,7 +299,7 @@ impl Cache {
         PoolStrategyMutation {
             position: ScaledPositionRaw {
                 // dimensional: Ray<Share(asset, debt)> raw.
-                scaled_amount_ray: scaled.raw(),
+                scaled_amount: scaled.raw(),
             },
             market_index: self.market_index(),
             // dimensional: Token(asset) borrowed amount before fee.

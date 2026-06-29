@@ -104,7 +104,7 @@ impl SpokeUsageContext {
             env,
             &usage,
             delta_scaled,
-            Ray::from(market_index.supply_index_ray),
+            Ray::from(market_index.supply_index),
             cfg.supply_cap,
             decimals,
         );
@@ -132,7 +132,7 @@ impl SpokeUsageContext {
             env,
             &usage,
             delta_scaled,
-            Ray::from(market_index.borrow_index_ray),
+            Ray::from(market_index.borrow_index),
             cfg.borrow_cap,
             decimals,
         );

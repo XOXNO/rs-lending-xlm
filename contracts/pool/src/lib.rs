@@ -89,7 +89,7 @@ fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
     require_nonneg_amount(env, action.amount);
     let cache = synced_market_cache(env, &action.hub_asset);
     // dimensional: action position is Ray<Share(asset, side)>; amount is Token(asset).
-    let scaled = Ray::from(action.position.scaled_amount_ray);
+    let scaled = Ray::from(action.position.scaled_amount);
     (cache, scaled, action.amount)
 }
 
@@ -291,11 +291,11 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         let state = PoolStateRaw {
             // dimensional: zero Ray<Share> totals, unit Ray<Index> indexes, Token(asset) cash.
-            supplied_ray: 0,
-            borrowed_ray: 0,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: RAY,
+            supplied: 0,
+            borrowed: 0,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
             last_timestamp: now_ms(&env),
             cash: 0,
         };
@@ -360,9 +360,12 @@ impl LiquidityPoolInterface for LiquidityPool {
         );
 
         // dimensional: Token(asset) rewards -> Ray<Token(asset)> for supply-index growth.
-        let amount_ray = Ray::from_asset(amount, cache.params.asset_decimals);
-        cache.supply_index =
-            update_supply_index(&env, cache.supplied, cache.supply_index, amount_ray);
+        cache.supply_index = update_supply_index(
+            &env,
+            cache.supplied,
+            cache.supply_index,
+            Ray::from_asset(amount, cache.params.asset_decimals),
+        );
         // Controller transferred Token(asset) reward `amount` into the pool.
         cache.credit_cash(amount);
 
@@ -440,8 +443,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         );
 
         // dimensional: Token(asset) fee -> Ray<Token(asset)> -> revenue supply shares.
-        let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
-        interest::add_protocol_revenue_ray(&mut cache, fee_ray);
+        let protocol_fee = Ray::from_asset(fee, cache.params.asset_decimals);
+        interest::add_protocol_revenue(&mut cache, protocol_fee);
         // Net token effect: pool sends `amount` and receives `amount + fee`, so
         // `cash` increases by `fee`. Direct transfers are balance-checked above.
         cache.credit_cash(fee);
@@ -473,12 +476,12 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         let mut cache = load_synced_cache(&env, &hub_asset);
         // dimensional: strategy position is Ray<Share(asset, debt)>.
-        let mut scaled = Ray::from(position.scaled_amount_ray);
+        let mut scaled = Ray::from(position.scaled_amount);
         accrue_borrow(&env, &mut cache, &mut scaled, amount);
 
         // dimensional: Token(asset) fee -> Ray<Token(asset)> -> revenue supply shares.
-        let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
-        interest::add_protocol_revenue_ray(&mut cache, fee_ray);
+        let protocol_fee = Ray::from_asset(fee, cache.params.asset_decimals);
+        interest::add_protocol_revenue(&mut cache, protocol_fee);
 
         // dimensional: Token(asset) sent is borrow amount minus Token(asset) fee.
         let amount_to_send = amount
@@ -505,12 +508,12 @@ impl LiquidityPoolInterface for LiquidityPool {
     ) -> PoolPositionMutation {
         let mut cache = load_synced_cache(&env, &hub_asset);
 
-        let scaled = Ray::from(position.scaled_amount_ray);
+        let scaled = Ray::from(position.scaled_amount);
         match side {
             AccountPositionType::Borrow => {
                 // dimensional: seized debt becomes Ray<Token(asset)> bad debt, not scaled shares.
-                let current_debt_ray = cache.unscale_borrow_ray(scaled);
-                interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
+                let current_debt = cache.unscale_borrow_exact(scaled);
+                interest::apply_bad_debt_to_supply_index(&mut cache, current_debt);
                 cache.borrowed.checked_sub_assign(&env, scaled);
             }
             AccountPositionType::Deposit => {

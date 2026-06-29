@@ -301,8 +301,8 @@ pub fn get_all_market_indexes_detailed(
         // dimensional: indexes are Ray<Index(asset, side)>; prices are Wad<USD/asset>.
         result.push_back(MarketIndexView {
             asset: hub_asset.asset,
-            supply_index_ray: index.supply_index.raw(),
-            borrow_index_ray: index.borrow_index.raw(),
+            supply_index: index.supply_index.raw(),
+            borrow_index: index.borrow_index.raw(),
             price_wad: components.final_price_wad,
             safe_price_wad,
             aggregator_price_wad,

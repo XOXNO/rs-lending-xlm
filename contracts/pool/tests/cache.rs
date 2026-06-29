@@ -32,19 +32,19 @@ impl TestSetup {
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
         let params = MarketParamsRaw {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY / 10,
-            slope2_ray: RAY / 5,
-            slope3_ray: RAY / 2,
-            mid_utilization_ray: RAY / 2,
-            optimal_utilization_ray: RAY * 8 / 10,
-            max_utilization_ray: RAY * 95 / 100,
-            reserve_factor_bps: 1_000,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY / 10,
+            slope2: RAY / 5,
+            slope3: RAY / 2,
+            mid_utilization: RAY / 2,
+            optimal_utilization: RAY * 8 / 10,
+            max_utilization: RAY * 95 / 100,
+            reserve_factor: 1_000,
             supply_cap: 0,
             borrow_cap: 0,
             is_flashloanable: false,
-            flashloan_fee_bps: 0,
+            flashloan_fee: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
@@ -203,8 +203,8 @@ fn test_market_index_reflects_current_indexes() {
     t.as_contract(|| {
         let cache = cache_with(&t.env, &t.params, 0, 0, 0, 2 * RAY, 3 * RAY);
         let idx = cache.market_index();
-        assert_eq!(idx.supply_index_ray, 2 * RAY);
-        assert_eq!(idx.borrow_index_ray, 3 * RAY);
+        assert_eq!(idx.supply_index, 2 * RAY);
+        assert_eq!(idx.borrow_index, 3 * RAY);
     });
 }
 
@@ -265,7 +265,7 @@ fn test_position_mutation_builder_includes_scaled_and_actual() {
     t.as_contract(|| {
         let cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
         let m = cache.position_mutation(Ray::from(42 * RAY), 123);
-        assert_eq!(m.position.scaled_amount_ray, 42 * RAY);
+        assert_eq!(m.position.scaled_amount, 42 * RAY);
         assert_eq!(m.actual_amount, 123);
     });
 }

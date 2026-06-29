@@ -53,11 +53,11 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
 
     // Protocol fee is added to revenue and scaled supplied; later chunks in the
     // same accrual use diluted utilization.
-    add_protocol_revenue_ray(cache, protocol_fee);
+    add_protocol_revenue(cache, protocol_fee);
 }
 
 /// Adds a RAY-denominated fee as scaled protocol revenue.
-pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
+pub fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
     if fee == Ray::ZERO {
         return;
     }

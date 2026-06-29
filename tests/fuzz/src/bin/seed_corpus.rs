@@ -45,24 +45,24 @@ struct ExtractedFields {
 
 #[derive(Debug, Clone, Default)]
 struct MarketParamsFields {
-    base_borrow_rate_ray: Option<i128>,
-    slope1_ray: Option<i128>,
-    slope2_ray: Option<i128>,
-    slope3_ray: Option<i128>,
-    mid_utilization_ray: Option<i128>,
-    optimal_utilization_ray: Option<i128>,
-    max_borrow_rate_ray: Option<i128>,
-    reserve_factor_bps: Option<i128>,
+    base_borrow_rate: Option<i128>,
+    slope1: Option<i128>,
+    slope2: Option<i128>,
+    slope3: Option<i128>,
+    mid_utilization: Option<i128>,
+    optimal_utilization: Option<i128>,
+    max_borrow_rate: Option<i128>,
+    reserve_factor: Option<i128>,
     asset_decimals: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct MarketStateFields {
-    supply_index_ray: Option<i128>,
-    borrow_index_ray: Option<i128>,
-    supplied_ray: Option<i128>,
-    borrowed_ray: Option<i128>,
-    revenue_ray: Option<i128>,
+    supply_index: Option<i128>,
+    borrow_index: Option<i128>,
+    supplied: Option<i128>,
+    borrowed: Option<i128>,
+    revenue: Option<i128>,
     last_timestamp: Option<u64>,
 }
 // Walking + parsing
@@ -268,14 +268,14 @@ fn extract_market_params(val: &Value) -> MarketParamsFields {
     let mut p = MarketParamsFields::default();
     for (sym, v) in soroban_map_entries(val) {
         match sym.as_str() {
-            "base_borrow_rate_ray" => p.base_borrow_rate_ray = extract_i128(v),
-            "slope1_ray" => p.slope1_ray = extract_i128(v),
-            "slope2_ray" => p.slope2_ray = extract_i128(v),
-            "slope3_ray" => p.slope3_ray = extract_i128(v),
-            "mid_utilization_ray" => p.mid_utilization_ray = extract_i128(v),
-            "optimal_utilization_ray" => p.optimal_utilization_ray = extract_i128(v),
-            "max_borrow_rate_ray" => p.max_borrow_rate_ray = extract_i128(v),
-            "reserve_factor_bps" => p.reserve_factor_bps = extract_i128(v),
+            "base_borrow_rate" => p.base_borrow_rate = extract_i128(v),
+            "slope1" => p.slope1 = extract_i128(v),
+            "slope2" => p.slope2 = extract_i128(v),
+            "slope3" => p.slope3 = extract_i128(v),
+            "mid_utilization" => p.mid_utilization = extract_i128(v),
+            "optimal_utilization" => p.optimal_utilization = extract_i128(v),
+            "max_borrow_rate" => p.max_borrow_rate = extract_i128(v),
+            "reserve_factor" => p.reserve_factor = extract_i128(v),
             "asset_decimals" => p.asset_decimals = extract_u32(v),
             _ => {}
         }
@@ -287,11 +287,11 @@ fn extract_market_state(val: &Value) -> MarketStateFields {
     let mut s = MarketStateFields::default();
     for (sym, v) in soroban_map_entries(val) {
         match sym.as_str() {
-            "supply_index_ray" => s.supply_index_ray = extract_i128(v),
-            "borrow_index_ray" => s.borrow_index_ray = extract_i128(v),
-            "supplied_ray" => s.supplied_ray = extract_i128(v),
-            "borrowed_ray" => s.borrowed_ray = extract_i128(v),
-            "revenue_ray" => s.revenue_ray = extract_i128(v),
+            "supply_index" => s.supply_index = extract_i128(v),
+            "borrow_index" => s.borrow_index = extract_i128(v),
+            "supplied" => s.supplied = extract_i128(v),
+            "borrowed" => s.borrowed = extract_i128(v),
+            "revenue" => s.revenue = extract_i128(v),
             "last_timestamp" => s.last_timestamp = extract_u64(v),
             _ => {}
         }
@@ -358,7 +358,7 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
     // path the protocol actually hits during compounding.
     let mut pairs: Vec<(i128, i128)> = Vec::new();
     for s in &f.market_states {
-        if let (Some(a), Some(b)) = (s.supply_index_ray, s.borrow_index_ray) {
+        if let (Some(a), Some(b)) = (s.supply_index, s.borrow_index) {
             pairs.push((a, b));
         }
     }
@@ -491,37 +491,37 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
         // decoder step by step using the decoded (not raw) running value.
         let pick = |v: Option<i128>| v.unwrap_or(0).max(0);
 
-        let base_r = pick(p.base_borrow_rate_ray).min(CAP);
+        let base_r = pick(p.base_borrow_rate).min(CAP);
         let base_pct = (base_r * 1_024 / CAP).clamp(0, 255) as u8;
         let dbase = CAP * base_pct as i128 / 1_024;
 
-        let s1_r = pick(p.slope1_ray).clamp(dbase, CAP);
+        let s1_r = pick(p.slope1).clamp(dbase, CAP);
         let s1_pct = ((s1_r - dbase) * 256 / (CAP - dbase).max(1)).clamp(0, 255) as u8;
         let ds1 = dbase + (CAP - dbase) * s1_pct as i128 / 256;
 
-        let s2_r = pick(p.slope2_ray).clamp(ds1, CAP);
+        let s2_r = pick(p.slope2).clamp(ds1, CAP);
         let s2_pct = ((s2_r - ds1) * 256 / (CAP - ds1).max(1)).clamp(0, 255) as u8;
         let ds2 = ds1 + (CAP - ds1) * s2_pct as i128 / 256;
 
-        let s3_r = pick(p.slope3_ray).clamp(ds2, CAP);
+        let s3_r = pick(p.slope3).clamp(ds2, CAP);
         let s3_pct = ((s3_r - ds2) * 65_536 / (CAP - ds2).max(1)).clamp(0, 65_535) as u16;
         let ds3 = ds2 + (CAP - ds2) * s3_pct as i128 / 65_536;
 
-        let max_r = pick(p.max_borrow_rate_ray).clamp(ds3, CAP);
+        let max_r = pick(p.max_borrow_rate).clamp(ds3, CAP);
         let max_pct = ((max_r - ds3) * 65_536 / (CAP - ds3).max(1)).clamp(0, 65_535) as u16;
 
         // Breakpoints: the decoder recovers the percentage via `% N + 1`, so
         // write (percentage − 1).
-        let mid_p = (pick(p.mid_utilization_ray) * 100 / RAY).clamp(1, 98);
+        let mid_p = (pick(p.mid_utilization) * 100 / RAY).clamp(1, 98);
         let mid_pct = (mid_p - 1) as u8;
         let dmid = RAY * mid_p / 100;
-        let opt_frac = (101 * (pick(p.optimal_utilization_ray) - dmid).max(0)
+        let opt_frac = (101 * (pick(p.optimal_utilization) - dmid).max(0)
             / (RAY - dmid).max(1))
         .clamp(1, 99);
         let opt_pct = (opt_frac - 1) as u8;
 
         let reserve_pct =
-            (pick(p.reserve_factor_bps).clamp(0, BPS - 1) * 255 / (BPS - 1)).clamp(0, 255) as u8;
+            (pick(p.reserve_factor).clamp(0, BPS - 1) * 255 / (BPS - 1)).clamp(0, 255) as u8;
 
         // Keep seed count per market param bounded: 4 utils × 2 max-utils × 4
         // deltas × 4 borroweds = 128. Times ~1.4k snapshots → ~180k total seeds.
@@ -571,14 +571,14 @@ fn pack_pool_native(f: &ExtractedFields) -> Vec<Vec<u8>> {
 
     for p in f.market_params.iter().take(12) {
         params.push((
-            to_pct(p.base_borrow_rate_ray, 1),
-            to_pct(p.slope1_ray, 4),
-            to_pct(p.slope2_ray, 10),
-            to_pct(p.slope3_ray, 150) as u16,
-            to_pct(p.mid_utilization_ray, 50),
-            to_pct(p.optimal_utilization_ray, 80),
-            to_pct(p.max_borrow_rate_ray, 200) as u16,
-            p.reserve_factor_bps
+            to_pct(p.base_borrow_rate, 1),
+            to_pct(p.slope1, 4),
+            to_pct(p.slope2, 10),
+            to_pct(p.slope3, 150) as u16,
+            to_pct(p.mid_utilization, 50),
+            to_pct(p.optimal_utilization, 80),
+            to_pct(p.max_borrow_rate, 200) as u16,
+            p.reserve_factor
                 .map(|r| (r / 100).clamp(0, 50) as u8)
                 .unwrap_or(10),
         ));

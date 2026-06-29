@@ -179,7 +179,7 @@ fn test_revenue_accrues_over_time() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
     // Seed real ETH supply so revenue accrual isn't short-circuited by the
-    // empty-pool guard in `add_protocol_revenue_ray`.
+    // empty-pool guard in `add_protocol_revenue`.
     t.supply(BOB, "ETH", 50.0);
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);

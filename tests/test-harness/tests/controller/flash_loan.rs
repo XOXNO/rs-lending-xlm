@@ -14,7 +14,7 @@ fn raw_units(t: &LendingTest, asset_name: &str, units: i128) -> i128 {
 
 fn flash_fee(t: &LendingTest, asset_name: &str, amount: i128) -> i128 {
     let config = t.get_asset_config(asset_name);
-    Bps::from(config.flashloan_fee_bps).flash_loan_fee_on(&t.env, amount)
+    Bps::from(config.flashloan_fee).flash_loan_fee_on(&t.env, amount)
 }
 
 fn flash_guard_cleared(t: &LendingTest) -> bool {
@@ -248,7 +248,7 @@ fn test_flash_loan_fee_config_matches_default_preset() {
 
     let config = t.get_asset_config("USDC");
     assert_eq!(
-        config.flashloan_fee_bps, 9,
+        config.flashloan_fee, 9,
         "USDC preset flash-loan fee must be 9 BPS (0.09%)"
     );
     assert!(
@@ -283,7 +283,7 @@ fn test_flash_loan_tiny_amount_charges_min_fee_when_bps_positive() {
         "tiny flash loan should succeed: {:?}",
         result
     );
-    assert_eq!(fee, 1, "positive flashloan_fee_bps must charge at least 1");
+    assert_eq!(fee, 1, "positive flashloan_fee must charge at least 1");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before + fee);
 }
 // 12. test_flash_loan_allows_zero_fee_when_configured_zero
@@ -292,7 +292,7 @@ fn test_flash_loan_tiny_amount_charges_min_fee_when_bps_positive() {
 fn test_flash_loan_allows_zero_fee_when_configured_zero() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_market_config("USDC", |config| config.flashloan_fee_bps = 0)
+        .with_market_config("USDC", |config| config.flashloan_fee = 0)
         .build();
 
     t.supply(ALICE, "USDC", 100.0);

@@ -262,15 +262,15 @@ pub struct CreateMarketEvent {
 #[derive(Clone, Debug)]
 pub struct UpdateMarketParamsEvent {
     pub asset: Address,
-    pub max_borrow_rate_ray: i128,
-    pub base_borrow_rate_ray: i128,
-    pub slope1_ray: i128,
-    pub slope2_ray: i128,
-    pub slope3_ray: i128,
-    pub mid_utilization_ray: i128,
-    pub optimal_utilization_ray: i128,
-    pub max_utilization_ray: i128,
-    pub reserve_factor_bps: u32,
+    pub max_borrow_rate: i128,
+    pub base_borrow_rate: i128,
+    pub slope1: i128,
+    pub slope2: i128,
+    pub slope3: i128,
+    pub mid_utilization: i128,
+    pub optimal_utilization: i128,
+    pub max_utilization: i128,
+    pub reserve_factor: u32,
 }
 
 /// Position action stored as a stable `u32` discriminant.
@@ -335,7 +335,7 @@ impl EventDepositDelta {
 /// Debt-side position delta; no collateral risk params on this side.
 ///
 /// Field order is wire ABI; do not reorder:
-/// `[action, asset, scaled_amount_ray, index_ray, amount]`.
+/// `[action, asset, scaled_amount, index_ray, amount]`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventBorrowDelta(

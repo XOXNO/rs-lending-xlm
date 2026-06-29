@@ -21,10 +21,10 @@ fn sample_spoke_asset() -> SpokeAssetConfig {
         is_borrowable: true,
         paused: false,
         frozen: false,
-        loan_to_value_bps: 9_000,
-        liquidation_threshold_bps: 9_300,
-        liquidation_bonus_bps: 300,
-        liquidation_fees_bps: 0,
+        loan_to_value: 9_000,
+        liquidation_threshold: 9_300,
+        liquidation_bonus: 300,
+        liquidation_fees: 0,
         supply_cap: 0,
         borrow_cap: 0,
         oracle_override: MarketOracleConfigOption::None,
@@ -73,7 +73,7 @@ fn test_spoke_asset_discrete_key_roundtrip() {
 
         set_spoke_asset(&env, 1, &hub_asset, &sample_spoke_asset());
         let stored = get_spoke_asset(&env, 1, &hub_asset).expect("config present after write");
-        assert_eq!(stored.loan_to_value_bps, 9_000);
+        assert_eq!(stored.loan_to_value, 9_000);
         assert!(stored.oracle_override.as_ref().is_none());
 
         remove_spoke_asset(&env, 1, &hub_asset);

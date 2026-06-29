@@ -212,7 +212,7 @@ pub(crate) fn finish_withdrawal(
 ) {
     let mut result_position = get_supply_position_or_panic(env, account, hub_asset);
     let old_scaled = result_position.scaled_amount;
-    result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
+    result_position.scaled_amount = Ray::from(result.position.scaled_amount);
     // dimensional: scaled delta is Ray<Share(asset, supply)>.
     if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
         let delta = old_scaled - result_position.scaled_amount;
@@ -231,7 +231,7 @@ pub(crate) fn finish_withdrawal(
     cache.record_position_update(
         action,
         &hub_asset.asset,
-        result.market_index.supply_index_ray,
+        result.market_index.supply_index,
         result.actual_amount,
         &result_position,
     );

@@ -32,19 +32,19 @@ impl TestSetup {
             .register_stellar_asset_contract_v2(admin.clone())
             .address();
         let params = MarketParamsRaw {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY / 10,
-            slope2_ray: RAY / 5,
-            slope3_ray: RAY / 2,
-            mid_utilization_ray: RAY / 2,
-            optimal_utilization_ray: RAY * 8 / 10,
-            max_utilization_ray: RAY * 95 / 100,
-            reserve_factor_bps: 1_000,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY / 10,
+            slope2: RAY / 5,
+            slope3: RAY / 2,
+            mid_utilization: RAY / 2,
+            optimal_utilization: RAY * 8 / 10,
+            max_utilization: RAY * 95 / 100,
+            reserve_factor: 1_000,
             supply_cap: 0,
             borrow_cap: 0,
             is_flashloanable: false,
-            flashloan_fee_bps: 0,
+            flashloan_fee: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
@@ -70,7 +70,7 @@ impl TestSetup {
 fn make_action(position_scaled: i128, amount: i128, asset: &Address) -> PoolAction {
     PoolAction {
         position: ScaledPositionRaw {
-            scaled_amount_ray: position_scaled,
+            scaled_amount: position_scaled,
         },
         amount,
         hub_asset: hub(asset),
@@ -106,5 +106,5 @@ fn test_add_rewards_emits_snapshot_and_increases_supply_index() {
 
     client.add_rewards(&hub(&t.asset), &10_000_000);
     let snap = client.get_sync_data(&hub(&t.asset)).state;
-    assert!(snap.supply_index_ray > RAY);
+    assert!(snap.supply_index > RAY);
 }

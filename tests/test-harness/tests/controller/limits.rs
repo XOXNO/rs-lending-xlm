@@ -90,7 +90,7 @@ fn test_max_withdraw_bounded_by_utilization_and_executable() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market_params("USDC", |p| {
-            p.max_utilization_ray = RAY * 85 / 100;
+            p.max_utilization = RAY * 85 / 100;
         })
         .build();
 
@@ -278,8 +278,8 @@ fn test_get_market_index_and_balance_views_survive_oracle_outage() {
 
     let after = t.ctrl_client().get_market_index(&hub_asset(asset.clone()));
     assert!(
-        after.borrow_index_ray > before.borrow_index_ray
-            && after.supply_index_ray > before.supply_index_ray,
+        after.borrow_index > before.borrow_index
+            && after.supply_index > before.supply_index,
         "indexes must accrue in the view despite the stale oracle"
     );
 

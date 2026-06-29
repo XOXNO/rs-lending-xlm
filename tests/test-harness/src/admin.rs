@@ -47,9 +47,9 @@ impl LendingTest {
             spoke_id: 0,
             can_collateral: config.is_collateralizable,
             can_borrow: config.is_borrowable,
-            ltv: config.loan_to_value_bps,
-            threshold: config.liquidation_threshold_bps,
-            bonus: config.liquidation_bonus_bps,
+            ltv: config.loan_to_value,
+            threshold: config.liquidation_threshold,
+            bonus: config.liquidation_bonus,
             supply_cap: 0,
             borrow_cap: 0,
         });
@@ -64,7 +64,7 @@ impl LendingTest {
                 .get(&key)
                 .expect("pool params must exist");
             params.is_flashloanable = config.is_flashloanable;
-            params.flashloan_fee_bps = config.flashloan_fee_bps;
+            params.flashloan_fee = config.flashloan_fee;
             self.env.storage().persistent().set(&key, &params);
         });
     }

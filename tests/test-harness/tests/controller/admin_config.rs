@@ -50,17 +50,17 @@ fn test_edit_asset_config() {
 
     // Change LTV from default 7500 to 6000.
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value_bps = 6000;
+        c.loan_to_value = 6000;
     });
 
     let config = t.get_asset_config("USDC");
     assert_eq!(
-        config.loan_to_value_bps, 6000,
+        config.loan_to_value, 6000,
         "LTV should be updated to 6000"
     );
     // Threshold must remain unchanged.
     assert_eq!(
-        config.liquidation_threshold_bps, 8000,
+        config.liquidation_threshold, 8000,
         "threshold should remain 8000"
     );
 }
@@ -135,15 +135,15 @@ fn test_upgrade_pool_params() {
     t.upgrade_pool_params(
         "USDC",
         InterestRateModel {
-            max_borrow_rate_ray: RAY * 2,
-            base_borrow_rate_ray: new_base_rate,
-            slope1_ray: new_slope1,
-            slope2_ray: RAY * 10 / 100,
-            slope3_ray: RAY * 150 / 100,
-            mid_utilization_ray: RAY * 50 / 100,
-            optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: controller::constants::RAY * 95 / 100,
-            reserve_factor_bps: 1000,
+            max_borrow_rate: RAY * 2,
+            base_borrow_rate: new_base_rate,
+            slope1: new_slope1,
+            slope2: RAY * 10 / 100,
+            slope3: RAY * 150 / 100,
+            mid_utilization: RAY * 50 / 100,
+            optimal_utilization: RAY * 80 / 100,
+            max_utilization: controller::constants::RAY * 95 / 100,
+            reserve_factor: 1000,
         },
     );
 
@@ -170,15 +170,15 @@ fn test_upgrade_liquidity_pool_params_alias() {
     ctrl.upgrade_liquidity_pool_params(
         &hub_asset(asset.clone()),
         &InterestRateModel {
-            max_borrow_rate_ray: RAY * 2,
-            base_borrow_rate_ray: RAY * 2 / 100,
-            slope1_ray: RAY * 8 / 100,
-            slope2_ray: RAY * 10 / 100,
-            slope3_ray: RAY * 150 / 100,
-            mid_utilization_ray: RAY * 50 / 100,
-            optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: controller::constants::RAY * 95 / 100,
-            reserve_factor_bps: 1000,
+            max_borrow_rate: RAY * 2,
+            base_borrow_rate: RAY * 2 / 100,
+            slope1: RAY * 8 / 100,
+            slope2: RAY * 10 / 100,
+            slope3: RAY * 150 / 100,
+            mid_utilization: RAY * 50 / 100,
+            optimal_utilization: RAY * 80 / 100,
+            max_utilization: controller::constants::RAY * 95 / 100,
+            reserve_factor: 1000,
         },
     );
 
@@ -190,9 +190,9 @@ fn test_upgrade_liquidity_pool_params_alias() {
         rate_after
     );
 }
-// 6b. Regression: `max_borrow_rate_ray` cap (Taylor envelope)
+// 6b. Regression: `max_borrow_rate` cap (Taylor envelope)
 //
-// `pool::update_params` rejects any `max_borrow_rate_ray > 2 * RAY` to keep
+// `pool::update_params` rejects any `max_borrow_rate > 2 * RAY` to keep
 // `compound_interest`'s 8-term Taylor approximation inside its documented
 // `< 0.01 %` accuracy envelope. See `architecture/MATH_REVIEW.md §0`.
 
@@ -205,15 +205,15 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
     t.upgrade_pool_params(
         "USDC",
         InterestRateModel {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY * 4 / 100,
-            slope2_ray: RAY * 10 / 100,
-            slope3_ray: RAY * 150 / 100,
-            mid_utilization_ray: RAY * 50 / 100,
-            optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: controller::constants::RAY * 95 / 100,
-            reserve_factor_bps: 1000,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY * 4 / 100,
+            slope2: RAY * 10 / 100,
+            slope3: RAY * 150 / 100,
+            mid_utilization: RAY * 50 / 100,
+            optimal_utilization: RAY * 80 / 100,
+            max_utilization: controller::constants::RAY * 95 / 100,
+            reserve_factor: 1000,
         },
     );
     // The IRM was rewritten — confirm the borrow rate remains readable

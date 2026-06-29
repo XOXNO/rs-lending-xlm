@@ -14,51 +14,51 @@ use common::rates::{
 };
 
 fn nondet_valid_params(e: &Env) -> MarketParams {
-    let base_borrow_rate_ray: i128 = cvlr::nondet::nondet();
-    let slope1_ray: i128 = cvlr::nondet::nondet();
-    let slope2_ray: i128 = cvlr::nondet::nondet();
-    let slope3_ray: i128 = cvlr::nondet::nondet();
-    let mid_utilization_ray: i128 = cvlr::nondet::nondet();
-    let optimal_utilization_ray: i128 = cvlr::nondet::nondet();
-    let max_utilization_ray: i128 = cvlr::nondet::nondet();
-    cvlr_assume!(max_utilization_ray >= optimal_utilization_ray && max_utilization_ray <= RAY);
-    let max_borrow_rate_ray: i128 = cvlr::nondet::nondet();
-    let reserve_factor_bps: u32 = cvlr::nondet::nondet();
+    let base_borrow_rate: i128 = cvlr::nondet::nondet();
+    let slope1: i128 = cvlr::nondet::nondet();
+    let slope2: i128 = cvlr::nondet::nondet();
+    let slope3: i128 = cvlr::nondet::nondet();
+    let mid_utilization: i128 = cvlr::nondet::nondet();
+    let optimal_utilization: i128 = cvlr::nondet::nondet();
+    let max_utilization: i128 = cvlr::nondet::nondet();
+    cvlr_assume!(max_utilization >= optimal_utilization && max_utilization <= RAY);
+    let max_borrow_rate: i128 = cvlr::nondet::nondet();
+    let reserve_factor: u32 = cvlr::nondet::nondet();
     let asset_id = e.current_contract_address();
     let asset_decimals: u32 = cvlr::nondet::nondet();
 
-    cvlr_assume!((0..=MAX_BORROW_RATE_RAY).contains(&base_borrow_rate_ray));
-    cvlr_assume!(slope1_ray <= MAX_BORROW_RATE_RAY);
-    cvlr_assume!(slope2_ray <= MAX_BORROW_RATE_RAY);
-    cvlr_assume!(slope3_ray <= MAX_BORROW_RATE_RAY);
+    cvlr_assume!((0..=MAX_BORROW_RATE_RAY).contains(&base_borrow_rate));
+    cvlr_assume!(slope1 <= MAX_BORROW_RATE_RAY);
+    cvlr_assume!(slope2 <= MAX_BORROW_RATE_RAY);
+    cvlr_assume!(slope3 <= MAX_BORROW_RATE_RAY);
 
-    cvlr_assume!(base_borrow_rate_ray <= slope1_ray);
-    cvlr_assume!(slope1_ray <= slope2_ray);
-    cvlr_assume!(slope2_ray <= slope3_ray);
+    cvlr_assume!(base_borrow_rate <= slope1);
+    cvlr_assume!(slope1 <= slope2);
+    cvlr_assume!(slope2 <= slope3);
 
-    cvlr_assume!(mid_utilization_ray > 0 && mid_utilization_ray < optimal_utilization_ray);
-    cvlr_assume!(optimal_utilization_ray < RAY);
+    cvlr_assume!(mid_utilization > 0 && mid_utilization < optimal_utilization);
+    cvlr_assume!(optimal_utilization < RAY);
 
-    cvlr_assume!(max_borrow_rate_ray > 0 && max_borrow_rate_ray <= MAX_BORROW_RATE_RAY);
+    cvlr_assume!(max_borrow_rate > 0 && max_borrow_rate <= MAX_BORROW_RATE_RAY);
 
-    cvlr_assume!((0..BPS).contains(&i128::from(reserve_factor_bps)));
+    cvlr_assume!((0..BPS).contains(&i128::from(reserve_factor)));
 
     cvlr_assume!(asset_decimals <= 27);
 
     MarketParams {
-        base_borrow_rate: Ray::from(base_borrow_rate_ray),
-        slope1: Ray::from(slope1_ray),
-        slope2: Ray::from(slope2_ray),
-        slope3: Ray::from(slope3_ray),
-        mid_utilization: Ray::from(mid_utilization_ray),
-        optimal_utilization: Ray::from(optimal_utilization_ray),
-        max_utilization: Ray::from(max_utilization_ray),
-        max_borrow_rate: Ray::from(max_borrow_rate_ray),
-        reserve_factor: common::math::fp::Bps::from(i128::from(reserve_factor_bps)),
+        base_borrow_rate: Ray::from(base_borrow_rate),
+        slope1: Ray::from(slope1),
+        slope2: Ray::from(slope2),
+        slope3: Ray::from(slope3),
+        mid_utilization: Ray::from(mid_utilization),
+        optimal_utilization: Ray::from(optimal_utilization),
+        max_utilization: Ray::from(max_utilization),
+        max_borrow_rate: Ray::from(max_borrow_rate),
+        reserve_factor: common::math::fp::Bps::from(i128::from(reserve_factor)),
         supply_cap: 0,
         borrow_cap: 0,
         is_flashloanable: false,
-        flashloan_fee_bps: 0,
+        flashloan_fee: 0,
         asset_id,
         asset_decimals,
     }
@@ -212,16 +212,16 @@ fn borrow_rate_continuity_at_optimal(e: Env) {
 #[rule]
 fn deposit_rate_zero_when_no_utilization(e: Env) {
     let borrow_rate: i128 = cvlr::nondet::nondet();
-    let reserve_factor_bps: u32 = cvlr::nondet::nondet();
+    let reserve_factor: u32 = cvlr::nondet::nondet();
 
     cvlr_assume!(borrow_rate >= 0);
-    cvlr_assume!((0..BPS).contains(&i128::from(reserve_factor_bps)));
+    cvlr_assume!((0..BPS).contains(&i128::from(reserve_factor)));
 
     let rate = calculate_deposit_rate(
         &e,
         Ray::ZERO,
         Ray::from(borrow_rate),
-        common::math::fp::Bps::from(i128::from(reserve_factor_bps)),
+        common::math::fp::Bps::from(i128::from(reserve_factor)),
     );
 
     cvlr_assert!(rate == Ray::ZERO);
@@ -232,17 +232,17 @@ fn deposit_rate_zero_when_no_utilization(e: Env) {
 fn deposit_rate_less_than_borrow(e: Env) {
     let utilization: i128 = cvlr::nondet::nondet();
     let borrow_rate: i128 = cvlr::nondet::nondet();
-    let reserve_factor_bps: u32 = cvlr::nondet::nondet();
+    let reserve_factor: u32 = cvlr::nondet::nondet();
 
     cvlr_assume!((0..=RAY).contains(&utilization));
     cvlr_assume!((0..=RAY).contains(&borrow_rate));
-    cvlr_assume!((0..BPS).contains(&i128::from(reserve_factor_bps)));
+    cvlr_assume!((0..BPS).contains(&i128::from(reserve_factor)));
 
     let deposit_rate = calculate_deposit_rate(
         &e,
         Ray::from(utilization),
         Ray::from(borrow_rate),
-        common::math::fp::Bps::from(i128::from(reserve_factor_bps)),
+        common::math::fp::Bps::from(i128::from(reserve_factor)),
     );
     let upper_bound = mul_div_half_up(&e, utilization, borrow_rate, RAY);
 

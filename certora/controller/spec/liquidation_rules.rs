@@ -27,7 +27,7 @@ fn liquidation_strictly_decreases_debt_for_repaid_asset(
     let borrow_pre =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_asset);
     cvlr_assume!(borrow_pre.is_some());
-    let scaled_debt_before = borrow_pre.unwrap().scaled_amount_ray;
+    let scaled_debt_before = borrow_pre.unwrap().scaled_amount;
     cvlr_assume!(scaled_debt_before > 0);
 
     let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&e);
@@ -44,7 +44,7 @@ fn liquidation_strictly_decreases_debt_for_repaid_asset(
     let borrow_post =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_asset);
     match borrow_post {
-        Some(pos) => cvlr_assert!(pos.scaled_amount_ray < scaled_debt_before),
+        Some(pos) => cvlr_assert!(pos.scaled_amount < scaled_debt_before),
         None => cvlr_assert!(true),
     }
 }
@@ -70,13 +70,13 @@ fn liquidation_strictly_decreases_collateral_for_seized_asset(
         &collateral_asset,
     );
     cvlr_assume!(supply_pre.is_some());
-    let scaled_col_before = supply_pre.unwrap().scaled_amount_ray;
+    let scaled_col_before = supply_pre.unwrap().scaled_amount;
     cvlr_assume!(scaled_col_before > 0);
 
     let borrow_pre =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_asset);
     cvlr_assume!(borrow_pre.is_some());
-    cvlr_assume!(borrow_pre.unwrap().scaled_amount_ray > 0);
+    cvlr_assume!(borrow_pre.unwrap().scaled_amount > 0);
 
     let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     payments.push_back((
@@ -96,7 +96,7 @@ fn liquidation_strictly_decreases_collateral_for_seized_asset(
         &collateral_asset,
     );
     match supply_post {
-        Some(pos) => cvlr_assert!(pos.scaled_amount_ray < scaled_col_before),
+        Some(pos) => cvlr_assert!(pos.scaled_amount < scaled_col_before),
         None => cvlr_assert!(true),
     }
 }
@@ -193,24 +193,24 @@ fn protocol_fee_on_bonus_only(
     e: Env,
     seizure_amount: i128,
     bonus_bps: i128,
-    liquidation_fees_bps: i128,
+    liquidation_fees: i128,
 ) {
     cvlr_assume!(seizure_amount > 0);
     cvlr_assume!(seizure_amount <= MAX_DEBT_AMOUNT_RAW);
     cvlr_assume!(bonus_bps > 0);
     cvlr_assume!(bonus_bps <= BPS);
-    cvlr_assume!(liquidation_fees_bps >= 0);
-    cvlr_assume!(liquidation_fees_bps <= BPS);
+    cvlr_assume!(liquidation_fees >= 0);
+    cvlr_assume!(liquidation_fees <= BPS);
 
     let one_plus_bonus_wad = WAD + mul_div_half_up(&e, bonus_bps, WAD, BPS);
     let base_amount = mul_div_floor(&e, seizure_amount, WAD, one_plus_bonus_wad);
     let bonus_amount = seizure_amount - base_amount;
-    let protocol_fee = mul_div_half_up(&e, bonus_amount, liquidation_fees_bps, BPS);
+    let protocol_fee = mul_div_half_up(&e, bonus_amount, liquidation_fees, BPS);
 
     cvlr_assert!(protocol_fee <= bonus_amount);
     cvlr_assert!(protocol_fee >= 0);
 
-    if liquidation_fees_bps == 0 {
+    if liquidation_fees == 0 {
         cvlr_assert!(protocol_fee == 0);
     }
 

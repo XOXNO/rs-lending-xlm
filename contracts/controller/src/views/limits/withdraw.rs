@@ -310,7 +310,7 @@ fn partial_ok(
     let Some(mut pos_raw) = adjusted.supply_positions.get(hub_asset.clone()) else {
         return false;
     };
-    pos_raw.scaled_amount_ray = remaining.raw();
+    pos_raw.scaled_amount = remaining.raw();
     adjusted.supply_positions.set(hub_asset.clone(), pos_raw);
     account_gates_ok(env, cache, &adjusted)
 }

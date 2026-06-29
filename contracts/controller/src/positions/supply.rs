@@ -184,7 +184,7 @@ fn settle_deposit(
         refresh_supply_risk_params(env, cache, account, hub_asset, &mut position, &asset_config);
         // Merge ONLY the scaled share back; the pool does not echo collateral
         // risk params, so preserve the ones the controller holds.
-        position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
+        position.scaled_amount = Ray::from(result.position.scaled_amount);
         // Spoke-cap accounting (named spokes only) needs the asset decimals;
         // source them from the active market's oracle config.
         if account.spoke_id != 0 {
@@ -210,7 +210,7 @@ fn settle_deposit(
         cache.record_position_update(
             events::PositionAction::Supply,
             &hub_asset.asset,
-            result.market_index.supply_index_ray,
+            result.market_index.supply_index,
             entry.action.amount,
             &position,
         );

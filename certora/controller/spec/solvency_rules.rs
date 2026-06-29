@@ -54,7 +54,7 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
         let market_index = cache.cached_market_index(&hub_asset);
         let value = crate::helpers::position_value(
             &e,
-            Ray::from(position.scaled_amount_ray),
+            Ray::from(position.scaled_amount),
             market_index.borrow_index,
             feed.price,
         );

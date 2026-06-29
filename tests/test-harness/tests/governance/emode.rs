@@ -68,9 +68,9 @@ fn test_emode_accepts_valid_asset_bounds() {
     try_add_asset(&t, &usdc, id, 8000, 8500, 200).expect("valid asset should be accepted");
 
     let cfg = t.ctrl_client().get_spoke_asset(&id, &hub_asset(usdc.clone()));
-    assert_eq!(cfg.loan_to_value_bps, 8000);
-    assert_eq!(cfg.liquidation_threshold_bps, 8500);
-    assert_eq!(cfg.liquidation_bonus_bps, 200);
+    assert_eq!(cfg.loan_to_value, 8000);
+    assert_eq!(cfg.liquidation_threshold, 8500);
+    assert_eq!(cfg.liquidation_bonus, 200);
 }
 
 #[test]

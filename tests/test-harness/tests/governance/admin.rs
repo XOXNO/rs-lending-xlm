@@ -73,9 +73,9 @@ fn test_edit_asset_config_rejects_threshold_above_bps() {
     let admin = t.admin();
     let asset = t.resolve_market("USDC").asset.clone();
     let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &hub_asset(asset.clone()));
-    cfg.loan_to_value_bps = 5_000;
-    cfg.liquidation_threshold_bps = 10_001;
-    cfg.liquidation_bonus_bps = 0;
+    cfg.loan_to_value = 5_000;
+    cfg.liquidation_threshold = 10_001;
+    cfg.liquidation_bonus = 0;
     t.gov_client()
         .execute_immediate(&admin, &AdminOperation::EditAssetConfig(hub_asset(asset), cfg));
 }

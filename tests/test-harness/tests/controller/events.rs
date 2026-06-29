@@ -120,7 +120,7 @@ fn test_bulk_supply_emits_single_position_and_market_batch() {
 #[test]
 fn test_supply_position_event_restores_risk_fields() {
     // V2 wire ABI: deposit entries are vec-encoded as
-    // [action, asset, scaled_amount_ray, index_ray, amount, lt_bps, lb_bps, ltv_bps].
+    // [action, asset, scaled_amount, index_ray, amount, lt_bps, lb_bps, ltv_bps].
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -133,9 +133,9 @@ fn test_supply_position_event_restores_risk_fields() {
     let entry = as_vec(&deposits[0]);
     assert_eq!(entry.len(), 8, "deposit delta arity is wire ABI");
     // usdc_preset risk params: threshold 8000, bonus 500, ltv 7500.
-    assert_eq!(entry[5], ScVal::U32(8000), "liquidation_threshold_bps");
-    assert_eq!(entry[6], ScVal::U32(500), "liquidation_bonus_bps");
-    assert_eq!(entry[7], ScVal::U32(7500), "loan_to_value_bps");
+    assert_eq!(entry[5], ScVal::U32(8000), "liquidation_threshold");
+    assert_eq!(entry[6], ScVal::U32(500), "liquidation_bonus");
+    assert_eq!(entry[7], ScVal::U32(7500), "loan_to_value");
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn test_position_and_market_batch_v2_wire_shape() {
             assert_eq!(entry.len(), 8, "market entry arity is wire ABI");
             assert!(matches!(entry[0], ScVal::Address(_)), "asset");
             assert!(matches!(entry[1], ScVal::U64(_)), "timestamp");
-            assert!(matches!(entry[2], ScVal::I128(_)), "supply_index_ray");
+            assert!(matches!(entry[2], ScVal::I128(_)), "supply_index");
             market_entries += 1;
         }
     }

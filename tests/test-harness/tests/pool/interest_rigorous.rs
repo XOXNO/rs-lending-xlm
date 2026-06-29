@@ -18,7 +18,7 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
     let idx = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
-    (idx.supply_index_ray, idx.borrow_index_ray)
+    (idx.supply_index, idx.borrow_index)
 }
 // 1. Verify borrow index matches compound interest formula
 
@@ -173,7 +173,7 @@ fn test_reserve_factor_exact_split() {
         .with_market(usdc_preset())
         .build();
 
-    // reserve_factor_bps = 1000 (10%).
+    // reserve_factor = 1000 (10%).
     t.supply(ALICE, "ETH", 100.0);
     t.supply(BOB, "USDC", 500_000.0);
     t.borrow(BOB, "ETH", 50.0);
@@ -249,7 +249,7 @@ fn test_scaled_amount_times_index_equals_actual() {
             .expect("borrow side map must exist");
         map.get(hub_asset(eth_addr.clone()))
             .expect("borrow position for asset must exist")
-            .scaled_amount_ray
+            .scaled_amount
     });
 
     // Verify: actual ~ rescale(scaled * borrow_index / RAY, 27, 7).

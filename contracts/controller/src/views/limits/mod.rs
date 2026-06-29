@@ -43,10 +43,10 @@ impl MarketLimitCtx {
         let index = cache.cached_market_index(hub_asset);
         let sync = cache.cached_pool_sync_data(hub_asset);
         Self {
-            supplied: Ray::from(sync.state.supplied_ray),
-            borrowed: Ray::from(sync.state.borrowed_ray),
+            supplied: Ray::from(sync.state.supplied),
+            borrowed: Ray::from(sync.state.borrowed),
             cash: sync.state.cash,
-            max_utilization: Ray::from(sync.params.max_utilization_ray),
+            max_utilization: Ray::from(sync.params.max_utilization),
             supply_index: index.supply_index,
             decimals: sync.params.asset_decimals,
             borrow_index: index.borrow_index,

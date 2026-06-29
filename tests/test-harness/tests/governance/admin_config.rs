@@ -15,8 +15,8 @@ fn test_edit_asset_config_rejects_threshold_lte_ltv() {
     let gov = t.gov_client();
 
     let mut config = t.ctrl_client().get_spoke_asset(&0u32, &hub_asset(asset.clone()));
-    config.loan_to_value_bps = 8000;
-    config.liquidation_threshold_bps = 8000; // Equal to LTV.
+    config.loan_to_value = 8000;
+    config.liquidation_threshold = 8000; // Equal to LTV.
 
     let result = gov.try_execute_immediate(&admin, &AdminOperation::EditAssetConfig(hub_asset(asset), config));
     let mapped = match result {
@@ -82,10 +82,10 @@ fn assert_invalid_position_limits(t: &LendingTest, supply: u32, borrow: u32) {
     }
 }
 
-// Regression: `max_borrow_rate_ray` cap (Taylor envelope).
+// Regression: `max_borrow_rate` cap (Taylor envelope).
 //
 // `InterestRateModel::verify` (run by governance before forwarding, and again
-// by `pool::update_params`) rejects any `max_borrow_rate_ray > 2 * RAY` to
+// by `pool::update_params`) rejects any `max_borrow_rate > 2 * RAY` to
 // keep `compound_interest`'s 8-term Taylor approximation inside its
 // documented `< 0.01 %` accuracy envelope. See `architecture/MATH_REVIEW.md §0`.
 #[test]
@@ -101,15 +101,15 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
         &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
             hub_asset: hub_asset(asset),
             params: InterestRateModel {
-                max_borrow_rate_ray: 2 * RAY + 1,
-                base_borrow_rate_ray: RAY / 100,
-                slope1_ray: RAY * 4 / 100,
-                slope2_ray: RAY * 10 / 100,
-                slope3_ray: RAY * 150 / 100,
-                mid_utilization_ray: RAY * 50 / 100,
-                optimal_utilization_ray: RAY * 80 / 100,
-                max_utilization_ray: controller::constants::RAY * 95 / 100,
-                reserve_factor_bps: 1000,
+                max_borrow_rate: 2 * RAY + 1,
+                base_borrow_rate: RAY / 100,
+                slope1: RAY * 4 / 100,
+                slope2: RAY * 10 / 100,
+                slope3: RAY * 150 / 100,
+                mid_utilization: RAY * 50 / 100,
+                optimal_utilization: RAY * 80 / 100,
+                max_utilization: controller::constants::RAY * 95 / 100,
+                reserve_factor: 1000,
             },
         }),
     );

@@ -247,12 +247,12 @@ fn test_get_emode_category_view() {
     let cfg = ctrl.get_spoke_asset(&1u32, &hub_asset(usdc.clone()));
 
     // STABLECOIN_EMODE: ltv=9700, threshold=9800, bonus=200 (per-asset).
-    assert_eq!(cfg.loan_to_value_bps, 9700, "emode ltv should be 9700");
+    assert_eq!(cfg.loan_to_value, 9700, "emode ltv should be 9700");
     assert_eq!(
-        cfg.liquidation_threshold_bps, 9800,
+        cfg.liquidation_threshold, 9800,
         "emode threshold should be 9800"
     );
-    assert_eq!(cfg.liquidation_bonus_bps, 200, "emode bonus should be 200");
+    assert_eq!(cfg.liquidation_bonus, 200, "emode bonus should be 200");
 }
 // 11. test_get_position_limits_default
 
@@ -354,11 +354,11 @@ fn test_get_market_index_view() {
     let ray = RAY;
     // Fresh market: indexes must be 1.0 RAY.
     assert_eq!(
-        index.supply_index_ray, ray,
+        index.supply_index, ray,
         "fresh supply index should be 1.0 RAY"
     );
     assert_eq!(
-        index.borrow_index_ray, ray,
+        index.borrow_index, ray,
         "fresh borrow index should be 1.0 RAY"
     );
 }
@@ -389,12 +389,12 @@ fn test_get_asset_config_view() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let config = t.get_asset_config("USDC");
-    assert_eq!(config.loan_to_value_bps, 7500, "LTV should be 7500");
+    assert_eq!(config.loan_to_value, 7500, "LTV should be 7500");
     assert_eq!(
-        config.liquidation_threshold_bps, 8000,
+        config.liquidation_threshold, 8000,
         "threshold should be 8000"
     );
-    assert_eq!(config.liquidation_bonus_bps, 500, "bonus should be 500");
+    assert_eq!(config.liquidation_bonus, 500, "bonus should be 500");
     assert!(
         config.is_collateralizable,
         "USDC should be collateralizable"

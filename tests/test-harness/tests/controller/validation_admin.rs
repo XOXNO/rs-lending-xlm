@@ -10,10 +10,10 @@ fn test_edit_asset_config_persists_flashloan_fee_at_cap() {
     // Flash-loan fee lives on the pool `MarketParamsRaw`; the harness
     // `edit_asset_config` helper writes it through to pool storage.
     t.edit_asset_config("USDC", |c| {
-        c.flashloan_fee_bps = MAX_FLASHLOAN_FEE_BPS as u32;
+        c.flashloan_fee = MAX_FLASHLOAN_FEE_BPS as u32;
     });
     let updated = t.get_asset_config("USDC");
-    assert_eq!(updated.flashloan_fee_bps, MAX_FLASHLOAN_FEE_BPS as u32);
+    assert_eq!(updated.flashloan_fee, MAX_FLASHLOAN_FEE_BPS as u32);
 }
 // emode.rs:95 -- EModeCategoryDeprecated rejection on user supply path
 //

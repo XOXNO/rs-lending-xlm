@@ -15,10 +15,10 @@ fn base_spoke_asset_config() -> SpokeAssetConfig {
         is_borrowable: true,
         paused: false,
         frozen: false,
-        loan_to_value_bps: 7_500,
-        liquidation_threshold_bps: 8_000,
-        liquidation_bonus_bps: 500,
-        liquidation_fees_bps: 100,
+        loan_to_value: 7_500,
+        liquidation_threshold: 8_000,
+        liquidation_bonus: 500,
+        liquidation_fees: 100,
         supply_cap: 0,
         borrow_cap: 0,
         oracle_override: MarketOracleConfigOption::None,
@@ -110,10 +110,10 @@ fn account_with(env: &Env, supply: Option<&Address>, borrow: Option<&Address>) -
         supply_positions.set(
             hub(asset),
             AccountPositionRaw {
-                scaled_amount_ray: 1,
-                liquidation_threshold_bps: 0,
-                liquidation_bonus_bps: 0,
-                loan_to_value_bps: 0,
+                scaled_amount: 1,
+                liquidation_threshold: 0,
+                liquidation_bonus: 0,
+                loan_to_value: 0,
             },
         );
     }
@@ -122,7 +122,7 @@ fn account_with(env: &Env, supply: Option<&Address>, borrow: Option<&Address>) -
         borrow_positions.set(
             hub(asset),
             DebtPositionRaw {
-                scaled_amount_ray: 1,
+                scaled_amount: 1,
             },
         );
     }

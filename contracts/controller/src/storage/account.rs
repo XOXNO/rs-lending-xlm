@@ -117,7 +117,7 @@ pub(crate) fn try_get_debt_position(
 }
 
 // Lifts each entry to `AccountPosition` so call sites read typed fields
-// instead of `Ray::from(position.scaled_amount_ray)`.
+// instead of `Ray::from(position.scaled_amount)`.
 pub(crate) fn iter_typed_positions(
     map: &Map<HubAssetKey, AccountPositionRaw>,
 ) -> impl Iterator<Item = (HubAssetKey, AccountPosition)> + '_ {

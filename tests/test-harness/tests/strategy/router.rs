@@ -807,7 +807,7 @@ fn test_borrow_at_cap_then_step_over_rejected() {
         .with_market(eth_preset())
         .with_market_params("USDC", |p| {
             // Tight cap: 85 %. (Must stay ≥ optimal=80 % per validator.)
-            p.max_utilization_ray = controller::constants::RAY * 85 / 100;
+            p.max_utilization = controller::constants::RAY * 85 / 100;
         })
         .build();
 
@@ -829,7 +829,7 @@ fn test_multiply_at_utilization_cap_then_step_over_rejected() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market_params("ETH", |p| {
-            p.max_utilization_ray = RAY * 85 / 100;
+            p.max_utilization = RAY * 85 / 100;
         })
         .build();
 

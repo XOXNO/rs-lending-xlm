@@ -6,7 +6,7 @@ use test_harness::{hub_asset, eth_preset, usd_cents, usdc_preset, LendingTest, A
 //   bonus = base + (max - base) * min(2 * gap, 1)
 //     where gap = (target_hf - current_hf) / target_hf, target_hf = 1.02.
 //   seizure = debt_repaid * (1 + bonus).
-//   protocol_fee = (seizure - base_amount) * liquidation_fees_bps / 10000
+//   protocol_fee = (seizure - base_amount) * liquidation_fees / 10000
 //     where base_amount = seizure / (1 + bonus).
 //   ideal_repayment targets HF = 1.02 (primary), 1.01 (fallback).
 
@@ -15,7 +15,7 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
     let idx = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
-    (idx.supply_index_ray, idx.borrow_index_ray)
+    (idx.supply_index, idx.borrow_index)
 }
 // 1. Verify seizure = debt_repaid * (1 + bonus_rate)
 
@@ -247,7 +247,7 @@ fn test_protocol_fee_on_bonus_only_quantitative() {
     );
 
     // Fee as % of total seizure should fall well below 1%
-    // (liquidation_fees_bps=100), because the fee applies to the bonus
+    // (liquidation_fees=100), because the fee applies to the bonus
     // (~10% of seizure), not the full seizure.
     let liquidator_received = t.token_balance(LIQUIDATOR, "USDC");
     if liquidator_received > 0.0 {
@@ -294,7 +294,7 @@ fn test_bad_debt_index_decrease_exact() {
     let actual_ratio = si_after as f64 / si_before as f64;
 
     // bad_debt ~= 0.002 ETH (remaining after partial liquidation).
-    // total_supplied ~= 1000 ETH (in actual value = supplied_ray * index / RAY).
+    // total_supplied ~= 1000 ETH (in actual value = supplied * index / RAY).
     let _total_supplied_actual = supplied_before as f64 / RAY as f64;
 
     // The index ratio should reflect: 1 - (small_debt / 1000).

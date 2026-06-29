@@ -17,14 +17,14 @@ pub enum PositionType {
 /// flash-loan eligibility/fee and decimals live on the pool `MarketParamsRaw`;
 /// this view stitches both so tests read a single config object.
 pub struct AssetConfigView {
-    pub loan_to_value_bps: u32,
-    pub liquidation_threshold_bps: u32,
-    pub liquidation_bonus_bps: u32,
-    pub liquidation_fees_bps: u32,
+    pub loan_to_value: u32,
+    pub liquidation_threshold: u32,
+    pub liquidation_bonus: u32,
+    pub liquidation_fees: u32,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
     pub is_flashloanable: bool,
-    pub flashloan_fee_bps: u32,
+    pub flashloan_fee: u32,
     pub asset_decimals: u32,
 }
 
@@ -123,21 +123,21 @@ impl LendingTest {
         // scaled share each carries.
         let scaled_ray = match position_type {
             AccountPositionType::Deposit => {
-                supplies.get(hub_asset(asset.clone())).map(|p| p.scaled_amount_ray)
+                supplies.get(hub_asset(asset.clone())).map(|p| p.scaled_amount)
             }
-            AccountPositionType::Borrow => borrows.get(hub_asset(asset.clone())).map(|p| p.scaled_amount_ray),
+            AccountPositionType::Borrow => borrows.get(hub_asset(asset.clone())).map(|p| p.scaled_amount),
         };
 
-        if let Some(scaled_amount_ray) = scaled_ray {
+        if let Some(scaled_amount) = scaled_ray {
             let pool = self.resolve_market_by_asset(asset).pool.clone();
             let sync = pool::LiquidityPoolClient::new(&self.env, &pool)
                 .get_sync_data(&hub_asset(asset.clone()));
             let index = match position_type {
-                AccountPositionType::Deposit => sync.state.supply_index_ray,
-                AccountPositionType::Borrow => sync.state.borrow_index_ray,
+                AccountPositionType::Deposit => sync.state.supply_index,
+                AccountPositionType::Borrow => sync.state.borrow_index,
             };
             let decimals = self.resolve_market_by_asset(asset).decimals;
-            return Ray::from(scaled_amount_ray)
+            return Ray::from(scaled_amount)
                 .mul(&self.env, Ray::from(index))
                 .to_asset(decimals);
         }
@@ -234,14 +234,14 @@ impl LendingTest {
             .get_spoke_asset(&0u32, &hub_asset(asset.clone()));
         let params = self.pool_client(asset_name).get_sync_data(&hub_asset(asset)).params;
         AssetConfigView {
-            loan_to_value_bps: spoke.loan_to_value_bps,
-            liquidation_threshold_bps: spoke.liquidation_threshold_bps,
-            liquidation_bonus_bps: spoke.liquidation_bonus_bps,
-            liquidation_fees_bps: spoke.liquidation_fees_bps,
+            loan_to_value: spoke.loan_to_value,
+            liquidation_threshold: spoke.liquidation_threshold,
+            liquidation_bonus: spoke.liquidation_bonus,
+            liquidation_fees: spoke.liquidation_fees,
             is_collateralizable: spoke.is_collateralizable,
             is_borrowable: spoke.is_borrowable,
             is_flashloanable: params.is_flashloanable,
-            flashloan_fee_bps: params.flashloan_fee_bps,
+            flashloan_fee: params.flashloan_fee,
             asset_decimals: params.asset_decimals,
         }
     }

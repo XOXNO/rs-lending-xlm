@@ -16,7 +16,7 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
     let idx = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
-    (idx.supply_index_ray, idx.borrow_index_ray)
+    (idx.supply_index, idx.borrow_index)
 }
 
 fn setup() -> LendingTest {

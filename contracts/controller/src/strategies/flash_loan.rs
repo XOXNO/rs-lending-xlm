@@ -55,7 +55,7 @@ pub fn process_flash_loan(
     );
     validation::require_wasm_receiver(env, receiver);
 
-    let fee = Bps::from(i128::from(params.flashloan_fee_bps)).flash_loan_fee_on(env, amount);
+    let fee = Bps::from(i128::from(params.flashloan_fee)).flash_loan_fee_on(env, amount);
     let pool_addr = cache.cached_pool_address();
 
     // Reentrancy guard.

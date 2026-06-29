@@ -28,7 +28,7 @@ fn borrow_scaled_on_hub(t: &LendingTest, account_id: u64, hub_id: u32, asset_nam
             .persistent()
             .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&ControllerKey::BorrowPositions(account_id))
             .and_then(|m| m.get(key))
-            .map(|p| p.scaled_amount_ray)
+            .map(|p| p.scaled_amount)
             .unwrap_or(0)
     })
 }
@@ -46,7 +46,7 @@ fn supply_scaled_on_hub(t: &LendingTest, account_id: u64, hub_id: u32, asset_nam
                 account_id,
             ))
             .and_then(|m| m.get(key))
-            .map(|p| p.scaled_amount_ray)
+            .map(|p| p.scaled_amount)
             .unwrap_or(0)
     })
 }
@@ -94,17 +94,17 @@ fn hubs_keep_independent_state_and_indices() {
     let s1 = t.pool_state_on_hub(hub2, "USDC");
 
     // Two distinct, non-empty markets exist for the same token.
-    assert!(s0.borrowed_ray > 0 && s1.borrowed_ray > 0);
-    assert_eq!(s0.borrow_index_ray, RAY, "hub-1 index starts at RAY");
-    assert_eq!(s1.borrow_index_ray, RAY, "hub-2 index starts at RAY");
+    assert!(s0.borrowed > 0 && s1.borrowed > 0);
+    assert_eq!(s0.borrow_index, RAY, "hub-1 index starts at RAY");
+    assert_eq!(s1.borrow_index, RAY, "hub-2 index starts at RAY");
 
     // No netting: a hub-1 supply must not move hub-2's State at all.
     t.supply_on_hub(HARNESS_HUB, ALICE, "USDC", 250.0);
     let s1_after_hub1_op = t.pool_state_on_hub(hub2, "USDC");
-    assert_eq!(s1_after_hub1_op.supplied_ray, s1.supplied_ray);
-    assert_eq!(s1_after_hub1_op.borrowed_ray, s1.borrowed_ray);
+    assert_eq!(s1_after_hub1_op.supplied, s1.supplied);
+    assert_eq!(s1_after_hub1_op.borrowed, s1.borrowed);
     assert_eq!(s1_after_hub1_op.cash, s1.cash);
-    assert_eq!(s1_after_hub1_op.supply_index_ray, s1.supply_index_ray);
+    assert_eq!(s1_after_hub1_op.supply_index, s1.supply_index);
 
     // Independent evolution: accrue ONLY hub 1 after a year. Hub 1's index moves;
     // hub 2's index is untouched because nothing accrued it.
@@ -114,12 +114,12 @@ fn hubs_keep_independent_state_and_indices() {
     let s0_accrued = t.pool_state_on_hub(HARNESS_HUB, "USDC");
     let s1_idle = t.pool_state_on_hub(hub2, "USDC");
     assert!(
-        s0_accrued.borrow_index_ray > RAY,
+        s0_accrued.borrow_index > RAY,
         "hub-1 borrow index accrued: {}",
-        s0_accrued.borrow_index_ray
+        s0_accrued.borrow_index
     );
     assert_eq!(
-        s1_idle.borrow_index_ray, RAY,
+        s1_idle.borrow_index, RAY,
         "hub-2 borrow index is untouched by hub-1 accrual"
     );
 
@@ -127,9 +127,9 @@ fn hubs_keep_independent_state_and_indices() {
     t.accrue_on_hub(hub2, "USDC");
     let s1_accrued = t.pool_state_on_hub(hub2, "USDC");
     assert!(
-        s1_accrued.borrow_index_ray > RAY,
+        s1_accrued.borrow_index > RAY,
         "hub-2 borrow index accrues independently: {}",
-        s1_accrued.borrow_index_ray
+        s1_accrued.borrow_index
     );
 }
 
@@ -154,15 +154,15 @@ fn bad_debt_is_isolated_to_its_hub() {
     let a = t.supply_on_hub(HARNESS_HUB, ALICE, "ETH", 0.002); // ~$4 collateral
     t.borrow_on_hub(HARNESS_HUB, ALICE, a, "USDC", 2.0); // $2 debt, HF healthy
 
-    let si0_before = t.pool_state_on_hub(HARNESS_HUB, "USDC").supply_index_ray;
-    let si1_before = t.pool_state_on_hub(hub2, "USDC").supply_index_ray;
+    let si0_before = t.pool_state_on_hub(HARNESS_HUB, "USDC").supply_index;
+    let si1_before = t.pool_state_on_hub(hub2, "USDC").supply_index;
 
     // Crash ETH so Alice's collateral falls below the $5 bad-debt threshold.
     t.set_price("ETH", usd(1));
     t.clean_bad_debt_by_id(a);
 
-    let si0_after = t.pool_state_on_hub(HARNESS_HUB, "USDC").supply_index_ray;
-    let si1_after = t.pool_state_on_hub(hub2, "USDC").supply_index_ray;
+    let si0_after = t.pool_state_on_hub(HARNESS_HUB, "USDC").supply_index;
+    let si1_after = t.pool_state_on_hub(hub2, "USDC").supply_index;
 
     assert!(
         si0_after < si0_before,
@@ -285,12 +285,12 @@ fn swap_debt_refinances_debt_across_hubs() {
     // The two markets reflect the move: hub-1 borrowed drains to zero, hub-2
     // borrowed becomes non-zero.
     assert_eq!(
-        t.pool_state_on_hub(HARNESS_HUB, "USDC").borrowed_ray,
+        t.pool_state_on_hub(HARNESS_HUB, "USDC").borrowed,
         0,
         "hub-1 USDC market has no borrows after the refinance"
     );
     assert!(
-        t.pool_state_on_hub(hub2, "USDC").borrowed_ray > 0,
+        t.pool_state_on_hub(hub2, "USDC").borrowed > 0,
         "hub-2 USDC market holds the refinanced borrow"
     );
 }
@@ -363,11 +363,11 @@ fn liquidation_repays_and_seizes_on_hub_one() {
     // Isolation: the hub-1 USDC market is untouched by a hub-2 liquidation.
     let hub1_usdc_after = t.pool_state_on_hub(HARNESS_HUB, "USDC");
     assert_eq!(
-        hub1_usdc_after.supplied_ray, hub1_usdc_before.supplied_ray,
+        hub1_usdc_after.supplied, hub1_usdc_before.supplied,
         "hub-1 USDC supplied is untouched"
     );
     assert_eq!(
-        hub1_usdc_after.borrowed_ray, hub1_usdc_before.borrowed_ray,
+        hub1_usdc_after.borrowed, hub1_usdc_before.borrowed,
         "hub-1 USDC borrowed is untouched"
     );
     assert_eq!(
@@ -375,11 +375,11 @@ fn liquidation_repays_and_seizes_on_hub_one() {
         "hub-1 USDC cash is untouched"
     );
     assert_eq!(
-        hub1_usdc_after.supply_index_ray, hub1_usdc_before.supply_index_ray,
+        hub1_usdc_after.supply_index, hub1_usdc_before.supply_index,
         "hub-1 USDC supply index is untouched"
     );
     assert_eq!(
-        hub1_usdc_after.borrow_index_ray, hub1_usdc_before.borrow_index_ray,
+        hub1_usdc_after.borrow_index, hub1_usdc_before.borrow_index,
         "hub-1 USDC borrow index is untouched"
     );
 }
@@ -445,7 +445,7 @@ fn liquidation_charges_seized_collateral_hub_fee() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
-        .with_market_config("USDC", |c| c.liquidation_fees_bps = 0)
+        .with_market_config("USDC", |c| c.liquidation_fees = 0)
         .build();
 
     let hub2 = t.create_hub();
@@ -496,7 +496,7 @@ fn keeper_and_revenue_serve_hub_one_markets() {
     t.borrow_on_hub(hub2, ALICE, alice, "USDC", 10_000.0);
 
     assert_eq!(
-        t.pool_state_on_hub(hub2, "USDC").borrow_index_ray,
+        t.pool_state_on_hub(hub2, "USDC").borrow_index,
         RAY,
         "hub-2 USDC index starts at RAY"
     );
@@ -507,11 +507,11 @@ fn keeper_and_revenue_serve_hub_one_markets() {
     t.update_indexes_on_hub(hub2, &["USDC"]);
 
     assert!(
-        t.pool_state_on_hub(hub2, "USDC").borrow_index_ray > RAY,
+        t.pool_state_on_hub(hub2, "USDC").borrow_index > RAY,
         "controller update_indexes must accrue the hub-2 USDC index"
     );
     assert_eq!(
-        t.pool_state_on_hub(HARNESS_HUB, "USDC").borrow_index_ray,
+        t.pool_state_on_hub(HARNESS_HUB, "USDC").borrow_index,
         RAY,
         "hub-1 USDC index is untouched by a hub-2 keeper update"
     );

@@ -119,20 +119,20 @@ impl PoolUnderRepayReceiver {
 
 fn market_params(asset: &Address) -> MarketParamsRaw {
     MarketParamsRaw {
-        max_borrow_rate_ray: RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY * 4 / 100,
-        slope2_ray: RAY * 10 / 100,
-        slope3_ray: RAY * 80 / 100,
-        mid_utilization_ray: RAY * 50 / 100,
-        optimal_utilization_ray: RAY * 80 / 100,
+        max_borrow_rate: RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 80 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
         // Disable max-utilization checks in accounting tests.
-        max_utilization_ray: RAY,
-        reserve_factor_bps: 1000,
+        max_utilization: RAY,
+        reserve_factor: 1000,
         supply_cap: 0,
         borrow_cap: 0,
         is_flashloanable: false,
-        flashloan_fee_bps: 0,
+        flashloan_fee: 0,
         asset_id: asset.clone(),
         asset_decimals: 7,
     }
@@ -187,44 +187,44 @@ impl TestSetup {
         LiquidityPoolClient::new(&self.env, &self.pool)
     }
 
-    fn action(&self, scaled_amount_ray: i128, amount: i128) -> PoolAction {
-        self.action_for(&self.asset, scaled_amount_ray, amount)
+    fn action(&self, scaled_amount: i128, amount: i128) -> PoolAction {
+        self.action_for(&self.asset, scaled_amount, amount)
     }
 
-    fn action_for(&self, asset: &Address, scaled_amount_ray: i128, amount: i128) -> PoolAction {
+    fn action_for(&self, asset: &Address, scaled_amount: i128, amount: i128) -> PoolAction {
         PoolAction {
-            position: ScaledPositionRaw { scaled_amount_ray },
+            position: ScaledPositionRaw { scaled_amount },
             amount,
             hub_asset: hub(asset),
         }
     }
 
-    fn sup_entry(&self, asset: &Address, scaled_amount_ray: i128, amount: i128) -> PoolSupplyEntry {
+    fn sup_entry(&self, asset: &Address, scaled_amount: i128, amount: i128) -> PoolSupplyEntry {
         PoolSupplyEntry {
-            action: self.action_for(asset, scaled_amount_ray, amount),
+            action: self.action_for(asset, scaled_amount, amount),
         }
     }
 
     /// Singleton supply batch against the default market.
-    fn sup(&self, scaled_amount_ray: i128, amount: i128) -> Vec<PoolSupplyEntry> {
-        self.sup_for(&self.asset, scaled_amount_ray, amount)
+    fn sup(&self, scaled_amount: i128, amount: i128) -> Vec<PoolSupplyEntry> {
+        self.sup_for(&self.asset, scaled_amount, amount)
     }
 
     fn sup_for(
         &self,
         asset: &Address,
-        scaled_amount_ray: i128,
+        scaled_amount: i128,
         amount: i128,
     ) -> Vec<PoolSupplyEntry> {
-        vec![&self.env, self.sup_entry(asset, scaled_amount_ray, amount)]
+        vec![&self.env, self.sup_entry(asset, scaled_amount, amount)]
     }
 
     /// Singleton borrow batch against the default market.
-    fn bor(&self, scaled_amount_ray: i128, amount: i128) -> Vec<PoolBorrowEntry> {
+    fn bor(&self, scaled_amount: i128, amount: i128) -> Vec<PoolBorrowEntry> {
         vec![
             &self.env,
             PoolBorrowEntry {
-                action: self.action(scaled_amount_ray, amount),
+                action: self.action(scaled_amount, amount),
             },
         ]
     }
@@ -236,22 +236,22 @@ impl TestSetup {
     /// Singleton withdraw batch against the default market.
     fn wdr(
         &self,
-        scaled_amount_ray: i128,
+        scaled_amount: i128,
         amount: i128,
         protocol_fee: i128,
     ) -> Vec<PoolWithdrawEntry> {
         vec![
             &self.env,
             PoolWithdrawEntry {
-                action: self.action(scaled_amount_ray, amount),
+                action: self.action(scaled_amount, amount),
                 protocol_fee,
             },
         ]
     }
 
     /// Singleton repay batch against the default market.
-    fn ract(&self, scaled_amount_ray: i128, amount: i128) -> Vec<PoolAction> {
-        vec![&self.env, self.action(scaled_amount_ray, amount)]
+    fn ract(&self, scaled_amount: i128, amount: i128) -> Vec<PoolAction> {
+        vec![&self.env, self.action(scaled_amount, amount)]
     }
 
     /// Registers a funded market with a fresh SAC token, minted reserves, and
@@ -312,11 +312,11 @@ impl TestSetup {
 }
 
 fn assert_pool_state_eq(left: &PoolStateRaw, right: &PoolStateRaw) {
-    assert_eq!(left.supplied_ray, right.supplied_ray);
-    assert_eq!(left.borrowed_ray, right.borrowed_ray);
-    assert_eq!(left.revenue_ray, right.revenue_ray);
-    assert_eq!(left.borrow_index_ray, right.borrow_index_ray);
-    assert_eq!(left.supply_index_ray, right.supply_index_ray);
+    assert_eq!(left.supplied, right.supplied);
+    assert_eq!(left.borrowed, right.borrowed);
+    assert_eq!(left.revenue, right.revenue);
+    assert_eq!(left.borrow_index, right.borrow_index);
+    assert_eq!(left.supply_index, right.supply_index);
     assert_eq!(left.last_timestamp, right.last_timestamp);
 }
 
@@ -356,7 +356,7 @@ fn test_supply() {
     let updated = client.supply(&t.sup(0, amount)).get_unchecked(0);
 
     assert!(
-        updated.position.scaled_amount_ray > 0,
+        updated.position.scaled_amount > 0,
         "position should have scaled amount"
     );
 
@@ -379,7 +379,7 @@ fn test_borrow() {
         .get_unchecked(0);
 
     assert!(
-        updated.position.scaled_amount_ray > 0,
+        updated.position.scaled_amount > 0,
         "borrow position should have debt"
     );
 
@@ -488,7 +488,7 @@ fn test_withdraw() {
             &user,
             &false,
             &t.wdr(
-                updated_pos.position.scaled_amount_ray,
+                updated_pos.position.scaled_amount,
                 withdraw_amount,
                 0i128,
             ),
@@ -501,7 +501,7 @@ fn test_withdraw() {
         "user should receive tokens"
     );
     assert!(
-        final_pos.position.scaled_amount_ray < updated_pos.position.scaled_amount_ray,
+        final_pos.position.scaled_amount < updated_pos.position.scaled_amount,
         "scaled amount should decrease"
     );
 }
@@ -518,7 +518,7 @@ fn test_withdraw_rejects_fee_greater_than_withdrawn_amount() {
         &user,
         &true,
         &t.wdr(
-            updated_pos.position.scaled_amount_ray,
+            updated_pos.position.scaled_amount,
             1_0000000i128,
             2_0000000i128,
         ),
@@ -535,14 +535,14 @@ fn test_borrow_above_max_utilization_panics() {
     let t = TestSetup::new();
     t.edit_state(|s| {
         // Pre-seed supplied so utilization is defined.
-        s.supplied_ray = 100_000_000_000_000;
-        s.borrowed_ray = 0;
+        s.supplied = 100_000_000_000_000;
+        s.borrowed = 0;
     });
     // Tighten the cap to 50 %.
     t.env.as_contract(&t.pool, || {
         let key = PoolKey::Params(hub(&t.asset));
         let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
-        params.max_utilization_ray = RAY / 2;
+        params.max_utilization = RAY / 2;
         t.env.storage().persistent().set(&key, &params);
     });
 
@@ -577,7 +577,7 @@ fn test_withdraw_rejects_when_reserves_are_insufficient() {
         &user,
         &false,
         &t.wdr(
-            updated_pos.position.scaled_amount_ray,
+            updated_pos.position.scaled_amount,
             10_000_000_000i128,
             0i128,
         ),
@@ -597,14 +597,14 @@ fn test_withdraw_rejects_supplied_accounting_underflow() {
         .supply(&t.sup(0, 10_000_000_000i128))
         .get_unchecked(0);
     t.edit_state(|state| {
-        state.supplied_ray = 1;
+        state.supplied = 1;
     });
 
     let user = Address::generate(&t.env);
     let result = flatten_contract_result(client.try_withdraw(
         &user,
         &false,
-        &t.wdr(updated_pos.position.scaled_amount_ray, i128::MAX, 0i128),
+        &t.wdr(updated_pos.position.scaled_amount, i128::MAX, 0i128),
     ));
     assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
 }
@@ -620,20 +620,20 @@ fn test_repay() {
         .borrow(&borrower, &t.bor(0, 100_0000000i128))
         .get_unchecked(0);
 
-    assert!(updated_borrow.position.scaled_amount_ray > 0);
+    assert!(updated_borrow.position.scaled_amount > 0);
 
     // Exact repay; no overpayment because no time has passed.
     let repay_amount = 100_0000000i128;
     let final_pos = client
         .repay(
             &borrower,
-            &t.ract(updated_borrow.position.scaled_amount_ray, repay_amount),
+            &t.ract(updated_borrow.position.scaled_amount, repay_amount),
         )
         .get_unchecked(0);
 
     assert_eq!(final_pos.actual_amount, repay_amount);
     assert!(
-        final_pos.position.scaled_amount_ray == 0 || final_pos.position.scaled_amount_ray <= 1,
+        final_pos.position.scaled_amount == 0 || final_pos.position.scaled_amount <= 1,
         "position should be cleared after full repay"
     );
 }
@@ -654,12 +654,12 @@ fn test_repay_overpayment_reports_actual_applied_amount() {
     let final_pos = client
         .repay(
             &borrower,
-            &t.ract(updated_borrow.position.scaled_amount_ray, repay_amount),
+            &t.ract(updated_borrow.position.scaled_amount, repay_amount),
         )
         .get_unchecked(0);
 
     assert_eq!(final_pos.actual_amount, 100_0000000i128);
-    assert_eq!(final_pos.position.scaled_amount_ray, 0);
+    assert_eq!(final_pos.position.scaled_amount, 0);
 }
 #[test]
 fn test_interest_accrual() {
@@ -681,11 +681,11 @@ fn test_interest_accrual() {
     let new_indexes = client.get_sync_data(&hub(&t.asset)).state;
 
     assert!(
-        new_indexes.borrow_index_ray > initial_indexes.borrow_index_ray,
+        new_indexes.borrow_index > initial_indexes.borrow_index,
         "borrow index should increase over time"
     );
     assert!(
-        new_indexes.supply_index_ray > initial_indexes.supply_index_ray,
+        new_indexes.supply_index > initial_indexes.supply_index,
         "supply index should increase over time"
     );
 }
@@ -949,14 +949,14 @@ fn test_seize_position_bad_debt() {
     );
 
     assert_eq!(
-        seized.position.scaled_amount_ray, 0,
+        seized.position.scaled_amount, 0,
         "position should be zeroed"
     );
 
     client.update_indexes(&hub(&t.asset));
     let idx_after = client.get_sync_data(&hub(&t.asset)).state;
     assert!(
-        idx_after.supply_index_ray <= idx_before.supply_index_ray,
+        idx_after.supply_index <= idx_before.supply_index,
         "supply index should decrease or stay same after bad debt"
     );
 }
@@ -974,7 +974,7 @@ fn test_seize_position_rejects_borrowed_accounting_underflow() {
         .get_unchecked(0);
 
     t.edit_state(|state| {
-        state.borrowed_ray = 0;
+        state.borrowed = 0;
     });
 
     let result = flatten_contract_result(client.try_seize_position(
@@ -995,7 +995,7 @@ fn test_seize_position_deposit_dust() {
     let seized = client.seize_position(&hub(&t.asset), &AccountPositionType::Deposit, &updated.position);
 
     assert_eq!(
-        seized.position.scaled_amount_ray, 0,
+        seized.position.scaled_amount, 0,
         "position should be zeroed"
     );
 
@@ -1076,13 +1076,13 @@ fn test_claim_revenue_rejects_utilization_above_max_after_revenue_burn() {
     t.env.as_contract(&t.pool, || {
         let key = PoolKey::Params(hub(&t.asset));
         let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
-        params.max_utilization_ray = RAY * 95 / 100;
+        params.max_utilization = RAY * 95 / 100;
         t.env.storage().persistent().set(&key, &params);
     });
     t.edit_state(|state| {
-        state.supplied_ray = 100 * RAY;
-        state.borrowed_ray = 90 * RAY;
-        state.revenue_ray = 10 * RAY;
+        state.supplied = 100 * RAY;
+        state.borrowed = 90 * RAY;
+        state.revenue = 10 * RAY;
         state.cash = 10_0000000i128;
     });
 
@@ -1103,7 +1103,7 @@ fn test_claim_revenue_rejects_revenue_above_supplied() {
         .get_unchecked(0);
     let _ = client.seize_position(&hub(&t.asset), &AccountPositionType::Deposit, &supplied.position);
     t.edit_state(|state| {
-        state.supplied_ray = 1;
+        state.supplied = 1;
     });
 
     let result = flatten_contract_result(client.try_claim_revenue(&hub(&t.asset)));
@@ -1116,15 +1116,15 @@ fn test_update_params_rejects_invalid_utilization_range() {
     let client = t.client();
 
     let model = InterestRateModel {
-        max_borrow_rate_ray: 2 * RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY,
-        mid_utilization_ray: RAY * 8 / 10,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1000,
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY,
+        mid_utilization: RAY * 8 / 10,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
@@ -1139,15 +1139,15 @@ fn test_update_params_rejects_optimal_utilization_above_one() {
     let client = t.client();
 
     let model = InterestRateModel {
-        max_borrow_rate_ray: 2 * RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1000,
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
@@ -1162,15 +1162,15 @@ fn test_update_params_rejects_invalid_reserve_factor() {
     let client = t.client();
 
     let model = InterestRateModel {
-        max_borrow_rate_ray: 2 * RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 10_000,
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 10_000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
@@ -1185,15 +1185,15 @@ fn test_update_params_rejects_negative_base_rate() {
     let client = t.client();
 
     let model = InterestRateModel {
-        max_borrow_rate_ray: 2 * RAY,
-        base_borrow_rate_ray: -1i128,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1000,
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: -1i128,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
@@ -1209,15 +1209,15 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
 
     // Flat slopes keep SlopeNonMonotonic from pre-empting MaxRateBelowBase.
     let model = InterestRateModel {
-        max_borrow_rate_ray: RAY / 100,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 100,
-        slope2_ray: RAY / 100,
-        slope3_ray: RAY / 100,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1000,
+        max_borrow_rate: RAY / 100,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 100,
+        slope2: RAY / 100,
+        slope3: RAY / 100,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
@@ -1233,15 +1233,15 @@ fn test_update_params_rejects_max_borrow_rate_above_cap() {
 
     // `2 * RAY + 1` exceeds MAX_BORROW_RATE_RAY; slopes are below the cap.
     let model = InterestRateModel {
-        max_borrow_rate_ray: 2 * RAY + 1,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1000,
+        max_borrow_rate: 2 * RAY + 1,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
@@ -1321,7 +1321,7 @@ fn test_withdraw_liquidation_fee_accrues_to_revenue() {
         .withdraw(
             &user,
             &true,
-            &t.wdr(updated_pos.position.scaled_amount_ray, gross, fee),
+            &t.wdr(updated_pos.position.scaled_amount, gross, fee),
         )
         .get_unchecked(0);
 
@@ -1359,7 +1359,7 @@ fn test_withdraw_liquidation_with_zero_protocol_fee_is_no_op() {
         .withdraw(
             &user,
             &true,
-            &t.wdr(updated_pos.position.scaled_amount_ray, gross, 0i128),
+            &t.wdr(updated_pos.position.scaled_amount, gross, 0i128),
         )
         .get_unchecked(0);
 
@@ -1380,7 +1380,7 @@ fn test_repay_zero_amount_is_no_op() {
     let updated_borrow = client
         .borrow(&borrower, &t.bor(0, 100_0000000i128))
         .get_unchecked(0);
-    let scaled_before = updated_borrow.position.scaled_amount_ray;
+    let scaled_before = updated_borrow.position.scaled_amount;
     let state_before = t.state_snapshot();
 
     let result = client
@@ -1388,7 +1388,7 @@ fn test_repay_zero_amount_is_no_op() {
         .get_unchecked(0);
 
     assert_eq!(result.actual_amount, 0);
-    assert_eq!(result.position.scaled_amount_ray, scaled_before);
+    assert_eq!(result.position.scaled_amount, scaled_before);
     assert_pool_state_eq(&t.state_snapshot(), &state_before);
 }
 
@@ -1405,7 +1405,7 @@ fn test_add_rewards_zero_amount_is_no_op() {
     client.add_rewards(&hub(&t.asset), &0i128);
     let result = client.get_sync_data(&hub(&t.asset)).state;
 
-    assert_eq!(result.supply_index_ray, snapshot_before.supply_index_ray);
+    assert_eq!(result.supply_index, snapshot_before.supply_index);
 }
 
 // Public ABI panic tests cover `Ray::checked_sub` underflow through
@@ -1438,7 +1438,7 @@ fn test_repay_partial_amount() {
     let final_pos = client
         .repay(
             &borrower,
-            &t.ract(updated_borrow.position.scaled_amount_ray, partial),
+            &t.ract(updated_borrow.position.scaled_amount, partial),
         )
         .get_unchecked(0);
 
@@ -1447,11 +1447,11 @@ fn test_repay_partial_amount() {
         "partial repay returns the amount passed in"
     );
     assert!(
-        final_pos.position.scaled_amount_ray > 0,
+        final_pos.position.scaled_amount > 0,
         "position should still have residual debt after partial repay"
     );
     assert!(
-        final_pos.position.scaled_amount_ray < updated_borrow.position.scaled_amount_ray,
+        final_pos.position.scaled_amount < updated_borrow.position.scaled_amount,
         "scaled debt should decrease after partial repay"
     );
 }
@@ -1471,7 +1471,7 @@ fn test_add_rewards_increases_supply_index() {
     client.update_indexes(&hub(&t.asset));
     let idx_after = client.get_sync_data(&hub(&t.asset)).state;
     assert!(
-        idx_after.supply_index_ray > idx_before.supply_index_ray,
+        idx_after.supply_index > idx_before.supply_index,
         "supply index should increase after add_rewards"
     );
 }
@@ -1498,7 +1498,7 @@ fn test_create_strategy_emits_position_and_transfers_net() {
     assert_eq!(result.actual_amount, amount);
     assert_eq!(result.amount_received, amount - fee);
     assert_eq!(count_topic(&events, "strategy", "fee"), 1);
-    assert!(result.position.scaled_amount_ray > 0, "debt recorded");
+    assert!(result.position.scaled_amount > 0, "debt recorded");
 
     let caller_after = tok.balance(&caller);
     assert_eq!(
@@ -1540,42 +1540,42 @@ fn test_update_params_happy_path() {
     let new_reserve: u32 = 2000;
 
     let model = InterestRateModel {
-        max_borrow_rate_ray: new_max,
-        base_borrow_rate_ray: new_base,
-        slope1_ray: new_s1,
-        slope2_ray: new_s2,
-        slope3_ray: new_s3,
-        mid_utilization_ray: new_mid,
-        optimal_utilization_ray: new_opt,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: new_reserve,
+        max_borrow_rate: new_max,
+        base_borrow_rate: new_base,
+        slope1: new_s1,
+        slope2: new_s2,
+        slope3: new_s3,
+        mid_utilization: new_mid,
+        optimal_utilization: new_opt,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: new_reserve,
     };
     client.update_params(&hub(&t.asset), &model);
 
     // Updated fields round-trip through get_sync_data().
     let sync = client.get_sync_data(&hub(&t.asset));
     assert_eq!(
-        sync.params.max_borrow_rate_ray, new_max,
-        "max_borrow_rate_ray"
+        sync.params.max_borrow_rate, new_max,
+        "max_borrow_rate"
     );
     assert_eq!(
-        sync.params.base_borrow_rate_ray, new_base,
-        "base_borrow_rate_ray"
+        sync.params.base_borrow_rate, new_base,
+        "base_borrow_rate"
     );
-    assert_eq!(sync.params.slope1_ray, new_s1, "slope1_ray");
-    assert_eq!(sync.params.slope2_ray, new_s2, "slope2_ray");
-    assert_eq!(sync.params.slope3_ray, new_s3, "slope3_ray");
+    assert_eq!(sync.params.slope1, new_s1, "slope1");
+    assert_eq!(sync.params.slope2, new_s2, "slope2");
+    assert_eq!(sync.params.slope3, new_s3, "slope3");
     assert_eq!(
-        sync.params.mid_utilization_ray, new_mid,
-        "mid_utilization_ray"
-    );
-    assert_eq!(
-        sync.params.optimal_utilization_ray, new_opt,
-        "optimal_utilization_ray"
+        sync.params.mid_utilization, new_mid,
+        "mid_utilization"
     );
     assert_eq!(
-        sync.params.reserve_factor_bps, new_reserve,
-        "reserve_factor_bps"
+        sync.params.optimal_utilization, new_opt,
+        "optimal_utilization"
+    );
+    assert_eq!(
+        sync.params.reserve_factor, new_reserve,
+        "reserve_factor"
     );
 
     // With base rate still 1% and higher slopes, 50% utilization uses updated slope1.
@@ -1592,15 +1592,15 @@ fn test_update_params_rejects_invalid_slope_ordering() {
 
     // slope3 < slope2 is invalid.
     let model = InterestRateModel {
-        max_borrow_rate_ray: 2 * RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 2,
-        slope3_ray: RAY / 5,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1000,
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 2,
+        slope3: RAY / 5,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
@@ -1616,15 +1616,15 @@ fn test_update_params_rejects_mid_utilization_zero() {
     let client = t.client();
 
     let model = InterestRateModel {
-        max_borrow_rate_ray: 2 * RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY,
-        mid_utilization_ray: 0i128,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1000,
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY,
+        mid_utilization: 0i128,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
@@ -1641,15 +1641,15 @@ fn test_update_params_rejects_reserve_factor_at_bps() {
     let client = t.client();
 
     let model = InterestRateModel {
-        max_borrow_rate_ray: 2 * RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: BPS as u32,
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: BPS as u32,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
@@ -1670,7 +1670,7 @@ fn test_create_market_rejects_invalid_rate_model() {
     let client = LiquidityPoolClient::new(&env, &pool);
 
     let mut params = market_params(&Address::generate(&env));
-    params.base_borrow_rate_ray = -1;
+    params.base_borrow_rate = -1;
 
     let result = flatten_contract_result(client.try_create_market(&0u32, &params));
     assert_contract_error(
@@ -1718,18 +1718,18 @@ fn test_create_market_initializes_state() {
     client.create_market(&0u32, &market_params(&asset_b));
 
     let sync = client.get_sync_data(&hub(&asset_b));
-    if sync.state.supply_index_ray != RAY {
+    if sync.state.supply_index != RAY {
         panic!("supply index must start at RAY");
     }
-    if sync.state.borrow_index_ray != RAY {
+    if sync.state.borrow_index != RAY {
         panic!("borrow index must start at RAY");
     }
     if sync.state.last_timestamp != t.env.ledger().timestamp() * MS_PER_SECOND {
         panic!("last_timestamp must be ledger time in milliseconds");
     }
-    assert_eq!(sync.state.supplied_ray, 0);
-    assert_eq!(sync.state.borrowed_ray, 0);
-    assert_eq!(sync.state.revenue_ray, 0);
+    assert_eq!(sync.state.supplied, 0);
+    assert_eq!(sync.state.borrowed, 0);
+    assert_eq!(sync.state.revenue, 0);
     assert_eq!(sync.state.cash, 0);
     assert_eq!(sync.params.asset_id, asset_b);
 }
@@ -1750,7 +1750,7 @@ fn test_two_market_isolation() {
     client.supply(&t.sup(0, supply_amount));
 
     let a_after_supply = t.state_snapshot();
-    if a_after_supply.supplied_ray <= a_before.supplied_ray {
+    if a_after_supply.supplied <= a_before.supplied {
         panic!("market A supplied must increase after supply");
     }
     assert_eq!(a_after_supply.cash, a_before.cash + supply_amount);
@@ -1764,7 +1764,7 @@ fn test_two_market_isolation() {
     client.borrow(&borrower, &t.bor(0, borrow_amount));
 
     let a_after_borrow = t.state_snapshot();
-    if a_after_borrow.borrowed_ray <= a_after_supply.borrowed_ray {
+    if a_after_borrow.borrowed <= a_after_supply.borrowed {
         panic!("market A borrowed must increase after borrow");
     }
     assert_eq!(a_after_borrow.cash, a_after_supply.cash - borrow_amount);
@@ -1821,7 +1821,7 @@ fn test_bulk_get_indexes_matches_per_asset() {
         "bulk entry equals the simulated per-asset read"
     );
     assert!(
-        bulk.get_unchecked(0).borrow_index_ray > RAY,
+        bulk.get_unchecked(0).borrow_index > RAY,
         "borrow index must have accrued past RAY for the equality to be meaningful"
     );
 }
@@ -1851,9 +1851,9 @@ fn test_bulk_get_indexes_multi_asset_alignment() {
     let b = bulk.get_unchecked(1);
     // Utilized market A accrues borrow/supply indexes; idle market B accrues
     // only the base borrow index and keeps its supply index flat.
-    assert!(a.borrow_index_ray > b.borrow_index_ray && b.borrow_index_ray > RAY);
-    assert!(a.supply_index_ray > RAY);
-    assert_eq!(b.supply_index_ray, RAY, "no borrows, no supplier rewards");
+    assert!(a.borrow_index > b.borrow_index && b.borrow_index > RAY);
+    assert!(a.supply_index > RAY);
+    assert_eq!(b.supply_index, RAY, "no borrows, no supplier rewards");
 
     // Input alignment: each entry matches its own per-asset simulation.
     let now_ms = t.env.ledger().timestamp() * common::constants::MS_PER_SECOND;
@@ -1934,13 +1934,13 @@ fn test_bulk_supply_two_markets_matches_sequential_singles() {
         .get_unchecked(0);
 
     assert_eq!(
-        first.position.scaled_amount_ray,
-        seq_first.position.scaled_amount_ray
+        first.position.scaled_amount,
+        seq_first.position.scaled_amount
     );
     assert_eq!(first.actual_amount, seq_first.actual_amount);
     assert_eq!(
-        second.position.scaled_amount_ray,
-        seq_second.position.scaled_amount_ray
+        second.position.scaled_amount,
+        seq_second.position.scaled_amount
     );
     assert_eq!(second.actual_amount, seq_second.actual_amount);
 
@@ -1982,9 +1982,9 @@ fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
 
     let actions = vec![
         &t.env,
-        t.action(first_borrow.position.scaled_amount_ray, debt_one),
+        t.action(first_borrow.position.scaled_amount, debt_one),
         t.action(
-            second_borrow.position.scaled_amount_ray,
+            second_borrow.position.scaled_amount,
             debt_two + overpayment,
         ),
     ];
@@ -1997,12 +1997,12 @@ fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
         first.actual_amount, debt_one,
         "entry 0 repays exactly, no refund"
     );
-    assert_eq!(first.position.scaled_amount_ray, 0);
+    assert_eq!(first.position.scaled_amount, 0);
     assert_eq!(
         second.actual_amount, debt_two,
         "entry 1 applies only the outstanding debt"
     );
-    assert_eq!(second.position.scaled_amount_ray, 0);
+    assert_eq!(second.position.scaled_amount, 0);
     assert_eq!(
         tok.balance(&borrower) - payer_before,
         overpayment,
@@ -2044,10 +2044,10 @@ fn test_bulk_supply_duplicate_asset_applies_sequentially() {
 
     let state_after = t.state_snapshot();
     assert_eq!(
-        state_after.supplied_ray,
-        state_before.supplied_ray
-            + first.position.scaled_amount_ray
-            + second.position.scaled_amount_ray,
+        state_after.supplied,
+        state_before.supplied
+            + first.position.scaled_amount
+            + second.position.scaled_amount,
         "total supplied is the sum of both entries"
     );
     assert_eq!(
@@ -2090,11 +2090,11 @@ fn test_bulk_supply_cap_violation_reverts_whole_batch() {
 
 // Sets the market's max-utilization cap, overriding the disabled RAY sentinel
 // the default params use for accounting tests.
-fn set_max_utilization(t: &TestSetup, max_utilization_ray: i128) {
+fn set_max_utilization(t: &TestSetup, max_utilization: i128) {
     t.env.as_contract(&t.pool, || {
         let key = PoolKey::Params(hub(&t.asset));
         let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
-        params.max_utilization_ray = max_utilization_ray;
+        params.max_utilization = max_utilization;
         t.env.storage().persistent().set(&key, &params);
     });
 }
@@ -2114,7 +2114,7 @@ fn test_withdraw_above_max_utilization_panics_but_within_cap_succeeds() {
     client.borrow(&borrower, &t.bor(0, 5_000_000_000i128));
 
     let supplier = Address::generate(&t.env);
-    let scaled = supplied.position.scaled_amount_ray;
+    let scaled = supplied.position.scaled_amount;
 
     // Withdraw 5 units: supplied 20 -> 15, utilization 5/15 = 33% <= 50% cap.
     let ok = client
@@ -2126,7 +2126,7 @@ fn test_withdraw_above_max_utilization_panics_but_within_cap_succeeds() {
     let result = flatten_contract_result(client.try_withdraw(
         &supplier,
         &false,
-        &t.wdr(ok.position.scaled_amount_ray, 6_000_000_000i128, 0i128),
+        &t.wdr(ok.position.scaled_amount, 6_000_000_000i128, 0i128),
     ));
     assert_contract_error(
         result,
@@ -2163,13 +2163,13 @@ fn test_cash_conservation_across_supply_borrow_overpaid_repay_withdraw() {
         .repay(
             &borrower,
             &t.ract(
-                borrowed.position.scaled_amount_ray,
+                borrowed.position.scaled_amount,
                 borrow_amount + overpayment,
             ),
         )
         .get_unchecked(0);
     assert_eq!(repaid.actual_amount, borrow_amount);
-    assert_eq!(repaid.position.scaled_amount_ray, 0);
+    assert_eq!(repaid.position.scaled_amount, 0);
     assert_eq!(t.state_snapshot().cash, cash_start + supply_amount);
 
     // Withdraw part of the supply; `cash` drops by exactly the net transfer.
@@ -2178,7 +2178,7 @@ fn test_cash_conservation_across_supply_borrow_overpaid_repay_withdraw() {
     client.withdraw(
         &supplier,
         &false,
-        &t.wdr(supplied.position.scaled_amount_ray, withdraw_amount, 0i128),
+        &t.wdr(supplied.position.scaled_amount, withdraw_amount, 0i128),
     );
     assert_eq!(
         t.state_snapshot().cash,

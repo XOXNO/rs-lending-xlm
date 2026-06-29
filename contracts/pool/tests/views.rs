@@ -37,28 +37,28 @@ impl TestSetup {
             .address()
             .clone();
         let params = MarketParamsRaw {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY / 10,
-            slope2_ray: RAY / 5,
-            slope3_ray: RAY / 2,
-            mid_utilization_ray: RAY / 2,
-            optimal_utilization_ray: RAY * 8 / 10,
-            max_utilization_ray: RAY * 95 / 100,
-            reserve_factor_bps: 1_000,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY / 10,
+            slope2: RAY / 5,
+            slope3: RAY / 2,
+            mid_utilization: RAY / 2,
+            optimal_utilization: RAY * 8 / 10,
+            max_utilization: RAY * 95 / 100,
+            reserve_factor: 1_000,
             supply_cap: 0,
             borrow_cap: 0,
             is_flashloanable: false,
-            flashloan_fee_bps: 0,
+            flashloan_fee: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
         let state = PoolStateRaw {
-            supplied_ray: 10 * RAY,
-            borrowed_ray: 5 * RAY,
-            revenue_ray: 3 * RAY,
-            borrow_index_ray: 3 * RAY,
-            supply_index_ray: 2 * RAY,
+            supplied: 10 * RAY,
+            borrowed: 5 * RAY,
+            revenue: 3 * RAY,
+            borrow_index: 3 * RAY,
+            supply_index: 2 * RAY,
             last_timestamp: 950_000,
             cash: 50_000_000,
         };
@@ -94,7 +94,7 @@ fn test_views_load_and_compute_expected_values() {
 
     t.as_contract(|| {
         assert_eq!(load_params(&t.env, &hub(&t.asset)).asset_id, t.asset);
-        assert_eq!(load_state(&t.env, &hub(&t.asset)).supplied_ray, 10 * RAY);
+        assert_eq!(load_state(&t.env, &hub(&t.asset)).supplied, 10 * RAY);
         // reserves() returns accounted `cash`; directly minted tokens are excluded.
         assert_eq!(reserves(&t.env, &hub(&t.asset)), 50_000_000);
         // View amounts use asset decimals (7).
@@ -125,7 +125,7 @@ fn test_capital_utilisation_returns_zero_when_no_supply_exists() {
 
     t.as_contract(|| {
         let zero_supply = PoolStateRaw {
-            supplied_ray: 0,
+            supplied: 0,
             ..t.state.clone()
         };
         t.env

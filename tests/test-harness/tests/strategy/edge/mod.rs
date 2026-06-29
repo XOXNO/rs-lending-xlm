@@ -67,8 +67,8 @@ fn supply_position_params(t: &LendingTest, account_id: u64, asset_name: &str) ->
             .get(hub_asset(asset))
             .expect("supply position should exist for asset");
         (
-            position.loan_to_value_bps,
-            position.liquidation_threshold_bps,
+            position.loan_to_value,
+            position.liquidation_threshold,
         )
     })
 }

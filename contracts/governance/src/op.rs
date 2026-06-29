@@ -104,9 +104,9 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 spoke_id: 0,
                 can_collateral: cfg.is_collateralizable,
                 can_borrow: cfg.is_borrowable,
-                ltv: cfg.loan_to_value_bps,
-                threshold: cfg.liquidation_threshold_bps,
-                bonus: cfg.liquidation_bonus_bps,
+                ltv: cfg.loan_to_value,
+                threshold: cfg.liquidation_threshold,
+                bonus: cfg.liquidation_bonus,
                 supply_cap: cfg.supply_cap,
                 borrow_cap: cfg.borrow_cap,
             };

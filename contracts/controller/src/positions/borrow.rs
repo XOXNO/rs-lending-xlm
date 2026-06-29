@@ -155,7 +155,7 @@ fn merge_borrow_result(
     let old_scaled = account
         .borrow_positions
         .get(hub_asset.clone())
-        .map(|p| Ray::from(p.scaled_amount_ray))
+        .map(|p| Ray::from(p.scaled_amount))
         .unwrap_or(Ray::ZERO);
     let position: DebtPosition = DebtPosition::from(&result.position);
     // dimensional: scaled delta is Ray<Share(asset, borrow)>.
@@ -173,7 +173,7 @@ fn merge_borrow_result(
     cache.record_debt_position_update(
         action,
         &hub_asset.asset,
-        result.market_index.borrow_index_ray,
+        result.market_index.borrow_index,
         result.actual_amount,
         &position,
     );
@@ -242,7 +242,7 @@ fn borrow_strategy_inner(
 
     // Flash-loan parameters live on the pool market params, not the spoke config.
     let flash_fee = fee_override.unwrap_or_else(|| {
-        let fee_bps = cache.cached_pool_sync_data(&hub_debt).params.flashloan_fee_bps;
+        let fee_bps = cache.cached_pool_sync_data(&hub_debt).params.flashloan_fee;
         Bps::from(i128::from(fee_bps)).flash_loan_fee_on(env, amount)
     });
     let borrow_position = account.get_or_create_debt_position(&hub_debt);

@@ -802,9 +802,9 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
     // A valid edit still succeeds and the stored asset keeps threshold > ltv.
     t.edit_asset_in_e_mode("USDC", 1, true, true, 9_000, 9_300, 200);
     let cfg = t.ctrl_client().get_spoke_asset(&1u32, &hub_asset(usdc.clone()));
-    assert_eq!(cfg.loan_to_value_bps, 9_000);
-    assert_eq!(cfg.liquidation_threshold_bps, 9_300);
-    assert!(cfg.liquidation_threshold_bps > cfg.loan_to_value_bps);
+    assert_eq!(cfg.loan_to_value, 9_000);
+    assert_eq!(cfg.liquidation_threshold, 9_300);
+    assert!(cfg.liquidation_threshold > cfg.loan_to_value);
 }
 
 // Per-asset divergence: two assets in the SAME category carry DIFFERENT risk
@@ -833,18 +833,18 @@ fn test_emode_per_asset_divergent_params() {
     // USDC position keeps the stablecoin-category params.
     let usdc_pos = supplies.get(hub_asset(usdc)).expect("USDC position");
     assert_eq!(
-        usdc_pos.loan_to_value_bps, 9_700,
+        usdc_pos.loan_to_value, 9_700,
         "USDC keeps its 97% e-mode LTV"
     );
-    assert_eq!(usdc_pos.liquidation_threshold_bps, 9_800);
+    assert_eq!(usdc_pos.liquidation_threshold, 9_800);
 
     // USDT position carries its own, divergent params in the same category.
     let usdt_pos = supplies.get(hub_asset(usdt)).expect("USDT position");
     assert_eq!(
-        usdt_pos.loan_to_value_bps, 9_000,
+        usdt_pos.loan_to_value, 9_000,
         "USDT carries its own tighter LTV"
     );
-    assert_eq!(usdt_pos.liquidation_threshold_bps, 9_300);
+    assert_eq!(usdt_pos.liquidation_threshold, 9_300);
 }
 
 const UNIT: i128 = 10_000_000;

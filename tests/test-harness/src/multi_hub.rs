@@ -78,7 +78,7 @@ impl LendingTest {
     }
 
     /// Lists an already-registered market on `hub_id` (distinct from the base
-    /// harness hub) with an explicit `liquidation_fees_bps`, overriding the base
+    /// harness hub) with an explicit `liquidation_fees`, overriding the base
     /// hub config. Used to prove the liquidation seizure resolves the protocol
     /// fee from the position's own hub.
     pub fn list_market_on_hub_with_fees(
@@ -86,7 +86,7 @@ impl LendingTest {
         hub_id: u32,
         asset_name: &str,
         initial_liquidity: f64,
-        liquidation_fees_bps: u32,
+        liquidation_fees: u32,
     ) {
         let market = self.resolve_market(asset_name);
         let asset = market.asset.clone();
@@ -103,7 +103,7 @@ impl LendingTest {
         let mut config: SpokeAssetConfig = self
             .ctrl_client()
             .get_spoke_asset(&0u32, &hub_asset(asset.clone()));
-        config.liquidation_fees_bps = liquidation_fees_bps;
+        config.liquidation_fees = liquidation_fees;
 
         let gov = self.gov_client();
         gov.execute_immediate(&self.admin, &AdminOperation::ApproveToken(asset.clone()));

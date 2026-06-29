@@ -23,27 +23,27 @@ pub struct MarketPreset {
 
 #[derive(Clone)]
 pub struct AssetConfigPreset {
-    pub loan_to_value_bps: u32,
-    pub liquidation_threshold_bps: u32,
-    pub liquidation_bonus_bps: u32,
-    pub liquidation_fees_bps: u32,
+    pub loan_to_value: u32,
+    pub liquidation_threshold: u32,
+    pub liquidation_bonus: u32,
+    pub liquidation_fees: u32,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
     pub is_flashloanable: bool,
-    pub flashloan_fee_bps: u32,
+    pub flashloan_fee: u32,
 }
 
 #[derive(Clone)]
 pub struct MarketParamsPreset {
-    pub max_borrow_rate_ray: i128,
-    pub base_borrow_rate_ray: i128,
-    pub slope1_ray: i128,
-    pub slope2_ray: i128,
-    pub slope3_ray: i128,
-    pub mid_utilization_ray: i128,
-    pub optimal_utilization_ray: i128,
-    pub max_utilization_ray: i128,
-    pub reserve_factor_bps: u32,
+    pub max_borrow_rate: i128,
+    pub base_borrow_rate: i128,
+    pub slope1: i128,
+    pub slope2: i128,
+    pub slope3: i128,
+    pub mid_utilization: i128,
+    pub optimal_utilization: i128,
+    pub max_utilization: i128,
+    pub reserve_factor: u32,
     pub supply_cap: i128,
     pub borrow_cap: i128,
 }
@@ -63,30 +63,30 @@ pub struct TolerancePreset {
 // Default configs
 
 pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
-    loan_to_value_bps: 7500,
-    liquidation_threshold_bps: 8000,
-    liquidation_bonus_bps: 500,
-    liquidation_fees_bps: 100,
+    loan_to_value: 7500,
+    liquidation_threshold: 8000,
+    liquidation_bonus: 500,
+    liquidation_fees: 100,
     is_collateralizable: true,
     is_borrowable: true,
     is_flashloanable: true,
-    flashloan_fee_bps: 9,
+    flashloan_fee: 9,
 };
 
 pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
-    // `max_borrow_rate_ray` capped at `MAX_BORROW_RATE_RAY = 2 * RAY` (the
-    // compound-interest Taylor envelope). `slope3_ray` must stay <= max.
-    max_borrow_rate_ray: 2 * RAY,
-    base_borrow_rate_ray: RAY / 100,
-    slope1_ray: RAY * 4 / 100,
-    slope2_ray: RAY * 10 / 100,
-    slope3_ray: RAY * 150 / 100,
-    mid_utilization_ray: RAY * 50 / 100,
-    optimal_utilization_ray: RAY * 80 / 100,
+    // `max_borrow_rate` capped at `MAX_BORROW_RATE_RAY = 2 * RAY` (the
+    // compound-interest Taylor envelope). `slope3` must stay <= max.
+    max_borrow_rate: 2 * RAY,
+    base_borrow_rate: RAY / 100,
+    slope1: RAY * 4 / 100,
+    slope2: RAY * 10 / 100,
+    slope3: RAY * 150 / 100,
+    mid_utilization: RAY * 50 / 100,
+    optimal_utilization: RAY * 80 / 100,
     // 95 % utilization ceiling — sits at or above `optimal` and below
     // `RAY`. Markets may tighten per asset class.
-    max_utilization_ray: RAY * 95 / 100,
-    reserve_factor_bps: 1000,
+    max_utilization: RAY * 95 / 100,
+    reserve_factor: 1000,
     supply_cap: 0,
     borrow_cap: 0,
 };
@@ -110,9 +110,9 @@ pub fn usdt_stable_preset() -> MarketPreset {
         price_wad: usd(1),
         initial_liquidity: 1_000_000.0,
         config: AssetConfigPreset {
-            loan_to_value_bps: 9000,
-            liquidation_threshold_bps: 9500,
-            liquidation_bonus_bps: 200,
+            loan_to_value: 9000,
+            liquidation_threshold: 9500,
+            liquidation_bonus: 200,
             ..DEFAULT_ASSET_CONFIG
         },
         params: DEFAULT_MARKET_PARAMS,
@@ -172,7 +172,7 @@ pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
 impl AssetConfigPreset {
     /// Build the general-spoke (spoke 0) base risk listing for market creation.
     /// Flash-loan eligibility/fee and decimals live on `MarketParamsRaw`, so the
-    /// builder threads `is_flashloanable`/`flashloan_fee_bps` there separately;
+    /// builder threads `is_flashloanable`/`flashloan_fee` there separately;
     /// general-spoke caps are disabled (hub caps live on `MarketParamsRaw`).
     pub fn to_asset_config(
         &self,
@@ -184,10 +184,10 @@ impl AssetConfigPreset {
             is_borrowable: self.is_borrowable,
             paused: false,
             frozen: false,
-            loan_to_value_bps: self.loan_to_value_bps,
-            liquidation_threshold_bps: self.liquidation_threshold_bps,
-            liquidation_bonus_bps: self.liquidation_bonus_bps,
-            liquidation_fees_bps: self.liquidation_fees_bps,
+            loan_to_value: self.loan_to_value,
+            liquidation_threshold: self.liquidation_threshold,
+            liquidation_bonus: self.liquidation_bonus,
+            liquidation_fees: self.liquidation_fees,
             supply_cap: 0,
             borrow_cap: 0,
             oracle_override: controller::types::MarketOracleConfigOption::None,
@@ -202,19 +202,19 @@ impl MarketParamsPreset {
         decimals: u32,
     ) -> controller::types::MarketParamsRaw {
         controller::types::MarketParamsRaw {
-            max_borrow_rate_ray: self.max_borrow_rate_ray,
-            base_borrow_rate_ray: self.base_borrow_rate_ray,
-            slope1_ray: self.slope1_ray,
-            slope2_ray: self.slope2_ray,
-            slope3_ray: self.slope3_ray,
-            mid_utilization_ray: self.mid_utilization_ray,
-            optimal_utilization_ray: self.optimal_utilization_ray,
-            max_utilization_ray: self.max_utilization_ray,
-            reserve_factor_bps: self.reserve_factor_bps,
+            max_borrow_rate: self.max_borrow_rate,
+            base_borrow_rate: self.base_borrow_rate,
+            slope1: self.slope1,
+            slope2: self.slope2,
+            slope3: self.slope3,
+            mid_utilization: self.mid_utilization,
+            optimal_utilization: self.optimal_utilization,
+            max_utilization: self.max_utilization,
+            reserve_factor: self.reserve_factor,
             supply_cap: self.supply_cap,
             borrow_cap: self.borrow_cap,
             is_flashloanable: false,
-            flashloan_fee_bps: 0,
+            flashloan_fee: 0,
             asset_id: asset.clone(),
             asset_decimals: decimals,
         }

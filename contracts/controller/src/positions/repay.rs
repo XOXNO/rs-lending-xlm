@@ -129,7 +129,7 @@ pub(crate) fn finish_repayment(
     let old_scaled = account
         .borrow_positions
         .get(hub_asset.clone())
-        .map(|p| Ray::from(p.scaled_amount_ray))
+        .map(|p| Ray::from(p.scaled_amount))
         .unwrap_or(Ray::ZERO);
     let position = DebtPosition::from(&result.position);
     if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
@@ -143,7 +143,7 @@ pub(crate) fn finish_repayment(
     cache.record_debt_position_update(
         action,
         &hub_asset.asset,
-        result.market_index.borrow_index_ray,
+        result.market_index.borrow_index,
         result.actual_amount,
         &position,
     );
