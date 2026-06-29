@@ -8,12 +8,11 @@ pub(crate) mod oracle;
 mod position_manager;
 mod spoke;
 
-#[allow(unused_imports)]
-pub(crate) use asset::{add_asset_to_spoke, edit_asset_in_spoke, remove_asset_from_spoke};
-#[allow(unused_imports)]
-pub(crate) use hub::{create_hub, require_hub_active};
-#[allow(unused_imports)]
-pub(crate) use spoke::{add_spoke, remove_spoke};
+#[cfg(feature = "certora")]
+pub(crate) use asset::{add_asset_to_spoke, edit_asset_in_spoke};
+pub(crate) use hub::require_hub_active;
+#[cfg(feature = "certora")]
+pub(crate) use spoke::remove_spoke;
 
 #[cfg(test)]
 use common::types::HubConfig;

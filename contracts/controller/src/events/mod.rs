@@ -3,7 +3,7 @@ use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, Strin
 use common::types::{
     Account, AccountMeta, AccountPosition, DebtPosition, MarketOracleConfig, OracleAssetRef,
     OraclePriceFluctuation, OracleProviderKind, OracleReadMode, OracleSourceConfig, OracleStrategy,
-    PositionMode, ReflectorBase, SpokeAssetConfig, SpokeConfig,
+    PositionMode, ReflectorBase,
 };
 
 #[contracttype]
@@ -382,151 +382,16 @@ pub struct UpdatePositionBatchEvent {
     pub borrows: Vec<EventBorrowDelta>,
 }
 
-#[contractevent(topics = ["position", "flash_loan"])]
-#[derive(Clone, Debug)]
-pub struct FlashLoanEvent {
-    pub asset: Address,
-    pub receiver: Address,
-    pub caller: Address,
-    pub amount: i128,
-    pub fee: i128,
-}
+mod config;
+mod debt;
+mod flash;
+mod strategy;
 
-#[contractevent(topics = ["config", "oracle"])]
-#[derive(Clone, Debug)]
-pub struct UpdateAssetOracleEvent {
-    pub asset: Address,
-    pub oracle: EventOracleProvider,
-}
-
-/// Spoke snapshot emitted after spoke changes.
-/// Risk parameters are per-asset values.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct EventSpoke {
-    pub spoke_id: u32,
-    pub is_deprecated: bool,
-}
-
-impl EventSpoke {
-    pub fn new(spoke_id: u32, spoke: &SpokeConfig) -> Self {
-        Self {
-            spoke_id,
-            is_deprecated: spoke.is_deprecated,
-        }
-    }
-}
-
-#[contractevent(topics = ["config", "spoke"])]
-#[derive(Clone, Debug)]
-pub struct UpdateSpokeEvent {
-    pub spoke: EventSpoke,
-}
-
-#[contractevent(topics = ["config", "spoke_asset"])]
-#[derive(Clone, Debug)]
-pub struct UpdateSpokeAssetEvent {
-    pub asset: Address,
-    pub config: SpokeAssetConfig,
-    pub spoke_id: u32,
-    pub hub_id: u32,
-}
-
-#[contractevent(topics = ["config", "remove_spoke_asset"])]
-#[derive(Clone, Debug)]
-pub struct RemoveSpokeAssetEvent {
-    pub asset: Address,
-    pub spoke_id: u32,
-    pub hub_id: u32,
-}
-
-#[contractevent(topics = ["debt", "bad_debt"])]
-#[derive(Clone, Debug)]
-pub struct CleanBadDebtEvent {
-    pub account_id: u64,
-    /// Debt written off by cleanup, in USD WAD.
-    pub total_borrow_usd_wad: i128,
-    /// Collateral seized by cleanup, in USD WAD.
-    pub total_collateral_usd_wad: i128,
-}
-
-#[contractevent(topics = ["strategy", "initial_payment"])]
-#[derive(Clone, Debug)]
-pub struct InitialMultiplyPaymentEvent {
-    pub token: Address,
-    pub amount: i128,
-    pub usd_value_wad: i128,
-    pub account_id: u64,
-}
-
-/// Emitted after a Blend V2 migration into the controller.
-#[contractevent(topics = ["strategy", "blend_migration"])]
-#[derive(Clone, Debug)]
-pub struct BlendMigrationEvent {
-    pub account_id: u64,
-    pub blend_pool: Address,
-    pub collateral_count: u32,
-    pub supply_count: u32,
-    pub debt_count: u32,
-}
-
-#[contractevent(topics = ["config", "approve_token"])]
-#[derive(Clone, Debug)]
-pub struct ApproveTokenEvent {
-    pub wasm_hash: soroban_sdk::BytesN<32>,
-    pub approved: bool,
-}
-
-#[contractevent(topics = ["config", "approve_blend_pool"])]
-#[derive(Clone, Debug)]
-pub struct ApproveBlendPoolEvent {
-    pub pool: Address,
-    pub approved: bool,
-}
-
-#[contractevent(topics = ["config", "aggregator"])]
-#[derive(Clone, Debug)]
-pub struct UpdateAggregatorEvent {
-    pub aggregator: Address,
-}
-
-#[contractevent(topics = ["config", "accumulator"])]
-#[derive(Clone, Debug)]
-pub struct UpdateAccumulatorEvent {
-    pub accumulator: Address,
-}
-
-#[contractevent(topics = ["config", "pool_template"])]
-#[derive(Clone, Debug)]
-pub struct UpdatePoolTemplateEvent {
-    pub wasm_hash: soroban_sdk::BytesN<32>,
-}
-
-#[contractevent(topics = ["config", "position_limits"])]
-#[derive(Clone, Debug)]
-pub struct UpdatePositionLimitsEvent {
-    pub max_supply_positions: u32,
-    pub max_borrow_positions: u32,
-}
-
-#[contractevent(topics = ["config", "min_borrow_collateral"])]
-#[derive(Clone, Debug)]
-pub struct UpdateMinBorrowCollateralEvent {
-    pub min_borrow_collateral_usd_wad: i128,
-}
-
-#[contractevent(topics = ["config", "oracle_disabled"])]
-#[derive(Clone, Debug)]
-pub struct OracleDisabledEvent {
-    pub asset: Address,
-}
-
-#[contractevent(topics = ["config", "hub"])]
-#[derive(Clone, Debug)]
-pub struct CreateHubEvent {
-    pub hub_id: u32,
-}
+pub use config::*;
+pub use debt::*;
+pub use flash::*;
+pub use strategy::*;
 
 #[cfg(test)]
-#[path = "../tests/events.rs"]
+#[path = "../../tests/events.rs"]
 mod tests;

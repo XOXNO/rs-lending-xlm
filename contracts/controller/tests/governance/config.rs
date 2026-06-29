@@ -13,8 +13,8 @@ fn create_hub_assigns_increasing_ids_and_marks_active() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        let first = create_hub(&env);
-        let second = create_hub(&env);
+        let first = hub::create_hub(&env);
+        let second = hub::create_hub(&env);
         assert_eq!(first, 1);
         assert_eq!(second, 2);
         assert!(storage::get_hub(&env, first).is_some_and(|hub| hub.is_active));
@@ -32,7 +32,7 @@ fn require_hub_active_rejects_unseeded_hub_zero() {
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
         assert!(storage::get_hub(&env, 0).is_none());
-        require_hub_active(&env, 0);
+        hub::require_hub_active(&env, 0);
     });
 }
 
@@ -41,8 +41,8 @@ fn require_hub_active_passes_for_created_hub() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        let id = create_hub(&env);
-        require_hub_active(&env, id);
+        let id = hub::create_hub(&env);
+        hub::require_hub_active(&env, id);
     });
 }
 
@@ -52,7 +52,7 @@ fn require_hub_active_rejects_unknown_hub() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        require_hub_active(&env, 999);
+        hub::require_hub_active(&env, 999);
     });
 }
 
@@ -62,8 +62,8 @@ fn require_hub_active_rejects_deactivated_hub() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        let id = create_hub(&env);
+        let id = hub::create_hub(&env);
         storage::set_hub(&env, id, &HubConfig { is_active: false });
-        require_hub_active(&env, id);
+        hub::require_hub_active(&env, id);
     });
 }

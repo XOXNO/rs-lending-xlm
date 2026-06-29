@@ -12,6 +12,20 @@ fn debt_close_amount_uses_pool_full_close_ceiling() {
     assert_eq!(debt_close_amount(&env, &position, Ray::ONE, 0), 2);
 }
 
+#[test]
+fn bad_debt_socialization_requires_debt_exceeding_collateral_under_threshold() {
+    let collateral = Wad::from(BAD_DEBT_USD_THRESHOLD);
+    assert!(is_socializable_bad_debt(
+        collateral + Wad::from(1),
+        collateral
+    ));
+    assert!(!is_socializable_bad_debt(collateral, collateral));
+    assert!(!is_socializable_bad_debt(
+        Wad::from(BAD_DEBT_USD_THRESHOLD + 2 * WAD),
+        Wad::from(BAD_DEBT_USD_THRESHOLD + WAD)
+    ));
+}
+
 /// Snapshot for curve tests: 100 USD debt and collateral, a 0.5 collateral-mix
 /// proportion, and caller-supplied health factor / weighted collateral.
 fn curve_snap(hf_raw: i128, weighted_raw: i128) -> LiquidationSnapshot {
@@ -118,4 +132,20 @@ fn custom_target_changes_estimate() {
 
     assert!(ideal_default.raw() > 0);
     assert_ne!(ideal_default.raw(), ideal_custom.raw());
+}
+
+#[test]
+fn post_liquidation_hf_saturates_when_debt_fully_repaid() {
+    let env = Env::default();
+    let snap = curve_snap(900_000_000_000_000_000, 90 * WAD);
+    let hf = calculate_post_liquidation_hf(&env, &snap, snap.total_debt, Bps::from(0i128));
+    assert_eq!(hf.raw(), i128::MAX);
+}
+
+#[test]
+fn post_liquidation_hf_does_not_decrease_for_partial_zero_bonus_repay() {
+    let env = Env::default();
+    let snap = curve_snap(900_000_000_000_000_000, 90 * WAD);
+    let hf = calculate_post_liquidation_hf(&env, &snap, Wad::from(10 * WAD), Bps::from(0i128));
+    assert!(hf >= snap.hf);
 }

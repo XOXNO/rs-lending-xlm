@@ -5,7 +5,7 @@
 use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
-use common::types::{HubAssetKey, PositionMode, StrategySwap};
+use common::types::{Account, HubAssetKey, PositionMode, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
@@ -81,25 +81,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         convert_swap,
     } = params;
 
-    // The swap leg needs distinct underlying tokens; the same token on two hubs
-    // cannot be levered against itself.
-    assert_with_error!(
-        env,
-        collateral.asset != debt.asset,
-        GenericError::AssetsAreTheSame
-    );
-
-    // Allow-list accepted modes so only supported account modes reach multiply.
-    assert_with_error!(
-        env,
-        matches!(
-            mode,
-            PositionMode::Multiply | PositionMode::Long | PositionMode::Short
-        ),
-        CollateralError::InvalidPositionMode
-    );
-
-    validation::require_positive_amount(env, debt_to_flash_loan);
+    validate_multiply_request(env, collateral, debt, mode, debt_to_flash_loan);
 
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
         env,
@@ -110,30 +92,8 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         &convert_swap,
     );
 
-    // Strategy borrows are risk-increasing.
-    let mut cache = Cache::new(env);
-
-    let (account_id, mut account) = account::load_or_create_account(
-        env,
-        caller,
-        account_id,
-        spoke_id,
-        mode,
-        account::AccountGuard::Multiply,
-        &mut cache,
-    );
-
-    // Collateralizability resolves from the account's spoke (the single source
-    // of risk params); reverts `AssetNotSupported` when unlisted there.
-    let collateral_config = spoke::effective_asset_config(&mut cache, account.spoke_id, collateral);
-    assert_with_error!(
-        env,
-        collateral_config.can_supply(),
-        CollateralError::NotCollateral
-    );
-
-    let extra_assets = soroban_sdk::vec![env, collateral.asset.clone(), debt.asset.clone()];
-    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
+    let (account_id, mut account, mut cache) =
+        prepare_multiply_account(env, caller, account_id, spoke_id, mode, collateral, debt);
 
     // D{debt_token.decimals}{Token(debt_token)} net borrow received after protocol fee
     // on `debt`'s hub market.
@@ -181,6 +141,60 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     );
 
     account_id
+}
+
+fn prepare_multiply_account(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    spoke_id: u32,
+    mode: PositionMode,
+    collateral: &HubAssetKey,
+    debt: &HubAssetKey,
+) -> (u64, Account, Cache) {
+    let mut cache = Cache::new(env);
+    let (account_id, account) = account::load_or_create_account(
+        env,
+        caller,
+        account_id,
+        spoke_id,
+        mode,
+        account::AccountGuard::Multiply,
+        &mut cache,
+    );
+    let collateral_config = spoke::effective_asset_config(&mut cache, account.spoke_id, collateral);
+    assert_with_error!(
+        env,
+        collateral_config.can_supply(),
+        CollateralError::NotCollateral
+    );
+    let extra_assets = soroban_sdk::vec![env, collateral.asset.clone(), debt.asset.clone()];
+    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
+    (account_id, account, cache)
+}
+
+fn validate_multiply_request(
+    env: &Env,
+    collateral: &HubAssetKey,
+    debt: &HubAssetKey,
+    mode: PositionMode,
+    debt_to_flash_loan: i128,
+) {
+    // The swap leg needs distinct underlying tokens; the same token on two hubs cannot lever itself.
+    assert_with_error!(
+        env,
+        collateral.asset != debt.asset,
+        GenericError::AssetsAreTheSame
+    );
+    assert_with_error!(
+        env,
+        matches!(
+            mode,
+            PositionMode::Multiply | PositionMode::Long | PositionMode::Short
+        ),
+        CollateralError::InvalidPositionMode
+    );
+    validation::require_positive_amount(env, debt_to_flash_loan);
 }
 
 fn collect_initial_multiply_payment(

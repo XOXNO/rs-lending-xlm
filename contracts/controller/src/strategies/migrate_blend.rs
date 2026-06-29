@@ -87,72 +87,33 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         debt_caps,
     } = params;
 
-    assert_with_error!(
+    validate_migration_request(
         env,
-        !collateral_assets.is_empty() || !supply_assets.is_empty() || !debt_caps.is_empty(),
-        GenericError::InvalidPayments
-    );
-    // Only a governance-approved Blend pool may be the migration source. This
-    // closes the arbitrary-external-call / fee-free-flash-loan surface: an
-    // attacker cannot substitute a contract they control as `blend_pool`.
-    assert_with_error!(
-        env,
-        storage::is_blend_pool_approved(env, &blend_pool),
-        GenericError::BlendPoolNotApproved
+        &blend_pool,
+        &collateral_assets,
+        &supply_assets,
+        &debt_caps,
     );
 
-    // Debt-opening flow: prices must be risk-increasing.
-    let mut cache = Cache::new(env);
-
-    let (account_id, mut account) = account::load_or_create_account(
+    let (account_id, mut account, mut cache, withdraw_assets) = prepare_migration_account(
         env,
         caller,
         account_id,
         spoke_id,
-        PositionMode::Normal,
-        account::AccountGuard::Migrate,
-        &mut cache,
+        &collateral_assets,
+        &supply_assets,
+        &debt_caps,
     );
 
-    // Reject duplicate debt entries (a duplicate would double-borrow and
-    // double-repay the same asset).
-    require_unique_debt_assets(env, &debt_caps);
-    // Same-asset debt and withdraw roles use separate snapshots so deltas do not alias.
-    let withdraw_assets = unique_withdraw_assets(env, &collateral_assets, &supply_assets);
-
-    let mut all_assets = withdraw_assets.clone();
-    for (asset, _) in debt_caps.iter() {
-        all_assets.push_back(asset);
-    }
-    prefetch_strategy_oracles(&mut cache, &account, &all_assets);
-
-    // Borrow before submit so the post-submit delta is only Blend's
-    // over-repay refund.
-    if !debt_caps.is_empty() {
-        // D{debt_asset.decimals}{Token(debt_asset)} snapshots isolate borrow/repay/refund deltas.
-        let before_debt = snapshot_balances(env, &debt_asset_list(env, &debt_caps));
-        for (debt_asset, max) in debt_caps.iter() {
-            validation::require_positive_amount(env, max);
-            // D{debt_asset.decimals}{Token(debt_asset)} zero-fee cap equals received delta used to clear Blend debt.
-            let hub_debt = HubAssetKey {
-                hub_id,
-                asset: debt_asset,
-            };
-            borrow_for_migration(env, &mut account, &hub_debt, max, &mut cache);
-        }
-        let repay_requests = build_repay_requests(env, &debt_caps);
-        authorize_repay_pulls(env, &blend_pool, &debt_caps);
-        guarded_submit(env, &blend_pool, caller, &repay_requests);
-        reconcile_debt_refunds(
-            env,
-            &mut account,
-            &mut cache,
-            caller,
-            hub_id,
-            &debt_caps,
-            &before_debt,
-        );
-    }
+    execute_migration_debt_leg(
+        env,
+        caller,
+        &blend_pool,
+        hub_id,
+        &debt_caps,
+        &mut account,
+        &mut cache,
+    );
 
     // Sweep Blend collateral and supply, then re-supply controller collateral.
     if !withdraw_assets.is_empty() {
@@ -185,6 +146,95 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     .publish(env);
 
     account_id
+}
+
+fn execute_migration_debt_leg(
+    env: &Env,
+    caller: &Address,
+    blend_pool: &Address,
+    hub_id: u32,
+    debt_caps: &Vec<(Address, i128)>,
+    account: &mut Account,
+    cache: &mut Cache,
+) {
+    if debt_caps.is_empty() {
+        return;
+    }
+    // Borrow before submit so post-submit delta only Blend's over-repay refund.
+    let before_debt = snapshot_balances(env, &debt_asset_list(env, debt_caps));
+    for (debt_asset, max) in debt_caps.iter() {
+        validation::require_positive_amount(env, max);
+        let hub_debt = HubAssetKey {
+            hub_id,
+            asset: debt_asset,
+        };
+        borrow_for_migration(env, account, &hub_debt, max, cache);
+    }
+    let repay_requests = build_repay_requests(env, debt_caps);
+    authorize_repay_pulls(env, blend_pool, debt_caps);
+    guarded_submit(env, blend_pool, caller, &repay_requests);
+    reconcile_debt_refunds(env, account, cache, caller, hub_id, debt_caps, &before_debt);
+}
+
+fn prepare_migration_account(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    spoke_id: u32,
+    collateral_assets: &Vec<Address>,
+    supply_assets: &Vec<Address>,
+    debt_caps: &Vec<(Address, i128)>,
+) -> (u64, Account, Cache, Vec<Address>) {
+    // Debt-opening flow: prices must be risk-increasing.
+    let mut cache = Cache::new(env);
+    let (account_id, account) = account::load_or_create_account(
+        env,
+        caller,
+        account_id,
+        spoke_id,
+        PositionMode::Normal,
+        account::AccountGuard::Migrate,
+        &mut cache,
+    );
+    let (withdraw_assets, all_assets) =
+        prepare_migration_assets(env, collateral_assets, supply_assets, debt_caps);
+    prefetch_strategy_oracles(&mut cache, &account, &all_assets);
+    (account_id, account, cache, withdraw_assets)
+}
+
+fn validate_migration_request(
+    env: &Env,
+    blend_pool: &Address,
+    collateral_assets: &Vec<Address>,
+    supply_assets: &Vec<Address>,
+    debt_caps: &Vec<(Address, i128)>,
+) {
+    assert_with_error!(
+        env,
+        !collateral_assets.is_empty() || !supply_assets.is_empty() || !debt_caps.is_empty(),
+        GenericError::InvalidPayments
+    );
+    // Only governance-approved Blend pool may be a migration source. This closes arbitrary external calls.
+    assert_with_error!(
+        env,
+        storage::is_blend_pool_approved(env, blend_pool),
+        GenericError::BlendPoolNotApproved
+    );
+}
+
+fn prepare_migration_assets(
+    env: &Env,
+    collateral_assets: &Vec<Address>,
+    supply_assets: &Vec<Address>,
+    debt_caps: &Vec<(Address, i128)>,
+) -> (Vec<Address>, Vec<Address>) {
+    require_unique_debt_assets(env, debt_caps);
+    let withdraw_assets = unique_withdraw_assets(env, collateral_assets, supply_assets);
+    let mut all_assets = withdraw_assets.clone();
+    for (asset, _) in debt_caps.iter() {
+        all_assets.push_back(asset);
+    }
+    (withdraw_assets, all_assets)
 }
 
 /// Rejects duplicate debt entries (a duplicate would double-borrow and
