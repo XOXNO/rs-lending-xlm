@@ -3,11 +3,11 @@
   "markets": [
     {
       "name": "USDC",
+      "hub_id": 1,
       "asset_address": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "oracle": {
         "max_price_stale_seconds": 3600,
-        "first_tolerance_bps": 200,
-        "last_tolerance_bps": 500,
+        "tolerance_bps": 500,
         "strategy": 1,
         "primary": {
           "tag": "Reflector",
@@ -48,36 +48,36 @@
         "max_sanity_price_wad": "1100000000000000000"
       },
       "market_params": {
-        "max_borrow_rate_ray": "2000000000000000000000000000",
-        "base_borrow_rate_ray": "10000000000000000000000000",
-        "slope1_ray": "40000000000000000000000000",
-        "slope2_ray": "100000000000000000000000000",
-        "slope3_ray": "1500000000000000000000000000",
-        "mid_utilization_ray": "500000000000000000000000000",
-        "optimal_utilization_ray": "800000000000000000000000000",
-        "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 1000,
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1000,
         "supply_cap": "100000000000000",
         "borrow_cap": "100000000000000"
       },
       "asset_config": {
-        "loan_to_value_bps": 7500,
-        "liquidation_threshold_bps": 8000,
-        "liquidation_bonus_bps": 500,
-        "liquidation_fees_bps": 100,
+        "loan_to_value": 7500,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 500,
+        "liquidation_fees": 100,
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-        "flashloan_fee_bps": 9
+        "flashloan_fee": 9
       }
     },
     {
       "name": "XLM",
+      "hub_id": 1,
       "asset_address": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
       "oracle": {
         "max_price_stale_seconds": 3600,
-        "first_tolerance_bps": 200,
-        "last_tolerance_bps": 500,
+        "tolerance_bps": 500,
         "strategy": 1,
         "primary": {
           "tag": "Reflector",
@@ -118,36 +118,36 @@
         "max_sanity_price_wad": "500000000000000000"
       },
       "market_params": {
-        "max_borrow_rate_ray": "2000000000000000000000000000",
-        "base_borrow_rate_ray": "10000000000000000000000000",
-        "slope1_ray": "40000000000000000000000000",
-        "slope2_ray": "100000000000000000000000000",
-        "slope3_ray": "1500000000000000000000000000",
-        "mid_utilization_ray": "500000000000000000000000000",
-        "optimal_utilization_ray": "800000000000000000000000000",
-        "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 1500,
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1500,
         "supply_cap": "654974084165841",
         "borrow_cap": "654974084165841"
       },
       "asset_config": {
-        "loan_to_value_bps": 6500,
-        "liquidation_threshold_bps": 7000,
-        "liquidation_bonus_bps": 700,
-        "liquidation_fees_bps": 100,
+        "loan_to_value": 6500,
+        "liquidation_threshold": 7000,
+        "liquidation_bonus": 700,
+        "liquidation_fees": 100,
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-        "flashloan_fee_bps": 9
+        "flashloan_fee": 9
       }
     },
     {
       "name": "EURC",
+      "hub_id": 1,
       "asset_address": "CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ",
       "oracle": {
         "max_price_stale_seconds": 3600,
-        "first_tolerance_bps": 200,
-        "last_tolerance_bps": 500,
+        "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
           "tag": "Reflector",
@@ -177,36 +177,36 @@
         "max_sanity_price_wad": "1188000000000000000"
       },
       "market_params": {
-        "max_borrow_rate_ray": "2000000000000000000000000000",
-        "base_borrow_rate_ray": "10000000000000000000000000",
-        "slope1_ray": "40000000000000000000000000",
-        "slope2_ray": "100000000000000000000000000",
-        "slope3_ray": "1500000000000000000000000000",
-        "mid_utilization_ray": "500000000000000000000000000",
-        "optimal_utilization_ray": "800000000000000000000000000",
-        "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 1000,
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1000,
         "supply_cap": "100000000000000",
         "borrow_cap": "100000000000000"
       },
       "asset_config": {
-        "loan_to_value_bps": 7500,
-        "liquidation_threshold_bps": 8000,
-        "liquidation_bonus_bps": 500,
-        "liquidation_fees_bps": 100,
+        "loan_to_value": 7500,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 500,
+        "liquidation_fees": 100,
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-        "flashloan_fee_bps": 9
+        "flashloan_fee": 9
       }
     },
     {
       "name": "BTC",
+      "hub_id": 1,
       "asset_address": "CBK3FNAM3C54674OSOCQLDNW4EXMNUY6ZO3C3ZI5S5DGBIIPX4GJ7WHW",
       "oracle": {
         "max_price_stale_seconds": 3600,
-        "first_tolerance_bps": 300,
-        "last_tolerance_bps": 1000,
+        "tolerance_bps": 1000,
         "strategy": 1,
         "primary": {
           "tag": "Reflector",
@@ -247,36 +247,36 @@
         "max_sanity_price_wad": "93000000000000000000000"
       },
       "market_params": {
-        "max_borrow_rate_ray": "2000000000000000000000000000",
-        "base_borrow_rate_ray": "10000000000000000000000000",
-        "slope1_ray": "40000000000000000000000000",
-        "slope2_ray": "100000000000000000000000000",
-        "slope3_ray": "1500000000000000000000000000",
-        "mid_utilization_ray": "500000000000000000000000000",
-        "optimal_utilization_ray": "800000000000000000000000000",
-        "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 1500,
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1500,
         "supply_cap": "1000000000",
         "borrow_cap": "1000000000"
       },
       "asset_config": {
-        "loan_to_value_bps": 6500,
-        "liquidation_threshold_bps": 7000,
-        "liquidation_bonus_bps": 700,
-        "liquidation_fees_bps": 100,
+        "loan_to_value": 6500,
+        "liquidation_threshold": 7000,
+        "liquidation_bonus": 700,
+        "liquidation_fees": 100,
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-        "flashloan_fee_bps": 9
+        "flashloan_fee": 9
       }
     },
     {
       "name": "ETH",
+      "hub_id": 1,
       "asset_address": "CBFNIHC2B7WMAH2CKNKQJOB3CWBUXXNNRQXYISJ7VZONM77YBMHCOULJ",
       "oracle": {
         "max_price_stale_seconds": 3600,
-        "first_tolerance_bps": 300,
-        "last_tolerance_bps": 1000,
+        "tolerance_bps": 1000,
         "strategy": 1,
         "primary": {
           "tag": "Reflector",
@@ -317,27 +317,27 @@
         "max_sanity_price_wad": "4650000000000000000000"
       },
       "market_params": {
-        "max_borrow_rate_ray": "2000000000000000000000000000",
-        "base_borrow_rate_ray": "10000000000000000000000000",
-        "slope1_ray": "40000000000000000000000000",
-        "slope2_ray": "100000000000000000000000000",
-        "slope3_ray": "1500000000000000000000000000",
-        "mid_utilization_ray": "500000000000000000000000000",
-        "optimal_utilization_ray": "800000000000000000000000000",
-        "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 1500,
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1500,
         "supply_cap": "100000000000",
         "borrow_cap": "100000000000"
       },
       "asset_config": {
-        "loan_to_value_bps": 6500,
-        "liquidation_threshold_bps": 7000,
-        "liquidation_bonus_bps": 700,
-        "liquidation_fees_bps": 100,
+        "loan_to_value": 6500,
+        "liquidation_threshold": 7000,
+        "liquidation_bonus": 700,
+        "liquidation_fees": 100,
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-        "flashloan_fee_bps": 9
+        "flashloan_fee": 9
       }
     }
   ]
