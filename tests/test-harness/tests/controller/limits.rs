@@ -7,7 +7,7 @@ use controller::constants::RAY;
 use soroban_sdk::Vec as SorobanVec;
 use test_harness::{hub_asset,
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
-    BOB, STABLECOIN_EMODE,
+    BOB, STABLECOIN_SPOKE,
 };
 
 const UNIT: i128 = 10_000_000; // 1.0 at the presets' 7 decimals
@@ -415,11 +415,11 @@ fn test_max_borrow_bounded_by_hub_borrow_cap_and_executable() {
 
 #[test]
 fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
-    // An e-mode account borrowing USDT under a 500 USDT spoke borrow cap. The
-    // 10_000 USDC collateral at the 97% e-mode LTV leaves ~$9_700 of room and
+    // An spoke account borrowing USDT under a 500 USDT spoke borrow cap. The
+    // 10_000 USDC collateral at the 97% spoke LTV leaves ~$9_700 of room and
     // the hub USDT borrow cap (10_000) is slack, so the spoke cap is the
     // binding constraint — exercising `spoke_borrow_cap_headroom`, the
-    // `borrow_ok` spoke-cap gate, and the e-mode branches of
+    // `borrow_ok` spoke-cap gate, and the spoke branches of
     // `account_can_borrow_asset`. BOB supplies USDT through the protocol so the
     // market has tracked supply (the preview returns 0 on a zero-supply market).
     let hub_borrow_cap = 10_000 * UNIT;
@@ -431,21 +431,21 @@ fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
         .with_market_params("USDT", |params| {
             params.borrow_cap = hub_borrow_cap;
         })
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
     // Set the USDT spoke borrow cap with the category's own risk params so the
     // edit leaves LTV/threshold/bonus untouched.
-    t.edit_asset_in_e_mode_caps(
+    t.edit_asset_in_spoke_caps(
         "USDT",
         2,
         true,
         true,
-        STABLECOIN_EMODE.ltv,
-        STABLECOIN_EMODE.threshold,
-        STABLECOIN_EMODE.bonus,
+        STABLECOIN_SPOKE.ltv,
+        STABLECOIN_SPOKE.threshold,
+        STABLECOIN_SPOKE.bonus,
         0i128,
         spoke_borrow_cap,
     );
@@ -454,7 +454,7 @@ fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
     // utilization defined; this normal account is unaffected by the spoke cap.
     t.supply(BOB, "USDT", 50_000.0);
 
-    t.create_emode_account(ALICE, 2);
+    t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
     let usdt = t.resolve_asset("USDT");
@@ -483,7 +483,7 @@ fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
 
 #[test]
 fn test_max_supply_bounded_by_spoke_supply_cap_and_executable() {
-    // An e-mode account supplying USDC under a 1_000 USDC spoke supply cap,
+    // An spoke account supplying USDC under a 1_000 USDC spoke supply cap,
     // with the hub supply cap (10_000) slack. The spoke cap binds, driving the
     // preview through `spoke_supply_cap_headroom`. Asserts both directions:
     // the preview executes and one unit over trips the spoke supply-cap gate.
@@ -495,23 +495,23 @@ fn test_max_supply_bounded_by_spoke_supply_cap_and_executable() {
         .with_market_params("USDC", |params| {
             params.supply_cap = hub_cap;
         })
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    t.edit_asset_in_e_mode_caps(
+    t.edit_asset_in_spoke_caps(
         "USDC",
         2,
         true,
         true,
-        STABLECOIN_EMODE.ltv,
-        STABLECOIN_EMODE.threshold,
-        STABLECOIN_EMODE.bonus,
+        STABLECOIN_SPOKE.ltv,
+        STABLECOIN_SPOKE.threshold,
+        STABLECOIN_SPOKE.bonus,
         spoke_cap,
         0i128,
     );
 
-    t.create_emode_account(ALICE, 2);
+    t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 400.0);
 
     let usdc = t.resolve_asset("USDC");
@@ -532,21 +532,21 @@ fn test_max_supply_bounded_by_spoke_supply_cap_and_executable() {
 }
 
 #[test]
-fn test_max_withdraw_emode_account_respects_stored_emode_ltv() {
-    // An e-mode account with debt: the withdrawn collateral's e-mode LTV (97%)
+fn test_max_withdraw_spoke_account_respects_stored_spoke_ltv() {
+    // An spoke account with debt: the withdrawn collateral's spoke LTV (97%)
     // governs the partial-withdraw cap, routing the preview through the
-    // e-mode-influenced `risk_partial_cap` / `partial_ok` path. $10k USDC at
-    // 97% e-mode LTV backing $9_000 USDT debt leaves
+    // spoke-influenced `risk_partial_cap` / `partial_ok` path. $10k USDC at
+    // 97% spoke LTV backing $9_000 USDT debt leaves
     // (9_700 − 9_000) / 0.97 ≈ $721.6 removable.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    t.create_emode_account(ALICE, 2);
+    t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 9_000.0);
 
@@ -554,10 +554,10 @@ fn test_max_withdraw_emode_account_respects_stored_emode_ltv() {
     let account_id = t.resolve_account_id(ALICE);
 
     let max = t.ctrl_client().max_withdraw(&account_id, &hub_asset(usdc.clone()));
-    let expected = 7_216_494_845_i128; // ~721.65 USDC at the 97% e-mode LTV.
+    let expected = 7_216_494_845_i128; // ~721.65 USDC at the 97% spoke LTV.
     assert!(
         (max - expected).abs() < UNIT,
-        "expected ~721.6 USDC removable under 97% e-mode LTV, got {max}"
+        "expected ~721.6 USDC removable under 97% spoke LTV, got {max}"
     );
 
     // A dollar above the preview violates the LTV gate the preview modeled.

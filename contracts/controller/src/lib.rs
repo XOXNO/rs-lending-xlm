@@ -10,7 +10,7 @@ pub mod events;
 pub use controller_interface::types;
 
 mod cache;
-mod emode;
+mod spoke;
 mod external;
 mod governance;
 mod helpers;

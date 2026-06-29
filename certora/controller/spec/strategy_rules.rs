@@ -17,7 +17,7 @@ fn hub0(asset: Address) -> HubAssetKey {
 fn multiply_basic(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -31,7 +31,7 @@ fn multiply_basic(
     let account_id = crate::spec::compat::multiply_basic(
         e.clone(),
         caller,
-        e_mode_category,
+        spoke_id,
         collateral_token.clone(),
         debt_to_flash_loan,
         debt_token.clone(),
@@ -61,7 +61,7 @@ fn multiply_basic(
 fn multiply_with_initial_payment_collateral(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -77,7 +77,7 @@ fn multiply_with_initial_payment_collateral(
     let account_id = crate::spec::compat::multiply_with_initial_payment_collateral(
         e.clone(),
         caller,
-        e_mode_category,
+        spoke_id,
         collateral_token.clone(),
         debt_to_flash_loan,
         debt_token.clone(),
@@ -106,7 +106,7 @@ fn multiply_with_initial_payment_collateral(
 fn multiply_with_initial_payment_third_token(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -126,7 +126,7 @@ fn multiply_with_initial_payment_third_token(
     let account_id = crate::spec::compat::multiply_with_initial_payment_third_token(
         e.clone(),
         caller,
-        e_mode_category,
+        spoke_id,
         collateral_token.clone(),
         debt_to_flash_loan,
         debt_token.clone(),
@@ -157,7 +157,7 @@ fn multiply_with_initial_payment_third_token(
 fn multiply_rejects_same_tokens(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     token: Address,
     debt_to_flash_loan: i128,
     mode: u32,
@@ -169,7 +169,7 @@ fn multiply_rejects_same_tokens(
     crate::spec::compat::multiply_minimal(
         e.clone(),
         caller,
-        e_mode_category,
+        spoke_id,
         token.clone(),
         debt_to_flash_loan,
         token.clone(),
@@ -185,7 +185,7 @@ fn multiply_rejects_same_tokens(
 fn multiply_requires_collateralizable(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -196,9 +196,9 @@ fn multiply_requires_collateralizable(
     cvlr_assume!(collateral_token != debt_token);
     cvlr_assume!((1..=3).contains(&mode));
 
-    let config = crate::emode::effective_asset_config(
+    let config = crate::spoke::effective_asset_config(
         &e,
-        e_mode_category,
+        spoke_id,
         &hub0(collateral_token.clone()),
     );
     cvlr_assume!(!config.is_collateralizable);
@@ -206,7 +206,7 @@ fn multiply_requires_collateralizable(
     crate::spec::compat::multiply_minimal(
         e.clone(),
         caller,
-        e_mode_category,
+        spoke_id,
         collateral_token,
         debt_to_flash_loan,
         debt_token,

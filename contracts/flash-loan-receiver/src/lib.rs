@@ -31,7 +31,7 @@ pub trait Controller {
         env: Env,
         caller: Address,
         account_id: u64,
-        e_mode_category: u32,
+        spoke_id: u32,
         assets: Vec<(HubAssetKey, i128)>,
     ) -> u64;
 }

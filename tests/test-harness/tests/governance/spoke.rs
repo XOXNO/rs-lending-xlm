@@ -1,4 +1,4 @@
-//! E-mode risk-bound validation on the governance forwarder.
+//! Spoke risk-bound validation on the governance forwarder.
 //!
 //! Risk parameters are per-asset, so bound validation happens when an asset
 //! joins a category, not at category creation.
@@ -53,7 +53,7 @@ fn try_add_asset(
 
 // threshold (8000) <= ltv (9000) must reject with InvalidLiqThreshold (113).
 #[test]
-fn test_emode_rejects_threshold_lte_ltv() {
+fn test_spoke_rejects_threshold_lte_ltv() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let id = add_category(&t);
     let usdc = t.resolve_asset("USDC");
@@ -62,7 +62,7 @@ fn test_emode_rejects_threshold_lte_ltv() {
 }
 
 #[test]
-fn test_emode_accepts_valid_asset_bounds() {
+fn test_spoke_accepts_valid_asset_bounds() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let id = add_category(&t);
     assert!(id > 0, "governance forwarder should return a category id");
@@ -76,7 +76,7 @@ fn test_emode_accepts_valid_asset_bounds() {
 }
 
 #[test]
-fn test_emode_add_asset_via_gov_forwarder() {
+fn test_spoke_add_asset_via_gov_forwarder() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market_params("USDC", |params| {
@@ -114,7 +114,7 @@ fn test_emode_add_asset_via_gov_forwarder() {
 const UNIT: i128 = 10_000_000;
 
 #[test]
-fn test_emode_rejects_spoke_supply_cap_above_hub() {
+fn test_spoke_rejects_spoke_supply_cap_above_hub() {
     let hub_cap = 1_000 * UNIT;
     let t = LendingTest::new()
         .with_market(usdc_preset())

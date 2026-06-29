@@ -8,8 +8,8 @@ Contract-level scenarios for the lending protocol, executed in-process via the `
 
 | `--test` | Directory | Coverage |
 |----------|-----------|----------|
-| `smoke_test` | `smoke_test.rs` | Supply, borrow, liquidate, interest, e-mode, revenue |
-| `controller` | `controller/` | Positions, supply/borrow/repay/withdraw, liquidation, admin, e-mode, flash loan, keeper, views |
+| `smoke_test` | `smoke_test.rs` | Supply, borrow, liquidate, interest, spoke, revenue |
+| `controller` | `controller/` | Positions, supply/borrow/repay/withdraw, liquidation, admin, spoke, flash loan, keeper, views |
 | `governance` | `governance/` | Admin-input validation on the governance forwarders: market creation, asset config, IRM, position limits, oracle config/tolerance probing |
 | `oracle` | `oracle/` | Tolerance bands, staleness, dual-source, TWAP, Redstone, DEX USD repricing |
 | `pool` | `pool/` | Interest curves, rewards, revenue, pool math |
@@ -21,7 +21,7 @@ Contract-level scenarios for the lending protocol, executed in-process via the `
 
 ### `controller/`
 
-`account`, `admin`, `admin_config`, `bad_debt_index`, `borrow`, `decimal_diversity`, `emode`, `emode_liquidation_combo`, `events`, `flash_loan`, `keeper`, `liquidation`, `liquidation_boundary`, `liquidation_coverage`, `liquidation_math`, `liquidation_mixed_decimal`, `max_utilization`, `min_borrow_collateral`, `ownership`, `repay`, `supply`, `validation_admin`, `views`, `withdraw`
+`account`, `admin`, `admin_config`, `bad_debt_index`, `borrow`, `decimal_diversity`, `spoke`, `spoke_liquidation_combo`, `events`, `flash_loan`, `keeper`, `liquidation`, `liquidation_boundary`, `liquidation_coverage`, `liquidation_math`, `liquidation_mixed_decimal`, `max_utilization`, `min_borrow_collateral`, `ownership`, `repay`, `supply`, `validation_admin`, `views`, `withdraw`
 
 #### Liquidation modules (roles)
 
@@ -32,11 +32,11 @@ Contract-level scenarios for the lending protocol, executed in-process via the `
 | `liquidation_math.rs` | Quantitative invariants: bonus formula, protocol fee on bonus only, bad-debt index delta, bounded seizure |
 | `liquidation_boundary.rs` | Threshold behavior: HF exactly 1 vs just below, monotone bonus band, bad-debt trigger at collateral floor |
 | `liquidation_mixed_decimal.rs` | Decimal heterogeneity across collateral/debt pairs |
-| `emode_liquidation_combo.rs` | E-mode category liquidation with category-specific LTV/threshold |
+| `spoke_liquidation_combo.rs` | Spoke category liquidation with category-specific LTV/threshold |
 
 ### `governance/`
 
-`admin`, `admin_config`, `dex_usd_repricing`, `emode`, `redstone`, `tolerance`, `validation_admin`
+`admin`, `admin_config`, `dex_usd_repricing`, `spoke`, `redstone`, `tolerance`, `validation_admin`
 
 ### `oracle/`
 

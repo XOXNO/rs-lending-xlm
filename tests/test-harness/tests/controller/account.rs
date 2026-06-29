@@ -1,6 +1,6 @@
 use test_harness::{hub_asset,
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
-    BOB, STABLECOIN_EMODE,
+    BOB, STABLECOIN_SPOKE,
 };
 // 1. test_create_normal_account
 
@@ -15,19 +15,19 @@ fn test_create_normal_account() {
     assert_eq!(attrs.spoke_id, 1);
     assert_eq!(attrs.mode, controller::types::PositionMode::Normal);
 }
-// 2. test_create_emode_account
+// 2. test_create_spoke_account
 
 #[test]
-fn test_create_emode_account() {
+fn test_create_spoke_account() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    let account_id = t.create_emode_account(ALICE, 2);
+    let account_id = t.create_spoke_account(ALICE, 2);
     assert!(account_id > 0);
 
     let attrs = t.get_account_attributes(ALICE);

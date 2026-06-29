@@ -13,7 +13,7 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, By
 use stellar_macros::{only_owner, when_not_paused};
 
 use crate::cache::Cache;
-use crate::emode;
+use crate::spoke;
 use crate::events;
 use crate::external::pool::{
     pool_add_rewards_call, pool_claim_revenue_call, pool_create_market_call, pool_update_caps_call,
@@ -390,7 +390,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     for hub_asset in assets.iter() {
         // `effective_asset_config` reverts `AssetNotSupported` when the held
         // asset is not listed on the account's spoke.
-        let asset_config = emode::effective_asset_config(env, account.spoke_id, &hub_asset);
+        let asset_config = spoke::effective_asset_config(env, account.spoke_id, &hub_asset);
 
         let position =
             validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));

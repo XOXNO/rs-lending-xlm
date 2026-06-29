@@ -26,7 +26,7 @@ pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
 /// pending/disabled signal. The oracle is keyed by token (hub-independent), so
 /// the check reads `AssetOracle(hub_asset.asset)`. Existence of the (hub, asset)
 /// market is owned by the pool and enforced by the subsequent pool call; the
-/// spoke listing (`emode::validate_spoke_lists_asset` + the spoke config read)
+/// spoke listing (`spoke::validate_spoke_lists_asset` + the spoke config read)
 /// proves per-spoke usability. Panics `PairNotActive` when not oracle-configured.
 pub fn require_market_active(env: &Env, _cache: &mut Cache, hub_asset: &HubAssetKey) {
     assert_with_error!(

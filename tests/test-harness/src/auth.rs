@@ -50,14 +50,14 @@ pub fn flash_loan_args(
         .into_val(env)
 }
 
-/// Arguments for `Controller::multiply(caller, account_id, e_mode, collateral,
+/// Arguments for `Controller::multiply(caller, account_id, spoke, collateral,
 /// debt, debt_token, mode, steps, initial_payment, convert_steps)`.
 #[allow(clippy::too_many_arguments)]
 pub fn multiply_args(
     env: &Env,
     caller: &Address,
     account_id: u64,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: &Address,
     debt_amount: i128,
     debt_token: &Address,
@@ -67,7 +67,7 @@ pub fn multiply_args(
     (
         caller.clone(),
         account_id,
-        e_mode_category,
+        spoke_id,
         collateral_token.clone(),
         debt_amount,
         debt_token.clone(),

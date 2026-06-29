@@ -1,7 +1,7 @@
 use controller::constants::WAD;
 use test_harness::{
     apply_flash_fee, build_aggregator_swap, eth_preset, hub_asset, usdc_preset, usdt_stable_preset,
-    wbtc_preset, LendingTest, ALICE, BOB, STABLECOIN_EMODE,
+    wbtc_preset, LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
 };
 
 // Multiply happy paths
@@ -399,29 +399,29 @@ fn test_repay_debt_with_collateral_reduces_positions() {
         "HF should stay healthy after repay_debt_with_collateral"
     );
 }
-// E-mode strategy tests
+// Spoke strategy tests
 //
-// E-mode multiply with stablecoins: borrow USDT, deposit USDC.
-// E-mode parameters: LTV=97%, LT=98%, bonus=2%.
+// Spoke multiply with stablecoins: borrow USDT, deposit USDC.
+// Spoke parameters: LTV=97%, LT=98%, bonus=2%.
 
 #[test]
-fn test_multiply_emode_stablecoin() {
+fn test_multiply_spoke_stablecoin() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    // E-mode multiply: borrow USDT, collateral USDC.
+    // Spoke multiply: borrow USDT, collateral USDC.
     // Borrow 1000 USDT, swap to 1050 USDC (favorable mock rate).
-    // With e-mode LT=98%: HF = 1050 * 0.98 / 1000 = 1.029.
+    // With spoke LT=98%: HF = 1050 * 0.98 / 1000 = 1.029.
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("USDC");
     let debt_addr = t.resolve_asset("USDT");
     t.fund_router("USDC", 1050.0);
-    // E-mode multiply borrows 1000 USDT minus 9bps flash fee.
+    // Spoke multiply borrows 1000 USDT minus 9bps flash fee.
     let steps = build_aggregator_swap(
         &t,
         "USDT",
@@ -434,7 +434,7 @@ fn test_multiply_emode_stablecoin() {
     let account_id = ctrl.multiply(
         &caller,
         &0u64, // create new account
-        &2u32, // e_mode_category = 2
+        &2u32, // spoke_id = 2
         &hub_asset(collateral_addr.clone()),
         &1000_0000000i128, // borrow 1000 USDT
         &hub_asset(debt_addr.clone()),
@@ -444,19 +444,19 @@ fn test_multiply_emode_stablecoin() {
         &None, // convert_steps
     );
 
-    assert!(account_id > 0, "e-mode account should be created");
+    assert!(account_id > 0, "spoke account should be created");
 
     // Verify positions.
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
-    assert!(supply > 0.0, "should have USDC supply in e-mode");
+    assert!(supply > 0.0, "should have USDC supply in spoke");
 
     let borrow = t.borrow_balance_for(ALICE, account_id, "USDT");
-    assert!(borrow > 0.0, "should have USDT borrow in e-mode");
+    assert!(borrow > 0.0, "should have USDT borrow in spoke");
 
-    // HF must be healthy with e-mode parameters.
+    // HF must be healthy with spoke parameters.
     let hf = ctrl.get_health_factor(&account_id);
     let hf_f64 = hf as f64 / (WAD as f64);
-    assert!(hf_f64 >= 1.0, "e-mode HF should be >= 1.0, got {}", hf_f64);
+    assert!(hf_f64 >= 1.0, "spoke HF should be >= 1.0, got {}", hf_f64);
 }
 // Strategy with large amounts (stress)
 // Multiply with large borrow amounts to verify no overflow occurs.

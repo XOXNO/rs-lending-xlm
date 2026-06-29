@@ -12,7 +12,7 @@ use controller_interface::types::{
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
 use crate::cache::Cache;
-use crate::emode;
+use crate::spoke;
 use crate::events;
 use crate::external::pool::pool_withdraw_call;
 use crate::helpers::utils::{self, EventContext};
@@ -216,7 +216,7 @@ pub(crate) fn finish_withdrawal(
     // `Frozen` keeps the snapshotted params; `Refresh` re-stamps from the
     // account's active spoke config.
     if matches!(refresh_spoke, SpokeRefresh::Refresh) {
-        let config = emode::effective_asset_config(env, account.spoke_id, hub_asset);
+        let config = spoke::effective_asset_config(env, account.spoke_id, hub_asset);
         refresh_supply_risk_params(env, cache, account, hub_asset, &mut result_position, &config);
     }
     update_or_remove_supply_position(account, hub_asset, &result_position);

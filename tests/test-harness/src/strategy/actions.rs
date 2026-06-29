@@ -68,7 +68,7 @@ impl LendingTest {
         let user_state = self.users.get_mut(user).expect("user exists");
         user_state.accounts.push(AccountEntry {
             account_id,
-            e_mode_category: attrs.spoke_id,
+            spoke_id: attrs.spoke_id,
             mode: attrs.mode,
         });
         if user_state.default_account_id.is_none() {
@@ -113,7 +113,7 @@ impl LendingTest {
                 let user_state = self.users.get_mut(user).expect("user exists");
                 user_state.accounts.push(AccountEntry {
                     account_id: id,
-                    e_mode_category: attrs.spoke_id,
+                    spoke_id: attrs.spoke_id,
                     mode: attrs.mode,
                 });
                 if user_state.default_account_id.is_none() {

@@ -178,20 +178,20 @@ fn test_swap_debt_rejects_during_flash_loan() {
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-// The destination collateral leg must inherit the account's active eMode
+// The destination collateral leg must inherit the account's active spoke
 // parameters, not the market's base parameters.
 
 #[test]
-fn test_swap_collateral_applies_emode_params_to_destination_position() {
+fn test_swap_collateral_applies_spoke_params_to_destination_position() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    let account_id = t.create_emode_account(ALICE, 2);
+    let account_id = t.create_spoke_account(ALICE, 2);
     t.supply_to(ALICE, account_id, "USDC", 5_000.0);
 
     t.fund_router("USDT", 1_000.0);
@@ -200,10 +200,10 @@ fn test_swap_collateral_applies_emode_params_to_destination_position() {
     t.swap_collateral(ALICE, "USDC", 1_000.0, "USDT", &steps);
 
     let (ltv, threshold) = supply_position_params(&t, account_id, "USDT");
-    assert_eq!(ltv, 9700, "destination collateral should use eMode LTV");
+    assert_eq!(ltv, 9700, "destination collateral should use spoke LTV");
     assert_eq!(
         threshold, 9800,
-        "destination collateral should use eMode liquidation threshold"
+        "destination collateral should use spoke liquidation threshold"
     );
 }
 
@@ -277,22 +277,22 @@ fn test_swap_debt_borrow_cap_new_debt() {
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::BORROW_CAP_REACHED);
 }
-// E-mode account; the new debt asset is not in the e-mode category.
+// Spoke account; the new debt asset is not in the spoke category.
 
 #[test]
-fn test_swap_debt_emode_wrong_category() {
+fn test_swap_debt_spoke_wrong_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
-        // ETH not in e-mode
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
+        // ETH not in spoke
         .build();
 
-    // Create an e-mode account, supply USDC, borrow USDT (both in e-mode).
-    t.create_emode_account(ALICE, 2);
+    // Create an spoke account, supply USDC, borrow USDT (both in spoke).
+    t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 

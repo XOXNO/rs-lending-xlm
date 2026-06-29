@@ -282,29 +282,29 @@ fn test_swap_collateral_rejects_new_asset_when_supply_limit_reached() {
     let result = t.try_swap_collateral(ALICE, "USDC", 100.0, "DAI", &steps);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// E-mode account; new collateral is not in the e-mode category.
+// Spoke account; new collateral is not in the spoke category.
 
 #[test]
-fn test_swap_collateral_emode_wrong_category() {
+fn test_swap_collateral_spoke_wrong_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    // Create an e-mode account, supply USDC, borrow USDT.
-    t.create_emode_account(ALICE, 2);
+    // Create an spoke account, supply USDC, borrow USDT.
+    t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 
     // Try to swap USDC collateral to ETH: ETH is not listed in category 1.
-    // `validate_e_mode_asset` rejects missing category membership with #300.
+    // `validate_spoke_asset` rejects missing category membership with #300.
     let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
-    assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(result, errors::SPOKE_NOT_FOUND);
 }
 // Swap collateral with no borrows: the HF check is skipped. With the
 // working mock router, this succeeds.

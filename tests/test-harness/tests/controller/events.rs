@@ -272,11 +272,11 @@ fn test_liquidation_emits_many_events() {
 // triggers a host-level error in the test environment.
 
 #[test]
-fn test_add_emode_emits_events() {
+fn test_add_spoke_emits_events() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     t.ctrl_client().add_spoke();
     let count = t.env.events().all().events().len();
-    assert!(count > 0, "add_e_mode should emit events, got {}", count);
+    assert!(count > 0, "add_spoke should emit events, got {}", count);
 }
 
 #[test]

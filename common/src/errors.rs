@@ -183,26 +183,26 @@ pub enum OracleError {
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
-pub enum EModeError {
-    /// E-mode category id does not exist.
-    EModeCategoryNotFound = 300,
-    /// E-mode category has been deprecated.
-    EModeCategoryDeprecated = 301,
-    /// Asset is not present in the requested e-mode category.
-    AssetNotInEmode = 307,
-    /// Asset is in the requested e-mode category.
-    AssetAlreadyInEmode = 308,
-    /// E-mode category asset count would exceed the cap.
-    EModeAssetsLimitReached = 309,
-    /// Requested e-mode category does not match account category.
-    EModeMismatch = 310,
-    /// E-mode spoke supply cap would be exceeded.
+pub enum SpokeError {
+    /// Spoke id does not exist.
+    SpokeNotFound = 300,
+    /// Spoke has been deprecated.
+    SpokeDeprecated = 301,
+    /// Asset is not listed on the requested spoke.
+    AssetNotInSpoke = 307,
+    /// Asset is already listed on the requested spoke.
+    AssetAlreadyInSpoke = 308,
+    /// Spoke asset count would exceed the cap.
+    SpokeAssetsLimitReached = 309,
+    /// Requested spoke does not match the account's spoke.
+    SpokeMismatch = 310,
+    /// Spoke supply cap would be exceeded.
     SpokeSupplyCapReached = 311,
-    /// E-mode spoke borrow cap would be exceeded.
+    /// Spoke borrow cap would be exceeded.
     SpokeBorrowCapReached = 312,
     /// Spoke cap exceeds the hub cap for the same asset.
     SpokeCapExceedsHub = 313,
-    /// Spoke cap would fall below current category usage.
+    /// Spoke cap would fall below current spoke usage.
     SpokeCapBelowUsage = 314,
     /// Spoke asset is paused: no supply/borrow/withdraw/repay.
     SpokeAssetPaused = 315,

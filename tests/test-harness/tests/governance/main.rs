@@ -9,7 +9,7 @@ extern crate std;
 mod admin;
 mod admin_config;
 mod dex_usd_repricing;
-mod emode;
+mod spoke;
 mod redstone;
 mod timelock;
 mod tolerance;

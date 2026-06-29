@@ -82,7 +82,7 @@ fn print_storage_sizes() {
         spoke_id: 0,
         mode: PositionMode::Normal,
     };
-    let meta_emode = AccountMeta {
+    let meta_spoke = AccountMeta {
         owner: Address::generate(&env),
         spoke_id: 3,
         mode: PositionMode::Long,
@@ -93,9 +93,9 @@ fn print_storage_sizes() {
         scval_of(&env, meta),
     );
     sizes(
-        "AccountMeta (e-mode)",
+        "AccountMeta (spoke)",
         scval_of(&env, ControllerKey::AccountMeta(id)),
-        scval_of(&env, meta_emode),
+        scval_of(&env, meta_spoke),
     );
 
     println!("---- SupplyPositions: Map<Address, AccountPositionRaw> ----");

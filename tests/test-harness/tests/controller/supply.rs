@@ -1,7 +1,7 @@
 use soroban_sdk::vec;
 use test_harness::{hub_asset, HubAssetKey,
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
-    LendingTest, PositionType, ALICE, BOB, STABLECOIN_EMODE,
+    LendingTest, PositionType, ALICE, BOB, STABLECOIN_SPOKE,
 };
 // 1. test_supply_single_asset
 
@@ -120,19 +120,19 @@ fn test_supply_creates_account_on_first_call() {
     assert_eq!(accounts.len(), 1, "supply should auto-create an account");
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
 }
-// 5. test_supply_with_emode_category
+// 5. test_supply_with_spoke_category
 
 #[test]
-fn test_supply_with_emode_category() {
+fn test_supply_with_spoke_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    t.create_emode_account(ALICE, 2);
+    t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
     let attrs = t.get_account_attributes(ALICE);
@@ -288,21 +288,21 @@ fn test_supply_position_limit_exceeded() {
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// 12. test_supply_emode_rejects_non_category_asset
+// 12. test_supply_spoke_rejects_non_category_asset
 
 #[test]
-fn test_supply_emode_rejects_non_category_asset() {
+fn test_supply_spoke_rejects_non_category_asset() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        // ETH is NOT in the e-mode category
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        // ETH is NOT in the spoke category
         .build();
 
-    t.create_emode_account(ALICE, 2);
+    t.create_spoke_account(ALICE, 2);
 
-    // Supplying ETH to an e-mode stablecoin account must fail: ETH is not
+    // Supplying ETH to an spoke stablecoin account must fail: ETH is not
     // listed on the account's spoke, so the spoke model rejects it as
     // AssetNotSupported.
     let result = t.try_supply(ALICE, "ETH", 1.0);

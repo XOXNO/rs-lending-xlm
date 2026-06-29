@@ -7,7 +7,7 @@ use controller_interface::types::{Account, DebtPositionRaw, HubAssetKey, SpokeUs
 use soroban_sdk::Env;
 
 use crate::cache::Cache;
-use crate::{emode, storage};
+use crate::{spoke, storage};
 
 use super::{account_gates_ok, MarketLimitCtx};
 
@@ -90,7 +90,7 @@ fn account_can_borrow_asset(
         return false;
     }
 
-    let config = emode::effective_asset_config(env, account.spoke_id, hub_asset);
+    let config = spoke::effective_asset_config(env, account.spoke_id, hub_asset);
     if !config.can_borrow() {
         return false;
     }

@@ -1,6 +1,6 @@
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
-    xlm_preset, LendingTest, PositionType, ALICE, BOB, STABLECOIN_EMODE,
+    xlm_preset, LendingTest, PositionType, ALICE, BOB, STABLECOIN_SPOKE,
 };
 // 1. test_borrow_basic
 
@@ -221,23 +221,23 @@ fn test_borrow_position_limit_exceeded() {
     let result = t.try_borrow(ALICE, "WBTC", 0.001);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// 10. test_borrow_emode_enhanced_ltv
+// 10. test_borrow_spoke_enhanced_ltv
 
 #[test]
-fn test_borrow_emode_enhanced_ltv() {
+fn test_borrow_spoke_enhanced_ltv() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    t.create_emode_account(ALICE, 2);
+    t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
     // Standard LTV = 75% caps the normal limit at $7500.
-    // E-mode LTV = 97%, so a $9500 borrow stays allowed.
+    // Spoke LTV = 97%, so a $9500 borrow stays allowed.
     t.borrow(ALICE, "USDT", 9_500.0);
     t.assert_position_exists(ALICE, "USDT", PositionType::Borrow);
     t.assert_borrow_near(ALICE, "USDT", 9_500.0, 1.0);
@@ -250,7 +250,7 @@ fn test_borrow_emode_enhanced_ltv() {
     t.assert_healthy(ALICE);
 
     let hf = t.health_factor(ALICE);
-    assert!(hf >= 1.0, "should be healthy with e-mode LTV, HF = {}", hf);
+    assert!(hf >= 1.0, "should be healthy with spoke LTV, HF = {}", hf);
 }
 // 14. test_borrow_at_ltv_limit_stays_healthy
 

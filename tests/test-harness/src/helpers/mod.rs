@@ -13,10 +13,10 @@ use soroban_sdk::Address;
 pub const HARNESS_HUB: u32 = 1;
 
 /// The single spoke the base setup creates and lists every market on with its
-/// regular (non-e-mode) risk params. There is no spoke 0 anymore: a fresh
+/// regular (non-spoke) risk params. There is no spoke 0 anymore: a fresh
 /// controller has zero spokes, so the builder calls `add_spoke()` (which returns
 /// id 1) before listing market risk. Regular accounts bind to this spoke;
-/// e-mode tests create additional spokes (ids 2+) on top of it.
+/// spoke tests create additional spokes (ids 2+) on top of it.
 pub const HARNESS_SPOKE: u32 = 1;
 
 /// Wraps an asset address in the base harness hub coordinate used by controller

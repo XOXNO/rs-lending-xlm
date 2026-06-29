@@ -114,7 +114,7 @@ proptest! {
         expect_rejected("add_spoke", || {
             ctrl.set_auths(&no_auths).try_add_spoke()
         }).unwrap();
-        expect_rejected("remove_e_mode_category", || {
+        expect_rejected("remove_spoke_category", || {
             ctrl.set_auths(&no_auths).try_remove_spoke(&category_id)
         }).unwrap();
         expect_rejected("add_asset_to_spoke", || {
@@ -151,7 +151,7 @@ proptest! {
                     borrow_cap: 0,
                 })
         }).unwrap();
-        expect_rejected("remove_asset_from_e_mode", || {
+        expect_rejected("remove_asset_from_spoke", || {
             ctrl.set_auths(&no_auths)
                 .try_remove_asset_from_spoke(&hub_asset(usdc.clone()), &category_id)
         }).unwrap();

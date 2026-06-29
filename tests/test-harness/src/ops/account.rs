@@ -14,8 +14,8 @@ impl LendingTest {
         account_id
     }
 
-    /// Create an e-mode account on `category_id` (an e-mode spoke, id >= 2).
-    pub fn create_emode_account(&mut self, user: &str, category_id: u32) -> u64 {
+    /// Create an account on spoke `category_id` (id >= 2).
+    pub fn create_spoke_account(&mut self, user: &str, category_id: u32) -> u64 {
         let _ = self.get_or_create_user(user);
         let account_id = self.create_account_direct(user, category_id, PositionMode::Normal);
         self.register_account(user, account_id, category_id, PositionMode::Normal);
@@ -23,17 +23,17 @@ impl LendingTest {
     }
 
     /// Create an account with full control over the spoke and position mode.
-    /// `e_mode_category` is the target spoke id (>= 1); use [`HARNESS_SPOKE`] for
+    /// `spoke_id` is the target spoke id (>= 1); use [`HARNESS_SPOKE`] for
     /// a regular account.
     pub fn create_account_full(
         &mut self,
         user: &str,
-        e_mode_category: u32,
+        spoke_id: u32,
         mode: PositionMode,
     ) -> u64 {
         let _ = self.get_or_create_user(user);
-        let account_id = self.create_account_direct(user, e_mode_category, mode);
-        self.register_account(user, account_id, e_mode_category, mode);
+        let account_id = self.create_account_direct(user, spoke_id, mode);
+        self.register_account(user, account_id, spoke_id, mode);
         account_id
     }
 
@@ -87,7 +87,7 @@ impl LendingTest {
         &mut self,
         user: &str,
         account_id: u64,
-        e_mode_category: u32,
+        spoke_id: u32,
         mode: PositionMode,
     ) {
         let default_is_missing = self
@@ -99,7 +99,7 @@ impl LendingTest {
         let user_state = self.users.get_mut(user).expect("user must exist");
         user_state.accounts.push(AccountEntry {
             account_id,
-            e_mode_category,
+            spoke_id,
             mode,
         });
         if default_is_missing {

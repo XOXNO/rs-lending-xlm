@@ -106,7 +106,7 @@ This is sound because `contracts/controller/src/lib.rs` re-exports:
   → **Every** spec-referenced type (`Payment`, `PositionMode`, `StrategySwap`,
   `MarketParams`, `AccountPositionType`, `MarketIndex`, `InterestRateModel`,
   `MarketParamsRaw`, `AccountPositionRaw`, `AssetConfig`, `OraclePriceFluctuation`,
-  `PriceFeedRaw`, `MarketStatus`, `EModeAssetConfig`, `AccountAttributes`) is
+  `PriceFeedRaw`, `MarketStatus`, `SpokeAssetConfig`, `AccountAttributes`) is
   reachable at `crate::types::*`. No type was actually deleted by the crate move.
 - `pub mod constants;` (lib.rs:7) where `constants.rs` does
   `pub use common::constants::*;` + `BAD_DEBT_USD_THRESHOLD`. → all of
@@ -203,7 +203,7 @@ All in `certora/controller/`. Same edit everywhere.
 | `spec/solvency_rules.rs` | 10,319,360,578 | constants::{…} + inline types::AccountPositionType (×3) | `crate::…` |
 | `spec/strategy_rules.rs` | 17,18 | constants::BAD_DEBT_USD_THRESHOLD, types::{AccountPositionType,StrategySwap} | `crate::…` |
 | `spec/tolerance_math_rules.rs` | 10,14 | constants::{BPS,RAY,WAD}, types::OraclePriceFluctuation | `crate::…` |
-| `spec/emode_rules.rs` | 245,264,301,432,493 | inline `controller::types::{AccountPositionType,AssetConfig,StrategySwap}` | `crate::types::…` |
+| `spec/spoke_rules.rs` | 245,264,301,432,493 | inline `controller::types::{AccountPositionType,AssetConfig,StrategySwap}` | `crate::types::…` |
 | `spec/flash_loan_rules.rs` | 70,106 | inline `controller::types::MarketStatus::Active` | `crate::types::…` |
 
 ### controller — group B: stale summary/harness signatures (28 E0061 + 4 E0599 + 2 E0308 + 1 E0432) — MECH (signature surgery in summaries/harness)
@@ -228,10 +228,10 @@ harness. Fix the stubs, not production.
 | `router.rs` | 254 | E0061 | `claim_revenue_summary` needs `asset` |
 | `router.rs` | 299 | E0061 | `add_rewards_summary` needs `asset` |
 | `spec/compat.rs` | 27 | E0061 | `Controller::withdraw` gained `to: Option<Address>` 5th arg — pass `None` |
-| `spec/emode_rules.rs` | 256 | E0061 | `process_withdraw` gained `to: Option<Address>` — pass `None` |
+| `spec/spoke_rules.rs` | 256 | E0061 | `process_withdraw` gained `to: Option<Address>` — pass `None` |
 | `spec/solvency_rules.rs` | 26,48,51,87,160,165,183,187,708,726 | E0061×10 | `pool_client.{reserves,get_sync_data,capital_utilisation,supplied_amount,borrowed_amount}()` now take `asset` (interfaces/pool/src/lib.rs:73-81) — pass `&asset` |
 
-> `compat.rs:27` and `emode_rules.rs:256`: the public `withdraw` /
+> `compat.rs:27` and `spoke_rules.rs:256`: the public `withdraw` /
 > `process_withdraw` signatures gained `to: Option<Address>` (the
 > withdraw-to-recipient feature). Passing `None` preserves the existing rule
 > intent (withdraw to self). MECH, but note it leaves the `Some(recipient)`
@@ -261,8 +261,8 @@ controller still has an internal `mod governance` (`lib.rs:15`) whose
 `governance::config::*` functions hold the real admin logic
 (`contracts/controller/src/governance/config.rs`); the new separate
 `contracts/governance/` contract is a thin *forwarder* on top. So spec rules
-that call `crate::governance::config::add_asset_to_e_mode_category`,
-`crate::emode::ensure_e_mode_compatible_with_asset`, etc. **still resolve** —
+that call `crate::governance::config::add_asset_to_spoke_category`,
+`crate::spoke::ensure_spoke_compatible_with_asset`, etc. **still resolve** —
 they are MECH path-repoints, not orphaned coverage. **No admin/config rule needs
 deletion.** The orphan + invariant-coverage gates already pass (35 confs, 231
 rules, zero orphans; 12 invariant modules covered) and will stay green because
@@ -309,7 +309,7 @@ it when the prover runs in Phase 4.)
 
 ### SEM-3 — `withdraw`/`process_withdraw` gained `to: Option<Address>` (RECOMMEND: pass None now, add a branch rule in Phase 5)
 
-`compat.rs:27` and `emode_rules.rs:256` pass `None` (withdraw-to-self) to fix
+`compat.rs:27` and `spoke_rules.rs:256` pass `None` (withdraw-to-self) to fix
 the arg-count. That preserves existing coverage but leaves the new
 `Some(recipient)` withdraw-to-recipient branch unverified. **Decision:** pass
 `None` for the compile repair (MECH); **record a Phase-5 coverage gap** to add a

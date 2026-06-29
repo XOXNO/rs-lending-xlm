@@ -3,7 +3,7 @@
 //! Post-pool solvency gates (LTV, health factor, min borrow collateral) live in
 //! `validation::require_post_pool_risk_gates`.
 
-use common::errors::{EModeError, GenericError};
+use common::errors::{SpokeError, GenericError};
 use common::math::fp::Ray;
 use controller_interface::types::{
     Account, AccountMeta, AccountPosition, DebtPosition, HubAssetKey, PositionMode,
@@ -26,7 +26,7 @@ pub fn create_account(
     cache: &mut Cache,
 ) -> (u64, Account) {
     // Accounts cannot be created on spoke 0: there is no spoke 0.
-    assert_with_error!(env, spoke_id >= 1, EModeError::EModeCategoryNotFound);
+    assert_with_error!(env, spoke_id >= 1, SpokeError::SpokeNotFound);
     cache.active_spoke(env, spoke_id);
 
     let account_id = storage::increment_account_nonce(env);
@@ -118,7 +118,7 @@ pub fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address) {
 /// caller must specify the account's real spoke (there is no `0` sentinel).
 fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
     if spoke_id != account.spoke_id {
-        panic_with_error!(env, EModeError::EModeMismatch);
+        panic_with_error!(env, SpokeError::SpokeMismatch);
     }
 }
 

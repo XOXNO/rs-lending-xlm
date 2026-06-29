@@ -5,7 +5,7 @@
 //! full config — there is no spoke 0 base and no base+overlay; each spoke is the
 //! single source of truth for its assets.
 
-use common::errors::{EModeError, GenericError};
+use common::errors::{SpokeError, GenericError};
 use controller_interface::types::{AssetConfig, HubAssetKey, SpokeAssetConfig, SpokeConfig};
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
@@ -37,7 +37,7 @@ pub fn ensure_spoke_not_deprecated(env: &Env, spoke: &Option<SpokeConfig>) {
         assert_with_error!(
             env,
             !spoke.is_deprecated,
-            EModeError::EModeCategoryDeprecated
+            SpokeError::SpokeDeprecated
         );
     }
 }
@@ -52,12 +52,12 @@ pub fn validate_spoke_lists_asset(
     assert_with_error!(
         env,
         cache.cached_spoke_asset(spoke_id, hub_asset).is_some(),
-        EModeError::EModeCategoryNotFound
+        SpokeError::SpokeNotFound
     );
-    // Rejects a deprecated spoke (EModeCategoryDeprecated).
+    // Rejects a deprecated spoke (SpokeDeprecated).
     cache.active_spoke(env, spoke_id);
 }
 
 #[cfg(test)]
-#[path = "../tests/emode.rs"]
+#[path = "../tests/spoke.rs"]
 mod tests;

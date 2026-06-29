@@ -59,10 +59,10 @@ impl LendingTest {
     ) -> Result<u64, soroban_sdk::Error> {
         let account_id = self.default_account_id_or_zero(user);
         let spoke = self.account_spoke_or_default(account_id);
-        self.try_supply_with_e_mode(user, asset_name, amount, spoke)
+        self.try_supply_with_spoke(user, asset_name, amount, spoke)
     }
 
-    /// Try supply with an explicit e-mode argument -- returns Result.
+    /// Try supply with an explicit spoke argument -- returns Result.
     /// Supply to an existing account owned by `target_user`, signed by `caller`.
     pub fn try_supply_to_account(
         &mut self,
@@ -89,12 +89,12 @@ impl LendingTest {
         }
     }
 
-    pub fn try_supply_with_e_mode(
+    pub fn try_supply_with_spoke(
         &mut self,
         user: &str,
         asset_name: &str,
         amount: f64,
-        e_mode_category: u32,
+        spoke_id: u32,
     ) -> Result<u64, soroban_sdk::Error> {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
@@ -107,7 +107,7 @@ impl LendingTest {
 
         let ctrl = self.ctrl_client();
         let assets: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
-        match ctrl.try_supply(&addr, &account_id, &e_mode_category, &assets) {
+        match ctrl.try_supply(&addr, &account_id, &spoke_id, &assets) {
             Ok(Ok(id)) => Ok(id),
             Ok(Err(err)) => Err(err),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),

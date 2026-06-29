@@ -18,7 +18,7 @@ Default runs disable Soroban budget metering. Opt in with `LendingTest::new().wi
 
 ```text
 src/
-  setup/builder.rs     LendingTestBuilder — markets, e-mode, budget, auth mode
+  setup/builder.rs     LendingTestBuilder — markets, spoke, budget, auth mode
   core/                LendingTest runtime, market/user state types
   ops/                 supply, borrow, withdraw, repay, account helpers
   oracle/              reflector config + runtime price/oracle helpers

@@ -65,10 +65,10 @@
                 ]
             },
             {
-                "conf": "certora/controller/confs/emode.conf",
+                "conf": "certora/controller/confs/spoke.conf",
                 "args": [
                     "--rule",
-                    "emode_supply_sanity"
+                    "spoke_supply_sanity"
                 ]
             },
             {
@@ -148,7 +148,7 @@
                 "conf": "certora/controller/confs/liquidation-light.conf"
             },
             {
-                "conf": "certora/controller/confs/emode.conf"
+                "conf": "certora/controller/confs/spoke.conf"
             }
         ],
         "core": [

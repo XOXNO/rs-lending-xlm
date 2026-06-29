@@ -17,7 +17,7 @@ use super::{
     enforce_spoke_asset_flags, finalize_position_flow, AggregatedPayments, PositionSides,
 };
 use crate::cache::Cache;
-use crate::emode;
+use crate::spoke;
 use crate::events;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::helpers::update_or_remove_debt_position;
@@ -97,8 +97,8 @@ fn validate_borrow(
         validation::require_market_active(env, cache, &hub_asset);
         // Risk config comes from the account's spoke (the single source of
         // truth); reverts `AssetNotSupported` when unlisted there.
-        let asset_config = emode::effective_asset_config(env, account.spoke_id, &hub_asset);
-        emode::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
+        let asset_config = spoke::effective_asset_config(env, account.spoke_id, &hub_asset);
+        spoke::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
         // Frozen blocks new borrow; paused blocks every verb.
         enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
 

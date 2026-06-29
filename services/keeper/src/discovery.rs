@@ -55,7 +55,7 @@ fn configured_market_assets(contracts: &ContractsConfig) -> Result<Vec<[u8; 32]>
 pub struct DiscoverySnapshot {
     pub current_ledger: u32,
     pub assets: Vec<[u8; 32]>,
-    /// Persistent protocol entries: per-asset, e-mode, role keys, the per-user
+    /// Persistent protocol entries: per-asset, spoke, role keys, the per-user
     /// account keys (when `scan_users`), and governance role keys.
     pub persistent_entries: Vec<LedgerEntryQuery>,
     /// Controller, central pool, flash receiver, and (when configured)
@@ -79,7 +79,7 @@ pub async fn snapshot(
     let current_ledger = client.latest_ledger().await?;
     info!(target: "keeper.discovery", current_ledger, "tick start");
 
-    // -- Controller instance: wasm hash + pool address + AccountNonce + e-mode ceiling --
+    // -- Controller instance: wasm hash + pool address + AccountNonce + spoke ceiling --
     let instance = client.get_contract_instance(&controller_id).await?;
     let controller_wasm_hash = wasm_hash_from_executable(&instance.executable);
     let pool_id = lookup_scalar(&instance, ControllerInstanceKey::Pool, scval_contract_id)?;
@@ -91,16 +91,16 @@ pub async fn snapshot(
     }
     let account_nonce =
         lookup_scalar(&instance, ControllerInstanceKey::AccountNonce, scval_u64)?.unwrap_or(0);
-    let last_emode_category_id = lookup_scalar(
+    let last_spoke_id = lookup_scalar(
         &instance,
-        ControllerInstanceKey::LastEModeCategoryId,
+        ControllerInstanceKey::LastSpokeId,
         scval_u32,
     )?
     .unwrap_or(0);
     debug!(
         target: "keeper.discovery",
         account_nonce,
-        last_emode_category_id,
+        last_spoke_id,
         pool_resolved = pool_id.is_some(),
         "instance read"
     );
@@ -143,15 +143,15 @@ pub async fn snapshot(
         );
     }
 
-    // -- E-mode category sweep (1..=ceiling) --
-    if last_emode_category_id > 0 {
-        for chunk in (1..=last_emode_category_id)
+    // -- Spoke category sweep (1..=ceiling) --
+    if last_spoke_id > 0 {
+        for chunk in (1..=last_spoke_id)
             .collect::<Vec<_>>()
             .chunks(chunk_size)
         {
             let keys = chunk
                 .iter()
-                .map(|id| ControllerPersistentKey::EModeCategory(*id).to_ledger_key(&controller_id))
+                .map(|id| ControllerPersistentKey::Spoke(*id).to_ledger_key(&controller_id))
                 .collect::<Result<Vec<_>>>()?;
             persistent_entries.extend(client.get_ledger_entries(&keys).await?);
         }

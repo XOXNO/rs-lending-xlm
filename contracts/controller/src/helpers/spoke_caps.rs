@@ -5,7 +5,7 @@
 //! live in discrete `SpokeUsage` keys; this context buffers the entries it
 //! touches for one transaction and flushes them on `persist`.
 
-use common::errors::EModeError;
+use common::errors::SpokeError;
 use common::math::fp::Ray;
 use common::validation::cap_is_enabled;
 use controller_interface::types::{
@@ -198,7 +198,7 @@ fn enforce_spoke_supply_cap(
     assert_with_error!(
         env,
         next_scaled <= cap_scaled,
-        EModeError::SpokeSupplyCapReached
+        SpokeError::SpokeSupplyCapReached
     );
 }
 
@@ -218,7 +218,7 @@ fn enforce_spoke_borrow_cap(
     assert_with_error!(
         env,
         next_scaled <= cap_scaled,
-        EModeError::SpokeBorrowCapReached
+        SpokeError::SpokeBorrowCapReached
     );
 }
 
@@ -236,7 +236,7 @@ pub fn validate_spoke_caps_against_usage(
         assert_with_error!(
             env,
             Ray::from(usage.supplied_scaled_ray) <= cap_scaled,
-            EModeError::SpokeCapBelowUsage
+            SpokeError::SpokeCapBelowUsage
         );
     }
     if cap_is_enabled(borrow_cap) {
@@ -244,7 +244,7 @@ pub fn validate_spoke_caps_against_usage(
         assert_with_error!(
             env,
             Ray::from(usage.borrowed_scaled_ray) <= cap_scaled,
-            EModeError::SpokeCapBelowUsage
+            SpokeError::SpokeCapBelowUsage
         );
     }
 }
@@ -260,14 +260,14 @@ pub fn validate_spoke_caps_against_hub(
         assert_with_error!(
             env,
             spoke_supply_cap <= hub_supply_cap,
-            EModeError::SpokeCapExceedsHub
+            SpokeError::SpokeCapExceedsHub
         );
     }
     if cap_is_enabled(hub_borrow_cap) && cap_is_enabled(spoke_borrow_cap) {
         assert_with_error!(
             env,
             spoke_borrow_cap <= hub_borrow_cap,
-            EModeError::SpokeCapExceedsHub
+            SpokeError::SpokeCapExceedsHub
         );
     }
 }

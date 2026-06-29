@@ -1,7 +1,7 @@
 use controller::types::ControllerKey;
 use test_harness::{hub_asset, HubAssetKey,
     assert_contract_error, days, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE,
-    BOB, STABLECOIN_EMODE,
+    BOB, STABLECOIN_SPOKE,
 };
 
 fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u32 {
@@ -350,26 +350,26 @@ fn test_update_account_threshold_rejects_low_hf() {
     let result = t.try_update_account_threshold(true, &[account_id]);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_LOW);
 }
-// 8. test_update_account_threshold_deprecated_emode_retains_spoke_params
+// 8. test_update_account_threshold_deprecated_spoke_retains_spoke_params
 
 #[test]
-fn test_update_account_threshold_deprecated_emode_retains_spoke_params() {
+fn test_update_account_threshold_deprecated_spoke_retains_spoke_params() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
         .with_dust_disabled_all_markets()
         .build();
 
-    let account_id = t.create_emode_account(ALICE, 2);
+    let account_id = t.create_spoke_account(ALICE, 2);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     assert_eq!(supply_threshold_bps(&t, account_id, "USDC"), 9800);
 
     // Spokes are self-contained: a deprecated spoke keeps its stored
     // `SpokeAsset` entry, so re-stamping a position on that spoke reads the
-    // same spoke config -- there is no spoke-0 fallback (controller emode.rs).
-    t.remove_e_mode_category(2);
+    // same spoke config -- there is no spoke-0 fallback (controller spoke.rs).
+    t.remove_spoke_category(2);
     t.update_account_threshold(true, &[account_id]);
 
     assert_eq!(

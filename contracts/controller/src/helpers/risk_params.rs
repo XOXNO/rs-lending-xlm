@@ -8,7 +8,7 @@ use controller_interface::types::{
 use soroban_sdk::{Env, Map};
 
 use crate::cache::Cache;
-use crate::emode;
+use crate::spoke;
 
 use super::calculate_account_risk_totals;
 
@@ -51,7 +51,7 @@ pub fn refresh_supply_risk_params_for_asset(
     if !active || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
         return;
     }
-    let config = emode::effective_asset_config(env, account.spoke_id, hub_asset);
+    let config = spoke::effective_asset_config(env, account.spoke_id, hub_asset);
     refresh_supply_risk_params(env, cache, account, hub_asset, position, &config);
 }
 

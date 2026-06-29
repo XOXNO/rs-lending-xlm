@@ -43,9 +43,9 @@ Rates / indexes / interest / math
   boundary-rates.conf, boundary-oracle.conf
   spec/index_rules.rs, interest_rules.rs, math_rules.rs, boundary_rules.rs
 
-Strategy / flash loan / e-mode / guards
-  strategy.conf, flash_loan.conf, emode.conf, market-guard.conf
-  spec/strategy_rules.rs, flash_loan_rules.rs, emode_rules.rs,
+Strategy / flash loan / spoke / guards
+  strategy.conf, flash_loan.conf, spoke.conf, market-guard.conf
+  spec/strategy_rules.rs, flash_loan_rules.rs, spoke_rules.rs,
   market_guard_rules.rs
 
 Cross-contract consistency

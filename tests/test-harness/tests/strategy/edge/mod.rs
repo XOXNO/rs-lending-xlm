@@ -10,7 +10,7 @@ use soroban_sdk::Bytes;
 use test_harness::{hub_asset, HubAssetKey,
     apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, usd,
     usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, MarketPreset, ALICE, BOB,
-    DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, STABLECOIN_EMODE,
+    DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, STABLECOIN_SPOKE,
 };
 
 use super::helpers::build_swap_steps;

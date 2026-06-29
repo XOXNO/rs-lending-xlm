@@ -1,7 +1,7 @@
 //! Contract error codes for test assertions — sourced from `common::errors`.
 
 pub use common::errors::{
-    CollateralError, EModeError, FlashLoanError, GenericError, OracleError, StrategyError,
+    CollateralError, SpokeError, FlashLoanError, GenericError, OracleError, StrategyError,
 };
 
 /// Stable `u32` aliases used by `assert_contract_error` and integration tests.
@@ -71,15 +71,15 @@ pub mod codes {
     pub const SANITY_BOUND_VIOLATED: u32 = OracleError::SanityBoundViolated as u32;
     pub const INVALID_SANITY_BOUNDS: u32 = OracleError::InvalidSanityBounds as u32;
 
-    // EModeError
-    pub const EMODE_CATEGORY_NOT_FOUND: u32 = EModeError::EModeCategoryNotFound as u32;
-    pub const EMODE_CATEGORY_DEPRECATED: u32 = EModeError::EModeCategoryDeprecated as u32;
-    pub const ASSET_NOT_IN_EMODE: u32 = EModeError::AssetNotInEmode as u32;
-    pub const EMODE_MISMATCH: u32 = EModeError::EModeMismatch as u32;
-    pub const SPOKE_SUPPLY_CAP_REACHED: u32 = EModeError::SpokeSupplyCapReached as u32;
-    pub const SPOKE_BORROW_CAP_REACHED: u32 = EModeError::SpokeBorrowCapReached as u32;
-    pub const SPOKE_CAP_EXCEEDS_HUB: u32 = EModeError::SpokeCapExceedsHub as u32;
-    pub const SPOKE_CAP_BELOW_USAGE: u32 = EModeError::SpokeCapBelowUsage as u32;
+    // SpokeError
+    pub const SPOKE_NOT_FOUND: u32 = SpokeError::SpokeNotFound as u32;
+    pub const SPOKE_DEPRECATED: u32 = SpokeError::SpokeDeprecated as u32;
+    pub const ASSET_NOT_IN_SPOKE: u32 = SpokeError::AssetNotInSpoke as u32;
+    pub const SPOKE_MISMATCH: u32 = SpokeError::SpokeMismatch as u32;
+    pub const SPOKE_SUPPLY_CAP_REACHED: u32 = SpokeError::SpokeSupplyCapReached as u32;
+    pub const SPOKE_BORROW_CAP_REACHED: u32 = SpokeError::SpokeBorrowCapReached as u32;
+    pub const SPOKE_CAP_EXCEEDS_HUB: u32 = SpokeError::SpokeCapExceedsHub as u32;
+    pub const SPOKE_CAP_BELOW_USAGE: u32 = SpokeError::SpokeCapBelowUsage as u32;
 
     // FlashLoanError
     pub const FLASH_LOAN_ONGOING: u32 = FlashLoanError::FlashLoanOngoing as u32;

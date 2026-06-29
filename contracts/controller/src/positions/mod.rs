@@ -5,7 +5,7 @@
 //! calls, post-checks, then `finalize_position_flow` (or `persist_account_positions`
 //! + `emit_account_updates` when a hook is needed, e.g. liquidation bad-debt).
 
-use common::errors::{CollateralError, EModeError};
+use common::errors::{CollateralError, SpokeError};
 use controller_interface::types::{
     Account, AccountPosition, DebtPosition, HubAssetKey, PoolAction, ScaledPositionRaw,
 };
@@ -97,9 +97,9 @@ pub(crate) fn enforce_spoke_asset_flags(
     block_when_frozen: bool,
 ) {
     if let Some(sa) = cache.cached_spoke_asset(spoke_id, hub_asset) {
-        assert_with_error!(env, !sa.paused, EModeError::SpokeAssetPaused);
+        assert_with_error!(env, !sa.paused, SpokeError::SpokeAssetPaused);
         if block_when_frozen {
-            assert_with_error!(env, !sa.frozen, EModeError::SpokeAssetFrozen);
+            assert_with_error!(env, !sa.frozen, SpokeError::SpokeAssetFrozen);
         }
     }
 }

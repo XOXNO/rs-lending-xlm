@@ -87,14 +87,14 @@ impl LendingTest {
         self.ctrl_client()
             .upgrade_liquidity_pool_params(&hub_asset(asset), &params);
     }
-    // E-mode management
+    // Spoke management
 
-    pub fn remove_e_mode_category(&self, category_id: u32) {
+    pub fn remove_spoke_category(&self, category_id: u32) {
         self.ctrl_client().remove_spoke(&category_id);
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn add_asset_to_e_mode(
+    pub fn add_asset_to_spoke(
         &self,
         asset_name: &str,
         category_id: u32,
@@ -122,7 +122,7 @@ impl LendingTest {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn edit_asset_in_e_mode(
+    pub fn edit_asset_in_spoke(
         &self,
         asset_name: &str,
         category_id: u32,
@@ -149,18 +149,18 @@ impl LendingTest {
         });
     }
 
-    pub fn remove_asset_from_e_mode(&self, asset_name: &str, category_id: u32) {
+    pub fn remove_asset_from_spoke(&self, asset_name: &str, category_id: u32) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client()
             .remove_asset_from_spoke(&hub_asset(asset), &category_id);
     }
 
     /// Edit a spoke asset with explicit spoke supply/borrow caps. Mirrors
-    /// `edit_asset_in_e_mode` but forwards real cap values instead of the
+    /// `edit_asset_in_spoke` but forwards real cap values instead of the
     /// hardcoded `0` (disabled) the other helpers use, so cap-bound preview
     /// branches become reachable from tests.
     #[allow(clippy::too_many_arguments)]
-    pub fn edit_asset_in_e_mode_caps(
+    pub fn edit_asset_in_spoke_caps(
         &self,
         asset_name: &str,
         category_id: u32,

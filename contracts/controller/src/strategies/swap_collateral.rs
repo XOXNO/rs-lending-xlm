@@ -17,7 +17,7 @@ use crate::strategies::{
     StrategyWithdraw,
 };
 use crate::{
-    emode, positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient,
+    spoke, positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient,
 };
 
 /// Parameters for `process_swap_collateral`.
@@ -139,8 +139,8 @@ pub(crate) fn validate_swap_new_collateral_preflight(
     account: &Account,
     new: &HubAssetKey,
 ) {
-    emode::validate_spoke_lists_asset(env, cache, account.spoke_id, new);
-    let config = emode::effective_asset_config(env, account.spoke_id, new);
+    spoke::validate_spoke_lists_asset(env, cache, account.spoke_id, new);
+    let config = spoke::effective_asset_config(env, account.spoke_id, new);
 
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
 

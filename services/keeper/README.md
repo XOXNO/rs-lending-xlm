@@ -13,7 +13,7 @@ Per TTL tick the service:
    - the controller instance entry (which covers every instance-tier key,
      including the oracle `Aggregator`, pool template, and accumulators);
    - the controller's persistent keys — configured per-asset `Market`
-     (which embeds each asset's oracle config), and each `EModeCategory`;
+     (which embeds each asset's oracle config), and each `Spoke`;
    - the controller's per-user account keys — `AccountMeta`, `SupplyPositions`,
      and `BorrowPositions` for every account `1..=AccountNonce`;
    - the controller's access-control role keys (`ExistingRoles`, and per-role
@@ -78,7 +78,7 @@ tracking (future work).
 | Controller instance (`Aggregator`, `Pool`, `Accumulator`, …) | instance | instance read | yes |
 | Per-asset `Market` | persistent | configured market assets | yes |
 | Pool `Params` / `State` per asset | persistent | configured market assets | yes |
-| `EModeCategory(1..=LastEModeCategoryId)` | persistent | instance | yes |
+| `Spoke(1..=LastSpokeId)` | persistent | instance | yes |
 | Controller role keys | persistent | `ExistingRoles` | yes |
 | Per-user `AccountMeta` / `SupplyPositions` / `BorrowPositions` | persistent | `AccountNonce` | yes (`scan_users`) |
 | Governance instance (`Controller`, `Owner`, `Admin`, `RoleAdmin`, `MinDelay`) | instance | instance read | yes (when configured) |
@@ -164,7 +164,7 @@ cargo run --release -- \
 
 `testnet-fast.yaml` shortens the tick cadence to 20s so a short run observes a
 full discovery + plan cycle. The `inspect_ttls` binary prints the full
-discovered surface grouped by coverage class (per-asset, e-mode, per-user,
+discovered surface grouped by coverage class (per-asset, spoke, per-user,
 roles, governance, instances, wasm) with per-class counts, so coverage is
 auditable read-only against a live network without submitting anything.
 

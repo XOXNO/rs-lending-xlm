@@ -1,6 +1,6 @@
 //! Spoke constraint rules: listing, deprecation, and parameter resolution.
 //!
-//! The refactor renamed e-mode categories to spokes. A category maps to a spoke
+//! The refactor renamed spoke categories to spokes. A category maps to a spoke
 //! id; "asset registered in the category" maps to `SpokeAsset(spoke_id, hub_asset)`
 //! existing. The spec models hub 0, so each asset address resolves to
 //! `HubAssetKey { hub_id: 0, asset }`.
@@ -21,7 +21,7 @@ fn hub0(asset: &Address) -> HubAssetKey {
 
 /// Supply of an asset not listed on the account's spoke must revert.
 #[rule]
-fn emode_only_registered_assets(
+fn spoke_only_registered_assets(
     e: Env,
     caller: Address,
     account_id: u64,
@@ -45,7 +45,7 @@ fn emode_only_registered_assets(
 
 /// Borrow of an asset not listed on the account's spoke must revert.
 #[rule]
-fn emode_borrow_only_registered_assets(
+fn spoke_borrow_only_registered_assets(
     e: Env,
     caller: Address,
     account_id: u64,
@@ -69,7 +69,7 @@ fn emode_borrow_only_registered_assets(
 
 /// Borrow of a listed asset with `is_borrowable = false` must revert.
 #[rule]
-fn emode_only_borrowable_assets(
+fn spoke_only_borrowable_assets(
     e: Env,
     caller: Address,
     account_id: u64,
@@ -95,7 +95,7 @@ fn emode_only_borrowable_assets(
 
 /// Supply of a listed asset with `is_collateralizable = false` must revert.
 #[rule]
-fn emode_only_collateralizable_assets(
+fn spoke_only_collateralizable_assets(
     e: Env,
     caller: Address,
     account_id: u64,
@@ -121,7 +121,7 @@ fn emode_only_collateralizable_assets(
 
 /// New supply into a deprecated spoke must revert.
 #[rule]
-fn deprecated_emode_blocks_new_supply(
+fn deprecated_spoke_blocks_new_supply(
     e: Env,
     caller: Address,
     account_id: u64,
@@ -145,7 +145,7 @@ fn deprecated_emode_blocks_new_supply(
 
 /// New borrow from a deprecated spoke must revert.
 #[rule]
-fn deprecated_emode_blocks_new_borrow(
+fn deprecated_spoke_blocks_new_borrow(
     e: Env,
     caller: Address,
     account_id: u64,
@@ -169,7 +169,7 @@ fn deprecated_emode_blocks_new_borrow(
 
 /// Withdrawals remain allowed on deprecated spokes; scaled deposit decreases or position closes.
 #[rule]
-fn deprecated_emode_allows_withdraw(
+fn deprecated_spoke_allows_withdraw(
     e: Env,
     caller: Address,
     account_id: u64,
@@ -218,7 +218,7 @@ fn deprecated_emode_allows_withdraw(
 /// On an active spoke, the effective risk config projects the asset's own
 /// per-spoke `SpokeAssetConfig` (LTV, threshold, bonus, collateral/borrow flags).
 #[rule]
-fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
+fn spoke_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(category_id > 0);
 
     let spoke = crate::storage::get_spoke(&e, category_id);
@@ -232,7 +232,7 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
 
     // Self-contained per-spoke resolution (no base+overlay): the effective
     // config is the spoke's `SpokeAssetConfig` projected to `AssetConfig`.
-    let asset_config = crate::emode::effective_asset_config(&e, category_id, &hub_asset);
+    let asset_config = crate::spoke::effective_asset_config(&e, category_id, &hub_asset);
 
     cvlr_assert!(asset_config.loan_to_value.raw() == i128::from(cfg.loan_to_value));
     cvlr_assert!(
@@ -246,7 +246,7 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
 
 /// Listed spoke assets satisfy LTV < liquidation threshold.
 #[rule]
-fn emode_asset_has_valid_params(e: Env, asset: Address, category_id: u32) {
+fn spoke_asset_has_valid_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(category_id > 0);
 
     let spoke_asset = crate::storage::get_spoke_asset(&e, category_id, &hub0(&asset));
@@ -333,7 +333,7 @@ fn edit_asset_enforces_valid_bounds(
 /// old "asset map cleared / reverse index updated" coverage no longer applies
 /// and needs a fresh property over the deprecation-gated reads.
 #[rule]
-fn emode_remove_category(e: Env, category_id: u32) {
+fn spoke_remove_category(e: Env, category_id: u32) {
     cvlr_assume!(category_id > 0);
 
     // The spoke must exist and be active so `remove_spoke` reaches its body.
@@ -348,7 +348,7 @@ fn emode_remove_category(e: Env, category_id: u32) {
 
 /// Adding an asset to a deprecated spoke must revert.
 #[rule]
-fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u32) {
+fn spoke_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(category_id > 0);
 
     let spoke = crate::storage::try_get_spoke(&e, category_id);
@@ -377,25 +377,25 @@ fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
 }
 
 #[rule]
-fn emode_supply_sanity(
+fn spoke_supply_sanity(
     e: Env,
     caller: Address,
     account_id: u64,
-    e_mode_category: u32,
+    spoke_id: u32,
     asset: Address,
     amount: i128,
 ) {
     cvlr_assume!(amount > 0);
-    cvlr_assume!(e_mode_category > 0);
+    cvlr_assume!(spoke_id > 0);
 
     let mut assets: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     assets.push_back((hub0(&asset), amount));
-    crate::positions::supply::process_supply(&e, &caller, account_id, e_mode_category, &assets);
+    crate::positions::supply::process_supply(&e, &caller, account_id, spoke_id, &assets);
     cvlr_satisfy!(true);
 }
 
 #[rule]
-fn emode_borrow_sanity(e: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
+fn spoke_borrow_sanity(e: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
     cvlr_assume!(amount > 0);
 
     let attrs = crate::storage::get_account_attrs(&e, account_id);

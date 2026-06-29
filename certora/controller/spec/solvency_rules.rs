@@ -67,7 +67,7 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
 
 /// Supply with amount zero reverts.
 #[rule]
-fn supply_rejects_zero_amount(e: Env, caller: Address, e_mode_category: u32) {
+fn supply_rejects_zero_amount(e: Env, caller: Address, spoke_id: u32) {
     let account_id: u64 = 1;
     let asset = e.current_contract_address();
     let zero_amount: i128 = 0;
@@ -75,7 +75,7 @@ fn supply_rejects_zero_amount(e: Env, caller: Address, e_mode_category: u32) {
     let mut assets = Vec::new(&e);
     assets.push_back((hub0(asset), zero_amount));
 
-    crate::Controller::supply(e.clone(), caller, account_id, e_mode_category, assets);
+    crate::Controller::supply(e.clone(), caller, account_id, spoke_id, assets);
 
     cvlr_satisfy!(false);
 }
@@ -115,7 +115,7 @@ fn repay_rejects_zero_amount(e: Env, caller: Address) {
 fn supply_position_limit_enforced(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     new_asset: Address,
     amount: i128,
 ) {
@@ -146,7 +146,7 @@ fn supply_position_limit_enforced(
     let mut assets = Vec::new(&e);
     assets.push_back((hub0(new_asset), amount));
 
-    crate::Controller::supply(e.clone(), caller, account_id, e_mode_category, assets);
+    crate::Controller::supply(e.clone(), caller, account_id, spoke_id, assets);
 
     cvlr_satisfy!(false);
 }
@@ -189,7 +189,7 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
 fn solvency_sanity_supply(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     asset: Address,
     amount: i128,
 ) {
@@ -197,7 +197,7 @@ fn solvency_sanity_supply(
     cvlr_assume!(amount > 0);
     let mut assets = Vec::new(&e);
     assets.push_back((hub0(asset), amount));
-    crate::Controller::supply(e, caller, account_id, e_mode_category, assets);
+    crate::Controller::supply(e, caller, account_id, spoke_id, assets);
     cvlr_satisfy!(true);
 }
 

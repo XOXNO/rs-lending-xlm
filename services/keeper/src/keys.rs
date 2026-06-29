@@ -14,14 +14,14 @@ use stellar_xdr::curr::{
 #[derive(Debug, Clone)]
 pub enum ControllerPersistentKey {
     Market([u8; 32]),
-    EModeCategory(u32),
+    Spoke(u32),
 }
 
 impl ControllerPersistentKey {
     pub fn to_sc_val(&self) -> Result<ScVal> {
         Ok(match self {
             Self::Market(addr) => sc_enum("Market", &[sc_address_contract(addr)])?,
-            Self::EModeCategory(id) => sc_enum("EModeCategory", &[ScVal::U32(*id)])?,
+            Self::Spoke(id) => sc_enum("Spoke", &[ScVal::U32(*id)])?,
         })
     }
 
@@ -153,7 +153,7 @@ impl PoolPersistentKey {
 pub enum ControllerInstanceKey {
     Pool,
     AccountNonce,
-    LastEModeCategoryId,
+    LastSpokeId,
 }
 
 impl ControllerInstanceKey {
@@ -161,7 +161,7 @@ impl ControllerInstanceKey {
         match self {
             Self::Pool => "Pool",
             Self::AccountNonce => "AccountNonce",
-            Self::LastEModeCategoryId => "LastEModeCategoryId",
+            Self::LastSpokeId => "LastSpokeId",
         }
     }
 }
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn tuple_variant_carries_args_in_order() {
-        let sv = ControllerPersistentKey::EModeCategory(99)
+        let sv = ControllerPersistentKey::Spoke(99)
             .to_sc_val()
             .unwrap();
         match sv {

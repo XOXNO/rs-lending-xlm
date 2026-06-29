@@ -364,7 +364,7 @@ exists. Account removal deletes metadata and both side maps.
 Persistent account state and shared protocol state require explicit TTL
 extension. Keeper keepalive covers:
 
-- shared market and e-mode state
+- shared market and spoke state
 - account metadata and position maps
 - governance, controller, and pool instance state
 - the central pool's asset-keyed `Params` and `State` rows

@@ -1,8 +1,8 @@
-use common::errors::{EModeError, GenericError};
+use common::errors::{SpokeError, GenericError};
 use controller::types::{ControllerKey, SpokeConfig};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN};
-use test_harness::{hub_asset, HubAssetKey, assert_contract_error, usdc_preset, LendingTest, ALICE, STABLECOIN_EMODE};
+use test_harness::{hub_asset, HubAssetKey, assert_contract_error, usdc_preset, LendingTest, ALICE, STABLECOIN_SPOKE};
 
 // 1. upgrade_pool -- admin path. Reuses the pool template hash so the Soroban
 //    host accepts a no-op upgrade without a second wasm blob.
@@ -108,13 +108,13 @@ fn test_deploy_pool_panics_on_second_call() {
     assert_contract_error(result, GenericError::PoolAlreadyDeployed as u32);
 }
 
-// 3. Deprecated e-mode reject on the user path. Sequence:
-//      a) admin opens an e-mode category and adds USDC to it;
+// 3. Deprecated spoke reject on the user path. Sequence:
+//      a) admin opens an spoke category and adds USDC to it;
 //      b) ALICE opens an account in that category (still active);
 //      c) admin removes (deprecates) the category;
 //      d) ALICE attempts a fresh supply on the same account -- supply
-//         calls `active_e_mode_category(env, account.spoke_id)`,
-//         which panics with EModeCategoryDeprecated (#301).
+//         calls `active_spoke_category(env, account.spoke_id)`,
+//         which panics with SpokeDeprecated (#301).
 //
 //    The account is created via the harness storage shim while the category
 //    is still active (the shim asserts non-deprecated, mirroring the
@@ -122,15 +122,15 @@ fn test_deploy_pool_panics_on_second_call() {
 //    the supply path, not from account creation.
 
 #[test]
-fn test_supply_panics_on_deprecated_emode_category() {
+fn test_supply_panics_on_deprecated_spoke_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
         .build();
 
     // Open an account in category 2 while it is still active.
-    let account_id = t.create_emode_account(ALICE, 2);
+    let account_id = t.create_spoke_account(ALICE, 2);
 
     // Sanity check: the account's stored category id is 2.
     let stored_id: u32 = t.env.as_contract(&t.controller_address(), || {
@@ -142,10 +142,10 @@ fn test_supply_panics_on_deprecated_emode_category() {
             .expect("account meta must exist");
         meta.spoke_id
     });
-    assert_eq!(stored_id, 2, "account must be in e-mode category 2");
+    assert_eq!(stored_id, 2, "account must be in spoke category 2");
 
     // Deprecate the category.
-    t.remove_e_mode_category(2);
+    t.remove_spoke_category(2);
 
     // Confirm the category is flagged deprecated in storage.
     let deprecated: bool = t.env.as_contract(&t.controller_address(), || {
@@ -160,7 +160,7 @@ fn test_supply_panics_on_deprecated_emode_category() {
     assert!(deprecated, "category 2 must be flagged deprecated");
 
     // The next supply on the same account must panic with
-    // EModeCategoryDeprecated (#301) from `active_e_mode_category`.
+    // SpokeDeprecated (#301) from `active_spoke_category`.
     let alice_addr = t.users.get(ALICE).unwrap().address.clone();
     let asset_addr = t.resolve_asset("USDC");
     let market = t.resolve_market("USDC");
@@ -175,5 +175,5 @@ fn test_supply_panics_on_deprecated_emode_category() {
         Ok(Err(err)) => Err(err),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert_contract_error(result, EModeError::EModeCategoryDeprecated as u32);
+    assert_contract_error(result, SpokeError::SpokeDeprecated as u32);
 }

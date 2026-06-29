@@ -118,7 +118,7 @@ async fn main() -> Result<()> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum KeyClass {
     PerAsset,
-    EMode,
+    Spoke,
     PerUser,
     Roles,
     Governance,
@@ -129,7 +129,7 @@ impl KeyClass {
     fn title(self) -> &'static str {
         match self {
             Self::PerAsset => "PER-ASSET",
-            Self::EMode => "E-MODE",
+            Self::Spoke => "SPOKE",
             Self::PerUser => "PER-USER",
             Self::Roles => "ROLES",
             Self::Governance => "GOVERNANCE",
@@ -182,7 +182,7 @@ fn classify_persistent(
             KeyClass::PerUser
         }
         Some("Market" | "Params" | "State") => KeyClass::PerAsset,
-        Some("EModeCategory") => KeyClass::EMode,
+        Some("Spoke") => KeyClass::Spoke,
         _ if on_governance => KeyClass::Governance,
         _ => KeyClass::Other,
     }

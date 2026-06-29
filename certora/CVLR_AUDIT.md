@@ -117,8 +117,8 @@ invariants must move to the **pool** spec where the real math runs.
   (asserts seeded literals; no op runs).
 - `solvency_rules.rs:424-457`, `interest_rules.rs` compound_* monotonicity rules — real
   degree-8 Taylor with symbolic operands → timeout-prone (the rates.conf wall).
-- `emode_rules.rs:296-323` `emode_remove_category` loop bounded by `len()<=5` assume;
-  confirm `loop_iter` ≥ 5 in emode.conf.
+- `spoke_rules.rs:296-323` `spoke_remove_category` loop bounded by `len()<=5` assume;
+  confirm `loop_iter` ≥ 5 in spoke.conf.
 - 5 controller-side summaries in `shared/summaries/mod.rs` (`token_price`,
   `update_asset_index`, `calculate_account_risk_totals`, `calculate_linear_bonus`, `total_*_in_usd`)
   have NO `*_satisfies_*` soundness lemma (trusted on faith, unlike the pool summaries).
@@ -128,7 +128,7 @@ invariants must move to the **pool** spec where the real math runs.
 - `interest_rules.rs`, `tolerance_math_rules.rs` — real rate/ratio math, genuine invariants.
 - `pool/spec/summary_contract_rules.rs` + `integrity_rules.rs` — the pool summaries ARE
   backed by executable lemmas running the real `LiquidityPool` (the gold-standard pattern).
-- `emode_rules` (negative/governance), `position_rules`, `consistency_rules`,
+- `spoke_rules` (negative/governance), `position_rules`, `consistency_rules`,
   `market_guard_rules`, `flash_loan_rules`, `oracle_compose_rules`
   — must-revert `satisfy!(false)` idiom correctly encoded; happy-path asserts run on real ops.
 - view-soundness rules (added this session) — VERIFIED on the cloud prover.

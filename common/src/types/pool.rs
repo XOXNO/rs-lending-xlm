@@ -65,7 +65,7 @@ impl MarketParamsRaw {
             self.supply_cap >= 0 && self.borrow_cap >= 0,
             CollateralError::InvalidBorrowParams
         );
-        // Hub caps share the e-mode spoke-cap domain guard: reject any cap that
+        // Hub caps share the spoke-cap domain guard: reject any cap that
         // would overflow `Ray::from_asset` during cap previews so a misconfig
         // fails here at the boundary, not as a runtime MathOverflow in a view.
         crate::validation::require_cap_within_asset_domain(

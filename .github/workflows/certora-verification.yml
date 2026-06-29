@@ -74,10 +74,10 @@ jobs:
             conf_dir: certora/controller/confs
             conf: liquidation-light.conf
             rule: estimate_liquidation_sanity
-          - label: emode
+          - label: spoke
             conf_dir: certora/controller/confs
-            conf: emode.conf
-            rule: emode_supply_sanity
+            conf: spoke.conf
+            rule: spoke_supply_sanity
           - label: solvency
             conf_dir: certora/controller/confs
             conf: solvency-roundtrip.conf

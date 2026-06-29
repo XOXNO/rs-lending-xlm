@@ -6,12 +6,12 @@
 //! - `risk_params`: spoke and liquidation risk refresh helpers.
 
 mod account;
-pub(crate) mod emode_caps;
+pub(crate) mod spoke_caps;
 mod math;
 mod risk_params;
 pub(crate) mod utils;
 
 pub(crate) use account::*;
-pub(crate) use emode_caps::SpokeUsageContext;
+pub(crate) use spoke_caps::SpokeUsageContext;
 pub(crate) use math::*;
 pub(crate) use risk_params::*;

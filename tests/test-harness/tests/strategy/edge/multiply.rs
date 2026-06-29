@@ -222,13 +222,13 @@ fn test_multiply_preserves_existing_collateral_balance() {
 }
 
 #[test]
-fn test_multiply_reuses_emode_account_with_zero_category() {
+fn test_multiply_reuses_spoke_account_with_zero_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
     let account_id = t.create_account_full(ALICE, 2, controller::types::PositionMode::Multiply);
@@ -265,15 +265,15 @@ fn test_multiply_reuses_emode_account_with_zero_category() {
     let attrs = t.ctrl_client().get_account_attributes(&account_id);
     assert_eq!(
         attrs.spoke_id, 2,
-        "zero e_mode_category must reuse the account's stored e-mode category"
+        "zero spoke_id must reuse the account's stored spoke category"
     );
     assert!(
         t.supply_balance_for(ALICE, account_id, "USDC") > 1_999.0,
-        "multiply should add USDC collateral to the existing e-mode account"
+        "multiply should add USDC collateral to the existing spoke account"
     );
     assert!(
         (999.0..=1001.0).contains(&t.borrow_balance_for(ALICE, account_id, "USDT")),
-        "multiply should open the USDT debt leg on the existing e-mode account"
+        "multiply should open the USDT debt leg on the existing spoke account"
     );
 }
 
@@ -338,22 +338,22 @@ fn test_multiply_existing_account_not_found() {
         errors::GenericError::AccountNotFound as u32,
     );
 }
-// E-mode account in the stablecoin category, but debt is ETH (not in
+// Spoke account in the stablecoin category, but debt is ETH (not in
 // category). Validation runs before the swap, so the error is clean.
 
 #[test]
-fn test_multiply_emode_wrong_category_debt() {
+fn test_multiply_spoke_wrong_category_debt() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
-        // ETH is NOT in e-mode category 1
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
+        // ETH is NOT in spoke category 1
         .build();
 
-    // Use the raw controller client so `e_mode_category=2` can be passed
+    // Use the raw controller client so `spoke_id=2` can be passed
     // explicitly.
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("USDC");
@@ -364,10 +364,10 @@ fn test_multiply_emode_wrong_category_debt() {
     let result = ctrl.try_multiply(
         &caller,
         &0u64, // account_id = 0 (create new)
-        &2u32, // e_mode_category = 2
+        &2u32, // spoke_id = 2
         &hub_asset(collateral_addr.clone()),
         &10_0000000i128,                            // 1 ETH worth of debt
-        &hub_asset(debt_addr.clone()), // ETH -- not in e-mode category 2
+        &hub_asset(debt_addr.clone()), // ETH -- not in spoke category 2
         &controller::types::PositionMode::Multiply, // mode = 1 (multiply)
         &steps,
         &None, // initial_payment
@@ -378,24 +378,24 @@ fn test_multiply_emode_wrong_category_debt() {
     // leg with AssetNotSupported (1).
     assert_contract_error(flatten(result), errors::ASSET_NOT_SUPPORTED);
 }
-// E-mode account in the stablecoin category, but collateral is ETH (not in
+// Spoke account in the stablecoin category, but collateral is ETH (not in
 // category).
 
 #[test]
-fn test_multiply_emode_wrong_category_collateral() {
+fn test_multiply_spoke_wrong_category_collateral() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
     let caller = t.get_or_create_user(ALICE);
-    let collateral_addr = t.resolve_asset("ETH"); // not in e-mode category
-    let debt_addr = t.resolve_asset("USDC"); // in e-mode category
-                                             // Fund the mock router so the swap itself succeeds; this lets the emode
+    let collateral_addr = t.resolve_asset("ETH"); // not in spoke category
+    let debt_addr = t.resolve_asset("USDC"); // in spoke category
+                                             // Fund the mock router so the swap itself succeeds; this lets the spoke
                                              // check on the deposit leg fire (otherwise the router fails first).
     t.fund_router("ETH", 5.0);
     // multiply borrows 1000 USDC (raw 10_000_000_000) minus 9bps fee.
@@ -411,8 +411,8 @@ fn test_multiply_emode_wrong_category_collateral() {
     let result = ctrl.try_multiply(
         &caller,
         &0u64,            // account_id = 0 (create new)
-        &2u32,            // e_mode_category = 2
-        &hub_asset(collateral_addr.clone()), // ETH: not in e-mode category
+        &2u32,            // spoke_id = 2
+        &hub_asset(collateral_addr.clone()), // ETH: not in spoke category
         &1000_0000000i128,
         &hub_asset(debt_addr.clone()),
         &controller::types::PositionMode::Multiply,

@@ -963,5 +963,5 @@ fn test_strategy_multiply_unsupported_category() {
         &steps,
     );
 
-    assert_contract_error(res, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(res, errors::SPOKE_NOT_FOUND);
 }

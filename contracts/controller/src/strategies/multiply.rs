@@ -9,7 +9,7 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, By
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
-use crate::emode;
+use crate::spoke;
 use crate::helpers;
 use crate::strategies::{
     open_strategy_borrow, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
@@ -123,7 +123,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
 
     // Collateralizability resolves from the account's spoke (the single source
     // of risk params); reverts `AssetNotSupported` when unlisted there.
-    let collateral_config = emode::effective_asset_config(env, account.spoke_id, collateral);
+    let collateral_config = spoke::effective_asset_config(env, account.spoke_id, collateral);
     assert_with_error!(
         env,
         collateral_config.can_supply(),

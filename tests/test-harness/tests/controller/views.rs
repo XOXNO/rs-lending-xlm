@@ -1,7 +1,7 @@
 use controller::constants::{RAY, WAD};
 use test_harness::{hub_asset,
     eth_preset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, ALICE,
-    STABLECOIN_EMODE,
+    STABLECOIN_SPOKE,
 };
 // 1. test_total_collateral_usd_multi_asset
 
@@ -230,29 +230,29 @@ fn test_get_account_owner_correct() {
         "account owner should match Alice's address"
     );
 }
-// 10. test_get_emode_category_view
+// 10. test_get_spoke_category_view
 
 #[test]
-fn test_get_emode_category_view() {
+fn test_get_spoke_category_view() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(2, STABLECOIN_EMODE)
-        .with_emode_asset(2, "USDC", true, true)
-        .with_emode_asset(2, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
     let ctrl = t.ctrl_client();
     let usdc = t.resolve_asset("USDC");
     let cfg = ctrl.get_spoke_asset(&2u32, &hub_asset(usdc.clone()));
 
-    // STABLECOIN_EMODE: ltv=9700, threshold=9800, bonus=200 (per-asset).
-    assert_eq!(cfg.loan_to_value, 9700, "emode ltv should be 9700");
+    // STABLECOIN_SPOKE: ltv=9700, threshold=9800, bonus=200 (per-asset).
+    assert_eq!(cfg.loan_to_value, 9700, "spoke ltv should be 9700");
     assert_eq!(
         cfg.liquidation_threshold, 9800,
-        "emode threshold should be 9800"
+        "spoke threshold should be 9800"
     );
-    assert_eq!(cfg.liquidation_bonus, 200, "emode bonus should be 200");
+    assert_eq!(cfg.liquidation_bonus, 200, "spoke bonus should be 200");
 }
 // 11. test_get_position_limits_default
 

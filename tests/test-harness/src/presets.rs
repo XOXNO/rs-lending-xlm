@@ -49,7 +49,7 @@ pub struct MarketParamsPreset {
 }
 
 #[derive(Clone)]
-pub struct EModeCategoryPreset {
+pub struct SpokePreset {
     pub ltv: u32,
     pub threshold: u32,
     pub bonus: u32,
@@ -151,9 +151,9 @@ pub fn xlm_preset() -> MarketPreset {
         params: DEFAULT_MARKET_PARAMS,
     }
 }
-// E-Mode presets
+// Spoke presets
 
-pub const STABLECOIN_EMODE: EModeCategoryPreset = EModeCategoryPreset {
+pub const STABLECOIN_SPOKE: SpokePreset = SpokePreset {
     ltv: 9700,
     threshold: 9800,
     bonus: 200,
