@@ -59,6 +59,7 @@ pub struct PoolMarketParamsBatchEvent {
 #[contractevent(topics = ["strategy", "fee"])]
 #[derive(Clone, Debug)]
 pub struct StrategyFeeEvent {
+    pub hub_id: u32,
     pub asset: Address,
     pub amount: i128,
     pub fee: i128,
@@ -110,6 +111,7 @@ pub(crate) fn publish_market_params(
 
 pub(crate) fn publish_strategy_fee(
     env: &Env,
+    hub_id: u32,
     asset: Address,
     amount: i128,
     fee: i128,
@@ -120,6 +122,7 @@ pub(crate) fn publish_strategy_fee(
     }
 
     StrategyFeeEvent {
+        hub_id,
         asset,
         amount,
         fee,

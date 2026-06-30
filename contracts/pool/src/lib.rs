@@ -492,7 +492,14 @@ impl LiquidityPoolInterface for LiquidityPool {
         // CEI: snapshot + commit before external call.
         cache.save();
         cache.transfer_out(&caller, amount_to_send);
-        events::publish_strategy_fee(&env, asset.clone(), amount, fee, amount_to_send);
+        events::publish_strategy_fee(
+            &env,
+            hub_asset.hub_id,
+            asset.clone(),
+            amount,
+            fee,
+            amount_to_send,
+        );
         events::publish_market_state(&env, cache.market_snapshot());
         cache.strategy_mutation(scaled, amount, amount_to_send)
     }

@@ -66,6 +66,7 @@ pub fn process_flash_loan(
     });
 
     FlashLoanEvent {
+        hub_id: hub_asset.hub_id,
         asset: hub_asset.asset.clone(),
         receiver: receiver.clone(),
         caller: caller.clone(),

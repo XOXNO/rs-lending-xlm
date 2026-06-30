@@ -20,6 +20,7 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, En
 use self::math::is_socializable_bad_debt;
 use super::{persist_account_positions, PositionSides};
 use crate::context::Cache;
+use crate::events::LiquidationEvent;
 use crate::positions::{AggregatedPayments, HubPayment};
 use crate::{
     payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
@@ -70,6 +71,14 @@ pub fn process_liquidation(
 
     apply::apply_liquidation_repayments(env, liquidator, &mut account, &result.repaid, &mut cache);
     apply::apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
+
+    LiquidationEvent {
+        liquidator: liquidator.clone(),
+        account_id,
+        repaid_usd_wad: result.max_debt_usd,
+        bonus_bps: result.bonus_bps,
+    }
+    .publish(env);
 
     let post_totals = risk::calculate_account_risk_totals(
         env,

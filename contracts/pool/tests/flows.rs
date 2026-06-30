@@ -32,6 +32,33 @@ fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
         .count()
 }
 
+/// Reads `hub_id` from the data map of the first `strategy/fee` event, if any.
+fn strategy_fee_hub_id(events: &ContractEvents) -> Option<u32> {
+    events.events().iter().find_map(|event| {
+        let ContractEventBody::V0(body) = &event.body;
+        let is_strategy_fee = matches!(
+            (body.topics.first(), body.topics.get(1)),
+            (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b)))
+                if a.0.to_utf8_string().as_deref() == Ok("strategy")
+                    && b.0.to_utf8_string().as_deref() == Ok("fee")
+        );
+        if !is_strategy_fee {
+            return None;
+        }
+        match &body.data {
+            ScVal::Map(Some(m)) => m.iter().find_map(|entry| match (&entry.key, &entry.val) {
+                (ScVal::Symbol(s), ScVal::U32(v))
+                    if s.0.to_utf8_string().as_deref() == Ok("hub_id") =>
+                {
+                    Some(*v)
+                }
+                _ => None,
+            }),
+            _ => None,
+        }
+    })
+}
+
 #[contract]
 pub struct PoolFlashLoanReceiver;
 
@@ -1494,6 +1521,11 @@ fn test_create_strategy_emits_position_and_transfers_net() {
     assert_eq!(result.actual_amount, amount);
     assert_eq!(result.amount_received, amount - fee);
     assert_eq!(count_topic(&events, "strategy", "fee"), 1);
+    assert_eq!(
+        strategy_fee_hub_id(&events),
+        Some(0),
+        "strategy fee event attributed to hub 0"
+    );
     assert!(result.position.scaled_amount > 0, "debt recorded");
 
     let caller_after = tok.balance(&caller);

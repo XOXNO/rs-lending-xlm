@@ -382,6 +382,18 @@ pub struct UpdatePositionBatchEvent {
     pub borrows: Vec<EventBorrowDelta>,
 }
 
+/// Attributes a liquidation to its caller and carries the aggregate USD repaid
+/// and the applied bonus rate. Per-asset repaid/seized token amounts ride the
+/// position batch legs; total seized USD is `repaid_usd_wad * (1 + bonus_bps)`.
+#[contractevent(topics = ["position", "liquidation"])]
+#[derive(Clone, Debug)]
+pub struct LiquidationEvent {
+    pub liquidator: Address,
+    pub account_id: u64,
+    pub repaid_usd_wad: i128,
+    pub bonus_bps: i128,
+}
+
 mod config;
 mod debt;
 mod flash;

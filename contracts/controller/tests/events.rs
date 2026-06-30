@@ -261,11 +261,20 @@ fn emit_helpers_publish_without_panicking() {
         .publish(&env);
 
         FlashLoanEvent {
+            hub_id: 1,
             asset: asset.clone(),
             receiver: caller.clone(),
             caller: caller.clone(),
             amount: 0,
             fee: 0,
+        }
+        .publish(&env);
+
+        LiquidationEvent {
+            liquidator: caller.clone(),
+            account_id: 1,
+            repaid_usd_wad: 0,
+            bonus_bps: 0,
         }
         .publish(&env);
 
@@ -365,6 +374,38 @@ fn position_deltas_carry_hub_id() {
     let bor = EventBorrowDelta(PositionAction::Repay, 9, asset.clone(), 0, 0, 0);
     assert_eq!(dep.1, 4);
     assert_eq!(bor.1, 9);
+}
+
+#[test]
+fn flash_loan_event_carries_hub_id() {
+    let env = Env::default();
+    let asset = dummy_address(&env);
+    let caller = dummy_address(&env);
+    let ev = FlashLoanEvent {
+        hub_id: 7,
+        asset: asset.clone(),
+        receiver: caller.clone(),
+        caller,
+        amount: 0,
+        fee: 0,
+    };
+    assert_eq!(ev.hub_id, 7);
+}
+
+#[test]
+fn liquidation_event_carries_liquidator_and_account() {
+    let env = Env::default();
+    let liquidator = dummy_address(&env);
+    let ev = LiquidationEvent {
+        liquidator: liquidator.clone(),
+        account_id: 42,
+        repaid_usd_wad: 1_500_000,
+        bonus_bps: 500,
+    };
+    assert_eq!(ev.liquidator, liquidator);
+    assert_eq!(ev.account_id, 42);
+    assert_eq!(ev.repaid_usd_wad, 1_500_000);
+    assert_eq!(ev.bonus_bps, 500);
 }
 
 #[test]
