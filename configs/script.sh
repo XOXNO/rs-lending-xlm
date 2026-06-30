@@ -574,10 +574,15 @@ resolve_oracle_op_args() {
             local cfg_file2
             cfg_file2=$(mktemp)
             printf '%s' "$resolved" > "$cfg_file2"
+            # set_market_oracle_config takes a HubAssetKey (hub_id + asset), not a
+            # bare asset; rebuild it from the recorded resolve args.
+            local oracle_hub_asset
+            oracle_hub_asset=$(jq -nc --argjson h "$(jq -r '.resolve.args.hub_id' "$path")" \
+                --arg a "$asset" '{hub_id:$h, asset:$a}')
             local tx_xdr
             tx_xdr=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
-                --asset "$asset" --config-file-path "$cfg_file2")
+                --hub-asset "$oracle_hub_asset" --config-file-path "$cfg_file2")
             rm -f "$cfg_file2"
             printf '%s' "$tx_xdr" | stellar tx decode \
                 | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
@@ -1557,19 +1562,19 @@ create_market() {
         "$approve_args" true "$approve_salt")
     schedule_and_maybe_execute "$approve_op"
 
-    # create_liquidity_pool(hub_id, asset, params, config) — u32 + Address + two
-    # field-map structs. The scheduled args equal these inputs (governance
-    # validates but does not transform), so they are fully CLI-replayable.
-    local params_scval config_scval
+    # create_liquidity_pool(hub_id, asset, params) — u32 + Address + one field-map
+    # struct. The governance handler resolves CreateLiquidityPool to exactly these
+    # three call args; per-asset risk config is applied separately via
+    # add_asset_to_spoke, not here. The scheduled args equal these inputs
+    # (governance validates but does not transform), so they are CLI-replayable.
+    local params_scval
     params_scval=$(scval_market_params "$params")
-    config_scval=$(scval_asset_config "$pending_config")
     local args_json
     args_json=$(jq -nc \
         --argjson hub_id "$hub_id" \
         --arg asset "$asset_address" \
         --argjson params "$params_scval" \
-        --argjson config "$config_scval" \
-        '[{u32:$hub_id}, {address:$asset}, $params, $config]')
+        '[{u32:$hub_id}, {address:$asset}, $params]')
     local salt
     salt=$(gen_salt "create_liquidity_pool" "$args_json")
 
@@ -2047,6 +2052,10 @@ configure_market_oracle() {
 
     local asset_address
     asset_address=$(get_market_value "$market_name" "asset_address")
+    # set_market_oracle_config keys by HubAssetKey (hub_id + asset) in the
+    # multi-hub ABI; the oracle op carries hub_asset, not a bare asset.
+    local hub_id
+    hub_id=$(get_market_value "$market_name" "hub_id")
     local cfg_file
     cfg_file=$(mktemp)
     jq -c --arg market "$market_name" '
@@ -2086,8 +2095,8 @@ configure_market_oracle() {
     rm -f "$cfg_file"
     local salt
     local salt_input
-    salt_input=$(jq -nc --argjson cfg "$cfg_json" --arg asset "$asset_address" \
-        '{asset:$asset, cfg:$cfg}')
+    salt_input=$(jq -nc --argjson cfg "$cfg_json" --arg asset "$asset_address" --argjson hub_id "$hub_id" \
+        '{hub_asset:{hub_id:$hub_id, asset:$asset}, cfg:$cfg}')
     salt=$(gen_salt "set_market_oracle_config" "$salt_input")
 
     # Generic propose takes the typed AdminOperation. ConfigureMarketOracle wraps
@@ -2100,8 +2109,8 @@ configure_market_oracle() {
     # the resolve_market_oracle_config view (write_oracle_op_record below).
     local op_file
     op_file=$(mktemp)
-    jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" \
-        '{ConfigureMarketOracle: {asset:$asset, cfg:$cfg}}' > "$op_file"
+    jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" --argjson hub_id "$hub_id" \
+        '{ConfigureMarketOracle: {hub_asset:{hub_id:$hub_id, asset:$asset}, cfg:$cfg}}' > "$op_file"
 
     echo "Scheduling market oracle config for ${market_name}..." >&2
     local out
@@ -2120,8 +2129,8 @@ configure_market_oracle() {
         exit 1
     fi
     local resolve_args
-    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" \
-        '{asset:$asset, cfg:$cfg}')
+    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" --argjson hub_id "$hub_id" \
+        '{hub_id:$hub_id, asset:$asset, cfg:$cfg}')
     write_oracle_op_record "$op_id" "set_market_oracle_config" \
         "resolve_market_oracle_config" "$resolve_args" "$salt"
 
