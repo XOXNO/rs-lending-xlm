@@ -403,12 +403,12 @@ spoke_config_friendly() {
 # are `[<this map>]`. supply_cap / borrow_cap are i128 decimal strings. (The
 # propose `--op` payload uses the friendly form below.)
 scval_spoke_args() {
-    local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10}
+    local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
     jq -nc \
         --argjson hub "$hub" \
         --arg asset "$asset" --argjson spoke "$spoke" --argjson cc "$cc" --argjson cb "$cb" \
         --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" \
-        --arg sc "$sc" --arg bc "$bc" \
+        --arg sc "$sc" --arg bc "$bc" --argjson lf "$lf" \
         '{map:[
             {key:{symbol:"asset"},val:{address:$asset}},
             {key:{symbol:"bonus"},val:{u32:$bonus}},
@@ -416,7 +416,9 @@ scval_spoke_args() {
             {key:{symbol:"can_borrow"},val:{bool:$cb}},
             {key:{symbol:"can_collateral"},val:{bool:$cc}},
             {key:{symbol:"hub_id"},val:{u32:$hub}},
+            {key:{symbol:"liquidation_fees"},val:{u32:$lf}},
             {key:{symbol:"ltv"},val:{u32:$ltv}},
+            {key:{symbol:"oracle_override"},val:{vec:[{symbol:"None"}]}},
             {key:{symbol:"spoke_id"},val:{u32:$spoke}},
             {key:{symbol:"supply_cap"},val:{i128:$sc}},
             {key:{symbol:"threshold"},val:{u32:$thr}}
@@ -426,14 +428,15 @@ scval_spoke_args() {
 # Friendly SpokeAssetArgs object for the propose `--op` payload (plain JSON, Rust
 # field names). Address is a bare strkey; i128 caps are decimal strings.
 friendly_spoke_args() {
-    local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10}
+    local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
     jq -nc \
         --argjson hub "$hub" \
         --arg asset "$asset" --argjson spoke "$spoke" --argjson cc "$cc" --argjson cb "$cb" \
         --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" \
-        --arg sc "$sc" --arg bc "$bc" \
+        --arg sc "$sc" --arg bc "$bc" --argjson lf "$lf" \
         '{hub_id:$hub, asset:$asset, spoke_id:$spoke, can_collateral:$cc, can_borrow:$cb,
-          ltv:$ltv, threshold:$thr, bonus:$bonus, supply_cap:$sc, borrow_cap:$bc}'
+          ltv:$ltv, threshold:$thr, bonus:$bonus, liquidation_fees:$lf,
+          supply_cap:$sc, borrow_cap:$bc, oracle_override:"None"}'
 }
 
 # Build an AdminOperation enum value in stellar-cli FRIENDLY-JSON form. The
@@ -1210,6 +1213,14 @@ add_asset_to_spoke() {
     borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
+    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else fall
+    # back to the market's asset_config.liquidation_fees, else 0.
+    local liquidation_fees
+    liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
+        liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
+    fi
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
 
     echo "  Asset Address: ${asset_address}"
     echo "  Config Category: ${config_category_id}"
@@ -1234,7 +1245,7 @@ add_asset_to_spoke() {
     local args_json
     args_json=$(jq -nc \
         --argjson arg "$(scval_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" \
-            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")" \
+            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees")" \
         '[$arg]')
     local salt
     salt=$(gen_salt "add_asset_to_spoke" "$args_json")
@@ -1243,7 +1254,7 @@ add_asset_to_spoke() {
     local admin_op_json
     admin_op_json=$(admin_op AddAssetToSpoke \
         "$(friendly_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
-            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")")
+            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees")")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1276,6 +1287,14 @@ edit_asset_in_spoke() {
     borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
+    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else fall
+    # back to the market's asset_config.liquidation_fees, else 0.
+    local liquidation_fees
+    liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
+        liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
+    fi
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
 
     echo "Editing asset ${asset_name} in Spoke category ${category_id}..." >&2
 
@@ -1290,7 +1309,7 @@ edit_asset_in_spoke() {
     local args_json
     args_json=$(jq -nc \
         --argjson arg "$(scval_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" \
-            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")" \
+            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees")" \
         '[$arg]')
     local salt
     salt=$(gen_salt "edit_asset_in_spoke" "$args_json")
@@ -1299,7 +1318,7 @@ edit_asset_in_spoke() {
     local admin_op_json
     admin_op_json=$(admin_op EditAssetInSpoke \
         "$(friendly_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
-            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")")
+            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees")")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1330,6 +1349,14 @@ ensure_asset_in_spoke() {
     borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
+    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else fall
+    # back to the market's asset_config.liquidation_fees, else 0.
+    local liquidation_fees
+    liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
+        liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
+    fi
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
     local category_json
 
     if [ -z "$asset_address" ] || [ "$asset_address" = "null" ] || [ "$asset_address" = "" ]; then
@@ -1601,8 +1628,11 @@ edit_asset_config() {
 
     local asset_address
     asset_address=$(get_market_value "$market_name" "asset_address")
-    # EditAssetConfig edits the asset's base spoke-0 listing (SpokeAssetConfig);
-    # the collateral/borrow flags come from the markets file.
+    local hub_id
+    hub_id=$(get_market_value "$market_name" "hub_id")
+    # EditAssetConfig keys by HubAssetKey (hub_id + asset) in the multi-hub ABI and
+    # edits the asset's base spoke listing (SpokeAssetConfig); the
+    # collateral/borrow flags come from the markets file.
     local raw_config coll borr config
     raw_config=$(jq -c \
         ".markets[] | select(.name == \"$market_name\") | .asset_config" \
@@ -1611,22 +1641,22 @@ edit_asset_config() {
     borr=$(jq -r '.is_borrowable // true' <<<"$raw_config")
     config=$(spoke_config_friendly "$raw_config" "$coll" "$borr")
 
-    # edit_asset_config maps to EditAssetConfig(Address, SpokeAssetConfig). The
-    # replay args_json stays explicit ScVal (Address + SpokeAssetConfig scval map).
+    # edit_asset_config maps to EditAssetConfig(HubAssetKey, SpokeAssetConfig). The
+    # replay args_json stays explicit ScVal (HubAssetKey + SpokeAssetConfig maps).
     local args_json
     args_json=$(jq -nc \
-        --arg asset "$asset_address" \
+        --argjson hub_asset "$(scval_hub_asset "$asset_address" "$hub_id")" \
         --argjson cfg "$(scval_asset_config "$config")" \
-        '[{address:$asset}, $cfg]')
+        '[$hub_asset, $cfg]')
     local salt
     salt=$(gen_salt "edit_asset_config" "$args_json")
 
-    # EditAssetConfig(Address, SpokeAssetConfig) is a TUPLE variant -> friendly form
-    # {"EditAssetConfig": [<address>, <friendly config>]} (fields in declaration
-    # order). TESTNET-CONFIRM: the multi-field-tuple enum friendly shape.
+    # EditAssetConfig(HubAssetKey, SpokeAssetConfig) is a TUPLE variant -> friendly
+    # form {"EditAssetConfig": [<hub_asset>, <friendly config>]} (fields in
+    # declaration order).
     local admin_op_json
     admin_op_json=$(admin_op EditAssetConfig \
-        "$(jq -nc --arg a "$asset_address" '$a')" "$config")
+        "$(jq -nc --argjson h "$hub_id" --arg a "$asset_address" '{hub_id:$h, asset:$a}')" "$config")
 
     local op_id
     op_id=$(schedule_via_proposer \

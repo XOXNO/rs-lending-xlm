@@ -11,7 +11,8 @@
           "liquidation_threshold": 9800,
           "liquidation_bonus": 200,
           "supply_cap": "50000000000000",
-          "borrow_cap": "25000000000000"
+          "borrow_cap": "25000000000000",
+          "liquidation_fees": 100
         },
         "EURC": {
           "hub_id": 1,
@@ -21,7 +22,8 @@
           "liquidation_threshold": 9800,
           "liquidation_bonus": 200,
           "supply_cap": "50000000000000",
-          "borrow_cap": "25000000000000"
+          "borrow_cap": "25000000000000",
+          "liquidation_fees": 100
         }
       }
     },
@@ -34,7 +36,8 @@
           "can_be_borrowed": true,
           "ltv": 6847,
           "liquidation_threshold": 7512,
-          "liquidation_bonus": 423
+          "liquidation_bonus": 423,
+          "liquidation_fees": 100
         },
         "USDC": {
           "hub_id": 1,
@@ -42,7 +45,8 @@
           "can_be_borrowed": true,
           "ltv": 8923,
           "liquidation_threshold": 9156,
-          "liquidation_bonus": 187
+          "liquidation_bonus": 187,
+          "liquidation_fees": 100
         }
       }
     }
