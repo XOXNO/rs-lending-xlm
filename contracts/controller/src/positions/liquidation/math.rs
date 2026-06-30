@@ -404,7 +404,8 @@ pub(crate) struct LiquidationCurve {
 impl LiquidationCurve {
     /// Resolves the curve from the account's spoke; zero fields yield defaults.
     pub(crate) fn resolve(cache: &mut Cache, spoke_id: u32) -> Self {
-        Self::from_config(cache.cached_spoke(spoke_id).as_ref())
+        let spoke = cache.spoke_config(spoke_id);
+        Self::from_config(Some(&spoke))
     }
 
     /// Builds the curve from an optional spoke config, applying defaults for

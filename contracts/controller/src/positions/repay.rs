@@ -130,11 +130,10 @@ pub(crate) fn finish_repayment(
         .map(|p| Ray::from(p.scaled_amount))
         .unwrap_or(Ray::ZERO);
     let position = DebtPosition::from(&result.position);
-    if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
-        // dimensional: both values are Ray<Share(asset, debt)>; repay subtracts usage.
-        let delta = old_scaled - position.scaled_amount;
-        ctx.apply_repay_after_pool(env, hub_asset, delta);
-    }
+    let ctx = cache.require_spoke_usage_context(account.spoke_id);
+    // dimensional: both values are Ray<Share(asset, debt)>; repay subtracts usage.
+    let delta = old_scaled - position.scaled_amount;
+    ctx.apply_repay_after_pool(env, hub_asset, delta);
     update_or_remove_debt_position(account, hub_asset, &position);
 
     cache.put_market_index(hub_asset, &result.market_index);

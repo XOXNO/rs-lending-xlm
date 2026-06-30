@@ -210,6 +210,7 @@ pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&ControllerKey::AccountMeta(account_id));
     persistent.remove(&ControllerKey::SupplyPositions(account_id));
     persistent.remove(&ControllerKey::BorrowPositions(account_id));
+    persistent.remove(&ControllerKey::Delegates(account_id));
 }
 
 // Extends TTL on each existing account key. The `has()` guard is required:

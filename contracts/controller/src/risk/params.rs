@@ -45,7 +45,7 @@ pub fn refresh_supply_risk_params_for_asset(
     hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
 ) {
-    let active = matches!(cache.cached_spoke(account.spoke_id), Some(s) if !s.is_deprecated);
+    let active = !cache.spoke_config(account.spoke_id).is_deprecated;
     if !active
         || cache
             .cached_spoke_asset(account.spoke_id, hub_asset)

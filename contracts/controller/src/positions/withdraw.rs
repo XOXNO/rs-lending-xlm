@@ -103,8 +103,6 @@ fn settle_withdraw(
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) -> Vec<HubPayment> {
-    validation::require_non_empty_payments(env, aggregated);
-
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for (hub_asset, amount) in aggregated.iter() {
         // Paused blocks withdraw; frozen still allows it.
@@ -157,7 +155,7 @@ pub(crate) fn settle_withdraw_entries(
     let spoke = if is_liquidation {
         None
     } else {
-        cache.cached_spoke(account.spoke_id)
+        Some(cache.spoke_config(account.spoke_id))
     };
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
@@ -214,10 +212,9 @@ pub(crate) fn finish_withdrawal(
     let old_scaled = result_position.scaled_amount;
     result_position.scaled_amount = Ray::from(result.position.scaled_amount);
     // dimensional: scaled delta is Ray<Share(asset, supply)>.
-    if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
-        let delta = old_scaled - result_position.scaled_amount;
-        ctx.apply_withdraw_after_pool(env, hub_asset, delta);
-    }
+    let ctx = cache.require_spoke_usage_context(account.spoke_id);
+    let delta = old_scaled - result_position.scaled_amount;
+    ctx.apply_withdraw_after_pool(env, hub_asset, delta);
     // `Frozen` keeps the snapshotted params; `Refresh` re-stamps from the
     // account's active spoke config.
     if matches!(refresh_spoke, SpokeRefresh::Refresh) {

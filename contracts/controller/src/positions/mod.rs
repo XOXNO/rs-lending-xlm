@@ -58,15 +58,14 @@ pub(crate) fn persist_account_positions(
     sides: PositionSides,
     remove_if_empty: bool,
 ) {
-    if remove_if_empty {
-        account::cleanup_account_if_empty(env, account, account_id);
-        return;
-    }
     if sides.supply {
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
     if sides.debt {
         storage::set_debt_positions(env, account_id, &account.borrow_positions);
+    }
+    if remove_if_empty {
+        account::cleanup_account_if_empty(env, account, account_id);
     }
 }
 

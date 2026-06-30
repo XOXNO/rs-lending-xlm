@@ -8,9 +8,9 @@ use super::Cache;
 use crate::spoke::SpokeUsageContext;
 
 impl Cache {
-    /// Loads the account's spoke once per transaction when first needed. Every
-    /// account binds to a real spoke (id `>= 1`), so this always loads a context.
-    pub(crate) fn ensure_spoke_loaded(&mut self, spoke_id: u32) {
+    /// Initializes account spoke context once per transaction. Every account
+    /// binds one real spoke (id `>= 1`); mixing spokes in one cache is invalid.
+    pub(crate) fn ensure_spoke_context(&mut self, spoke_id: u32) {
         if let Some(ctx) = &self.spoke_usage {
             assert_with_error!(
                 &self.env,
@@ -19,7 +19,14 @@ impl Cache {
             );
             return;
         }
-        self.spoke_usage = SpokeUsageContext::load(&self.env, spoke_id);
+        self.spoke_usage = Some(SpokeUsageContext::new(&self.env, spoke_id));
+    }
+
+    pub(crate) fn require_spoke_usage_context(&mut self, spoke_id: u32) -> &mut SpokeUsageContext {
+        self.ensure_spoke_context(spoke_id);
+        self.spoke_usage
+            .as_mut()
+            .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::InternalError))
     }
 
     pub fn cached_spoke_asset(
@@ -27,11 +34,9 @@ impl Cache {
         spoke_id: u32,
         hub_asset: &HubAssetKey,
     ) -> Option<SpokeAssetConfig> {
-        self.ensure_spoke_loaded(spoke_id);
         let env = self.env.clone();
-        self.spoke_usage
-            .as_mut()
-            .and_then(|ctx| ctx.spoke_asset(&env, hub_asset))
+        self.require_spoke_usage_context(spoke_id)
+            .spoke_asset(&env, hub_asset)
     }
 
     /// Per-spoke risk config for `hub_asset` on `spoke_id`, served from the
@@ -46,16 +51,15 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::AssetNotSupported))
     }
 
-    pub fn cached_spoke(&mut self, spoke_id: u32) -> Option<SpokeConfig> {
-        self.ensure_spoke_loaded(spoke_id);
+    pub fn spoke_config(&mut self, spoke_id: u32) -> SpokeConfig {
         let env = self.env.clone();
-        self.spoke_usage.as_mut().map(|ctx| ctx.as_spoke(&env))
+        self.require_spoke_usage_context(spoke_id).spoke(&env)
     }
 
-    pub fn active_spoke(&mut self, env: &Env, spoke_id: u32) -> Option<SpokeConfig> {
-        let spoke = self.cached_spoke(spoke_id)?;
+    pub fn active_spoke(&mut self, env: &Env, spoke_id: u32) -> SpokeConfig {
+        let spoke = self.spoke_config(spoke_id);
         crate::spoke::ensure_spoke_not_deprecated(env, &Some(spoke.clone()));
-        Some(spoke)
+        spoke
     }
 
     pub fn cached_spoke_usage(
@@ -63,16 +67,11 @@ impl Cache {
         spoke_id: u32,
         hub_asset: &HubAssetKey,
     ) -> Option<SpokeUsageRaw> {
-        self.ensure_spoke_loaded(spoke_id);
         let env = self.env.clone();
-        self.spoke_usage
-            .as_mut()
-            .map(|ctx| ctx.spoke_usage(&env, hub_asset))
-    }
-
-    pub(crate) fn spoke_usage_mut(&mut self, spoke_id: u32) -> Option<&mut SpokeUsageContext> {
-        self.ensure_spoke_loaded(spoke_id);
-        self.spoke_usage.as_mut()
+        Some(
+            self.require_spoke_usage_context(spoke_id)
+                .spoke_usage(&env, hub_asset),
+        )
     }
 
     pub(crate) fn persist_spoke_usage(&self) {

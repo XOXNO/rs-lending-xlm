@@ -161,10 +161,9 @@ fn merge_borrow_result(
     // Spoke-cap accounting needs the asset decimals; source them from the active
     // market's oracle config before re-borrowing `cache`.
     let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
-    if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
-        let delta = position.scaled_amount - old_scaled;
-        ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
-    }
+    let ctx = cache.require_spoke_usage_context(account.spoke_id);
+    let delta = position.scaled_amount - old_scaled;
+    ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
     cache.put_market_index(hub_asset, &result.market_index);
     // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, borrow)>.
     cache.record_debt_position_update(

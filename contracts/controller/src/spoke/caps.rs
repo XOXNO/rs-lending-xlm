@@ -32,13 +32,13 @@ pub(crate) struct SpokeUsageContext {
 }
 
 impl SpokeUsageContext {
-    pub fn load(env: &Env, spoke_id: u32) -> Option<Self> {
-        Some(Self {
+    pub fn new(env: &Env, spoke_id: u32) -> Self {
+        Self {
             spoke_id,
             usage: Map::new(env),
             spoke: None,
             spoke_assets: Map::new(env),
-        })
+        }
     }
 
     pub fn persist(&self, env: &Env) {
@@ -51,7 +51,7 @@ impl SpokeUsageContext {
         self.spoke_id
     }
 
-    pub(crate) fn as_spoke(&mut self, env: &Env) -> SpokeConfig {
+    pub(crate) fn spoke(&mut self, env: &Env) -> SpokeConfig {
         if let Some(spoke) = &self.spoke {
             return spoke.clone();
         }

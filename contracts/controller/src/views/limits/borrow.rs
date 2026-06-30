@@ -85,7 +85,7 @@ fn account_can_borrow_asset(
 ) -> bool {
     // The account's spoke must be active and must list the asset (the spoke
     // listing is the membership signal).
-    let active = matches!(cache.cached_spoke(account.spoke_id), Some(s) if !s.is_deprecated);
+    let active = !cache.spoke_config(account.spoke_id).is_deprecated;
     if !active
         || cache
             .cached_spoke_asset(account.spoke_id, hub_asset)

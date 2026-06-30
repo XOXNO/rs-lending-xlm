@@ -66,7 +66,7 @@ fn resolve_spoke_without_override_falls_back_to_base() {
         );
 
         let mut cache = Cache::new_view(&env);
-        cache.ensure_spoke_loaded(spoke_id);
+        cache.ensure_spoke_context(spoke_id);
         assert_eq!(cache.resolve_oracle_config(&asset), base);
     });
 }
