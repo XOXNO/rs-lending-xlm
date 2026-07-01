@@ -24,10 +24,8 @@ pub(super) fn apply_liquidation_repayments(
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
-        // dimensional: entry.amount is Token(asset); usd_wad stays plan bookkeeping.
-        // The token is hub-independent, but the debt-position lookup is keyed by
-        // the full hub coordinate the liquidator named. All SAC transfers go
-        // through the wrapper so the harness can replace it.
+        // dimensional: entry.amount is Token(asset); usd_wad is plan bookkeeping.
+        // Debt lookup uses the full hub coordinate.
         sac_transfer_call(
             env,
             &entry.hub_asset.asset,

@@ -1,5 +1,4 @@
-//! Refreshes LTV, liquidation bonus and (gated) liquidation threshold on
-//! supply positions from the effective (spoke-aware) market config.
+//! Refreshes supply risk params from spoke-aware market config.
 
 use common::math::fp::{Bps, Wad};
 use common::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig, HubAssetKey};
@@ -34,10 +33,7 @@ pub fn refresh_supply_risk_params(
     );
 }
 
-/// Resolves the account-spoke risk config for `hub_asset`, then refreshes
-/// `position`. A deprecated spoke or an asset removed from a named spoke keeps
-/// the position's snapshotted params (no refresh), so view-modeled exits do not
-/// reject on a governance change.
+/// Refreshes position risk params when the spoke asset remains active.
 pub fn refresh_supply_risk_params_for_asset(
     env: &Env,
     cache: &mut Cache,

@@ -1,10 +1,4 @@
-//! Blend V2 to controller position migration.
-//!
-//! Moves a user's Blend collateral, supply, and debt into controller in one
-//! transaction with a zero-fee strategy borrow. The flow clears Blend debt,
-//! sweeps Blend balances, re-supplies collateral, and gates the final account
-//! state with `strategy_finalize`. Looped same-asset positions use separate
-//! repay and withdraw submits so balance deltas do not alias.
+//! Blend V2 migration into controller positions.
 
 use crate::account;
 use common::errors::GenericError;
@@ -29,7 +23,6 @@ use crate::strategies::{
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
-/// Parameters for `process_migrate_blend`.
 pub struct MigrateBlendParams {
     pub account_id: u64,
     pub spoke_id: u32,

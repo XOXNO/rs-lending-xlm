@@ -6,7 +6,7 @@ use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, En
 /// Persistent pool parameter encoding.
 ///
 /// Rate, index, and slope fields are RAY-scaled (27 decimals); ratio fields
-/// (reserve factor, flashloan fee) are basis points. The scale is a convention,
+/// (reserve factor, flashloan fee) are basis points. The scale convention is
 /// not encoded in the field names. `asset_decimals` is the SAC token decimal
 /// count used for conversions.
 #[contracttype]
@@ -25,9 +25,9 @@ pub struct MarketParamsRaw {
     pub supply_cap: i128,
     /// Hub borrow cap in asset-native units; zero or `i128::MAX` disables.
     pub borrow_cap: i128,
-    /// Flash-loan eligibility; inert until Phase 2 wires the gate.
+    /// Flash-loan eligibility for controller flash-loan entrypoints.
     pub is_flashloanable: bool,
-    /// Flash-loan fee in bps; inert until Phase 2 wires the gate.
+    /// Flash-loan fee in bps used by flash loans and strategy borrows.
     pub flashloan_fee: u32,
     pub asset_id: Address,
     pub asset_decimals: u32,

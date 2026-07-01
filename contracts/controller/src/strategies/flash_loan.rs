@@ -1,7 +1,4 @@
-//! User-facing flash-loan entrypoint and settlement.
-//!
-//! Repayment is checked by the pool after the receiver callback. The controller
-//! holds `FlashLoanOngoing` during the callback to block re-entrant mutations.
+//! User flash loans with callback-scoped reentrancy guard.
 
 use crate::events::FlashLoanEvent;
 use common::errors::FlashLoanError;

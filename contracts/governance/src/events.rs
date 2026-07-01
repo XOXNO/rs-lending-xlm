@@ -1,7 +1,4 @@
 //! Governance-emitted events.
-//!
-//! Forwarded admin operations stay observable through controller config events;
-//! governance emits the controller deployment event.
 
 use soroban_sdk::{contractevent, Address, BytesN};
 

@@ -1,6 +1,4 @@
-//! "Multiply" (levered long) strategy.
-//!
-//! Borrows and supplies through an aggregator route in one transaction.
+//! Levered-long strategy.
 
 use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;
@@ -18,7 +16,6 @@ use crate::{
     positions::supply, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
 };
 
-/// Parameters for `process_multiply`.
 pub struct MultiplyParams<'a> {
     pub account_id: u64,
     pub spoke_id: u32,

@@ -9,7 +9,8 @@ contracts:
   # Populate before running the keeper on mainnet.
   controller: ""
   pool_wasm_hash: ""
-  market_assets: []
+  markets: []
+  market_assets: [] # Legacy hub_id=1 shorthand; prefer markets.
   flash_loan_receiver: ""
   # Optional governance owner for controller access checks.
   # Populate alongside other mainnet ids.

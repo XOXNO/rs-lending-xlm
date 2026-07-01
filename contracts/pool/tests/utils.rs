@@ -10,7 +10,7 @@ use common::types::{HubAssetKey, MarketParamsRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
 
-/// Phase 0 markets all live on hub 0.
+/// Pool tests use hub 0 as a local fixture id.
 fn hub(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,
@@ -105,7 +105,7 @@ fn test_enforce_supply_cap_disabled_is_noop() {
 fn test_enforce_supply_cap_rejects_over_cap() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // Use the same scaled convention as other tests in this file (10 * RAY = 10 units @ idx 1)
+        // 10 * RAY = 10 units at index 1.
         let mut params = t.params.clone();
         params.supply_cap = 12 * 10_000_000;
         let cache = cache_with(&t.env, &params, 10 * RAY, 0, 0);

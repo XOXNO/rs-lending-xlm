@@ -6,7 +6,7 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum GenericError {
-    /// Asset has no configured market.
+    /// Asset is not active or not listed for this flow.
     AssetNotSupported = 1,
     /// Asset has a configured market.
     AssetAlreadySupported = 2,
@@ -24,9 +24,9 @@ pub enum GenericError {
     InvalidPoolTemplate = 10,
     /// Swap source is not accepted by the aggregator route.
     InvalidExchangeSrc = 11,
-    /// Market is not active for the requested operation.
+    /// Asset has no active oracle configuration for this operation.
     PairNotActive = 12,
-    /// Account does not belong to the requested market or caller.
+    /// Account is missing or caller is not authorized for it.
     AccountNotInMarket = 13,
     /// Amount must be strictly positive for this operation.
     AmountMustBePositive = 14,
@@ -88,7 +88,7 @@ pub enum CollateralError {
     SupplyCapReached = 105,
     /// Borrow cap would be exceeded.
     BorrowCapReached = 106,
-    /// Asset is not borrowable in the current market config.
+    /// Asset is not borrowable in the account's spoke config.
     AssetNotBorrowable = 107,
     /// Account would exceed max supply or borrow position count.
     PositionLimitExceeded = 109,

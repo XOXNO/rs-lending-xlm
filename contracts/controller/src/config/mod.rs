@@ -1,4 +1,4 @@
-//! Owner- and role-gated protocol configuration entrypoints.
+//! Owner-gated protocol configuration entrypoints.
 
 mod approvals;
 mod asset;

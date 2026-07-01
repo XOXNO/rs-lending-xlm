@@ -1,7 +1,4 @@
-//! Liquidation close-amount, bonus, refund, and seizure accounting.
-//!
-//! Price math uses USD WAD. Pool-facing seizure and repayment entries use
-//! asset-native units.
+//! Liquidation accounting.
 
 use crate::constants::{
     BAD_DEBT_USD_THRESHOLD, BPS, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
@@ -305,9 +302,7 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        // A sub-unit protocol fee must not floor to zero, which would hand the
-        // protocol's cut of the bonus to the liquidator. Charge a one-unit
-        // minimum when a positive fee was due, mirroring `Bps::flash_loan_fee_on`.
+        // Positive protocol fee has a one-unit minimum.
         // `capped_amount >= 1` here, so `fee <= amount` still holds.
         let fee_asset = protocol_fee_ray.to_asset_floor(feed.asset_decimals);
         let protocol_fee = if protocol_fee_ray > Ray::ZERO && fee_asset == 0 {

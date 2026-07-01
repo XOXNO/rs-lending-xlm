@@ -1,8 +1,4 @@
-//! Spoke per-asset paused/frozen gate (`enforce_spoke_asset_flags`).
-//!
-//! `paused` blocks every verb; `frozen` blocks only new supply/borrow
-//! (`block_when_frozen == true`). A missing spoke-asset entry is a no-op, so an
-//! asset de-listed from a spoke while a position survives stays exitable.
+//! Spoke asset pause/freeze gate tests.
 
 use super::*;
 use crate::Controller;

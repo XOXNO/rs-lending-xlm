@@ -1,7 +1,4 @@
-//! Debt swap strategy.
-//!
-//! Pipeline: auth → flash guard → account → cache → preflight → prefetch →
-//! borrow → swap → repay → `strategy_finalize`.
+//! Swaps debt between hub markets.
 
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, DebtPosition, HubAssetKey, StrategySwap};
@@ -16,7 +13,6 @@ use crate::strategies::{
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
-/// Parameters for `process_swap_debt`.
 pub struct SwapDebtParams<'a> {
     pub account_id: u64,
     pub existing_debt: &'a HubAssetKey,

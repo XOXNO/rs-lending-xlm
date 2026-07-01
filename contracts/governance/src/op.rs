@@ -99,8 +99,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
         }
         AdminOperation::EditAssetConfig(hub_asset, cfg) => {
             validate::asset::validate_asset_config(env, cfg);
-            // The general spoke 0 holds the base risk listing; editing it is the
-            // canonical path for the asset's base config on its hub.
+            // Spoke 0 stores base risk config.
             let args = SpokeAssetArgs {
                 hub_id: hub_asset.hub_id,
                 asset: hub_asset.asset.clone(),
@@ -377,8 +376,7 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         AdminOperation::TransferGovOwnership(args) => {
             crate::access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger);
         }
-        // Unreachable in practice: `execute_self` asserts the resolved target is
-        // the governance contract, which only the self-operations above satisfy.
+        // Only self-targeted operations reach execute_self.
         _ => panic_with_error!(env, GenericError::InternalError),
     }
 }

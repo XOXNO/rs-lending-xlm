@@ -1,6 +1,4 @@
-//! DeFindex strategy tests using controller, pool, and token test contracts.
-//!
-//! Generated addresses stand in for DeFindex vaults in authorization checks.
+//! DeFindex strategy tests with synthetic vault addresses.
 
 extern crate std;
 
@@ -365,34 +363,32 @@ fn test_harvest_price_per_share_independent_of_vault_balance() {
     assert_eq!(pps_large, expected);
 }
 
-// Harvest rejects an unauthorized `from` under enforced auth.
+// Harvest requires `from` auth.
 #[test]
 fn harvest_requires_from_auth() {
     let s = StrategyTest::new();
-    // Seed an account so harvest reaches the auth check with valid state.
+    // Seed valid state before auth check.
     s.client().deposit(&(1_000 * UNIT), &s.vault);
 
-    // An address the attacker does not own and never authorizes.
+    // Attacker-selected `from`.
     let attacker_chosen_from = Address::generate(&s.t.env);
 
-    // Enforce real auth: no mocked entries are available from here on.
+    // Disable mocked auth.
     s.t.env.set_auths(&[]);
 
-    // Unauthorized harvest fails with the attacker-selected `from`.
+    // Harvest fails without `from` auth.
     let blocked_harvest = s.client().try_harvest(&attacker_chosen_from, &None);
     assert!(
         blocked_harvest.is_err(),
         "harvest must require `from` auth (VECTOR #1.2 fix)"
     );
 
-    // Deposit also fails without auth, confirming enforcement is active.
+    // Deposit also fails without auth.
     let blocked_deposit = s.client().try_deposit(&UNIT, &attacker_chosen_from);
     assert!(blocked_deposit.is_err(), "deposit must require `from` auth");
 }
 
-// Direct controller supply into the strategy account increases the vault's
-// reported balance and bypasses `Strategy::deposit`.
-// The donor cannot reclaim funds through the strategy.
+// Direct controller supply increases vault NAV without `Strategy::deposit`.
 #[test]
 fn poc_third_party_inflates_strategy_balance_via_controller_supply() {
     let s = StrategyTest::new();
@@ -403,8 +399,7 @@ fn poc_third_party_inflates_strategy_balance_via_controller_supply() {
     assert!(account_id > 0);
     let before = client.balance(&s.vault);
 
-    // A stranger (not the vault) supplies straight into the strategy's controller
-    // account, bypassing Strategy::deposit entirely.
+    // Bypass `Strategy::deposit` through controller supply.
     let attacker = Address::generate(&s.t.env);
     s.t.resolve_market("USDC")
         .token_admin
@@ -416,7 +411,7 @@ fn poc_third_party_inflates_strategy_balance_via_controller_supply() {
         &vec![&s.t.env, (hub_asset(s.asset.clone()), 500 * UNIT)],
     );
 
-    // Strategy reports the donation as the vault's balance/NAV.
+    // Donation appears in vault NAV.
     let after = client.balance(&s.vault);
     assert!(
         after >= before + 499 * UNIT,

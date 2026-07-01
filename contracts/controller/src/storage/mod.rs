@@ -1,8 +1,4 @@
-//! Controller storage accessors and Soroban TTL renewal.
-//!
-//! Account metadata, supply maps, and debt maps use separate persistent keys.
-//! Spoke, oracle, instance, and session keys stay behind typed helpers to
-//! preserve storage-key stability.
+//! Controller storage accessors and TTL renewal.
 
 mod account;
 mod instance;

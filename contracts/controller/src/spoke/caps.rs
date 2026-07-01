@@ -1,9 +1,4 @@
-//! Spoke cap enforcement and usage accounting.
-//!
-//! Hub caps are enforced inside the pool. Spoke caps are checked in scaled
-//! space after the pool returns post-accrual indexes. Per-asset usage totals
-//! live in discrete `SpokeUsage` keys; this context buffers the entries it
-//! touches for one transaction and flushes them on `persist`.
+//! Spoke cap checks and per-asset usage accounting.
 
 use common::errors::SpokeError;
 use common::math::fp::Ray;
@@ -13,11 +8,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
 use crate::storage;
 
-/// Buffers spoke usage entries touched during one transaction.
-///
-/// `usage` is a transaction-scoped working buffer (not storage). Entries are
-/// lazily loaded from discrete `SpokeUsage` keys on first touch and flushed by
-/// `persist`.
+/// Transaction-local buffer for touched `SpokeUsage` rows.
 pub(crate) struct SpokeUsageContext {
     spoke_id: u32,
     usage: Map<HubAssetKey, SpokeUsageRaw>,

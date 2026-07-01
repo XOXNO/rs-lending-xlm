@@ -39,7 +39,7 @@ fn new_controller(env: &Env) -> Address {
     env.register(Controller, (admin,))
 }
 
-/// Hub-0 key for an asset; Phase 0 keys every position on hub 0.
+/// Test-only `HubAssetKey`; `require_market_active` only reads asset oracle state.
 fn hub(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,

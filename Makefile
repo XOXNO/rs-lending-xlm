@@ -670,15 +670,23 @@ _preflight-setup: _preflight-network-config
 	@AGG=$$(jq -r '.["$(NETWORK)"].aggregator // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$${AGGREGATOR_CONTRACT:-}" ]; then AGG="$$AGGREGATOR_CONTRACT"; fi; \
 	if [ -z "$$AGG" ] || [ "$$AGG" = "null" ]; then \
-		echo "Aggregator not configured for $(NETWORK). Set $(CONFIG_DIR)/networks.json or AGGREGATOR_CONTRACT=<addr>."; \
-		exit 1; \
+		if [ "$(NETWORK)" = "testnet" ]; then \
+			echo "Aggregator not configured for $(NETWORK). Set $(CONFIG_DIR)/networks.json or AGGREGATOR_CONTRACT=<addr>."; \
+			exit 1; \
+		else \
+			echo "Aggregator not configured for $(NETWORK); allowed before mainnet aggregator is deployed."; \
+		fi; \
 	fi; \
 	ACC=$$(jq -r '.["$(NETWORK)"].accumulator // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$${ACCUMULATOR_CONTRACT:-}" ]; then ACC="$$ACCUMULATOR_CONTRACT"; fi; \
 	if [ -z "$$ACC" ] || [ "$$ACC" = "null" ]; then \
-		echo "Accumulator not configured for $(NETWORK). Set $(CONFIG_DIR)/networks.json accumulator or ACCUMULATOR_CONTRACT=<treasury-wallet>."; \
-		echo "claimRevenue fails with NoAccumulator (#211) until setAccumulator runs."; \
-		exit 1; \
+		if [ "$(NETWORK)" = "testnet" ]; then \
+			echo "Accumulator not configured for $(NETWORK). Set $(CONFIG_DIR)/networks.json accumulator or ACCUMULATOR_CONTRACT=<treasury-wallet>."; \
+			echo "claimRevenue fails with NoAccumulator (#211) until setAccumulator runs."; \
+			exit 1; \
+		else \
+			echo "Accumulator not configured for $(NETWORK); allowed before mainnet accumulator is deployed."; \
+		fi; \
 	fi
 
 _preflight-controller: _preflight-network-config
@@ -885,6 +893,7 @@ test-flash-loan-receiver:
 		CTRL=$$(jq -r ".\"$(NETWORK)\".controller // empty" $(CONFIG_DIR)/networks.json); \
 	fi; \
 	ASSET=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .asset_address' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
+	HUB_ID=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .hub_id' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
 	RECEIVER=$$(stellar contract alias show flash-loan-receiver --network $(NETWORK) 2>/dev/null | tail -n1); \
 	if [ -z "$$RECEIVER" ]; then \
 		RECEIVER=$$(jq -r ".\"$(NETWORK)\".flash_loan_receiver // empty" $(CONFIG_DIR)/networks.json); \
@@ -897,13 +906,18 @@ test-flash-loan-receiver:
 		echo "Unknown FLASH_MARKET=$(FLASH_MARKET) for $(NETWORK)"; \
 		exit 1; \
 	fi; \
+	if [ -z "$$HUB_ID" ] || [ "$$HUB_ID" = "null" ]; then \
+		echo "FLASH_MARKET=$(FLASH_MARKET) missing hub_id for $(NETWORK)"; \
+		exit 1; \
+	fi; \
 	if [ -z "$$RECEIVER" ] || [ "$$RECEIVER" = "null" ]; then \
 		echo "Flash receiver not found. Run deploy-flash-loan-receiver first."; \
 		exit 1; \
 	fi; \
 	echo "Controller: $$CTRL"; \
 	echo "Receiver: $$RECEIVER"; \
-	echo "Asset: $$ASSET ($(FLASH_MARKET))"; \
+	HUB_ASSET=$$(jq -nc --argjson hub_id "$$HUB_ID" --arg asset "$$ASSET" '{hub_id:$$hub_id, asset:$$asset}'); \
+	echo "Asset: $$HUB_ASSET ($(FLASH_MARKET))"; \
 	echo "Loan amount: $(FLASH_LOAN_AMOUNT)"; \
 	run_data_case() { \
 		local name="$$1"; \
@@ -915,7 +929,7 @@ test-flash-loan-receiver:
 		if stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
 			-- flash_loan \
 			--caller $(SIGNER_ADDRESS) \
-			--asset $$ASSET \
+		--asset "$$HUB_ASSET" \
 			--amount $(FLASH_LOAN_AMOUNT) \
 			--receiver $$RECEIVER \
 			--data $$data > "$$log" 2>&1; then \
@@ -1026,8 +1040,8 @@ _deploy: deploy-artifacts
 	echo "Controller: $$CTRL_ID"; \
 	stellar contract alias add controller --id $$CTRL_ID --network $(NETWORK) --overwrite; \
 	TMP_JSON=$$(mktemp); \
-	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'"' \
-		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'" | .["$(NETWORK)"].hub_ids = {} | .["$(NETWORK)"].spoke_ids = {} | .["$(NETWORK)"].pool = ""' \
+	$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
 	@# 6. Set the pool template and deploy the central pool through the timelock
 	@# (schedule -> await min_delay -> execute). Both ops route through governance.
@@ -1051,26 +1065,32 @@ _deploy: deploy-artifacts
 ## Configure controller after deployment (all admin calls route via governance)
 configure-controller: _preflight-configure-controller
 	@echo "=== Configuring Controller via governance on $(NETWORK) ==="
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAggregator
-	@echo "Setting revenue accumulator (treasury wallet; required for claimRevenue)..."
+	@AGG=$$(jq -r '.["$(NETWORK)"].aggregator // empty' $(CONFIG_DIR)/networks.json); \
+	if [ -n "$${AGGREGATOR_CONTRACT:-}" ]; then AGG="$$AGGREGATOR_CONTRACT"; fi; \
+	if [ -z "$$AGG" ] || [ "$$AGG" = "null" ]; then \
+		if [ "$(NETWORK)" = "testnet" ]; then \
+			echo "ERROR: aggregator not configured. Set networks.json aggregator or AGGREGATOR_CONTRACT before configure-controller."; \
+			exit 1; \
+		else \
+			echo "Skipping aggregator configuration for $(NETWORK); aggregator not deployed yet."; \
+		fi; \
+	else \
+		NETWORK=$(NETWORK) SIGNER=$(SIGNER) AGGREGATOR_CONTRACT=$$AGG bash $(CONFIG_DIR)/script.sh setAggregator; \
+	fi
+	@echo "Setting revenue accumulator (treasury wallet; required claimRevenue)..."
 	@ACC=$$(jq -r '.["$(NETWORK)"].accumulator // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$${ACCUMULATOR_CONTRACT:-}" ]; then ACC="$$ACCUMULATOR_CONTRACT"; fi; \
 	if [ -z "$$ACC" ] || [ "$$ACC" = "null" ]; then \
-		echo "ERROR: accumulator not configured. Set networks.json accumulator or ACCUMULATOR_CONTRACT before configure-controller."; \
-		exit 1; \
-	fi; \
-	NETWORK=$(NETWORK) SIGNER=$(SIGNER) ACCUMULATOR_CONTRACT=$$ACC bash $(CONFIG_DIR)/script.sh setAccumulator
-	@# The controller constructor auto-grants KEEPER to governance (its admin).
-	@# The deployer EOA needs explicit controller roles: KEEPER for
-	@# update_indexes, ORACLE for disable_token_oracle, REVENUE for
-	@# claim_revenue. Governance's own ORACLE role (configure_market_oracle)
-	@# is granted to the deployer by the governance constructor.
-	@echo "Granting controller KEEPER role to deployer..."
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) KEEPER
-	@echo "Granting controller ORACLE role to deployer..."
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) ORACLE
-	@echo "Granting controller REVENUE role to deployer..."
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) REVENUE
+		if [ "$(NETWORK)" = "testnet" ]; then \
+			echo "ERROR: accumulator not configured. Set networks.json accumulator or ACCUMULATOR_CONTRACT before configure-controller."; \
+			exit 1; \
+		else \
+			echo "Skipping accumulator configuration for $(NETWORK); accumulator not deployed yet."; \
+		fi; \
+	else \
+		NETWORK=$(NETWORK) SIGNER=$(SIGNER) ACCUMULATOR_CONTRACT=$$ACC bash $(CONFIG_DIR)/script.sh setAccumulator; \
+	fi
+	@echo "Controller role grants skipped: controller uses owner-gated admin and caller-auth operational flows."
 	@echo "Controller configured."
 
 ## Full setup: deploy + configure + create/configure markets and spokes, then unpause.
@@ -1101,9 +1121,8 @@ _setup-markets:
 create-market:
 	@echo "Scheduling market create for $(ASSET) on $(NETWORK)..."
 	@GOV=$$(stellar contract alias show governance --network $(NETWORK)); \
-	OP=$$(jq -nc --arg asset '$(ASSET_ADDRESS)' --argjson params '$(MARKET_PARAMS)' \
-		--argjson config '$(ASSET_CONFIG)' \
-		'{CreateLiquidityPool:{asset:$$asset, params:$$params, config:$$config}}'); \
+	OP=$$(jq -nc --argjson hub_id '$(HUB_ID)' --arg asset '$(ASSET_ADDRESS)' --argjson params '$(MARKET_PARAMS)' \
+		'{CreateLiquidityPool:{hub_id:$$hub_id, asset:$$asset, params:$$params}}'); \
 	stellar contract invoke --id $$GOV $(SOURCE_FLAG) --network $(NETWORK) \
 		-- propose \
 		--proposer $(SIGNER_ADDRESS) \
@@ -1113,45 +1132,46 @@ create-market:
 # ---------------------------------------------------------------------------
 # Config-driven operations (via configs/script.sh)
 #
-# Single unified dispatcher: `make <network> <action> [positional args]`
-# All values are read from JSON configs by name; positional args reference
-# markets / categories / accounts by their config name or id.
+# Single unified dispatcher: `make <network> <action> [positional args]`.
+# Values read JSON configs by name; positional args reference markets,
+# categories, accounts, or operation ids.
 #
 # Examples:
-#   make testnet addSpoke 1
-#   make testnet addAssetToSpoke 1 USDC
-#   make testnet createMarket USDC
-#   make testnet updateIndexes USDC XLM
-#   make testnet setupAll
-#   make testnet pause
-#   make testnet unpause
-#   make testnet grantRole GAB...XYZ KEEPER
-#   make testnet getPrice USDC
-#   make testnet getHealth 1
-#   make testnet getCollateral 1 XLM
-#   SIGNER=ledger make mainnet setupAll
+# make testnet addSpoke 1
+# make testnet addAssetToSpoke 1 USDC
+# make testnet createMarket USDC
+# make testnet updateIndexes USDC XLM
+# make testnet setupAll
+# make testnet pause
+# make testnet unpause
+# make testnet grantGovRole GAB...XYZ ORACLE
+# make testnet getPrice USDC
+# make testnet getHealth 1
+# make testnet getCollateral 1 XLM
+# SIGNER=ledger make mainnet setupAll
 # ---------------------------------------------------------------------------
 
-# Action classification — the dispatcher routes each action to script.sh
-# passing positional args verbatim. Adding a new verb = add here + script.sh.
+# Action classification - dispatcher routes action to script.sh,
+# passing positional args verbatim. Adding a new verb means add here + script.sh.
 SIMPLE_ACTIONS := listMarkets listSpokes \
-                  setupAll setupAllMarkets setupAllSpokes \
-                  whitelistBlendPools \
-                  setAggregator setAccumulator pause unpause info \
-                  getAllMarkets getAllIndexes \
-                  claimRevenueAll deployPool
+	setupAll setupAllMarkets setupAllSpokes \
+	whitelistBlendPools \
+	setAggregator setAccumulator pause unpause info \
+	getAllMarkets getAllIndexes \
+	claimRevenueAll deployPool updateDelay
 POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig updateMarketParams updatePoolCaps \
-                             configureMarketOracle \
-                             getPrice getMarket getIndex \
-                             getReflector
+	configureMarketOracle \
+	editOracleTolerance \
+	getPrice getMarket getIndex \
+	getOracle getReflector
 POSITIONAL_ID_ACTIONS := addSpoke getSpoke \
-                         executeOp cancelOp opState awaitOp
+	executeOp cancelOp opState awaitOp transferGovOwnership disableTokenOracle
 POSITIONAL_ID_ASSET_ACTIONS := addAssetToSpoke
 POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd \
                               getLtvUsd getLiqAvailable canLiquidate
 POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow
-POSITIONAL_ACCOUNT_ROLE_ACTIONS := grantRole revokeRole hasRole grantGovRole revokeGovRole
-REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap
+POSITIONAL_ACCOUNT_ROLE_ACTIONS := hasRole grantGovRole revokeGovRole
+REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone
 VARARG_ACTIONS := updateIndexes claimRevenue supply borrow
 
 # Makefile-internal actions — handled directly by make targets, not forwarded
@@ -1340,18 +1360,16 @@ help:
 	@echo "    make testnet pause"
 	@echo "    make testnet unpause"
 	@echo "    make testnet setAggregator"
-	@echo "    make testnet grantRole GAB...XYZ KEEPER     Controller roles via governance (KEEPER|REVENUE|ORACLE)"
-	@echo "    make testnet revokeRole GAB...XYZ KEEPER"
-	@echo "    make testnet grantGovRole GAB...XYZ ORACLE  Governance roles via timelock (ORACLE|PROPOSER|EXECUTOR|CANCELLER)"
-	@echo "    make testnet revokeGovRole GAB...XYZ ORACLE"
-	@echo "    make testnet claimRevenue USDC XLM          Claim revenue for one or more markets (REVENUE role)"
+	@echo " make testnet grantGovRole GAB...XYZ PROPOSER Governance roles: ORACLE|PROPOSER|EXECUTOR|CANCELLER"
+	@echo " make testnet revokeGovRole GAB...XYZ PROPOSER"
+	@echo " make testnet claimRevenue USDC XLM Claim revenue one or more markets"
 	@echo "    make testnet claimRevenueAll                Claim revenue for every configured market"
 	@echo ""
 	@echo "  Quick views (reads, no signing cost):"
 	@echo "    make testnet info                      Deployment addresses"
-	@echo "    make testnet hasRole GAB... KEEPER"
+	@echo " make testnet hasRole GAB... PROPOSER"
 	@echo "    make testnet getPrice USDC             Spot / safe / aggregator prices"
-	@echo "    make testnet getMarket USDC            Full MarketConfig"
+	@echo " make testnet getMarket USDC Base spoke-0 listing"
 	@echo "    make testnet getIndex USDC             Supply / borrow RAY index"
 	@echo "    make testnet getAllMarkets"
 	@echo "    make testnet getAllIndexes"
@@ -1366,15 +1384,15 @@ help:
 	@echo "    make testnet getCollateral 1 XLM"
 	@echo "    make testnet getBorrow 1 USDC"
 	@echo ""
-	@echo "  Reflector probes (debug DualOracle wiring):"
-	@echo "    make testnet getReflector USDC                                 Live CEX + DEX for a market"
+	@echo " Oracle probes (debug Oracle V2 wiring):"
+	@echo " make testnet getOracle USDC Live price components for a market"
 	@echo "    make testnet queryReflector CCYOZJ...MJRN63                    decimals + resolution"
 	@echo "    make testnet queryReflectorPrice CCYOZJ... other USDC          lastprice"
 	@echo "    make testnet queryReflectorTwap  CCYOZJ... other USDC 3        prices history"
 	@echo "    make testnet queryReflectorPrice C...DEX... stellar CBIELTK... lastprice on Stellar DEX"
 	@echo ""
 	@echo "Escape hatches for ad-hoc calls:"
-	@echo "    make view FN=get_market_config ARGS='--asset C...' NETWORK=testnet"
+	@echo " make view FN=get_markets_detailed ARGS='--hub_assets [{\"hub_id\":1,\"asset\":\"C...\"}]' NETWORK=testnet"
 	@echo "    make invoke CONTRACT=governance FN=set_position_limits ARGS='--limits {...}' NETWORK=testnet"
 	@echo "    make invoke CONTRACT=governance FN=set_min_borrow_collateral_usd ARGS='--floor_wad 5000000000000000000' NETWORK=testnet"
 	@echo "    make update-indexes NETWORK=testnet ASSETS='[\"C...\",\"C...\"]'"

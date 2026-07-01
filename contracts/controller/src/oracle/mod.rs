@@ -1,18 +1,4 @@
-//! # Oracle — USD price resolution for Reflector and RedStone sources.
-//!
-//! One strict, fail-closed path: every source is required and must be fresh,
-//! and dual-source markets blend within the tolerance band or revert. Views
-//! resolve prices the same way, so a view reverts exactly when a transaction
-//! would.
-//!
-//! Call trace: `token_price` (status/sanity gates + price cache) →
-//! `compose::resolve_components`, which reads the primary and, in dual-source
-//! markets, the anchor via `providers::read_required_source` — each normalized
-//! via `observation` — then blends the pair through
-//! `tolerance::calculate_final_price`. A quoted-base Reflector source reprices
-//! by recursing through `token_price` for the quote asset
-//! (`providers::reflector::resolve_usd_quote`). `price_components` exposes the
-//! same resolution to views.
+//! USD oracle resolution with fail-closed sources and tolerance checks.
 
 mod compose;
 mod observation;

@@ -1,13 +1,6 @@
 #![no_std]
-//! DeFindex strategy adapter for the XOXNO lending controller.
-//!
-//! One WASM is deployed per underlying asset. Each vault (`from`) maps to one
-//! controller `account_id`; vaults do not share positions.
-//!
-//! - Balances come from `get_collateral_amount`.
-//! - Full withdraw maps `amount == balance()` to controller amount `0`.
-//! - Supply clears stale vault-account mappings.
-//! - `harvest` publishes Blend-compatible `price_per_share` from the supply index.
+//! DeFindex adapter for one controller market.
+//! One vault maps to one controller account; harvest emits supply-index PPS.
 
 use common::constants::RAY;
 use common::types::HubAssetKey;
@@ -97,8 +90,7 @@ impl<'a> Ctx<'a> {
         })
     }
 
-    /// The (hub, asset) this strategy is bound to. There is no default hub; the
-    /// hub is fixed at construction and carried in `Config`.
+    /// Configured `HubAssetKey`; no default hub is inferred.
     fn hub_asset(&self) -> HubAssetKey {
         HubAssetKey {
             hub_id: self.cfg.hub_id,
@@ -160,9 +152,8 @@ impl<'a> Ctx<'a> {
 
 #[contractimpl]
 impl Strategy {
-    /// `init_args = [controller, hub_id, spoke_id]`. `asset` must be a listed
-    /// market on `hub_id`; the strategy's positions are bound to `spoke_id`.
-    /// There is no default hub or spoke — both are fixed here.
+    /// `init_args = [controller, hub_id, spoke_id]`. Asset is listed for
+    /// `hub_id`; positions use `spoke_id`.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         let controller_val = init_args
             .get(0)
@@ -185,7 +176,7 @@ impl Strategy {
             hub_id,
             asset: asset.clone(),
         };
-        // Validate the asset is a listed market on this hub; reverts otherwise.
+        // Validate configured HubAssetKey; get_market_index reverts if unlisted.
         controller_client.get_market_index(&hub_asset);
         env.storage().instance().set(
             &DataKey::Config,
@@ -275,8 +266,7 @@ impl DeFindexStrategyTrait for Strategy {
             return Err(DeFindexStrategyError::InsufficientBalance);
         }
 
-        // dimensional: withdraw amount is Token(asset); 0 is withdraw-all sentinel.
-        // Full exit uses controller withdraw-all sentinel `0`.
+        // Token amount; 0 withdraws the full position.
         let withdraw_amount = if amount == balance { 0 } else { amount };
         ctx.controller.withdraw(
             &ctx.strategy,

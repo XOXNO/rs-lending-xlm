@@ -57,10 +57,7 @@ impl From<OracleStrategy> for EventPricingMethod {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// Account attributes, vec-encoded inside the batch position event.
-///
-/// Field order is wire ABI; do not reorder:
-/// `[owner, spoke_id, mode]`.
+/// Account attributes; field order is wire ABI.
 pub struct EventAccountAttributes(pub Address, pub u32, pub EventPositionMode);
 
 impl From<&Account> for EventAccountAttributes {
@@ -335,10 +332,7 @@ impl EventDepositDelta {
     }
 }
 
-/// Debt-side position delta; no collateral risk params on this side.
-///
-/// Field order is wire ABI; do not reorder:
-/// `[action, asset, scaled_amount, index_ray, amount]`.
+/// Debt-side position delta; field order is wire ABI.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventBorrowDelta(

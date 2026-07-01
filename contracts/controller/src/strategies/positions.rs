@@ -1,7 +1,4 @@
-//! Strategy wrappers over position primitives (`borrow`, `withdraw`, `repay`).
-//!
-//! These helpers mutate in-memory account state and record cache events; callers
-//! must reach `strategy_finalize` before the transaction ends when debt is opened.
+//! Strategy wrappers for borrow, withdraw, and repay primitives.
 
 use common::errors::GenericError;
 use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey};

@@ -1,11 +1,4 @@
-//! Dispatch from `OracleSourceConfig` to a provider reader, and the single owner
-//! of the source-required revert.
-//!
-//! Providers (`reflector`, `redstone`) return `Some(observation)` or `None`
-//! without deciding whether absence is fatal. `read_required_source` reads the
-//! configured provider and reverts with that source's error when the feed is
-//! absent: a missing Reflector feed reverts `NoLastPrice`, a missing RedStone
-//! feed reverts `InvalidTicker`.
+//! Provider dispatch for required oracle sources.
 
 pub(crate) mod redstone;
 pub(crate) mod reflector;
@@ -17,9 +10,7 @@ use soroban_sdk::panic_with_error;
 use super::observation::OracleObservation;
 use crate::context::Cache;
 
-/// Reads a source the flow requires, reverting with the source-specific error
-/// when it is absent: a missing RedStone feed reverts `InvalidTicker`, a missing
-/// Reflector feed reverts `NoLastPrice`.
+/// Reads a required source or reverts with its source error.
 pub(crate) fn read_required_source(
     cache: &mut Cache,
     source: &OracleSourceConfig,

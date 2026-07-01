@@ -1,8 +1,4 @@
-//! Live validation against external oracle contracts.
-//!
-//! Market configuration probes Reflector or RedStone oracles and validates TWAP
-//! history. Quote-market USD/active eligibility is re-asserted by the controller
-//! at `set_market_oracle_config` execution time, so it is not re-checked here.
+//! Live oracle validation for market configuration.
 
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
@@ -115,9 +111,7 @@ fn validate_source(
         common::types::OracleSourceConfigInput::RedStone(config) => {
             validate_max_stale(env, config.max_stale_seconds);
 
-            // Redstone has no on-chain base() accessor; quote currency is
-            // implicit in `feed_id`. See common::oracle::providers::redstone
-            // for identity-validation details.
+            // RedStone feed id carries quote identity.
             let decimals = REDSTONE_DECIMALS;
             validate_decimals(env, decimals);
 
@@ -138,8 +132,7 @@ fn validate_source(
     }
 }
 
-/// Validates the Reflector base currency. The quote market's USD/active
-/// eligibility is re-asserted by the controller at activation time.
+/// Resolves Reflector base; controller re-checks quote activation.
 fn validate_base(env: &Env, asset: &Address, oracle: &Address) -> ReflectorBase {
     match reflector_base_call(env, oracle) {
         ReflectorAsset::Other(symbol) if symbol == soroban_sdk::Symbol::new(env, "USD") => {

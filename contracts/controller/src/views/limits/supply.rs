@@ -24,8 +24,8 @@ pub fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
         None => return 0,
     };
     let mut cache = Cache::new_view(env);
-    // The asset must be listed on the account's spoke (the single source of risk
-    // params); collateralizability is read from that listing.
+    // Asset must be listed on the account's spoke; collateralizability is read
+    // from that listing.
     let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
         return 0;
     };

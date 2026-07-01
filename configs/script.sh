@@ -585,7 +585,7 @@ resolve_oracle_op_args() {
             local tx_xdr
             tx_xdr=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
-                --hub-asset "$oracle_hub_asset" --config-file-path "$cfg_file2")
+                --hub_asset "$oracle_hub_asset" --config-file-path "$cfg_file2")
             rm -f "$cfg_file2"
             printf '%s' "$tx_xdr" | stellar tx decode \
                 | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
@@ -1549,7 +1549,9 @@ create_market() {
 
     # Existence probe is a controller view; creation writes go via governance.
     # The base spoke-0 listing exists once the market is created.
-    if stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_spoke_asset --spoke_id 0 --asset "$asset_address" &>/dev/null; then
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
+    if stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_spoke_asset --spoke_id 0 --hub_asset "$hub_asset" &>/dev/null; then
         echo "Market for ${market_name} already exists, skipping creation."
         return 0
     fi
@@ -1610,8 +1612,7 @@ create_market() {
     local admin_op_json
     admin_op_json=$(admin_op CreateLiquidityPool \
         "$(jq -nc --argjson hub_id "$hub_id" --arg asset "$asset_address" --argjson params "$params" \
-            --argjson config "$pending_config" \
-            '{hub_id:$hub_id, asset:$asset, params:$params, config:$config}')")
+            '{hub_id:$hub_id, asset:$asset, params:$params}')")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1803,7 +1804,7 @@ update_indexes() {
 }
 
 claim_revenue() {
-    # claim_revenue is REVENUE-role operational, not admin: it stays controller-direct.
+    # claim_revenue is operational, not admin: it stays controller-direct.
     if [ $# -eq 0 ]; then
         echo "Usage: $0 claimRevenue <market_name> [market_name...]" >&2
         list_markets >&2
@@ -2538,32 +2539,38 @@ get_price() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_assets
+    hub_assets=$(build_hub_assets_json "$market_name")
     local ctrl
     ctrl=$(get_controller)
     echo "=== Price for ${market_name} (${asset_address}) ===" >&2
-    invoke_view "$ctrl" get_market_indexes_detailed --assets "[\"$asset_address\"]"
+    invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$hub_assets"
 }
 
 get_market_config_view_cmd() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     local ctrl
     ctrl=$(get_controller)
     # get_market_config was removed; the asset's base spoke-0 listing
     # (SpokeAssetConfig) is the per-asset config read-back.
     echo "=== Market config (base spoke 0) for ${market_name} (${asset_address}) ===" >&2
-    invoke_view "$ctrl" get_spoke_asset --spoke_id 0 --asset "$asset_address"
+    invoke_view "$ctrl" get_spoke_asset --spoke_id 0 --hub_asset "$hub_asset"
 }
 
 get_index_cmd() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_assets
+    hub_assets=$(build_hub_assets_json "$market_name")
     local ctrl
     ctrl=$(get_controller)
     echo "=== Index for ${market_name} (${asset_address}) ===" >&2
-    invoke_view "$ctrl" get_market_indexes_detailed --assets "[\"$asset_address\"]"
+    invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$hub_assets"
 }
 
 get_spoke_cmd() {
@@ -2575,20 +2582,20 @@ get_spoke_cmd() {
 
 get_all_markets_cmd() {
     local assets_json
-    assets_json=$(all_configured_asset_addresses)
+    assets_json=$(all_configured_hub_assets)
     local ctrl
     ctrl=$(get_controller)
     echo "=== All markets (${NETWORK}) ===" >&2
-    invoke_view "$ctrl" get_markets_detailed --assets "$assets_json"
+    invoke_view "$ctrl" get_markets_detailed --hub_assets "$assets_json"
 }
 
 get_all_indexes_cmd() {
     local assets_json
-    assets_json=$(all_configured_asset_addresses)
+    assets_json=$(all_configured_hub_assets)
     local ctrl
     ctrl=$(get_controller)
     echo "=== All market indexes (${NETWORK}) ===" >&2
-    invoke_view "$ctrl" get_market_indexes_detailed --assets "$assets_json"
+    invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$assets_json"
 }
 
 # ---------------------------------------------------------------------------
@@ -2652,9 +2659,11 @@ get_collateral_cmd() {
     local market_name=$2
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" get_collateral_amount --account_id "$account_id" --asset "$asset_address"
+    invoke_view "$ctrl" get_collateral_amount --account_id "$account_id" --hub_asset "$hub_asset"
 }
 
 get_borrow_cmd() {
@@ -2662,9 +2671,11 @@ get_borrow_cmd() {
     local market_name=$2
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" get_borrow_amount --account_id "$account_id" --asset "$asset_address"
+    invoke_view "$ctrl" get_borrow_amount --account_id "$account_id" --hub_asset "$hub_asset"
 }
 
 # ---------------------------------------------------------------------------
@@ -2827,12 +2838,14 @@ get_oracle_cmd() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_assets
+    hub_assets=$(build_hub_assets_json "$market_name")
     local ctrl
     ctrl=$(get_controller)
 
     echo "=== Oracle price components for ${market_name} (${asset_address}) ===" >&2
     echo "Note: the raw stored oracle config is no longer a readable view; showing live price components." >&2
-    invoke_view "$ctrl" get_market_indexes_detailed --assets "[\"$asset_address\"]"
+    invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$hub_assets"
 }
 
 get_reflector_cmd() {
@@ -2871,13 +2884,14 @@ case "$1" in
         setup_all_spokes
         ;;
     "createMarket")
-        if [ -z "$2" ]; then
-            echo "Usage: $0 createMarket <market_name>"
-            list_markets
-            exit 1
-        fi
-        create_market "$2"
-        ;;
+    if [ -z "$2" ]; then
+        echo "Usage: $0 createMarket <market_name>"
+        list_markets
+        exit 1
+    fi
+    ensure_hub "$(get_market_value "$2" "hub_id")"
+    create_market "$2"
+    ;;
     "editAssetConfig")
         if [ -z "$2" ]; then
             echo "Usage: $0 editAssetConfig <market_name>"
@@ -3027,14 +3041,14 @@ case "$1" in
     "deployPool")
         schedule_deploy_pool
         ;;
-    "disableTokenOracle")
-        if [ -z "$2" ]; then
-            echo "Usage: $0 disableTokenOracle <asset_contract_id>" >&2
-            exit 1
-        fi
-        disable_token_oracle_cmd "$2"
-        ;;
-    "grantGovRole")
+"disableTokenOracle")
+if [ -z "$2" ]; then
+echo "Usage: $0 disableTokenOracle <asset_contract_id>" >&2
+exit 1
+fi
+disable_token_oracle_cmd "$2"
+;;
+"grantGovRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 grantGovRole <account> <role>" >&2
             echo "Governance roles: ORACLE | PROPOSER | EXECUTOR | CANCELLER (timelocked)" >&2
@@ -3194,7 +3208,7 @@ case "$1" in
         echo "  setAccumulator                  Set revenue treasury (networks.json accumulator or ACCUMULATOR_CONTRACT)"
         echo "  Env: AGGREGATOR_CONTRACT, ACCUMULATOR_CONTRACT, AWAIT_MAX_WAIT_SECONDS"
         echo "  setupAll                        Markets + Spokes only; no deploy/unpause"
-        echo "  claimRevenue <name> [...]       Claim revenue for one or more markets (REVENUE role)"
+echo " claimRevenue <name> [...] Claim revenue one or more markets"
         echo "  claimRevenueAll                 Claim revenue for every configured market"
         echo ""
         echo "Quick views (reads):"

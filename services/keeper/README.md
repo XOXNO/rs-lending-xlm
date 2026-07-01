@@ -1,180 +1,183 @@
 # keeper-bot
 
-On Soroban, stored data is rented: every entry has a time-to-live (TTL), and if
-its TTL runs out the entry is archived and the contract stops working until it is
-restored. This keeper is the off-chain Rust service that quietly pays that rent —
-it keeps the XOXNO Lending protocol's storage and wasm-code entries alive by
-extending their TTL before they fall inside the configured safety margin, and
-restores any that have already lapsed.
+Soroban contract storage has time-to-live (TTL). When TTL lapses, entries
+archive and must be restored before contract calls can use them again. This
+service keeps XOXNO Lending storage, instances, and WASM code entries alive by
+extending TTL before the configured safety margin and restoring archived entries
+it discovers.
 
-Per TTL tick the service:
+`services/keeper` is a separate Rust workspace.
 
-1. **Discovers** the entries that keep the protocol functional:
-   - the controller instance entry (which covers every instance-tier key,
-     including the oracle `Aggregator`, pool template, and accumulators);
-   - the controller's persistent keys — configured per-asset `Market`
-     (which embeds each asset's oracle config), and each `Spoke`;
-   - the controller's per-user account keys — `AccountMeta`, `SupplyPositions`,
-     and `BorrowPositions` for every account `1..=AccountNonce`;
-   - the controller's access-control role keys (`ExistingRoles`, and per-role
-     `RoleAccountsCount` / `RoleAccounts` / `HasRole` for `KEEPER` / `REVENUE` /
-     `ORACLE`), which the contract self-extends only when a role-gated call
-     reads them — so an idle protocol would otherwise let them archive;
-   - when a `governance` contract is configured: its instance entry (which
-     covers `Controller`, ownable `Owner`, access_control `Admin` + `RoleAdmin`,
-     and the timelock `MinDelay` — all instance-tier) and its persistent
-     access-control role keys for `PROPOSER` / `EXECUTOR` / `CANCELLER` /
-     `ORACLE`;
-   - each pool's instance entry and the flash-loan receiver's instance entry;
-   - the wasm-code entries for the controller, pool template, and flash-loan
-     receiver.
-2. **Decides**, per entry: live and inside the safety margin (default 14 days on
-   testnet, 21 on mainnet) → extend; already lapsed but data still present →
-   restore; healthy or never-written → skip.
-3. **Submits** chunked `ExtendFootprintTtl` ops for the in-margin entries, and
-   `RestoreFootprint` ops for the archived ones (freshly-restored entries are
-   then extended to the cap the same tick). Both ops are permissionless — the
-   signer needs no on-chain role, only XLM for fees and rent.
+## Discovery Surface
 
-### Per-user account keys
+Each TTL tick discovers:
 
-The keeper renews the per-user account keys (`AccountMeta`, `SupplyPositions`,
-and `BorrowPositions`) for every account
-`1..=AccountNonce`. A user auto-bumps their own keys when they interact, but an
-inactive position would otherwise archive — losing it would block liquidation
-and freeze the user's collateral, so the keeper keeps the whole account surface
-alive. This is gated by `schedule.scan_users` (default `true`) and bounded by
-`schedule.max_accounts_scan` (default `50_000`): if `AccountNonce` exceeds the
-cap, the keeper logs a loud `warn!` naming the exact dropped id range and never
-silently truncates.
+- Controller instance entry. This covers instance-tier keys such as pool address,
+  pool template, accumulator, account nonce, spoke/hub counters, and position
+  limits.
+- Controller persistent `AssetOracle(asset)` rows for configured market assets.
+- Controller persistent `Spoke(id)` rows for `1..=LastSpokeId`.
+- Controller per-user persistent keys:
+  `AccountMeta(id)`, `SupplyPositions(id)`, `BorrowPositions(id)`.
+- Controller access-control persistent keys when present:
+  `ExistingRoles`, `RoleAccountsCount`, `RoleAccounts`, `HasRole`, `RoleAdmin`.
+- Governance instance and governance role-holder keys when `contracts.governance`
+  is configured.
+- Pool instance, flash-loan receiver instance, controller WASM, pool template
+  WASM, live pool WASM, and flash-loan receiver WASM.
+- Pool persistent `Params(HubAssetKey)` and `State(HubAssetKey)` rows for
+  configured markets.
 
-### Governance
+The current protocol does not have controller `KEEPER`, `REVENUE`, or `ORACLE`
+roles. Governance role keys are discovered from `ExistingRoles`; expected
+governance roles are `PROPOSER`, `EXECUTOR`, `CANCELLER`, and `ORACLE`.
 
-When `contracts.governance` is set, the keeper also keeps the governance
-contract alive. Almost all of governance's state is instance-tier — `Controller`
-(the owned controller), ownable `Owner`, access_control `Admin` + `RoleAdmin`,
-and the timelock `MinDelay` — so a single instance bump covers it. Its
-persistent access-control role-holder keys (`PROPOSER` / `EXECUTOR` /
-`CANCELLER` / `ORACLE`) are discovered with the same code path as the
-controller's role keys.
+## Market Configuration
 
-**`MinDelay` is instance-tier, not persistent** (verified against
-stellar-governance 0.7.2 `src/timelock/storage.rs`: both `get_min_delay` and
-`set_min_delay` use `e.storage().instance()`). The keeper therefore relies on
-the governance instance bump and does **not** build a standalone `MinDelay`
-persistent key — doing so would silently resolve to nothing.
+Use `contracts.markets` for current protocol storage keys:
 
-The timelock per-operation keys `OperationLedger(BytesN<32>)` are persistent but
-**not enumerable on-chain**: the operation id is a keccak256 hash known only
-from the schedule event. They are transient — a scheduled op resolves within
-`min_delay` ledgers, far inside any TTL window — so the keeper documents and
-intentionally skips them. Closing this gap would require off-chain event
-tracking (future work).
+```yaml
+contracts:
+  controller: C...
+  pool_wasm_hash: "..."
+  flash_loan_receiver: C...
+  governance: C...
+  markets:
+    - hub_id: 1
+      asset: C...
+```
 
-### Coverage table
+`contracts.market_assets` remains as a legacy shorthand. Each entry maps to
+`hub_id = 1`. Prefer `contracts.markets` because pool storage keys are encoded
+as `HubAssetKey { hub_id, asset }`.
+
+## Index Refresh
+
+The optional index loop calls:
+
+```text
+controller.update_indexes(caller, Vec<HubAssetKey>)
+```
+
+The caller signs the transaction. The current controller does not require a
+keeper role for this call. The loop is disabled by default:
+
+```yaml
+schedule:
+  enable_index_refresh: false
+```
+
+## Governance Notes
+
+When `contracts.governance` is set, keeper also keeps governance alive.
+Governance stores `Controller`, ownable `Owner`, access-control `Admin` /
+`RoleAdmin`, and timelock `MinDelay` in instance storage, so the governance
+instance bump covers them.
+
+Timelock `OperationLedger(BytesN<32>)` keys are persistent but not enumerable
+from contract storage. They are intentionally skipped; operations resolve within
+`min_delay`, far inside normal TTL windows. Event tracking would be needed to
+renew them directly.
+
+## Coverage Table
 
 | Class | Tier | Source | Renewed |
-|-------|------|--------|---------|
-| Controller instance (`Aggregator`, `Pool`, `Accumulator`, …) | instance | instance read | yes |
-| Per-asset `Market` | persistent | configured market assets | yes |
-| Pool `Params` / `State` per asset | persistent | configured market assets | yes |
-| `Spoke(1..=LastSpokeId)` | persistent | instance | yes |
-| Controller role keys | persistent | `ExistingRoles` | yes |
-| Per-user `AccountMeta` / `SupplyPositions` / `BorrowPositions` | persistent | `AccountNonce` | yes (`scan_users`) |
-| Governance instance (`Controller`, `Owner`, `Admin`, `RoleAdmin`, `MinDelay`) | instance | instance read | yes (when configured) |
-| Governance role keys (`PROPOSER` / `EXECUTOR` / `CANCELLER` / `ORACLE`) | persistent | `ExistingRoles` | yes (when configured) |
-| Pool / flash-receiver instances + all wasm code | instance / code | instance read | yes |
-| Timelock `OperationLedger(BytesN<32>)` | persistent | none (event only) | no — transient, documented gap |
-| `FlashLoanOngoing`, `PendingOwner`, `PendingAdmin` | temporary | n/a | no — auto-expire by design |
-
-Optionally, a second slower loop runs `update_indexes(assets)` so pool
-interest accrual stays current. That call mutates pool state and is the **only**
-keeper operation that requires the signer to hold the on-chain `KEEPER` role;
-it is disabled by default (`schedule.enable_index_refresh: false`).
-
-The signing key is a BIP-39 mnemonic fetched from Azure Key Vault through the
-in-house `mx-keyvault` crate and derived per SEP-0005 (`m/44'/148'/0'`).
+| --- | --- | --- | --- |
+| Controller instance | instance | configured controller | yes |
+| Controller `AssetOracle(asset)` | persistent | `contracts.markets` / legacy `market_assets` | yes |
+| Controller `Spoke(id)` | persistent | `LastSpokeId` | yes |
+| Account state | persistent | `AccountNonce` scan | yes, bounded by `max_accounts_scan` |
+| Controller access-control keys | persistent | `ExistingRoles` | yes, when present |
+| Pool `Params/State(HubAssetKey)` | persistent | configured markets | yes |
+| Governance instance | instance | configured governance | yes |
+| Governance role keys | persistent | `ExistingRoles` | yes, when configured |
+| Pool / receiver instances and WASM code | instance / code | instance reads | yes |
+| Timelock `OperationLedger(BytesN<32>)` | persistent | event-only | no, documented gap |
+| Temporary keys | temporary | n/a | no, expire by design |
 
 ## Layout
 
-```
+```text
 services/keeper/
 ├── Cargo.toml
 ├── Dockerfile
-├── docker-compose.example.yaml
-├── README.md
 ├── config/
 │   ├── testnet.yaml
 │   ├── testnet-fast.yaml
 │   └── mainnet.yaml
 └── src/
-    ├── main.rs              # entry point + signals + tracing init
-    ├── config.rs            # YAML loader / validator
-    ├── signer/              # KeyVault fetch + SLIP-0010 derivation
-    ├── stellar/             # RPC, tx pipeline, op builders
-    ├── keys.rs              # controller/per-user/access-control key → ScVal encoding
-    ├── discovery.rs         # tick-time state read (per-asset, per-user, roles, governance) + self-check
-    ├── scheduler/           # tick loops, extend/restore planner, per-tick budget
-    ├── policy.rs            # per-entry extend / restore / skip decision
-    ├── metrics.rs           # Prometheus surface + /health
+    ├── main.rs
+    ├── config.rs
+    ├── discovery.rs
+    ├── keys.rs
+    ├── scheduler/
+    ├── signer/
+    ├── stellar/
+    ├── metrics.rs
     └── bin/
-        ├── prove_permissionless.rs  # diagnostic: extend storage with no role
-        └── inspect_ttls.rs          # diagnostic: per-key TTL / restore-vs-extend table
 ```
 
-## SDK stack
+## SDK Stack
 
 | Crate | Version |
-|-------|---------|
-| `stellar-rpc-client` | =26.0.0 |
-| `stellar-xdr` | =26.0.1 |
-| `stellar-strkey` | ^0.0.16 |
-| `ed25519-dalek` | ^2 |
-| `bip39` | ^2.2 |
-| `mx-keyvault` | git, XOXNO/mx-chain-rust@production |
+| --- | --- |
+| `stellar-rpc-client` | `=26.0.0` |
+| `stellar-xdr` | `=26.0.1` |
+| `stellar-strkey` | `^0.0.16` |
+| `ed25519-dalek` | `^2` |
+| `bip39` | `^2.2` |
+| `mx-keyvault` | `XOXNO/mx-chain-rust@production` |
 
-The two `stellar-*` versions are hard-pinned so a passive dependency bump
-cannot silently change keeper behavior.
+The Stellar crates are pinned so passive dependency updates cannot change XDR or
+RPC behavior silently.
 
-## Local build
+## Local Build
 
 ```bash
 cd services/keeper
 cargo check
+cargo test
 cargo build --release
 ```
 
-Run dry against testnet:
+Dry run against testnet with Azure Key Vault:
 
 ```bash
 AZURE_TENANT_ID=... AZURE_CLIENT_ID=... AZURE_CLIENT_SECRET=... \
   cargo run --release -- --config config/testnet.yaml --dry-run
 ```
 
-For local dev without Azure creds, two flags bypass production gates
-(both clearly log a DEV warning when used):
+Local development without Azure credentials:
 
 ```bash
 cargo run --release -- \
   --config config/testnet-fast.yaml \
   --dry-run \
   --skip-role-check \
-  --mnemonic "$(your dev mnemonic; NEVER commit a real one)"
+  --mnemonic "$(your dev mnemonic; never commit real one)"
 ```
 
-`testnet-fast.yaml` shortens the tick cadence to 20s so a short run observes a
-full discovery + plan cycle. The `inspect_ttls` binary prints the full
-discovered surface grouped by coverage class (per-asset, spoke, per-user,
-roles, governance, instances, wasm) with per-class counts, so coverage is
-auditable read-only against a live network without submitting anything.
+`testnet-fast.yaml` shortens tick cadence so a short run observes discovery and
+planning. `inspect_ttls` prints the discovered surface and per-class counts for
+read-only audit.
 
-Set `contracts.market_assets` to the asset contract IDs whose controller
-`Market` entries and pool `Params` / `State` entries the keeper should renew.
+## Operations
 
-## Docker build
+- `GET :9090/health`: returns `ok` after boot.
+- `GET :9090/metrics`: Prometheus metrics.
+- `--dry-run`: discovers and plans, then simulates planned extend/restore calls
+  without submitting.
+- `schedule.max_txs_per_tick`: caps transactions per tick.
+- `rpc.timeout_seconds`: caps submission polling.
+- SIGTERM/SIGINT: cancels in-flight ticks and waits up to 30 seconds for active
+  submissions to finish.
 
-`mx-keyvault` is a private dep. Pass `~/.git-credentials` (or an SSH agent
-forwarder) at build time via BuildKit secrets:
+Alert on keeper liveness and archived entries. A silent keeper failure can
+become protocol downtime after TTL windows expire.
+
+## Docker
+
+`mx-keyvault` is a private dependency. Pass credentials with BuildKit secrets:
 
 ```bash
 DOCKER_BUILDKIT=1 docker build \
@@ -183,49 +186,14 @@ DOCKER_BUILDKIT=1 docker build \
   services/keeper
 ```
 
-Compose example bundles a testnet + mainnet pair from the same image:
+Compose example:
 
 ```bash
 docker compose -f services/keeper/docker-compose.example.yaml up -d
 ```
 
-## Operations
+## Open Items
 
-- **Health**: `GET :9090/health` returns `ok` once boot completed.
-- **Metrics**: `GET :9090/metrics` (Prometheus text format).
-- **Alerting (required, not optional)**: a silently-dead keeper → un-extended
-  TTLs → archived storage → frozen protocol is this service's highest-impact
-  failure mode, so the metrics MUST be alerted on, not merely exposed. Ship the
-  Prometheus rules in [`ops/alerts.yml`](ops/alerts.yml) (scrape example in
-  [`ops/prometheus.example.yml`](ops/prometheus.example.yml)) and wire
-  Alertmanager so `severity: critical` actually pages. Key signals: `KeeperDown`
-  (`up==0` — early warning, fires long before any TTL can lapse),
-  `KeeperEntriesArchived` (`keeper_entries_archived > 0` — active eviction
-  incident), plus `KeeperNotProgressing` / `KeeperTickFailing` /
-  `KeeperTxFailures` (alive-but-stuck).
-- **Dry run**: `--dry-run` (or `KEEPER_DRY_RUN=1`) — runs discovery and planning,
-  then **simulates** each planned extend / restore against the RPC and logs
-  whether it would be accepted (`sim ok` with the resource fee, or
-  `sim REJECTED`). Submits nothing, and needs no funded signer (simulation uses
-  sequence `0`). Use it to confirm restores of currently-archived keys before
-  trusting them.
-- **Boot safety**: an encoding self-check parses the configured market assets
-  and refuses to start if a configured contract ID is invalid.
-  When `enable_index_refresh` is on, the keeper additionally simulates
-  `update_indexes(empty)` and refuses to start unless the signer holds the
-  `KEEPER` role.
-- **Budget cap**: `schedule.max_txs_per_tick` (default 50/80) bounds the
-  worst-case fee burn per tick.
-- **Submission timeout**: `rpc.timeout_seconds` caps each submission poll; a
-  timed-out submit is retried on the next tick (TTL extends are idempotent).
-- **Shutdown**: SIGTERM / SIGINT cancel in-flight ticks and wait up to 30 s
-  for the active tx to reach a terminal status.
-
-## Open items
-
-- Mainnet contract IDs in `config/mainnet.yaml` are placeholders — populate
-  before deploying to mainnet.
-- The keeper assumes only source-account auth is required by `update_indexes`.
-  If a future contract change introduces contract-side auth, the simulator's
-  auth check rejects the job and logs a warning until the keeper learns to
-  attach `SorobanAuthorizationEntry` payloads.
+- Populate `config/mainnet.yaml` before mainnet deployment.
+- If `update_indexes` gains contract-side auth in a future controller version,
+  keeper must attach the required `SorobanAuthorizationEntry` payloads.

@@ -1,6 +1,6 @@
 //! Bulk-prefetches RedStone feeds into the transaction cache.
-//! Only raw provider payloads are cached; policy, staleness, and sanity
-//! checks still run per flow.
+//! Only raw provider payloads are cached; staleness, sanity, and tolerance
+//! checks still run when a price is resolved.
 
 use soroban_sdk::{Address, Vec};
 

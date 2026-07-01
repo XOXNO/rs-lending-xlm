@@ -1,6 +1,6 @@
 //! Read-only views and liquidation estimation.
-//! Views use `Cache::new_view`, so disabled-market stale oracles do not block
-//! front ends or indexers. Reads can still renew shared-tier TTLs.
+//! Views use `Cache::new_view`, so non-pricing views can inspect stored/index
+//! state without renewing the controller instance TTL.
 
 use crate::constants::{MAX_VIEW_INPUTS, WAD};
 use crate::risk;

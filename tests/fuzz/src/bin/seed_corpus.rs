@@ -515,9 +515,8 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
         let mid_p = (pick(p.mid_utilization) * 100 / RAY).clamp(1, 98);
         let mid_pct = (mid_p - 1) as u8;
         let dmid = RAY * mid_p / 100;
-        let opt_frac = (101 * (pick(p.optimal_utilization) - dmid).max(0)
-            / (RAY - dmid).max(1))
-        .clamp(1, 99);
+        let opt_frac =
+            (101 * (pick(p.optimal_utilization) - dmid).max(0) / (RAY - dmid).max(1)).clamp(1, 99);
         let opt_pct = (opt_frac - 1) as u8;
 
         let reserve_pct =

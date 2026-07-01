@@ -13,8 +13,7 @@ pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
     storage::renew_user_account(env, account_id);
 }
 
-/// Owner-only mutation of an account's delegate list. Only the account owner
-/// manages delegates; a delegate cannot add or remove other delegates.
+/// Requires account owner; delegates cannot mutate delegation.
 pub(crate) fn set_account_delegate(
     env: &Env,
     caller: &Address,

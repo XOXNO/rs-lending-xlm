@@ -1,8 +1,4 @@
-//! Supply flow: deposits collateral, creating the account when `account_id == 0`.
-//!
-//! Pipeline: auth -> aggregate -> cache -> account resolution -> validate ->
-//! transfer -> pool -> apply -> persist -> emit. Deposits cannot worsen account
-//! health, so no LTV, health, or min-collateral gates run at the entrypoint.
+//! Supply flow. Deposits skip post-pool solvency gates.
 
 use crate::account;
 use common::errors::{CollateralError, GenericError};
@@ -38,9 +34,6 @@ impl Controller {
 }
 
 /// Supplies one or more assets, creating an account when `account_id == 0`.
-///
-/// Duplicate assets are aggregated before pool calls. The controller stores
-/// scaled supply shares returned by pools and emits one position/market batch.
 pub fn process_supply(
     env: &Env,
     caller: &Address,
@@ -106,7 +99,7 @@ fn validate_deposit(
         validation::require_hub_active(env, hub_asset.hub_id);
         validation::require_market_active(env, cache, &hub_asset);
 
-        // Risk config comes from the account's spoke, the single source of truth.
+        // Risk config is read from the account's spoke listing.
         let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
         spoke::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
         enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);

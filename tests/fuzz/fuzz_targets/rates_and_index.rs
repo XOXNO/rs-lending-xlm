@@ -84,7 +84,7 @@ fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
     let s1 = base + (cap - base) * (i.s1_pct as i128) / 256; // u8 → [base, ~cap)
     let s2 = s1 + (cap - s1) * (i.s2_pct as i128) / 256; // u8 → [s1, ~cap)
     let s3 = s2 + (cap - s2) * (i.s3_pct as i128) / 65_536; // u16 → [s2, ~cap)
-    // max ∈ [s3, cap), forced strictly above base.
+                                                            // max ∈ [s3, cap), forced strictly above base.
     let max_rate = (s3 + (cap - s3) * (i.max_pct as i128) / 65_536).max(base + 1); // u16
 
     // Utilization breakpoints: 0 < mid < optimal < RAY, optimal ≤ max_util ≤ RAY.

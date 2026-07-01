@@ -20,9 +20,7 @@ pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: M
         .params
         .asset_decimals;
 
-    // Re-validate the sanity band and quote-market USD/active invariant at the
-    // controller boundary. Governance validates the proposal; execution rejects
-    // unset or invalid bands, and timelock delay can make a quote market stale.
+    // Revalidates sanity bands and quote-market activity at execution.
     validate_market_oracle_config(env, asset, &config);
 
     // Test markets register pools with preset decimals that may diverge from
@@ -41,10 +39,7 @@ pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: M
     .publish(env);
 }
 
-/// Validates a resolved `MarketOracleConfig` at the controller boundary: the
-/// sanity band must be set and ordered, and every quote source must point at an
-/// active, USD-based market. Shared by the token-rooted `set_market_oracle_config`
-/// and the per-spoke `oracle_override`.
+/// Validates market oracle config before storage.
 pub(super) fn validate_market_oracle_config(
     env: &Env,
     asset: &Address,

@@ -32,13 +32,23 @@ pub struct ContractsConfig {
     pub controller: String,
     pub pool_wasm_hash: String,
     pub flash_loan_receiver: String,
-    /// Market asset contract IDs monitored by the keeper.
+    /// Hub-asset market coordinates monitored by the keeper.
+    #[serde(default)]
+    pub markets: Vec<MarketConfig>,
+    /// Legacy asset-only market list. Entries map to `hub_id = 1`.
     #[serde(default)]
     pub market_assets: Vec<String>,
     /// Governance contract that owns the controller. When set, its instance,
     /// `MinDelay` (instance-tier), and access-control role keys are bumped too.
     #[serde(default)]
     pub governance: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MarketConfig {
+    #[serde(default = "default_hub_id")]
+    pub hub_id: u32,
+    pub asset: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -120,6 +130,9 @@ fn default_log_level() -> String {
 fn default_log_format() -> String {
     "json".to_string()
 }
+fn default_hub_id() -> u32 {
+    1
+}
 
 impl KeeperConfig {
     pub fn load(path: &Path) -> Result<Self> {
@@ -169,6 +182,18 @@ impl KeeperConfig {
             if !asset.starts_with('C') {
                 return Err(anyhow!(
                     "config.contracts.market_assets entries must be contract IDs"
+                ));
+            }
+        }
+        for market in &self.contracts.markets {
+            if market.hub_id == 0 {
+                return Err(anyhow!(
+                    "config.contracts.markets entries must use hub_id >= 1"
+                ));
+            }
+            if !market.asset.starts_with('C') {
+                return Err(anyhow!(
+                    "config.contracts.markets entries must use C... asset contract IDs"
                 ));
             }
         }

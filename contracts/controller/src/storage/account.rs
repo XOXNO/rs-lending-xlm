@@ -1,7 +1,4 @@
-//! Account storage layout (meta + per-side position maps).
-//!
-//! Supply and borrow maps are split so one-sided flows touch only one side key.
-//! `AccountMeta` stores owner, spoke, and account mode.
+//! Account storage layout.
 
 use super::renew_user_key;
 use common::errors::GenericError;

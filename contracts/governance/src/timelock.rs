@@ -1,20 +1,4 @@
-//! Governance timelock operation surface plus immediate emergency controls.
-//!
-//! Backed by `stellar-governance` storage. Operations are queued through the
-//! typed `propose` entrypoint, then run via `execute` (controller targets) or
-//! `execute_self` (governance-self targets). `cancel` and the view methods
-//! cover the rest of the OZ operation state machine.
-//!
-//! `execute` requires EXECUTOR auth when `executor` is `Some`; `None` keeps
-//! execution open. `cancel` requires CANCELLER. Controller-targeted operations
-//! call `execute_operation`; governance-self operations use inline dispatch
-//! (`execute_self` / `begin_self_execute`) because Soroban prohibits
-//! `invoke_contract` self-reentry — the OZ state machine is advanced via
-//! `set_execute_operation` and the mutation applied inline in the same frame.
-//!
-//! `pause` / `unpause` are owner-gated, immediate (non-timelocked) emergency
-//! controls. A test-only `execute_immediate` forwarder (own `#[contractimpl]`
-//! block) collapses the timelock for single-frame harness setup.
+//! Timelocked governance operations and immediate pause controls.
 
 use common::errors::GenericError;
 use common::types::{MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation};
@@ -50,12 +34,12 @@ pub(crate) fn operation_delay(env: &Env, tier: DelayTier) -> u32 {
     }
 }
 
-/// Rejects a zero minimum timelock delay, which would nullify the timelock.
+/// Rejects zero timelock delay.
 pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
     assert_with_error!(env, delay >= 1, GenericError::InvalidTimelockDelay);
 }
 
-/// Delay updates must not shorten the timelock window and cannot exceed 14 days.
+/// Requires non-decreasing delay, capped at 14 days.
 pub(crate) fn validate_delay_update(env: &Env, new_delay: u32) {
     require_nonzero_delay(env, new_delay);
     let current = get_min_delay(env);
@@ -97,17 +81,14 @@ fn controller_client(env: &Env) -> ControllerAdminClient<'_> {
     ControllerAdminClient::new(env, &storage::get_controller(env))
 }
 
-/// Shared proposal preamble: renew instance TTL, authorize the proposer, and
-/// require PROPOSER.
+/// Shared proposal auth and TTL renewal.
 fn begin_proposal(env: &Env, proposer: &Address) {
     storage::renew_governance_instance(env);
     proposer.require_auth();
     access_control::ensure_role(env, &Symbol::new(env, PROPOSER_ROLE), proposer);
 }
 
-/// Self-execute preamble: renew TTL, authorize the executor, reject expired
-/// operations, then advance the OZ state machine without re-entering the
-/// contract (Soroban prohibits `invoke_contract` self-reentry).
+/// Advances self-targeted timelock operation inline; Soroban blocks self-reentry.
 fn begin_self_execute(env: &Env, executor: Option<Address>, operation: &Operation) {
     renew_governance_instance(env);
     authorize_executor(env, executor.as_ref());
@@ -115,8 +96,7 @@ fn begin_self_execute(env: &Env, executor: Option<Address>, operation: &Operatio
     set_execute_operation(env, operation);
 }
 
-/// Resolves the `MarketOracleConfig` persisted by `set_market_oracle_config`.
-/// Used by the view so simulation can replay the scheduled args.
+/// Builds controller oracle config from proposed input.
 fn resolve_market_oracle(
     env: &Env,
     asset: &Address,
@@ -176,9 +156,7 @@ impl Governance {
         execute_operation(&env, &operation)
     }
 
-    /// Executes a ready governance-self operation via inline dispatch. Soroban
-    /// prohibits `invoke_contract` self-reentry, so the OZ state machine is
-    /// advanced with `set_execute_operation` and the mutation applied inline.
+    /// Executes a ready governance self-call inline.
     pub fn execute_self(
         env: Env,
         executor: Option<Address>,
@@ -254,9 +232,7 @@ impl Governance {
         hash_operation(&env, &operation)
     }
 
-    /// Resolves a market oracle input to the `MarketOracleConfig` scheduled by
-    /// `propose` for `ConfigureMarketOracle`. Uses the proposer's validation and
-    /// live oracle probes so simulation can replay the returned args at execute.
+    /// Resolves scheduled market oracle args using live probes.
     pub fn resolve_market_oracle_config(
         env: Env,
         asset: Address,
@@ -265,16 +241,13 @@ impl Governance {
         resolve_market_oracle(&env, &asset, &cfg)
     }
 
-    /// Resolves tolerance BPS inputs to the `OraclePriceFluctuation` scheduled
-    /// by `propose` for `EditOracleTolerance`. Uses the proposer's computation.
+    /// Resolves scheduled tolerance bands.
     pub fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OraclePriceFluctuation {
         validate::tolerance::validate_and_calculate_tolerances(&env, tolerance)
     }
 }
 
-/// Forwarder compiled for tests and the `testing` feature. Excluded from
-/// production wasm; production configuration uses the timelocked `propose`
-/// entrypoint.
+/// Test-only immediate executor; excluded from production WASM.
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl Governance {

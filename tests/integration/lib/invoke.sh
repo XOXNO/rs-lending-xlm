@@ -59,7 +59,7 @@ run_deploy() {
         if "$@" >"$out_f" 2>"$err_f" && [ -s "$out_f" ]; then
             return 0
         fi
-        grep -qE "$RPC_TRANSIENT_RE|Wasm does not exist|Storage, MissingValue" "$err_f" || break
+        grep -qE "$RPC_TRANSIENT_RE|Wasm does not exist|Storage, MissingValue|ResourceLimitExceeded" "$err_f" || break
     done
     return 1
 }

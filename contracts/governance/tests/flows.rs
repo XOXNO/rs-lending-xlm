@@ -1,7 +1,4 @@
-//! Integration tests for governance-owned controller deployment and forwarding.
-//!
-//! Tests use native controller registration for forwarding and the release WASM
-//! fixture for one-time deployment.
+//! Governance controller deployment and forwarding tests.
 
 extern crate std;
 
@@ -128,8 +125,7 @@ fn controller_view_panics_when_unset() {
     gov.controller();
 }
 
-// With no controller set, InvalidPositionLimits confirms validation runs before
-// controller lookup.
+// Validation runs before controller lookup.
 #[test]
 #[should_panic(expected = "Error(Contract, #36)")]
 fn validation_runs_before_controller_lookup() {
@@ -220,8 +216,7 @@ fn configure_market_oracle_requires_oracle_role() {
     );
 }
 
-// With no controller set, the out-of-range tolerance check (#208) confirms
-// tolerance validation runs before controller lookup.
+// Tolerance validation runs before controller lookup.
 #[test]
 #[should_panic(expected = "Error(Contract, #208)")]
 fn edit_oracle_tolerance_validates_before_any_cross_call() {

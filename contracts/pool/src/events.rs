@@ -1,9 +1,7 @@
 use common::types::{MarketParamsRaw, MarketStateSnapshot};
 use soroban_sdk::{contractevent, contracttype, Address, Env, Vec};
 
-/// Pool market accounting snapshot emitted after successful pool mutations.
-///
-/// Field order is wire ABI; do not reorder:
+/// Pool market accounting snapshot. Field order is wire ABI:
 /// `[hub_id, asset, timestamp, supply_index, borrow_index, cash,
 ///   supplied, borrowed, revenue]`.
 #[contracttype]

@@ -1,5 +1,4 @@
-//! Risk-bound, asset-config, position-limit, and market-creation validation,
-//! plus the live token-shape probe.
+//! Asset, risk, limit, and token-shape validation.
 
 use common::constants::{BPS, POSITION_LIMIT_MAX};
 use common::errors::{CollateralError, GenericError};

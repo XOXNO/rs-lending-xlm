@@ -8,13 +8,7 @@ use soroban_sdk::{assert_with_error, Address, Env};
 use crate::external::pool::pool_create_market_call;
 use crate::{risk::validation, storage};
 
-/// Registers the asset's market on the central pool under `hub_id`. The market
-/// record lives on the pool (`pool_create_market_call`, which reverts
-/// `AssetAlreadySupported` on a duplicate (hub, asset)); the controller keeps no
-/// listing shadow. The asset stays inactive (unpriceable) until
-/// `set_market_oracle_config` writes its token-rooted `AssetOracle` entry, and
-/// becomes usable on a spoke once `add_asset_to_spoke` lists it there. Consumes
-/// the token approval.
+/// Registers a hub asset market on the central pool.
 pub fn create_liquidity_pool(
     env: &Env,
     hub_id: u32,

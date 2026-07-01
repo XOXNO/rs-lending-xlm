@@ -1,6 +1,4 @@
-//! Small shared utilities: payment aggregation and event context helpers.
-//!
-//! Pure helpers with no policy or storage side effects.
+//! Payment aggregation and event context helpers.
 
 use common::errors::GenericError;
 use common::types::HubAssetKey;

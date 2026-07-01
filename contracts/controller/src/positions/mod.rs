@@ -1,9 +1,4 @@
 //! Core position lifecycle operations.
-//!
-//! Each submodule owns one public position flow and its `process_*` pipeline.
-//! Shared stages are auth, cache setup, account resolution, risk::validation, pool
-//! calls, post-checks, then `finalize_position_flow` (or `persist_account_positions`
-//! + `emit_account_updates` when a hook is needed, e.g. liquidation bad-debt).
 
 use crate::account;
 use common::errors::{CollateralError, SpokeError};
@@ -21,13 +16,13 @@ pub mod repay;
 pub mod supply;
 pub mod withdraw;
 
-/// One re-keyed payment row: hub asset coordinate plus amount.
+/// Hub asset plus amount.
 pub(crate) type HubPayment = (HubAssetKey, i128);
 
-/// Deduped payment rows: one entry per hub asset with the summed amount for the call.
+/// Deduped payment rows.
 pub(crate) type AggregatedPayments = Vec<HubPayment>;
 
-/// Which position maps to persist at the end of a flow.
+/// Position maps to persist.
 #[derive(Copy, Clone)]
 pub(crate) struct PositionSides {
     pub supply: bool,
@@ -49,8 +44,7 @@ impl PositionSides {
     };
 }
 
-/// Writes supply and/or debt maps, or removes the account when `remove_if_empty`
-/// and the snapshot has no positions.
+/// Persists selected position maps.
 pub(crate) fn persist_account_positions(
     env: &Env,
     account_id: u64,
@@ -83,10 +77,7 @@ pub(crate) fn finalize_position_flow(
     cache.emit_position_batch(account_id, account);
 }
 
-/// Enforces the active spoke's per-asset trading flags. `paused` blocks every
-/// verb; `frozen` blocks only new supply/borrow (`block_when_frozen`). No-op
-/// when the asset has no entry on the spoke (e.g. an asset de-listed from the
-/// spoke while a position survives), so exits stay unblocked.
+/// Enforces per-spoke paused/frozen flags.
 pub(crate) fn enforce_spoke_asset_flags(
     env: &Env,
     cache: &mut Cache,
@@ -102,8 +93,7 @@ pub(crate) fn enforce_spoke_asset_flags(
     }
 }
 
-/// Pure construction helper for the repeated `PoolAction` literal used in each
-/// bulk pool entry path. Preserves exact semantics and Into behavior.
+/// Builds a pool action.
 pub(crate) fn make_pool_action(
     position: impl Into<ScaledPositionRaw>,
     amount: i128,

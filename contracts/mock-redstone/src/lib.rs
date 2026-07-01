@@ -1,10 +1,5 @@
-//! Deployable RedStone price-feed adapter mock for live testnet runs.
-//!
-//! Mirrors the adapter surface the controller's RedStone client calls
-//! (`read_price_data_for_feed`, plus the bulk `read_price_data` /
-//! `read_prices` / `read_timestamp` the real adapter exposes). Prices are
-//! 8-decimal `U256`; timestamps are milliseconds. Setters take USD WAD and
-//! rescale. Persistent storage avoids testnet temporary TTL expiry mid-run.
+//! RedStone price-feed mock for live testnet runs.
+//! Stores 8-decimal prices; setters accept USD WAD.
 
 #![no_std]
 
@@ -42,7 +37,7 @@ pub struct MockRedStonePriceFeed;
 
 #[contractimpl]
 impl MockRedStonePriceFeed {
-    /// Sets `feed_id` to `price_wad` (USD WAD) stamped at the current ledger time.
+    /// Sets feed price at current ledger time.
     pub fn set_price(env: Env, feed_id: String, price_wad: i128) {
         let now_ms = env
             .ledger()
@@ -54,8 +49,7 @@ impl MockRedStonePriceFeed {
         Self::set_price_data(env, feed_id, price_wad, now_ms, now_ms);
     }
 
-    /// Sets price and explicit package/write timestamps in milliseconds
-    /// (backdate to force staleness).
+    /// Sets feed price with explicit millisecond timestamps.
     pub fn set_price_data(
         env: Env,
         feed_id: String,

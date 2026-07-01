@@ -246,7 +246,8 @@ impl MarketOracleConfig {
                 read_mode: OracleReadMode::Spot,
                 decimals,
                 resolution_seconds: 0,
-                // Pending sentinel is never read (PendingOracle rejects reads).
+                // Pending sentinel self-points the asset; price reads reject this
+                // shape before provider calls.
                 base: ReflectorBase::Usd,
             }),
             anchor: OracleSourceConfigOption::None,
@@ -534,8 +535,8 @@ mod tests {
         assert_eq!(cfg.max_sanity_price_wad, 0);
         assert!(cfg.anchor.as_ref().is_none());
 
-        // The sentinel `contract` self-points at the asset; runtime callers
-        // reject this via the market-status guard in `oracle::price`.
+        // The sentinel `contract` self-points at the asset; `price_with_config`
+        // rejects it before source resolution.
         match cfg.primary {
             OracleSourceConfig::Reflector(r) => {
                 assert_eq!(r.contract, asset);

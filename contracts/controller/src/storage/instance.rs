@@ -1,7 +1,4 @@
-//! Instance, temporary, and protocol-shared storage for non-market controller
-//! state. `ApprovedToken` is a one-use instance allow-list for pool creation.
-//! `FlashLoanOngoing` blocks re-entrant controller mutations during callbacks.
-//! `AssetOracle` is the token-rooted oracle config on the protocol-shared tier.
+//! Non-market controller storage.
 
 use crate::constants;
 use common::errors::GenericError;
@@ -10,13 +7,10 @@ use common::types::{
 };
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, BytesN, Env};
 
-/// Cap on outstanding (approved but not yet consumed) token approvals.
-/// Each instance key loads with each invocation, so unconsumed approvals
-/// must not accumulate without bound.
+/// Cap on unconsumed token approvals.
 const MAX_OUTSTANDING_TOKEN_APPROVALS: u32 = 16;
 
-/// Cap on approved Blend migration source pools. Instance keys load on every
-/// invocation, so the allow-list must stay bounded.
+/// Cap on approved Blend migration pools.
 const MAX_APPROVED_BLEND_POOLS: u32 = 16;
 
 #[contracttype]

@@ -20,10 +20,7 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
     feed
 }
 
-/// Resolves a USD price for `asset` from an already-chosen `config`, applying
-/// the same sentinel/positivity/sanity gates as `token_price` but writing no
-/// cache entry. `token_price` feeds it the token-rooted base; the per-spoke
-/// `oracle_override` path (`Cache::cached_price_for`) feeds it the override.
+/// Resolves a USD price without writing a cache entry.
 pub fn price_with_config(
     cache: &mut Cache,
     asset: &Address,

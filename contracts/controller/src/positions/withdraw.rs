@@ -1,9 +1,4 @@
-//! Withdraw and strategy-internal withdraw flows.
-//!
-//! Pipeline: auth → aggregate → cache → validate → settle → post-pool gates
-//! → persist → emit. Withdrawals re-check LTV, health factor, and min-borrow
-//! collateral when the account carries debt; debt-free accounts take
-//! `RiskDecreasing` and skip gates.
+//! Withdraw flows. Debt-bearing accounts re-run post-pool solvency gates.
 
 use common::math::fp::Ray;
 use common::types::{
@@ -27,17 +22,13 @@ use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerCli
 /// Pool ABI sentinel for full-position withdraw (`withdraw` maps user `0` here).
 pub(crate) const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 
-/// Per-asset decision for refreshing supply risk params during withdraw.
-///
-/// - `Frozen`: keep the snapshotted risk params (liquidation, deprecated spoke,
-///   or asset removed from the spoke).
-/// - `Refresh`: re-stamp risk params from the account's active spoke config.
+/// Supply-risk refresh policy during withdraw.
 pub(crate) enum SpokeRefresh {
     Frozen,
     Refresh,
 }
 
-/// Per-call withdrawal inputs that travel together through the pipeline.
+/// Per-call withdrawal input.
 pub(crate) struct WithdrawalRequest<'a> {
     pub hub_asset: &'a HubAssetKey,
     pub amount: i128,
@@ -58,9 +49,7 @@ impl Controller {
     }
 }
 
-/// Withdraws collateral and re-checks solvency gates when debt is present.
-///
-/// User amount `0` maps to the pool's `i128::MAX` full-withdraw sentinel.
+/// Withdraws collateral; amount `0` means full withdraw.
 pub fn process_withdraw(
     env: &Env,
     caller: &Address,

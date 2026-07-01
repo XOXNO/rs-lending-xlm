@@ -1,7 +1,4 @@
-//! Composes primary and anchor observations into a final price.
-//!
-//! Every source is required and must be fresh; there is no degraded fallback.
-//! Dual-source markets blend within the tolerance band or revert.
+//! Composes required oracle sources into a final price.
 
 use common::errors::OracleError;
 use common::oracle::observation::is_stale;

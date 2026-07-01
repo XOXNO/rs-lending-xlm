@@ -1,215 +1,79 @@
-# ADR 0004: Cache Permissiveness Policy for Oracle Failures
+# ADR 0004: Oracle Policy By Flow
 
 - Status: Accepted
 - Date: 2026-05-05
+- Revised: 2026-06-30
 - Deciders: XOXNO Lending contract team
-- Supersedes: none
 
 ## Context
 
-ADR 0003 sets up a two-source oracle with tolerance bands. A second
-question follows: when the bands are exceeded or a feed is stale, what is
-the protocol response?
+Oracle degradation should not have one global response. Strict behavior on every
+flow can trap users during an oracle outage. Permissive behavior on every flow
+can allow risk to increase under bad pricing.
 
-A symmetric "strict on all flows" policy halts the protocol on any oracle
-hiccup, including risk-decreasing flows that the user could otherwise
-use to save themselves. A symmetric "allow on all flows" policy lets risk
-increase under degraded pricing. Both fail a production requirement.
-
-The protocol must handle disabled markets: when a market is
-withdrawn from active use (`MarketStatus::Disabled`), users still need a
-path to repay debt and the protocol still needs read paths for
-accounting.
+The current protocol has no separate market-status enum. Price activation is
+represented by the presence of token-rooted `AssetOracle(asset)` configuration.
+Removing that entry disables price resolution for the asset.
 
 ## Decision
 
-Centralize the policy in `OraclePolicy`
-(`contracts/controller/src/oracle/policy.rs`) and pass it through `Cache`
-(`contracts/controller/src/cache/mod.rs`):
+Centralize oracle behavior in `OraclePolicy` and pass it through the transaction
+cache:
 
-- `OraclePolicy::RiskIncreasing`: strict pricing for paths that can add
-  borrow risk or liquidate an account.
-- `OraclePolicy::RiskDecreasing`: permissive pricing for paths that reduce
-  risk or only move supply-side state.
-- `OraclePolicy::Repay`: permissive pricing plus disabled-market pricing for
-  repay.
-- `OraclePolicy::Liquidation`: strict stale/deviation/TWAP gates for
-  liquidation and standalone bad-debt cleanup. Its allowance table is
-  byte-identical to `RiskIncreasing` (all five loosenings denied), kept a
-  distinct variant for intent/auditing and guarded by
-  `test_liquidation_matches_risk_increasing_allowances`. Inside the tolerance
-  bands the standard selection applies (first band → safe/primary price, last
-  band → midpoint); beyond the last band it reverts.
-- `OraclePolicy::View`: read-only disabled-market/permissive pricing.
+- `RiskIncreasing`: strict pricing for flows that can increase account or system
+  risk.
+- `RiskDecreasing`: permissive pricing for flows that reduce account risk or do
+  not need strict price safety.
+- `Repay`: repay-specific path with no load-bearing oracle dependency.
+- `Liquidation`: strict pricing for liquidation and bad-debt cleanup.
+- `View`: read-only path that should not overstate executable behavior.
 
-Per-flow assignment (`contracts/controller/src/positions/*.rs`,
-`contracts/controller/src/strategies/`, `contracts/controller/src/strategies/flash_loan.rs`):
+Strict policies fail closed on missing, stale, future-dated, out-of-sanity, or
+out-of-tolerance prices. Permissive policies can allow degraded reads only where
+the flow cannot increase risk.
 
-| Flow                              | Oracle policy                      |
-| --------------------------------- | ---------------------------------- |
-| `borrow`                          | `RiskIncreasing`                   |
-| `liquidate`, `clean_bad_debt`     | `Liquidation`                      |
-| `multiply`, `swap_debt`           | `RiskIncreasing`                   |
-| `swap_collateral` (debt-free)     | `RiskDecreasing`                   |
-| `swap_collateral` (with debt)     | `RiskIncreasing`                   |
-| `repay_debt_with_collateral`      | `RiskIncreasing`                   |
-| `update_account_threshold` (`has_risks`) | `RiskIncreasing`            |
-| `update_account_threshold` (no risk change) | `RiskDecreasing`         |
-| `supply`                          | `RiskDecreasing`                   |
-| `flash_loan`                      | `RiskDecreasing`                   |
-| `update_indexes`                  | `RiskDecreasing`                   |
-| `claim_revenue`, `add_rewards`    | `RiskDecreasing`                   |
-| `withdraw` (debt-free)            | `RiskDecreasing`                   |
-| `withdraw` (with debt)            | `RiskIncreasing`                   |
-| `repay`                           | `Repay`                            |
-| views                             | `View`                             |
+## Flow Assignment
 
-`OraclePolicy` controls the gates inside the oracle module:
-
-- **Deviation band** (`oracle::tolerance::calculate_final_price`,
-  `contracts/controller/src/oracle/tolerance.rs`): within the first band the
-  safe (primary) price is used; within the last band the midpoint of the two
-  prices is used; outside the last band, strict caches revert
-  (`OracleError::UnsafePriceNotAllowed`) while caches whose policy
-  `allows_unsafe_deviation` return the safe price. Only
-  `OracleStrategy::PrimaryWithAnchor` markets reach this gate; `Single`-source
-  markets return the primary price.
-- **Staleness** (`contracts/controller/src/oracle/compose.rs`,
-  `validate_primary_freshness` / `anchor_is_usable`): strict policies revert
-  (`OracleError::PriceFeedStale`); permissive caches accept the feed.
-- **Missing anchor / degraded TWAP** (`allows_degraded_dual_source`): two
-  distinct degradations share this allowance. (a) When the anchor *source* is
-  absent, unreadable, or stale-unusable, `compose::fallback_to_primary` drops
-  the anchor and prices off the primary alone; strict policies fail
-  closed with `OracleError::NoLastPrice`. (b) When a Reflector *TWAP read*
-  cannot form a trusted average (empty / insufficient / stale history),
-  `twap::twap_fallback_or_panic` panics with the underlying error under strict
-  policy, or under a permissive policy emits `OracleTwapDegradedEvent` and
-  returns the newest valid sample or a spot read, which then still serves as
-  the anchor in tolerance selection.
-- **Disabled markets** (`oracle::token_price`,
-  `contracts/controller/src/oracle/price.rs`): normal policies reject;
-  `Repay` and `View` allow pricing.
-- **Sanity bounds** (`oracle::token_price`): risk-increasing and liquidation
-  reads reject prices outside `[min_sanity_price_wad, max_sanity_price_wad]`;
-  risk-decreasing, repay, and view policies may tolerate the violation because
-  those paths cannot extract value without a later strict read.
-
-`token_price` enforces policy-independent gates on each read:
-positive price (`InvalidPrice`), the `pending_for` self-pointer sentinel
-(`OracleNotConfigured`), and `PendingOracle` markets (`PairNotActive`).
-
-The clock-skew gate (`check_not_future_at`,
-`contracts/controller/src/oracle/observation.rs`) is unconditional in all
-mode: it rejects feed timestamps more than `MAX_FUTURE_SKEW_SECONDS` (a
-one-sided 60s future bound) ahead of the ledger clock with
-`OracleError::PriceFeedStale`.
+| Flow | Policy |
+| --- | --- |
+| `supply` | `RiskDecreasing` |
+| `borrow` | `RiskIncreasing` |
+| `withdraw` without debt | `RiskDecreasing` |
+| `withdraw` with debt | `RiskIncreasing` |
+| `repay` | `Repay` |
+| `liquidate` | `Liquidation` |
+| strategy flows | policy selected by the risk effect of each leg |
+| price-resolving views | `View` |
 
 ## Alternatives Considered
 
-- **Strict on all flows.** Rejected: a Reflector outage halts the protocol,
-  including the supply, repay, and withdraw paths users rely on to
-  reduce risk. Borrowers in trouble lose their last self-help action.
-- **Permissive on all flows.** Rejected: degrades the oracle gate to advisory.
-  A manipulated feed could be used to take out a borrow that the strict
-  gate would have blocked.
-- **Per-asset switch instead of per-flow.** Rejected: the policy is about
-  what the operation does to risk, not about the asset. The same asset
-  appears on both sides of the same transaction.
-- **Caller-specified flag.** Rejected: makes oracle policy part of user
-  input, which would either need its own validation or invite abuse.
+- **Strict for every flow.** Rejected because users need de-risk paths during
+  oracle outages.
+- **Permissive for every flow.** Rejected because borrows and liquidations must
+  not proceed under degraded pricing.
+- **Per-asset switch.** Rejected because the risk effect is defined by the flow,
+  not the asset.
+- **Caller-specified policy.** Rejected because oracle safety must not be user
+  input.
 
 ## Consequences
 
 Positive:
 
-- Risk-increasing flows fail closed under degraded pricing. `RiskIncreasing`
-  and `Liquidation` deny all loosening allowances, so a missing, stale, or
-  out-of-band source **reverts** rather than falling back to a single provider.
-  **Single-source prices cannot drive a borrow or a liquidation**, even if one
-  provider is failed or removed while the other is manipulated. This is a
-  load-bearing invariant: the per-provider fallback (`fallback_to_primary`,
-  `allows_stale_source`, `allows_unsafe_deviation`) is reachable **only** from
-  risk-decreasing/read-only policies, not from a flow that can add risk.
-- Risk-decreasing flows (supply more collateral, repay debt) keep working when
-  the feed is stale, deviating beyond a band, serving a degraded TWAP, or
-  missing its anchor under a permissive policy, so users can still save their
-  position. A missing *primary* feed still fails closed even on permissive
-  paths (the primary read is `required` in `compose::resolve_components`): a
-  missing Reflector primary surfaces `OracleError::NoLastPrice` (via
-  `providers::read_source`), while a missing RedStone primary surfaces
-  `GenericError::InvalidTicker` (`read_redstone_source` panics before the
-  `NoLastPrice` fallback).
-- Disabled markets remain repayable through `repay`, while normal risk
-  ops are blocked.
-- The allowance table is defined in one file
-  (`oracle/policy.rs`, `Allowances::for_policy`) and threaded through `Cache`;
-  the gates that read it run across `oracle/price.rs`
-  (disabled-market and sanity bounds, in `token_price`), `oracle/compose.rs`
-  (staleness, anchor fallback), and `oracle/tolerance.rs` (deviation): a small,
-  enumerable set of decision sites for formal verification.
+- Risk-increasing flows fail closed.
+- Repay and supported de-risk flows remain available when they do not rely on
+  strict prices.
+- Oracle behavior is explicit at each call path.
 
-Negative / accepted costs:
+Accepted costs:
 
-- Multiple policy variants remain part of the verification surface, but the
-  risk semantics are explicit instead of encoded as boolean combinations.
-- Permissive caches accept the safe price even when both sources have
-  drifted in the same direction. The two-source design (ADR 0003)
-  bounds this risk.
-
-## Revisions
-
-### 2026-05-27: Liquidation hardens its deviation gate (reverses Codex adversarial-review finding #1)
-
-The original posture (raised as "Codex adversarial-review finding #1" during
-the 2026-05 security audit; that audit-findings tracker is external and not
-part of this repository) had liquidation and standalone
-bad-debt cleanup *tolerate* primary/anchor deviation: outside the last
-tolerance band they resolved to the aggregator (live spot) price so
-liquidations proceeded during a flash crash. The stated reason was
-that hard-blocking on deviation would DoS liquidators and leave underwater
-accounts un-liquidatable, dumping bad debt on lenders.
-
-That posture is now reversed. `OraclePolicy::Liquidation`
-(`contracts/controller/src/oracle/policy.rs`) sets `unsafe_deviation: false`:
-liquidation and bad-debt cleanup now **reject** with
-`OracleError::UnsafePriceNotAllowed` (error #205, `common/src/errors.rs:144`)
-when the primary and anchor sources diverge beyond the last tolerance band.
-The protocol will not seize collateral at a price that one source alone
-corroborates. While the sources stay inside the bands the standard selection
-applies: the safe (primary) price within the first band, the midpoint of the
-two prices within the last band; there is no separate aggregator-preference
-flag.
-
-Rationale (manipulation-over-availability tradeoff): the two oracle sources
-are independent, so an attacker cannot sustain an out-of-band divergence
-long enough to DoS liquidations; transient gaps fall inside the first two
-tolerance bands, which remain tolerated (the first band resolves to the
-safe/primary price, the last band to the midpoint of the two prices). Only
-genuine extreme/out-of-band divergence rejects, and during a real flash
-crash the block is transient (the anchor/TWAP catches up within its window),
-so liquidations resume once the sources reconverge within tolerance. The
-protocol accepts this narrow availability window to avoid seizing collateral at a
-price that one source alone corroborates.
-
-This revision narrows the "Permissive caches accept the safe price even when
-both sources have drifted" accepted cost above: liquidation no longer uses a
-permissive cache for the deviation gate.
-
-Regression coverage:
-
-- `test_clean_bad_debt_rejected_under_oracle_deviation`
-  (`tests/test-harness/tests/keeper_tests.rs`)
-- `test_unsafe_price_blocks_liquidation`
-  (`tests/test-harness/tests/oracle_tolerance_tests.rs`)
-- `test_liquidation_blocked_under_flash_crash`
-  (`tests/test-harness/tests/oracle_tolerance_tests.rs`)
+- Every new entrypoint must choose the correct policy and tests must cover that
+  choice.
+- Views must stay conservative and must not be treated as proof that a mutation
+  will succeed.
 
 ## References
 
-- `SCF_BUILD_ARCHITECTURE.md` §9 (Oracle Pricing: `OraclePolicy` allowances).
-- `contracts/controller/src/cache/mod.rs::{new, new_view}`
-- `contracts/controller/src/oracle/policy.rs`
-- `contracts/controller/src/oracle/{price.rs, compose.rs, tolerance.rs, observation.rs}`
-- `contracts/controller/src/positions/repay.rs`
-- `contracts/controller/src/positions/withdraw.rs`
+- `contracts/controller/src/oracle`
+- `contracts/controller/src/context`
+- `contracts/controller/src/positions`

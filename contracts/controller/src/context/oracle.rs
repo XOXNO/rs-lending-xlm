@@ -16,12 +16,7 @@ impl Cache {
         (&token_price(self, asset)).into()
     }
 
-    /// USD price for an account position on `spoke_id`. Consults the spoke's
-    /// per-asset `oracle_override`: when set, prices `hub_asset` through that
-    /// config; otherwise falls back to the token-rooted base
-    /// (`cached_price`). The recursive quote-leg resolution inside an override
-    /// stays token-rooted (an override reprices the position asset, not the
-    /// USD legs its own config quotes against).
+    /// Resolves position price using spoke override, else token-rooted oracle.
     pub fn cached_price_for(&mut self, spoke_id: u32, hub_asset: &HubAssetKey) -> PriceFeed {
         match self.spoke_oracle_override(spoke_id, hub_asset) {
             Some(config) => (&self.spoke_price(hub_asset, &config)).into(),
@@ -78,9 +73,7 @@ impl Cache {
             .set((adapter.clone(), feed_id.clone()), data);
     }
 
-    /// Token-rooted oracle config under `AssetOracle(asset)`, memoized for the
-    /// transaction. `None` when the asset has no entry; the `None` case is never
-    /// cached, so a disabled asset reverts identically on every touch.
+    /// Token-rooted oracle config; missing entries are not cached.
     pub(crate) fn cached_asset_oracle_opt(
         &mut self,
         asset: &Address,
@@ -93,25 +86,18 @@ impl Cache {
         Some(config)
     }
 
-    /// Token-rooted oracle config under `AssetOracle(asset)`. Panics
-    /// `OracleNotConfigured` when absent. Absence is the pending/disabled gate:
-    /// price resolution reverts for any asset with no `AssetOracle` entry.
+    /// Required token-rooted oracle config.
     pub(crate) fn cached_asset_oracle(&mut self, asset: &Address) -> MarketOracleConfig {
         self.cached_asset_oracle_opt(asset)
             .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured))
     }
 
-    /// Whether `asset` has a token-rooted `AssetOracle` entry. Backs the
-    /// `require_market_active` pending/disabled gate.
+    /// Token-rooted oracle presence gate.
     pub(crate) fn asset_oracle_exists(&mut self, asset: &Address) -> bool {
         self.cached_asset_oracle_opt(asset).is_some()
     }
 
-    /// Token-rooted `AssetOracle` base config for `asset`. This is the bare,
-    /// hub-independent price source used by `token_price`, market views, and the
-    /// recursive quote legs of any config. The per-spoke `oracle_override` is
-    /// resolved one level up in `cached_price_for`, which holds the `(spoke,
-    /// hub_asset)` context this path deliberately does not carry.
+    /// Token-rooted oracle config for bare asset; no spoke context here.
     pub(crate) fn resolve_oracle_config(&mut self, asset: &Address) -> MarketOracleConfig {
         self.cached_asset_oracle(asset)
     }

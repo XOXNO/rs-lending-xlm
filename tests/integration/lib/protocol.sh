@@ -6,16 +6,17 @@
 #   make testnet setup   (or make mainnet setup with AGGREGATOR_CONTRACT=...)
 # See configs/script.sh + Makefile _deploy / configure-controller.
 #
-# Market creation follows the production sequence (hub 0): approve_token →
-# create_liquidity_pool (pending base spoke-0 listing: not
+# Market creation follows the production sequence on an explicit created hub:
+# create_liquidity_pool (pending primary spoke listing: not
 # collateralizable/borrowable) → resolve_market_oracle_config (governance view) →
-# set_market_oracle_config → edit_asset_in_spoke spoke 0 (activate). Oracle
+# set_market_oracle_config → add_asset_to_spoke on the primary spoke. Oracle
 # configs for mock markets must use Twap (Spot-only primaries reject with
 # SpotOnlyNotProductionSafe #38) and market params must include max_utilization.
 
 # Uploads pool wasm, deploys controller + central pool + flash receiver,
 # wires aggregator/accumulator/roles, unpauses. Persists:
-# CONTROLLER, POOL, POOL_HASH, FLASH_RECEIVER, XLM_SAC.
+# CONTROLLER, POOL, POOL_HASH, FLASH_RECEIVER, XLM_SAC, PRIMARY_HUB_ID,
+# SECONDARY_HUB_ID.
 deploy_protocol() {
     if [ -z "${XLM_SAC:-}" ]; then
         save_state XLM_SAC "$(stellar contract id asset --asset native --network "$NETWORK")"
@@ -64,6 +65,18 @@ deploy_protocol() {
         # forwards SAC balances here and fails with NoAccumulator (#211) if unset.
         inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
         save_state WIRED 1
+    fi
+    if [ -z "${PRIMARY_HUB_ID:-}" ]; then
+        create_test_hub PRIMARY
+    fi
+    if [ -z "${SECONDARY_HUB_ID:-}" ]; then
+        create_test_hub SECONDARY
+    fi
+    if [ -z "${PRIMARY_SPOKE_ID:-}" ]; then
+        create_test_spoke PRIMARY
+    fi
+    if [ -z "${SECONDARY_SPOKE_ID:-}" ]; then
+        create_test_spoke SECONDARY
     fi
     if [ -z "${FLASH_RECEIVER:-}" ]; then
         local out_f="$LOG_DIR/deploy_flashrecv.out" err_f="$LOG_DIR/deploy_flashrecv.err"
@@ -122,6 +135,41 @@ deploy_protocol() {
     fi
 }
 
+# create_test_hub <LABEL>
+# Creates a controller hub and saves HUB_<LABEL>_ID. PRIMARY and SECONDARY also
+# populate PRIMARY_HUB_ID / SECONDARY_HUB_ID for existing flows.
+create_test_hub() {
+    local label="$1" id var
+    var="HUB_${label}_ID"
+    [ -n "${!var:-}" ] && return 0
+    id=$(inv "create_hub_${label}" "$ADMIN" "$CONTROLLER" -- create_hub | tr -d '"[:space:]') || return 1
+    [[ "$id" =~ ^[1-9][0-9]*$ ]] || die "create_hub_${label}" "create_hub returned invalid hub id '$id'"
+    save_state "$var" "$id"
+    case "$label" in
+        PRIMARY) save_state PRIMARY_HUB_ID "$id" ;;
+        SECONDARY) save_state SECONDARY_HUB_ID "$id" ;;
+    esac
+    record "hub_${label}_created" ok create_hub "" "" "" "" "" "hub_id=$id"
+}
+
+create_test_spoke() {
+    local label="$1" id var
+    var="${label}_SPOKE_ID"
+    [ -n "${!var:-}" ] && return 0
+    id=$(inv "add_spoke_${label}" "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '"[:space:]') || return 1
+    [[ "$id" =~ ^[1-9][0-9]*$ ]] || die "add_spoke_${label}" "add_spoke returned invalid spoke id '$id'"
+    save_state "$var" "$id"
+    record "spoke_${label}_created" ok add_spoke "" "" "" "" "" "spoke_id=$id"
+}
+
+primary_hub_id() {
+    echo "${PRIMARY_HUB_ID:?PRIMARY_HUB_ID missing; deploy_protocol must create hub first}"
+}
+
+primary_spoke_id() {
+    echo "${PRIMARY_SPOKE_ID:?PRIMARY_SPOKE_ID missing; deploy_protocol must create spoke first}"
+}
+
 # Standard interest-rate model + caps for a market. Flash-loan eligibility and
 # fee live on MarketParamsRaw (moved off the per-asset spoke config).
 #   market_params_json <sac-id> <decimals>
@@ -146,7 +194,7 @@ market_params_json() {
     }'
 }
 
-# Per-asset spoke risk config (SpokeAssetConfig) for the base spoke-0 listing
+# Per-asset spoke risk config (SpokeAssetConfig) for the primary spoke listing
 # passed to create_liquidity_pool. Extra jq filter applied last.
 #   asset_config_json <ltv-bps> <threshold-bps> <bonus-bps> [jq-overrides]
 asset_config_json() {
@@ -166,14 +214,15 @@ asset_config_json() {
     }' | jq -c "$overrides"
 }
 
-# Spoke asset input struct (SpokeAssetArgs) for add_asset_to_spoke /
-# edit_asset_in_spoke (single argument). spoke_id 0 is the general base listing.
-#   spoke_args <asset> <spoke_id> <can_collateral> <can_borrow> \
-#              <ltv> <threshold> <bonus> [supply_cap] [borrow_cap]
+# Spoke asset input struct (SpokeAssetArgs) add_asset_to_spoke /
+# edit_asset_in_spoke (single argument). spoke_id 0 base listing.
+# spoke_args <hub_id> <asset> <spoke_id> <can_collateral> <can_borrow> \
+# <ltv> <threshold> <bonus> [supply_cap] [borrow_cap]
 spoke_args() {
-    jq -nc --arg asset "$1" --argjson spoke "$2" --argjson cc "$3" --argjson cb "$4" \
-        --argjson ltv "$5" --argjson thr "$6" --argjson bonus "$7" \
-        --arg sc "${8:-0}" --arg bc "${9:-0}" '{
+    jq -nc --argjson hub "$1" --arg asset "$2" --argjson spoke "$3" --argjson cc "$4" --argjson cb "$5" \
+        --argjson ltv "$6" --argjson thr "$7" --argjson bonus "$8" \
+        --arg sc "${9:-0}" --arg bc "${10:-0}" '{
+        hub_id: $hub,
         asset: $asset,
         spoke_id: $spoke,
         can_collateral: $cc,
@@ -181,8 +230,10 @@ spoke_args() {
         ltv: $ltv,
         threshold: $thr,
         bonus: $bonus,
+        liquidation_fees: 100,
         supply_cap: $sc,
-        borrow_cap: $bc
+        borrow_cap: $bc,
+        oracle_override: "None"
     }'
 }
 
@@ -232,29 +283,24 @@ oracle_cfg_reflector() {
     }'
 }
 
-# True when asset already has a base spoke-0 listing on hub 0 — i.e.
-# create_liquidity_pool already ran (it writes that listing as its last step and
-# panics AssetAlreadySupported on a repeat). Lets create_market skip the
-# non-idempotent create step when resuming a run interrupted after the pool was
-# made but before the market was fully activated.
-#   market_listing_exists <sac-id>
+# True when asset already has a primary spoke listing on the created hub - i.e.
+# create_liquidity_pool already ran (it writes last step and duplicate calls
+# panic AssetAlreadySupported). Lets create_market skip the non-idempotent
+# create step when resuming a run interrupted before activation.
+# market_listing_exists <hub-id> <sac-id>
 market_listing_exists() {
+    local hub_id="$1" sac="$2"
     stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" --network "$NETWORK" \
-        --send=no -- get_spoke_asset --spoke_id 0 --asset "$1" >/dev/null 2>&1
+        --send=no -- get_spoke_asset --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$hub_id" "$sac")" >/dev/null 2>&1
 }
 
-# Confirms a just-created market's base spoke-0 listing is visible AND active
-# (collateral/borrow enabled) before the flow relies on it — the create ->
-# oracle -> activate writes can lag the RPC read replica the next supply/borrow
-# simulates against, surfacing as a spurious AssetNotSupported. Mirrors
-# sac_wait_live: poll get_spoke_asset until is_borrowable reads true, bounded.
-# Returns non-zero if never active (caller dies loudly).
-#   market_wait_listed <sac-id>
+# Confirms just-created market's primary spoke listing is visible AND active.
+# market_wait_listed <hub-id> <sac-id>
 market_wait_listed() {
-    local sac="$1" probe got
+    local hub_id="$1" sac="$2" probe got
     for probe in $(seq 1 8); do
         got=$(stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" --network "$NETWORK" \
-            --send=no -- get_spoke_asset --spoke_id 0 --asset "$sac" 2>/dev/null \
+            --send=no -- get_spoke_asset --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$hub_id" "$sac")" 2>/dev/null \
             | jq -r '.is_borrowable // empty' 2>/dev/null)
         [ "$got" = "true" ] && return 0
         sleep $(( probe * 2 ))
@@ -262,87 +308,72 @@ market_wait_listed() {
     return 1
 }
 
-# Full market bring-up on hub 0. Active config flags come from asset_config_json
-# args. The pool is created with a pending (non-collateralizable/borrowable)
-# base spoke-0 listing, then activated via edit_asset_in_spoke once the oracle
-# is wired — mirroring the production create -> oracle -> activate sequence.
-#   create_market <name> <sac-id> <decimals> <oracle-json> <active-config-json>
+# Full market bring-up on explicit created hub. Active flags come from asset_config_json.
+# The pool market is created first, then oracle config is resolved and the
+# primary spoke is activated.
+# create_market <name> <hub-id> <sac-id> <decimals> <oracle-json> <active-config-json>
 create_market() {
-    local name="$1" sac="$2" decimals="$3" oracle_json="$4" active_cfg="$5"
+    local name="$1" hub_id="$2" sac="$3" decimals="$4" oracle_json="$5" active_cfg="$6"
     local done_var="MKT_${name}_DONE"
     if [ -n "${!done_var:-}" ]; then return 0; fi
-    # This is a validated, must-succeed sequence whose steps each read state the
-    # immediately-prior step wrote (approve→create→oracle→activate). Under heavy
-    # testnet read-after-write lag a lagging RPC replica surfaces that as a
-    # spurious contract error (e.g. #35 TokenNotApproved right after approve);
-    # re-simulate contract errors with backoff until the prior write propagates.
+
     local INV_TRANSIENT_CONTRACT_RE='Error\(Contract, #'
-    local params pending
+    local params resolved_oracle ltv thr bonus
     params=$(market_params_json "$sac" "$decimals")
-    pending=$(jq -c '.is_collateralizable=false | .is_borrowable=false' <<<"$active_cfg")
+
     inv "approve_token_$name" "$ADMIN" "$CONTROLLER" -- approve_token --token "$sac" >/dev/null || return 1
-    # Idempotent create: on a resumed run the listing may already exist (the pool
-    # was made but the market not yet flagged DONE). Re-calling create_liquidity_pool
-    # would panic AssetAlreadySupported (#…) and exhaust the retry budget, so skip
-    # the create when the listing is already present and proceed to oracle+activate.
-    if market_listing_exists "$sac"; then
+    if market_listing_exists "$hub_id" "$sac"; then
         record "create_market_$name" ok create_liquidity_pool "" "" "" "" "" "listing already exists (resume); skipping create"
     else
         inv "create_market_$name" "$ADMIN" "$CONTROLLER" -- create_liquidity_pool \
-            --hub_id 0 --asset "$sac" --params "$params" --config "$pending" >/dev/null || return 1
+            --hub_id "$hub_id" --asset "$sac" --params "$params" >/dev/null || return 1
     fi
-    # Production split: governance resolves the input oracle config (probes the
-    # live oracle for decimals/resolution/base + computes the tolerance bands)
-    # into a fully-resolved MarketOracleConfig; the controller's owner-only
-    # setter stores it verbatim. resolve_* is a read-only view (no timelock).
-    local resolved_oracle
-    resolved_oracle=$(view "oracle_resolve_$name" "$GOVERNANCE" -- resolve_market_oracle_config \
-        --asset "$sac" --cfg "$oracle_json") || return 1
-    inv "oracle_cfg_$name" "$ADMIN" "$CONTROLLER" -- set_market_oracle_config \
-        --asset "$sac" --config "$resolved_oracle" >/dev/null || return 1
-    # Activate the base spoke-0 listing (collateral + borrow enabled) from the
-    # active config's risk bps. edit_asset_in_spoke replaces the removed
-    # edit_asset_config; spoke 0 holds the asset's base risk listing.
-    local ltv thr bonus
+
+    resolved_oracle=$(view "resolve_oracle_$name" "$GOVERNANCE" -- resolve_market_oracle_config \
+        --asset "$sac" --cfg "$oracle_json" | jq -c '.') || return 1
+    inv "set_oracle_$name" "$ADMIN" "$CONTROLLER" -- set_market_oracle_config \
+        --hub_asset "$(hub_key "$hub_id" "$sac")" --config "$resolved_oracle" >/dev/null || return 1
+
     ltv=$(jq -r '.loan_to_value' <<<"$active_cfg")
     thr=$(jq -r '.liquidation_threshold' <<<"$active_cfg")
     bonus=$(jq -r '.liquidation_bonus' <<<"$active_cfg")
-    inv "activate_$name" "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
-        --input "$(spoke_args "$sac" 0 true true "$ltv" "$thr" "$bonus")" >/dev/null || return 1
-    # Confirm the listing is visible + active before later supply/borrow rely on
-    # it; tolerates read-after-write lag, dies loudly if the market never lands.
-    market_wait_listed "$sac" \
-        || die "confirm_market_$name" "market $name base spoke-0 listing not active after create -> oracle -> activate (read replica lag exhausted)"
+    inv "activate_$name" "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+        --input "$(spoke_args "$hub_id" "$sac" "$PRIMARY_SPOKE_ID" true true "$ltv" "$thr" "$bonus")" >/dev/null || return 1
+    market_wait_listed "$hub_id" "$sac" \
+        || die "confirm_market_$name" "market $name primary spoke listing not active after create -> oracle -> activate (read replica lag exhausted)"
     save_state "$done_var" 1
 }
 
-# Single hub-0 asset coordinate (HubAssetKey) for scalar asset args.
-#   hub_key <sac-id>
+# Explicit hub asset coordinate (HubAssetKey) scalar asset args.
+# hub_key <hub-id> <sac-id>
 hub_key() {
-    jq -nc --arg a "$1" '{hub_id:0, asset:$a}'
+    jq -nc --argjson h "$1" --arg a "$2" '{hub_id:$h, asset:$a}'
 }
 
-# Vec<HubAssetKey> on hub 0 for update_indexes / claim_revenue.
-#   hub_vec <sac1> [<sac2> ...]
+# Vec<HubAssetKey> for update_indexes / claim_revenue.
+# hub_vec <hub-id> <sac1> [<sac2> ...]
 hub_vec() {
+    local hub_id="$1"
+    shift
     local out="[" first=1
     while [ $# -gt 0 ]; do
         [ $first -eq 0 ] && out+=","
-        out+="{\"hub_id\":0,\"asset\":\"$1\"}"
+        out+="{\"hub_id\":$hub_id,\"asset\":\"$1\"}"
         first=0
         shift
     done
     echo "$out]"
 }
 
-# Payments vector JSON Vec<(HubAssetKey, i128)>: each asset is wrapped as a
-# hub-0 coordinate; i128 amounts must be quoted strings inside the vec.
-#   pay_vec <sac1> <amt1> [<sac2> <amt2> ...]
+# Payments vector JSON Vec<(HubAssetKey, i128)>; amounts are quoted strings.
+# pay_vec <hub-id> <sac1> <amt1> [<sac2> <amt2> ...]
 pay_vec() {
+    local hub_id="$1"
+    shift
     local out="[" first=1
     while [ $# -gt 0 ]; do
         [ $first -eq 0 ] && out+=","
-        out+="[{\"hub_id\":0,\"asset\":\"$1\"},\"$2\"]"
+        out+="[{\"hub_id\":$hub_id,\"asset\":\"$1\"},\"$2\"]"
         first=0
         shift 2
     done

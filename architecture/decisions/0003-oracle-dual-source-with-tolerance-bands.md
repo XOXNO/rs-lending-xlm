@@ -199,7 +199,7 @@ Positive:
 - Anchor unavailability degrades to the primary under permissive policies.
   Strict policies reject out-of-band divergence.
 - The clock-skew gate rejects future-dated feeds in all modes, and sanity
-  bounds reject absurd prices even when a single source is corroborated.
+  bounds reject absurd prices even when one provider is corroborated.
 
 Negative / accepted costs:
 

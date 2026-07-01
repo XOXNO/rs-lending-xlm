@@ -4,7 +4,7 @@ use super::*;
 use common::constants::{BPS, MS_PER_SECOND, RAY};
 use common::types::{HubAssetKey, ScaledPositionRaw};
 
-/// Phase 0 markets all live on hub 0.
+/// Pool tests use hub 0 as a local fixture id.
 fn hub(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,
@@ -185,8 +185,7 @@ impl TestSetup {
 
         test_support::init_ledger(&env);
 
-        // Pool owner receives claimed revenue; controller forwards it to the
-        // protocol accumulator.
+        // Owner receives claimed protocol revenue.
         let pool_address = env.register(LiquidityPool, (admin.clone(),));
         LiquidityPoolClient::new(&env, &pool_address)
             .create_market(&0u32, &market_params(&asset_address));
@@ -1750,8 +1749,7 @@ fn test_create_market_initializes_state() {
     assert_eq!(sync.params.asset_id, asset_b);
 }
 
-// Two markets in one pool instance stay isolated; market A mutations leave
-// market B state unchanged.
+// Market mutations stay isolated by asset.
 #[test]
 fn test_two_market_isolation() {
     let t = TestSetup::new();
@@ -1960,8 +1958,7 @@ fn test_bulk_supply_two_markets_matches_sequential_singles() {
     );
     assert_eq!(second.actual_amount, seq_second.actual_amount);
 
-    // A/C and B/D start from matching state; bulk and sequential singles end
-    // with matching cash/state.
+    // Bulk and sequential singles end with matching cash/state.
     let a_state = t.state_snapshot();
     let c_state = t.state_of(&asset_c);
     assert_pool_state_eq(&a_state, &c_state);
@@ -1973,7 +1970,7 @@ fn test_bulk_supply_two_markets_matches_sequential_singles() {
     assert_eq!(b_state.cash, d_state.cash);
 }
 
-// Bulk repay keeps input order and refunds second-entry overpayment to payer.
+// Bulk repay preserves input order and refunds overpayment.
 #[test]
 fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
     let t = TestSetup::new();
@@ -1981,7 +1978,7 @@ fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
 
     client.supply(&t.sup(0, 50_000_000_000i128));
 
-    // Two independent debt positions for the same borrower.
+    // Same borrower, independent debts.
     let borrower = Address::generate(&t.env);
     let debt_one = 100_0000000i128;
     let debt_two = 30_0000000i128;
@@ -2044,8 +2041,7 @@ fn test_bulk_supply_duplicate_asset_applies_sequentially() {
 
     let first = results.get_unchecked(0);
     let second = results.get_unchecked(1);
-    // PoolPositionMutation carries no market snapshot (the pool emits market
-    // state as a batch event); input order shows in the per-entry amounts.
+    // Per-entry amounts preserve input order.
     assert_eq!(
         first.actual_amount, amount_one,
         "entry 1 applied the first input"
@@ -2099,8 +2095,7 @@ fn test_bulk_supply_cap_violation_reverts_whole_batch() {
     assert_eq!(b_after.cash, b_before.cash);
 }
 
-// Sets the market's max-utilization cap, overriding the disabled RAY sentinel
-// the default params use for accounting tests.
+// Overrides max utilization for accounting tests.
 fn set_max_utilization(t: &TestSetup, max_utilization: i128) {
     t.env.as_contract(&t.pool, || {
         let key = PoolKey::Params(hub(&t.asset));
@@ -2167,8 +2162,7 @@ fn test_cash_conservation_across_supply_borrow_overpaid_repay_withdraw() {
         cash_start + supply_amount - borrow_amount
     );
 
-    // Overpay the debt: applied repayment is the outstanding debt; the surplus
-    // is refunded and does not touch `cash`.
+    // Surplus repayment is refunded and leaves `cash` unchanged.
     let overpayment = 4_000_000_000i128;
     let repaid = client
         .repay(

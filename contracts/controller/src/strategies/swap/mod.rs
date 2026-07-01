@@ -1,8 +1,4 @@
-//! Aggregator swap execution with balance-delta verification.
-//!
-//! Strategies do not trust router-reported amounts. Route bytes are opaque;
-//! the controller snapshots SAC balances before the router call and verifies
-//! input spend and output receipt from observed deltas.
+//! Aggregator swaps verified by token balance deltas.
 
 use common::errors::GenericError;
 use common::types::StrategySwap;

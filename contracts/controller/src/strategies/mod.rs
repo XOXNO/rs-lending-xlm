@@ -1,8 +1,4 @@
 //! Strategy flash-loan flows.
-//!
-//! Entrypoints compose position primitives and aggregator swaps. Swap output
-//! is verified against router reports. Flows that open debt must reach
-//! `strategy_finalize`; solvency gates run there.
 
 pub(crate) mod flash_loan;
 mod migrate_blend;

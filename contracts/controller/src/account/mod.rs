@@ -1,7 +1,4 @@
-//! In-memory account lifecycle helpers.
-//!
-//! Post-pool solvency gates (LTV, health factor, min borrow collateral) live in
-//! `validation::require_post_pool_risk_gates`.
+//! Account lifecycle helpers.
 
 pub(crate) mod delegation;
 
@@ -15,11 +12,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
 use crate::context::Cache;
 use crate::storage;
 
-/// Creates account metadata and returns an empty in-memory account snapshot.
-///
-/// Every account binds to a real spoke (id `>= 1`); the spoke is the single
-/// source of risk params. `cache.active_spoke` loads the spoke once and rejects
-/// a deprecated one.
+/// Creates account metadata and an empty in-memory account for an active spoke.
 pub fn create_account(
     env: &Env,
     owner: &Address,
@@ -52,24 +45,17 @@ pub fn create_account(
     (account_id, account)
 }
 
-/// Existing-account guard applied by `load_or_create_account`, named for the
-/// entrypoint whose check shape it encodes.
+/// Existing-account guard for `load_or_create_account`.
 pub enum AccountGuard {
-    /// Third-party supply: no owner check; the spoke arg must match the stored
-    /// spoke.
+    /// Third-party supply; spoke arg must match stored spoke.
     Supply,
-    /// Blend migration: caller must own the account; the spoke arg must match the
-    /// stored spoke.
+    /// Blend migration; owner and spoke must match.
     Migrate,
-    /// Multiply strategy: caller must own the account; the stored position mode
-    /// must equal `mode`.
+    /// Multiply strategy; owner and mode must match.
     Multiply,
 }
 
-/// Loads an existing account or creates a new one when `account_id == 0`.
-///
-/// New accounts are created with `mode`; existing accounts are validated
-/// against `guard`. The `mode` argument is only compared for the `Multiply` guard.
+/// Loads existing account or creates a new one when `account_id == 0`.
 pub fn load_or_create_account(
     env: &Env,
     caller: &Address,
@@ -97,13 +83,7 @@ pub fn load_or_create_account(
     (account_id, account)
 }
 
-/// Authorizes `caller` for an owner-gated verb on `account_id`.
-///
-/// `owner` is the account's stored owner (`account.owner`), supplied by the
-/// caller that already loaded the account. The account owner always passes. A
-/// delegate passes only when it is both a registered, active position manager
-/// and listed in the account's delegates. With no registered manager and no
-/// delegates this reduces exactly to the owner-only check it replaces.
+/// Requires caller to be owner or an active registered delegate.
 pub fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, owner: &Address) {
     if caller == owner {
         return;

@@ -1,7 +1,4 @@
-//! Repay debt with collateral strategy.
-//!
-//! Pipeline: auth → flash guard → account → cache → load positions → prefetch
-//! → withdraw → swap/net → repay → [close] → `strategy_finalize`.
+//! Repays debt by withdrawing and swapping collateral.
 
 use common::errors::CollateralError;
 use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey, StrategySwap};
@@ -16,7 +13,6 @@ use crate::strategies::{
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
-/// Parameters for `process_repay_debt_with_collateral`.
 pub struct RepayWithCollateralParams<'a> {
     pub account_id: u64,
     pub collateral: &'a HubAssetKey,

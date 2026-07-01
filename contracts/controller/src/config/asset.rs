@@ -164,10 +164,7 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     .publish(env);
 }
 
-/// Validates a per-spoke `oracle_override`. `None` passes through; `Some(cfg)`
-/// is validated exactly like the token-rooted `set_market_oracle_config` base
-/// (sanity band + quote markets active and USD-based), and the pool-registered
-/// decimals override the input under `testing` for parity with test markets.
+/// Validates a per-spoke oracle override.
 fn resolve_spoke_oracle_override(
     env: &Env,
     asset: &Address,

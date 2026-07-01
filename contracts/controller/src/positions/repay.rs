@@ -1,7 +1,4 @@
-//! Repay and strategy-internal repay flows.
-//! Repay is permissionless with respect to the account owner because it only
-//! reduces risk. Pool refunds any amount above ceiling-rounded debt to payer.
-//! No oracle reads are needed.
+//! Repay flows. Permissionless; only reduces debt and uses no oracle reads.
 
 use common::errors::GenericError;
 use common::math::fp::Ray;
@@ -19,7 +16,7 @@ use crate::positions::{
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
-/// Per-asset repayment inputs after the payer's transfer has been measured.
+/// Per-asset repayment input.
 pub(crate) struct RepaymentRequest<'a> {
     pub hub_asset: &'a HubAssetKey,
     pub position: &'a DebtPosition,
@@ -28,18 +25,13 @@ pub(crate) struct RepaymentRequest<'a> {
 
 #[contractimpl]
 impl Controller {
-    // Permissionless w.r.t. the owner: any caller authorizing itself can settle
-    // another account's debt for liquidators and debt-swap strategies. Repay
-    // cannot harm the owner.
+    // Repay only reduces debt; no owner auth.
     pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>) {
         process_repay(&env, &caller, account_id, &payments);
     }
 }
 
-/// Repays one or more debt assets for an account.
-///
-/// Account ownership is not required. The pool refunds any amount above the
-/// current ceiling-rounded debt to the payer.
+/// Repays one or more debt assets.
 pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Vec<HubPayment>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);

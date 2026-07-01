@@ -59,10 +59,7 @@ fn synced_market_cache(env: &Env, hub_asset: &HubAssetKey) -> Cache {
     cache
 }
 
-/// Runs position-mutating batch entries in order.
-///
-/// Renews instance TTL once, emits one market-state batch event, and
-/// returns per-entry mutations. Any entry panic reverts the whole call.
+/// Runs ordered position mutations and emits one market-state batch.
 fn run_batch<E>(
     env: &Env,
     entries: Vec<E>,
@@ -83,8 +80,7 @@ where
     mutations
 }
 
-/// Validates `action.amount`, loads accrued market cache, and reads scaled amount.
-/// Instance TTL is renewed once per batch by `run_batch`.
+/// Loads accrued market cache and action position.
 fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
     require_nonneg_amount(env, action.amount);
     let cache = synced_market_cache(env, &action.hub_asset);
@@ -93,9 +89,7 @@ fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
     (cache, scaled, action.amount)
 }
 
-/// Accrues a borrow of `amount` into `cache` and the caller's `scaled` position:
-/// requires sufficient reserves, enforces the borrow cap, adds the scaled debt,
-/// then rejects post-borrow utilization above the market's max.
+/// Accrues borrow into caller and market debt.
 fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
     cache.require_reserves(amount);
@@ -220,9 +214,7 @@ fn repay_one(
     )
 }
 
-/// Asserts the pool's loaned-token balance equals `expected`, mapping any
-/// mismatch to InvalidFlashloanRepay. Brackets the payout and the callback so a
-/// receiver cannot retain funds or alter the pool balance.
+/// Checks loaned-token balance; mismatches map to InvalidFlashloanRepay.
 fn verify_flash_repay(env: &Env, tok: &token::Client, pool_addr: &Address, expected: i128) {
     assert_with_error!(
         env,
@@ -231,9 +223,7 @@ fn verify_flash_repay(env: &Env, tok: &token::Client, pool_addr: &Address, expec
     );
 }
 
-/// Settles flash repayment: checks the receiver's allowance, pulls
-/// `amount + fee` via `transfer_from`, and asserts the final pool balance.
-/// Allowance is checked first so SAC failures map to InvalidFlashloanRepay.
+/// Pulls flash-loan repayment from receiver.
 fn pull_flash_repayment(
     env: &Env,
     tok: &token::Client,
@@ -394,8 +384,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         cache.require_reserves(amount);
         require_wasm_receiver(&env, &receiver);
 
-        // Balance checks prevent repayment with any asset other than the loaned
-        // token; balances are per-(token, holder) so other vault assets are inert.
+        // Balance checks bind repayment to the loaned token.
         let pool_addr = env.current_contract_address();
         let tok = token::Client::new(&env, &cache.params.asset_id);
         let pre_balance = tok.balance(&pool_addr);
@@ -410,7 +399,7 @@ impl LiquidityPoolInterface for LiquidityPool {
             .checked_add(fee)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
 
-        // Payout, then verify the receiver did not retain funds.
+        // Payout and verify pool balance delta.
         tok.transfer(&pool_addr, &receiver, &amount);
         verify_flash_repay(&env, &tok, &pool_addr, expected_after_payout);
 
@@ -428,10 +417,10 @@ impl LiquidityPoolInterface for LiquidityPool {
                 .into_val(&env),
         );
 
-        // The callback must not retain funds or change the pool balance again.
+        // Callback must not change pool loaned-token balance.
         verify_flash_repay(&env, &tok, &pool_addr, expected_after_payout);
 
-        // Receiver approves `amount + fee` during callback; pull and verify repay.
+        // Receiver approves repayment during callback; pool pulls it.
         pull_flash_repayment(
             &env,
             &tok,

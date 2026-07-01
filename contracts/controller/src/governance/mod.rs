@@ -1,3 +1,3 @@
-//! Owner- and role-gated administration.
+//! Owner-gated controller administration.
 
 pub(crate) mod access;

@@ -1,10 +1,4 @@
-//! Oracle observation construction.
-//!
-//! Converts raw Reflector/RedStone provider responses into the internal
-//! `OracleObservation`. Normalization, staleness, and clock-skew guards live in
-//! `common::oracle::observation`; the per-provider converters below apply the
-//! future-timestamp guard and WAD normalization, then hand a uniform observation
-//! to the compose layer.
+//! Provider observations normalized to WAD with timestamp guards.
 
 use common::oracle::observation::{
     check_not_future_at, millis_to_seconds, normalize_positive_price, u256_to_i128,
@@ -23,9 +17,7 @@ pub(crate) struct OracleObservation {
 }
 
 impl OracleObservation {
-    /// Freshness timestamp: minimum of `published_at` and `observed_at` when both
-    /// are set. Reflector quoted-base repricing may further tighten `observed_at`
-    /// against the USD quote feed in `reprice_to_usd`.
+    /// Strictest known freshness timestamp.
     pub(crate) fn timestamp(&self) -> u64 {
         self.published_at
             .map_or(self.observed_at, |t| t.min(self.observed_at))
@@ -47,11 +39,7 @@ pub(crate) fn build_observation(
     }
 }
 
-/// Builds an observation from a RedStone feed payload.
-///
-/// Guards both the package and write timestamps against the future, then
-/// normalizes the U256 price to a USD WAD. `published_at` carries the package
-/// time so the compose layer can take the stricter freshness bound.
+/// Rejects future timestamps and normalizes RedStone price.
 pub(crate) fn redstone_observation_from_price_data(
     env: &Env,
     price_data: &RedStonePriceData,
@@ -67,11 +55,7 @@ pub(crate) fn redstone_observation_from_price_data(
     build_observation(env, raw_price, decimals, write_ts, Some(package_ts))
 }
 
-/// Builds an observation from a Reflector price record.
-///
-/// Guards the record timestamp against the future, then normalizes to a WAD in
-/// the source's own base; USD repricing of a quoted base happens later in
-/// `reprice_to_usd`.
+/// Rejects future timestamps and normalizes Reflector price.
 pub(crate) fn reflector_observation_from_price_data(
     env: &Env,
     pd: &ReflectorPriceData,

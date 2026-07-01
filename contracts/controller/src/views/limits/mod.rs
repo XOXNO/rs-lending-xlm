@@ -1,9 +1,4 @@
-//! Integrator preview views: `max_supply`, `max_borrow`, and `max_withdraw`.
-//!
-//! `max_withdraw` first tries a full close, then caps a partial by closed-form
-//! pool solvency headroom and settles with a short stroop walk
-//! against the exact `partial_ok` replica of the mutating path. Indexes keep
-//! accruing after the read, so callers acting later should leave a margin.
+//! Integrator preview views for supply, borrow, and withdraw limits.
 
 use crate::risk;
 use crate::storage;
@@ -24,7 +19,7 @@ pub use borrow::max_borrow;
 pub use supply::max_supply;
 pub use withdraw::max_withdraw;
 
-/// Pool-side market state at view-simulated indexes.
+/// Pool-side market state with simulated indexes.
 struct MarketLimitCtx {
     // dimensional: pool totals are scaled shares; indexes convert to Token(asset).
     supplied: Ray,
@@ -79,8 +74,7 @@ impl MarketLimitCtx {
         cap.min(util_cap)
     }
 
-    /// Mirrors the pool's post-withdraw reserve, utilization, and solvency
-    /// guards for an outflow of `transfer_out` units burning `scaled_out`.
+    /// Mirrors pool post-withdraw reserve, utilization, and solvency guards.
     fn pool_state_ok(&self, env: &Env, scaled_out: Ray, transfer_out: i128) -> bool {
         if transfer_out > self.cash || scaled_out > self.supplied {
             return false;

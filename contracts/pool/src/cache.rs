@@ -24,16 +24,14 @@ pub struct Cache {
     pub last_timestamp: u64,
     pub current_timestamp: u64,
     pub params: MarketParams,
-    /// Hub-asset coordinate this cache was loaded from; used as the storage key.
+    /// Market key for cache loads and saves.
     pub hub_asset: HubAssetKey,
     // dimensional: Token(asset) tracked reserves; never Ray.
     pub cash: i128,
 }
 
 impl Cache {
-    /// Loads the market's params and mutable interest state for `hub_asset` from
-    /// persistent storage. Panics with PoolNotInitialized if either record is
-    /// absent.
+    /// Loads market params and mutable interest state.
     pub fn load(env: &Env, hub_asset: &HubAssetKey) -> Self {
         let params: MarketParamsRaw = env
             .storage()
@@ -67,8 +65,7 @@ impl Cache {
         }
     }
 
-    /// Persists the current interest state (indexes, supplied/borrowed totals,
-    /// revenue, last accrual timestamp) back to the asset-keyed persistent slot.
+    /// Persists accrued market state.
     pub fn save(&self) {
         let state = PoolStateRaw {
             supplied: self.supplied.raw(),
@@ -86,8 +83,7 @@ impl Cache {
             .set(&PoolKey::State(self.hub_asset.clone()), &state);
     }
 
-    /// Current utilization = total_borrowed_value / total_supplied_value (RAY).
-    /// Returns zero when supplied is zero (avoids div-by-zero).
+    /// Utilization is borrowed / supplied; zero supply returns zero.
     pub fn calculate_utilization(&self) -> Ray {
         if self.supplied == Ray::ZERO {
             return Ray::ZERO;
@@ -188,10 +184,7 @@ impl Cache {
         scaled_to_original(&self.env, scaled, self.borrow_index)
     }
 
-    /// Resolves a withdrawal into scaled shares and gross asset amount.
-    ///
-    /// Full-close floor rounding prevents over-crediting on the final scaled
-    /// supply share.
+    /// Resolves withdrawal into burned supply shares and gross amount.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         // dimensional: returns Ray<Share(asset, supply)> burned and Token(asset) gross.
         let current_supply_actual = self.unscale_supply(pos_scaled);
@@ -208,7 +201,7 @@ impl Cache {
         }
     }
 
-    /// Burns claimable revenue shares, capped by live reserves and scaled revenue.
+    /// Burns claimable revenue up to live reserves and returns the token amount.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
         // dimensional: revenue is Ray<Share(asset, supply)>; transfer amount is Token(asset).
         let reserves = self.live_reserves();
@@ -230,9 +223,7 @@ impl Cache {
         amount
     }
 
-    /// Resolves repayment into debt shares and overpayment refund.
-    ///
-    /// Full-close uses ceiling rounding so repayment cannot leave indexed dust.
+    /// Resolves debt-share burn and overpayment refund.
     pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         // dimensional: returns Ray<Share(asset, debt)> burned and Token(asset) refund.
         let current_debt_ceil = self.unscale_borrow_ceil(pos_scaled);

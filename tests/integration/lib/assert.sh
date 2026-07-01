@@ -95,21 +95,21 @@ assert_hf_below_wad() {
 assert_borrow_at_most() {
   local label="$1" acct="$2" asset="$3" max_raw="$4"
   local debt
-  debt=$(_retry_until _view_int _uint_le "$max_raw" "$label" get_borrow_amount --account_id "$acct" --asset "$asset") \
+debt=$(_retry_until _view_int _uint_le "$max_raw" "$label" get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$asset")") \
     || _assert_fail "$label" "borrow=$debt want <= $max_raw"
 }
 
 assert_borrow_at_least() {
   local label="$1" acct="$2" asset="$3" min_raw="$4"
   local debt
-  debt=$(_retry_until _view_int _uint_ge "$min_raw" "$label" get_borrow_amount --account_id "$acct" --asset "$asset") \
+debt=$(_retry_until _view_int _uint_ge "$min_raw" "$label" get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$asset")") \
     || _assert_fail "$label" "borrow=$debt want >= $min_raw"
 }
 
 assert_borrow_decreased() {
   local label="$1" acct="$2" asset="$3" before_raw="$4"
   local debt
-  debt=$(_retry_until _view_int _uint_lt "$before_raw" "$label" get_borrow_amount --account_id "$acct" --asset "$asset") \
+debt=$(_retry_until _view_int _uint_lt "$before_raw" "$label" get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$asset")") \
     || _assert_fail "$label" "borrow=$debt want < $before_raw"
 }
 
@@ -141,14 +141,14 @@ assert_int_view_nonneg() {
 assert_market_field() {
   local label="$1" asset="$2" field="$3" expected="$4"
   local got
-  got=$(view "$label" "$CONTROLLER" -- get_spoke_asset --spoke_id 0 --asset "$asset" \
-    | jq -r ".${field}")
+    got=$(view "$label" "$CONTROLLER" -- get_spoke_asset --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$asset")" \
+        | jq -r ".${field}")
   [ "$got" = "$expected" ] || _assert_fail "$label" "spoke_asset.$field=$got want $expected"
 }
 
 assert_pool_revenue_decreased() {
   local label="$1" asset="$2" before_raw="$3"
   local after
-  after=$(_retry_until _view_pool_int _uint_lt "$before_raw" "$label" get_revenue --asset "$asset") \
+  after=$(_retry_until _view_pool_int _uint_lt "$before_raw" "$label" get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$asset")") \
     || _assert_fail "$label" "pool_revenue=$after want < $before_raw after claim"
 }

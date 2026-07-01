@@ -1,7 +1,4 @@
-//! Admin-input validation enforced before forwarding to the controller.
-//!
-//! Controller owner-gated setters stay thin; bound, shape, and live-probe checks
-//! for admin inputs live here.
+//! Admin-input validation before controller forwarding.
 
 pub(crate) mod asset;
 pub(crate) mod oracle_config;

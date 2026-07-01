@@ -1,6 +1,4 @@
-//! Instance storage for governance state.
-//!
-//! Holds the address of the controller this contract deploys and owns.
+//! Governance instance storage.
 
 use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::errors::GenericError;
@@ -9,7 +7,6 @@ use soroban_sdk::{contracttype, panic_with_error, Address, Env};
 #[contracttype]
 #[derive(Clone, Debug)]
 enum GovernanceKey {
-    /// Address of the controller deployed and owned by this contract.
     Controller,
 }
 

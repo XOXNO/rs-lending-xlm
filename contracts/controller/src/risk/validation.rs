@@ -1,5 +1,4 @@
-//! Shared validation gates for account ownership, market status, health factor,
-//! LTV, and position limits.
+//! Shared account, market, risk, and position-limit gates.
 
 use crate::risk;
 use common::errors::*;
@@ -12,8 +11,7 @@ use crate::positions::AggregatedPayments;
 
 use crate::{context::Cache, storage};
 
-/// Hub-active gate, defined in `governance::config` beside the hub lifecycle and
-/// surfaced here so position flows call it alongside the other `require_*` gates.
+/// Hub-active gate for position flows.
 pub(crate) use crate::config::require_hub_active;
 
 /// Unwraps a controller-built value or panics with `InternalError`.
@@ -23,12 +21,7 @@ pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-/// An active asset has a token-rooted `AssetOracle` entry; oracle absence is the
-/// pending/disabled signal. The oracle is keyed by token (hub-independent), so
-/// the check reads `AssetOracle(hub_asset.asset)`. Existence of the (hub, asset)
-/// market is owned by the pool and enforced by the subsequent pool call; the
-/// spoke listing (`spoke::validate_spoke_lists_asset` + the spoke config read)
-/// proves per-spoke usability. Panics `PairNotActive` when not oracle-configured.
+/// Requires token-rooted oracle presence; pool and spoke gates follow.
 pub fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetKey) {
     assert_with_error!(
         env,

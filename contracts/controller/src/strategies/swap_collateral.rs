@@ -1,7 +1,4 @@
-//! Collateral swap strategy.
-//!
-//! Pipeline: auth → flash guard → account → cache(policy) → preflight →
-//! prefetch → withdraw → swap → deposit → `strategy_finalize`.
+//! Swaps collateral between hub markets.
 
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, AccountPosition, AccountPositionType, HubAssetKey, StrategySwap};
@@ -19,7 +16,6 @@ use crate::{
     ControllerClient,
 };
 
-/// Parameters for `process_swap_collateral`.
 pub struct SwapCollateralParams<'a> {
     pub account_id: u64,
     pub current: &'a HubAssetKey,

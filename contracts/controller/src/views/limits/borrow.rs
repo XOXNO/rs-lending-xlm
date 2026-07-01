@@ -11,10 +11,7 @@ use crate::{spoke, storage};
 
 use super::{account_gates_ok, MarketLimitCtx};
 
-/// Largest executable `borrow` amount for `hub_asset` and `account_id`.
-///
-/// Returns `0` when paused, inactive, non-borrowable, structurally blocked,
-/// or limited by pool liquidity, utilization, caps, LTV, or health factor.
+/// Largest executable borrow amount, or zero when blocked.
 pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;

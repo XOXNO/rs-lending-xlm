@@ -1,9 +1,4 @@
-//! Self-contained per-spoke risk resolution.
-//!
-//! An account on spoke S resolves its risk parameters from
-//! `SpokeAsset(S, hub_asset)` directly. Every spoke (id `>= 1`) carries its own
-//! full config — there is no spoke 0 base and no base+overlay; each spoke is the
-//! single source of truth for its assets.
+//! Per-spoke risk resolution from `SpokeAsset(spoke_id, hub_asset)`.
 
 pub(crate) mod caps;
 pub(crate) use caps::SpokeUsageContext;
@@ -14,11 +9,7 @@ use soroban_sdk::{assert_with_error, Env};
 
 use crate::context::Cache;
 
-/// Risk config for the account's spoke, projected to [`AssetConfig`]. Serves
-/// `SpokeAsset(spoke_id, hub_asset)` from the per-tx cache memo. A deactivated
-/// spoke retains its stored `SpokeAsset` entry, so the read still succeeds; a
-/// position on spoke S always reads spoke S. Panics `AssetNotSupported` when
-/// the asset is not listed on the spoke.
+/// Risk config for the account's spoke.
 pub fn effective_asset_config(
     cache: &mut Cache,
     spoke_id: u32,

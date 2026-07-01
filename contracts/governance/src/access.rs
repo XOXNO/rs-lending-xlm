@@ -1,9 +1,4 @@
-//! Ownership, governance roles, and self-admin apply helpers.
-//!
-//! Governance-self mutations (`upgrade`, delay changes, role grants/revokes,
-//! ownership transfer initiation) are timelocked in `timelock.rs`.
-//! This module holds the constructor, `accept_ownership`, shared apply
-//! helpers, and the role allowlist.
+//! Governance ownership, roles, and self-admin helpers.
 
 use common::errors::GenericError;
 use soroban_sdk::{
@@ -106,9 +101,7 @@ pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_unti
     sync_pending_admin_transfer(env, new_owner, live_until_ledger);
 }
 
-/// Enforces EXECUTOR/CANCELLER separation for delegated accounts.
-/// The owner is exempt because constructor and ownership sync grant roles
-/// through `grant_role_no_auth`, preserving recovery authority.
+/// Disallows EXECUTOR/CANCELLER overlap, except owner recovery roles.
 fn require_executor_canceller_separation(env: &Env, account: &Address, role: &Symbol) {
     let executor = Symbol::new(env, EXECUTOR_ROLE);
     let canceller = Symbol::new(env, CANCELLER_ROLE);
@@ -135,8 +128,7 @@ pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
 
 pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
     storage::renew_governance_instance(env);
-    // Revoke unheld roles as errors so operators cannot mistake a no-op for
-    // a revocation.
+    // Reject no-op revokes.
     assert_with_error!(
         env,
         access_control::has_role(env, account, role).is_some(),

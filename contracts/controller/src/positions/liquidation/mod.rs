@@ -1,9 +1,4 @@
-//! Liquidation and bad-debt cleanup flows.
-//!
-//! Liquidation requires health factor below one, uses liquidation oracle
-//! policy, repays debt, seizes collateral, and refunds payment above close
-//! amount. Bad-debt cleanup socializes residual debt only when collateral
-//! stays below the USD threshold.
+//! Liquidation and bad-debt cleanup. Liquidation requires HF < 1.
 
 use crate::risk;
 mod apply;
@@ -57,9 +52,7 @@ pub fn process_liquidation(
 
     let aggregated = utils::aggregate_positive_payments(env, debt_payments);
 
-    // Liquidation denies stale, deviation, and TWAP loosening. Outside the last
-    // tolerance band, `UnsafePriceNotAllowed` prevents seizure at a single-source
-    // price; inside the bands the standard primary/midpoint selection applies.
+    // Liquidation oracle policy rejects stale, deviating, or loosened prices.
     let mut cache = Cache::new(env);
 
     validate_liquidation_inputs(env, &account, liquidator, &aggregated);

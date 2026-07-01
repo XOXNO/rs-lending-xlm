@@ -22,9 +22,7 @@ fn create_hub_assigns_increasing_ids_and_marks_active() {
     });
 }
 
-// No hub is seeded, so hub 0 is not a registered hub: `require_hub_active(0)`
-// reverts `HubNotActive` (#43) exactly like any uncreated id. There is no
-// implicit default hub.
+// Hub 0 is uncreated and reverts like any inactive hub.
 #[test]
 #[should_panic(expected = "Error(Contract, #43)")]
 fn require_hub_active_rejects_unseeded_hub_zero() {

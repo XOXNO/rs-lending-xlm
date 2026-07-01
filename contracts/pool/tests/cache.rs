@@ -8,7 +8,7 @@ use common::types::HubAssetKey;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 
-/// Phase 0 markets all live on hub 0.
+/// Pool tests use hub 0 as a local fixture id.
 fn hub(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,
@@ -208,8 +208,6 @@ fn test_market_index_reflects_current_indexes() {
     });
 }
 
-// Direct cache tests keep panic scope local.
-
 #[test]
 fn test_burn_claimable_revenue_zero_revenue_returns_zero() {
     let t = TestSetup::new();
@@ -283,7 +281,6 @@ fn test_amount_and_strategy_mutation_builders() {
     });
 }
 
-// Direct cache test covers the helper boundary.
 #[test]
 #[should_panic(expected = "Error(Contract, #33)")]
 fn test_ray_checked_sub_assign_panics_on_underflow() {

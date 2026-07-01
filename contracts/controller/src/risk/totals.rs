@@ -1,7 +1,4 @@
-//! Health-factor, LTV, and debt aggregation over position maps.
-//!
-//! These helpers compute over data supplied by callers; price and index reads
-//! go through `Cache`.
+//! Health-factor, LTV, and debt aggregation.
 
 use common::math::fp::{Bps, Ray, Wad};
 use common::types::{AccountPositionRaw, DebtPositionRaw, HubAssetKey};
@@ -11,8 +8,7 @@ use crate::context::Cache;
 use crate::oracle;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
-/// Token addresses underlying a set of position keys, for token-rooted price
-/// and index prefetches.
+/// Token addresses underlying position keys.
 pub(crate) fn position_assets(env: &Env, keys: &Vec<HubAssetKey>) -> Vec<Address> {
     let mut assets: Vec<Address> = Vec::new(env);
     for key in keys.iter() {
@@ -21,11 +17,7 @@ pub(crate) fn position_assets(env: &Env, keys: &Vec<HubAssetKey>) -> Vec<Address
     assets
 }
 
-/// USD WAD value of a scaled position at the supplied index and price.
-///
-/// Half-up at each step: the neutral valuation for displays, dust floors,
-/// and liquidation share proportions. Solvency gates use the directional
-/// variants below instead.
+/// Neutral USD WAD value of a scaled position.
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     // dimensional: Ray<Share> * Ray<Index> -> Ray<Token> -> Wad<Token> -> Wad<USD>.
     let actual = scaled.mul(env, index);
@@ -147,9 +139,7 @@ fn calculate_account_risk_totals_body(
         let feed = cache.cached_price_for(spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
-        // Neutral valuation feeds proportions and socialization; the floored
-        // chain feeds the borrow-capacity and health-factor gates so no
-        // rounding step can loosen them.
+        // Floor before solvency gates; neutral valuation is only for proportions.
         let value = position_value(
             env,
             position.scaled_amount,

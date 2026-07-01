@@ -229,7 +229,7 @@ pub struct Account {
     /// Account owner authorized for owner-gated account mutations.
     pub owner: Address,
     /// Active spoke; always `>= 1`. Every account is bound to a real spoke
-    /// (there is no spoke 0); the spoke is the single source of risk params.
+    /// (there is no spoke 0) with its own risk params.
     pub spoke_id: u32,
     pub mode: PositionMode,
     /// Collateral positions keyed by hub asset.

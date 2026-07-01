@@ -1,11 +1,4 @@
-//! Spoke storage: the versioned `Spoke` config plus discrete per-asset config
-//! and per-asset usage keys.
-//!
-//! Spokes are versioned records that can be deprecated without rewriting
-//! accounts that use them. Per-asset config (`SpokeAsset`) and per-asset usage
-//! (`SpokeUsage`) live in their own keys so reads touch only what they need.
-//! Records are renewed on access so accounts relying on a spoke cannot archive
-//! it.
+//! Spoke config, per-asset config, and per-asset usage storage.
 
 use super::renew_protocol_shared_key;
 use common::errors::SpokeError;

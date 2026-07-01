@@ -1,9 +1,4 @@
-//! Ownership, pause, and upgrade entrypoints.
-//!
-//! Keeper, revenue, and oracle circuit-breaker paths are permissionless or
-//! owner-gated. Pause blocks risk-increasing position paths, strategies, and
-//! flash loans. Withdraw, repay, liquidation, views, renew_account, and owner
-//! governance remain callable while paused.
+//! Owner, pause, and upgrade entrypoints. Pause blocks risk-increasing flows.
 
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
@@ -75,14 +70,10 @@ impl Controller {
 
         storage::set_min_borrow_collateral_usd_wad(&env, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD);
 
-        // No spoke is seeded. Spokes start at id 1 (`add_spoke`); there is no
-        // spoke 0. Every account binds to a real spoke that carries its own full
-        // risk params — the spoke is the single source of truth.
+        // No spoke is seeded. Spokes start at id 1 (`add_spoke`), and every
+        // account binds to a real spoke with its own risk configuration.
 
-        // No hub is seeded. A fresh controller has zero hubs; the deployer must
-        // `create_hub` (ids start at 1) before any `create_liquidity_pool`. With
-        // no hub seeded, `require_hub_active(0)` reverts `HubNotActive`, so there
-        // is no implicit default hub.
+        // No implicit default hub.
 
         env.storage()
             .instance()

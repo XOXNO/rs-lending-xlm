@@ -1,9 +1,4 @@
-//! Borrow and strategy-internal borrow flows.
-//!
-//! Pipeline: auth → aggregate → cache → configs → validate → settle →
-//! post-pool gates → persist → emit. Borrows update scaled debt shares; LTV
-//! and health gates run post-pool against the market indexes the pool borrow
-//! writes into the cache.
+//! Borrow flows. Post-pool risk gates use pool-returned indexes.
 
 use common::errors::CollateralError;
 use common::math::fp::{Bps, Ray};
@@ -38,10 +33,7 @@ impl Controller {
     }
 }
 
-/// Borrows one or more assets; LTV and health validation run post-pool so the
-/// valuation reuses the market indexes the borrow itself wrote into the cache.
-/// Tokens go to `to` when provided, else to `caller`; the debt is recorded on
-/// `account_id` regardless of destination.
+/// Borrows one or more assets.
 pub fn process_borrow(
     env: &Env,
     caller: &Address,
@@ -76,9 +68,7 @@ pub fn process_borrow(
     );
 }
 
-// Pre-pool gates only: emptiness, position limits, then per-asset market-active
-// and borrowability. LTV valuation runs post-pool in
-// `require_post_pool_risk_gates` to reuse the borrow's cached market index.
+// Pre-pool gates only; solvency gates run after pool mutation.
 fn validate_borrow(
     env: &Env,
     account: &Account,
@@ -95,8 +85,8 @@ fn validate_borrow(
     for (hub_asset, _) in aggregated {
         validation::require_hub_active(env, hub_asset.hub_id);
         validation::require_market_active(env, cache, &hub_asset);
-        // Risk config comes from the account's spoke (the single source of
-        // truth); reverts `AssetNotSupported` when unlisted there.
+        // Risk config is read from the account's spoke listing; unlisted
+        // assets revert `AssetNotSupported`.
         let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
         spoke::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
         // Frozen blocks new borrow; paused blocks every verb.

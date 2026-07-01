@@ -1,7 +1,4 @@
-//! Public controller entrypoints that are not position verbs or strategies.
-//!
-//! Holds market bootstrap, keeper index updates, revenue claiming, and
-//! threshold propagation; pool and token calls go through `external`.
+//! Non-position controller entrypoints.
 
 use crate::account;
 use crate::events::UpdateMarketParamsEvent;
@@ -172,10 +169,7 @@ pub fn update_pool_caps(env: &Env, hub_asset: &HubAssetKey, supply_cap: i128, bo
     );
     let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
-    // The forward invariant (spoke cap <= hub cap) is enforced when each spoke
-    // asset is configured. Spoke listings are not enumerable from an asset, so
-    // the reverse check at cap-update time is dropped; at runtime the hub gate
-    // (pool) and spoke gate bind independently, the tighter one winning. The
+    // Spoke cap checks run at spoke configuration time. The
     // pool reverts `PoolNotInitialized` for an uncreated (hub, asset).
     let pool_addr = cache.cached_pool_address();
     pool_update_caps_call(env, &pool_addr, hub_asset, supply_cap, borrow_cap);

@@ -5,6 +5,7 @@ use stellar_xdr::curr::LedgerKey;
 use tracing::debug;
 
 use crate::discovery::DiscoverySnapshot;
+use crate::keys::HubAssetKey;
 use crate::policy::{classify, Decision};
 use crate::stellar::client::LedgerEntryQuery;
 use crate::stellar::invoke::update_indexes;
@@ -100,11 +101,11 @@ pub fn plan_extends_for_keys(keys: &[LedgerKey]) -> Result<Vec<TxJob>> {
     Ok(jobs)
 }
 
-/// Builds `update_indexes(assets)` jobs.
+/// Builds `update_indexes(hub_assets)` jobs.
 pub fn plan_index_refresh(
     controller_id: &[u8; 32],
     caller_strkey: &str,
-    assets: &[[u8; 32]],
+    assets: &[HubAssetKey],
     asset_chunk: usize,
 ) -> Result<Vec<TxJob>> {
     let mut jobs = Vec::new();
@@ -265,7 +266,12 @@ mod tests {
 
     #[test]
     fn index_refresh_chunks_assets_by_asset_chunk() {
-        let assets: Vec<[u8; 32]> = (0..45u8).map(|i| [i; 32]).collect();
+        let assets: Vec<HubAssetKey> = (0..45u8)
+            .map(|i| HubAssetKey {
+                hub_id: 1,
+                asset: [i; 32],
+            })
+            .collect();
         let jobs = plan_index_refresh(&[0u8; 32], TEST_PUBKEY, &assets, 20).unwrap();
         // 45 assets at 20 per op → 3 jobs.
         assert_eq!(jobs.len(), 3);

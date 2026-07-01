@@ -1,7 +1,4 @@
 //! Transaction-local cache for oracle and market reads.
-//!
-//! Price and index reads are memoized per call. Position deltas buffer until
-//! storage writes, then emit as one batch event.
 
 mod events;
 mod market_index;
@@ -24,24 +21,13 @@ pub struct Cache {
     env: Env,
 
     pub prices_cache: Map<Address, PriceFeedRaw>,
-    /// Per-spoke override prices, keyed by `hub_asset`. Disjoint from the
-    /// token-rooted `prices_cache`: a spoke fixed for the transaction makes the
-    /// `(spoke, hub_asset)` price deterministic, and keeping it separate stops an
-    /// override price from poisoning a token-rooted (quote-leg or view) read of
-    /// the same bare asset.
+    /// Per-spoke override price cache, separate from token-rooted prices.
     spoke_prices: Map<HubAssetKey, PriceFeedRaw>,
-    /// Raw RedStone payloads bulk-fetched once per tx, keyed by (adapter, feed_id).
-    /// Stores provider data, not resolved prices, so per-flow policy checks
-    /// (staleness, sanity, tolerance) are unaffected.
+    /// Raw RedStone payloads fetched once per transaction.
     redstone_prefetch: Map<(Address, String), RedStonePriceData>,
-    /// Token-rooted `AssetOracle` configs, memoized per transaction. Stores only
-    /// the config record; `prices_cache` independently memoizes the resolved
-    /// `PriceFeedRaw`, so staleness/sanity/tolerance policy is unaffected. A
-    /// missing entry is never cached, so a disabled asset still reverts.
+    /// Token-rooted oracle configs; missing entries are not cached.
     asset_oracle: Map<Address, MarketOracleConfig>,
-    /// Borrow/supply indexes, populated only from the pool: either returned by a
-    /// pool mutation (`put_market_index`) or bulk-read via `bulk_get_indexes`.
-    /// The controller never simulates indexes itself.
+    /// Pool-sourced borrow/supply indexes; controller never simulates accrual.
     market_indexes: Map<HubAssetKey, MarketIndexRaw>,
     pool_address: Option<Address>,
     pool_sync_data: Map<HubAssetKey, PoolSyncData>,
