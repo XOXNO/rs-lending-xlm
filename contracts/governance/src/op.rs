@@ -97,30 +97,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 DelayTier::Standard,
             )
         }
-        AdminOperation::EditAssetConfig(hub_asset, cfg) => {
-            validate::asset::validate_asset_config(env, cfg);
-            // Spoke 0 stores base risk config.
-            let args = SpokeAssetArgs {
-                hub_id: hub_asset.hub_id,
-                asset: hub_asset.asset.clone(),
-                spoke_id: 0,
-                can_collateral: cfg.is_collateralizable,
-                can_borrow: cfg.is_borrowable,
-                ltv: cfg.loan_to_value,
-                threshold: cfg.liquidation_threshold,
-                bonus: cfg.liquidation_bonus,
-                liquidation_fees: cfg.liquidation_fees,
-                supply_cap: cfg.supply_cap,
-                borrow_cap: cfg.borrow_cap,
-                oracle_override: cfg.oracle_override.clone(),
-            };
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "edit_asset_in_spoke"),
-                vec![env, args.into_val(env)],
-                DelayTier::Standard,
-            )
-        }
         AdminOperation::SetPositionLimits(limits) => {
             validate::asset::validate_position_limits(env, limits);
             (

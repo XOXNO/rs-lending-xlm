@@ -107,7 +107,7 @@ fn test_withdraw_rejects_position_not_found() {
 
     // Try to withdraw ETH: Alice has no ETH position.
     let result = t.try_withdraw(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::POSITION_NOT_FOUND);
+    assert_contract_error(result, errors::COLLATERAL_POSITION_NOT_FOUND);
 }
 // 5. test_withdraw_rejects_exceeding_hf
 

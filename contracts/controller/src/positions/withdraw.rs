@@ -49,7 +49,8 @@ impl Controller {
     }
 }
 
-/// Withdraws collateral; amount `0` means full withdraw.
+/// Withdraws collateral; amount `0` means full withdraw. Returned amounts are
+/// the pool's gross actual amounts per asset.
 pub fn process_withdraw(
     env: &Env,
     caller: &Address,
@@ -112,7 +113,6 @@ fn settle_withdraw(
         env,
         account,
         recipient,
-        false,
         events::PositionAction::Withdraw,
         &entries,
         cache,
@@ -132,11 +132,11 @@ pub(crate) fn settle_withdraw_entries(
     env: &Env,
     account: &mut Account,
     recipient: &Address,
-    is_liquidation: bool,
     action: events::PositionAction,
     entries: &Vec<PoolWithdrawEntry>,
     cache: &mut Cache,
 ) -> Vec<PoolPositionMutation> {
+    let is_liquidation = matches!(action, events::PositionAction::LiqSeize);
     let pool_addr = cache.cached_pool_address();
     let results = pool_withdraw_call(env, &pool_addr, recipient, is_liquidation, entries);
     // Resolve the spoke once, then decide per asset whether active membership
@@ -239,12 +239,15 @@ pub fn execute_withdrawal(
     req: WithdrawalRequest<'_>,
     cache: &mut Cache,
 ) -> PoolPositionMutation {
-    let EventContext { caller, action } = ctx;
+    let EventContext {
+        counterparty,
+        action,
+    } = ctx;
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     entries.push_back(PoolWithdrawEntry {
         action: make_pool_action(req.position, req.amount, req.hub_asset.clone()),
         protocol_fee: 0,
     });
-    let results = settle_withdraw_entries(env, account, &caller, false, action, &entries, cache);
+    let results = settle_withdraw_entries(env, account, &counterparty, action, &entries, cache);
     validation::expect_invariant(env, results.get(0))
 }

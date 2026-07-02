@@ -10,8 +10,8 @@
           "ltv": 9701,
           "liquidation_threshold": 9800,
           "liquidation_bonus": 200,
-          "supply_cap": "50000000000000",
-          "borrow_cap": "25000000000000",
+          "supply_cap": "100000000000",
+          "borrow_cap": "100000000000",
           "liquidation_fees": 100
         },
         "EURC": {
@@ -46,69 +46,50 @@
           "ltv": 8923,
           "liquidation_threshold": 9156,
           "liquidation_bonus": 187,
+          "supply_cap": "100000000000",
+          "borrow_cap": "100000000000",
+          "liquidation_fees": 100
+        }
+      }
+    },
+    "3": {
+      "name": "BTC + Dual USDC",
+      "assets": {
+        "BTC": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 6500,
+          "liquidation_threshold": 7000,
+          "liquidation_bonus": 700,
+          "liquidation_fees": 100,
+          "supply_cap": "1000000000",
+          "borrow_cap": "0"
+        },
+        "USDC": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 7500,
+          "liquidation_threshold": 8000,
+          "liquidation_bonus": 500,
+          "supply_cap": "100000000000",
+          "borrow_cap": "100000000000",
+          "liquidation_fees": 100
+        },
+        "USDC_HUB2": {
+          "hub_id": 2,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 7500,
+          "liquidation_threshold": 8000,
+          "liquidation_bonus": 500,
+          "supply_cap": "100000000000",
+          "borrow_cap": "100000000000",
           "liquidation_fees": 100
         }
       }
     }
   },
-  "mainnet": {
-    "1": {
-      "name": "USD Loop",
-      "assets": {
-        "USDC": {
-          "hub_id": 1,
-          "can_be_collateral": true,
-          "can_be_borrowed": true,
-          "ltv": 9300,
-          "liquidation_threshold": 9500,
-          "liquidation_bonus": 300
-        },
-        "USTRY": {
-          "hub_id": 1,
-          "can_be_collateral": true,
-          "can_be_borrowed": true,
-          "ltv": 9300,
-          "liquidation_threshold": 9500,
-          "liquidation_bonus": 300
-        }
-      }
-    },
-    "2": {
-      "name": "Stables + Bonds",
-      "assets": {
-        "USDC": {
-          "hub_id": 1,
-          "can_be_collateral": true,
-          "can_be_borrowed": true,
-          "ltv": 8800,
-          "liquidation_threshold": 9200,
-          "liquidation_bonus": 500
-        },
-        "EURC": {
-          "hub_id": 1,
-          "can_be_collateral": true,
-          "can_be_borrowed": true,
-          "ltv": 8800,
-          "liquidation_threshold": 9200,
-          "liquidation_bonus": 500
-        },
-        "USTRY": {
-          "hub_id": 1,
-          "can_be_collateral": true,
-          "can_be_borrowed": true,
-          "ltv": 8800,
-          "liquidation_threshold": 9200,
-          "liquidation_bonus": 500
-        },
-        "CETES": {
-          "hub_id": 1,
-          "can_be_collateral": true,
-          "can_be_borrowed": true,
-          "ltv": 8800,
-          "liquidation_threshold": 9200,
-          "liquidation_bonus": 500
-        }
-      }
-    }
-  }
+  "mainnet": {}
 }

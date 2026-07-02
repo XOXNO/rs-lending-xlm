@@ -125,10 +125,14 @@ make <network> setupAllMarkets        # create + oracle + activate every configu
 ```bash
 make <network> createMarket USDC            # deploy the market (pending/inactive)
 make <network> configureMarketOracle USDC   # wire the oracle
-make <network> editAssetConfig USDC         # activate + apply risk params
+make <network> addAssetToSpoke 1 USDC       # activate: list in a spoke with risk params
 make <network> getMarket USDC               # inspect config
 make <network> getPrice USDC                # verify the oracle resolves within tolerance
 ```
+
+Run `make <network> validateConfigs` first — it cross-checks the markets,
+spokes, and networks JSON (hub ids, risk bounds, oracle wiring, spoke/market
+parity) and is also run automatically before any `setup`/`resume`/`setupAll*`.
 
 ### Oracle rules (must hold or `set_market_oracle_config` reverts)
 
@@ -140,8 +144,10 @@ make <network> getPrice USDC                # verify the oracle resolves within 
 - The oracle proposer **live-probes feeds at schedule time**, so the quote market
   must already exist on-chain before configuring an oracle that references it.
 - `max_utilization_ray` is required in `market_params` (optimal < max ≤ RAY).
-- Reflector **DEX** sources are USDC-based and fail USD-base validation — they
-  cannot back USD-quoted (RWA/bond) markets.
+- Reflector **DEX** sources are quoted in USDC and reprice through the quote
+  asset's own oracle (`ReflectorBase::Quoted`): the quote market (USDC) must
+  appear **earlier in the markets file** than any DEX-priced market, because
+  setup configures oracles in file order. `validateConfigs` checks this.
 
 ---
 
@@ -155,7 +161,7 @@ make <network> setupAllSpokes            # create every category + add its asset
 make <network> addSpoke 1        # create category 1 from config → records its on-chain id
 make <network> addAssetToSpoke 1 USDC    # add USDC to category 1
 make <network> getSpoke 1                # inspect category + assets
-make <network> listSpokeCategories       # list all
+make <network> listSpokes                # list all
 ```
 
 The on-chain category id is stored in `networks.json` under `spoke_ids`
@@ -172,8 +178,10 @@ so the idempotent setup re-creates it.
 
 ```bash
 make <network> info                  # governance/controller/aggregator/accumulator + min_delay + paused
+make <network> checkDelay            # live timelock delay vs configured target (bootstrap guard)
 make <network> listMarkets           # configured markets
-make <network> listSpokeCategories   # categories + their assets
+make <network> listSpokes            # categories + their assets
+make <network> listOps               # every recorded governance op + live state
 make <network> getPrice USDC         # oracle pipeline (price within tolerance)
 make <network> getSpoke 1            # category params
 ```
@@ -200,9 +208,12 @@ in `networks.json` (skips the contract deploy):
 make <network> resume     # configure-controller → markets → oracles → spokes → unpause
 ```
 
-**Manual op recovery.** Scheduled ops are recorded under `tmp/ops/<network>/`.
-To drive a single op:
+**Manual op recovery.** Scheduled ops are recorded under `configs/ops/<network>/`
+(tracked in git — commit them so a mainnet op waiting out its delay survives the
+machine). To inspect and drive ops:
 ```bash
+make <network> listOps              # every recorded op + live state
+make <network> executeReady         # execute all Ready ops
 make <network> opState <op-id>      # Unset | Waiting | Ready | Done
 make <network> awaitOp <op-id>      # wait until Ready
 make <network> executeOp <op-id>    # execute a ready op
@@ -210,6 +221,29 @@ make <network> cancelOp <op-id>     # cancel a scheduled op
 ```
 Set `AUTO_EXECUTE=0` on a scheduling command to schedule-only (record the op id
 for a later `executeOp`).
+
+Scheduling is **idempotent**: every schedule pre-computes its deterministic op
+id (`hash_operation`) and reuses an op that is already Waiting/Ready — or skips
+one that is Done — instead of re-proposing, so `make <network> resume` and
+re-running `setupAll*` are safe after a partial failure.
+
+**Re-applying a previous setting (toggle A → B → back to A):** the timelock
+marks an executed op id Done forever, so identical args cannot reuse their old
+id. The tooling handles this automatically with **salt generations** (a hash
+chain off the deterministic base salt):
+
+- **Direct verbs** (`editAssetInSpoke`, `configureMarketOracle`,
+  `approveToken`, role grants, …) detect the Done op and re-apply at the next
+  free generation — toggling back just works. `REAPPLY_ON_DONE=0` disables
+  this (skip instead).
+- **Bulk flows** (`setupAll*`, `resume`) run in converge mode: Done ops are
+  treated as already applied, EXCEPT where an on-chain probe proves drift
+  (spoke assets), which forces a re-apply. So resume never schedules
+  redundant ops, and a config toggle still converges.
+- **Creators** (`addSpoke`, `createHub`, `deployPool`) never auto-re-apply —
+  re-executing one would mint a duplicate entity.
+- `SALT_NONCE=<n>` remains a manual override that mints a fresh id for any
+  verb; `MAX_SALT_GENERATIONS` (default 16) caps automatic probing.
 
 ---
 

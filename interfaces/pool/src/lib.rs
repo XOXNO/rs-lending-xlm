@@ -2,9 +2,9 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountPositionType, HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw,
-    PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
-    PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
+    HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
+    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolSeizeEntry,
+    PoolStrategyMutation, PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry,
 };
 use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env, Vec};
 
@@ -57,13 +57,9 @@ pub trait LiquidityPoolInterface {
         fee: i128,
     ) -> PoolStrategyMutation;
 
-    /// Removes a seized liquidation or bad-debt position.
-    fn seize_position(
-        env: Env,
-        hub_asset: HubAssetKey,
-        side: AccountPositionType,
-        position: ScaledPositionRaw,
-    ) -> PoolPositionMutation;
+    /// Removes seized liquidation or bad-debt positions; entries targeting the
+    /// same hub-asset are applied sequentially.
+    fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>);
 
     /// Claims protocol revenue capped by reserves and claimable shares.
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation;

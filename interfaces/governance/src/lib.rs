@@ -10,7 +10,7 @@
 
 use common::types::{
     HubAssetKey, MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
-    PositionLimits, SpokeAssetConfig,
+    PositionLimits,
 };
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
@@ -83,8 +83,7 @@ pub struct RoleArgs {
 
 #[contracttype]
 #[derive(Clone, Debug)]
-// `#[contracttype]` enums cannot box variants (Soroban has no `Box` codec); the
-// `EditAssetConfig` variant carries the large `SpokeAssetConfig` and
+// `#[contracttype]` enums cannot box variants (Soroban has no `Box` codec);
 // `CreateLiquidityPool` embeds the large `MarketParamsRaw`. Mirrors the allow on
 // `MarketOracleConfigOption`.
 #[allow(clippy::large_enum_variant)]
@@ -93,7 +92,6 @@ pub enum AdminOperation {
     SetAggregator(Address),
     SetAccumulator(Address),
     SetLiquidityPoolTemplate(BytesN<32>),
-    EditAssetConfig(HubAssetKey, SpokeAssetConfig),
     SetPositionLimits(PositionLimits),
     SetMinBorrowCollateralUsd(i128),
     CreateHub,

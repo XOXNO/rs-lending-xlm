@@ -163,5 +163,5 @@ fn test_spoke_rejects_non_category_collateral_addition() {
     // Adding ETH (non-category) must be rejected even though the
     // account already has spoke collateral.
     let result = t.try_supply(ALICE, "ETH", 0.1);
-    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
+    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }

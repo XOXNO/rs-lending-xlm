@@ -1,20 +1,18 @@
 //! Borrow flows. Post-pool risk gates use pool-returned indexes.
 
-use common::errors::CollateralError;
 use common::math::fp::{Bps, Ray};
 use common::types::{
     Account, AccountPositionType, DebtPosition, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
 };
-use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
+use soroban_sdk::{contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::{enforce_spoke_asset_flags, finalize_position_flow, AggregatedPayments, PositionSides};
+use super::{finalize_position_flow, AggregatedPayments, PositionSides};
 use crate::account::update_or_remove_debt_position;
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::positions::{make_pool_action, HubPayment};
-use crate::spoke;
 use crate::{
     payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
 };
@@ -52,7 +50,13 @@ pub fn process_borrow(
     let mut cache = Cache::new(env);
     let aggregated = utils::aggregate_positive_payments(env, borrows);
 
-    validate_borrow(env, &account, &aggregated, &mut cache);
+    super::validate_position_entry_gates(
+        env,
+        &account,
+        &aggregated,
+        &mut cache,
+        AccountPositionType::Borrow,
+    );
     settle_borrow(env, &recipient, &mut account, &aggregated, &mut cache);
 
     // A failure in any gate panics and reverts the atomic tx.
@@ -66,38 +70,6 @@ pub fn process_borrow(
         PositionSides::DEBT,
         false,
     );
-}
-
-// Pre-pool gates only; solvency gates run after pool mutation.
-fn validate_borrow(
-    env: &Env,
-    account: &Account,
-    aggregated: &AggregatedPayments,
-    cache: &mut Cache,
-) {
-    validation::require_non_empty_payments(env, aggregated);
-    validation::validate_bulk_position_limits(
-        env,
-        account,
-        AccountPositionType::Borrow,
-        aggregated,
-    );
-    for (hub_asset, _) in aggregated {
-        validation::require_hub_active(env, hub_asset.hub_id);
-        validation::require_market_active(env, cache, &hub_asset);
-        // Risk config is read from the account's spoke listing; unlisted
-        // assets revert `AssetNotSupported`.
-        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
-        spoke::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
-        // Frozen blocks new borrow; paused blocks every verb.
-        enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
-
-        assert_with_error!(
-            env,
-            asset_config.can_borrow(),
-            CollateralError::AssetNotBorrowable
-        );
-    }
 }
 
 fn settle_borrow(
@@ -223,7 +195,13 @@ fn borrow_strategy_inner(
     let mut payments: AggregatedPayments = Vec::new(env);
     payments.push_back((hub_debt.clone(), amount));
     let aggregated = utils::aggregate_positive_payments(env, &payments);
-    validate_borrow(env, account, &aggregated, cache);
+    super::validate_position_entry_gates(
+        env,
+        account,
+        &aggregated,
+        cache,
+        AccountPositionType::Borrow,
+    );
 
     // Flash-loan parameters live on the pool market params, not the spoke config.
     let flash_fee = fee_override.unwrap_or_else(|| {

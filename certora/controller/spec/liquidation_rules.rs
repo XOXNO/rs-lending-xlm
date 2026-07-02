@@ -11,6 +11,18 @@ use common::math::fp_core::{mul_div_floor, mul_div_half_up};
 // Caps debt payment inputs to realistic position sizes and avoids i128 overflow paths.
 const MAX_DEBT_AMOUNT_RAW: i128 = 1_000_000_000_000;
 
+/// The liquidation curve stamped into every spoke at creation.
+fn default_curve() -> crate::positions::liquidation::math::LiquidationCurve {
+    crate::positions::liquidation::math::LiquidationCurve::from_config(
+        &common::types::SpokeConfig {
+            is_deprecated: false,
+            liquidation_target_hf_wad: crate::constants::DEFAULT_LIQUIDATION_TARGET_HF_WAD,
+            hf_for_max_bonus_wad: crate::constants::DEFAULT_HF_FOR_MAX_BONUS_WAD,
+            liquidation_bonus_factor_bps: crate::constants::DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
+        },
+    )
+}
+
 /// Liquidation strictly decreases scaled debt for the repaid asset.
 #[rule]
 fn liquidation_strictly_decreases_debt_for_repaid_asset(
@@ -120,7 +132,7 @@ fn bonus_bounded(
     // Real production bonus math (NOT the certora summary `calculate_linear_bonus`,
     // which would assume the very bounds asserted here). Proves the production
     // function keeps the bonus in [base, max] for any liquidation target.
-    let curve = crate::positions::liquidation::math::LiquidationCurve::from_config(None);
+    let curve = default_curve();
     let bonus = crate::positions::liquidation::math::calculate_linear_bonus_with_target(
         &e,
         Wad::from(hf_wad),
@@ -246,7 +258,7 @@ fn ideal_repayment_targets_102(
         base: Bps::from(base_bonus_bps),
         max: Bps::from(max_bonus_bps),
     };
-    let curve = crate::positions::liquidation::math::LiquidationCurve::from_config(None);
+    let curve = default_curve();
     let (ideal, bonus) =
         crate::positions::liquidation::math::estimate_liquidation_amount(&e, &snap, bounds, &curve);
 
@@ -271,7 +283,7 @@ fn liquidation_bonus_sanity(e: Env) {
     cvlr_assume!(max >= base && max <= BPS);
     cvlr_assume!(target > 0 && target <= 2 * WAD);
 
-    let curve = crate::positions::liquidation::math::LiquidationCurve::from_config(None);
+    let curve = default_curve();
     let bonus = crate::positions::liquidation::math::calculate_linear_bonus_with_target(
         &e,
         Wad::from(hf),
@@ -304,7 +316,7 @@ fn estimate_liquidation_sanity(e: Env) {
         base: Bps::from(500),
         max: Bps::from(1000),
     };
-    let curve = crate::positions::liquidation::math::LiquidationCurve::from_config(None);
+    let curve = default_curve();
     let (ideal, _bonus) =
         crate::positions::liquidation::math::estimate_liquidation_amount(&e, &snap, bounds, &curve);
     cvlr_satisfy!(ideal.raw() > 0);

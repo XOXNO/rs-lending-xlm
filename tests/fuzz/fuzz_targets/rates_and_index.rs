@@ -106,6 +106,8 @@ fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
         reserve_factor: (i.reserve_pct as u32) * (BPS as u32 - 1) / (u8::MAX as u32),
         supply_cap: 0,
         borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee: 0,
         asset_id: Address::from_str(
             env,
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",

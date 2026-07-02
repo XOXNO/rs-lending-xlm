@@ -93,7 +93,7 @@ pub fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, o
     if active_manager && storage::get_delegates(env, account_id).contains(caller.clone()) {
         return;
     }
-    panic_with_error!(env, GenericError::AccountNotInMarket);
+    panic_with_error!(env, GenericError::NotAuthorized);
 }
 
 /// Rejects a spoke arg that does not match the account's stored spoke. The

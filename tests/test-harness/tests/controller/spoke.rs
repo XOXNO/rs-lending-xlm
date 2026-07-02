@@ -109,7 +109,7 @@ fn test_spoke_rejects_non_category_supply() {
 
     // Supplying ETH must fail because ETH is outside the spoke category.
     let result = t.try_supply(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
+    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
 // 6. test_spoke_rejects_non_category_borrow
 
@@ -127,7 +127,7 @@ fn test_spoke_rejects_non_category_borrow() {
 
     // Borrowing ETH must fail because ETH is outside the spoke category.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
+    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
 // 7. test_spoke_deprecated_blocks_new_accounts
 
@@ -259,7 +259,7 @@ fn test_spoke_remove_asset_from_category() {
     t.supply(ALICE, "USDC", 10_000.0);
 
     let result = t.try_borrow(ALICE, "USDT", 5_000.0);
-    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
+    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
 // 13. test_spoke_liquidation_uses_spoke_bonus
 
@@ -621,7 +621,7 @@ fn test_removed_spoke_collateral_asset_blocks_new_supply_but_existing_withdraw_w
     t.remove_asset_from_spoke("USDC", 2);
 
     let add_more = t.try_supply(ALICE, "USDC", 1.0);
-    assert_contract_error(add_more, errors::ASSET_NOT_SUPPORTED);
+    assert_contract_error(add_more, errors::ASSET_NOT_IN_SPOKE);
 
     // Removing the asset from the category must block new supply, but the
     // existing collateral position keeps its spoke snapshot.
@@ -649,7 +649,7 @@ fn test_removed_spoke_debt_asset_blocks_new_borrow_but_existing_repay_works() {
     t.remove_asset_from_spoke("USDT", 2);
 
     let borrow_more = t.try_borrow(ALICE, "USDT", 1.0);
-    assert_contract_error(borrow_more, errors::ASSET_NOT_SUPPORTED);
+    assert_contract_error(borrow_more, errors::ASSET_NOT_IN_SPOKE);
 
     let debt_before = t.borrow_balance(ALICE, "USDT");
     let repay = t.try_repay(ALICE, "USDT", 500.0);
@@ -660,13 +660,12 @@ fn test_removed_spoke_debt_asset_blocks_new_borrow_but_existing_repay_works() {
     assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
 }
 
-// Spoke risk config is the single source of truth: with no spoke-0 base-config
-// fallback, removing a collateral asset from the account's spoke leaves the
-// liquidation seizure unable to resolve that asset's config. The account stays
-// liquidatable on its snapshotted position risk, but the seizure itself reverts
-// `AssetNotSupported`.
+// Liquidation must not depend on the live spoke listing: removing a
+// collateral asset from the account's spoke keeps the position seizable on
+// its snapshotted risk, with the protocol's liquidation fee falling back to
+// zero for the delisted asset (mirroring withdraw's frozen-params policy).
 #[test]
-fn test_removed_spoke_collateral_asset_blocks_liquidation_seizure() {
+fn test_removed_spoke_collateral_asset_stays_liquidatable() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
@@ -683,8 +682,16 @@ fn test_removed_spoke_collateral_asset_blocks_liquidation_seizure() {
     // Snapshotted position risk still marks the account underwater.
     t.assert_liquidatable(ALICE);
 
+    let debt_before = t.borrow_balance(ALICE, "USDT");
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDT", 500.0);
-    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
+    assert!(
+        result.is_ok(),
+        "delisted collateral must stay seizable; got {result:?}"
+    );
+    assert!(
+        t.borrow_balance(ALICE, "USDT") < debt_before,
+        "liquidation must reduce the debt against delisted collateral"
+    );
 }
 
 #[test]

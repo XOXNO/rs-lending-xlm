@@ -2,9 +2,9 @@
 //! The controller owns collateral risk parameters and merges them after pool mutations.
 
 use common::types::{
-    AccountPositionType, HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw,
-    PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
-    PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
+    HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
+    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolSeizeEntry,
+    PoolStrategyMutation, PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 
@@ -68,15 +68,12 @@ pub(crate) fn pool_repay_call(
     pool_interface::LiquidityPoolClient::new(env, pool_addr).repay(payer, actions)
 }
 
-pub(crate) fn pool_seize_position_call(
+pub(crate) fn pool_seize_positions_call(
     env: &Env,
     pool_addr: &Address,
-    hub_asset: &HubAssetKey,
-    side: AccountPositionType,
-    position: ScaledPositionRaw,
-) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr)
-        .seize_position(hub_asset, &side, &position)
+    entries: &Vec<PoolSeizeEntry>,
+) {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).seize_positions(entries)
 }
 
 pub(crate) fn pool_flash_loan_call(

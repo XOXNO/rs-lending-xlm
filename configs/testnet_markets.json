@@ -339,6 +339,76 @@
         "is_flashloanable": true,
         "flashloan_fee": 9
       }
+    },
+    {
+      "name": "USDC_HUB2",
+      "hub_id": 2,
+      "asset_address": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+      "oracle": {
+        "max_price_stale_seconds": 3600,
+        "tolerance_bps": 500,
+        "strategy": 1,
+        "primary": {
+          "tag": "Reflector",
+          "values": [
+            {
+              "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
+              "asset": {
+                "tag": "Symbol",
+                "values": [
+                  "USDC"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                  "feed_id": "USDC",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
+        },
+        "min_sanity_price_wad": "900000000000000000",
+        "max_sanity_price_wad": "1100000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1000,
+        "supply_cap": "100000000000000",
+        "borrow_cap": "100000000000000"
+      },
+      "asset_config": {
+        "loan_to_value": 7500,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 500,
+        "liquidation_fees": 100,
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
     }
   ]
 }

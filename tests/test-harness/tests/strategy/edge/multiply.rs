@@ -374,9 +374,9 @@ fn test_multiply_spoke_wrong_category_debt() {
         &None, // convert_steps
     );
 
-    // ETH is not listed on the account's spoke, so the spoke model rejects the
-    // leg with AssetNotSupported (1).
-    assert_contract_error(flatten(result), errors::ASSET_NOT_SUPPORTED);
+    // ETH is not listed on the account's spoke, so the borrow gate rejects the
+    // leg with AssetNotInSpoke (307).
+    assert_contract_error(flatten(result), errors::ASSET_NOT_IN_SPOKE);
 }
 // Spoke account in the stablecoin category, but collateral is ETH (not in
 // category).
@@ -395,8 +395,8 @@ fn test_multiply_spoke_wrong_category_collateral() {
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("ETH"); // not in spoke category
     let debt_addr = t.resolve_asset("USDC"); // in spoke category
-                                             // Fund the mock router so the swap itself succeeds; this lets the spoke
-                                             // check on the deposit leg fire (otherwise the router fails first).
+                                             // The collateral spoke gate fires at entry, before any funds move; the
+                                             // router funding only keeps the fixture realistic.
     t.fund_router("ETH", 5.0);
     // multiply borrows 1000 USDC (raw 10_000_000_000) minus 9bps fee.
     let steps = build_aggregator_swap(
@@ -421,9 +421,9 @@ fn test_multiply_spoke_wrong_category_collateral() {
         &None, // convert_steps
     );
 
-    // ETH is not listed on the account's spoke, so the spoke model rejects the
-    // collateral leg with AssetNotSupported (1).
-    assert_contract_error(flatten(result), errors::ASSET_NOT_SUPPORTED);
+    // ETH is not listed on the account's spoke, so the entry gate rejects the
+    // collateral leg with AssetNotInSpoke (307).
+    assert_contract_error(flatten(result), errors::ASSET_NOT_IN_SPOKE);
 }
 #[test]
 fn test_multiply_rejects_normal_mode() {
@@ -515,8 +515,8 @@ fn test_multiply_existing_account_wrong_owner() {
     );
 
     // Bob calls multiply targeting Alice's existing account. The ownership
-    // check must fail with AccountNotInMarket, not as a generic auth failure.
-    assert_contract_error(flatten(result), errors::ACCOUNT_NOT_IN_MARKET);
+    // check must fail with NotAuthorized, not as a host-level auth failure.
+    assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
 }
 // The post-deposit supply cap check in multiply must reject oversized output.
 

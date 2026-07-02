@@ -795,7 +795,7 @@ post-op-balance semantics prominently in the trait and confirm the paired vault 
 **Assumption.** `clean_bad_debt(caller, account_id)` is permissionless and `execute_bad_debt_cleanup`
 socializes an account's debt by reducing the market `supply_index`
 (`apply_bad_debt_to_supply_index`, harming all suppliers) and moves the account's residual collateral
-to protocol revenue (`seize_position(Deposit) → revenue += scaled`). An attacker might force or
+to protocol revenue (`seize_positions` `Deposit` leg → `revenue += scaled`). An attacker might force or
 amplify this to harm suppliers, or target a specific account.
 
 **Analysis.** Not reachable as an attack:
@@ -1512,7 +1512,7 @@ mutating entrypoint is `#[only_owner]`** (owner = the controller, fixed in `__co
 
 - `create_market` (`:230`), `supply` (`:265`), `borrow` (`:271`), `withdraw` (`:282`), `repay`
   (`:294`), `update_indexes` (`:299`), `add_rewards` (`:306`), `flash_loan` (`:330`),
-  `create_strategy` (`:420`), `seize_position` (`:466`), `claim_revenue` (`:495`), `update_params`
+  `create_strategy` (`:420`), `seize_positions` (`:466`), `claim_revenue` (`:495`), `update_params`
   (`:519`), `update_caps` (`:531`), `upgrade` (`:540`) — **all carry `#[only_owner]`**.
 - The only **un-gated** entrypoints are **read-only views**: `get_utilisation`, `get_reserves`,
   `get_deposit_rate`, `get_borrow_rate`, `get_revenue`, `get_supplied_amount`, `get_borrowed_amount`,
@@ -2564,7 +2564,7 @@ re-verified. Detail:
   deposit (`amount_ray = 1e21`) needs `supply_index > 2e48`; the index is an i128 (`max ≈ 1.7e38`)
   and `Ray::mul` reverts (`MathOverflow`) far below that. The ~1e21–1e54 inflation required is
   physically unreachable. Holds with margin.
-- **Bad-debt residual routing (17.1).** Confirmed `seize_position(Deposit)` does
+- **Bad-debt residual routing (17.1).** Confirmed the `seize_positions` `Deposit` leg does
   `cache.revenue.checked_add_assign(scaled)` (pool `lib.rs`) — residual collateral routes to
   **protocol revenue** while the written-off debt is socialized to suppliers via the supply-index
   reduction. Accurate as logged.

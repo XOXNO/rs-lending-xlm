@@ -1,9 +1,6 @@
 //! Liquidation accounting.
 
-use crate::constants::{
-    BAD_DEBT_USD_THRESHOLD, BPS, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
-    DEFAULT_LIQUIDATION_TARGET_HF_WAD, WAD,
-};
+use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use common::types::{
@@ -257,12 +254,6 @@ pub(crate) fn calculate_seized_collateral(
 
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
         let feed = cache.cached_price_for(account.spoke_id, &hub_asset);
-        if feed.price.raw() == 0 {
-            continue;
-        }
-
-        let asset_config =
-            crate::spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         // dimensional: supply share/index -> Token(asset) -> Wad<USD>; share is Wad<1>.
@@ -288,9 +279,11 @@ pub(crate) fn calculate_seized_collateral(
 
         // Floor-divide so the base side is the lower bound; the bonus side
         // absorbs the rounding remainder before the protocol fee applies.
+        // The fee is position-snapshotted (like bonus), so delisted collateral
+        // keeps its last-stamped fee under the same `Frozen` policy as withdraw.
         let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
         let bonus_ray = capped_ray - base_ray;
-        let protocol_fee_ray = asset_config.liquidation_fees.apply_to_ray(env, bonus_ray);
+        let protocol_fee_ray = position.liquidation_fees.apply_to_ray(env, bonus_ray);
         // Full seizure uses pool half-up conversion so pool full-close succeeds.
         // Partial seizures floor and cannot exceed the computed RAY amount.
         let capped_amount = if capped_ray == actual_ray {
@@ -387,64 +380,39 @@ pub(crate) fn process_excess_payment(
     }
 }
 
-/// Resolved liquidation curve for an account's spoke. Zero spoke fields fall
-/// back to the legacy defaults, so an unconfigured spoke reproduces today's math.
+/// Resolved liquidation curve for an account's spoke. Spoke creation stamps
+/// the default curve values, so storage always carries effective parameters.
 pub(crate) struct LiquidationCurve {
     target_hf: Wad,
-    // `None` keeps the legacy per-tier max-bonus point at `target / 2`.
-    hf_for_max_bonus: Option<Wad>,
+    hf_for_max_bonus: Wad,
     bonus_factor: Bps,
 }
 
 impl LiquidationCurve {
-    /// Resolves the curve from the account's spoke; zero fields yield defaults.
+    /// Resolves the curve from the account's spoke.
     pub(crate) fn resolve(cache: &mut Cache, spoke_id: u32) -> Self {
-        let spoke = cache.spoke_config(spoke_id);
-        Self::from_config(Some(&spoke))
+        Self::from_config(&cache.spoke_config(spoke_id))
     }
 
-    /// Builds the curve from an optional spoke config, applying defaults for
-    /// absent or zero fields.
-    pub(crate) fn from_config(cfg: Option<&SpokeConfig>) -> Self {
-        let target_raw = cfg
-            .map(|c| c.liquidation_target_hf_wad)
-            .filter(|v| *v != 0)
-            .unwrap_or(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
-        let hf_for_max_bonus = cfg
-            .map(|c| c.hf_for_max_bonus_wad)
-            .filter(|v| *v != 0)
-            .map(Wad::from);
-        let factor_raw = cfg
-            .map(|c| c.liquidation_bonus_factor_bps)
-            .filter(|v| *v != 0)
-            .unwrap_or(DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS);
+    /// Builds the curve from the spoke config's stored values.
+    pub(crate) fn from_config(cfg: &SpokeConfig) -> Self {
         Self {
-            target_hf: Wad::from(target_raw),
-            hf_for_max_bonus,
-            bonus_factor: Bps::from(i128::from(factor_raw)),
+            target_hf: Wad::from(cfg.liquidation_target_hf_wad),
+            hf_for_max_bonus: Wad::from(cfg.hf_for_max_bonus_wad),
+            bonus_factor: Bps::from(i128::from(cfg.liquidation_bonus_factor_bps)),
         }
     }
 
-    /// Linear bonus scale in `[0, 1]` as `hf` falls below `target`. The caller
-    /// guarantees `hf < target`.
+    /// Linear bonus scale in `[0, 1]` as `hf` falls below `target`; the scale
+    /// reaches 1 once `hf <= hf_for_max_bonus`. The caller guarantees
+    /// `hf < target`.
     fn bonus_scale(&self, env: &Env, hf: Wad, target: Wad) -> Wad {
         // dimensional: hf and target are Wad<1>; output Wad<1>.
         let gap = target - hf;
-        match self.hf_for_max_bonus {
-            // Legacy default: max bonus at `hf == target / 2`. The integer
-            // doubling reproduces today's exact `2 * gap_wad` scale per tier.
-            None => gap
-                .div(env, target)
-                .mul(env, Wad::from(2 * WAD))
-                .min(Wad::ONE),
-            // Configured: scale reaches 1 once `hf <= hf_for_max_bonus`.
-            Some(hf_for_max_bonus) => {
-                if target <= hf_for_max_bonus {
-                    Wad::ONE
-                } else {
-                    gap.div(env, target - hf_for_max_bonus).min(Wad::ONE)
-                }
-            }
+        if target <= self.hf_for_max_bonus {
+            Wad::ONE
+        } else {
+            gap.div(env, target - self.hf_for_max_bonus).min(Wad::ONE)
         }
     }
 

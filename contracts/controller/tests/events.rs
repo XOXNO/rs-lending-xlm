@@ -251,6 +251,7 @@ fn emit_helpers_publish_without_panicking() {
             0,
             0,
             0,
+            0,
         ));
         UpdatePositionBatchEvent {
             account_id: 1,
@@ -288,6 +289,9 @@ fn emit_helpers_publish_without_panicking() {
             spoke: EventSpoke {
                 spoke_id: 1,
                 is_deprecated: false,
+                liquidation_target_hf_wad: 1_020_000_000_000_000_000,
+                hf_for_max_bonus_wad: 510_000_000_000_000_000,
+                liquidation_bonus_factor_bps: 10_000,
             },
         }
         .publish(&env);
@@ -367,12 +371,24 @@ fn create_market_event_carries_hub_id() {
 }
 
 #[test]
-fn position_deltas_carry_hub_id() {
+fn position_deltas_carry_hub_id_and_liquidation_fees() {
     let env = Env::default();
     let asset = dummy_address(&env);
-    let dep = EventDepositDelta(PositionAction::Supply, 4, asset.clone(), 0, 0, 0, 0, 0, 0);
+    let dep = EventDepositDelta(
+        PositionAction::Supply,
+        4,
+        asset.clone(),
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        150,
+    );
     let bor = EventBorrowDelta(PositionAction::Repay, 9, asset.clone(), 0, 0, 0);
     assert_eq!(dep.1, 4);
+    assert_eq!(dep.9, 150);
     assert_eq!(bor.1, 9);
 }
 

@@ -70,6 +70,10 @@ pub enum GenericError {
     BlendPoolNotApproved = 42,
     /// Target hub id is not a registered, active hub.
     HubNotActive = 43,
+    /// Caller is neither the account owner nor an active delegated manager.
+    NotAuthorized = 44,
+    /// Bounded instance registry (approvals, Blend pools, managers, delegates) is full.
+    RegistryCapReached = 45,
 }
 
 #[contracterror]
@@ -134,6 +138,8 @@ pub enum CollateralError {
     MaxBorrowRateTooHigh = 131,
     /// Asset decimals exceed the supported RAY conversion domain.
     AssetDecimalsTooHigh = 132,
+    /// An account owner cannot liquidate their own account.
+    SelfLiquidationNotAllowed = 133,
 }
 
 #[contracterror]
@@ -233,4 +239,8 @@ pub enum FlashLoanError {
 pub enum StrategyError {
     /// Strategy requires conversion steps that were not supplied.
     ConvertStepsRequired = 500,
+    /// Aggregator moved more input than authorized or moved it the wrong way.
+    RouterOverspend = 501,
+    /// Aggregator swap produced zero output.
+    NoSwapOutput = 502,
 }

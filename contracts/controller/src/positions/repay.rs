@@ -35,13 +35,12 @@ impl Controller {
 pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Vec<HubPayment>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
-    validation::require_non_empty_payments(env, payments);
+
+    // Input validation (non-empty, positive amounts) precedes the account read.
+    let aggregated = utils::aggregate_positive_payments(env, payments);
 
     let mut account = storage::get_account_borrow_only(env, account_id);
     let mut cache = Cache::new(env);
-
-    let aggregated = utils::aggregate_positive_payments(env, payments);
-    validation::require_non_empty_payments(env, &aggregated);
 
     settle_repay(env, caller, &mut account, &aggregated, &mut cache);
 
@@ -147,7 +146,10 @@ pub fn execute_repayment(
     req: RepaymentRequest<'_>,
     cache: &mut Cache,
 ) -> PoolPositionMutation {
-    let EventContext { caller, action } = ctx;
+    let EventContext {
+        counterparty,
+        action,
+    } = ctx;
 
     let mut actions: Vec<PoolAction> = Vec::new(env);
     actions.push_back(make_pool_action(
@@ -155,6 +157,6 @@ pub fn execute_repayment(
         req.amount,
         req.hub_asset.clone(),
     ));
-    let results = settle_repay_actions(env, account, &caller, action, &actions, cache);
+    let results = settle_repay_actions(env, account, &counterparty, action, &actions, cache);
     validation::expect_invariant(env, results.get(0))
 }

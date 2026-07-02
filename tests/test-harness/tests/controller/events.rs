@@ -120,7 +120,8 @@ fn test_bulk_supply_emits_single_position_and_market_batch() {
 #[test]
 fn test_supply_position_event_restores_risk_fields() {
     // V2 wire ABI: deposit entries are vec-encoded as
-    // [action, hub_id, asset, scaled_amount, index_ray, amount, lt_bps, lb_bps, ltv_bps].
+    // [action, hub_id, asset, scaled_amount, index_ray, amount, lt_bps, lb_bps,
+    //  ltv_bps, liq_fees_bps].
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -131,12 +132,13 @@ fn test_supply_position_event_restores_risk_fields() {
     let deposits = as_vec(&data[2]);
     assert_eq!(deposits.len(), 1, "one deposit delta for the supply");
     let entry = as_vec(&deposits[0]);
-    assert_eq!(entry.len(), 9, "deposit delta arity is wire ABI");
+    assert_eq!(entry.len(), 10, "deposit delta arity is wire ABI");
     assert_eq!(entry[1], ScVal::U32(1), "hub_id");
-    // usdc_preset risk params: threshold 8000, bonus 500, ltv 7500.
+    // usdc_preset risk params: threshold 8000, bonus 500, ltv 7500, fees 100.
     assert_eq!(entry[6], ScVal::U32(8000), "liquidation_threshold");
     assert_eq!(entry[7], ScVal::U32(500), "liquidation_bonus");
     assert_eq!(entry[8], ScVal::U32(7500), "loan_to_value");
+    assert!(matches!(entry[9], ScVal::U32(_)), "liquidation_fees");
 }
 
 #[test]
@@ -172,7 +174,7 @@ fn test_position_and_market_batch_v2_wire_shape() {
     assert!(!borrows.is_empty(), "liquidation repays debt");
     for d in deposits.iter() {
         let entry = as_vec(d);
-        assert_eq!(entry.len(), 9, "deposit delta arity");
+        assert_eq!(entry.len(), 10, "deposit delta arity");
         // PositionAction::LiqSeize = 5.
         assert_eq!(entry[0], ScVal::U32(5), "seize action discriminant");
         assert!(matches!(entry[1], ScVal::U32(_)), "hub_id");

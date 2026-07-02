@@ -5,7 +5,8 @@ use test_harness::{
 //
 // When debt exceeds collateral and collateral < $5:
 //   1. Seize all remaining collateral (dust -> protocol revenue).
-//   2. Socialize remaining debt via pool.seize_position(borrow_pos).
+//   2. Socialize remaining debt via the batched pool.seize_positions call
+//      (borrow-side entry).
 //   3. Pool calls apply_bad_debt_to_supply_index(debt_amount).
 //   4. Reduce supply index by `(total - bad_debt) / total`.
 //   5. Every supplier's balance shrinks proportionally.

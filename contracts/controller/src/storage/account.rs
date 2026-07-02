@@ -181,7 +181,7 @@ pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) {
     assert_with_error!(
         env,
         delegates.len() < MAX_DELEGATES,
-        GenericError::InvalidPositionLimits
+        GenericError::RegistryCapReached
     );
     delegates.push_back(delegate.clone());
     set_delegates(env, account_id, &delegates);

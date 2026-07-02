@@ -91,6 +91,8 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     // Same underlying token (cross-hub refinance) needs no swap; otherwise route
     // the borrowed token into the existing debt token.
     let repay_amount = if new_debt.asset == existing_debt.asset {
+        // Same-asset refinance must not carry a route; a payload here would be silently ignored.
+        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
         amount_received
     } else {
         // D{new_debt_token.decimals}{Token(new_debt_token)} -> Token(existing_debt_token).

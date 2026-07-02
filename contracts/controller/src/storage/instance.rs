@@ -13,6 +13,9 @@ const MAX_OUTSTANDING_TOKEN_APPROVALS: u32 = 16;
 /// Cap on approved Blend migration pools.
 const MAX_APPROVED_BLEND_POOLS: u32 = 16;
 
+/// Cap on registered position managers.
+const MAX_POSITION_MANAGERS: u32 = 16;
+
 #[contracttype]
 #[derive(Clone, Debug)]
 enum LocalKey {
@@ -20,6 +23,7 @@ enum LocalKey {
     ApprovedTokenCount,
     BlendPoolAllowed(Address),
     BlendPoolAllowedCount,
+    PositionManagerCount,
 }
 
 #[contracttype]
@@ -52,7 +56,7 @@ pub(crate) fn set_token_approved(env: &Env, token: &Address, approved: bool) {
             assert_with_error!(
                 env,
                 count < MAX_OUTSTANDING_TOKEN_APPROVALS,
-                GenericError::InvalidPositionLimits
+                GenericError::RegistryCapReached
             );
             env.storage()
                 .instance()
@@ -96,7 +100,7 @@ pub(crate) fn set_blend_pool_approved(env: &Env, pool: &Address, approved: bool)
             assert_with_error!(
                 env,
                 count < MAX_APPROVED_BLEND_POOLS,
-                GenericError::InvalidPositionLimits
+                GenericError::RegistryCapReached
             );
             env.storage()
                 .instance()
@@ -275,6 +279,8 @@ pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
     env.storage().instance().get(&ControllerKey::Hub(hub_id))
 }
 
+/// Hubs are governance-created and O(few), so instance-storage residency is
+/// deliberate; the registry needs no cap counter.
 pub(crate) fn set_hub(env: &Env, hub_id: u32, config: &HubConfig) {
     env.storage()
         .instance()
@@ -289,10 +295,43 @@ pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<Position
         .get(&ControllerKey::PositionManager(addr.clone()))
 }
 
-pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionManagerConfig) {
+fn position_manager_count(env: &Env) -> u32 {
     env.storage()
         .instance()
-        .set(&ControllerKey::PositionManager(addr.clone()), config);
+        .get(&LocalKey::PositionManagerCount)
+        .unwrap_or(0u32)
+}
+
+/// Capped registry of active managers; deactivation removes the entry
+/// (absence == inactive for the delegate-auth check).
+pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionManagerConfig) {
+    let key = ControllerKey::PositionManager(addr.clone());
+    let already_registered = env.storage().instance().has(&key);
+
+    if config.is_active {
+        if !already_registered {
+            let count = position_manager_count(env);
+            assert_with_error!(
+                env,
+                count < MAX_POSITION_MANAGERS,
+                GenericError::RegistryCapReached
+            );
+            env.storage()
+                .instance()
+                .set(&LocalKey::PositionManagerCount, &(count + 1));
+        }
+        env.storage().instance().set(&key, config);
+    } else {
+        if already_registered {
+            // Saturate at zero: entries registered before counter bookkeeping
+            // existed must still be deactivatable.
+            let count = position_manager_count(env).saturating_sub(1);
+            env.storage()
+                .instance()
+                .set(&LocalKey::PositionManagerCount, &count);
+        }
+        env.storage().instance().remove(&key);
+    }
 }
 
 pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {

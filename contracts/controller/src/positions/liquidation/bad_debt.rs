@@ -1,11 +1,11 @@
 //! Bad-debt cleanup apply helpers.
 
-use common::types::{Account, AccountPositionType, HubAssetKey, ScaledPositionRaw};
-use soroban_sdk::Env;
+use common::types::{Account, AccountPositionType, PoolSeizeEntry};
+use soroban_sdk::{Env, Vec};
 
 use crate::context::Cache;
 use crate::events::CleanBadDebtEvent;
-use crate::external::pool::pool_seize_position_call;
+use crate::external::pool::pool_seize_positions_call;
 use crate::storage::{self, iter_debt_positions, iter_typed_positions};
 
 pub(super) fn execute_bad_debt_cleanup(
@@ -25,25 +25,24 @@ pub(super) fn execute_bad_debt_cleanup(
         ctx.apply_repay_after_pool(env, &hub_asset, position.scaled_amount);
     }
 
+    // One batched pool call covering every seized position, supplies first.
+    let mut entries: Vec<PoolSeizeEntry> = Vec::new(env);
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
-        seize_pool_position(
-            env,
-            cache,
-            AccountPositionType::Deposit,
-            &hub_asset,
-            (&position).into(),
-        );
+        entries.push_back(PoolSeizeEntry {
+            hub_asset,
+            side: AccountPositionType::Deposit,
+            position: (&position).into(),
+        });
     }
-
     for (hub_asset, position) in iter_debt_positions(&account.borrow_positions) {
-        seize_pool_position(
-            env,
-            cache,
-            AccountPositionType::Borrow,
-            &hub_asset,
-            (&position).into(),
-        );
+        entries.push_back(PoolSeizeEntry {
+            hub_asset,
+            side: AccountPositionType::Borrow,
+            position: (&position).into(),
+        });
     }
+    let pool_addr = cache.cached_pool_address();
+    pool_seize_positions_call(env, &pool_addr, &entries);
 
     cache.persist_spoke_usage();
 
@@ -55,15 +54,4 @@ pub(super) fn execute_bad_debt_cleanup(
     .publish(env);
 
     storage::remove_account_entry(env, account_id);
-}
-
-fn seize_pool_position(
-    env: &Env,
-    cache: &mut Cache,
-    side: AccountPositionType,
-    hub_asset: &HubAssetKey,
-    position: ScaledPositionRaw,
-) {
-    let pool_addr = cache.cached_pool_address();
-    pool_seize_position_call(env, &pool_addr, hub_asset, side, position);
 }

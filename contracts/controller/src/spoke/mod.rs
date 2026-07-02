@@ -5,7 +5,7 @@ pub(crate) use caps::SpokeUsageContext;
 
 use common::errors::SpokeError;
 use common::types::{AssetConfig, HubAssetKey, SpokeConfig};
-use soroban_sdk::{assert_with_error, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::context::Cache;
 
@@ -24,20 +24,19 @@ pub fn ensure_spoke_not_deprecated(env: &Env, spoke: &Option<SpokeConfig>) {
     }
 }
 
-/// Asserts the asset is listed on `spoke_id` and the owning spoke is active.
-pub fn validate_spoke_lists_asset(
+/// Canonical risk-entry gate: the spoke must be active (`SpokeDeprecated`) and
+/// list the asset (`AssetNotInSpoke`); returns the listed risk config.
+pub fn require_listed_active_config(
     env: &Env,
     cache: &mut Cache,
     spoke_id: u32,
     hub_asset: &HubAssetKey,
-) {
-    assert_with_error!(
-        env,
-        cache.cached_spoke_asset(spoke_id, hub_asset).is_some(),
-        SpokeError::SpokeNotFound
-    );
-    // Rejects a deprecated spoke (SpokeDeprecated).
+) -> AssetConfig {
     cache.active_spoke(env, spoke_id);
+    let config = cache
+        .cached_spoke_asset(spoke_id, hub_asset)
+        .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
+    (&config).into()
 }
 
 #[cfg(test)]

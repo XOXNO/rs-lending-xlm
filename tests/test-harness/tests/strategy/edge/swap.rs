@@ -297,10 +297,10 @@ fn test_swap_debt_spoke_wrong_category() {
     t.borrow(ALICE, "USDT", 5_000.0);
 
     // Try to swap USDT debt to ETH: ETH is not listed on the account's spoke,
-    // so the spoke model rejects it with AssetNotSupported (1).
+    // so the borrow gate rejects it with AssetNotInSpoke (307).
     let steps = build_swap_steps(&t, "ETH", "USDT", 5000_0000000);
     let result = t.try_swap_debt(ALICE, "USDT", 5_000.0, "ETH", &steps);
-    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
+    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
 // Swap collateral edge cases
 

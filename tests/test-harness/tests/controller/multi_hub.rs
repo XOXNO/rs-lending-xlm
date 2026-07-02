@@ -8,7 +8,7 @@
 
 use controller::constants::RAY;
 use controller::types::{AccountPositionRaw, ControllerKey, DebtPositionRaw};
-use soroban_sdk::Map;
+use soroban_sdk::{Bytes, Map};
 use test_harness::{
     amount_raw, hub_asset, usd, usd_cents, HubAssetKey, LendingTest, MarketPreset,
     DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, HARNESS_HUB,
@@ -260,8 +260,8 @@ fn swap_debt_refinances_debt_across_hubs() {
         asset: usdc.clone(),
     };
     let caller = t.get_or_create_user(ALICE);
-    // Same-token net path never executes the swap; the payload is inert.
-    let steps = t.mock_swap_steps("USDC", "USDC", usd(1));
+    // Same-token net path never executes the swap and rejects a non-empty route.
+    let steps = Bytes::new(&t.env);
     let new_debt_raw = amount_raw(305.0, 7);
     t.ctrl_client().swap_debt(
         &caller,

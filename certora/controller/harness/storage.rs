@@ -41,6 +41,7 @@ pub fn get_position(
                     liquidation_threshold: 0,
                     liquidation_bonus: 0,
                     loan_to_value: 0,
+                    liquidation_fees: 0,
                 })
         }
     }

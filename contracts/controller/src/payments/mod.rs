@@ -96,9 +96,10 @@ fn aggregate_payment_amount(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-/// Shared context for position and debt update events.
+/// Shared context for position and debt update events. `counterparty` is the
+/// funds counterparty: the withdrawal recipient or the repayment payer.
 pub(crate) struct EventContext {
-    pub caller: Address,
+    pub counterparty: Address,
     pub action: events::PositionAction,
 }
 

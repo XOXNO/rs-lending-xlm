@@ -1,0 +1,1 @@
+{"kind":"governance_self","op_id":"905038ddaa17357d692f6d662fdddc5538b9deca962fceba737a3dd81a1f967c","network":"testnet","execute_label":"update_gov_delay","salt":"2cc4ba787d03e8177d0434212599b1fed79bfb3522637ada0ea5d5142631fbc1","op":{"UpdateGovDelay":34560},"cli_executable":true}

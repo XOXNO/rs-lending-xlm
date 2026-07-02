@@ -59,6 +59,7 @@ fn account_with(env: &Env, supply: Option<&Address>, borrow: Option<&Address>) -
                 liquidation_threshold: 0,
                 liquidation_bonus: 0,
                 loan_to_value: 0,
+                liquidation_fees: 0,
             },
         );
     }

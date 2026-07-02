@@ -293,7 +293,10 @@ pub enum PositionAction {
 }
 
 /// Collateral-side position delta, vec-encoded for client compatibility.
-/// Field order is wire ABI; do not reorder.
+/// Field order is wire ABI; do not reorder:
+/// `[action, hub_id, asset, scaled_amount, index_ray, amount,
+///   liquidation_threshold, liquidation_bonus, loan_to_value,
+///   liquidation_fees]`.
 /// Risk params are the position entry values.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -304,6 +307,7 @@ pub struct EventDepositDelta(
     pub i128,
     pub i128,
     pub i128,
+    pub u32,
     pub u32,
     pub u32,
     pub u32,
@@ -328,6 +332,7 @@ impl EventDepositDelta {
             position.liquidation_threshold.raw() as u32,
             position.liquidation_bonus.raw() as u32,
             position.loan_to_value.raw() as u32,
+            position.liquidation_fees.raw() as u32,
         )
     }
 }

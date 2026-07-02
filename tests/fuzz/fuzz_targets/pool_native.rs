@@ -5,7 +5,7 @@ use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY};
 use common::types::{
     HubAssetKey, InterestRateModel, MarketParamsRaw, PoolAction, PoolBorrowEntry, PoolKey,
-    PoolStateRaw, PoolSupplyEntry, PoolWithdrawEntry, ScaledPositionRaw,
+    PoolSeizeEntry, PoolStateRaw, PoolSupplyEntry, PoolWithdrawEntry, ScaledPositionRaw,
 };
 use libfuzzer_sys::fuzz_target;
 use pool::{LiquidityPool, LiquidityPoolClient};
@@ -450,17 +450,22 @@ fuzz_target!(|i: In| {
                     }
                 };
                 // Sync to `now` so the seize is measured against an accrued
-                // baseline. seize_position accrues via load_synced_cache; the
+                // baseline. seize_positions accrues via synced_market_cache; the
                 // outer `before` is captured pre-sync, so without this a
                 // borrow-side seize (accrue up, then socialize down) looks like
                 // it raises supply_index when it is only interest accrual.
                 pool.update_indexes(&market);
                 let before = pool_state(&pool, &market);
-                let result =
-                    flatten_contract_result(pool.try_seize_position(&market, &side, &position));
+                let entry = PoolSeizeEntry {
+                    hub_asset: market.clone(),
+                    side: side.clone(),
+                    position,
+                };
+                let result = flatten_contract_result(
+                    pool.try_seize_positions(&soroban_sdk::vec![&env, entry]),
+                );
                 match result {
-                    Ok(out) => {
-                        assert_eq!(out.position.scaled_amount, 0);
+                    Ok(()) => {
                         let after = pool_state(&pool, &market);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
                         match side {

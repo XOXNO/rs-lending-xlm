@@ -77,7 +77,6 @@ pub(super) fn apply_liquidation_seizures(
         env,
         account,
         liquidator,
-        true,
         events::PositionAction::LiqSeize,
         &entries,
         cache,

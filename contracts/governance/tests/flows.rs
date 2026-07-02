@@ -2,7 +2,7 @@
 
 extern crate std;
 
-use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs};
+use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs};
 use common::types::{
     ControllerKey, HubAssetKey, MarketOracleConfigInput, OracleAssetRef, OracleReadMode,
     OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
@@ -321,30 +321,28 @@ fn propose_upgrade_controller_rejects_zero_hash() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #113)")]
-fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
+fn edit_asset_in_spoke_rejects_bad_risk_bounds_before_any_cross_call() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, _, gov) = register_governance(&env);
     let asset = Address::generate(&env);
 
-    let cfg = common::types::SpokeAssetConfig {
-        is_collateralizable: true,
-        is_borrowable: true,
-        paused: false,
-        frozen: false,
-        loan_to_value: 9_000,
+    let args = SpokeAssetArgs {
+        hub_id: 1,
+        asset,
+        spoke_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_000,
         // Threshold below LTV is invalid.
-        liquidation_threshold: 8_000,
-        liquidation_bonus: 500,
+        threshold: 8_000,
+        bonus: 500,
         liquidation_fees: 100,
         supply_cap: 0,
         borrow_cap: 0,
         oracle_override: common::types::MarketOracleConfigOption::None,
     };
-    gov.execute_immediate(
-        &admin,
-        &AdminOperation::EditAssetConfig(HubAssetKey { hub_id: 0, asset }, cfg),
-    );
+    gov.execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
 
 // Admin entrypoints renew instance TTL for ownable, role, and controller keys.

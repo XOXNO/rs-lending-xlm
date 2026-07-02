@@ -1,15 +1,15 @@
 //! Supply flow. Deposits skip post-pool solvency gates.
 
 use crate::account;
-use common::errors::{CollateralError, GenericError};
+use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
     Account, AccountPositionType, HubAssetKey, PoolPositionMutation, PoolSupplyEntry, PositionMode,
 };
-use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
+use soroban_sdk::{contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::{enforce_spoke_asset_flags, finalize_position_flow, AggregatedPayments, PositionSides};
+use super::{finalize_position_flow, AggregatedPayments, PositionSides};
 use crate::account::update_or_remove_supply_position;
 use crate::context::Cache;
 use crate::events;
@@ -78,37 +78,14 @@ pub fn process_deposit(
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) {
-    validate_deposit(env, account, aggregated, cache);
-    settle_deposit(env, caller, account, aggregated, cache);
-}
-
-fn validate_deposit(
-    env: &Env,
-    account: &Account,
-    aggregated: &AggregatedPayments,
-    cache: &mut Cache,
-) {
-    validation::validate_bulk_position_limits(
+    super::validate_position_entry_gates(
         env,
         account,
-        AccountPositionType::Deposit,
         aggregated,
+        cache,
+        AccountPositionType::Deposit,
     );
-
-    for (hub_asset, _) in aggregated {
-        validation::require_hub_active(env, hub_asset.hub_id);
-        validation::require_market_active(env, cache, &hub_asset);
-
-        // Risk config is read from the account's spoke listing.
-        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
-        spoke::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
-        enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
-        assert_with_error!(
-            env,
-            asset_config.can_supply(),
-            CollateralError::NotCollateral
-        );
-    }
+    settle_deposit(env, caller, account, aggregated, cache);
 }
 
 fn settle_deposit(

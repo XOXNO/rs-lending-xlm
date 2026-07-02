@@ -30,11 +30,11 @@ fn assert_overpull_rejected(result: Result<u64, soroban_sdk::Error>) {
     match result {
         Ok(account_id) => panic!("OverPull must be rejected, got Ok(account_id={account_id})"),
         Err(err) => {
-            let internal = soroban_sdk::Error::from_contract_error(errors::INTERNAL_ERROR);
+            let overspend = soroban_sdk::Error::from_contract_error(errors::ROUTER_OVERSPEND);
             let err_str = format!("{err:?}");
             assert!(
-                err == internal || err_str.contains("Error(Contract,"),
-                "OverPull must reject via INTERNAL_ERROR or a contract error, got {err:?}"
+                err == overspend || err_str.contains("Error(Contract,"),
+                "OverPull must reject via ROUTER_OVERSPEND or a contract error, got {err:?}"
             );
         }
     }
@@ -64,7 +64,7 @@ fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: 
 
 // BadMode::Refund -- router returns token_in to the caller, violating the
 // `balance_in_after > balance_in_before` invariant. Must panic with
-// InternalError.
+// RouterOverspend.
 
 #[test]
 fn test_swap_tokens_panics_when_router_refunds_token_in() {
@@ -97,8 +97,8 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
         &steps,
     );
 
-    // strategy.rs:474 -- if balance_in_after > balance_in_before, InternalError.
-    assert_contract_error(result, errors::INTERNAL_ERROR);
+    // verify_router_input_spend -- if balance_in_after > balance_in_before, RouterOverspend.
+    assert_contract_error(result, errors::ROUTER_OVERSPEND);
 }
 // BadMode::OverPull -- router pulls 2x the requested amount via
 // `token.transfer(sender, router, 2*amount_in)`. The new ABI has no SEP-41
@@ -106,7 +106,7 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
 // the controller happens to hold enough) and the controller's
 // `verify_router_input_spend` fires `actual_in_spent != amount_in`, or
 // fails with the SAC's insufficient-balance error. Either way it's a
-// detectable adversary; the controller surfaces InternalError when the
+// detectable adversary; the controller surfaces RouterOverspend when the
 // over-spend lands.
 
 #[test]
@@ -273,8 +273,8 @@ fn test_swap_tokens_handles_zero_output_from_router() {
     );
 
     // The positive output-delta check in `strategy::swap_tokens` rejects the
-    // shortfall immediately with INTERNAL_ERROR.
-    assert_contract_error(result, errors::INTERNAL_ERROR);
+    // shortfall immediately with NO_SWAP_OUTPUT.
+    assert_contract_error(result, errors::NO_SWAP_OUTPUT);
 }
 
 // Part 1: missing `panic_with_error!` sites in strategy.rs
@@ -704,7 +704,7 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
     );
 }
 // Part 4: Bob-not-owner authorization with account created via multiply
-// AccountNotInMarket for a multiply reuse by the wrong owner.
+// NotAuthorized for a multiply reuse by the wrong owner.
 #[test]
 fn test_multiply_reusing_account_wrong_owner_rejects() {
     let mut t = LendingTest::new()
@@ -753,7 +753,7 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
         &None,
         &None,
     );
-    assert_contract_error(flatten(result), errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
 }
 
 // Price exactly equal to the ceiling must be accepted; even 1 WAD over

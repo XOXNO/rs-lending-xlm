@@ -116,6 +116,16 @@ fn repay_first(e: &Env, payer: Address, act: PoolAction) -> common::types::PoolP
     crate::LiquidityPool::repay(e.clone(), payer, actions).get_unchecked(0)
 }
 
+fn seize_first(e: &Env, side: AccountPositionType, asset: Address, pos: ScaledPositionRaw) {
+    let mut entries: soroban_sdk::Vec<common::types::PoolSeizeEntry> = soroban_sdk::Vec::new(e);
+    entries.push_back(common::types::PoolSeizeEntry {
+        hub_asset: hub(asset),
+        side,
+        position: pos,
+    });
+    crate::LiquidityPool::seize_positions(e.clone(), entries);
+}
+
 #[rule]
 fn create_market_initializes_valid_state(e: Env, admin: Address, asset: Address) {
     crate::LiquidityPool::__constructor(e.clone(), admin);
@@ -286,13 +296,15 @@ fn seize_position_zeroes_scaled_amount(
         valid_state(100 * RAY, scaled_before, 0, e.ledger().timestamp()),
     );
 
-    let after = crate::LiquidityPool::seize_position(
-        e,
-        hub(asset),
+    seize_first(
+        &e,
         AccountPositionType::Borrow,
+        asset.clone(),
         position(scaled_before),
     );
-    cvlr_assert!(after.position.scaled_amount == 0);
+    // Unit-return ABI: the zeroed scaled amount is observed as the seized debt
+    // shares leaving the market total.
+    cvlr_assert!(read_state(&e, &asset).borrowed == 0);
 }
 
 #[rule]

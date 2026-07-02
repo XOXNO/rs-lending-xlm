@@ -72,7 +72,7 @@ pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
 }
 
 /// Amount-independent borrowability of `asset` for `account`, mirroring the
-/// pre-pool gates in `validate_borrow`/`validate_asset_borrowable` without
+/// pre-pool gates in `positions::validate_position_entry_gates` without
 /// throwing.
 fn account_can_borrow_asset(
     env: &Env,

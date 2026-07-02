@@ -340,7 +340,7 @@ fn test_repay_rejects_position_not_found() {
     // No ETH borrow.
 
     let result = t.try_repay(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::POSITION_NOT_FOUND);
+    assert_contract_error(result, errors::DEBT_POSITION_NOT_FOUND);
 }
 // 8. test_repay_rejects_during_flash_loan
 

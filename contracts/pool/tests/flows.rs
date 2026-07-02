@@ -272,6 +272,19 @@ impl TestSetup {
         vec![&self.env, self.action(scaled_amount, amount)]
     }
 
+    fn sez_entry(&self, side: AccountPositionType, position: &ScaledPositionRaw) -> PoolSeizeEntry {
+        PoolSeizeEntry {
+            hub_asset: hub(&self.asset),
+            side,
+            position: position.clone(),
+        }
+    }
+
+    /// Singleton seize batch against the default market.
+    fn sez(&self, side: AccountPositionType, position: &ScaledPositionRaw) -> Vec<PoolSeizeEntry> {
+        vec![&self.env, self.sez_entry(side, position)]
+    }
+
     /// Registers a funded market with a fresh SAC token, minted reserves, and
     /// seeded internal `cash`.
     fn add_funded_market(&self) -> Address {
@@ -942,7 +955,7 @@ fn test_create_strategy_rejects_insufficient_liquidity() {
     );
 }
 #[test]
-fn test_seize_position_bad_debt() {
+fn test_seize_positions_bad_debt() {
     let t = TestSetup::new();
     let client = t.client();
 
@@ -956,19 +969,14 @@ fn test_seize_position_bad_debt() {
     client.update_indexes(&hub(&t.asset));
     let idx_before = client.get_sync_data(&hub(&t.asset)).state;
 
-    let seized = client.seize_position(
-        &hub(&t.asset),
-        &AccountPositionType::Borrow,
-        &updated_borrow.position,
-    );
-
-    assert_eq!(
-        seized.position.scaled_amount, 0,
-        "position should be zeroed"
-    );
+    client.seize_positions(&t.sez(AccountPositionType::Borrow, &updated_borrow.position));
 
     client.update_indexes(&hub(&t.asset));
     let idx_after = client.get_sync_data(&hub(&t.asset)).state;
+    assert_eq!(
+        idx_after.borrowed, 0,
+        "seized scaled debt should be removed from the market"
+    );
     assert!(
         idx_after.supply_index <= idx_before.supply_index,
         "supply index should decrease or stay same after bad debt"
@@ -976,7 +984,7 @@ fn test_seize_position_bad_debt() {
 }
 
 #[test]
-fn test_seize_position_rejects_borrowed_accounting_underflow() {
+fn test_seize_positions_rejects_borrowed_accounting_underflow() {
     let t = TestSetup::new();
     let client = t.client();
 
@@ -991,37 +999,61 @@ fn test_seize_position_rejects_borrowed_accounting_underflow() {
         state.borrowed = 0;
     });
 
-    let result = flatten_contract_result(client.try_seize_position(
-        &hub(&t.asset),
-        &AccountPositionType::Borrow,
-        &updated_borrow.position,
-    ));
+    let result = flatten_contract_result(
+        client.try_seize_positions(&t.sez(AccountPositionType::Borrow, &updated_borrow.position)),
+    );
     assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
 }
 #[test]
-fn test_seize_position_deposit_dust() {
+fn test_seize_positions_deposit_dust() {
     let t = TestSetup::new();
     let client = t.client();
 
     let updated = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
 
     let revenue_before = client.get_revenue(&hub(&t.asset));
-    let seized = client.seize_position(
-        &hub(&t.asset),
-        &AccountPositionType::Deposit,
-        &updated.position,
-    );
-
-    assert_eq!(
-        seized.position.scaled_amount, 0,
-        "position should be zeroed"
-    );
+    client.seize_positions(&t.sez(AccountPositionType::Deposit, &updated.position));
 
     let revenue_after = client.get_revenue(&hub(&t.asset));
     assert!(
         revenue_after > revenue_before,
         "protocol revenue should increase from absorbed dust"
     );
+}
+
+// Pins the per-entry reload semantics: a batch hitting the same hub-asset
+// twice must equal the same seizes issued as sequential single-entry calls.
+#[test]
+fn test_seize_positions_duplicate_market_batch_matches_sequential_singles() {
+    let run = |batched: bool| -> PoolStateRaw {
+        let t = TestSetup::new();
+        let client = t.client();
+
+        let supplied = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
+        let borrower = Address::generate(&t.env);
+        let borrowed = client
+            .borrow(&borrower, &t.bor(0, 50_0000000i128))
+            .get_unchecked(0);
+
+        let deposit = t.sez_entry(AccountPositionType::Deposit, &supplied.position);
+        let borrow = t.sez_entry(AccountPositionType::Borrow, &borrowed.position);
+        if batched {
+            client.seize_positions(&vec![&t.env, deposit, borrow]);
+        } else {
+            client.seize_positions(&vec![&t.env, deposit]);
+            client.seize_positions(&vec![&t.env, borrow]);
+        }
+        client.get_sync_data(&hub(&t.asset)).state
+    };
+
+    let batch = run(true);
+    let sequential = run(false);
+    assert_eq!(batch.supplied, sequential.supplied);
+    assert_eq!(batch.borrowed, sequential.borrowed);
+    assert_eq!(batch.revenue, sequential.revenue);
+    assert_eq!(batch.supply_index, sequential.supply_index);
+    assert_eq!(batch.borrow_index, sequential.borrow_index);
+    assert_eq!(batch.cash, sequential.cash);
 }
 #[test]
 fn test_claim_revenue() {
@@ -1063,11 +1095,7 @@ fn test_claim_revenue_handles_partial_claim_when_reserves_are_lower_than_revenue
     let oversized_supply = client
         .supply(&t.sup(0, 200_000_000_000_000i128))
         .get_unchecked(0);
-    let _ = client.seize_position(
-        &hub(&t.asset),
-        &AccountPositionType::Deposit,
-        &oversized_supply.position,
-    );
+    client.seize_positions(&t.sez(AccountPositionType::Deposit, &oversized_supply.position));
 
     // Reserves below revenue cap the claim at available `cash` and leave
     // residual revenue.
@@ -1119,11 +1147,7 @@ fn test_claim_revenue_rejects_revenue_above_supplied() {
     let supplied = client
         .supply(&t.sup(0, 10_000_000_000i128))
         .get_unchecked(0);
-    let _ = client.seize_position(
-        &hub(&t.asset),
-        &AccountPositionType::Deposit,
-        &supplied.position,
-    );
+    client.seize_positions(&t.sez(AccountPositionType::Deposit, &supplied.position));
     t.edit_state(|state| {
         state.supplied = 1;
     });

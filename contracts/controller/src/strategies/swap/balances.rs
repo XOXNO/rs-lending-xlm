@@ -1,6 +1,6 @@
 //! Router balance-delta verification.
 
-use common::errors::GenericError;
+use common::errors::{GenericError, StrategyError};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use super::balance_delta;
@@ -33,14 +33,14 @@ pub(super) fn verify_router_input_spend(
     assert_with_error!(
         env,
         balance_after <= balance_before,
-        GenericError::InternalError
+        StrategyError::RouterOverspend
     );
     // D{token_in.decimals}{Token(token_in)} spent by router from controller balance.
     let actual_in_spent = balance_before - balance_after;
     assert_with_error!(
         env,
         actual_in_spent <= amount_in,
-        GenericError::InternalError
+        StrategyError::RouterOverspend
     );
 }
 
@@ -71,6 +71,6 @@ pub(super) fn verify_router_output(
 ) -> i128 {
     // D{token_out.decimals}{Token(token_out)} verified router output by balance delta.
     let received = balance_delta(env, token_out_client, balance_before);
-    assert_with_error!(env, received > 0, GenericError::InternalError);
+    assert_with_error!(env, received > 0, StrategyError::NoSwapOutput);
     received
 }

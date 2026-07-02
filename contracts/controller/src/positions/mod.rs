@@ -3,11 +3,14 @@
 use crate::account;
 use common::errors::{CollateralError, SpokeError};
 use common::types::{
-    Account, AccountPosition, DebtPosition, HubAssetKey, PoolAction, ScaledPositionRaw,
+    Account, AccountPosition, AccountPositionType, DebtPosition, HubAssetKey, PoolAction,
+    ScaledPositionRaw,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
 use crate::context::Cache;
+use crate::risk::validation;
+use crate::spoke;
 use crate::storage;
 
 pub mod borrow;
@@ -77,6 +80,42 @@ pub(crate) fn finalize_position_flow(
     cache.emit_position_batch(account_id, account);
 }
 
+/// Shared pre-pool entry gates for deposit and borrow batches: bulk position
+/// limits, hub/market activity, spoke listing, per-spoke flags, and the
+/// side-specific collateral/borrow capability flag.
+pub(crate) fn validate_position_entry_gates(
+    env: &Env,
+    account: &Account,
+    aggregated: &AggregatedPayments,
+    cache: &mut Cache,
+    position_type: AccountPositionType,
+) {
+    validation::validate_bulk_position_limits(env, account, position_type, aggregated);
+
+    for (hub_asset, _) in aggregated {
+        validation::require_hub_active(env, hub_asset.hub_id);
+        validation::require_market_active(env, cache, &hub_asset);
+        // Risk config is read from the account's spoke listing; unlisted
+        // assets revert `AssetNotInSpoke`.
+        let asset_config =
+            spoke::require_listed_active_config(env, cache, account.spoke_id, &hub_asset);
+        // Frozen blocks new entries; paused blocks every verb.
+        enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
+        match position_type {
+            AccountPositionType::Deposit => assert_with_error!(
+                env,
+                asset_config.can_supply(),
+                CollateralError::NotCollateral
+            ),
+            AccountPositionType::Borrow => assert_with_error!(
+                env,
+                asset_config.can_borrow(),
+                CollateralError::AssetNotBorrowable
+            ),
+        }
+    }
+}
+
 /// Enforces per-spoke paused/frozen flags.
 pub(crate) fn enforce_spoke_asset_flags(
     env: &Env,
@@ -117,7 +156,7 @@ pub(crate) fn get_supply_position_or_panic(
     (&account
         .supply_positions
         .get(hub_asset.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound)))
         .into()
 }
 
@@ -129,7 +168,7 @@ pub(crate) fn get_debt_position_or_panic(
     (&account
         .borrow_positions
         .get(hub_asset.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
         .into()
 }
 

@@ -12,9 +12,7 @@ use crate::spoke;
 use crate::strategies::{
     borrow_for_strategy, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
 };
-use crate::{
-    positions::supply, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
-};
+use crate::{positions::supply, risk::validation, Controller, ControllerArgs, ControllerClient};
 
 pub struct MultiplyParams<'a> {
     pub account_id: u64,
@@ -80,17 +78,18 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
 
     validate_multiply_request(env, collateral, debt, mode, debt_to_flash_loan);
 
+    let (account_id, mut account, mut cache) =
+        prepare_multiply_account(env, caller, account_id, spoke_id, mode, collateral, debt);
+
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
         env,
         caller,
+        &mut cache,
         collateral,
         debt,
         &initial_payment,
         &convert_swap,
     );
-
-    let (account_id, mut account, mut cache) =
-        prepare_multiply_account(env, caller, account_id, spoke_id, mode, collateral, debt);
 
     // D{debt_token.decimals}{Token(debt_token)} net borrow received after protocol fee
     // on `debt`'s hub market.
@@ -159,7 +158,8 @@ fn prepare_multiply_account(
         account::AccountGuard::Multiply,
         &mut cache,
     );
-    let collateral_config = spoke::effective_asset_config(&mut cache, account.spoke_id, collateral);
+    let collateral_config =
+        spoke::require_listed_active_config(env, &mut cache, account.spoke_id, collateral);
     assert_with_error!(
         env,
         collateral_config.can_supply(),
@@ -197,6 +197,7 @@ fn validate_multiply_request(
 fn collect_initial_multiply_payment(
     env: &Env,
     caller: &Address,
+    cache: &mut Cache,
     collateral: &HubAssetKey,
     debt: &HubAssetKey,
     initial_payment: &Option<(HubAssetKey, i128)>,
@@ -213,7 +214,7 @@ fn collect_initial_multiply_payment(
     // token-rooted `AssetOracle` entry (the payment is priced downstream).
     assert_with_error!(
         env,
-        storage::get_asset_oracle(env, &payment.asset).is_some(),
+        cache.asset_oracle_exists(&payment.asset),
         GenericError::AssetNotSupported
     );
 

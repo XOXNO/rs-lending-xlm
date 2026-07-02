@@ -2,11 +2,11 @@
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
-use soroban_sdk::{Address, Bytes, Env};
+use soroban_sdk::{Address, Bytes, Env, Vec};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
-    AccountPositionType, MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolPositionMutation,
+    MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolPositionMutation, PoolSeizeEntry,
     PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
 };
 
@@ -21,7 +21,7 @@ fn nondet_market_index() -> MarketIndex {
     }
 }
 
-/// Nondet index with supply and borrow indexes >= prior (except seize_position supply drop).
+/// Nondet index with supply and borrow indexes >= prior (except seize_positions supply drop).
 fn nondet_market_index_monotone(prior: &MarketIndex) -> MarketIndex {
     let idx = nondet_market_index();
     cvlr_assume!(idx.supply_index >= prior.supply_index);
@@ -173,22 +173,10 @@ pub fn create_strategy_summary(
     }
 }
 
-/// Seize: scaled amount zeroed; supply index may drop (floored), borrow index >= RAY.
-pub fn seize_position_summary(
-    _env: &Env,
-    _asset: &Address,
-    _side: AccountPositionType,
-    position: ScaledPositionRaw,
-) -> PoolPositionMutation {
-    let mut zeroed = position.clone();
-    zeroed.scaled_amount = 0;
-    let market_index = nondet_market_index();
-    PoolPositionMutation {
-        position: zeroed,
-        market_index: (&market_index).into(),
-        actual_amount: 0,
-    }
-}
+/// Seize: no return value; per-entry scaled amounts leave the market totals,
+/// the supply index may drop (floored) and the borrow index stays >= RAY, the
+/// nondet index semantics of `nondet_market_index`.
+pub fn seize_positions_summary(_env: &Env, _entries: &Vec<PoolSeizeEntry>) {}
 
 /// Claim revenue: non-negative transfer amount.
 pub fn claim_revenue_summary(_env: &Env, _asset: &Address) -> PoolAmountMutation {

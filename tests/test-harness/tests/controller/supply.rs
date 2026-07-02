@@ -308,9 +308,9 @@ fn test_supply_spoke_rejects_non_category_asset() {
 
     // Supplying ETH to an spoke stablecoin account must fail: ETH is not
     // listed on the account's spoke, so the spoke model rejects it as
-    // AssetNotSupported.
+    // AssetNotInSpoke.
     let result = t.try_supply(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
+    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
 // 15. test_supply_raw_precision
 
@@ -425,8 +425,8 @@ fn test_bulk_supply_duplicate_asset_counts_once() {
 
 // POC (VECTOR.md #5.1): permissionless account-creation spam. `supply` enforces
 // only `require_positive_amount` (> 0) and `can_supply`/position-limit checks —
-// there is NO minimum-deposit / dust-value floor (`validate_deposit`,
-// supply.rs:123). Each `supply(account_id = 0)` mints a fresh controller account
+// there is NO minimum-deposit / dust-value floor
+// (`validate_position_entry_gates`). Each `supply(account_id = 0)` mints a fresh controller account
 // (`create_account` → monotonic `AccountNonce`), writing AccountMeta +
 // SupplyPositions persistent entries. A single external address can therefore
 // create unbounded accounts with 1-raw-unit deposits, bloating controller state

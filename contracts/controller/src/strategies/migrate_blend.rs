@@ -80,6 +80,10 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         debt_caps,
     } = params;
 
+    // Both the debt and deposit legs gate `hub_id` only transitively; assert it
+    // once explicitly so the invariant survives refactors.
+    validation::require_hub_active(env, hub_id);
+
     validate_migration_request(
         env,
         &blend_pool,

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-05
-- Revised: 2026-06-30
+- Revised: 2026-07-02
 - Deciders: XOXNO Lending contract team
 
 ## Context
@@ -15,42 +15,62 @@ The current protocol has no separate market-status enum. Price activation is
 represented by the presence of token-rooted `AssetOracle(asset)` configuration.
 Removing that entry disables price resolution for the asset.
 
+Oracle price resolution itself (ADR 0003) is uniformly fail-closed: `token_price`
+and the functions it calls never return a degraded price. There is no
+strict/permissive switch inside price resolution. The remaining design question
+is which flows call price resolution at all, and what a flow does when that
+resolution reverts.
+
 ## Decision
 
-Centralize oracle behavior in `OraclePolicy` and pass it through the transaction
-cache:
+Differentiate oracle exposure per flow structurally, at the call site, rather
+than through a runtime policy value threaded through the transaction cache:
 
-- `RiskIncreasing`: strict pricing for flows that can increase account or system
-  risk.
-- `RiskDecreasing`: permissive pricing for flows that reduce account risk or do
-  not need strict price safety.
-- `Repay`: repay-specific path with no load-bearing oracle dependency.
-- `Liquidation`: strict pricing for liquidation and bad-debt cleanup.
-- `View`: read-only path that should not overstate executable behavior.
+- A flow that cannot increase account or system risk, and does not need a live
+  account valuation to decide its outcome, does not call the oracle. `repay`
+  (`contracts/controller/src/positions/repay.rs`) never prices anything. A
+  debt-free `withdraw` skips `require_post_pool_risk_gates`
+  (`contracts/controller/src/risk/validation.rs`) entirely: that gate is a
+  no-op when `account.borrow_positions.is_empty()`.
+- A flow whose outcome depends on account solvency calls
+  `calculate_account_risk_totals` (`contracts/controller/src/risk/totals.rs`),
+  which resolves every priced position through the strict, fail-closed path
+  defined in ADR 0003. This covers `borrow`, a debt-bearing `withdraw`,
+  `liquidate`, `clean_bad_debt`, and any strategy leg that leaves the account
+  with debt.
+- Views that resolve a price (`resolve_market_oracle_config`, health-factor
+  reads) use the same strict path as mutations and must not be read as proof
+  that a subsequent mutation will succeed; a mutation re-evaluates state at its
+  own ledger.
 
-Strict policies fail closed on missing, stale, future-dated, out-of-sanity, or
-out-of-tolerance prices. Permissive policies can allow degraded reads only where
-the flow cannot increase risk.
+There is no flow-level override of oracle strictness: every price read either
+resolves under the ADR 0003 rules or the call reverts. Permissiveness is
+achieved only by a flow choosing not to read a price, never by relaxing how a
+price is validated once read.
 
 ## Flow Assignment
 
-| Flow | Policy |
+| Flow | Reads the oracle? |
 | --- | --- |
-| `supply` | `RiskDecreasing` |
-| `borrow` | `RiskIncreasing` |
-| `withdraw` without debt | `RiskDecreasing` |
-| `withdraw` with debt | `RiskIncreasing` |
-| `repay` | `Repay` |
-| `liquidate` | `Liquidation` |
-| strategy flows | policy selected by the risk effect of each leg |
-| price-resolving views | `View` |
+| `supply` | No |
+| `borrow` | Yes — fail-closed |
+| `withdraw` without debt | No |
+| `withdraw` with debt | Yes — fail-closed |
+| `repay` | No |
+| `liquidate` / `clean_bad_debt` | Yes — fail-closed |
+| strategy flows | Yes, if the resulting account carries debt |
+| price-resolving views | Yes — fail-closed |
 
 ## Alternatives Considered
 
-- **Strict for every flow.** Rejected because users need de-risk paths during
-  oracle outages.
-- **Permissive for every flow.** Rejected because borrows and liquidations must
-  not proceed under degraded pricing.
+- **Strict for every flow, including debt-free exits.** Rejected because it
+  would force a price read, and a potential revert, onto flows that have no
+  risk-relevant outcome to protect.
+- **A runtime `OraclePolicy` value threaded through the cache (the original
+  design).** Rejected on the 2026-07-02 revision: with price resolution
+  already fail-closed everywhere (ADR 0003), a policy value that only ever
+  selected "read strictly" or "don't read" added a parameter and a cache field
+  for a distinction the call graph already encodes structurally.
 - **Per-asset switch.** Rejected because the risk effect is defined by the flow,
   not the asset.
 - **Caller-specified policy.** Rejected because oracle safety must not be user
@@ -60,20 +80,41 @@ the flow cannot increase risk.
 
 Positive:
 
-- Risk-increasing flows fail closed.
-- Repay and supported de-risk flows remain available when they do not rely on
-  strict prices.
-- Oracle behavior is explicit at each call path.
+- Risk-increasing and solvency-dependent flows fail closed by construction:
+  they call `calculate_account_risk_totals`, which cannot return a degraded
+  price.
+- Repay and debt-free exits stay available during an oracle outage because they
+  never reach oracle code, not because a policy flag permitted a weaker check.
+- The distinction is enforced by the call graph, not by a value that could be
+  threaded incorrectly at a new call site.
 
 Accepted costs:
 
-- Every new entrypoint must choose the correct policy and tests must cover that
-  choice.
+- Every new entrypoint must be reviewed for whether it needs a price at all;
+  the risk-effect analysis is "does this path call `calculate_account_risk_totals`
+  or `token_price`," not "which policy value do I pass."
 - Views must stay conservative and must not be treated as proof that a mutation
   will succeed.
+
+## Revisions
+
+### 2026-07-02: Removed the `OraclePolicy` runtime type
+
+The original decision described an `OraclePolicy` enum (`RiskIncreasing` /
+`RiskDecreasing` / `Repay` / `Liquidation` / `View`) threaded through the
+transaction cache, with strict policies failing closed and permissive policies
+allowing degraded reads (a stale, missing, or out-of-tolerance price accepted
+under specific flows). No such type exists in the current tree: price
+resolution (ADR 0003) has one fail-closed path with no permissive variant. The
+flow-level distinction this ADR records is unchanged in substance — some flows
+must not proceed on bad pricing, others do not need pricing at all — but it is
+now expressed by whether a flow's code path calls price resolution, not by a
+policy value passed into it.
 
 ## References
 
 - `contracts/controller/src/oracle`
-- `contracts/controller/src/context`
-- `contracts/controller/src/positions`
+- `contracts/controller/src/risk/validation.rs::require_post_pool_risk_gates`
+- `contracts/controller/src/risk/totals.rs::calculate_account_risk_totals`
+- `contracts/controller/src/positions/repay.rs`
+- [ADR 0003](./0003-oracle-dual-source-with-tolerance-bands.md)

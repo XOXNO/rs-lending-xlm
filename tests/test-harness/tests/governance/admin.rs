@@ -1,6 +1,6 @@
 //! Token-shape probing and asset-config bounds on the governance forwarders.
 
-use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs};
+use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 use test_harness::{
@@ -66,20 +66,29 @@ fn test_set_min_borrow_collateral_rejects_negative_floor() {
 // `validate_risk_bounds` threshold above 100% (#113).
 #[test]
 #[should_panic(expected = "Error(Contract, #113)")]
-fn test_edit_asset_config_rejects_threshold_above_bps() {
+fn test_edit_asset_in_spoke_rejects_threshold_above_bps() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let admin = t.admin();
     let asset = t.resolve_market("USDC").asset.clone();
-    let mut cfg = t
+    let cfg = t
         .ctrl_client()
         .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
-    cfg.loan_to_value = 5_000;
-    cfg.liquidation_threshold = 10_001;
-    cfg.liquidation_bonus = 0;
-    t.gov_client().execute_immediate(
-        &admin,
-        &AdminOperation::EditAssetConfig(hub_asset(asset), cfg),
-    );
+    let args = SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset,
+        spoke_id: HARNESS_SPOKE,
+        can_collateral: cfg.is_collateralizable,
+        can_borrow: cfg.is_borrowable,
+        ltv: 5_000,
+        threshold: 10_001,
+        bonus: 0,
+        liquidation_fees: cfg.liquidation_fees,
+        supply_cap: cfg.supply_cap,
+        borrow_cap: cfg.borrow_cap,
+        oracle_override: cfg.oracle_override,
+    };
+    t.gov_client()
+        .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
 
 // Configure-time tolerance below the minimum (#208).

@@ -119,42 +119,49 @@ fn test_validate_irm_rejects_reserve_factor_at_bps() {
     );
 }
 
-// `validate_asset_config` invariants, driven via `edit_asset_config`.
+// `validate_risk_bounds` invariants, driven via `edit_asset_in_spoke`.
 
 // threshold*(1+bonus) > 100% rejects #113: a bonus large enough that
 // liquidation seizure would exceed collateral is invalid (mints bad debt).
 #[test]
 #[should_panic(expected = "Error(Contract, #113)")]
-fn test_validate_asset_config_rejects_excessive_liq_bonus() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let admin = t.admin();
-    let mut cfg = t
-        .ctrl_client()
-        .get_spoke_asset(&1u32, &hub_asset(asset.clone()));
-    // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
-    cfg.loan_to_value = 8000;
-    cfg.liquidation_threshold = 9500;
-    cfg.liquidation_bonus = 1000;
-    t.gov_client().execute_immediate(
-        &admin,
-        &AdminOperation::EditAssetConfig(hub_asset(asset), cfg),
-    );
-}
-
-// A large bonus is permitted when the threshold leaves room:
-// 50% threshold * (1 + 50% bonus) = 75% <= 100%. The bonus ceiling is the
-// invariant, not a flat cap.
-#[test]
-fn test_validate_asset_config_accepts_high_bonus_low_threshold() {
+fn test_edit_asset_in_spoke_rejects_excessive_liq_bonus() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let cfg = t
         .ctrl_client()
         .get_spoke_asset(&1u32, &hub_asset(asset.clone()));
-    // The base-config op (EditAssetConfig) targets the removed spoke 0; drive the
-    // same risk-bound invariant through the live per-spoke editor instead.
+    let args = SpokeAssetArgs {
+        liquidation_fees: cfg.liquidation_fees,
+        oracle_override: cfg.oracle_override,
+        hub_id: HARNESS_HUB,
+        asset,
+        spoke_id: HARNESS_SPOKE,
+        can_collateral: cfg.is_collateralizable,
+        can_borrow: cfg.is_borrowable,
+        // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
+        ltv: 8000,
+        threshold: 9500,
+        bonus: 1000,
+        supply_cap: cfg.supply_cap,
+        borrow_cap: cfg.borrow_cap,
+    };
+    t.gov_client()
+        .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
+}
+
+// A large bonus is permitted when the threshold leaves room:
+// 50% threshold * (1 + 50% bonus) = 75% <= 100%. The bonus ceiling is the
+// invariant, not a flat cap.
+#[test]
+fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
+    let cfg = t
+        .ctrl_client()
+        .get_spoke_asset(&1u32, &hub_asset(asset.clone()));
     let args = SpokeAssetArgs {
         liquidation_fees: 0,
         oracle_override: controller::types::MarketOracleConfigOption::None,

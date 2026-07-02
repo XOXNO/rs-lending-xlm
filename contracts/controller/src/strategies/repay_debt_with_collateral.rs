@@ -1,6 +1,6 @@
 //! Repays debt by withdrawing and swapping collateral.
 
-use common::errors::CollateralError;
+use common::errors::{CollateralError, GenericError};
 use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
@@ -145,6 +145,8 @@ fn swap_or_net_collateral_to_debt(
     swap: &StrategySwap,
 ) -> i128 {
     if collateral.asset == debt.asset {
+        // Same-asset netting must not carry a route; a payload here would be silently ignored.
+        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
         return collateral_amount;
     }
 

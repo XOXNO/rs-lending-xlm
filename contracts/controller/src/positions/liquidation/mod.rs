@@ -8,7 +8,7 @@ mod plan;
 
 pub(crate) use plan::execute_liquidation;
 
-use common::errors::{CollateralError, GenericError};
+use common::errors::CollateralError;
 use common::types::{Account, HubAssetKey};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
 
@@ -33,6 +33,8 @@ impl Controller {
     }
 
     pub fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
+        // Auth binds the cleanup to an accountable caller; the operation
+        // itself is permissionless.
         caller.require_auth();
         validation::require_not_flash_loaning(&env);
         clean_bad_debt_standalone(&env, account_id);
@@ -58,6 +60,8 @@ pub fn process_liquidation(
     validate_liquidation_inputs(env, &account, liquidator, &aggregated);
 
     let liquidation_plan = plan::build_liquidation_plan(env, &account, &aggregated, &mut cache);
+    // `result.refunds` is informational: the liquidator only ever transfers
+    // the post-normalization repaid amounts, so no refund transfer exists here.
     let result = liquidation_plan.into_result();
 
     validation::require_non_empty_payments(env, &result.repaid);
@@ -104,10 +108,12 @@ fn validate_liquidation_inputs(
 ) {
     validation::require_non_empty_payments(env, aggregated);
 
+    // The guard covers only the owner; a registered delegate liquidating an
+    // account it manages remains allowed (deliberate).
     assert_with_error!(
         env,
         account.owner != *liquidator,
-        GenericError::AccountNotInMarket
+        CollateralError::SelfLiquidationNotAllowed
     );
 
     // Debt assets are priced and repaid downstream; a non-market asset reverts
@@ -124,7 +130,7 @@ pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     assert_with_error!(
         env,
         !account.borrow_positions.is_empty(),
-        CollateralError::PositionNotFound
+        CollateralError::DebtPositionNotFound
     );
 
     let totals = risk::calculate_account_risk_totals(

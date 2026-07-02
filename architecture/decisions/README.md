@@ -17,6 +17,7 @@ decision, alternatives, consequences, and implementation paths.
 | 0007 | [Bad-Debt Socialization With Supply-Index Floor](./0007-bad-debt-socialization-with-index-floor.md) | Accepted |
 | 0009 | [Mainnet Launch Hardening and Operational Control](./0009-mainnet-launch-hardening-and-operational-control.md) | Accepted |
 | 0010 | [Governance Timelock for Protocol Admin](./0010-governance-timelock-for-controller-admin.md) | Accepted |
+| 0011 | [Pause and Freeze Matrix](./0011-pause-and-freeze-matrix.md)                                   | Accepted |
 
 ## Related Documents
 

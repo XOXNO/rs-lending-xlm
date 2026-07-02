@@ -109,6 +109,23 @@ fn repay_first(e: &Env, payer: Address, act: PoolAction) -> common::types::PoolP
     crate::LiquidityPool::repay(e.clone(), payer, actions).get_unchecked(0)
 }
 
+fn seize_first(e: &Env, side: AccountPositionType, asset: Address, pos: ScaledPositionRaw) {
+    let mut entries: soroban_sdk::Vec<common::types::PoolSeizeEntry> = soroban_sdk::Vec::new(e);
+    entries.push_back(common::types::PoolSeizeEntry {
+        hub_asset: hub(asset),
+        side,
+        position: pos,
+    });
+    crate::LiquidityPool::seize_positions(e.clone(), entries);
+}
+
+fn read_state(env: &Env, asset: &Address) -> PoolStateRaw {
+    env.storage()
+        .persistent()
+        .get(&PoolKey::State(hub(asset.clone())))
+        .unwrap()
+}
+
 #[rule]
 fn supply_satisfies_controller_summary_contract(
     e: Env,
@@ -263,13 +280,18 @@ fn seize_position_satisfies_controller_summary_contract(
         state(100 * RAY, scaled, 0, e.ledger().timestamp()),
     );
 
-    let result = crate::LiquidityPool::seize_position(
-        e,
-        hub(asset),
+    seize_first(
+        &e,
         AccountPositionType::Borrow,
+        asset.clone(),
         position(scaled),
     );
-    cvlr_assert!(result.position.scaled_amount == 0);
+    // The summary models seize as a no-return state mutation: the seized debt
+    // shares leave the market and the indexes stay inside the nondet bounds.
+    let after = read_state(&e, &asset);
+    cvlr_assert!(after.borrowed == 0);
+    cvlr_assert!(after.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(after.borrow_index >= RAY);
 }
 
 #[rule]

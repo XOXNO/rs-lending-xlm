@@ -112,6 +112,7 @@ fn test_account_position_raw_typed_roundtrip() {
         liquidation_threshold: 8_500,
         liquidation_bonus: 500,
         loan_to_value: 8_000,
+        liquidation_fees: 1_000,
     };
     let typed = AccountPosition::from(&raw);
     let back = AccountPositionRaw::from(&typed);

@@ -76,3 +76,4 @@ Thumbs.db
 **/node_modules/
 .actrc
 .serena
+__pycache__/

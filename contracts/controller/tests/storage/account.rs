@@ -59,7 +59,7 @@ fn remove_absent_delegate_is_noop() {
 
 // The delegate list is bounded; growth past the cap is rejected.
 #[test]
-#[should_panic(expected = "Error(Contract, #36)")]
+#[should_panic(expected = "Error(Contract, #45)")]
 fn add_delegate_rejects_overflowing_cap() {
     let env = Env::default();
     let admin = Address::generate(&env);

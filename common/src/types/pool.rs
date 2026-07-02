@@ -1,6 +1,7 @@
 use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY, RAY_DECIMALS};
 use crate::errors::CollateralError;
 use crate::math::fp::{Bps, Ray};
+use crate::types::shared::AccountPositionType;
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env};
 
 /// Persistent pool parameter encoding.
@@ -221,6 +222,7 @@ pub struct AccountPositionRaw {
     pub liquidation_threshold: u32,
     pub liquidation_bonus: u32,
     pub loan_to_value: u32,
+    pub liquidation_fees: u32,
 }
 
 /// Typed collateral position used by controller risk math.
@@ -230,6 +232,7 @@ pub struct AccountPosition {
     pub liquidation_threshold: Bps,
     pub liquidation_bonus: Bps,
     pub loan_to_value: Bps,
+    pub liquidation_fees: Bps,
 }
 
 impl From<&AccountPositionRaw> for AccountPosition {
@@ -239,6 +242,7 @@ impl From<&AccountPositionRaw> for AccountPosition {
             liquidation_threshold: Bps::from(i128::from(r.liquidation_threshold)),
             liquidation_bonus: Bps::from(i128::from(r.liquidation_bonus)),
             loan_to_value: Bps::from(i128::from(r.loan_to_value)),
+            liquidation_fees: Bps::from(i128::from(r.liquidation_fees)),
         }
     }
 }
@@ -250,6 +254,7 @@ impl From<&AccountPosition> for AccountPositionRaw {
             liquidation_threshold: t.liquidation_threshold.raw() as u32,
             liquidation_bonus: t.liquidation_bonus.raw() as u32,
             loan_to_value: t.loan_to_value.raw() as u32,
+            liquidation_fees: t.liquidation_fees.raw() as u32,
         }
     }
 }
@@ -466,6 +471,15 @@ pub struct PoolBorrowEntry {
 pub struct PoolWithdrawEntry {
     pub action: PoolAction,
     pub protocol_fee: i128,
+}
+
+/// One position of a bulk pool `seize_positions`.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PoolSeizeEntry {
+    pub hub_asset: HubAssetKey,
+    pub side: AccountPositionType,
+    pub position: ScaledPositionRaw,
 }
 
 /// Persistent pool accounting state.

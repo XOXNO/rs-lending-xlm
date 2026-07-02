@@ -3,27 +3,38 @@
 
 use controller::constants::RAY;
 use controller::types::InterestRateModel;
-use governance::op::{AdminOperation, UpgradePoolParamsArgs};
-use test_harness::{assert_contract_error, errors, hub_asset, usdc_preset, LendingTest};
+use governance::op::{AdminOperation, SpokeAssetArgs, UpgradePoolParamsArgs};
+use test_harness::{
+    assert_contract_error, errors, hub_asset, usdc_preset, LendingTest, HARNESS_HUB, HARNESS_SPOKE,
+};
 
 // `validate_risk_bounds` rejects threshold == LTV (#113).
 #[test]
-fn test_edit_asset_config_rejects_threshold_lte_ltv() {
+fn test_edit_asset_in_spoke_rejects_threshold_lte_ltv() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let admin = t.admin();
     let asset = t.resolve_market("USDC").asset.clone();
     let gov = t.gov_client();
 
-    let mut config = t
+    let config = t
         .ctrl_client()
-        .get_spoke_asset(&1u32, &hub_asset(asset.clone()));
-    config.loan_to_value = 8000;
-    config.liquidation_threshold = 8000; // Equal to LTV.
+        .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
+    let args = SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset,
+        spoke_id: HARNESS_SPOKE,
+        can_collateral: config.is_collateralizable,
+        can_borrow: config.is_borrowable,
+        ltv: 8000,
+        threshold: 8000, // Equal to LTV.
+        bonus: config.liquidation_bonus,
+        liquidation_fees: config.liquidation_fees,
+        supply_cap: config.supply_cap,
+        borrow_cap: config.borrow_cap,
+        oracle_override: config.oracle_override,
+    };
 
-    let result = gov.try_execute_immediate(
-        &admin,
-        &AdminOperation::EditAssetConfig(hub_asset(asset), config),
-    );
+    let result = gov.try_execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),

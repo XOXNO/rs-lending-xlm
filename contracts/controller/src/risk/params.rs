@@ -23,6 +23,7 @@ pub fn refresh_supply_risk_params(
 ) {
     position.loan_to_value = effective_config.loan_to_value;
     position.liquidation_bonus = effective_config.liquidation_bonus;
+    position.liquidation_fees = effective_config.liquidation_fees;
     apply_liquidation_threshold(
         env,
         cache,

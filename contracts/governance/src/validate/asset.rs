@@ -1,9 +1,9 @@
 //! Asset, risk, limit, and token-shape validation.
 
-use common::constants::{BPS, POSITION_LIMIT_MAX};
+use common::constants::POSITION_LIMIT_MAX;
 use common::errors::{CollateralError, GenericError};
 use common::types::MarketParamsRaw;
-use common::types::{PositionLimits, SpokeAssetConfig};
+use common::types::PositionLimits;
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 // SAC decimal range for RAY/WAD conversions. Assets below 6 decimals can
@@ -28,21 +28,6 @@ pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u
         GenericError::InvalidAsset
     );
     decimals
-}
-
-pub(crate) fn validate_asset_config(env: &Env, config: &SpokeAssetConfig) {
-    validate_risk_bounds(
-        env,
-        config.loan_to_value,
-        config.liquidation_threshold,
-        config.liquidation_bonus,
-    );
-
-    assert_with_error!(
-        env,
-        i128::from(config.liquidation_fees) <= BPS,
-        CollateralError::InvalidLiqThreshold
-    );
 }
 
 pub(crate) fn validate_position_limits(env: &Env, limits: &PositionLimits) {

@@ -27,7 +27,7 @@ pub(crate) struct StrategyWithdraw<'a> {
 
 fn controller_event_context(env: &Env, action: events::PositionAction) -> EventContext {
     EventContext {
-        caller: env.current_contract_address(),
+        counterparty: env.current_contract_address(),
         action,
     }
 }
@@ -114,7 +114,7 @@ pub(crate) fn execute_withdraw_all(
                 env,
                 account,
                 EventContext {
-                    caller: destination.clone(),
+                    counterparty: destination.clone(),
                     action: events::PositionAction::CloseWd,
                 },
                 WithdrawalRequest {

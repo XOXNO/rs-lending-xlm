@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-05
-- Revised: 2026-06-02
+- Revised: 2026-07-02
 - Deciders: XOXNO Lending contract team
 - Supersedes: none
 
@@ -10,15 +10,15 @@
 > Originally recorded on 2026-05-05 against the `ExchangeSource` model
 > (`SpotOnly` / `SpotVsTwap` / `DualOracle`, `OracleProviderConfig`), which
 > assumed Reflector as the only provider and encoded source diversity as a
-> fixed strategy. The implementation has since generalized to the
+> fixed strategy. The 2026-06-02 revision generalized this to the
 > `OracleStrategy` model (`Single` / `PrimaryWithAnchor`) with two
-> interchangeable providers: **Reflector** (SEP-40) and **RedStone**
-> (price-feed), composed as a `primary` source and an optional `anchor`
-> source that are deviation-checked against each other. The core
-> decision, dual-source pricing validated by tolerance bands, is unchanged;
-> the body below has been updated to the current model. See the Revisions
-> section for the change record, and `SCF_BUILD_ARCHITECTURE.md` §9 for the
-> matching reference description.
+> interchangeable providers, **Reflector** (SEP-40) and **RedStone**
+> (price-feed). The 2026-07-02 revision simplifies the tolerance model
+> further: the two-tier `first`/`last` band and its policy-gated
+> degradation path were replaced by a single band with a binary outcome,
+> and oracle listing-time validation moved from the controller into
+> governance. See Revisions for the full change record and
+> `SCF_BUILD_ARCHITECTURE.md` §9 for the matching reference description.
 
 ## Context
 
@@ -53,15 +53,16 @@ declares a `MarketOracleConfig` (`common/src/types/oracle.rs`) with a
 `OracleSourceConfig::Reflector(..)` or `OracleSourceConfig::RedStone(..)`
 (`OracleProviderKind::{ReflectorSep40, RedStonePriceFeed}`). A Reflector source
 reads `Spot` or `Twap(records)` (`OracleReadMode`); RedStone reads spot.
-`validate_oracle_config_shape` enforces two diversity rules on a
-`PrimaryWithAnchor` pair:
+`validate_oracle_config_shape` (`contracts/governance/src/validate/oracle_config.rs`)
+enforces two diversity rules on a `PrimaryWithAnchor` pair:
 
 1. **Different feeds.** Primary and anchor must not read the same feed (else
-   `GenericError::InvalidExchangeSrc`), compared by feed identity: for
-   Reflector the contract, asset, and read mode; for RedStone the contract and
-   feed id, ignoring policy-only fields such as RedStone `max_stale_seconds`.
-   The validator rejects two RedStone configs on the same contract and feed even
-   when only their staleness bounds differ.
+   `GenericError::InvalidExchangeSrc`), compared by feed identity via
+   `OracleSourceConfigInput::reads_same_feed_as`: for Reflector the contract,
+   asset, and read mode; for RedStone the contract and feed id, ignoring
+   policy-only fields such as RedStone `max_stale_seconds`. The validator
+   rejects two RedStone configs on the same contract and feed even when only
+   their staleness bounds differ.
 2. **Different providers (production).** In non-`testing` builds the primary and
    anchor must come from *different* providers: one Reflector, one RedStone
    (else `GenericError::InvalidExchangeSrc`). This places the two sources behind
@@ -81,7 +82,7 @@ providers alone.
 `OracleStrategy` (`common/src/types/oracle.rs`):
 
 - `PrimaryWithAnchor`: read both sources and cross-check them against the
-  market's tolerance bands. An anchor is required, and in production the
+  market's tolerance band. An anchor is required, and in production the
   primary/anchor pair must cross providers (one Reflector, one RedStone); see
   the two diversity rules above.
 - `Single`: use the primary source without a cross-check. In
@@ -92,56 +93,58 @@ providers alone.
   RedStone source must therefore be used under `PrimaryWithAnchor` (paired with
   an anchor) in production.
 
-**Tolerance bands and final-price selection.** Each market stores an
-`OraclePriceFluctuation` with a tight `first` band and a wider `last` band,
-each as upper/lower BPS ratio bounds. The bands are derived once from the
-configured `first_tolerance` / `last_tolerance` inputs by
-`tolerance::validate_and_calculate_tolerances`, which enforces
-`MIN_FIRST_TOLERANCE`/`MAX_FIRST_TOLERANCE`,
-`MIN_LAST_TOLERANCE`/`MAX_LAST_TOLERANCE` (`common/src/constants/oracle.rs`)
-and `first < last` (`oracle::tolerance::require_last_tolerance_gt_first`).
+**A single tolerance band; binary outcome.** Each market stores one
+`OraclePriceFluctuation { upper_ratio_bps, lower_ratio_bps }`
+(`common/src/types/oracle.rs`), built from a single `tolerance_bps` input by
+`contracts/governance/src/validate/tolerance.rs::validate_and_calculate_tolerances`,
+which enforces `MIN_TOLERANCE`/`MAX_TOLERANCE` (150..5,000 BPS,
+`common/src/constants/shared.rs`).
 
-Composition happens in `oracle::compose::resolve_components`. The `primary`
-price is the **safe** price; the `anchor` is the **aggregator**. Under
-`PrimaryWithAnchor`, `tolerance::calculate_final_price` selects:
+Composition happens in `contracts/controller/src/oracle/compose.rs::resolve_components`.
+Under `PrimaryWithAnchor`, both the primary and the anchor are read and
+freshness-checked, then
+`contracts/controller/src/oracle/tolerance.rs::calculate_final_price` computes
+the primary/anchor ratio and:
 
-1. Within the first band → use the **safe (primary)** price.
-2. Within the last band (but outside the first) → use the **midpoint** of the
-   two prices.
-3. Outside the last band → revert with `OracleError::UnsafePriceNotAllowed`
-   unless the caller's policy permits it
-   (`OraclePolicy::allows_unsafe_deviation`), in which case fall back to the
-   safe price (see ADR 0004).
+1. Inside the band → returns the midpoint of the two prices.
+2. Outside the band → reverts `OracleError::UnsafePriceNotAllowed`.
 
-`is_within_anchor` computes the ratio `safe * RAY / aggregator`, rescales it to
-BPS, and checks it against the band bounds.
+There is no permissive fallback. An anchor is mandatory for `PrimaryWithAnchor`
+at listing time (`validate_oracle_config_shape` rejects a `PrimaryWithAnchor`
+config with no anchor), so a market cannot reach runtime with a missing anchor
+through valid configuration; `resolve_components` panics
+`OracleError::NoLastPrice` only as a defensive invariant check, not as a
+degradation branch. A stale anchor reverts `OracleError::PriceFeedStale`
+exactly like a stale primary: staleness on either leg is fail-closed under
+both strategies.
 
-**Anchor degradation.** If the anchor source is unconfigured, missing, or
-stale-but-policy-permits, `resolve_components` degrades to the primary price
-via `fallback_to_primary`, gated by `OraclePolicy::allows_degraded_dual_source`
-(otherwise `OracleError::NoLastPrice`). A missing primary reverts.
+**Sanity bounds.** After composition, `contracts/controller/src/oracle/price.rs::price_with_config`
+rejects any final price outside the market's inclusive
+`[min_sanity_price_wad, max_sanity_price_wad]` window, or an unconfigured
+(`max_sanity_price_wad <= 0`) window, with `OracleError::SanityBoundViolated`.
+The `pending_for` self-pointer sentinel and non-active market statuses are
+rejected before pricing (`OracleError::OracleNotConfigured`,
+`GenericError::PairNotActive`).
 
-**Sanity bounds.** After composition, `token_price` rejects any final price
-outside the market's inclusive `[min_sanity_price_wad, max_sanity_price_wad]`
-window, or an unconfigured (`max_sanity_price_wad <= 0`) window, with
-`OracleError::SanityBoundViolated`. The `pending_for` self-pointer sentinel and
-non-active market statuses are rejected before pricing
-(`OracleError::OracleNotConfigured`, `GenericError::PairNotActive`).
-
-**Unconditional clock-skew gate.** `observation::check_not_future_at` rejects
-oracle timestamps more than `MAX_FUTURE_SKEW_SECONDS` (60s) in the future with
-`OracleError::PriceFeedStale`, regardless of policy. Staleness on the past side
-is bounded per source by `observation::is_stale`: a Reflector source uses the
+**Unconditional clock-skew gate.** `common::oracle::observation::check_not_future_at`
+rejects oracle timestamps more than `MAX_FUTURE_SKEW_SECONDS` (60s, private to
+that module) in the future with `OracleError::PriceFeedStale`, called from
+`contracts/controller/src/oracle/observation.rs` on every provider read.
+Staleness on the past side is bounded per source by
+`common::oracle::observation::is_stale`: a Reflector source uses the
 market-level `max_price_stale_seconds`; a RedStone source carries its own
 `max_stale_seconds`. Both are clamped to
-`[MIN_PRICE_STALE_SECONDS, MAX_PRICE_STALE_SECONDS]` (60s..86_400s) at listing
-time.
+`[MIN_PRICE_STALE_SECONDS, MAX_PRICE_STALE_SECONDS]` (60s..86,400s,
+`common/src/oracle/observation.rs`) at listing time.
 
-**Listing-time bounds.** Governance `propose_configure_market_oracle` resolves
-and validates the config before scheduling controller `set_market_oracle_config`.
+**Listing-time bounds.** Governance schedules oracle configuration through the
+typed `AdminOperation::ConfigureMarketOracle` and `AdminOperation::EditOracleTolerance`
+operations (`contracts/governance/src/op.rs::resolve_op`), which resolve and
+validate the config before scheduling controller `set_market_oracle_config`.
 The controller re-checks quote-market invariants at execution before it
-persists the config. The validation path covers:
-strategy/anchor coherence (`PrimaryWithAnchor` ⇔ an anchor is configured);
+persists the config. The validation path
+(`contracts/governance/src/validate/{oracle_config.rs, oracle_probe.rs, tolerance.rs}`)
+covers: strategy/anchor coherence (`PrimaryWithAnchor` ⇔ an anchor is configured);
 primary/anchor diversity: different feeds, and in production different
 providers (`GenericError::InvalidExchangeSrc`); the production
 naked-spot-`Single` rejection (a `Single` primary that reads spot: Reflector
@@ -155,9 +158,9 @@ most `MAX_TWAP_RECORDS` (12) records with sufficient non-empty history
 (`TwapInsufficientObservations`, `ReflectorHistoryEmpty`). For a RedStone
 source: a per-source staleness bound, fixed `REDSTONE_DECIMALS`, and a live
 `read_price_data` validated on both its package and write timestamps.
-`propose_edit_oracle_tolerance` only re-validates the first/last tolerance
-inputs (`validate_and_calculate_tolerances`) and schedules the rewritten band
-fields; it does not re-probe the configured sources.
+`AdminOperation::EditOracleTolerance` only re-validates the tolerance input
+(`validate_and_calculate_tolerances`) and schedules the rewritten band; it
+does not re-probe the configured sources.
 
 ## Alternatives Considered
 
@@ -177,6 +180,14 @@ fields; it does not re-probe the configured sources.
   Reflector and RedStone feeds and which one is primary, with one production
   constraint layered on top: the pair must cross providers (above), so the
   cross-check spans two independent trust boundaries rather than one.
+- **Two-tier tolerance band with policy-gated degradation (the 2026-06-02
+  design).** Rejected on the 2026-07-02 revision: a `first`-band/`last`-band
+  split with a policy-gated fallback to the primary price outside the last
+  band added branching that no valid configuration exercised — a
+  `PrimaryWithAnchor` market already requires an anchor at listing time, so
+  the fallback path was unreachable through the listing-time validator. A
+  single band with a binary revert-or-blend outcome is simpler to audit and
+  matches how `PrimaryWithAnchor` markets are actually configured.
 - **Manual circuit breaker (off-chain pause on deviation).** Rejected as
   the only line of defense; off-chain monitors are still useful but cannot
   be the oracle gate on their own.
@@ -194,10 +205,12 @@ Positive:
 - Risk-bearing decisions on a `PrimaryWithAnchor` market are gated by a
   cross-*provider* deviation check, so a single provider's compromise or failure
   moves only one side and trips the band rather than passing unnoticed.
-- The midpoint band absorbs small honest deviations without halting the
-  protocol; the first band prefers the safe (primary) price.
-- Anchor unavailability degrades to the primary under permissive policies.
-  Strict policies reject out-of-band divergence.
+- The midpoint blend absorbs honest deviations within the tolerance band
+  without halting the protocol; outside the band the call reverts rather than
+  silently preferring one side.
+- An anchor is load-bearing for the lifetime of a `PrimaryWithAnchor` market:
+  it is never optional at read time, so the deviation check cannot be
+  bypassed by a degraded reconfiguration.
 - The clock-skew gate rejects future-dated feeds in all modes, and sanity
   bounds reject absurd prices even when one provider is corroborated.
 
@@ -207,15 +220,15 @@ Negative / accepted costs:
   slot.
 - Tolerance bounds, staleness limits, and sanity bounds are configuration, not
   code; they must be set conservatively per market and audited at listing time.
-- A correlated outage of both sources will revert risk-increasing flows;
-  this is the intended fail-safe (ADR 0004 explains how risk-decreasing
-  flows degrade).
+- A correlated outage of both required sources reverts the call. Flows that do
+  not need a price avoid this by not resolving one at all, rather than by
+  reading under a weaker check (ADR 0004).
 - The cross-provider check defends against *one* provider failing. It does not
   catch a correlated failure that moves both providers the same way (e.g. a
   shared upstream exchange both read from), nor a manipulation small
-  enough to stay inside the tolerance bands. Those residual risks are bounded by
-  the band widths and the sanity bounds, not eliminated; selecting
-  independent feeds and conservative bands remains an operator responsibility.
+  enough to stay inside the tolerance band. Those residual risks are bounded by
+  the band width and the sanity bounds, not eliminated; selecting
+  independent feeds and a conservative band remains an operator responsibility.
 
 ## Revisions
 
@@ -234,15 +247,13 @@ to the current shape:
   (`OracleProviderKind::{ReflectorSep40, RedStonePriceFeed}`); RedStone is new.
   Primary and anchor can be any two distinct sources, so RedStone and Reflector
   deviation-check each other when configured as a pair.
-- Final-price selection (`tolerance::calculate_final_price`) and the deviation
-  gate keep the same shape (first band → safe, last band → midpoint, beyond
-  → policy-gated), but the out-of-band behavior is now driven by
-  `OraclePolicy::allows_unsafe_deviation` (see ADR 0004, which also reverses
-  liquidation's deviation tolerance).
+- Final-price selection and the deviation gate keep the same shape (band →
+  blend, beyond → revert), but the out-of-band behavior and the exact band
+  model were revised again on 2026-07-02 (below).
 - New since 2026-05-05: per-market `[min_sanity_price_wad, max_sanity_price_wad]`
   bounds (`OracleError::SanityBoundViolated`); the `check_not_future_at` clock
-  gate (renamed/relocated to `observation`); and the primary/anchor diversity
-  guard.
+  gate (relocated to `common::oracle::observation`); and the primary/anchor
+  diversity guard.
 - The production `Single`-strategy gate (`SpotOnlyNotProductionSafe`) now
   rejects each naked-spot primary: Reflector `Spot` and RedStone. The original
   check predated RedStone and covered Reflector; a `Single` market must use a
@@ -263,17 +274,48 @@ to the current shape:
   invariant rather than an operator convention. (Raised by Codex
   adversarial-review, 2026-06-02.)
 
+### 2026-07-02: Single tolerance band replaces the first/last split; validation moved to governance
+
+- `OraclePriceFluctuation` dropped its two-band shape for one
+  `{upper_ratio_bps, lower_ratio_bps}` pair, built from a single
+  `tolerance_bps` input instead of separate `first_tolerance`/`last_tolerance`
+  values. `MIN_FIRST_TOLERANCE`/`MAX_FIRST_TOLERANCE`/`MIN_LAST_TOLERANCE`/`MAX_LAST_TOLERANCE`
+  were replaced by `MIN_TOLERANCE`/`MAX_TOLERANCE` (`common/src/constants/shared.rs`).
+- `calculate_final_price` (`contracts/controller/src/oracle/tolerance.rs`)
+  dropped the three-tier first-band/last-band/policy-gated selection for a
+  binary outcome: inside the band → midpoint, outside → revert. The private
+  `is_within_anchor` helper was replaced by inline `anchor_ratio_bps`/`ratio_in_band`
+  checks in the same function.
+- The `OraclePolicy`-gated anchor-degradation path (`allows_degraded_dual_source`,
+  a `fallback_to_primary` helper) was removed; see ADR 0004's 2026-07-02
+  revision.
+- Listing-time validation (shape checks, live provider probes, tolerance
+  calculation) moved out of the controller and into governance:
+  `contracts/controller/src/oracle/validation/{config.rs, oracle.rs}` became
+  `contracts/governance/src/validate/{oracle_config.rs, oracle_probe.rs, tolerance.rs}`.
+  Governance validates before scheduling; the controller still re-checks
+  quote-market invariants at execution.
+- The oracle provider files flattened from `providers/{reflector/, redstone/}`
+  directories to `providers/{reflector.rs, redstone.rs}`, and `read_source`
+  was renamed `read_required_source`.
+- `contracts/controller/src/positions/liquidation.rs` and
+  `liquidation_math.rs` split into the
+  `contracts/controller/src/positions/liquidation/` module (`apply.rs`,
+  `bad_debt.rs`, `math.rs`, `mod.rs`, `plan.rs`); references below use the new
+  paths.
+
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §9 (Oracle Pricing), `architecture/INVARIANTS.md`
   §4.2 to §4.3 (Oracle Configuration, Price Resolution).
-- `contracts/controller/src/oracle/price.rs::token_price`
+- `contracts/controller/src/oracle/price.rs::{token_price, price_with_config}`
 - `contracts/controller/src/oracle/compose.rs::resolve_components`
-- `contracts/controller/src/oracle/tolerance.rs::{calculate_final_price, is_within_anchor, validate_and_calculate_tolerances}`
-- `contracts/controller/src/oracle/observation.rs::{check_not_future_at, is_stale, validate_timestamp}`
-- `contracts/controller/src/oracle/providers/{mod.rs::read_source, reflector/, redstone/}`
-- `contracts/controller/src/oracle/validation/{config.rs, oracle.rs::validate_market_oracle_sources}`
-- `contracts/governance/src/forward.rs::{propose_configure_market_oracle, propose_edit_oracle_tolerance}`
-- `contracts/controller/src/governance/config.rs::{set_market_oracle_config, set_oracle_tolerance}`
+- `contracts/controller/src/oracle/tolerance.rs::calculate_final_price`
+- `contracts/controller/src/oracle/observation.rs::{redstone_observation_from_price_data, reflector_observation_from_price_data}`
+- `common/src/oracle/observation.rs::{check_not_future_at, is_stale, validate_positive_price_timestamps}`
+- `contracts/controller/src/oracle/providers/{mod.rs::read_required_source, reflector.rs, redstone.rs}`
+- `contracts/governance/src/validate/{oracle_config.rs::validate_oracle_config_shape, oracle_probe.rs::validate_market_oracle_sources, tolerance.rs::validate_and_calculate_tolerances}`
+- `contracts/governance/src/op.rs::resolve_op` (`AdminOperation::{ConfigureMarketOracle, EditOracleTolerance}`)
+- `contracts/governance/src/timelock.rs::{propose, resolve_market_oracle_config, resolve_oracle_tolerance}`
 - `common/src/types/oracle.rs` (`OracleStrategy`, `OracleSourceConfig`, `MarketOracleConfig`, `OraclePriceFluctuation`, `OracleReadMode`, `OracleAssetRef`)
-- `common/src/constants/oracle.rs` (`MIN_FIRST_TOLERANCE`, `MAX_FIRST_TOLERANCE`, `MIN_LAST_TOLERANCE`, `MAX_LAST_TOLERANCE`)
+- `common/src/constants/shared.rs` (`MIN_TOLERANCE`, `MAX_TOLERANCE`)

@@ -34,9 +34,9 @@ fn test_repay_debt_with_collateral_same_token_nets_positions() {
     let supply_before = t.supply_balance(ALICE, "USDC");
     assert!(debt_before > 29_000.0 && debt_before < 31_000.0);
 
-    // Net 10k USDC collateral against 10k USDC debt in one call. `steps` is
-    // unused in the same-asset path, but the API still requires a value.
-    let steps = t.mock_swap_steps("USDC", "USDC", 0);
+    // Net 10k USDC collateral against 10k USDC debt in one call. The
+    // same-asset path skips the router and requires empty swap bytes.
+    let steps = Bytes::new(&t.env);
     t.repay_debt_with_collateral(ALICE, "USDC", 10_000.0, "USDC", &steps, false);
 
     let debt_after = t.borrow_balance(ALICE, "USDC");
@@ -300,11 +300,11 @@ fn test_swap_collateral_spoke_wrong_category() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 
-    // Try to swap USDC collateral to ETH: ETH is not listed in category 1.
-    // `validate_spoke_asset` rejects missing category membership with #300.
+    // Try to swap USDC collateral to ETH: ETH is not listed on the account's
+    // spoke, so the swap-collateral preflight rejects it with AssetNotInSpoke.
     let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
-    assert_contract_error(result, errors::SPOKE_NOT_FOUND);
+    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
 // Swap collateral with no borrows: the HF check is skipped. With the
 // working mock router, this succeeds.
@@ -453,7 +453,7 @@ fn test_swap_debt_wrong_account_owner() {
         Ok(Err(e)) => Err(e.into()),
         Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
     };
-    assert_contract_error(flat, errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(flat, errors::NOT_AUTHORIZED);
 }
 // Strategy flows must authenticate the account owner address, not just compare it.
 
@@ -538,7 +538,7 @@ fn test_repay_debt_with_collateral_wrong_account_owner() {
         &steps,
         &false,
     );
-    assert_contract_error(flatten_void(result), errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(flatten_void(result), errors::NOT_AUTHORIZED);
 }
 
 #[test]
@@ -600,7 +600,7 @@ fn test_swap_collateral_wrong_account_owner() {
         Ok(Err(e)) => Err(e.into()),
         Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
     };
-    assert_contract_error(flat, errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(flat, errors::NOT_AUTHORIZED);
 }
 // Verify that collateral == debt is caught even when the amounts differ.
 

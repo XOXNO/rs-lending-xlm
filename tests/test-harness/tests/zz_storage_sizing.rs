@@ -60,6 +60,7 @@ fn pos() -> AccountPositionRaw {
         liquidation_threshold: 9000,
         liquidation_bonus: 10500,
         loan_to_value: 8000,
+        liquidation_fees: 2000,
     }
 }
 

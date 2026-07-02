@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-06-13
-- Revised: 2026-06-30
+- Revised: 2026-07-02
 - Deciders: XOXNO Lending contract team
 
 ## Context
@@ -24,37 +24,55 @@ controller-targeted operations and governance-self operations.
 ## Decision
 
 Embed the OpenZeppelin `stellar-governance` timelock state machine in the
-governance contract and expose only typed scheduling entrypoints. Do not expose a
-generic public scheduler.
+governance contract and expose scheduling only through one typed entrypoint
+backed by a closed `AdminOperation` enum. Do not expose a generic scheduler
+that takes an arbitrary target/function/args triple from the caller.
 
 ## Controller-Targeted Operations
 
-Controller-targeted proposers live in `contracts/governance/src/forward.rs`.
-Each `propose_*` function:
+Every controller-targeted admin action is an `AdminOperation` variant
+(`contracts/governance/src/op.rs`), and one entrypoint schedules any of them:
 
-1. renews governance instance TTL;
-2. requires proposer auth;
-3. checks `PROPOSER`;
-4. validates typed input;
-5. builds an operation targeting the controller;
-6. schedules it with `get_min_delay()`.
+```text
+Governance::propose(proposer, op: AdminOperation, salt) -> operation_id
+```
+
+`propose`:
+
+1. renews governance instance TTL and requires `PROPOSER` auth
+   (`begin_proposal`);
+2. resolves the operation via `op::resolve_op`, which validates that variant's
+   typed arguments inline (risk bounds, cap bounds, non-zero WASM hash, live
+   oracle probes, and so on) and returns its `(target, function, args, DelayTier)`;
+3. computes the schedule delay for that operation's `DelayTier` (see Delay And
+   Roles) and calls `schedule_operation`.
 
 `execute(executor, target, function, args, predecessor, salt)` executes ready
 controller-targeted operations. If `executor` is `Some(address)`, that address
 must authorize and hold `EXECUTOR`. If `executor` is `None`, execution is open
 once ready.
 
-Controller-targeted proposers cover hub, spoke, spoke-asset, position-limit,
-minimum-borrow-collateral, token approval, central-pool deployment, market
-creation, pool params, pool upgrade, controller upgrade/migration/ownership,
-aggregator, accumulator, oracle config, and oracle tolerance.
+`AdminOperation` covers hub, spoke, spoke-asset, position-limit,
+minimum-borrow-collateral, token and Blend-pool approval, central-pool
+template and deployment, market creation, pool params and caps, pool upgrade,
+controller upgrade/migration/ownership, position manager, aggregator,
+accumulator, oracle configuration, and oracle tolerance
+(`contracts/governance/src/op.rs::AdminOperation`).
 
 ## Governance-Self Operations
 
-Governance-self operations live in `contracts/governance/src/self_timelock.rs`.
-They use the same operation hash, delay, ready ledger, executor authorization,
-expiry check, and state transition, but apply the mutation inline in the
-governance frame.
+Governance-self operations are `AdminOperation` variants too, applied inline
+through a second typed entrypoint:
+
+```text
+Governance::execute_self(executor, op: AdminOperation, salt)
+```
+
+`execute_self` resolves the operation the same way as `propose`, asserts the
+resolved target is the governance contract itself, then applies the mutation
+inline via `op::apply_self_op`. It shares `propose`'s operation hash, delay,
+ready-ledger, executor authorization, and expiry check
+(`contracts/governance/src/timelock.rs`, `contracts/governance/src/access.rs`).
 
 Governance-self operations include:
 
@@ -79,7 +97,19 @@ Testing-only immediate forwarders are behind `#[cfg(any(test, feature =
 ## Delay And Roles
 
 - Delay unit is ledgers.
+- Every `AdminOperation` resolves to a `DelayTier`
+  (`contracts/governance/src/timelock.rs`): `Standard` schedules at the
+  current `get_min_delay()`; `Sensitive` schedules at
+  `max(get_min_delay(), TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS)`. `Sensitive`
+  gates governance WASM upgrade, controller WASM upgrade, pool WASM upgrade,
+  and governance/controller ownership-transfer initiation
+  (`contracts/governance/src/op.rs::resolve_op`); every other operation is
+  `Standard`.
 - Mainnet minimum delay is `TIMELOCK_MIN_DELAY_LEDGERS = 34_560`.
+- The `Sensitive` floor is `TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS = 120_960`
+  ledgers (~7 days), applied even when `get_min_delay()` is lower.
+- Delay updates are bounded by `TIMELOCK_MAX_DELAY_LEDGERS = 241_920` ledgers
+  (~14 days) and must be non-decreasing (`validate_delay_update`).
 - Ready operations expire after `TIMELOCK_OPERATION_GRACE_LEDGERS = 120_960`.
 - Governance roles are `PROPOSER`, `EXECUTOR`, `CANCELLER`, and `ORACLE`.
 - Delegated `EXECUTOR` and `CANCELLER` roles must be separated. Owner can retain
@@ -93,6 +123,12 @@ Testing-only immediate forwarders are behind `#[cfg(any(test, feature =
   queued.
 - **Generic self-targeted operations.** Rejected because Soroban disallows the
   required self-reentry pattern.
+- **One typed `propose_*` function per admin action.** Superseded: this grew
+  the governance ABI surface linearly with every new admin action and
+  duplicated the validate/build-operation/schedule boilerplate per function.
+  A single `propose(op: AdminOperation)` entrypoint keeps per-operation typed
+  arguments (each `AdminOperation` variant carries its own typed struct,
+  validated in `resolve_op`) without a combinatorial entrypoint count.
 - **Timelock emergency pause.** Rejected because pause is an emergency brake.
 - **Delay reductions.** Rejected because shortening delay is itself a governance
   risk action.
@@ -103,18 +139,21 @@ Positive:
 
 - Protocol-affecting controller changes have enforced delay.
 - Governance-self changes also have enforced delay.
-- Typed proposers validate inputs before scheduling.
+- `resolve_op` validates each operation's typed inputs before scheduling.
+- Sensitive operations (code upgrades, ownership transfer) get a longer floor
+  delay than routine configuration changes.
 - Bad proposals can be cancelled before execution.
 
 Accepted costs:
 
-- Governance code owns ABI encoding for each admin operation.
+- Governance code owns ABI encoding for each admin operation, centralized in
+  one `resolve_op` match rather than spread across per-operation functions.
 - Routine admin changes are slower.
 - Emergency scope must stay narrow and auditable.
 
 ## References
 
-- `contracts/governance/src/forward.rs`
-- `contracts/governance/src/timelock.rs`
-- `contracts/governance/src/self_timelock.rs`
+- `contracts/governance/src/op.rs` (`AdminOperation`, `resolve_op`, `apply_self_op`)
+- `contracts/governance/src/timelock.rs` (`propose`, `execute`, `execute_self`, `cancel`, `DelayTier`, `operation_delay`)
 - `contracts/governance/src/access.rs`
+- `contracts/governance/src/constants.rs`

@@ -17,6 +17,9 @@ pub struct UpdateAssetOracleEvent {
 pub struct EventSpoke {
     pub spoke_id: u32,
     pub is_deprecated: bool,
+    pub liquidation_target_hf_wad: i128,
+    pub hf_for_max_bonus_wad: i128,
+    pub liquidation_bonus_factor_bps: u32,
 }
 
 impl EventSpoke {
@@ -24,6 +27,9 @@ impl EventSpoke {
         Self {
             spoke_id,
             is_deprecated: spoke.is_deprecated,
+            liquidation_target_hf_wad: spoke.liquidation_target_hf_wad,
+            hf_for_max_bonus_wad: spoke.hf_for_max_bonus_wad,
+            liquidation_bonus_factor_bps: spoke.liquidation_bonus_factor_bps,
         }
     }
 }

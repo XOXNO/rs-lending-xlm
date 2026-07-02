@@ -1,5 +1,19 @@
 use super::*;
+use crate::constants::{
+    DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
+    DEFAULT_LIQUIDATION_TARGET_HF_WAD,
+};
 use common::constants::RAY;
+
+/// Curve values that `add_spoke` stamps at creation.
+fn default_spoke_config() -> SpokeConfig {
+    SpokeConfig {
+        is_deprecated: false,
+        liquidation_target_hf_wad: DEFAULT_LIQUIDATION_TARGET_HF_WAD,
+        hf_for_max_bonus_wad: DEFAULT_HF_FOR_MAX_BONUS_WAD,
+        liquidation_bonus_factor_bps: DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
+    }
+}
 
 #[test]
 fn debt_close_amount_uses_pool_full_close_ceiling() {
@@ -38,11 +52,11 @@ fn curve_snap(hf_raw: i128, weighted_raw: i128) -> LiquidationSnapshot {
     }
 }
 
-// The default curve reproduces today's exact `2 * gap_wad` bonus scale.
+// With `hf_for_max_bonus = target / 2` the curve equals `2 * gap / target`.
 #[test]
-fn default_curve_bonus_matches_legacy_scale() {
+fn default_curve_bonus_matches_two_gap_scale() {
     let env = Env::default();
-    let curve = LiquidationCurve::from_config(None);
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
     let base = Bps::from(500i128);
     let max = Bps::from(1_500i128);
     let target = Wad::from(1_020_000_000_000_000_000i128);
@@ -57,7 +71,7 @@ fn default_curve_bonus_matches_legacy_scale() {
         let hf = Wad::from(hf_raw);
         let got = calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target);
 
-        // Legacy reference: scale = min(2 * (target - hf) / target, 1).
+        // Independent reference: scale = min(2 * (target - hf) / target, 1).
         let gap_wad = (target - hf).div(&env, target);
         let scale = gap_wad.mul(&env, Wad::from(2 * WAD)).min(Wad::ONE);
         let increment = Wad::from((max - base).raw()).mul(&env, scale).raw();
@@ -71,7 +85,7 @@ fn default_curve_bonus_matches_legacy_scale() {
 #[test]
 fn bonus_at_or_above_target_is_base() {
     let env = Env::default();
-    let curve = LiquidationCurve::from_config(None);
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
     let base = Bps::from(400i128);
     let max = Bps::from(1_000i128);
     let target = Wad::from(1_020_000_000_000_000_000i128);
@@ -89,17 +103,15 @@ fn bonus_factor_scales_increment() {
     let target = Wad::from(1_020_000_000_000_000_000i128);
     let hf = Wad::from(900_000_000_000_000_000i128);
 
-    let default_curve = LiquidationCurve::from_config(None);
+    let default_curve = LiquidationCurve::from_config(&default_spoke_config());
     let default_bonus =
         calculate_linear_bonus_with_target(&env, hf, base, max, &default_curve, target);
 
     let double_factor = SpokeConfig {
-        is_deprecated: false,
-        liquidation_target_hf_wad: 0,
-        hf_for_max_bonus_wad: 0,
         liquidation_bonus_factor_bps: 20_000,
+        ..default_spoke_config()
     };
-    let curve_2x = LiquidationCurve::from_config(Some(&double_factor));
+    let curve_2x = LiquidationCurve::from_config(&double_factor);
     let scaled_bonus = calculate_linear_bonus_with_target(&env, hf, base, max, &curve_2x, target);
 
     let inc_default = default_bonus.raw() - base.raw();
@@ -118,16 +130,15 @@ fn custom_target_changes_estimate() {
         max: Bps::from(1_000i128),
     };
 
-    let default_curve = LiquidationCurve::from_config(None);
+    let default_curve = LiquidationCurve::from_config(&default_spoke_config());
     let (ideal_default, _) = estimate_liquidation_amount(&env, &snap, bounds, &default_curve);
 
     let custom = SpokeConfig {
-        is_deprecated: false,
         liquidation_target_hf_wad: 1_300_000_000_000_000_000, // 1.30 target
-        hf_for_max_bonus_wad: 0,
-        liquidation_bonus_factor_bps: 0,
+        hf_for_max_bonus_wad: 650_000_000_000_000_000,        // target / 2
+        ..default_spoke_config()
     };
-    let custom_curve = LiquidationCurve::from_config(Some(&custom));
+    let custom_curve = LiquidationCurve::from_config(&custom);
     let (ideal_custom, _) = estimate_liquidation_amount(&env, &snap, bounds, &custom_curve);
 
     assert!(ideal_default.raw() > 0);

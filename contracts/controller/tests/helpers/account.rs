@@ -33,7 +33,7 @@ fn owner_passes() {
 
 // A non-owner with no delegation is rejected (owner-only behavior preserved).
 #[test]
-#[should_panic(expected = "Error(Contract, #13)")]
+#[should_panic(expected = "Error(Contract, #44)")]
 fn stranger_rejected() {
     let env = Env::default();
     let admin = Address::generate(&env);
@@ -65,7 +65,7 @@ fn active_registered_opted_in_delegate_passes() {
 
 // A registered, active manager NOT opted into the account is rejected.
 #[test]
-#[should_panic(expected = "Error(Contract, #13)")]
+#[should_panic(expected = "Error(Contract, #44)")]
 fn registered_but_not_opted_in_rejected() {
     let env = Env::default();
     let admin = Address::generate(&env);
@@ -83,7 +83,7 @@ fn registered_but_not_opted_in_rejected() {
 
 // An opted-in delegate whose manager registration is inactive is rejected.
 #[test]
-#[should_panic(expected = "Error(Contract, #13)")]
+#[should_panic(expected = "Error(Contract, #44)")]
 fn opted_in_but_manager_inactive_rejected() {
     let env = Env::default();
     let admin = Address::generate(&env);

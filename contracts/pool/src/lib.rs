@@ -21,8 +21,8 @@ use common::rates::{simulate_update_indexes, update_supply_index};
 use common::types::{
     AccountPositionType, HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw,
     MarketStateSnapshot, PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolKey,
-    PoolPositionMutation, PoolStateRaw, PoolStrategyMutation, PoolSupplyEntry, PoolSyncData,
-    PoolWithdrawEntry, ScaledPositionRaw,
+    PoolPositionMutation, PoolSeizeEntry, PoolStateRaw, PoolStrategyMutation, PoolSupplyEntry,
+    PoolSyncData, PoolWithdrawEntry,
 };
 use pool_interface::LiquidityPoolInterface;
 use soroban_sdk::{
@@ -212,6 +212,31 @@ fn repay_one(
         cache.position_mutation(scaled, net_repay),
         cache.market_snapshot(),
     )
+}
+
+/// Seize: bad borrow debt reduces the supply index, subject to floor.
+/// Deposit dust is moved into revenue. Each entry reloads persisted state, so
+/// a batch with duplicate hub-assets applies sequentially.
+fn seize_one(env: &Env, entry: &PoolSeizeEntry) -> MarketStateSnapshot {
+    let mut cache = synced_market_cache(env, &entry.hub_asset);
+
+    let scaled = Ray::from(entry.position.scaled_amount);
+    match entry.side {
+        AccountPositionType::Borrow => {
+            // dimensional: seized debt becomes Ray<Token(asset)> bad debt, not scaled shares.
+            let current_debt = cache.unscale_borrow_exact(scaled);
+            interest::apply_bad_debt_to_supply_index(&mut cache, current_debt);
+            cache.borrowed.checked_sub_assign(env, scaled);
+        }
+        AccountPositionType::Deposit => {
+            // dimensional: seized deposit dust is Ray<Share(asset, supply)> revenue.
+            cache.revenue.checked_add_assign(env, scaled);
+        }
+    }
+
+    // The seized position is removed from the controller-owned account map.
+    cache.save();
+    cache.market_snapshot()
 }
 
 /// Checks loaned-token balance; mismatches map to InvalidFlashloanRepay.
@@ -494,34 +519,13 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    // Seize: bad borrow debt reduces the supply index, subject to floor.
-    // Deposit dust is moved into revenue.
-    fn seize_position(
-        env: Env,
-        hub_asset: HubAssetKey,
-        side: AccountPositionType,
-        position: ScaledPositionRaw,
-    ) -> PoolPositionMutation {
-        let mut cache = load_synced_cache(&env, &hub_asset);
-
-        let scaled = Ray::from(position.scaled_amount);
-        match side {
-            AccountPositionType::Borrow => {
-                // dimensional: seized debt becomes Ray<Token(asset)> bad debt, not scaled shares.
-                let current_debt = cache.unscale_borrow_exact(scaled);
-                interest::apply_bad_debt_to_supply_index(&mut cache, current_debt);
-                cache.borrowed.checked_sub_assign(&env, scaled);
-            }
-            AccountPositionType::Deposit => {
-                // dimensional: seized deposit dust is Ray<Share(asset, supply)> revenue.
-                cache.revenue.checked_add_assign(&env, scaled);
-            }
+    fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>) {
+        renew_pool_instance(&env);
+        let mut snapshots = Vec::new(&env);
+        for entry in entries.iter() {
+            snapshots.push_back(seize_one(&env, &entry));
         }
-
-        // The seized position is removed from the controller-owned account map.
-        cache.save();
-        events::publish_market_state(&env, cache.market_snapshot());
-        cache.position_mutation(Ray::ZERO, 0)
+        events::publish_market_state_batch(&env, snapshots);
     }
 
     #[only_owner]

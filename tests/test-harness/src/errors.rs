@@ -26,6 +26,8 @@ pub mod codes {
     pub const TIMELOCK_OPERATION_EXPIRED: u32 = GenericError::TimelockOperationExpired as u32;
     pub const INVALID_ROLE: u32 = GenericError::InvalidRole as u32;
     pub const BLEND_POOL_NOT_APPROVED: u32 = GenericError::BlendPoolNotApproved as u32;
+    pub const NOT_AUTHORIZED: u32 = GenericError::NotAuthorized as u32;
+    pub const REGISTRY_CAP_REACHED: u32 = GenericError::RegistryCapReached as u32;
 
     // CollateralError
     pub const INSUFFICIENT_COLLATERAL: u32 = CollateralError::InsufficientCollateral as u32;
@@ -58,6 +60,7 @@ pub mod codes {
     pub const MAX_RATE_BELOW_BASE: u32 = CollateralError::MaxRateBelowBase as u32;
     pub const MAX_BORROW_RATE_TOO_HIGH: u32 = CollateralError::MaxBorrowRateTooHigh as u32;
     pub const ASSET_DECIMALS_TOO_HIGH: u32 = CollateralError::AssetDecimalsTooHigh as u32;
+    pub const SELF_LIQUIDATION_NOT_ALLOWED: u32 = CollateralError::SelfLiquidationNotAllowed as u32;
 
     // OracleError
     pub const INVALID_PRICE: u32 = OracleError::InvalidPrice as u32;
@@ -89,6 +92,8 @@ pub mod codes {
 
     // StrategyError
     pub const CONVERT_STEPS_REQUIRED: u32 = StrategyError::ConvertStepsRequired as u32;
+    pub const ROUTER_OVERSPEND: u32 = StrategyError::RouterOverspend as u32;
+    pub const NO_SWAP_OUTPUT: u32 = StrategyError::NoSwapOutput as u32;
 
     // OpenZeppelin Pausable (not in common::errors)
     pub const CONTRACT_PAUSED: u32 = 1000;

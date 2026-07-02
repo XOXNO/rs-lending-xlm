@@ -259,6 +259,7 @@ impl Account {
                 liquidation_threshold: config.liquidation_threshold,
                 liquidation_bonus: config.liquidation_bonus,
                 loan_to_value: config.loan_to_value,
+                liquidation_fees: config.liquidation_fees,
             })
     }
 
@@ -423,6 +424,7 @@ mod tests {
             liquidation_threshold: 0,
             liquidation_bonus: 0,
             loan_to_value: 0,
+            liquidation_fees: 0,
         };
         account.supply_positions.set(
             HubAssetKey {
@@ -447,6 +449,7 @@ mod tests {
             liquidation_threshold: 8_000,
             liquidation_bonus: 500,
             loan_to_value: 7_500,
+            liquidation_fees: 1_000,
         };
         account
             .supply_positions
