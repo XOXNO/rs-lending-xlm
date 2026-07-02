@@ -1,12 +1,11 @@
 # XOXNO Lending Architecture Reference
 
-This document describes the protocol implemented in this repository at the
-current source shape. It is a build and audit reference, not a deployment
-announcement.
+This document is a build and audit reference for the protocol's current
+source shape, not a deployment announcement.
 
 ## 1. Summary
 
-XOXNO Lending is a Soroban lending protocol with three core contracts:
+XOXNO Lending has three core Soroban contracts:
 
 - `governance`: owns the controller and timelocks protocol-admin operations.
 - `controller`: user-facing contract for accounts, spoke configuration, oracle
@@ -14,103 +13,66 @@ XOXNO Lending is a Soroban lending protocol with three core contracts:
 - `pool`: one central controller-owned liquidity contract with accounting rows
   keyed by `HubAssetKey { hub_id, asset }`.
 
-The protocol is pre-audit. Mainnet launch remains gated by ADR 0009 and the
-verification evidence listed in this file.
+Pre-audit; mainnet launch is gated by ADR 0009 and the §14 verification
+evidence.
 
 ## 2. Contract Topology
 
 ```mermaid
 flowchart TB
     User["User / liquidator / integrator"] --> Controller["Controller"]
-    Governance["Governance timelock"] ==>|"owner calls"| Controller
+    Governance["Governance"] ==>|"owner calls"| Controller
     GovRoles["PROPOSER / EXECUTOR / CANCELLER / ORACLE"] --> Governance
-    Keeper["Off-chain keeper"] -->|"TTL / update_indexes"| Controller
+    Keeper["Keeper"] -->|"TTL / update_indexes"| Controller
 
-    Controller ==>|"owner-gated calls"| Pool["Central pool"]
+    Controller ==>|"owner-gated calls"| Pool["Pool"]
     Controller --> Reflector["Reflector oracle"]
     Controller --> RedStone["RedStone oracle"]
     Controller --> Router["Aggregator router"]
-    Controller --> Accumulator["Revenue accumulator"]
+    Controller --> Accumulator["Accumulator"]
     Pool --> Tokens["SAC / SEP-41 tokens"]
 ```
 
-The current controller does not define `KEEPER`, `REVENUE`, or `ORACLE` roles.
-Governance roles live on the governance contract. The keeper is off-chain and
-uses caller authorization for submitted transactions.
+The controller defines no `KEEPER`, `REVENUE`, or `ORACLE` roles — those live
+on governance; the off-chain keeper self-authorizes its transactions.
 
 ## 3. Addressing Model
 
-Markets are addressed by:
+Markets are addressed by `HubAssetKey { hub_id: u32, asset: Address }`; the
+same token on different hubs shares no indexes, revenue, cash, debt, or
+bad-debt socialization.
 
-```rust
-HubAssetKey {
-    hub_id: u32,
-    asset: Address,
-}
-```
-
-The same token can exist on different hubs without sharing indexes, revenue,
-cash, debt, or bad-debt socialization. Hub id `0` is not a production hub. Hubs
-are created on demand and stored in controller instance storage.
-
-Accounts bind to a spoke id `>= 1`. Spokes are not base overlays. Each spoke has
-its own `SpokeAsset(spoke_id, HubAssetKey)` rows for risk and caps.
+Accounts bind to a spoke id `>= 1` (spokes are not base overlays); each spoke
+keeps its own `SpokeAsset(spoke_id, HubAssetKey)` rows for risk and caps.
+Configs (`configs/`) currently list only `hub_id = 1` markets; those addresses
+are confirmed live only after ADR 0009's launch-gate validation, not merely by
+appearing in config.
 
 ## 4. Storage Shape
 
-Controller persistent and instance keys are defined by `ControllerKey` in
-`common/src/types/controller.rs`.
+Controller keys are defined by `ControllerKey`
+(`common/src/types/controller.rs`).
 
-Important instance keys:
+- Instance: `Pool`, `PoolTemplate`, `Aggregator`, `Accumulator`,
+  `AccountNonce`, `PositionLimits`, `AppVersion`, `MinBorrowCollateralUsd`,
+  `LastSpokeId`, `LastHubId`, `Hub(u32)`, `PositionManager(Address)`.
+- Persistent: `AssetOracle(Address)`, `Spoke(u32)`,
+  `SpokeAsset(u32, HubAssetKey)`, `SpokeUsage(u32, HubAssetKey)`,
+  `AccountMeta(u64)`, `Delegates(u64)`, `SupplyPositions(u64)`,
+  `BorrowPositions(u64)`.
+- Pool persistent: `Params(HubAssetKey)`, `State(HubAssetKey)`.
 
-- `Pool`
-- `PoolTemplate`
-- `Aggregator`
-- `Accumulator`
-- `AccountNonce`
-- `PositionLimits`
-- `AppVersion`
-- `MinBorrowCollateralUsd`
-- `LastSpokeId`
-- `LastHubId`
-- `Hub(u32)`
-- `PositionManager(Address)`
-
-Important persistent keys:
-
-- `AssetOracle(Address)`
-- `Spoke(u32)`
-- `SpokeAsset(u32, HubAssetKey)`
-- `SpokeUsage(u32, HubAssetKey)`
-- `AccountMeta(u64)`
-- `Delegates(u64)`
-- `SupplyPositions(u64)`
-- `BorrowPositions(u64)`
-
-Pool persistent keys are:
-
-- `Params(HubAssetKey)`
-- `State(HubAssetKey)`
-
-There is no separate market-status enum in the current controller model. An
-asset is price-active when its token-rooted `AssetOracle(asset)` entry exists
-and the configured source passes validation.
+No market-status enum exists: an asset is price-active when its token-rooted
+`AssetOracle(asset)` entry exists and its source passes validation.
 
 ## 5. Governance
 
-Governance owns the controller. It validates protocol-admin inputs, schedules
-operations through a ledger-based timelock, and executes ready operations.
+Governance owns the controller, validates admin inputs, timelocks operations
+by ledger delay, and executes them once ready. Roles: `PROPOSER`, `EXECUTOR`,
+`CANCELLER`, `ORACLE`.
 
-Governance roles:
-
-- `PROPOSER`
-- `EXECUTOR`
-- `CANCELLER`
-- `ORACLE`
-
-Governance keeps emergency `pause` and `unpause` immediate. Governance-self
-operations such as role changes, delay changes, ownership transfer initiation,
-and upgrades are timelocked.
+Emergency `pause`/`unpause` stay immediate; governance-self operations (role
+and delay changes, ownership-transfer initiation, upgrades) are timelocked.
 
 ## 6. Controller Responsibilities
 
@@ -118,175 +80,124 @@ Controller entrypoints cover:
 
 - Account creation, delegate management, and account renewal.
 - Supply, borrow, repay, withdraw, liquidation, and bad-debt cleanup.
-- Flash loans.
-- Strategy flows: multiply, collateral swap, debt swap, repay debt with
-  collateral, and Blend migration.
-- Hub, spoke, spoke-asset, position-limit, pool, oracle, aggregator, and
-  accumulator configuration.
-- Pool deployment, pool parameter updates, pool caps, rewards, revenue claim,
-  and pool WASM upgrade.
+- Flash loans and strategy flows (multiply, collateral swap, debt swap, repay
+  debt with collateral, Blend migration).
+- Hub, spoke, spoke-asset, position-limit, minimum-borrow-collateral, pool,
+  oracle, aggregator, and accumulator configuration, including pool
+  deployment, params, caps, rewards, revenue claim, and WASM upgrade.
 
-Risk-increasing and external-surface flows are paused with `#[when_not_paused]`.
-Repay, withdraw, liquidation, bad-debt cleanup, and account renewal remain
-available where the code keeps user de-risk paths open.
+Risk-increasing/external-surface flows are `#[when_not_paused]`-gated; repay,
+withdraw, liquidation, bad-debt cleanup, and account renewal stay open for
+de-risking.
 
 ## 7. Pool Responsibilities
 
-The pool is owned by the controller. It:
+The controller-owned pool:
 
-- Holds token custody for all listed hub assets.
-- Stores market params and state by `HubAssetKey`.
-- Tracks `cash` as borrowable reserves.
-- Accrues interest through borrow and supply indexes.
-- Stores protocol revenue as scaled supply shares.
-- Verifies reserves before outgoing transfers.
+- Holds token custody and stores market params/state by `HubAssetKey`.
+- Tracks `cash` as borrowable reserves and verifies it before outgoing
+  transfers — a direct token donation does not raise borrowable liquidity.
+- Accrues interest through borrow/supply indexes and stores revenue as scaled
+  supply shares.
 - Settles flash loans with balance snapshots, callback invocation, repayment
   pull, and post-repayment verification.
 - Socializes unrecoverable bad debt through the supply index floor.
 
-Direct token donations do not increase borrowable liquidity because normal
-liquidity checks use internal `cash`, not live token balance.
-
 ## 8. Spokes And Risk
 
-Spokes define account-local risk policy. A spoke asset row contains:
+A spoke asset row holds collateral, borrow, paused, and frozen flags; LTV,
+liquidation threshold, liquidation bonus, and liquidation fee; supply and
+borrow caps; and an optional oracle override.
 
-- collateral and borrow flags;
-- paused and frozen flags;
-- LTV, liquidation threshold, liquidation bonus, and liquidation fee;
-- supply and borrow caps;
-- optional oracle override.
-
-Borrow and indebted withdrawal paths load risk from the account's spoke. Assets
-not listed on that spoke revert before risk math can use them.
+Borrow and indebted-withdrawal paths load risk from the account's spoke;
+unlisted assets revert before risk math can use them.
 
 ## 9. Oracle Model
 
 The controller resolves prices through a strict path:
 
 1. Load token-rooted `AssetOracle(asset)`.
-2. Apply optional spoke oracle override where relevant.
+2. Apply an optional spoke oracle override.
 3. Read Reflector or RedStone source data.
-4. Enforce staleness, future timestamp, decimals, sanity bounds, and tolerance.
+4. Enforce staleness, future-timestamp, decimals, sanity, and tolerance bounds.
 5. Normalize to USD WAD.
 
-Dual-source markets require the primary and anchor sources to stay inside the
-configured tolerance band. Missing source data fails closed with source-specific
-errors.
+Dual-source markets require the primary and anchor to stay within the
+tolerance band; missing source data fails closed with source-specific errors.
 
 ## 10. Account And Position Model
 
-Accounts store owner, active spoke id, mode, supply positions, and borrow
-positions. Supply and debt positions are keyed by `HubAssetKey`.
-
-Pool balances are scaled shares:
-
-- supply shares use the supply index;
-- debt shares use the borrow index;
-- indexes and rates use RAY;
-- USD risk math uses WAD;
-- token transfers use token-native units.
+Accounts store owner, active spoke id, mode, and supply/borrow positions keyed
+by `HubAssetKey`, as scaled shares (supply index for supply, borrow index for
+debt). Rates and indexes use RAY; USD risk math uses WAD; transfers use
+token-native units.
 
 ## 11. Flash Loans
 
 Flash loans are controller-routed and pool-settled:
 
 1. Controller validates the hub asset and caller flow.
-2. Pool snapshots its token balance.
-3. Pool transfers the loan amount.
-4. Receiver callback runs.
-5. Pool verifies the callback did not leave unexpected retained funds.
-6. Pool pulls amount plus fee and verifies final balance.
-7. Fee becomes protocol revenue.
+2. Pool snapshots its balance, transfers the loan amount, and verifies the
+   drop matches exactly.
+3. Receiver callback runs.
+4. Pool re-checks that balance to confirm the callback left it unchanged.
+5. Pool pulls principal plus fee and verifies the final balance covers both.
+6. Fee becomes protocol revenue.
 
-The controller flash-loan guard blocks reentrant mutators during the flow.
+The controller flash-loan guard blocks reentrant mutators for the duration.
 
 ## 12. Strategies
 
-Strategy flows route through the controller and must end inside the same account
-health and position-limit constraints as direct supply, borrow, repay, and
-withdraw flows. Router output is treated as untrusted and validated by balance
-delta. Slippage remains a route-payload responsibility unless a controller-side
-minimum-output parameter is added.
+Strategy flows route through the controller under the same account-health and
+position-limit constraints as direct supply, borrow, repay, and withdraw.
+Router output is untrusted and validated by balance delta; slippage is
+enforced by the aggregator route payload, not the controller.
 
-The DeFindex adapter is configured for one `HubAssetKey` and `spoke_id`.
-Each vault maps to one controller account id.
+The DeFindex adapter is configured for one `HubAssetKey` and `spoke_id`; each
+vault maps to one controller account id.
 
 ## 13. Keeper
 
-`services/keeper` is a separate workspace. It renews and restores TTL for:
+`services/keeper` is a separate workspace that renews/restores TTL for
+controller/governance instances, configured `AssetOracle(asset)` and
+`Spoke(id)` rows, account persistent keys, access-control role-holder keys,
+pool `Params`/`State` (`HubAssetKey`-keyed) rows, and instance/WASM code
+entries.
 
-- controller and governance instances;
-- configured `AssetOracle(asset)` rows;
-- `Spoke(id)` rows;
-- account persistent keys;
-- access-control role-holder keys;
-- pool `Params(HubAssetKey)` and `State(HubAssetKey)` rows;
-- instances and WASM code entries.
+Keeper config uses `contracts.markets = [{ hub_id, asset }]`; the legacy
+`market_assets` field remains as `hub_id = 1` shorthand.
 
-Use `contracts.markets = [{ hub_id, asset }]` in keeper config. Legacy
-`market_assets` is kept only as `hub_id = 1` shorthand.
-
-## 14. Configuration Inputs
-
-Market, spoke, and network configs live in `configs/`.
-
-Current config files use `hub_id = 1` for listed testnet and mainnet market
-rows. Mainnet launch still requires validation of network addresses, ownership,
-governance, caps, oracle source contracts, and deployment artifacts before any
-public claim that those values are live.
-
-## 15. Launch Gates
-
-Before mainnet launch:
-
-- Governance owner and roles must be configured with separate operational
-  controls.
-- Controller and pool WASM hashes must be pinned to release artifacts.
-- Production builds must exclude testing-only entrypoints and mock contracts.
-- Market caps and oracle parameters must be reviewed per asset.
-- Keeper config must enumerate every launched `HubAssetKey`.
-- Verification evidence in section 16 must be collected and reviewed.
-- External audit findings must be resolved or explicitly accepted.
-
-## 16. Verification Surface
+## 14. Verification Surface
 
 Baseline local evidence:
 
 | Command | Scope |
 | --- | --- |
-| `cargo fmt --check` | Root workspace formatting. |
-| `cargo test --workspace` | Root workspace unit tests. |
+| `cargo fmt --check` | Workspace formatting. |
+| `cargo test --workspace` | Workspace unit tests. |
 | `make test` | Soroban integration harness. |
 | `make test-pool` | Pool unit tests. |
-| `cargo check -p common --features certora` | Certora common harness build. |
-| `cargo check -p pool --features certora --no-default-features` | Certora pool harness build. |
-| `cargo check -p controller --features certora --no-default-features` | Certora controller harness build. |
+| `cargo check -p common --features certora` | Certora common harness. |
+| `cargo check -p pool --features certora --no-default-features` | Certora pool harness. |
+| `cargo check -p controller --features certora --no-default-features` | Certora controller harness. |
 | `cargo test --manifest-path services/keeper/Cargo.toml` | Keeper workspace tests. |
 | `cargo check --manifest-path tests/fuzz/Cargo.toml --bin pool_native` | Fuzz harness build gate. |
 
-Formal and fuzz evidence expected before launch:
+Expected before launch: Certora profiles (math, pool accounting, controller
+risk, oracle rules, liquidation, flash loans, strategy/controller-pool
+consistency); fuzz builds and replay logs (`tests/fuzz`); coverage reports for
+controller/pool critical paths; and static-analysis reports (Scout plus other
+release-gating checks).
 
-- Certora profiles for fixed-point math, pool accounting, controller risk,
-  oracle policy, liquidation, flash loans, and strategy/controller-pool
-  consistency.
-- Fuzz target builds and replay logs for `tests/fuzz`.
-- Coverage reports for controller and pool critical paths.
-- Static analysis reports, including Scout and any additional Soroban-specific
-  checks used for release.
+A check counts as passed only if it ran against the current tree and its
+output was reviewed.
 
-Do not describe a check as passed unless the command was run against the current
-tree and its output was reviewed.
+## 15. Security Review Focus
 
-## 17. Security Review Focus
-
-Reviewers should prioritize:
-
-- `HubAssetKey` isolation across controller, pool, keeper, and docs.
-- Oracle disable/reconfigure behavior through `AssetOracle(asset)`.
-- Spoke asset listing and cap enforcement.
-- Account authorization, delegates, and position managers.
-- Flash-loan and strategy callback reentrancy.
-- Internal `cash` accounting and bad-debt socialization.
-- Governance timelock, role separation, and upgrade hash control.
-- Keeper TTL coverage and configuration drift.
+High-priority review areas: `HubAssetKey` isolation across controller, pool,
+keeper, and docs; oracle disable/reconfigure behavior through
+`AssetOracle(asset)`; spoke asset listing and cap enforcement; account
+authorization, delegates, and position managers; flash-loan and strategy
+callback reentrancy; internal `cash` accounting and bad-debt socialization;
+governance timelock, role separation, and upgrade hash control; and keeper TTL
+coverage and configuration drift.

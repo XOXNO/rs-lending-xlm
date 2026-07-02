@@ -18,7 +18,18 @@ const MAX_KEYS_PER_EXTEND_OP: usize = 60;
 
 /// Builds TTL-extend jobs for entries inside the safety margin.
 pub fn plan_extends(snapshot: &DiscoverySnapshot, safety_ledgers: u32) -> Result<Vec<TxJob>> {
-    plan(snapshot, safety_ledgers, Decision::Extend, |chunk| {
+    plan_extends_with_chunk(snapshot, safety_ledgers, MAX_KEYS_PER_EXTEND_OP)
+}
+
+/// `plan_extends` with an explicit per-tx key cap. Full-set prepayment packs
+/// months of rent (incl. wasm code entries) into each op; a smaller chunk
+/// keeps every tx's total fee under the classic envelope's u32 ceiling.
+pub fn plan_extends_with_chunk(
+    snapshot: &DiscoverySnapshot,
+    safety_ledgers: u32,
+    chunk: usize,
+) -> Result<Vec<TxJob>> {
+    plan_with_chunk(snapshot, safety_ledgers, Decision::Extend, chunk, |chunk| {
         extend_footprint_ttl(chunk, MAX_LEDGERS_TO_EXTEND)
     })
 }
@@ -39,6 +50,16 @@ fn plan(
     snapshot: &DiscoverySnapshot,
     safety_ledgers: u32,
     want: Decision,
+    build: impl Fn(&[LedgerKey]) -> Result<TxJob>,
+) -> Result<Vec<TxJob>> {
+    plan_with_chunk(snapshot, safety_ledgers, want, MAX_KEYS_PER_EXTEND_OP, build)
+}
+
+fn plan_with_chunk(
+    snapshot: &DiscoverySnapshot,
+    safety_ledgers: u32,
+    want: Decision,
+    chunk: usize,
     build: impl Fn(&[LedgerKey]) -> Result<TxJob>,
 ) -> Result<Vec<TxJob>> {
     let current_ledger = snapshot.current_ledger;
@@ -66,8 +87,8 @@ fn plan(
         &mut targets,
     );
 
-    let mut jobs = Vec::with_capacity(targets.len().div_ceil(MAX_KEYS_PER_EXTEND_OP));
-    for chunk in targets.chunks(MAX_KEYS_PER_EXTEND_OP) {
+    let mut jobs = Vec::with_capacity(targets.len().div_ceil(chunk));
+    for chunk in targets.chunks(chunk) {
         jobs.push(build(chunk)?);
     }
 

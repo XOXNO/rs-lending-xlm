@@ -1,6 +1,6 @@
 # XOXNO Lending
 
-[![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/ci.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/ci.yml) ![Rust](https://img.shields.io/badge/Rust-1.95-orange?style=flat-square) ![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-blue?style=flat-square) ![Status](https://img.shields.io/badge/status-pre--audit-yellow?style=flat-square)
+[![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/tests.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/tests.yml) ![Rust](https://img.shields.io/badge/Rust-1.95-orange?style=flat-square) ![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-blue?style=flat-square) ![Status](https://img.shields.io/badge/status-pre--audit-yellow?style=flat-square)
 
 XOXNO Lending is a multi-asset lending protocol for Stellar Soroban. The current
 design has three core contracts:
@@ -95,7 +95,7 @@ rs-lending-xlm/
 ├── tests/                   # Integration harnesses and fuzz targets
 ├── architecture/            # Invariants, ADRs, and architecture material
 ├── configs/                 # Market, spoke, network, deployment inputs
-└── vendor/                  # Pinned local dependencies used during audit work
+└── vendor/                  # Minimal cvlr-log patch (no_std fix pending upstream)
 ```
 
 ## Requirements
@@ -164,7 +164,7 @@ cargo check -p controller --features certora --no-default-features
 ```
 
 Mainnet launch uses the stronger acceptance matrix in
-[SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md#16-verification-surface).
+[SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md#14-verification-surface).
 
 ### Static Analysis
 

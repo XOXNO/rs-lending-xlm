@@ -120,8 +120,8 @@ Negative / accepted costs:
 
 ## References
 
-- `SCF_BUILD_ARCHITECTURE.md` §10.5 (Liquidation and Bad Debt), §15
-  (Implemented Safety Checks).
+- `SCF_BUILD_ARCHITECTURE.md` §6 (Controller Responsibilities), §15 (Security
+  Review Focus).
 - `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`
 - `contracts/controller/src/positions/liquidation/apply.rs::check_bad_debt_after_liquidation`
 - `contracts/controller/src/positions/liquidation/bad_debt.rs::execute_bad_debt_cleanup`

@@ -64,7 +64,7 @@ For protocol-sensitive changes, also include the relevant verification output:
 
 ```bash
 ./certora/compile_all.sh
-./certora/run_profile.py fast
+./certora/scripts/run_profile.py fast
 make fuzz FUZZ_TIME=30
 make proptest PROPTEST_CASES=256
 ```

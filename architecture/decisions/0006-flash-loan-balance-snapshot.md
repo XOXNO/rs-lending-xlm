@@ -118,7 +118,7 @@ Negative / accepted costs:
 
 ## References
 
-- `SCF_BUILD_ARCHITECTURE.md` §11.2 (Flash Loans).
+- `SCF_BUILD_ARCHITECTURE.md` §11 (Flash Loans).
 - `contracts/pool/src/lib.rs::flash_loan`
 - `contracts/pool/src/interest.rs::add_protocol_revenue_ray`
 - `contracts/controller/src/strategies/flash_loan.rs::process_flash_loan`

@@ -193,9 +193,11 @@ pub(crate) fn remove_asset_oracle(env: &Env, asset: &Address) {
         .remove(&ControllerKey::AssetOracle(asset.clone()));
 }
 
+// Persistent, not instance: the nonce changes on every account creation, and
+// an instance write rewrites (and re-rents) the whole instance envelope.
 pub(crate) fn get_account_nonce(env: &Env) -> u64 {
     env.storage()
-        .instance()
+        .persistent()
         .get(&ControllerKey::AccountNonce)
         .unwrap_or(0u64)
 }
@@ -205,9 +207,9 @@ pub(crate) fn increment_account_nonce(env: &Env) -> u64 {
     let next = current
         .checked_add(1)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    env.storage()
-        .instance()
-        .set(&ControllerKey::AccountNonce, &next);
+    let key = ControllerKey::AccountNonce;
+    env.storage().persistent().set(&key, &next);
+    super::renew_protocol_shared_key(env, &key);
     next
 }
 
@@ -275,16 +277,22 @@ pub(crate) fn increment_hub_id(env: &Env) -> u32 {
 
 /// Reads a hub registry entry. No hub is seeded; hubs are created on demand
 /// (ids from 1). Returns `None` for any uncreated id, including hub 0.
+/// Persistent, not instance: the registry grows with the hub count, and the
+/// instance envelope is read (and rent-extended) on every invocation.
 pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
-    env.storage().instance().get(&ControllerKey::Hub(hub_id))
+    let key = ControllerKey::Hub(hub_id);
+    let hub: Option<HubConfig> = env.storage().persistent().get(&key);
+    // Read-renewal policy: active hubs must not archive while markets use them.
+    if hub.is_some() {
+        super::renew_protocol_shared_key(env, &key);
+    }
+    hub
 }
 
-/// Hubs are governance-created and O(few), so instance-storage residency is
-/// deliberate; the registry needs no cap counter.
 pub(crate) fn set_hub(env: &Env, hub_id: u32, config: &HubConfig) {
-    env.storage()
-        .instance()
-        .set(&ControllerKey::Hub(hub_id), config);
+    let key = ControllerKey::Hub(hub_id);
+    env.storage().persistent().set(&key, config);
+    super::renew_protocol_shared_key(env, &key);
 }
 
 /// Reads a position-manager registry entry. Absence means the address is not a

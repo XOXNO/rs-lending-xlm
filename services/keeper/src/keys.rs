@@ -13,14 +13,18 @@ use stellar_xdr::curr::{
 /// Protocol-wide controller persistent keys kept alive by the keeper.
 #[derive(Debug, Clone)]
 pub enum ControllerPersistentKey {
+    AccountNonce,
     AssetOracle([u8; 32]),
+    Hub(u32),
     Spoke(u32),
 }
 
 impl ControllerPersistentKey {
     pub fn to_sc_val(&self) -> Result<ScVal> {
         Ok(match self {
+            Self::AccountNonce => sc_enum("AccountNonce", &[])?,
             Self::AssetOracle(addr) => sc_enum("AssetOracle", &[sc_address_contract(addr)])?,
+            Self::Hub(id) => sc_enum("Hub", &[ScVal::U32(*id)])?,
             Self::Spoke(id) => sc_enum("Spoke", &[ScVal::U32(*id)])?,
         })
     }
@@ -158,7 +162,7 @@ impl PoolPersistentKey {
 #[derive(Debug, Clone, Copy)]
 pub enum ControllerInstanceKey {
     Pool,
-    AccountNonce,
+    LastHubId,
     LastSpokeId,
 }
 
@@ -166,7 +170,7 @@ impl ControllerInstanceKey {
     pub fn variant_name(&self) -> &'static str {
         match self {
             Self::Pool => "Pool",
-            Self::AccountNonce => "AccountNonce",
+            Self::LastHubId => "LastHubId",
             Self::LastSpokeId => "LastSpokeId",
         }
     }

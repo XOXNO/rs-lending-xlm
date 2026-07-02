@@ -55,7 +55,7 @@ Cross-contract consistency
 Lemma-before-main ordering
 --------------------------
 1. pool/confs/summary-contract.conf
-2. controller/confs/tolerance-math.conf + oracle-compose.conf
+2. controller/confs/tolerance-math.conf
 3. controller/confs/solvency-*.conf + liquidation.conf
 4. *-heavy.conf audit configs
 

@@ -49,7 +49,7 @@ SHELL := /bin/bash
         _preflight-tools _preflight-network-config _preflight-validate-configs _preflight-setup _preflight-controller _preflight-governance _preflight-pool-hash \
         _preflight-configure-controller _preflight-upgrade-pools _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
-        build-aggregator deploy-aggregator \
+        build-aggregator deploy-aggregator prepay-rent \
         configure-controller setup-testnet setup-mainnet _setup-markets _unpause-after-setup \
         info invoke invoke-id view view-id \
         testnet mainnet \
@@ -83,8 +83,8 @@ WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver def
 
 # Coverage exclusions (no executable code / stubs only).
 # Exclude test scaffolding (tests/test-harness internals, the Certora
-# spec layer, vendored cvlr/OZ crates) and trivial type-alias files that have
-# no executable lines. Protocol code in `common/`, `contracts/`, and
+# spec layer, the vendored cvlr-log patch) and trivial type-alias files that
+# have no executable lines. Protocol code in `common/`, `contracts/`, and
 # `interfaces/` stays in scope.
 COV_IGNORE := --ignore-filename-regex='(^|/)(tests/test-harness|tests/fuzz|certora|vendor|target)/|common/src/types/(shared|aggregator)\.rs$$'
 
@@ -223,7 +223,7 @@ CERTORA_PROFILE ?= sanity
 
 ## List Certora verification profiles.
 certora-list:
-	@./certora/run_profile.py --list
+	@./certora/scripts/run_profile.py --list
 
 ## Submit profile to Certora cloud: make certora [CERTORA_PROFILE=fast]
 certora: certora-wasm
@@ -310,7 +310,7 @@ coverage-controller:
 	trap 'restore_snapshots' EXIT; \
 	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/controller.lcov.info $(COV_IGNORE) >/dev/null
-	@python3 $(CONFIG_DIR)/coverage_report.py \
+	@python3 scripts/coverage_report.py \
 		$(COV_DIR)/controller.lcov.info \
 		$(COV_DIR)/controller-report.md \
 		controller
@@ -324,7 +324,7 @@ coverage-pool:
 	@cargo llvm-cov clean --workspace
 	@cargo llvm-cov test -p pool --no-report $(COV_IGNORE) 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/pool.lcov.info $(COV_IGNORE) >/dev/null
-	@python3 $(CONFIG_DIR)/coverage_report.py \
+	@python3 scripts/coverage_report.py \
 		$(COV_DIR)/pool.lcov.info \
 		$(COV_DIR)/pool-report.md \
 		pool
@@ -350,7 +350,7 @@ coverage-merged:
 	trap 'restore_snapshots' EXIT; \
 	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null
-	@python3 $(CONFIG_DIR)/coverage_report.py \
+	@python3 scripts/coverage_report.py \
 		$(COV_DIR)/merged.lcov.info \
 		$(COV_DIR)/merged-report.md \
 		merged
@@ -855,6 +855,59 @@ upgrade-pools: _preflight-upgrade-pools
 ## Upload pool template, upgrade controller, upgrade the central pool, then unpause.
 upgrade-all: upgrade-pool-template upgrade-controller upgrade-pools _unpause-after-setup _post-setup-status
 
+## Prepay protocol storage rent: extend every keeper-discovered entry
+## (instances, wasm code, spoke/hub registries, oracle configs, pool rows)
+## by the keeper's ~31-day bump, funded by SIGNER. Runs at the end of
+## setup/resume; the keeper daemon rolls it forward each tick, so users
+## never hit the contracts' inline 5-day shared-rent safety net.
+prepay-rent:
+	@echo "=== Prepaying protocol rent on $(NETWORK) ==="
+	@mkdir -p target
+	@CFG=target/keeper-prepay-$(NETWORK).yaml; \
+	RPC=$$(jq -r '.["$(NETWORK)"].rpc_url' $(CONFIG_DIR)/networks.json); \
+	PASS=$$(jq -r '.["$(NETWORK)"].network_passphrase' $(CONFIG_DIR)/networks.json); \
+	CTRL=$$(jq -r '.["$(NETWORK)"].controller' $(CONFIG_DIR)/networks.json); \
+	GOV=$$(jq -r '.["$(NETWORK)"].governance' $(CONFIG_DIR)/networks.json); \
+	HASH=$$(jq -r '.["$(NETWORK)"].pool_wasm_hash' $(CONFIG_DIR)/networks.json); \
+	FLR=$$(jq -r '.["$(NETWORK)"].flash_loan_receiver // empty' $(CONFIG_DIR)/networks.json); \
+	{ echo "network: $(NETWORK)"; \
+	  echo "rpc:"; \
+	  echo "  url: $$RPC"; \
+	  echo "  passphrase: \"$$PASS\""; \
+	  echo "  timeout_seconds: 30"; \
+	  echo "contracts:"; \
+	  echo "  controller: $$CTRL"; \
+	  echo "  pool_wasm_hash: $$HASH"; \
+	  echo "  markets:"; \
+	  jq -r '.markets[] | "    - { hub_id: \(.hub_id), asset: \(.asset_address) }"' $(CONFIG_DIR)/$(NETWORK)_markets.json; \
+	  echo "  market_assets: []"; \
+	  echo "  flash_loan_receiver: $$FLR"; \
+	  echo "  governance: $$GOV"; \
+	  echo "keyvault:"; \
+	  echo "  url: https://unused.vault.azure.net"; \
+	  echo "  secret_name: unused"; \
+	  echo "signer:"; \
+	  echo "  derivation_path: \"m/44'/148'/0'\""; \
+	  echo "fees:"; \
+	  echo "  base_fee_stroops: 100"; \
+	  echo "  resource_fee_multiplier: 1.20"; \
+	  echo "schedule:"; \
+	  echo "  ttl_tick_seconds: 21600"; \
+	  echo "  index_tick_seconds: 3600"; \
+	  echo "  ttl_safety_margin_days: 14"; \
+	  echo "  asset_chunk: 20"; \
+	  echo "  max_txs_per_tick: 50"; \
+	  echo "  enable_index_refresh: false"; \
+	  echo "metrics:"; \
+	  echo "  bind: 0.0.0.0:9090"; \
+	  echo "log:"; \
+	  echo "  level: info"; \
+	  echo "  format: json"; \
+	} > $$CFG; \
+	PREPAY_SECRET=$$(stellar keys show $(SIGNER)); \
+	export PREPAY_SECRET; \
+	cargo run --manifest-path services/keeper/Cargo.toml --bin prepay_rent -- --config $$CFG
+
 ## Build the swap aggregator (router) contract.
 build-aggregator:
 	@echo "Building aggregator..."
@@ -1227,7 +1280,7 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidati
 # Makefile-internal actions — handled directly by make targets, not forwarded
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
 MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePoolTemplate upgradePools upgradeAll \
-                    deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator setup resume
+                    deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator prepayRent setup resume
 
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
                $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
@@ -1264,8 +1317,9 @@ define NETWORK_DISPATCH
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \
 				testFlashReceiver)  $(MAKE) --no-print-directory test-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_LOAN_AMOUNT=$(FLASH_LOAN_AMOUNT) ;; \
 				deployAggregator)   $(MAKE) --no-print-directory deploy-aggregator NETWORK=$(1) SIGNER=$(SIGNER) AGGREGATOR_ADMIN=$(AGGREGATOR_ADMIN) ;; \
-				setup)              $(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets _unpause-after-setup _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
-				resume)             $(MAKE) --no-print-directory _preflight-configure-controller configure-controller _setup-markets _unpause-after-setup _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				prepayRent)         $(MAKE) --no-print-directory prepay-rent NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				setup)              $(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets _unpause-after-setup prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				resume)             $(MAKE) --no-print-directory _preflight-configure-controller configure-controller _setup-markets _unpause-after-setup prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 			esac; \
 			exit 0 ;; \
 	esac; \

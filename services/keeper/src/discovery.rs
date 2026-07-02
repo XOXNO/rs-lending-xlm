@@ -98,14 +98,27 @@ pub async fn snapshot(
             "central pool address missing from controller instance — pool keys skipped this tick"
         );
     }
-    let account_nonce =
-        lookup_scalar(&instance, ControllerInstanceKey::AccountNonce, scval_u64)?.unwrap_or(0);
     let last_spoke_id =
         lookup_scalar(&instance, ControllerInstanceKey::LastSpokeId, scval_u32)?.unwrap_or(0);
+    let last_hub_id =
+        lookup_scalar(&instance, ControllerInstanceKey::LastHubId, scval_u32)?.unwrap_or(0);
+
+    // AccountNonce lives in its own persistent entry (moved out of the
+    // instance so account creation does not rewrite the instance envelope).
+    let nonce_key = ControllerPersistentKey::AccountNonce.to_ledger_key(&controller_id)?;
+    let nonce_rows = client.get_ledger_entries(&[nonce_key]).await?;
+    let account_nonce = nonce_rows
+        .first()
+        .and_then(|row| match row.value.as_ref()? {
+            LedgerEntryData::ContractData(cd) => scval_u64(&cd.val),
+            _ => None,
+        })
+        .unwrap_or(0);
     debug!(
         target: "keeper.discovery",
         account_nonce,
         last_spoke_id,
+        last_hub_id,
         pool_resolved = pool_id.is_some(),
         "instance read"
     );
@@ -160,6 +173,20 @@ pub async fn snapshot(
             persistent_entries.extend(client.get_ledger_entries(&keys).await?);
         }
     }
+
+    // -- Hub registry sweep (1..=ceiling; persistent, moved out of instance) --
+    if last_hub_id > 0 {
+        for chunk in (1..=last_hub_id).collect::<Vec<_>>().chunks(chunk_size) {
+            let keys = chunk
+                .iter()
+                .map(|id| ControllerPersistentKey::Hub(*id).to_ledger_key(&controller_id))
+                .collect::<Result<Vec<_>>>()?;
+            persistent_entries.extend(client.get_ledger_entries(&keys).await?);
+        }
+    }
+
+    // The nonce entry itself is protocol-shared state — keep it alive too.
+    persistent_entries.extend(nonce_rows);
 
     // -- Access-control role keys --
     persistent_entries.extend(discover_role_keys(client, &controller_id, chunk_size).await?);

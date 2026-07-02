@@ -28,25 +28,17 @@ stellar-macros = "=0.7.2"
 
 # Certora formal verification (only compiled with `certora` feature).
 # Certora dependencies compile with the local patches below.
-cvlr = { git = "https://github.com/Certora/cvlr.git", default-features = false }
+cvlr = { git = "https://github.com/Certora/cvlr.git", rev = "b8bfb4c9587ad1e6576a74506fb1ae1a7006cd1b", default-features = false }
 cvlr-soroban = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "5ff9d010e2d322c2291697c07e850759f850f245" }
 cvlr-soroban-macros = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "5ff9d010e2d322c2291697c07e850759f850f245" }
 cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "5ff9d010e2d322c2291697c07e850759f850f245" }
 
-
-# Vendored cvlr adds #![no_std] to cvlr-spec.
-# wasm32v1-none builds with soroban-sdk 26.x require this patch.
+# The pinned rev already carries the `#![no_std]` cvlr-spec fix. Only `cvlr-log`
+# still needs a local patch: upstream expands `cvlr_rule_location!` to
+# `std::file!()`, which is unresolved in our `#![no_std]` wasm32v1-none
+# contracts. Remove this once the `::core::file!()` fix lands upstream.
 [patch."https://github.com/Certora/cvlr.git"]
-cvlr = { path = "vendor/cvlr/cvlr" }
-cvlr-asserts = { path = "vendor/cvlr/cvlr-asserts" }
-cvlr-early-panic = { path = "vendor/cvlr/cvlr-early-panic" }
-cvlr-log = { path = "vendor/cvlr/cvlr-log" }
-cvlr-nondet = { path = "vendor/cvlr/cvlr-nondet" }
-cvlr-decimal = { path = "vendor/cvlr/cvlr-decimal" }
-cvlr-derive = { path = "vendor/cvlr/cvlr-derive" }
-cvlr-fixed = { path = "vendor/cvlr/cvlr-fixed" }
-cvlr-macros = { path = "vendor/cvlr/cvlr-macros" }
-cvlr-spec = { path = "vendor/cvlr/cvlr-spec" }
+cvlr-log = { path = "vendor/cvlr-log" }
 
 [profile.release]
 opt-level = "z"

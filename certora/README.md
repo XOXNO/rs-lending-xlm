@@ -15,11 +15,9 @@ certora/
 │   ├── confs/
 │   └── spec/        # README.txt — domain invariant + conf map
 ├── shared/          # cross-contract summaries
-├── scripts/         # run-all.sh wrapper
+├── scripts/         # Python entrypoints, wasm helpers, run-all.sh wrapper
 ├── profiles.json    # sanity | fast | core | critical | heavy | all
-├── run_profile.py
-├── check_orphans.py
-└── check_invariant_coverage.py
+└── compile_all.sh
 ```
 
 Partitioning is by **crate/WASM boundary** (`common` / `pool` / `controller`),
@@ -67,18 +65,17 @@ Runs `cargo check` for all `certora` feature paths, then `check_orphans.py`
 ## Hosted prover
 
 **CI:** `.github/workflows/certora-verification.yml` runs the `sanity` profile
-(16 reachability rules) on pull requests. Requires `CERTORAKEY` repository
-secret.
+(14 reachability rules) when dispatched. Requires `CERTORAKEY` repository secret.
 
 **Manual profiles:**
 
 ```bash
-./certora/run_profile.py --list
+./certora/scripts/run_profile.py --list
 ./certora/scripts/run-all.sh sanity
-./certora/run_profile.py fast
-./certora/run_profile.py core
-./certora/run_profile.py critical
-./certora/run_profile.py heavy
+./certora/scripts/run_profile.py fast
+./certora/scripts/run_profile.py core
+./certora/scripts/run_profile.py critical
+./certora/scripts/run_profile.py heavy
 ```
 
 | Profile | Purpose |
@@ -92,7 +89,7 @@ secret.
 Forward extra prover flags after `--`:
 
 ```bash
-./certora/run_profile.py fast -- --rule borrow_respects_reserves
+./certora/scripts/run_profile.py fast -- --rule borrow_respects_reserves
 ```
 
 ## Lemma-before-main
@@ -100,7 +97,7 @@ Forward extra prover flags after `--`:
 Follow Aave-style ordering when adding proofs:
 
 1. `pool/confs/summary-contract.conf` before controller solvency that summarizes pool calls
-2. `oracle-compose.conf` + `tolerance-math.conf` before full oracle-dependent liquidation
+2. `tolerance-math.conf` before full oracle-dependent liquidation
 3. Light configs (`rule_sanity: basic`) before paired `*-heavy.conf`
 
 ## Production boundary
@@ -115,12 +112,12 @@ Controller proofs that summarize pool calls are accounting evidence only after
 
 ## Cloud readiness (Certora hosted prover)
 
-Not all 30 confs are equally reliable in Certora cloud. Config syntax is valid
+Not all confs are equally reliable in Certora cloud. Config syntax is valid
 (orphan/coverage checks pass), but runtime behavior splits into three tiers:
 
 | Tier | Confs | Expectation |
 | --- | --- | --- |
-| **A — reliable** | `common/math`, `flash_loan`, `health`, `indexes`, `positions`, `oracle`, `oracle-compose`, `tolerance-math`, `liquidation-light` | Usually complete within 30–60 min |
+| **A — reliable** | `common/math`, `flash_loan`, `health`, `indexes`, `positions`, `oracle`, `tolerance-math`, `liquidation-light` | Usually complete within 30–60 min |
 | **B — may timeout** | `common/rates`, `math`, `interest`, `spoke`, `liquidation`, `strategy`, `market-guard`, `controller-pool-consistency-light`, `pool/integrity`, `summary-contract`, `additivity` | Run individually; 1–2 h jobs |
 | **C — heavy / often stuck** | `solvency-*` (split bundles), `boundary-*` (split bundles), all 6 `*-heavy.conf` + `no-collateral-no-debt` | Use `--rule <one>` per invocation; expect multi-hour runs |
 
@@ -143,7 +140,7 @@ certoraSorobanProver solvency-borrow.conf --rule borrow_respects_reserves
 certoraSorobanProver boundary-math.conf --rule mul_at_max_i128
 ```
 
-Run `sanity` profile rules first (16 reachability checks) before `fast`/`core`.
+Run `sanity` profile rules first (14 reachability checks) before `fast`/`core`.
 
 ## Config policy
 

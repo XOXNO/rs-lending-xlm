@@ -1,7 +1,7 @@
 //! RPC client helpers used by the keeper.
 
 use anyhow::{anyhow, Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use stellar_rpc_client::Client as InnerClient;
 use stellar_xdr::curr::{
     AccountId, LedgerEntryData, LedgerKey, MuxedAccount, PublicKey, ScContractInstance, Uint256,
@@ -54,9 +54,20 @@ impl RpcClient {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
+        // The RPC rejects requests containing duplicate keys (surfaced as a
+        // cryptic captive-core 404). Dual-hub listings naturally produce them
+        // — `AssetOracle` is keyed by asset alone while markets are keyed by
+        // (hub, asset) — so dedupe the request; the order-preserving
+        // reassembly below still emits one output row per requested key.
+        let mut seen = HashSet::with_capacity(keys.len());
+        let unique: Vec<LedgerKey> = keys
+            .iter()
+            .filter(|k| seen.insert((*k).clone()))
+            .cloned()
+            .collect();
         let resp = self
             .inner
-            .get_full_ledger_entries(keys)
+            .get_full_ledger_entries(&unique)
             .await
             .context("get_full_ledger_entries")?;
 

@@ -18,7 +18,7 @@
 > degradation path were replaced by a single band with a binary outcome,
 > and oracle listing-time validation moved from the controller into
 > governance. See Revisions for the full change record and
-> `SCF_BUILD_ARCHITECTURE.md` §9 for the matching reference description.
+> `SCF_BUILD_ARCHITECTURE.md` §9 (Oracle Model) for the matching reference description.
 
 ## Context
 
@@ -306,7 +306,7 @@ to the current shape:
 
 ## References
 
-- `SCF_BUILD_ARCHITECTURE.md` §9 (Oracle Pricing), `architecture/INVARIANTS.md`
+- `SCF_BUILD_ARCHITECTURE.md` §9 (Oracle Model), `architecture/INVARIANTS.md`
   §4.2 to §4.3 (Oracle Configuration, Price Resolution).
 - `contracts/controller/src/oracle/price.rs::{token_price, price_with_config}`
 - `contracts/controller/src/oracle/compose.rs::resolve_components`

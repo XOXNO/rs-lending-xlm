@@ -390,7 +390,7 @@ These choices are intentional. Changing any of them requires protocol review:
 | Numeric model | `common::math::fp`, `common::math::fp_core`, `common::rates`, pool cache and views | `math_rules`, `fp_math`, `fp_ops`, `index_rules`, `rates_and_index`, `interest_rules` |
 | Pool accounting | pool interest, reserve checks, revenue claims, flash-loan entrypoints | `solvency_rules`, `boundary_rules`, `flash_loan_rules`, `flow_e2e`, `flow_strategy`, `fuzz_strategy_flashloan` |
 | Account solvency | controller helpers, borrow and liquidation positions, pool seizure logic | `health_rules`, `position_rules`, `liquidation_rules`, `fuzz_liquidation_differential` |
-| Market and oracle configuration | validation modules, governance config, oracle composition, cache reads | `oracle_rules`, `oracle_compose_rules`, `tolerance_math_rules`, oracle tests, config tests |
+| Market and oracle configuration | validation modules, governance config, oracle tolerance math, cache reads | `oracle_rules`, `tolerance_math_rules`, oracle tests, config tests |
 | Storage and boundaries | governance contracts, pool ABI, account storage, TTL renewal, keeper `ExtendFootprintTtl` | build graph, governance/controller/pool tests, storage tests, `account_ttl_regression_tests` |
 
 ## 8. Re-Verification Checklist

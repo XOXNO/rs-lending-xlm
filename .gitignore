@@ -12,6 +12,7 @@ target/
 
 # Certora prover debug output (regenerated on every prover run)
 **/.certora_internal/
+certora/.prover-run-*.txt
 certora/controller/results/*.md
 
 # Fuzz artifacts (mirrors tests/fuzz/.gitignore)

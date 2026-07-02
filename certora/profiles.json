@@ -93,13 +93,6 @@
                 ]
             },
             {
-                "conf": "certora/controller/confs/oracle-compose.conf",
-                "args": [
-                    "--rule",
-                    "oracle_compose_reachability"
-                ]
-            },
-            {
                 "conf": "certora/controller/confs/tolerance-math.conf",
                 "args": [
                     "--rule",
@@ -136,9 +129,6 @@
                 "conf": "certora/controller/confs/oracle.conf"
             },
             {
-                "conf": "certora/controller/confs/oracle-compose.conf"
-            },
-            {
                 "conf": "certora/controller/confs/tolerance-math.conf"
             },
             {
@@ -172,9 +162,6 @@
             },
             {
                 "conf": "certora/controller/confs/liquidation.conf"
-            },
-            {
-                "conf": "certora/controller/confs/oracle-compose.conf"
             },
             {
                 "conf": "certora/controller/confs/tolerance-math.conf"

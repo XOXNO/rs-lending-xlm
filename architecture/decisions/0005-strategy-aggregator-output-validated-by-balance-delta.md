@@ -111,7 +111,7 @@ Negative / accepted costs:
 
 ## References
 
-- `SCF_BUILD_ARCHITECTURE.md` §11.1 (Strategies).
+- `SCF_BUILD_ARCHITECTURE.md` §12 (Strategies).
 - `contracts/controller/src/strategies/swap/route.rs::validate_strategy_swap`
 - `contracts/controller/src/strategies/swap/balances.rs::{snapshot_swap_balances, verify_router_input_spend, verify_router_output}`
 - `contracts/controller/src/storage/instance.rs::set_flash_loan_ongoing`

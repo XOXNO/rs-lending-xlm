@@ -37,16 +37,21 @@ pub const MS_PER_SECOND: u64 = 1_000;
 
 pub(crate) const ONE_DAY_LEDGERS: u32 = 17_280;
 
-const TTL_THRESHOLD_DAYS: u32 = 30;
+const TTL_THRESHOLD_USER_DAYS: u32 = 30;
+// Shared/instance rent is prepaid at deploy (`prepay_rent`) and topped up by
+// the keeper (14-day safety margin, 6h ticks). The inline threshold is a
+// last-resort safety net that only fires after a multi-day keeper outage, so
+// users normally never pay shared-state rent.
+const TTL_THRESHOLD_SAFETY_DAYS: u32 = 5;
 const TTL_BUMP_INSTANCE_DAYS: u32 = 180;
 const TTL_BUMP_SHARED_DAYS: u32 = 180;
 const TTL_BUMP_USER_DAYS: u32 = 120;
 
-pub const TTL_THRESHOLD_INSTANCE: u32 = ONE_DAY_LEDGERS * TTL_THRESHOLD_DAYS;
+pub const TTL_THRESHOLD_INSTANCE: u32 = ONE_DAY_LEDGERS * TTL_THRESHOLD_SAFETY_DAYS;
 pub const TTL_BUMP_INSTANCE: u32 = ONE_DAY_LEDGERS * TTL_BUMP_INSTANCE_DAYS;
 
-pub const TTL_THRESHOLD_SHARED: u32 = ONE_DAY_LEDGERS * TTL_THRESHOLD_DAYS;
+pub const TTL_THRESHOLD_SHARED: u32 = ONE_DAY_LEDGERS * TTL_THRESHOLD_SAFETY_DAYS;
 pub const TTL_BUMP_SHARED: u32 = ONE_DAY_LEDGERS * TTL_BUMP_SHARED_DAYS;
 
-pub const TTL_THRESHOLD_USER: u32 = ONE_DAY_LEDGERS * TTL_THRESHOLD_DAYS;
+pub const TTL_THRESHOLD_USER: u32 = ONE_DAY_LEDGERS * TTL_THRESHOLD_USER_DAYS;
 pub const TTL_BUMP_USER: u32 = ONE_DAY_LEDGERS * TTL_BUMP_USER_DAYS;
