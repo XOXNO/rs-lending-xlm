@@ -8,10 +8,11 @@
 #
 # Usage:
 #   .github/scripts/act-local.sh list
-#   .github/scripts/act-local.sh ci                 # ci.yml → build-and-test
-#   .github/scripts/act-local.sh ci --full          # ci.yml → all jobs
+#   .github/scripts/act-local.sh ci                 # tests.yml → build-and-test
+#   .github/scripts/act-local.sh ci --full          # tests.yml → all jobs
 #   .github/scripts/act-local.sh certora-compile    # certora compile-check only
 #   .github/scripts/act-local.sh fuzz-smoke         # fuzz.yml pr-smoke (slow)
+#   .github/scripts/act-local.sh scout              # scout.yml full Scout audit
 #   .github/scripts/act-local.sh -n ci              # dry-run
 #
 # Certora hosted jobs need secrets:
@@ -92,9 +93,9 @@ case "$cmd" in
       shift
     fi
     if [[ "$full" -eq 1 ]]; then
-      run_act -W .github/workflows/ci.yml "$@"
+      run_act -W .github/workflows/tests.yml "$@"
     else
-      run_act -W .github/workflows/ci.yml -j build-and-test "$@"
+      run_act -W .github/workflows/tests.yml -j build-and-test "$@"
     fi
     ;;
   certora-compile)
@@ -110,6 +111,24 @@ case "$cmd" in
     ;;
   fuzz-smoke)
     run_act -W .github/workflows/fuzz.yml -j pr-smoke "$@"
+    ;;
+  scout)
+    # The workflow's "Reset workspace" step runs `git clean -ffdx`; with --bind
+    # that would wipe the real working tree instead of act's container copy.
+    if [[ ${#ACT_EXTRA[@]} -gt 0 ]]; then
+      for flag in "${ACT_EXTRA[@]}"; do
+        if [[ "$flag" == "--bind" ]]; then
+          echo "scout refuses --bind: the workflow git-cleans its workspace" >&2
+          exit 1
+        fi
+      done
+    fi
+    # Reports are written inside act's container copy; bind-mount only the
+    # output dir so they land on the host (scout.yml skips the artifact
+    # upload under act — act's artifact server rejects upload-artifact@v7).
+    mkdir -p "$ROOT/target/scout-audit"
+    run_act -W .github/workflows/scout.yml -j scout \
+      --container-options "-v $ROOT/target/scout-audit:$ROOT/target/scout-audit" "$@"
     ;;
   release-build)
     run_act workflow_dispatch -W .github/workflows/release.yml -j build "$@"

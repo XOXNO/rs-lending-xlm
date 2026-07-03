@@ -74,6 +74,9 @@ pub enum GenericError {
     NotAuthorized = 44,
     /// Bounded instance registry (approvals, Blend pools, managers, delegates) is full.
     RegistryCapReached = 45,
+    /// Operation cannot be cancelled (role revocations are protected so a rogue
+    /// role holder cannot veto their own removal).
+    OperationNotCancellable = 46,
 }
 
 #[contracterror]

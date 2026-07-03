@@ -8,8 +8,8 @@ contracts=(
   contracts/governance/Cargo.toml
   contracts/defindex-strategy/Cargo.toml
   contracts/flash-loan-receiver/Cargo.toml
-  contracts/mock-oracle/Cargo.toml
-  contracts/mock-redstone/Cargo.toml
+  mock/mock-oracle/Cargo.toml
+  mock/mock-redstone/Cargo.toml
 )
 
 format="${SCOUT_OUTPUT_FORMAT:-md}"

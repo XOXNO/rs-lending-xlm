@@ -458,7 +458,7 @@ fuzz_target!(|i: In| {
                 let before = pool_state(&pool, &market);
                 let entry = PoolSeizeEntry {
                     hub_asset: market.clone(),
-                    side: side.clone(),
+                    side: side,
                     position,
                 };
                 let result = flatten_contract_result(

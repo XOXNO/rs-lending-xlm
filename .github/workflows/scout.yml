@@ -37,6 +37,9 @@ jobs:
           output-dir: target/scout-audit
           fail-on-severity: critical
           extra-args: "-- --locked"
+          # Local act runs: act's artifact server predates upload-artifact@v7's
+          # API, so skip the upload (reports reach the host via a bind mount).
+          upload-reports: ${{ env.ACT != 'true' }}
 
       # Render the JSON reports as a Markdown summary on the run page. Runs even
       # when the gate above fails (always()), so Critical findings are still

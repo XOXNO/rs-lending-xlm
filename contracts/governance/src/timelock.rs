@@ -124,7 +124,13 @@ impl Governance {
             predecessor: BytesN::from_array(&env, &[0u8; 32]),
             salt,
         };
-        schedule_operation(&env, &operation, delay)
+        let operation_id = schedule_operation(&env, &operation, delay);
+        // Role revocations must not be cancellable, otherwise a rogue role holder
+        // could veto their own removal and permanently freeze governance.
+        if matches!(op, crate::op::AdminOperation::RevokeGovRole(_)) {
+            storage::mark_uncancellable(&env, &operation_id);
+        }
+        operation_id
     }
 
     /// Executes a ready controller operation. When `executor` is `Some`, that
@@ -181,6 +187,11 @@ impl Governance {
         renew_governance_instance(&env);
         canceller.require_auth();
         access_control::ensure_role(&env, &Symbol::new(&env, CANCELLER_ROLE), &canceller);
+        assert_with_error!(
+            &env,
+            !storage::is_uncancellable(&env, &operation_id),
+            GenericError::OperationNotCancellable
+        );
         cancel_operation(&env, &operation_id);
     }
 

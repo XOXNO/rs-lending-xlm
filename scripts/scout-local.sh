@@ -37,8 +37,8 @@ else
     contracts/governance
     contracts/defindex-strategy
     contracts/flash-loan-receiver
-    contracts/mock-oracle
-    contracts/mock-redstone
+    mock/mock-oracle
+    mock/mock-redstone
   )
 fi
 

@@ -9,7 +9,7 @@ use crate::constants::{
     TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS,
     TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
 };
-use crate::op::AdminOperation;
+use crate::op::{AdminOperation, RoleArgs};
 use crate::timelock::{operation_delay, DelayTier};
 use crate::{Governance, GovernanceClient};
 
@@ -227,6 +227,29 @@ fn cancel_returns_operation_to_unset() {
 
     gov.cancel(&admin, &id);
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #46)")]
+fn cannot_cancel_role_revocation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _controller, gov) = register_with_controller(&env, 10);
+
+    // A pending revocation of the canceller's own role...
+    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::RevokeGovRole(RoleArgs {
+            account: admin.clone(),
+            role: Symbol::new(&env, CANCELLER_ROLE),
+        }),
+        &salt,
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+
+    // ...cannot be vetoed by that canceller, so governance stays recoverable.
+    gov.cancel(&admin, &id);
 }
 
 #[test]

@@ -38,7 +38,7 @@ SHELL := /bin/bash
         test test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-merged \
-        fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-strict \
+        fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
         wasm-size-check act-ci act-ci-dryrun clean install-stellar-cli \
         mutants mutants-math mutants-rates mutants-pool-interest mutants-pool \
         mutants-oracle-policy mutants-controller-positions mutants-controller-strategies mutants-common \
@@ -382,11 +382,15 @@ clippy-contracts:
 clippy-fuzz:
 	cargo clippy --manifest-path $(FUZZ_DIR)/Cargo.toml --all-targets -- -D warnings
 
-## Run Scout static analysis on contract crates.
+## Run the scout.yml workflow in Docker via nektos/act (same action + gate as CI).
 scout:
+	bash .github/scripts/act-local.sh scout
+
+## Run Scout directly on the host (no Docker).
+scout-host:
 	.github/scripts/run_scout.sh
 
-## Run Scout and fail if any report is incomplete.
+## Run Scout on the host and fail if any report is incomplete.
 scout-strict:
 	SCOUT_STRICT=1 .github/scripts/run_scout.sh
 
@@ -1431,7 +1435,7 @@ help:
 	@echo "  make proptest           proptest accounting invariants (PROPTEST_CASES=256)"
 	@echo "  make mutants            cargo-mutants sweep (common + controller helpers)"
 	@echo "  make mutants-pool       Scoped mutation run (also -math -rates -oracle-policy -controller-*)"
-	@echo "  make scout              Scout static analysis (scout-strict fails on incomplete reports)"
+	@echo "  make scout              Scout audit workflow in Docker via act (scout-host runs on host; scout-strict gates incomplete reports)"
 	@echo ""
 	@echo "Deployment (pattern: make <network> <action>, network = testnet | mainnet):"
 	@echo "  make keygen                         Generate deployer key (testnet: friendbot-funded)"

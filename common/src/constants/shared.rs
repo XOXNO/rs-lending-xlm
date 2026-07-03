@@ -30,8 +30,10 @@ pub const POSITION_LIMIT_MAX: u32 = 10;
 /// Minimum primary/anchor tolerance input (BPS) for oracle config validation.
 pub const MIN_TOLERANCE: u32 = 150;
 
-/// Maximum primary/anchor tolerance input (BPS).
-pub const MAX_TOLERANCE: u32 = 5_000;
+/// Maximum primary/anchor tolerance input (BPS). Capped at 2_500 (±25%) so the
+/// anchor/primary midpoint can move the final price by at most ~12.5% when the
+/// primary sits at the band edge.
+pub const MAX_TOLERANCE: u32 = 2_500;
 
 pub const MS_PER_SECOND: u64 = 1_000;
 
