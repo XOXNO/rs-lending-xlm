@@ -58,21 +58,24 @@ from `timelock_min_delay_ledgers` and can later only be **increased**
 - **mainnet**: production target is `34560` (~48 h). Deploying with that value
   would make `make mainnet setup` wait ~48 h **per op** (~30 ops). Don't.
 
-**Bootstrap pattern (mainnet):** deploy with a tiny delay so the whole setup runs
-in minutes, then raise to the production delay at the end (the raise itself only
-waits the still-tiny current delay):
+**Bootstrap pattern (mainnet):** deploy + configure with a tiny delay so the whole
+setup runs in minutes **while the protocol stays paused**, then raise to the
+production delay and only then go live. `make mainnet setup` never auto-unpauses,
+and `make mainnet unpause` **refuses** until the on-chain delay reaches
+`timelock_min_delay_ledgers`, so mainnet can never be live below the production floor:
 
 ```bash
-DEPLOY_MIN_DELAY=1 make mainnet setup          # governance deployed with min_delay=1; full setup in ~minutes
+DEPLOY_MIN_DELAY=1 make mainnet setup          # governance deployed with min_delay=1; full setup in ~minutes; LEFT PAUSED
 # verify everything (see §7), then lock in the production delay:
-make mainnet updateDelay 34560                 # increase-only ratchet → 48h
+make mainnet updateDelay 34560                 # increase-only ratchet → 48h (waits the still-tiny current delay)
 make mainnet info                              # confirm min_delay is now 34560
+make mainnet unpause                           # go live — gated on delay >= floor
 ```
 
 `DEPLOY_MIN_DELAY` only affects the governance constructor; `await` logic always
 reads the **live** on-chain delay, so it scales correctly before and after the raise.
 Leave `timelock_min_delay_ledgers` in `networks.json` at the production value as
-the documented target.
+the documented target — the unpause gate reads it as the floor.
 
 ---
 
@@ -89,7 +92,9 @@ the documented target.
    `AGGREGATOR_CONTRACT` / `ACCUMULATOR_CONTRACT`).
 4. `setupAll`: create every market in `<network>_markets.json`, wire its oracle,
    activate it; then create every spoke category in `spokes.json` and add its assets.
-5. `unpause` (owner-immediate — no timelock wait).
+5. `unpause` (owner-immediate — no timelock wait). **Mainnet: skipped** — setup
+   leaves the protocol paused, and unpause is a separate step gated on the
+   timelock delay reaching the production floor (see §3).
 6. Print status (`info`, `listMarkets`, `listSpokeCategories`).
 
 New addresses are written back to `networks.json` (`governance`, `controller`,
@@ -99,9 +104,10 @@ New addresses are written back to `networks.json` (`governance`, `controller`,
 # testnet — one shot
 make testnet setup
 
-# mainnet — bootstrap delay, then raise (see §3)
+# mainnet — bootstrap delay (paused), raise, then go live (see §3)
 DEPLOY_MIN_DELAY=1 make mainnet setup
 make mainnet updateDelay 34560
+make mainnet unpause
 ```
 
 > A fresh deploy produces brand-new addresses; the previous deployment becomes

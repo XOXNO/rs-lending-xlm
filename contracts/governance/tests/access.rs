@@ -59,6 +59,33 @@ fn grant_role_allows_separated_executor_and_canceller() {
     });
 }
 
+// The owner is exempt from the EXECUTOR/CANCELLER separation: it holds both
+// from construction, and must be able to re-acquire either through the
+// timelocked grant path (e.g. to restore a CANCELLER accidentally revoked)
+// even while still holding EXECUTOR. Regression for the missing owner check in
+// require_executor_canceller_separation, which previously panicked here.
+#[test]
+fn grant_role_allows_owner_to_hold_executor_and_canceller() {
+    let env = Env::default();
+    let owner = Address::generate(&env);
+    let id = env.register(
+        Governance,
+        (owner.clone(), constants::TIMELOCK_MIN_DELAY_LEDGERS),
+    );
+    env.as_contract(&id, || {
+        // Owner already holds EXECUTOR from the constructor; granting the
+        // conflicting CANCELLER (and vice versa) must not panic for the owner.
+        apply_grant_role(&env, &owner, &Symbol::new(&env, CANCELLER_ROLE));
+        apply_grant_role(&env, &owner, &Symbol::new(&env, EXECUTOR_ROLE));
+        assert!(
+            access_control::has_role(&env, &owner, &Symbol::new(&env, EXECUTOR_ROLE)).is_some()
+        );
+        assert!(
+            access_control::has_role(&env, &owner, &Symbol::new(&env, CANCELLER_ROLE)).is_some()
+        );
+    });
+}
+
 // Revoke requires the account to hold the role.
 #[test]
 #[should_panic]

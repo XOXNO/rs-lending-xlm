@@ -2926,6 +2926,28 @@ pause_protocol() {
 unpause_protocol() {
     local gov
     gov=$(get_governance)
+    # Mainnet safety floor: never take the protocol live while the timelock delay
+    # is below the configured production floor. A bootstrap deploy may run its
+    # market/spoke config at a short DEPLOY_MIN_DELAY while the controller is
+    # still paused; unpausing stays blocked until the delay has been raised to
+    # timelock_min_delay_ledgers (e.g. `make mainnet updateDelay <floor>`). This
+    # closes the window where a live mainnet could be governed by a near-zero
+    # timelock if the operator forgot or automation stopped after setup.
+    if [ "$NETWORK" = "mainnet" ]; then
+        local floor current
+        floor=$(jq -r '.["mainnet"].timelock_min_delay_ledgers // empty' "$NETWORKS_FILE")
+        if [ -z "$floor" ] || [ "$floor" = "null" ]; then
+            echo "Refusing to unpause mainnet: timelock_min_delay_ledgers is not configured in networks.json." >&2
+            return 1
+        fi
+        current=$(min_delay_ledgers)
+        if [ "$current" -lt "$floor" ]; then
+            echo "Refusing to unpause mainnet: on-chain timelock delay ${current} < production floor ${floor} ledgers." >&2
+            echo "Raise it first, then unpause:  make mainnet updateDelay ${floor}" >&2
+            return 1
+        fi
+        echo "Mainnet timelock delay ${current} >= floor ${floor}: unpause permitted."
+    fi
     stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- unpause
     echo "Protocol unpaused on ${NETWORK}."
 }
