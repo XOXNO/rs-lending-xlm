@@ -12,8 +12,8 @@ use stellar_macros::{only_owner, when_not_paused};
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::{
-    pool_add_rewards_call, pool_claim_revenue_call, pool_update_caps_call,
-    pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
+    pool_add_rewards_call, pool_claim_revenue_call, pool_update_indexes_call,
+    pool_update_params_call, pool_upgrade_call,
 };
 use crate::external::sac::sac_transfer_call;
 use crate::risk::THRESHOLD_UPDATE_MIN_HF_RAW;
@@ -102,11 +102,6 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn update_pool_caps(env: Env, hub_asset: HubAssetKey, supply_cap: i128, borrow_cap: i128) {
-        update_pool_caps(&env, &hub_asset, supply_cap, borrow_cap);
-    }
-
-    #[only_owner]
     pub fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_controller_instance(&env);
         let pool_addr = storage::get_pool(&env);
@@ -158,23 +153,6 @@ fn sync_market_indexes(env: &Env, cache: &mut Cache, hub_assets: &Vec<HubAssetKe
         pool_update_indexes_call(env, &pool_addr, &hub_asset);
     }
 }
-/// Updates hub supply/borrow caps on the central pool for one `(hub_id, asset)`
-/// market.
-pub fn update_pool_caps(env: &Env, hub_asset: &HubAssetKey, supply_cap: i128, borrow_cap: i128) {
-    // dimensional: supply_cap/borrow_cap are HubCap(asset, side) in Token(asset) base units.
-    assert_with_error!(
-        env,
-        supply_cap >= 0 && borrow_cap >= 0,
-        CollateralError::InvalidBorrowParams
-    );
-    let mut cache = Cache::new(env);
-    storage::renew_controller_instance(env);
-    // Spoke cap checks run at spoke configuration time. The
-    // pool reverts `PoolNotInitialized` for an uncreated (hub, asset).
-    let pool_addr = cache.cached_pool_address();
-    pool_update_caps_call(env, &pool_addr, hub_asset, supply_cap, borrow_cap);
-}
-
 /// Accrues pool indexes before replacing the market's interest-rate model.
 pub fn upgrade_liquidity_pool_params(
     env: &Env,

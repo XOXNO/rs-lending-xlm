@@ -26,8 +26,6 @@ fn valid_params(asset: Address) -> MarketParamsRaw {
         max_borrow_rate: 2 * RAY,
         max_utilization: RAY,
         reserve_factor: 1_000,
-        supply_cap: 0,
-        borrow_cap: 0,
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: asset,

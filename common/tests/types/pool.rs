@@ -18,8 +18,6 @@ fn sample_raw_params(env: &Env) -> MarketParamsRaw {
         reserve_factor: 1_000,
         asset_id: asset(env),
         asset_decimals: 7,
-        supply_cap: 0,
-        borrow_cap: 0,
         is_flashloanable: false,
         flashloan_fee: 0,
     }

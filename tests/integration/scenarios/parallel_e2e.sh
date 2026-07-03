@@ -9,7 +9,7 @@
 # / wallets / markets, keyed by RUN_TS=<base>-<lane>, so no shared state):
 #   agg     lifecycle + strategies + admin + governance  (uses the XOXNO
 #           aggregator/DEX venue → serial WITHIN this one lane to avoid swap races)
-#   liq     liquidation + caps + defindex strategy        (mock oracles, venue-free)
+#   liq     liquidation + defindex strategy               (mock oracles, venue-free)
 #   stress  stress                                        (mock oracles, venue-free)
 # The two mock lanes are fully independent of agg and of each other, so all three
 # run in parallel. Gating is per-lane; the run is green only if every lane is.

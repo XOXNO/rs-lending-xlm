@@ -86,7 +86,6 @@ Architecture checks:
 | Controller | `unpause` | direct live call | `contracts/controller/src/governance/access.rs:135` |
 | Controller | `update_account_threshold` | direct live call | `contracts/controller/src/pool_ops/mod.rs:137` |
 | Controller | `update_indexes` | direct live call | `contracts/controller/src/pool_ops/mod.rs:35` |
-| Controller | `update_pool_caps` | direct live call | `contracts/controller/src/pool_ops/mod.rs:108` |
 | Controller | `upgrade` | direct live call | `contracts/controller/src/governance/access.rs:96` |
 | Controller | `upgrade_liquidity_pool_params` | direct live call | `contracts/controller/src/pool_ops/mod.rs:99` |
 | Controller | `upgrade_pool` | direct live call | `contracts/controller/src/pool_ops/mod.rs:113` |

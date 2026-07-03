@@ -1,4 +1,4 @@
-//! `max_supply` preview: supply-cap headroom across hub and spoke caps.
+//! `max_supply` preview: spoke supply-cap headroom.
 
 use common::math::fp::Ray;
 use common::rates::scaled_to_original;
@@ -32,39 +32,9 @@ pub fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if !AssetConfig::from(&spoke_cfg).can_supply() {
         return 0;
     }
-    let hub_supply_cap = cache.cached_pool_sync_data(hub_asset).params.supply_cap;
     let market = MarketLimitCtx::load(&mut cache, hub_asset);
-    let hub_headroom = hub_supply_cap_headroom(env, &market, hub_supply_cap);
-    let spoke_headroom = spoke_supply_cap_headroom(env, &mut cache, &account, hub_asset, &market);
     // dimensional: max_supply returns additional Token(asset) in asset-native units.
-    hub_headroom.min(spoke_headroom)
-}
-
-/// Hub supply-cap headroom in asset units; `i128::MAX` when the cap is disabled.
-fn hub_supply_cap_headroom(env: &Env, market: &MarketLimitCtx, supply_cap: i128) -> i128 {
-    if !cap_is_enabled(supply_cap) {
-        return i128::MAX;
-    }
-    // dimensional: supply_cap is Token(asset); cap_ray/current are Ray<Token(asset)>.
-    let cap_ray = Ray::from_asset(supply_cap, market.decimals);
-    let current = market.supplied.mul(env, market.supply_index);
-    if current >= cap_ray {
-        return 0;
-    }
-
-    // dimensional: candidate Token(asset) round-trips through Ray<Share(asset, supply)>.
-    let mut candidate = (cap_ray - current).to_asset_floor(market.decimals);
-    for _ in 0..8 {
-        if candidate <= 0 {
-            return 0;
-        }
-        let scaled = Ray::from_asset(candidate, market.decimals).div(env, market.supply_index);
-        if (market.supplied + scaled).mul(env, market.supply_index) <= cap_ray {
-            return candidate;
-        }
-        candidate -= 1;
-    }
-    0
+    spoke_supply_cap_headroom(env, &mut cache, &account, hub_asset, &market)
 }
 
 /// Spoke supply-cap headroom for the account's spoke; `i128::MAX` when disabled.

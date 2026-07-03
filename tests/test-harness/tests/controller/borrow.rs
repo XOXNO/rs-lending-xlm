@@ -184,25 +184,6 @@ fn test_borrow_rejects_when_paused() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-// 8. test_borrow_cap_enforcement
-
-#[test]
-fn test_borrow_cap_enforcement() {
-    let cap = 1_0000000i128; // 1 ETH in asset decimals (7 dec).
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_params("ETH", |params| {
-            params.borrow_cap = cap;
-        })
-        .build();
-
-    t.supply(ALICE, "USDC", 100_000.0);
-
-    // Borrowing 2 ETH exceeds the 1 ETH cap.
-    let result = t.try_borrow(ALICE, "ETH", 2.0);
-    assert_contract_error(result, errors::BORROW_CAP_REACHED);
-}
 // 9. test_borrow_position_limit_exceeded
 
 #[test]

@@ -41,9 +41,9 @@ use stellar_access::ownable;
 use stellar_macros::only_owner;
 
 use utils::{
-    apply_hub_caps, apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from,
-    enforce_borrow_cap, enforce_supply_cap, now_ms, renew_market_keys, renew_pool_instance,
-    require_nonneg_amount, require_positive_amount, require_wasm_receiver,
+    apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from, now_ms,
+    renew_market_keys, renew_pool_instance, require_nonneg_amount, require_positive_amount,
+    require_wasm_receiver,
 };
 
 fn load_synced_cache(env: &Env, hub_asset: &HubAssetKey) -> Cache {
@@ -95,7 +95,6 @@ fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
     cache.require_reserves(amount);
     // dimensional: Token(asset) borrow amount -> Ray<Share(asset, debt)>.
     let scaled_debt = cache.calculate_scaled_borrow(amount);
-    enforce_borrow_cap(env, cache, scaled_debt);
     // dimensional: account debt and market debt totals share the debt-share unit.
     scaled.checked_add_assign(env, scaled_debt);
     cache.borrowed.checked_add_assign(env, scaled_debt);
@@ -107,8 +106,6 @@ fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> (PoolPositionMutation, Mark
 
     // dimensional: Token(asset) supply amount -> Ray<Share(asset, supply)>.
     let scaled_amount = cache.calculate_scaled_supply(amount);
-    enforce_supply_cap(env, &cache, scaled_amount);
-
     // dimensional: account supply and market supply totals share the supply-share unit.
     scaled.checked_add_assign(env, scaled_amount);
     cache.supplied.checked_add_assign(env, scaled_amount);
@@ -563,16 +560,6 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         model.verify(&env);
         apply_rate_model(&env, &hub_asset, &model);
-        let params = views::load_params(&env, &hub_asset);
-        events::publish_market_params(&env, hub_asset.hub_id, asset, params);
-    }
-
-    #[only_owner]
-    fn update_caps(env: Env, hub_asset: HubAssetKey, supply_cap: i128, borrow_cap: i128) {
-        let asset = hub_asset.asset.clone();
-        let cache = load_synced_cache(&env, &hub_asset);
-        cache.save();
-        apply_hub_caps(&env, &hub_asset, supply_cap, borrow_cap);
         let params = views::load_params(&env, &hub_asset);
         events::publish_market_params(&env, hub_asset.hub_id, asset, params);
     }

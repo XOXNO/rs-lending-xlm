@@ -40,8 +40,6 @@ impl TestSetup {
             optimal_utilization: RAY * 8 / 10,
             max_utilization: RAY * 95 / 100,
             reserve_factor: 1_000,
-            supply_cap: 0,
-            borrow_cap: 0,
             is_flashloanable: false,
             flashloan_fee: 0,
             asset_id: asset.clone(),

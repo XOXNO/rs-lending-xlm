@@ -129,34 +129,6 @@ fn test_multiply_rejects_when_paused() {
     );
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-// The borrow-cap check runs after pool.create_strategy(). The borrow cap is
-// set extremely low ($0.001), so multiply rejects after the borrow exceeds
-// the cap.
-
-#[test]
-fn test_multiply_borrow_cap_would_exceed() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_params("ETH", |p| {
-            // Set borrow cap extremely low: 1 unit (0.0000001 ETH).
-            p.borrow_cap = 1;
-        })
-        .build();
-
-    // Attempt to multiply with 1 ETH debt, exceeding the borrow cap. Flow:
-    // create_strategy -> check borrow cap -> reject with a specific code.
-    let steps = build_swap_steps(&t, "ETH", "USDC", 5000_0000000);
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
-    assert_contract_error(result, errors::BORROW_CAP_REACHED);
-}
 // Reusing an account that already holds the collateral asset must add to the
 // existing position, not replace it.
 
@@ -517,32 +489,6 @@ fn test_multiply_existing_account_wrong_owner() {
     // Bob calls multiply targeting Alice's existing account. The ownership
     // check must fail with NotAuthorized, not as a host-level auth failure.
     assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
-}
-// The post-deposit supply cap check in multiply must reject oversized output.
-
-#[test]
-fn test_multiply_rejects_supply_cap_after_deposit() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_params("USDC", |p| {
-            p.supply_cap = 1; // extremely low: 1 unit (0.0000001 USDC).
-        })
-        .build();
-
-    t.fund_router("USDC", 100.0);
-    // 0.05 ETH (raw 500_000) flash-borrowed minus 9bps fee.
-    let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(500_000), 100_0000000);
-
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        0.05,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
-    assert_contract_error(result, errors::SUPPLY_CAP_REACHED);
 }
 // Favorable slippage refunds must not sweep unrelated controller balances.
 

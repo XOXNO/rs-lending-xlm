@@ -34,8 +34,6 @@ pub mod codes {
     pub const HEALTH_FACTOR_TOO_HIGH: u32 = CollateralError::HealthFactorTooHigh as u32;
     pub const HEALTH_FACTOR_TOO_LOW: u32 = CollateralError::HealthFactorTooLow as u32;
     pub const NOT_COLLATERAL: u32 = CollateralError::NotCollateral as u32;
-    pub const SUPPLY_CAP_REACHED: u32 = CollateralError::SupplyCapReached as u32;
-    pub const BORROW_CAP_REACHED: u32 = CollateralError::BorrowCapReached as u32;
     pub const ASSET_NOT_BORROWABLE: u32 = CollateralError::AssetNotBorrowable as u32;
 
     pub const POSITION_LIMIT_EXCEEDED: u32 = CollateralError::PositionLimitExceeded as u32;
@@ -81,7 +79,6 @@ pub mod codes {
     pub const SPOKE_MISMATCH: u32 = SpokeError::SpokeMismatch as u32;
     pub const SPOKE_SUPPLY_CAP_REACHED: u32 = SpokeError::SpokeSupplyCapReached as u32;
     pub const SPOKE_BORROW_CAP_REACHED: u32 = SpokeError::SpokeBorrowCapReached as u32;
-    pub const SPOKE_CAP_EXCEEDS_HUB: u32 = SpokeError::SpokeCapExceedsHub as u32;
     pub const SPOKE_CAP_BELOW_USAGE: u32 = SpokeError::SpokeCapBelowUsage as u32;
 
     // FlashLoanError

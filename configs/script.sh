@@ -332,7 +332,7 @@ scval_interest_rate_model() {
         ]}'
 }
 
-# MarketParamsRaw = InterestRateModel fields + hub caps + flash-loan eligibility
+# MarketParamsRaw = InterestRateModel fields + flash-loan eligibility
 # (is_flashloanable / flashloan_fee) + asset_id (address) + asset_decimals
 # (u32). Friendly object must already carry asset_id, asset_decimals, and the
 # flash-loan fields. Keys sorted (canonical ScMap order).
@@ -344,7 +344,6 @@ scval_market_params() {
             {key:{symbol:"asset_decimals"}, val:{u32:($p.asset_decimals)}},
             {key:{symbol:"asset_id"}, val:{address:($p.asset_id)}},
             i("base_borrow_rate"),
-            i("borrow_cap"),
             {key:{symbol:"flashloan_fee"}, val:{u32:($p.flashloan_fee)}},
             {key:{symbol:"is_flashloanable"}, val:{bool:($p.is_flashloanable)}},
             i("max_borrow_rate"),
@@ -354,8 +353,7 @@ scval_market_params() {
             {key:{symbol:"reserve_factor"}, val:{u32:($p.reserve_factor)}},
             i("slope1"),
             i("slope2"),
-            i("slope3"),
-            i("supply_cap")
+            i("slope3")
         ]}'
 }
 
@@ -1243,7 +1241,7 @@ validate_configs() {
         # market_params completeness + utilization/reserve-factor relations
         missing=$(printf '%s' "$mj" | jq -r '[(.market_params // {}) |
             {max_borrow_rate, base_borrow_rate, slope1, slope2, slope3, mid_utilization,
-             optimal_utilization, max_utilization, reserve_factor, supply_cap, borrow_cap}
+             optimal_utilization, max_utilization, reserve_factor}
             | to_entries[] | select(.value == null) | .key] | join(", ")')
         if [ -n "$missing" ]; then
             vc_err "market ${m}: market_params missing ${missing}"
@@ -2149,58 +2147,6 @@ update_market_params() {
     schedule_and_maybe_execute "$op_id"
 
     echo "Market params scheduled for ${market_name}."
-}
-
-# Push hub supply/borrow caps from `market_params` onto the central pool via
-# `update_pool_caps`. Use after changing supply_cap / borrow_cap in the JSON.
-update_pool_caps() {
-    local market_name=$1
-
-    echo "Updating hub pool caps for ${market_name}..."
-
-    local asset_address
-    asset_address=$(get_market_value "$market_name" "asset_address")
-    local supply_cap
-    supply_cap=$(get_market_value "$market_name" "market_params.supply_cap")
-    local borrow_cap
-    borrow_cap=$(get_market_value "$market_name" "market_params.borrow_cap")
-    # Fail closed: a missing cap must never silently push 0 (or the literal
-    # string "null") onto the hub — that would zero live caps.
-    if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ] || [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then
-        die "market ${market_name} missing market_params.supply_cap/borrow_cap in ${MARKET_CONFIG_FILE}"
-    fi
-
-    echo "  Supply cap: ${supply_cap}  Borrow cap: ${borrow_cap}"
-
-    local hub_id
-    hub_id=$(get_market_value "$market_name" "hub_id")
-    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
-        die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
-    fi
-
-    # update_pool_caps(hub_asset, supply_cap, borrow_cap).
-    local args_json
-    args_json=$(jq -nc \
-        --argjson hub_asset "$(scval_hub_asset "$asset_address" "$hub_id")" \
-        --arg supply_cap "$supply_cap" \
-        --arg borrow_cap "$borrow_cap" \
-        '[$hub_asset,{i128:$supply_cap},{i128:$borrow_cap}]')
-    local salt
-    salt=$(gen_salt "update_pool_caps" "$args_json")
-
-    # The propose `--op` payload wraps the three values in friendly PoolCapsArgs
-    # (hub_asset + caps as i128 decimal strings).
-    local admin_op_json
-    admin_op_json=$(admin_op UpdatePoolCaps \
-        "$(jq -nc --argjson hub_id "$hub_id" --arg asset "$asset_address" --arg sc "$supply_cap" --arg bc "$borrow_cap" \
-            '{hub_asset:{hub_id:$hub_id, asset:$asset}, supply_cap:$sc, borrow_cap:$bc}')")
-
-    local op_id
-    op_id=$(schedule_via_proposer \
-        update_pool_caps "$admin_op_json" "$args_json" true "$salt")
-    schedule_and_maybe_execute "$op_id"
-
-    echo "Hub pool caps scheduled for ${market_name}."
 }
 
 update_indexes() {
@@ -3904,14 +3850,6 @@ case "$1" in
             exit 1
         fi
         update_market_params "$2"
-        ;;
-    "updatePoolCaps")
-        if [ -z "$2" ]; then
-            echo "Usage: $0 updatePoolCaps <market_name>"
-            list_markets
-            exit 1
-        fi
-        update_pool_caps "$2"
         ;;
     "configureMarketOracle")
         if [ -z "$2" ]; then

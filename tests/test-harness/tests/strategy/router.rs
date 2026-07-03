@@ -1,4 +1,4 @@
-//! Router adversarial tests, panic-site coverage, oracle boundaries, and supply-cap gates.
+//! Router adversarial tests, panic-site coverage, and oracle boundaries.
 
 use controller::constants::{RAY, WAD};
 use soroban_sdk::token;
@@ -6,7 +6,7 @@ use soroban_sdk::Address;
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
 use test_harness::{
     apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, hub_asset,
-    tokens, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
+    usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
 };
 
 use crate::helpers::build_swap_steps;
@@ -855,95 +855,6 @@ fn test_multiply_at_utilization_cap_then_step_over_rejected() {
         &steps,
     );
     assert_contract_error(result, errors::UTILIZATION_ABOVE_MAX);
-}
-
-#[test]
-fn test_strategy_swap_collateral_supply_cap_reached() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .with_max_utilization_disabled_all_markets()
-        .build();
-
-    // Bob supplies 1M USDC to fill the pool.
-    t.supply(BOB, "USDC", 1_000_000.0);
-
-    // Set the USDC hub supply cap to 1,010,000 tokens (7 decimals). Current
-    // total = 1,000,000.
-    t.ctrl_client().update_pool_caps(
-        &hub_asset(t.resolve_asset("USDC")),
-        &10_100_000_000_000i128,
-        &0i128,
-    );
-
-    // Alice supplies some ETH.
-    t.supply("alice", "ETH", 10.0);
-
-    // Alice tries to swap 5 ETH collateral for USDC. 5 ETH = $10,000. The
-    // mock swap returns 20,000 USDC ($20,000 at $1/USDC). Total USDC =
-    // 1,000,000 + 20,000 = 1,020,000. 1,020,000 > 1,010,000 triggers #105.
-
-    // Fund the router with USDC for the swap.
-    t.fund_router("USDC", 100_000.0);
-
-    // 5 ETH (7 decimals) → 50_000_000 raw. swap_collateral does not flash-
-    // borrow, so amount_in matches the requested withdrawal exactly.
-    let steps = build_aggregator_swap(&t, "ETH", "USDC", 50_000_000, tokens(20_000, 7));
-
-    let res = t.try_swap_collateral("alice", "ETH", 5.0, "USDC", &steps);
-    assert_contract_error(res, errors::SUPPLY_CAP_REACHED);
-}
-
-#[test]
-fn test_strategy_multiply_supply_cap_reached() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .with_max_utilization_disabled_all_markets()
-        .build();
-
-    // Bob supplies 1M USDC.
-    t.supply(BOB, "USDC", 1_000_000.0);
-
-    // Set the USDC hub supply cap to 1,010,000 tokens (7 decimals). Preserves
-    // the dust-disabled sentinel from `with_dust_disabled_all_markets()` so
-    // Alice's deliberately-tiny 5 USDC seed position survives the new gate.
-    t.ctrl_client().update_pool_caps(
-        &hub_asset(t.resolve_asset("USDC")),
-        &10_100_000_000_000i128,
-        &0i128,
-    );
-
-    // Alice has some USDC.
-    t.supply("alice", "USDC", 5.0); // Minimal initial position
-
-    // Alice tries to multiply her USDC position. Borrow 10 ETH ($20k), swap
-    // to USDC. The mock swap returns 30,000 USDC. Total USDC = 1,000,000
-    // (Bob) + 5 (Alice) + 30,000 (swap) = 1,030,005. 1,030,005 > 1,010,000
-    // triggers #105.
-
-    t.fund_router("USDC", 100_000.0);
-
-    // 10 ETH flash-borrowed → controller receives apply_flash_fee(100_000_000).
-    let steps = build_aggregator_swap(
-        &t,
-        "ETH",
-        "USDC",
-        apply_flash_fee(100_000_000),
-        tokens(30_000, 7),
-    );
-
-    let res = t.try_multiply(
-        "alice",
-        "USDC",
-        10.0,
-        "ETH",
-        controller::types::PositionMode::Multiply, // Multiply mode
-        &steps,
-    );
-    assert_contract_error(res, errors::SUPPLY_CAP_REACHED);
 }
 
 #[test]

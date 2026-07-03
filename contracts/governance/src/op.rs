@@ -7,7 +7,7 @@ use crate::timelock::{validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
-    AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EditToleranceArgs, PoolCapsArgs,
+    AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EditToleranceArgs,
     RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, TransferOwnershipArgs,
     UpgradePoolParamsArgs,
 };
@@ -135,7 +135,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
         ),
         AdminOperation::AddAssetToSpoke(args) => {
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
-            validate::asset::validate_hub_caps(env, args.supply_cap, args.borrow_cap);
+            validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
             (
                 storage::get_controller(env),
                 Symbol::new(env, "add_asset_to_spoke"),
@@ -145,28 +145,11 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
         }
         AdminOperation::EditAssetInSpoke(args) => {
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
-            validate::asset::validate_hub_caps(env, args.supply_cap, args.borrow_cap);
+            validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
             (
                 storage::get_controller(env),
                 Symbol::new(env, "edit_asset_in_spoke"),
                 vec![env, args.clone().into_val(env)],
-                DelayTier::Standard,
-            )
-        }
-        AdminOperation::UpdatePoolCaps(args) => {
-            validate::asset::validate_hub_caps(env, args.supply_cap, args.borrow_cap);
-            // The controller re-checks each spoke cap against the hub cap at
-            // `add_asset_to_spoke`/`edit_asset_in_spoke`, and spokes are no longer
-            // enumerable from the asset, so no governance pre-check is needed.
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "update_pool_caps"),
-                vec![
-                    env,
-                    args.hub_asset.clone().into_val(env),
-                    args.supply_cap.into_val(env),
-                    args.borrow_cap.into_val(env),
-                ],
                 DelayTier::Standard,
             )
         }

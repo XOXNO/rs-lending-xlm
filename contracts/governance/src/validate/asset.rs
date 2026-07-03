@@ -63,7 +63,7 @@ pub(crate) fn validate_market_creation(
     params.verify(env);
 }
 
-pub(crate) fn validate_hub_caps(env: &Env, supply_cap: i128, borrow_cap: i128) {
+pub(crate) fn validate_spoke_cap_args(env: &Env, supply_cap: i128, borrow_cap: i128) {
     assert_with_error!(
         env,
         supply_cap >= 0 && borrow_cap >= 0,

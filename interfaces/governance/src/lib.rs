@@ -25,14 +25,6 @@ pub use common::types::SpokeAssetArgs;
 
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct PoolCapsArgs {
-    pub hub_asset: HubAssetKey,
-    pub supply_cap: i128,
-    pub borrow_cap: i128,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
 pub struct RemoveAssetFromSpokeArgs {
     pub hub_asset: HubAssetKey,
     pub spoke_id: u32,
@@ -99,7 +91,6 @@ pub enum AdminOperation {
     RemoveSpoke(u32),
     AddAssetToSpoke(SpokeAssetArgs),
     EditAssetInSpoke(SpokeAssetArgs),
-    UpdatePoolCaps(PoolCapsArgs),
     RemoveAssetFromSpoke(RemoveAssetFromSpokeArgs),
     ApproveToken(Address),
     RevokeToken(Address),

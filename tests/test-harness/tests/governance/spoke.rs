@@ -3,15 +3,11 @@
 //! Risk parameters are per-asset, so bound validation happens when an asset
 //! joins a category, not at category creation.
 
-use governance::op::{AdminOperation, PoolCapsArgs, SpokeAssetArgs};
-use soroban_sdk::{BytesN, Env, TryFromVal};
+use governance::op::{AdminOperation, SpokeAssetArgs};
+use soroban_sdk::TryFromVal;
 use test_harness::{
     assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, HARNESS_HUB,
 };
-
-fn salt(env: &Env, byte: u8) -> BytesN<32> {
-    BytesN::<32>::from_array(env, &[byte; 32])
-}
 
 fn add_category(t: &LendingTest) -> u32 {
     let admin = t.admin();
@@ -83,9 +79,6 @@ fn test_spoke_accepts_valid_asset_bounds() {
 fn test_spoke_add_asset_via_gov_forwarder() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = 0; // matching default test harness
-        })
         .with_market(eth_preset())
         .build();
     let id = add_category(&t);
@@ -119,20 +112,16 @@ fn test_spoke_add_asset_via_gov_forwarder() {
 
 const UNIT: i128 = 10_000_000;
 
+// Spoke caps are the only cap layer: a spoke cap of any size is accepted at
+// add time (no hub-cap coupling) and enforced against spoke usage.
 #[test]
-fn test_spoke_rejects_spoke_supply_cap_above_hub() {
-    let hub_cap = 1_000 * UNIT;
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = hub_cap;
-        })
-        .build();
+fn test_spoke_accepts_spoke_caps_without_hub_coupling() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
     let id = add_category(&t);
     let usdc = t.resolve_asset("USDC");
     let admin = t.admin();
 
-    let result = match t.gov_client().try_execute_immediate(
+    t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
             liquidation_fees: 0,
@@ -148,58 +137,10 @@ fn test_spoke_rejects_spoke_supply_cap_above_hub() {
             supply_cap: 2_000 * UNIT,
             borrow_cap: 0,
         }),
-    ) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(result, errors::SPOKE_CAP_EXCEEDS_HUB);
-}
-
-// Phase 1 removed the governance hub-vs-spoke pre-check
-// (`validate_proposed_hub_caps_against_spokes`): spokes are no longer
-// enumerable from the asset, so proposing a hub cap below an existing spoke cap
-// is now accepted at propose time. This mirrors the controller, whose
-// `update_pool_caps` also no longer enumerates spokes. The enforced direction
-// stays the forward `add_asset_to_spoke` spoke<=hub check.
-#[test]
-fn test_update_pool_caps_no_longer_pre_checks_spokes_via_governance() {
-    let hub_cap = 10_000 * UNIT;
-    let spoke_cap = 2_000 * UNIT;
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = hub_cap;
-        })
-        .build();
-    let id = add_category(&t);
-    let usdc = t.resolve_asset("USDC");
-    let admin = t.admin();
-    t.gov_client().execute_immediate(
-        &admin,
-        &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
-            liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
-            spoke_id: id,
-            can_collateral: true,
-            can_borrow: true,
-            ltv: 8_000,
-            threshold: 8_500,
-            bonus: 200,
-            supply_cap: spoke_cap,
-            borrow_cap: 0,
-        }),
     );
 
-    // The proposal is now scheduled without rejection.
-    t.gov_client().propose(
-        &admin,
-        &AdminOperation::UpdatePoolCaps(PoolCapsArgs {
-            hub_asset: hub_asset(usdc.clone()),
-            supply_cap: 500 * UNIT,
-            borrow_cap: 0,
-        }),
-        &salt(&t.env, 7),
-    );
+    let cfg = t
+        .ctrl_client()
+        .get_spoke_asset(&id, &hub_asset(usdc.clone()));
+    assert_eq!(cfg.supply_cap, 2_000 * UNIT);
 }

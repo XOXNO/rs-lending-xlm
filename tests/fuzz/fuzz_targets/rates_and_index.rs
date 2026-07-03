@@ -104,8 +104,6 @@ fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
         // `reserve_pct % BPS` would be a no-op (u8 max 255). Scale the byte
         // across the full verified range [0, BPS), hitting the BPS-1 boundary.
         reserve_factor: (i.reserve_pct as u32) * (BPS as u32 - 1) / (u8::MAX as u32),
-        supply_cap: 0,
-        borrow_cap: 0,
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: Address::from_str(

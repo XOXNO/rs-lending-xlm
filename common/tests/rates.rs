@@ -14,8 +14,6 @@ fn make_test_params() -> MarketParams {
         max_utilization: Ray::from(RAY * 95 / 100),     // 95%
         max_borrow_rate: Ray::from(RAY),                // 100%
         reserve_factor: Bps::from(1000),                // 10%
-        supply_cap: 0,
-        borrow_cap: 0,
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: soroban_sdk::Address::from_str(
@@ -264,8 +262,6 @@ fn test_simulate_update_indexes_nonzero_delta_accrues() {
         optimal_utilization: RAY * 80 / 100,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 1_000,
-        supply_cap: 0,
-        borrow_cap: 0,
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: soroban_sdk::Address::from_str(
@@ -318,8 +314,6 @@ fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
         optimal_utilization: RAY * 80 / 100,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 1_000,
-        supply_cap: 0,
-        borrow_cap: 0,
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: soroban_sdk::Address::from_str(

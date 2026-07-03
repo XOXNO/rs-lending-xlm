@@ -23,8 +23,8 @@ fn hub0(asset: Address) -> HubAssetKey {
 //   * supply-index floor / monotonicity — pool/spec/integrity_rules.rs and
 //     common/spec/rates_rules.rs.
 //   * supply/borrow caps, claim<=reserves, borrow<=reserves — proved against the
-//     real ops in pool/spec/summary_contract_rules.rs (supply_respects_supply_cap,
-//     borrow_respects_borrow_cap, claim_revenue_satisfies_*, borrow_within_reserves).
+//     real ops in pool/spec/summary_contract_rules.rs (claim_revenue_satisfies_*,
+//     borrow_within_reserves).
 
 /// Post-borrow total debt does not exceed LTV-weighted collateral.
 #[rule]

@@ -136,20 +136,6 @@ pub(crate) fn pool_update_params_call(
     pool_interface::LiquidityPoolClient::new(env, pool_addr).update_params(hub_asset, params)
 }
 
-pub(crate) fn pool_update_caps_call(
-    env: &Env,
-    pool_addr: &Address,
-    hub_asset: &HubAssetKey,
-    supply_cap: i128,
-    borrow_cap: i128,
-) {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).update_caps(
-        hub_asset,
-        &supply_cap,
-        &borrow_cap,
-    )
-}
-
 pub(crate) fn pool_upgrade_call(env: &Env, pool_addr: &Address, new_wasm_hash: &BytesN<32>) {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).upgrade(new_wasm_hash)
 }

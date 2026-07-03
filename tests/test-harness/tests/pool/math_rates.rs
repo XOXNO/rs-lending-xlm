@@ -142,8 +142,6 @@ fn make_test_params() -> controller::types::MarketParams {
         max_utilization: Ray::from(RAY * 95 / 100),     // 95%.
         max_borrow_rate: Ray::from(RAY),                // 100%.
         reserve_factor: Bps::from(1000),                // 10%.
-        supply_cap: 0,
-        borrow_cap: 0,
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: soroban_sdk::Address::from_str(

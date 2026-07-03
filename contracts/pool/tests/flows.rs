@@ -156,8 +156,6 @@ fn market_params(asset: &Address) -> MarketParamsRaw {
         // Disable max-utilization checks in accounting tests.
         max_utilization: RAY,
         reserve_factor: 1000,
-        supply_cap: 0,
-        borrow_cap: 0,
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: asset.clone(),
@@ -249,11 +247,6 @@ impl TestSetup {
                 action: self.action(scaled_amount, amount),
             },
         ]
-    }
-
-    fn set_caps(&self, asset: &Address, supply_cap: i128, borrow_cap: i128) {
-        self.client()
-            .update_caps(&hub(asset), &supply_cap, &borrow_cap);
     }
 
     /// Singleton withdraw batch against the default market.
@@ -418,58 +411,6 @@ fn test_borrow() {
     assert!(
         reserves_after < reserves_before,
         "reserves should decrease after borrow"
-    );
-}
-
-#[test]
-fn test_supply_cap_enforced_after_pool_sync() {
-    let t = TestSetup::new();
-    let client = t.client();
-
-    let amount = 10_000_000_000i128;
-    t.set_caps(&t.asset, amount - 1, 0);
-
-    let result = flatten_contract_result(client.try_supply(&t.sup(0, amount)));
-    assert_contract_error(
-        result,
-        common::errors::CollateralError::SupplyCapReached as u32,
-    );
-}
-
-#[test]
-fn test_borrow_cap_enforced_after_pool_sync() {
-    let t = TestSetup::new();
-    let client = t.client();
-
-    client.supply(&t.sup(0, 50_000_000_000i128));
-
-    let borrower = Address::generate(&t.env);
-    let borrow_amount = 100_0000000i128;
-    t.set_caps(&t.asset, 0, borrow_amount - 1);
-
-    let result = flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, borrow_amount)));
-    assert_contract_error(
-        result,
-        common::errors::CollateralError::BorrowCapReached as u32,
-    );
-}
-
-#[test]
-fn test_strategy_borrow_cap_enforced_after_pool_sync() {
-    let t = TestSetup::new();
-    let client = t.client();
-
-    client.supply(&t.sup(0, 50_000_000_000i128));
-
-    let caller = Address::generate(&t.env);
-    let amount = 100_0000000i128;
-    t.set_caps(&t.asset, 0, amount - 1);
-
-    let result =
-        flatten_contract_result(client.try_create_strategy(&caller, &t.action(0, amount), &0i128));
-    assert_contract_error(
-        result,
-        common::errors::CollateralError::BorrowCapReached as u32,
     );
 }
 
@@ -2085,38 +2026,6 @@ fn test_bulk_supply_duplicate_asset_applies_sequentially() {
         state_after.cash,
         state_before.cash + amount_one + amount_two
     );
-}
-
-// Batch supply is atomic: entry 2 supply-cap failure rolls back entry 1 state.
-#[test]
-fn test_bulk_supply_cap_violation_reverts_whole_batch() {
-    let t = TestSetup::new();
-    let client = t.client();
-
-    let asset_b = t.add_funded_market();
-    let a_before = t.state_snapshot();
-    let b_before = t.state_of(&asset_b);
-
-    let amount = 10_000_000_000i128;
-    t.set_caps(&asset_b, amount - 1, 0);
-    let entries = vec![
-        &t.env,
-        t.sup_entry(&t.asset, 0, amount),
-        t.sup_entry(&asset_b, 0, amount),
-    ];
-    let result = flatten_contract_result(client.try_supply(&entries));
-    assert_contract_error(
-        result,
-        common::errors::CollateralError::SupplyCapReached as u32,
-    );
-
-    // Entry 1 passed its cap check; transaction rollback restores both markets.
-    let a_after = t.state_snapshot();
-    assert_pool_state_eq(&a_after, &a_before);
-    assert_eq!(a_after.cash, a_before.cash);
-    let b_after = t.state_of(&asset_b);
-    assert_pool_state_eq(&b_after, &b_before);
-    assert_eq!(b_after.cash, b_before.cash);
 }
 
 // Overrides max utilization for accounting tests.

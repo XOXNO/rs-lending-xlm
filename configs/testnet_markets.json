@@ -56,9 +56,7 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "800000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000,
-        "supply_cap": "100000000000000",
-        "borrow_cap": "100000000000000"
+        "reserve_factor": 1000
       },
       "asset_config": {
         "loan_to_value": 7500,
@@ -126,9 +124,7 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "800000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1500,
-        "supply_cap": "654974084165841",
-        "borrow_cap": "654974084165841"
+        "reserve_factor": 1500
       },
       "asset_config": {
         "loan_to_value": 6500,
@@ -185,9 +181,7 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "800000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000,
-        "supply_cap": "100000000000000",
-        "borrow_cap": "100000000000000"
+        "reserve_factor": 1000
       },
       "asset_config": {
         "loan_to_value": 7500,
@@ -255,9 +249,7 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "800000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1500,
-        "supply_cap": "1000000000",
-        "borrow_cap": "1000000000"
+        "reserve_factor": 1500
       },
       "asset_config": {
         "loan_to_value": 6500,
@@ -325,9 +317,7 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "800000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1500,
-        "supply_cap": "100000000000",
-        "borrow_cap": "100000000000"
+        "reserve_factor": 1500
       },
       "asset_config": {
         "loan_to_value": 6500,
@@ -395,9 +385,7 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "800000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000,
-        "supply_cap": "100000000000000",
-        "borrow_cap": "100000000000000"
+        "reserve_factor": 1000
       },
       "asset_config": {
         "loan_to_value": 7500,

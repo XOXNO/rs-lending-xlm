@@ -195,8 +195,6 @@ proptest! {
                 optimal_utilization: 0,
                 max_utilization: controller::constants::RAY * 95 / 100,
                 reserve_factor: 0,
-                supply_cap: 0,
-                borrow_cap: 0,
                 is_flashloanable: false,
                 flashloan_fee: 0,
                 asset_id: usdc.clone(),

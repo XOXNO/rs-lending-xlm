@@ -4,7 +4,7 @@ use common::types::{HubAssetKey, MarketOracleConfigOption, SpokeAssetArgs, Spoke
 use soroban_sdk::{assert_with_error, Address, Env};
 
 use crate::external::pool::fetch_pool_sync_data;
-use crate::spoke::caps::{validate_spoke_caps_against_hub, validate_spoke_caps_against_usage};
+use crate::spoke::caps::validate_spoke_caps_against_usage;
 use crate::{
     events::{RemoveSpokeAssetEvent, UpdateSpokeAssetEvent},
     storage,
@@ -35,15 +35,8 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     // asset must already have a created market before a spoke lists it.
     let pool_addr = storage::get_pool(env);
     let hub = fetch_pool_sync_data(env, &pool_addr, &hub_asset);
-    validate_spoke_caps_against_hub(
-        env,
-        hub.params.supply_cap,
-        hub.params.borrow_cap,
-        args.supply_cap,
-        args.borrow_cap,
-    );
-    // Spoke caps feed the same Ray::from_asset rescale as hub caps; reject any
-    // that would overflow it so a misconfig fails here, not at view time.
+    // Spoke caps feed the Ray::from_asset rescale; reject any that would
+    // overflow it so a misconfig fails here, not at view time.
     common::validation::require_cap_within_asset_domain(
         env,
         args.supply_cap,
@@ -105,15 +98,8 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
 
     let pool_addr = storage::get_pool(env);
     let hub = fetch_pool_sync_data(env, &pool_addr, &hub_asset);
-    validate_spoke_caps_against_hub(
-        env,
-        hub.params.supply_cap,
-        hub.params.borrow_cap,
-        args.supply_cap,
-        args.borrow_cap,
-    );
-    // Spoke caps feed the same Ray::from_asset rescale as hub caps; reject any
-    // that would overflow it so a misconfig fails here, not at view time.
+    // Spoke caps feed the Ray::from_asset rescale; reject any that would
+    // overflow it so a misconfig fails here, not at view time.
     common::validation::require_cap_within_asset_domain(
         env,
         args.supply_cap,

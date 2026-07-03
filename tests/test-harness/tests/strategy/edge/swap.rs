@@ -254,29 +254,6 @@ fn test_swap_debt_non_borrowable_new_debt() {
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
-// The new debt asset has a borrow cap that would be exceeded. The cap check
-// runs after pool.borrow(), which runs before the swap.
-
-#[test]
-fn test_swap_debt_borrow_cap_new_debt() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .with_market_params("WBTC", |p| {
-            // Set a very low borrow cap: 1 unit (0.0000001 WBTC).
-            p.borrow_cap = 1;
-        })
-        .build();
-
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 1.0);
-
-    // Swap ETH debt to WBTC: the WBTC borrow cap is tiny.
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_00000000);
-    let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
-    assert_contract_error(result, errors::BORROW_CAP_REACHED);
-}
 // Spoke account; the new debt asset is not in the spoke category.
 
 #[test]
@@ -357,27 +334,4 @@ fn test_swap_collateral_non_collateralizable() {
     let steps = build_swap_steps(&t, "USDC", "WBTC", 1_00000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "WBTC", &steps);
     assert_contract_error(result, errors::NOT_COLLATERAL);
-}
-// Fund the router so the flow reaches the post-deposit cap check.
-
-#[test]
-fn test_swap_collateral_rejects_supply_cap_after_deposit() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .with_market_params("WBTC", |p| {
-            p.supply_cap = 1; // extremely low: 1 unit (0.0000001 WBTC).
-        })
-        .build();
-
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 1.0);
-
-    t.fund_router_raw("WBTC", 1_00000000i128);
-    // swap_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
-    let steps = build_aggregator_swap(&t, "USDC", "WBTC", 10_000_000_000, 1_00000000);
-    let result = t.try_swap_collateral(ALICE, "USDC", 1_000.0, "WBTC", &steps);
-
-    assert_contract_error(result, errors::SUPPLY_CAP_REACHED);
 }

@@ -91,10 +91,6 @@ pub enum CollateralError {
     HealthFactorTooLow = 102,
     /// Asset is not eligible as collateral.
     NotCollateral = 104,
-    /// Supply cap would be exceeded.
-    SupplyCapReached = 105,
-    /// Borrow cap would be exceeded.
-    BorrowCapReached = 106,
     /// Asset is not borrowable in the account's spoke config.
     AssetNotBorrowable = 107,
     /// Account would exceed max supply or borrow position count.
@@ -209,8 +205,6 @@ pub enum SpokeError {
     SpokeSupplyCapReached = 311,
     /// Spoke borrow cap would be exceeded.
     SpokeBorrowCapReached = 312,
-    /// Spoke cap exceeds the hub cap for the same asset.
-    SpokeCapExceedsHub = 313,
     /// Spoke cap would fall below current spoke usage.
     SpokeCapBelowUsage = 314,
     /// Spoke asset is paused: no supply/borrow/withdraw/repay.

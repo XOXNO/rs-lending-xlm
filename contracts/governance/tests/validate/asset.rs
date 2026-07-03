@@ -14,8 +14,6 @@ fn sample_market_params(asset: &Address, decimals: u32) -> MarketParamsRaw {
         optimal_utilization: 8 * RAY / 10,
         max_utilization: 95 * RAY / 100,
         reserve_factor: 1_000,
-        supply_cap: 5_000_000,
-        borrow_cap: 1_000_000,
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: asset.clone(),
@@ -32,9 +30,9 @@ fn test_validate_risk_bounds_rejects_threshold_above_bps() {
 
 #[test]
 #[should_panic]
-fn test_validate_hub_caps_rejects_negative_supply_cap() {
+fn test_validate_spoke_cap_args_rejects_negative_supply_cap() {
     let env = Env::default();
-    validate_hub_caps(&env, -1, 0);
+    validate_spoke_cap_args(&env, -1, 0);
 }
 
 #[test]

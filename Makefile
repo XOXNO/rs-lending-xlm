@@ -1261,7 +1261,7 @@ SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeRea
 	setAggregator setAccumulator pause unpause info \
 	getAllMarkets getAllIndexes getMinBorrowCollateralUsd getBulkIndexes \
 	claimRevenueAll deployPool updateDelay
-POSITIONAL_MARKET_ACTIONS := createMarket updateMarketParams updatePoolCaps \
+POSITIONAL_MARKET_ACTIONS := createMarket updateMarketParams \
 	configureMarketOracle \
 	editOracleTolerance \
 	approveToken revokeToken \
@@ -1481,7 +1481,6 @@ help:
 	@echo "  Markets (writes):"
 	@echo "    make testnet createMarket USDC"
 	@echo "    make testnet updateMarketParams USDC                       Push max_utilization/rate model from JSON"
-	@echo "    make testnet updatePoolCaps USDC                           Push hub supply_cap/borrow_cap from JSON"
 	@echo "    make testnet configureMarketOracle USDC"
 	@echo "    make testnet editOracleTolerance USDC 500"
 	@echo "    make testnet updateIndexes USDC XLM"

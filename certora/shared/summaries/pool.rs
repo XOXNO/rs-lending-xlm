@@ -35,7 +35,6 @@ pub fn supply_summary(
     _asset: &Address,
     position: ScaledPositionRaw,
     amount: i128,
-    _supply_cap: i128,
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
@@ -56,7 +55,6 @@ pub fn borrow_summary(
     _asset: &Address,
     amount: i128,
     position: ScaledPositionRaw,
-    _borrow_cap: i128,
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
@@ -153,7 +151,6 @@ pub fn create_strategy_summary(
     position: ScaledPositionRaw,
     amount: i128,
     fee: i128,
-    _borrow_cap: i128,
 ) -> PoolStrategyMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
@@ -217,10 +214,6 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
     let asset_decimals: u32 = nondet();
     cvlr_assume!(asset_decimals <= 27);
     let asset_id: Address = asset.clone();
-    let supply_cap: i128 = nondet();
-    let borrow_cap: i128 = nondet();
-    cvlr_assume!(supply_cap >= 0);
-    cvlr_assume!(borrow_cap >= 0);
 
     PoolSyncData {
         params: MarketParamsRaw {
@@ -233,8 +226,6 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
             optimal_utilization,
             max_utilization,
             reserve_factor,
-            supply_cap,
-            borrow_cap,
             is_flashloanable: false,
             flashloan_fee: 0,
             asset_id,

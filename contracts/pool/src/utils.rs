@@ -11,7 +11,7 @@ use crate::cache::Cache;
 use crate::interest;
 
 pub(crate) use common::validation::{
-    cap_is_enabled, require_nonneg_amount, require_positive_amount, require_wasm_receiver,
+    require_nonneg_amount, require_positive_amount, require_wasm_receiver,
 };
 
 pub(crate) fn renew_pool_instance(env: &Env) {
@@ -43,30 +43,6 @@ pub(crate) fn renew_market_keys(env: &Env, hub_asset: &HubAssetKey) {
     );
 }
 
-/// Rejects a supply that would put current underlying supply above the hub cap.
-pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
-    let supply_cap = cache.params.supply_cap;
-    if !cap_is_enabled(supply_cap) {
-        return;
-    }
-
-    let cap = Ray::from_asset(supply_cap, cache.params.asset_decimals);
-    let next_total = (cache.supplied + scaled_delta).mul(env, cache.supply_index);
-    assert_with_error!(env, next_total <= cap, CollateralError::SupplyCapReached);
-}
-
-/// Rejects a borrow that would put current underlying debt above the hub cap.
-pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
-    let borrow_cap = cache.params.borrow_cap;
-    if !cap_is_enabled(borrow_cap) {
-        return;
-    }
-
-    let cap = Ray::from_asset(borrow_cap, cache.params.asset_decimals);
-    let next_total = (cache.borrowed + scaled_delta).mul(env, cache.borrow_index);
-    assert_with_error!(env, next_total <= cap, CollateralError::BorrowCapReached);
-}
-
 pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestRateModel) {
     let key = PoolKey::Params(hub_asset.clone());
     let mut params: MarketParamsRaw = env
@@ -85,28 +61,6 @@ pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestR
     params.max_utilization = m.max_utilization;
     params.reserve_factor = m.reserve_factor;
 
-    env.storage().persistent().set(&key, &params);
-}
-
-pub(crate) fn apply_hub_caps(
-    env: &Env,
-    hub_asset: &HubAssetKey,
-    supply_cap: i128,
-    borrow_cap: i128,
-) {
-    assert_with_error!(
-        env,
-        supply_cap >= 0 && borrow_cap >= 0,
-        CollateralError::InvalidBorrowParams
-    );
-    let key = PoolKey::Params(hub_asset.clone());
-    let mut params: MarketParamsRaw = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
-    params.supply_cap = supply_cap;
-    params.borrow_cap = borrow_cap;
     env.storage().persistent().set(&key, &params);
 }
 

@@ -35,11 +35,9 @@ pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
         return 0;
     }
 
-    let hub_borrow_cap = cache.cached_pool_sync_data(hub_asset).params.borrow_cap;
     // dimensional: all headrooms in this minimum are Token(asset).
     let mut hi = market
         .cash
-        .min(hub_borrow_cap_headroom(env, &market, hub_borrow_cap))
         .min(spoke_borrow_cap_headroom(
             env, &mut cache, &account, hub_asset, &market,
         ))
@@ -53,15 +51,7 @@ pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     let mut lo: i128 = 0;
     while lo < hi {
         let mid = hi - (hi - lo) / 2;
-        if borrow_ok(
-            env,
-            &mut cache,
-            &account,
-            hub_asset,
-            &market,
-            hub_borrow_cap,
-            mid,
-        ) {
+        if borrow_ok(env, &mut cache, &account, hub_asset, &market, mid) {
             lo = mid;
         } else {
             hi = mid - 1;
@@ -104,17 +94,6 @@ fn account_can_borrow_asset(
     }
 
     true
-}
-
-/// Hub borrow-cap headroom in asset units; `i128::MAX` when the cap is disabled.
-fn hub_borrow_cap_headroom(env: &Env, market: &MarketLimitCtx, borrow_cap: i128) -> i128 {
-    if !cap_is_enabled(borrow_cap) {
-        return i128::MAX;
-    }
-    // dimensional: borrowed Ray<Share(asset, debt)> converts to Token(asset).
-    let current =
-        scaled_to_original(env, market.borrowed, market.borrow_index).to_asset(market.decimals);
-    (borrow_cap - current).max(0)
 }
 
 /// Scaled spoke borrow cap and current usage for the account's spoke.
@@ -164,16 +143,14 @@ fn spoke_borrow_cap_headroom(
 }
 
 /// Exact feasibility replica for borrowing `amount` of `asset`: pool liquidity,
-/// post-borrow utilization, borrow cap, then the account LTV and health-factor
-/// gates with the new debt applied.
-#[allow(clippy::too_many_arguments)]
+/// post-borrow utilization, spoke borrow cap, then the account LTV and
+/// health-factor gates with the new debt applied.
 fn borrow_ok(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
     hub_asset: &HubAssetKey,
     market: &MarketLimitCtx,
-    hub_borrow_cap: i128,
     amount: i128,
 ) -> bool {
     if amount <= 0 {
@@ -195,16 +172,6 @@ fn borrow_ok(
             scaled_to_original(env, market.supplied, market.supply_index),
         );
         if util > market.max_utilization {
-            return false;
-        }
-    }
-
-    // Hub borrow cap on post-borrow pool debt.
-    if cap_is_enabled(hub_borrow_cap) {
-        // dimensional: post_borrowed Ray<Share(asset, debt)> converts to Token(asset).
-        let post_actual =
-            scaled_to_original(env, post_borrowed, market.borrow_index).to_asset(market.decimals);
-        if post_actual > hub_borrow_cap {
             return false;
         }
     }

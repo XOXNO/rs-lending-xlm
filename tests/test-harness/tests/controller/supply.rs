@@ -256,23 +256,6 @@ fn test_supply_rejects_when_paused() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-// 10. test_supply_cap_enforcement
-
-#[test]
-fn test_supply_cap_enforcement() {
-    // Set a low supply cap of 500 tokens (7 decimals).
-    let cap = 500_0000000i128; // 500 tokens in asset decimals
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = cap;
-        })
-        .build();
-
-    // Supply 600 USDC: must exceed the 500-token cap.
-    let result = t.try_supply(ALICE, "USDC", 600.0);
-    assert_contract_error(result, errors::SUPPLY_CAP_REACHED);
-}
 // 11. test_supply_position_limit_exceeded
 
 #[test]

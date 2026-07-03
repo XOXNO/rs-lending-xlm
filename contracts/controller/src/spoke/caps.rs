@@ -262,26 +262,3 @@ pub fn validate_spoke_caps_against_usage(
         );
     }
 }
-
-pub fn validate_spoke_caps_against_hub(
-    env: &Env,
-    hub_supply_cap: i128,
-    hub_borrow_cap: i128,
-    spoke_supply_cap: i128,
-    spoke_borrow_cap: i128,
-) {
-    if cap_is_enabled(hub_supply_cap) && cap_is_enabled(spoke_supply_cap) {
-        assert_with_error!(
-            env,
-            spoke_supply_cap <= hub_supply_cap,
-            SpokeError::SpokeCapExceedsHub
-        );
-    }
-    if cap_is_enabled(hub_borrow_cap) && cap_is_enabled(spoke_borrow_cap) {
-        assert_with_error!(
-            env,
-            spoke_borrow_cap <= hub_borrow_cap,
-            SpokeError::SpokeCapExceedsHub
-        );
-    }
-}

@@ -49,7 +49,6 @@ pub(crate) fn pool_supply_call(
             &entry.action.hub_asset.asset,
             entry.action.position.clone(),
             entry.action.amount,
-            0,
         ));
     }
     out
@@ -68,7 +67,6 @@ pub(crate) fn pool_borrow_call(
             &entry.action.hub_asset.asset,
             entry.action.amount,
             entry.action.position.clone(),
-            0,
         ));
     }
     out
@@ -87,7 +85,6 @@ pub(crate) fn pool_create_strategy_call(
         action.position,
         action.amount,
         fee,
-        0,
     )
 }
 
@@ -211,15 +208,6 @@ pub(crate) fn pool_update_params_call(
     _pool_addr: &Address,
     _hub_asset: &HubAssetKey,
     _params: &InterestRateModel,
-) {
-}
-
-pub(crate) fn pool_update_caps_call(
-    _env: &Env,
-    _pool_addr: &Address,
-    _hub_asset: &HubAssetKey,
-    _supply_cap: i128,
-    _borrow_cap: i128,
 ) {
 }
 

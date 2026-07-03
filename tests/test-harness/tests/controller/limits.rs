@@ -27,35 +27,6 @@ fn test_max_supply_uncapped_returns_max() {
 }
 
 #[test]
-fn test_max_supply_tracks_cap_headroom_and_is_executable() {
-    let mut preset = usdc_preset();
-    preset.params.supply_cap = 2_000 * UNIT;
-    let mut t = LendingTest::new().with_market(preset).build();
-
-    t.supply(ALICE, "USDC", 500.0);
-
-    let asset = t.resolve_asset("USDC");
-    let account_id = t.resolve_account_id(ALICE);
-    let headroom = t
-        .ctrl_client()
-        .max_supply(&account_id, &hub_asset(asset.clone()));
-    assert!(
-        headroom > 1_499 * UNIT && headroom <= 1_500 * UNIT,
-        "headroom should be ~1500 USDC, got {headroom}"
-    );
-
-    // The preview executes; one more unit trips the cap.
-    t.supply_raw(ALICE, "USDC", headroom);
-    assert_eq!(
-        t.ctrl_client()
-            .max_supply(&account_id, &hub_asset(asset.clone())),
-        0
-    );
-    let res = t.try_supply(ALICE, "USDC", 1.0);
-    assert_contract_error(res, errors::SUPPLY_CAP_REACHED);
-}
-
-#[test]
 fn test_max_supply_zero_when_paused() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 100.0);
@@ -441,64 +412,19 @@ fn test_max_borrow_bounded_by_ltv_and_executable() {
 }
 
 #[test]
-fn test_max_borrow_bounded_by_hub_borrow_cap_and_executable() {
-    // ETH collateral gives ~$15k of LTV room and BOB seeds deep USDC liquidity,
-    // so neither the account LTV nor pool cash binds. A 2_000 USDC hub borrow
-    // cap is the only constraint, forcing the preview through
-    // `hub_borrow_cap_headroom` and the `borrow_ok` hub-cap gate.
-    let mut preset = usdc_preset();
-    preset.params.borrow_cap = 2_000 * UNIT;
-    let mut t = LendingTest::new()
-        .with_market(preset)
-        .with_market(eth_preset())
-        .build();
-
-    t.supply(BOB, "USDC", 100_000.0);
-    t.supply(ALICE, "ETH", 10.0); // $20k collateral, 75% LTV → $15k room.
-
-    let usdc = t.resolve_asset("USDC");
-    let account_id = t.resolve_account_id(ALICE);
-
-    // Headroom is the full 2_000 USDC cap (pool starts with zero borrows).
-    let max = t
-        .ctrl_client()
-        .max_borrow(&account_id, &hub_asset(usdc.clone()));
-    assert!(
-        max > 1_999 * UNIT && max <= 2_000 * UNIT,
-        "expected ~2000 USDC hub-cap headroom, got {max}"
-    );
-
-    // The preview executes to the stroop.
-    t.borrow_raw(ALICE, "USDC", max);
-
-    // The pool now sits at the cap: headroom collapses and one more unit trips
-    // the borrow-cap gate the preview modeled.
-    let after = t
-        .ctrl_client()
-        .max_borrow(&account_id, &hub_asset(usdc.clone()));
-    assert!(after <= 1, "headroom should be ~0 at the cap, got {after}");
-    let res = t.try_borrow(ALICE, "USDC", 1.0);
-    assert_contract_error(res, errors::BORROW_CAP_REACHED);
-}
-
-#[test]
 fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
     // An spoke account borrowing USDT under a 500 USDT spoke borrow cap. The
-    // 10_000 USDC collateral at the 97% spoke LTV leaves ~$9_700 of room and
-    // the hub USDT borrow cap (10_000) is slack, so the spoke cap is the
-    // binding constraint — exercising `spoke_borrow_cap_headroom`, the
-    // `borrow_ok` spoke-cap gate, and the spoke branches of
-    // `account_can_borrow_asset`. BOB supplies USDT through the protocol so the
-    // market has tracked supply (the preview returns 0 on a zero-supply market).
-    let hub_borrow_cap = 10_000 * UNIT;
+    // 10_000 USDC collateral at the 97% spoke LTV leaves ~$9_700 of room, so
+    // the spoke cap is the binding constraint — exercising
+    // `spoke_borrow_cap_headroom`, the `borrow_ok` spoke-cap gate, and the
+    // spoke branches of `account_can_borrow_asset`. BOB supplies USDT through
+    // the protocol so the market has tracked supply (the preview returns 0 on
+    // a zero-supply market).
     let spoke_borrow_cap = 500 * UNIT;
 
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_market_params("USDT", |params| {
-            params.borrow_cap = hub_borrow_cap;
-        })
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .with_spoke_asset(2, "USDT", true, true)
@@ -555,18 +481,14 @@ fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
 
 #[test]
 fn test_max_supply_bounded_by_spoke_supply_cap_and_executable() {
-    // An spoke account supplying USDC under a 1_000 USDC spoke supply cap,
-    // with the hub supply cap (10_000) slack. The spoke cap binds, driving the
-    // preview through `spoke_supply_cap_headroom`. Asserts both directions:
-    // the preview executes and one unit over trips the spoke supply-cap gate.
-    let hub_cap = 10_000 * UNIT;
+    // An spoke account supplying USDC under a 1_000 USDC spoke supply cap.
+    // The spoke cap binds, driving the preview through
+    // `spoke_supply_cap_headroom`. Asserts both directions: the preview
+    // executes and one unit over trips the spoke supply-cap gate.
     let spoke_cap = 1_000 * UNIT;
 
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = hub_cap;
-        })
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();

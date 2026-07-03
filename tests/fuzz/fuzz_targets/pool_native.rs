@@ -53,8 +53,6 @@ fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
         max_borrow_rate: RAY * max_pct / 100,
         reserve_factor: (((i.reserve_pct as i128 % 51) * 100).clamp(0, BPS - 1)) as u32,
         max_utilization: RAY,
-        supply_cap: 0,
-        borrow_cap: 0,
         is_flashloanable: true,
         flashloan_fee: 0,
         asset_id: asset.clone(),

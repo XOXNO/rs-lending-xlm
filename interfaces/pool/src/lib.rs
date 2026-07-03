@@ -64,7 +64,6 @@ pub trait LiquidityPoolInterface {
     /// Claims protocol revenue capped by reserves and claimable shares.
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation;
     fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel);
-    fn update_caps(env: Env, hub_asset: HubAssetKey, supply_cap: i128, borrow_cap: i128);
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128;
     /// Available reserves = accounted `cash` (asset decimals), not the live token

@@ -22,10 +22,6 @@ pub struct MarketParamsRaw {
     pub optimal_utilization: i128,
     pub max_utilization: i128,
     pub reserve_factor: u32,
-    /// Hub supply cap in asset-native units; zero or `i128::MAX` disables.
-    pub supply_cap: i128,
-    /// Hub borrow cap in asset-native units; zero or `i128::MAX` disables.
-    pub borrow_cap: i128,
     /// Flash-loan eligibility for controller flash-loan entrypoints.
     pub is_flashloanable: bool,
     /// Flash-loan fee in bps used by flash loans and strategy borrows.
@@ -61,24 +57,6 @@ impl MarketParamsRaw {
             self.asset_decimals <= RAY_DECIMALS,
             CollateralError::AssetDecimalsTooHigh
         );
-        assert_with_error!(
-            env,
-            self.supply_cap >= 0 && self.borrow_cap >= 0,
-            CollateralError::InvalidBorrowParams
-        );
-        // Hub caps share the spoke-cap domain guard: reject any cap that
-        // would overflow `Ray::from_asset` during cap previews so a misconfig
-        // fails here at the boundary, not as a runtime MathOverflow in a view.
-        crate::validation::require_cap_within_asset_domain(
-            env,
-            self.supply_cap,
-            self.asset_decimals,
-        );
-        crate::validation::require_cap_within_asset_domain(
-            env,
-            self.borrow_cap,
-            self.asset_decimals,
-        );
         self.verify_rate_model(env);
     }
 }
@@ -95,8 +73,6 @@ pub struct MarketParams {
     pub optimal_utilization: Ray,
     pub max_utilization: Ray,
     pub reserve_factor: Bps,
-    pub supply_cap: i128,
-    pub borrow_cap: i128,
     pub is_flashloanable: bool,
     pub flashloan_fee: u32,
     pub asset_id: Address,
@@ -115,8 +91,6 @@ impl From<&MarketParamsRaw> for MarketParams {
             optimal_utilization: Ray::from(r.optimal_utilization),
             max_utilization: Ray::from(r.max_utilization),
             reserve_factor: Bps::from(i128::from(r.reserve_factor)),
-            supply_cap: r.supply_cap,
-            borrow_cap: r.borrow_cap,
             is_flashloanable: r.is_flashloanable,
             flashloan_fee: r.flashloan_fee,
             asset_id: r.asset_id.clone(),
@@ -137,8 +111,6 @@ impl From<&MarketParams> for MarketParamsRaw {
             optimal_utilization: t.optimal_utilization.raw(),
             max_utilization: t.max_utilization.raw(),
             reserve_factor: t.reserve_factor.raw() as u32,
-            supply_cap: t.supply_cap,
-            borrow_cap: t.borrow_cap,
             is_flashloanable: t.is_flashloanable,
             flashloan_fee: t.flashloan_fee,
             asset_id: t.asset_id.clone(),

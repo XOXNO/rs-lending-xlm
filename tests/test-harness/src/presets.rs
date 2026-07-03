@@ -44,8 +44,6 @@ pub struct MarketParamsPreset {
     pub optimal_utilization: i128,
     pub max_utilization: i128,
     pub reserve_factor: u32,
-    pub supply_cap: i128,
-    pub borrow_cap: i128,
 }
 
 #[derive(Clone)]
@@ -87,8 +85,6 @@ pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
     // `RAY`. Markets may tighten per asset class.
     max_utilization: RAY * 95 / 100,
     reserve_factor: 1000,
-    supply_cap: 0,
-    borrow_cap: 0,
 };
 // Market presets (functions instead of const due to f64 field)
 
@@ -214,8 +210,6 @@ impl MarketParamsPreset {
             optimal_utilization: self.optimal_utilization,
             max_utilization: self.max_utilization,
             reserve_factor: self.reserve_factor,
-            supply_cap: self.supply_cap,
-            borrow_cap: self.borrow_cap,
             is_flashloanable: false,
             flashloan_fee: 0,
             asset_id: asset.clone(),

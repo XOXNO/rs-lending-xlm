@@ -42,8 +42,6 @@ impl TestSetup {
             optimal_utilization: RAY * 8 / 10,
             max_utilization: RAY * 95 / 100,
             reserve_factor: 1_000,
-            supply_cap: 0,
-            borrow_cap: 0,
             is_flashloanable: false,
             flashloan_fee: 0,
             asset_id: asset.clone(),
@@ -84,56 +82,6 @@ fn cache_with(
         hub_asset: hub(&params.asset_id),
         cash,
     }
-}
-
-#[test]
-fn test_enforce_supply_cap_disabled_is_noop() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        let cache = cache_with(&t.env, &t.params, 10 * 10i128.pow(20), 0, 0);
-        let delta = Ray::from(10i128.pow(20));
-        enforce_supply_cap(&t.env, &cache, delta);
-        let mut params = t.params.clone();
-        params.supply_cap = i128::MAX;
-        let cache = cache_with(&t.env, &params, 10 * 10i128.pow(20), 0, 0);
-        enforce_supply_cap(&t.env, &cache, delta);
-    });
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #")]
-fn test_enforce_supply_cap_rejects_over_cap() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        // 10 * RAY = 10 units at index 1.
-        let mut params = t.params.clone();
-        params.supply_cap = 12 * 10_000_000;
-        let cache = cache_with(&t.env, &params, 10 * RAY, 0, 0);
-        let delta = Ray::from(3 * RAY);
-        enforce_supply_cap(&t.env, &cache, delta);
-    });
-}
-
-#[test]
-fn test_enforce_borrow_cap_disabled_is_noop() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        let cache = cache_with(&t.env, &t.params, 0, 5 * RAY, 0);
-        enforce_borrow_cap(&t.env, &cache, Ray::from(RAY));
-    });
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #")]
-fn test_enforce_borrow_cap_rejects_over_cap() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        let mut params = t.params.clone();
-        params.borrow_cap = 7 * 10_000_000;
-        let cache = cache_with(&t.env, &params, 0, 5 * RAY, 0);
-        let delta = Ray::from(3 * RAY);
-        enforce_borrow_cap(&t.env, &cache, delta);
-    });
 }
 
 #[test]

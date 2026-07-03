@@ -37,18 +37,4 @@ fn admin_op_xdr_is_byte_stable() {
         b64(&env, AdminOperation::SetAggregator(addr.clone())),
         "AAAAEAAAAAEAAAACAAAADwAAAA1TZXRBZ2dyZWdhdG9yAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ=="
     );
-    assert_eq!(
-        b64(
-            &env,
-            AdminOperation::UpdatePoolCaps(PoolCapsArgs {
-                hub_asset: common::types::HubAssetKey {
-                    hub_id: 0,
-                    asset: addr.clone(),
-                },
-                supply_cap: 100_000_000_000_000,
-                borrow_cap: 50_000_000_000_000,
-            })
-        ),
-        "AAAAEAAAAAEAAAACAAAADwAAAA5VcGRhdGVQb29sQ2FwcwAAAAAAEQAAAAEAAAADAAAADwAAAApib3Jyb3dfY2FwAAAAAAAKAAAAAAAAAAAAAC15iD0gAAAAAA8AAAAJaHViX2Fzc2V0AAAAAAAAEQAAAAEAAAACAAAADwAAAAVhc3NldAAAAAAAABIAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAPAAAABmh1Yl9pZAAAAAAAAwAAAAAAAAAPAAAACnN1cHBseV9jYXAAAAAAAAoAAAAAAAAAAAAAWvMQekAA"
-    );
 }

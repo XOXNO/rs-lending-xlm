@@ -25,8 +25,6 @@ fn params(asset: Address) -> MarketParamsRaw {
         max_borrow_rate: 2 * RAY,
         max_utilization: RAY,
         reserve_factor: 1_000,
-        supply_cap: 0,
-        borrow_cap: 0,
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: asset,
@@ -71,7 +69,7 @@ fn action(position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolActi
 }
 
 // Bulk-of-one wrappers: one entry through the bulk endpoint.
-fn supply_first(e: &Env, act: PoolAction, _cap: i128) -> common::types::PoolPositionMutation {
+fn supply_first(e: &Env, act: PoolAction) -> common::types::PoolPositionMutation {
     let mut entries: soroban_sdk::Vec<common::types::PoolSupplyEntry> = soroban_sdk::Vec::new(e);
     entries.push_back(common::types::PoolSupplyEntry { action: act });
     crate::LiquidityPool::supply(e.clone(), entries).get_unchecked(0)
@@ -81,7 +79,6 @@ fn borrow_first(
     e: &Env,
     receiver: Address,
     act: PoolAction,
-    _cap: i128,
 ) -> common::types::PoolPositionMutation {
     let mut entries: soroban_sdk::Vec<common::types::PoolBorrowEntry> = soroban_sdk::Vec::new(e);
     entries.push_back(common::types::PoolBorrowEntry { action: act });
@@ -142,7 +139,7 @@ fn supply_satisfies_controller_summary_contract(
     );
 
     let before = position(RAY);
-    let result = supply_first(&e, action(before.clone(), amount, asset), i128::MAX);
+    let result = supply_first(&e, action(before.clone(), amount, asset));
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount >= before.scaled_amount);
@@ -167,7 +164,7 @@ fn borrow_satisfies_controller_summary_contract(
     );
 
     let before = position(0);
-    let result = borrow_first(&e, caller, action(before.clone(), amount, asset), i128::MAX);
+    let result = borrow_first(&e, caller, action(before.clone(), amount, asset));
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount >= before.scaled_amount);
@@ -531,62 +528,6 @@ fn capital_utilisation_view_nonneg(
     cvlr_assert!(crate::LiquidityPool::get_utilisation(e, hub(asset)) >= 0);
 }
 
-// Cap enforcement against the real `LiquidityPool` ops (mirrors
-// `utils::enforce_supply_cap`/`enforce_borrow_cap`): a successful, panic-free op
-// leaves the pool total within the cap; the over-cap path reverts and is skipped
-// by assert semantics. `+ 1` absorbs the half-up unscale rounding of the view.
-
-/// A successful supply keeps total supplied within a finite supply cap.
-#[rule]
-fn supply_respects_supply_cap(e: Env, admin: Address, asset: Address, amount: i128, cap: i128) {
-    cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
-    cvlr_assume!(cap > 0 && cap <= 1_000_000_000_000i128);
-    seed(
-        &e,
-        admin,
-        asset.clone(),
-        state(0, 0, 0, e.ledger().timestamp()),
-    );
-    let mut params = params(asset.clone());
-    params.supply_cap = cap;
-    e.storage()
-        .persistent()
-        .set(&PoolKey::Params(hub(asset.clone())), &params);
-
-    let _ = supply_first(&e, action(position(0), amount, asset.clone()), cap);
-
-    cvlr_assert!(crate::LiquidityPool::get_supplied_amount(e, hub(asset)) <= cap + 1);
-}
-
-/// A successful borrow keeps total borrowed within a finite borrow cap.
-#[rule]
-fn borrow_respects_borrow_cap(
-    e: Env,
-    admin: Address,
-    asset: Address,
-    caller: Address,
-    amount: i128,
-    cap: i128,
-) {
-    cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
-    cvlr_assume!(cap > 0 && cap <= 1_000_000_000_000i128);
-    seed(
-        &e,
-        admin,
-        asset.clone(),
-        state(100 * RAY, 0, 0, e.ledger().timestamp()),
-    );
-    let mut params = params(asset.clone());
-    params.borrow_cap = cap;
-    e.storage()
-        .persistent()
-        .set(&PoolKey::Params(hub(asset.clone())), &params);
-
-    let _ = borrow_first(&e, caller, action(position(0), amount, asset.clone()), cap);
-
-    cvlr_assert!(crate::LiquidityPool::get_borrowed_amount(e, hub(asset)) <= cap + 1);
-}
-
 /// A successful borrow never lends beyond reserves: post-borrow cash stays >= 0
 /// (`require_reserves` reverts an over-borrow). `cash` is seeded explicitly and
 /// small so the reserve gate — not utilization or caps — is the binding one.
@@ -608,12 +549,7 @@ fn borrow_within_reserves(
         view_state(100 * RAY, 0, 0, RAY, RAY, cash, e.ledger().timestamp()),
     );
 
-    let _ = borrow_first(
-        &e,
-        caller,
-        action(position(0), amount, asset.clone()),
-        i128::MAX,
-    );
+    let _ = borrow_first(&e, caller, action(position(0), amount, asset.clone()));
 
     cvlr_assert!(crate::LiquidityPool::get_reserves(e, hub(asset)) >= 0);
 }

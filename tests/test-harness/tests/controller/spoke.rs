@@ -856,15 +856,11 @@ fn test_spoke_per_asset_divergent_params() {
 const UNIT: i128 = 10_000_000;
 
 #[test]
-fn test_spoke_spoke_supply_cap_enforced_below_hub() {
-    let hub_cap = 10_000 * UNIT;
+fn test_spoke_supply_cap_enforced() {
     let spoke_cap = 1_000 * UNIT;
 
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = hub_cap;
-        })
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();
@@ -893,16 +889,12 @@ fn test_spoke_spoke_supply_cap_enforced_below_hub() {
 }
 
 #[test]
-fn test_spoke_spoke_borrow_cap_enforced_below_hub() {
-    let hub_borrow_cap = 10_000 * UNIT;
+fn test_spoke_borrow_cap_enforced() {
     let spoke_borrow_cap = 500 * UNIT;
 
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_market_params("USDT", |params| {
-            params.borrow_cap = hub_borrow_cap;
-        })
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .with_spoke_asset(2, "USDT", true, true)
@@ -1019,13 +1011,9 @@ fn test_deprecated_spoke_repay_decrements_usage() {
 
 #[test]
 fn test_edit_spoke_rejects_supply_cap_below_usage() {
-    let hub_cap = 10_000 * UNIT;
     let spoke_cap = 1_000 * UNIT;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = hub_cap;
-        })
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();
@@ -1069,53 +1057,11 @@ fn test_edit_spoke_rejects_supply_cap_below_usage() {
     assert_contract_error(result, errors::SPOKE_CAP_BELOW_USAGE);
 }
 
-// Phase 1 removed hub-vs-spoke enumeration validation from `update_pool_caps`:
-// spokes are no longer reachable from the hub, so lowering the hub cap below an
-// existing spoke cap is accepted. The enforced direction is the forward
-// `add_asset_to_spoke`/`edit_asset_in_spoke` spoke<=hub check.
-#[test]
-fn test_update_pool_caps_allows_hub_below_spoke_no_enumeration() {
-    let hub_cap = 10_000 * UNIT;
-    let spoke_cap = 2_000 * UNIT;
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = hub_cap;
-        })
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .build();
-
-    let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
-        hub_id: HARNESS_HUB,
-        asset: usdc.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: spoke_cap,
-        borrow_cap: 0,
-    });
-
-    // No reverse hub-vs-spoke validation remains; the call succeeds.
-    t.ctrl_client()
-        .update_pool_caps(&hub_asset(usdc.clone()), &(500 * UNIT), &0i128);
-}
-
 #[test]
 fn test_max_supply_respects_spoke_cap_headroom() {
-    let hub_cap = 10_000 * UNIT;
     let spoke_cap = 1_000 * UNIT;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = hub_cap;
-        })
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();
@@ -1156,55 +1102,15 @@ fn test_max_supply_respects_spoke_cap_headroom() {
     );
 }
 
-// Borrow-side twin of `test_update_pool_caps_rejects_hub_below_spoke`: a spoke
-// borrow cap above the enabled hub borrow cap must be rejected at config time
-// (the borrow branch of `validate_spoke_caps_against_hub`).
-#[test]
-fn test_spoke_spoke_borrow_cap_above_hub_rejected() {
-    let hub_borrow_cap = 1_000 * UNIT;
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.borrow_cap = hub_borrow_cap;
-        })
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .build();
-
-    let usdc = t.resolve_asset("USDC");
-    let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
-        hub_id: HARNESS_HUB,
-        asset: usdc.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: 0,
-        borrow_cap: 2_000 * UNIT, // spoke borrow cap above the hub borrow cap
-    }) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(result, errors::SPOKE_CAP_EXCEEDS_HUB);
-}
-
 // Borrow-side twin of `test_edit_spoke_rejects_supply_cap_below_usage`: editing
 // the spoke borrow cap below the category's current borrow usage must be
 // rejected (the borrow branch of `validate_spoke_caps_against_usage`).
 #[test]
 fn test_edit_spoke_rejects_borrow_cap_below_usage() {
-    let hub_borrow_cap = 10_000 * UNIT;
     let spoke_cap = 1_000 * UNIT;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_market_params("USDT", |params| {
-            params.borrow_cap = hub_borrow_cap;
-        })
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .with_spoke_asset(2, "USDT", true, true)
@@ -1289,13 +1195,9 @@ fn test_spoke_spoke_cap_above_from_asset_domain_rejected() {
 // supply; withdrawing decrements usage and restores headroom for a re-supply.
 #[test]
 fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
-    let hub_cap = 10_000 * UNIT;
     let spoke_cap = 1_000 * UNIT;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = hub_cap;
-        })
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();
@@ -1353,14 +1255,10 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
 // borrow must revert on the spoke cap even though scaled usage is unchanged.
 #[test]
 fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
-    let hub_borrow_cap = 100_000 * UNIT;
     let spoke_cap = 1_000 * UNIT;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_market_params("USDT", |params| {
-            params.borrow_cap = hub_borrow_cap;
-        })
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .with_spoke_asset(2, "USDT", true, true)
@@ -1409,64 +1307,6 @@ fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
         t.try_borrow(ALICE, "USDT", 1.0),
         errors::SPOKE_BORROW_CAP_REACHED,
     );
-}
-
-// Phase 1 removed hub-vs-spoke enumeration from `update_pool_caps`: USDC sits in
-// two spokes, but the hub can no longer enumerate them, so a hub cap below an
-// existing spoke cap is accepted rather than rejected.
-#[test]
-fn test_update_pool_caps_no_longer_enumerates_spokes() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = 10_000 * UNIT;
-        })
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke(3, STABLECOIN_SPOKE)
-        .with_spoke_asset(3, "USDC", true, true)
-        .build();
-
-    let usdc = t.resolve_asset("USDC");
-    // Category 1 spoke cap below the proposed hub (will pass the check)...
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
-        hub_id: HARNESS_HUB,
-        asset: usdc.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: 800 * UNIT,
-        borrow_cap: 0,
-    });
-    // ...category 2 spoke cap above it (will fail on the second iteration).
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
-        hub_id: HARNESS_HUB,
-        asset: usdc.clone(),
-        spoke_id: 3,
-        can_collateral: true,
-        can_borrow: true,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: 1_500 * UNIT,
-        borrow_cap: 0,
-    });
-
-    // A hub supply cap of 1000 sits below category 2's 1500 spoke cap, but with
-    // no hub-side enumeration the call now succeeds.
-    t.ctrl_client()
-        .update_pool_caps(&hub_asset(usdc.clone()), &(1_000 * UNIT), &0i128);
-
-    // A hub cap that clears both spoke caps also succeeds.
-    t.ctrl_client()
-        .update_pool_caps(&hub_asset(usdc.clone()), &(2_000 * UNIT), &0i128);
 }
 
 /// A per-spoke `oracle_override` reprices an asset for accounts on that spoke
