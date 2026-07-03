@@ -282,6 +282,14 @@ fuzz_target!(|data: &[u8]| {
     }
 
     for op in ops {
+        // Price stress mutates oracle state; apply it before snapshotting so a
+        // failed liquidation is compared against the post-stress baseline.
+        if let Op::Liquidate { debtor, mode, .. } = op {
+            if mode & 1 == 1 {
+                stress_debtor_prices(&mut t, pick_user(debtor));
+            }
+        }
+
         let before_alice = snapshot(&t, ALICE, &ASSETS);
         let before_bob = snapshot(&t, BOB, &ASSETS);
 
@@ -392,12 +400,9 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             debtor,
             asset,
             frac,
-            mode,
+            mode: _,
         } => {
             let d = pick_user(debtor);
-            if mode & 1 == 1 {
-                stress_debtor_prices(t, d);
-            }
             let a = debt_asset(t, d, pick_asset(asset));
             let debt = t.borrow_balance(d, a);
             if debt <= 0.0 {
@@ -434,7 +439,11 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             direction_up,
         } => {
             let a = pick_asset(asset);
-            let dev = (deviation as i128) * 20;
+            // Keep spot/TWAP divergence inside the configured tolerance band:
+            // an out-of-band pair fails closed (`UnsafePriceNotAllowed`) and
+            // would poison every subsequent oracle read in the run.
+            let band = i128::from(test_harness::presets::DEFAULT_TOLERANCE.tolerance_bps);
+            let dev = ((deviation as i128) * 20) % band;
             let mult = if direction_up {
                 10_000 + dev
             } else {
