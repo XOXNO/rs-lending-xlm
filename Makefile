@@ -39,7 +39,7 @@ SHELL := /bin/bash
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
-        wasm-size-check act-ci act-ci-dryrun clean install-stellar-cli \
+        wasm-size-check wasm-testing-abi-check act-ci act-ci-dryrun clean install-stellar-cli \
         mutants mutants-math mutants-rates mutants-pool-interest mutants-pool \
         mutants-oracle-policy mutants-controller-positions mutants-controller-strategies mutants-common \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
@@ -401,8 +401,23 @@ scout-strict:
 
 WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
 
+## Fail if a deploy WASM exports a test-only ABI. `set_controller` is gated by
+## `#[cfg(any(test, feature = "testing"))]` in governance and is unauthenticated;
+## it must never reach a deployable artifact. Cargo's resolver keeps the dev-only
+## `governance/testing` feature out of the cdylib build today — this guard fails
+## loudly if a future workspace/feature change ever leaks it.
+wasm-testing-abi-check: deploy-artifacts
+	@gov="$(DEPLOY_DIR)/governance.wasm"; \
+	if [ ! -f "$$gov" ]; then echo "governance deploy WASM missing: $$gov"; exit 1; fi; \
+	if strings "$$gov" | grep -q "set_controller"; then \
+		echo "FAIL: governance.wasm exports test-only ABI 'set_controller'"; \
+		echo "  The governance/testing feature leaked into the deployable build."; \
+		exit 1; \
+	fi; \
+	echo "OK   governance.wasm exports no test-only ABI"
+
 ## Fail if any deploy WASM exceeds the committed budget.
-wasm-size-check: deploy-artifacts
+wasm-size-check: deploy-artifacts wasm-testing-abi-check
 	@if [ ! -f $(WASM_BUDGET_FILE) ]; then \
 		echo "WASM budget file missing: $(WASM_BUDGET_FILE)"; \
 		echo "Create one with 'path bytes' lines (one per contract)."; \
@@ -556,8 +571,10 @@ ifeq ($(UNAME_S),Darwin)
 else
   # Static cargo-fuzz binaries default to musl, which cannot link ASan.
   # Pin the Rust host target so the sanitizer links.
-  FUZZ_HOST := $(shell rustc -vV | sed -n 's/^host: //p')
-  FUZZ_FLAGS := --target $(FUZZ_HOST)
+  # Lazy (`=`, not `:=`): `rustc` is invoked only when a fuzz recipe expands
+  # FUZZ_FLAGS, not at parse time on every `make` invocation (e.g. help/clean).
+  FUZZ_HOST = $(shell rustc -vV | sed -n 's/^host: //p')
+  FUZZ_FLAGS = --target $(FUZZ_HOST)
 endif
 
 ## Run all fuzz targets for $(FUZZ_TIME) seconds each (default: 60s)
