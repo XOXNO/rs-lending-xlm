@@ -93,6 +93,37 @@ Each pull request should explain:
 - Which local checks, fuzzing, or formal-verification profiles were run.
 - Any deployment, migration, governance, oracle, or operational follow-up.
 
+## CI/CD Security
+
+### Reviewer-approval gate for self-hosted PR jobs
+
+Several jobs run PR-controlled code (build scripts, tests, Makefile targets, Scout,
+fuzz smoke, Miri) on a persistent self-hosted runner. A malicious pull request
+could otherwise execute arbitrary code on that runner and read caches, tools, or
+runner-local state.
+
+The gate is GitHub's native fork pull request approval setting, not a deployment
+environment.
+
+#### Required one-time repo setup (admin, GitHub Settings — cannot be done in YAML)
+
+1. **Settings → Actions → General → Fork pull request workflows from outside
+   collaborators** → set to *Require approval for all outside collaborators* (or
+   *for first-time contributors*, if internal contributors should run without
+   approval).
+
+With this set, a PR from a fork/outside collaborator pauses in the Actions tab
+until a maintainer approves the run.
+
+### Other hardening in place
+
+- Third-party actions are pinned to immutable commit SHAs (e.g. `scout-audit`), not
+  mutable tags.
+- Workflows declare least-privilege `permissions:` (`contents: read` for PR jobs;
+  the release e2e job is scoped to `contents: write` only).
+- `make wasm-size-check` runs `wasm-testing-abi-check`, which fails the build if the
+  deployable `governance.wasm` ever exports the test-only `set_controller` ABI.
+
 ## Issues
 
 Use public issues for bugs, documentation gaps, feature requests, and

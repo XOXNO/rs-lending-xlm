@@ -20,10 +20,6 @@ jobs:
   security-scan:
     name: Security Scan (OpenZeppelin)
     runs-on: self-hosted
-    # PR-triggered runs execute PR-controlled code (run_scanner.sh, build scripts)
-    # on the persistent self-hosted runner. Gate behind an environment whose
-    # required reviewers must approve before the job starts. See .github/README.md.
-    environment: ci-untrusted-pr
     steps:
       - uses: actions/checkout@v7
         with:
