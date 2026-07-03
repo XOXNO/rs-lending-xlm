@@ -49,6 +49,12 @@ impl Cache {
         if let Some(feed) = self.spoke_prices.get(hub_asset.clone()) {
             return feed;
         }
+        // Deliberately not wrapped in enter/exit_price_resolution: this override
+        // entry is only reached from top-level, non-recursive callers, and internal
+        // resolution (compose/reflector) always reads the base `AssetOracle`, never
+        // this override — so it can't form a cycle back to itself. Any chaining it
+        // triggers still routes through the guarded `token_price`. If overrides are
+        // ever made to participate in nested resolution, guard this call too.
         let feed = crate::oracle::price_with_config(self, &hub_asset.asset, config);
         self.spoke_prices.set(hub_asset.clone(), feed.clone());
         feed

@@ -12,11 +12,17 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
         return feed;
     }
 
+    // Guard against quote/anchor cycles: the price is cached only after full
+    // resolution below, so a Reflector source quoted (transitively) in itself
+    // would recurse without this. Reverts `OracleCycleDetected` on re-entry.
+    cache.enter_price_resolution(asset);
+
     // `resolve_oracle_config` panics `OracleNotConfigured` when `AssetOracle` is
     // absent; that absence is the pending/disabled gate (no status read).
     let config = cache.resolve_oracle_config(asset);
     let feed = price_with_config(cache, asset, &config);
     cache.prices_cache.set(asset.clone(), feed.clone());
+    cache.exit_price_resolution();
     feed
 }
 
