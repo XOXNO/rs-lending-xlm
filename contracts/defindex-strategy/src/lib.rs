@@ -267,13 +267,23 @@ impl DeFindexStrategyTrait for Strategy {
         }
 
         // Token amount; 0 withdraws the full position.
-        let withdraw_amount = if amount == balance { 0 } else { amount };
+        let is_full_withdraw = amount == balance;
+        let withdraw_amount = if is_full_withdraw { 0 } else { amount };
         ctx.controller.withdraw(
             &ctx.strategy,
             &account_id,
             &ctx.to_payment(withdraw_amount),
             &Some(to),
         );
+
+        // Full exit: the strategy-asset collateral is now zero. Clear the
+        // vault->account mapping so the next deposit opens a fresh account rather
+        // than reusing this one — which an attacker could keep alive with dust of
+        // another asset and fill to the position limit, then wedge the vault's
+        // redeposit with PositionLimitExceeded.
+        if is_full_withdraw {
+            clear_vault_account(ctx.env, &from);
+        }
 
         // Removed accounts report 0 collateral.
         // D{AssetDecimals(asset)}{Token(asset)} post-withdraw strategy balance.

@@ -154,16 +154,22 @@ pub fn health_factor(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     match storage::try_get_account(env, account_id) {
         // dimensional: return is HealthFactor raw WAD; i128::MAX is no-debt/no-account sentinel.
-        Some(account) => risk::calculate_account_risk_totals(
-            env,
-            &mut cache,
-            account.spoke_id,
-            &account.supply_positions,
-            &account.borrow_positions,
-        )
-        .health_factor
-        .raw(),
-        None => i128::MAX,
+        // A debt-free account has an infinite health factor regardless of collateral,
+        // so short-circuit before pricing: calculate_account_risk_totals would
+        // otherwise read every supplied asset's oracle only to saturate to MAX,
+        // making a debt-free view fail on missing/broken collateral feeds.
+        Some(account) if !account.borrow_positions.is_empty() => {
+            risk::calculate_account_risk_totals(
+                env,
+                &mut cache,
+                account.spoke_id,
+                &account.supply_positions,
+                &account.borrow_positions,
+            )
+            .health_factor
+            .raw()
+        }
+        _ => i128::MAX,
     }
 }
 

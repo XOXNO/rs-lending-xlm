@@ -102,6 +102,13 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         &debt_caps,
     );
 
+    // Every involved asset must be a configured market before we read its
+    // balance (`snapshot_balances`) or hand it to Blend — otherwise an arbitrary
+    // caller-supplied contract address would be invoked. Borrow/supply
+    // eligibility is still enforced downstream (borrow_for_migration /
+    // process_deposit). Asset lists are already deduplicated.
+    require_migration_markets_active(env, &mut cache, hub_id, &withdraw_assets, &debt_caps);
+
     execute_migration_debt_leg(
         env,
         caller,
@@ -197,6 +204,25 @@ fn prepare_migration_account(
         prepare_migration_assets(env, collateral_assets, supply_assets, debt_caps);
     prefetch_strategy_oracles(&mut cache, &account, &all_assets);
     (account_id, account, cache, withdraw_assets)
+}
+
+/// Requires every migration asset (deduped collateral ∪ supply, and each debt
+/// asset) to be a configured market before any `.balance()` read or Blend call.
+/// `require_market_active` checks the token-rooted oracle, so `hub_id` only names
+/// the coordinate the positions open on.
+fn require_migration_markets_active(
+    env: &Env,
+    cache: &mut Cache,
+    hub_id: u32,
+    withdraw_assets: &Vec<Address>,
+    debt_caps: &Vec<(Address, i128)>,
+) {
+    for asset in withdraw_assets.iter() {
+        validation::require_market_active(env, cache, &HubAssetKey { hub_id, asset });
+    }
+    for (asset, _) in debt_caps.iter() {
+        validation::require_market_active(env, cache, &HubAssetKey { hub_id, asset });
+    }
 }
 
 fn validate_migration_request(

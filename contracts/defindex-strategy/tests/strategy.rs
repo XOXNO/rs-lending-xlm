@@ -308,6 +308,35 @@ fn test_supply_clears_stale_vault_mapping_after_full_withdraw() {
     assert!(s.live_account_id(&s.vault) != 0);
 }
 
+// A full withdraw clears the stored vault->account mapping immediately, not
+// lazily on the next deposit. This is what prevents the dust-pinning grief: if
+// the controller account were kept alive by dust of another asset, a deferred
+// cleanup would leave the mapping pointing at that account and the next deposit
+// would reuse it (and could hit PositionLimitExceeded). `live_account_id` masks
+// this because it also checks account_exists — assert the raw stored value.
+#[test]
+fn test_full_withdraw_clears_stored_vault_mapping_immediately() {
+    let mut s = StrategyTest::new();
+    s.client().deposit(&(1_000 * UNIT), &s.vault);
+    s.t.advance_time(60 * 60 * 24 * 30);
+
+    let balance = s.client().balance(&s.vault);
+    let sink = Address::generate(&s.t.env);
+    s.client().withdraw(&balance, &s.vault, &sink);
+
+    let env = &s.t.env;
+    let raw_stored: u64 = env.as_contract(&s.client_address, || {
+        env.storage()
+            .persistent()
+            .get(&DataKey::VaultAccount(s.vault.clone()))
+            .unwrap_or(0)
+    });
+    assert_eq!(
+        raw_stored, 0,
+        "full withdraw must clear the stored vault mapping, not defer it"
+    );
+}
+
 #[test]
 fn test_harvest_emits_price_per_share_from_supply_index() {
     let s = StrategyTest::new();
