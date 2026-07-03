@@ -121,6 +121,11 @@ pub struct SpokeAssetConfig {
 /// `oracle_override` optionally points the spoke-asset at a price source other
 /// than the asset's token-rooted base oracle (`MarketOracleConfigOption::None`
 /// keeps the base).
+///
+/// `paused`/`frozen` are the ADR 0011 per-listing incident flags; every edit
+/// states them explicitly, so a routine parameter edit cannot silently clear
+/// an active pause. Flag changes ride the same timelock as the rest of the
+/// edit — the instant incident brake remains the global controller pause.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetArgs {
@@ -129,6 +134,8 @@ pub struct SpokeAssetArgs {
     pub spoke_id: u32,
     pub can_collateral: bool,
     pub can_borrow: bool,
+    pub paused: bool,
+    pub frozen: bool,
     pub ltv: u32,
     pub threshold: u32,
     pub bonus: u32,

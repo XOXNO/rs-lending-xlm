@@ -140,6 +140,8 @@ fn test_edit_asset_in_spoke_rejects_excessive_liq_bonus() {
         spoke_id: HARNESS_SPOKE,
         can_collateral: cfg.is_collateralizable,
         can_borrow: cfg.is_borrowable,
+        paused: false,
+        frozen: false,
         // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
         ltv: 8000,
         threshold: 9500,
@@ -170,6 +172,8 @@ fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
         spoke_id: HARNESS_SPOKE,
         can_collateral: cfg.is_collateralizable,
         can_borrow: cfg.is_borrowable,
+        paused: false,
+        frozen: false,
         ltv: 4000,
         threshold: 5000,
         bonus: 5000,

@@ -52,8 +52,8 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     let config = SpokeAssetConfig {
         is_collateralizable: args.can_collateral,
         is_borrowable: args.can_borrow,
-        paused: false,
-        frozen: false,
+        paused: args.paused,
+        frozen: args.frozen,
         loan_to_value: args.ltv,
         liquidation_threshold: args.threshold,
         liquidation_bonus: args.bonus,
@@ -126,8 +126,8 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     let config = SpokeAssetConfig {
         is_collateralizable: args.can_collateral,
         is_borrowable: args.can_borrow,
-        paused: false,
-        frozen: false,
+        paused: args.paused,
+        frozen: args.frozen,
         loan_to_value: args.ltv,
         liquidation_threshold: args.threshold,
         liquidation_bonus: args.bonus,

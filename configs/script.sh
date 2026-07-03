@@ -377,21 +377,25 @@ scval_hub_asset() {
 # propose `--op` payload uses the friendly form below.)
 scval_spoke_args() {
     local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
+    local paused=${12:-false} frozen=${13:-false}
     jq -nc \
         --argjson hub "$hub" \
         --arg asset "$asset" --argjson spoke "$spoke" --argjson cc "$cc" --argjson cb "$cb" \
         --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" \
         --arg sc "$sc" --arg bc "$bc" --argjson lf "$lf" \
+        --argjson paused "$paused" --argjson frozen "$frozen" \
         '{map:[
             {key:{symbol:"asset"},val:{address:$asset}},
             {key:{symbol:"bonus"},val:{u32:$bonus}},
             {key:{symbol:"borrow_cap"},val:{i128:$bc}},
             {key:{symbol:"can_borrow"},val:{bool:$cb}},
             {key:{symbol:"can_collateral"},val:{bool:$cc}},
+            {key:{symbol:"frozen"},val:{bool:$frozen}},
             {key:{symbol:"hub_id"},val:{u32:$hub}},
             {key:{symbol:"liquidation_fees"},val:{u32:$lf}},
             {key:{symbol:"ltv"},val:{u32:$ltv}},
             {key:{symbol:"oracle_override"},val:{vec:[{symbol:"None"}]}},
+            {key:{symbol:"paused"},val:{bool:$paused}},
             {key:{symbol:"spoke_id"},val:{u32:$spoke}},
             {key:{symbol:"supply_cap"},val:{i128:$sc}},
             {key:{symbol:"threshold"},val:{u32:$thr}}
@@ -402,12 +406,15 @@ scval_spoke_args() {
 # field names). Address is a bare strkey; i128 caps are decimal strings.
 friendly_spoke_args() {
     local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
+    local paused=${12:-false} frozen=${13:-false}
     jq -nc \
         --argjson hub "$hub" \
         --arg asset "$asset" --argjson spoke "$spoke" --argjson cc "$cc" --argjson cb "$cb" \
         --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" \
         --arg sc "$sc" --arg bc "$bc" --argjson lf "$lf" \
+        --argjson paused "$paused" --argjson frozen "$frozen" \
         '{hub_id:$hub, asset:$asset, spoke_id:$spoke, can_collateral:$cc, can_borrow:$cb,
+          paused:$paused, frozen:$frozen,
           ltv:$ltv, threshold:$thr, bonus:$bonus, liquidation_fees:$lf,
           supply_cap:$sc, borrow_cap:$bc, oracle_override:"None"}'
 }
@@ -1664,6 +1671,13 @@ add_asset_to_spoke() {
         liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
     fi
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
+    # SpokeAssetArgs.paused / .frozen: per-listing incident flags; optional in
+    # spokes.json, defaulting to an active (false/false) listing.
+    local paused frozen
+    paused=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".paused")
+    frozen=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".frozen")
+    if [ -z "$paused" ] || [ "$paused" = "null" ]; then paused=false; fi
+    if [ -z "$frozen" ] || [ "$frozen" = "null" ]; then frozen=false; fi
 
     echo "  Asset Address: ${asset_address}"
     echo "  Config Category: ${config_category_id}"
@@ -1688,7 +1702,7 @@ add_asset_to_spoke() {
     local args_json
     args_json=$(jq -nc \
         --argjson arg "$(scval_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" \
-            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees")" \
+            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees" "$paused" "$frozen")" \
         '[$arg]')
     local salt
     salt=$(gen_salt "add_asset_to_spoke" "$args_json")
@@ -1697,7 +1711,7 @@ add_asset_to_spoke() {
     local admin_op_json
     admin_op_json=$(admin_op AddAssetToSpoke \
         "$(friendly_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
-            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees")")
+            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees" "$paused" "$frozen")")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1738,6 +1752,13 @@ edit_asset_in_spoke() {
         liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
     fi
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
+    # SpokeAssetArgs.paused / .frozen: per-listing incident flags; optional in
+    # spokes.json, defaulting to an active (false/false) listing.
+    local paused frozen
+    paused=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".paused")
+    frozen=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".frozen")
+    if [ -z "$paused" ] || [ "$paused" = "null" ]; then paused=false; fi
+    if [ -z "$frozen" ] || [ "$frozen" = "null" ]; then frozen=false; fi
 
     echo "Editing asset ${asset_name} in Spoke category ${category_id}..." >&2
 
@@ -1752,7 +1773,7 @@ edit_asset_in_spoke() {
     local args_json
     args_json=$(jq -nc \
         --argjson arg "$(scval_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" \
-            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees")" \
+            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees" "$paused" "$frozen")" \
         '[$arg]')
     local salt
     salt=$(gen_salt "edit_asset_in_spoke" "$args_json")
@@ -1761,7 +1782,7 @@ edit_asset_in_spoke() {
     local admin_op_json
     admin_op_json=$(admin_op EditAssetInSpoke \
         "$(friendly_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
-            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees")")
+            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees" "$paused" "$frozen")")
 
     local op_id
     op_id=$(schedule_via_proposer \

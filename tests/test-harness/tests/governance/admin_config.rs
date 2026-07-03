@@ -25,6 +25,8 @@ fn test_edit_asset_in_spoke_rejects_threshold_lte_ltv() {
         spoke_id: HARNESS_SPOKE,
         can_collateral: config.is_collateralizable,
         can_borrow: config.is_borrowable,
+        paused: false,
+        frozen: false,
         ltv: 8000,
         threshold: 8000, // Equal to LTV.
         bonus: config.liquidation_bonus,

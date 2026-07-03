@@ -188,6 +188,8 @@ impl LendingTest {
                 spoke_id: HARNESS_SPOKE,
                 can_collateral: risk.is_collateralizable,
                 can_borrow: risk.is_borrowable,
+                paused: false,
+                frozen: false,
                 ltv: risk.loan_to_value,
                 threshold: risk.liquidation_threshold,
                 bonus: risk.liquidation_bonus,

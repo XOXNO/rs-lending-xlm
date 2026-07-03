@@ -49,6 +49,16 @@ same supply/borrow/withdraw/repay processing, so the flag covers them too.
 The `frozen` flag blocks only new `supply` and `borrow`; `withdraw` and
 `repay` stay live. It winds a listing down without trapping users.
 
+## Setting The Per-Asset Flags
+
+Both flags travel on `SpokeAssetArgs` and are written by
+`add_asset_to_spoke` / `edit_asset_in_spoke`; every edit states them
+explicitly, so a routine parameter edit cannot silently clear an active
+flag. Flag changes therefore ride the same governance timelock as the rest
+of the listing edit — the per-asset flags are planned wind-down and
+containment tools, while the instant incident brake remains the layer-1
+global pause (and `disable_token_oracle` for oracle incidents).
+
 ## Liquidations
 
 `liquidate` and `clean_bad_debt` are never blocked — not by the global

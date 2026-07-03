@@ -183,6 +183,8 @@ impl AssetConfigPreset {
             spoke_id,
             can_collateral: self.is_collateralizable,
             can_borrow: self.is_borrowable,
+            paused: false,
+            frozen: false,
             ltv: self.loan_to_value,
             threshold: self.liquidation_threshold,
             bonus: self.liquidation_bonus,

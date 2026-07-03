@@ -374,6 +374,8 @@ fn test_spoke_deprecated_category_operations_rejected() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_000,
         threshold: 9_300,
         bonus: 200,
@@ -767,6 +769,8 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 8_500,
         threshold: 8_000,
         bonus: 200,
@@ -790,6 +794,8 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_400,
         threshold: 9_500,
         bonus: 600,
@@ -874,6 +880,8 @@ fn test_spoke_supply_cap_enforced() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_700,
         threshold: 9_800,
         bonus: 200,
@@ -909,6 +917,8 @@ fn test_spoke_borrow_cap_enforced() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_700,
         threshold: 9_800,
         bonus: 200,
@@ -1027,6 +1037,8 @@ fn test_edit_spoke_rejects_supply_cap_below_usage() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_700,
         threshold: 9_800,
         bonus: 200,
@@ -1045,6 +1057,8 @@ fn test_edit_spoke_rejects_supply_cap_below_usage() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_700,
         threshold: 9_800,
         bonus: 200,
@@ -1075,6 +1089,8 @@ fn test_max_supply_respects_spoke_cap_headroom() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_700,
         threshold: 9_800,
         bonus: 200,
@@ -1125,6 +1141,8 @@ fn test_edit_spoke_rejects_borrow_cap_below_usage() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_700,
         threshold: 9_800,
         bonus: 200,
@@ -1144,6 +1162,8 @@ fn test_edit_spoke_rejects_borrow_cap_below_usage() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_700,
         threshold: 9_800,
         bonus: 200,
@@ -1179,6 +1199,8 @@ fn test_spoke_spoke_cap_above_from_asset_domain_rejected() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_700,
         threshold: 9_800,
         bonus: 200,
@@ -1211,6 +1233,8 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_700,
         threshold: 9_800,
         bonus: 200,
@@ -1273,6 +1297,8 @@ fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_700,
         threshold: 9_800,
         bonus: 200,
@@ -1352,6 +1378,8 @@ fn test_add_asset_to_spoke_rejects_liquidation_fees_above_bps() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9600,
         threshold: 9700,
         bonus: 200,
@@ -1383,6 +1411,8 @@ fn test_edit_asset_in_spoke_rejects_liquidation_fees_above_bps() {
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9600,
         threshold: 9700,
         bonus: 200,
@@ -1449,9 +1479,9 @@ fn test_deprecated_spoke_max_supply_returns_zero() {
     );
 }
 
-/// Flips the stored paused/frozen flags for a spoke listing directly; no
-/// governance endpoint sets them yet, but the mutating paths already enforce
-/// them and the previews must mirror that.
+/// Sets the per-listing paused/frozen incident flags through the real
+/// `edit_asset_in_spoke` entrypoint, preserving the listing's current risk
+/// params.
 fn set_spoke_asset_flags(
     t: &LendingTest,
     spoke_id: u32,
@@ -1459,18 +1489,22 @@ fn set_spoke_asset_flags(
     paused: bool,
     frozen: bool,
 ) {
-    let asset = t.resolve_asset(asset_name);
-    t.env.as_contract(&t.controller_address(), || {
-        let key = controller::types::ControllerKey::SpokeAsset(spoke_id, hub_asset(asset.clone()));
-        let mut cfg: controller::types::SpokeAssetConfig = t
-            .env
-            .storage()
-            .persistent()
-            .get(&key)
-            .expect("spoke asset must be listed");
-        cfg.paused = paused;
-        cfg.frozen = frozen;
-        t.env.storage().persistent().set(&key, &cfg);
+    let config = t.get_asset_config(asset_name);
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset: t.resolve_asset(asset_name),
+        spoke_id,
+        can_collateral: config.is_collateralizable,
+        can_borrow: config.is_borrowable,
+        paused,
+        frozen,
+        ltv: config.loan_to_value,
+        threshold: config.liquidation_threshold,
+        bonus: config.liquidation_bonus,
+        liquidation_fees: config.liquidation_fees,
+        supply_cap: 0,
+        borrow_cap: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
     });
 }
 
@@ -1504,9 +1538,24 @@ fn test_paused_spoke_asset_zeroes_supply_and_borrow_previews() {
         "paused listing must preview zero supply capacity"
     );
     assert_eq!(
-        t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc)),
+        t.ctrl_client()
+            .max_borrow(&account_id, &hub_asset(usdc.clone())),
         0,
         "paused listing must preview zero borrow capacity"
+    );
+
+    // The mutating paths agree with the previews: paused blocks everything.
+    assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::SPOKE_ASSET_PAUSED);
+    assert_contract_error(
+        t.try_withdraw(ALICE, "USDC", 1.0),
+        errors::SPOKE_ASSET_PAUSED,
+    );
+
+    // Clearing the flag through the same edit restores capacity.
+    set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", false, false);
+    assert!(
+        t.ctrl_client().max_supply(&account_id, &hub_asset(usdc)) > 0,
+        "clearing paused must restore supply capacity"
     );
 }
 
@@ -1532,5 +1581,12 @@ fn test_frozen_spoke_asset_zeroes_supply_and_borrow_previews() {
         t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc)),
         0,
         "frozen listing must preview zero borrow capacity"
+    );
+
+    // Frozen blocks risk-increasing entries but keeps exits open.
+    assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::SPOKE_ASSET_FROZEN);
+    assert!(
+        t.try_withdraw(ALICE, "USDC", 100.0).is_ok(),
+        "frozen listing must still allow withdrawal"
     );
 }

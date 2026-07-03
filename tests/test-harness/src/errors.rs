@@ -80,6 +80,8 @@ pub mod codes {
     pub const SPOKE_SUPPLY_CAP_REACHED: u32 = SpokeError::SpokeSupplyCapReached as u32;
     pub const SPOKE_BORROW_CAP_REACHED: u32 = SpokeError::SpokeBorrowCapReached as u32;
     pub const SPOKE_CAP_BELOW_USAGE: u32 = SpokeError::SpokeCapBelowUsage as u32;
+    pub const SPOKE_ASSET_PAUSED: u32 = SpokeError::SpokeAssetPaused as u32;
+    pub const SPOKE_ASSET_FROZEN: u32 = SpokeError::SpokeAssetFrozen as u32;
 
     // FlashLoanError
     pub const FLASH_LOAN_ONGOING: u32 = FlashLoanError::FlashLoanOngoing as u32;

@@ -333,6 +333,8 @@ fn edit_asset_in_spoke_rejects_bad_risk_bounds_before_any_cross_call() {
         spoke_id: 1,
         can_collateral: true,
         can_borrow: true,
+        paused: false,
+        frozen: false,
         ltv: 9_000,
         // Threshold below LTV is invalid.
         threshold: 8_000,
