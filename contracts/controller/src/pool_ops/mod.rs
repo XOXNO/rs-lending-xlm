@@ -320,11 +320,13 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         let cfg_lt = asset_config.liquidation_threshold.raw() as u32;
         let cfg_ltv = asset_config.loan_to_value.raw() as u32;
         let cfg_bonus = asset_config.liquidation_bonus.raw() as u32;
+        let cfg_fees = asset_config.liquidation_fees.raw() as u32;
         if has_risks {
             updated_pos.liquidation_threshold = cfg_lt;
         } else {
             updated_pos.loan_to_value = cfg_ltv;
             updated_pos.liquidation_bonus = cfg_bonus;
+            updated_pos.liquidation_fees = cfg_fees;
         }
 
         let updated = AccountPosition::from(&updated_pos);

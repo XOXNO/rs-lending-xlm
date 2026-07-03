@@ -19,6 +19,22 @@ fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u
     })
 }
 
+/// Returns the stored supply position's stamped protocol fee in BPS.
+fn supply_fee_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u32 {
+    let asset = t.resolve_asset(asset_name);
+    t.env.as_contract(&t.controller_address(), || {
+        let map: soroban_sdk::Map<HubAssetKey, controller::types::AccountPositionRaw> = t
+            .env
+            .storage()
+            .persistent()
+            .get(&ControllerKey::SupplyPositions(account_id))
+            .expect("supply side map should exist");
+        map.get(hub_asset(asset))
+            .expect("supply position should exist for asset")
+            .liquidation_fees
+    })
+}
+
 /// Returns stored supply risk fields as `(threshold, bonus, ltv)` BPS.
 fn supply_risk_fields(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32, u32) {
     let asset = t.resolve_asset(asset_name);
@@ -275,9 +291,20 @@ fn test_update_account_threshold_safe() {
     let hf_before = t.health_factor(ALICE);
     let account_id = t.resolve_account_id(ALICE);
 
+    let (_, bonus_before, _) = supply_risk_fields(&t, account_id, "USDC");
+    let fee_before = supply_fee_bps(&t, account_id, "USDC");
+    t.edit_asset_config("USDC", |c| {
+        c.liquidation_bonus = bonus_before + 100;
+        c.liquidation_fees = fee_before + 150;
+    });
+
     // Update safe params (has_risks=false): LTV, bonus, fees.
     // Should succeed without an HF check.
     t.update_account_threshold(false, &[account_id]);
+
+    let (_, bonus_after, _) = supply_risk_fields(&t, account_id, "USDC");
+    assert_eq!(bonus_after, bonus_before + 100);
+    assert_eq!(supply_fee_bps(&t, account_id, "USDC"), fee_before + 150);
 
     // Position should still exist and stay healthy.
     t.assert_healthy(ALICE);
