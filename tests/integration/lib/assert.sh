@@ -37,7 +37,13 @@ _uint_ge() {  # A >= B
   if [ "${#a}" -ne "${#b}" ]; then [ "${#a}" -gt "${#b}" ]; return; fi
   [[ "$a" > "$b" || "$a" == "$b" ]]
 }
-_uint_lt() { ! _uint_ge "$1" "$2"; }   # A < B
+_uint_lt() {  # A < B
+  # Validate independently of _uint_ge: bare `! _uint_ge` would treat a
+  # non-numeric/empty A (which makes _uint_ge fail) as "less than", so a view
+  # returning "" or an error string would spuriously satisfy the assertion.
+  _is_uint "$1" && _is_uint "$2" || return 1
+  ! _uint_ge "$1" "$2"
+}
 _uint_le() { _uint_ge "$2" "$1"; }     # A <= B
 _str_eq() { [ "$1" = "$2" ]; }
 

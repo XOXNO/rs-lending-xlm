@@ -9,10 +9,13 @@
 #   via RPC getTransaction and decoded with `stellar xdr`.
 
 # Infra-level transients (gateway 5xx, request timeouts, connection resets,
-# sequence-number races) carry no on-ledger effect and are always safe to
-# resubmit — distinct from a contract revert, which is deterministic. A
-# TxBadSeq is rejected before apply (the source account's sequence read lagged
-# a just-landed tx), so re-submitting re-fetches the sequence and lands clean.
+# sequence-number races), distinct from a contract revert which is
+# deterministic. Pre-send these have no on-ledger effect and are safe to
+# resubmit; a TxBadSeq is rejected before apply (the source account's sequence
+# read lagged a just-landed tx), so re-submitting re-fetches the sequence and
+# lands clean. Post-send (a signed tx whose response was lost) is NOT
+# unconditionally safe: `inv` resolves it against the ledger via `tx_status`
+# before resubmitting so a landed tx is never double-applied.
 # Shared by the inv / xfail / trustline retry loops.
 RPC_TRANSIENT_RE='rejected .?50[0-9]|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq'
 
@@ -62,6 +65,27 @@ run_deploy() {
         grep -qE "$RPC_TRANSIENT_RE|Wasm does not exist|Storage, MissingValue|ResourceLimitExceeded" "$err_f" || break
     done
     return 1
+}
+
+# Decide whether a signed tx landed on-ledger. Used before resubmitting a
+# state-changing invoke whose send/poll hit a transient (timeout, 5xx,
+# connection reset): the response was lost, but the tx may already be applied,
+# so a blind resubmit would double-execute. Polls getTransaction across a few
+# ledger closes to resolve the in-flight NOT_FOUND -> SUCCESS window.
+# Echoes SUCCESS | FAILED | NOT_FOUND.
+tx_status() {
+    local hash="$1" resp st _
+    for _ in 1 2 3 4 5; do
+        resp=$(curl -s -m 30 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
+            -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTransaction\",\"params\":{\"hash\":\"$hash\"}}") \
+            || { sleep 3; continue; }
+        st=$(jq -r '.result.status // empty' <<<"$resp")
+        case "$st" in
+            SUCCESS|FAILED) echo "$st"; return 0 ;;
+            *) sleep 3 ;;
+        esac
+    done
+    echo NOT_FOUND
 }
 
 # Fetch declared resource usage for a sent tx hash.
@@ -131,12 +155,42 @@ inv() {
             continue
         fi
         # Transient RPC/gateway failure (5xx, timeout, connection reset, bad
-        # sequence) at simulate or send: no on-ledger effect, resubmit.
+        # sequence) at simulate or send. Pre-send it has no on-ledger effect and
+        # is safe to resubmit. Post-send (the tx was signed and submitted) the
+        # response was merely lost — the tx may already be applied, so a blind
+        # resubmit would double-execute (mint/supply/borrow twice). Resolve the
+        # ambiguity against the ledger using the signed hash before deciding.
         if [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
             && grep -qE "$RPC_TRANSIENT_RE" "$err_f" \
             && ! grep -q "Error(Contract" "$err_f"; then
-            record "$label" retry "$fn" "" "" "" "" "" "transient rpc failure; retrying"
-            continue
+            local thash
+            thash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
+            if [ -z "$thash" ]; then
+                # No signed hash: the transient hit simulate/pre-send, nothing
+                # was submitted. Safe to resubmit.
+                record "$label" retry "$fn" "" "" "" "" "" "transient rpc failure pre-send; retrying"
+                continue
+            fi
+            case "$(tx_status "$thash")" in
+                SUCCESS)
+                    # The tx landed despite the lost response — recover it as a
+                    # success instead of resubmitting.
+                    fetch_resources "$thash"
+                    record "$label" ok "$fn" "$thash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "recovered: tx landed despite transient response"
+                    cat "$out_f"
+                    return 0
+                    ;;
+                NOT_FOUND)
+                    # Signed+submitted but never applied (dropped / TxBadSeq
+                    # rejected pre-apply). Safe to resubmit.
+                    record "$label" retry "$fn" "" "" "" "" "" "transient after send; tx not on ledger, resubmitting"
+                    continue
+                    ;;
+                *)
+                    # FAILED on-ledger: deterministic failure, do not resubmit.
+                    break
+                    ;;
+            esac
         fi
         # Transient sim-vs-apply divergence: the tx simulated clean (it was
         # signed) but the apply read keys outside the simulated footprint —
