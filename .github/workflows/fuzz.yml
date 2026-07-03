@@ -42,6 +42,9 @@ jobs:
     if: github.event_name == 'pull_request'
     name: Fuzz smoke (PR)
     runs-on: self-hosted
+    # PR-triggered code runs on the persistent self-hosted runner; gate behind an
+    # environment whose required reviewers must approve. See .github/README.md.
+    environment: ci-untrusted-pr
     steps:
       - uses: actions/checkout@v7
 
@@ -92,6 +95,9 @@ jobs:
     if: github.event_name == 'pull_request'
     name: Miri pass (common + pool::interest + controller::helpers)
     runs-on: self-hosted
+    # PR-triggered code runs on the persistent self-hosted runner; gate behind an
+    # environment whose required reviewers must approve. See .github/README.md.
+    environment: ci-untrusted-pr
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
