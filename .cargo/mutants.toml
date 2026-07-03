@@ -47,4 +47,24 @@ exclude_re = [
     # `is_stale` first guard: at now == feed_ts elapsed is 0, never > max_stale,
     # so `>` vs `>=` is unobservable. Col-anchored to spare the killable :30:48.
     "observation.rs:30:14: replace > with >= in is_stale",
+
+    # `apply_bad_debt_to_supply_index` cap/floor clamps: at the exact
+    # boundary (bad_debt == total_supplied_value, new_supply_index ==
+    # floor_index) both branches return the same value, so `>`/`>=` and
+    # `<`/`<=` are unobservable.
+    "replace > with >= in apply_bad_debt_to_supply_index",
+    "replace < with <= in apply_bad_debt_to_supply_index",
+
+    # `calculate_borrow_rate` / `update_borrow_index` cap clamps: same
+    # equivalent-at-boundary shape as the pool clamps above.
+    "replace > with >= in calculate_borrow_rate",
+    "replace > with >= in update_borrow_index",
+
+    # `update_supply_index`'s `supplied == ZERO || rewards_increase == ZERO`
+    # short-circuit: mutating `||` to `&&` only changes behavior when
+    # exactly one side is zero, and in both single-zero cases a downstream
+    # check (`total_supplied_value == ZERO`) or identity math
+    # (`0.div(x) == 0`, then `old_index.mul(ONE) == old_index`) reproduces
+    # the same result, so the branch choice is unobservable.
+    "replace \\|\\| with && in update_supply_index",
 ]

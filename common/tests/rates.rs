@@ -389,3 +389,258 @@ fn test_compound_interest_high_x_pins_all_taylor_terms() {
         expected
     );
 }
+
+// `calculate_borrow_rate`'s `utilization < mid_utilization` branch boundary:
+// at utilization == mid_utilization the correct (slope2) branch adds zero
+// contribution, while the mutant (`<=`) branch falls into the slope1 branch
+// and round-trips `mid_utilization.mul(slope1).div(mid_utilization)`. That
+// round-trip is not always an exact identity under half-up fixed-point
+// rounding, but the drift is usually too small (~1 raw unit) to survive the
+// final per-millisecond division. This slope1 value was chosen so the
+// drift lands on a rounding boundary of `MILLISECONDS_PER_YEAR` and remains
+// observable in the returned rate.
+#[test]
+fn test_calculate_borrow_rate_mid_utilization_boundary_exact() {
+    let env = Env::default();
+    let mut params = make_test_params();
+    params.mid_utilization = Ray::from(RAY / 3);
+    params.slope1 = Ray::from(186_742_236_914_318_803_376_138_999_i128);
+    params.optimal_utilization = params.mid_utilization + Ray::from(RAY / 5);
+
+    let rate = calculate_borrow_rate(&env, params.mid_utilization, &params);
+
+    assert_eq!(
+        rate.raw(),
+        6_234_518_435_487_626_i128,
+        "utilization == mid_utilization must take the slope2 branch (zero contribution)"
+    );
+}
+
+// `calculate_borrow_rate`'s `utilization < optimal_utilization` branch
+// boundary: at utilization == optimal_utilization the correct (slope3)
+// branch adds zero contribution, while the mutant (`<=`) branch falls into
+// the slope2 branch and round-trips `range.mul(slope2).div(range)`. slope1
+// is zeroed so the region2 sum reduces to `base + slope2`, matching the
+// boundary fixture used above so the same rounding-boundary drift applies.
+#[test]
+fn test_calculate_borrow_rate_optimal_utilization_boundary_exact() {
+    let env = Env::default();
+    let mut params = make_test_params();
+    params.mid_utilization = Ray::from(RAY / 5);
+    params.slope1 = Ray::ZERO;
+    params.slope2 = Ray::from(186_742_236_914_318_803_376_138_999_i128);
+    params.optimal_utilization = params.mid_utilization + Ray::from(RAY / 3);
+
+    let rate = calculate_borrow_rate(&env, params.optimal_utilization, &params);
+
+    assert_eq!(
+        rate.raw(),
+        6_234_518_435_487_626_i128,
+        "utilization == optimal_utilization must take the slope3 branch (zero contribution)"
+    );
+}
+
+// Independently replays `simulate_update_indexes_body`'s per-chunk accrual
+// and fee-reinvestment guard using only the public rate primitives. The
+// guard mirrors `add_protocol_revenue`'s early-return checks in
+// `contracts/pool/src/interest.rs`; comparing against this oracle lets each
+// test below assert exact equality on the real (mutation-tested) guard.
+fn oracle_accrual(
+    env: &Env,
+    params: &MarketParams,
+    borrowed: Ray,
+    mut supplied: Ray,
+    mut borrow_index: Ray,
+    mut supply_index: Ray,
+    chunks_ms: &[u64],
+) -> (Ray, Ray) {
+    for &chunk in chunks_ms {
+        let borrowed_orig = scaled_to_original(env, borrowed, borrow_index);
+        let supplied_orig = scaled_to_original(env, supplied, supply_index);
+        let util = utilization(env, borrowed_orig, supplied_orig);
+        let rate = calculate_borrow_rate(env, util, params);
+        let factor = compound_interest(env, rate, chunk);
+        let new_borrow_index = update_borrow_index(env, borrow_index, factor);
+        let (supplier_rewards, protocol_fee) =
+            calculate_supplier_rewards(env, params, borrowed, new_borrow_index, borrow_index);
+        supply_index = update_supply_index(env, supplied, supply_index, supplier_rewards);
+        borrow_index = new_borrow_index;
+
+        if protocol_fee != Ray::ZERO
+            && supply_index.raw() > SUPPLY_INDEX_FLOOR_RAW
+            && supplied != Ray::ZERO
+        {
+            let fee_scaled = protocol_fee.div(env, supply_index);
+            supplied = supplied.checked_add(env, fee_scaled);
+        }
+    }
+    (borrow_index, supply_index)
+}
+
+#[test]
+fn test_simulate_guard_reinvests_fee_when_healthy() {
+    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
+
+    let env = Env::default();
+    let raw_params = MarketParamsRaw {
+        max_borrow_rate: RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 300 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
+        asset_id: soroban_sdk::Address::from_str(
+            &env,
+            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        ),
+        asset_decimals: 7,
+    };
+    let raw_state = PoolStateRaw {
+        supplied: 100 * RAY,
+        borrowed: 60 * RAY,
+        revenue: 0,
+        borrow_index: RAY,
+        supply_index: RAY,
+        last_timestamp: 0,
+        cash: 40_000_000,
+    };
+    let params = MarketParams::from(&raw_params);
+    let sync = PoolSyncData {
+        params: raw_params,
+        state: raw_state,
+    };
+
+    let two_years = 2 * MILLISECONDS_PER_YEAR;
+    let actual = simulate_update_indexes(&env, two_years, &sync);
+
+    let (expected_borrow_index, expected_supply_index) = oracle_accrual(
+        &env,
+        &params,
+        Ray::from(60 * RAY),
+        Ray::from(100 * RAY),
+        Ray::ONE,
+        Ray::ONE,
+        &[MAX_COMPOUND_DELTA_MS, MAX_COMPOUND_DELTA_MS],
+    );
+
+    assert_eq!(actual.borrow_index.raw(), expected_borrow_index.raw());
+    assert_eq!(actual.supply_index.raw(), expected_supply_index.raw());
+}
+
+#[test]
+fn test_simulate_guard_skips_reinvestment_at_supply_index_floor() {
+    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
+
+    let env = Env::default();
+    // reserve_factor = 100% keeps supplier_rewards at exactly zero each
+    // chunk, so `update_supply_index` short-circuits and supply_index stays
+    // pinned at the floor -- isolating the `supply_index > FLOOR` clause.
+    let raw_params = MarketParamsRaw {
+        max_borrow_rate: RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 300 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 10_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
+        asset_id: soroban_sdk::Address::from_str(
+            &env,
+            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        ),
+        asset_decimals: 7,
+    };
+    let raw_state = PoolStateRaw {
+        supplied: 100 * RAY,
+        borrowed: 60 * RAY,
+        revenue: 0,
+        borrow_index: RAY,
+        supply_index: SUPPLY_INDEX_FLOOR_RAW,
+        last_timestamp: 0,
+        cash: 40_000_000,
+    };
+    let params = MarketParams::from(&raw_params);
+    let sync = PoolSyncData {
+        params: raw_params,
+        state: raw_state,
+    };
+
+    let two_years = 2 * MILLISECONDS_PER_YEAR;
+    let actual = simulate_update_indexes(&env, two_years, &sync);
+
+    let (expected_borrow_index, expected_supply_index) = oracle_accrual(
+        &env,
+        &params,
+        Ray::from(60 * RAY),
+        Ray::from(100 * RAY),
+        Ray::ONE,
+        Ray::from(SUPPLY_INDEX_FLOOR_RAW),
+        &[MAX_COMPOUND_DELTA_MS, MAX_COMPOUND_DELTA_MS],
+    );
+
+    assert_eq!(actual.borrow_index.raw(), expected_borrow_index.raw());
+    assert_eq!(actual.supply_index.raw(), expected_supply_index.raw());
+}
+
+#[test]
+fn test_simulate_guard_skips_reinvestment_when_supplied_zero() {
+    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
+
+    let env = Env::default();
+    let raw_params = MarketParamsRaw {
+        max_borrow_rate: RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 300 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
+        asset_id: soroban_sdk::Address::from_str(
+            &env,
+            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        ),
+        asset_decimals: 7,
+    };
+    let raw_state = PoolStateRaw {
+        supplied: 0,
+        borrowed: 60 * RAY,
+        revenue: 0,
+        borrow_index: RAY,
+        supply_index: RAY,
+        last_timestamp: 0,
+        cash: 40_000_000,
+    };
+    let params = MarketParams::from(&raw_params);
+    let sync = PoolSyncData {
+        params: raw_params,
+        state: raw_state,
+    };
+
+    let two_years = 2 * MILLISECONDS_PER_YEAR;
+    let actual = simulate_update_indexes(&env, two_years, &sync);
+
+    let (expected_borrow_index, expected_supply_index) = oracle_accrual(
+        &env,
+        &params,
+        Ray::from(60 * RAY),
+        Ray::ZERO,
+        Ray::ONE,
+        Ray::ONE,
+        &[MAX_COMPOUND_DELTA_MS, MAX_COMPOUND_DELTA_MS],
+    );
+
+    assert_eq!(actual.borrow_index.raw(), expected_borrow_index.raw());
+    assert_eq!(actual.supply_index.raw(), expected_supply_index.raw());
+}
