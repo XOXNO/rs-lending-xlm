@@ -106,7 +106,7 @@ jobs:
           cp target/coverage/merged.lcov.info coverage-baseline/merged.lcov.info
 
       - name: Save baseline to cache
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: coverage-baseline
           key: ${{ env.COV_CACHE_PREFIX }}-${{ github.sha }}
@@ -156,7 +156,7 @@ jobs:
           tool: sccache
 
       - name: Cache cargo registry + sccache objects
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -175,7 +175,7 @@ jobs:
         # Primary key is the PR head SHA, which is never a save key (baselines
         # are saved under main SHAs), so the restore-keys prefix always governs
         # and returns the most recently saved main baseline.
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: coverage-baseline
           key: ${{ env.COV_CACHE_PREFIX }}-${{ github.sha }}
@@ -204,7 +204,7 @@ jobs:
           fi
 
       - name: Post or update PR coverage comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           HEAD_PCT: ${{ steps.cov.outputs.head_pct }}
           BASE_PCT: ${{ steps.cov.outputs.base_pct }}
