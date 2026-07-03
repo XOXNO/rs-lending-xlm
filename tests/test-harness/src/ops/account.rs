@@ -54,16 +54,19 @@ impl LendingTest {
                 .expect("spoke must exist");
             assert!(!spoke.is_deprecated, "spoke is deprecated");
 
+            // The controller keeps the nonce in persistent storage; reading the
+            // instance slot here would restart ids at 1 and overwrite accounts
+            // created through the real `supply`/`create_account` entrypoints.
             let current = self
                 .env
                 .storage()
-                .instance()
+                .persistent()
                 .get::<_, u64>(&ControllerKey::AccountNonce)
                 .unwrap_or(0);
             let next = current + 1;
             self.env
                 .storage()
-                .instance()
+                .persistent()
                 .set(&ControllerKey::AccountNonce, &next);
 
             self.env.storage().persistent().set(

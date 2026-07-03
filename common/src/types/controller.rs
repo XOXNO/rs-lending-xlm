@@ -7,8 +7,9 @@ use crate::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
 /// Typed asset risk and collateral/borrow flags, projected from the per-spoke
-/// [`SpokeAssetConfig`] that lists the asset on the account's spoke. Hub
-/// supply/borrow caps and flash-loan parameters live on the pool
+/// [`SpokeAssetConfig`] that lists the asset on the account's spoke. Supply
+/// and borrow caps live on [`SpokeAssetConfig`] as the only cap layer;
+/// flash-loan parameters live on the pool
 /// [`common::types::pool::MarketParamsRaw`]; the SAC decimal count is sourced
 /// from the pool/oracle where a conversion needs it.
 #[derive(Clone, Debug)]

@@ -16,6 +16,11 @@ pub(crate) fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u
     common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
 }
 
+pub(crate) fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
+    // Uses the shared liquidation-fee bound (`<= BPS`).
+    common::validation::validate_liquidation_fees(env, fees_bps);
+}
+
 pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u32 {
     let token_client = token::Client::new(env, token);
     let decimals = match token_client.try_decimals() {

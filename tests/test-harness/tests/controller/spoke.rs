@@ -1335,3 +1335,202 @@ fn test_spoke_oracle_override_reprices_collateral() {
         "per-spoke override should reprice ETH ~2x: base={collateral_base} override={collateral_override} ratio={ratio}"
     );
 }
+
+// Regression: liquidation_fees is a BPS ratio applied to the seized-collateral
+// bonus; values above 100% must be rejected at listing time, not stored to
+// break liquidation planning later.
+#[test]
+fn test_add_asset_to_spoke_rejects_liquidation_fees_above_bps() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .build();
+
+    let res = t.ctrl_client().try_add_asset_to_spoke(&SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset: t.resolve_asset("USDC"),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9600,
+        threshold: 9700,
+        bonus: 200,
+        liquidation_fees: 10_001,
+        supply_cap: 0,
+        borrow_cap: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+    });
+    match res {
+        Err(Ok(err)) => assert_eq!(
+            err,
+            soroban_sdk::Error::from_contract_error(errors::INVALID_LIQ_THRESHOLD)
+        ),
+        other => panic!("expected InvalidLiqThreshold, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_edit_asset_in_spoke_rejects_liquidation_fees_above_bps() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .build();
+
+    let res = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset: t.resolve_asset("USDC"),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9600,
+        threshold: 9700,
+        bonus: 200,
+        liquidation_fees: 10_001,
+        supply_cap: 0,
+        borrow_cap: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+    });
+    match res {
+        Err(Ok(err)) => assert_eq!(
+            err,
+            soroban_sdk::Error::from_contract_error(errors::INVALID_LIQ_THRESHOLD)
+        ),
+        other => panic!("expected InvalidLiqThreshold, got {other:?}"),
+    }
+}
+
+// Regression: a per-spoke oracle override whose `asset_decimals` diverge from
+// the pool market's decimals would mis-scale every valuation on the spoke by
+// powers of ten; the listing must reject the mismatch.
+#[test]
+fn test_spoke_oracle_override_rejects_mismatched_decimals() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .build();
+
+    let pool_decimals = t.resolve_market("USDC").decimals;
+    let res = t.try_set_spoke_oracle_override_with_decimals("USDC", 2, usd(1), pool_decimals + 1);
+    assert_contract_error(res, errors::INVALID_ASSET);
+
+    t.try_set_spoke_oracle_override_with_decimals("USDC", 2, usd(1), pool_decimals)
+        .expect("override with matching decimals must be accepted");
+}
+
+// Regression: `max_supply` must preview zero on a deprecated spoke because the
+// mutating supply path rejects with `SpokeDeprecated`.
+#[test]
+fn test_deprecated_spoke_max_supply_returns_zero() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .build();
+
+    t.create_spoke_account(ALICE, 2);
+    t.supply(ALICE, "USDC", 100.0);
+    let account_id = t.resolve_account_id(ALICE);
+    let usdc = t.resolve_asset("USDC");
+
+    assert!(
+        t.ctrl_client()
+            .max_supply(&account_id, &hub_asset(usdc.clone()))
+            > 0,
+        "active spoke must preview supply headroom"
+    );
+
+    t.remove_spoke_category(2);
+    assert_eq!(
+        t.ctrl_client().max_supply(&account_id, &hub_asset(usdc)),
+        0,
+        "deprecated spoke must preview zero supply capacity"
+    );
+}
+
+/// Flips the stored paused/frozen flags for a spoke listing directly; no
+/// governance endpoint sets them yet, but the mutating paths already enforce
+/// them and the previews must mirror that.
+fn set_spoke_asset_flags(
+    t: &LendingTest,
+    spoke_id: u32,
+    asset_name: &str,
+    paused: bool,
+    frozen: bool,
+) {
+    let asset = t.resolve_asset(asset_name);
+    t.env.as_contract(&t.controller_address(), || {
+        let key = controller::types::ControllerKey::SpokeAsset(spoke_id, hub_asset(asset.clone()));
+        let mut cfg: controller::types::SpokeAssetConfig = t
+            .env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("spoke asset must be listed");
+        cfg.paused = paused;
+        cfg.frozen = frozen;
+        t.env.storage().persistent().set(&key, &cfg);
+    });
+}
+
+// Regression: `max_supply`/`max_borrow` must preview zero for a paused spoke
+// asset because `enforce_spoke_asset_flags` rejects the mutating paths.
+#[test]
+fn test_paused_spoke_asset_zeroes_supply_and_borrow_previews() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    t.supply(ALICE, "USDC", 1_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+    let usdc = t.resolve_asset("USDC");
+
+    assert!(
+        t.ctrl_client()
+            .max_supply(&account_id, &hub_asset(usdc.clone()))
+            > 0
+    );
+    assert!(
+        t.ctrl_client()
+            .max_borrow(&account_id, &hub_asset(usdc.clone()))
+            > 0
+    );
+
+    set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", true, false);
+
+    assert_eq!(
+        t.ctrl_client()
+            .max_supply(&account_id, &hub_asset(usdc.clone())),
+        0,
+        "paused listing must preview zero supply capacity"
+    );
+    assert_eq!(
+        t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc)),
+        0,
+        "paused listing must preview zero borrow capacity"
+    );
+}
+
+// Regression: frozen blocks risk-increasing flows (supply/borrow) while still
+// allowing exits, so both previews must report zero.
+#[test]
+fn test_frozen_spoke_asset_zeroes_supply_and_borrow_previews() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    t.supply(ALICE, "USDC", 1_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+    let usdc = t.resolve_asset("USDC");
+
+    set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", false, true);
+
+    assert_eq!(
+        t.ctrl_client()
+            .max_supply(&account_id, &hub_asset(usdc.clone())),
+        0,
+        "frozen listing must preview zero supply capacity"
+    );
+    assert_eq!(
+        t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc)),
+        0,
+        "frozen listing must preview zero borrow capacity"
+    );
+}

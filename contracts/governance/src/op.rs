@@ -135,6 +135,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
         ),
         AdminOperation::AddAssetToSpoke(args) => {
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
+            validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
             validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
             (
                 storage::get_controller(env),
@@ -145,6 +146,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
         }
         AdminOperation::EditAssetInSpoke(args) => {
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
+            validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
             validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
             (
                 storage::get_controller(env),

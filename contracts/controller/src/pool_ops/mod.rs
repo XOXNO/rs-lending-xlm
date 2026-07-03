@@ -136,9 +136,13 @@ impl Controller {
         validation::require_not_flash_loaning(&env);
 
         // Propagates risk-param updates for each supplied asset on each account.
+        // The cache is shared across the batch for its token-rooted memos
+        // (prices, oracles, pool sync data); the per-spoke context is reset per
+        // account so a batch may mix accounts from different spokes.
         let mut cache = Cache::new(&env);
 
         for account_id in account_ids {
+            cache.reset_spoke_context();
             sync_account_thresholds(&env, account_id, has_risks, &mut cache);
         }
     }

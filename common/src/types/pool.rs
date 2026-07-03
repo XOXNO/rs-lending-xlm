@@ -1,4 +1,4 @@
-use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY, RAY_DECIMALS};
+use crate::constants::{BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, RAY, RAY_DECIMALS};
 use crate::errors::CollateralError;
 use crate::math::fp::{Bps, Ray};
 use crate::types::shared::AccountPositionType;
@@ -50,12 +50,18 @@ impl MarketParamsRaw {
     }
 
     // Boundary validation: rate model plus `asset_decimals <= RAY_DECIMALS`
-    // to keep `Ray::from_asset` inside the supported decimal domain.
+    // to keep `Ray::from_asset` inside the supported decimal domain, and the
+    // flash-loan fee cap so strategy borrows can never owe more than borrowed.
     pub fn verify(&self, env: &Env) {
         assert_with_error!(
             env,
             self.asset_decimals <= RAY_DECIMALS,
             CollateralError::AssetDecimalsTooHigh
+        );
+        assert_with_error!(
+            env,
+            i128::from(self.flashloan_fee) <= MAX_FLASHLOAN_FEE_BPS,
+            CollateralError::InvalidBorrowParams
         );
         self.verify_rate_model(env);
     }

@@ -457,3 +457,42 @@ fn test_permissionless_keeper_endpoints() {
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may update_indexes");
 }
+// 10. test_update_account_threshold_mixed_spokes_batch
+
+// Regression: one keeper batch spanning accounts on different spokes must not
+// revert `SpokeMismatch`. The shared batch cache memoized the first account's
+// spoke context and rejected the second; the per-account spoke-context reset
+// keeps the token-rooted memos while rebinding the spoke.
+#[test]
+fn test_update_account_threshold_mixed_spokes_batch() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .build();
+
+    // ALICE on the base spoke (1), BOB on spoke 2, same asset.
+    t.supply(ALICE, "USDC", 1_000.0);
+    t.create_spoke_account(BOB, 2);
+    t.supply(BOB, "USDC", 1_000.0);
+
+    let alice_id = t.resolve_account_id(ALICE);
+    let bob_id = t.resolve_account_id(BOB);
+    let (_, alice_bonus_before, alice_ltv_before) = supply_risk_fields(&t, alice_id, "USDC");
+
+    // Change only spoke 2 so the sync writes a visible delta for BOB.
+    t.edit_asset_in_spoke("USDC", 2, true, true, 9600, 9700, 300);
+
+    t.update_account_threshold(false, &[alice_id, bob_id]);
+
+    let (_, bob_bonus, bob_ltv) = supply_risk_fields(&t, bob_id, "USDC");
+    assert_eq!(bob_bonus, 300, "BOB must sync spoke-2 bonus");
+    assert_eq!(bob_ltv, 9600, "BOB must sync spoke-2 LTV");
+
+    let (_, alice_bonus, alice_ltv) = supply_risk_fields(&t, alice_id, "USDC");
+    assert_eq!(
+        (alice_bonus, alice_ltv),
+        (alice_bonus_before, alice_ltv_before),
+        "ALICE must keep base-spoke params"
+    );
+}

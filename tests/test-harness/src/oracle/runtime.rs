@@ -149,6 +149,65 @@ impl LendingTest {
         override_source
     }
 
+    /// Attempt a per-spoke oracle override whose `asset_decimals` diverge from
+    /// the pool market's decimals, returning the flattened contract result so
+    /// tests can assert the decimals guard on `edit_asset_in_spoke`.
+    pub fn try_set_spoke_oracle_override_with_decimals(
+        &self,
+        asset_name: &str,
+        spoke_id: u32,
+        override_price_wad: i128,
+        asset_decimals: u32,
+    ) -> Result<(), soroban_sdk::Error> {
+        let asset = self.resolve_asset(asset_name);
+        let config = self.get_asset_config(asset_name);
+
+        let override_source = Address::generate(&self.env);
+        let reflector = self.mock_reflector_client();
+        reflector.set_price(&override_source, &override_price_wad);
+        reflector.set_twap_price(&override_source, &override_price_wad);
+
+        let override_cfg = MarketOracleConfig {
+            asset_decimals,
+            max_price_stale_seconds: 900,
+            tolerance: OraclePriceFluctuation {
+                upper_ratio_bps: 500,
+                lower_ratio_bps: 500,
+            },
+            strategy: OracleStrategy::Single,
+            primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                contract: self.mock_reflector.clone(),
+                asset: OracleAssetRef::Stellar(override_source),
+                read_mode: OracleReadMode::Spot,
+                decimals: 14,
+                resolution_seconds: 300,
+                base: ReflectorBase::Usd,
+            }),
+            anchor: OracleSourceConfigOption::None,
+            min_sanity_price_wad: 1,
+            max_sanity_price_wad: controller::constants::MAX_REASONABLE_PRICE_WAD,
+        };
+
+        match self.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset,
+            spoke_id,
+            can_collateral: config.is_collateralizable,
+            can_borrow: config.is_borrowable,
+            ltv: config.loan_to_value,
+            threshold: config.liquidation_threshold,
+            bonus: config.liquidation_bonus,
+            liquidation_fees: config.liquidation_fees,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: MarketOracleConfigOption::Some(override_cfg),
+        }) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(err)) => Err(err.into()),
+            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        }
+    }
+
     pub fn set_oracle_single_spot(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
         self.env.as_contract(&self.controller, || {

@@ -104,6 +104,25 @@ fn test_market_params_verify_rejects_decimals_above_ray() {
 }
 
 #[test]
+fn test_market_params_verify_accepts_flashloan_fee_at_cap() {
+    let env = Env::default();
+    let mut raw = sample_raw_params(&env);
+    raw.flashloan_fee = MAX_FLASHLOAN_FEE_BPS as u32;
+    raw.verify(&env);
+}
+
+// InvalidBorrowParams (#116): a fee above the cap would make strategy borrows
+// owe more than borrowed and brick `create_strategy` for the market.
+#[test]
+#[should_panic(expected = "#116")]
+fn test_market_params_verify_rejects_flashloan_fee_above_cap() {
+    let env = Env::default();
+    let mut raw = sample_raw_params(&env);
+    raw.flashloan_fee = MAX_FLASHLOAN_FEE_BPS as u32 + 1;
+    raw.verify(&env);
+}
+
+#[test]
 fn test_account_position_raw_typed_roundtrip() {
     let raw = AccountPositionRaw {
         scaled_amount: 12_345 * RAY,

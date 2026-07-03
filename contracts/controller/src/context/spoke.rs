@@ -22,6 +22,18 @@ impl Cache {
         self.spoke_usage = Some(SpokeUsageContext::new(&self.env, spoke_id));
     }
 
+    /// Drops the per-spoke context (usage buffer, spoke config, spoke-asset
+    /// memo) and the spoke-scoped override price cache so the next account can
+    /// bind a different spoke. Token-rooted caches (prices, oracle configs,
+    /// RedStone prefetch, pool sync data, market indexes) are spoke-independent
+    /// and survive, preserving the cross-contract savings of a shared batch
+    /// cache. Only valid between accounts, after any pending usage writes were
+    /// persisted (or when the flow never mutates usage).
+    pub(crate) fn reset_spoke_context(&mut self) {
+        self.spoke_usage = None;
+        self.spoke_prices = soroban_sdk::Map::new(&self.env);
+    }
+
     pub(crate) fn require_spoke_usage_context(&mut self, spoke_id: u32) -> &mut SpokeUsageContext {
         self.ensure_spoke_context(spoke_id);
         self.spoke_usage

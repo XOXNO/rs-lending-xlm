@@ -72,12 +72,15 @@ fn account_can_borrow_asset(
 ) -> bool {
     // The account's spoke must be active and must list the asset (the spoke
     // listing is the membership signal).
-    let active = !cache.spoke_config(account.spoke_id).is_deprecated;
-    if !active
-        || cache
-            .cached_spoke_asset(account.spoke_id, hub_asset)
-            .is_none()
-    {
+    if cache.spoke_config(account.spoke_id).is_deprecated {
+        return false;
+    }
+    let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
+        return false;
+    };
+    // Mirrors `enforce_spoke_asset_flags`: paused or frozen listings reject
+    // new debt, so the preview reports no capacity.
+    if spoke_cfg.paused || spoke_cfg.frozen {
         return false;
     }
 
