@@ -118,10 +118,10 @@ Negative / accepted costs:
 
 ## References
 
-- `SCF_BUILD_ARCHITECTURE.md` §11.2 (Flash Loans).
+- `SCF_BUILD_ARCHITECTURE.md` §11 (Flash Loans).
 - `contracts/pool/src/lib.rs::flash_loan`
 - `contracts/pool/src/interest.rs::add_protocol_revenue_ray`
 - `contracts/controller/src/strategies/flash_loan.rs::process_flash_loan`
-- `contracts/controller/src/validation.rs::require_not_flash_loaning`
-- `common/src/constants/controller.rs` (`MAX_FLASHLOAN_FEE_BPS` = 500)
+- `contracts/controller/src/risk/validation.rs::require_not_flash_loaning`
+- `common/src/constants/shared.rs` (`MAX_FLASHLOAN_FEE_BPS` = 500)
 - `common/src/errors.rs` (`FlashLoanError::{InvalidFlashloanRepay, FlashloanNotEnabled, StrategyFeeExceeds, FlashLoanOngoing}`)

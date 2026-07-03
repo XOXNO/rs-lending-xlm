@@ -1,7 +1,7 @@
 use controller::constants::{RAY, WAD};
 use test_harness::{
-    eth_preset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, ALICE,
-    STABLECOIN_EMODE,
+    eth_preset, hub_asset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest,
+    ALICE, STABLECOIN_SPOKE,
 };
 // 1. test_total_collateral_usd_multi_asset
 
@@ -141,9 +141,9 @@ fn test_get_all_markets_multiple() {
     let assets = soroban_sdk::Vec::from_array(
         &t.env,
         [
-            t.resolve_asset("USDC"),
-            t.resolve_asset("ETH"),
-            t.resolve_asset("WBTC"),
+            hub_asset(t.resolve_asset("USDC")),
+            hub_asset(t.resolve_asset("ETH")),
+            hub_asset(t.resolve_asset("WBTC")),
         ],
     );
     let markets = ctrl.get_markets_detailed(&assets);
@@ -161,7 +161,7 @@ fn test_get_all_markets_single() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::Vec::from_array(&t.env, [t.resolve_asset("USDC")]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(t.resolve_asset("USDC"))]);
     let markets = ctrl.get_markets_detailed(&assets);
     assert_eq!(
         markets.len(),
@@ -180,8 +180,13 @@ fn test_get_pool_address_matches_market_view() {
 
     let ctrl = t.ctrl_client();
     let pool = ctrl.get_pool_address();
-    let assets =
-        soroban_sdk::Vec::from_array(&t.env, [t.resolve_asset("USDC"), t.resolve_asset("ETH")]);
+    let assets = soroban_sdk::Vec::from_array(
+        &t.env,
+        [
+            hub_asset(t.resolve_asset("USDC")),
+            hub_asset(t.resolve_asset("ETH")),
+        ],
+    );
     for row in ctrl.get_markets_detailed(&assets).iter() {
         assert_eq!(row.pool_address, pool, "pool address must be global");
     }
@@ -225,33 +230,29 @@ fn test_get_account_owner_correct() {
         "account owner should match Alice's address"
     );
 }
-// 10. test_get_emode_category_view
+// 10. test_get_spoke_category_view
 
 #[test]
-fn test_get_emode_category_view() {
+fn test_get_spoke_category_view() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
     let ctrl = t.ctrl_client();
-    let category = ctrl.get_e_mode_category(&1u32);
     let usdc = t.resolve_asset("USDC");
-    let cfg = category
-        .assets
-        .get(usdc)
-        .expect("USDC registered in category");
+    let cfg = ctrl.get_spoke_asset(&2u32, &hub_asset(usdc.clone()));
 
-    // STABLECOIN_EMODE: ltv=9700, threshold=9800, bonus=200 (per-asset).
-    assert_eq!(cfg.loan_to_value_bps, 9700, "emode ltv should be 9700");
+    // STABLECOIN_SPOKE: ltv=9700, threshold=9800, bonus=200 (per-asset).
+    assert_eq!(cfg.loan_to_value, 9700, "spoke ltv should be 9700");
     assert_eq!(
-        cfg.liquidation_threshold_bps, 9800,
-        "emode threshold should be 9800"
+        cfg.liquidation_threshold, 9800,
+        "spoke threshold should be 9800"
     );
-    assert_eq!(cfg.liquidation_bonus_bps, 200, "emode bonus should be 200");
+    assert_eq!(cfg.liquidation_bonus, 200, "spoke bonus should be 200");
 }
 // 11. test_get_position_limits_default
 
@@ -306,7 +307,8 @@ fn test_liquidation_estimations_basic() {
 
     let account_id = t.resolve_account_id(ALICE);
     let ctrl = t.ctrl_client();
-    let payments = soroban_sdk::Vec::from_array(&t.env, [(t.resolve_asset("ETH"), 3_0000000)]);
+    let payments =
+        soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
     let estimate = ctrl.get_liquidation_estimate(&account_id, &payments);
     let hf = ctrl.get_health_factor(&account_id);
 
@@ -347,17 +349,17 @@ fn test_get_market_index_view() {
 
     let asset = t.resolve_asset("USDC");
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let index = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
 
     let ray = RAY;
     // Fresh market: indexes must be 1.0 RAY.
     assert_eq!(
-        index.supply_index_ray, ray,
+        index.supply_index, ray,
         "fresh supply index should be 1.0 RAY"
     );
     assert_eq!(
-        index.borrow_index_ray, ray,
+        index.borrow_index, ray,
         "fresh borrow index should be 1.0 RAY"
     );
 }
@@ -388,12 +390,12 @@ fn test_get_asset_config_view() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let config = t.get_asset_config("USDC");
-    assert_eq!(config.loan_to_value_bps, 7500, "LTV should be 7500");
+    assert_eq!(config.loan_to_value, 7500, "LTV should be 7500");
     assert_eq!(
-        config.liquidation_threshold_bps, 8000,
+        config.liquidation_threshold, 8000,
         "threshold should be 8000"
     );
-    assert_eq!(config.liquidation_bonus_bps, 500, "bonus should be 500");
+    assert_eq!(config.liquidation_bonus, 500, "bonus should be 500");
     assert!(
         config.is_collateralizable,
         "USDC should be collateralizable"
@@ -424,7 +426,9 @@ fn test_collateral_amount_for_token_happy() {
 
     let account_id = t.resolve_account_id(ALICE);
     let usdc = t.resolve_asset("USDC");
-    let amount = t.ctrl_client().get_collateral_amount(&account_id, &usdc);
+    let amount = t
+        .ctrl_client()
+        .get_collateral_amount(&account_id, &hub_asset(usdc.clone()));
 
     // USDC has 7 decimals: 10_000 USDC == 10_000 * 10^7 raw units.
     let expected = 10_000i128 * 10_000_000;
@@ -450,7 +454,9 @@ fn test_borrow_amount_for_token_happy() {
 
     let account_id = t.resolve_account_id(ALICE);
     let eth = t.resolve_asset("ETH");
-    let amount = t.ctrl_client().get_borrow_amount(&account_id, &eth);
+    let amount = t
+        .ctrl_client()
+        .get_borrow_amount(&account_id, &hub_asset(eth.clone()));
 
     // ETH has 7 decimals: 2 ETH == 2 * 10^7 raw units.
     let expected = 2i128 * 10_000_000;

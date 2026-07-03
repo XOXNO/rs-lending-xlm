@@ -5,6 +5,7 @@ use stellar_xdr::curr::LedgerKey;
 use tracing::debug;
 
 use crate::discovery::DiscoverySnapshot;
+use crate::keys::HubAssetKey;
 use crate::policy::{classify, Decision};
 use crate::stellar::client::LedgerEntryQuery;
 use crate::stellar::invoke::update_indexes;
@@ -17,7 +18,18 @@ const MAX_KEYS_PER_EXTEND_OP: usize = 60;
 
 /// Builds TTL-extend jobs for entries inside the safety margin.
 pub fn plan_extends(snapshot: &DiscoverySnapshot, safety_ledgers: u32) -> Result<Vec<TxJob>> {
-    plan(snapshot, safety_ledgers, Decision::Extend, |chunk| {
+    plan_extends_with_chunk(snapshot, safety_ledgers, MAX_KEYS_PER_EXTEND_OP)
+}
+
+/// `plan_extends` with an explicit per-tx key cap. Full-set prepayment packs
+/// months of rent (incl. wasm code entries) into each op; a smaller chunk
+/// keeps every tx's total fee under the classic envelope's u32 ceiling.
+pub fn plan_extends_with_chunk(
+    snapshot: &DiscoverySnapshot,
+    safety_ledgers: u32,
+    chunk: usize,
+) -> Result<Vec<TxJob>> {
+    plan_with_chunk(snapshot, safety_ledgers, Decision::Extend, chunk, |chunk| {
         extend_footprint_ttl(chunk, MAX_LEDGERS_TO_EXTEND)
     })
 }
@@ -38,6 +50,16 @@ fn plan(
     snapshot: &DiscoverySnapshot,
     safety_ledgers: u32,
     want: Decision,
+    build: impl Fn(&[LedgerKey]) -> Result<TxJob>,
+) -> Result<Vec<TxJob>> {
+    plan_with_chunk(snapshot, safety_ledgers, want, MAX_KEYS_PER_EXTEND_OP, build)
+}
+
+fn plan_with_chunk(
+    snapshot: &DiscoverySnapshot,
+    safety_ledgers: u32,
+    want: Decision,
+    chunk: usize,
     build: impl Fn(&[LedgerKey]) -> Result<TxJob>,
 ) -> Result<Vec<TxJob>> {
     let current_ledger = snapshot.current_ledger;
@@ -65,8 +87,8 @@ fn plan(
         &mut targets,
     );
 
-    let mut jobs = Vec::with_capacity(targets.len().div_ceil(MAX_KEYS_PER_EXTEND_OP));
-    for chunk in targets.chunks(MAX_KEYS_PER_EXTEND_OP) {
+    let mut jobs = Vec::with_capacity(targets.len().div_ceil(chunk));
+    for chunk in targets.chunks(chunk) {
         jobs.push(build(chunk)?);
     }
 
@@ -100,11 +122,11 @@ pub fn plan_extends_for_keys(keys: &[LedgerKey]) -> Result<Vec<TxJob>> {
     Ok(jobs)
 }
 
-/// Builds `update_indexes(assets)` jobs.
+/// Builds `update_indexes(hub_assets)` jobs.
 pub fn plan_index_refresh(
     controller_id: &[u8; 32],
     caller_strkey: &str,
-    assets: &[[u8; 32]],
+    assets: &[HubAssetKey],
     asset_chunk: usize,
 ) -> Result<Vec<TxJob>> {
     let mut jobs = Vec::new();
@@ -265,7 +287,12 @@ mod tests {
 
     #[test]
     fn index_refresh_chunks_assets_by_asset_chunk() {
-        let assets: Vec<[u8; 32]> = (0..45u8).map(|i| [i; 32]).collect();
+        let assets: Vec<HubAssetKey> = (0..45u8)
+            .map(|i| HubAssetKey {
+                hub_id: 1,
+                asset: [i; 32],
+            })
+            .collect();
         let jobs = plan_index_refresh(&[0u8; 32], TEST_PUBKEY, &assets, 20).unwrap();
         // 45 assets at 20 per op → 3 jobs.
         assert_eq!(jobs.len(), 3);

@@ -1,27 +1,28 @@
 //! `max_withdraw` preview: full close, then an analytical partial cap settled
 //! with a short stroop walk against the exact `partial_ok` mutating-path replica.
 
+use crate::risk;
+use crate::storage;
 use common::constants::WAD;
 use common::math::fp::{Ray, Wad};
 use common::math::fp_core;
 use common::rates::scaled_to_original;
-use controller_interface::types::PriceFeed;
-use controller_interface::types::{Account, AccountPosition};
-use soroban_sdk::{Address, Env};
+use common::types::PriceFeed;
+use common::types::{Account, AccountPosition, HubAssetKey};
+use soroban_sdk::Env;
 
-use crate::cache::Cache;
-use crate::{helpers, storage};
+use crate::context::Cache;
 
 use super::{account_gates_ok, MarketLimitCtx};
 
 /// Stroop walks before falling back to binary search on the residual range.
 const PARTIAL_SETTLE_STEPS: u32 = 24;
 
-pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
+pub fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
-    let Some(position_raw) = account.supply_positions.get(asset.clone()) else {
+    let Some(position_raw) = account.supply_positions.get(hub_asset.clone()) else {
         return 0;
     };
     let mut position: AccountPosition = (&position_raw).into();
@@ -33,19 +34,19 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
     // The mutating path refreshes the withdrawn asset's risk params before
     // its LTV/HF gates; mirror that on the in-memory account.
     if !account.borrow_positions.is_empty() {
-        helpers::refresh_supply_risk_params_for_asset(
+        risk::refresh_supply_risk_params_for_asset(
             env,
             &mut cache,
             &account,
-            asset,
+            hub_asset,
             &mut position,
         );
         account
             .supply_positions
-            .set(asset.clone(), (&position).into());
+            .set(hub_asset.clone(), (&position).into());
     }
 
-    let market = MarketLimitCtx::load(&mut cache, asset);
+    let market = MarketLimitCtx::load(&mut cache, hub_asset);
     let pos_scaled = position.scaled_amount;
 
     // Full close first: any request at or above the half-up position value
@@ -53,7 +54,7 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
     // dimensional: full_request is max withdraw Token(asset) in asset-native units.
     let full_request =
         scaled_to_original(env, pos_scaled, market.supply_index).to_asset(market.decimals);
-    if full_close_ok(env, &mut cache, &account, asset, &market, pos_scaled) {
+    if full_close_ok(env, &mut cache, &account, hub_asset, &market, pos_scaled) {
         return full_request;
     }
 
@@ -66,13 +67,13 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
         env,
         &mut cache,
         &account,
-        asset,
+        hub_asset,
         &position,
         &market,
         full_request,
     );
     settle_partial_max(
-        env, &mut cache, &account, asset, &market, pos_scaled, candidate, ceiling,
+        env, &mut cache, &account, hub_asset, &market, pos_scaled, candidate, ceiling,
     )
 }
 
@@ -100,7 +101,7 @@ fn analytical_partial_cap(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: &AccountPosition,
     market: &MarketLimitCtx,
     full_request: i128,
@@ -113,7 +114,7 @@ fn analytical_partial_cap(
         env,
         cache,
         account,
-        asset,
+        hub_asset,
         position,
         market,
         full_request,
@@ -125,14 +126,15 @@ fn risk_partial_cap(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: &AccountPosition,
     market: &MarketLimitCtx,
     full_request: i128,
 ) -> i128 {
-    let totals = helpers::calculate_account_risk_totals(
+    let totals = risk::calculate_account_risk_totals(
         env,
         cache,
+        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );
@@ -146,7 +148,7 @@ fn risk_partial_cap(
         return 0;
     }
 
-    let feed = cache.cached_price(asset);
+    let feed = cache.cached_price_for(account.spoke_id, hub_asset);
     let ltv_ratio = position.loan_to_value.to_wad(env);
     let hf_ratio = position.liquidation_threshold.to_wad(env);
     // dimensional: slack Wad<USD> / dimensionless risk ratio -> Token(asset) cap.
@@ -179,7 +181,7 @@ fn settle_partial_max(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     market: &MarketLimitCtx,
     pos_scaled: Ray,
     candidate: i128,
@@ -191,34 +193,54 @@ fn settle_partial_max(
 
     let mut amount = candidate.min(ceiling).max(0);
     for _ in 0..PARTIAL_SETTLE_STEPS {
-        if partial_ok(env, cache, account, asset, market, pos_scaled, amount) {
+        if partial_ok(env, cache, account, hub_asset, market, pos_scaled, amount) {
             break;
         }
         if amount == 0 {
             return binary_search_partial(
-                env, cache, account, asset, market, pos_scaled, 0, ceiling,
+                env, cache, account, hub_asset, market, pos_scaled, 0, ceiling,
             );
         }
         amount -= 1;
     }
-    if !partial_ok(env, cache, account, asset, market, pos_scaled, amount) {
-        return binary_search_partial(env, cache, account, asset, market, pos_scaled, 0, ceiling);
+    if !partial_ok(env, cache, account, hub_asset, market, pos_scaled, amount) {
+        return binary_search_partial(
+            env, cache, account, hub_asset, market, pos_scaled, 0, ceiling,
+        );
     }
 
     let mut steps = 0;
     while amount < ceiling && steps < PARTIAL_SETTLE_STEPS {
-        if !partial_ok(env, cache, account, asset, market, pos_scaled, amount + 1) {
+        if !partial_ok(
+            env,
+            cache,
+            account,
+            hub_asset,
+            market,
+            pos_scaled,
+            amount + 1,
+        ) {
             break;
         }
         amount += 1;
         steps += 1;
     }
-    if amount < ceiling && partial_ok(env, cache, account, asset, market, pos_scaled, amount + 1) {
+    if amount < ceiling
+        && partial_ok(
+            env,
+            cache,
+            account,
+            hub_asset,
+            market,
+            pos_scaled,
+            amount + 1,
+        )
+    {
         return binary_search_partial(
             env,
             cache,
             account,
-            asset,
+            hub_asset,
             market,
             pos_scaled,
             amount + 1,
@@ -232,7 +254,7 @@ fn binary_search_partial(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     market: &MarketLimitCtx,
     pos_scaled: Ray,
     lo: i128,
@@ -242,7 +264,7 @@ fn binary_search_partial(
     let mut hi = hi;
     while lo < hi {
         let mid = hi - (hi - lo) / 2;
-        if partial_ok(env, cache, account, asset, market, pos_scaled, mid) {
+        if partial_ok(env, cache, account, hub_asset, market, pos_scaled, mid) {
             lo = mid;
         } else {
             hi = mid - 1;
@@ -257,7 +279,7 @@ fn full_close_ok(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     market: &MarketLimitCtx,
     pos_scaled: Ray,
 ) -> bool {
@@ -268,7 +290,7 @@ fn full_close_ok(
         return false;
     }
     let mut closed = account.clone();
-    closed.supply_positions.remove(asset.clone());
+    closed.supply_positions.remove(hub_asset.clone());
     account_gates_ok(env, cache, &closed)
 }
 
@@ -278,7 +300,7 @@ fn partial_ok(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     market: &MarketLimitCtx,
     pos_scaled: Ray,
     amount: i128,
@@ -295,7 +317,7 @@ fn partial_ok(
         scaled_to_original(env, remaining, market.supply_index).to_asset(market.decimals);
     if remaining_actual == 0 {
         // The pool expands this to a full close.
-        return full_close_ok(env, cache, account, asset, market, pos_scaled);
+        return full_close_ok(env, cache, account, hub_asset, market, pos_scaled);
     }
 
     if !market.pool_state_ok(env, scaled_w, amount) {
@@ -303,10 +325,10 @@ fn partial_ok(
     }
 
     let mut adjusted = account.clone();
-    let Some(mut pos_raw) = adjusted.supply_positions.get(asset.clone()) else {
+    let Some(mut pos_raw) = adjusted.supply_positions.get(hub_asset.clone()) else {
         return false;
     };
-    pos_raw.scaled_amount_ray = remaining.raw();
-    adjusted.supply_positions.set(asset.clone(), pos_raw);
+    pos_raw.scaled_amount = remaining.raw();
+    adjusted.supply_positions.set(hub_asset.clone(), pos_raw);
     account_gates_ok(env, cache, &adjusted)
 }

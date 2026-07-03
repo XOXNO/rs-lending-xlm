@@ -8,8 +8,8 @@ cd "$ROOT"
 cargo check -p common --features certora
 cargo check -p pool --features certora --no-default-features
 cargo check -p controller --features certora --no-default-features
-python3 certora/check_orphans.py
-python3 certora/check_invariant_coverage.py
+python3 certora/scripts/check_orphans.py
+python3 certora/scripts/check_invariant_coverage.py
 python3 certora/scripts/sync_wasm_conf.py
 
 if [[ "${1:-}" == "--wasm" ]]; then

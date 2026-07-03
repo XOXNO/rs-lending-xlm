@@ -318,7 +318,7 @@ fn test_bad_debt_cleanup_mixed_decimals() {
     // The bad-debt path seizes all collateral and socializes remaining debt.
 }
 // 6. Liquidation preserves protocol-fee calculation across decimals.
-//    Protocol fee = bonus_portion * liquidation_fees_bps / BPS.
+//    Protocol fee = bonus_portion * liquidation_fees / BPS.
 //    Verifies the fee neither underflows for 6-dec nor overflows for 18-dec.
 
 #[test]

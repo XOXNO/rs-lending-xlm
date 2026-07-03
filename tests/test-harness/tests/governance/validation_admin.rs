@@ -6,28 +6,30 @@ use controller::types::{
     InterestRateModel, MarketOracleConfigInput, OracleReadMode, OracleSourceConfigInput,
     OracleSourceConfigInputOption, OracleStrategy,
 };
-use governance::op::{AdminOperation, ConfigureOracleArgs, UpgradePoolParamsArgs};
+use governance::op::{AdminOperation, ConfigureOracleArgs, SpokeAssetArgs, UpgradePoolParamsArgs};
 use soroban_sdk::{String, Symbol};
-use test_harness::{usdc_preset, LendingTest, DEFAULT_TOLERANCE};
+use test_harness::{
+    hub_asset, usdc_preset, LendingTest, DEFAULT_TOLERANCE, HARNESS_HUB, HARNESS_SPOKE,
+};
 
 // `InterestRateModel::verify` invariants, driven via
 // `upgrade_liquidity_pool_params`, which validates before forwarding.
 
 fn baseline_irm() -> InterestRateModel {
     InterestRateModel {
-        max_borrow_rate_ray: 2 * RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY * 4 / 100,
-        slope2_ray: RAY * 10 / 100,
-        slope3_ray: RAY * 150 / 100,
-        mid_utilization_ray: RAY * 50 / 100,
-        optimal_utilization_ray: RAY * 80 / 100,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1000,
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 150 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
     }
 }
 
-// base_borrow_rate_ray < 0 -> BaseRateNegative (#128).
+// base_borrow_rate < 0 -> BaseRateNegative (#128).
 #[test]
 #[should_panic(expected = "Error(Contract, #128)")]
 fn test_validate_irm_rejects_negative_base_rate() {
@@ -35,14 +37,17 @@ fn test_validate_irm_rejects_negative_base_rate() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut irm = baseline_irm();
-    irm.base_borrow_rate_ray = -1;
+    irm.base_borrow_rate = -1;
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs { asset, params: irm }),
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            hub_asset: hub_asset(asset),
+            params: irm,
+        }),
     );
 }
 
-// mid_utilization_ray <= 0 rejects InvalidUtilRange (#117).
+// mid_utilization <= 0 rejects InvalidUtilRange (#117).
 #[test]
 #[should_panic(expected = "Error(Contract, #117)")]
 fn test_validate_irm_rejects_zero_mid_utilization() {
@@ -50,14 +55,17 @@ fn test_validate_irm_rejects_zero_mid_utilization() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut irm = baseline_irm();
-    irm.mid_utilization_ray = 0;
+    irm.mid_utilization = 0;
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs { asset, params: irm }),
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            hub_asset: hub_asset(asset),
+            params: irm,
+        }),
     );
 }
 
-// optimal_utilization_ray <= mid_utilization_ray rejects #117.
+// optimal_utilization <= mid_utilization rejects #117.
 #[test]
 #[should_panic(expected = "Error(Contract, #117)")]
 fn test_validate_irm_rejects_optimal_not_above_mid() {
@@ -65,14 +73,17 @@ fn test_validate_irm_rejects_optimal_not_above_mid() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut irm = baseline_irm();
-    irm.optimal_utilization_ray = irm.mid_utilization_ray;
+    irm.optimal_utilization = irm.mid_utilization;
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs { asset, params: irm }),
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            hub_asset: hub_asset(asset),
+            params: irm,
+        }),
     );
 }
 
-// optimal_utilization_ray >= RAY rejects OptUtilTooHigh (#118).
+// optimal_utilization >= RAY rejects OptUtilTooHigh (#118).
 #[test]
 #[should_panic(expected = "Error(Contract, #118)")]
 fn test_validate_irm_rejects_optimal_at_or_above_ray() {
@@ -80,14 +91,17 @@ fn test_validate_irm_rejects_optimal_at_or_above_ray() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut irm = baseline_irm();
-    irm.optimal_utilization_ray = RAY;
+    irm.optimal_utilization = RAY;
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs { asset, params: irm }),
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            hub_asset: hub_asset(asset),
+            params: irm,
+        }),
     );
 }
 
-// reserve_factor_bps >= BPS rejects InvalidReserveFactor (#119).
+// reserve_factor >= BPS rejects InvalidReserveFactor (#119).
 #[test]
 #[should_panic(expected = "Error(Contract, #119)")]
 fn test_validate_irm_rejects_reserve_factor_at_bps() {
@@ -95,46 +109,79 @@ fn test_validate_irm_rejects_reserve_factor_at_bps() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut irm = baseline_irm();
-    irm.reserve_factor_bps = BPS as u32;
+    irm.reserve_factor = BPS as u32;
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs { asset, params: irm }),
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            hub_asset: hub_asset(asset),
+            params: irm,
+        }),
     );
 }
 
-// `validate_asset_config` invariants, driven via `edit_asset_config`.
+// `validate_risk_bounds` invariants, driven via `edit_asset_in_spoke`.
 
 // threshold*(1+bonus) > 100% rejects #113: a bonus large enough that
 // liquidation seizure would exceed collateral is invalid (mints bad debt).
 #[test]
 #[should_panic(expected = "Error(Contract, #113)")]
-fn test_validate_asset_config_rejects_excessive_liq_bonus() {
+fn test_edit_asset_in_spoke_rejects_excessive_liq_bonus() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
-    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
-    // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
-    cfg.loan_to_value_bps = 8000;
-    cfg.liquidation_threshold_bps = 9500;
-    cfg.liquidation_bonus_bps = 1000;
+    let cfg = t
+        .ctrl_client()
+        .get_spoke_asset(&1u32, &hub_asset(asset.clone()));
+    let args = SpokeAssetArgs {
+        liquidation_fees: cfg.liquidation_fees,
+        oracle_override: cfg.oracle_override,
+        hub_id: HARNESS_HUB,
+        asset,
+        spoke_id: HARNESS_SPOKE,
+        can_collateral: cfg.is_collateralizable,
+        can_borrow: cfg.is_borrowable,
+        paused: false,
+        frozen: false,
+        // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
+        ltv: 8000,
+        threshold: 9500,
+        bonus: 1000,
+        supply_cap: cfg.supply_cap,
+        borrow_cap: cfg.borrow_cap,
+    };
     t.gov_client()
-        .execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
+        .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
 
 // A large bonus is permitted when the threshold leaves room:
 // 50% threshold * (1 + 50% bonus) = 75% <= 100%. The bonus ceiling is the
 // invariant, not a flat cap.
 #[test]
-fn test_validate_asset_config_accepts_high_bonus_low_threshold() {
+fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
-    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
-    cfg.loan_to_value_bps = 4000;
-    cfg.liquidation_threshold_bps = 5000;
-    cfg.liquidation_bonus_bps = 5000;
+    let cfg = t
+        .ctrl_client()
+        .get_spoke_asset(&1u32, &hub_asset(asset.clone()));
+    let args = SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: asset.clone(),
+        spoke_id: HARNESS_SPOKE,
+        can_collateral: cfg.is_collateralizable,
+        can_borrow: cfg.is_borrowable,
+        paused: false,
+        frozen: false,
+        ltv: 4000,
+        threshold: 5000,
+        bonus: 5000,
+        supply_cap: cfg.supply_cap,
+        borrow_cap: cfg.borrow_cap,
+    };
     t.gov_client()
-        .execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
+        .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
 
 // `configure_market_oracle` error paths against the live mock reflector.
@@ -160,7 +207,7 @@ fn configure_usdc(t: &LendingTest, cfg: &MarketOracleConfigInput) {
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            asset,
+            hub_asset: hub_asset(asset),
             cfg: cfg.clone(),
         }),
     );

@@ -1,12 +1,15 @@
 use common::errors::{CollateralError, GenericError, OracleError};
-use soroban_sdk::{assert_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec};
+use soroban_sdk::{
+    assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
+};
 
 use crate::timelock::{validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
-    AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EModeAssetArgs, EditToleranceArgs,
-    PoolCapsArgs, RemoveAssetFromEModeArgs, RoleArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
+    AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EditToleranceArgs,
+    RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, TransferOwnershipArgs,
+    UpgradePoolParamsArgs,
 };
 
 pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Vec<Val>, DelayTier) {
@@ -94,15 +97,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 DelayTier::Standard,
             )
         }
-        AdminOperation::EditAssetConfig(asset, cfg) => {
-            validate::asset::validate_asset_config(env, cfg);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "edit_asset_config"),
-                vec![env, asset.clone().into_val(env), cfg.clone().into_val(env)],
-                DelayTier::Standard,
-            )
-        }
         AdminOperation::SetPositionLimits(limits) => {
             validate::asset::validate_position_limits(env, limits);
             (
@@ -121,67 +115,53 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 DelayTier::Standard,
             )
         }
-        AdminOperation::AddEModeCategory => (
+        AdminOperation::CreateHub => (
             storage::get_controller(env),
-            Symbol::new(env, "add_e_mode_category"),
+            Symbol::new(env, "create_hub"),
             vec![env],
             DelayTier::Standard,
         ),
-        AdminOperation::RemoveEModeCategory(id) => (
+        AdminOperation::AddSpoke => (
             storage::get_controller(env),
-            Symbol::new(env, "remove_e_mode_category"),
+            Symbol::new(env, "add_spoke"),
+            vec![env],
+            DelayTier::Standard,
+        ),
+        AdminOperation::RemoveSpoke(id) => (
+            storage::get_controller(env),
+            Symbol::new(env, "remove_spoke"),
             vec![env, id.into_val(env)],
             DelayTier::Standard,
         ),
-        AdminOperation::AddAssetToEModeCategory(args) => {
+        AdminOperation::AddAssetToSpoke(args) => {
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
-            validate::asset::validate_hub_caps(env, args.supply_cap, args.borrow_cap);
+            validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
+            validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
             (
                 storage::get_controller(env),
-                Symbol::new(env, "add_asset_to_e_mode_category"),
+                Symbol::new(env, "add_asset_to_spoke"),
                 vec![env, args.clone().into_val(env)],
                 DelayTier::Standard,
             )
         }
-        AdminOperation::EditAssetInEModeCategory(args) => {
+        AdminOperation::EditAssetInSpoke(args) => {
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
-            validate::asset::validate_hub_caps(env, args.supply_cap, args.borrow_cap);
+            validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
+            validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
             (
                 storage::get_controller(env),
-                Symbol::new(env, "edit_asset_in_e_mode_category"),
+                Symbol::new(env, "edit_asset_in_spoke"),
                 vec![env, args.clone().into_val(env)],
                 DelayTier::Standard,
             )
         }
-        AdminOperation::UpdatePoolCaps(args) => {
-            validate::asset::validate_hub_caps(env, args.supply_cap, args.borrow_cap);
-            let controller = storage::get_controller(env);
-            validate::asset::validate_proposed_hub_caps_against_spokes(
-                env,
-                &controller,
-                &args.asset,
-                args.supply_cap,
-                args.borrow_cap,
-            );
-            (
-                controller,
-                Symbol::new(env, "update_pool_caps"),
-                vec![
-                    env,
-                    args.asset.clone().into_val(env),
-                    args.supply_cap.into_val(env),
-                    args.borrow_cap.into_val(env),
-                ],
-                DelayTier::Standard,
-            )
-        }
-        AdminOperation::RemoveAssetFromEMode(args) => (
+        AdminOperation::RemoveAssetFromSpoke(args) => (
             storage::get_controller(env),
-            Symbol::new(env, "remove_asset_from_e_mode"),
+            Symbol::new(env, "remove_asset_from_spoke"),
             vec![
                 env,
-                args.asset.clone().into_val(env),
-                args.category_id.into_val(env),
+                args.hub_asset.clone().into_val(env),
+                args.spoke_id.into_val(env),
             ],
             DelayTier::Standard,
         ),
@@ -216,7 +196,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 env,
                 &args.asset,
                 &args.params,
-                &args.config,
                 token_decimals,
             );
             (
@@ -224,9 +203,9 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 Symbol::new(env, "create_liquidity_pool"),
                 vec![
                     env,
+                    args.hub_id.into_val(env),
                     args.asset.clone().into_val(env),
                     args.params.clone().into_val(env),
-                    args.config.clone().into_val(env),
                 ],
                 DelayTier::Standard,
             )
@@ -238,7 +217,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 Symbol::new(env, "upgrade_liquidity_pool_params"),
                 vec![
                     env,
-                    args.asset.clone().into_val(env),
+                    args.hub_asset.clone().into_val(env),
                     args.params.clone().into_val(env),
                 ],
                 DelayTier::Standard,
@@ -263,6 +242,12 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             storage::get_controller(env),
             Symbol::new(env, "disable_token_oracle"),
             vec![env, asset.clone().into_val(env)],
+            DelayTier::Standard,
+        ),
+        AdminOperation::SetPositionManager(manager, is_active) => (
+            storage::get_controller(env),
+            Symbol::new(env, "set_position_manager"),
+            vec![env, manager.clone().into_val(env), is_active.into_val(env)],
             DelayTier::Standard,
         ),
         AdminOperation::UpgradeController(hash) => {
@@ -303,8 +288,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             let controller = storage::get_controller(env);
             let resolved_config = validate::oracle_probe::validate_market_oracle_sources(
                 env,
-                &controller,
-                &args.asset,
+                &args.hub_asset.asset,
                 &args.cfg,
                 tolerance,
             );
@@ -313,7 +297,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 Symbol::new(env, "set_market_oracle_config"),
                 vec![
                     env,
-                    args.asset.clone().into_val(env),
+                    args.hub_asset.clone().into_val(env),
                     resolved_config.into_val(env),
                 ],
                 DelayTier::Standard,
@@ -353,7 +337,8 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         AdminOperation::TransferGovOwnership(args) => {
             crate::access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger);
         }
-        _ => panic!("Not a governance self-operation"),
+        // Only self-targeted operations reach execute_self.
+        _ => panic_with_error!(env, GenericError::InternalError),
     }
 }
 

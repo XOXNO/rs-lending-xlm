@@ -8,7 +8,7 @@ pub use crate::fixtures::{
     liquidatable_usdc_eth, seed_fuzz_conservation_book, seed_liquidatable_usdc_eth,
     seed_liquidator_usdc, seed_standard_liquidity,
 };
-pub use crate::helpers::{self, units::*};
+pub use crate::helpers::{self, hub_asset, units::*, HARNESS_HUB};
 pub use crate::ops::internal::{amount_raw, asset_payment_vec};
 pub use crate::oracle::config::*;
 pub use crate::presets::*;

@@ -1,9 +1,9 @@
 use controller::types::{
-    ControllerKey, MarketConfig, OracleSourceConfig, OracleSourceConfigOption,
+    ControllerKey, MarketOracleConfig, OracleSourceConfig, OracleSourceConfigOption,
 };
 use soroban_sdk::{Address, String};
 use test_harness::oracle::redstone::register_redstone_adapter;
-use test_harness::{usd, usdc_preset, LendingTest, ALICE, BOB, DEFAULT_TOLERANCE};
+use test_harness::{hub_asset, usd, usdc_preset, LendingTest, ALICE, BOB, DEFAULT_TOLERANCE};
 
 fn configure_usdc_with_redstone_single(t: &LendingTest, redstone: &Address, feed_id: &String) {
     let asset = t.resolve_asset("USDC");
@@ -40,7 +40,7 @@ fn test_reflector_primary_redstone_anchor_market_works() {
     );
     t.configure_market_oracle(&asset, &cfg);
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let view = t
         .ctrl_client()
         .get_market_indexes_detailed(&assets)
@@ -75,7 +75,7 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
     );
     t.configure_market_oracle(&asset, &cfg);
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let view = t
         .ctrl_client()
         .get_market_indexes_detailed(&assets)
@@ -106,19 +106,19 @@ fn test_redstone_anchor_read_failure_reverts_view() {
     t.configure_market_oracle(&asset, &cfg);
 
     t.env.as_contract(&t.controller, || {
-        let key = ControllerKey::Market(asset.clone());
-        let mut market: MarketConfig = t.env.storage().persistent().get(&key).unwrap();
-        market.oracle_config.anchor = match market.oracle_config.anchor {
+        let key = ControllerKey::AssetOracle(asset.clone());
+        let mut oracle: MarketOracleConfig = t.env.storage().persistent().get(&key).unwrap();
+        oracle.anchor = match oracle.anchor {
             OracleSourceConfigOption::Some(OracleSourceConfig::RedStone(mut config)) => {
                 config.feed_id = String::from_str(&t.env, "MISSING");
                 OracleSourceConfigOption::Some(OracleSourceConfig::RedStone(config))
             }
             _ => panic!("expected redstone anchor"),
         };
-        t.env.storage().persistent().set(&key, &market);
+        t.env.storage().persistent().set(&key, &oracle);
     });
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
@@ -142,7 +142,7 @@ fn test_redstone_anchor_outside_tolerance_reverts_view() {
     );
     t.configure_market_oracle(&asset, &cfg);
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 

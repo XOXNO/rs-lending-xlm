@@ -1,12 +1,7 @@
-//! Ownership, pause, and upgrade entrypoints.
-//!
-//! Keeper, revenue, and oracle circuit-breaker paths are permissionless or
-//! owner-gated. Pause blocks risk-increasing position paths, strategies, and
-//! flash loans. Withdraw, repay, liquidation, views, renew_account, and owner
-//! governance remain callable while paused.
+//! Owner, pause, and upgrade entrypoints. Pause blocks risk-increasing flows.
 
 use common::errors::GenericError;
-use controller_interface::types::{ControllerKey, PositionLimits};
+use common::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env};
 use stellar_access::{access_control, ownable};
 use stellar_macros::only_owner;
@@ -74,6 +69,11 @@ impl Controller {
         );
 
         storage::set_min_borrow_collateral_usd_wad(&env, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD);
+
+        // No spoke is seeded. Spokes start at id 1 (`add_spoke`), and every
+        // account binds to a real spoke with its own risk configuration.
+
+        // No implicit default hub.
 
         env.storage()
             .instance()

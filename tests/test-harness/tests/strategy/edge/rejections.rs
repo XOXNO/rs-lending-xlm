@@ -34,9 +34,9 @@ fn test_repay_debt_with_collateral_same_token_nets_positions() {
     let supply_before = t.supply_balance(ALICE, "USDC");
     assert!(debt_before > 29_000.0 && debt_before < 31_000.0);
 
-    // Net 10k USDC collateral against 10k USDC debt in one call. `steps` is
-    // unused in the same-asset path, but the API still requires a value.
-    let steps = t.mock_swap_steps("USDC", "USDC", 0);
+    // Net 10k USDC collateral against 10k USDC debt in one call. The
+    // same-asset path skips the router and requires empty swap bytes.
+    let steps = Bytes::new(&t.env);
     t.repay_debt_with_collateral(ALICE, "USDC", 10_000.0, "USDC", &steps, false);
 
     let debt_after = t.borrow_balance(ALICE, "USDC");
@@ -181,9 +181,9 @@ fn test_repay_debt_with_collateral_rejects_zero_and_negative_collateral_amount()
     let zero = ctrl.try_repay_debt_with_collateral(
         &caller,
         &account_id,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &0i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &steps,
         &false,
     );
@@ -192,9 +192,9 @@ fn test_repay_debt_with_collateral_rejects_zero_and_negative_collateral_amount()
     let negative = ctrl.try_repay_debt_with_collateral(
         &caller,
         &account_id,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &-1i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &steps,
         &false,
     );
@@ -282,29 +282,29 @@ fn test_swap_collateral_rejects_new_asset_when_supply_limit_reached() {
     let result = t.try_swap_collateral(ALICE, "USDC", 100.0, "DAI", &steps);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// E-mode account; new collateral is not in the e-mode category.
+// Spoke account; new collateral is not in the spoke category.
 
 #[test]
-fn test_swap_collateral_emode_wrong_category() {
+fn test_swap_collateral_spoke_wrong_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    // Create an e-mode account, supply USDC, borrow USDT.
-    t.create_emode_account(ALICE, 1);
+    // Create an spoke account, supply USDC, borrow USDT.
+    t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 
-    // Try to swap USDC collateral to ETH: ETH is not listed in category 1.
-    // `validate_e_mode_asset` rejects missing category membership with #300.
+    // Try to swap USDC collateral to ETH: ETH is not listed on the account's
+    // spoke, so the swap-collateral preflight rejects it with AssetNotInSpoke.
     let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
-    assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
 // Swap collateral with no borrows: the HF check is skipped. With the
 // working mock router, this succeeds.
@@ -442,9 +442,9 @@ fn test_swap_debt_wrong_account_owner() {
     let result = ctrl.try_swap_debt(
         &bob_addr,
         &alice_account_id,
-        &existing_addr,
+        &hub_asset(existing_addr.clone()),
         &10_0000000i128,
-        &new_addr,
+        &hub_asset(new_addr.clone()),
         &steps,
     );
     // Flatten Result<Result<(), Error>, InvokeError> so the code can assert.
@@ -453,7 +453,7 @@ fn test_swap_debt_wrong_account_owner() {
         Ok(Err(e)) => Err(e.into()),
         Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
     };
-    assert_contract_error(flat, errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(flat, errors::NOT_AUTHORIZED);
 }
 // Strategy flows must authenticate the account owner address, not just compare it.
 
@@ -482,9 +482,9 @@ fn test_strategy_entrypoints_reject_missing_owner_auth() {
         ctrl.set_auths(&no_auths).try_swap_debt(
             &alice,
             &account_id,
-            &eth,
+            &hub_asset(eth.clone()),
             &10_0000000i128,
-            &wbtc,
+            &hub_asset(wbtc.clone()),
             &steps,
         ),
     );
@@ -493,9 +493,9 @@ fn test_strategy_entrypoints_reject_missing_owner_auth() {
         ctrl.set_auths(&no_auths).try_swap_collateral(
             &alice,
             &account_id,
-            &usdc,
+            &hub_asset(usdc.clone()),
             &1_0000000i128,
-            &wbtc,
+            &hub_asset(wbtc.clone()),
             &steps,
         ),
     );
@@ -504,9 +504,9 @@ fn test_strategy_entrypoints_reject_missing_owner_auth() {
         ctrl.set_auths(&no_auths).try_repay_debt_with_collateral(
             &alice,
             &account_id,
-            &usdc,
+            &hub_asset(usdc.clone()),
             &1_0000000i128,
-            &eth,
+            &hub_asset(eth.clone()),
             &steps,
             &false,
         ),
@@ -532,13 +532,13 @@ fn test_repay_debt_with_collateral_wrong_account_owner() {
     let result = t.ctrl_client().try_repay_debt_with_collateral(
         &bob,
         &alice_account_id,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &1000_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &steps,
         &false,
     );
-    assert_contract_error(flatten_void(result), errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(flatten_void(result), errors::NOT_AUTHORIZED);
 }
 
 #[test]
@@ -557,9 +557,9 @@ fn test_repay_debt_with_collateral_nonexistent_account() {
     let result = t.ctrl_client().try_repay_debt_with_collateral(
         &caller,
         &missing_account_id,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &1000_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &steps,
         &false,
     );
@@ -590,9 +590,9 @@ fn test_swap_collateral_wrong_account_owner() {
     let result = ctrl.try_swap_collateral(
         &bob_addr,
         &alice_account_id,
-        &current_addr,
+        &hub_asset(current_addr.clone()),
         &1000_0000000i128,
-        &new_addr,
+        &hub_asset(new_addr.clone()),
         &steps,
     );
     let flat: Result<(), soroban_sdk::Error> = match result {
@@ -600,7 +600,7 @@ fn test_swap_collateral_wrong_account_owner() {
         Ok(Err(e)) => Err(e.into()),
         Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
     };
-    assert_contract_error(flat, errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(flat, errors::NOT_AUTHORIZED);
 }
 // Verify that collateral == debt is caught even when the amounts differ.
 

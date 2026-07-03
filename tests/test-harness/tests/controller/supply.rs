@@ -1,7 +1,7 @@
 use soroban_sdk::vec;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
-    LendingTest, PositionType, ALICE, BOB, STABLECOIN_EMODE,
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, usdt_stable_preset,
+    wbtc_preset, HubAssetKey, LendingTest, PositionType, ALICE, BOB, STABLECOIN_SPOKE,
 };
 // 1. test_supply_single_asset
 
@@ -120,23 +120,23 @@ fn test_supply_creates_account_on_first_call() {
     assert_eq!(accounts.len(), 1, "supply should auto-create an account");
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
 }
-// 5. test_supply_with_emode_category
+// 5. test_supply_with_spoke_category
 
 #[test]
-fn test_supply_with_emode_category() {
+fn test_supply_with_spoke_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    t.create_emode_account(ALICE, 1);
+    t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
     let attrs = t.get_account_attributes(ALICE);
-    assert_eq!(attrs.e_mode_category_id, 1);
+    assert_eq!(attrs.spoke_id, 2);
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
     t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
     assert!(
@@ -161,8 +161,8 @@ fn test_supply_rejects_empty_asset_vector() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     let caller = t.get_or_create_user(ALICE);
-    let assets: soroban_sdk::Vec<(soroban_sdk::Address, i128)> = vec![&t.env];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+    let assets: soroban_sdk::Vec<(HubAssetKey, i128)> = vec![&t.env];
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -176,8 +176,8 @@ fn test_supply_rejects_negative_raw_amount() {
 
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
-    let assets = vec![&t.env, (usdc, -1i128)];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+    let assets = vec![&t.env, (hub_asset(usdc), -1i128)];
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -191,8 +191,12 @@ fn test_supply_duplicate_raw_amount_overflow_reverts() {
 
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
-    let assets = vec![&t.env, (usdc.clone(), i128::MAX), (usdc, 1i128)];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+    let assets = vec![
+        &t.env,
+        (hub_asset(usdc.clone()), i128::MAX),
+        (hub_asset(usdc), 1i128),
+    ];
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -208,8 +212,8 @@ fn test_supply_rejects_disabled_market_with_pair_not_active() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client().disable_token_oracle(&usdc);
 
-    let assets = vec![&t.env, (usdc, 10_000_000i128)];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+    let assets = vec![&t.env, (hub_asset(usdc), 10_000_000i128)];
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -252,23 +256,6 @@ fn test_supply_rejects_when_paused() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-// 10. test_supply_cap_enforcement
-
-#[test]
-fn test_supply_cap_enforcement() {
-    // Set a low supply cap of 500 tokens (7 decimals).
-    let cap = 500_0000000i128; // 500 tokens in asset decimals
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_params("USDC", |params| {
-            params.supply_cap = cap;
-        })
-        .build();
-
-    // Supply 600 USDC: must exceed the 500-token cap.
-    let result = t.try_supply(ALICE, "USDC", 600.0);
-    assert_contract_error(result, errors::SUPPLY_CAP_REACHED);
-}
 // 11. test_supply_position_limit_exceeded
 
 #[test]
@@ -288,23 +275,25 @@ fn test_supply_position_limit_exceeded() {
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// 12. test_supply_emode_rejects_non_category_asset
+// 12. test_supply_spoke_rejects_non_category_asset
 
 #[test]
-fn test_supply_emode_rejects_non_category_asset() {
+fn test_supply_spoke_rejects_non_category_asset() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        // ETH is NOT in the e-mode category
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        // ETH is NOT in the spoke category
         .build();
 
-    t.create_emode_account(ALICE, 1);
+    t.create_spoke_account(ALICE, 2);
 
-    // Supplying ETH to an e-mode stablecoin account must fail.
+    // Supplying ETH to an spoke stablecoin account must fail: ETH is not
+    // listed on the account's spoke, so the spoke model rejects it as
+    // AssetNotInSpoke.
     let result = t.try_supply(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
 // 15. test_supply_raw_precision
 
@@ -375,8 +364,8 @@ fn test_third_party_supply_cannot_force_low_threshold_update() {
     let usdc = t.resolve_asset("USDC");
 
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value_bps = 5000;
-        c.liquidation_threshold_bps = 6100;
+        c.loan_to_value = 5000;
+        c.liquidation_threshold = 6100;
     });
 
     t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
@@ -384,10 +373,10 @@ fn test_third_party_supply_cannot_force_low_threshold_update() {
 
     let (supplies, _borrows) = t.ctrl_client().get_account_positions(&account_id);
     let position = supplies
-        .get(usdc)
+        .get(hub_asset(usdc))
         .expect("USDC supply position should remain");
     assert_eq!(
-        position.liquidation_threshold_bps, 8000,
+        position.liquidation_threshold, 8000,
         "supply must not force a lower LT snapshot while HF is below the update buffer"
     );
 }
@@ -410,17 +399,17 @@ fn test_bulk_supply_duplicate_asset_counts_once() {
 
     let assets = vec![
         &t.env,
-        (usdc.asset.clone(), 500_000_000_000_i128),
-        (usdc.asset.clone(), 250_000_000_000_i128),
+        (hub_asset(usdc.asset.clone()), 500_000_000_000_i128),
+        (hub_asset(usdc.asset.clone()), 250_000_000_000_i128),
     ];
-    t.ctrl_client().supply(&alice, &account_id, &0u32, &assets);
+    t.ctrl_client().supply(&alice, &account_id, &1u32, &assets);
     t.assert_supply_near(ALICE, "USDC", 75_000.0, 1.0);
 }
 
 // POC (VECTOR.md #5.1): permissionless account-creation spam. `supply` enforces
 // only `require_positive_amount` (> 0) and `can_supply`/position-limit checks —
-// there is NO minimum-deposit / dust-value floor (`validate_deposit`,
-// supply.rs:123). Each `supply(account_id = 0)` mints a fresh controller account
+// there is NO minimum-deposit / dust-value floor
+// (`validate_position_entry_gates`). Each `supply(account_id = 0)` mints a fresh controller account
 // (`create_account` → monotonic `AccountNonce`), writing AccountMeta +
 // SupplyPositions persistent entries. A single external address can therefore
 // create unbounded accounts with 1-raw-unit deposits, bloating controller state
@@ -442,8 +431,8 @@ fn poc_single_actor_spams_unbounded_dust_accounts() {
     let mut last_id: u64 = 0;
     for _ in 0..N {
         // account_id = 0 forces a brand-new account every call.
-        let dust = vec![&t.env, (asset.clone(), 1i128)];
-        let id = ctrl.supply(&attacker, &0u64, &0u32, &dust);
+        let dust = vec![&t.env, (hub_asset(asset.clone()), 1i128)];
+        let id = ctrl.supply(&attacker, &0u64, &1u32, &dust);
         assert!(id > 0, "1-unit deposit must be accepted (no dust floor)");
         // Strictly increasing => each call minted a fresh, distinct account.
         assert!(id > last_id, "each supply(id=0) must mint a new account id");
@@ -482,18 +471,24 @@ fn poc_non_owner_can_supply_into_victims_account() {
     t.resolve_market("USDC")
         .token_admin
         .mint(&alice, &100_000_000);
-    let alice_id =
-        t.ctrl_client()
-            .supply(&alice, &0u64, &0u32, &vec![&t.env, (usdc, 100_000_000i128)]);
+    let alice_id = t.ctrl_client().supply(
+        &alice,
+        &0u64,
+        &1u32,
+        &vec![&t.env, (hub_asset(usdc), 100_000_000i128)],
+    );
     assert!(alice_id > 0);
 
     // BOB — a stranger, not the owner — supplies ETH straight into ALICE's account.
     let bob = t.get_or_create_user(BOB);
     let eth = t.resolve_market("ETH").asset.clone();
     t.resolve_market("ETH").token_admin.mint(&bob, &50_000_000);
-    let returned =
-        t.ctrl_client()
-            .supply(&bob, &alice_id, &0u32, &vec![&t.env, (eth, 50_000_000i128)]);
+    let returned = t.ctrl_client().supply(
+        &bob,
+        &alice_id,
+        &1u32,
+        &vec![&t.env, (hub_asset(eth), 50_000_000i128)],
+    );
 
     // No owner-match revert: the deposit lands on ALICE's account, BOB consumed
     // one of her supply-position slots, and ALICE still owns the account.

@@ -8,14 +8,20 @@ contracts=(
   contracts/governance/Cargo.toml
   contracts/defindex-strategy/Cargo.toml
   contracts/flash-loan-receiver/Cargo.toml
-  contracts/mock-oracle/Cargo.toml
-  contracts/mock-redstone/Cargo.toml
+  mock/mock-oracle/Cargo.toml
+  mock/mock-redstone/Cargo.toml
 )
 
 format="${SCOUT_OUTPUT_FORMAT:-md}"
 out_dir="${SCOUT_OUTPUT_DIR:-target/scout-audit}"
 repo_root="$(pwd)"
-out_dir_abs="$repo_root/$out_dir"
+# Canonicalize before the containment check: plain string concat lets a
+# `../..` traversal in SCOUT_OUTPUT_DIR pass the prefix test yet resolve
+# (via rm -rf below) to a directory outside the repo. os.path.realpath
+# collapses the `..` components without requiring the path to exist, and is
+# portable (BSD/macOS `realpath` lacks GNU's `-m`; this script also runs under
+# `make scout` locally).
+out_dir_abs="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$repo_root/$out_dir")"
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 

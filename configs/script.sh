@@ -12,7 +12,7 @@
 #
 # Config files:
 #   configs/networks.json          — RPC URLs, contract addresses
-#   configs/emodes.json            — E-Mode categories per network
+#   configs/spokes.json            — Spoke categories per network
 #   configs/testnet_markets.json   — Market configs (testnet)
 #   configs/mainnet_markets.json   — Market configs (mainnet)
 # ===========================================================================
@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 NETWORKS_FILE="$SCRIPT_DIR/networks.json"
-EMODES_FILE="$SCRIPT_DIR/emodes.json"
+SPOKES_FILE="$SCRIPT_DIR/spokes.json"
 MARKET_CONFIG_FILE="$SCRIPT_DIR/${NETWORK}_markets.json"
 BLEND_POOLS_FILE="$SCRIPT_DIR/blend_pools.json"
 
@@ -38,6 +38,14 @@ require_tool() {
         echo "ERROR: Missing required tool: $1" >&2
         exit 1
     fi
+}
+
+# Fail fast with a message on stderr. Used for mandatory-field guards (e.g. a
+# market or spoke asset missing its hub_id) so a misconfig aborts the deploy
+# instead of silently defaulting.
+die() {
+    echo "ERROR: $*" >&2
+    exit 1
 }
 
 require_tool stellar
@@ -91,12 +99,12 @@ require_static_config() {
         echo "ERROR: Every configured market must have name and asset_address in $MARKET_CONFIG_FILE" >&2
         exit 1
     fi
-    if [ ! -f "$EMODES_FILE" ]; then
-        echo "ERROR: Config file not found: $EMODES_FILE" >&2
+    if [ ! -f "$SPOKES_FILE" ]; then
+        echo "ERROR: Config file not found: $SPOKES_FILE" >&2
         exit 1
     fi
-    if ! jq -e --arg network "$NETWORK" '.[$network] | type == "object"' "$EMODES_FILE" >/dev/null; then
-        echo "ERROR: E-mode config for '$NETWORK' not found in $EMODES_FILE" >&2
+    if ! jq -e --arg network "$NETWORK" '.[$network] | type == "object"' "$SPOKES_FILE" >/dev/null; then
+        echo "ERROR: Spoke config for '$NETWORK' not found in $SPOKES_FILE" >&2
         exit 1
     fi
 }
@@ -107,21 +115,28 @@ get_market_value() {
     jq -r ".markets[] | select(.name == \"$market\") | .$field" "$MARKET_CONFIG_FILE"
 }
 
-get_emode_value() {
+get_spoke_value() {
     local category_id=$1
     local path=$2
-    jq -r ".\"$NETWORK\".\"$category_id\"$path" "$EMODES_FILE"
+    jq -r ".\"$NETWORK\".\"$category_id\"$path" "$SPOKES_FILE"
 }
 
 get_controller() {
     stellar contract alias show controller --network "$NETWORK" 2>/dev/null || get_network_value "controller"
 }
 
-# Governance owns the controller: all admin writes (markets, oracles, e-modes,
+# Governance owns the controller: all admin writes (markets, oracles, spokes,
 # pause, roles) route through it. Views and operational role-gated calls
 # (update_indexes, claim_revenue) stay controller-direct.
 get_governance() {
     stellar contract alias show governance --network "$NETWORK" 2>/dev/null || get_network_value "governance"
+}
+
+# Central liquidity pool: holds the hub-level utilization/reserves/rates views
+# (`get_utilisation`, `get_supplied_amount`, ...). No local alias is set at
+# deploy time, so this reads networks.json directly.
+get_pool() {
+    get_network_value "pool"
 }
 
 # Aggregator router (WASM contract): networks.json first, then AGGREGATOR_CONTRACT.
@@ -223,7 +238,10 @@ get_contract_decimals() {
 # 32-byte zero predecessor (no dependency), hex form for ScVal/record use.
 ZERO_PREDECESSOR_HEX="0000000000000000000000000000000000000000000000000000000000000000"
 
-OPS_DIR="$ROOT_DIR/tmp/ops/$NETWORK"
+# Op records live under configs/ops/ (TRACKED, not tmp/): on mainnet an op can
+# sit Waiting for days between schedule and execute, and losing the record
+# means hand-reconstructing the replay args. Records hold no secrets.
+OPS_DIR="$ROOT_DIR/configs/ops/$NETWORK"
 
 # Ledger-aware await: poll until the chain sequence reaches the op's ready
 # ledger (from get_operation_ledger), then confirm Ready/Done. AWAIT_MAX_WAIT_
@@ -244,14 +262,25 @@ op_record_path() {
 # Deterministic, unique salt: sha256 over network|function|args-json, truncated
 # to 32 bytes (64 hex). Same op + same args ⇒ same salt ⇒ same op-id (idempotent
 # re-schedule); different args ⇒ different salt.
+#
+# The timelock permanently marks an executed op id Done, so re-applying a
+# PREVIOUSLY-EXECUTED setting (toggle A → B → back to A) would resolve to the
+# Done id and be skipped. SALT_NONCE mints a fresh generation for that case:
+#   SALT_NONCE=2 make <net> editAssetInSpoke 1 USDC
+# Unset/empty SALT_NONCE keeps salts byte-identical to historical ops.
 gen_salt() {
     local function=$1
     local args_json=$2
+    local key
+    key=$(printf '%s|%s|%s' "$NETWORK" "$function" "$args_json")
+    if [ -n "${SALT_NONCE:-}" ]; then
+        key="${key}|nonce:${SALT_NONCE}"
+    fi
     local hash
     if command -v sha256sum >/dev/null 2>&1; then
-        hash=$(printf '%s|%s|%s' "$NETWORK" "$function" "$args_json" | sha256sum | cut -c1-64)
+        hash=$(printf '%s' "$key" | sha256sum | cut -c1-64)
     else
-        hash=$(printf '%s|%s|%s' "$NETWORK" "$function" "$args_json" | shasum -a 256 | cut -c1-64)
+        hash=$(printf '%s' "$key" | shasum -a 256 | cut -c1-64)
     fi
     echo "$hash"
 }
@@ -291,20 +320,22 @@ scval_interest_rate_model() {
     jq -nc --argjson p "$j" '
         def i(k): {key:{symbol:k}, val:{i128:($p[k] | tostring)}};
         {map: [
-            i("base_borrow_rate_ray"),
-            i("max_borrow_rate_ray"),
-            i("max_utilization_ray"),
-            i("mid_utilization_ray"),
-            i("optimal_utilization_ray"),
-            {key:{symbol:"reserve_factor_bps"}, val:{u32:($p.reserve_factor_bps)}},
-            i("slope1_ray"),
-            i("slope2_ray"),
-            i("slope3_ray")
+            i("base_borrow_rate"),
+            i("max_borrow_rate"),
+            i("max_utilization"),
+            i("mid_utilization"),
+            i("optimal_utilization"),
+            {key:{symbol:"reserve_factor"}, val:{u32:($p.reserve_factor)}},
+            i("slope1"),
+            i("slope2"),
+            i("slope3")
         ]}'
 }
 
-# MarketParamsRaw = InterestRateModel fields + asset_id (address) + asset_decimals
-# (u32). Friendly object must already carry asset_id and asset_decimals.
+# MarketParamsRaw = InterestRateModel fields + flash-loan eligibility
+# (is_flashloanable / flashloan_fee) + asset_id (address) + asset_decimals
+# (u32). Friendly object must already carry asset_id, asset_decimals, and the
+# flash-loan fields. Keys sorted (canonical ScMap order).
 scval_market_params() {
     local j=$1
     jq -nc --argjson p "$j" '
@@ -312,74 +343,80 @@ scval_market_params() {
         {map: [
             {key:{symbol:"asset_decimals"}, val:{u32:($p.asset_decimals)}},
             {key:{symbol:"asset_id"}, val:{address:($p.asset_id)}},
-            i("base_borrow_rate_ray"),
-            i("borrow_cap"),
-            i("max_borrow_rate_ray"),
-            i("max_utilization_ray"),
-            i("mid_utilization_ray"),
-            i("optimal_utilization_ray"),
-            {key:{symbol:"reserve_factor_bps"}, val:{u32:($p.reserve_factor_bps)}},
-            i("slope1_ray"),
-            i("slope2_ray"),
-            i("slope3_ray"),
-            i("supply_cap")
+            i("base_borrow_rate"),
+            {key:{symbol:"flashloan_fee"}, val:{u32:($p.flashloan_fee)}},
+            {key:{symbol:"is_flashloanable"}, val:{bool:($p.is_flashloanable)}},
+            i("max_borrow_rate"),
+            i("max_utilization"),
+            i("mid_utilization"),
+            i("optimal_utilization"),
+            {key:{symbol:"reserve_factor"}, val:{u32:($p.reserve_factor)}},
+            i("slope1"),
+            i("slope2"),
+            i("slope3")
         ]}'
 }
 
-# AssetConfigRaw ScVal map (9 fields, sorted keys). Hub caps live on
-# MarketParamsRaw; e_mode_categories is contract-managed after create.
-scval_asset_config() {
-    local j=$1
-    jq -nc --argjson c "$j" '
-        def u(k): {key:{symbol:k}, val:{u32:($c[k])}};
-        def b(k): {key:{symbol:k}, val:{bool:($c[k])}};
-        {map: [
-            u("asset_decimals"),
-            {key:{symbol:"e_mode_categories"}, val:{vec:((($c.e_mode_categories) // []) | map({u32:.}))}},
-            u("flashloan_fee_bps"),
-            b("is_borrowable"),
-            b("is_collateralizable"),
-            b("is_flashloanable"),
-            u("liquidation_bonus_bps"),
-            u("liquidation_fees_bps"),
-            u("liquidation_threshold_bps"),
-            u("loan_to_value_bps")
+# HubAssetKey ScVal map (sorted keys: asset, hub_id). hub_id is mandatory —
+# there is no implicit hub 0.
+scval_hub_asset() {
+    local asset=$1 hub_id=$2
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "scval_hub_asset: missing hub_id for asset ${asset}"
+    fi
+    jq -nc --arg a "$asset" --argjson h "$hub_id" \
+        '{map:[
+            {key:{symbol:"asset"}, val:{address:$a}},
+            {key:{symbol:"hub_id"}, val:{u32:$h}}
         ]}'
 }
 
-# EModeAssetArgs ScVal map (sorted keys), used for the REPLAY args_json only.
-# On current main resolve_op schedules a single EModeAssetArgs struct, so the
-# stored replay args are `[<this map>]`. supply_cap / borrow_cap are i128
-# decimal strings. (The propose `--op` payload uses the friendly form below.)
-scval_emode_args() {
-    local asset=$1 cat=$2 cc=$3 cb=$4 ltv=$5 thr=$6 bonus=$7 sc=$8 bc=$9
+# SpokeAssetArgs ScVal map (sorted keys), used for the REPLAY args_json only.
+# resolve_op schedules a single SpokeAssetArgs struct, so the stored replay args
+# are `[<this map>]`. supply_cap / borrow_cap are i128 decimal strings. (The
+# propose `--op` payload uses the friendly form below.)
+scval_spoke_args() {
+    local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
+    local paused=${12:-false} frozen=${13:-false}
     jq -nc \
-        --arg asset "$asset" --argjson cat "$cat" --argjson cc "$cc" --argjson cb "$cb" \
+        --argjson hub "$hub" \
+        --arg asset "$asset" --argjson spoke "$spoke" --argjson cc "$cc" --argjson cb "$cb" \
         --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" \
-        --arg sc "$sc" --arg bc "$bc" \
+        --arg sc "$sc" --arg bc "$bc" --argjson lf "$lf" \
+        --argjson paused "$paused" --argjson frozen "$frozen" \
         '{map:[
             {key:{symbol:"asset"},val:{address:$asset}},
             {key:{symbol:"bonus"},val:{u32:$bonus}},
             {key:{symbol:"borrow_cap"},val:{i128:$bc}},
             {key:{symbol:"can_borrow"},val:{bool:$cb}},
             {key:{symbol:"can_collateral"},val:{bool:$cc}},
-            {key:{symbol:"category_id"},val:{u32:$cat}},
+            {key:{symbol:"frozen"},val:{bool:$frozen}},
+            {key:{symbol:"hub_id"},val:{u32:$hub}},
+            {key:{symbol:"liquidation_fees"},val:{u32:$lf}},
             {key:{symbol:"ltv"},val:{u32:$ltv}},
+            {key:{symbol:"oracle_override"},val:{vec:[{symbol:"None"}]}},
+            {key:{symbol:"paused"},val:{bool:$paused}},
+            {key:{symbol:"spoke_id"},val:{u32:$spoke}},
             {key:{symbol:"supply_cap"},val:{i128:$sc}},
             {key:{symbol:"threshold"},val:{u32:$thr}}
         ]}'
 }
 
-# Friendly EModeAssetArgs object for the propose `--op` payload (plain JSON, Rust
+# Friendly SpokeAssetArgs object for the propose `--op` payload (plain JSON, Rust
 # field names). Address is a bare strkey; i128 caps are decimal strings.
-friendly_emode_args() {
-    local asset=$1 cat=$2 cc=$3 cb=$4 ltv=$5 thr=$6 bonus=$7 sc=$8 bc=$9
+friendly_spoke_args() {
+    local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
+    local paused=${12:-false} frozen=${13:-false}
     jq -nc \
-        --arg asset "$asset" --argjson cat "$cat" --argjson cc "$cc" --argjson cb "$cb" \
+        --argjson hub "$hub" \
+        --arg asset "$asset" --argjson spoke "$spoke" --argjson cc "$cc" --argjson cb "$cb" \
         --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" \
-        --arg sc "$sc" --arg bc "$bc" \
-        '{asset:$asset, category_id:$cat, can_collateral:$cc, can_borrow:$cb,
-          ltv:$ltv, threshold:$thr, bonus:$bonus, supply_cap:$sc, borrow_cap:$bc}'
+        --arg sc "$sc" --arg bc "$bc" --argjson lf "$lf" \
+        --argjson paused "$paused" --argjson frozen "$frozen" \
+        '{hub_id:$hub, asset:$asset, spoke_id:$spoke, can_collateral:$cc, can_borrow:$cb,
+          paused:$paused, frozen:$frozen,
+          ltv:$ltv, threshold:$thr, bonus:$bonus, liquidation_fees:$lf,
+          supply_cap:$sc, borrow_cap:$bc, oracle_override:"None"}'
 }
 
 # Build an AdminOperation enum value in stellar-cli FRIENDLY-JSON form. The
@@ -499,51 +536,78 @@ write_oracle_op_record() {
 # the controller's typed setter with `--build-only` so the CLI re-encodes it to
 # ScVal exactly as the proposer scheduled, then decodes that transaction and
 # extracts the InvokeContract args. Prints the ScVal `Vec<Val>` JSON array.
-resolve_oracle_op_args() {
-    local path=$1
-    local gov ctrl view_fn function asset
+# Core resolver: derive the scheduled ScVal `Vec<Val>` args for an oracle op by
+# running the governance resolve_* view, feeding the friendly result back
+# through the controller's typed setter with `--build-only`, and decoding the
+# CLI-encoded InvokeContract args. Parameterized so the execute-time record
+# path and the pre-propose idempotency check share one implementation.
+#   $1 view_fn   resolve_market_oracle_config | resolve_oracle_tolerance
+#   $2 ctrl      controller address (op target)
+#   $3 function  controller setter (set_market_oracle_config | set_oracle_tolerance)
+#   $4 asset     asset address
+#   $5 hub_id    hub id (market-oracle only; ignored for tolerance)
+#   $6 payload   cfg JSON (market-oracle) | tolerance bps (tolerance)
+resolve_oracle_args_for() {
+    local view_fn=$1 ctrl=$2 function=$3 asset=$4 hub_id=$5 payload=$6
+    local gov resolved tx_xdr
     gov=$(get_governance)
-    ctrl=$(jq -r '.target' "$path")
-    function=$(jq -r '.function' "$path")
-    view_fn=$(jq -r '.resolve.view_fn' "$path")
-    asset=$(jq -r '.resolve.args.asset' "$path")
-
-    local resolved
     case "$view_fn" in
         resolve_market_oracle_config)
             local cfg_file
             cfg_file=$(mktemp)
-            jq -c '.resolve.args.cfg' "$path" > "$cfg_file"
+            printf '%s' "$payload" > "$cfg_file"
             resolved=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
                 --send=no -- "$view_fn" --asset "$asset" --cfg-file-path "$cfg_file")
             rm -f "$cfg_file"
             local cfg_file2
             cfg_file2=$(mktemp)
             printf '%s' "$resolved" > "$cfg_file2"
-            local tx_xdr
+            # set_market_oracle_config takes a HubAssetKey (hub_id + asset), not a
+            # bare asset; rebuild it from the resolve inputs.
+            local oracle_hub_asset
+            oracle_hub_asset=$(jq -nc --argjson h "$hub_id" --arg a "$asset" '{hub_id:$h, asset:$a}')
             tx_xdr=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
-                --asset "$asset" --config-file-path "$cfg_file2")
+                --hub_asset "$oracle_hub_asset" --config-file-path "$cfg_file2")
             rm -f "$cfg_file2"
             printf '%s' "$tx_xdr" | stellar tx decode \
                 | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
             ;;
         resolve_oracle_tolerance)
-            local first last
-            first=$(jq -r '.resolve.args.first_tolerance' "$path")
-            last=$(jq -r '.resolve.args.last_tolerance' "$path")
             resolved=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-                --send=no -- "$view_fn" --first_tolerance "$first" --last_tolerance "$last")
+                --send=no -- "$view_fn" --tolerance "$payload")
             local tol_file
             tol_file=$(mktemp)
             printf '%s' "$resolved" > "$tol_file"
-            local tx_xdr
             tx_xdr=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
                 --asset "$asset" --tolerance-file-path "$tol_file")
             rm -f "$tol_file"
             printf '%s' "$tx_xdr" | stellar tx decode \
                 | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
+            ;;
+        *)
+            echo "ERROR: unknown oracle resolve view '${view_fn}'." >&2
+            exit 1
+            ;;
+    esac
+}
+
+resolve_oracle_op_args() {
+    local path=$1
+    local ctrl function view_fn asset
+    ctrl=$(jq -r '.target' "$path")
+    function=$(jq -r '.function' "$path")
+    view_fn=$(jq -r '.resolve.view_fn' "$path")
+    asset=$(jq -r '.resolve.args.asset' "$path")
+    case "$view_fn" in
+        resolve_market_oracle_config)
+            resolve_oracle_args_for "$view_fn" "$ctrl" "$function" "$asset" \
+                "$(jq -r '.resolve.args.hub_id' "$path")" "$(jq -c '.resolve.args.cfg' "$path")"
+            ;;
+        resolve_oracle_tolerance)
+            resolve_oracle_args_for "$view_fn" "$ctrl" "$function" "$asset" \
+                "" "$(jq -r '.resolve.args.tolerance' "$path")"
             ;;
         *)
             echo "ERROR: unknown oracle resolve view '${view_fn}' in ${path}." >&2
@@ -555,6 +619,13 @@ resolve_oracle_op_args() {
 # Parse the operation id (quoted BytesN hex on the proposer's last output line).
 parse_op_id() {
     printf '%s' "$1" | tail -n1 | tr -d '"' | tr -d '[:space:]'
+}
+
+# Parse a returned u32 (spoke/hub id) from the generic execute's last output
+# line. Extracts the full number — an anchored sed like `.*([0-9]+)` would
+# greedily eat leading digits and truncate "12" to "2".
+parse_returned_u32() {
+    printf '%s\n' "$1" | tail -n1 | tr -d '"' | grep -oE '[0-9]+' | tail -n1
 }
 
 # Errors that guarantee the transaction never reached or was rejected by the
@@ -597,23 +668,144 @@ retry_tx() {
     done
 }
 
+# Pre-compute the deterministic operation id for (target, function, args, salt)
+# via the governance `hash_operation` view. Salts are deterministic, so an op's
+# id is knowable BEFORE proposing — this is what makes every schedule path
+# idempotent: a re-run (e.g. `make <net> resume`) skips Done ops and reuses
+# Waiting/Ready ones instead of tripping the timelock's already-scheduled error.
+precomputed_op_id() {
+    local target=$1
+    local function=$2
+    local args_json=$3
+    local salt_hex=$4
+    local gov args_file op_id
+    gov=$(get_governance)
+    args_file=$(mktemp)
+    printf '%s' "$args_json" > "$args_file"
+    op_id=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- hash_operation \
+        --target "$target" \
+        --function "$function" \
+        --args-file-path "$args_file" \
+        --predecessor "$ZERO_PREDECESSOR_HEX" \
+        --salt "$salt_hex" 2>/dev/null | tail -n1 | tr -d '"' | tr -d '[:space:]')
+    rm -f "$args_file"
+    echo "$op_id"
+}
+
+# Derive the generation-n salt from a base salt (hash chain; generation 0 = the
+# base itself). Executed timelock ids are Done forever, so re-applying a
+# previously-executed setting needs a fresh salt: generations provide that
+# deterministically without changing historical (generation-0) ids.
+salt_generation() {
+    local base=$1
+    local n=$2
+    if [ "$n" -eq 0 ]; then
+        echo "$base"
+        return 0
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s|gen:%s' "$base" "$n" | sha256sum | cut -c1-64
+    else
+        printf '%s|gen:%s' "$base" "$n" | shasum -a 256 | cut -c1-64
+    fi
+}
+
+MAX_SALT_GENERATIONS=${MAX_SALT_GENERATIONS:-16}
+
+# Probe salt generations until the first op id that is NOT Done. Prints
+# "<salt> <op_id> <state> <n>". State meanings for the caller:
+#   Unset     free to propose at this generation (n>0 ⇒ earlier gens executed)
+#   Waiting|Ready  an identical op is already scheduled ⇒ reuse it
+#   Unknown   hash view / state read unavailable ⇒ fall back to plain propose
+#   Exhausted all generations Done ⇒ manual SALT_NONCE required
+probe_salt_generations() {
+    local target=$1
+    local fn=$2
+    local args=$3
+    local base=$4
+    local n=0 salt id state
+    while [ "$n" -le "$MAX_SALT_GENERATIONS" ]; do
+        salt=$(salt_generation "$base" "$n")
+        id=$(precomputed_op_id "$target" "$fn" "$args" "$salt")
+        if [ -z "$id" ]; then
+            printf '%s %s %s %s\n' "$base" "-" "Unknown" 0
+            return 0
+        fi
+        state=$(op_state "$id" 2>/dev/null) || state="Unknown"
+        if [ "$state" != "Done" ]; then
+            printf '%s %s %s %s\n' "$salt" "$id" "$state" "$n"
+            return 0
+        fi
+        n=$(( n + 1 ))
+    done
+    printf '%s %s %s %s\n' "$base" "-" "Exhausted" "$n"
+}
+
 # Core scheduler: invoke the generic `propose(proposer, op, salt)` on governance
 # and record the controller op for replay through the generic `execute`.
+#
+# Idempotent AND re-apply-aware: the op id is pre-computed per salt generation
+# (probe_salt_generations). An op already Waiting/Ready is reused; when the
+# current generation is Done, behavior depends on the re-apply policy:
+#   - policy "never" ($6): skip — id-returning creators (add_spoke, create_hub,
+#     deploy_pool) must never re-execute, that would mint a duplicate entity.
+#   - REAPPLY_ON_DONE=0 (converge mode, set by setupAll*): skip — the setting
+#     is treated as already applied.
+#   - otherwise (direct operator verbs): auto re-apply at the next free
+#     generation, so toggling back to a previous setting just works.
 #   $1 controller_fn       controller thin-setter the op targets (for the record)
 #   $2 admin_op_json       AdminOperation friendly JSON ("Variant" | {"Variant":payload})
 #   $3 args_json           ScVal Vec<Val> array (JSON) for replay (resolve_op args)
 #   $4 cli_executable      true|false (false ⇒ executeOp refuses; oracle ops)
-#   $5 salt_hex            deterministic salt (64 hex)
+#   $5 salt_hex            deterministic base salt (64 hex)
+#   $6 reapply (optional)  "never" to forbid auto re-apply (creators)
 schedule_via_proposer() {
     local controller_fn=$1; shift
     local admin_op_json=$1; shift
     local args_json=$1; shift
     local cli_executable=$1; shift
     local salt_hex=$1; shift
+    local reapply=${1:-auto}; shift || true
     local gov
     gov=$(get_governance)
     local proposer
     proposer=$(get_signer_address)
+
+    local ctrl salt_use known_id state gen
+    ctrl=$(get_controller)
+    read -r salt_use known_id state gen < <(probe_salt_generations "$ctrl" "$controller_fn" "$args_json" "$salt_hex")
+    case "$state" in
+        Ready|Waiting)
+            echo "Op ${known_id} (${controller_fn}) already ${state}; reusing it instead of re-proposing." >&2
+            # Refresh the local record so executeOp / listOps stay usable
+            # even when the original record was lost.
+            write_op_record "$known_id" "$controller_fn" "$args_json" "$salt_use" "$cli_executable"
+            echo "$known_id"
+            return 0
+            ;;
+        Exhausted)
+            die "${controller_fn}: all ${MAX_SALT_GENERATIONS} salt generations already executed for these args; re-run with a fresh SALT_NONCE=<n>"
+            ;;
+        Unset)
+            if [ "$gen" -gt 0 ]; then
+                if [ "$reapply" = "never" ] || [ "${REAPPLY_ON_DONE:-1}" != "1" ]; then
+                    local done_id
+                    done_id=$(precomputed_op_id "$ctrl" "$controller_fn" "$args_json" "$salt_hex")
+                    echo "Op ${done_id} (${controller_fn}) already executed with these exact args; skipping propose (converge mode)." >&2
+                    write_op_record "$done_id" "$controller_fn" "$args_json" "$salt_hex" "$cli_executable"
+                    echo "$done_id"
+                    return 0
+                fi
+                echo "Op (${controller_fn}) with these exact args already executed; RE-APPLYING as generation ${gen}." >&2
+                salt_hex=$salt_use
+            fi
+            ;;
+        *)
+            # Unknown: hash/state views unavailable — fall through to a plain
+            # propose with the base salt (pre-idempotency behavior).
+            ;;
+    esac
 
     echo "Scheduling ${controller_fn} via propose (salt ${salt_hex})..." >&2
     local op_file
@@ -640,18 +832,55 @@ schedule_via_proposer() {
 
 # Schedule a governance-self admin op (target = governance contract). Replay
 # uses the same AdminOperation through `execute_self`, so the op record stores
-# the admin_op JSON itself.
+# the admin_op JSON itself. When the resolved (function, args) pair is supplied,
+# the op id is pre-computed via hash_operation (target = governance) and an
+# already-scheduled/executed op is reused instead of re-proposed.
 #   $1 execute_label       human label for the record/log (e.g. update_delay)
 #   $2 admin_op_json       AdminOperation friendly JSON ("Variant" | {"Variant":payload})
 #   $3 salt_hex            deterministic salt (64 hex)
+#   $4 gov_fn (optional)   governance function the op resolves to (for hash pre-check)
+#   $5 gov_args (optional) ScVal Vec<Val> array the op resolves to (for hash pre-check)
 schedule_via_gov_self_proposer() {
     local execute_label=$1; shift
     local admin_op_json=$1; shift
     local salt_hex=$1; shift
+    local gov_fn=${1:-}; shift || true
+    local gov_args=${1:-}; shift || true
     local gov
     gov=$(get_governance)
     local proposer
     proposer=$(get_signer_address)
+
+    if [ -n "$gov_fn" ] && [ -n "$gov_args" ]; then
+        local salt_use known_id state gen
+        read -r salt_use known_id state gen < <(probe_salt_generations "$gov" "$gov_fn" "$gov_args" "$salt_hex")
+        case "$state" in
+            Ready|Waiting)
+                echo "Governance-self op ${known_id} (${execute_label}) already ${state}; reusing it instead of re-proposing." >&2
+                write_gov_self_op_record "$known_id" "$execute_label" "$admin_op_json" "$salt_use" true
+                echo "$known_id"
+                return 0
+                ;;
+            Exhausted)
+                die "${execute_label}: all ${MAX_SALT_GENERATIONS} salt generations already executed for these args; re-run with a fresh SALT_NONCE=<n>"
+                ;;
+            Unset)
+                if [ "$gen" -gt 0 ]; then
+                    if [ "${REAPPLY_ON_DONE:-1}" != "1" ]; then
+                        local done_id
+                        done_id=$(precomputed_op_id "$gov" "$gov_fn" "$gov_args" "$salt_hex")
+                        echo "Governance-self op ${done_id} (${execute_label}) already executed with these exact args; skipping propose (converge mode)." >&2
+                        write_gov_self_op_record "$done_id" "$execute_label" "$admin_op_json" "$salt_hex" true
+                        echo "$done_id"
+                        return 0
+                    fi
+                    echo "Governance-self op (${execute_label}) with these exact args already executed; RE-APPLYING as generation ${gen}." >&2
+                    salt_hex=$salt_use
+                fi
+                ;;
+            *) ;;
+        esac
+    fi
 
     echo "Scheduling governance-self ${execute_label} via propose (salt ${salt_hex})..." >&2
     local op_file
@@ -725,7 +954,7 @@ op_state() {
 # ledger sequence + get_operation_ledger so mainnet-scale delays are supported.
 await_op_ready() {
     local op_id=$1
-    local started_at ready_ledger current state max_wait waited unset_seen
+    local started_at ready_ledger current state max_wait waited unset_seen sleep_s
     started_at=$(date +%s)
     max_wait=$(await_max_wait_seconds)
     unset_seen=0
@@ -752,8 +981,17 @@ await_op_ready() {
                     echo "       Re-run: NETWORK=$NETWORK $0 awaitOp ${op_id} && $0 executeOp ${op_id}" >&2
                     exit 1
                 fi
-                echo "  Op ${op_id} Waiting (ledger ${current:-?}/${ready_ledger:-?}, waited ${waited}s/${max_wait}s); sleeping ${AWAIT_POLL_SECONDS}s..." >&2
-                sleep "$AWAIT_POLL_SECONDS"
+                # Scale the sleep to half the remaining delay (~6s/ledger),
+                # clamped to [AWAIT_POLL_SECONDS, 600] so a multi-day mainnet
+                # timelock doesn't hammer the RPC every few seconds.
+                sleep_s=$AWAIT_POLL_SECONDS
+                if [ -n "$ready_ledger" ] && [ -n "$current" ] && [ "$ready_ledger" -gt "$current" ] 2>/dev/null; then
+                    sleep_s=$(( (ready_ledger - current) * 6 / 2 ))
+                    if [ "$sleep_s" -lt "$AWAIT_POLL_SECONDS" ]; then sleep_s=$AWAIT_POLL_SECONDS; fi
+                    if [ "$sleep_s" -gt 600 ]; then sleep_s=600; fi
+                fi
+                echo "  Op ${op_id} Waiting (ledger ${current:-?}/${ready_ledger:-?}, waited ${waited}s/${max_wait}s); sleeping ${sleep_s}s..." >&2
+                sleep "$sleep_s"
                 ;;
             Unset)
                 # A just-confirmed schedule can briefly read back Unset on a
@@ -876,12 +1114,70 @@ cancel_op() {
     echo "Cancelled op ${op_id}." >&2
 }
 
+# List every recorded governance op with its live on-chain state. Pending ops
+# (Waiting/Ready) are what still needs an executeOp; Done ops already landed.
+list_ops() {
+    local dir="$OPS_DIR"
+    if [ ! -d "$dir" ] || ! ls "$dir"/*.json >/dev/null 2>&1; then
+        echo "No recorded ops for ${NETWORK} under ${dir}." >&2
+        return 0
+    fi
+    echo "=== Governance ops (${NETWORK}) — records in ${dir} ===" >&2
+    local path op_id kind label state ready
+    local n_ready=0 n_waiting=0 n_done=0 n_other=0
+    for path in "$dir"/*.json; do
+        op_id=$(jq -r '.op_id' "$path")
+        kind=$(jq -r '.kind // "controller"' "$path")
+        label=$(jq -r '.function // .execute_label // "?"' "$path")
+        state=$(op_state "$op_id" 2>/dev/null) || state="unknown"
+        ready="-"
+        case "$state" in
+            Ready)   n_ready=$(( n_ready + 1 )) ;;
+            Waiting) n_waiting=$(( n_waiting + 1 )); ready=$(op_ready_ledger "$op_id" 2>/dev/null || echo "?") ;;
+            Done)    n_done=$(( n_done + 1 )) ;;
+            *)       n_other=$(( n_other + 1 )) ;;
+        esac
+        printf '%-8s %-16s %-32s ready_ledger=%-10s %s\n' "$state" "$kind" "$label" "$ready" "$op_id"
+    done
+    echo "--- ${n_ready} Ready, ${n_waiting} Waiting, ${n_done} Done, ${n_other} other ---" >&2
+    if [ "$n_ready" -gt 0 ]; then
+        echo "Run 'executeReady' to execute all Ready ops." >&2
+    fi
+}
+
+# Execute every recorded op that is currently Ready. Waiting/Done ops are left
+# alone; a failing execute aborts (set -e) so partial failures are visible.
+execute_ready_ops() {
+    local dir="$OPS_DIR"
+    if [ ! -d "$dir" ] || ! ls "$dir"/*.json >/dev/null 2>&1; then
+        echo "No recorded ops for ${NETWORK} under ${dir}." >&2
+        return 0
+    fi
+    local path op_id state any=0
+    for path in "$dir"/*.json; do
+        op_id=$(jq -r '.op_id' "$path")
+        state=$(op_state "$op_id" 2>/dev/null) || continue
+        if [ "$state" = "Ready" ]; then
+            any=1
+            execute_op "$op_id"
+        fi
+    done
+    if [ "$any" -eq 0 ]; then
+        echo "No Ready ops for ${NETWORK}." >&2
+    fi
+}
+
 # Schedule, await the delay, then execute — the one-shot setup path. Honors
-# AUTO_EXECUTE=0 to schedule-only (record op-id for a later executeOp).
+# AUTO_EXECUTE=0 to schedule-only (record op-id for a later executeOp). An op
+# that is already Done (idempotent re-run) is skipped, not re-executed.
 schedule_and_maybe_execute() {
     local op_id=$1
     if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
         echo "Scheduled op ${op_id} (AUTO_EXECUTE=0; run 'executeOp ${op_id}' after the delay)." >&2
+        return 0
+    fi
+    if [ "$(op_state "$op_id")" = "Done" ]; then
+        echo "Op ${op_id} already executed; skipping." >&2
         return 0
     fi
     await_op_ready "$op_id"
@@ -889,6 +1185,208 @@ schedule_and_maybe_execute() {
 }
 
 require_static_config
+
+# ---------------------------------------------------------------------------
+# Config validation (pure jq, no chain calls)
+#
+# `validateConfigs` is the pre-deploy gate: it cross-checks the markets file,
+# spokes file, and networks.json so a misconfig fails HERE instead of after a
+# timelock delay (or worse, lands on-chain). Run automatically by setupAll /
+# setupAllMarkets / setupAllSpokes and by `make <net> validateConfigs`.
+# ---------------------------------------------------------------------------
+
+validate_configs() {
+    local errors=0 warnings=0
+    vc_err() { echo "ERROR: $*" >&2; errors=$(( errors + 1 )); }
+    vc_warn() { echo "WARN:  $*" >&2; warnings=$(( warnings + 1 )); }
+
+    echo "=== Validating ${NETWORK} configs ===" >&2
+
+    # networks.json basics
+    local f v
+    for f in rpc_url network_passphrase timelock_min_delay_ledgers; do
+        v=$(get_network_value "$f")
+        if [ -z "$v" ] || [ "$v" = "null" ]; then
+            vc_err "networks.json ${NETWORK}.${f} missing"
+        fi
+    done
+
+    # Known oracle contracts for cross-checks.
+    local cex dex fx redstone
+    cex=$(get_cex_oracle)
+    dex=$(get_dex_oracle)
+    fx=$(get_fx_oracle)
+    redstone=$(get_redstone_adapter)
+
+    # Markets: duplicates
+    local dup
+    dup=$(jq -r '[.markets[].name] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")' "$MARKET_CONFIG_FILE")
+    if [ -n "$dup" ]; then
+        vc_err "duplicate market names: ${dup}"
+    fi
+    dup=$(jq -r '[.markets[] | "\(.hub_id)/\(.asset_address)"] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")' "$MARKET_CONFIG_FILE")
+    if [ -n "$dup" ]; then
+        vc_err "duplicate (hub_id, asset_address) pairs: ${dup}"
+    fi
+
+    # Per-market checks
+    local m mj hub addr missing o strat anchor_tag minw maxw ptag pcontract atag acontract
+    for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
+        mj=$(jq -c --arg m "$m" 'first(.markets[] | select(.name == $m))' "$MARKET_CONFIG_FILE")
+
+        hub=$(printf '%s' "$mj" | jq -r '.hub_id // "missing"')
+        case "$hub" in
+            missing|null) vc_err "market ${m}: missing hub_id" ;;
+            0) vc_err "market ${m}: hub_id 0 (there is no hub 0)" ;;
+        esac
+
+        addr=$(printf '%s' "$mj" | jq -r '.asset_address // ""')
+        if ! printf '%s' "$addr" | grep -qE '^C[A-Z2-7]{55}$'; then
+            vc_err "market ${m}: asset_address '${addr}' is not a contract strkey"
+        fi
+
+        # market_params completeness + utilization/reserve-factor relations
+        missing=$(printf '%s' "$mj" | jq -r '[(.market_params // {}) |
+            {max_borrow_rate, base_borrow_rate, slope1, slope2, slope3, mid_utilization,
+             optimal_utilization, max_utilization, reserve_factor}
+            | to_entries[] | select(.value == null) | .key] | join(", ")')
+        if [ -n "$missing" ]; then
+            vc_err "market ${m}: market_params missing ${missing}"
+        fi
+        if ! printf '%s' "$mj" | jq -e '
+            (.market_params // {}) as $p |
+            (($p.mid_utilization // "0") | tonumber) < (($p.optimal_utilization // "0") | tonumber) and
+            (($p.optimal_utilization // "0") | tonumber) < (($p.max_utilization // "0") | tonumber) and
+            (($p.max_utilization // "0") | tonumber) <= 1e27' >/dev/null; then
+            vc_err "market ${m}: utilization must satisfy mid < optimal < max <= RAY (1e27)"
+        fi
+        if ! printf '%s' "$mj" | jq -e '(.market_params.reserve_factor // 99999) <= 10000' >/dev/null; then
+            vc_err "market ${m}: reserve_factor out of [0, 10000] bps"
+        fi
+
+        # asset_config risk bounds (base spoke-0 listing)
+        if ! printf '%s' "$mj" | jq -e '
+            (.asset_config // {}) as $c |
+            ($c.loan_to_value // 99999) < ($c.liquidation_threshold // 0) and
+            ($c.liquidation_threshold // 99999) <= 10000 and
+            ($c.liquidation_bonus // 99999) <= 10000 and
+            (($c.liquidation_threshold // 0) * (10000 + ($c.liquidation_bonus // 0))) <= 100000000' >/dev/null; then
+            vc_err "market ${m}: asset_config risk bounds invalid (need ltv < threshold <= 10000, bonus <= 10000, threshold*(1+bonus) <= 100%)"
+        fi
+        if ! printf '%s' "$mj" | jq -e '(.asset_config.flashloan_fee // 0) <= 10000' >/dev/null; then
+            vc_err "market ${m}: flashloan_fee > 10000 bps"
+        fi
+
+        # Oracle config
+        o=$(printf '%s' "$mj" | jq -c '.oracle // {}')
+        if ! printf '%s' "$o" | jq -e '(.tolerance_bps // 0) >= 1 and (.tolerance_bps // 99999) <= 10000' >/dev/null; then
+            vc_err "market ${m}: oracle tolerance_bps out of [1, 10000]"
+        fi
+        strat=$(printf '%s' "$o" | jq -r '.strategy // "missing"')
+        anchor_tag=$(printf '%s' "$o" | jq -r '
+            if (.anchor | type) == "object" then (.anchor.tag // "Some")
+            elif (.anchor | type) == "string" then .anchor
+            else "None" end')
+        case "$strat" in
+            0)
+                if [ "$anchor_tag" = "Some" ]; then
+                    vc_warn "market ${m}: anchor configured but strategy Single(0) ignores it"
+                fi
+                ;;
+            1)
+                if [ "$anchor_tag" != "Some" ]; then
+                    vc_err "market ${m}: strategy PrimaryWithAnchor(1) requires an anchor"
+                fi
+                ;;
+            *) vc_err "market ${m}: oracle strategy must be 0 (Single) or 1 (PrimaryWithAnchor)" ;;
+        esac
+        minw=$(printf '%s' "$o" | jq -r '.min_sanity_price_wad // "missing"')
+        maxw=$(printf '%s' "$o" | jq -r '.max_sanity_price_wad // "missing"')
+        if [ "$minw" = "missing" ] || [ "$maxw" = "missing" ]; then
+            vc_err "market ${m}: oracle missing min/max_sanity_price_wad"
+        elif [ "$minw" = "0" ] && [ "$maxw" = "0" ]; then
+            if [ "$NETWORK" = "mainnet" ]; then
+                vc_err "market ${m}: (0,0) sanity-bound sentinel not allowed on mainnet"
+            else
+                vc_warn "market ${m}: (0,0) sanity-bound sentinel (test-only)"
+            fi
+        elif ! jq -ne --arg a "$minw" --arg b "$maxw" '($a | tonumber) < ($b | tonumber)' >/dev/null; then
+            vc_err "market ${m}: min_sanity_price_wad >= max_sanity_price_wad"
+        fi
+
+        # Cross-check oracle contract addresses against networks.json
+        ptag=$(printf '%s' "$o" | jq -r '.primary.tag // "missing"')
+        pcontract=$(printf '%s' "$o" | jq -r '.primary.values[0].contract // ""')
+        if [ "$ptag" = "Reflector" ] && [ -n "$pcontract" ]; then
+            case "$pcontract" in
+                "$cex"|"$dex"|"$fx") ;;
+                *) vc_warn "market ${m}: primary Reflector contract ${pcontract} is none of networks.json cex/dex/fx oracles" ;;
+            esac
+        fi
+        if [ "$ptag" = "RedStone" ] && [ -n "$pcontract" ] && [ "$pcontract" != "$redstone" ]; then
+            vc_warn "market ${m}: primary RedStone contract differs from networks.json redstone_adapter_contract"
+        fi
+        atag=$(printf '%s' "$o" | jq -r '.anchor.values[0].tag // ""')
+        acontract=$(printf '%s' "$o" | jq -r '.anchor.values[0].values[0].contract // ""')
+        if [ "$atag" = "RedStone" ] && [ -n "$acontract" ] && [ "$acontract" != "$redstone" ]; then
+            vc_warn "market ${m}: anchor RedStone contract differs from networks.json redstone_adapter_contract"
+        fi
+    done
+
+    # DEX-primary markets reprice through their quote asset's oracle
+    # (ReflectorBase::Quoted): the quote market must be configured FIRST, and
+    # setupAllMarkets configures in file order. Fail when the very first market
+    # is DEX-primary; otherwise remind that ordering is load-bearing.
+    local first_dex
+    first_dex=$(jq -r --arg dex "$dex" 'first(.markets | to_entries[] |
+        select(.value.oracle.primary.tag == "Reflector" and .value.oracle.primary.values[0].contract == $dex) | .key) // ""' \
+        "$MARKET_CONFIG_FILE")
+    if [ "$first_dex" = "0" ]; then
+        vc_err "first market in ${MARKET_CONFIG_FILE} is DEX-oracle-primary; its USD quote market must come before it (file order = setup order)"
+    elif [ -n "$first_dex" ]; then
+        vc_warn "DEX-oracle markets present: each one's USD quote market must appear EARLIER in ${MARKET_CONFIG_FILE} (file order = setup order)"
+    fi
+
+    # Spokes: every asset must resolve to a market on the SAME hub, with sane
+    # risk params.
+    local cat a sj maddr mhub
+    for cat in $(jq -r --arg n "$NETWORK" '.[$n] | keys[]' "$SPOKES_FILE"); do
+        for a in $(jq -r --arg n "$NETWORK" --arg c "$cat" '.[$n][$c].assets | keys[]' "$SPOKES_FILE"); do
+            sj=$(jq -c --arg n "$NETWORK" --arg c "$cat" --arg a "$a" '.[$n][$c].assets[$a]' "$SPOKES_FILE")
+            maddr=$(get_market_value "$a" "asset_address")
+            if [ -z "$maddr" ] || [ "$maddr" = "null" ]; then
+                vc_err "spoke ${cat}: asset '${a}' has no market in ${MARKET_CONFIG_FILE}"
+                continue
+            fi
+            mhub=$(get_market_value "$a" "hub_id")
+            if ! printf '%s' "$sj" | jq -e --argjson mh "${mhub:-null}" '(.hub_id // null) == $mh' >/dev/null; then
+                vc_err "spoke ${cat}/${a}: hub_id $(printf '%s' "$sj" | jq -r '.hub_id // "missing"') != market hub_id ${mhub}"
+            fi
+            if ! printf '%s' "$sj" | jq -e '
+                (.ltv // 99999) < (.liquidation_threshold // 0) and
+                (.liquidation_threshold // 99999) <= 10000 and
+                (.liquidation_bonus // 99999) <= 10000 and
+                ((.liquidation_threshold // 0) * (10000 + (.liquidation_bonus // 0))) <= 100000000 and
+                ((.liquidation_fees // 0) <= 10000)' >/dev/null; then
+                vc_err "spoke ${cat}/${a}: risk bounds invalid (need ltv < threshold <= 10000, bonus/fees <= 10000, threshold*(1+bonus) <= 100%)"
+            fi
+        done
+    done
+
+    # A market in no spoke deploys pending (base spoke-0 listing stays
+    # non-collateralizable/borrowable) and is unusable until listed.
+    for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
+        if ! jq -e --arg n "$NETWORK" --arg m "$m" '[.[$n][].assets | keys[]] | index($m) != null' "$SPOKES_FILE" >/dev/null; then
+            vc_warn "market ${m} is not referenced by any spoke (deploys pending; unusable until listed)"
+        fi
+    done
+
+    echo "=== Validation: ${errors} error(s), ${warnings} warning(s) ===" >&2
+    if [ "$errors" -gt 0 ]; then
+        exit 1
+    fi
+    return 0
+}
 
 # ---------------------------------------------------------------------------
 # List functions
@@ -903,21 +1401,24 @@ list_markets() {
     fi
 }
 
-list_emode_categories() {
-    echo "E-Mode categories (${NETWORK}):"
-    if [ -f "$EMODES_FILE" ]; then
+list_spokes() {
+    echo "Spoke categories (${NETWORK}):"
+    if [ -f "$SPOKES_FILE" ]; then
         jq -r --arg network "$NETWORK" --slurpfile networks "$NETWORKS_FILE" '
             .[$network] as $cats |
-            ($networks[0][$network].emode_category_ids // {}) as $ids |
+            ($networks[0][$network].spoke_ids // {}) as $ids |
             $cats | to_entries[] |
             "  \(.key) -> on-chain \($ids[.key] // "unmapped"): \(.value.name) — assets: \(.value.assets | keys | join(", "))"
-        ' "$EMODES_FILE"
+        ' "$SPOKES_FILE"
     else
-        echo "  No emodes config found: $EMODES_FILE"
+        echo "  No spokes config found: $SPOKES_FILE"
     fi
 }
 
-build_asset_addresses_json() {
+# Pair each market's configured hub_id with its asset_address, producing the
+# Vec<HubAssetKey> JSON (`[{"hub_id":<n>,"asset":"<addr>"}, ...]`) the controller
+# expects. There is no implicit hub 0: a market missing its hub_id aborts.
+build_hub_assets_json() {
     local assets_json="["
     local first=1
 
@@ -930,10 +1431,16 @@ build_asset_addresses_json() {
             exit 1
         fi
 
+        local hub_id
+        hub_id=$(get_market_value "$market_name" "hub_id")
+        if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+            die "market '${market_name}' missing hub_id"
+        fi
+
         if [ $first -eq 0 ]; then
             assets_json+=","
         fi
-        assets_json+="\"$asset_address\""
+        assets_json+="{\"hub_id\":$hub_id,\"asset\":\"$asset_address\"}"
         first=0
     done
 
@@ -942,78 +1449,88 @@ build_asset_addresses_json() {
 }
 
 # ---------------------------------------------------------------------------
-# E-Mode functions
+# Spoke functions
 # ---------------------------------------------------------------------------
 
-add_emode_category() {
+add_spoke() {
     local category_id=$1
 
     local name
-    name=$(get_emode_value "$category_id" ".name")
+    name=$(get_spoke_value "$category_id" ".name")
 
-    echo "Adding E-Mode category ${category_id}: ${name}" >&2
+    echo "Adding Spoke category ${category_id}: ${name}" >&2
 
-    # add_e_mode_category() — no on-chain args; risk params are per-asset.
-    # The salt is seeded with the config category id so that creating several
-    # categories in one setup run derives distinct timelock op ids (the call
-    # args stay []; a shared salt would collide on the second category).
+    # add_spoke() — no on-chain args; risk params are per-asset (spoke categories
+    # are now spokes). The salt is seeded with the config category id so that
+    # creating several spokes in one setup run derives distinct timelock op ids
+    # (the call args stay []; a shared salt would collide on the second spoke).
     local args_json='[]'
     local salt
-    salt=$(gen_salt "add_e_mode_category:${category_id}" "$args_json")
+    salt=$(gen_salt "add_spoke:${category_id}" "$args_json")
 
+    # "never": re-executing a spoke create would mint a duplicate spoke.
     local op_id
     op_id=$(schedule_via_proposer \
-        add_e_mode_category "$(admin_op AddEModeCategory)" "$args_json" true "$salt")
+        add_spoke "$(admin_op AddSpoke)" "$args_json" true "$salt" never)
 
     if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
-        echo "Scheduled e-mode category ${category_id} as op ${op_id} (AUTO_EXECUTE=0)." >&2
+        echo "Scheduled spoke category ${category_id} as op ${op_id} (AUTO_EXECUTE=0)." >&2
         echo "$op_id"
         return 0
     fi
 
+    if [ "$(op_state "$op_id")" = "Done" ]; then
+        die "spoke-create op ${op_id} already executed; its returned id cannot be re-read. Record the on-chain id in ${NETWORKS_FILE} spoke_ids manually."
+    fi
     await_op_ready "$op_id"
-    # The controller's add_e_mode_category returns the new on-chain id; the
+    # The controller's add_spoke returns the new on-chain id; the
     # generic execute prints that returned Val on its last line.
-    local result
-    result=$(execute_op "$op_id" 2>/dev/null)
+    local result errf
+    errf=$(mktemp)
+    result=$(execute_op "$op_id" 2>"$errf") || {
+        cat "$errf" >&2
+        rm -f "$errf"
+        die "execute of spoke-create op ${op_id} failed"
+    }
+    rm -f "$errf"
     local onchain_id
-    onchain_id=$(echo "$result" | sed -nE 's/.*([0-9]+).*/\1/p' | tail -n1)
+    onchain_id=$(parse_returned_u32 "$result")
     if [ -z "$onchain_id" ]; then
-        echo "ERROR: Could not parse on-chain e-mode category id from execute result: $result" >&2
+        echo "ERROR: Could not parse on-chain spoke category id from execute result: $result" >&2
         exit 1
     fi
 
-    echo "E-Mode category ${category_id} created with on-chain id ${onchain_id}." >&2
+    echo "Spoke category ${category_id} created with on-chain id ${onchain_id}." >&2
     echo "$onchain_id"
 }
 
-get_mapped_emode_category_id() {
+get_mapped_spoke_id() {
     local config_category_id=$1
     jq -r --arg network "$NETWORK" --arg config_id "$config_category_id" \
-        '.[$network].emode_category_ids[$config_id] // empty' "$NETWORKS_FILE"
+        '.[$network].spoke_ids[$config_id] // empty' "$NETWORKS_FILE"
 }
 
-persist_emode_category_id() {
+persist_spoke_id() {
     local config_category_id=$1
     local onchain_id=$2
     local tmp
     tmp=$(mktemp)
     jq --arg network "$NETWORK" --arg config_id "$config_category_id" --argjson onchain_id "$onchain_id" \
-        '.[$network].emode_category_ids = (.[$network].emode_category_ids // {}) |
-         .[$network].emode_category_ids[$config_id] = $onchain_id' \
+        '.[$network].spoke_ids = (.[$network].spoke_ids // {}) |
+         .[$network].spoke_ids[$config_id] = $onchain_id' \
         "$NETWORKS_FILE" > "$tmp" && mv "$tmp" "$NETWORKS_FILE"
 }
 
-fetch_emode_category_json() {
-    # E-mode reads stay on the controller; only writes route through governance.
+fetch_spoke_json() {
+    # Spoke reads stay on the controller; only writes route through governance.
     local onchain_id=$1
     local ctrl
     ctrl=$(get_controller)
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
-        --send=no -- get_e_mode_category --category_id "$onchain_id"
+        --send=no -- get_spoke --spoke_id "$onchain_id"
 }
 
-emode_is_deprecated() {
+spoke_is_deprecated() {
     local category_json=$1
     printf '%s' "$category_json" | jq -e '.is_deprecated == true' >/dev/null
 }
@@ -1025,16 +1542,19 @@ emode_is_deprecated() {
 # (setup will populate it). On-chain categories carry no name, so a foreign
 # category whose assets are a strict subset of this config's assets cannot be
 # distinguished here — closing that residual needs an on-chain identity field.
-emode_category_assets_match_config() {
+spoke_assets_match_config() {
     local config_category_id=$1
     local category_json=$2
 
-    # A degraded response missing a readable `.assets` map (null/absent, not an
-    # empty `{}`) cannot be verified; refuse reuse instead of masking it as an
-    # empty (compatible) category.
+    # Current get_spoke returns SpokeConfig (no embedded `.assets` map; assets
+    # live under separate SpokeAsset keys). If the response lacks a readable
+    # assets object we cannot enumerate foreign assets, so we allow reuse of
+    # the mapped id. Per-asset reconciliation in ensure_asset_in_spoke uses
+    # direct get_spoke_asset probes (and on-chain add/edit will enforce
+    # presence).
     if ! printf '%s' "$category_json" | jq -e '.assets | type == "object"' >/dev/null 2>&1; then
-        echo "ERROR: on-chain E-Mode category for config ${config_category_id} has no readable .assets map; refusing to reuse." >&2
-        return 1
+        echo "WARN: on-chain Spoke category for config ${config_category_id} has no readable .assets map (current contract); cannot fully verify. Proceeding." >&2
+        return 0
     fi
 
     local onchain_assets
@@ -1044,13 +1564,13 @@ emode_category_assets_match_config() {
 
     local expected_addrs=" "
     local asset_name asset_addr
-    for asset_name in $(jq -r ".\"$NETWORK\".\"$config_category_id\".assets | keys[]" "$EMODES_FILE"); do
+    for asset_name in $(jq -r ".\"$NETWORK\".\"$config_category_id\".assets | keys[]" "$SPOKES_FILE"); do
         asset_addr=$(get_market_value "$asset_name" "asset_address")
         # An unresolved asset means the config references something the markets
         # file lacks; fail with that specific reason rather than silently
         # dropping it (which would later mislabel an on-chain asset as foreign).
         if [ -z "$asset_addr" ] || [ "$asset_addr" = "null" ]; then
-            echo "ERROR: e-mode config ${config_category_id} lists asset '${asset_name}' missing from the markets file; cannot verify category reuse." >&2
+            echo "ERROR: spoke config ${config_category_id} lists asset '${asset_name}' missing from the markets file; cannot verify category reuse." >&2
             return 1
         fi
         expected_addrs="${expected_addrs}${asset_addr} "
@@ -1067,82 +1587,97 @@ emode_category_assets_match_config() {
 }
 
 # A category only groups assets and tracks deprecation; risk params live on the
-# per-asset configs (ensured by `ensure_asset_in_emode`). Reuse therefore
+# per-asset configs (ensured by `ensure_asset_in_spoke`). Reuse therefore
 # requires two checks: the category must not be deprecated, and every asset it
 # already holds on-chain must belong to this config category — otherwise we
 # would silently rewrite a different category's (possibly live) risk params.
-ensure_emode_category() {
+ensure_spoke() {
     local config_category_id=$1
     local mapped_id
     local category_json
 
-    mapped_id=$(get_mapped_emode_category_id "$config_category_id")
+    mapped_id=$(get_mapped_spoke_id "$config_category_id")
     if [ -n "$mapped_id" ] && [ "$mapped_id" != "null" ]; then
-        if category_json=$(fetch_emode_category_json "$mapped_id" 2>/dev/null); then
-            if emode_is_deprecated "$category_json"; then
-                echo "Mapped E-Mode id ${mapped_id} for config ${config_category_id} is deprecated; creating a replacement."
-            elif ! emode_category_assets_match_config "$config_category_id" "$category_json"; then
-                echo "ERROR: mapped E-Mode id ${mapped_id} for config ${config_category_id} holds assets this config does not list." >&2
+        if category_json=$(fetch_spoke_json "$mapped_id" 2>/dev/null); then
+            if spoke_is_deprecated "$category_json"; then
+                echo "Mapped Spoke id ${mapped_id} for config ${config_category_id} is deprecated; creating a replacement."
+            elif ! spoke_assets_match_config "$config_category_id" "$category_json"; then
+                echo "ERROR: mapped Spoke id ${mapped_id} for config ${config_category_id} holds assets this config does not list." >&2
                 echo "       Refusing to apply config ${config_category_id} to an unverified on-chain category; it may be a different category or have live users." >&2
                 echo "       Fix the mapping in ${NETWORKS_FILE}, or deprecate the on-chain category, then re-run." >&2
                 return 1
             else
-                echo "E-Mode config ${config_category_id} already mapped to on-chain id ${mapped_id}."
+                echo "Spoke config ${config_category_id} already mapped to on-chain id ${mapped_id}."
                 echo "$mapped_id"
                 return 0
             fi
         else
-            echo "Mapped E-Mode id ${mapped_id} for config ${config_category_id} is not readable; creating a replacement."
+            echo "Mapped Spoke id ${mapped_id} for config ${config_category_id} is not readable; creating a replacement."
         fi
     fi
 
-    if category_json=$(fetch_emode_category_json "$config_category_id" 2>/dev/null); then
-        if emode_is_deprecated "$category_json"; then
-            echo "On-chain E-Mode id ${config_category_id} is deprecated; creating a new category."
-        elif ! emode_category_assets_match_config "$config_category_id" "$category_json"; then
-            echo "ERROR: on-chain E-Mode id ${config_category_id} holds assets config category ${config_category_id} does not list." >&2
+    if category_json=$(fetch_spoke_json "$config_category_id" 2>/dev/null); then
+        if spoke_is_deprecated "$category_json"; then
+            echo "On-chain Spoke id ${config_category_id} is deprecated; creating a new category."
+        elif ! spoke_assets_match_config "$config_category_id" "$category_json"; then
+            echo "ERROR: on-chain Spoke id ${config_category_id} holds assets config category ${config_category_id} does not list." >&2
             echo "       Refusing to reuse it by numeric id; it may be a different category or have live users." >&2
             echo "       Map config ${config_category_id} to the correct on-chain id in ${NETWORKS_FILE}, or deprecate the on-chain category, then re-run." >&2
             return 1
         else
-            persist_emode_category_id "$config_category_id" "$config_category_id"
-            echo "E-Mode config ${config_category_id} reuses existing on-chain id ${config_category_id}."
+            persist_spoke_id "$config_category_id" "$config_category_id"
+            echo "Spoke config ${config_category_id} reuses existing on-chain id ${config_category_id}."
             echo "$config_category_id"
             return 0
         fi
     fi
 
     local onchain_id
-    onchain_id=$(add_emode_category "$config_category_id")
-    persist_emode_category_id "$config_category_id" "$onchain_id"
+    onchain_id=$(add_spoke "$config_category_id")
+    persist_spoke_id "$config_category_id" "$onchain_id"
     echo "$onchain_id"
 }
 
-add_asset_to_emode() {
+add_asset_to_spoke() {
     local category_id=$1
     local asset_name=$2
     local config_category_id=${3:-$category_id}
 
-    echo "Adding asset ${asset_name} to E-Mode category ${category_id}..."
+    echo "Adding asset ${asset_name} to Spoke category ${category_id}..."
 
     local asset_address
     asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral
-    can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
-    can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
     local ltv
-    ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
-    threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    threshold=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
     local bonus
-    bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    bonus=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local supply_cap
-    supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    supply_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
     local borrow_cap
-    borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
+    borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
+    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else fall
+    # back to the market's asset_config.liquidation_fees, else 0.
+    local liquidation_fees
+    liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
+        liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
+    fi
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
+    # SpokeAssetArgs.paused / .frozen: per-listing incident flags; optional in
+    # spokes.json, defaulting to an active (false/false) listing.
+    local paused frozen
+    paused=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".paused")
+    frozen=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".frozen")
+    if [ -z "$paused" ] || [ "$paused" = "null" ]; then paused=false; fi
+    if [ -z "$frozen" ] || [ "$frozen" = "null" ]; then frozen=false; fi
 
     echo "  Asset Address: ${asset_address}"
     echo "  Config Category: ${config_category_id}"
@@ -1156,31 +1691,37 @@ add_asset_to_emode() {
         exit 1
     fi
 
-    # add_asset_to_e_mode_category(EModeAssetArgs). resolve_op schedules a single
-    # EModeAssetArgs struct, so the replay args_json is one struct element.
+    local hub_id
+    hub_id=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
+    fi
+
+    # add_asset_to_spoke(SpokeAssetArgs). resolve_op schedules a single
+    # SpokeAssetArgs struct, so the replay args_json is one struct element.
     local args_json
     args_json=$(jq -nc \
-        --argjson arg "$(scval_emode_args "$asset_address" "$category_id" "$can_collateral" \
-            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")" \
+        --argjson arg "$(scval_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" \
+            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees" "$paused" "$frozen")" \
         '[$arg]')
     local salt
-    salt=$(gen_salt "add_asset_to_e_mode_category" "$args_json")
+    salt=$(gen_salt "add_asset_to_spoke" "$args_json")
 
-    # The propose `--op` payload is the single EModeAssetArgs in friendly form.
+    # The propose `--op` payload is the single SpokeAssetArgs in friendly form.
     local admin_op_json
-    admin_op_json=$(admin_op AddAssetToEModeCategory \
-        "$(friendly_emode_args "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
-            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")")
+    admin_op_json=$(admin_op AddAssetToSpoke \
+        "$(friendly_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
+            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees" "$paused" "$frozen")")
 
     local op_id
     op_id=$(schedule_via_proposer \
-        add_asset_to_e_mode_category "$admin_op_json" "$args_json" true "$salt")
+        add_asset_to_spoke "$admin_op_json" "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
 
-    echo "Asset ${asset_name} scheduled into E-Mode category ${category_id}."
+    echo "Asset ${asset_name} scheduled into Spoke category ${category_id}."
 }
 
-edit_asset_in_emode() {
+edit_asset_in_spoke() {
     local category_id=$1
     local asset_name=$2
     local config_category_id=${3:-$category_id}
@@ -1188,47 +1729,68 @@ edit_asset_in_emode() {
     local asset_address
     asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral
-    can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
-    can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
     local ltv
-    ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
-    threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    threshold=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
     local bonus
-    bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    bonus=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local supply_cap
-    supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    supply_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
     local borrow_cap
-    borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
+    borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
+    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else fall
+    # back to the market's asset_config.liquidation_fees, else 0.
+    local liquidation_fees
+    liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
+        liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
+    fi
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
+    # SpokeAssetArgs.paused / .frozen: per-listing incident flags; optional in
+    # spokes.json, defaulting to an active (false/false) listing.
+    local paused frozen
+    paused=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".paused")
+    frozen=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".frozen")
+    if [ -z "$paused" ] || [ "$paused" = "null" ]; then paused=false; fi
+    if [ -z "$frozen" ] || [ "$frozen" = "null" ]; then frozen=false; fi
 
-    echo "Editing asset ${asset_name} in E-Mode category ${category_id}..." >&2
+    echo "Editing asset ${asset_name} in Spoke category ${category_id}..." >&2
 
-    # edit_asset_in_e_mode_category(EModeAssetArgs). resolve_op schedules a single
-    # EModeAssetArgs struct, so the replay args_json is one struct element.
+    local hub_id
+    hub_id=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
+    fi
+
+    # edit_asset_in_spoke(SpokeAssetArgs). resolve_op schedules a single
+    # SpokeAssetArgs struct, so the replay args_json is one struct element.
     local args_json
     args_json=$(jq -nc \
-        --argjson arg "$(scval_emode_args "$asset_address" "$category_id" "$can_collateral" \
-            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")" \
+        --argjson arg "$(scval_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" \
+            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees" "$paused" "$frozen")" \
         '[$arg]')
     local salt
-    salt=$(gen_salt "edit_asset_in_e_mode_category" "$args_json")
+    salt=$(gen_salt "edit_asset_in_spoke" "$args_json")
 
-    # The propose `--op` payload is the single EModeAssetArgs in friendly form.
+    # The propose `--op` payload is the single SpokeAssetArgs in friendly form.
     local admin_op_json
-    admin_op_json=$(admin_op EditAssetInEModeCategory \
-        "$(friendly_emode_args "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
-            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")")
+    admin_op_json=$(admin_op EditAssetInSpoke \
+        "$(friendly_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
+            "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap" "$liquidation_fees" "$paused" "$frozen")")
 
     local op_id
     op_id=$(schedule_via_proposer \
-        edit_asset_in_e_mode_category "$admin_op_json" "$args_json" true "$salt")
+        edit_asset_in_spoke "$admin_op_json" "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
 }
 
-ensure_asset_in_emode() {
+ensure_asset_in_spoke() {
     local category_id=$1
     local asset_name=$2
     local config_category_id=${3:-$category_id}
@@ -1236,21 +1798,29 @@ ensure_asset_in_emode() {
     local asset_address
     asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral
-    can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
-    can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
     local ltv
-    ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
-    threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    threshold=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
     local bonus
-    bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    bonus=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local supply_cap
-    supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    supply_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
     local borrow_cap
-    borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
+    borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
+    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else fall
+    # back to the market's asset_config.liquidation_fees, else 0.
+    local liquidation_fees
+    liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
+        liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
+    fi
+    if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
     local category_json
 
     if [ -z "$asset_address" ] || [ "$asset_address" = "null" ] || [ "$asset_address" = "" ]; then
@@ -1258,7 +1828,19 @@ ensure_asset_in_emode() {
         exit 1
     fi
 
-    category_json=$(fetch_emode_category_json "$category_id")
+    category_json=$(fetch_spoke_json "$category_id")
+    # Bridge for current contract (get_spoke has no .assets; SpokeAsset is separate).
+    # Probe the specific asset and synthesize the shape the decision/compare code expects.
+    local _hub _ha _probe
+    _hub=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
+    if [ -n "$_hub" ] && [ "$_hub" != "null" ]; then
+        _ha=$(jq -nc --argjson h "$_hub" --arg a "$asset_address" '{hub_id:$h, asset:$a}')
+        if _probe=$(stellar contract invoke --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_spoke_asset --spoke_id "$category_id" --hub_asset "$_ha" 2>/dev/null); then
+            category_json=$(jq -nc --arg addr "$asset_address" --argjson cfg "$_probe" '{assets: {($addr): $cfg}}')
+        else
+            category_json='{"assets":{}}'
+        fi
+    fi
     if printf '%s' "$category_json" | jq -e --arg asset "$asset_address" '.assets[$asset] != null' >/dev/null; then
         if printf '%s' "$category_json" | jq -e \
             --arg asset "$asset_address" \
@@ -1267,48 +1849,160 @@ ensure_asset_in_emode() {
             --argjson ltv "$ltv" \
             --argjson threshold "$threshold" \
             --argjson bonus "$bonus" \
+            --argjson liquidation_fees "$liquidation_fees" \
             --arg supply_cap "$supply_cap" \
             --arg borrow_cap "$borrow_cap" \
             '.assets[$asset].is_collateralizable == $can_collateral and
              .assets[$asset].is_borrowable == $can_borrow and
-             .assets[$asset].loan_to_value_bps == $ltv and
-             .assets[$asset].liquidation_threshold_bps == $threshold and
-             .assets[$asset].liquidation_bonus_bps == $bonus and
+             .assets[$asset].loan_to_value == $ltv and
+             .assets[$asset].liquidation_threshold == $threshold and
+             .assets[$asset].liquidation_bonus == $bonus and
+             .assets[$asset].liquidation_fees == $liquidation_fees and
              (.assets[$asset].supply_cap | tostring) == $supply_cap and
              (.assets[$asset].borrow_cap | tostring) == $borrow_cap' >/dev/null; then
-            echo "Asset ${asset_name} already configured in E-Mode category ${category_id}."
+            echo "Asset ${asset_name} already configured in Spoke category ${category_id}."
         else
-            edit_asset_in_emode "$category_id" "$asset_name" "$config_category_id"
+            # Drift proven by the on-chain compare: force re-apply even in
+            # converge mode, else a toggle back to an earlier setting would hit
+            # its Done op and be skipped forever.
+            REAPPLY_ON_DONE=1 edit_asset_in_spoke "$category_id" "$asset_name" "$config_category_id"
         fi
     else
-        add_asset_to_emode "$category_id" "$asset_name" "$config_category_id"
+        # Absence proven by the on-chain probe: a re-add after a removal must
+        # re-apply even if an identical add executed before.
+        REAPPLY_ON_DONE=1 add_asset_to_spoke "$category_id" "$asset_name" "$config_category_id"
     fi
 }
 
-setup_all_emodes() {
-    echo "=== Setting up all E-Mode categories for ${NETWORK} ==="
+setup_all_spokes() {
+    echo "=== Setting up all Spoke categories for ${NETWORK} ==="
     local categories
-    categories=$(jq -r ".\"$NETWORK\" | keys[]" "$EMODES_FILE")
+    categories=$(jq -r ".\"$NETWORK\" | keys[]" "$SPOKES_FILE")
 
     for cat_id in $categories; do
         local onchain_id
         # Bare assignment (declared separately so `local` doesn't mask the
         # status): a command substitution inside an `if` condition would suppress
-        # `set -e` within ensure_emode_category and its callees, silently
+        # `set -e` within ensure_spoke and its callees, silently
         # continuing on an inner failure or the content guard's `return 1`. With
         # a plain assignment, `set -e` stays active inside the function and
         # aborts the deploy on any non-zero exit; the guard prints the specific
         # reason to stderr before returning.
-        onchain_id=$(ensure_emode_category "$cat_id")
+        onchain_id=$(ensure_spoke "$cat_id")
         onchain_id=$(printf '%s\n' "$onchain_id" | tail -n1)
 
         local assets
-        assets=$(jq -r ".\"$NETWORK\".\"$cat_id\".assets | keys[]" "$EMODES_FILE")
+        assets=$(jq -r ".\"$NETWORK\".\"$cat_id\".assets | keys[]" "$SPOKES_FILE")
         for asset_name in $assets; do
-            ensure_asset_in_emode "$onchain_id" "$asset_name" "$cat_id"
+            ensure_asset_in_spoke "$onchain_id" "$asset_name" "$cat_id"
         done
     done
-    echo "=== All E-Mode categories configured ==="
+    echo "=== All Spoke categories configured ==="
+}
+
+# ---------------------------------------------------------------------------
+# Hub functions
+#
+# Hubs are the top-level market containers. There is no implicit hub 0:
+# `create_hub` is the only way to mint one and it returns ids 1, 2, … in
+# creation order. Every market (`create_liquidity_pool`) and spoke-asset listing
+# carries an explicit hub_id, so the hubs referenced by the market config must
+# exist on-chain before any market is listed. `create_hub` is a governance-
+# timelocked admin op (AdminOperation::CreateHub, no on-chain args) returning the
+# new u32 id — mirrors add_spoke.
+# ---------------------------------------------------------------------------
+
+get_mapped_hub_id() {
+    local config_hub_id=$1
+    jq -r --arg network "$NETWORK" --arg id "$config_hub_id" \
+        '(.[$network].hub_ids // {})[$id] // empty' "$NETWORKS_FILE"
+}
+
+persist_hub_id() {
+    local config_hub_id=$1
+    local onchain_id=$2
+    local tmp
+    tmp=$(mktemp)
+    jq --arg network "$NETWORK" --arg id "$config_hub_id" --argjson onchain_id "$onchain_id" \
+        '.[$network].hub_ids = (.[$network].hub_ids // {}) |
+         .[$network].hub_ids[$id] = $onchain_id' \
+        "$NETWORKS_FILE" > "$tmp" && mv "$tmp" "$NETWORKS_FILE"
+}
+
+# Create the hub with config id `expected` unless it is already recorded for this
+# network. Hubs mint sequentially, so the on-chain id must equal `expected`
+# (distinct hub_ids are processed in ascending order); a mismatch is a hard error.
+ensure_hub() {
+    local expected=$1
+    case "$expected" in
+        ''|*[!0-9]*) die "invalid hub_id '${expected}' in ${MARKET_CONFIG_FILE}" ;;
+    esac
+    if [ "$expected" -lt 1 ]; then
+        die "hub_id must be >= 1 (got ${expected}); there is no hub 0"
+    fi
+
+    local mapped
+    mapped=$(get_mapped_hub_id "$expected")
+    if [ -n "$mapped" ] && [ "$mapped" != "null" ]; then
+        echo "Hub ${expected} already created (on-chain id ${mapped})." >&2
+        return 0
+    fi
+
+    # create_hub() — no on-chain args; governance schedules AdminOperation::CreateHub
+    # and the controller returns the new hub id on execute.
+    local args_json='[]'
+    local salt
+    salt=$(gen_salt "create_hub:${expected}" "$args_json")
+
+    # "never": re-executing a hub create would mint a duplicate hub.
+    local op_id
+    op_id=$(schedule_via_proposer \
+        create_hub "$(admin_op CreateHub)" "$args_json" true "$salt" never)
+
+    if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
+        echo "Scheduled hub ${expected} as op ${op_id} (AUTO_EXECUTE=0; execute before listing markets)." >&2
+        return 0
+    fi
+
+    if [ "$(op_state "$op_id")" = "Done" ]; then
+        die "hub-create op ${op_id} already executed; its returned id cannot be re-read. Record the on-chain id in ${NETWORKS_FILE} hub_ids manually."
+    fi
+    await_op_ready "$op_id"
+    # The generic execute prints the controller's returned hub id on its last line.
+    local result onchain_id errf
+    errf=$(mktemp)
+    result=$(execute_op "$op_id" 2>"$errf") || {
+        cat "$errf" >&2
+        rm -f "$errf"
+        die "execute of hub-create op ${op_id} failed"
+    }
+    rm -f "$errf"
+    onchain_id=$(parse_returned_u32 "$result")
+    if [ -z "$onchain_id" ]; then
+        die "could not parse on-chain hub id from execute result: ${result}"
+    fi
+    if [ "$onchain_id" != "$expected" ]; then
+        die "create_hub returned id ${onchain_id} but the config expects hub ${expected}; create hubs in ascending order with no gaps (there is no hub 0), or fix ${MARKET_CONFIG_FILE}"
+    fi
+    persist_hub_id "$expected" "$onchain_id"
+    echo "Hub ${expected} created with on-chain id ${onchain_id}." >&2
+}
+
+# Create every distinct hub referenced by the market config (ascending order)
+# before any market is listed. Idempotent: hubs already recorded in
+# networks.json are skipped.
+ensure_hubs() {
+    echo "=== Ensuring hubs for ${NETWORK} ===" >&2
+    local hub_ids
+    hub_ids=$(jq -r '[.markets[].hub_id] | map(select(. != null)) | unique | .[]' "$MARKET_CONFIG_FILE")
+    if [ -z "$hub_ids" ]; then
+        die "no hub_id found on any market in ${MARKET_CONFIG_FILE}"
+    fi
+    local h
+    for h in $hub_ids; do
+        ensure_hub "$h"
+    done
+    echo "=== Hubs ready ===" >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -1337,35 +2031,37 @@ create_market() {
         exit 1
     fi
 
+    local hub_id
+    hub_id=$(get_market_value "$market_name" "hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
+    fi
+
     local ctrl
     ctrl=$(get_controller)
 
     # Existence probe is a controller view; creation writes go via governance.
-    if stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_market_config --asset "$asset_address" &>/dev/null; then
+    # The base spoke-0 listing exists once the market is created.
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
+    if stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_spoke_asset --spoke_id 0 --hub_asset "$hub_asset" &>/dev/null; then
         echo "Market for ${market_name} already exists, skipping creation."
         return 0
     fi
 
-    # Build params JSON from config
+    # Build MarketParamsRaw JSON: rate model + hub caps + flash-loan eligibility
+    # (moved off the per-asset config) + asset_id + asset_decimals.
     local params
     params=$(jq -c --arg decimals "$decimals" \
-        ".markets[] | select(.name == \"$market_name\") | .market_params + {asset_id: .asset_address, asset_decimals: ($decimals | tonumber)}" \
+        ".markets[] | select(.name == \"$market_name\") | .market_params + {
+            asset_id: .asset_address,
+            asset_decimals: (\$decimals | tonumber),
+            is_flashloanable: (.asset_config.is_flashloanable // false),
+            flashloan_fee: (.asset_config.flashloan_fee // 0)
+        }" \
         "$MARKET_CONFIG_FILE")
-    # Markets are deployed in a pending state so they cannot be used before
-    # oracle wiring and explicit activation.
-    # `e_mode_categories` is a `Vec<u32>` populated by
-    # `add_asset_to_e_mode_category` after the market exists; pin it
-    # to an empty array at create time so the contract spec accepts
-    # the JSON (jq emits `[]` which decodes to Vec::new).
-    local pending_config
-    pending_config=$(jq -c --argjson decimals "$decimals" \
-        ".markets[] | select(.name == \"$market_name\") | .asset_config | \
-         .is_collateralizable = false | \
-         .is_borrowable = false | \
-         .is_flashloanable = false | \
-         .asset_decimals = \$decimals | \
-         .e_mode_categories = []" \
-        "$MARKET_CONFIG_FILE")
+    # The controller deploys markets in a pending state (base spoke-0 listing
+    # not collateralizable/borrowable); activation happens via spoke listings.
 
     # Post-audit (T1-7): the controller gates `create_liquidity_pool` behind an
     # admin allow-list. Pre-approve the token first (separate timelocked op,
@@ -1375,35 +2071,35 @@ create_market() {
     local approve_args
     approve_args=$(jq -nc --arg t "$asset_address" '[{address:$t}]')
     local approve_salt
-    approve_salt=$(gen_salt "approve_token" "$approve_args")
+    approve_salt=$(gen_salt "approve_token:${market_name}" "$approve_args")
     local approve_op
     approve_op=$(schedule_via_proposer \
         approve_token "$(admin_op ApproveToken "$(jq -nc --arg a "$asset_address" '$a')")" \
         "$approve_args" true "$approve_salt")
     schedule_and_maybe_execute "$approve_op"
 
-    # create_liquidity_pool(asset, params, config) — Address + two field-map
-    # structs. The scheduled args equal these inputs (governance validates but
-    # does not transform), so they are fully CLI-replayable.
-    local params_scval config_scval
+    # create_liquidity_pool(hub_id, asset, params) — u32 + Address + one field-map
+    # struct. The governance handler resolves CreateLiquidityPool to exactly these
+    # three call args; per-asset risk config is applied separately via
+    # add_asset_to_spoke, not here. The scheduled args equal these inputs
+    # (governance validates but does not transform), so they are CLI-replayable.
+    local params_scval
     params_scval=$(scval_market_params "$params")
-    config_scval=$(scval_asset_config "$pending_config")
     local args_json
     args_json=$(jq -nc \
+        --argjson hub_id "$hub_id" \
         --arg asset "$asset_address" \
         --argjson params "$params_scval" \
-        --argjson config "$config_scval" \
-        '[{address:$asset}, $params, $config]')
+        '[{u32:$hub_id}, {address:$asset}, $params]')
     local salt
     salt=$(gen_salt "create_liquidity_pool" "$args_json")
 
-    # The propose `--op` payload wraps asset + the friendly params/config objects
-    # (loaded from the markets file, Rust field names) in CreatePoolArgs.
+    # The propose `--op` payload wraps hub_id + asset + the friendly params/config
+    # objects (Rust field names) in CreatePoolArgs.
     local admin_op_json
     admin_op_json=$(admin_op CreateLiquidityPool \
-        "$(jq -nc --arg asset "$asset_address" --argjson params "$params" \
-            --argjson config "$pending_config" \
-            '{asset:$asset, params:$params, config:$config}')")
+        "$(jq -nc --argjson hub_id "$hub_id" --arg asset "$asset_address" --argjson params "$params" \
+            '{hub_id:$hub_id, asset:$asset, params:$params}')")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1413,51 +2109,7 @@ create_market() {
     echo "Market ${market_name} scheduled/created."
 }
 
-edit_asset_config() {
-    local market_name=$1
-
-    echo "Editing asset config for ${market_name}..."
-
-    local asset_address
-    asset_address=$(get_market_value "$market_name" "asset_address")
-    local decimals
-    decimals=$(get_contract_decimals "$asset_address")
-    # `e_mode_categories` and `asset_decimals` are contract-managed and
-    # ignored by `edit_asset_config` on chain — pin them so the JSON shape
-    # matches the AssetConfig spec.
-    local config
-    config=$(jq -c --argjson decimals "$decimals" \
-        ".markets[] | select(.name == \"$market_name\") | .asset_config | \
-         .asset_decimals = \$decimals | \
-         .e_mode_categories = []" \
-        "$MARKET_CONFIG_FILE")
-
-    # edit_asset_config(asset, AssetConfigRaw) — Address + field-map struct. The
-    # replay args_json stays explicit ScVal (Address + AssetConfigRaw scval map).
-    local args_json
-    args_json=$(jq -nc \
-        --arg asset "$asset_address" \
-        --argjson cfg "$(scval_asset_config "$config")" \
-        '[{address:$asset}, $cfg]')
-    local salt
-    salt=$(gen_salt "edit_asset_config" "$args_json")
-
-    # EditAssetConfig(Address, AssetConfigRaw) is a TUPLE variant -> friendly form
-    # {"EditAssetConfig": [<address>, <friendly config>]} (fields in declaration
-    # order). TESTNET-CONFIRM: the multi-field-tuple enum friendly shape.
-    local admin_op_json
-    admin_op_json=$(admin_op EditAssetConfig \
-        "$(jq -nc --arg a "$asset_address" '$a')" "$config")
-
-    local op_id
-    op_id=$(schedule_via_proposer \
-        edit_asset_config "$admin_op_json" "$args_json" true "$salt")
-    schedule_and_maybe_execute "$op_id"
-
-    echo "Asset config scheduled for ${market_name}."
-}
-
-# Push the JSON's `market_params` (rate model + max_utilization_ray +
+# Push the JSON's `market_params` (rate model + max_utilization +
 # reserve_factor) onto the pool via the controller's
 # `upgrade_liquidity_pool_params` route. Use after changing any
 # rate / utilization-ceiling field in the markets JSON.
@@ -1475,34 +2127,40 @@ update_market_params() {
         ".markets[] | select(.name == \"$market_name\") | .market_params" \
         "$MARKET_CONFIG_FILE")
 
-    # upgrade_liquidity_pool_params(asset, InterestRateModel) — Address + struct.
-    # The replay args_json stays explicit ScVal (Address + InterestRateModel map).
+    local hub_id
+    hub_id=$(get_market_value "$market_name" "hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
+    fi
+
+    # upgrade_liquidity_pool_params(hub_asset, InterestRateModel) — HubAssetKey +
+    # struct. The replay args_json stays explicit ScVal (HubAssetKey + IRM map).
     local args_json
     args_json=$(jq -nc \
-        --arg asset "$asset_address" \
+        --argjson hub_asset "$(scval_hub_asset "$asset_address" "$hub_id")" \
         --argjson params "$(scval_interest_rate_model "$params")" \
-        '[{address:$asset}, $params]')
+        '[$hub_asset, $params]')
     local salt
     salt=$(gen_salt "upgrade_liquidity_pool_params" "$args_json")
 
-    # The propose `--op` payload wraps asset + the friendly InterestRateModel (the
-    # 9 IRM fields only) in UpgradePoolParamsArgs.
+    # The propose `--op` payload wraps hub_asset + the friendly InterestRateModel
+    # (the 9 IRM fields only) in UpgradePoolParamsArgs.
     local irm_friendly
     irm_friendly=$(jq -nc --argjson p "$params" '{
-        base_borrow_rate_ray: ($p.base_borrow_rate_ray|tostring),
-        max_borrow_rate_ray: ($p.max_borrow_rate_ray|tostring),
-        max_utilization_ray: ($p.max_utilization_ray|tostring),
-        mid_utilization_ray: ($p.mid_utilization_ray|tostring),
-        optimal_utilization_ray: ($p.optimal_utilization_ray|tostring),
-        reserve_factor_bps: $p.reserve_factor_bps,
-        slope1_ray: ($p.slope1_ray|tostring),
-        slope2_ray: ($p.slope2_ray|tostring),
-        slope3_ray: ($p.slope3_ray|tostring)
+        base_borrow_rate: ($p.base_borrow_rate|tostring),
+        max_borrow_rate: ($p.max_borrow_rate|tostring),
+        max_utilization: ($p.max_utilization|tostring),
+        mid_utilization: ($p.mid_utilization|tostring),
+        optimal_utilization: ($p.optimal_utilization|tostring),
+        reserve_factor: $p.reserve_factor,
+        slope1: ($p.slope1|tostring),
+        slope2: ($p.slope2|tostring),
+        slope3: ($p.slope3|tostring)
     }')
     local admin_op_json
     admin_op_json=$(admin_op UpgradeLiquidityPoolParams \
-        "$(jq -nc --arg asset "$asset_address" --argjson params "$irm_friendly" \
-            '{asset:$asset, params:$params}')")
+        "$(jq -nc --argjson hub_id "$hub_id" --arg asset "$asset_address" --argjson params "$irm_friendly" \
+            '{hub_asset:{hub_id:$hub_id, asset:$asset}, params:$params}')")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1510,49 +2168,6 @@ update_market_params() {
     schedule_and_maybe_execute "$op_id"
 
     echo "Market params scheduled for ${market_name}."
-}
-
-# Push hub supply/borrow caps from `market_params` onto the central pool via
-# `update_pool_caps`. Use after changing supply_cap / borrow_cap in the JSON.
-update_pool_caps() {
-    local market_name=$1
-
-    echo "Updating hub pool caps for ${market_name}..."
-
-    local asset_address
-    asset_address=$(get_market_value "$market_name" "asset_address")
-    local supply_cap
-    supply_cap=$(get_market_value "$market_name" "market_params.supply_cap")
-    local borrow_cap
-    borrow_cap=$(get_market_value "$market_name" "market_params.borrow_cap")
-    supply_cap=${supply_cap:-0}
-    borrow_cap=${borrow_cap:-0}
-
-    echo "  Supply cap: ${supply_cap}  Borrow cap: ${borrow_cap}"
-
-    # update_pool_caps(asset, supply_cap, borrow_cap).
-    local args_json
-    args_json=$(jq -nc \
-        --arg asset "$asset_address" \
-        --arg supply_cap "$supply_cap" \
-        --arg borrow_cap "$borrow_cap" \
-        '[{address:$asset},{i128:$supply_cap},{i128:$borrow_cap}]')
-    local salt
-    salt=$(gen_salt "update_pool_caps" "$args_json")
-
-    # The propose `--op` payload wraps the three values in friendly PoolCapsArgs
-    # (caps as i128 decimal strings).
-    local admin_op_json
-    admin_op_json=$(admin_op UpdatePoolCaps \
-        "$(jq -nc --arg asset "$asset_address" --arg sc "$supply_cap" --arg bc "$borrow_cap" \
-            '{asset:$asset, supply_cap:$sc, borrow_cap:$bc}')")
-
-    local op_id
-    op_id=$(schedule_via_proposer \
-        update_pool_caps "$admin_op_json" "$args_json" true "$salt")
-    schedule_and_maybe_execute "$op_id"
-
-    echo "Hub pool caps scheduled for ${market_name}."
 }
 
 update_indexes() {
@@ -1569,8 +2184,10 @@ update_indexes() {
     local caller
     caller=$(get_signer_address)
     local assets_json
-    assets_json=$(build_asset_addresses_json "$@")
+    assets_json=$(build_hub_assets_json "$@")
 
+    # update_indexes takes Vec<HubAssetKey>; each asset is paired with its
+    # configured hub_id.
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- update_indexes \
         --caller "$caller" \
@@ -1580,7 +2197,7 @@ update_indexes() {
 }
 
 claim_revenue() {
-    # claim_revenue is REVENUE-role operational, not admin: it stays controller-direct.
+    # claim_revenue is operational, not admin: it stays controller-direct.
     if [ $# -eq 0 ]; then
         echo "Usage: $0 claimRevenue <market_name> [market_name...]" >&2
         list_markets >&2
@@ -1594,8 +2211,10 @@ claim_revenue() {
     local caller
     caller=$(get_signer_address)
     local assets_json
-    assets_json=$(build_asset_addresses_json "$@")
+    assets_json=$(build_hub_assets_json "$@")
 
+    # claim_revenue takes Vec<HubAssetKey>; each asset is paired with its
+    # configured hub_id.
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- claim_revenue \
         --caller "$caller" \
@@ -1605,10 +2224,10 @@ claim_revenue() {
 }
 
 claim_revenue_all() {
-    local assets_json
-    assets_json=$(all_configured_asset_addresses)
+    local hub_assets_json
+    hub_assets_json=$(all_configured_hub_assets)
 
-    if [ -z "$assets_json" ] || [ "$assets_json" = "[]" ]; then
+    if [ -z "$hub_assets_json" ] || [ "$hub_assets_json" = "[]" ]; then
         echo "No markets with asset_address configured in ${MARKET_CONFIG_FILE}" >&2
         exit 1
     fi
@@ -1620,10 +2239,12 @@ claim_revenue_all() {
     local caller
     caller=$(get_signer_address)
 
+    # claim_revenue takes Vec<HubAssetKey>; each asset is paired with its
+    # configured hub_id.
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- claim_revenue \
         --caller "$caller" \
-        --assets "$assets_json"
+        --assets "$hub_assets_json"
 
     echo "Revenue claimed for all markets."
 }
@@ -1755,22 +2376,27 @@ set_accumulator() {
 # ---------------------------------------------------------------------------
 
 # `supply` — deposit collateral.
-# Args: <market> <amount_raw> [<account_id:0>] [<e_mode_category:0>]
+# Args: <market> <amount_raw> [<account_id:0>] [<spoke_id:0>]
 supply_position() {
     local market=$1
     local amount_raw=$2
     local account_id=${3:-0}
-    local e_mode_category=${4:-0}
+    local spoke_id=${4:-0}
 
     local ctrl
     ctrl=$(get_controller)
     local caller=$SIGNER_ADDRESS
     local asset_addr
     asset_addr=$(get_market_value "$market" "asset_address")
+    local hub_id
+    hub_id=$(get_market_value "$market" "hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "market '${market}' missing hub_id"
+    fi
 
     echo "=== supply ==="
     echo "  Account:  $account_id  (0 = create new)"
-    echo "  E-mode:   $e_mode_category  (0 = none)"
+    echo "  Spoke:   $spoke_id  (0 = none)"
     echo "  Asset:    $market ($asset_addr)"
     echo "  Amount:   $amount_raw"
     echo
@@ -1780,8 +2406,8 @@ supply_position() {
         -- supply \
         --caller "$caller" \
         --account_id "$account_id" \
-        --e_mode_category "$e_mode_category" \
-        --assets "[[\"$asset_addr\", \"$amount_raw\"]]"
+        --spoke_id "$spoke_id" \
+        --assets "[[{\"hub_id\":$hub_id,\"asset\":\"$asset_addr\"}, \"$amount_raw\"]]"
 }
 
 # `borrow` — open a borrow position against existing collateral.
@@ -1796,6 +2422,11 @@ borrow_position() {
     local caller=$SIGNER_ADDRESS
     local asset_addr
     asset_addr=$(get_market_value "$market" "asset_address")
+    local hub_id
+    hub_id=$(get_market_value "$market" "hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "market '${market}' missing hub_id"
+    fi
 
     echo "=== borrow ==="
     echo "  Account: $account_id"
@@ -1808,7 +2439,40 @@ borrow_position() {
         -- borrow \
         --caller "$caller" \
         --account_id "$account_id" \
-        --borrows "[[\"$asset_addr\", \"$amount_raw\"]]"
+        --borrows "[[{\"hub_id\":$hub_id,\"asset\":\"$asset_addr\"}, \"$amount_raw\"]]" \
+        --to null
+}
+
+# `withdraw` — withdraw supplied collateral from an account.
+# Args: <market> <amount_raw> <account_id>   (amount 0 = withdraw all / close position)
+withdraw_position() {
+    local market=$1
+    local amount_raw=$2
+    local account_id=$3
+
+    local ctrl
+    ctrl=$(get_controller)
+    local caller=$SIGNER_ADDRESS
+    local asset_addr
+    asset_addr=$(get_market_value "$market" "asset_address")
+    local hub_id
+    hub_id=$(get_market_value "$market" "hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "market '${market}' missing hub_id"
+    fi
+
+    echo "=== withdraw ==="
+    echo "  Account: $account_id"
+    echo "  Asset:   $market ($asset_addr)"
+    echo "  Amount:  $amount_raw (0 = all)"
+    echo
+
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- withdraw \
+        --caller "$caller" \
+        --account_id "$account_id" \
+        --withdrawals "[[{\"hub_id\":$hub_id,\"asset\":\"$asset_addr\"}, \"$amount_raw\"]]" \
+        --to null
 }
 
 configure_market_oracle() {
@@ -1843,7 +2507,14 @@ configure_market_oracle() {
     fi
 
     local asset_address
-    asset_address=$(get_market_value "$market_name" "asset_address")
+    asset_address=$(require_market_address "$market_name")
+    # set_market_oracle_config keys by HubAssetKey (hub_id + asset) in the
+    # multi-hub ABI; the oracle op carries hub_asset, not a bare asset.
+    local hub_id
+    hub_id=$(get_market_value "$market_name" "hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
+    fi
     local cfg_file
     cfg_file=$(mktemp)
     jq -c --arg market "$market_name" '
@@ -1883,9 +2554,47 @@ configure_market_oracle() {
     rm -f "$cfg_file"
     local salt
     local salt_input
-    salt_input=$(jq -nc --argjson cfg "$cfg_json" --arg asset "$asset_address" \
-        '{asset:$asset, cfg:$cfg}')
+    salt_input=$(jq -nc --argjson cfg "$cfg_json" --arg asset "$asset_address" --argjson hub_id "$hub_id" \
+        '{hub_asset:{hub_id:$hub_id, asset:$asset}, cfg:$cfg}')
     salt=$(gen_salt "set_market_oracle_config" "$salt_input")
+    local resolve_args
+    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" --argjson hub_id "$hub_id" \
+        '{hub_id:$hub_id, asset:$asset, cfg:$cfg}')
+
+    # Idempotency pre-check: derive the scheduled (resolved) args now, compute
+    # the deterministic op id, and reuse an op that already exists on-chain
+    # instead of re-proposing (which the timelock rejects). A resolve failure
+    # falls through to propose, whose validation reports the authoritative error.
+    local ctrl resolved_args salt_use known_id state gen
+    ctrl=$(get_controller)
+    resolved_args=$(resolve_oracle_args_for resolve_market_oracle_config "$ctrl" \
+        set_market_oracle_config "$asset_address" "$hub_id" "$cfg_json" 2>/dev/null) || resolved_args=""
+    if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
+        read -r salt_use known_id state gen < <(probe_salt_generations "$ctrl" set_market_oracle_config "$resolved_args" "$salt")
+        case "$state" in
+            Ready|Waiting)
+                echo "Oracle config op ${known_id} for ${market_name} already ${state}; reusing it instead of re-proposing." >&2
+                write_oracle_op_record "$known_id" "set_market_oracle_config" \
+                    "resolve_market_oracle_config" "$resolve_args" "$salt_use"
+                schedule_and_maybe_execute "$known_id"
+                return 0
+                ;;
+            Exhausted)
+                die "configureMarketOracle ${market_name}: all ${MAX_SALT_GENERATIONS} salt generations already executed; re-run with a fresh SALT_NONCE=<n>"
+                ;;
+            Unset)
+                if [ "$gen" -gt 0 ]; then
+                    if [ "${REAPPLY_ON_DONE:-1}" != "1" ]; then
+                        echo "Oracle config for ${market_name} already executed with this exact config; skipping propose (converge mode)." >&2
+                        return 0
+                    fi
+                    echo "Oracle config for ${market_name} already executed with this exact config; RE-APPLYING as generation ${gen}." >&2
+                    salt=$salt_use
+                fi
+                ;;
+            *) ;;
+        esac
+    fi
 
     # Generic propose takes the typed AdminOperation. ConfigureMarketOracle wraps
     # ConfigureOracleArgs { asset, cfg: MarketOracleConfigInput }. cfg is the
@@ -1897,8 +2606,8 @@ configure_market_oracle() {
     # the resolve_market_oracle_config view (write_oracle_op_record below).
     local op_file
     op_file=$(mktemp)
-    jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" \
-        '{ConfigureMarketOracle: {asset:$asset, cfg:$cfg}}' > "$op_file"
+    jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" --argjson hub_id "$hub_id" \
+        '{ConfigureMarketOracle: {hub_asset:{hub_id:$hub_id, asset:$asset}, cfg:$cfg}}' > "$op_file"
 
     echo "Scheduling market oracle config for ${market_name}..." >&2
     local out
@@ -1916,9 +2625,6 @@ configure_market_oracle() {
         echo "ERROR: propose ConfigureMarketOracle returned no operation id (output: $out)" >&2
         exit 1
     fi
-    local resolve_args
-    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" \
-        '{asset:$asset, cfg:$cfg}')
     write_oracle_op_record "$op_id" "set_market_oracle_config" \
         "resolve_market_oracle_config" "$resolve_args" "$salt"
 
@@ -1931,10 +2637,9 @@ configure_market_oracle() {
 # OraclePriceFluctuation; executeOp re-derives it via resolve_oracle_tolerance.
 edit_oracle_tolerance() {
     local market_name=$1
-    local first=$2
-    local last=$3
-    if [ -z "$market_name" ] || [ -z "$first" ] || [ -z "$last" ]; then
-        echo "Usage: $0 editOracleTolerance <market> <first_tolerance_bps> <last_tolerance_bps>" >&2
+    local tolerance=$2
+    if [ -z "$market_name" ] || [ -z "$tolerance" ]; then
+        echo "Usage: $0 editOracleTolerance <market> <tolerance_bps>" >&2
         exit 1
     fi
 
@@ -1946,24 +2651,60 @@ edit_oracle_tolerance() {
     proposer=$(get_signer_address)
 
     local salt_input
-    salt_input=$(jq -nc --arg asset "$asset_address" --argjson f "$first" --argjson l "$last" \
-        '{asset:$asset, first:$f, last:$l}')
+    salt_input=$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
+        '{asset:$asset, tolerance:$t}')
     local salt
     salt=$(gen_salt "set_oracle_tolerance" "$salt_input")
+    local resolve_args
+    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
+        '{asset:$asset, tolerance:$t}')
+
+    # Idempotency pre-check (see configure_market_oracle): reuse an op that is
+    # already scheduled or executed instead of re-proposing.
+    local ctrl resolved_args salt_use known_id state gen
+    ctrl=$(get_controller)
+    resolved_args=$(resolve_oracle_args_for resolve_oracle_tolerance "$ctrl" \
+        set_oracle_tolerance "$asset_address" "" "$tolerance" 2>/dev/null) || resolved_args=""
+    if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
+        read -r salt_use known_id state gen < <(probe_salt_generations "$ctrl" set_oracle_tolerance "$resolved_args" "$salt")
+        case "$state" in
+            Ready|Waiting)
+                echo "Oracle tolerance op ${known_id} for ${market_name} already ${state}; reusing it instead of re-proposing." >&2
+                write_oracle_op_record "$known_id" "set_oracle_tolerance" \
+                    "resolve_oracle_tolerance" "$resolve_args" "$salt_use"
+                schedule_and_maybe_execute "$known_id"
+                return 0
+                ;;
+            Exhausted)
+                die "editOracleTolerance ${market_name}: all ${MAX_SALT_GENERATIONS} salt generations already executed; re-run with a fresh SALT_NONCE=<n>"
+                ;;
+            Unset)
+                if [ "$gen" -gt 0 ]; then
+                    if [ "${REAPPLY_ON_DONE:-1}" != "1" ]; then
+                        echo "Oracle tolerance for ${market_name} already executed with this exact value; skipping propose (converge mode)." >&2
+                        return 0
+                    fi
+                    echo "Oracle tolerance for ${market_name} already executed with this exact value; RE-APPLYING as generation ${gen}." >&2
+                    salt=$salt_use
+                fi
+                ;;
+            *) ;;
+        esac
+    fi
 
     # EditOracleTolerance wraps friendly EditToleranceArgs { asset,
-    # first_tolerance(u32), last_tolerance(u32) }. The `--op` payload carries the
-    # INPUT tolerances; the controller's RESOLVED OraclePriceFluctuation is
-    # re-derived at execute time via the resolve_oracle_tolerance block below.
+    # tolerance(u32) }. The `--op` payload carries the INPUT tolerance; the
+    # controller's RESOLVED OraclePriceFluctuation is re-derived at execute
+    # time via the resolve_oracle_tolerance block below.
     local admin_op_json
     admin_op_json=$(admin_op EditOracleTolerance \
-        "$(jq -nc --arg asset "$asset_address" --argjson f "$first" --argjson l "$last" \
-            '{asset:$asset, first_tolerance:$f, last_tolerance:$l}')")
+        "$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
+            '{asset:$asset, tolerance:$t}')")
     local op_file
     op_file=$(mktemp)
     printf '%s' "$admin_op_json" > "$op_file"
 
-    echo "Scheduling oracle tolerance edit for ${market_name} (first=${first} last=${last})..." >&2
+    echo "Scheduling oracle tolerance edit for ${market_name} (tolerance=${tolerance})..." >&2
     local out
     out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
@@ -1979,9 +2720,6 @@ edit_oracle_tolerance() {
         echo "ERROR: propose EditOracleTolerance returned no operation id (output: $out)" >&2
         exit 1
     fi
-    local resolve_args
-    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson f "$first" --argjson l "$last" \
-        '{asset:$asset, first_tolerance:$f, last_tolerance:$l}')
     write_oracle_op_record "$op_id" "set_oracle_tolerance" \
         "resolve_oracle_tolerance" "$resolve_args" "$salt"
 
@@ -1991,13 +2729,15 @@ edit_oracle_tolerance() {
 
 setup_all_markets() {
     echo "=== Setting up all markets for ${NETWORK} ==="
+    # Hubs must exist before any market is listed: create_liquidity_pool reverts
+    # HubNotActive for an uncreated hub (there is no implicit hub 0).
+    ensure_hubs
     local markets
     markets=$(jq -r '.markets[].name' "$MARKET_CONFIG_FILE")
 
     for market_name in $markets; do
         create_market "$market_name"
         configure_market_oracle "$market_name"
-        edit_asset_config "$market_name"
     done
     echo "=== All markets configured ==="
 }
@@ -2018,8 +2758,24 @@ require_market_address() {
     echo "$asset_address"
 }
 
+# Accept either a configured market name or a raw contract strkey. Admin verbs
+# that gate tokens (revokeToken, ...) take both so an incident response is not
+# blocked on the asset still being in the markets file.
+resolve_asset_arg() {
+    local v=$1
+    if printf '%s' "$v" | grep -qE '^C[A-Z2-7]{55}$'; then
+        echo "$v"
+        return 0
+    fi
+    require_market_address "$v"
+}
+
 all_configured_asset_addresses() {
     jq -c '[.markets[] | select(.asset_address != null and .asset_address != "") | .asset_address]' "$MARKET_CONFIG_FILE"
+}
+
+all_configured_hub_assets() {
+    jq -c '[.markets[] | select(.asset_address != null and .asset_address != "") | {hub_id, asset: .asset_address}]' "$MARKET_CONFIG_FILE"
 }
 
 # ---------------------------------------------------------------------------
@@ -2080,7 +2836,8 @@ schedule_upgrade_governance() {
     salt=$(gen_salt "governance_upgrade" "$(jq -nc --arg h "$hash" '{hash:$h}')")
     local op_id
     op_id=$(schedule_via_gov_self_proposer \
-        upgrade_gov "$(admin_op UpgradeGov "$(jq -nc --arg h "$hash" '$h')")" "$salt")
+        upgrade_gov "$(admin_op UpgradeGov "$(jq -nc --arg h "$hash" '$h')")" "$salt" \
+        upgrade "$(jq -nc --arg h "$hash" '[{bytes:$h}]')")
     schedule_and_maybe_execute "$op_id"
     echo "Governance upgrade scheduled (hash ${hash})."
 }
@@ -2095,7 +2852,8 @@ schedule_update_delay() {
     salt=$(gen_salt "update_delay" "$(jq -nc --argjson d "$new_delay" '{delay:$d}')")
     local op_id
     op_id=$(schedule_via_gov_self_proposer \
-        update_gov_delay "$(admin_op UpdateGovDelay "$(jq -nc --argjson d "$new_delay" '$d')")" "$salt")
+        update_gov_delay "$(admin_op UpdateGovDelay "$(jq -nc --argjson d "$new_delay" '$d')")" "$salt" \
+        update_delay "$(jq -nc --argjson d "$new_delay" '[{u32:$d}]')")
     schedule_and_maybe_execute "$op_id"
     echo "Governance min-delay update scheduled (${new_delay} ledgers)."
 }
@@ -2114,7 +2872,8 @@ schedule_transfer_gov_ownership() {
         transfer_gov_ownership \
         "$(admin_op TransferGovOwnership "$(jq -nc --arg o "$new_owner" --argjson l "$live_until" \
             '{new_owner:$o, live_until_ledger:$l}')")" \
-        "$salt")
+        "$salt" \
+        transfer_ownership "$(jq -nc --arg o "$new_owner" --argjson l "$live_until" '[{address:$o},{u32:$l}]')")
     schedule_and_maybe_execute "$op_id"
     echo "Governance ownership transfer scheduled to ${new_owner}."
 }
@@ -2125,17 +2884,27 @@ schedule_deploy_pool() {
     local args_json="[]"
     local salt
     salt=$(gen_salt "deploy_pool" "$args_json")
+    # "never": re-executing deploy_pool would deploy a second central pool.
     local op_id
     op_id=$(schedule_via_proposer \
-        deploy_pool "$(admin_op DeployPool)" "$args_json" true "$salt")
+        deploy_pool "$(admin_op DeployPool)" "$args_json" true "$salt" never)
     if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
         echo "Scheduled deploy_pool as op ${op_id} (AUTO_EXECUTE=0)." >&2
         echo "$op_id"
         return 0
     fi
+    if [ "$(op_state "$op_id")" = "Done" ]; then
+        die "deploy_pool op ${op_id} already executed; its returned address cannot be re-read. Record the pool address in ${NETWORKS_FILE} manually."
+    fi
     await_op_ready "$op_id"
-    local result
-    result=$(execute_op "$op_id" 2>/dev/null)
+    local result errf
+    errf=$(mktemp)
+    result=$(execute_op "$op_id" 2>"$errf") || {
+        cat "$errf" >&2
+        rm -f "$errf"
+        die "execute of deploy_pool op ${op_id} failed"
+    }
+    rm -f "$errf"
     local pool
     pool=$(printf '%s' "$result" | tail -n1 | tr -d '"' | tr -d '[:space:]')
     if [ -z "$pool" ]; then
@@ -2178,6 +2947,28 @@ pause_protocol() {
 unpause_protocol() {
     local gov
     gov=$(get_governance)
+    # Mainnet safety floor: never take the protocol live while the timelock delay
+    # is below the configured production floor. A bootstrap deploy may run its
+    # market/spoke config at a short DEPLOY_MIN_DELAY while the controller is
+    # still paused; unpausing stays blocked until the delay has been raised to
+    # timelock_min_delay_ledgers (e.g. `make mainnet updateDelay <floor>`). This
+    # closes the window where a live mainnet could be governed by a near-zero
+    # timelock if the operator forgot or automation stopped after setup.
+    if [ "$NETWORK" = "mainnet" ]; then
+        local floor current
+        floor=$(jq -r '.["mainnet"].timelock_min_delay_ledgers // empty' "$NETWORKS_FILE")
+        if [ -z "$floor" ] || [ "$floor" = "null" ]; then
+            echo "Refusing to unpause mainnet: timelock_min_delay_ledgers is not configured in networks.json." >&2
+            return 1
+        fi
+        current=$(min_delay_ledgers)
+        if [ "$current" -lt "$floor" ]; then
+            echo "Refusing to unpause mainnet: on-chain timelock delay ${current} < production floor ${floor} ledgers." >&2
+            echo "Raise it first, then unpause:  make mainnet updateDelay ${floor}" >&2
+            return 1
+        fi
+        echo "Mainnet timelock delay ${current} >= floor ${floor}: unpause permitted."
+    fi
     stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- unpause
     echo "Protocol unpaused on ${NETWORK}."
 }
@@ -2198,6 +2989,170 @@ disable_token_oracle_cmd() {
         "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "disable_token_oracle scheduled for ${asset}."
+}
+
+# ---------------------------------------------------------------------------
+# Remaining AdminOperation verbs (incident response + controller admin).
+# Each schedules through the generic proposer; args mirror governance op.rs's
+# resolve_op mapping so the recorded replay args match byte-for-byte.
+# ---------------------------------------------------------------------------
+
+# Schedule a single-Address controller op (shared shape for revoke/approve-style
+# verbs): $1 variant, $2 controller_fn, $3 address.
+schedule_address_op() {
+    local variant=$1
+    local controller_fn=$2
+    local addr=$3
+    local args_json
+    args_json=$(jq -nc --arg a "$addr" '[{address:$a}]')
+    local salt
+    salt=$(gen_salt "$controller_fn" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        "$controller_fn" "$(admin_op "$variant" "$(jq -nc --arg a "$addr" '$a')")" \
+        "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "${controller_fn} scheduled for ${addr}."
+}
+
+revoke_token_cmd() {
+    schedule_address_op RevokeToken revoke_token "$(resolve_asset_arg "$1")"
+}
+
+approve_token_cmd() {
+    schedule_address_op ApproveToken approve_token "$(resolve_asset_arg "$1")"
+}
+
+revoke_blend_pool_cmd() {
+    schedule_address_op RevokeBlendPool revoke_blend_pool "$1"
+}
+
+remove_spoke_cmd() {
+    local spoke_id=$1
+    local args_json
+    args_json=$(jq -nc --argjson id "$spoke_id" '[{u32:$id}]')
+    local salt
+    salt=$(gen_salt "remove_spoke" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        remove_spoke "$(admin_op RemoveSpoke "$(jq -nc --argjson id "$spoke_id" '$id')")" \
+        "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "remove_spoke scheduled for spoke ${spoke_id}."
+}
+
+remove_asset_from_spoke_cmd() {
+    local spoke_id=$1
+    local market_name=$2
+    local asset_address
+    asset_address=$(require_market_address "$market_name")
+    local hub_id
+    hub_id=$(get_market_value "$market_name" "hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
+    fi
+    # remove_asset_from_spoke(hub_asset, spoke_id) per governance op.rs.
+    local args_json
+    args_json=$(jq -nc \
+        --argjson hub_asset "$(scval_hub_asset "$asset_address" "$hub_id")" \
+        --argjson spoke "$spoke_id" \
+        '[$hub_asset, {u32:$spoke}]')
+    local salt
+    salt=$(gen_salt "remove_asset_from_spoke" "$args_json")
+    local admin_op_json
+    admin_op_json=$(admin_op RemoveAssetFromSpoke \
+        "$(jq -nc --argjson hub_id "$hub_id" --arg asset "$asset_address" --argjson spoke "$spoke_id" \
+            '{hub_asset:{hub_id:$hub_id, asset:$asset}, spoke_id:$spoke}')")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        remove_asset_from_spoke "$admin_op_json" "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "remove_asset_from_spoke scheduled for ${market_name} in spoke ${spoke_id}."
+}
+
+set_position_limits_cmd() {
+    local max_supply=$1
+    local max_borrow=$2
+    local friendly
+    friendly=$(jq -nc --argjson s "$max_supply" --argjson b "$max_borrow" \
+        '{max_supply_positions:$s, max_borrow_positions:$b}')
+    local args_json
+    args_json=$(jq -nc --argjson l "$(scval_position_limits "$friendly")" '[$l]')
+    local salt
+    salt=$(gen_salt "set_position_limits" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        set_position_limits "$(admin_op SetPositionLimits "$friendly")" \
+        "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "set_position_limits scheduled (supply ${max_supply}, borrow ${max_borrow})."
+}
+
+set_min_borrow_collateral_cmd() {
+    local floor_wad=$1
+    local args_json
+    args_json=$(jq -nc --arg v "$floor_wad" '[{i128:$v}]')
+    local salt
+    salt=$(gen_salt "set_min_borrow_collateral_usd" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        set_min_borrow_collateral_usd \
+        "$(admin_op SetMinBorrowCollateralUsd "$(jq -nc --arg v "$floor_wad" '$v')")" \
+        "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "set_min_borrow_collateral_usd scheduled (${floor_wad} WAD)."
+}
+
+set_position_manager_cmd() {
+    local manager=$1
+    local is_active=$2
+    case "$is_active" in
+        true|false) ;;
+        *) die "setPositionManager: second arg must be true or false (got '${is_active}')" ;;
+    esac
+    local args_json
+    args_json=$(jq -nc --arg a "$manager" --argjson b "$is_active" '[{address:$a},{bool:$b}]')
+    local salt
+    salt=$(gen_salt "set_position_manager" "$args_json")
+    # Multi-field tuple variant: payload is the field array.
+    local op_id
+    op_id=$(schedule_via_proposer \
+        set_position_manager \
+        "$(admin_op SetPositionManager "$(jq -nc --arg a "$manager" '$a')" "$(jq -nc --argjson b "$is_active" '$b')")" \
+        "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "set_position_manager scheduled (${manager} -> ${is_active})."
+}
+
+transfer_ctrl_ownership_cmd() {
+    local new_owner=$1
+    local live_until=$2
+    local args_json
+    args_json=$(jq -nc --arg o "$new_owner" --argjson l "$live_until" '[{address:$o},{u32:$l}]')
+    local salt
+    salt=$(gen_salt "transfer_ctrl_ownership" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        transfer_ownership \
+        "$(admin_op TransferCtrlOwnership "$(jq -nc --arg o "$new_owner" --argjson l "$live_until" \
+            '{new_owner:$o, live_until_ledger:$l}')")" \
+        "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "Controller ownership transfer scheduled to ${new_owner}."
+}
+
+migrate_controller_cmd() {
+    local version=$1
+    local args_json
+    args_json=$(jq -nc --argjson v "$version" '[{u32:$v}]')
+    local salt
+    salt=$(gen_salt "migrate" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        migrate "$(admin_op MigrateController "$(jq -nc --argjson v "$version" '$v')")" \
+        "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "Controller migrate scheduled (version ${version})."
 }
 
 validate_governance_role() {
@@ -2222,7 +3177,8 @@ grant_gov_role_cmd() {
     op_id=$(schedule_via_gov_self_proposer \
         grant_gov_role \
         "$(admin_op GrantGovRole "$(jq -nc --arg a "$account" --arg r "$role" '{account:$a, role:$r}')")" \
-        "$salt")
+        "$salt" \
+        grant_role "$(jq -nc --arg a "$account" --arg r "$role" '[{address:$a},{symbol:$r}]')")
     schedule_and_maybe_execute "$op_id"
     echo "Governance role ${role} grant scheduled for ${account}."
 }
@@ -2237,7 +3193,8 @@ revoke_gov_role_cmd() {
     op_id=$(schedule_via_gov_self_proposer \
         revoke_gov_role \
         "$(admin_op RevokeGovRole "$(jq -nc --arg a "$account" --arg r "$role" '{account:$a, role:$r}')")" \
-        "$salt")
+        "$salt" \
+        revoke_role "$(jq -nc --arg a "$account" --arg r "$role" '[{address:$a},{symbol:$r}]')")
     schedule_and_maybe_execute "$op_id"
     echo "Governance role ${role} revoke scheduled for ${account}."
 }
@@ -2265,11 +3222,19 @@ show_info() {
     echo "Signer:     $(get_signer_address)"
     echo "Governance: ${gov_alias} (controller owner; all admin ops route through it)"
     echo "Controller: ${ctrl_alias}"
-    echo "Aggregator: ${agg_alias}"
-    echo "Configured Aggregator: $(get_aggregator_address 2>/dev/null || echo 'not set (set networks.json or AGGREGATOR_CONTRACT)')"
-    echo "Configured Accumulator: $(get_accumulator_address 2>/dev/null || echo 'not set (required for claimRevenue)')"
+    echo "Pool:       $(get_pool)"
+    # NOT chain-verified: the controller stores its aggregator/accumulator/
+    # position-limits/hub-active flags without a view function, so these are
+    # inference from the local CLI alias + networks.json, not on-chain reads.
+    # They can silently diverge from what governance actually last set.
+    echo "Aggregator (local alias, NOT chain-verified): ${agg_alias}"
+    echo "Aggregator (networks.json, NOT chain-verified): $(get_aggregator_address 2>/dev/null || echo 'not set (set networks.json or AGGREGATOR_CONTRACT)')"
+    echo "Accumulator (networks.json, NOT chain-verified): $(get_accumulator_address 2>/dev/null || echo 'not set (required for claimRevenue)')"
+    echo "  NOTE: controller has no get_aggregator/get_accumulator/get_position_limits/get_hub"
+    echo "  view, and neither controller nor governance exposes is_paused. The lines above"
+    echo "  and 'listHubs'/'checkDelay' read local config, not chain truth, for those fields."
     echo "Pool WASM Hash: $(get_network_value "pool_wasm_hash")"
-    echo "E-Mode ID Map: $(jq -c --arg network "$NETWORK" '.[$network].emode_category_ids // {}' "$NETWORKS_FILE")"
+    echo "Spoke ID Map: $(jq -c --arg network "$NETWORK" '.[$network].spoke_ids // {}' "$NETWORKS_FILE")"
     echo "Reflector CEX: $(get_cex_oracle)"
     echo "Reflector DEX: $(get_dex_oracle)"
     echo "Reflector FX:  $(get_fx_oracle)"
@@ -2282,6 +3247,61 @@ show_info() {
     echo "RedStone feed registry: $(jq -r --arg network "$NETWORK" '(.[$network].redstone_feeds // {}) | keys | length' "$NETWORKS_FILE") per-feed contract(s)"
 }
 
+# Compare the LIVE governance min-delay against the configured production value.
+# Catches the classic bootstrap footgun: deploying with DEPLOY_MIN_DELAY=1 and
+# forgetting to raise the delay afterwards.
+check_delay() {
+    local live cfg
+    live=$(min_delay_ledgers)
+    cfg=$(get_network_value "timelock_min_delay_ledgers")
+    echo "Timelock min delay: live=${live} ledgers, configured target=${cfg} ledgers" >&2
+    if [ -n "$cfg" ] && [ "$cfg" != "null" ] && [ "$live" -lt "$cfg" ] 2>/dev/null; then
+        cat >&2 <<EOF
+################################################################################
+# WARNING: the LIVE timelock min-delay (${live} ledgers) is BELOW the configured
+# production value (${cfg} ledgers). If this deploy is past bootstrap, raise it
+# now (increase-only):
+#     make ${NETWORK} updateDelay ${cfg}
+################################################################################
+EOF
+    fi
+    return 0
+}
+
+# Hubs referenced by the market config, with their on-chain mapping state.
+list_hubs() {
+    echo "Hubs (${NETWORK}) referenced by ${MARKET_CONFIG_FILE}:"
+    echo "  NOTE: the controller has no get_hub view; this reads the LOCAL id map in"
+    echo "  networks.json, not the on-chain HubConfig.is_active flag." >&2
+    local h mapped
+    for h in $(jq -r '[.markets[].hub_id] | map(select(. != null)) | unique | .[]' "$MARKET_CONFIG_FILE"); do
+        mapped=$(get_mapped_hub_id "$h")
+        if [ -n "$mapped" ] && [ "$mapped" != "null" ]; then
+            echo "  hub ${h} -> on-chain ${mapped}"
+        else
+            echo "  hub ${h} -> not created (created on first createMarket/setupAllMarkets)"
+        fi
+    done
+}
+
+# Per-market oracle wiring as configured in the markets JSON. The stored
+# on-chain config is write-only (no view), so the JSON is the source of truth
+# for wiring; use getPrice/getOracle for live price components.
+list_oracles() {
+    echo "=== Configured market oracles (${NETWORK}) ===" >&2
+    local m src anchor
+    for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
+        jq -r --arg m "$m" 'first(.markets[] | select(.name == $m)) |
+            "\(.name) (hub \(.hub_id // "?")): strategy=\(.oracle.strategy // "?") stale=\(.oracle.max_price_stale_seconds // "?")s tolerance=\(.oracle.tolerance_bps // "?")bps sanity=[\(.oracle.min_sanity_price_wad // "?") .. \(.oracle.max_sanity_price_wad // "?")]"' \
+            "$MARKET_CONFIG_FILE" >&2
+        src=$(jq -c --arg m "$m" 'first(.markets[] | select(.name == $m)) | .oracle.primary // null' "$MARKET_CONFIG_FILE")
+        anchor=$(jq -c --arg m "$m" 'first(.markets[] | select(.name == $m)) | .oracle.anchor |
+            if type == "object" and .tag == "Some" then .values[0] else null end' "$MARKET_CONFIG_FILE")
+        describe_oracle_source "  primary" "$src"
+        describe_oracle_source "  anchor " "$anchor"
+    done
+}
+
 # ---------------------------------------------------------------------------
 # Market-level views
 # ---------------------------------------------------------------------------
@@ -2290,55 +3310,179 @@ get_price() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_assets
+    hub_assets=$(build_hub_assets_json "$market_name")
     local ctrl
     ctrl=$(get_controller)
     echo "=== Price for ${market_name} (${asset_address}) ===" >&2
-    invoke_view "$ctrl" get_market_indexes_detailed --assets "[\"$asset_address\"]"
+    invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$hub_assets"
 }
 
 get_market_config_view_cmd() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     local ctrl
     ctrl=$(get_controller)
-    echo "=== Market config for ${market_name} (${asset_address}) ===" >&2
-    invoke_view "$ctrl" get_market_config --asset "$asset_address"
+    # get_market_config was removed; the asset's base spoke-0 listing
+    # (SpokeAssetConfig) is the per-asset config read-back.
+    echo "=== Market config (base spoke 0) for ${market_name} (${asset_address}) ===" >&2
+    invoke_view "$ctrl" get_spoke_asset --spoke_id 0 --hub_asset "$hub_asset"
 }
 
 get_index_cmd() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_assets
+    hub_assets=$(build_hub_assets_json "$market_name")
     local ctrl
     ctrl=$(get_controller)
     echo "=== Index for ${market_name} (${asset_address}) ===" >&2
-    invoke_view "$ctrl" get_market_indexes_detailed --assets "[\"$asset_address\"]"
+    invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$hub_assets"
 }
 
-get_emode_cmd() {
+get_spoke_cmd() {
     local cat_id=$1
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" get_e_mode_category --category_id "$cat_id"
+    invoke_view "$ctrl" get_spoke --spoke_id "$cat_id"
 }
 
 get_all_markets_cmd() {
     local assets_json
-    assets_json=$(all_configured_asset_addresses)
+    assets_json=$(all_configured_hub_assets)
     local ctrl
     ctrl=$(get_controller)
     echo "=== All markets (${NETWORK}) ===" >&2
-    invoke_view "$ctrl" get_markets_detailed --assets "$assets_json"
+    invoke_view "$ctrl" get_markets_detailed --hub_assets "$assets_json"
 }
 
 get_all_indexes_cmd() {
     local assets_json
-    assets_json=$(all_configured_asset_addresses)
+    assets_json=$(all_configured_hub_assets)
     local ctrl
     ctrl=$(get_controller)
     echo "=== All market indexes (${NETWORK}) ===" >&2
-    invoke_view "$ctrl" get_market_indexes_detailed --assets "$assets_json"
+    invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$assets_json"
+}
+
+# Live per-spoke-per-asset config for ANY spoke id (getMarket only reads the
+# base spoke-0 listing). This is the "spoke usage/config" read the operator
+# actually wants when checking a real spoke's live LTV/threshold/caps/paused.
+get_spoke_asset_cmd() {
+    local spoke_id=$1
+    local market_name=$2
+    require_market_address "$market_name" >/dev/null
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
+    local ctrl
+    ctrl=$(get_controller)
+    echo "=== Spoke ${spoke_id} config for ${market_name} ===" >&2
+    invoke_view "$ctrl" get_spoke_asset --spoke_id "$spoke_id" --hub_asset "$hub_asset"
+}
+
+get_min_borrow_collateral_cmd() {
+    local ctrl
+    ctrl=$(get_controller)
+    invoke_view "$ctrl" get_min_borrow_collateral_usd
+}
+
+account_exists_cmd() {
+    local account_id=$1
+    local ctrl
+    ctrl=$(get_controller)
+    invoke_view "$ctrl" account_exists --account_id "$account_id"
+}
+
+is_blend_pool_approved_cmd() {
+    local pool=$1
+    local ctrl
+    ctrl=$(get_controller)
+    invoke_view "$ctrl" is_blend_pool_approved --pool "$pool"
+}
+
+# Largest withdraw/supply/borrow currently executable for the account (0 while
+# paused or gated by caps/LTV/HF — useful for sizing before a write).
+max_withdraw_cmd() {
+    local account_id=$1 market_name=$2
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
+    invoke_view "$(get_controller)" max_withdraw --account_id "$account_id" --hub_asset "$hub_asset"
+}
+
+max_supply_cmd() {
+    local account_id=$1 market_name=$2
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
+    invoke_view "$(get_controller)" max_supply --account_id "$account_id" --hub_asset "$hub_asset"
+}
+
+max_borrow_cmd() {
+    local account_id=$1 market_name=$2
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
+    invoke_view "$(get_controller)" max_borrow --account_id "$account_id" --hub_asset "$hub_asset"
+}
+
+# Estimate seize/repay/refund/bonus for a planned liquidation. debt_payments
+# are market/amount pairs (same [[{hub_id,asset},"amount"], ...] tuple-vec
+# shape as supply/borrow/withdraw); omit to estimate with no explicit payment.
+get_liquidation_estimate_cmd() {
+    local account_id=$1; shift
+    local payments_json="[]"
+    if [ "$#" -gt 0 ]; then
+        local first=1
+        payments_json="["
+        while [ "$#" -ge 2 ]; do
+            local market=$1 amount=$2; shift 2
+            local hub_id asset_addr
+            hub_id=$(get_market_value "$market" "hub_id")
+            asset_addr=$(get_market_value "$market" "asset_address")
+            if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+                die "market '${market}' missing hub_id"
+            fi
+            [ "$first" -eq 0 ] && payments_json+=","
+            payments_json+="[{\"hub_id\":$hub_id,\"asset\":\"$asset_addr\"}, \"$amount\"]"
+            first=0
+        done
+        payments_json+="]"
+    fi
+    invoke_view "$(get_controller)" get_liquidation_estimate \
+        --account_id "$account_id" --debt_payments "$payments_json"
+}
+
+# ---------------------------------------------------------------------------
+# Pool-level views (hub utilization / reserves / rates / revenue).
+#
+# The central pool holds liquidity at HUB scope, not per-spoke — spokes are a
+# risk-config layer over shared hub liquidity, so there is no separate
+# per-spoke supplied/borrowed figure to read. These are the "usage" numbers.
+# ---------------------------------------------------------------------------
+
+pool_view_for_market() {
+    local fn=$1 market_name=$2
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
+    invoke_view "$(get_pool)" "$fn" --hub_asset "$hub_asset"
+}
+
+get_utilisation_cmd()  { pool_view_for_market get_utilisation "$1"; }
+get_reserves_cmd()     { pool_view_for_market get_reserves "$1"; }
+get_supplied_cmd()     { pool_view_for_market get_supplied_amount "$1"; }
+get_borrowed_cmd()     { pool_view_for_market get_borrowed_amount "$1"; }
+get_deposit_rate_cmd() { pool_view_for_market get_deposit_rate "$1"; }
+get_borrow_rate_cmd()  { pool_view_for_market get_borrow_rate "$1"; }
+get_revenue_cmd()      { pool_view_for_market get_revenue "$1"; }
+get_sync_data_cmd()    { pool_view_for_market get_sync_data "$1"; }
+
+get_bulk_indexes_cmd() {
+    local assets_json
+    assets_json=$(all_configured_hub_assets)
+    echo "=== Pool bulk indexes (${NETWORK}) ===" >&2
+    invoke_view "$(get_pool)" get_bulk_indexes --hub_assets "$assets_json"
 }
 
 # ---------------------------------------------------------------------------
@@ -2402,9 +3546,11 @@ get_collateral_cmd() {
     local market_name=$2
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" get_collateral_amount --account_id "$account_id" --asset "$asset_address"
+    invoke_view "$ctrl" get_collateral_amount --account_id "$account_id" --hub_asset "$hub_asset"
 }
 
 get_borrow_cmd() {
@@ -2412,9 +3558,11 @@ get_borrow_cmd() {
     local market_name=$2
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_asset
+    hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" get_borrow_amount --account_id "$account_id" --asset "$asset_address"
+    invoke_view "$ctrl" get_borrow_amount --account_id "$account_id" --hub_asset "$hub_asset"
 }
 
 # ---------------------------------------------------------------------------
@@ -2569,34 +3717,22 @@ describe_oracle_source() {
     esac
 }
 
-# Compound view: reads a market's stored Oracle V2 config and prints the
-# provider-agnostic primary/anchor wiring.
+# Live price components for a market. The raw stored Oracle V2 config is no
+# longer view-exposed (set_market_oracle_config is write-only; get_market_config
+# was removed), so this prints the controller's resolved/safe/aggregator prices
+# via get_market_indexes_detailed instead of the provider wiring.
 get_oracle_cmd() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local hub_assets
+    hub_assets=$(build_hub_assets_json "$market_name")
     local ctrl
     ctrl=$(get_controller)
 
-    local mc_json
-    mc_json=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
-        --send=no -- get_market_config --asset "$asset_address")
-
-    local oracle_json primary_json anchor_json anchor_tag anchor_value
-    oracle_json=$(printf '%s' "$mc_json" | jq -c '.oracle_config // .')
-    primary_json=$(printf '%s' "$oracle_json" | jq -c '.primary')
-    anchor_json=$(printf '%s' "$oracle_json" | jq -c '.anchor // null')
-    anchor_tag=$(printf '%s' "$anchor_json" | oracle_union_tag 2>/dev/null || echo "None")
-
-    echo "=== Oracle V2 config for ${market_name} (${asset_address}) ===" >&2
-    printf '%s\n' "$oracle_json" | jq .
-    describe_oracle_source "primary" "$primary_json"
-    if [ "$anchor_tag" = "Some" ]; then
-        anchor_value=$(printf '%s' "$anchor_json" | oracle_union_value)
-        describe_oracle_source "anchor" "$anchor_value"
-    else
-        echo "[anchor] not configured" >&2
-    fi
+    echo "=== Oracle price components for ${market_name} (${asset_address}) ===" >&2
+    echo "Note: the raw stored oracle config is no longer a readable view; showing live price components." >&2
+    invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$hub_assets"
 }
 
 get_reflector_cmd() {
@@ -2612,44 +3748,144 @@ case "$1" in
     "listMarkets")
         list_markets
         ;;
-    "listEModeCategories")
-        list_emode_categories
+    "listSpokes")
+        list_spokes
         ;;
-    "addEModeCategory")
+    "addSpoke")
         if [ -z "$2" ]; then
-            echo "Usage: $0 addEModeCategory <category_id>"
-            list_emode_categories
+            echo "Usage: $0 addSpoke <category_id>"
+            list_spokes
             exit 1
         fi
-        add_emode_category "$2"
+        add_spoke "$2"
         ;;
-    "addAssetToEMode")
+    "addAssetToSpoke")
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 addAssetToEMode <category_id> <asset_name>"
-            list_emode_categories
+            echo "Usage: $0 addAssetToSpoke <category_id> <asset_name>"
+            list_spokes
             exit 1
         fi
-        add_asset_to_emode "$2" "$3"
+        add_asset_to_spoke "$2" "$3"
         ;;
-    "setupAllEModes")
-        setup_all_emodes
+    "editAssetInSpoke")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 editAssetInSpoke <category_id> <asset_name>"
+            list_spokes
+            exit 1
+        fi
+        edit_asset_in_spoke "$2" "$3"
+        ;;
+    "setupAllSpokes")
+        # Converge mode: bulk setup treats Done ops as applied. Drift-proven
+        # ensure_asset_in_spoke calls re-enable re-apply per call.
+        export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
+        validate_configs
+        setup_all_spokes
+        ;;
+    "validateConfigs")
+        validate_configs
+        ;;
+    "listOps")
+        list_ops
+        ;;
+    "executeReady")
+        execute_ready_ops
+        ;;
+    "checkDelay")
+        check_delay
+        ;;
+    "listHubs")
+        list_hubs
+        ;;
+    "listOracles")
+        list_oracles
+        ;;
+    "createHub")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 createHub <hub_id>" >&2
+            exit 1
+        fi
+        ensure_hub "$2"
+        ;;
+    "removeSpoke")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 removeSpoke <spoke_id>" >&2
+            exit 1
+        fi
+        remove_spoke_cmd "$2"
+        ;;
+    "removeAssetFromSpoke")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 removeAssetFromSpoke <spoke_id> <market>" >&2
+            exit 1
+        fi
+        remove_asset_from_spoke_cmd "$2" "$3"
+        ;;
+    "approveToken")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 approveToken <market_or_contract_id>" >&2
+            exit 1
+        fi
+        approve_token_cmd "$2"
+        ;;
+    "revokeToken")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 revokeToken <market_or_contract_id>" >&2
+            exit 1
+        fi
+        revoke_token_cmd "$2"
+        ;;
+    "revokeBlendPool")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 revokeBlendPool <pool_contract_id>" >&2
+            exit 1
+        fi
+        revoke_blend_pool_cmd "$2"
+        ;;
+    "setPositionLimits")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 setPositionLimits <max_supply_positions> <max_borrow_positions>" >&2
+            exit 1
+        fi
+        set_position_limits_cmd "$2" "$3"
+        ;;
+    "setMinBorrowCollateralUsd")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 setMinBorrowCollateralUsd <floor_wad>" >&2
+            exit 1
+        fi
+        set_min_borrow_collateral_cmd "$2"
+        ;;
+    "setPositionManager")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 setPositionManager <manager_address> <true|false>" >&2
+            exit 1
+        fi
+        set_position_manager_cmd "$2" "$3"
+        ;;
+    "transferCtrlOwnership")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 transferCtrlOwnership <new_owner> <live_until_ledger>" >&2
+            exit 1
+        fi
+        transfer_ctrl_ownership_cmd "$2" "$3"
+        ;;
+    "migrateController")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 migrateController <version>" >&2
+            exit 1
+        fi
+        migrate_controller_cmd "$2"
         ;;
     "createMarket")
-        if [ -z "$2" ]; then
-            echo "Usage: $0 createMarket <market_name>"
-            list_markets
-            exit 1
-        fi
-        create_market "$2"
-        ;;
-    "editAssetConfig")
-        if [ -z "$2" ]; then
-            echo "Usage: $0 editAssetConfig <market_name>"
-            list_markets
-            exit 1
-        fi
-        edit_asset_config "$2"
-        ;;
+    if [ -z "$2" ]; then
+        echo "Usage: $0 createMarket <market_name>"
+        list_markets
+        exit 1
+    fi
+    ensure_hub "$(get_market_value "$2" "hub_id")"
+    create_market "$2"
+    ;;
     "updateMarketParams")
         if [ -z "$2" ]; then
             echo "Usage: $0 updateMarketParams <market_name>"
@@ -2657,14 +3893,6 @@ case "$1" in
             exit 1
         fi
         update_market_params "$2"
-        ;;
-    "updatePoolCaps")
-        if [ -z "$2" ]; then
-            echo "Usage: $0 updatePoolCaps <market_name>"
-            list_markets
-            exit 1
-        fi
-        update_pool_caps "$2"
         ;;
     "configureMarketOracle")
         if [ -z "$2" ]; then
@@ -2675,12 +3903,12 @@ case "$1" in
         configure_market_oracle "$2"
         ;;
     "editOracleTolerance")
-        if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
-            echo "Usage: $0 editOracleTolerance <market> <first_tolerance_bps> <last_tolerance_bps>"
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 editOracleTolerance <market> <tolerance_bps>"
             list_markets
             exit 1
         fi
-        edit_oracle_tolerance "$2" "$3" "$4"
+        edit_oracle_tolerance "$2" "$3"
         ;;
     "updateIndexes")
         if [ -z "$2" ]; then
@@ -2704,14 +3932,21 @@ case "$1" in
         claim_revenue_all
         ;;
     "setupAllMarkets")
+        export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
+        validate_configs
         setup_all_markets
         ;;
     "setupAll")
+        export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
+        validate_configs
         setup_all_markets
-        setup_all_emodes
+        setup_all_spokes
         echo "=== Full setup complete ==="
         ;;
     "whitelistBlendPools")
+        whitelist_blend_pools
+        ;;
+    "approveBlendPools")
         whitelist_blend_pools
         ;;
     "setAggregator")
@@ -2722,7 +3957,7 @@ case "$1" in
         ;;
     "supply")
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 supply <market> <amount_raw> [<account_id:0>] [<e_mode_category:0>]" >&2
+            echo "Usage: $0 supply <market> <amount_raw> [<account_id:0>] [<spoke_id:0>]" >&2
             list_markets >&2
             exit 1
         fi
@@ -2734,6 +3969,13 @@ case "$1" in
             exit 1
         fi
         borrow_position "$2" "$3" "$4"
+        ;;
+    "withdraw")
+        if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
+            echo "Usage: $0 withdraw <market> <amount_raw> <account_id>" >&2
+            exit 1
+        fi
+        withdraw_position "$2" "$3" "$4"
         ;;
     "pause")
         pause_protocol
@@ -2791,14 +4033,14 @@ case "$1" in
     "deployPool")
         schedule_deploy_pool
         ;;
-    "disableTokenOracle")
-        if [ -z "$2" ]; then
-            echo "Usage: $0 disableTokenOracle <asset_contract_id>" >&2
-            exit 1
-        fi
-        disable_token_oracle_cmd "$2"
-        ;;
-    "grantGovRole")
+"disableTokenOracle")
+if [ -z "$2" ]; then
+echo "Usage: $0 disableTokenOracle <asset_contract_id>" >&2
+exit 1
+fi
+disable_token_oracle_cmd "$2"
+;;
+"grantGovRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 grantGovRole <account> <role>" >&2
             echo "Governance roles: ORACLE | PROPOSER | EXECUTOR | CANCELLER (timelocked)" >&2
@@ -2841,9 +4083,80 @@ case "$1" in
     "getAllIndexes")
         get_all_indexes_cmd
         ;;
-    "getEMode")
-        if [ -z "$2" ]; then echo "Usage: $0 getEMode <category_id>" >&2; list_emode_categories >&2; exit 1; fi
-        get_emode_cmd "$2"
+    "getSpoke")
+        if [ -z "$2" ]; then echo "Usage: $0 getSpoke <category_id>" >&2; list_spokes >&2; exit 1; fi
+        get_spoke_cmd "$2"
+        ;;
+    "getSpokeAsset")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 getSpokeAsset <spoke_id> <market>" >&2; list_markets >&2; exit 1
+        fi
+        get_spoke_asset_cmd "$2" "$3"
+        ;;
+    "getMinBorrowCollateralUsd")
+        get_min_borrow_collateral_cmd
+        ;;
+    "accountExists")
+        if [ -z "$2" ]; then echo "Usage: $0 accountExists <account_id>" >&2; exit 1; fi
+        account_exists_cmd "$2"
+        ;;
+    "isBlendPoolApproved")
+        if [ -z "$2" ]; then echo "Usage: $0 isBlendPoolApproved <pool_contract_id>" >&2; exit 1; fi
+        is_blend_pool_approved_cmd "$2"
+        ;;
+    "maxWithdraw")
+        if [ -z "$2" ] || [ -z "$3" ]; then echo "Usage: $0 maxWithdraw <account_id> <market>" >&2; exit 1; fi
+        max_withdraw_cmd "$2" "$3"
+        ;;
+    "maxSupply")
+        if [ -z "$2" ] || [ -z "$3" ]; then echo "Usage: $0 maxSupply <account_id> <market>" >&2; exit 1; fi
+        max_supply_cmd "$2" "$3"
+        ;;
+    "maxBorrow")
+        if [ -z "$2" ] || [ -z "$3" ]; then echo "Usage: $0 maxBorrow <account_id> <market>" >&2; exit 1; fi
+        max_borrow_cmd "$2" "$3"
+        ;;
+    "getLiquidationEstimate")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 getLiquidationEstimate <account_id> [<market> <amount>]..." >&2; exit 1
+        fi
+        acc=$2; shift 2
+        get_liquidation_estimate_cmd "$acc" "$@"
+        ;;
+    "getUtilisation")
+        if [ -z "$2" ]; then echo "Usage: $0 getUtilisation <market>" >&2; list_markets >&2; exit 1; fi
+        get_utilisation_cmd "$2"
+        ;;
+    "getReserves")
+        if [ -z "$2" ]; then echo "Usage: $0 getReserves <market>" >&2; list_markets >&2; exit 1; fi
+        get_reserves_cmd "$2"
+        ;;
+    "getSupplied")
+        if [ -z "$2" ]; then echo "Usage: $0 getSupplied <market>" >&2; list_markets >&2; exit 1; fi
+        get_supplied_cmd "$2"
+        ;;
+    "getBorrowed")
+        if [ -z "$2" ]; then echo "Usage: $0 getBorrowed <market>" >&2; list_markets >&2; exit 1; fi
+        get_borrowed_cmd "$2"
+        ;;
+    "getDepositRate")
+        if [ -z "$2" ]; then echo "Usage: $0 getDepositRate <market>" >&2; list_markets >&2; exit 1; fi
+        get_deposit_rate_cmd "$2"
+        ;;
+    "getBorrowRate")
+        if [ -z "$2" ]; then echo "Usage: $0 getBorrowRate <market>" >&2; list_markets >&2; exit 1; fi
+        get_borrow_rate_cmd "$2"
+        ;;
+    "getRevenue")
+        if [ -z "$2" ]; then echo "Usage: $0 getRevenue <market>" >&2; list_markets >&2; exit 1; fi
+        get_revenue_cmd "$2"
+        ;;
+    "getSyncData")
+        if [ -z "$2" ]; then echo "Usage: $0 getSyncData <market>" >&2; list_markets >&2; exit 1; fi
+        get_sync_data_cmd "$2"
+        ;;
+    "getBulkIndexes")
+        get_bulk_indexes_cmd
         ;;
     "getHealth")
         if [ -z "$2" ]; then echo "Usage: $0 getHealth <account_id>" >&2; exit 1; fi
@@ -2918,26 +4231,40 @@ case "$1" in
         echo ""
         echo "Usage: NETWORK=$NETWORK $0 <command> [args...]"
         echo ""
+        echo "Config validation:"
+        echo "  validateConfigs                 Cross-check markets/spokes/networks JSON (runs before setupAll*)"
+        echo ""
         echo "Markets (writes):"
         echo "  listMarkets                     List configured markets"
         echo "  createMarket <name>             Deploy market from config"
-        echo "  editAssetConfig <name>          Update asset risk params from config"
         echo "  configureMarketOracle <name>    Configure full market oracle from config"
-        echo "  editOracleTolerance <m> <f> <l> Edit a market's oracle tolerance bands (bps)"
+        echo "  editOracleTolerance <m> <tol>   Edit a market's oracle tolerance band (bps)"
         echo "  updateIndexes <name> [...]      Sync indexes for one or more markets"
         echo "  setupAllMarkets                 Idempotently configure markets; no deploy/unpause"
         echo ""
-        echo "E-Mode (writes):"
-        echo "  listEModeCategories             List configured e-mode categories"
-        echo "  addEModeCategory <id>           Create e-mode category from config"
-        echo "  addAssetToEMode <id> <asset>    Add asset to e-mode from config"
-        echo "  setupAllEModes                  Idempotently configure e-modes; no deploy/unpause"
+        echo "Hubs / Spokes (writes):"
+        echo "  listHubs                        Hubs referenced by config + on-chain mapping"
+        echo "  createHub <id>                  Ensure hub exists (idempotent; ascending ids)"
+        echo "  listSpokes                      List configured spoke categories"
+        echo "  addSpoke <id>                   Create spoke category from config"
+        echo "  addAssetToSpoke <id> <asset>    Add asset to spoke from config"
+        echo "  editAssetInSpoke <id> <asset>   Push updated per-spoke risk params from config"
+        echo "  removeAssetFromSpoke <id> <m>   Timelocked remove_asset_from_spoke"
+        echo "  removeSpoke <id>                Timelocked remove_spoke (deprecates category)"
+        echo "  setupAllSpokes                  Idempotently configure spokes; no deploy/unpause"
         echo ""
         echo "Timelock (admin writes are scheduled then executed after the delay):"
-        echo "  Admin verbs (createMarket, editAssetConfig, configureMarketOracle, e-mode,"
+        echo "  Admin verbs (createMarket, configureMarketOracle, spoke,"
         echo "  setAggregator, disableTokenOracle, ...) SCHEDULE a governance op and, by default"
         echo "  (AUTO_EXECUTE=1), await the min-delay then execute it. Set AUTO_EXECUTE=0"
         echo "  to schedule-only and execute later with executeOp."
+        echo "  Scheduling is idempotent AND re-apply-aware: an op already Waiting/Ready"
+        echo "  is reused; toggling back to a previously-executed setting automatically"
+        echo "  re-applies at a fresh salt generation (direct verbs). Bulk setupAll* runs"
+        echo "  in converge mode (REAPPLY_ON_DONE=0): Done ops are treated as applied"
+        echo "  unless an on-chain probe proves drift. SALT_NONCE=<n> = manual override."
+        echo "  listOps                         All recorded ops with live state"
+        echo "  executeReady                    Execute every recorded op that is Ready"
         echo "  executeOp <op-id>               Execute a locally-scheduled, ready op"
         echo "  cancelOp <op-id>                Cancel a pending op (CANCELLER)"
         echo "  opState <op-id>                 Unset | Waiting | Ready | Done"
@@ -2948,7 +4275,16 @@ case "$1" in
         echo ""
         echo "Protocol control (writes, all routed through governance):"
         echo "  pause | unpause                 Pause/unpause protocol (immediate, owner)"
+        echo "  checkDelay                      Compare live timelock delay vs configured target"
         echo "  disableTokenOracle <asset>      Timelock disable_token_oracle on controller"
+        echo "  approveToken <m|C...>           Timelocked market-token allow-list add"
+        echo "  revokeToken <m|C...>            Timelocked market-token allow-list remove"
+        echo "  revokeBlendPool <C...>          Timelocked Blend-pool allow-list remove"
+        echo "  setPositionLimits <s> <b>       Timelocked position limits (max supply/borrow positions)"
+        echo "  setMinBorrowCollateralUsd <wad> Timelocked min borrow-collateral floor"
+        echo "  setPositionManager <addr> <t|f> Timelocked position-manager toggle"
+        echo "  transferCtrlOwnership <a> <l>   Timelocked controller ownership handoff"
+        echo "  migrateController <version>     Timelocked controller migrate"
         echo "  grantGovRole <account> <role>   Grant governance role (ORACLE|PROPOSER|EXECUTOR|CANCELLER; timelocked)"
         echo "  revokeGovRole <account> <role>  Revoke governance role (timelocked)"
         echo "  upgradeGovernanceHash <hash>    Timelocked governance WASM upgrade"
@@ -2957,19 +4293,21 @@ case "$1" in
         echo "  setAggregator                   Set aggregator (networks.json or AGGREGATOR_CONTRACT)"
         echo "  setAccumulator                  Set revenue treasury (networks.json accumulator or ACCUMULATOR_CONTRACT)"
         echo "  Env: AGGREGATOR_CONTRACT, ACCUMULATOR_CONTRACT, AWAIT_MAX_WAIT_SECONDS"
-        echo "  setupAll                        Markets + E-Modes only; no deploy/unpause"
-        echo "  claimRevenue <name> [...]       Claim revenue for one or more markets (REVENUE role)"
+        echo "  setupAll                        Markets + Spokes only; no deploy/unpause"
+        echo "  claimRevenue <name> [...]       Claim revenue one or more markets"
         echo "  claimRevenueAll                 Claim revenue for every configured market"
+        echo "  whitelistBlendPools | approveBlendPools   Approve Blend V2 pools from configs/blend_pools.json (timelocked)"
         echo ""
         echo "Quick views (reads):"
         echo "  info                            Deployment addresses & signer"
+        echo "  listOracles                     Per-market oracle wiring from config"
         echo "  hasRole <account> <role>        Check role membership"
         echo "  getPrice <market>               Oracle price (spot / safe / aggregator + tolerance)"
         echo "  getMarket <market>              Market config (LTV, liq, caps, flags)"
         echo "  getIndex <market>               Supply/borrow index (RAY)"
         echo "  getAllMarkets                   All markets detailed"
         echo "  getAllIndexes                   All market indexes"
-        echo "  getEMode <id>                   E-Mode category params"
+        echo "  getSpoke <id>                   Spoke category params"
         echo "  getHealth <id>                  Health factor (RAY)"
         echo "  getAccount <id>                 Positions + attributes"
         echo "  getCollateralUsd <id>           Aggregate collateral in USD"
@@ -2979,9 +4317,28 @@ case "$1" in
         echo "  canLiquidate <id>               bool"
         echo "  getCollateral <id> <market>     Per-asset collateral amount"
         echo "  getBorrow <id> <market>         Per-asset borrow amount"
+        echo "  getSpokeAsset <spoke_id> <m>    Live per-spoke-per-asset config (any spoke, not just base 0)"
+        echo "  accountExists <id>              bool"
+        echo "  isBlendPoolApproved <C...>      bool"
+        echo "  getMinBorrowCollateralUsd       Protocol-wide borrow floor (WAD)"
+        echo "  maxWithdraw <id> <market>       Largest withdraw currently executable"
+        echo "  maxSupply <id> <market>         Remaining supply-cap headroom"
+        echo "  maxBorrow <id> <market>         Largest borrow currently executable"
+        echo "  getLiquidationEstimate <id> [<market> <amount>]...   Seize/repay/refund/bonus estimate"
+        echo ""
+        echo "Pool views (hub-level utilization/reserves/rates — spokes share hub liquidity):"
+        echo "  getUtilisation <market>         Hub utilization"
+        echo "  getReserves <market>            Hub cash reserves"
+        echo "  getSupplied <market>            Total supplied (hub)"
+        echo "  getBorrowed <market>            Total borrowed (hub)"
+        echo "  getDepositRate <market>         Live supply APR/APY input"
+        echo "  getBorrowRate <market>          Live borrow APR/APY input"
+        echo "  getRevenue <market>             Accrued protocol revenue"
+        echo "  getSyncData <market>            Raw pool sync snapshot"
+        echo "  getBulkIndexes                  get_bulk_indexes for every configured market"
         echo ""
         echo "Oracle probes (debug Oracle V2 wiring):"
-        echo "  getOracle <market>                                   Stored primary + anchor config"
+        echo "  getOracle <market>                                   Live price components (stored config is write-only; see listOracles)"
         echo "  getReflector <market>                                Deprecated alias for getOracle"
         echo "  queryReflector <oracle>                              decimals + resolution"
         echo "  queryReflectorPrice <oracle> stellar|other <sym|sac> lastprice"

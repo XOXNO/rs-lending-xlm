@@ -60,7 +60,7 @@ flow_defindex_strategy() {
         trustline "$DAVE" DFX "$ADMIN_ADDR"
         mint_to "$SAC_DFX" DFX "$DAVE_ADDR" $((100000 * DFX_UNIT))
         set_mock_price "$SAC_DFX" "$WAD" px_init_DFX
-        create_market DFX "$SAC_DFX" 7 "$(oracle_cfg_mock_single "$SAC_DFX")" \
+        create_market DFX "$PRIMARY_HUB_ID" "$SAC_DFX" 7 "$(oracle_cfg_mock_single "$SAC_DFX")" \
             "$(asset_config_json 7000 7500 800)" || return 1
         save_state DFX_SETUP_DONE 1
     fi

@@ -1,29 +1,26 @@
-//! Collateral swap strategy.
-//!
-//! Pipeline: auth → flash guard → account → cache(policy) → preflight →
-//! prefetch → withdraw → swap → deposit → `strategy_finalize`.
+//! Swaps collateral between hub markets.
 
 use common::errors::{CollateralError, GenericError};
-use controller_interface::types::{Account, AccountPosition, AccountPositionType, StrategySwap};
+use common::types::{Account, AccountPosition, AccountPositionType, HubAssetKey, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::events;
 use crate::strategies::{
     prefetch_strategy_oracles, strategy_finalize, swap_tokens, withdraw_collateral_to_controller,
     StrategyWithdraw,
 };
 use crate::{
-    emode, positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient,
+    positions::supply, risk::validation, spoke, storage, Controller, ControllerArgs,
+    ControllerClient,
 };
 
-/// Parameters for `process_swap_collateral`.
 pub struct SwapCollateralParams<'a> {
     pub account_id: u64,
-    pub current_collateral: &'a Address,
+    pub current: &'a HubAssetKey,
     pub from_amount: i128,
-    pub new_collateral: &'a Address,
+    pub new: &'a HubAssetKey,
     pub swap: &'a StrategySwap,
 }
 
@@ -34,9 +31,9 @@ impl Controller {
         env: Env,
         caller: Address,
         account_id: u64,
-        current_collateral: Address,
+        current: HubAssetKey,
         amount: i128,
-        new_collateral: Address,
+        new: HubAssetKey,
         swap: Bytes,
     ) {
         process_swap_collateral(
@@ -44,9 +41,9 @@ impl Controller {
             &caller,
             SwapCollateralParams {
                 account_id,
-                current_collateral: &current_collateral,
+                current: &current,
                 from_amount: amount,
-                new_collateral: &new_collateral,
+                new: &new,
                 swap: &swap,
             },
         );
@@ -56,36 +53,41 @@ impl Controller {
 pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollateralParams<'_>) {
     let SwapCollateralParams {
         account_id,
-        current_collateral,
+        current,
         from_amount,
-        new_collateral,
+        new,
         swap,
     } = params;
 
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
+    // The swap leg needs distinct underlying tokens.
     assert_with_error!(
         env,
-        current_collateral != new_collateral,
+        current.asset != new.asset,
         GenericError::AssetsAreTheSame
     );
 
+    // The withdraw leg settles on `current`'s hub; `new`'s hub is gated by the
+    // deposit's `require_hub_active`.
+    validation::require_hub_active(env, current.hub_id);
+
     let mut account = storage::get_account(env, account_id);
-    validation::require_account_owner_match(env, &account, caller);
+    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let mut cache = Cache::new(env);
 
     validation::require_positive_amount(env, from_amount);
 
-    validate_swap_new_collateral_preflight(env, &mut cache, &account, new_collateral);
+    validate_swap_new_collateral_preflight(env, &mut cache, &account, new);
 
-    let extra_assets = soroban_sdk::vec![env, current_collateral.clone(), new_collateral.clone()];
+    let extra_assets = soroban_sdk::vec![env, current.asset.clone(), new.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     let current_pos: AccountPosition = (&account
         .supply_positions
-        .get(current_collateral.clone())
+        .get(current.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound)))
         .into();
 
@@ -95,7 +97,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
         &mut account,
         &mut cache,
         StrategyWithdraw {
-            asset: current_collateral,
+            hub_asset: current,
             amount: from_amount,
             position: &current_pos,
             action: events::PositionAction::SwColWd,
@@ -106,14 +108,14 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     let swapped_amount = swap_tokens(
         env,
         caller,
-        current_collateral,
+        &current.asset,
         actual_withdrawn,
-        new_collateral,
+        &new.asset,
         swap,
     );
 
     // D{new_collateral.decimals}{Token(new_collateral)} deposited as replacement collateral.
-    let deposit_assets = soroban_sdk::vec![env, (new_collateral.clone(), swapped_amount)];
+    let deposit_assets = soroban_sdk::vec![env, (new.clone(), swapped_amount)];
     supply::process_deposit(
         env,
         &env.current_contract_address(),
@@ -130,19 +132,14 @@ pub(crate) fn validate_swap_new_collateral_preflight(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    new_collateral: &Address,
+    new: &HubAssetKey,
 ) {
-    let e_mode = cache.active_e_mode_category(env, account.e_mode_category_id);
-    let config = emode::effective_asset_config(env, account, new_collateral, cache, &e_mode);
-    emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, new_collateral);
+    let config = spoke::require_listed_active_config(env, cache, account.spoke_id, new);
 
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
 
-    if !account
-        .supply_positions
-        .contains_key(new_collateral.clone())
-    {
-        let new_assets = soroban_sdk::vec![env, (new_collateral.clone(), 0i128)];
+    if !account.supply_positions.contains_key(new.clone()) {
+        let new_assets = soroban_sdk::vec![env, (new.clone(), 0i128)];
         validation::validate_bulk_position_limits(
             env,
             account,

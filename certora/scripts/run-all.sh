@@ -19,4 +19,4 @@ if [[ "${1:-}" == "--" ]]; then
   shift
 fi
 
-exec "$ROOT/certora/run_profile.py" "$PROFILE" "$@"
+exec "$ROOT/certora/scripts/run_profile.py" "$PROFILE" "$@"

@@ -1,6 +1,6 @@
-use crate::types::{
-    AssetConfigRaw, EModeAssetArgs, MarketConfig, MarketOracleConfig, OraclePriceFluctuation,
-    PositionLimits,
+use common::types::{
+    HubAssetKey, MarketOracleConfig, OraclePriceFluctuation, PositionLimits, SpokeAssetArgs,
+    SpokeAssetConfig,
 };
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, Address, BytesN, Env};
@@ -11,29 +11,29 @@ pub trait ControllerAdmin {
     fn set_aggregator(env: Env, addr: Address);
     fn set_accumulator(env: Env, addr: Address);
     fn set_liquidity_pool_template(env: Env, hash: BytesN<32>);
-    fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfigRaw);
     fn set_position_limits(env: Env, limits: PositionLimits);
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128);
-    fn add_e_mode_category(env: Env) -> u32;
-    fn remove_e_mode_category(env: Env, id: u32);
-    fn add_asset_to_e_mode_category(env: Env, input: EModeAssetArgs);
-    fn edit_asset_in_e_mode_category(env: Env, input: EModeAssetArgs);
-    fn remove_asset_from_e_mode(env: Env, asset: Address, category_id: u32);
+    fn create_hub(env: Env) -> u32;
+    fn add_spoke(env: Env) -> u32;
+    fn remove_spoke(env: Env, id: u32);
+    fn add_asset_to_spoke(env: Env, input: SpokeAssetArgs);
+    fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs);
+    fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32);
     fn approve_token(env: Env, token: Address);
     fn revoke_token(env: Env, token: Address);
     fn approve_blend_pool(env: Env, pool: Address);
     fn revoke_blend_pool(env: Env, pool: Address);
-    fn set_market_oracle_config(env: Env, asset: Address, config: MarketOracleConfig);
+    fn set_market_oracle_config(env: Env, hub_asset: HubAssetKey, config: MarketOracleConfig);
     fn set_oracle_tolerance(env: Env, asset: Address, tolerance: OraclePriceFluctuation);
     fn disable_token_oracle(env: Env, asset: Address);
+    fn set_position_manager(env: Env, manager: Address, is_active: bool);
     fn create_liquidity_pool(
         env: Env,
+        hub_id: u32,
         asset: Address,
         params: MarketParamsRaw,
-        config: AssetConfigRaw,
     ) -> Address;
-    fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel);
-    fn update_pool_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128);
+    fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel);
     fn deploy_pool(env: Env) -> Address;
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>);
     fn pause(env: Env);
@@ -41,6 +41,6 @@ pub trait ControllerAdmin {
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     fn migrate(env: Env, new_version: u32);
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32);
-    /// Read-back used by governance oracle validation (quote-market checks).
-    fn get_market_config(env: Env, asset: Address) -> MarketConfig;
+    /// Per-spoke risk listing read-back; each spoke (id `>= 1`) holds its own config.
+    fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig;
 }

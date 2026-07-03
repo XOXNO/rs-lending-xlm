@@ -1,13 +1,9 @@
-//! Config-time tolerance-band validation and construction.
-//!
-//! Turns raw BPS inputs (`configure_market_oracle` / `edit_oracle_tolerance`)
-//! into the persisted `OraclePriceFluctuation` band struct. The runtime
-//! decision logic that consumes the bands lives in the controller.
+//! Tolerance-band construction for oracle config.
 
 use common::constants::{BPS, MAX_TOLERANCE, MIN_TOLERANCE};
 use common::errors::{GenericError, OracleError};
 use common::math::fp_core;
-use controller_interface::types::OraclePriceFluctuation;
+use common::types::OraclePriceFluctuation;
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 /// Checked i128-to-u32 conversion for tolerance band fields.

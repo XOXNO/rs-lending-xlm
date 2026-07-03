@@ -1,20 +1,14 @@
 #![no_std]
-//! DeFindex strategy adapter for the XOXNO lending controller.
-//!
-//! One WASM is deployed per underlying asset. Each vault (`from`) maps to one
-//! controller `account_id`; vaults do not share positions.
-//!
-//! - Balances come from `get_collateral_amount`.
-//! - Full withdraw maps `amount == balance()` to controller amount `0`.
-//! - Supply clears stale vault-account mappings.
-//! - `harvest` publishes Blend-compatible `price_per_share` from the supply index.
+//! DeFindex adapter for one controller market.
+//! One vault maps to one controller account; harvest emits supply-index PPS.
 
 use common::constants::RAY;
+use common::types::HubAssetKey;
 use controller_interface::ControllerClient;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token, vec, Address, Bytes,
-    Env, IntoVal, Symbol, TryFromVal, Val, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
+    vec, Address, Bytes, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
 
 /// Harvest event with 12-decimal `price_per_share`.
@@ -48,6 +42,8 @@ pub enum DeFindexStrategyError {
 #[contracttype]
 #[derive(Clone)]
 pub struct Config {
+    pub hub_id: u32,
+    pub spoke_id: u32,
     pub asset: Address,
     pub controller: Address,
     pub pool: Address,
@@ -94,10 +90,18 @@ impl<'a> Ctx<'a> {
         })
     }
 
+    /// Configured `HubAssetKey`; no default hub is inferred.
+    fn hub_asset(&self) -> HubAssetKey {
+        HubAssetKey {
+            hub_id: self.cfg.hub_id,
+            asset: self.cfg.asset.clone(),
+        }
+    }
+
     fn collateral(&self, account_id: u64) -> i128 {
         // dimensional: controller reports live Token(asset), not scaled shares.
         self.controller
-            .get_collateral_amount(&account_id, &self.cfg.asset)
+            .get_collateral_amount(&account_id, &self.hub_asset())
     }
 
     fn reconcile(&self, vault: &Address) -> u64 {
@@ -115,19 +119,19 @@ impl<'a> Ctx<'a> {
 
     fn harvest_price_per_share(&self) -> Result<i128, DeFindexStrategyError> {
         // dimensional: supply index is D27{Token(asset)/Share(asset, supply)}.
-        let supply_index_ray = self
+        let supply_index = self
             .controller
-            .get_market_index(&self.cfg.asset)
-            .supply_index_ray;
+            .get_market_index(&self.hub_asset())
+            .supply_index;
         // dimensional: D27{Token/Share} / D15{1} = D12{Token/Share}.
-        supply_index_ray
+        supply_index
             .checked_div(RAY_PER_PPS)
             .ok_or(DeFindexStrategyError::ArithmeticError)
     }
 
-    fn to_payment(&self, amount: i128) -> Vec<(Address, i128)> {
+    fn to_payment(&self, amount: i128) -> Vec<(HubAssetKey, i128)> {
         // dimensional: payment preserves D{AssetDecimals(asset)}{Token(asset)}.
-        vec![self.env, (self.cfg.asset.clone(), amount)]
+        vec![self.env, (self.hub_asset(), amount)]
     }
 
     fn authorize_supply_to_pool(&self, amount: i128) {
@@ -148,20 +152,37 @@ impl<'a> Ctx<'a> {
 
 #[contractimpl]
 impl Strategy {
-    /// `init_args = [controller]`. `asset` must be a listed market.
+    /// `init_args = [controller, hub_id, spoke_id]`. Asset is listed for
+    /// `hub_id`; positions use `spoke_id`.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
-        let controller_val = init_args.get(0).unwrap_or_else(|| {
-            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
-        });
-        let controller = Address::try_from_val(&env, &controller_val).unwrap_or_else(|_| {
-            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
-        });
+        let controller_val = init_args
+            .get(0)
+            .unwrap_or_else(|| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
+        let controller = Address::try_from_val(&env, &controller_val)
+            .unwrap_or_else(|_| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
+        let hub_id_val = init_args
+            .get(1)
+            .unwrap_or_else(|| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
+        let hub_id = u32::try_from_val(&env, &hub_id_val)
+            .unwrap_or_else(|_| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
+        let spoke_id_val = init_args
+            .get(2)
+            .unwrap_or_else(|| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
+        let spoke_id = u32::try_from_val(&env, &spoke_id_val)
+            .unwrap_or_else(|_| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
 
         let controller_client = ControllerClient::new(&env, &controller);
-        controller_client.get_market_config(&asset);
+        let hub_asset = HubAssetKey {
+            hub_id,
+            asset: asset.clone(),
+        };
+        // Validate configured HubAssetKey; get_market_index reverts if unlisted.
+        controller_client.get_market_index(&hub_asset);
         env.storage().instance().set(
             &DataKey::Config,
             &Config {
+                hub_id,
+                spoke_id,
                 asset,
                 controller,
                 pool: controller_client.get_pool_address(),
@@ -193,9 +214,12 @@ impl DeFindexStrategyTrait for Strategy {
         let stored_id = prepare_vault_account_for_supply(ctx.env, &ctx.controller, &from);
         ctx.authorize_supply_to_pool(amount);
         // dimensional: Token(asset) enters controller; supply shares are internal.
-        let new_or_existing_id =
-            ctx.controller
-                .supply(&ctx.strategy, &stored_id, &0u32, &ctx.to_payment(amount));
+        let new_or_existing_id = ctx.controller.supply(
+            &ctx.strategy,
+            &stored_id,
+            &ctx.cfg.spoke_id,
+            &ctx.to_payment(amount),
+        );
         set_vault_account(ctx.env, &from, new_or_existing_id);
 
         // D{AssetDecimals(asset)}{Token(asset)} post-deposit strategy balance.
@@ -242,15 +266,24 @@ impl DeFindexStrategyTrait for Strategy {
             return Err(DeFindexStrategyError::InsufficientBalance);
         }
 
-        // dimensional: withdraw amount is Token(asset); 0 is withdraw-all sentinel.
-        // Full exit uses controller withdraw-all sentinel `0`.
-        let withdraw_amount = if amount == balance { 0 } else { amount };
+        // Token amount; 0 withdraws the full position.
+        let is_full_withdraw = amount == balance;
+        let withdraw_amount = if is_full_withdraw { 0 } else { amount };
         ctx.controller.withdraw(
             &ctx.strategy,
             &account_id,
             &ctx.to_payment(withdraw_amount),
             &Some(to),
         );
+
+        // Full exit: the strategy-asset collateral is now zero. Clear the
+        // vault->account mapping so the next deposit opens a fresh account rather
+        // than reusing this one — which an attacker could keep alive with dust of
+        // another asset and fill to the position limit, then wedge the vault's
+        // redeposit with PositionLimitExceeded.
+        if is_full_withdraw {
+            clear_vault_account(ctx.env, &from);
+        }
 
         // Removed accounts report 0 collateral.
         // D{AssetDecimals(asset)}{Token(asset)} post-withdraw strategy balance.

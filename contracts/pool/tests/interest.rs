@@ -4,9 +4,17 @@ use super::*;
 use crate::test_support::init_ledger;
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
-use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
+use common::types::{HubAssetKey, MarketParamsRaw, PoolKey, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
+
+/// Pool tests use hub 0 as a local fixture id.
+fn hub(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    }
+}
 
 struct TestSetup {
     env: Env,
@@ -23,22 +31,22 @@ impl TestSetup {
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
         let params = MarketParamsRaw {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY / 10,
-            slope2_ray: RAY / 5,
-            slope3_ray: RAY / 2,
-            mid_utilization_ray: RAY / 2,
-            optimal_utilization_ray: RAY * 8 / 10,
-            max_utilization_ray: RAY * 95 / 100,
-            reserve_factor_bps: 1_000,
-            supply_cap: 0,
-            borrow_cap: 0,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY / 10,
+            slope2: RAY / 5,
+            slope3: RAY / 2,
+            mid_utilization: RAY / 2,
+            optimal_utilization: RAY * 8 / 10,
+            max_utilization: RAY * 95 / 100,
+            reserve_factor: 1_000,
+            is_flashloanable: false,
+            flashloan_fee: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
         let contract = env.register(LiquidityPool, (admin.clone(),));
-        LiquidityPoolClient::new(&env, &contract).create_market(&params);
+        LiquidityPoolClient::new(&env, &contract).create_market(&0u32, &params);
 
         Self {
             env,
@@ -55,8 +63,8 @@ impl TestSetup {
         self.env
             .storage()
             .persistent()
-            .set(&PoolKey::State(self.asset.clone()), &state);
-        Cache::load(&self.env, &self.asset)
+            .set(&PoolKey::State(hub(&self.asset)), &state);
+        Cache::load(&self.env, &hub(&self.asset))
     }
 }
 
@@ -66,16 +74,16 @@ fn test_add_protocol_revenue_ray_zero_is_noop() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = t.fresh_cache(PoolStateRaw {
-            supplied_ray: 100 * RAY,
-            borrowed_ray: 0,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: RAY,
+            supplied: 100 * RAY,
+            borrowed: 0,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
             last_timestamp: 0,
             cash: 0,
         });
         let (rev_before, supp_before) = (cache.revenue, cache.supplied);
-        add_protocol_revenue_ray(&mut cache, Ray::ZERO);
+        add_protocol_revenue(&mut cache, Ray::ZERO);
         assert_eq!(cache.revenue, rev_before);
         assert_eq!(cache.supplied, supp_before);
     });
@@ -89,17 +97,17 @@ fn test_add_protocol_revenue_ray_skips_when_supply_index_below_floor() {
     t.as_contract(|| {
         // Set supply_index to floor - 1 for the safety branch.
         let mut cache = t.fresh_cache(PoolStateRaw {
-            supplied_ray: 100 * RAY,
-            borrowed_ray: 0,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: SUPPLY_INDEX_FLOOR_RAW - 1,
+            supplied: 100 * RAY,
+            borrowed: 0,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: SUPPLY_INDEX_FLOOR_RAW - 1,
             last_timestamp: 0,
             cash: 0,
         });
         let (rev_before, supp_before) = (cache.revenue, cache.supplied);
 
-        add_protocol_revenue_ray(&mut cache, Ray::from(1_000_000));
+        add_protocol_revenue(&mut cache, Ray::from(1_000_000));
 
         assert_eq!(cache.revenue, rev_before);
         assert_eq!(cache.supplied, supp_before);
@@ -112,11 +120,11 @@ fn test_apply_bad_debt_noop_when_total_supply_is_zero() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = t.fresh_cache(PoolStateRaw {
-            supplied_ray: 0,
-            borrowed_ray: 0,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: RAY,
+            supplied: 0,
+            borrowed: 0,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
             last_timestamp: 0,
             cash: 0,
         });
@@ -132,11 +140,11 @@ fn test_apply_bad_debt_caps_at_total_supply_and_clamps_floor() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = t.fresh_cache(PoolStateRaw {
-            supplied_ray: 10 * RAY,
-            borrowed_ray: 0,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: RAY, // total supply value = 10 * RAY
+            supplied: 10 * RAY,
+            borrowed: 0,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY, // total supply value = 10 * RAY
             last_timestamp: 0,
             cash: 0,
         });
@@ -160,12 +168,12 @@ fn test_apply_bad_debt_applies_severe_reduction() {
     t.as_contract(|| {
         // High supply_index keeps a 91% reduction above the floor.
         let mut cache = t.fresh_cache(PoolStateRaw {
-            supplied_ray: 1_000 * RAY,
-            borrowed_ray: 0,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
+            supplied: 1_000 * RAY,
+            borrowed: 0,
+            revenue: 0,
+            borrow_index: RAY,
             // Supply index ~1.0 means total_supplied_value ~= 1000*RAY.
-            supply_index_ray: RAY,
+            supply_index: RAY,
             last_timestamp: 0,
             cash: 0,
         });
@@ -191,11 +199,11 @@ fn test_simulate_matches_global_sync_over_multi_year_delta() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let state = PoolStateRaw {
-            supplied_ray: 100 * RAY,
-            borrowed_ray: 60 * RAY,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: RAY,
+            supplied: 100 * RAY,
+            borrowed: 60 * RAY,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
             last_timestamp: 0,
             cash: 40_000_000,
         };
@@ -203,7 +211,7 @@ fn test_simulate_matches_global_sync_over_multi_year_delta() {
             .env
             .storage()
             .persistent()
-            .get(&PoolKey::Params(t.asset.clone()))
+            .get(&PoolKey::Params(hub(&t.asset)))
             .unwrap();
         let sync = PoolSyncData {
             params,
@@ -237,11 +245,11 @@ fn test_apply_bad_debt_mild_reduction_preserves_index_above_floor() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = t.fresh_cache(PoolStateRaw {
-            supplied_ray: 1_000 * RAY,
-            borrowed_ray: 0,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: RAY,
+            supplied: 1_000 * RAY,
+            borrowed: 0,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
             last_timestamp: 0,
             cash: 0,
         });
@@ -262,11 +270,11 @@ fn test_global_sync_respects_chunk_boundary() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let state = PoolStateRaw {
-            supplied_ray: 100 * RAY,
-            borrowed_ray: 60 * RAY,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: RAY,
+            supplied: 100 * RAY,
+            borrowed: 60 * RAY,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
             last_timestamp: 0,
             cash: 40_000_000,
         };
@@ -283,11 +291,11 @@ fn test_apply_bad_debt_exactly_at_total_supplied_hits_cap_and_floor() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = t.fresh_cache(PoolStateRaw {
-            supplied_ray: 100 * RAY,
-            borrowed_ray: 0,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: RAY,
+            supplied: 100 * RAY,
+            borrowed: 0,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
             last_timestamp: 0,
             cash: 0,
         });
@@ -301,11 +309,11 @@ fn test_global_sync_step_zero_borrowed_produces_zero_interest() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = t.fresh_cache(PoolStateRaw {
-            supplied_ray: 100 * RAY,
-            borrowed_ray: 0,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: RAY,
+            supplied: 100 * RAY,
+            borrowed: 0,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
             last_timestamp: 0,
             cash: 0,
         });

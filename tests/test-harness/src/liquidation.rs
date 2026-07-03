@@ -1,6 +1,8 @@
-use soroban_sdk::{Address, Vec};
+use common::types::HubAssetKey;
+use soroban_sdk::Vec;
 
 use crate::context::LendingTest;
+use crate::helpers::hub_asset;
 use crate::ops::internal::{amount_raw, asset_payment_vec, map_try_ok_unit};
 
 impl LendingTest {
@@ -27,6 +29,40 @@ impl LendingTest {
 
         let ctrl = self.ctrl_client();
         let payments = asset_payment_vec(&self.env, asset_addr, raw_amount);
+        ctrl.liquidate(&liquidator_addr, &account_id, &payments);
+    }
+
+    /// Liquidate on a specific hub: mints the debt token to the liquidator and
+    /// repays `amount` of `debt_asset` keyed to `hub_id`, exercising the hub>0
+    /// liquidation plan path.
+    pub fn liquidate_on_hub(
+        &mut self,
+        hub_id: u32,
+        liquidator: &str,
+        target_user: &str,
+        debt_asset: &str,
+        amount: f64,
+    ) {
+        let decimals = self.resolve_market(debt_asset).decimals;
+        let raw_amount = amount_raw(amount, decimals);
+        let asset_addr = self.resolve_asset(debt_asset);
+
+        let liquidator_addr = self.get_or_create_user(liquidator);
+        let account_id = self.resolve_account_id(target_user);
+
+        self.resolve_market(debt_asset)
+            .token_admin
+            .mint(&liquidator_addr, &raw_amount);
+
+        let ctrl = self.ctrl_client();
+        let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
+        payments.push_back((
+            HubAssetKey {
+                hub_id,
+                asset: asset_addr,
+            },
+            raw_amount,
+        ));
         ctrl.liquidate(&liquidator_addr, &account_id, &payments);
     }
 
@@ -60,12 +96,12 @@ impl LendingTest {
         let liquidator_addr = self.get_or_create_user(liquidator);
         let account_id = self.resolve_account_id(target_user);
 
-        let mut payments: Vec<(Address, i128)> = Vec::new(&self.env);
+        let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
         for &(asset_name, amount) in debts {
             let market = self.resolve_market(asset_name);
             let raw = amount_raw(amount, market.decimals);
             market.token_admin.mint(&liquidator_addr, &raw);
-            payments.push_back((market.asset.clone(), raw));
+            payments.push_back((hub_asset(market.asset.clone()), raw));
         }
 
         let ctrl = self.ctrl_client();

@@ -1,116 +1,77 @@
-# ADR 0001: Governance, Controller, and Central Pool Boundary
+# ADR 0001: Governance, Controller, Central Pool Boundary
 
 - Status: Accepted
 - Date: 2026-05-05
-- Revised: 2026-06-16
+- Revised: 2026-06-30
 - Deciders: XOXNO Lending contract team
-- Supersedes: original separate-pool topology recorded in this ADR
 
 ## Context
 
-A multi-asset lending protocol has to separate three jobs:
+The protocol separates three concerns:
 
-1. Protocol administration: listing assets, changing risk config, upgrading
-   contracts, and managing privileged roles.
-2. Account risk: user accounts, oracle reads, health-factor checks,
-   liquidations, strategies, and pause gates.
-3. Liquidity accounting: token custody, supplied and borrowed totals, indexes,
-   reserves, protocol revenue, flash loans, and interest-rate parameters.
+1. Protocol administration: ownership, upgrades, listing, oracle configuration,
+   spoke configuration, and launch controls.
+2. Account risk: accounts, authorization, spoke risk, oracle policy, health
+   factor checks, liquidation, flash loans, and strategy orchestration.
+3. Liquidity accounting: custody, indexes, reserves, protocol revenue,
+   flash-loan settlement, and bad-debt socialization.
 
-The current protocol uses one controller-owned central pool. Asset separation
-is done by storage key:
-`PoolKey::Params(asset)` and `PoolKey::State(asset)`.
-
-Soroban makes each cross-contract call visible and budgeted. Batching
-multi-asset operations into one pool call lowers invocation count while keeping
-per-asset accounting rows independent.
+The current protocol uses one controller-owned central pool. Asset separation is
+done by `HubAssetKey { hub_id, asset }`, not by deploying one pool contract per
+asset.
 
 ## Decision
 
 Adopt a three-contract production topology:
 
-- One **governance** contract owns the controller. It validates admin inputs,
+- One governance contract owns the controller. It validates admin inputs,
   schedules protocol-affecting changes through typed timelock proposers, and
-  executes ready operations after the ledger delay
-  (`contracts/governance/src/*`).
-- One **controller** contract is the user-facing protocol contract. It owns
-  account state, market configuration, oracle resolution, risk checks,
-  liquidation, strategy orchestration, flash-loan orchestration, controller
-  roles, and pause state (`contracts/controller/src/*`).
-- One **central pool** contract is owned by the controller. It holds custody for
-  each listed asset and stores per-asset accounting rows:
-  `PoolKey::Params(asset)` and `PoolKey::State(asset)`
-  (`contracts/pool/src/lib.rs`, `contracts/pool/src/cache.rs`).
+  executes ready operations after the configured ledger delay.
+- One controller contract is the user-facing protocol contract. It owns accounts,
+  spoke configuration, oracle resolution, risk checks, liquidations, strategies,
+  flash-loan orchestration, pause state, and pool ownership.
+- One central pool contract is owned by the controller. It holds custody and
+  stores `PoolKey::Params(HubAssetKey)` and `PoolKey::State(HubAssetKey)`.
 
-The controller-to-pool ABI is the typed `LiquidityPoolInterface`
-(`interfaces/pool/src/lib.rs`). The pool ABI carries the market asset in each
-`PoolAction` or endpoint argument, so one pool call can process a batch of
-asset-scoped entries.
-
-Pool mutating endpoints, maintenance endpoints, and WASM upgrade are
-`#[only_owner]`; the owner is the controller. The pool does not call oracles,
-routers, governance, or another pool. It performs asset-scoped accounting and
-token transfers for requests authorized by the controller.
-
-Market listing is split:
-
-- `deploy_pool()` deploys the central pool once with deterministic
-  `POOL_DEPLOY_SALT` and stores it in `ControllerKey::Pool`.
-- `create_liquidity_pool(asset, params, config)` is a legacy ABI name. It
-  creates an asset market inside the central pool, stores controller
-  `Market(asset)` as `PendingOracle`, and consumes the single-use
-  `ApprovedToken(asset)` allow-list entry.
-- Oracle activation is separate. A market becomes usable only after governance
-  schedules and executes `set_market_oracle_config`.
+Market creation requires a token approval and creates pool rows for the supplied
+`HubAssetKey`. Price activation is separate: an asset becomes price-active only
+when governance configures the token-rooted `AssetOracle(asset)` entry and the
+source passes validation.
 
 ## Alternatives Considered
 
-- **Monolithic lending contract.** Rejected: it mixes administration, account
-  risk, and custody in one upgrade surface. It also makes accounting and
-  verification harder because unrelated concerns share one state machine.
-- **Separate pool contracts.** Superseded: they separate custody by contract,
-  but each multi-asset operation crosses one pool boundary per asset. The
-  current central pool keeps asset-scoped accounting rows in storage while
-  allowing batched pool calls.
-- **Pool-only architecture.** Rejected: cross-asset health checks still require
-  a central risk authority. Letting pools coordinate through ad hoc calls would
-  recreate a controller through ad hoc trust.
-- **External shared vault plus separate accounting contracts.** Rejected:
-  custody and accounting would split across more upgrade surfaces without
-  improving the user-facing risk model.
+- **Monolithic lending contract.** Rejected because administration, risk, and
+  custody would share one upgrade and verification surface.
+- **Separate pool per asset.** Rejected because multi-asset operations would cross
+  one pool boundary per asset. The central pool keeps per-market accounting
+  isolated by storage key while allowing batched controller-pool flows.
+- **Pool-only architecture.** Rejected because cross-asset account health still
+  needs one risk authority.
+- **External vault plus separate accounting contracts.** Rejected because it adds
+  upgrade surfaces without improving the risk model.
 
 ## Consequences
 
 Positive:
 
-- User flows cross one pool contract boundary, even when a batch touches
-  multiple assets.
-- Account risk and oracle policy live in one place, the controller.
-- Liquidity accounting remains per asset because each pool row is keyed by the
-  token address.
-- Pool reserve accounting uses internal `cash`, so direct token donations cannot
-  inflate borrowable liquidity.
-- Governance provides a single validated, timelocked admin path above the
-  controller.
+- User flows cross one pool boundary.
+- Account risk and oracle policy live in the controller.
+- Liquidity rows remain isolated by `HubAssetKey`.
+- Internal pool `cash` prevents direct token donations from increasing borrowable
+  liquidity.
+- Governance provides one timelocked admin path above the controller.
 
-Negative / accepted costs:
+Accepted costs:
 
-- Pool WASM upgrade now affects all market rows at once. Asset-level accounting
-  is separated by storage key, not by separate contract code.
-- The central pool custody address holds all listed token balances. A pool-code
-  bug has wider custody impact than in a separate-pool deployment.
-- The controller is still the single user-facing risk authority. Governance
-  timelock and immediate pause reduce admin risk, but controller logic still
-  needs audit coverage.
+- A pool WASM upgrade affects all hub-asset rows.
+- The central pool custody address holds all listed token balances.
+- The controller remains the single user-facing risk authority and needs focused
+  audit coverage.
 
 ## References
 
-- `SCF_BUILD_ARCHITECTURE.md` §3 (System Topology), §4 (Contract
-  Responsibilities), §6 (Market Lifecycle).
-- `contracts/governance/src/{deploy.rs,forward.rs,timelock.rs,self_timelock.rs}`
-- `contracts/controller/src/router.rs::{deploy_pool,create_liquidity_pool}`
-- `contracts/controller/src/storage/instance.rs::{get_pool,set_pool}`
-- `contracts/controller/src/storage/pools.rs`
+- [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md)
+- `common/src/types/pool.rs`
+- `common/src/types/controller.rs`
+- `contracts/controller/src/config`
 - `contracts/pool/src/lib.rs`
-- `common/src/types/pool.rs` (`PoolKey`, `PoolAction`, `Pool*Entry`)
-- `interfaces/pool/src/lib.rs`

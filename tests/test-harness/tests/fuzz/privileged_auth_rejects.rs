@@ -1,11 +1,11 @@
 use crate::config::config;
-use controller::types::EModeAssetArgs;
 use controller::types::InterestRateModel;
+use controller::types::SpokeAssetArgs;
 use governance_interface::AdminOperation;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Vec as SVec};
-use test_harness::LendingTest;
+use test_harness::{hub_asset, HubAssetKey, LendingTest, HARNESS_HUB};
 
 fn expect_rejected<F, R, InnerErr, OuterErr>(label: &str, call: F) -> Result<(), String>
 where
@@ -22,22 +22,6 @@ where
             "CRITICAL: {} passed auth gate with contract error {:?}",
             label, contract_err
         )),
-    }
-}
-
-fn sample_asset_config(env: &soroban_sdk::Env) -> controller::types::AssetConfigRaw {
-    controller::types::AssetConfigRaw {
-        loan_to_value_bps: 7500,
-        liquidation_threshold_bps: 8000,
-        liquidation_bonus_bps: 500,
-        liquidation_fees_bps: 100,
-        is_collateralizable: true,
-        is_borrowable: true,
-
-        is_flashloanable: true,
-        flashloan_fee_bps: 9,
-        asset_decimals: 7,
-        e_mode_categories: soroban_sdk::Vec::new(env),
     }
 }
 
@@ -103,7 +87,6 @@ proptest! {
         let env = t.env.clone();
         let ctrl = t.ctrl_client();
         let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
-        let cfg = sample_asset_config(&env);
         let oracle_cfg = sample_oracle_cfg(&t);
         let limits = sample_position_limits();
         let usdc = t.resolve_asset("USDC");
@@ -123,27 +106,29 @@ proptest! {
         expect_rejected("set_liquidity_pool_template", || {
             ctrl.set_auths(&no_auths).try_set_liquidity_pool_template(&dummy_bytes_n(&env, seed))
         }).unwrap();
-        expect_rejected("edit_asset_config", || {
-            ctrl.set_auths(&no_auths).try_edit_asset_config(&usdc, &cfg)
-        }).unwrap();
         expect_rejected("set_position_limits", || {
             ctrl.set_auths(&no_auths).try_set_position_limits(&limits)
         }).unwrap();
         let _ = (max_supply, max_borrow);
 
-        expect_rejected("add_e_mode_category", || {
-            ctrl.set_auths(&no_auths).try_add_e_mode_category()
+        expect_rejected("add_spoke", || {
+            ctrl.set_auths(&no_auths).try_add_spoke()
         }).unwrap();
-        expect_rejected("remove_e_mode_category", || {
-            ctrl.set_auths(&no_auths).try_remove_e_mode_category(&category_id)
+        expect_rejected("remove_spoke_category", || {
+            ctrl.set_auths(&no_auths).try_remove_spoke(&category_id)
         }).unwrap();
-        expect_rejected("add_asset_to_e_mode_category", || {
+        expect_rejected("add_asset_to_spoke", || {
             ctrl.set_auths(&no_auths)
-                .try_add_asset_to_e_mode_category(&EModeAssetArgs {
+                .try_add_asset_to_spoke(&SpokeAssetArgs {
+                    liquidation_fees: 0,
+                    oracle_override: controller::types::MarketOracleConfigOption::None,
+                    hub_id: HARNESS_HUB,
                     asset: usdc.clone(),
-                    category_id,
+                    spoke_id: category_id,
                     can_collateral,
                     can_borrow,
+                    paused: false,
+                    frozen: false,
                     ltv,
                     threshold,
                     bonus,
@@ -151,13 +136,18 @@ proptest! {
                     borrow_cap: 0,
                 })
         }).unwrap();
-        expect_rejected("edit_asset_in_e_mode_category", || {
+        expect_rejected("edit_asset_in_spoke", || {
             ctrl.set_auths(&no_auths)
-                .try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+                .try_edit_asset_in_spoke(&SpokeAssetArgs {
+                    liquidation_fees: 0,
+                    oracle_override: controller::types::MarketOracleConfigOption::None,
+                    hub_id: HARNESS_HUB,
                     asset: usdc.clone(),
-                    category_id,
+                    spoke_id: category_id,
                     can_collateral,
                     can_borrow,
+                    paused: false,
+                    frozen: false,
                     ltv,
                     threshold,
                     bonus,
@@ -165,8 +155,9 @@ proptest! {
                     borrow_cap: 0,
                 })
         }).unwrap();
-        expect_rejected("remove_asset_from_e_mode", || {
-            ctrl.set_auths(&no_auths).try_remove_asset_from_e_mode(&usdc, &category_id)
+        expect_rejected("remove_asset_from_spoke", || {
+            ctrl.set_auths(&no_auths)
+                .try_remove_asset_from_spoke(&hub_asset(usdc.clone()), &category_id)
         }).unwrap();
         expect_rejected("approve_token", || {
             ctrl.set_auths(&no_auths).try_approve_token(&usdc)
@@ -184,39 +175,40 @@ proptest! {
             ctrl.set_auths(&no_auths).try_deploy_pool()
         }).unwrap();
         let zero_model = InterestRateModel {
-            max_borrow_rate_ray: 0,
-            base_borrow_rate_ray: 0,
-            slope1_ray: 0,
-            slope2_ray: 0,
-            slope3_ray: 0,
-            mid_utilization_ray: 0,
-            optimal_utilization_ray: 0,
-            max_utilization_ray: controller::constants::RAY * 95 / 100,
-            reserve_factor_bps: 0,
+            max_borrow_rate: 0,
+            base_borrow_rate: 0,
+            slope1: 0,
+            slope2: 0,
+            slope3: 0,
+            mid_utilization: 0,
+            optimal_utilization: 0,
+            max_utilization: controller::constants::RAY * 95 / 100,
+            reserve_factor: 0,
         };
         expect_rejected("upgrade_liquidity_pool_params", || {
-            ctrl.set_auths(&no_auths).try_upgrade_liquidity_pool_params(&usdc, &zero_model)
+            ctrl.set_auths(&no_auths).try_upgrade_liquidity_pool_params(&hub_asset(usdc.clone()), &zero_model)
         }).unwrap();
         expect_rejected("create_liquidity_pool", || {
             let params = controller::types::MarketParamsRaw {
-                max_borrow_rate_ray: 0,
-                base_borrow_rate_ray: 0,
-                slope1_ray: 0,
-                slope2_ray: 0,
-                slope3_ray: 0,
-                mid_utilization_ray: 0,
-                optimal_utilization_ray: 0,
-                max_utilization_ray: controller::constants::RAY * 95 / 100,
-                reserve_factor_bps: 0,
-                supply_cap: 0,
-                borrow_cap: 0,
+                max_borrow_rate: 0,
+                base_borrow_rate: 0,
+                slope1: 0,
+                slope2: 0,
+                slope3: 0,
+                mid_utilization: 0,
+                optimal_utilization: 0,
+                max_utilization: controller::constants::RAY * 95 / 100,
+                reserve_factor: 0,
+                is_flashloanable: false,
+                flashloan_fee: 0,
                 asset_id: usdc.clone(),
                 asset_decimals: 7,
             };
-            ctrl.set_auths(&no_auths).try_create_liquidity_pool(&usdc, &params, &cfg)
+            // Auth is rejected before any params are read; any shape suffices.
+            ctrl.set_auths(&no_auths).try_create_liquidity_pool(&HARNESS_HUB, &usdc, &params)
         }).unwrap();
 
-        let empty_assets: SVec<Address> = SVec::new(&env);
+        let empty_assets: SVec<HubAssetKey> = SVec::new(&env);
         let empty_ids: SVec<u64> = SVec::new(&env);
 
         expect_rejected("update_indexes (caller auth)", || {
@@ -233,11 +225,11 @@ proptest! {
             ctrl.set_auths(&no_auths).try_claim_revenue(&random_addr, &empty_assets)
         }).unwrap();
         expect_rejected("add_rewards (caller auth)", || {
-            let rewards: SVec<(Address, i128)> = SVec::new(&env);
+            let rewards: SVec<(HubAssetKey, i128)> = SVec::new(&env);
             ctrl.set_auths(&no_auths).try_add_rewards(&random_addr, &rewards)
         }).unwrap();
         expect_rejected("set_market_oracle_config", || {
-            ctrl.set_auths(&no_auths).try_set_market_oracle_config(&usdc, &oracle_cfg)
+            ctrl.set_auths(&no_auths).try_set_market_oracle_config(&hub_asset(usdc.clone()), &oracle_cfg)
         }).unwrap();
         expect_rejected("set_oracle_tolerance", || {
             let tolerance = sample_tolerance();

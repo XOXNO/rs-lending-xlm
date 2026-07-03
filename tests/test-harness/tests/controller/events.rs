@@ -120,7 +120,8 @@ fn test_bulk_supply_emits_single_position_and_market_batch() {
 #[test]
 fn test_supply_position_event_restores_risk_fields() {
     // V2 wire ABI: deposit entries are vec-encoded as
-    // [action, asset, scaled_amount_ray, index_ray, amount, lt_bps, lb_bps, ltv_bps].
+    // [action, hub_id, asset, scaled_amount, index_ray, amount, lt_bps, lb_bps,
+    //  ltv_bps, liq_fees_bps].
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -131,11 +132,13 @@ fn test_supply_position_event_restores_risk_fields() {
     let deposits = as_vec(&data[2]);
     assert_eq!(deposits.len(), 1, "one deposit delta for the supply");
     let entry = as_vec(&deposits[0]);
-    assert_eq!(entry.len(), 8, "deposit delta arity is wire ABI");
-    // usdc_preset risk params: threshold 8000, bonus 500, ltv 7500.
-    assert_eq!(entry[5], ScVal::U32(8000), "liquidation_threshold_bps");
-    assert_eq!(entry[6], ScVal::U32(500), "liquidation_bonus_bps");
-    assert_eq!(entry[7], ScVal::U32(7500), "loan_to_value_bps");
+    assert_eq!(entry.len(), 10, "deposit delta arity is wire ABI");
+    assert_eq!(entry[1], ScVal::U32(1), "hub_id");
+    // usdc_preset risk params: threshold 8000, bonus 500, ltv 7500, fees 100.
+    assert_eq!(entry[6], ScVal::U32(8000), "liquidation_threshold");
+    assert_eq!(entry[7], ScVal::U32(500), "liquidation_bonus");
+    assert_eq!(entry[8], ScVal::U32(7500), "loan_to_value");
+    assert!(matches!(entry[9], ScVal::U32(_)), "liquidation_fees");
 }
 
 #[test]
@@ -163,10 +166,7 @@ fn test_position_and_market_batch_v2_wire_shape() {
     let attrs = as_vec(&data[1]);
     assert_eq!(attrs.len(), 3, "attrs arity is wire ABI");
     assert!(matches!(attrs[0], ScVal::Address(_)), "attrs.owner");
-    assert!(
-        matches!(attrs[1], ScVal::U32(_)),
-        "attrs.e_mode_category_id"
-    );
+    assert!(matches!(attrs[1], ScVal::U32(_)), "attrs.spoke_id");
     assert!(matches!(attrs[2], ScVal::U32(_)), "attrs.mode");
     let deposits = as_vec(&data[2]);
     let borrows = as_vec(&data[3]);
@@ -174,23 +174,26 @@ fn test_position_and_market_batch_v2_wire_shape() {
     assert!(!borrows.is_empty(), "liquidation repays debt");
     for d in deposits.iter() {
         let entry = as_vec(d);
-        assert_eq!(entry.len(), 8, "deposit delta arity");
+        assert_eq!(entry.len(), 10, "deposit delta arity");
         // PositionAction::LiqSeize = 5.
         assert_eq!(entry[0], ScVal::U32(5), "seize action discriminant");
-        assert!(matches!(entry[1], ScVal::Address(_)));
-        assert!(matches!(entry[2], ScVal::I128(_)));
+        assert!(matches!(entry[1], ScVal::U32(_)), "hub_id");
+        assert!(matches!(entry[2], ScVal::Address(_)), "asset");
+        assert!(matches!(entry[3], ScVal::I128(_)), "scaled_amount");
     }
     for b in borrows.iter() {
         let entry = as_vec(b);
-        assert_eq!(entry.len(), 5, "borrow delta arity");
+        assert_eq!(entry.len(), 6, "borrow delta arity");
         // PositionAction::LiqRepay = 4.
         assert_eq!(entry[0], ScVal::U32(4), "repay action discriminant");
+        assert!(matches!(entry[1], ScVal::U32(_)), "hub_id");
+        assert!(matches!(entry[2], ScVal::Address(_)), "asset");
     }
 
     // market:batch_state_update is pool-emitted, once per pool mutation call. A
     // liquidation makes separate repay and seize/withdraw pool calls, so the
     // touched markets are snapshotted across multiple batches. Each entry is the
-    // pool's 8-field snapshot; it carries no oracle price (the pool cannot read
+    // pool's 9-field snapshot; it carries no oracle price (the pool cannot read
     // prices).
     let market = data_for_topic(&events, "market", "batch_state_update");
     assert!(!market.is_empty(), "pool emits market snapshots");
@@ -199,10 +202,11 @@ fn test_position_and_market_batch_v2_wire_shape() {
         let updates = as_vec(m);
         for u in updates.iter() {
             let entry = as_vec(u);
-            assert_eq!(entry.len(), 8, "market entry arity is wire ABI");
-            assert!(matches!(entry[0], ScVal::Address(_)), "asset");
-            assert!(matches!(entry[1], ScVal::U64(_)), "timestamp");
-            assert!(matches!(entry[2], ScVal::I128(_)), "supply_index_ray");
+            assert_eq!(entry.len(), 9, "market entry arity is wire ABI");
+            assert!(matches!(entry[0], ScVal::U32(_)), "hub_id");
+            assert!(matches!(entry[1], ScVal::Address(_)), "asset");
+            assert!(matches!(entry[2], ScVal::U64(_)), "timestamp");
+            assert!(matches!(entry[3], ScVal::I128(_)), "supply_index");
             market_entries += 1;
         }
     }
@@ -272,11 +276,11 @@ fn test_liquidation_emits_many_events() {
 // triggers a host-level error in the test environment.
 
 #[test]
-fn test_add_emode_emits_events() {
+fn test_add_spoke_emits_events() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    t.ctrl_client().add_e_mode_category();
+    t.ctrl_client().add_spoke();
     let count = t.env.events().all().events().len();
-    assert!(count > 0, "add_e_mode should emit events, got {}", count);
+    assert!(count > 0, "add_spoke should emit events, got {}", count);
 }
 
 #[test]

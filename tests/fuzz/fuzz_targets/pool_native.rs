@@ -4,8 +4,8 @@
 use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY};
 use common::types::{
-    InterestRateModel, MarketParamsRaw, PoolAction, PoolBorrowEntry, PoolKey, PoolStateRaw,
-    PoolSupplyEntry, PoolWithdrawEntry, ScaledPositionRaw,
+    HubAssetKey, InterestRateModel, MarketParamsRaw, PoolAction, PoolBorrowEntry, PoolKey,
+    PoolSeizeEntry, PoolStateRaw, PoolSupplyEntry, PoolWithdrawEntry, ScaledPositionRaw,
 };
 use libfuzzer_sys::fuzz_target;
 use pool::{LiquidityPool, LiquidityPoolClient};
@@ -44,19 +44,26 @@ fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
     let max_pct = (s3_pct.max(base_pct + 1)).clamp(s3_pct, 200); // s3..=200, > base
 
     MarketParamsRaw {
-        base_borrow_rate_ray: RAY * base_pct / 100,
-        slope1_ray: RAY * s1_pct / 100,
-        slope2_ray: RAY * s2_pct / 100,
-        slope3_ray: RAY * s3_pct / 100,
-        mid_utilization_ray: RAY * mid_pct / 100,
-        optimal_utilization_ray: RAY * opt_pct / 100,
-        max_borrow_rate_ray: RAY * max_pct / 100,
-        reserve_factor_bps: (((i.reserve_pct as i128 % 51) * 100).clamp(0, BPS - 1)) as u32,
-        max_utilization_ray: RAY,
-        supply_cap: 0,
-        borrow_cap: 0,
+        base_borrow_rate: RAY * base_pct / 100,
+        slope1: RAY * s1_pct / 100,
+        slope2: RAY * s2_pct / 100,
+        slope3: RAY * s3_pct / 100,
+        mid_utilization: RAY * mid_pct / 100,
+        optimal_utilization: RAY * opt_pct / 100,
+        max_borrow_rate: RAY * max_pct / 100,
+        reserve_factor: (((i.reserve_pct as i128 % 51) * 100).clamp(0, BPS - 1)) as u32,
+        max_utilization: RAY,
+        is_flashloanable: true,
+        flashloan_fee: 0,
         asset_id: asset.clone(),
         asset_decimals: 7,
+    }
+}
+
+fn hub_asset(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 1,
+        asset: asset.clone(),
     }
 }
 
@@ -69,17 +76,17 @@ fn mint_to_pool(env: &Env, asset: &Address, pool_addr: &Address, amount: i128) {
     token::StellarAssetClient::new(env, asset).mint(pool_addr, &amount);
 }
 
-fn seed_cash(env: &Env, pool_addr: &Address, asset: &Address, cash: i128) {
+fn seed_cash(env: &Env, pool_addr: &Address, hub_asset: &HubAssetKey, cash: i128) {
     env.as_contract(pool_addr, || {
-        let key = PoolKey::State(asset.clone());
+        let key = PoolKey::State(hub_asset.clone());
         let mut state: PoolStateRaw = env.storage().persistent().get(&key).unwrap();
         state.cash = cash;
         env.storage().persistent().set(&key, &state);
     });
 }
 
-fn pool_state(pool: &LiquidityPoolClient<'_>, asset: &Address) -> PoolStateRaw {
-    pool.get_sync_data(asset).state
+fn pool_state(pool: &LiquidityPoolClient<'_>, hub_asset: &HubAssetKey) -> PoolStateRaw {
+    pool.get_sync_data(hub_asset).state
 }
 
 fn pool_balance(env: &Env, asset: &Address, pool_addr: &Address) -> i128 {
@@ -104,11 +111,11 @@ fn assert_cash_matches_balance(env: &Env, pool: &Address, asset: &Address, state
 }
 
 fn assert_state_eq(before: &PoolStateRaw, after: &PoolStateRaw) {
-    assert_eq!(before.supplied_ray, after.supplied_ray);
-    assert_eq!(before.borrowed_ray, after.borrowed_ray);
-    assert_eq!(before.revenue_ray, after.revenue_ray);
-    assert_eq!(before.borrow_index_ray, after.borrow_index_ray);
-    assert_eq!(before.supply_index_ray, after.supply_index_ray);
+    assert_eq!(before.supplied, after.supplied);
+    assert_eq!(before.borrowed, after.borrowed);
+    assert_eq!(before.revenue, after.revenue);
+    assert_eq!(before.borrow_index, after.borrow_index);
+    assert_eq!(before.supply_index, after.supply_index);
     assert_eq!(before.last_timestamp, after.last_timestamp);
     assert_eq!(before.cash, after.cash);
 }
@@ -126,32 +133,32 @@ fn flatten_contract_result<T>(
     }
 }
 
-fn supply_entry(asset: &Address, scaled_amount_ray: i128, amount: i128) -> PoolSupplyEntry {
+fn supply_entry(hub_asset: &HubAssetKey, scaled_amount: i128, amount: i128) -> PoolSupplyEntry {
     PoolSupplyEntry {
         action: PoolAction {
-            position: ScaledPositionRaw { scaled_amount_ray },
+            position: ScaledPositionRaw { scaled_amount },
             amount,
-            asset: asset.clone(),
+            hub_asset: hub_asset.clone(),
         },
     }
 }
 
-fn borrow_entry(asset: &Address, scaled_amount_ray: i128, amount: i128) -> PoolBorrowEntry {
+fn borrow_entry(hub_asset: &HubAssetKey, scaled_amount: i128, amount: i128) -> PoolBorrowEntry {
     PoolBorrowEntry {
         action: PoolAction {
-            position: ScaledPositionRaw { scaled_amount_ray },
+            position: ScaledPositionRaw { scaled_amount },
             amount,
-            asset: asset.clone(),
+            hub_asset: hub_asset.clone(),
         },
     }
 }
 
-fn withdraw_entry(asset: &Address, scaled_amount_ray: i128, amount: i128) -> PoolWithdrawEntry {
+fn withdraw_entry(hub_asset: &HubAssetKey, scaled_amount: i128, amount: i128) -> PoolWithdrawEntry {
     PoolWithdrawEntry {
         action: PoolAction {
-            position: ScaledPositionRaw { scaled_amount_ray },
+            position: ScaledPositionRaw { scaled_amount },
             amount,
-            asset: asset.clone(),
+            hub_asset: hub_asset.clone(),
         },
         protocol_fee: 0,
     }
@@ -165,22 +172,22 @@ fn rate_model_from_input(i: &In, salt: u32) -> InterestRateModel {
     let mid_pct = (i.mid_pct as i128 + salt as i128) % 98 + 1;
     let opt_pct = ((i.opt_pct as i128 + salt as i128) % (99 - mid_pct)) + mid_pct + 1;
     let mut model = InterestRateModel {
-        max_borrow_rate_ray: RAY * s3_pct / 100,
-        base_borrow_rate_ray: RAY * base_pct / 100,
-        slope1_ray: RAY * s1_pct / 100,
-        slope2_ray: RAY * s2_pct / 100,
-        slope3_ray: RAY * s3_pct / 100,
-        mid_utilization_ray: RAY * mid_pct / 100,
-        optimal_utilization_ray: RAY * opt_pct / 100,
-        max_utilization_ray: RAY,
-        reserve_factor_bps: (((i.reserve_pct as i128 + salt as i128) % 51) * 100).clamp(0, BPS - 1)
+        max_borrow_rate: RAY * s3_pct / 100,
+        base_borrow_rate: RAY * base_pct / 100,
+        slope1: RAY * s1_pct / 100,
+        slope2: RAY * s2_pct / 100,
+        slope3: RAY * s3_pct / 100,
+        mid_utilization: RAY * mid_pct / 100,
+        optimal_utilization: RAY * opt_pct / 100,
+        max_utilization: RAY,
+        reserve_factor: (((i.reserve_pct as i128 + salt as i128) % 51) * 100).clamp(0, BPS - 1)
             as u32,
     };
 
     if salt & 1 == 0 {
-        model.max_borrow_rate_ray = (model.max_borrow_rate_ray + (RAY / 100)).min(2 * RAY);
+        model.max_borrow_rate = (model.max_borrow_rate + (RAY / 100)).min(2 * RAY);
     } else {
-        model.optimal_utilization_ray = model.mid_utilization_ray;
+        model.optimal_utilization = model.mid_utilization;
     }
 
     model
@@ -201,20 +208,21 @@ fuzz_target!(|i: In| {
         .register_stellar_asset_contract_v2(admin.clone())
         .address()
         .clone();
+    let market = hub_asset(&asset);
 
     let params = make_params(&env, &asset, &i);
 
     // Register the pool natively at a fresh address; `__constructor` sets the owner.
     let pool_addr = env.register(LiquidityPool, (admin,));
     let pool = LiquidityPoolClient::new(&env, &pool_addr);
-    pool.create_market(&params);
+    pool.create_market(&1, &params);
 
     let receiver = Address::generate(&env);
     let payer = Address::generate(&env);
 
     let initial_cash = 100_000_000_000_000i128;
     mint_to_pool(&env, &asset, &pool_addr, initial_cash);
-    seed_cash(&env, &pool_addr, &asset, initial_cash);
+    seed_cash(&env, &pool_addr, &market, initial_cash);
 
     // Bootstrap a non-trivial live market so the direct pool ops can mutate
     // supply, debt, and revenue without controller fanout.
@@ -222,26 +230,20 @@ fuzz_target!(|i: In| {
     mint_to_pool(&env, &asset, &pool_addr, bootstrap_supply);
     let bootstrap_supply_out = flatten_contract_result(pool.try_supply(&soroban_sdk::vec![
         &env,
-        supply_entry(&asset, 0, bootstrap_supply),
+        supply_entry(&market, 0, bootstrap_supply),
     ]))
     .expect("bootstrap supply should succeed");
-    let mut supply_scaled = bootstrap_supply_out
-        .get_unchecked(0)
-        .position
-        .scaled_amount_ray;
-    assert_cash_matches_balance(&env, &pool_addr, &asset, &pool_state(&pool, &asset));
+    let mut supply_scaled = bootstrap_supply_out.get_unchecked(0).position.scaled_amount;
+    assert_cash_matches_balance(&env, &pool_addr, &asset, &pool_state(&pool, &market));
 
     let bootstrap_borrow = amount_from_raw(i.reserve_pct as u32, 1_000_000_000, 10_000_000_000);
     let bootstrap_borrow_out = flatten_contract_result(pool.try_borrow(
         &receiver,
-        &soroban_sdk::vec![&env, borrow_entry(&asset, 0, bootstrap_borrow)],
+        &soroban_sdk::vec![&env, borrow_entry(&market, 0, bootstrap_borrow)],
     ))
     .expect("bootstrap borrow should succeed");
-    let mut borrow_scaled = bootstrap_borrow_out
-        .get_unchecked(0)
-        .position
-        .scaled_amount_ray;
-    assert_cash_matches_balance(&env, &pool_addr, &asset, &pool_state(&pool, &asset));
+    let mut borrow_scaled = bootstrap_borrow_out.get_unchecked(0).position.scaled_amount;
+    assert_cash_matches_balance(&env, &pool_addr, &asset, &pool_state(&pool, &market));
 
     // Track ledger time in seconds — Soroban's TestLedger timestamp is seconds.
     let mut cur_ts_s: u64 = env.ledger().timestamp();
@@ -252,7 +254,7 @@ fuzz_target!(|i: In| {
         cur_ts_s = cur_ts_s.saturating_add(dt_s);
         env.ledger().set_timestamp(cur_ts_s);
 
-        let before = pool_state(&pool, &asset);
+        let before = pool_state(&pool, &market);
         match op_kind % 11 {
             0 => {
                 // Direct supply: pre-fund the pool as the controller would.
@@ -260,31 +262,31 @@ fuzz_target!(|i: In| {
                 mint_to_pool(&env, &asset, &pool_addr, amount);
                 let result = flatten_contract_result(pool.try_supply(&soroban_sdk::vec![
                     &env,
-                    supply_entry(&asset, supply_scaled, amount),
+                    supply_entry(&market, supply_scaled, amount),
                 ]));
                 match result {
                     Ok(out) => {
                         let updated = out.get_unchecked(0);
                         assert!(
-                            updated.position.scaled_amount_ray >= supply_scaled,
+                            updated.position.scaled_amount >= supply_scaled,
                             "supply position regressed: prev={} new={}",
                             supply_scaled,
-                            updated.position.scaled_amount_ray
+                            updated.position.scaled_amount
                         );
-                        supply_scaled = updated.position.scaled_amount_ray;
-                        let after = pool_state(&pool, &asset);
+                        supply_scaled = updated.position.scaled_amount;
+                        let after = pool_state(&pool, &market);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
-                        assert!(after.supplied_ray >= before.supplied_ray);
-                        assert!(after.borrow_index_ray >= before.borrow_index_ray);
-                        assert!(after.supply_index_ray >= before.supply_index_ray);
+                        assert!(after.supplied >= before.supplied);
+                        assert!(after.borrow_index >= before.borrow_index);
+                        assert!(after.supply_index >= before.supply_index);
                     }
-                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &asset)),
+                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
             1 => {
                 // Borrow against the live pool balance. Every other case
                 // deliberately overshoots reserves to exercise the rejection.
-                let reserves = pool.get_reserves(&asset).max(1);
+                let reserves = pool.get_reserves(&market).max(1);
                 let amount = if op_kind & 1 == 0 {
                     amount_from_raw(*price_raw, 1_000_000, reserves.min(10_000_000_000))
                 } else {
@@ -292,32 +294,32 @@ fuzz_target!(|i: In| {
                 };
                 let result = flatten_contract_result(pool.try_borrow(
                     &receiver,
-                    &soroban_sdk::vec![&env, borrow_entry(&asset, borrow_scaled, amount)],
+                    &soroban_sdk::vec![&env, borrow_entry(&market, borrow_scaled, amount)],
                 ));
                 match result {
                     Ok(out) => {
                         let updated = out.get_unchecked(0);
                         assert!(
-                            updated.position.scaled_amount_ray >= borrow_scaled,
+                            updated.position.scaled_amount >= borrow_scaled,
                             "borrow position regressed: prev={} new={}",
                             borrow_scaled,
-                            updated.position.scaled_amount_ray
+                            updated.position.scaled_amount
                         );
-                        borrow_scaled = updated.position.scaled_amount_ray;
-                        let after = pool_state(&pool, &asset);
+                        borrow_scaled = updated.position.scaled_amount;
+                        let after = pool_state(&pool, &market);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
-                        assert!(after.borrowed_ray >= before.borrowed_ray);
-                        assert!(after.borrow_index_ray >= before.borrow_index_ray);
-                        assert!(after.supply_index_ray >= before.supply_index_ray);
+                        assert!(after.borrowed >= before.borrowed);
+                        assert!(after.borrow_index >= before.borrow_index);
+                        assert!(after.supply_index >= before.supply_index);
                     }
-                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &asset)),
+                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
             2 => {
                 // Withdraw from the live supply position. Half the time the
                 // request is valid; half the time it intentionally exceeds the
                 // current supply to keep the revert path alive.
-                let supplied = pool.get_supplied_amount(&asset).max(1);
+                let supplied = pool.get_supplied_amount(&market).max(1);
                 let amount = if op_kind & 1 == 0 {
                     amount_from_raw(*price_raw, 1_000_000, supplied.min(10_000_000_000))
                 } else {
@@ -326,30 +328,30 @@ fuzz_target!(|i: In| {
                 let result = flatten_contract_result(pool.try_withdraw(
                     &receiver,
                     &false,
-                    &soroban_sdk::vec![&env, withdraw_entry(&asset, supply_scaled, amount)],
+                    &soroban_sdk::vec![&env, withdraw_entry(&market, supply_scaled, amount)],
                 ));
                 match result {
                     Ok(out) => {
                         let updated = out.get_unchecked(0);
                         assert!(
-                            updated.position.scaled_amount_ray <= supply_scaled,
+                            updated.position.scaled_amount <= supply_scaled,
                             "withdraw position increased: prev={} new={}",
                             supply_scaled,
-                            updated.position.scaled_amount_ray
+                            updated.position.scaled_amount
                         );
-                        supply_scaled = updated.position.scaled_amount_ray;
-                        let after = pool_state(&pool, &asset);
+                        supply_scaled = updated.position.scaled_amount;
+                        let after = pool_state(&pool, &market);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
-                        assert!(after.borrow_index_ray >= before.borrow_index_ray);
-                        assert!(after.supply_index_ray >= before.supply_index_ray);
+                        assert!(after.borrow_index >= before.borrow_index);
+                        assert!(after.supply_index >= before.supply_index);
                     }
-                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &asset)),
+                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
             3 => {
                 // Repay the current borrow position. We keep this mostly
                 // successful so the borrow index and scaled debt path move.
-                let debt = pool.get_borrowed_amount(&asset).max(1);
+                let debt = pool.get_borrowed_amount(&market).max(1);
                 let amount = amount_from_raw(*price_raw, 1_000_000, debt.min(10_000_000_000));
                 mint_to_pool(&env, &asset, &pool_addr, amount);
                 let result = flatten_contract_result(pool.try_repay(
@@ -358,10 +360,10 @@ fuzz_target!(|i: In| {
                         &env,
                         PoolAction {
                             position: ScaledPositionRaw {
-                                scaled_amount_ray: borrow_scaled
+                                scaled_amount: borrow_scaled
                             },
                             amount,
-                            asset: asset.clone(),
+                            hub_asset: market.clone(),
                         }
                     ],
                 ));
@@ -369,65 +371,65 @@ fuzz_target!(|i: In| {
                     Ok(out) => {
                         let updated = out.get_unchecked(0);
                         assert!(
-                            updated.position.scaled_amount_ray <= borrow_scaled,
+                            updated.position.scaled_amount <= borrow_scaled,
                             "repay position increased: prev={} new={}",
                             borrow_scaled,
-                            updated.position.scaled_amount_ray
+                            updated.position.scaled_amount
                         );
-                        borrow_scaled = updated.position.scaled_amount_ray;
-                        let after = pool_state(&pool, &asset);
+                        borrow_scaled = updated.position.scaled_amount;
+                        let after = pool_state(&pool, &market);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
-                        assert!(after.borrowed_ray <= before.borrowed_ray);
-                        assert!(after.borrow_index_ray >= before.borrow_index_ray);
-                        assert!(after.supply_index_ray >= before.supply_index_ray);
+                        assert!(after.borrowed <= before.borrowed);
+                        assert!(after.borrow_index >= before.borrow_index);
+                        assert!(after.supply_index >= before.supply_index);
                     }
-                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &asset)),
+                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
             4 => {
-                let _ = pool.try_update_indexes(&asset);
+                let _ = pool.try_update_indexes(&market);
             }
             5 => {
                 // add_rewards — pre-fund the pool, then exercise the supply
                 // index uplift path.
                 let amount = amount_from_raw(*price_raw, 1_000_000, 10_000_000_000);
                 mint_to_pool(&env, &asset, &pool_addr, amount);
-                let result = flatten_contract_result(pool.try_add_rewards(&asset, &amount));
+                let result = flatten_contract_result(pool.try_add_rewards(&market, &amount));
                 match result {
                     Ok(()) => {
-                        let after = pool_state(&pool, &asset);
+                        let after = pool_state(&pool, &market);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
-                        assert!(after.revenue_ray >= before.revenue_ray);
-                        assert!(after.supply_index_ray >= before.supply_index_ray);
+                        assert!(after.revenue >= before.revenue);
+                        assert!(after.supply_index >= before.supply_index);
                     }
-                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &asset)),
+                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
             6 => {
                 let model = rate_model_from_input(&i, *price_raw);
-                let result = flatten_contract_result(pool.try_update_params(&asset, &model));
+                let result = flatten_contract_result(pool.try_update_params(&market, &model));
                 match result {
                     Ok(()) => {
-                        let after = pool_state(&pool, &asset);
+                        let after = pool_state(&pool, &market);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
-                        assert!(after.borrow_index_ray >= before.borrow_index_ray);
-                        assert!(after.supply_index_ray >= before.supply_index_ray);
+                        assert!(after.borrow_index >= before.borrow_index);
+                        assert!(after.supply_index >= before.supply_index);
                     }
-                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &asset)),
+                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
             7 => {
-                let result = flatten_contract_result(pool.try_claim_revenue(&asset));
+                let result = flatten_contract_result(pool.try_claim_revenue(&market));
                 match result {
                     Ok(amount_mut) => {
                         assert!(amount_mut.actual_amount >= 0);
-                        let after = pool_state(&pool, &asset);
+                        let after = pool_state(&pool, &market);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
-                        assert!(after.revenue_ray <= before.revenue_ray);
-                        assert!(after.borrow_index_ray >= before.borrow_index_ray);
-                        assert!(after.supply_index_ray >= before.supply_index_ray);
+                        assert!(after.revenue <= before.revenue);
+                        assert!(after.borrow_index >= before.borrow_index);
+                        assert!(after.supply_index >= before.supply_index);
                     }
-                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &asset)),
+                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
             8 => {
@@ -438,40 +440,45 @@ fuzz_target!(|i: In| {
                 };
                 let position = if matches!(side, common::types::AccountPositionType::Borrow) {
                     ScaledPositionRaw {
-                        scaled_amount_ray: borrow_scaled,
+                        scaled_amount: borrow_scaled,
                     }
                 } else {
                     ScaledPositionRaw {
-                        scaled_amount_ray: supply_scaled,
+                        scaled_amount: supply_scaled,
                     }
                 };
                 // Sync to `now` so the seize is measured against an accrued
-                // baseline. seize_position accrues via load_synced_cache; the
+                // baseline. seize_positions accrues via synced_market_cache; the
                 // outer `before` is captured pre-sync, so without this a
                 // borrow-side seize (accrue up, then socialize down) looks like
                 // it raises supply_index when it is only interest accrual.
-                pool.update_indexes(&asset);
-                let before = pool_state(&pool, &asset);
-                let result =
-                    flatten_contract_result(pool.try_seize_position(&asset, &side, &position));
+                pool.update_indexes(&market);
+                let before = pool_state(&pool, &market);
+                let entry = PoolSeizeEntry {
+                    hub_asset: market.clone(),
+                    side,
+                    position,
+                };
+                let result = flatten_contract_result(
+                    pool.try_seize_positions(&soroban_sdk::vec![&env, entry]),
+                );
                 match result {
-                    Ok(out) => {
-                        assert_eq!(out.position.scaled_amount_ray, 0);
-                        let after = pool_state(&pool, &asset);
+                    Ok(()) => {
+                        let after = pool_state(&pool, &market);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
                         match side {
                             common::types::AccountPositionType::Borrow => {
-                                assert!(after.borrowed_ray <= before.borrowed_ray);
-                                assert!(after.supply_index_ray <= before.supply_index_ray);
+                                assert!(after.borrowed <= before.borrowed);
+                                assert!(after.supply_index <= before.supply_index);
                                 borrow_scaled = 0;
                             }
                             common::types::AccountPositionType::Deposit => {
-                                assert!(after.revenue_ray >= before.revenue_ray);
+                                assert!(after.revenue >= before.revenue);
                                 supply_scaled = 0;
                             }
                         }
                     }
-                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &asset)),
+                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
             9 => {
@@ -479,41 +486,36 @@ fuzz_target!(|i: In| {
                 let fee = amount / 10;
                 let receiver = Address::generate(&env);
                 let action = PoolAction {
-                    position: ScaledPositionRaw {
-                        scaled_amount_ray: 0,
-                    },
+                    position: ScaledPositionRaw { scaled_amount: 0 },
                     amount,
-                    asset: asset.clone(),
+                    hub_asset: market.clone(),
                 };
-                let result = flatten_contract_result(pool.try_create_strategy(
-                    &receiver,
-                    &action,
-                    &fee,
-                ));
+                let result =
+                    flatten_contract_result(pool.try_create_strategy(&receiver, &action, &fee));
                 match result {
                     Ok(out) => {
-                        assert!(out.position.scaled_amount_ray >= 0);
+                        assert!(out.position.scaled_amount >= 0);
                         assert!(out.amount_received <= amount);
-                        let after = pool_state(&pool, &asset);
+                        let after = pool_state(&pool, &market);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
-                        assert!(after.borrowed_ray >= before.borrowed_ray);
-                        assert!(after.revenue_ray >= before.revenue_ray);
+                        assert!(after.borrowed >= before.borrowed);
+                        assert!(after.revenue >= before.revenue);
                     }
-                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &asset)),
+                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
             10 => {
                 // Pure-view sweep — read-only functions shouldn't fail
                 // under fresh-pool state; assert cross-function invariants.
-                let util = pool.get_utilisation(&asset);
-                let reserves = pool.get_reserves(&asset);
-                let deposit = pool.get_deposit_rate(&asset);
-                let borrow = pool.get_borrow_rate(&asset);
-                let rev = pool.get_revenue(&asset);
-                let supplied = pool.get_supplied_amount(&asset);
-                let borrowed = pool.get_borrowed_amount(&asset);
-                let _dt = pool.get_delta_time(&asset);
-                let _sync = pool.get_sync_data(&asset);
+                let util = pool.get_utilisation(&market);
+                let reserves = pool.get_reserves(&market);
+                let deposit = pool.get_deposit_rate(&market);
+                let borrow = pool.get_borrow_rate(&market);
+                let rev = pool.get_revenue(&market);
+                let supplied = pool.get_supplied_amount(&market);
+                let borrowed = pool.get_borrowed_amount(&market);
+                let _dt = pool.get_delta_time(&market);
+                let _sync = pool.get_sync_data(&market);
 
                 assert!(util >= 0, "negative utilization: {}", util);
                 assert!(reserves >= 0, "negative reserves: {}", reserves);

@@ -6,7 +6,7 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum GenericError {
-    /// Asset has no configured market.
+    /// Asset is not active or not listed for this flow.
     AssetNotSupported = 1,
     /// Asset has a configured market.
     AssetAlreadySupported = 2,
@@ -24,9 +24,9 @@ pub enum GenericError {
     InvalidPoolTemplate = 10,
     /// Swap source is not accepted by the aggregator route.
     InvalidExchangeSrc = 11,
-    /// Market is not active for the requested operation.
+    /// Asset has no active oracle configuration for this operation.
     PairNotActive = 12,
-    /// Account does not belong to the requested market or caller.
+    /// Account is missing or caller is not authorized for it.
     AccountNotInMarket = 13,
     /// Amount must be strictly positive for this operation.
     AmountMustBePositive = 14,
@@ -68,6 +68,15 @@ pub enum GenericError {
     InvalidRole = 41,
     /// Migration source pool is not on the governance Blend-pool allowlist.
     BlendPoolNotApproved = 42,
+    /// Target hub id is not a registered, active hub.
+    HubNotActive = 43,
+    /// Caller is neither the account owner nor an active delegated manager.
+    NotAuthorized = 44,
+    /// Bounded instance registry (approvals, Blend pools, managers, delegates) is full.
+    RegistryCapReached = 45,
+    /// Operation cannot be cancelled (role revocations are protected so a rogue
+    /// role holder cannot veto their own removal).
+    OperationNotCancellable = 46,
 }
 
 #[contracterror]
@@ -82,11 +91,7 @@ pub enum CollateralError {
     HealthFactorTooLow = 102,
     /// Asset is not eligible as collateral.
     NotCollateral = 104,
-    /// Supply cap would be exceeded.
-    SupplyCapReached = 105,
-    /// Borrow cap would be exceeded.
-    BorrowCapReached = 106,
-    /// Asset is not borrowable in the current market config.
+    /// Asset is not borrowable in the account's spoke config.
     AssetNotBorrowable = 107,
     /// Account would exceed max supply or borrow position count.
     PositionLimitExceeded = 109,
@@ -132,6 +137,8 @@ pub enum CollateralError {
     MaxBorrowRateTooHigh = 131,
     /// Asset decimals exceed the supported RAY conversion domain.
     AssetDecimalsTooHigh = 132,
+    /// An account owner cannot liquidate their own account.
+    SelfLiquidationNotAllowed = 133,
 }
 
 #[contracterror]
@@ -176,32 +183,38 @@ pub enum OracleError {
     SanityBoundViolated = 223,
     /// Price-bound min/max configuration is invalid.
     InvalidSanityBounds = 224,
+    /// Oracle resolution re-entered an asset already being priced — a quote/anchor
+    /// cycle (e.g. two markets quoted in each other). Trapped to avoid unbounded
+    /// recursion / stack exhaustion.
+    OracleCycleDetected = 225,
 }
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
-pub enum EModeError {
-    /// E-mode category id does not exist.
-    EModeCategoryNotFound = 300,
-    /// E-mode category has been deprecated.
-    EModeCategoryDeprecated = 301,
-    /// Asset is not present in the requested e-mode category.
-    AssetNotInEmode = 307,
-    /// Asset is in the requested e-mode category.
-    AssetAlreadyInEmode = 308,
-    /// E-mode category asset count would exceed the cap.
-    EModeAssetsLimitReached = 309,
-    /// Requested e-mode category does not match account category.
-    EModeMismatch = 310,
-    /// E-mode spoke supply cap would be exceeded.
+pub enum SpokeError {
+    /// Spoke id does not exist.
+    SpokeNotFound = 300,
+    /// Spoke has been deprecated.
+    SpokeDeprecated = 301,
+    /// Asset is not listed on the requested spoke.
+    AssetNotInSpoke = 307,
+    /// Asset is already listed on the requested spoke.
+    AssetAlreadyInSpoke = 308,
+    /// Spoke asset count would exceed the cap.
+    SpokeAssetsLimitReached = 309,
+    /// Requested spoke does not match the account's spoke.
+    SpokeMismatch = 310,
+    /// Spoke supply cap would be exceeded.
     SpokeSupplyCapReached = 311,
-    /// E-mode spoke borrow cap would be exceeded.
+    /// Spoke borrow cap would be exceeded.
     SpokeBorrowCapReached = 312,
-    /// Spoke cap exceeds the hub cap for the same asset.
-    SpokeCapExceedsHub = 313,
-    /// Spoke cap would fall below current category usage.
+    /// Spoke cap would fall below current spoke usage.
     SpokeCapBelowUsage = 314,
+    /// Spoke asset is paused: no supply/borrow/withdraw/repay.
+    SpokeAssetPaused = 315,
+    /// Spoke asset is frozen: no new supply/borrow (repay/withdraw allowed).
+    SpokeAssetFrozen = 316,
 }
 
 #[contracterror]
@@ -227,4 +240,8 @@ pub enum FlashLoanError {
 pub enum StrategyError {
     /// Strategy requires conversion steps that were not supplied.
     ConvertStepsRequired = 500,
+    /// Aggregator moved more input than authorized or moved it the wrong way.
+    RouterOverspend = 501,
+    /// Aggregator swap produced zero output.
+    NoSwapOutput = 502,
 }

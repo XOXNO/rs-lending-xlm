@@ -65,10 +65,10 @@
                 ]
             },
             {
-                "conf": "certora/controller/confs/emode.conf",
+                "conf": "certora/controller/confs/spoke.conf",
                 "args": [
                     "--rule",
-                    "emode_supply_sanity"
+                    "spoke_supply_sanity"
                 ]
             },
             {
@@ -90,13 +90,6 @@
                 "args": [
                     "--rule",
                     "market_guard_reachability"
-                ]
-            },
-            {
-                "conf": "certora/controller/confs/oracle-compose.conf",
-                "args": [
-                    "--rule",
-                    "oracle_compose_reachability"
                 ]
             },
             {
@@ -136,9 +129,6 @@
                 "conf": "certora/controller/confs/oracle.conf"
             },
             {
-                "conf": "certora/controller/confs/oracle-compose.conf"
-            },
-            {
                 "conf": "certora/controller/confs/tolerance-math.conf"
             },
             {
@@ -148,7 +138,7 @@
                 "conf": "certora/controller/confs/liquidation-light.conf"
             },
             {
-                "conf": "certora/controller/confs/emode.conf"
+                "conf": "certora/controller/confs/spoke.conf"
             }
         ],
         "core": [
@@ -172,9 +162,6 @@
             },
             {
                 "conf": "certora/controller/confs/liquidation.conf"
-            },
-            {
-                "conf": "certora/controller/confs/oracle-compose.conf"
             },
             {
                 "conf": "certora/controller/confs/tolerance-math.conf"

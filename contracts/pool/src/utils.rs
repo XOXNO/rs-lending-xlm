@@ -3,7 +3,7 @@ use common::constants::{
 };
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
-use common::types::{InterestRateModel, MarketParamsRaw, PoolKey};
+use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw, PoolKey};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, IntoVal, Symbol, Vec};
 
@@ -11,7 +11,7 @@ use crate::cache::Cache;
 use crate::interest;
 
 pub(crate) use common::validation::{
-    cap_is_enabled, require_nonneg_amount, require_positive_amount, require_wasm_receiver,
+    require_nonneg_amount, require_positive_amount, require_wasm_receiver,
 };
 
 pub(crate) fn renew_pool_instance(env: &Env) {
@@ -29,87 +29,38 @@ pub(crate) fn now_ms(env: &Env) -> u64 {
 }
 
 /// Renews TTLs for market params/state entries. Both keys must exist.
-pub(crate) fn renew_market_keys(env: &Env, asset: &Address) {
+pub(crate) fn renew_market_keys(env: &Env, hub_asset: &HubAssetKey) {
     let storage = env.storage().persistent();
     storage.extend_ttl(
-        &PoolKey::Params(asset.clone()),
+        &PoolKey::Params(hub_asset.clone()),
         TTL_THRESHOLD_SHARED,
         TTL_BUMP_SHARED,
     );
     storage.extend_ttl(
-        &PoolKey::State(asset.clone()),
+        &PoolKey::State(hub_asset.clone()),
         TTL_THRESHOLD_SHARED,
         TTL_BUMP_SHARED,
     );
 }
 
-/// Rejects a supply that would put current underlying supply above the hub cap.
-pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
-    let supply_cap = cache.params.supply_cap;
-    if !cap_is_enabled(supply_cap) {
-        return;
-    }
-
-    let cap_ray = Ray::from_asset(supply_cap, cache.params.asset_decimals);
-    let next_total = (cache.supplied + scaled_delta).mul(env, cache.supply_index);
-    assert_with_error!(
-        env,
-        next_total <= cap_ray,
-        CollateralError::SupplyCapReached
-    );
-}
-
-/// Rejects a borrow that would put current underlying debt above the hub cap.
-pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
-    let borrow_cap = cache.params.borrow_cap;
-    if !cap_is_enabled(borrow_cap) {
-        return;
-    }
-
-    let cap_ray = Ray::from_asset(borrow_cap, cache.params.asset_decimals);
-    let next_total = (cache.borrowed + scaled_delta).mul(env, cache.borrow_index);
-    assert_with_error!(
-        env,
-        next_total <= cap_ray,
-        CollateralError::BorrowCapReached
-    );
-}
-
-pub(crate) fn apply_rate_model(env: &Env, asset: &Address, m: &InterestRateModel) {
-    let key = PoolKey::Params(asset.clone());
+pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestRateModel) {
+    let key = PoolKey::Params(hub_asset.clone());
     let mut params: MarketParamsRaw = env
         .storage()
         .persistent()
         .get(&key)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
 
-    params.max_borrow_rate_ray = m.max_borrow_rate_ray;
-    params.base_borrow_rate_ray = m.base_borrow_rate_ray;
-    params.slope1_ray = m.slope1_ray;
-    params.slope2_ray = m.slope2_ray;
-    params.slope3_ray = m.slope3_ray;
-    params.mid_utilization_ray = m.mid_utilization_ray;
-    params.optimal_utilization_ray = m.optimal_utilization_ray;
-    params.max_utilization_ray = m.max_utilization_ray;
-    params.reserve_factor_bps = m.reserve_factor_bps;
+    params.max_borrow_rate = m.max_borrow_rate;
+    params.base_borrow_rate = m.base_borrow_rate;
+    params.slope1 = m.slope1;
+    params.slope2 = m.slope2;
+    params.slope3 = m.slope3;
+    params.mid_utilization = m.mid_utilization;
+    params.optimal_utilization = m.optimal_utilization;
+    params.max_utilization = m.max_utilization;
+    params.reserve_factor = m.reserve_factor;
 
-    env.storage().persistent().set(&key, &params);
-}
-
-pub(crate) fn apply_hub_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap: i128) {
-    assert_with_error!(
-        env,
-        supply_cap >= 0 && borrow_cap >= 0,
-        CollateralError::InvalidBorrowParams
-    );
-    let key = PoolKey::Params(asset.clone());
-    let mut params: MarketParamsRaw = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
-    params.supply_cap = supply_cap;
-    params.borrow_cap = borrow_cap;
     env.storage().persistent().set(&key, &params);
 }
 
@@ -156,8 +107,8 @@ pub(crate) fn apply_liquidation_fee(
         gross_amount >= protocol_fee,
         CollateralError::WithdrawLessThanFee
     );
-    let fee_ray = Ray::from_asset(protocol_fee, cache.params.asset_decimals);
-    interest::add_protocol_revenue_ray(cache, fee_ray);
+    let fee = Ray::from_asset(protocol_fee, cache.params.asset_decimals);
+    interest::add_protocol_revenue(cache, fee);
     gross_amount
         .checked_sub(protocol_fee)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))

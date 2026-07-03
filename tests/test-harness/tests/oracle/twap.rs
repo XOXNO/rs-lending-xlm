@@ -1,6 +1,6 @@
-use controller::types::{ControllerKey, MarketConfig, OracleReadMode, OracleSourceConfig};
+use controller::types::{ControllerKey, MarketOracleConfig, OracleReadMode, OracleSourceConfig};
 use soroban_sdk::vec;
-use test_harness::{assert_contract_error, errors, usd_cents, LendingTest, ALICE};
+use test_harness::{assert_contract_error, errors, hub_asset, usd_cents, LendingTest, ALICE};
 
 fn setup() -> LendingTest {
     LendingTest::new().dual_source_two_asset()
@@ -94,7 +94,7 @@ fn test_twap_degradation_on_view_reverts() {
     t.mock_reflector_client()
         .set_twap_history_mode(&usdc_asset, &2);
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [usdc_asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(usdc_asset)]);
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
@@ -143,15 +143,15 @@ fn test_twap_zero_records_reverts_on_view() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
     t.env.as_contract(&t.controller, || {
-        let key = ControllerKey::Market(usdc.clone());
-        let mut market: MarketConfig = t.env.storage().persistent().get(&key).unwrap();
-        if let OracleSourceConfig::Reflector(ref mut source) = market.oracle_config.primary {
+        let key = ControllerKey::AssetOracle(usdc.clone());
+        let mut oracle: MarketOracleConfig = t.env.storage().persistent().get(&key).unwrap();
+        if let OracleSourceConfig::Reflector(ref mut source) = oracle.primary {
             source.read_mode = OracleReadMode::Twap(0);
         }
-        t.env.storage().persistent().set(&key, &market);
+        t.env.storage().persistent().set(&key, &oracle);
     });
 
-    let assets = vec![&t.env, usdc];
+    let assets = vec![&t.env, hub_asset(usdc)];
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
@@ -162,15 +162,15 @@ fn test_twap_records_above_max_rejects_on_view() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
     t.env.as_contract(&t.controller, || {
-        let key = ControllerKey::Market(usdc.clone());
-        let mut market: MarketConfig = t.env.storage().persistent().get(&key).unwrap();
-        if let OracleSourceConfig::Reflector(ref mut source) = market.oracle_config.primary {
+        let key = ControllerKey::AssetOracle(usdc.clone());
+        let mut oracle: MarketOracleConfig = t.env.storage().persistent().get(&key).unwrap();
+        if let OracleSourceConfig::Reflector(ref mut source) = oracle.primary {
             source.read_mode = OracleReadMode::Twap(13);
         }
-        t.env.storage().persistent().set(&key, &market);
+        t.env.storage().persistent().set(&key, &oracle);
     });
 
-    let assets = vec![&t.env, usdc];
+    let assets = vec![&t.env, hub_asset(usdc)];
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
@@ -188,6 +188,6 @@ fn test_dual_anchor_missing_spot_reverts_on_view() {
         t.env.storage().temporary().remove(&key);
     });
 
-    let assets = vec![&t.env, usdc];
+    let assets = vec![&t.env, hub_asset(usdc)];
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }

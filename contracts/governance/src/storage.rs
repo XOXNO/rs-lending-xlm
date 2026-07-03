@@ -1,22 +1,41 @@
-//! Instance storage for governance state.
-//!
-//! Holds the address of the controller this contract deploys and owns.
+//! Governance instance storage.
 
-use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
+use common::constants::{
+    TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
+};
 use common::errors::GenericError;
-use soroban_sdk::{contracttype, panic_with_error, Address, Env};
+use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
 
 #[contracttype]
 #[derive(Clone, Debug)]
 enum GovernanceKey {
-    /// Address of the controller deployed and owned by this contract.
     Controller,
+    /// Scheduled operation ids that `cancel` must refuse (role revocations).
+    Uncancellable(BytesN<32>),
 }
 
 pub(crate) fn renew_governance_instance(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+}
+
+/// Marks a scheduled operation as uncancellable. The 180-day bump outlives the
+/// timelock delay (≤14 days) and execution grace, so the flag cannot archive
+/// out from under a still-pending operation.
+pub(crate) fn mark_uncancellable(env: &Env, operation_id: &BytesN<32>) {
+    let key = GovernanceKey::Uncancellable(operation_id.clone());
+    env.storage().persistent().set(&key, &true);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+}
+
+pub(crate) fn is_uncancellable(env: &Env, operation_id: &BytesN<32>) -> bool {
+    env.storage()
+        .persistent()
+        .get(&GovernanceKey::Uncancellable(operation_id.clone()))
+        .unwrap_or(false)
 }
 
 pub(crate) fn has_controller(env: &Env) -> bool {

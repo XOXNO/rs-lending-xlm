@@ -3,24 +3,29 @@
     "rpc_url": "https://stellar-testnet-gateway.xoxno.com",
     "network_passphrase": "Test SDF Network ; September 2015",
     "timelock_min_delay_ledgers": 12,
-    "governance": "CDXSXXQYLIODKKS56LSAVEXL7TRRJLDTUFGXEJM4Z4BMHTPWEO6OZBVN",
-    "controller": "CAUPFS5V7FKPEI6KVL4KVGLVGYCS3K472NMFZB6NWPWJRNZYMR64RGDU",
-    "aggregator": "CBAS56L66AUKYZB6KIXX6LYXM76OQXFBJ4A7ORITBIRUO5ZV7SOYRAK7",
+    "governance": "CCF5K2NXE2VIR4FMQ4HOAJE6XI3ZWP62FA3ZF3ZKYNODFQF3Y362HJNK",
+    "controller": "CAZGHUOSP6FPQZSAUGR3BZ2SS4KRP6V2REWSCYZJI753VUHGCDJAHC7P",
+    "aggregator": "CACLNOLC6F4UIF3JT3M3BOTPJU7KXNTWGWHVY7MQ5T56BLO6THBRIBV6",
     "accumulator": "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV",
-    "pool_wasm_hash": "105d52e0f692215ee351aef6aa520861c8d5bbb901bc5be3d2b36a626b27e5a2",
-    "controller_wasm_hash": "384f52a915372be810aac0ba8ff0a269ff91579cf431391de16d4212c00cf912",
-    "ledger_index": 0,
+    "pool_wasm_hash": "a4bdc5b43049add685b8cc0bdaf848a0497115d0250ece9eb9cee3ee646d3dc5",
+    "controller_wasm_hash": "86b464ae23bc1cc6009dd5865ccf999ae5f75045094bb537c39886d714665c55",
+    "ledger_index": 3401320,
     "reflector_cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
     "reflector_dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
     "reflector_fx_oracle": "CCSSOHTBL3LEWUCBBEB5NJFC2OKFRC74OWEIJIZLRJBGAAU4VMU5NV4W",
     "redstone_adapter_contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
     "flash_loan_receiver": "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ",
-    "emode_category_ids": {
+    "pool": "CC7BCDCYW5MJPXKIML3BSZUIQ7FYLBAQC3SMGASOWZWB6TLTC4GQL3EZ",
+    "governance_wasm_hash": "",
+    "hub_ids": {
       "1": 1,
       "2": 2
     },
-    "pool": "CCQ5UQAFSYRWDJT6AMJXW3D3VGGWYWYMNIGDO5WRPURUQ5CQYZPWBXVN",
-    "governance_wasm_hash": "1d6d1f6b503ebaae76a5e2123fb1acbfd34836c643815892eeb077c2b3fc02ce"
+    "spoke_ids": {
+      "1": 1,
+      "2": 2,
+      "3": 3
+    }
   },
   "mainnet": {
     "rpc_url": "https://stellar-gateway.xoxno.com",
@@ -57,7 +62,6 @@
       "MXNe": "CDYTKTOHHMMZQSBGEVTFSOAMN6ABFCRZ6TCNLZNFQZ6OK3ZGDB3666IV",
       "XLM": "CAXRDLYBL7ZNE754UX33XTVGTA7MNTIFWURTFJBTRKHPTNP2P36TU2ZF",
       "SolvBTC": "CA5ZDXNDNOR7RA6M6HAB5ZPITD2NU3DIW2AFJCBTV2MJHRUPQXNI2LSE"
-    },
-    "emode_category_ids": {}
+    }
   }
 }

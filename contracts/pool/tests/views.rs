@@ -9,6 +9,14 @@ use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, Address};
 
+/// Pool tests use hub 0 as a local fixture id.
+fn hub(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    }
+}
+
 struct TestSetup {
     env: Env,
     contract: Address,
@@ -29,36 +37,36 @@ impl TestSetup {
             .address()
             .clone();
         let params = MarketParamsRaw {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY / 10,
-            slope2_ray: RAY / 5,
-            slope3_ray: RAY / 2,
-            mid_utilization_ray: RAY / 2,
-            optimal_utilization_ray: RAY * 8 / 10,
-            max_utilization_ray: RAY * 95 / 100,
-            reserve_factor_bps: 1_000,
-            supply_cap: 0,
-            borrow_cap: 0,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY / 10,
+            slope2: RAY / 5,
+            slope3: RAY / 2,
+            mid_utilization: RAY / 2,
+            optimal_utilization: RAY * 8 / 10,
+            max_utilization: RAY * 95 / 100,
+            reserve_factor: 1_000,
+            is_flashloanable: false,
+            flashloan_fee: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
         let state = PoolStateRaw {
-            supplied_ray: 10 * RAY,
-            borrowed_ray: 5 * RAY,
-            revenue_ray: 3 * RAY,
-            borrow_index_ray: 3 * RAY,
-            supply_index_ray: 2 * RAY,
+            supplied: 10 * RAY,
+            borrowed: 5 * RAY,
+            revenue: 3 * RAY,
+            borrow_index: 3 * RAY,
+            supply_index: 2 * RAY,
             last_timestamp: 950_000,
             cash: 50_000_000,
         };
         let contract = env.register(LiquidityPool, (admin.clone(),));
-        LiquidityPoolClient::new(&env, &contract).create_market(&params);
+        LiquidityPoolClient::new(&env, &contract).create_market(&0u32, &params);
 
         env.as_contract(&contract, || {
             env.storage()
                 .persistent()
-                .set(&PoolKey::State(asset.clone()), &state);
+                .set(&PoolKey::State(hub(&asset)), &state);
         });
 
         let token_admin = token::StellarAssetClient::new(&env, &asset);
@@ -83,29 +91,29 @@ fn test_views_load_and_compute_expected_values() {
     let t = TestSetup::new();
 
     t.as_contract(|| {
-        assert_eq!(load_params(&t.env, &t.asset).asset_id, t.asset);
-        assert_eq!(load_state(&t.env, &t.asset).supplied_ray, 10 * RAY);
+        assert_eq!(load_params(&t.env, &hub(&t.asset)).asset_id, t.asset);
+        assert_eq!(load_state(&t.env, &hub(&t.asset)).supplied, 10 * RAY);
         // reserves() returns accounted `cash`; directly minted tokens are excluded.
-        assert_eq!(reserves(&t.env, &t.asset), 50_000_000);
+        assert_eq!(reserves(&t.env, &hub(&t.asset)), 50_000_000);
         // View amounts use asset decimals (7).
         // supplied: 10 scaled * 2.0 index = 20.0 -> 200_000_000 (7 dec).
-        assert_eq!(supplied_amount(&t.env, &t.asset), 200_000_000);
+        assert_eq!(supplied_amount(&t.env, &hub(&t.asset)), 200_000_000);
         // borrowed: 5 scaled * 3.0 index = 15.0 -> 150_000_000 (7 dec).
-        assert_eq!(borrowed_amount(&t.env, &t.asset), 150_000_000);
+        assert_eq!(borrowed_amount(&t.env, &hub(&t.asset)), 150_000_000);
         // revenue: 3 scaled * 2.0 index = 6.0 -> 60_000_000 (7 dec).
-        assert_eq!(protocol_revenue(&t.env, &t.asset), 60_000_000);
+        assert_eq!(protocol_revenue(&t.env, &hub(&t.asset)), 60_000_000);
         // utilization stays in RAY (internal math).
-        assert_eq!(capital_utilisation(&t.env, &t.asset), (15 * RAY) / 20);
-        assert_eq!(delta_time(&t.env, &t.asset), 50_000);
+        assert_eq!(capital_utilisation(&t.env, &hub(&t.asset)), (15 * RAY) / 20);
+        assert_eq!(delta_time(&t.env, &hub(&t.asset)), 50_000);
 
-        let util = Ray::from(capital_utilisation(&t.env, &t.asset));
+        let util = Ray::from(capital_utilisation(&t.env, &hub(&t.asset)));
         let params: common::types::MarketParams = (&t.params).into();
         let expected_borrow = calculate_borrow_rate(&t.env, util, &params);
         let expected_deposit =
             calculate_deposit_rate(&t.env, util, expected_borrow, params.reserve_factor);
 
-        assert_eq!(borrow_rate(&t.env, &t.asset), expected_borrow.raw());
-        assert_eq!(deposit_rate(&t.env, &t.asset), expected_deposit.raw());
+        assert_eq!(borrow_rate(&t.env, &hub(&t.asset)), expected_borrow.raw());
+        assert_eq!(deposit_rate(&t.env, &hub(&t.asset)), expected_deposit.raw());
     });
 }
 
@@ -115,15 +123,15 @@ fn test_capital_utilisation_returns_zero_when_no_supply_exists() {
 
     t.as_contract(|| {
         let zero_supply = PoolStateRaw {
-            supplied_ray: 0,
+            supplied: 0,
             ..t.state.clone()
         };
         t.env
             .storage()
             .persistent()
-            .set(&PoolKey::State(t.asset.clone()), &zero_supply);
+            .set(&PoolKey::State(hub(&t.asset)), &zero_supply);
 
-        assert_eq!(capital_utilisation(&t.env, &t.asset), 0);
+        assert_eq!(capital_utilisation(&t.env, &hub(&t.asset)), 0);
     });
 }
 
@@ -139,9 +147,9 @@ fn test_delta_time_saturates_when_last_timestamp_is_in_future() {
         t.env
             .storage()
             .persistent()
-            .set(&PoolKey::State(t.asset.clone()), &future_state);
+            .set(&PoolKey::State(hub(&t.asset)), &future_state);
 
-        assert_eq!(delta_time(&t.env, &t.asset), 0);
+        assert_eq!(delta_time(&t.env, &hub(&t.asset)), 0);
     });
 }
 
@@ -153,8 +161,8 @@ fn test_load_state_panics_when_pool_is_not_initialized() {
         t.env
             .storage()
             .persistent()
-            .remove(&PoolKey::State(t.asset.clone()));
-        let _ = load_state(&t.env, &t.asset);
+            .remove(&PoolKey::State(hub(&t.asset)));
+        let _ = load_state(&t.env, &hub(&t.asset));
     });
 }
 
@@ -166,8 +174,8 @@ fn test_load_params_panics_when_pool_is_not_initialized() {
         t.env
             .storage()
             .persistent()
-            .remove(&PoolKey::Params(t.asset.clone()));
-        let _ = load_params(&t.env, &t.asset);
+            .remove(&PoolKey::Params(hub(&t.asset)));
+        let _ = load_params(&t.env, &hub(&t.asset));
     });
 }
 
@@ -176,7 +184,7 @@ fn test_protocol_revenue_unscales_with_current_index() {
     let t = TestSetup::new();
     t.as_contract(|| {
         // revenue: 3 scaled * supply_index 2.0 = 6.0 asset units (7 decimals).
-        assert_eq!(protocol_revenue(&t.env, &t.asset), 60_000_000);
+        assert_eq!(protocol_revenue(&t.env, &hub(&t.asset)), 60_000_000);
     });
 }
 
@@ -185,7 +193,7 @@ fn test_delta_time_matches_state_difference() {
     let t = TestSetup::new();
     t.as_contract(|| {
         // Fixture state sets last_timestamp 50k before current time.
-        assert!(delta_time(&t.env, &t.asset) > 0);
+        assert!(delta_time(&t.env, &hub(&t.asset)) > 0);
     });
 }
 
@@ -195,13 +203,13 @@ fn test_reserves_returns_accounted_cash_not_token_balance() {
     // Fixture sets accounted `cash` (50_000_000) and token balance (12_345)
     // to different values; the token balance models an unsolicited donation.
     t.as_contract(|| {
-        assert_eq!(reserves(&t.env, &t.asset), 50_000_000);
-        assert_ne!(reserves(&t.env, &t.asset), 12_345);
+        assert_eq!(reserves(&t.env, &hub(&t.asset)), 50_000_000);
+        assert_ne!(reserves(&t.env, &hub(&t.asset)), 12_345);
     });
 
     // Another direct donation leaves reported reserves unchanged.
     token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.contract, &1_000_000);
     t.as_contract(|| {
-        assert_eq!(reserves(&t.env, &t.asset), 50_000_000);
+        assert_eq!(reserves(&t.env, &hub(&t.asset)), 50_000_000);
     });
 }

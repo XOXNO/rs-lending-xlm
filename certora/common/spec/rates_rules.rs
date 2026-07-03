@@ -21,8 +21,8 @@ fn valid_params(asset: Address) -> MarketParams {
         max_utilization: Ray::from(RAY * 95 / 100),
         max_borrow_rate: Ray::from(MAX_BORROW_RATE_RAY),
         reserve_factor: Bps::from(1_000),
-        supply_cap: 0,
-        borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee: 0,
         asset_id: asset,
         asset_decimals: 7,
     }
@@ -165,11 +165,11 @@ fn simulate_indexes_no_time_noop(
     let sync = PoolSyncData {
         params: (&valid_params(asset)).into(),
         state: PoolStateRaw {
-            supplied_ray: supplied,
-            borrowed_ray: borrowed,
-            revenue_ray: 0,
-            borrow_index_ray: borrow_index,
-            supply_index_ray: supply_index,
+            supplied,
+            borrowed,
+            revenue: 0,
+            borrow_index,
+            supply_index,
             last_timestamp: timestamp,
             cash: supplied.saturating_sub(borrowed),
         },

@@ -1,30 +1,28 @@
-//! "Multiply" (levered long) strategy.
-//!
-//! Borrows and supplies through an aggregator route in one transaction.
+//! Levered-long strategy.
 
+use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
-use controller_interface::types::{PositionMode, StrategySwap};
+use common::types::{Account, HubAssetKey, PositionMode, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
-use crate::cache::Cache;
-use crate::helpers;
+use crate::context::Cache;
+use crate::spoke;
 use crate::strategies::{
-    open_strategy_borrow, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
+    borrow_for_strategy, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
 };
-use crate::{positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{positions::supply, risk::validation, Controller, ControllerArgs, ControllerClient};
 
-/// Parameters for `process_multiply`.
 pub struct MultiplyParams<'a> {
     pub account_id: u64,
-    pub e_mode_category: u32,
-    pub collateral_token: &'a Address,
+    pub spoke_id: u32,
+    pub collateral: &'a HubAssetKey,
     pub debt_to_flash_loan: i128,
-    pub debt_token: &'a Address,
+    pub debt: &'a HubAssetKey,
     pub mode: PositionMode,
     pub swap: &'a StrategySwap,
-    pub initial_payment: Option<(Address, i128)>,
+    pub initial_payment: Option<(HubAssetKey, i128)>,
     pub convert_swap: Option<StrategySwap>,
 }
 
@@ -35,13 +33,13 @@ impl Controller {
         env: Env,
         caller: Address,
         account_id: u64,
-        e_mode_category: u32,
-        collateral_token: Address,
+        spoke_id: u32,
+        collateral: HubAssetKey,
         debt_to_flash_loan: i128,
-        debt_token: Address,
+        debt: HubAssetKey,
         mode: PositionMode,
         swap: Bytes,
-        initial_payment: Option<(Address, i128)>,
+        initial_payment: Option<(HubAssetKey, i128)>,
         convert_swap: Option<Bytes>,
     ) -> u64 {
         process_multiply(
@@ -49,10 +47,10 @@ impl Controller {
             &caller,
             MultiplyParams {
                 account_id,
-                e_mode_category,
-                collateral_token: &collateral_token,
+                spoke_id,
+                collateral: &collateral,
                 debt_to_flash_loan,
-                debt_token: &debt_token,
+                debt: &debt,
                 mode,
                 swap: &swap,
                 initial_payment,
@@ -68,74 +66,35 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
 
     let MultiplyParams {
         account_id,
-        e_mode_category,
-        collateral_token,
+        spoke_id,
+        collateral,
         debt_to_flash_loan,
-        debt_token,
+        debt,
         mode,
         swap,
         initial_payment,
         convert_swap,
     } = params;
 
-    assert_with_error!(
-        env,
-        collateral_token != debt_token,
-        GenericError::AssetsAreTheSame
-    );
+    validate_multiply_request(env, collateral, debt, mode, debt_to_flash_loan);
 
-    // Allow-list accepted modes so only supported account modes reach multiply.
-    assert_with_error!(
-        env,
-        matches!(
-            mode,
-            PositionMode::Multiply | PositionMode::Long | PositionMode::Short
-        ),
-        CollateralError::InvalidPositionMode
-    );
-
-    validation::require_positive_amount(env, debt_to_flash_loan);
+    let (account_id, mut account, mut cache) =
+        prepare_multiply_account(env, caller, account_id, spoke_id, mode, collateral, debt);
 
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
         env,
         caller,
-        collateral_token,
-        debt_token,
+        &mut cache,
+        collateral,
+        debt,
         &initial_payment,
         &convert_swap,
     );
 
-    // Strategy borrows are risk-increasing.
-    let mut cache = Cache::new(env);
-
-    let collateral_config = cache.cached_asset_config(collateral_token);
-    assert_with_error!(
-        env,
-        collateral_config.can_supply(),
-        CollateralError::NotCollateral
-    );
-
-    let (account_id, mut account) = helpers::load_or_create_account(
-        env,
-        caller,
-        account_id,
-        e_mode_category,
-        mode,
-        helpers::AccountGuard::Multiply,
-        &mut cache,
-    );
-
-    let extra_assets = soroban_sdk::vec![env, collateral_token.clone(), debt_token.clone()];
-    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
-
-    // D{debt_token.decimals}{Token(debt_token)} net borrow received after protocol fee.
-    let amount_received = open_strategy_borrow(
-        env,
-        &mut cache,
-        &mut account,
-        debt_token,
-        debt_to_flash_loan,
-    );
+    // D{debt_token.decimals}{Token(debt_token)} net borrow received after protocol fee
+    // on `debt`'s hub market.
+    let amount_received =
+        borrow_for_strategy(env, &mut account, debt, debt_to_flash_loan, &mut cache);
 
     // D{debt_token.decimals}{Token(debt_token)} net borrow plus same-token extra payment.
     let swap_amount_in = amount_received
@@ -146,9 +105,9 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     let swapped_collateral = swap_tokens(
         env,
         caller,
-        debt_token,
+        &debt.asset,
         swap_amount_in,
-        collateral_token,
+        &collateral.asset,
         swap,
     );
 
@@ -157,7 +116,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         .checked_add(swapped_collateral)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    let deposit_assets = soroban_sdk::vec![env, (collateral_token.clone(), total_collateral)];
+    let deposit_assets = soroban_sdk::vec![env, (collateral.clone(), total_collateral)];
 
     supply::process_deposit(
         env,
@@ -169,71 +128,132 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
 
-    emit_multiply_initial_payment(env, &mut cache, account_id, initial_payment);
+    emit_multiply_initial_payment(
+        env,
+        &mut cache,
+        account.spoke_id,
+        account_id,
+        initial_payment,
+    );
 
     account_id
+}
+
+fn prepare_multiply_account(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    spoke_id: u32,
+    mode: PositionMode,
+    collateral: &HubAssetKey,
+    debt: &HubAssetKey,
+) -> (u64, Account, Cache) {
+    let mut cache = Cache::new(env);
+    let (account_id, account) = account::load_or_create_account(
+        env,
+        caller,
+        account_id,
+        spoke_id,
+        mode,
+        account::AccountGuard::Multiply,
+        &mut cache,
+    );
+    let collateral_config =
+        spoke::require_listed_active_config(env, &mut cache, account.spoke_id, collateral);
+    assert_with_error!(
+        env,
+        collateral_config.can_supply(),
+        CollateralError::NotCollateral
+    );
+    let extra_assets = soroban_sdk::vec![env, collateral.asset.clone(), debt.asset.clone()];
+    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
+    (account_id, account, cache)
+}
+
+fn validate_multiply_request(
+    env: &Env,
+    collateral: &HubAssetKey,
+    debt: &HubAssetKey,
+    mode: PositionMode,
+    debt_to_flash_loan: i128,
+) {
+    // The swap leg needs distinct underlying tokens; the same token on two hubs cannot lever itself.
+    assert_with_error!(
+        env,
+        collateral.asset != debt.asset,
+        GenericError::AssetsAreTheSame
+    );
+    assert_with_error!(
+        env,
+        matches!(
+            mode,
+            PositionMode::Multiply | PositionMode::Long | PositionMode::Short
+        ),
+        CollateralError::InvalidPositionMode
+    );
+    validation::require_positive_amount(env, debt_to_flash_loan);
 }
 
 fn collect_initial_multiply_payment(
     env: &Env,
     caller: &Address,
-    collateral_token: &Address,
-    debt_token: &Address,
-    initial_payment: &Option<(Address, i128)>,
+    cache: &mut Cache,
+    collateral: &HubAssetKey,
+    debt: &HubAssetKey,
+    initial_payment: &Option<(HubAssetKey, i128)>,
     convert_swap: &Option<StrategySwap>,
 ) -> (i128, i128) {
-    let mut collateral_amount = 0;
-    let mut debt_extra = 0;
+    let Some((payment, payment_amount)) = initial_payment.as_ref() else {
+        return (0, 0);
+    };
 
-    if let Some((payment_token, payment_amount)) = initial_payment.as_ref() {
-        validation::require_positive_amount(env, *payment_amount);
+    validation::require_positive_amount(env, *payment_amount);
 
-        // Only listed assets may invoke token contracts; payment token is the
-        // user-supplied call target.
-        assert_with_error!(
+    // Only active protocol assets may invoke token contracts; the payment
+    // asset is the user-supplied call target. An active asset has a
+    // token-rooted `AssetOracle` entry (the payment is priced downstream).
+    assert_with_error!(
+        env,
+        cache.asset_oracle_exists(&payment.asset),
+        GenericError::AssetNotSupported
+    );
+
+    let payment_tok = soroban_sdk::token::Client::new(env, &payment.asset);
+    payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
+
+    if payment.asset == collateral.asset {
+        (*payment_amount, 0)
+    } else if payment.asset == debt.asset {
+        (0, *payment_amount)
+    } else {
+        let Some(convert) = convert_swap.as_ref() else {
+            panic_with_error!(env, StrategyError::ConvertStepsRequired);
+        };
+        // D{payment_token.decimals}{Token(payment_token)} -> Token(collateral_token).
+        let collateral_amount = swap_tokens(
             env,
-            storage::has_market_config(env, payment_token),
-            GenericError::AssetNotSupported
+            caller,
+            &payment.asset,
+            *payment_amount,
+            &collateral.asset,
+            convert,
         );
-
-        let payment_tok = soroban_sdk::token::Client::new(env, payment_token);
-        payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
-
-        if *payment_token == *collateral_token {
-            collateral_amount = *payment_amount;
-        } else if *payment_token == *debt_token {
-            debt_extra = *payment_amount;
-        } else {
-            let convert = match convert_swap.as_ref() {
-                Some(s) => s,
-                None => panic_with_error!(env, StrategyError::ConvertStepsRequired),
-            };
-            // D{payment_token.decimals}{Token(payment_token)} -> Token(collateral_token).
-            collateral_amount = swap_tokens(
-                env,
-                caller,
-                payment_token,
-                *payment_amount,
-                collateral_token,
-                convert,
-            );
-        }
+        (collateral_amount, 0)
     }
-
-    (collateral_amount, debt_extra)
 }
 
 fn emit_multiply_initial_payment(
     env: &Env,
     cache: &mut Cache,
+    spoke_id: u32,
     account_id: u64,
-    initial_payment: Option<(Address, i128)>,
+    initial_payment: Option<(HubAssetKey, i128)>,
 ) {
-    if let Some((payment_token, payment_amount)) = initial_payment {
-        let feed = cache.cached_price(&payment_token);
+    if let Some((payment, payment_amount)) = initial_payment {
+        let feed = cache.cached_price_for(spoke_id, &payment);
         let usd_value_wad = feed.usd_value_wad(env, payment_amount).raw();
         InitialMultiplyPaymentEvent {
-            token: payment_token,
+            token: payment.asset,
             amount: payment_amount,
             usd_value_wad,
             account_id,

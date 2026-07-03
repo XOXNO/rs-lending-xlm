@@ -845,13 +845,11 @@ fn test_disabled_market_panics_same_through_prefetch() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Disable the ETH market.
+    // Disable the ETH market by removing its `AssetOracle` entry, which is the
+    // "active" signal price resolution reads.
     t.env.as_contract(&t.controller, || {
-        let key = controller::types::ControllerKey::Market(t.resolve_asset("ETH"));
-        let mut market: controller::types::MarketConfig =
-            t.env.storage().persistent().get(&key).unwrap();
-        market.status = controller::types::MarketStatus::Disabled;
-        t.env.storage().persistent().set(&key, &market);
+        let key = controller::types::ControllerKey::AssetOracle(t.resolve_asset("ETH"));
+        t.env.storage().persistent().remove(&key);
     });
 
     // Attempt a withdrawal-with-debt: HF check prices both assets including

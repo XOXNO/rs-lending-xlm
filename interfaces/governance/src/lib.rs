@@ -8,49 +8,40 @@
 //! generates `GovernanceClient`; the governance contract does NOT formally
 //! `impl` this trait — its entrypoints match by ABI name.
 
-use common::types::{InterestRateModel, MarketParamsRaw};
-use controller_interface::types::{
-    AssetConfigRaw, MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
+use common::types::{
+    HubAssetKey, MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
     PositionLimits,
 };
+use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
 pub use stellar_governance::timelock::OperationState;
 
 pub use stellar_governance::timelock::OperationState as GovernanceOperationState;
 
-/// E-mode asset input forwarded verbatim to the controller's
-/// `add_asset_to_e_mode_category` / `edit_asset_in_e_mode_category` entrypoints.
-/// Defined in `controller-interface` (the call's owner) and re-exported here so
-/// `AdminOperation` keeps a single source of truth.
-pub use controller_interface::types::EModeAssetArgs;
+/// Spoke asset input forwarded verbatim to the controller's `add_asset_to_spoke`
+/// / `edit_asset_in_spoke` entrypoints. Defined in `common` with the controller
+/// ABI DTOs so `AdminOperation` keeps a single source of truth.
+pub use common::types::SpokeAssetArgs;
 
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct PoolCapsArgs {
-    pub asset: Address,
-    pub supply_cap: i128,
-    pub borrow_cap: i128,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct RemoveAssetFromEModeArgs {
-    pub asset: Address,
-    pub category_id: u32,
+pub struct RemoveAssetFromSpokeArgs {
+    pub hub_asset: HubAssetKey,
+    pub spoke_id: u32,
 }
 
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct CreatePoolArgs {
+    pub hub_id: u32,
     pub asset: Address,
     pub params: MarketParamsRaw,
-    pub config: AssetConfigRaw,
 }
 
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct UpgradePoolParamsArgs {
-    pub asset: Address,
+    pub hub_asset: HubAssetKey,
     pub params: InterestRateModel,
 }
 
@@ -64,7 +55,7 @@ pub struct TransferOwnershipArgs {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct ConfigureOracleArgs {
-    pub asset: Address,
+    pub hub_asset: HubAssetKey,
     pub cfg: MarketOracleConfigInput,
 }
 
@@ -84,20 +75,23 @@ pub struct RoleArgs {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+// `#[contracttype]` enums cannot box variants (Soroban has no `Box` codec);
+// `CreateLiquidityPool` embeds the large `MarketParamsRaw`. Mirrors the allow on
+// `MarketOracleConfigOption`.
+#[allow(clippy::large_enum_variant)]
 pub enum AdminOperation {
     // Controller target
     SetAggregator(Address),
     SetAccumulator(Address),
     SetLiquidityPoolTemplate(BytesN<32>),
-    EditAssetConfig(Address, AssetConfigRaw),
     SetPositionLimits(PositionLimits),
     SetMinBorrowCollateralUsd(i128),
-    AddEModeCategory,
-    RemoveEModeCategory(u32),
-    AddAssetToEModeCategory(EModeAssetArgs),
-    EditAssetInEModeCategory(EModeAssetArgs),
-    UpdatePoolCaps(PoolCapsArgs),
-    RemoveAssetFromEMode(RemoveAssetFromEModeArgs),
+    CreateHub,
+    AddSpoke,
+    RemoveSpoke(u32),
+    AddAssetToSpoke(SpokeAssetArgs),
+    EditAssetInSpoke(SpokeAssetArgs),
+    RemoveAssetFromSpoke(RemoveAssetFromSpokeArgs),
     ApproveToken(Address),
     RevokeToken(Address),
     ApproveBlendPool(Address),
@@ -107,6 +101,7 @@ pub enum AdminOperation {
     DeployPool,
     UpgradePool(BytesN<32>),
     DisableTokenOracle(Address),
+    SetPositionManager(Address, bool),
     UpgradeController(BytesN<32>),
     MigrateController(u32),
     TransferCtrlOwnership(TransferOwnershipArgs),

@@ -10,7 +10,7 @@ use common::rates::simulate_update_indexes;
 use controller::constants::MS_PER_SECOND;
 use controller::types::MarketIndexRaw;
 use soroban_sdk::testutils::Address as _;
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB};
 
 #[test]
 fn test_detailed_indexes_view_matches_pool_simulation() {
@@ -35,26 +35,27 @@ fn test_detailed_indexes_view_matches_pool_simulation() {
     let eth = t.resolve_asset("ETH");
     let now_ms = t.env.ledger().timestamp() * MS_PER_SECOND;
 
-    let assets = soroban_sdk::vec![&t.env, usdc.clone(), eth.clone()];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(usdc.clone()), hub_asset(eth.clone())];
     let views = t.ctrl_client().get_market_indexes_detailed(&assets);
     assert_eq!(views.len(), 2);
 
     for (i, asset) in [usdc, eth].iter().enumerate() {
         let pool = t.resolve_market_by_asset(asset).pool.clone();
-        let sync = pool::LiquidityPoolClient::new(&t.env, &pool).get_sync_data(asset);
+        let sync =
+            pool::LiquidityPoolClient::new(&t.env, &pool).get_sync_data(&hub_asset(asset.clone()));
         let expected = MarketIndexRaw::from(&simulate_update_indexes(&t.env, now_ms, &sync));
         let view = views.get_unchecked(i as u32);
 
         assert!(
-            expected.borrow_index_ray > controller::constants::RAY,
+            expected.borrow_index > controller::constants::RAY,
             "market must have accrued for the equality to be meaningful"
         );
         assert_eq!(
-            view.borrow_index_ray, expected.borrow_index_ray,
+            view.borrow_index, expected.borrow_index,
             "bulk-seeded borrow index must equal the lazy simulation"
         );
         assert_eq!(
-            view.supply_index_ray, expected.supply_index_ray,
+            view.supply_index, expected.supply_index,
             "bulk-seeded supply index must equal the lazy simulation"
         );
     }
@@ -68,7 +69,11 @@ fn test_index_view_with_unlisted_asset_still_fails() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let unlisted = soroban_sdk::Address::generate(&t.env);
-    let assets = soroban_sdk::vec![&t.env, t.resolve_asset("USDC"), unlisted];
+    let assets = soroban_sdk::vec![
+        &t.env,
+        hub_asset(t.resolve_asset("USDC")),
+        hub_asset(unlisted)
+    ];
     let result = t.ctrl_client().try_get_market_indexes_detailed(&assets);
     assert!(result.is_err(), "unlisted asset must still fail the view");
 }

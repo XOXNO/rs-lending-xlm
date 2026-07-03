@@ -1,8 +1,9 @@
+use common::types::HubAssetKey;
 use controller::types::PositionMode;
-use soroban_sdk::{vec, Address, Vec};
+use soroban_sdk::{vec, Vec};
 
 use crate::core::LendingTest;
-use crate::helpers::f64_to_i128;
+use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
 
 impl LendingTest {
     /// Supply tokens. Auto-creates user address and account on first call.
@@ -22,13 +23,14 @@ impl LendingTest {
         market.token_admin.mint(&addr, &amount);
 
         let account_id = self.default_account_id_or_zero(user);
+        let spoke = self.account_spoke_or_default(account_id);
 
         let ctrl = self.ctrl_client();
-        let assets: Vec<(Address, i128)> = vec![&self.env, (asset_addr, amount)];
-        let returned_id = ctrl.supply(&addr, &account_id, &0u32, &assets);
+        let assets: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), amount)];
+        let returned_id = ctrl.supply(&addr, &account_id, &spoke, &assets);
 
         if account_id == 0 {
-            self.register_account(user, returned_id, 0, PositionMode::Normal);
+            self.register_account(user, returned_id, HARNESS_SPOKE, PositionMode::Normal);
         }
     }
 
@@ -41,22 +43,26 @@ impl LendingTest {
         let asset_addr = market.asset.clone();
         market.token_admin.mint(&addr, &raw_amount);
 
+        let spoke = self.account_spoke_or_default(account_id);
         let ctrl = self.ctrl_client();
-        let assets: Vec<(Address, i128)> = vec![&self.env, (asset_addr, raw_amount)];
-        ctrl.supply(&addr, &account_id, &0u32, &assets);
+        let assets: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        ctrl.supply(&addr, &account_id, &spoke, &assets);
     }
 
-    /// Try supply -- returns Result instead of panicking.
+    /// Try supply -- returns Result instead of panicking. Passes the account's
+    /// real spoke (the base harness spoke for a fresh account).
     pub fn try_supply(
         &mut self,
         user: &str,
         asset_name: &str,
         amount: f64,
     ) -> Result<u64, soroban_sdk::Error> {
-        self.try_supply_with_e_mode(user, asset_name, amount, 0)
+        let account_id = self.default_account_id_or_zero(user);
+        let spoke = self.account_spoke_or_default(account_id);
+        self.try_supply_with_spoke(user, asset_name, amount, spoke)
     }
 
-    /// Try supply with an explicit e-mode argument -- returns Result.
+    /// Try supply with an explicit spoke argument -- returns Result.
     /// Supply to an existing account owned by `target_user`, signed by `caller`.
     pub fn try_supply_to_account(
         &mut self,
@@ -73,21 +79,22 @@ impl LendingTest {
         market.token_admin.mint(&caller_addr, &raw_amount);
 
         let account_id = self.resolve_account_id(target_user);
+        let spoke = self.account_spoke_or_default(account_id);
         let ctrl = self.ctrl_client();
-        let assets: Vec<(Address, i128)> = vec![&self.env, (asset_addr, raw_amount)];
-        match ctrl.try_supply(&caller_addr, &account_id, &0u32, &assets) {
+        let assets: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        match ctrl.try_supply(&caller_addr, &account_id, &spoke, &assets) {
             Ok(Ok(id)) => Ok(id),
             Ok(Err(err)) => Err(err),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
     }
 
-    pub fn try_supply_with_e_mode(
+    pub fn try_supply_with_spoke(
         &mut self,
         user: &str,
         asset_name: &str,
         amount: f64,
-        e_mode_category: u32,
+        spoke_id: u32,
     ) -> Result<u64, soroban_sdk::Error> {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
@@ -99,8 +106,8 @@ impl LendingTest {
         let account_id = self.default_account_id_or_zero(user);
 
         let ctrl = self.ctrl_client();
-        let assets: Vec<(Address, i128)> = vec![&self.env, (asset_addr, raw_amount)];
-        match ctrl.try_supply(&addr, &account_id, &e_mode_category, &assets) {
+        let assets: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        match ctrl.try_supply(&addr, &account_id, &spoke_id, &assets) {
             Ok(Ok(id)) => Ok(id),
             Ok(Err(err)) => Err(err),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -112,21 +119,22 @@ impl LendingTest {
     pub fn supply_bulk(&mut self, user: &str, assets: &[(&str, f64)]) {
         let addr = self.get_or_create_user(user);
 
-        let mut soroban_assets: Vec<(Address, i128)> = Vec::new(&self.env);
+        let mut soroban_assets: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
         for (asset_name, amount) in assets {
             let market = self.resolve_market(asset_name);
             let raw = f64_to_i128(*amount, market.decimals);
             market.token_admin.mint(&addr, &raw);
-            soroban_assets.push_back((market.asset.clone(), raw));
+            soroban_assets.push_back((hub_asset(market.asset.clone()), raw));
         }
 
         let account_id = self.default_account_id_or_zero(user);
+        let spoke = self.account_spoke_or_default(account_id);
 
         let ctrl = self.ctrl_client();
-        let returned_id = ctrl.supply(&addr, &account_id, &0u32, &soroban_assets);
+        let returned_id = ctrl.supply(&addr, &account_id, &spoke, &soroban_assets);
 
         if account_id == 0 {
-            self.register_account(user, returned_id, 0, PositionMode::Normal);
+            self.register_account(user, returned_id, HARNESS_SPOKE, PositionMode::Normal);
         }
     }
 }

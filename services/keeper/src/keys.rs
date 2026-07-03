@@ -13,15 +13,19 @@ use stellar_xdr::curr::{
 /// Protocol-wide controller persistent keys kept alive by the keeper.
 #[derive(Debug, Clone)]
 pub enum ControllerPersistentKey {
-    Market([u8; 32]),
-    EModeCategory(u32),
+    AccountNonce,
+    AssetOracle([u8; 32]),
+    Hub(u32),
+    Spoke(u32),
 }
 
 impl ControllerPersistentKey {
     pub fn to_sc_val(&self) -> Result<ScVal> {
         Ok(match self {
-            Self::Market(addr) => sc_enum("Market", &[sc_address_contract(addr)])?,
-            Self::EModeCategory(id) => sc_enum("EModeCategory", &[ScVal::U32(*id)])?,
+            Self::AccountNonce => sc_enum("AccountNonce", &[])?,
+            Self::AssetOracle(addr) => sc_enum("AssetOracle", &[sc_address_contract(addr)])?,
+            Self::Hub(id) => sc_enum("Hub", &[ScVal::U32(*id)])?,
+            Self::Spoke(id) => sc_enum("Spoke", &[ScVal::U32(*id)])?,
         })
     }
 
@@ -103,18 +107,24 @@ impl AccessControlPersistentKey {
     }
 }
 
-/// Asset-keyed persistent keys of the central liquidity pool.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct HubAssetKey {
+    pub hub_id: u32,
+    pub asset: [u8; 32],
+}
+
+/// Hub-asset-keyed persistent keys for the central liquidity pool.
 #[derive(Debug, Clone)]
 pub enum PoolPersistentKey {
-    Params([u8; 32]),
-    State([u8; 32]),
+    Params(HubAssetKey),
+    State(HubAssetKey),
 }
 
 impl PoolPersistentKey {
     pub fn to_sc_val(&self) -> Result<ScVal> {
         Ok(match self {
-            Self::Params(asset) => sc_enum("Params", &[sc_address_contract(asset)])?,
-            Self::State(asset) => sc_enum("State", &[sc_address_contract(asset)])?,
+            Self::Params(hub_asset) => sc_enum("Params", &[hub_asset_key_sc_val(hub_asset)?])?,
+            Self::State(hub_asset) => sc_enum("State", &[hub_asset_key_sc_val(hub_asset)?])?,
         })
     }
 
@@ -152,16 +162,16 @@ impl PoolPersistentKey {
 #[derive(Debug, Clone, Copy)]
 pub enum ControllerInstanceKey {
     Pool,
-    AccountNonce,
-    LastEModeCategoryId,
+    LastHubId,
+    LastSpokeId,
 }
 
 impl ControllerInstanceKey {
     pub fn variant_name(&self) -> &'static str {
         match self {
             Self::Pool => "Pool",
-            Self::AccountNonce => "AccountNonce",
-            Self::LastEModeCategoryId => "LastEModeCategoryId",
+            Self::LastHubId => "LastHubId",
+            Self::LastSpokeId => "LastSpokeId",
         }
     }
 }
@@ -218,6 +228,23 @@ fn symbol_val(text: &str) -> Result<ScVal> {
 }
 
 /// Encode `RoleAccountKey { role, index }` with fields sorted by symbol.
+pub fn hub_asset_key_sc_val(hub_asset: &HubAssetKey) -> Result<ScVal> {
+    let entries = vec![
+        ScMapEntry {
+            key: symbol_val("asset")?,
+            val: sc_address_contract(&hub_asset.asset),
+        },
+        ScMapEntry {
+            key: symbol_val("hub_id")?,
+            val: ScVal::U32(hub_asset.hub_id),
+        },
+    ];
+    let map: VecM<ScMapEntry> = entries
+        .try_into()
+        .map_err(|_| anyhow!("hub asset map convert"))?;
+    Ok(ScVal::Map(Some(ScMap(map))))
+}
+
 fn role_account_key_map(role: &str, index: u32) -> Result<ScVal> {
     let entries = vec![
         ScMapEntry {
@@ -246,9 +273,7 @@ mod tests {
 
     #[test]
     fn tuple_variant_carries_args_in_order() {
-        let sv = ControllerPersistentKey::EModeCategory(99)
-            .to_sc_val()
-            .unwrap();
+        let sv = ControllerPersistentKey::Spoke(99).to_sc_val().unwrap();
         match sv {
             ScVal::Vec(Some(ScVec(items))) => {
                 assert_eq!(items.len(), 2);
@@ -260,24 +285,28 @@ mod tests {
     }
 
     #[test]
-    fn pool_params_key_carries_asset_contract_address() {
-        let sv = PoolPersistentKey::Params([9u8; 32]).to_sc_val().unwrap();
+    fn pool_params_key_carries_hub_asset_map() {
+        let hub_asset = HubAssetKey {
+            hub_id: 7,
+            asset: [9u8; 32],
+        };
+        let sv = PoolPersistentKey::Params(hub_asset).to_sc_val().unwrap();
         let ScVal::Vec(Some(ScVec(items))) = sv else {
             panic!("expected Vec");
         };
         assert_eq!(items.len(), 2);
         assert_eq!(sym_text(&items[0]), "Params");
-        assert!(matches!(
-            &items[1],
-            ScVal::Address(ScAddress::Contract(ContractId(Hash(b)))) if *b == [9u8; 32]
-        ));
+        assert_hub_asset(&items[1], hub_asset);
     }
 
     #[test]
     fn pool_state_key_is_persistent_data_on_pool_contract() {
-        let key = PoolPersistentKey::State([4u8; 32])
-            .to_ledger_key(&[8u8; 32])
-            .unwrap();
+        let key = PoolPersistentKey::State(HubAssetKey {
+            hub_id: 3,
+            asset: [4u8; 32],
+        })
+        .to_ledger_key(&[8u8; 32])
+        .unwrap();
         let LedgerKey::ContractData(cd) = key else {
             panic!("expected ContractData");
         };
@@ -297,6 +326,20 @@ mod tests {
             ScVal::Symbol(ScSymbol(s)) => s.to_utf8_string_lossy(),
             other => panic!("expected Symbol, got {other:?}"),
         }
+    }
+
+    fn assert_hub_asset(v: &ScVal, expected: HubAssetKey) {
+        let ScVal::Map(Some(ScMap(entries))) = v else {
+            panic!("expected HubAssetKey map");
+        };
+        assert_eq!(entries.len(), 2);
+        assert_eq!(sym_text(&entries[0].key), "asset");
+        assert!(matches!(
+            &entries[0].val,
+            ScVal::Address(ScAddress::Contract(ContractId(Hash(b)))) if *b == expected.asset
+        ));
+        assert_eq!(sym_text(&entries[1].key), "hub_id");
+        assert!(matches!(entries[1].val, ScVal::U32(id) if id == expected.hub_id));
     }
 
     #[test]

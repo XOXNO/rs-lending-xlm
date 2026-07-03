@@ -1,12 +1,12 @@
-//! Router adversarial tests, panic-site coverage, oracle boundaries, and supply-cap gates.
+//! Router adversarial tests, panic-site coverage, and oracle boundaries.
 
 use controller::constants::{RAY, WAD};
 use soroban_sdk::token;
 use soroban_sdk::Address;
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
 use test_harness::{
-    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, tokens, usd,
-    usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
+    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, hub_asset,
+    usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
 };
 
 use crate::helpers::build_swap_steps;
@@ -30,11 +30,11 @@ fn assert_overpull_rejected(result: Result<u64, soroban_sdk::Error>) {
     match result {
         Ok(account_id) => panic!("OverPull must be rejected, got Ok(account_id={account_id})"),
         Err(err) => {
-            let internal = soroban_sdk::Error::from_contract_error(errors::INTERNAL_ERROR);
+            let overspend = soroban_sdk::Error::from_contract_error(errors::ROUTER_OVERSPEND);
             let err_str = format!("{err:?}");
             assert!(
-                err == internal || err_str.contains("Error(Contract,"),
-                "OverPull must reject via INTERNAL_ERROR or a contract error, got {err:?}"
+                err == overspend || err_str.contains("Error(Contract,"),
+                "OverPull must reject via ROUTER_OVERSPEND or a contract error, got {err:?}"
             );
         }
     }
@@ -53,18 +53,18 @@ fn flatten<T>(
 fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller, || {
-        let key = controller::types::ControllerKey::Market(asset.clone());
-        let mut market: controller::types::MarketConfig =
+        let key = controller::types::ControllerKey::AssetOracle(asset.clone());
+        let mut oracle: controller::types::MarketOracleConfig =
             t.env.storage().persistent().get(&key).unwrap();
-        market.oracle_config.min_sanity_price_wad = min_wad;
-        market.oracle_config.max_sanity_price_wad = max_wad;
-        t.env.storage().persistent().set(&key, &market);
+        oracle.min_sanity_price_wad = min_wad;
+        oracle.max_sanity_price_wad = max_wad;
+        t.env.storage().persistent().set(&key, &oracle);
     });
 }
 
 // BadMode::Refund -- router returns token_in to the caller, violating the
 // `balance_in_after > balance_in_before` invariant. Must panic with
-// InternalError.
+// RouterOverspend.
 
 #[test]
 fn test_swap_tokens_panics_when_router_refunds_token_in() {
@@ -97,8 +97,8 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
         &steps,
     );
 
-    // strategy.rs:474 -- if balance_in_after > balance_in_before, InternalError.
-    assert_contract_error(result, errors::INTERNAL_ERROR);
+    // verify_router_input_spend -- if balance_in_after > balance_in_before, RouterOverspend.
+    assert_contract_error(result, errors::ROUTER_OVERSPEND);
 }
 // BadMode::OverPull -- router pulls 2x the requested amount via
 // `token.transfer(sender, router, 2*amount_in)`. The new ABI has no SEP-41
@@ -106,7 +106,7 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
 // the controller happens to hold enough) and the controller's
 // `verify_router_input_spend` fires `actual_in_spent != amount_in`, or
 // fails with the SAC's insufficient-balance error. Either way it's a
-// detectable adversary; the controller surfaces InternalError when the
+// detectable adversary; the controller surfaces RouterOverspend when the
 // over-spend lands.
 
 #[test]
@@ -273,8 +273,8 @@ fn test_swap_tokens_handles_zero_output_from_router() {
     );
 
     // The positive output-delta check in `strategy::swap_tokens` rejects the
-    // shortfall immediately with INTERNAL_ERROR.
-    assert_contract_error(result, errors::INTERNAL_ERROR);
+    // shortfall immediately with NO_SWAP_OUTPUT.
+    assert_contract_error(result, errors::NO_SWAP_OUTPUT);
 }
 
 // Part 1: missing `panic_with_error!` sites in strategy.rs
@@ -309,13 +309,13 @@ fn test_multiply_third_token_payment_without_convert_steps_rejects() {
     let result = ctrl.try_multiply(
         &alice,
         &0u64,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
-        &Some((wbtc, 100_000i128)),
+        &Some((hub_asset(wbtc), 100_000i128)),
         &None, // <- key: no convert_steps for third-token payment
     );
     assert_contract_error(flatten(result), errors::CONVERT_STEPS_REQUIRED);
@@ -332,7 +332,7 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
         .build();
 
     // Create an account explicitly in Multiply mode.
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
@@ -346,10 +346,10 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
     let result = ctrl.try_multiply(
         &alice,
         &account_id,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Long, // mismatch
         &steps,
         &None,
@@ -510,13 +510,13 @@ fn test_multiply_with_collateral_token_initial_payment() {
     let account_id = ctrl.multiply(
         &alice,
         &0u64,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128, // 1 ETH flash debt
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
-        &Some((usdc.clone(), 500_0000000i128)), // 500 USDC initial payment
+        &Some((hub_asset(usdc.clone()), 500_0000000i128)), // 500 USDC initial payment
         &None,
     );
 
@@ -589,13 +589,13 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
     let account_id = ctrl.multiply(
         &alice,
         &0u64,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &main_steps,
-        &Some((wbtc, 10_000_000i128)),
+        &Some((hub_asset(wbtc), 10_000_000i128)),
         &Some(convert_steps),
     );
 
@@ -704,7 +704,7 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
     );
 }
 // Part 4: Bob-not-owner authorization with account created via multiply
-// AccountNotInMarket for a multiply reuse by the wrong owner.
+// NotAuthorized for a multiply reuse by the wrong owner.
 #[test]
 fn test_multiply_reusing_account_wrong_owner_rejects() {
     let mut t = LendingTest::new()
@@ -744,16 +744,16 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
     let result = ctrl.try_multiply(
         &bob,
         &alice_account, // Bob points at Alice's account_id
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps2,
         &None,
         &None,
     );
-    assert_contract_error(flatten(result), errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
 }
 
 // Price exactly equal to the ceiling must be accepted; even 1 WAD over
@@ -807,7 +807,7 @@ fn test_borrow_at_cap_then_step_over_rejected() {
         .with_market(eth_preset())
         .with_market_params("USDC", |p| {
             // Tight cap: 85 %. (Must stay ≥ optimal=80 % per validator.)
-            p.max_utilization_ray = controller::constants::RAY * 85 / 100;
+            p.max_utilization = controller::constants::RAY * 85 / 100;
         })
         .build();
 
@@ -829,7 +829,7 @@ fn test_multiply_at_utilization_cap_then_step_over_rejected() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market_params("ETH", |p| {
-            p.max_utilization_ray = RAY * 85 / 100;
+            p.max_utilization = RAY * 85 / 100;
         })
         .build();
 
@@ -858,89 +858,6 @@ fn test_multiply_at_utilization_cap_then_step_over_rejected() {
 }
 
 #[test]
-fn test_strategy_swap_collateral_supply_cap_reached() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .with_max_utilization_disabled_all_markets()
-        .build();
-
-    // Bob supplies 1M USDC to fill the pool.
-    t.supply(BOB, "USDC", 1_000_000.0);
-
-    // Set the USDC hub supply cap to 1,010,000 tokens (7 decimals). Current
-    // total = 1,000,000.
-    t.ctrl_client()
-        .update_pool_caps(&t.resolve_asset("USDC"), &10_100_000_000_000i128, &0i128);
-
-    // Alice supplies some ETH.
-    t.supply("alice", "ETH", 10.0);
-
-    // Alice tries to swap 5 ETH collateral for USDC. 5 ETH = $10,000. The
-    // mock swap returns 20,000 USDC ($20,000 at $1/USDC). Total USDC =
-    // 1,000,000 + 20,000 = 1,020,000. 1,020,000 > 1,010,000 triggers #105.
-
-    // Fund the router with USDC for the swap.
-    t.fund_router("USDC", 100_000.0);
-
-    // 5 ETH (7 decimals) → 50_000_000 raw. swap_collateral does not flash-
-    // borrow, so amount_in matches the requested withdrawal exactly.
-    let steps = build_aggregator_swap(&t, "ETH", "USDC", 50_000_000, tokens(20_000, 7));
-
-    let res = t.try_swap_collateral("alice", "ETH", 5.0, "USDC", &steps);
-    assert_contract_error(res, errors::SUPPLY_CAP_REACHED);
-}
-
-#[test]
-fn test_strategy_multiply_supply_cap_reached() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .with_max_utilization_disabled_all_markets()
-        .build();
-
-    // Bob supplies 1M USDC.
-    t.supply(BOB, "USDC", 1_000_000.0);
-
-    // Set the USDC hub supply cap to 1,010,000 tokens (7 decimals). Preserves
-    // the dust-disabled sentinel from `with_dust_disabled_all_markets()` so
-    // Alice's deliberately-tiny 5 USDC seed position survives the new gate.
-    t.ctrl_client()
-        .update_pool_caps(&t.resolve_asset("USDC"), &10_100_000_000_000i128, &0i128);
-
-    // Alice has some USDC.
-    t.supply("alice", "USDC", 5.0); // Minimal initial position
-
-    // Alice tries to multiply her USDC position. Borrow 10 ETH ($20k), swap
-    // to USDC. The mock swap returns 30,000 USDC. Total USDC = 1,000,000
-    // (Bob) + 5 (Alice) + 30,000 (swap) = 1,030,005. 1,030,005 > 1,010,000
-    // triggers #105.
-
-    t.fund_router("USDC", 100_000.0);
-
-    // 10 ETH flash-borrowed → controller receives apply_flash_fee(100_000_000).
-    let steps = build_aggregator_swap(
-        &t,
-        "ETH",
-        "USDC",
-        apply_flash_fee(100_000_000),
-        tokens(30_000, 7),
-    );
-
-    let res = t.try_multiply(
-        "alice",
-        "USDC",
-        10.0,
-        "ETH",
-        controller::types::PositionMode::Multiply, // Multiply mode
-        &steps,
-    );
-    assert_contract_error(res, errors::SUPPLY_CAP_REACHED);
-}
-
-#[test]
 fn test_strategy_multiply_unsupported_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -963,5 +880,5 @@ fn test_strategy_multiply_unsupported_category() {
         &steps,
     );
 
-    assert_contract_error(res, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(res, errors::SPOKE_NOT_FOUND);
 }

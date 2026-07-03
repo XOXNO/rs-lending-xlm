@@ -1,21 +1,37 @@
 use controller::types::ControllerKey;
 use test_harness::{
-    assert_contract_error, days, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE,
-    BOB, STABLECOIN_EMODE,
+    assert_contract_error, days, errors, eth_preset, hub_asset, usd_cents, usdc_preset,
+    HubAssetKey, LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
 };
 
 fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u32 {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
-        let map: soroban_sdk::Map<soroban_sdk::Address, controller::types::AccountPositionRaw> = t
+        let map: soroban_sdk::Map<HubAssetKey, controller::types::AccountPositionRaw> = t
             .env
             .storage()
             .persistent()
             .get(&ControllerKey::SupplyPositions(account_id))
             .expect("supply side map should exist");
-        map.get(asset)
+        map.get(hub_asset(asset))
             .expect("supply position should exist for asset")
-            .liquidation_threshold_bps
+            .liquidation_threshold
+    })
+}
+
+/// Returns the stored supply position's stamped protocol fee in BPS.
+fn supply_fee_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u32 {
+    let asset = t.resolve_asset(asset_name);
+    t.env.as_contract(&t.controller_address(), || {
+        let map: soroban_sdk::Map<HubAssetKey, controller::types::AccountPositionRaw> = t
+            .env
+            .storage()
+            .persistent()
+            .get(&ControllerKey::SupplyPositions(account_id))
+            .expect("supply side map should exist");
+        map.get(hub_asset(asset))
+            .expect("supply position should exist for asset")
+            .liquidation_fees
     })
 }
 
@@ -23,19 +39,19 @@ fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u
 fn supply_risk_fields(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32, u32) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
-        let map: soroban_sdk::Map<soroban_sdk::Address, controller::types::AccountPositionRaw> = t
+        let map: soroban_sdk::Map<HubAssetKey, controller::types::AccountPositionRaw> = t
             .env
             .storage()
             .persistent()
             .get(&ControllerKey::SupplyPositions(account_id))
             .expect("supply side map should exist");
         let p = map
-            .get(asset)
+            .get(hub_asset(asset))
             .expect("supply position should exist for asset");
         (
-            p.liquidation_threshold_bps,
-            p.liquidation_bonus_bps,
-            p.loan_to_value_bps,
+            p.liquidation_threshold,
+            p.liquidation_bonus,
+            p.loan_to_value,
         )
     })
 }
@@ -275,9 +291,20 @@ fn test_update_account_threshold_safe() {
     let hf_before = t.health_factor(ALICE);
     let account_id = t.resolve_account_id(ALICE);
 
+    let (_, bonus_before, _) = supply_risk_fields(&t, account_id, "USDC");
+    let fee_before = supply_fee_bps(&t, account_id, "USDC");
+    t.edit_asset_config("USDC", |c| {
+        c.liquidation_bonus = bonus_before + 100;
+        c.liquidation_fees = fee_before + 150;
+    });
+
     // Update safe params (has_risks=false): LTV, bonus, fees.
     // Should succeed without an HF check.
     t.update_account_threshold(false, &[account_id]);
+
+    let (_, bonus_after, _) = supply_risk_fields(&t, account_id, "USDC");
+    assert_eq!(bonus_after, bonus_before + 100);
+    assert_eq!(supply_fee_bps(&t, account_id, "USDC"), fee_before + 150);
 
     // Position should still exist and stay healthy.
     t.assert_healthy(ALICE);
@@ -343,36 +370,39 @@ fn test_update_account_threshold_rejects_low_hf() {
     // threshold > LTV).
     // $10k * 61% = $6100 weighted collateral / $6000 debt = HF ~1.017 < 1.05.
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value_bps = 5000;
-        c.liquidation_threshold_bps = 6100;
+        c.loan_to_value = 5000;
+        c.liquidation_threshold = 6100;
     });
 
     let result = t.try_update_account_threshold(true, &[account_id]);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_LOW);
 }
-// 8. test_update_account_threshold_deprecated_emode_uses_base_params
+// 8. test_update_account_threshold_deprecated_spoke_retains_spoke_params
 
 #[test]
-fn test_update_account_threshold_deprecated_emode_uses_base_params() {
+fn test_update_account_threshold_deprecated_spoke_retains_spoke_params() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
         .with_dust_disabled_all_markets()
         .build();
 
-    let account_id = t.create_emode_account(ALICE, 1);
+    let account_id = t.create_spoke_account(ALICE, 2);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     assert_eq!(supply_threshold_bps(&t, account_id, "USDC"), 9800);
 
-    t.remove_e_mode_category(1);
+    // Spokes are self-contained: a deprecated spoke keeps its stored
+    // `SpokeAsset` entry, so re-stamping a position on that spoke reads the
+    // same spoke config -- there is no spoke-0 fallback (controller spoke.rs).
+    t.remove_spoke_category(2);
     t.update_account_threshold(true, &[account_id]);
 
     assert_eq!(
         supply_threshold_bps(&t, account_id, "USDC"),
-        8000,
-        "deprecated eMode categories should fall back to base asset thresholds during propagation"
+        9800,
+        "a deprecated spoke's positions keep reading the spoke's own threshold (no spoke-0 fallback)"
     );
 }
 
@@ -395,12 +425,12 @@ fn test_update_account_threshold_syncs_all_supply_assets() {
     assert_ne!(eth_threshold_before, 6100);
 
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value_bps = 5000;
-        c.liquidation_threshold_bps = 6100;
+        c.loan_to_value = 5000;
+        c.liquidation_threshold = 6100;
     });
     t.edit_asset_config("ETH", |c| {
-        c.loan_to_value_bps = 5000;
-        c.liquidation_threshold_bps = 6100;
+        c.loan_to_value = 5000;
+        c.liquidation_threshold = 6100;
     });
 
     t.update_account_threshold(true, &[account_id]);
@@ -421,9 +451,48 @@ fn test_permissionless_keeper_endpoints() {
     let bob_addr = t.get_or_create_user(BOB);
 
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::vec![&t.env, t.resolve_market("USDC").asset.clone()];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(t.resolve_market("USDC").asset.clone())];
 
     t.env.mock_all_auths();
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may update_indexes");
+}
+// 10. test_update_account_threshold_mixed_spokes_batch
+
+// Regression: one keeper batch spanning accounts on different spokes must not
+// revert `SpokeMismatch`. The shared batch cache memoized the first account's
+// spoke context and rejected the second; the per-account spoke-context reset
+// keeps the token-rooted memos while rebinding the spoke.
+#[test]
+fn test_update_account_threshold_mixed_spokes_batch() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .build();
+
+    // ALICE on the base spoke (1), BOB on spoke 2, same asset.
+    t.supply(ALICE, "USDC", 1_000.0);
+    t.create_spoke_account(BOB, 2);
+    t.supply(BOB, "USDC", 1_000.0);
+
+    let alice_id = t.resolve_account_id(ALICE);
+    let bob_id = t.resolve_account_id(BOB);
+    let (_, alice_bonus_before, alice_ltv_before) = supply_risk_fields(&t, alice_id, "USDC");
+
+    // Change only spoke 2 so the sync writes a visible delta for BOB.
+    t.edit_asset_in_spoke("USDC", 2, true, true, 9600, 9700, 300);
+
+    t.update_account_threshold(false, &[alice_id, bob_id]);
+
+    let (_, bob_bonus, bob_ltv) = supply_risk_fields(&t, bob_id, "USDC");
+    assert_eq!(bob_bonus, 300, "BOB must sync spoke-2 bonus");
+    assert_eq!(bob_ltv, 9600, "BOB must sync spoke-2 LTV");
+
+    let (_, alice_bonus, alice_ltv) = supply_risk_fields(&t, alice_id, "USDC");
+    assert_eq!(
+        (alice_bonus, alice_ltv),
+        (alice_bonus_before, alice_ltv_before),
+        "ALICE must keep base-spoke params"
+    );
 }

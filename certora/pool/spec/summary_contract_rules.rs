@@ -4,23 +4,29 @@ use soroban_sdk::{Address, Bytes, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
-    AccountPositionType, MarketParamsRaw, PoolAction, PoolKey, PoolStateRaw, ScaledPositionRaw,
+    AccountPositionType, HubAssetKey, MarketParamsRaw, PoolAction, PoolKey, PoolStateRaw,
+    ScaledPositionRaw,
 };
 use pool_interface::LiquidityPoolInterface;
 
+/// Hub-0 coordinate for `asset`; the spec models the single default hub.
+fn hub(asset: Address) -> HubAssetKey {
+    HubAssetKey { hub_id: 0, asset }
+}
+
 fn params(asset: Address) -> MarketParamsRaw {
     MarketParamsRaw {
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY / 2,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_borrow_rate_ray: 2 * RAY,
-        max_utilization_ray: RAY,
-        reserve_factor_bps: 1_000,
-        supply_cap: 0,
-        borrow_cap: 0,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY / 2,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_borrow_rate: 2 * RAY,
+        max_utilization: RAY,
+        reserve_factor: 1_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
         asset_id: asset,
         asset_decimals: 7,
     }
@@ -28,11 +34,11 @@ fn params(asset: Address) -> MarketParamsRaw {
 
 fn state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolStateRaw {
     PoolStateRaw {
-        supplied_ray: supplied,
-        borrowed_ray: borrowed,
-        revenue_ray: revenue,
-        borrow_index_ray: RAY,
-        supply_index_ray: RAY,
+        supplied,
+        borrowed,
+        revenue,
+        borrow_index: RAY,
+        supply_index: RAY,
         last_timestamp: timestamp * 1000,
         cash: supplied.saturating_sub(borrowed),
     }
@@ -42,15 +48,15 @@ fn seed(env: &Env, admin: Address, asset: Address, state: PoolStateRaw) {
     crate::LiquidityPool::__constructor(env.clone(), admin);
     env.storage()
         .persistent()
-        .set(&PoolKey::Params(asset.clone()), &params(asset.clone()));
+        .set(&PoolKey::Params(hub(asset.clone())), &params(asset.clone()));
     env.storage()
         .persistent()
-        .set(&PoolKey::State(asset), &state);
+        .set(&PoolKey::State(hub(asset)), &state);
 }
 
 fn position(scaled: i128) -> ScaledPositionRaw {
     ScaledPositionRaw {
-        scaled_amount_ray: scaled,
+        scaled_amount: scaled,
     }
 }
 
@@ -58,12 +64,12 @@ fn action(position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolActi
     PoolAction {
         position,
         amount,
-        asset,
+        hub_asset: hub(asset),
     }
 }
 
 // Bulk-of-one wrappers: one entry through the bulk endpoint.
-fn supply_first(e: &Env, act: PoolAction, _cap: i128) -> common::types::PoolPositionMutation {
+fn supply_first(e: &Env, act: PoolAction) -> common::types::PoolPositionMutation {
     let mut entries: soroban_sdk::Vec<common::types::PoolSupplyEntry> = soroban_sdk::Vec::new(e);
     entries.push_back(common::types::PoolSupplyEntry { action: act });
     crate::LiquidityPool::supply(e.clone(), entries).get_unchecked(0)
@@ -73,7 +79,6 @@ fn borrow_first(
     e: &Env,
     receiver: Address,
     act: PoolAction,
-    _cap: i128,
 ) -> common::types::PoolPositionMutation {
     let mut entries: soroban_sdk::Vec<common::types::PoolBorrowEntry> = soroban_sdk::Vec::new(e);
     entries.push_back(common::types::PoolBorrowEntry { action: act });
@@ -101,6 +106,23 @@ fn repay_first(e: &Env, payer: Address, act: PoolAction) -> common::types::PoolP
     crate::LiquidityPool::repay(e.clone(), payer, actions).get_unchecked(0)
 }
 
+fn seize_first(e: &Env, side: AccountPositionType, asset: Address, pos: ScaledPositionRaw) {
+    let mut entries: soroban_sdk::Vec<common::types::PoolSeizeEntry> = soroban_sdk::Vec::new(e);
+    entries.push_back(common::types::PoolSeizeEntry {
+        hub_asset: hub(asset),
+        side,
+        position: pos,
+    });
+    crate::LiquidityPool::seize_positions(e.clone(), entries);
+}
+
+fn read_state(env: &Env, asset: &Address) -> PoolStateRaw {
+    env.storage()
+        .persistent()
+        .get(&PoolKey::State(hub(asset.clone())))
+        .unwrap()
+}
+
 #[rule]
 fn supply_satisfies_controller_summary_contract(
     e: Env,
@@ -117,12 +139,12 @@ fn supply_satisfies_controller_summary_contract(
     );
 
     let before = position(RAY);
-    let result = supply_first(&e, action(before.clone(), amount, asset), i128::MAX);
+    let result = supply_first(&e, action(before.clone(), amount, asset));
 
     cvlr_assert!(result.actual_amount == amount);
-    cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
-    cvlr_assert!(result.market_index.borrow_index_ray >= RAY);
-    cvlr_assert!(result.market_index.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(result.position.scaled_amount >= before.scaled_amount);
+    cvlr_assert!(result.market_index.borrow_index >= RAY);
+    cvlr_assert!(result.market_index.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
 #[rule]
@@ -142,12 +164,12 @@ fn borrow_satisfies_controller_summary_contract(
     );
 
     let before = position(0);
-    let result = borrow_first(&e, caller, action(before.clone(), amount, asset), i128::MAX);
+    let result = borrow_first(&e, caller, action(before.clone(), amount, asset));
 
     cvlr_assert!(result.actual_amount == amount);
-    cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
-    cvlr_assert!(result.market_index.borrow_index_ray >= RAY);
-    cvlr_assert!(result.market_index.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(result.position.scaled_amount >= before.scaled_amount);
+    cvlr_assert!(result.market_index.borrow_index >= RAY);
+    cvlr_assert!(result.market_index.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
 #[rule]
@@ -176,8 +198,8 @@ fn withdraw_satisfies_controller_summary_contract(
     // holds unconditionally — matching the summary's bound.
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
-    cvlr_assert!(result.position.scaled_amount_ray <= before.scaled_amount_ray);
-    cvlr_assert!(result.position.scaled_amount_ray >= 0);
+    cvlr_assert!(result.position.scaled_amount <= before.scaled_amount);
+    cvlr_assert!(result.position.scaled_amount >= 0);
 }
 
 #[rule]
@@ -203,8 +225,8 @@ fn repay_satisfies_controller_summary_contract(
 
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
-    cvlr_assert!(result.position.scaled_amount_ray <= before.scaled_amount_ray);
-    cvlr_assert!(result.position.scaled_amount_ray >= 0);
+    cvlr_assert!(result.position.scaled_amount <= before.scaled_amount);
+    cvlr_assert!(result.position.scaled_amount >= 0);
 }
 
 #[rule]
@@ -235,9 +257,9 @@ fn create_strategy_satisfies_controller_summary_contract(
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.amount_received == amount - fee);
-    cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
-    cvlr_assert!(result.market_index.borrow_index_ray >= RAY);
-    cvlr_assert!(result.market_index.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(result.position.scaled_amount >= before.scaled_amount);
+    cvlr_assert!(result.market_index.borrow_index >= RAY);
+    cvlr_assert!(result.market_index.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
 #[rule]
@@ -255,13 +277,18 @@ fn seize_position_satisfies_controller_summary_contract(
         state(100 * RAY, scaled, 0, e.ledger().timestamp()),
     );
 
-    let result = crate::LiquidityPool::seize_position(
-        e,
-        asset,
+    seize_first(
+        &e,
         AccountPositionType::Borrow,
+        asset.clone(),
         position(scaled),
     );
-    cvlr_assert!(result.position.scaled_amount_ray == 0);
+    // The summary models seize as a no-return state mutation: the seized debt
+    // shares leave the market and the indexes stay inside the nondet bounds.
+    let after = read_state(&e, &asset);
+    cvlr_assert!(after.borrowed == 0);
+    cvlr_assert!(after.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(after.borrow_index >= RAY);
 }
 
 #[rule]
@@ -275,8 +302,8 @@ fn claim_revenue_satisfies_controller_summary_contract(e: Env, admin: Address, a
 
     // Claimed amount is non-negative and never exceeds pre-call reserves: the
     // solvency check gates the transfer at `cash`, and `get_reserves() == cash`.
-    let pre_reserves = crate::LiquidityPool::get_reserves(e.clone(), asset.clone());
-    let amount = crate::LiquidityPool::claim_revenue(e, asset).actual_amount;
+    let pre_reserves = crate::LiquidityPool::get_reserves(e.clone(), hub(asset.clone()));
+    let amount = crate::LiquidityPool::claim_revenue(e, hub(asset)).actual_amount;
     cvlr_assert!(amount >= 0);
     cvlr_assert!(amount <= pre_reserves);
 }
@@ -299,17 +326,17 @@ fn flash_loan_satisfies_fee_domain(
         state(100 * RAY, 0, 0, e.ledger().timestamp()),
     );
 
-    let revenue_before = crate::LiquidityPool::get_revenue(e.clone(), asset.clone());
+    let revenue_before = crate::LiquidityPool::get_revenue(e.clone(), hub(asset.clone()));
     crate::LiquidityPool::flash_loan(
         e.clone(),
-        asset.clone(),
+        hub(asset.clone()),
         admin,
         receiver,
         amount,
         fee,
         Bytes::new(&e),
     );
-    let revenue_after = crate::LiquidityPool::get_revenue(e, asset);
+    let revenue_after = crate::LiquidityPool::get_revenue(e, hub(asset));
 
     cvlr_assert!(revenue_after == revenue_before + fee);
     cvlr_satisfy!(true);
@@ -328,11 +355,11 @@ fn view_state(
     timestamp: u64,
 ) -> PoolStateRaw {
     PoolStateRaw {
-        supplied_ray: supplied,
-        borrowed_ray: borrowed,
-        revenue_ray: revenue,
-        borrow_index_ray: borrow_index,
-        supply_index_ray: supply_index,
+        supplied,
+        borrowed,
+        revenue,
+        borrow_index,
+        supply_index,
         last_timestamp: timestamp * 1000,
         cash,
     }
@@ -341,14 +368,14 @@ fn view_state(
 /// `get_reserves` is non-negative when `cash >= 0`.
 #[rule]
 fn reserves_view_nonneg(e: Env, admin: Address, asset: Address, cash: i128) {
-    cvlr_assume!(cash >= 0 && cash <= 1_000_000_000_000i128);
+    cvlr_assume!((0..=1_000_000_000_000i128).contains(&cash));
     seed(
         &e,
         admin,
         asset.clone(),
         view_state(10 * RAY, 0, 0, RAY, RAY, cash, e.ledger().timestamp()),
     );
-    cvlr_assert!(crate::LiquidityPool::get_reserves(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_reserves(e, hub(asset)) >= 0);
 }
 
 /// `get_supplied_amount` is non-negative under valid state.
@@ -360,8 +387,8 @@ fn supplied_amount_view_nonneg(
     supplied: i128,
     supply_index: i128,
 ) {
-    cvlr_assume!(supplied >= 0 && supplied <= 1_000_000 * RAY);
-    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= 10 * RAY);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=10 * RAY).contains(&supply_index));
     seed(
         &e,
         admin,
@@ -376,7 +403,7 @@ fn supplied_amount_view_nonneg(
             e.ledger().timestamp(),
         ),
     );
-    cvlr_assert!(crate::LiquidityPool::get_supplied_amount(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_supplied_amount(e, hub(asset)) >= 0);
 }
 
 /// `get_borrowed_amount` is non-negative under valid state.
@@ -388,8 +415,8 @@ fn borrowed_amount_view_nonneg(
     borrowed: i128,
     borrow_index: i128,
 ) {
-    cvlr_assume!(borrowed >= 0 && borrowed <= 1_000_000 * RAY);
-    cvlr_assume!(borrow_index >= RAY && borrow_index <= 10 * RAY);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&borrowed));
+    cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
     seed(
         &e,
         admin,
@@ -404,7 +431,7 @@ fn borrowed_amount_view_nonneg(
             e.ledger().timestamp(),
         ),
     );
-    cvlr_assert!(crate::LiquidityPool::get_borrowed_amount(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_borrowed_amount(e, hub(asset)) >= 0);
 }
 
 /// `get_revenue` is non-negative under valid state.
@@ -417,9 +444,9 @@ fn protocol_revenue_view_nonneg(
     revenue: i128,
     supply_index: i128,
 ) {
-    cvlr_assume!(supplied >= 0 && supplied <= 1_000_000 * RAY);
-    cvlr_assume!(revenue >= 0 && revenue <= supplied);
-    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= 10 * RAY);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied));
+    cvlr_assume!((0..=supplied).contains(&revenue));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=10 * RAY).contains(&supply_index));
     seed(
         &e,
         admin,
@@ -434,10 +461,10 @@ fn protocol_revenue_view_nonneg(
             e.ledger().timestamp(),
         ),
     );
-    cvlr_assert!(crate::LiquidityPool::get_revenue(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_revenue(e, hub(asset)) >= 0);
 }
 
-/// `get_revenue <= get_supplied_amount` when `revenue_ray <= supplied_ray`.
+/// `get_revenue <= get_supplied_amount` when `revenue <= supplied`.
 #[rule]
 fn protocol_revenue_le_supplied_view(
     e: Env,
@@ -447,9 +474,9 @@ fn protocol_revenue_le_supplied_view(
     revenue: i128,
     supply_index: i128,
 ) {
-    cvlr_assume!(supplied >= 0 && supplied <= 1_000_000 * RAY);
-    cvlr_assume!(revenue >= 0 && revenue <= supplied);
-    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= 10 * RAY);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied));
+    cvlr_assume!((0..=supplied).contains(&revenue));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=10 * RAY).contains(&supply_index));
     seed(
         &e,
         admin,
@@ -464,8 +491,8 @@ fn protocol_revenue_le_supplied_view(
             e.ledger().timestamp(),
         ),
     );
-    let revenue_units = crate::LiquidityPool::get_revenue(e.clone(), asset.clone());
-    let supplied_units = crate::LiquidityPool::get_supplied_amount(e, asset);
+    let revenue_units = crate::LiquidityPool::get_revenue(e.clone(), hub(asset.clone()));
+    let supplied_units = crate::LiquidityPool::get_supplied_amount(e, hub(asset));
     cvlr_assert!(revenue_units <= supplied_units);
 }
 
@@ -480,10 +507,10 @@ fn capital_utilisation_view_nonneg(
     supply_index: i128,
     borrow_index: i128,
 ) {
-    cvlr_assume!(supplied >= 0 && supplied <= 1_000_000 * RAY);
-    cvlr_assume!(borrowed >= 0 && borrowed <= 1_000_000 * RAY);
-    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= 10 * RAY);
-    cvlr_assume!(borrow_index >= RAY && borrow_index <= 10 * RAY);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied));
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&borrowed));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=10 * RAY).contains(&supply_index));
+    cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
     seed(
         &e,
         admin,
@@ -498,63 +525,7 @@ fn capital_utilisation_view_nonneg(
             e.ledger().timestamp(),
         ),
     );
-    cvlr_assert!(crate::LiquidityPool::get_utilisation(e, asset) >= 0);
-}
-
-// Cap enforcement against the real `LiquidityPool` ops (mirrors
-// `utils::enforce_supply_cap`/`enforce_borrow_cap`): a successful, panic-free op
-// leaves the pool total within the cap; the over-cap path reverts and is skipped
-// by assert semantics. `+ 1` absorbs the half-up unscale rounding of the view.
-
-/// A successful supply keeps total supplied within a finite supply cap.
-#[rule]
-fn supply_respects_supply_cap(e: Env, admin: Address, asset: Address, amount: i128, cap: i128) {
-    cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
-    cvlr_assume!(cap > 0 && cap <= 1_000_000_000_000i128);
-    seed(
-        &e,
-        admin,
-        asset.clone(),
-        state(0, 0, 0, e.ledger().timestamp()),
-    );
-    let mut params = params(asset.clone());
-    params.supply_cap = cap;
-    e.storage()
-        .persistent()
-        .set(&PoolKey::Params(asset.clone()), &params);
-
-    let _ = supply_first(&e, action(position(0), amount, asset.clone()), cap);
-
-    cvlr_assert!(crate::LiquidityPool::get_supplied_amount(e, asset) <= cap + 1);
-}
-
-/// A successful borrow keeps total borrowed within a finite borrow cap.
-#[rule]
-fn borrow_respects_borrow_cap(
-    e: Env,
-    admin: Address,
-    asset: Address,
-    caller: Address,
-    amount: i128,
-    cap: i128,
-) {
-    cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
-    cvlr_assume!(cap > 0 && cap <= 1_000_000_000_000i128);
-    seed(
-        &e,
-        admin,
-        asset.clone(),
-        state(100 * RAY, 0, 0, e.ledger().timestamp()),
-    );
-    let mut params = params(asset.clone());
-    params.borrow_cap = cap;
-    e.storage()
-        .persistent()
-        .set(&PoolKey::Params(asset.clone()), &params);
-
-    let _ = borrow_first(&e, caller, action(position(0), amount, asset.clone()), cap);
-
-    cvlr_assert!(crate::LiquidityPool::get_borrowed_amount(e, asset) <= cap + 1);
+    cvlr_assert!(crate::LiquidityPool::get_utilisation(e, hub(asset)) >= 0);
 }
 
 /// A successful borrow never lends beyond reserves: post-borrow cash stays >= 0
@@ -569,8 +540,8 @@ fn borrow_within_reserves(
     amount: i128,
     cash: i128,
 ) {
-    cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
-    cvlr_assume!(cash >= 0 && cash <= 1_000_000_000_000i128);
+    cvlr_assume!((1..=1_000_000_000_000i128).contains(&amount));
+    cvlr_assume!((0..=1_000_000_000_000i128).contains(&cash));
     seed(
         &e,
         admin,
@@ -578,12 +549,7 @@ fn borrow_within_reserves(
         view_state(100 * RAY, 0, 0, RAY, RAY, cash, e.ledger().timestamp()),
     );
 
-    let _ = borrow_first(
-        &e,
-        caller,
-        action(position(0), amount, asset.clone()),
-        i128::MAX,
-    );
+    let _ = borrow_first(&e, caller, action(position(0), amount, asset.clone()));
 
-    cvlr_assert!(crate::LiquidityPool::get_reserves(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_reserves(e, hub(asset)) >= 0);
 }

@@ -5,24 +5,29 @@ use soroban_sdk::{Address, Env};
 use common::constants::{BPS, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
 use common::types::{
-    AccountPositionType, InterestRateModel, MarketParamsRaw, PoolAction, PoolKey, PoolStateRaw,
-    ScaledPositionRaw,
+    AccountPositionType, HubAssetKey, InterestRateModel, MarketParamsRaw, PoolAction, PoolKey,
+    PoolStateRaw, ScaledPositionRaw,
 };
 use pool_interface::LiquidityPoolInterface;
 
+/// Hub-0 coordinate for `asset`; the spec models the single default hub.
+fn hub(asset: Address) -> HubAssetKey {
+    HubAssetKey { hub_id: 0, asset }
+}
+
 fn valid_params(asset: Address) -> MarketParamsRaw {
     MarketParamsRaw {
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY / 2,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_borrow_rate_ray: 2 * RAY,
-        max_utilization_ray: RAY,
-        reserve_factor_bps: 1_000,
-        supply_cap: 0,
-        borrow_cap: 0,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY / 2,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_borrow_rate: 2 * RAY,
+        max_utilization: RAY,
+        reserve_factor: 1_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
         asset_id: asset,
         asset_decimals: 7,
     }
@@ -30,11 +35,11 @@ fn valid_params(asset: Address) -> MarketParamsRaw {
 
 fn valid_state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolStateRaw {
     PoolStateRaw {
-        supplied_ray: supplied,
-        borrowed_ray: borrowed,
-        revenue_ray: revenue,
-        borrow_index_ray: RAY,
-        supply_index_ray: RAY,
+        supplied,
+        borrowed,
+        revenue,
+        borrow_index: RAY,
+        supply_index: RAY,
         last_timestamp: timestamp * 1000,
         cash: supplied.saturating_sub(borrowed),
     }
@@ -43,30 +48,30 @@ fn valid_state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) ->
 fn seed_pool(env: &Env, admin: Address, asset: Address, state: PoolStateRaw) {
     crate::LiquidityPool::__constructor(env.clone(), admin);
     env.storage().persistent().set(
-        &PoolKey::Params(asset.clone()),
+        &PoolKey::Params(hub(asset.clone())),
         &valid_params(asset.clone()),
     );
     env.storage()
         .persistent()
-        .set(&PoolKey::State(asset), &state);
+        .set(&PoolKey::State(hub(asset)), &state);
 }
 
 fn read_state(env: &Env, asset: &Address) -> PoolStateRaw {
     env.storage()
         .persistent()
-        .get(&PoolKey::State(asset.clone()))
+        .get(&PoolKey::State(hub(asset.clone())))
         .unwrap()
 }
 
-fn position(scaled_amount_ray: i128) -> ScaledPositionRaw {
-    ScaledPositionRaw { scaled_amount_ray }
+fn position(scaled_amount: i128) -> ScaledPositionRaw {
+    ScaledPositionRaw { scaled_amount }
 }
 
 fn action(position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolAction {
     PoolAction {
         position,
         amount,
-        asset,
+        hub_asset: hub(asset),
     }
 }
 
@@ -109,17 +114,27 @@ fn repay_first(e: &Env, payer: Address, act: PoolAction) -> common::types::PoolP
     crate::LiquidityPool::repay(e.clone(), payer, actions).get_unchecked(0)
 }
 
+fn seize_first(e: &Env, side: AccountPositionType, asset: Address, pos: ScaledPositionRaw) {
+    let mut entries: soroban_sdk::Vec<common::types::PoolSeizeEntry> = soroban_sdk::Vec::new(e);
+    entries.push_back(common::types::PoolSeizeEntry {
+        hub_asset: hub(asset),
+        side,
+        position: pos,
+    });
+    crate::LiquidityPool::seize_positions(e.clone(), entries);
+}
+
 #[rule]
 fn create_market_initializes_valid_state(e: Env, admin: Address, asset: Address) {
     crate::LiquidityPool::__constructor(e.clone(), admin);
-    crate::LiquidityPool::create_market(e.clone(), valid_params(asset.clone()));
+    crate::LiquidityPool::create_market(e.clone(), 0, valid_params(asset.clone()));
 
     let state = read_state(&e, &asset);
-    cvlr_assert!(state.supplied_ray == 0);
-    cvlr_assert!(state.borrowed_ray == 0);
-    cvlr_assert!(state.revenue_ray == 0);
-    cvlr_assert!(state.borrow_index_ray == RAY);
-    cvlr_assert!(state.supply_index_ray == RAY);
+    cvlr_assert!(state.supplied == 0);
+    cvlr_assert!(state.borrowed == 0);
+    cvlr_assert!(state.revenue == 0);
+    cvlr_assert!(state.borrow_index == RAY);
+    cvlr_assert!(state.supply_index == RAY);
 }
 
 #[rule]
@@ -132,11 +147,11 @@ fn pool_state_domain_invariant(e: Env, admin: Address, asset: Address) {
     );
 
     let state = read_state(&e, &asset);
-    cvlr_assert!(state.supplied_ray >= 0);
-    cvlr_assert!(state.borrowed_ray >= 0);
-    cvlr_assert!(state.revenue_ray >= 0);
-    cvlr_assert!(state.borrow_index_ray >= RAY);
-    cvlr_assert!(state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(state.supplied >= 0);
+    cvlr_assert!(state.borrowed >= 0);
+    cvlr_assert!(state.revenue >= 0);
+    cvlr_assert!(state.borrow_index >= RAY);
+    cvlr_assert!(state.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
 #[rule]
@@ -154,12 +169,12 @@ fn supply_preserves_nonnegative_state(e: Env, admin: Address, asset: Address, am
     let state = read_state(&e, &asset);
 
     cvlr_assert!(result.actual_amount == amount);
-    cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
-    cvlr_assert!(state.supplied_ray >= 0);
-    cvlr_assert!(state.borrowed_ray >= 0);
-    cvlr_assert!(state.revenue_ray >= 0);
-    cvlr_assert!(result.market_index.borrow_index_ray >= RAY);
-    cvlr_assert!(result.market_index.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(result.position.scaled_amount >= before.scaled_amount);
+    cvlr_assert!(state.supplied >= 0);
+    cvlr_assert!(state.borrowed >= 0);
+    cvlr_assert!(state.revenue >= 0);
+    cvlr_assert!(result.market_index.borrow_index >= RAY);
+    cvlr_assert!(result.market_index.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
 #[rule]
@@ -188,11 +203,11 @@ fn borrow_preserves_nonnegative_state(
     let state = read_state(&e, &asset);
 
     cvlr_assert!(result.actual_amount == amount);
-    cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
-    cvlr_assert!(state.supplied_ray >= 0);
-    cvlr_assert!(state.borrowed_ray >= 0);
-    cvlr_assert!(result.market_index.borrow_index_ray >= RAY);
-    cvlr_assert!(result.market_index.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(result.position.scaled_amount >= before.scaled_amount);
+    cvlr_assert!(state.supplied >= 0);
+    cvlr_assert!(state.borrowed >= 0);
+    cvlr_assert!(result.market_index.borrow_index >= RAY);
+    cvlr_assert!(result.market_index.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
 #[rule]
@@ -216,7 +231,7 @@ fn withdraw_never_creates_negative_position(
     let before = position(scaled_before);
     let result = withdraw_first(&e, caller, action(before, amount, asset), false, 0);
     cvlr_assert!(result.actual_amount >= 0);
-    cvlr_assert!(result.position.scaled_amount_ray >= 0);
+    cvlr_assert!(result.position.scaled_amount >= 0);
 }
 
 #[rule]
@@ -241,7 +256,7 @@ fn repay_never_creates_negative_debt(
     let result = repay_first(&e, caller, action(before, amount, asset));
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
-    cvlr_assert!(result.position.scaled_amount_ray >= 0);
+    cvlr_assert!(result.position.scaled_amount >= 0);
 }
 
 #[rule]
@@ -259,7 +274,7 @@ fn bad_debt_socialization_keeps_supply_index_above_floor(
         valid_state(100 * RAY, 10 * RAY, 0, e.ledger().timestamp()),
     );
 
-    let mut cache = crate::cache::Cache::load(&e, &asset);
+    let mut cache = crate::cache::Cache::load(&e, &hub(asset.clone()));
     crate::interest::apply_bad_debt_to_supply_index(&mut cache, Ray::from(bad_debt));
     cvlr_assert!(cache.supply_index.raw() >= SUPPLY_INDEX_FLOOR_RAW);
 }
@@ -279,13 +294,15 @@ fn seize_position_zeroes_scaled_amount(
         valid_state(100 * RAY, scaled_before, 0, e.ledger().timestamp()),
     );
 
-    let after = crate::LiquidityPool::seize_position(
-        e,
-        asset,
+    seize_first(
+        &e,
         AccountPositionType::Borrow,
+        asset.clone(),
         position(scaled_before),
     );
-    cvlr_assert!(after.position.scaled_amount_ray == 0);
+    // Unit-return ABI: the zeroed scaled amount is observed as the seized debt
+    // shares leaving the market total.
+    cvlr_assert!(read_state(&e, &asset).borrowed == 0);
 }
 
 #[rule]
@@ -313,29 +330,29 @@ fn update_params_keeps_rate_domain(
     );
 
     let model = InterestRateModel {
-        max_borrow_rate_ray: max_rate,
-        base_borrow_rate_ray: base,
-        slope1_ray: slope1,
-        slope2_ray: slope2,
-        slope3_ray: slope3,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: (BPS / 10) as u32,
+        max_borrow_rate: max_rate,
+        base_borrow_rate: base,
+        slope1,
+        slope2,
+        slope3,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: (BPS / 10) as u32,
     };
 
-    crate::LiquidityPool::update_params(e.clone(), asset.clone(), model);
+    crate::LiquidityPool::update_params(e.clone(), hub(asset.clone()), model);
 
     let params: MarketParamsRaw = e
         .storage()
         .persistent()
-        .get(&PoolKey::Params(asset))
+        .get(&PoolKey::Params(hub(asset)))
         .unwrap();
-    cvlr_assert!(params.max_borrow_rate_ray == max_rate);
-    cvlr_assert!(params.base_borrow_rate_ray == base);
-    cvlr_assert!(params.slope1_ray == slope1);
-    cvlr_assert!(params.slope2_ray == slope2);
-    cvlr_assert!(params.slope3_ray == slope3);
+    cvlr_assert!(params.max_borrow_rate == max_rate);
+    cvlr_assert!(params.base_borrow_rate == base);
+    cvlr_assert!(params.slope1 == slope1);
+    cvlr_assert!(params.slope2 == slope2);
+    cvlr_assert!(params.slope3 == slope3);
 }
 
 #[rule]
@@ -347,10 +364,10 @@ fn pool_integrity_reachability(e: Env, admin: Address, asset: Address) {
         valid_state(10 * RAY, 0, 0, e.ledger().timestamp()),
     );
     let state = read_state(&e, &asset);
-    cvlr_satisfy!(state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_satisfy!(state.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
-/// `add_rewards` preserves `revenue_ray <= supplied_ray`.
+/// `add_rewards` preserves `revenue <= supplied`.
 #[rule]
 fn revenue_le_supplied_after_add_rewards(
     e: Env,
@@ -360,9 +377,9 @@ fn revenue_le_supplied_after_add_rewards(
     revenue_init: i128,
     rewards: i128,
 ) {
-    cvlr_assume!(supplied_init >= 0 && supplied_init <= 1_000_000 * RAY);
-    cvlr_assume!(revenue_init >= 0 && revenue_init <= supplied_init);
-    cvlr_assume!(rewards >= 0 && rewards <= 1_000_000);
+    cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied_init));
+    cvlr_assume!((0..=supplied_init).contains(&revenue_init));
+    cvlr_assume!((0..=1_000_000).contains(&rewards));
 
     seed_pool(
         &e,
@@ -371,14 +388,14 @@ fn revenue_le_supplied_after_add_rewards(
         valid_state(supplied_init, 0, revenue_init, e.ledger().timestamp()),
     );
 
-    let _ = crate::LiquidityPool::add_rewards(e.clone(), asset.clone(), rewards);
+    crate::LiquidityPool::add_rewards(e.clone(), hub(asset.clone()), rewards);
 
     let state = read_state(&e, &asset);
-    cvlr_assert!(state.revenue_ray <= state.supplied_ray);
-    cvlr_assert!(state.revenue_ray >= 0);
+    cvlr_assert!(state.revenue <= state.supplied);
+    cvlr_assert!(state.revenue >= 0);
 }
 
-/// Flash-loan fees preserve `revenue_ray <= supplied_ray`.
+/// Flash-loan fees preserve `revenue <= supplied`.
 #[rule]
 fn flash_loan_revenue_supplied_lockstep(
     e: Env,
@@ -397,12 +414,12 @@ fn flash_loan_revenue_supplied_lockstep(
         valid_state(supplied_init, 0, revenue_init, e.ledger().timestamp()),
     );
 
-    let fee_ray = Ray::from(1_000_000);
-    let mut cache = crate::cache::Cache::load(&e, &asset);
-    crate::interest::add_protocol_revenue_ray(&mut cache, fee_ray);
+    let fee = Ray::from(1_000_000);
+    let mut cache = crate::cache::Cache::load(&e, &hub(asset.clone()));
+    crate::interest::add_protocol_revenue(&mut cache, fee);
     cache.save();
 
     let state = read_state(&e, &asset);
-    cvlr_assert!(state.revenue_ray <= state.supplied_ray);
-    cvlr_assert!(state.revenue_ray >= 0);
+    cvlr_assert!(state.revenue <= state.supplied);
+    cvlr_assert!(state.revenue >= 0);
 }

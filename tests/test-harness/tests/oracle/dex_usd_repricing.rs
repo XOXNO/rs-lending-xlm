@@ -1,7 +1,7 @@
 use soroban_sdk::{Address, String, Vec};
 use test_harness::{
-    eth_preset, reflector_primary_redstone_anchor_config, reflector_single_spot_config, usd,
-    usd_frac, usdc_preset, xlm_preset, LendingTest, ALICE, DEFAULT_TOLERANCE,
+    eth_preset, hub_asset, reflector_primary_redstone_anchor_config, reflector_single_spot_config,
+    usd, usd_frac, usdc_preset, xlm_preset, LendingTest, ALICE, DEFAULT_TOLERANCE,
 };
 
 /// Register a DEX-style Reflector oracle quoted in `quote` (a Stellar SAC).
@@ -17,7 +17,7 @@ fn register_dex_oracle(t: &LendingTest, quote: &Address) -> Address {
 }
 
 fn index_view(t: &LendingTest, asset: &Address) -> controller::types::MarketIndexView {
-    let assets = Vec::from_array(&t.env, [asset.clone()]);
+    let assets = Vec::from_array(&t.env, [hub_asset(asset.clone())]);
     t.ctrl_client()
         .get_market_indexes_detailed(&assets)
         .get(0)
@@ -179,13 +179,22 @@ fn test_oracle_config_execute_rejects_disabled_quote_market() {
     );
 
     // Capture the resolved config governance scheduled for the controller setter.
-    let stale = t.ctrl_client().get_market_config(&xlm).oracle_config;
+    let stale = t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .get::<_, controller::types::MarketOracleConfig>(
+                &controller::types::ControllerKey::AssetOracle(xlm.clone()),
+            )
+            .unwrap()
+    });
 
     // During the timelock delay the quote market is disabled.
     t.ctrl_client().disable_token_oracle(&usdc);
 
     // Executing the stale op re-asserts the quote invariant and reverts.
-    t.ctrl_client().set_market_oracle_config(&xlm, &stale);
+    t.ctrl_client()
+        .set_market_oracle_config(&hub_asset(xlm.clone()), &stale);
 }
 
 /// Happy path: re-applying the same resolved config while the quote market is
@@ -208,10 +217,19 @@ fn test_oracle_config_execute_accepts_active_usd_quote_market() {
         &reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps),
     );
 
-    let resolved = t.ctrl_client().get_market_config(&xlm).oracle_config;
+    let resolved = t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .get::<_, controller::types::MarketOracleConfig>(
+                &controller::types::ControllerKey::AssetOracle(xlm.clone()),
+            )
+            .unwrap()
+    });
 
     // USDC stays Active+USD: replaying the resolved config still applies.
-    t.ctrl_client().set_market_oracle_config(&xlm, &resolved);
+    t.ctrl_client()
+        .set_market_oracle_config(&hub_asset(xlm.clone()), &resolved);
     assert_eq!(index_view(&t, &xlm).price_wad, usd(2));
 }
 

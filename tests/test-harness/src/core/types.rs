@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use controller::types::PositionMode;
 use soroban_sdk::{token, Address};
 
-use crate::presets::{AssetConfigPreset, EModeCategoryPreset, MarketParamsPreset, MarketPreset};
+use crate::presets::{AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset};
 
 pub struct UserState {
     pub address: Address,
@@ -14,7 +14,7 @@ pub struct UserState {
 #[allow(dead_code)]
 pub struct AccountEntry {
     pub account_id: u64,
-    pub e_mode_category: u32,
+    pub spoke_id: u32,
     pub mode: PositionMode,
 }
 
@@ -50,9 +50,9 @@ impl PendingMarket {
     }
 }
 
-pub(crate) struct PendingEMode {
+pub(crate) struct PendingSpoke {
     pub category_id: u32,
-    pub preset: EModeCategoryPreset,
+    pub preset: SpokePreset,
     pub assets: Vec<(String, bool, bool)>,
 }
 

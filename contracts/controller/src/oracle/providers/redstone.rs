@@ -1,13 +1,15 @@
 //! RedStone Price Feed provider: reads an adapter feed (transaction-cache warmed)
 //! into an `OracleObservation`. RedStone feeds are USD by construction.
 
-use common::oracle::providers::redstone::{
-    read_price_data_uncached, RedStonePriceData, RedStonePriceFeedClient,
-};
-use controller_interface::types::RedStoneSourceConfig;
-use soroban_sdk::{Address, Env, String, Vec};
+#[cfg(not(feature = "certora"))]
+use common::oracle::providers::redstone::RedStonePriceFeedClient;
+use common::oracle::providers::redstone::{read_price_data_uncached, RedStonePriceData};
+use common::types::RedStoneSourceConfig;
+use soroban_sdk::{Address, String};
+#[cfg(not(feature = "certora"))]
+use soroban_sdk::{Env, Vec};
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::oracle::observation::{redstone_observation_from_price_data, OracleObservation};
 
 pub(crate) fn read_redstone_source(
@@ -41,6 +43,7 @@ fn read_price_data(
 
 /// One cross-contract call for all feeds of one adapter. `None` on any failure
 /// or length mismatch; callers fall back to per-feed reads. Used by `prefetch`.
+#[cfg(not(feature = "certora"))]
 pub(crate) fn read_price_data_bulk(
     env: &Env,
     contract: &Address,

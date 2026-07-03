@@ -2,7 +2,7 @@
 
 End-to-end guide for deploying and operating the Stellar lending protocol
 (governance + controller + central pool) on testnet and mainnet, and for the
-day-to-day management of markets, oracles, e-modes, and roles.
+day-to-day management of markets, oracles, spokes, and roles.
 
 Everything is driven by `make <network> <action>` and the JSON config under
 `configs/`. The same commands work on `testnet` and `mainnet`; only the config
@@ -22,9 +22,9 @@ values and the timelock delay differ.
 - Config files (all under `configs/`):
   | File | Purpose |
   |------|---------|
-  | `networks.json` | RPC URL, passphrase, contract addresses, timelock delay, e-mode id map (per network) |
+  | `networks.json` | RPC URL, passphrase, contract addresses, timelock delay, spoke id map (per network) |
   | `<network>_markets.json` | Market list: asset address, risk params, oracle config |
-  | `emodes.json` | E-mode categories and their per-asset risk params (per network) |
+  | `spokes.json` | Spoke categories and their per-asset risk params (per network) |
 
 ---
 
@@ -58,21 +58,24 @@ from `timelock_min_delay_ledgers` and can later only be **increased**
 - **mainnet**: production target is `34560` (~48 h). Deploying with that value
   would make `make mainnet setup` wait ~48 h **per op** (~30 ops). Don't.
 
-**Bootstrap pattern (mainnet):** deploy with a tiny delay so the whole setup runs
-in minutes, then raise to the production delay at the end (the raise itself only
-waits the still-tiny current delay):
+**Bootstrap pattern (mainnet):** deploy + configure with a tiny delay so the whole
+setup runs in minutes **while the protocol stays paused**, then raise to the
+production delay and only then go live. `make mainnet setup` never auto-unpauses,
+and `make mainnet unpause` **refuses** until the on-chain delay reaches
+`timelock_min_delay_ledgers`, so mainnet can never be live below the production floor:
 
 ```bash
-DEPLOY_MIN_DELAY=1 make mainnet setup          # governance deployed with min_delay=1; full setup in ~minutes
+DEPLOY_MIN_DELAY=1 make mainnet setup          # governance deployed with min_delay=1; full setup in ~minutes; LEFT PAUSED
 # verify everything (see §7), then lock in the production delay:
-make mainnet updateDelay 34560                 # increase-only ratchet → 48h
+make mainnet updateDelay 34560                 # increase-only ratchet → 48h (waits the still-tiny current delay)
 make mainnet info                              # confirm min_delay is now 34560
+make mainnet unpause                           # go live — gated on delay >= floor
 ```
 
 `DEPLOY_MIN_DELAY` only affects the governance constructor; `await` logic always
 reads the **live** on-chain delay, so it scales correctly before and after the raise.
 Leave `timelock_min_delay_ledgers` in `networks.json` at the production value as
-the documented target.
+the documented target — the unpause gate reads it as the floor.
 
 ---
 
@@ -88,20 +91,23 @@ the documented target.
    `networks.json` — `aggregator`, `accumulator` — or passed via
    `AGGREGATOR_CONTRACT` / `ACCUMULATOR_CONTRACT`).
 4. `setupAll`: create every market in `<network>_markets.json`, wire its oracle,
-   activate it; then create every e-mode category in `emodes.json` and add its assets.
-5. `unpause` (owner-immediate — no timelock wait).
-6. Print status (`info`, `listMarkets`, `listEModeCategories`).
+   activate it; then create every spoke category in `spokes.json` and add its assets.
+5. `unpause` (owner-immediate — no timelock wait). **Mainnet: skipped** — setup
+   leaves the protocol paused, and unpause is a separate step gated on the
+   timelock delay reaching the production floor (see §3).
+6. Print status (`info`, `listMarkets`, `listSpokeCategories`).
 
 New addresses are written back to `networks.json` (`governance`, `controller`,
-`pool`, `*_wasm_hash`, `emode_category_ids`).
+`pool`, `*_wasm_hash`, `spoke_ids`).
 
 ```bash
 # testnet — one shot
 make testnet setup
 
-# mainnet — bootstrap delay, then raise (see §3)
+# mainnet — bootstrap delay (paused), raise, then go live (see §3)
 DEPLOY_MIN_DELAY=1 make mainnet setup
 make mainnet updateDelay 34560
+make mainnet unpause
 ```
 
 > A fresh deploy produces brand-new addresses; the previous deployment becomes
@@ -125,10 +131,14 @@ make <network> setupAllMarkets        # create + oracle + activate every configu
 ```bash
 make <network> createMarket USDC            # deploy the market (pending/inactive)
 make <network> configureMarketOracle USDC   # wire the oracle
-make <network> editAssetConfig USDC         # activate + apply risk params
+make <network> addAssetToSpoke 1 USDC       # activate: list in a spoke with risk params
 make <network> getMarket USDC               # inspect config
 make <network> getPrice USDC                # verify the oracle resolves within tolerance
 ```
+
+Run `make <network> validateConfigs` first — it cross-checks the markets,
+spokes, and networks JSON (hub ids, risk bounds, oracle wiring, spoke/market
+parity) and is also run automatically before any `setup`/`resume`/`setupAll*`.
 
 ### Oracle rules (must hold or `set_market_oracle_config` reverts)
 
@@ -140,29 +150,31 @@ make <network> getPrice USDC                # verify the oracle resolves within 
 - The oracle proposer **live-probes feeds at schedule time**, so the quote market
   must already exist on-chain before configuring an oracle that references it.
 - `max_utilization_ray` is required in `market_params` (optimal < max ≤ RAY).
-- Reflector **DEX** sources are USDC-based and fail USD-base validation — they
-  cannot back USD-quoted (RWA/bond) markets.
+- Reflector **DEX** sources are quoted in USDC and reprice through the quote
+  asset's own oracle (`ReflectorBase::Quoted`): the quote market (USDC) must
+  appear **earlier in the markets file** than any DEX-priced market, because
+  setup configures oracles in file order. `validateConfigs` checks this.
 
 ---
 
-## 6. E-modes
+## 6. Spokes
 
-E-mode categories live in `configs/emodes.json` per network. Each has a `name`
+Spoke categories live in `configs/spokes.json` per network. Each has a `name`
 and per-asset risk params (LTV, threshold, bonus, optional caps).
 
 ```bash
-make <network> setupAllEModes            # create every category + add its assets (idempotent)
-make <network> addEModeCategory 1        # create category 1 from config → records its on-chain id
-make <network> addAssetToEMode 1 USDC    # add USDC to category 1
-make <network> getEMode 1                # inspect category + assets
-make <network> listEModeCategories       # list all
+make <network> setupAllSpokes            # create every category + add its assets (idempotent)
+make <network> addSpoke 1        # create category 1 from config → records its on-chain id
+make <network> addAssetToSpoke 1 USDC    # add USDC to category 1
+make <network> getSpoke 1                # inspect category + assets
+make <network> listSpokes                # list all
 ```
 
-The on-chain category id is stored in `networks.json` under `emode_category_ids`
+The on-chain category id is stored in `networks.json` under `spoke_ids`
 (config-id → on-chain-id). To re-create a category, remove its entry there first
 so the idempotent setup re-creates it.
 
-> Each `add_e_mode_category` op derives a category-id-seeded salt, so creating
+> Each `add_spoke` op derives a category-id-seeded salt, so creating
 > several categories in one run produces distinct timelock op ids. (A shared
 > salt previously collided on the second category with `#4000`.)
 
@@ -172,10 +184,12 @@ so the idempotent setup re-creates it.
 
 ```bash
 make <network> info                  # governance/controller/aggregator/accumulator + min_delay + paused
+make <network> checkDelay            # live timelock delay vs configured target (bootstrap guard)
 make <network> listMarkets           # configured markets
-make <network> listEModeCategories   # categories + their assets
+make <network> listSpokes            # categories + their assets
+make <network> listOps               # every recorded governance op + live state
 make <network> getPrice USDC         # oracle pipeline (price within tolerance)
-make <network> getEMode 1            # category params
+make <network> getSpoke 1            # category params
 ```
 
 A live, usable deployment shows: governance owns the controller, all markets
@@ -197,12 +211,15 @@ failed, re-run the idempotent post-deploy phases against the addresses already
 in `networks.json` (skips the contract deploy):
 
 ```bash
-make <network> resume     # configure-controller → markets → oracles → e-modes → unpause
+make <network> resume     # configure-controller → markets → oracles → spokes → unpause
 ```
 
-**Manual op recovery.** Scheduled ops are recorded under `tmp/ops/<network>/`.
-To drive a single op:
+**Manual op recovery.** Scheduled ops are recorded under `configs/ops/<network>/`
+(tracked in git — commit them so a mainnet op waiting out its delay survives the
+machine). To inspect and drive ops:
 ```bash
+make <network> listOps              # every recorded op + live state
+make <network> executeReady         # execute all Ready ops
 make <network> opState <op-id>      # Unset | Waiting | Ready | Done
 make <network> awaitOp <op-id>      # wait until Ready
 make <network> executeOp <op-id>    # execute a ready op
@@ -210,6 +227,29 @@ make <network> cancelOp <op-id>     # cancel a scheduled op
 ```
 Set `AUTO_EXECUTE=0` on a scheduling command to schedule-only (record the op id
 for a later `executeOp`).
+
+Scheduling is **idempotent**: every schedule pre-computes its deterministic op
+id (`hash_operation`) and reuses an op that is already Waiting/Ready — or skips
+one that is Done — instead of re-proposing, so `make <network> resume` and
+re-running `setupAll*` are safe after a partial failure.
+
+**Re-applying a previous setting (toggle A → B → back to A):** the timelock
+marks an executed op id Done forever, so identical args cannot reuse their old
+id. The tooling handles this automatically with **salt generations** (a hash
+chain off the deterministic base salt):
+
+- **Direct verbs** (`editAssetInSpoke`, `configureMarketOracle`,
+  `approveToken`, role grants, …) detect the Done op and re-apply at the next
+  free generation — toggling back just works. `REAPPLY_ON_DONE=0` disables
+  this (skip instead).
+- **Bulk flows** (`setupAll*`, `resume`) run in converge mode: Done ops are
+  treated as already applied, EXCEPT where an on-chain probe proves drift
+  (spoke assets), which forces a re-apply. So resume never schedules
+  redundant ops, and a config toggle still converges.
+- **Creators** (`addSpoke`, `createHub`, `deployPool`) never auto-re-apply —
+  re-executing one would mint a duplicate entity.
+- `SALT_NONCE=<n>` remains a manual override that mints a fresh id for any
+  verb; `MAX_SALT_GENERATIONS` (default 16) caps automatic probing.
 
 ---
 

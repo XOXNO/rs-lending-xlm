@@ -1,6 +1,6 @@
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
-    xlm_preset, LendingTest, PositionType, ALICE, STABLECOIN_EMODE,
+    xlm_preset, LendingTest, PositionType, ALICE, BOB, STABLECOIN_SPOKE,
 };
 // 1. test_borrow_basic
 
@@ -184,25 +184,6 @@ fn test_borrow_rejects_when_paused() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-// 8. test_borrow_cap_enforcement
-
-#[test]
-fn test_borrow_cap_enforcement() {
-    let cap = 1_0000000i128; // 1 ETH in asset decimals (7 dec).
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_params("ETH", |params| {
-            params.borrow_cap = cap;
-        })
-        .build();
-
-    t.supply(ALICE, "USDC", 100_000.0);
-
-    // Borrowing 2 ETH exceeds the 1 ETH cap.
-    let result = t.try_borrow(ALICE, "ETH", 2.0);
-    assert_contract_error(result, errors::BORROW_CAP_REACHED);
-}
 // 9. test_borrow_position_limit_exceeded
 
 #[test]
@@ -221,23 +202,23 @@ fn test_borrow_position_limit_exceeded() {
     let result = t.try_borrow(ALICE, "WBTC", 0.001);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// 10. test_borrow_emode_enhanced_ltv
+// 10. test_borrow_spoke_enhanced_ltv
 
 #[test]
-fn test_borrow_emode_enhanced_ltv() {
+fn test_borrow_spoke_enhanced_ltv() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    t.create_emode_account(ALICE, 1);
+    t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
     // Standard LTV = 75% caps the normal limit at $7500.
-    // E-mode LTV = 97%, so a $9500 borrow stays allowed.
+    // Spoke LTV = 97%, so a $9500 borrow stays allowed.
     t.borrow(ALICE, "USDT", 9_500.0);
     t.assert_position_exists(ALICE, "USDT", PositionType::Borrow);
     t.assert_borrow_near(ALICE, "USDT", 9_500.0, 1.0);
@@ -250,7 +231,7 @@ fn test_borrow_emode_enhanced_ltv() {
     t.assert_healthy(ALICE);
 
     let hf = t.health_factor(ALICE);
-    assert!(hf >= 1.0, "should be healthy with e-mode LTV, HF = {}", hf);
+    assert!(hf >= 1.0, "should be healthy with spoke LTV, HF = {}", hf);
 }
 // 14. test_borrow_at_ltv_limit_stays_healthy
 
@@ -311,5 +292,82 @@ fn test_borrow_bulk_passes_cumulative_hf_check() {
         "WBTC wallet ~0.005, got {}",
         wbtc_wallet
     );
+    t.assert_healthy(ALICE);
+}
+// 16. test_delegated_borrow_routes_funds_to_owner
+
+#[test]
+fn test_delegated_borrow_routes_funds_to_owner() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // ALICE owns the account and the collateral; BOB is her delegate.
+    t.supply(ALICE, "USDC", 10_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+    t.enable_delegate(ALICE, BOB, account_id);
+
+    let alice_before = t.token_balance(ALICE, "ETH");
+    let bob_before = t.token_balance(BOB, "ETH");
+
+    // BOB borrows on ALICE's account, routing the funds to ALICE via `to`.
+    t.borrow_as_to(BOB, account_id, "ETH", 1.0, ALICE);
+
+    let alice_gain = t.token_balance(ALICE, "ETH") - alice_before;
+    let bob_gain = t.token_balance(BOB, "ETH") - bob_before;
+
+    // Funds land on the owner, not the delegate caller.
+    assert!(
+        alice_gain > 0.99,
+        "owner should receive ~1 ETH, got {}",
+        alice_gain
+    );
+    assert!(
+        bob_gain < 0.01,
+        "delegate must receive nothing, got {}",
+        bob_gain
+    );
+
+    // Debt is recorded on the account regardless of destination.
+    t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
+    t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
+    t.assert_healthy(ALICE);
+}
+// 17. test_delegated_borrow_to_none_routes_to_caller
+
+#[test]
+fn test_delegated_borrow_to_none_routes_to_caller() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+    t.enable_delegate(ALICE, BOB, account_id);
+
+    let alice_before = t.token_balance(ALICE, "ETH");
+    let bob_before = t.token_balance(BOB, "ETH");
+
+    // `to = None` keeps today's behavior: funds go to the caller (BOB here).
+    t.borrow_to(BOB, account_id, "ETH", 1.0);
+
+    let alice_gain = t.token_balance(ALICE, "ETH") - alice_before;
+    let bob_gain = t.token_balance(BOB, "ETH") - bob_before;
+
+    assert!(
+        bob_gain > 0.99,
+        "caller should receive ~1 ETH, got {}",
+        bob_gain
+    );
+    assert!(
+        alice_gain.abs() < 0.01,
+        "owner wallet must be unchanged, got {}",
+        alice_gain
+    );
+
+    // Debt still lands on the account, not the caller.
+    t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
     t.assert_healthy(ALICE);
 }

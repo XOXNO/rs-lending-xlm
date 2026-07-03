@@ -5,6 +5,10 @@ on:
     branches: [master, main, feat/*, rc/*]
   workflow_dispatch:
 
+permissions:
+  # Least-privilege: checkout + local tool execution only.
+  contents: read
+
 concurrency:
   group: scout-${{ github.ref }}
   cancel-in-progress: true
@@ -13,6 +17,10 @@ jobs:
   scout:
     name: Scout Audit (advisory)
     runs-on: self-hosted
+    # PR-triggered runs execute PR-controlled code (build scripts, scout-summary.py)
+    # on the persistent self-hosted runner. Gate behind an environment whose
+    # required reviewers must approve before the job starts. See .github/README.md.
+    environment: ci-untrusted-pr
     steps:
       - uses: actions/checkout@v7
         with:
@@ -25,7 +33,10 @@ jobs:
           git clean -ffdx -e target
 
       - name: Run Scout
-        uses: mihaieremia/scout-audit@v1.3.0
+        # Pinned to an immutable commit SHA (not the mutable v1.3.0 tag): a
+        # retargeted tag or compromised action repo would otherwise run
+        # attacker code on the self-hosted runner.
+        uses: mihaieremia/scout-audit@49d74adcaaed50c55271dc6b3f44e2b9217d5d27 # v1.3.0
         with:
           contracts: |
             contracts/pool
@@ -37,6 +48,9 @@ jobs:
           output-dir: target/scout-audit
           fail-on-severity: critical
           extra-args: "-- --locked"
+          # Local act runs: act's artifact server predates upload-artifact@v7's
+          # API, so skip the upload (reports reach the host via a bind mount).
+          upload-reports: ${{ env.ACT != 'true' }}
 
       # Render the JSON reports as a Markdown summary on the run page. Runs even
       # when the gate above fails (always()), so Critical findings are still

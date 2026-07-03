@@ -51,12 +51,20 @@ if want strategies; then
 fi
 
 if want liquidation; then
+    # Under heavy testnet read-after-write lag a flow op can revert on state the
+    # immediately-prior op wrote but the replica hasn't synced yet — a borrow
+    # racing the account its supply just opened (#24 AccountNotFound), or a
+    # liquidate reading a price crash that hasn't landed (#101 HealthFactorTooHigh).
+    # These flows are validated and must-succeed, so let inv re-simulate contract
+    # errors with backoff. The xfail revert guards use a separate path (they do
+    # not read INV_TRANSIENT_CONTRACT_RE), so their expected reverts are unaffected.
+    INV_TRANSIENT_CONTRACT_RE='Error\(Contract, #'
     flow_liq_setup
     flow_liq_single
     flow_liq_bulk
-    flow_liq_emode
+    flow_liq_spoke
     flow_clean_bad_debt
-    flow_caps
+    unset INV_TRANSIENT_CONTRACT_RE
 fi
 
 # DeFindex strategy adapter on its own dedicated mock market; venue-free, so it

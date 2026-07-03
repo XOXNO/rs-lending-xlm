@@ -14,6 +14,17 @@ source "$HERE/../env.sh"
 
 [ -f "$ACTIONS_TSV" ] || { echo "no actions.tsv for RUN_TS=$RUN_TS" >&2; exit 1; }
 
+# Phase-completeness: when a lane process log exists (parallel_e2e redirects each
+# lane's stderr to runs/<RUN_TS>.log), require the terminal 'run complete' marker.
+# A lane killed by timeout/crash leaves a partial actions.tsv with no FAIL row,
+# which the unresolved-failure scan below would wrongly pass. Skipped when no such
+# log exists (e.g. full_e2e run directly, stderr to the terminal).
+LANE_LOG="$INTEG_DIR/runs/$RUN_TS.log"
+if [ -f "$LANE_LOG" ] && ! grep -q "run complete" "$LANE_LOG"; then
+    echo "FAILED: no 'run complete' marker in $RUN_TS.log — phases did not finish" >&2
+    exit 1
+fi
+
 unresolved=$(awk -F'\t' '
     NR > 1 { rows[NR] = $0; label[NR] = $3; status[NR] = $4; last = NR }
     END {

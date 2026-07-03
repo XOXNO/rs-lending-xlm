@@ -17,6 +17,7 @@ use num_traits::{Signed, ToPrimitive, Zero};
 use controller::constants::{BPS, RAY, WAD};
 
 use crate::context::LendingTest;
+use crate::helpers::{hub_asset, HARNESS_SPOKE};
 // Public types
 
 #[derive(Clone, Debug)]
@@ -24,7 +25,7 @@ pub struct RefCollateralPosition {
     /// Stable identifier mapping reference outputs back to asset snapshots.
     pub asset_id: u32,
     pub supply_scaled_ray: BigRational,
-    pub supply_index_ray: BigRational,
+    pub supply_index: BigRational,
     pub price_wad: BigRational,
     pub liq_threshold_bps: i128,
     pub liq_bonus_bps: i128,
@@ -36,7 +37,7 @@ pub struct RefCollateralPosition {
 pub struct RefDebtPosition {
     pub asset_id: u32,
     pub borrow_scaled_ray: BigRational,
-    pub borrow_index_ray: BigRational,
+    pub borrow_index: BigRational,
     pub price_wad: BigRational,
     pub decimals: u32,
 }
@@ -166,7 +167,7 @@ fn compute_hf_wad(supplies: &[RefCollateralPosition], debts: &[RefDebtPosition])
 
     let mut weighted = br_zero();
     for c in supplies {
-        let value = position_value_wad(&c.supply_scaled_ray, &c.supply_index_ray, &c.price_wad);
+        let value = position_value_wad(&c.supply_scaled_ray, &c.supply_index, &c.price_wad);
         // weighted = value * threshold_bps / BPS
         let w = &value * br_from_i128(c.liq_threshold_bps) / bps_scale();
         weighted += w;
@@ -174,7 +175,7 @@ fn compute_hf_wad(supplies: &[RefCollateralPosition], debts: &[RefDebtPosition])
 
     let mut total_debt = br_zero();
     for d in debts {
-        let v = position_value_wad(&d.borrow_scaled_ray, &d.borrow_index_ray, &d.price_wad);
+        let v = position_value_wad(&d.borrow_scaled_ray, &d.borrow_index, &d.price_wad);
         total_debt += v;
     }
 
@@ -189,7 +190,7 @@ fn compute_hf_wad(supplies: &[RefCollateralPosition], debts: &[RefDebtPosition])
 fn weighted_collateral_total(supplies: &[RefCollateralPosition]) -> BigRational {
     let mut w = br_zero();
     for c in supplies {
-        let value = position_value_wad(&c.supply_scaled_ray, &c.supply_index_ray, &c.price_wad);
+        let value = position_value_wad(&c.supply_scaled_ray, &c.supply_index, &c.price_wad);
         w += &value * br_from_i128(c.liq_threshold_bps) / bps_scale();
     }
     w
@@ -198,7 +199,7 @@ fn weighted_collateral_total(supplies: &[RefCollateralPosition]) -> BigRational 
 fn total_collateral_wad(supplies: &[RefCollateralPosition]) -> BigRational {
     let mut t = br_zero();
     for c in supplies {
-        t += position_value_wad(&c.supply_scaled_ray, &c.supply_index_ray, &c.price_wad);
+        t += position_value_wad(&c.supply_scaled_ray, &c.supply_index, &c.price_wad);
     }
     t
 }
@@ -206,7 +207,7 @@ fn total_collateral_wad(supplies: &[RefCollateralPosition]) -> BigRational {
 fn total_debt_wad(debts: &[RefDebtPosition]) -> BigRational {
     let mut t = br_zero();
     for d in debts {
-        t += position_value_wad(&d.borrow_scaled_ray, &d.borrow_index_ray, &d.price_wad);
+        t += position_value_wad(&d.borrow_scaled_ray, &d.borrow_index, &d.price_wad);
     }
     t
 }
@@ -244,7 +245,7 @@ fn get_account_bonus_params(
 
     let mut weighted_bonus = br_zero();
     for c in supplies {
-        let value = position_value_wad(&c.supply_scaled_ray, &c.supply_index_ray, &c.price_wad);
+        let value = position_value_wad(&c.supply_scaled_ray, &c.supply_index, &c.price_wad);
         let share = &value / &total;
         weighted_bonus += share * br_from_i128(c.liq_bonus_bps);
     }
@@ -471,7 +472,7 @@ pub fn compute_liquidation(
             .expect("debt payment references unknown asset_id");
         // Actual debt in token units:
         // actual_ray = scaled * index / RAY; token = actual_ray / 10^(27-dec)
-        let actual_ray = &d.borrow_scaled_ray * &d.borrow_index_ray / ray_scale();
+        let actual_ray = &d.borrow_scaled_ray * &d.borrow_index / ray_scale();
         let scale_diff = 27 - d.decimals;
         let actual_tokens = actual_ray / br_ten_pow(scale_diff);
         let payment_tokens = if amt_tokens > &actual_tokens {
@@ -518,7 +519,7 @@ pub fn compute_liquidation(
             if c.price_wad.is_zero() {
                 continue;
             }
-            let actual_ray = &c.supply_scaled_ray * &c.supply_index_ray / ray_scale();
+            let actual_ray = &c.supply_scaled_ray * &c.supply_index / ray_scale();
             let actual_wad = &actual_ray / br_ten_pow(9);
             let asset_value = &actual_wad * &c.price_wad / wad_scale();
             let share = &asset_value / &total_coll;
@@ -584,24 +585,25 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
     let (supplies, _borrows) = ctrl.get_account_positions(&account_id);
 
     let mut out: Vec<RefCollateralPosition> = Vec::new();
-    for (i, (asset, position)) in supplies.iter().enumerate() {
+    for (i, (key, position)) in supplies.iter().enumerate() {
+        let asset = key.asset;
         let market = t.resolve_market_by_asset(&asset);
-        let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool).get_sync_data(&asset);
-        // Liquidation fee is a market-level parameter sourced from the current
-        // asset config (mirrors production `asset_config.liquidation_fees`),
-        // not a per-position field.
+        let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool)
+            .get_sync_data(&hub_asset(asset.clone()));
+        // Liquidation fee is a spoke-level parameter sourced from the base
+        // harness spoke listing (mirrors production, which reads the account
+        // spoke's `SpokeAsset` config), not a per-position field.
         let liq_fees_bps = t
             .ctrl_client()
-            .get_market_config(&asset)
-            .asset_config
-            .liquidation_fees_bps;
+            .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()))
+            .liquidation_fees;
         out.push(RefCollateralPosition {
             asset_id: i as u32,
-            supply_scaled_ray: br_from_i128(position.scaled_amount_ray),
-            supply_index_ray: br_from_i128(sync.state.supply_index_ray),
+            supply_scaled_ray: br_from_i128(position.scaled_amount),
+            supply_index: br_from_i128(sync.state.supply_index),
             price_wad: br_from_i128(market.price_wad),
-            liq_threshold_bps: i128::from(position.liquidation_threshold_bps),
-            liq_bonus_bps: i128::from(position.liquidation_bonus_bps),
+            liq_threshold_bps: i128::from(position.liquidation_threshold),
+            liq_bonus_bps: i128::from(position.liquidation_bonus),
             liq_fees_bps: i128::from(liq_fees_bps),
             decimals: market.decimals,
         });
@@ -619,13 +621,15 @@ pub fn snapshot_debt(t: &LendingTest, user: &str) -> Vec<RefDebtPosition> {
     let (_supplies, borrows) = ctrl.get_account_positions(&account_id);
 
     let mut out: Vec<RefDebtPosition> = Vec::new();
-    for (i, (asset, position)) in borrows.iter().enumerate() {
+    for (i, (key, position)) in borrows.iter().enumerate() {
+        let asset = key.asset;
         let market = t.resolve_market_by_asset(&asset);
-        let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool).get_sync_data(&asset);
+        let sync =
+            pool::LiquidityPoolClient::new(&t.env, &market.pool).get_sync_data(&hub_asset(asset));
         out.push(RefDebtPosition {
             asset_id: i as u32,
-            borrow_scaled_ray: br_from_i128(position.scaled_amount_ray),
-            borrow_index_ray: br_from_i128(sync.state.borrow_index_ray),
+            borrow_scaled_ray: br_from_i128(position.scaled_amount),
+            borrow_index: br_from_i128(sync.state.borrow_index),
             price_wad: br_from_i128(market.price_wad),
             decimals: market.decimals,
         });

@@ -1,12 +1,9 @@
-//! Risk-bound, asset-config, position-limit, and market-creation validation,
-//! plus the live token-shape probe.
+//! Asset, risk, limit, and token-shape validation.
 
-use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, POSITION_LIMIT_MAX};
-use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError};
+use common::constants::POSITION_LIMIT_MAX;
+use common::errors::{CollateralError, GenericError};
 use common::types::MarketParamsRaw;
-use common::validation::cap_is_enabled;
-use controller_interface::types::{AssetConfigRaw, PositionLimits};
-use controller_interface::{ControllerAdminClient, ControllerClient};
+use common::types::PositionLimits;
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 // SAC decimal range for RAY/WAD conversions. Assets below 6 decimals can
@@ -17,6 +14,11 @@ const MAX_ASSET_DECIMALS: u32 = 18;
 pub(crate) fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     // Uses the shared controller risk-bound validator.
     common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
+}
+
+pub(crate) fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
+    // Uses the shared liquidation-fee bound (`<= BPS`).
+    common::validation::validate_liquidation_fees(env, fees_bps);
 }
 
 pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u32 {
@@ -33,27 +35,6 @@ pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u
     decimals
 }
 
-pub(crate) fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
-    validate_risk_bounds(
-        env,
-        config.loan_to_value_bps,
-        config.liquidation_threshold_bps,
-        config.liquidation_bonus_bps,
-    );
-
-    assert_with_error!(
-        env,
-        i128::from(config.liquidation_fees_bps) <= BPS,
-        CollateralError::InvalidLiqThreshold
-    );
-
-    assert_with_error!(
-        env,
-        i128::from(config.flashloan_fee_bps) <= MAX_FLASHLOAN_FEE_BPS,
-        FlashLoanError::StrategyFeeExceeds
-    );
-}
-
 pub(crate) fn validate_position_limits(env: &Env, limits: &PositionLimits) {
     if limits.max_supply_positions == 0
         || limits.max_borrow_positions == 0
@@ -68,7 +49,6 @@ pub(crate) fn validate_market_creation(
     env: &Env,
     asset: &Address,
     params: &MarketParamsRaw,
-    config: &AssetConfigRaw,
     _token_decimals: u32,
 ) {
     assert_with_error!(env, params.asset_id == *asset, GenericError::WrongToken);
@@ -85,47 +65,15 @@ pub(crate) fn validate_market_creation(
         GenericError::InvalidAsset
     );
 
-    validate_asset_config(env, config);
     params.verify(env);
 }
 
-pub(crate) fn validate_hub_caps(env: &Env, supply_cap: i128, borrow_cap: i128) {
+pub(crate) fn validate_spoke_cap_args(env: &Env, supply_cap: i128, borrow_cap: i128) {
     assert_with_error!(
         env,
         supply_cap >= 0 && borrow_cap >= 0,
         CollateralError::InvalidBorrowParams
     );
-}
-
-pub(crate) fn validate_proposed_hub_caps_against_spokes(
-    env: &Env,
-    controller: &Address,
-    asset: &Address,
-    hub_supply_cap: i128,
-    hub_borrow_cap: i128,
-) {
-    let market = ControllerAdminClient::new(env, controller).get_market_config(asset);
-    let views = ControllerClient::new(env, controller);
-    for category_id in market.asset_config.e_mode_categories.iter() {
-        let category = views.get_e_mode_category(&category_id);
-        let Some(cfg) = category.assets.get(asset.clone()) else {
-            continue;
-        };
-        if cap_is_enabled(hub_supply_cap) && cap_is_enabled(cfg.supply_cap) {
-            assert_with_error!(
-                env,
-                cfg.supply_cap <= hub_supply_cap,
-                EModeError::SpokeCapExceedsHub
-            );
-        }
-        if cap_is_enabled(hub_borrow_cap) && cap_is_enabled(cfg.borrow_cap) {
-            assert_with_error!(
-                env,
-                cfg.borrow_cap <= hub_borrow_cap,
-                EModeError::SpokeCapExceedsHub
-            );
-        }
-    }
 }
 
 #[cfg(test)]

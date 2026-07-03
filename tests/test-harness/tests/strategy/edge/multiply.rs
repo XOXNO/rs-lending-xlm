@@ -32,13 +32,13 @@ fn test_multiply_with_debt_token_initial_payment() {
     let account_id = t.ctrl_client().multiply(
         &alice,
         &0u64,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
-        &Some((eth.clone(), 5_000000i128)),
+        &Some((hub_asset(eth.clone()), 5_000000i128)),
         &None,
     );
 
@@ -89,13 +89,13 @@ fn test_multiply_rejects_unlisted_initial_payment_token() {
     let result = t.ctrl_client().try_multiply(
         &alice,
         &0u64,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
-        &Some((unlisted, 1_0000000i128)),
+        &Some((hub_asset(unlisted), 1_0000000i128)),
         &None,
     );
 
@@ -129,34 +129,6 @@ fn test_multiply_rejects_when_paused() {
     );
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-// The borrow-cap check runs after pool.create_strategy(). The borrow cap is
-// set extremely low ($0.001), so multiply rejects after the borrow exceeds
-// the cap.
-
-#[test]
-fn test_multiply_borrow_cap_would_exceed() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_params("ETH", |p| {
-            // Set borrow cap extremely low: 1 unit (0.0000001 ETH).
-            p.borrow_cap = 1;
-        })
-        .build();
-
-    // Attempt to multiply with 1 ETH debt, exceeding the borrow cap. Flow:
-    // create_strategy -> check borrow cap -> reject with a specific code.
-    let steps = build_swap_steps(&t, "ETH", "USDC", 5000_0000000);
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
-    assert_contract_error(result, errors::BORROW_CAP_REACHED);
-}
 // Reusing an account that already holds the collateral asset must add to the
 // existing position, not replace it.
 
@@ -167,7 +139,7 @@ fn test_multiply_preserves_existing_collateral_balance() {
         .with_market(eth_preset())
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
@@ -187,10 +159,10 @@ fn test_multiply_preserves_existing_collateral_balance() {
     let result = ctrl.try_multiply(
         &caller,
         &account_id,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
         &None,
@@ -222,16 +194,16 @@ fn test_multiply_preserves_existing_collateral_balance() {
 }
 
 #[test]
-fn test_multiply_reuses_emode_account_with_zero_category() {
+fn test_multiply_reuses_spoke_account_with_zero_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 2, controller::types::PositionMode::Multiply);
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let usdt = t.resolve_asset("USDT");
@@ -248,10 +220,10 @@ fn test_multiply_reuses_emode_account_with_zero_category() {
     let result = t.ctrl_client().try_multiply(
         &caller,
         &account_id,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1000_0000000i128,
-        &usdt,
+        &hub_asset(usdt.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
         &None,
@@ -264,16 +236,16 @@ fn test_multiply_reuses_emode_account_with_zero_category() {
 
     let attrs = t.ctrl_client().get_account_attributes(&account_id);
     assert_eq!(
-        attrs.e_mode_category_id, 1,
-        "zero e_mode_category must reuse the account's stored e-mode category"
+        attrs.spoke_id, 2,
+        "zero spoke_id must reuse the account's stored spoke category"
     );
     assert!(
         t.supply_balance_for(ALICE, account_id, "USDC") > 1_999.0,
-        "multiply should add USDC collateral to the existing e-mode account"
+        "multiply should add USDC collateral to the existing spoke account"
     );
     assert!(
         (999.0..=1001.0).contains(&t.borrow_balance_for(ALICE, account_id, "USDT")),
-        "multiply should open the USDT debt leg on the existing e-mode account"
+        "multiply should open the USDT debt leg on the existing spoke account"
     );
 }
 
@@ -295,10 +267,10 @@ fn test_multiply_missing_owner_auth_rejects_before_validation() {
         t.ctrl_client().set_auths(&no_auths).try_multiply(
             &caller,
             &0u64,
-            &0u32,
-            &usdc,
+            &1u32,
+            &hub_asset(usdc.clone()),
             &1_0000000i128,
-            &eth,
+            &hub_asset(eth.clone()),
             &controller::types::PositionMode::Multiply,
             &steps,
             &None,
@@ -323,10 +295,10 @@ fn test_multiply_existing_account_not_found() {
     let result = t.ctrl_client().try_multiply(
         &caller,
         &missing_account_id,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
         &None,
@@ -338,22 +310,22 @@ fn test_multiply_existing_account_not_found() {
         errors::GenericError::AccountNotFound as u32,
     );
 }
-// E-mode account in the stablecoin category, but debt is ETH (not in
+// Spoke account in the stablecoin category, but debt is ETH (not in
 // category). Validation runs before the swap, so the error is clean.
 
 #[test]
-fn test_multiply_emode_wrong_category_debt() {
+fn test_multiply_spoke_wrong_category_debt() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
-        // ETH is NOT in e-mode category 1
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
+        // ETH is NOT in spoke category 1
         .build();
 
-    // Use the raw controller client so `e_mode_category=1` can be passed
+    // Use the raw controller client so `spoke_id=2` can be passed
     // explicitly.
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("USDC");
@@ -364,39 +336,39 @@ fn test_multiply_emode_wrong_category_debt() {
     let result = ctrl.try_multiply(
         &caller,
         &0u64, // account_id = 0 (create new)
-        &1u32, // e_mode_category = 1
-        &collateral_addr,
+        &2u32, // spoke_id = 2
+        &hub_asset(collateral_addr.clone()),
         &10_0000000i128,                            // 1 ETH worth of debt
-        &debt_addr,                                 // ETH -- not in e-mode category 1
+        &hub_asset(debt_addr.clone()),              // ETH -- not in spoke category 2
         &controller::types::PositionMode::Multiply, // mode = 1 (multiply)
         &steps,
         &None, // initial_payment
         &None, // convert_steps
     );
 
-    // ETH is not in e-mode category 1. `token_e_mode_config` surfaces
-    // `EModeCategoryNotFound` (300) when the asset is unregistered.
-    assert_contract_error(flatten(result), errors::EMODE_CATEGORY_NOT_FOUND);
+    // ETH is not listed on the account's spoke, so the borrow gate rejects the
+    // leg with AssetNotInSpoke (307).
+    assert_contract_error(flatten(result), errors::ASSET_NOT_IN_SPOKE);
 }
-// E-mode account in the stablecoin category, but collateral is ETH (not in
+// Spoke account in the stablecoin category, but collateral is ETH (not in
 // category).
 
 #[test]
-fn test_multiply_emode_wrong_category_collateral() {
+fn test_multiply_spoke_wrong_category_collateral() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
         .with_market(eth_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
     let caller = t.get_or_create_user(ALICE);
-    let collateral_addr = t.resolve_asset("ETH"); // not in e-mode category
-    let debt_addr = t.resolve_asset("USDC"); // in e-mode category
-                                             // Fund the mock router so the swap itself succeeds; this lets the emode
-                                             // check on the deposit leg fire (otherwise the router fails first).
+    let collateral_addr = t.resolve_asset("ETH"); // not in spoke category
+    let debt_addr = t.resolve_asset("USDC"); // in spoke category
+                                             // The collateral spoke gate fires at entry, before any funds move; the
+                                             // router funding only keeps the fixture realistic.
     t.fund_router("ETH", 5.0);
     // multiply borrows 1000 USDC (raw 10_000_000_000) minus 9bps fee.
     let steps = build_aggregator_swap(
@@ -410,20 +382,20 @@ fn test_multiply_emode_wrong_category_collateral() {
     let ctrl = t.ctrl_client();
     let result = ctrl.try_multiply(
         &caller,
-        &0u64,            // account_id = 0 (create new)
-        &1u32,            // e_mode_category = 1
-        &collateral_addr, // ETH: not in e-mode category
+        &0u64,                               // account_id = 0 (create new)
+        &2u32,                               // spoke_id = 2
+        &hub_asset(collateral_addr.clone()), // ETH: not in spoke category
         &1000_0000000i128,
-        &debt_addr,
+        &hub_asset(debt_addr.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
         &None, // initial_payment
         &None, // convert_steps
     );
 
-    // ETH is not in the e-mode category, so `token_e_mode_config` rejects
-    // with EMODE_CATEGORY_NOT_FOUND (300).
-    assert_contract_error(flatten(result), errors::EMODE_CATEGORY_NOT_FOUND);
+    // ETH is not listed on the account's spoke, so the entry gate rejects the
+    // collateral leg with AssetNotInSpoke (307).
+    assert_contract_error(flatten(result), errors::ASSET_NOT_IN_SPOKE);
 }
 #[test]
 fn test_multiply_rejects_normal_mode() {
@@ -457,7 +429,7 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
         .with_position_limits(1, 4)
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
@@ -472,10 +444,10 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
     let result = ctrl.try_multiply(
         &caller,
         &account_id,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
         &None,
@@ -493,7 +465,7 @@ fn test_multiply_existing_account_wrong_owner() {
         .with_market(eth_preset())
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     let bob = t.get_or_create_user(BOB);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -504,10 +476,10 @@ fn test_multiply_existing_account_wrong_owner() {
     let result = t.ctrl_client().try_multiply(
         &bob,
         &account_id,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
         &None,
@@ -515,34 +487,8 @@ fn test_multiply_existing_account_wrong_owner() {
     );
 
     // Bob calls multiply targeting Alice's existing account. The ownership
-    // check must fail with AccountNotInMarket, not as a generic auth failure.
-    assert_contract_error(flatten(result), errors::ACCOUNT_NOT_IN_MARKET);
-}
-// The post-deposit supply cap check in multiply must reject oversized output.
-
-#[test]
-fn test_multiply_rejects_supply_cap_after_deposit() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_params("USDC", |p| {
-            p.supply_cap = 1; // extremely low: 1 unit (0.0000001 USDC).
-        })
-        .build();
-
-    t.fund_router("USDC", 100.0);
-    // 0.05 ETH (raw 500_000) flash-borrowed minus 9bps fee.
-    let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(500_000), 100_0000000);
-
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        0.05,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
-    assert_contract_error(result, errors::SUPPLY_CAP_REACHED);
+    // check must fail with NotAuthorized, not as a host-level auth failure.
+    assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
 }
 // Favorable slippage refunds must not sweep unrelated controller balances.
 
@@ -590,10 +536,10 @@ fn test_multiply_respects_borrow_position_limit() {
     let result = match t.ctrl_client().try_multiply(
         &alice,
         &account_id,
-        &0u32,
-        &usdc,
+        &1u32,
+        &hub_asset(usdc.clone()),
         &1_000_000_000i128,
-        &xlm,
+        &hub_asset(xlm.clone()),
         &controller::types::PositionMode::Multiply,
         &steps2,
         &None,

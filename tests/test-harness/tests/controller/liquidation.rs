@@ -462,7 +462,7 @@ fn test_liquidation_rejects_zero_amount() {
 
 // --- audit_p0 ---
 
-// liquidation.rs rejects `account.owner == liquidator` with AccountNotInMarket (#13).
+// liquidation.rs rejects `account.owner == liquidator` with SelfLiquidationNotAllowed (#133).
 #[test]
 fn test_self_liquidation_rejects() {
     let mut t = LendingTest::new()
@@ -476,7 +476,7 @@ fn test_self_liquidation_rejects() {
     t.assert_liquidatable(ALICE);
 
     let result = t.try_liquidate(ALICE, ALICE, "ETH", 0.5);
-    assert_contract_error(result, errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(result, errors::SELF_LIQUIDATION_NOT_ALLOWED);
 }
 
 // Third-party collateral must not let the borrower self-liquidate.
@@ -496,7 +496,7 @@ fn test_third_party_supply_does_not_enable_self_liquidation() {
         .expect("Bob may supply to Alice");
 
     let result = t.try_liquidate(ALICE, ALICE, "ETH", 0.5);
-    assert_contract_error(result, errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(result, errors::SELF_LIQUIDATION_NOT_ALLOWED);
 }
 
 // Liquidator path remains available after a third-party collateral top-up.

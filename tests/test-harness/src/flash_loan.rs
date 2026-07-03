@@ -4,7 +4,7 @@ use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{Address, Bytes};
 
 use crate::context::LendingTest;
-use crate::helpers::f64_to_i128;
+use crate::helpers::{f64_to_i128, hub_asset};
 use crate::receivers::bad_receiver::BadFlashLoanReceiver;
 use crate::receivers::good_receiver::GoodFlashLoanReceiver;
 
@@ -30,12 +30,12 @@ impl LendingTest {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
         let caller_addr = self.get_or_create_user(caller);
-        let asset_addr = self.resolve_asset(asset_name);
+        let asset = hub_asset(self.resolve_asset(asset_name));
 
         let ctrl = self.ctrl_client();
         ctrl.flash_loan(
             &caller_addr,
-            &asset_addr,
+            &asset,
             &raw_amount,
             receiver,
             &Bytes::new(&self.env),
@@ -53,12 +53,12 @@ impl LendingTest {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
         let caller_addr = self.get_or_create_user(caller);
-        let asset_addr = self.resolve_asset(asset_name);
+        let asset = hub_asset(self.resolve_asset(asset_name));
 
         let ctrl = self.ctrl_client();
         match ctrl.try_flash_loan(
             &caller_addr,
-            &asset_addr,
+            &asset,
             &raw_amount,
             receiver,
             &Bytes::new(&self.env),
@@ -79,15 +79,12 @@ impl LendingTest {
         data: &Bytes,
     ) -> Result<(), soroban_sdk::Error> {
         let caller_addr = self.get_or_create_user(caller);
-        let asset_addr = self.resolve_asset(asset_name);
+        let asset = hub_asset(self.resolve_asset(asset_name));
 
-        match self.ctrl_client().try_flash_loan(
-            &caller_addr,
-            &asset_addr,
-            &amount_raw,
-            receiver,
-            data,
-        ) {
+        match self
+            .ctrl_client()
+            .try_flash_loan(&caller_addr, &asset, &amount_raw, receiver, data)
+        {
             Ok(Ok(())) => Ok(()),
             Ok(Err(_)) => panic!("flash loan output conversion failed"),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),

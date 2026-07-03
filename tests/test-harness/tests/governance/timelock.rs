@@ -19,8 +19,8 @@ use governance_interface::{
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, IntoVal, Symbol};
 use test_harness::{
-    assert_contract_error, errors, reflector_single_spot_config, usdc_preset, LendingTest,
-    DEFAULT_TOLERANCE,
+    assert_contract_error, errors, hub_asset, reflector_single_spot_config, usdc_preset,
+    LendingTest, DEFAULT_TOLERANCE,
 };
 
 const SET_POSITION_LIMITS: &str = "set_position_limits";
@@ -369,7 +369,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     let id = gov.propose(
         &admin,
         &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            asset: asset.clone(),
+            hub_asset: hub_asset(asset.clone()),
             cfg,
         }),
         &s,
@@ -392,7 +392,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
         &Symbol::new(&t.env, SET_MARKET_ORACLE_CONFIG),
         &soroban_sdk::vec![
             &t.env,
-            asset.clone().into_val(&t.env),
+            hub_asset(asset.clone()).into_val(&t.env),
             resolved.clone().into_val(&t.env),
         ],
         &salt(&t.env, 0),
@@ -404,7 +404,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     );
 
     // The controller now stores exactly the view's resolved config.
-    let stored = t.ctrl_client().get_market_config(&asset).oracle_config;
+    let stored = t.market_oracle_config(&asset);
     assert_eq!(stored, resolved);
 }
 
@@ -459,10 +459,6 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
         governance_interface::OperationState::Done
     );
 
-    let stored = t
-        .ctrl_client()
-        .get_market_config(&asset)
-        .oracle_config
-        .tolerance;
+    let stored = t.market_oracle_config(&asset).tolerance;
     assert_eq!(stored, resolved);
 }

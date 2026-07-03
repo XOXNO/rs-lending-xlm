@@ -56,16 +56,17 @@ fn sizes(label: &str, key_scval: ScVal, value_scval: ScVal) {
 
 fn pos() -> AccountPositionRaw {
     AccountPositionRaw {
-        scaled_amount_ray: i128::MAX / 2,
-        liquidation_threshold_bps: 9000,
-        liquidation_bonus_bps: 10500,
-        loan_to_value_bps: 8000,
+        scaled_amount: i128::MAX / 2,
+        liquidation_threshold: 9000,
+        liquidation_bonus: 10500,
+        loan_to_value: 8000,
+        liquidation_fees: 2000,
     }
 }
 
 fn debt() -> DebtPositionRaw {
     DebtPositionRaw {
-        scaled_amount_ray: i128::MAX / 2,
+        scaled_amount: i128::MAX / 2,
     }
 }
 
@@ -79,12 +80,12 @@ fn print_storage_sizes() {
     // --- AccountMeta ---
     let meta = AccountMeta {
         owner: Address::generate(&env),
-        e_mode_category_id: 0,
+        spoke_id: 0,
         mode: PositionMode::Normal,
     };
-    let meta_emode = AccountMeta {
+    let meta_spoke = AccountMeta {
         owner: Address::generate(&env),
-        e_mode_category_id: 3,
+        spoke_id: 3,
         mode: PositionMode::Long,
     };
     sizes(
@@ -93,9 +94,9 @@ fn print_storage_sizes() {
         scval_of(&env, meta),
     );
     sizes(
-        "AccountMeta (e-mode)",
+        "AccountMeta (spoke)",
         scval_of(&env, ControllerKey::AccountMeta(id)),
-        scval_of(&env, meta_emode),
+        scval_of(&env, meta_spoke),
     );
 
     println!("---- SupplyPositions: Map<Address, AccountPositionRaw> ----");

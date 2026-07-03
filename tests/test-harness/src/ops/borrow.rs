@@ -1,7 +1,8 @@
-use soroban_sdk::{vec, Address, Vec};
+use common::types::HubAssetKey;
+use soroban_sdk::{vec, Vec};
 
 use crate::core::LendingTest;
-use crate::helpers::f64_to_i128;
+use crate::helpers::{f64_to_i128, hub_asset};
 
 impl LendingTest {
     pub fn borrow(&mut self, user: &str, asset_name: &str, amount: f64) {
@@ -16,8 +17,8 @@ impl LendingTest {
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
-        let borrows: Vec<(Address, i128)> = vec![&self.env, (asset_addr, amount)];
-        ctrl.borrow(&addr, &account_id, &borrows);
+        let borrows: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), amount)];
+        ctrl.borrow(&addr, &account_id, &borrows, &None);
     }
 
     pub fn borrow_to(&mut self, user: &str, account_id: u64, asset_name: &str, amount: f64) {
@@ -27,8 +28,31 @@ impl LendingTest {
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
-        let borrows: Vec<(Address, i128)> = vec![&self.env, (asset_addr, raw_amount)];
-        ctrl.borrow(&addr, &account_id, &borrows);
+        let borrows: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        ctrl.borrow(&addr, &account_id, &borrows, &None);
+    }
+
+    /// Borrows on `account_id` as `caller` (e.g. a delegate), routing the funds
+    /// to `to`'s wallet via the `to` destination instead of the caller.
+    pub fn borrow_as_to(
+        &mut self,
+        caller: &str,
+        account_id: u64,
+        asset_name: &str,
+        amount: f64,
+        to: &str,
+    ) {
+        let decimals = self.resolve_market(asset_name).decimals;
+        let raw_amount = f64_to_i128(amount, decimals);
+        let caller_addr = self.users.get(caller).unwrap().address.clone();
+        let to_addr = self.users.get(to).unwrap().address.clone();
+        let asset_addr = self.resolve_asset(asset_name);
+
+        let ctrl = self.ctrl_client();
+        let borrows: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        ctrl.borrow(&caller_addr, &account_id, &borrows, &Some(to_addr));
     }
 
     pub fn try_borrow(
@@ -44,8 +68,9 @@ impl LendingTest {
         let asset_addr = self.resolve_asset(asset_name);
 
         let ctrl = self.ctrl_client();
-        let borrows: Vec<(Address, i128)> = vec![&self.env, (asset_addr, raw_amount)];
-        match ctrl.try_borrow(&addr, &account_id, &borrows) {
+        let borrows: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        match ctrl.try_borrow(&addr, &account_id, &borrows, &None) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -58,15 +83,15 @@ impl LendingTest {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();
 
-        let mut soroban_borrows: Vec<(Address, i128)> = Vec::new(&self.env);
+        let mut soroban_borrows: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
         for (asset_name, amount) in assets {
             let market = self.resolve_market(asset_name);
             let raw = f64_to_i128(*amount, market.decimals);
-            soroban_borrows.push_back((market.asset.clone(), raw));
+            soroban_borrows.push_back((hub_asset(market.asset.clone()), raw));
         }
 
         let ctrl = self.ctrl_client();
-        ctrl.borrow(&addr, &account_id, &soroban_borrows);
+        ctrl.borrow(&addr, &account_id, &soroban_borrows, &None);
     }
 
     pub fn try_borrow_bulk(
@@ -77,15 +102,15 @@ impl LendingTest {
         let account_id = self.try_resolve_account_id(user)?;
         let addr = self.users.get(user).unwrap().address.clone();
 
-        let mut soroban_borrows: Vec<(Address, i128)> = Vec::new(&self.env);
+        let mut soroban_borrows: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
         for (asset_name, amount) in assets {
             let market = self.resolve_market(asset_name);
             let raw = f64_to_i128(*amount, market.decimals);
-            soroban_borrows.push_back((market.asset.clone(), raw));
+            soroban_borrows.push_back((hub_asset(market.asset.clone()), raw));
         }
 
         let ctrl = self.ctrl_client();
-        match ctrl.try_borrow(&addr, &account_id, &soroban_borrows) {
+        match ctrl.try_borrow(&addr, &account_id, &soroban_borrows, &None) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),

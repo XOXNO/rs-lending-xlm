@@ -19,9 +19,10 @@ use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::rates::{simulate_update_indexes, update_supply_index};
 use common::types::{
-    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, MarketStateSnapshot,
-    PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolKey, PoolPositionMutation, PoolStateRaw,
-    PoolStrategyMutation, PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
+    AccountPositionType, HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw,
+    MarketStateSnapshot, PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolKey,
+    PoolPositionMutation, PoolSeizeEntry, PoolStateRaw, PoolStrategyMutation, PoolSupplyEntry,
+    PoolSyncData, PoolWithdrawEntry,
 };
 use pool_interface::LiquidityPoolInterface;
 use soroban_sdk::{
@@ -40,28 +41,25 @@ use stellar_access::ownable;
 use stellar_macros::only_owner;
 
 use utils::{
-    apply_hub_caps, apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from,
-    enforce_borrow_cap, enforce_supply_cap, now_ms, renew_market_keys, renew_pool_instance,
-    require_nonneg_amount, require_positive_amount, require_wasm_receiver,
+    apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from, now_ms,
+    renew_market_keys, renew_pool_instance, require_nonneg_amount, require_positive_amount,
+    require_wasm_receiver,
 };
 
-fn load_synced_cache(env: &Env, asset: &Address) -> Cache {
+fn load_synced_cache(env: &Env, hub_asset: &HubAssetKey) -> Cache {
     renew_pool_instance(env);
-    synced_market_cache(env, asset)
+    synced_market_cache(env, hub_asset)
 }
 
 /// Accrued market cache without instance-TTL renewal.
 /// Bulk endpoints renew instance TTL once per call.
-fn synced_market_cache(env: &Env, asset: &Address) -> Cache {
-    let mut cache = Cache::load(env, asset);
+fn synced_market_cache(env: &Env, hub_asset: &HubAssetKey) -> Cache {
+    let mut cache = Cache::load(env, hub_asset);
     interest::global_sync(env, &mut cache);
     cache
 }
 
-/// Runs position-mutating batch entries in order.
-///
-/// Renews instance TTL once, emits one market-state batch event, and
-/// returns per-entry mutations. Any entry panic reverts the whole call.
+/// Runs ordered position mutations and emits one market-state batch.
 fn run_batch<E>(
     env: &Env,
     entries: Vec<E>,
@@ -82,25 +80,21 @@ where
     mutations
 }
 
-/// Validates `action.amount`, loads accrued market cache, and reads scaled amount.
-/// Instance TTL is renewed once per batch by `run_batch`.
+/// Loads accrued market cache and action position.
 fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
     require_nonneg_amount(env, action.amount);
-    let cache = synced_market_cache(env, &action.asset);
+    let cache = synced_market_cache(env, &action.hub_asset);
     // dimensional: action position is Ray<Share(asset, side)>; amount is Token(asset).
-    let scaled = Ray::from(action.position.scaled_amount_ray);
+    let scaled = Ray::from(action.position.scaled_amount);
     (cache, scaled, action.amount)
 }
 
-/// Accrues a borrow of `amount` into `cache` and the caller's `scaled` position:
-/// requires sufficient reserves, enforces the borrow cap, adds the scaled debt,
-/// then rejects post-borrow utilization above the market's max.
+/// Accrues borrow into caller and market debt.
 fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
     cache.require_reserves(amount);
     // dimensional: Token(asset) borrow amount -> Ray<Share(asset, debt)>.
     let scaled_debt = cache.calculate_scaled_borrow(amount);
-    enforce_borrow_cap(env, cache, scaled_debt);
     // dimensional: account debt and market debt totals share the debt-share unit.
     scaled.checked_add_assign(env, scaled_debt);
     cache.borrowed.checked_add_assign(env, scaled_debt);
@@ -112,8 +106,6 @@ fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> (PoolPositionMutation, Mark
 
     // dimensional: Token(asset) supply amount -> Ray<Share(asset, supply)>.
     let scaled_amount = cache.calculate_scaled_supply(amount);
-    enforce_supply_cap(env, &cache, scaled_amount);
-
     // dimensional: account supply and market supply totals share the supply-share unit.
     scaled.checked_add_assign(env, scaled_amount);
     cache.supplied.checked_add_assign(env, scaled_amount);
@@ -219,9 +211,32 @@ fn repay_one(
     )
 }
 
-/// Asserts the pool's loaned-token balance equals `expected`, mapping any
-/// mismatch to InvalidFlashloanRepay. Brackets the payout and the callback so a
-/// receiver cannot retain funds or alter the pool balance.
+/// Seize: bad borrow debt reduces the supply index, subject to floor.
+/// Deposit dust is moved into revenue. Each entry reloads persisted state, so
+/// a batch with duplicate hub-assets applies sequentially.
+fn seize_one(env: &Env, entry: &PoolSeizeEntry) -> MarketStateSnapshot {
+    let mut cache = synced_market_cache(env, &entry.hub_asset);
+
+    let scaled = Ray::from(entry.position.scaled_amount);
+    match entry.side {
+        AccountPositionType::Borrow => {
+            // dimensional: seized debt becomes Ray<Token(asset)> bad debt, not scaled shares.
+            let current_debt = cache.unscale_borrow_exact(scaled);
+            interest::apply_bad_debt_to_supply_index(&mut cache, current_debt);
+            cache.borrowed.checked_sub_assign(env, scaled);
+        }
+        AccountPositionType::Deposit => {
+            // dimensional: seized deposit dust is Ray<Share(asset, supply)> revenue.
+            cache.revenue.checked_add_assign(env, scaled);
+        }
+    }
+
+    // The seized position is removed from the controller-owned account map.
+    cache.save();
+    cache.market_snapshot()
+}
+
+/// Checks loaned-token balance; mismatches map to InvalidFlashloanRepay.
 fn verify_flash_repay(env: &Env, tok: &token::Client, pool_addr: &Address, expected: i128) {
     assert_with_error!(
         env,
@@ -230,9 +245,7 @@ fn verify_flash_repay(env: &Env, tok: &token::Client, pool_addr: &Address, expec
     );
 }
 
-/// Settles flash repayment: checks the receiver's allowance, pulls
-/// `amount + fee` via `transfer_from`, and asserts the final pool balance.
-/// Allowance is checked first so SAC failures map to InvalidFlashloanRepay.
+/// Pulls flash-loan repayment from receiver.
 fn pull_flash_repayment(
     env: &Env,
     tok: &token::Client,
@@ -267,39 +280,43 @@ impl LiquidityPool {
 #[contractimpl]
 impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
-    fn create_market(env: Env, params: MarketParamsRaw) {
+    fn create_market(env: Env, hub_id: u32, params: MarketParamsRaw) {
         renew_pool_instance(&env);
         params.verify(&env);
 
         let asset = params.asset_id.clone();
+        let hub_asset = HubAssetKey {
+            hub_id,
+            asset: asset.clone(),
+        };
         assert_with_error!(
             &env,
             !env.storage()
                 .persistent()
-                .has(&PoolKey::Params(asset.clone())),
+                .has(&PoolKey::Params(hub_asset.clone())),
             GenericError::AssetAlreadySupported
         );
 
         env.storage()
             .persistent()
-            .set(&PoolKey::Params(asset.clone()), &params);
+            .set(&PoolKey::Params(hub_asset.clone()), &params);
 
         let state = PoolStateRaw {
             // dimensional: zero Ray<Share> totals, unit Ray<Index> indexes, Token(asset) cash.
-            supplied_ray: 0,
-            borrowed_ray: 0,
-            revenue_ray: 0,
-            borrow_index_ray: RAY,
-            supply_index_ray: RAY,
+            supplied: 0,
+            borrowed: 0,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
             last_timestamp: now_ms(&env),
             cash: 0,
         };
         env.storage()
             .persistent()
-            .set(&PoolKey::State(asset.clone()), &state);
+            .set(&PoolKey::State(hub_asset.clone()), &state);
 
-        renew_market_keys(&env, &asset);
-        events::publish_market_params(&env, asset, params);
+        renew_market_keys(&env, &hub_asset);
+        events::publish_market_params(&env, hub_asset.hub_id, asset, params);
     }
 
     #[only_owner]
@@ -337,16 +354,16 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn update_indexes(env: Env, asset: Address) {
-        let cache = load_synced_cache(&env, &asset);
+    fn update_indexes(env: Env, hub_asset: HubAssetKey) {
+        let cache = load_synced_cache(&env, &hub_asset);
         cache.save();
         events::publish_market_state(&env, cache.market_snapshot());
     }
 
     #[only_owner]
-    fn add_rewards(env: Env, asset: Address, amount: i128) {
+    fn add_rewards(env: Env, hub_asset: HubAssetKey, amount: i128) {
         require_nonneg_amount(&env, amount);
-        let mut cache = load_synced_cache(&env, &asset);
+        let mut cache = load_synced_cache(&env, &hub_asset);
 
         assert_with_error!(
             &env,
@@ -355,9 +372,12 @@ impl LiquidityPoolInterface for LiquidityPool {
         );
 
         // dimensional: Token(asset) rewards -> Ray<Token(asset)> for supply-index growth.
-        let amount_ray = Ray::from_asset(amount, cache.params.asset_decimals);
-        cache.supply_index =
-            update_supply_index(&env, cache.supplied, cache.supply_index, amount_ray);
+        cache.supply_index = update_supply_index(
+            &env,
+            cache.supplied,
+            cache.supply_index,
+            Ray::from_asset(amount, cache.params.asset_decimals),
+        );
         // Controller transferred Token(asset) reward `amount` into the pool.
         cache.credit_cash(amount);
 
@@ -371,7 +391,7 @@ impl LiquidityPoolInterface for LiquidityPool {
     // Repayment is checked against the loaned token balance.
     fn flash_loan(
         env: Env,
-        asset: Address,
+        hub_asset: HubAssetKey,
         initiator: Address,
         receiver: Address,
         amount: i128,
@@ -381,13 +401,12 @@ impl LiquidityPoolInterface for LiquidityPool {
         require_positive_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 
-        let mut cache = load_synced_cache(&env, &asset);
+        let mut cache = load_synced_cache(&env, &hub_asset);
 
         cache.require_reserves(amount);
         require_wasm_receiver(&env, &receiver);
 
-        // Balance checks prevent repayment with any asset other than the loaned
-        // token; balances are per-(token, holder) so other vault assets are inert.
+        // Balance checks bind repayment to the loaned token.
         let pool_addr = env.current_contract_address();
         let tok = token::Client::new(&env, &cache.params.asset_id);
         let pre_balance = tok.balance(&pool_addr);
@@ -402,7 +421,7 @@ impl LiquidityPoolInterface for LiquidityPool {
             .checked_add(fee)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
 
-        // Payout, then verify the receiver did not retain funds.
+        // Payout and verify pool balance delta.
         tok.transfer(&pool_addr, &receiver, &amount);
         verify_flash_repay(&env, &tok, &pool_addr, expected_after_payout);
 
@@ -420,10 +439,10 @@ impl LiquidityPoolInterface for LiquidityPool {
                 .into_val(&env),
         );
 
-        // The callback must not retain funds or change the pool balance again.
+        // Callback must not change pool loaned-token balance.
         verify_flash_repay(&env, &tok, &pool_addr, expected_after_payout);
 
-        // Receiver approves `amount + fee` during callback; pull and verify repay.
+        // Receiver approves repayment during callback; pool pulls it.
         pull_flash_repayment(
             &env,
             &tok,
@@ -435,8 +454,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         );
 
         // dimensional: Token(asset) fee -> Ray<Token(asset)> -> revenue supply shares.
-        let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
-        interest::add_protocol_revenue_ray(&mut cache, fee_ray);
+        let protocol_fee = Ray::from_asset(fee, cache.params.asset_decimals);
+        interest::add_protocol_revenue(&mut cache, protocol_fee);
         // Net token effect: pool sends `amount` and receives `amount + fee`, so
         // `cash` increases by `fee`. Direct transfers are balance-checked above.
         cache.credit_cash(fee);
@@ -457,22 +476,23 @@ impl LiquidityPoolInterface for LiquidityPool {
         let PoolAction {
             position,
             amount,
-            asset,
+            hub_asset,
         } = action;
+        let asset = hub_asset.asset.clone();
         let caller = receiver.clone();
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 
         assert_with_error!(&env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
 
-        let mut cache = load_synced_cache(&env, &asset);
+        let mut cache = load_synced_cache(&env, &hub_asset);
         // dimensional: strategy position is Ray<Share(asset, debt)>.
-        let mut scaled = Ray::from(position.scaled_amount_ray);
+        let mut scaled = Ray::from(position.scaled_amount);
         accrue_borrow(&env, &mut cache, &mut scaled, amount);
 
         // dimensional: Token(asset) fee -> Ray<Token(asset)> -> revenue supply shares.
-        let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
-        interest::add_protocol_revenue_ray(&mut cache, fee_ray);
+        let protocol_fee = Ray::from_asset(fee, cache.params.asset_decimals);
+        interest::add_protocol_revenue(&mut cache, protocol_fee);
 
         // dimensional: Token(asset) sent is borrow amount minus Token(asset) fee.
         let amount_to_send = amount
@@ -483,47 +503,33 @@ impl LiquidityPoolInterface for LiquidityPool {
         // CEI: snapshot + commit before external call.
         cache.save();
         cache.transfer_out(&caller, amount_to_send);
-        events::publish_strategy_fee(&env, asset.clone(), amount, fee, amount_to_send);
+        events::publish_strategy_fee(
+            &env,
+            hub_asset.hub_id,
+            asset.clone(),
+            amount,
+            fee,
+            amount_to_send,
+        );
         events::publish_market_state(&env, cache.market_snapshot());
         cache.strategy_mutation(scaled, amount, amount_to_send)
     }
 
     #[only_owner]
-    // Seize: bad borrow debt reduces the supply index, subject to floor.
-    // Deposit dust is moved into revenue.
-    fn seize_position(
-        env: Env,
-        asset: Address,
-        side: AccountPositionType,
-        position: ScaledPositionRaw,
-    ) -> PoolPositionMutation {
-        let mut cache = load_synced_cache(&env, &asset);
-
-        let scaled = Ray::from(position.scaled_amount_ray);
-        match side {
-            AccountPositionType::Borrow => {
-                // dimensional: seized debt becomes Ray<Token(asset)> bad debt, not scaled shares.
-                let current_debt_ray = cache.unscale_borrow_ray(scaled);
-                interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
-                cache.borrowed.checked_sub_assign(&env, scaled);
-            }
-            AccountPositionType::Deposit => {
-                // dimensional: seized deposit dust is Ray<Share(asset, supply)> revenue.
-                cache.revenue.checked_add_assign(&env, scaled);
-            }
+    fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>) {
+        renew_pool_instance(&env);
+        let mut snapshots = Vec::new(&env);
+        for entry in entries.iter() {
+            snapshots.push_back(seize_one(&env, &entry));
         }
-
-        // The seized position is removed from the controller-owned account map.
-        cache.save();
-        events::publish_market_state(&env, cache.market_snapshot());
-        cache.position_mutation(Ray::ZERO, 0)
+        events::publish_market_state_batch(&env, snapshots);
     }
 
     #[only_owner]
     // Claim burns scaled revenue from revenue and supplied totals, capped by reserves.
     // Solvency is checked before transfer.
-    fn claim_revenue(env: Env, asset: Address) -> PoolAmountMutation {
-        let mut cache = load_synced_cache(&env, &asset);
+    fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
+        let mut cache = load_synced_cache(&env, &hub_asset);
 
         // dimensional: claim burns Ray<Share(asset, supply)> and returns Token(asset).
         let amount_to_transfer = cache.burn_claimable_revenue();
@@ -546,24 +552,16 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn update_params(env: Env, asset: Address, model: InterestRateModel) {
+    fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel) {
+        let asset = hub_asset.asset.clone();
         // Accrue at the existing rate model before replacing it.
-        let cache = load_synced_cache(&env, &asset);
+        let cache = load_synced_cache(&env, &hub_asset);
         cache.save();
 
         model.verify(&env);
-        apply_rate_model(&env, &asset, &model);
-        let params = views::load_params(&env, &asset);
-        events::publish_market_params(&env, asset, params);
-    }
-
-    #[only_owner]
-    fn update_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128) {
-        let cache = load_synced_cache(&env, &asset);
-        cache.save();
-        apply_hub_caps(&env, &asset, supply_cap, borrow_cap);
-        let params = views::load_params(&env, &asset);
-        events::publish_market_params(&env, asset, params);
+        apply_rate_model(&env, &hub_asset, &model);
+        let params = views::load_params(&env, &hub_asset);
+        events::publish_market_params(&env, hub_asset.hub_id, asset, params);
     }
 
     #[only_owner]
@@ -572,47 +570,47 @@ impl LiquidityPoolInterface for LiquidityPool {
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
-    fn get_utilisation(env: Env, asset: Address) -> i128 {
-        views::capital_utilisation(&env, &asset)
+    fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::capital_utilisation(&env, &hub_asset)
     }
 
-    fn get_reserves(env: Env, asset: Address) -> i128 {
-        views::reserves(&env, &asset)
+    fn get_reserves(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::reserves(&env, &hub_asset)
     }
 
-    fn get_deposit_rate(env: Env, asset: Address) -> i128 {
-        views::deposit_rate(&env, &asset)
+    fn get_deposit_rate(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::deposit_rate(&env, &hub_asset)
     }
 
-    fn get_borrow_rate(env: Env, asset: Address) -> i128 {
-        views::borrow_rate(&env, &asset)
+    fn get_borrow_rate(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::borrow_rate(&env, &hub_asset)
     }
 
-    fn get_revenue(env: Env, asset: Address) -> i128 {
-        views::protocol_revenue(&env, &asset)
+    fn get_revenue(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::protocol_revenue(&env, &hub_asset)
     }
 
-    fn get_supplied_amount(env: Env, asset: Address) -> i128 {
-        views::supplied_amount(&env, &asset)
+    fn get_supplied_amount(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::supplied_amount(&env, &hub_asset)
     }
 
-    fn get_borrowed_amount(env: Env, asset: Address) -> i128 {
-        views::borrowed_amount(&env, &asset)
+    fn get_borrowed_amount(env: Env, hub_asset: HubAssetKey) -> i128 {
+        views::borrowed_amount(&env, &hub_asset)
     }
 
-    fn get_delta_time(env: Env, asset: Address) -> u64 {
-        views::delta_time(&env, &asset)
+    fn get_delta_time(env: Env, hub_asset: HubAssetKey) -> u64 {
+        views::delta_time(&env, &hub_asset)
     }
 
-    fn get_sync_data(env: Env, asset: Address) -> PoolSyncData {
-        views::load_sync_data(&env, &asset)
+    fn get_sync_data(env: Env, hub_asset: HubAssetKey) -> PoolSyncData {
+        views::load_sync_data(&env, &hub_asset)
     }
 
-    fn get_bulk_indexes(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw> {
+    fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw> {
         let now = now_ms(&env);
         let mut indexes: Vec<MarketIndexRaw> = Vec::new(&env);
-        for asset in assets.iter() {
-            let sync = views::load_sync_data(&env, &asset);
+        for hub_asset in hub_assets.iter() {
+            let sync = views::load_sync_data(&env, &hub_asset);
             indexes.push_back(MarketIndexRaw::from(&simulate_update_indexes(
                 &env, now, &sync,
             )));

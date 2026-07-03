@@ -21,6 +21,10 @@ jobs:
   build-and-test:
     name: Build & Test
     runs-on: self-hosted
+    # PR-triggered runs execute PR-controlled code (build scripts, tests, Makefile
+    # targets) on the persistent self-hosted runner. Gate behind an environment
+    # whose required reviewers must approve before the job starts. See .github/README.md.
+    environment: ci-untrusted-pr
     # sccache caches per-crate compilations under $HOME (persistent on the
     # self-hosted runner), shared with the other self-hosted jobs and warming
     # cold runners. CARGO_INCREMENTAL=0 is required for sccache to cache.

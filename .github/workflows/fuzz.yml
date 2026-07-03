@@ -10,8 +10,10 @@ on:
       - 'tests/test-harness/**'
       - 'tests/fuzz/**'
   schedule:
-    # Nightly long-run at 02:00 UTC
-    - cron: '0 2 * * *'
+    # Nightly standard run at 02:00 UTC Monday-Saturday.
+    - cron: '0 2 * * 1-6'
+    # Weekly deep run at 02:00 UTC Sunday.
+    - cron: '0 2 * * 0'
   workflow_dispatch:
     inputs:
       fuzz_time:
@@ -40,6 +42,9 @@ jobs:
     if: github.event_name == 'pull_request'
     name: Fuzz smoke (PR)
     runs-on: self-hosted
+    # PR-triggered code runs on the persistent self-hosted runner; gate behind an
+    # environment whose required reviewers must approve. See .github/README.md.
+    environment: ci-untrusted-pr
     steps:
       - uses: actions/checkout@v7
 
@@ -90,6 +95,9 @@ jobs:
     if: github.event_name == 'pull_request'
     name: Miri pass (common + pool::interest + controller::helpers)
     runs-on: self-hosted
+    # PR-triggered code runs on the persistent self-hosted runner; gate behind an
+    # environment whose required reviewers must approve. See .github/README.md.
+    environment: ci-untrusted-pr
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
@@ -97,13 +105,87 @@ jobs:
           components: miri, rust-src
       - run: make miri-all
 
-  # Nightly: long run, surfaces findings into issues on failure.
-  nightly-long:
+  stellar-tool:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    name: Fuzz long run
+    name: Prepare stellar-cli
     runs-on: self-hosted
-    # Self-hosted runner with a 24h ceiling for long fuzz runs.
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stellar-cli
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      - name: Stage stellar-cli
+        run: |
+          mkdir -p "$RUNNER_TEMP/stellar-cli"
+          if [ -x "$HOME/.local/bin/stellar" ]; then
+            cp "$HOME/.local/bin/stellar" "$RUNNER_TEMP/stellar-cli/stellar"
+          else
+            cp "$(command -v stellar)" "$RUNNER_TEMP/stellar-cli/stellar"
+          fi
+          chmod +x "$RUNNER_TEMP/stellar-cli/stellar"
+
+      - name: Upload stellar-cli
+        uses: actions/upload-artifact@v7
+        with:
+          name: stellar-cli-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/stellar-cli/stellar
+
+  mutants-tool:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Prepare cargo-mutants
+    runs-on: self-hosted
+    steps:
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-mutants
+          restore-keys: |
+            ${{ runner.os }}-cargo-mutants-
+
+      - name: Install cargo-mutants
+        env:
+          CARGO_BUILD_JOBS: '4'
+        run: cargo install cargo-mutants --locked --root "$RUNNER_TEMP/cargo-mutants"
+
+      - name: Upload cargo-mutants
+        uses: actions/upload-artifact@v7
+        with:
+          name: cargo-mutants-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cargo-mutants/bin/cargo-mutants
+
+  # Nightly/manual: one job per libFuzzer target. A 32-core runner can run the
+  # six single-core fuzzers concurrently when enough runner services are online.
+  fuzz-long:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Fuzz long (${{ matrix.target }})
+    runs-on: self-hosted
+    needs: stellar-tool
     timeout-minutes: 1440
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - target: fp_math
+            kind: function
+          - target: rates_and_index
+            kind: function
+          - target: fp_ops
+            kind: function
+          - target: flow_e2e
+            kind: contract
+          - target: flow_strategy
+            kind: contract
+          - target: pool_native
+            kind: contract
     steps:
       - uses: actions/checkout@v7
 
@@ -127,35 +209,172 @@ jobs:
             ~/.cargo/git
             target
             tests/fuzz/target
-          key: ${{ runner.os }}-fuzz-nightly-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
+          key: ${{ runner.os }}-fuzz-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-fuzz-
 
-      - name: Install stellar-cli
-        # Version pinned via workflow env (stellar-cli, independent of the soroban-sdk crate pin).
-        run: bash .github/scripts/install-stellar-cli.sh
+      - name: Download stellar-cli
+        if: matrix.kind == 'contract'
+        uses: actions/download-artifact@v7
+        with:
+          name: stellar-cli-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .github/tools
+
+      - name: Add stellar-cli to PATH
+        if: matrix.kind == 'contract'
+        run: |
+          chmod +x .github/tools/stellar
+          echo "$PWD/.github/tools" >> "$GITHUB_PATH"
 
       - name: Build pool WASM
+        if: matrix.kind == 'contract'
         run: stellar contract build
 
-      - name: Function-level fuzz (long)
+      - name: Run fuzz target
         env:
-          FUZZ_TIME: ${{ env.FUZZ_TIME_INPUT || '1800' }}
-        run: make fuzz FUZZ_TIME="$FUZZ_TIME"
-
-      - name: Contract-level fuzz (long)
-        env:
-          FUZZ_TIME: ${{ env.FUZZ_TIME_INPUT || '1800' }}
-        run: make fuzz-contract FUZZ_TIME="$FUZZ_TIME"
-
-      - name: Contract-level proptest (long)
-        env:
-          PROPTEST_CASES: ${{ env.PROPTEST_CASES_INPUT || '50000' }}
-        run: make proptest PROPTEST_CASES="$PROPTEST_CASES"
+          FUZZ_TIME: ${{ env.FUZZ_TIME_INPUT || (github.event.schedule == '0 2 * * 0' && '7200' || '1800') }}
+          CARGO_BUILD_JOBS: '1'
+        run: make fuzz-one TARGET="${{ matrix.target }}" FUZZ_TIME="$FUZZ_TIME"
 
       - name: Upload fuzz artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: fuzz-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          name: fuzz-artifacts-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            tests/fuzz/artifacts/
+            tests/fuzz/artifacts/${{ matrix.target }}/
+
+  proptest-long:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Proptest (${{ matrix.test }})
+    runs-on: self-hosted
+    needs: stellar-tool
+    timeout-minutes: 1440
+    strategy:
+      fail-fast: false
+      max-parallel: 9
+      matrix:
+        test:
+          - prop_accounting_conservation
+          - prop_short_aggregator_rejected
+          - prop_liquidation_matches_bigrational_reference
+          - prop_owner_only_endpoints_reject_unauthed
+          - prop_governance_endpoints_reject_unauthed
+          - prop_non_owner_cannot_disable_token_oracle
+          - prop_strategy_under_budget
+          - prop_multiply_leverage_hf_safe
+          - prop_strategy_swap_collateral_balance_delta
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-proptest-${{ matrix.test }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-proptest-
+
+      - name: Download stellar-cli
+        uses: actions/download-artifact@v7
+        with:
+          name: stellar-cli-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .github/tools
+
+      - name: Add stellar-cli to PATH
+        run: |
+          chmod +x .github/tools/stellar
+          echo "$PWD/.github/tools" >> "$GITHUB_PATH"
+
+      - name: Build pool WASM
+        run: stellar contract build
+
+      - name: Run proptest property
+        env:
+          PROPTEST_CASES: ${{ env.PROPTEST_CASES_INPUT || (github.event.schedule == '0 2 * * 0' && '50000' || '5000') }}
+          CARGO_BUILD_JOBS: '1'
+        run: make proptest-one TEST="${{ matrix.test }}" PROPTEST_CASES="$PROPTEST_CASES"
+
+      - name: Upload proptest regressions on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: proptest-regressions-${{ matrix.test }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
             tests/test-harness/tests/*.proptest-regressions
+
+  mutants:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Mutants (${{ matrix.target }})
+    runs-on: self-hosted
+    needs: [stellar-tool, mutants-tool]
+    timeout-minutes: 1440
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        target:
+          - mutants
+          - mutants-math
+          - mutants-rates
+          - mutants-pool-interest
+          - mutants-pool
+          - mutants-oracle-policy
+          - mutants-controller-positions
+          - mutants-controller-strategies
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mutants-
+
+      - name: Download stellar-cli
+        uses: actions/download-artifact@v7
+        with:
+          name: stellar-cli-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .github/tools
+
+      - name: Download cargo-mutants
+        uses: actions/download-artifact@v7
+        with:
+          name: cargo-mutants-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .github/tools
+
+      - name: Add tools to PATH
+        run: |
+          chmod +x .github/tools/stellar .github/tools/cargo-mutants
+          echo "$PWD/.github/tools" >> "$GITHUB_PATH"
+
+      - name: Run mutation target
+        env:
+          CARGO_BUILD_JOBS: '1'
+          MUTANTS_JOBS: '2'
+        run: make "${{ matrix.target }}" MUTANTS_JOBS="$MUTANTS_JOBS"
+
+      - name: Upload mutation artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants-artifacts-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: mutants.out/

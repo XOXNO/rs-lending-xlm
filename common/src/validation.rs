@@ -54,6 +54,18 @@ pub fn require_wasm_receiver(env: &Env, receiver: &Address) {
     );
 }
 
+/// Rejects a protocol liquidation fee above 100% (`BPS`).
+///
+/// The fee is applied to the seized-collateral bonus at liquidation time; an
+/// oversized value would make liquidation planning revert for the asset.
+pub fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
+    assert_with_error!(
+        env,
+        i128::from(fees_bps) <= BPS,
+        CollateralError::InvalidLiqThreshold
+    );
+}
+
 /// Validates loan-to-value, liquidation-threshold, and liquidation-bonus in bps.
 ///
 /// Governance and controller setters enforce the same bounds:

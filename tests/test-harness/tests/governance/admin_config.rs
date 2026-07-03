@@ -3,22 +3,40 @@
 
 use controller::constants::RAY;
 use controller::types::InterestRateModel;
-use governance::op::{AdminOperation, UpgradePoolParamsArgs};
-use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest};
+use governance::op::{AdminOperation, SpokeAssetArgs, UpgradePoolParamsArgs};
+use test_harness::{
+    assert_contract_error, errors, hub_asset, usdc_preset, LendingTest, HARNESS_HUB, HARNESS_SPOKE,
+};
 
 // `validate_risk_bounds` rejects threshold == LTV (#113).
 #[test]
-fn test_edit_asset_config_rejects_threshold_lte_ltv() {
+fn test_edit_asset_in_spoke_rejects_threshold_lte_ltv() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let admin = t.admin();
     let asset = t.resolve_market("USDC").asset.clone();
     let gov = t.gov_client();
 
-    let mut config = t.ctrl_client().get_market_config(&asset).asset_config;
-    config.loan_to_value_bps = 8000;
-    config.liquidation_threshold_bps = 8000; // Equal to LTV.
+    let config = t
+        .ctrl_client()
+        .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
+    let args = SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset,
+        spoke_id: HARNESS_SPOKE,
+        can_collateral: config.is_collateralizable,
+        can_borrow: config.is_borrowable,
+        paused: false,
+        frozen: false,
+        ltv: 8000,
+        threshold: 8000, // Equal to LTV.
+        bonus: config.liquidation_bonus,
+        liquidation_fees: config.liquidation_fees,
+        supply_cap: config.supply_cap,
+        borrow_cap: config.borrow_cap,
+        oracle_override: config.oracle_override,
+    };
 
-    let result = gov.try_execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, config));
+    let result = gov.try_execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -82,10 +100,10 @@ fn assert_invalid_position_limits(t: &LendingTest, supply: u32, borrow: u32) {
     }
 }
 
-// Regression: `max_borrow_rate_ray` cap (Taylor envelope).
+// Regression: `max_borrow_rate` cap (Taylor envelope).
 //
 // `InterestRateModel::verify` (run by governance before forwarding, and again
-// by `pool::update_params`) rejects any `max_borrow_rate_ray > 2 * RAY` to
+// by `pool::update_params`) rejects any `max_borrow_rate > 2 * RAY` to
 // keep `compound_interest`'s 8-term Taylor approximation inside its
 // documented `< 0.01 %` accuracy envelope. See `architecture/MATH_REVIEW.md §0`.
 #[test]
@@ -99,17 +117,17 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
     let result = gov.try_execute_immediate(
         &admin,
         &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
-            asset,
+            hub_asset: hub_asset(asset),
             params: InterestRateModel {
-                max_borrow_rate_ray: 2 * RAY + 1,
-                base_borrow_rate_ray: RAY / 100,
-                slope1_ray: RAY * 4 / 100,
-                slope2_ray: RAY * 10 / 100,
-                slope3_ray: RAY * 150 / 100,
-                mid_utilization_ray: RAY * 50 / 100,
-                optimal_utilization_ray: RAY * 80 / 100,
-                max_utilization_ray: controller::constants::RAY * 95 / 100,
-                reserve_factor_bps: 1000,
+                max_borrow_rate: 2 * RAY + 1,
+                base_borrow_rate: RAY / 100,
+                slope1: RAY * 4 / 100,
+                slope2: RAY * 10 / 100,
+                slope3: RAY * 150 / 100,
+                mid_utilization: RAY * 50 / 100,
+                optimal_utilization: RAY * 80 / 100,
+                max_utilization: controller::constants::RAY * 95 / 100,
+                reserve_factor: 1000,
             },
         }),
     );

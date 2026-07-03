@@ -1,13 +1,10 @@
-//! Integration tests for governance-owned controller deployment and forwarding.
-//!
-//! Tests use native controller registration for forwarding and the release WASM
-//! fixture for one-time deployment.
+//! Governance controller deployment and forwarding tests.
 
 extern crate std;
 
-use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs};
-use controller_interface::types::{
-    ControllerKey, MarketOracleConfigInput, OracleAssetRef, OracleReadMode,
+use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs};
+use common::types::{
+    ControllerKey, HubAssetKey, MarketOracleConfigInput, OracleAssetRef, OracleReadMode,
     OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
     ReflectorSourceConfigInput,
 };
@@ -128,8 +125,7 @@ fn controller_view_panics_when_unset() {
     gov.controller();
 }
 
-// With no controller set, InvalidPositionLimits confirms validation runs before
-// controller lookup.
+// Validation runs before controller lookup.
 #[test]
 #[should_panic(expected = "Error(Contract, #36)")]
 fn validation_runs_before_controller_lookup() {
@@ -214,14 +210,13 @@ fn configure_market_oracle_requires_oracle_role() {
     gov.execute_immediate(
         &stranger,
         &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            asset,
+            hub_asset: HubAssetKey { hub_id: 0, asset },
             cfg: sample_oracle_input(&env),
         }),
     );
 }
 
-// With no controller set, the out-of-range tolerance check (#208) confirms
-// tolerance validation runs before controller lookup.
+// Tolerance validation runs before controller lookup.
 #[test]
 #[should_panic(expected = "Error(Contract, #208)")]
 fn edit_oracle_tolerance_validates_before_any_cross_call() {
@@ -326,27 +321,30 @@ fn propose_upgrade_controller_rejects_zero_hash() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #113)")]
-fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
+fn edit_asset_in_spoke_rejects_bad_risk_bounds_before_any_cross_call() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, _, gov) = register_governance(&env);
     let asset = Address::generate(&env);
 
-    let cfg = controller_interface::types::AssetConfigRaw {
-        loan_to_value_bps: 9_000,
+    let args = SpokeAssetArgs {
+        hub_id: 1,
+        asset,
+        spoke_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        paused: false,
+        frozen: false,
+        ltv: 9_000,
         // Threshold below LTV is invalid.
-        liquidation_threshold_bps: 8_000,
-        liquidation_bonus_bps: 500,
-        liquidation_fees_bps: 100,
-        is_collateralizable: true,
-        is_borrowable: true,
-
-        is_flashloanable: true,
-        flashloan_fee_bps: 9,
-        asset_decimals: 7,
-        e_mode_categories: soroban_sdk::Vec::new(&env),
+        threshold: 8_000,
+        bonus: 500,
+        liquidation_fees: 100,
+        supply_cap: 0,
+        borrow_cap: 0,
+        oracle_override: common::types::MarketOracleConfigOption::None,
     };
-    gov.execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
+    gov.execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
 
 // Admin entrypoints renew instance TTL for ownable, role, and controller keys.

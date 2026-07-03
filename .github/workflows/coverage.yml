@@ -19,14 +19,14 @@ on:
       - '**/*.rs'
       - '**/Cargo.*'
       - 'Makefile'
-      - 'configs/coverage_report.py'
+      - 'scripts/coverage_report.py'
   pull_request:
     branches: [main]
     paths:
       - '**/*.rs'
       - '**/Cargo.*'
       - 'Makefile'
-      - 'configs/coverage_report.py'
+      - 'scripts/coverage_report.py'
   workflow_dispatch:
 
 permissions:
@@ -185,14 +185,14 @@ jobs:
       - name: Compute coverage numbers
         id: cov
         run: |
-          head_line=$(python3 configs/coverage_report.py \
+          head_line=$(python3 scripts/coverage_report.py \
             target/coverage/merged.lcov.info \
             target/coverage/pr-head-report.md \
             merged)
           head_pct=$(printf '%s\n' "$head_line" | awk '{print $3}' | tr -d '%')
           echo "head_pct=$head_pct" >> "$GITHUB_OUTPUT"
           if [ -f coverage-baseline/merged.lcov.info ]; then
-            base_line=$(python3 configs/coverage_report.py \
+            base_line=$(python3 scripts/coverage_report.py \
               coverage-baseline/merged.lcov.info \
               /tmp/base-report.md \
               merged)

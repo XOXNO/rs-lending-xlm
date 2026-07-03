@@ -1,5 +1,8 @@
 use controller::constants::RAY;
-use test_harness::{days, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL};
+use test_harness::{
+    days, eth_preset, hub_asset, usdc_preset, wbtc_preset, HubAssetKey, LendingTest, ALICE, BOB,
+    CAROL,
+};
 // Rigorous interest tests: verify amounts, not just direction.
 //
 // The lending protocol's interest model:
@@ -16,9 +19,9 @@ use test_harness::{days, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALIC
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let asset_addr = t.resolve_asset(asset);
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset_addr]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
     let idx = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
-    (idx.supply_index_ray, idx.borrow_index_ray)
+    (idx.supply_index, idx.borrow_index)
 }
 // 1. Verify borrow index matches compound interest formula
 
@@ -173,7 +176,7 @@ fn test_reserve_factor_exact_split() {
         .with_market(usdc_preset())
         .build();
 
-    // reserve_factor_bps = 1000 (10%).
+    // reserve_factor = 1000 (10%).
     t.supply(ALICE, "ETH", 100.0);
     t.supply(BOB, "USDC", 500_000.0);
     t.borrow(BOB, "ETH", 50.0);
@@ -239,7 +242,7 @@ fn test_scaled_amount_times_index_equals_actual() {
 
     // Read the scaled position from the borrow side map.
     let scaled_borrow = t.env.as_contract(&t.controller_address(), || {
-        let map: soroban_sdk::Map<soroban_sdk::Address, controller::types::DebtPositionRaw> = t
+        let map: soroban_sdk::Map<HubAssetKey, controller::types::DebtPositionRaw> = t
             .env
             .storage()
             .persistent()
@@ -247,9 +250,9 @@ fn test_scaled_amount_times_index_equals_actual() {
                 account_id,
             ))
             .expect("borrow side map must exist");
-        map.get(eth_addr.clone())
+        map.get(hub_asset(eth_addr.clone()))
             .expect("borrow position for asset must exist")
-            .scaled_amount_ray
+            .scaled_amount
     });
 
     // Verify: actual ~ rescale(scaled * borrow_index / RAY, 27, 7).
@@ -531,7 +534,7 @@ fn test_pool_solvency_invariant() {
     for month in 1..=12 {
         t.advance_and_sync(days(30));
 
-        let eth = t.resolve_asset("ETH");
+        let eth = hub_asset(t.resolve_asset("ETH"));
         let pool_client = t.pool_client("ETH");
         let supplied = pool_client.get_supplied_amount(&eth); // RAY.
         let borrowed = pool_client.get_borrowed_amount(&eth); // RAY.

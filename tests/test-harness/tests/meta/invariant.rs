@@ -81,11 +81,11 @@ fn test_ltv_less_than_threshold_always() {
     for market in &["USDC", "ETH", "WBTC"] {
         let config = t.get_asset_config(market);
         assert!(
-            config.loan_to_value_bps < config.liquidation_threshold_bps,
+            config.loan_to_value < config.liquidation_threshold,
             "{}: LTV ({}) should be < threshold ({})",
             market,
-            config.loan_to_value_bps,
-            config.liquidation_threshold_bps
+            config.loan_to_value,
+            config.liquidation_threshold
         );
     }
 }

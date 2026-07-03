@@ -19,7 +19,7 @@
 
 use test_harness::{
     eth_preset, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, ALICE, LIQUIDATOR,
-    STABLECOIN_EMODE,
+    STABLECOIN_SPOKE,
 };
 
 /// Runs one liquidation and returns `(collateral_usd_received, debt_usd_repaid)`.
@@ -159,23 +159,23 @@ fn test_partial_chain_bonus_pinned_to_base_when_deep() {
     );
 }
 
-// Regime 2 variant: deep e-mode (98% threshold). Any liquidatable e-mode
+// Regime 2 variant: deep spoke (98% threshold). Any liquidatable spoke
 // position is unrecoverable, so partials lower HF — and the high threshold is
-// where the operator most fears a bonus ratchet. The e-mode bonus is bounded
+// where the operator most fears a bonus ratchet. The spoke bonus is bounded
 // by the category, so the chain cannot out-extract a single liquidation.
 #[test]
-fn test_partial_chain_no_ratchet_emode() {
+fn test_partial_chain_no_ratchet_spoke() {
     let build = || {
         let mut t = LendingTest::new()
             .with_market(usdc_preset())
             .with_market(usdt_stable_preset())
-            .with_emode(1, STABLECOIN_EMODE)
-            .with_emode_asset(1, "USDC", true, true)
-            .with_emode_asset(1, "USDT", true, true)
+            .with_spoke(2, STABLECOIN_SPOKE)
+            .with_spoke_asset(2, "USDC", true, true)
+            .with_spoke_asset(2, "USDT", true, true)
             .with_dust_disabled_all_markets()
             .build();
         t.get_or_create_user(LIQUIDATOR);
-        t.create_emode_account(ALICE, 1);
+        t.create_spoke_account(ALICE, 2);
         t.supply(ALICE, "USDC", 10_000.0);
         t.borrow(ALICE, "USDT", 9_500.0);
         t.set_price("USDC", usd_cents(85)); // HF ~0.88
@@ -201,7 +201,7 @@ fn test_partial_chain_no_ratchet_emode() {
             None => first_slice = Some(slice),
             Some(first) => assert!(
                 slice <= first * 1.01,
-                "e-mode partials must not ratchet bonus: first={first:.5}, slice={slice:.5}"
+                "spoke partials must not ratchet bonus: first={first:.5}, slice={slice:.5}"
             ),
         }
         c_coll += coll;
@@ -210,7 +210,7 @@ fn test_partial_chain_no_ratchet_emode() {
     let chain_multiple = c_coll / c_debt;
     assert!(
         chain_multiple <= single_multiple * 1.01,
-        "chained e-mode partials must not out-extract a single liquidation: \
+        "chained spoke partials must not out-extract a single liquidation: \
          chain={chain_multiple:.5}, single={single_multiple:.5}"
     );
 }

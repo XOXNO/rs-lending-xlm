@@ -1,26 +1,23 @@
-//! Supply flow: deposits collateral, creating the account when `account_id == 0`.
-//!
-//! Pipeline: auth → aggregate → cache → [account resolution] → configs →
-//! validate → settle → persist → emit. Deposits cannot worsen account health,
-//! so no LTV, health, or min-collateral gates run at the entrypoint.
+//! Supply flow. Deposits skip post-pool solvency gates.
 
-use common::errors::{CollateralError, GenericError};
+use crate::account;
+use common::errors::GenericError;
 use common::math::fp::Ray;
-use controller_interface::types::{
-    Account, AccountPositionType, Payment, PoolSupplyEntry, PositionMode,
+use common::types::{
+    Account, AccountPositionType, HubAssetKey, PoolPositionMutation, PoolSupplyEntry, PositionMode,
 };
-use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
+use soroban_sdk::{contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::{finalize_position_flow, AggregatedConfigs, AggregatedPayments, PositionSides};
-use crate::cache::Cache;
-use crate::emode;
+use super::{finalize_position_flow, AggregatedPayments, PositionSides};
+use crate::account::update_or_remove_supply_position;
+use crate::context::Cache;
 use crate::events;
 use crate::external::pool::pool_supply_call;
-use crate::helpers;
-use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
-use crate::positions::make_pool_action;
-use crate::{helpers::utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::positions::{make_pool_action, HubPayment};
+use crate::risk::refresh_supply_risk_params;
+use crate::spoke;
+use crate::{payments as utils, risk::validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
@@ -29,35 +26,33 @@ impl Controller {
         env: Env,
         caller: Address,
         account_id: u64,
-        e_mode_category: u32,
-        assets: Vec<(Address, i128)>,
+        spoke_id: u32,
+        assets: Vec<(HubAssetKey, i128)>,
     ) -> u64 {
-        process_supply(&env, &caller, account_id, e_mode_category, &assets)
+        process_supply(&env, &caller, account_id, spoke_id, &assets)
     }
 }
 
 /// Supplies one or more assets, creating an account when `account_id == 0`.
-///
-/// Duplicate assets are aggregated before pool calls. The controller stores
-/// scaled supply shares returned by pools and emits one position/market batch.
 pub fn process_supply(
     env: &Env,
     caller: &Address,
     account_id: u64,
-    e_mode_category: u32,
-    assets: &Vec<Payment>,
+    spoke_id: u32,
+    assets: &Vec<HubPayment>,
 ) -> u64 {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
-
     let aggregated = utils::aggregate_positive_payments(env, assets);
     let mut cache = Cache::new(env);
-    let (acct_id, mut account) = resolve_supply_account(
+
+    let (acct_id, mut account) = account::load_or_create_account(
         env,
         caller,
         account_id,
-        e_mode_category,
-        &aggregated,
+        spoke_id,
+        PositionMode::Normal,
+        account::AccountGuard::Supply,
         &mut cache,
     );
 
@@ -75,27 +70,6 @@ pub fn process_supply(
     acct_id
 }
 
-fn resolve_supply_account(
-    env: &Env,
-    caller: &Address,
-    account_id: u64,
-    e_mode_category: u32,
-    aggregated: &AggregatedPayments,
-    cache: &mut Cache,
-) -> (u64, Account) {
-    validation::require_non_empty_payments(env, aggregated);
-
-    helpers::load_or_create_account(
-        env,
-        caller,
-        account_id,
-        e_mode_category,
-        PositionMode::Normal,
-        helpers::AccountGuard::Supply,
-        cache,
-    )
-}
-
 /// Applies deduped positive deposits to an account.
 pub fn process_deposit(
     env: &Env,
@@ -104,39 +78,14 @@ pub fn process_deposit(
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) {
-    let configs = AggregatedConfigs::resolve(env, account, aggregated, cache);
-
-    validate_deposit(env, account, aggregated, &configs, cache);
-    settle_deposit(env, caller, account, aggregated, &configs, cache);
-}
-
-fn validate_deposit(
-    env: &Env,
-    account: &Account,
-    aggregated: &AggregatedPayments,
-    configs: &AggregatedConfigs,
-    cache: &mut Cache,
-) {
-    validation::validate_bulk_position_limits(
+    super::validate_position_entry_gates(
         env,
         account,
-        AccountPositionType::Deposit,
         aggregated,
+        cache,
+        AccountPositionType::Deposit,
     );
-
-    for (asset, _) in aggregated {
-        validation::require_market_active(env, cache, &asset);
-
-        let asset_config = configs.get(env, &asset);
-
-        emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset);
-
-        assert_with_error!(
-            env,
-            asset_config.can_supply(),
-            CollateralError::NotCollateral
-        );
-    }
+    settle_deposit(env, caller, account, aggregated, cache);
 }
 
 fn settle_deposit(
@@ -144,67 +93,75 @@ fn settle_deposit(
     caller: &Address,
     account: &mut Account,
     aggregated: &AggregatedPayments,
-    configs: &AggregatedConfigs,
     cache: &mut Cache,
 ) {
-    // One pool call for the whole batch (one cross-contract frame); results
-    // align with entries by index.
+    // One pool call for the whole batch; results align with entries by index.
     let pool_addr = cache.cached_pool_address();
+    let entries = build_supply_entries(env, caller, account, aggregated, cache, &pool_addr);
+    let results = pool_supply_call(env, &pool_addr, &entries);
+    apply_supply_results(env, account, &entries, &results, cache);
+}
+
+fn build_supply_entries(
+    env: &Env,
+    caller: &Address,
+    account: &Account,
+    aggregated: &AggregatedPayments,
+    cache: &mut Cache,
+    pool_addr: &Address,
+) -> Vec<PoolSupplyEntry> {
     let mut entries: Vec<PoolSupplyEntry> = Vec::new(env);
-    for (asset, amount_in) in aggregated {
-        let asset_config = configs.get(env, &asset);
+    for (hub_asset, amount_in) in aggregated {
+        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
         utils::transfer_amount(
             env,
-            &asset,
+            &hub_asset.asset,
             caller,
-            &pool_addr,
+            pool_addr,
             amount_in,
             GenericError::AmountMustBePositive,
         );
-        let position = account.get_or_create_supply_position(&asset, &asset_config);
+        let position = account.get_or_create_supply_position(&hub_asset, &asset_config);
         entries.push_back(PoolSupplyEntry {
-            action: make_pool_action(&position, amount_in, asset.clone()),
+            action: make_pool_action(&position, amount_in, hub_asset.clone()),
         });
     }
-    let results = pool_supply_call(env, &pool_addr, &entries);
+    entries
+}
 
+fn apply_supply_results(
+    env: &Env,
+    account: &mut Account,
+    entries: &Vec<PoolSupplyEntry>,
+    results: &Vec<PoolPositionMutation>,
+    cache: &mut Cache,
+) {
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        let asset = &entry.action.asset;
-        let asset_config = configs.get(env, asset);
+        let hub_asset = &entry.action.hub_asset;
+        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);
 
-        let mut position = account.get_or_create_supply_position(asset, &asset_config);
+        let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
         let old_scaled = position.scaled_amount;
-        refresh_supply_risk_params(env, cache, account, asset, &mut position, &asset_config);
-        // Merge ONLY the scaled share back; the pool does not echo collateral
-        // risk params, so preserve the ones the controller holds.
-        position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
-        if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
-            // dimensional: both values are Ray<Share(asset, supply)>; supply adds usage.
-            let delta = position.scaled_amount - old_scaled;
-            ctx.apply_supply_after_pool(
-                env,
-                asset,
-                delta,
-                &result.market_index,
-                asset_config.asset_decimals,
-            );
-        }
+        refresh_supply_risk_params(env, cache, account, hub_asset, &mut position, &asset_config);
 
-        // Cache the pool-returned index so post-action valuation reads it
-        // instead of asking the pool again.
-        cache.put_market_index(asset, &result.market_index);
+        // Merge only scaled share back; pool does not echo collateral risk params.
+        position.scaled_amount = Ray::from(result.position.scaled_amount);
 
-        // Emit with the exact supply index the pool used, not a re-read.
+        let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
+        let ctx = cache.require_spoke_usage_context(account.spoke_id);
+        let delta = position.scaled_amount - old_scaled;
+        ctx.apply_supply_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
+
+        cache.put_market_index(hub_asset, &result.market_index);
         cache.record_position_update(
             events::PositionAction::Supply,
-            asset,
-            result.market_index.supply_index_ray,
+            hub_asset,
+            result.market_index.supply_index,
             entry.action.amount,
             &position,
         );
 
-        // Storage is written once after the whole supply batch completes.
-        update_or_remove_supply_position(account, asset, &position);
+        update_or_remove_supply_position(account, hub_asset, &position);
     }
 }

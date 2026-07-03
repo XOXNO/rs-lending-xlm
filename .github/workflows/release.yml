@@ -156,6 +156,13 @@ jobs:
   testnet-e2e:
     name: Testnet e2e
     needs: build
+    # Least-privilege: this self-hosted job only needs contents:write to attach the
+    # e2e report to the release (the "Attach report to release" step). Drop the
+    # workflow-level id-token/attestations:write — those belong to the GitHub-hosted
+    # build job's provenance, and a stale/unintended self-hosted runner should not
+    # hold OIDC/attestation tokens.
+    permissions:
+      contents: write
     # Self-hosted: only this job hits the XOXNO aggregator API, which is behind
     # a Cloudflare bot challenge. Our self-hosted runner's IP is allow-listed in
     # Cloudflare, so the `agg` lane can fetch swap routes (GitHub-hosted runners

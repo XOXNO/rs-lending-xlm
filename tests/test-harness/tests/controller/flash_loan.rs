@@ -4,7 +4,8 @@ use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{token, Address, Bytes, IntoVal, Val, Vec};
 use test_harness::{
-    assert_contract_error, days, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
+    assert_contract_error, days, errors, eth_preset, hub_asset, usdc_preset, HubAssetKey,
+    LendingTest, ALICE, BOB,
 };
 
 fn raw_units(t: &LendingTest, asset_name: &str, units: i128) -> i128 {
@@ -13,7 +14,7 @@ fn raw_units(t: &LendingTest, asset_name: &str, units: i128) -> i128 {
 
 fn flash_fee(t: &LendingTest, asset_name: &str, amount: i128) -> i128 {
     let config = t.get_asset_config(asset_name);
-    Bps::from(config.flashloan_fee_bps).flash_loan_fee_on(&t.env, amount)
+    Bps::from(config.flashloan_fee).flash_loan_fee_on(&t.env, amount)
 }
 
 fn flash_guard_cleared(t: &LendingTest) -> bool {
@@ -24,7 +25,7 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
 
 fn pool_reserves(t: &LendingTest, asset_name: &str) -> i128 {
     let asset = t.resolve_asset(asset_name);
-    t.pool_client(asset_name).get_reserves(&asset)
+    t.pool_client(asset_name).get_reserves(&hub_asset(asset))
 }
 
 fn receiver_data(t: &LendingTest, mode: FlashLoanMode) -> Bytes {
@@ -34,7 +35,7 @@ fn receiver_data(t: &LendingTest, mode: FlashLoanMode) -> Bytes {
 fn strict_flash_loan(
     t: &LendingTest,
     caller: &Address,
-    asset: &Address,
+    asset: &HubAssetKey,
     amount: i128,
     receiver: &Address,
     data: &Bytes,
@@ -247,7 +248,7 @@ fn test_flash_loan_fee_config_matches_default_preset() {
 
     let config = t.get_asset_config("USDC");
     assert_eq!(
-        config.flashloan_fee_bps, 9,
+        config.flashloan_fee, 9,
         "USDC preset flash-loan fee must be 9 BPS (0.09%)"
     );
     assert!(
@@ -275,14 +276,21 @@ fn test_flash_loan_tiny_amount_charges_min_fee_when_bps_positive() {
     let caller = t.get_or_create_user(BOB);
 
     t.env.set_auths(&[]);
-    let result = strict_flash_loan(&t, &caller, &asset, amount, &receiver, &data);
+    let result = strict_flash_loan(
+        &t,
+        &caller,
+        &hub_asset(asset.clone()),
+        amount,
+        &receiver,
+        &data,
+    );
 
     assert!(
         result.is_ok(),
         "tiny flash loan should succeed: {:?}",
         result
     );
-    assert_eq!(fee, 1, "positive flashloan_fee_bps must charge at least 1");
+    assert_eq!(fee, 1, "positive flashloan_fee must charge at least 1");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before + fee);
 }
 // 12. test_flash_loan_allows_zero_fee_when_configured_zero
@@ -291,7 +299,7 @@ fn test_flash_loan_tiny_amount_charges_min_fee_when_bps_positive() {
 fn test_flash_loan_allows_zero_fee_when_configured_zero() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_market_config("USDC", |config| config.flashloan_fee_bps = 0)
+        .with_market_config("USDC", |config| config.flashloan_fee = 0)
         .build();
 
     t.supply(ALICE, "USDC", 100.0);
@@ -306,7 +314,14 @@ fn test_flash_loan_allows_zero_fee_when_configured_zero() {
     let caller = t.get_or_create_user(BOB);
 
     t.env.set_auths(&[]);
-    let result = strict_flash_loan(&t, &caller, &asset, amount, &receiver, &data);
+    let result = strict_flash_loan(
+        &t,
+        &caller,
+        &hub_asset(asset.clone()),
+        amount,
+        &receiver,
+        &data,
+    );
 
     assert!(result.is_ok(), "zero-fee market should remain explicit");
     assert_eq!(fee, 0);
@@ -332,7 +347,14 @@ fn test_flash_loan_strict_receiver_success_with_preauthorized_repayment() {
     let caller = t.get_or_create_user(BOB);
 
     t.env.set_auths(&[]);
-    let result = strict_flash_loan(&t, &caller, &asset, amount, &receiver, &data);
+    let result = strict_flash_loan(
+        &t,
+        &caller,
+        &hub_asset(asset.clone()),
+        amount,
+        &receiver,
+        &data,
+    );
 
     assert!(
         result.is_ok(),
@@ -359,7 +381,14 @@ fn test_flash_loan_strict_receiver_rejects_success_without_fee_prefund() {
     let caller = t.get_or_create_user(BOB);
 
     t.env.set_auths(&[]);
-    let result = strict_flash_loan(&t, &caller, &asset, amount, &receiver, &data);
+    let result = strict_flash_loan(
+        &t,
+        &caller,
+        &hub_asset(asset.clone()),
+        amount,
+        &receiver,
+        &data,
+    );
 
     assert!(
         result.is_err(),
@@ -385,7 +414,14 @@ fn test_flash_loan_adversarial_receiver_no_repay_rejects() {
     let caller = t.get_or_create_user(BOB);
 
     t.env.set_auths(&[]);
-    let result = strict_flash_loan(&t, &caller, &asset, amount, &receiver, &data);
+    let result = strict_flash_loan(
+        &t,
+        &caller,
+        &hub_asset(asset.clone()),
+        amount,
+        &receiver,
+        &data,
+    );
 
     assert!(result.is_err(), "no-repay receiver must fail");
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
@@ -436,7 +472,14 @@ fn test_flash_loan_adversarial_receiver_reenter_pool_flash_loan_rejects() {
     let caller = t.get_or_create_user(BOB);
 
     t.env.set_auths(&[]);
-    let result = strict_flash_loan(&t, &caller, &asset, amount, &receiver, &data);
+    let result = strict_flash_loan(
+        &t,
+        &caller,
+        &hub_asset(asset.clone()),
+        amount,
+        &receiver,
+        &data,
+    );
 
     assert!(result.is_err(), "receiver pool reentry must fail");
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
@@ -459,7 +502,14 @@ fn test_flash_loan_adversarial_receiver_callback_panic_rolls_back() {
     let caller = t.get_or_create_user(BOB);
 
     t.env.set_auths(&[]);
-    let result = strict_flash_loan(&t, &caller, &asset, amount, &receiver, &data);
+    let result = strict_flash_loan(
+        &t,
+        &caller,
+        &hub_asset(asset.clone()),
+        amount,
+        &receiver,
+        &data,
+    );
 
     assert!(result.is_err(), "callback panic must fail");
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
@@ -481,7 +531,14 @@ fn test_flash_loan_non_contract_receiver_rejects_and_rolls_back() {
     let data = receiver_data(&t, FlashLoanMode::Success);
 
     t.env.set_auths(&[]);
-    let result = strict_flash_loan(&t, &caller, &asset, amount, &non_contract_receiver, &data);
+    let result = strict_flash_loan(
+        &t,
+        &caller,
+        &hub_asset(asset.clone()),
+        amount,
+        &non_contract_receiver,
+        &data,
+    );
 
     assert!(
         result.is_err(),
@@ -506,7 +563,14 @@ fn test_flash_loan_adversarial_receiver_rejects_invalid_data() {
     let malformed_data = Bytes::new(&t.env);
 
     t.env.set_auths(&[]);
-    let result = strict_flash_loan(&t, &caller, &asset, amount, &receiver, &malformed_data);
+    let result = strict_flash_loan(
+        &t,
+        &caller,
+        &hub_asset(asset.clone()),
+        amount,
+        &receiver,
+        &malformed_data,
+    );
 
     assert!(result.is_err(), "malformed receiver data must fail");
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
@@ -536,7 +600,14 @@ fn test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects() {
     let caller = t.get_or_create_user(BOB);
 
     t.env.set_auths(&[]);
-    let result = strict_flash_loan(&t, &caller, &asset, amount, &receiver, &data);
+    let result = strict_flash_loan(
+        &t,
+        &caller,
+        &hub_asset(asset.clone()),
+        amount,
+        &receiver,
+        &data,
+    );
 
     assert!(
         result.is_err(),

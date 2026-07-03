@@ -81,12 +81,9 @@ async fn main() -> Result<()> {
             signer = %signer_pk,
             "pure-TTL mode (enable_index_refresh=false); no invoke preflight"
         );
-    } else if let Err(e) = assert_update_indexes_simulation(
-        client.as_ref(),
-        &cfg.contracts.controller,
-        &signer_pk,
-    )
-    .await
+    } else if let Err(e) =
+        assert_update_indexes_simulation(client.as_ref(), &cfg.contracts.controller, &signer_pk)
+            .await
     {
         error!(target: "keeper.boot", error = ?e, "update_indexes simulation failed — aborting");
         return Err(e);

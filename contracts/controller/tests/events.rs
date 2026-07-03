@@ -1,8 +1,8 @@
 use super::*;
-use controller_interface::types::{
-    AssetConfigRaw, EModeAssetConfig, MarketConfig, MarketOracleConfig, MarketStatus,
-    OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
-    OracleSourceConfigOption, OracleStrategy, PositionMode, ReflectorBase, ReflectorSourceConfig,
+use common::types::{
+    MarketOracleConfig, MarketOracleConfigOption, OracleAssetRef, OraclePriceFluctuation,
+    OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, PositionMode,
+    ReflectorBase, ReflectorSourceConfig, SpokeAssetConfig,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contract, vec, BytesN, Vec};
@@ -20,56 +20,37 @@ fn dummy_address(env: &Env) -> Address {
     Address::generate(env)
 }
 
-fn dummy_asset_config(env: &Env) -> AssetConfigRaw {
-    AssetConfigRaw {
-        loan_to_value_bps: 7500,
-        liquidation_threshold_bps: 8000,
-        liquidation_bonus_bps: 500,
-        liquidation_fees_bps: 100,
-        is_collateralizable: true,
-        is_borrowable: true,
-        e_mode_categories: soroban_sdk::Vec::new(env),
-        is_flashloanable: true,
-        flashloan_fee_bps: 9,
-        asset_decimals: 7,
-    }
-}
-
-fn dummy_market_config(env: &Env) -> MarketConfig {
+fn dummy_oracle_config(env: &Env) -> MarketOracleConfig {
     let asset = dummy_address(env);
     let oracle = dummy_address(env);
-    MarketConfig {
-        status: MarketStatus::Active,
-        asset_config: dummy_asset_config(env),
-        oracle_config: MarketOracleConfig {
-            asset_decimals: 7,
-            max_price_stale_seconds: 900,
-            tolerance: OraclePriceFluctuation {
-                upper_ratio_bps: 10_500,
-                lower_ratio_bps: 9_500,
-            },
-            strategy: OracleStrategy::PrimaryWithAnchor,
-            primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
-                contract: oracle.clone(),
-                asset: OracleAssetRef::Stellar(asset.clone()),
-                read_mode: OracleReadMode::Twap(12),
-                decimals: 14,
+    MarketOracleConfig {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        tolerance: OraclePriceFluctuation {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_500,
+        },
+        strategy: OracleStrategy::PrimaryWithAnchor,
+        primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+            contract: oracle.clone(),
+            asset: OracleAssetRef::Stellar(asset.clone()),
+            read_mode: OracleReadMode::Twap(12),
+            decimals: 14,
+            resolution_seconds: 300,
+            base: ReflectorBase::Usd,
+        }),
+        anchor: OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(
+            ReflectorSourceConfig {
+                contract: oracle,
+                asset: OracleAssetRef::Stellar(asset),
+                read_mode: OracleReadMode::Spot,
+                decimals: 7,
                 resolution_seconds: 300,
                 base: ReflectorBase::Usd,
-            }),
-            anchor: OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(
-                ReflectorSourceConfig {
-                    contract: oracle,
-                    asset: OracleAssetRef::Stellar(asset),
-                    read_mode: OracleReadMode::Spot,
-                    decimals: 7,
-                    resolution_seconds: 300,
-                    base: ReflectorBase::Usd,
-                },
-            )),
-            min_sanity_price_wad: 0,
-            max_sanity_price_wad: 0,
-        },
+            },
+        )),
+        min_sanity_price_wad: 0,
+        max_sanity_price_wad: 0,
     }
 }
 
@@ -116,12 +97,12 @@ fn event_pricing_method_eq_and_from() {
 }
 
 #[test]
-fn event_account_attributes_from_account_meta_emode() {
+fn event_account_attributes_from_account_meta_spoke() {
     let env = Env::default();
     let owner = dummy_address(&env);
     let meta = AccountMeta {
         owner: owner.clone(),
-        e_mode_category_id: 3,
+        spoke_id: 3,
         mode: PositionMode::Long,
     };
     let attrs = EventAccountAttributes::from(&meta);
@@ -131,11 +112,11 @@ fn event_account_attributes_from_account_meta_emode() {
 }
 
 #[test]
-fn event_oracle_provider_from_market_builds_struct() {
+fn event_oracle_provider_from_oracle_builds_struct() {
     let env = Env::default();
-    let market = dummy_market_config(&env);
+    let oracle = dummy_oracle_config(&env);
     let asset = dummy_address(&env);
-    let provider = EventOracleProvider::from_market(&env, &asset, &market);
+    let provider = EventOracleProvider::from_oracle(&env, &asset, &oracle);
     assert_eq!(
         provider.primary_provider,
         OracleProviderKind::ReflectorSep40 as u32
@@ -184,10 +165,10 @@ fn update_asset_oracle_event_nests_oracle_fields_under_oracle_key() {
     let (env, contract) = setup();
     env.as_contract(&contract, || {
         let asset = dummy_address(&env);
-        let market = dummy_market_config(&env);
+        let oracle = dummy_oracle_config(&env);
         UpdateAssetOracleEvent {
             asset: asset.clone(),
-            oracle: EventOracleProvider::from_market(&env, &asset, &market),
+            oracle: EventOracleProvider::from_oracle(&env, &asset, &oracle),
         }
         .publish(&env);
     });
@@ -227,9 +208,10 @@ fn emit_helpers_publish_without_panicking() {
     env.as_contract(&contract, || {
         let asset = dummy_address(&env);
         let caller = dummy_address(&env);
-        let market = dummy_market_config(&env);
+        let oracle = dummy_oracle_config(&env);
 
         CreateMarketEvent {
+            hub_id: 1,
             base_asset: asset.clone(),
             max_borrow_rate: 0,
             base_borrow_rate: 0,
@@ -241,28 +223,29 @@ fn emit_helpers_publish_without_panicking() {
             max_utilization: 0,
             reserve_factor: 0,
             market_address: asset.clone(),
-            config: dummy_asset_config(&env),
         }
         .publish(&env);
 
         UpdateMarketParamsEvent {
             asset: asset.clone(),
-            max_borrow_rate_ray: 0,
-            base_borrow_rate_ray: 0,
-            slope1_ray: 0,
-            slope2_ray: 0,
-            slope3_ray: 0,
-            mid_utilization_ray: 0,
-            optimal_utilization_ray: 0,
-            max_utilization_ray: 0,
-            reserve_factor_bps: 0,
+            max_borrow_rate: 0,
+            base_borrow_rate: 0,
+            slope1: 0,
+            slope2: 0,
+            slope3: 0,
+            mid_utilization: 0,
+            optimal_utilization: 0,
+            max_utilization: 0,
+            reserve_factor: 0,
         }
         .publish(&env);
 
         let mut deposits = Vec::new(&env);
         deposits.push_back(EventDepositDelta(
             PositionAction::Supply,
+            1,
             asset.clone(),
+            0,
             0,
             0,
             0,
@@ -279,6 +262,7 @@ fn emit_helpers_publish_without_panicking() {
         .publish(&env);
 
         FlashLoanEvent {
+            hub_id: 1,
             asset: asset.clone(),
             receiver: caller.clone(),
             caller: caller.clone(),
@@ -287,44 +271,55 @@ fn emit_helpers_publish_without_panicking() {
         }
         .publish(&env);
 
-        UpdateAssetConfigEvent {
-            asset: asset.clone(),
-            config: dummy_asset_config(&env),
+        LiquidationEvent {
+            liquidator: caller.clone(),
+            account_id: 1,
+            repaid_usd_wad: 0,
+            bonus_bps: 0,
         }
         .publish(&env);
 
         UpdateAssetOracleEvent {
             asset: asset.clone(),
-            oracle: EventOracleProvider::from_market(&env, &asset, &market),
+            oracle: EventOracleProvider::from_oracle(&env, &asset, &oracle),
         }
         .publish(&env);
 
-        UpdateEModeCategoryEvent {
-            category: EventEModeCategory {
-                category_id: 1,
+        UpdateSpokeEvent {
+            spoke: EventSpoke {
+                spoke_id: 1,
                 is_deprecated: false,
+                liquidation_target_hf_wad: 1_020_000_000_000_000_000,
+                hf_for_max_bonus_wad: 510_000_000_000_000_000,
+                liquidation_bonus_factor_bps: 10_000,
             },
         }
         .publish(&env);
 
-        UpdateEModeAssetEvent {
+        UpdateSpokeAssetEvent {
             asset: asset.clone(),
-            config: EModeAssetConfig {
+            config: SpokeAssetConfig {
                 is_collateralizable: true,
                 is_borrowable: true,
-                loan_to_value_bps: 9000,
-                liquidation_threshold_bps: 9500,
-                liquidation_bonus_bps: 200,
+                paused: false,
+                frozen: false,
+                loan_to_value: 9000,
+                liquidation_threshold: 9500,
+                liquidation_bonus: 200,
+                liquidation_fees: 0,
                 supply_cap: 0,
                 borrow_cap: 0,
+                oracle_override: MarketOracleConfigOption::None,
             },
-            category_id: 1,
+            spoke_id: 1,
+            hub_id: 1,
         }
         .publish(&env);
 
-        RemoveEModeAssetEvent {
+        RemoveSpokeAssetEvent {
             asset: asset.clone(),
-            category_id: 1,
+            spoke_id: 1,
+            hub_id: 1,
         }
         .publish(&env);
 
@@ -352,4 +347,110 @@ fn emit_helpers_publish_without_panicking() {
         // Reference vec! to keep it used even if the macro path changes.
         let _ignored: Vec<Address> = vec![&env];
     });
+}
+
+#[test]
+fn create_market_event_carries_hub_id() {
+    let env = Env::default();
+    let asset = dummy_address(&env);
+    let ev = CreateMarketEvent {
+        hub_id: 2,
+        base_asset: asset.clone(),
+        max_borrow_rate: 0,
+        base_borrow_rate: 0,
+        slope1: 0,
+        slope2: 0,
+        slope3: 0,
+        mid_utilization: 0,
+        optimal_utilization: 0,
+        max_utilization: 0,
+        reserve_factor: 0,
+        market_address: asset.clone(),
+    };
+    assert_eq!(ev.hub_id, 2);
+}
+
+#[test]
+fn position_deltas_carry_hub_id_and_liquidation_fees() {
+    let env = Env::default();
+    let asset = dummy_address(&env);
+    let dep = EventDepositDelta(
+        PositionAction::Supply,
+        4,
+        asset.clone(),
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        150,
+    );
+    let bor = EventBorrowDelta(PositionAction::Repay, 9, asset.clone(), 0, 0, 0);
+    assert_eq!(dep.1, 4);
+    assert_eq!(dep.9, 150);
+    assert_eq!(bor.1, 9);
+}
+
+#[test]
+fn flash_loan_event_carries_hub_id() {
+    let env = Env::default();
+    let asset = dummy_address(&env);
+    let caller = dummy_address(&env);
+    let ev = FlashLoanEvent {
+        hub_id: 7,
+        asset: asset.clone(),
+        receiver: caller.clone(),
+        caller,
+        amount: 0,
+        fee: 0,
+    };
+    assert_eq!(ev.hub_id, 7);
+}
+
+#[test]
+fn liquidation_event_carries_liquidator_and_account() {
+    let env = Env::default();
+    let liquidator = dummy_address(&env);
+    let ev = LiquidationEvent {
+        liquidator: liquidator.clone(),
+        account_id: 42,
+        repaid_usd_wad: 1_500_000,
+        bonus_bps: 500,
+    };
+    assert_eq!(ev.liquidator, liquidator);
+    assert_eq!(ev.account_id, 42);
+    assert_eq!(ev.repaid_usd_wad, 1_500_000);
+    assert_eq!(ev.bonus_bps, 500);
+}
+
+#[test]
+fn spoke_asset_events_carry_hub_id() {
+    let env = Env::default();
+    let asset = dummy_address(&env);
+    let upd = UpdateSpokeAssetEvent {
+        asset: asset.clone(),
+        config: SpokeAssetConfig {
+            is_collateralizable: true,
+            is_borrowable: true,
+            paused: false,
+            frozen: false,
+            loan_to_value: 9000,
+            liquidation_threshold: 9500,
+            liquidation_bonus: 200,
+            liquidation_fees: 0,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: MarketOracleConfigOption::None,
+        },
+        spoke_id: 1,
+        hub_id: 3,
+    };
+    let rem = RemoveSpokeAssetEvent {
+        asset,
+        spoke_id: 1,
+        hub_id: 3,
+    };
+    assert_eq!(upd.hub_id, 3);
+    assert_eq!(rem.hub_id, 3);
 }

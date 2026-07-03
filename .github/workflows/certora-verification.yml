@@ -74,10 +74,10 @@ jobs:
             conf_dir: certora/controller/confs
             conf: liquidation-light.conf
             rule: estimate_liquidation_sanity
-          - label: emode
+          - label: spoke
             conf_dir: certora/controller/confs
-            conf: emode.conf
-            rule: emode_supply_sanity
+            conf: spoke.conf
+            rule: spoke_supply_sanity
           - label: solvency
             conf_dir: certora/controller/confs
             conf: solvency-roundtrip.conf
@@ -86,18 +86,10 @@ jobs:
             conf_dir: certora/controller/confs
             conf: strategy.conf
             rule: multiply_sanity
-          - label: account-isolation
-            conf_dir: certora/controller/confs
-            conf: account-isolation.conf
-            rule: account_isolation_reachability
           - label: market-guard
             conf_dir: certora/controller/confs
             conf: market-guard.conf
             rule: market_guard_reachability
-          - label: oracle-compose
-            conf_dir: certora/controller/confs
-            conf: oracle-compose.conf
-            rule: oracle_compose_reachability
           - label: tolerance-math
             conf_dir: certora/controller/confs
             conf: tolerance-math.conf

@@ -3,9 +3,17 @@ extern crate std;
 use crate::test_support::init_ledger;
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
-use common::types::{MarketParamsRaw, PoolAction, PoolSupplyEntry, ScaledPositionRaw};
+use common::types::{HubAssetKey, MarketParamsRaw, PoolAction, PoolSupplyEntry, ScaledPositionRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, vec, Address, Env};
+
+/// Pool tests use hub 0 as a local fixture id.
+fn hub(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    }
+}
 
 struct TestSetup {
     env: Env,
@@ -24,22 +32,22 @@ impl TestSetup {
             .register_stellar_asset_contract_v2(admin.clone())
             .address();
         let params = MarketParamsRaw {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY / 10,
-            slope2_ray: RAY / 5,
-            slope3_ray: RAY / 2,
-            mid_utilization_ray: RAY / 2,
-            optimal_utilization_ray: RAY * 8 / 10,
-            max_utilization_ray: RAY * 95 / 100,
-            reserve_factor_bps: 1_000,
-            supply_cap: 0,
-            borrow_cap: 0,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY / 10,
+            slope2: RAY / 5,
+            slope3: RAY / 2,
+            mid_utilization: RAY / 2,
+            optimal_utilization: RAY * 8 / 10,
+            max_utilization: RAY * 95 / 100,
+            reserve_factor: 1_000,
+            is_flashloanable: false,
+            flashloan_fee: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
         let contract = env.register(LiquidityPool, (admin.clone(),));
-        LiquidityPoolClient::new(&env, &contract).create_market(&params);
+        LiquidityPoolClient::new(&env, &contract).create_market(&0u32, &params);
 
         // Seed liquidity for repay/overpay scenarios.
         let tok_admin = token::StellarAssetClient::new(&env, &asset);
@@ -60,10 +68,10 @@ impl TestSetup {
 fn make_action(position_scaled: i128, amount: i128, asset: &Address) -> PoolAction {
     PoolAction {
         position: ScaledPositionRaw {
-            scaled_amount_ray: position_scaled,
+            scaled_amount: position_scaled,
         },
         amount,
-        asset: asset.clone(),
+        hub_asset: hub(asset),
     }
 }
 
@@ -94,7 +102,7 @@ fn test_add_rewards_emits_snapshot_and_increases_supply_index() {
     };
     let _ = client.supply(&vec![&t.env, sup]);
 
-    client.add_rewards(&t.asset, &10_000_000);
-    let snap = client.get_sync_data(&t.asset).state;
-    assert!(snap.supply_index_ray > RAY);
+    client.add_rewards(&hub(&t.asset), &10_000_000);
+    let snap = client.get_sync_data(&hub(&t.asset)).state;
+    assert!(snap.supply_index > RAY);
 }

@@ -1,7 +1,3 @@
-//! Owner- and role-gated administration, split by responsibility:
-//!
-//! - `access`: ownership, pause, upgrade.
-//! - `config`: market, oracle, e-mode, cap, and protocol configuration.
+//! Owner-gated controller administration.
 
 pub(crate) mod access;
-pub(crate) mod config;

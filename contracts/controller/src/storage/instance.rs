@@ -1,20 +1,20 @@
-//! Instance and temporary storage for non-market controller state.
-//! `ApprovedToken` is a one-use instance allow-list for pool creation.
-//! `FlashLoanOngoing` blocks re-entrant controller mutations during callbacks.
+//! Non-market controller storage.
 
 use crate::constants;
 use common::errors::GenericError;
-use controller_interface::types::{ControllerKey, PositionLimits};
+use common::types::{
+    ControllerKey, HubConfig, MarketOracleConfig, PositionLimits, PositionManagerConfig,
+};
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, BytesN, Env};
 
-/// Cap on outstanding (approved but not yet consumed) token approvals.
-/// Each instance key loads with each invocation, so unconsumed approvals
-/// must not accumulate without bound.
+/// Cap on unconsumed token approvals.
 const MAX_OUTSTANDING_TOKEN_APPROVALS: u32 = 16;
 
-/// Cap on approved Blend migration source pools. Instance keys load on every
-/// invocation, so the allow-list must stay bounded.
+/// Cap on approved Blend migration pools.
 const MAX_APPROVED_BLEND_POOLS: u32 = 16;
+
+/// Cap on registered position managers.
+const MAX_POSITION_MANAGERS: u32 = 16;
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -23,6 +23,7 @@ enum LocalKey {
     ApprovedTokenCount,
     BlendPoolAllowed(Address),
     BlendPoolAllowedCount,
+    PositionManagerCount,
 }
 
 #[contracttype]
@@ -55,7 +56,7 @@ pub(crate) fn set_token_approved(env: &Env, token: &Address, approved: bool) {
             assert_with_error!(
                 env,
                 count < MAX_OUTSTANDING_TOKEN_APPROVALS,
-                GenericError::InvalidPositionLimits
+                GenericError::RegistryCapReached
             );
             env.storage()
                 .instance()
@@ -99,7 +100,7 @@ pub(crate) fn set_blend_pool_approved(env: &Env, pool: &Address, approved: bool)
             assert_with_error!(
                 env,
                 count < MAX_APPROVED_BLEND_POOLS,
-                GenericError::InvalidPositionLimits
+                GenericError::RegistryCapReached
             );
             env.storage()
                 .instance()
@@ -165,9 +166,38 @@ pub(crate) fn set_accumulator(env: &Env, addr: &Address) {
         .set(&ControllerKey::Accumulator, addr);
 }
 
+/// Token-rooted oracle config under `AssetOracle(asset)`. Persistent
+/// protocol-shared tier, mirroring the `Market` key's TTL so the two never
+/// archive on divergent schedules while both hold the oracle config.
+pub(crate) fn get_asset_oracle(env: &Env, asset: &Address) -> Option<MarketOracleConfig> {
+    let key = ControllerKey::AssetOracle(asset.clone());
+    let config: Option<MarketOracleConfig> = env.storage().persistent().get(&key);
+    if config.is_some() {
+        super::renew_protocol_shared_key(env, &key);
+    }
+    config
+}
+
+pub(crate) fn set_asset_oracle(env: &Env, asset: &Address, config: &MarketOracleConfig) {
+    let key = ControllerKey::AssetOracle(asset.clone());
+    env.storage().persistent().set(&key, config);
+    super::renew_protocol_shared_key(env, &key);
+}
+
+/// Removes the token-rooted oracle config. Absence is the protocol's
+/// disabled/pending signal: price resolution and `require_market_active` reject
+/// assets with no `AssetOracle` entry.
+pub(crate) fn remove_asset_oracle(env: &Env, asset: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&ControllerKey::AssetOracle(asset.clone()));
+}
+
+// Persistent, not instance: the nonce changes on every account creation, and
+// an instance write rewrites (and re-rents) the whole instance envelope.
 pub(crate) fn get_account_nonce(env: &Env) -> u64 {
     env.storage()
-        .instance()
+        .persistent()
         .get(&ControllerKey::AccountNonce)
         .unwrap_or(0u64)
 }
@@ -177,9 +207,9 @@ pub(crate) fn increment_account_nonce(env: &Env) -> u64 {
     let next = current
         .checked_add(1)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    env.storage()
-        .instance()
-        .set(&ControllerKey::AccountNonce, &next);
+    let key = ControllerKey::AccountNonce;
+    env.storage().persistent().set(&key, &next);
+    super::renew_protocol_shared_key(env, &key);
     next
 }
 
@@ -196,10 +226,10 @@ pub(crate) fn set_position_limits(env: &Env, limits: &PositionLimits) {
         .set(&ControllerKey::PositionLimits, limits);
 }
 
-pub(crate) fn get_last_emode_category_id(env: &Env) -> u32 {
+pub(crate) fn get_last_spoke_id(env: &Env) -> u32 {
     env.storage()
         .instance()
-        .get(&ControllerKey::LastEModeCategoryId)
+        .get(&ControllerKey::LastSpokeId)
         .unwrap_or(0u32)
 }
 
@@ -216,15 +246,100 @@ pub(crate) fn set_min_borrow_collateral_usd_wad(env: &Env, floor_wad: i128) {
         .set(&ControllerKey::MinBorrowCollateralUsd, &floor_wad);
 }
 
-pub(crate) fn increment_emode_category_id(env: &Env) -> u32 {
-    let current = get_last_emode_category_id(env);
+pub(crate) fn increment_spoke_id(env: &Env) -> u32 {
+    let current = get_last_spoke_id(env);
     let next = current
         .checked_add(1)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     env.storage()
         .instance()
-        .set(&ControllerKey::LastEModeCategoryId, &next);
+        .set(&ControllerKey::LastSpokeId, &next);
     next
+}
+
+pub(crate) fn get_last_hub_id(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&ControllerKey::LastHubId)
+        .unwrap_or(0u32)
+}
+
+pub(crate) fn increment_hub_id(env: &Env) -> u32 {
+    let current = get_last_hub_id(env);
+    let next = current
+        .checked_add(1)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    env.storage()
+        .instance()
+        .set(&ControllerKey::LastHubId, &next);
+    next
+}
+
+/// Reads a hub registry entry. No hub is seeded; hubs are created on demand
+/// (ids from 1). Returns `None` for any uncreated id, including hub 0.
+/// Persistent, not instance: the registry grows with the hub count, and the
+/// instance envelope is read (and rent-extended) on every invocation.
+pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
+    let key = ControllerKey::Hub(hub_id);
+    let hub: Option<HubConfig> = env.storage().persistent().get(&key);
+    // Read-renewal policy: active hubs must not archive while markets use them.
+    if hub.is_some() {
+        super::renew_protocol_shared_key(env, &key);
+    }
+    hub
+}
+
+pub(crate) fn set_hub(env: &Env, hub_id: u32, config: &HubConfig) {
+    let key = ControllerKey::Hub(hub_id);
+    env.storage().persistent().set(&key, config);
+    super::renew_protocol_shared_key(env, &key);
+}
+
+/// Reads a position-manager registry entry. Absence means the address is not a
+/// registered manager; `require_owner_or_delegate` then grants it no access.
+pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<PositionManagerConfig> {
+    env.storage()
+        .instance()
+        .get(&ControllerKey::PositionManager(addr.clone()))
+}
+
+fn position_manager_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&LocalKey::PositionManagerCount)
+        .unwrap_or(0u32)
+}
+
+/// Capped registry of active managers; deactivation removes the entry
+/// (absence == inactive for the delegate-auth check).
+pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionManagerConfig) {
+    let key = ControllerKey::PositionManager(addr.clone());
+    let already_registered = env.storage().instance().has(&key);
+
+    if config.is_active {
+        if !already_registered {
+            let count = position_manager_count(env);
+            assert_with_error!(
+                env,
+                count < MAX_POSITION_MANAGERS,
+                GenericError::RegistryCapReached
+            );
+            env.storage()
+                .instance()
+                .set(&LocalKey::PositionManagerCount, &(count + 1));
+        }
+        env.storage().instance().set(&key, config);
+    } else {
+        if already_registered {
+            // Saturate at zero: entries registered before counter bookkeeping
+            // existed must still be deactivatable.
+            let count = position_manager_count(env).saturating_sub(1);
+            env.storage()
+                .instance()
+                .set(&LocalKey::PositionManagerCount, &count);
+        }
+        env.storage().instance().remove(&key);
+    }
 }
 
 pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {

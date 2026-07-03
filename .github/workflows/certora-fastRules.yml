@@ -13,7 +13,9 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   STELLAR_VERSION: '27.0.0'
-  CERTORAKEY: ${{ secrets.CERTORAKEY }}
+  # CERTORAKEY is NOT workflow-wide: it is scoped to the two steps that need it
+  # (the guard and the prover run) so earlier steps (checkout, compile) that run
+  # repo scripts on the self-hosted runner never see the prover secret.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -57,6 +59,8 @@ jobs:
       # Fork PRs without org-secret access must skip this workflow at the
       # trigger level — a missing CERTORAKEY fails the job here.
       - name: Verify CERTORAKEY is configured
+        env:
+          CERTORAKEY: ${{ secrets.CERTORAKEY }}
         run: |
           if [ -z "$CERTORAKEY" ]; then
             echo "::error::CERTORAKEY secret is not configured; hosted prover cannot run."
@@ -69,4 +73,6 @@ jobs:
         run: python3 -m pip install --upgrade certora-cli
 
       - name: Run fast Certora configs
+        env:
+          CERTORAKEY: ${{ secrets.CERTORAKEY }}
         run: ./certora/run_profile.py fast

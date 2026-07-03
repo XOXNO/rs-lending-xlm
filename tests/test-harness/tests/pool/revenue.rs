@@ -1,5 +1,6 @@
 use test_harness::{
-    days, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
+    days, errors, eth_preset, hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, BOB,
+    LIQUIDATOR,
 };
 
 /// Helper: set the accumulator address (required for claim_revenue).
@@ -247,7 +248,7 @@ fn test_add_rewards_rejects_zero() {
     let admin = t.admin();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    let rewards = soroban_sdk::vec![&t.env, (asset.clone(), 0i128)];
+    let rewards = soroban_sdk::vec![&t.env, (hub_asset(asset.clone()), 0i128)];
     let result = ctrl.try_add_rewards(&admin, &rewards);
     match result {
         Err(Ok(err)) => assert_eq!(
@@ -282,13 +283,13 @@ fn test_permissionless_revenue_endpoints() {
     let asset = t.resolve_market("USDC").asset.clone();
 
     t.env.mock_all_auths();
-    let assets = soroban_sdk::vec![&t.env, asset.clone()];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(asset.clone())];
     assert!(
         ctrl.try_claim_revenue(&bob_addr, &assets).is_ok(),
         "any signed caller may claim_revenue"
     );
 
-    let rewards = soroban_sdk::vec![&t.env, (asset, 100i128)];
+    let rewards = soroban_sdk::vec![&t.env, (hub_asset(asset), 100i128)];
     assert!(
         ctrl.try_add_rewards(&bob_addr, &rewards).is_ok(),
         "any signed caller may add_rewards"

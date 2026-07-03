@@ -1,0 +1,24 @@
+# Minimal local patch over Certora/cvlr's `cvlr-log`.
+#
+# Upstream `cvlr-log` (main) expands `cvlr_rule_location!` to `std::file!()`,
+# which resolves in the *caller* crate. Our controller/pool/common contracts
+# are `#![no_std]` for wasm32v1-none, so `std` is unresolved and the certora
+# build fails. This copy uses `::core::file!()` (see src/core.rs). It is the
+# only cvlr crate still patched locally; everything else comes from the pinned
+# git rev. Drop this patch once the fix lands upstream.
+[package]
+name = "cvlr-log"
+description = "Logging in Certora Calltrace"
+version = "0.6.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Certora/cvlr"
+
+[features]
+default = ["mathint"]
+rt = ["cvlr-mathint/rt"]
+mathint = ["dep:cvlr-mathint"]
+no-loc = []
+
+[dependencies]
+cvlr-mathint = { version = "=0.6.1", optional = true }

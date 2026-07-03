@@ -28,7 +28,7 @@ fn test_token_approval_counter_tracks_outstanding_set() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #36)")]
+#[should_panic(expected = "Error(Contract, #45)")]
 fn test_token_approval_cap_rejects_overflowing_approval() {
     let env = Env::default();
     let admin = Address::generate(&env);
@@ -38,5 +38,53 @@ fn test_token_approval_cap_rejects_overflowing_approval() {
             set_token_approved(&env, &Address::generate(&env), true);
         }
         set_token_approved(&env, &Address::generate(&env), true);
+    });
+}
+
+// An unregistered manager reads as absent; activation registers the entry and
+// deactivation removes it (absence == inactive), freeing a registry slot.
+#[test]
+fn position_manager_absent_then_registered_then_removed() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        let manager = Address::generate(&env);
+        assert!(get_position_manager(&env, &manager).is_none());
+
+        set_position_manager(&env, &manager, &PositionManagerConfig { is_active: true });
+        set_position_manager(&env, &manager, &PositionManagerConfig { is_active: true });
+        assert!(get_position_manager(&env, &manager).is_some_and(|c| c.is_active));
+        assert_eq!(position_manager_count(&env), 1);
+
+        set_position_manager(&env, &manager, &PositionManagerConfig { is_active: false });
+        assert!(get_position_manager(&env, &manager).is_none());
+        assert_eq!(position_manager_count(&env), 0);
+
+        // Deactivating an unregistered manager cannot underflow the counter.
+        set_position_manager(&env, &manager, &PositionManagerConfig { is_active: false });
+        assert_eq!(position_manager_count(&env), 0);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #45)")]
+fn test_position_manager_cap_rejects_overflowing_registration() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        for _ in 0..MAX_POSITION_MANAGERS {
+            set_position_manager(
+                &env,
+                &Address::generate(&env),
+                &PositionManagerConfig { is_active: true },
+            );
+        }
+        set_position_manager(
+            &env,
+            &Address::generate(&env),
+            &PositionManagerConfig { is_active: true },
+        );
     });
 }

@@ -10,21 +10,22 @@ use stellar_xdr::curr::{
     OperationBody, ScAddress, ScSymbol, ScVal, ScVec, StringM, VecM,
 };
 
+use crate::keys::{hub_asset_key_sc_val, HubAssetKey};
 use crate::stellar::client::account_id_from_strkey;
 use crate::stellar::tx::TxKind;
 use crate::stellar::TxJob;
 
-/// `controller.update_indexes(caller, assets)`.
+/// `controller.update_indexes(caller, hub_assets)`.
 pub fn update_indexes(
     controller_id: &[u8; 32],
     caller_strkey: &str,
-    assets: &[[u8; 32]],
+    assets: &[HubAssetKey],
 ) -> Result<TxJob> {
     let caller = ScVal::Address(ScAddress::Account(account_id_from_strkey(caller_strkey)?));
     let assets_vec: VecM<ScVal> = assets
         .iter()
-        .map(|a| ScVal::Address(ScAddress::Contract(ContractId(Hash(*a)))))
-        .collect::<Vec<_>>()
+        .map(hub_asset_key_sc_val)
+        .collect::<Result<Vec<_>>>()?
         .try_into()
         .map_err(|_| anyhow!("ScVec capacity exceeded"))?;
     let args_vec: VecM<ScVal> = vec![caller, ScVal::Vec(Some(ScVec(assets_vec)))]

@@ -1,21 +1,23 @@
 use controller::constants::{RAY, WAD};
-use test_harness::{eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
+use test_harness::{
+    eth_preset, hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
+};
 // Rigorous liquidation math tests -- verify EXACT bonus, seizure, and HF.
 //
 // Liquidation formula:
 //   bonus = base + (max - base) * min(2 * gap, 1)
 //     where gap = (target_hf - current_hf) / target_hf, target_hf = 1.02.
 //   seizure = debt_repaid * (1 + bonus).
-//   protocol_fee = (seizure - base_amount) * liquidation_fees_bps / 10000
+//   protocol_fee = (seizure - base_amount) * liquidation_fees / 10000
 //     where base_amount = seizure / (1 + bonus).
 //   ideal_repayment targets HF = 1.02 (primary), 1.01 (fallback).
 
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let asset_addr = t.resolve_asset(asset);
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset_addr]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
     let idx = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
-    (idx.supply_index_ray, idx.borrow_index_ray)
+    (idx.supply_index, idx.borrow_index)
 }
 // 1. Verify seizure = debt_repaid * (1 + bonus_rate)
 
@@ -94,7 +96,8 @@ fn test_bonus_formula_at_specific_hf_levels() {
     t.set_price("USDC", usd_cents(74));
 
     let account_id = t.resolve_account_id(ALICE);
-    let payments = soroban_sdk::Vec::from_array(&t.env, [(t.resolve_asset("ETH"), 3_0000000)]);
+    let payments =
+        soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
     let estimate = t
         .ctrl_client()
         .get_liquidation_estimate(&account_id, &payments);
@@ -133,7 +136,8 @@ fn test_deep_underwater_higher_bonus() {
     t.set_price("USDC", usd_cents(74));
 
     let id_alice = t.resolve_account_id(ALICE);
-    let payments = soroban_sdk::Vec::from_array(&t.env, [(t.resolve_asset("ETH"), 3_0000000)]);
+    let payments =
+        soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
     let light = t
         .ctrl_client()
         .get_liquidation_estimate(&id_alice, &payments);
@@ -247,7 +251,7 @@ fn test_protocol_fee_on_bonus_only_quantitative() {
     );
 
     // Fee as % of total seizure should fall well below 1%
-    // (liquidation_fees_bps=100), because the fee applies to the bonus
+    // (liquidation_fees=100), because the fee applies to the bonus
     // (~10% of seizure), not the full seizure.
     let liquidator_received = t.token_balance(LIQUIDATOR, "USDC");
     if liquidator_received > 0.0 {
@@ -279,7 +283,7 @@ fn test_bad_debt_index_decrease_exact() {
     // Capture total supplied value before bad debt.
     let eth = t.resolve_asset("ETH");
     let pool_client = t.pool_client("ETH");
-    let supplied_before = pool_client.get_supplied_amount(&eth); // RAY.
+    let supplied_before = pool_client.get_supplied_amount(&hub_asset(eth)); // RAY.
     let (si_before, _) = get_indexes(&t, "ETH");
 
     // Crash USDC -> bad debt.
@@ -294,7 +298,7 @@ fn test_bad_debt_index_decrease_exact() {
     let actual_ratio = si_after as f64 / si_before as f64;
 
     // bad_debt ~= 0.002 ETH (remaining after partial liquidation).
-    // total_supplied ~= 1000 ETH (in actual value = supplied_ray * index / RAY).
+    // total_supplied ~= 1000 ETH (in actual value = supplied * index / RAY).
     let _total_supplied_actual = supplied_before as f64 / RAY as f64;
 
     // The index ratio should reflect: 1 - (small_debt / 1000).

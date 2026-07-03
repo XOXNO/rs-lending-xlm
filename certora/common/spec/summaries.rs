@@ -27,8 +27,8 @@ pub fn simulate_update_indexes_summary(
     _current_timestamp: u64,
     sync: &PoolSyncData,
 ) -> MarketIndex {
-    let borrow_in = sync.state.borrow_index_ray;
-    let supply_in = sync.state.supply_index_ray;
+    let borrow_in = sync.state.borrow_index;
+    let supply_in = sync.state.supply_index;
 
     let borrow_out: i128 = nondet();
     let supply_out: i128 = nondet();

@@ -1,0 +1,15 @@
+[package]
+name = "aggregator"
+version = "0.1.0"
+edition = "2021"
+description = "Soroban aggregator router. Executes StrategyPayload XDR across Soroswap, Aquarius, Phoenix, Sushi, and Comet."
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

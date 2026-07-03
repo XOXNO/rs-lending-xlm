@@ -15,7 +15,7 @@ flow_flash_loans() {
     sac_transfer "$ALICE" "$USDC_SAC" "$ALICE_ADDR" "$FLASH_RECEIVER" 50000000 fund_flash_receiver
 
     inv flash_loan_success "$ALICE" "$CONTROLLER" -- flash_loan \
-        --caller "$ALICE_ADDR" --asset "$USDC_SAC" --amount 100000000 \
+        --caller "$ALICE_ADDR" --asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount 100000000 \
         --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex 0)" >/dev/null
 
     # Each malicious mode must REVERT the flash loan; the exact code varies by
@@ -38,7 +38,7 @@ flow_flash_loans() {
             5) name=reenter_supply; pattern='Error\(Contract, #40[0-9]\)|InvalidAction|re-entry' ;;
         esac
         xfail "flash_loan_$name" "$pattern" "$ALICE" "$CONTROLLER" -- flash_loan \
-            --caller "$ALICE_ADDR" --asset "$USDC_SAC" --amount 100000000 \
+            --caller "$ALICE_ADDR" --asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount 100000000 \
             --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex $mode)"
     done
 }
@@ -56,10 +56,10 @@ flow_strategies() {
     swap_hex=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$flash_usdc") || return 1
     local macct
     macct=$(inv multiply_long "$ALICE" "$CONTROLLER" -- multiply \
-        --caller "$ALICE_ADDR" --account_id 0 --e_mode_category 0 \
-        --collateral_token "$XLM_SAC" --debt_to_flash_loan "$flash_usdc" \
-        --debt_token "$USDC_SAC" --mode 2 --swap "$swap_hex" \
-        --initial_payment "[\"$XLM_SAC\",\"5000000000\"]" | tr -d '"')
+        --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
+        --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --debt_to_flash_loan "$flash_usdc" \
+        --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --mode 2 --swap "$swap_hex" \
+        --initial_payment "[$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC"),\"5000000000\"]" --convert_swap null | tr -d '"')
     save_state ALICE_MACCT "$macct"
     log "multiply account = $macct"
     assert_hf_at_least hf_multiply "$macct" "$WAD"
@@ -71,8 +71,8 @@ flow_strategies() {
     swap_hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" "$new_xlm_debt") || return 1
     inv swap_debt "$ALICE" "$CONTROLLER" -- swap_debt \
         --caller "$ALICE_ADDR" --account_id "$macct" \
-        --existing_debt_token "$USDC_SAC" --amount "$new_xlm_debt" \
-        --new_debt_token "$XLM_SAC" --swap "$swap_hex" >/dev/null
+        --existing_debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount "$new_xlm_debt" \
+        --new_debt "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --swap "$swap_hex" >/dev/null
     # The migration created XLM debt (the new debt token) on the account.
     assert_borrow_at_least xlm_debt_post_swap "$macct" "$XLM_SAC" 500000000
 
@@ -82,8 +82,8 @@ flow_strategies() {
         hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 2000000000) || return 1
         inv swap_collateral "$ALICE" "$CONTROLLER" -- swap_collateral \
             --caller "$ALICE_ADDR" --account_id "$macct" \
-            --current_collateral "$XLM_SAC" --amount 2000000000 \
-            --new_collateral "$USDC_SAC" --swap "$hex" >/dev/null
+            --current "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --amount 2000000000 \
+            --new "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" >/dev/null
     }
     retry_leg leg_swap_collateral
 
@@ -94,18 +94,18 @@ flow_strategies() {
     # keeps LTV safe and a topped-up USDC debt keeps the post-repay residue
     # above the $10 floor.
     inv supply_for_rdwc "$ALICE" "$CONTROLLER" -- supply \
-        --caller "$ALICE_ADDR" --account_id "$macct" --e_mode_category 0 \
-        --assets "$(pay_vec "$XLM_SAC" 10000000000)" >/dev/null
+        --caller "$ALICE_ADDR" --account_id "$macct" --spoke_id "$PRIMARY_SPOKE_ID" \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 10000000000)" >/dev/null
     inv borrow_for_rdwc "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$macct" \
-        --borrows "$(pay_vec "$USDC_SAC" 550000000)" >/dev/null
+        --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 550000000)" --to null >/dev/null
     leg_repay_debt_with_coll() {
         local hex
         hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 5000000000) || return 1
         inv repay_debt_with_coll "$ALICE" "$CONTROLLER" -- repay_debt_with_collateral \
             --caller "$ALICE_ADDR" --account_id "$macct" \
-            --collateral_token "$XLM_SAC" --collateral_amount 5000000000 \
-            --debt_token "$USDC_SAC" --swap "$hex" --close_position false >/dev/null
+            --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --collateral_amount 5000000000 \
+            --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" --close_position false >/dev/null
     }
     retry_leg leg_repay_debt_with_coll
 
@@ -116,18 +116,18 @@ flow_strategies() {
     # exits with no borrow or collateral positions.
     local rdwc_acct
     rdwc_acct=$(inv rdwc_close_supply "$CAROL" "$CONTROLLER" -- supply \
-        --caller "$CAROL_ADDR" --account_id 0 --e_mode_category 0 \
-        --assets "$(pay_vec "$XLM_SAC" 3000000000)" | tr -d '"') || return 1
+        --caller "$CAROL_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 3000000000)" | tr -d '"') || return 1
     inv rdwc_close_borrow "$CAROL" "$CONTROLLER" -- borrow \
         --caller "$CAROL_ADDR" --account_id "$rdwc_acct" \
-        --borrows "$(pay_vec "$USDC_SAC" 300000000)" >/dev/null
+        --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 300000000)" --to null >/dev/null
     leg_rdwc_close() {
         local hex
         hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 2500000000) || return 1
         inv rdwc_close "$CAROL" "$CONTROLLER" -- repay_debt_with_collateral \
             --caller "$CAROL_ADDR" --account_id "$rdwc_acct" \
-            --collateral_token "$XLM_SAC" --collateral_amount 2500000000 \
-            --debt_token "$USDC_SAC" --swap "$hex" --close_position true >/dev/null
+            --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --collateral_amount 2500000000 \
+            --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" --close_position true >/dev/null
     }
     retry_leg leg_rdwc_close
     # Full close empties + deregisters the account.
@@ -145,10 +145,10 @@ flow_strategies() {
         local hex
         hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" "$flash_xlm") || return 1
         sacct=$(inv multiply_short "$ALICE" "$CONTROLLER" -- multiply \
-            --caller "$ALICE_ADDR" --account_id 0 --e_mode_category 0 \
-            --collateral_token "$USDC_SAC" --debt_to_flash_loan "$flash_xlm" \
-            --debt_token "$XLM_SAC" --mode 3 --swap "$hex" \
-            --initial_payment "[\"$USDC_SAC\",\"600000000\"]" | tr -d '"')
+            --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
+            --collateral "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --debt_to_flash_loan "$flash_xlm" \
+            --debt "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --mode 3 --swap "$hex" \
+            --initial_payment "[$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC"),\"600000000\"]" --convert_swap null | tr -d '"')
         [ -n "$sacct" ]
     }
     retry_leg leg_multiply_short || return 1

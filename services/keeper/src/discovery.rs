@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use crate::config::{ContractsConfig, ScheduleConfig};
 use crate::keys::{
     contract_code_key, contract_instance_key, AccessControlPersistentKey, ControllerInstanceKey,
-    ControllerPersistentKey, ControllerUserKey, PoolPersistentKey,
+    ControllerPersistentKey, ControllerUserKey, HubAssetKey, PoolPersistentKey,
 };
 use crate::stellar::client::{
     contract_id_from_strkey, hash32_from_hex, LedgerEntryQuery, RpcClient,
@@ -43,19 +43,28 @@ impl ContractIds {
 }
 
 /// Entries discovered during one keeper tick.
-fn configured_market_assets(contracts: &ContractsConfig) -> Result<Vec<[u8; 32]>> {
-    contracts
-        .market_assets
-        .iter()
-        .map(|asset| contract_id_from_strkey(asset))
-        .collect()
+fn configured_market_assets(contracts: &ContractsConfig) -> Result<Vec<HubAssetKey>> {
+    let mut markets = Vec::with_capacity(contracts.markets.len() + contracts.market_assets.len());
+    for market in &contracts.markets {
+        markets.push(HubAssetKey {
+            hub_id: market.hub_id,
+            asset: contract_id_from_strkey(&market.asset)?,
+        });
+    }
+    for asset in &contracts.market_assets {
+        markets.push(HubAssetKey {
+            hub_id: 1,
+            asset: contract_id_from_strkey(asset)?,
+        });
+    }
+    Ok(markets)
 }
 
 #[derive(Debug, Default)]
 pub struct DiscoverySnapshot {
     pub current_ledger: u32,
-    pub assets: Vec<[u8; 32]>,
-    /// Persistent protocol entries: per-asset, e-mode, role keys, the per-user
+    pub assets: Vec<HubAssetKey>,
+    /// Persistent protocol entries: per-asset, spoke, role keys, the per-user
     /// account keys (when `scan_users`), and governance role keys.
     pub persistent_entries: Vec<LedgerEntryQuery>,
     /// Controller, central pool, flash receiver, and (when configured)
@@ -79,7 +88,7 @@ pub async fn snapshot(
     let current_ledger = client.latest_ledger().await?;
     info!(target: "keeper.discovery", current_ledger, "tick start");
 
-    // -- Controller instance: wasm hash + pool address + AccountNonce + e-mode ceiling --
+    // -- Controller instance: wasm hash + pool address + AccountNonce + spoke ceiling --
     let instance = client.get_contract_instance(&controller_id).await?;
     let controller_wasm_hash = wasm_hash_from_executable(&instance.executable);
     let pool_id = lookup_scalar(&instance, ControllerInstanceKey::Pool, scval_contract_id)?;
@@ -89,18 +98,27 @@ pub async fn snapshot(
             "central pool address missing from controller instance — pool keys skipped this tick"
         );
     }
-    let account_nonce =
-        lookup_scalar(&instance, ControllerInstanceKey::AccountNonce, scval_u64)?.unwrap_or(0);
-    let last_emode_category_id = lookup_scalar(
-        &instance,
-        ControllerInstanceKey::LastEModeCategoryId,
-        scval_u32,
-    )?
-    .unwrap_or(0);
+    let last_spoke_id =
+        lookup_scalar(&instance, ControllerInstanceKey::LastSpokeId, scval_u32)?.unwrap_or(0);
+    let last_hub_id =
+        lookup_scalar(&instance, ControllerInstanceKey::LastHubId, scval_u32)?.unwrap_or(0);
+
+    // AccountNonce lives in its own persistent entry (moved out of the
+    // instance so account creation does not rewrite the instance envelope).
+    let nonce_key = ControllerPersistentKey::AccountNonce.to_ledger_key(&controller_id)?;
+    let nonce_rows = client.get_ledger_entries(&[nonce_key]).await?;
+    let account_nonce = nonce_rows
+        .first()
+        .and_then(|row| match row.value.as_ref()? {
+            LedgerEntryData::ContractData(cd) => scval_u64(&cd.val),
+            _ => None,
+        })
+        .unwrap_or(0);
     debug!(
         target: "keeper.discovery",
         account_nonce,
-        last_emode_category_id,
+        last_spoke_id,
+        last_hub_id,
         pool_resolved = pool_id.is_some(),
         "instance read"
     );
@@ -109,14 +127,16 @@ pub async fn snapshot(
     let assets = configured_market_assets(contracts)?;
     let mut persistent_entries = Vec::new();
 
-    // -- Per-asset persistent state: controller Market plus the central pool's
-    //    asset-keyed Params + State entries --
+    // -- Per-market persistent state: controller AssetOracle plus central
+    //    pool HubAssetKey Params + State entries --
     let mut pool_rows_present = 0usize;
     let mut pool_rows_total = 0usize;
     for chunk in assets.chunks(chunk_size) {
         let mut keys = Vec::with_capacity(chunk.len() * 3);
         for asset in chunk {
-            keys.push(ControllerPersistentKey::Market(*asset).to_ledger_key(&controller_id)?);
+            keys.push(
+                ControllerPersistentKey::AssetOracle(asset.asset).to_ledger_key(&controller_id)?,
+            );
         }
         if let Some(pool) = &pool_id {
             for asset in chunk {
@@ -143,19 +163,30 @@ pub async fn snapshot(
         );
     }
 
-    // -- E-mode category sweep (1..=ceiling) --
-    if last_emode_category_id > 0 {
-        for chunk in (1..=last_emode_category_id)
-            .collect::<Vec<_>>()
-            .chunks(chunk_size)
-        {
+    // -- Spoke category sweep (1..=ceiling) --
+    if last_spoke_id > 0 {
+        for chunk in (1..=last_spoke_id).collect::<Vec<_>>().chunks(chunk_size) {
             let keys = chunk
                 .iter()
-                .map(|id| ControllerPersistentKey::EModeCategory(*id).to_ledger_key(&controller_id))
+                .map(|id| ControllerPersistentKey::Spoke(*id).to_ledger_key(&controller_id))
                 .collect::<Result<Vec<_>>>()?;
             persistent_entries.extend(client.get_ledger_entries(&keys).await?);
         }
     }
+
+    // -- Hub registry sweep (1..=ceiling; persistent, moved out of instance) --
+    if last_hub_id > 0 {
+        for chunk in (1..=last_hub_id).collect::<Vec<_>>().chunks(chunk_size) {
+            let keys = chunk
+                .iter()
+                .map(|id| ControllerPersistentKey::Hub(*id).to_ledger_key(&controller_id))
+                .collect::<Result<Vec<_>>>()?;
+            persistent_entries.extend(client.get_ledger_entries(&keys).await?);
+        }
+    }
+
+    // The nonce entry itself is protocol-shared state — keep it alive too.
+    persistent_entries.extend(nonce_rows);
 
     // -- Access-control role keys --
     persistent_entries.extend(discover_role_keys(client, &controller_id, chunk_size).await?);
@@ -551,9 +582,7 @@ fn needle_for(key: ControllerInstanceKey) -> Result<ScVal> {
     ))))
 }
 
-
-
-pub fn self_check(contracts: &ContractsConfig) -> Result<Vec<[u8; 32]>> {
+pub fn self_check(contracts: &ContractsConfig) -> Result<Vec<HubAssetKey>> {
     configured_market_assets(contracts)
 }
 
@@ -601,6 +630,7 @@ mod tests {
             pool_wasm_hash: "a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa"
                 .into(),
             flash_loan_receiver: "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into(),
+            markets: Vec::new(),
             market_assets: Vec::new(),
             governance: Some("CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH".into()),
         };
@@ -615,11 +645,11 @@ mod tests {
             pool_wasm_hash: "a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa"
                 .into(),
             flash_loan_receiver: "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into(),
+            markets: Vec::new(),
             market_assets: Vec::new(),
             governance: None,
         };
         let ids = ContractIds::resolve(&contracts).unwrap();
         assert!(ids.governance.is_none());
     }
-
 }

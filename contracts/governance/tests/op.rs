@@ -15,11 +15,7 @@ fn b64(env: &Env, op: AdminOperation) -> std::string::String {
 /// `governance.test.ts` byte-parity suite.
 const PARITY_ADDR: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
 
-/// Pins the contract-side `AdminOperation` XDR encoding. The timelock hashes
-/// these into the operation id, and sdk-js builders must encode the same
-/// bytes (a mismatch would strand proposals). The identical base64 strings
-/// are asserted in sdk-js `governance.test.ts`; if the enum/struct layout
-/// changes here, both this test and the SDK gate must be updated together.
+/// Pins `AdminOperation` XDR; sdk-js builders must match these bytes.
 #[test]
 fn admin_op_xdr_is_byte_stable() {
     let env = Env::default();
@@ -40,16 +36,5 @@ fn admin_op_xdr_is_byte_stable() {
     assert_eq!(
         b64(&env, AdminOperation::SetAggregator(addr.clone())),
         "AAAAEAAAAAEAAAACAAAADwAAAA1TZXRBZ2dyZWdhdG9yAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ=="
-    );
-    assert_eq!(
-        b64(
-            &env,
-            AdminOperation::UpdatePoolCaps(PoolCapsArgs {
-                asset: addr.clone(),
-                supply_cap: 100_000_000_000_000,
-                borrow_cap: 50_000_000_000_000,
-            })
-        ),
-        "AAAAEAAAAAEAAAACAAAADwAAAA5VcGRhdGVQb29sQ2FwcwAAAAAAEQAAAAEAAAADAAAADwAAAAVhc3NldAAAAAAAABIAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAPAAAACmJvcnJvd19jYXAAAAAAAAoAAAAAAAAAAAAALXmIPSAAAAAADwAAAApzdXBwbHlfY2FwAAAAAAAKAAAAAAAAAAAAAFrzEHpAAA=="
     );
 }

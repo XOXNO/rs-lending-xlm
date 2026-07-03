@@ -5,14 +5,19 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::BAD_DEBT_USD_THRESHOLD;
-use crate::types::{AccountPositionType, StrategySwap};
+use crate::types::{AccountPositionType, HubAssetKey, StrategySwap};
+
+/// Hub-0 coordinate for `asset`; the spec models the single default hub.
+fn hub0(asset: Address) -> HubAssetKey {
+    HubAssetKey { hub_id: 0, asset }
+}
 
 /// Successful multiply creates deposit and borrow positions with scaled amount > 0.
 #[rule]
 fn multiply_basic(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -26,7 +31,7 @@ fn multiply_basic(
     let account_id = crate::spec::compat::multiply_basic(
         e.clone(),
         caller,
-        e_mode_category,
+        spoke_id,
         collateral_token.clone(),
         debt_to_flash_loan,
         debt_token.clone(),
@@ -42,13 +47,13 @@ fn multiply_basic(
     );
     cvlr_assert!(deposit_pos.is_some());
     let deposit = deposit_pos.unwrap();
-    cvlr_assert!(deposit.scaled_amount_ray > 0);
+    cvlr_assert!(deposit.scaled_amount > 0);
 
     let borrow_pos =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assert!(borrow_pos.is_some());
     let borrow = borrow_pos.unwrap();
-    cvlr_assert!(borrow.scaled_amount_ray > 0);
+    cvlr_assert!(borrow.scaled_amount > 0);
 }
 
 /// Multiply with initial payment in collateral_token creates both positions.
@@ -56,7 +61,7 @@ fn multiply_basic(
 fn multiply_with_initial_payment_collateral(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -72,7 +77,7 @@ fn multiply_with_initial_payment_collateral(
     let account_id = crate::spec::compat::multiply_with_initial_payment_collateral(
         e.clone(),
         caller,
-        e_mode_category,
+        spoke_id,
         collateral_token.clone(),
         debt_to_flash_loan,
         debt_token.clone(),
@@ -88,12 +93,12 @@ fn multiply_with_initial_payment_collateral(
         &collateral_token,
     );
     cvlr_assert!(deposit_pos.is_some());
-    cvlr_assert!(deposit_pos.unwrap().scaled_amount_ray > 0);
+    cvlr_assert!(deposit_pos.unwrap().scaled_amount > 0);
 
     let borrow_pos =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assert!(borrow_pos.is_some());
-    cvlr_assert!(borrow_pos.unwrap().scaled_amount_ray > 0);
+    cvlr_assert!(borrow_pos.unwrap().scaled_amount > 0);
 }
 
 /// Multiply with initial payment in a third token creates both positions.
@@ -101,7 +106,7 @@ fn multiply_with_initial_payment_collateral(
 fn multiply_with_initial_payment_third_token(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -121,7 +126,7 @@ fn multiply_with_initial_payment_third_token(
     let account_id = crate::spec::compat::multiply_with_initial_payment_third_token(
         e.clone(),
         caller,
-        e_mode_category,
+        spoke_id,
         collateral_token.clone(),
         debt_to_flash_loan,
         debt_token.clone(),
@@ -139,12 +144,12 @@ fn multiply_with_initial_payment_third_token(
         &collateral_token,
     );
     cvlr_assert!(deposit_pos.is_some());
-    cvlr_assert!(deposit_pos.unwrap().scaled_amount_ray > 0);
+    cvlr_assert!(deposit_pos.unwrap().scaled_amount > 0);
 
     let borrow_pos =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assert!(borrow_pos.is_some());
-    cvlr_assert!(borrow_pos.unwrap().scaled_amount_ray > 0);
+    cvlr_assert!(borrow_pos.unwrap().scaled_amount > 0);
 }
 
 /// Multiply with collateral_token == debt_token reverts.
@@ -152,7 +157,7 @@ fn multiply_with_initial_payment_third_token(
 fn multiply_rejects_same_tokens(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     token: Address,
     debt_to_flash_loan: i128,
     mode: u32,
@@ -164,7 +169,7 @@ fn multiply_rejects_same_tokens(
     crate::spec::compat::multiply_minimal(
         e.clone(),
         caller,
-        e_mode_category,
+        spoke_id,
         token.clone(),
         debt_to_flash_loan,
         token.clone(),
@@ -180,7 +185,7 @@ fn multiply_rejects_same_tokens(
 fn multiply_requires_collateralizable(
     e: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -191,14 +196,15 @@ fn multiply_requires_collateralizable(
     cvlr_assume!(collateral_token != debt_token);
     cvlr_assume!((1..=3).contains(&mode));
 
-    let mut cache = crate::cache::Cache::new(&e);
-    let config = cache.cached_asset_config(&collateral_token);
+    let mut cache = crate::context::Cache::new(&e);
+    let config =
+        crate::spoke::effective_asset_config(&mut cache, spoke_id, &hub0(collateral_token.clone()));
     cvlr_assume!(!config.is_collateralizable);
 
     crate::spec::compat::multiply_minimal(
         e.clone(),
         caller,
-        e_mode_category,
+        spoke_id,
         collateral_token,
         debt_to_flash_loan,
         debt_token,
@@ -230,23 +236,23 @@ fn swap_debt_conserves_debt_value(
         &existing_debt_token,
     );
     cvlr_assume!(old_pos_before.is_some());
-    let old_scaled_before = old_pos_before.unwrap().scaled_amount_ray;
+    let old_scaled_before = old_pos_before.unwrap().scaled_amount;
     cvlr_assume!(old_scaled_before > 0);
 
     crate::Controller::swap_debt(
         e.clone(),
         caller,
         account_id,
-        existing_debt_token.clone(),
+        hub0(existing_debt_token.clone()),
         new_debt_amount,
-        new_debt_token.clone(),
+        hub0(new_debt_token.clone()),
         steps,
     );
 
     let new_pos_after =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &new_debt_token);
     cvlr_assert!(new_pos_after.is_some());
-    cvlr_assert!(new_pos_after.unwrap().scaled_amount_ray > 0);
+    cvlr_assert!(new_pos_after.unwrap().scaled_amount > 0);
 
     let old_pos_after = crate::storage::get_position(
         &e,
@@ -255,7 +261,7 @@ fn swap_debt_conserves_debt_value(
         &existing_debt_token,
     );
     match old_pos_after {
-        Some(pos) => cvlr_assert!(pos.scaled_amount_ray < old_scaled_before),
+        Some(pos) => cvlr_assert!(pos.scaled_amount < old_scaled_before),
         None => cvlr_assert!(true),
     }
 }
@@ -276,9 +282,9 @@ fn swap_debt_rejects_same_token(
         e.clone(),
         caller,
         account_id,
-        token.clone(),
+        hub0(token.clone()),
         new_debt_amount,
-        token.clone(),
+        hub0(token.clone()),
         steps,
     );
 
@@ -306,16 +312,16 @@ fn swap_collateral_conserves_collateral(
         &current_collateral,
     );
     cvlr_assume!(old_pos_before.is_some());
-    let old_scaled_before = old_pos_before.unwrap().scaled_amount_ray;
+    let old_scaled_before = old_pos_before.unwrap().scaled_amount;
     cvlr_assume!(old_scaled_before > 0);
 
     crate::Controller::swap_collateral(
         e.clone(),
         caller,
         account_id,
-        current_collateral.clone(),
+        hub0(current_collateral.clone()),
         from_amount,
-        new_collateral.clone(),
+        hub0(new_collateral.clone()),
         steps,
     );
 
@@ -326,7 +332,7 @@ fn swap_collateral_conserves_collateral(
         &new_collateral,
     );
     cvlr_assert!(new_pos_after.is_some());
-    cvlr_assert!(new_pos_after.unwrap().scaled_amount_ray > 0);
+    cvlr_assert!(new_pos_after.unwrap().scaled_amount > 0);
 
     let old_pos_after = crate::storage::get_position(
         &e,
@@ -335,7 +341,7 @@ fn swap_collateral_conserves_collateral(
         &current_collateral,
     );
     match old_pos_after {
-        Some(pos) => cvlr_assert!(pos.scaled_amount_ray < old_scaled_before),
+        Some(pos) => cvlr_assert!(pos.scaled_amount < old_scaled_before),
         None => cvlr_assert!(true),
     }
 }
@@ -356,9 +362,9 @@ fn swap_collateral_rejects_same_token(
         e.clone(),
         caller,
         account_id,
-        token.clone(),
+        hub0(token.clone()),
         from_amount,
-        token.clone(),
+        hub0(token.clone()),
         steps,
     );
 
@@ -386,13 +392,13 @@ fn repay_with_collateral_reduces_both_no_close(
         &collateral_token,
     );
     cvlr_assume!(collateral_before.is_some());
-    let collateral_scaled_before = collateral_before.unwrap().scaled_amount_ray;
+    let collateral_scaled_before = collateral_before.unwrap().scaled_amount;
     cvlr_assume!(collateral_scaled_before > 0);
 
     let debt_before =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assume!(debt_before.is_some());
-    let debt_scaled_before = debt_before.unwrap().scaled_amount_ray;
+    let debt_scaled_before = debt_before.unwrap().scaled_amount;
     cvlr_assume!(debt_scaled_before > 0);
 
     crate::spec::compat::repay_debt_with_collateral_minimal(
@@ -412,14 +418,14 @@ fn repay_with_collateral_reduces_both_no_close(
         &collateral_token,
     );
     match collateral_after {
-        Some(pos) => cvlr_assert!(pos.scaled_amount_ray < collateral_scaled_before),
+        Some(pos) => cvlr_assert!(pos.scaled_amount < collateral_scaled_before),
         None => cvlr_assert!(true),
     }
 
     let debt_after =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     match debt_after {
-        Some(pos) => cvlr_assert!(pos.scaled_amount_ray < debt_scaled_before),
+        Some(pos) => cvlr_assert!(pos.scaled_amount < debt_scaled_before),
         None => cvlr_assert!(true),
     }
 }
@@ -445,12 +451,12 @@ fn repay_with_collateral_full_close_removes_account(
         &collateral_token,
     );
     cvlr_assume!(collateral_before.is_some());
-    cvlr_assume!(collateral_before.unwrap().scaled_amount_ray > 0);
+    cvlr_assume!(collateral_before.unwrap().scaled_amount > 0);
 
     let debt_before =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assume!(debt_before.is_some());
-    cvlr_assume!(debt_before.unwrap().scaled_amount_ray > 0);
+    cvlr_assume!(debt_before.unwrap().scaled_amount > 0);
 
     crate::spec::compat::repay_debt_with_collateral_close(
         e.clone(),
@@ -478,14 +484,15 @@ fn repay_with_collateral_full_close_removes_account(
 /// clean_bad_debt reverts when the account does not qualify for cleanup.
 #[rule]
 fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
-    let mut cache = crate::cache::Cache::new(&e);
+    let mut cache = crate::context::Cache::new(&e);
 
     let account = crate::storage::get_account(&e, account_id);
     cvlr_assume!(!account.borrow_positions.is_empty());
 
-    let totals = crate::helpers::calculate_account_risk_totals(
+    let totals = crate::risk::calculate_account_risk_totals(
         &e,
         &mut cache,
+        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );
@@ -521,7 +528,8 @@ fn clean_bad_debt_zeros_positions(e: Env, account_id: u64) {
 /// claim_revenue returns a non-negative amount.
 #[rule]
 fn claim_revenue_transfers_to_accumulator(e: Env, caller: Address, asset: Address) {
-    let amounts = crate::Controller::claim_revenue(e.clone(), caller, soroban_sdk::vec![&e, asset]);
+    let amounts =
+        crate::Controller::claim_revenue(e.clone(), caller, soroban_sdk::vec![&e, hub0(asset)]);
     let amount = amounts.get(0).unwrap();
 
     cvlr_assert!(amount >= 0);
@@ -570,9 +578,9 @@ fn swap_debt_sanity(
         e,
         caller,
         account_id,
-        existing_debt_token,
+        hub0(existing_debt_token),
         new_debt_amount,
-        new_debt_token,
+        hub0(new_debt_token),
         steps,
     );
     cvlr_satisfy!(true);
@@ -595,9 +603,9 @@ fn swap_collateral_sanity(
         e,
         caller,
         account_id,
-        current_collateral,
+        hub0(current_collateral),
         from_amount,
-        new_collateral,
+        hub0(new_collateral),
         steps,
     );
     cvlr_satisfy!(true);

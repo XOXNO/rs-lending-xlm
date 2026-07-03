@@ -1,5 +1,5 @@
 use super::setup;
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE};
+use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, HARNESS_HUB};
 
 // 6. Oracle tolerance config update (thin owner setter)
 
@@ -84,31 +84,36 @@ fn test_disable_token_oracle_blocks_operations() {
 }
 
 #[test]
-fn test_edit_asset_in_e_mode_category() {
+fn test_edit_asset_in_spoke_category() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
-        .with_emode(1, test_harness::STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
+        .with_spoke(2, test_harness::STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
         .with_dust_disabled_all_markets()
         .build();
 
     // Initially: can_collateral=true, can_borrow=true.
     // Edit: set can_borrow=false.
-    t.edit_asset_in_e_mode("USDC", 1, true, false, 9700, 9800, 200);
+    t.edit_asset_in_spoke("USDC", 2, true, false, 9700, 9800, 200);
 
-    // Verify the update by reading storage.
+    // Verify the update by reading storage. Spoke asset configs are discrete
+    // `SpokeAsset(spoke_id, hub_asset)` keys in the spoke model.
     let usdc_asset = t.resolve_market("USDC").asset.clone();
-    let config: Option<controller::types::EModeAssetConfig> =
+    let config: Option<controller::types::SpokeAssetConfig> =
         t.env.as_contract(&t.controller, || {
-            let cat: Option<controller::types::EModeCategoryRaw> = t
-                .env
+            t.env
                 .storage()
                 .persistent()
-                .get(&controller::types::ControllerKey::EModeCategory(1));
-            cat.and_then(|c| c.assets.get(usdc_asset))
+                .get(&controller::types::ControllerKey::SpokeAsset(
+                    2,
+                    controller::types::HubAssetKey {
+                        hub_id: HARNESS_HUB,
+                        asset: usdc_asset,
+                    },
+                ))
         });
-    let config = config.expect("emode asset config should exist");
+    let config = config.expect("spoke asset config should exist");
     assert!(
         config.is_collateralizable,
         "should still be collateralizable"

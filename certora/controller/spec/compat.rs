@@ -1,9 +1,15 @@
-use crate::types::{Payment, PositionMode, StrategySwap};
+use crate::types::{HubAssetKey, Payment, PositionMode, StrategySwap};
 use cvlr::nondet::nondet;
 use cvlr_soroban::nondet_address;
 use soroban_sdk::{vec, Address, Env, Vec};
 
-/// Single-asset supply shim for `Controller::supply`.
+/// Hub-0 coordinate for `asset`. The spec models the single default hub, so the
+/// HubAssetKey-keyed entrypoints address `(hub_id: 0, asset)`.
+fn hub0(asset: Address) -> HubAssetKey {
+    HubAssetKey { hub_id: 0, asset }
+}
+
+/// Single-asset supply shim for `Controller::supply` (spoke 0).
 pub fn supply_single(
     env: Env,
     caller: Address,
@@ -16,13 +22,26 @@ pub fn supply_single(
         caller,
         account_id,
         0,
-        vec![&env, (asset, amount)],
+        vec![&env, (hub0(asset), amount)],
     )
 }
 
-/// Single-asset borrow shim for `Controller::borrow`.
+/// Single-asset borrow shim for `Controller::borrow`. Havocs the `to` recipient
+/// so rules cover both borrow-to-self (`None`) and borrow-to-recipient (`Some`)
+/// branches; the account's debt and health math is identical either way.
 pub fn borrow_single(env: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
-    crate::Controller::borrow(env.clone(), caller, account_id, vec![&env, (asset, amount)]);
+    let to: Option<Address> = if nondet() {
+        Some(nondet_address())
+    } else {
+        None
+    };
+    crate::Controller::borrow(
+        env.clone(),
+        caller,
+        account_id,
+        vec![&env, (hub0(asset), amount)],
+        to,
+    );
 }
 
 /// Single-asset withdraw shim. Havocs the `to` recipient so rules cover both
@@ -38,21 +57,26 @@ pub fn withdraw_single(env: Env, caller: Address, account_id: u64, asset: Addres
         env.clone(),
         caller,
         account_id,
-        vec![&env, (asset, amount)],
+        vec![&env, (hub0(asset), amount)],
         to,
     );
 }
 
 /// Single-asset repay shim for `Controller::repay`.
 pub fn repay_single(env: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
-    crate::Controller::repay(env.clone(), caller, account_id, vec![&env, (asset, amount)]);
+    crate::Controller::repay(
+        env.clone(),
+        caller,
+        account_id,
+        vec![&env, (hub0(asset), amount)],
+    );
 }
 
 /// Full `Controller::multiply` shim; havoced optional parameters explore all branches.
 pub fn multiply(
     env: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -70,9 +94,9 @@ pub fn multiply(
     let account_id: u64 = nondet();
 
     let take_initial: bool = nondet();
-    let initial_payment: Option<Payment> = if take_initial {
+    let initial_payment: Option<(HubAssetKey, i128)> = if take_initial {
         let initial_amount: i128 = nondet();
-        Some((nondet_address(), initial_amount))
+        Some((hub0(nondet_address()), initial_amount))
     } else {
         None
     };
@@ -87,10 +111,10 @@ pub fn multiply(
         env,
         caller,
         account_id,
-        e_mode_category,
-        collateral_token,
+        spoke_id,
+        hub0(collateral_token),
         debt_to_flash_loan,
-        debt_token,
+        hub0(debt_token),
         mode,
         steps,
         initial_payment,
@@ -113,9 +137,9 @@ pub fn repay_debt_with_collateral(
         env,
         caller,
         account_id,
-        collateral_token,
+        hub0(collateral_token),
         collateral_amount,
-        debt_token,
+        hub0(debt_token),
         steps,
         close_position,
     );
@@ -125,7 +149,7 @@ pub fn repay_debt_with_collateral(
 pub fn multiply_minimal(
     env: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -144,10 +168,10 @@ pub fn multiply_minimal(
         env,
         caller,
         0,
-        e_mode_category,
-        collateral_token,
+        spoke_id,
+        hub0(collateral_token),
         debt_to_flash_loan,
-        debt_token,
+        hub0(debt_token),
         mode,
         steps,
         None,
@@ -169,9 +193,9 @@ pub fn repay_debt_with_collateral_minimal(
         env,
         caller,
         account_id,
-        collateral_token,
+        hub0(collateral_token),
         collateral_amount,
-        debt_token,
+        hub0(debt_token),
         steps,
         false,
     );
@@ -191,9 +215,9 @@ pub fn repay_debt_with_collateral_close(
         env,
         caller,
         account_id,
-        collateral_token,
+        hub0(collateral_token),
         collateral_amount,
-        debt_token,
+        hub0(debt_token),
         steps,
         true,
     );
@@ -203,7 +227,7 @@ pub fn repay_debt_with_collateral_close(
 pub fn multiply_basic(
     env: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -222,10 +246,10 @@ pub fn multiply_basic(
         env,
         caller,
         0,
-        e_mode_category,
-        collateral_token,
+        spoke_id,
+        hub0(collateral_token),
         debt_to_flash_loan,
-        debt_token,
+        hub0(debt_token),
         mode,
         steps,
         None,
@@ -237,7 +261,7 @@ pub fn multiply_basic(
 pub fn multiply_with_initial_payment_collateral(
     env: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -253,15 +277,16 @@ pub fn multiply_with_initial_payment_collateral(
         _ => panic!("invalid strategy mode for certora compat"),
     };
 
-    let initial_payment: Option<Payment> = Some((collateral_token.clone(), initial_amount));
+    let initial_payment: Option<(HubAssetKey, i128)> =
+        Some((hub0(collateral_token.clone()), initial_amount));
     crate::Controller::multiply(
         env,
         caller,
         0,
-        e_mode_category,
-        collateral_token,
+        spoke_id,
+        hub0(collateral_token),
         debt_to_flash_loan,
-        debt_token,
+        hub0(debt_token),
         mode,
         steps,
         initial_payment,
@@ -273,7 +298,7 @@ pub fn multiply_with_initial_payment_collateral(
 pub fn multiply_with_initial_payment_third_token(
     env: Env,
     caller: Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
@@ -291,15 +316,15 @@ pub fn multiply_with_initial_payment_third_token(
         _ => panic!("invalid strategy mode for certora compat"),
     };
 
-    let initial_payment: Option<Payment> = Some((third_token, initial_amount));
+    let initial_payment: Option<(HubAssetKey, i128)> = Some((hub0(third_token), initial_amount));
     crate::Controller::multiply(
         env,
         caller,
         0,
-        e_mode_category,
-        collateral_token,
+        spoke_id,
+        hub0(collateral_token),
         debt_to_flash_loan,
-        debt_token,
+        hub0(debt_token),
         mode,
         steps,
         initial_payment,
@@ -307,7 +332,12 @@ pub fn multiply_with_initial_payment_third_token(
     )
 }
 
-/// Public `Controller::liquidate` entry point shim.
+/// Public `Controller::liquidate` entry point shim. Lifts asset-keyed payments
+/// onto hub 0 for the HubAssetKey-keyed entrypoint.
 pub fn liquidate(env: Env, liquidator: Address, account_id: u64, debt_payments: Vec<Payment>) {
-    crate::Controller::liquidate(env, liquidator, account_id, debt_payments);
+    let mut hub_payments: Vec<(HubAssetKey, i128)> = Vec::new(&env);
+    for (asset, amount) in debt_payments.iter() {
+        hub_payments.push_back((hub0(asset), amount));
+    }
+    crate::Controller::liquidate(env, liquidator, account_id, hub_payments);
 }

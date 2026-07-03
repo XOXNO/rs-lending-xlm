@@ -13,6 +13,7 @@ GOV_SALT_CANCEL="111111111111111111111111111111111111111111111111111111111111111
 GOV_SALT_EXEC="2222222222222222222222222222222222222222222222222222222222222222"
 GOV_SALT_DENY="3333333333333333333333333333333333333333333333333333333333333333"
 GOV_SALT_BADLIMITS="4444444444444444444444444444444444444444444444444444444444444444"
+GOV_SALT_SELF_GRANT="5555555555555555555555555555555555555555555555555555555555555555"
 
 # Raw operation state (Unset|Waiting|Ready|Done) for an op id.
 gov_state() {
@@ -68,9 +69,12 @@ flow_governance() {
 
     # Unpause the fresh (paused-by-default) governance-owned controller so the
     # timelocked setter is not pause-gated; then exercise the resolver views.
-    inv gov_unpause "$ADMIN" "$GOVERNANCE" -- unpause >/dev/null
-    view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
-        --first_tolerance 200 --last_tolerance 500 >/dev/null
+inv gov_unpause "$ADMIN" "$GOVERNANCE" -- unpause >/dev/null
+view gov_min_delay "$GOVERNANCE" -- get_min_delay >/dev/null
+view gov_has_role_admin_executor "$GOVERNANCE" -- has_role \
+--account "$ADMIN_ADDR" --role EXECUTOR >/dev/null
+view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
+--tolerance 200 >/dev/null
 
     # Propose then cancel: state moves from Waiting to Unset. Scheduled via the
     # generic `propose(proposer, op: AdminOperation, salt)`. SetPositionLimits is a
@@ -96,12 +100,17 @@ flow_governance() {
     if [ "$st" != "Ready" ] && [ "$st" != "Done" ]; then
         _assert_fail gov_await_ready "op $op_exec never reached Ready (state=$st)"
     fi
-    args_f="$LOG_DIR/gov_exec_args.json"
-    gov_scval_args set_position_limits \
-        --limits '{"max_supply_positions":8,"max_borrow_positions":8}' > "$args_f"
-    inv gov_execute "$ADMIN" "$GOVERNANCE" -- execute \
-        --executor null --target "$GOV_CONTROLLER" --function set_position_limits \
-        --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC" >/dev/null
+args_f="$LOG_DIR/gov_exec_args.json"
+gov_scval_args set_position_limits \
+--limits '{"max_supply_positions":8,"max_borrow_positions":8}' > "$args_f"
+view gov_hash_exec "$GOVERNANCE" -- hash_operation \
+--target "$GOV_CONTROLLER" --function set_position_limits \
+--args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC" >/dev/null
+view gov_op_ledger_exec "$GOVERNANCE" -- get_operation_ledger \
+--operation_id "$op_exec" >/dev/null
+inv gov_execute "$ADMIN" "$GOVERNANCE" -- execute \
+--executor null --target "$GOV_CONTROLLER" --function set_position_limits \
+--args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC" >/dev/null
     gov_assert_state gov_state_done "$op_exec" Done
     # A post-execution replay of the same op reverts (already Done, #4002 pre-ready).
     xfail gov_execute_replay 'Error\(' "$ADMIN" "$GOVERNANCE" -- execute \
@@ -117,10 +126,36 @@ flow_governance() {
     # Operation validation runs at propose time: limits above POSITION_LIMIT_MAX=10
     # are rejected (#36) before anything is scheduled. This bound lives on the
     # governance path (controller's direct setter is a thin owner-only writer).
-    xfail gov_propose_bad_limits 'Error\(Contract, #36\)' "$ADMIN" "$GOVERNANCE" -- propose \
-        --proposer "$ADMIN_ADDR" \
-        --op '{"SetPositionLimits":{"max_supply_positions":11,"max_borrow_positions":11}}' \
-        --salt "$GOV_SALT_BADLIMITS"
+xfail gov_propose_bad_limits 'Error\(Contract, #36\)' "$ADMIN" "$GOVERNANCE" -- propose \
+--proposer "$ADMIN_ADDR" \
+--op '{"SetPositionLimits":{"max_supply_positions":11,"max_borrow_positions":11}}' \
+--salt "$GOV_SALT_BADLIMITS"
+
+# Governance-self timelock path: grant a role to DAVE through execute_self.
+local op_self
+op_self=$(inv gov_self_propose_grant "$ADMIN" "$GOVERNANCE" -- propose \
+--proposer "$ADMIN_ADDR" \
+--op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
+--salt "$GOV_SALT_SELF_GRANT" | tr -d '"[:space:]')
+gov_assert_state gov_self_state_waiting "$op_self" Waiting
+st=$(gov_await_ready "$op_self")
+if [ "$st" != "Ready" ] && [ "$st" != "Done" ]; then
+_assert_fail gov_self_await_ready "op $op_self never reached Ready (state=$st)"
+fi
+inv gov_self_execute_grant "$ADMIN" "$GOVERNANCE" -- execute_self \
+--executor null \
+--op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
+--salt "$GOV_SALT_SELF_GRANT" >/dev/null
+view gov_has_role_dave_executor "$GOVERNANCE" -- has_role \
+--account "$DAVE_ADDR" --role EXECUTOR >/dev/null
+
+# Production WASM excludes testing-only entrypoints.
+xfail gov_execute_immediate_absent 'execute_immediate|unknown|not found|No such' \
+"$ADMIN" "$GOVERNANCE" -- execute_immediate \
+--caller "$ADMIN_ADDR" \
+--op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}'
+xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
+"$ADMIN" "$GOVERNANCE" -- set_controller --addr "$CONTROLLER"
 
     # Owner-immediate emergency brake forwards to the governance-owned controller.
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause >/dev/null

@@ -1,14 +1,13 @@
 use common::types::{MarketParamsRaw, MarketStateSnapshot};
 use soroban_sdk::{contractevent, contracttype, Address, Env, Vec};
 
-/// Pool market accounting snapshot emitted after successful pool mutations.
-///
-/// Field order is wire ABI; do not reorder:
-/// `[asset, timestamp, supply_index_ray, borrow_index_ray, reserves_ray,
-///   supplied_ray, borrowed_ray, revenue_ray]`.
+/// Pool market accounting snapshot. Field order is wire ABI:
+/// `[hub_id, asset, timestamp, supply_index, borrow_index, cash,
+///   supplied, borrowed, revenue]`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolMarketStateEvent(
+    pub u32,
     pub Address,
     pub u64,
     pub i128,
@@ -22,14 +21,15 @@ pub struct PoolMarketStateEvent(
 impl From<&MarketStateSnapshot> for PoolMarketStateEvent {
     fn from(s: &MarketStateSnapshot) -> Self {
         Self(
-            s.asset.clone(),
+            s.hub_asset.hub_id,
+            s.hub_asset.asset.clone(),
             s.timestamp,
-            s.supply_index_ray,
-            s.borrow_index_ray,
-            s.reserves_ray,
-            s.supplied_ray,
-            s.borrowed_ray,
-            s.revenue_ray,
+            s.supply_index,
+            s.borrow_index,
+            s.cash,
+            s.supplied,
+            s.borrowed,
+            s.revenue,
         )
     }
 }
@@ -43,6 +43,7 @@ pub struct PoolMarketStateBatchEvent {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolMarketParamsEvent {
+    pub hub_id: u32,
     pub asset: Address,
     pub params: MarketParamsRaw,
 }
@@ -56,6 +57,7 @@ pub struct PoolMarketParamsBatchEvent {
 #[contractevent(topics = ["strategy", "fee"])]
 #[derive(Clone, Debug)]
 pub struct StrategyFeeEvent {
+    pub hub_id: u32,
     pub asset: Address,
     pub amount: i128,
     pub fee: i128,
@@ -90,14 +92,24 @@ pub(crate) fn publish_market_params_batch(env: &Env, updates: Vec<PoolMarketPara
 }
 
 /// Emits a single market-params update as a one-element batch.
-pub(crate) fn publish_market_params(env: &Env, asset: Address, params: MarketParamsRaw) {
+pub(crate) fn publish_market_params(
+    env: &Env,
+    hub_id: u32,
+    asset: Address,
+    params: MarketParamsRaw,
+) {
     let mut updates = Vec::new(env);
-    updates.push_back(PoolMarketParamsEvent { asset, params });
+    updates.push_back(PoolMarketParamsEvent {
+        hub_id,
+        asset,
+        params,
+    });
     publish_market_params_batch(env, updates);
 }
 
 pub(crate) fn publish_strategy_fee(
     env: &Env,
+    hub_id: u32,
     asset: Address,
     amount: i128,
     fee: i128,
@@ -108,6 +120,7 @@ pub(crate) fn publish_strategy_fee(
     }
 
     StrategyFeeEvent {
+        hub_id,
         asset,
         amount,
         fee,

@@ -1,6 +1,7 @@
 use controller::constants::RAY;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, HubAssetKey, LendingTest,
+    ALICE, BOB,
 };
 // Borrow gate
 
@@ -12,7 +13,7 @@ fn test_borrow_above_max_utilization_rejected() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market_params("USDC", |p| {
-            p.max_utilization_ray = RAY * 85 / 100;
+            p.max_utilization = RAY * 85 / 100;
         })
         .build();
 
@@ -33,7 +34,7 @@ fn test_borrow_at_max_utilization_succeeds() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market_params("USDC", |p| {
-            p.max_utilization_ray = RAY * 85 / 100;
+            p.max_utilization = RAY * 85 / 100;
         })
         .build();
 
@@ -56,7 +57,7 @@ fn test_max_utilization_uses_index_aware_ratio() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market_params("USDC", |p| {
-            p.max_utilization_ray = RAY * 85 / 100;
+            p.max_utilization = RAY * 85 / 100;
         })
         .build();
 
@@ -90,7 +91,7 @@ fn test_withdraw_pushing_above_max_utilization_rejected() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market_params("USDC", |p| {
-            p.max_utilization_ray = RAY * 85 / 100; // 85 % cap.
+            p.max_utilization = RAY * 85 / 100; // 85 % cap.
         })
         .build();
 
@@ -143,8 +144,8 @@ fn test_zero_supply_with_outstanding_borrow_rejected() {
     let asset_addr = t.resolve_asset("USDC");
     let alice_addr = t.get_or_create_user(ALICE);
     let account_id = t.resolve_account_id(ALICE);
-    let withdrawals: SorobanVec<(soroban_sdk::Address, i128)> =
-        soroban_sdk::vec![&t.env, (asset_addr, 0i128)];
+    let withdrawals: SorobanVec<(HubAssetKey, i128)> =
+        soroban_sdk::vec![&t.env, (hub_asset(asset_addr), 0i128)];
     let ctrl = t.ctrl_client();
     let result = match ctrl.try_withdraw(&alice_addr, &account_id, &withdrawals, &None) {
         Ok(Ok(_)) => Ok(()),
@@ -159,21 +160,21 @@ fn test_zero_supply_with_outstanding_borrow_rejected() {
 fn test_update_params_rejects_max_below_optimal() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let model = controller::types::InterestRateModel {
-        max_borrow_rate_ray: RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY * 4 / 100,
-        slope2_ray: RAY * 10 / 100,
-        slope3_ray: RAY * 80 / 100,
-        mid_utilization_ray: RAY * 50 / 100,
-        optimal_utilization_ray: RAY * 80 / 100,
+        max_borrow_rate: RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 80 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
         // max < optimal — invalid.
-        max_utilization_ray: RAY * 70 / 100,
-        reserve_factor_bps: 1000,
+        max_utilization: RAY * 70 / 100,
+        reserve_factor: 1000,
     };
     let asset = t.resolve_asset("USDC");
     let result = t
         .ctrl_client()
-        .try_upgrade_liquidity_pool_params(&asset, &model);
+        .try_upgrade_liquidity_pool_params(&hub_asset(asset), &model);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -185,20 +186,20 @@ fn test_update_params_rejects_max_below_optimal() {
 fn test_update_params_rejects_max_above_one() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let model = controller::types::InterestRateModel {
-        max_borrow_rate_ray: RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY * 4 / 100,
-        slope2_ray: RAY * 10 / 100,
-        slope3_ray: RAY * 80 / 100,
-        mid_utilization_ray: RAY * 50 / 100,
-        optimal_utilization_ray: RAY * 80 / 100,
-        max_utilization_ray: RAY + 1, // > 100 % — invalid.
-        reserve_factor_bps: 1000,
+        max_borrow_rate: RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 80 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
+        max_utilization: RAY + 1, // > 100 % — invalid.
+        reserve_factor: 1000,
     };
     let asset = t.resolve_asset("USDC");
     let result = t
         .ctrl_client()
-        .try_upgrade_liquidity_pool_params(&asset, &model);
+        .try_upgrade_liquidity_pool_params(&hub_asset(asset), &model);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),

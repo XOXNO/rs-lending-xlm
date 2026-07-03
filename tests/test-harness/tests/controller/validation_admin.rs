@@ -1,56 +1,59 @@
 use controller::constants::MAX_FLASHLOAN_FEE_BPS;
-use soroban_sdk::{vec, Address};
-use test_harness::{usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE};
+use soroban_sdk::vec;
+use test_harness::{
+    hub_asset, usdc_preset, usdt_stable_preset, HubAssetKey, LendingTest, SpokePreset, ALICE,
+};
 // edit_asset_config is a thin setter: it persists the config as given
 // (input validation lives in governance).
 
 #[test]
 fn test_edit_asset_config_persists_flashloan_fee_at_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let ctrl = t.ctrl_client();
-    let mut cfg = ctrl.get_market_config(&asset).asset_config;
-    cfg.flashloan_fee_bps = MAX_FLASHLOAN_FEE_BPS as u32;
-    ctrl.edit_asset_config(&asset, &cfg);
-    let updated = ctrl.get_market_config(&asset).asset_config;
-    assert_eq!(updated.flashloan_fee_bps, MAX_FLASHLOAN_FEE_BPS as u32);
+    // Flash-loan fee lives on the pool `MarketParamsRaw`; the harness
+    // `edit_asset_config` helper writes it through to pool storage.
+    t.edit_asset_config("USDC", |c| {
+        c.flashloan_fee = MAX_FLASHLOAN_FEE_BPS as u32;
+    });
+    let updated = t.get_asset_config("USDC");
+    assert_eq!(updated.flashloan_fee, MAX_FLASHLOAN_FEE_BPS as u32);
 }
-// emode.rs:95 -- EModeCategoryDeprecated rejection on user supply path
+// spoke.rs:95 -- SpokeDeprecated rejection on user supply path
 //
-// `remove_e_mode_category` flips `is_deprecated = true` and walks asset
+// `remove_spoke_category` flips `is_deprecated = true` and walks asset
 // reverse-indexes. A user attempting to supply with the deprecated category
-// triggers `ensure_e_mode_not_deprecated` via `active_e_mode_category` which
+// triggers `ensure_spoke_not_deprecated` via `active_spoke_category` which
 // is called both from `create_account` and from `process_deposit`.
 
 #[test]
 #[should_panic(expected = "Error(Contract, #301)")]
-fn test_emode_user_supply_rejects_deprecated_category() {
+fn test_spoke_user_supply_rejects_deprecated_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(
-            1,
-            EModeCategoryPreset {
+        .with_spoke(
+            2,
+            SpokePreset {
                 ltv: 9_700,
                 threshold: 9_800,
                 bonus: 200,
             },
         )
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
     // Deprecate the category via admin.
-    t.remove_e_mode_category(1);
+    t.remove_spoke_category(2);
 
-    // User attempts a fresh supply with the deprecated e-mode category. The
-    // controller resolves `active_e_mode_category(env, 1)` and panics with
-    // EModeCategoryDeprecated (#301).
+    // User attempts a fresh supply with the deprecated spoke category. The
+    // controller resolves `active_spoke_category(env, 2)` and panics with
+    // SpokeDeprecated (#301).
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_market("USDC");
     let usdc_addr = usdc.asset.clone();
     // 1_000 USDC at 7 decimals.
     usdc.token_admin.mint(&alice, &10_000_000_000_i128);
-    let assets: soroban_sdk::Vec<(Address, i128)> = vec![&t.env, (usdc_addr, 10_000_000_000_i128)];
-    t.ctrl_client().supply(&alice, &0u64, &1u32, &assets);
+    let assets: soroban_sdk::Vec<(HubAssetKey, i128)> =
+        vec![&t.env, (hub_asset(usdc_addr), 10_000_000_000_i128)];
+    t.ctrl_client().supply(&alice, &0u64, &2u32, &assets);
 }

@@ -1,7 +1,9 @@
-use controller::types::{EModeAssetArgs, InterestRateModel};
+use controller::types::{InterestRateModel, SpokeAssetArgs};
 use soroban_sdk::Address;
 
 use crate::context::LendingTest;
+use crate::helpers::{hub_asset, HARNESS_HUB, HARNESS_SPOKE};
+use crate::view::AssetConfigView;
 
 impl LendingTest {
     // Public accessors
@@ -32,16 +34,44 @@ impl LendingTest {
     // Asset config editing
 
     /// Edit asset config at runtime via a closure that mutates the current config.
-    pub fn edit_asset_config(
-        &self,
-        asset_name: &str,
-        f: impl FnOnce(&mut controller::types::AssetConfigRaw),
-    ) {
+    /// Risk parameters and `liquidation_fees` write back to the base harness
+    /// spoke through `edit_asset_in_spoke`; flash-loan eligibility/fee write
+    /// directly to the pool `MarketParamsRaw` (no endpoint toggles them).
+    pub fn edit_asset_config(&self, asset_name: &str, f: impl FnOnce(&mut AssetConfigView)) {
         let asset = self.resolve_asset(asset_name);
-        let ctrl = self.ctrl_client();
-        let mut config = ctrl.get_market_config(&asset).asset_config;
+        let mut config = self.get_asset_config(asset_name);
         f(&mut config);
-        ctrl.edit_asset_config(&asset, &config);
+
+        self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset: asset.clone(),
+            spoke_id: HARNESS_SPOKE,
+            can_collateral: config.is_collateralizable,
+            can_borrow: config.is_borrowable,
+            paused: false,
+            frozen: false,
+            ltv: config.loan_to_value,
+            threshold: config.liquidation_threshold,
+            bonus: config.liquidation_bonus,
+            liquidation_fees: config.liquidation_fees,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
+        });
+
+        let pool = self.get_pool_address(asset_name);
+        self.env.as_contract(&pool, || {
+            let key = controller::types::PoolKey::Params(hub_asset(asset.clone()));
+            let mut params: controller::types::MarketParamsRaw = self
+                .env
+                .storage()
+                .persistent()
+                .get(&key)
+                .expect("pool params must exist");
+            params.is_flashloanable = config.is_flashloanable;
+            params.flashloan_fee = config.flashloan_fee;
+            self.env.storage().persistent().set(&key, &params);
+        });
     }
     // Position limits
 
@@ -57,16 +87,16 @@ impl LendingTest {
     pub fn upgrade_pool_params(&self, asset_name: &str, params: InterestRateModel) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client()
-            .upgrade_liquidity_pool_params(&asset, &params);
+            .upgrade_liquidity_pool_params(&hub_asset(asset), &params);
     }
-    // E-mode management
+    // Spoke management
 
-    pub fn remove_e_mode_category(&self, category_id: u32) {
-        self.ctrl_client().remove_e_mode_category(&category_id);
+    pub fn remove_spoke_category(&self, category_id: u32) {
+        self.ctrl_client().remove_spoke(&category_id);
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn add_asset_to_e_mode(
+    pub fn add_asset_to_spoke(
         &self,
         asset_name: &str,
         category_id: u32,
@@ -77,22 +107,26 @@ impl LendingTest {
         bonus: u32,
     ) {
         let asset = self.resolve_asset(asset_name);
-        self.ctrl_client()
-            .add_asset_to_e_mode_category(&EModeAssetArgs {
-                asset,
-                category_id,
-                can_collateral,
-                can_borrow,
-                ltv,
-                threshold,
-                bonus,
-                supply_cap: 0,
-                borrow_cap: 0,
-            });
+        self.ctrl_client().add_asset_to_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset,
+            spoke_id: category_id,
+            can_collateral,
+            can_borrow,
+            paused: false,
+            frozen: false,
+            ltv,
+            threshold,
+            bonus,
+            liquidation_fees: 0,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
+        });
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn edit_asset_in_e_mode(
+    pub fn edit_asset_in_spoke(
         &self,
         asset_name: &str,
         category_id: u32,
@@ -103,32 +137,36 @@ impl LendingTest {
         bonus: u32,
     ) {
         let asset = self.resolve_asset(asset_name);
-        self.ctrl_client()
-            .edit_asset_in_e_mode_category(&EModeAssetArgs {
-                asset,
-                category_id,
-                can_collateral,
-                can_borrow,
-                ltv,
-                threshold,
-                bonus,
-                supply_cap: 0,
-                borrow_cap: 0,
-            });
+        self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset,
+            spoke_id: category_id,
+            can_collateral,
+            can_borrow,
+            paused: false,
+            frozen: false,
+            ltv,
+            threshold,
+            bonus,
+            liquidation_fees: 0,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
+        });
     }
 
-    pub fn remove_asset_from_e_mode(&self, asset_name: &str, category_id: u32) {
+    pub fn remove_asset_from_spoke(&self, asset_name: &str, category_id: u32) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client()
-            .remove_asset_from_e_mode(&asset, &category_id);
+            .remove_asset_from_spoke(&hub_asset(asset), &category_id);
     }
 
-    /// Edit an e-mode asset with explicit spoke supply/borrow caps. Mirrors
-    /// `edit_asset_in_e_mode` but forwards real cap values instead of the
+    /// Edit a spoke asset with explicit spoke supply/borrow caps. Mirrors
+    /// `edit_asset_in_spoke` but forwards real cap values instead of the
     /// hardcoded `0` (disabled) the other helpers use, so cap-bound preview
     /// branches become reachable from tests.
     #[allow(clippy::too_many_arguments)]
-    pub fn edit_asset_in_e_mode_caps(
+    pub fn edit_asset_in_spoke_caps(
         &self,
         asset_name: &str,
         category_id: u32,
@@ -141,17 +179,21 @@ impl LendingTest {
         borrow_cap: i128,
     ) {
         let asset = self.resolve_asset(asset_name);
-        self.ctrl_client()
-            .edit_asset_in_e_mode_category(&EModeAssetArgs {
-                asset,
-                category_id,
-                can_collateral,
-                can_borrow,
-                ltv,
-                threshold,
-                bonus,
-                supply_cap,
-                borrow_cap,
-            });
+        self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset,
+            spoke_id: category_id,
+            can_collateral,
+            can_borrow,
+            paused: false,
+            frozen: false,
+            ltv,
+            threshold,
+            bonus,
+            liquidation_fees: 0,
+            supply_cap,
+            borrow_cap,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
+        });
     }
 }

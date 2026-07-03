@@ -2,16 +2,16 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
-    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
-    PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
+    HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
+    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolSeizeEntry,
+    PoolStrategyMutation, PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry,
 };
 use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env, Vec};
 
 #[contractclient(name = "LiquidityPoolClient")]
 pub trait LiquidityPoolInterface {
-    /// Creates an asset market with fresh RAY indexes.
-    fn create_market(env: Env, params: MarketParamsRaw);
+    /// Creates an asset market on `hub_id` with fresh RAY indexes.
+    fn create_market(env: Env, hub_id: u32, params: MarketParamsRaw);
 
     /// Supplies each entry and returns the updated scaled shares, input-
     /// ordered. No counterparty: the controller pre-transfers the tokens.
@@ -36,12 +36,12 @@ pub trait LiquidityPoolInterface {
     /// Repays each action (tokens pre-transferred by the controller),
     /// refunding overpayments to `payer`; input-ordered.
     fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation>;
-    fn update_indexes(env: Env, asset: Address);
-    fn add_rewards(env: Env, asset: Address, amount: i128);
+    fn update_indexes(env: Env, hub_asset: HubAssetKey);
+    fn add_rewards(env: Env, hub_asset: HubAssetKey, amount: i128);
     /// Executes a flash loan that must return `amount + fee`.
     fn flash_loan(
         env: Env,
-        asset: Address,
+        hub_asset: HubAssetKey,
         initiator: Address,
         receiver: Address,
         amount: i128,
@@ -57,34 +57,29 @@ pub trait LiquidityPoolInterface {
         fee: i128,
     ) -> PoolStrategyMutation;
 
-    /// Removes a seized liquidation or bad-debt position.
-    fn seize_position(
-        env: Env,
-        asset: Address,
-        side: AccountPositionType,
-        position: ScaledPositionRaw,
-    ) -> PoolPositionMutation;
+    /// Removes seized liquidation or bad-debt positions; entries targeting the
+    /// same hub-asset are applied sequentially.
+    fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>);
 
     /// Claims protocol revenue capped by reserves and claimable shares.
-    fn claim_revenue(env: Env, asset: Address) -> PoolAmountMutation;
-    fn update_params(env: Env, asset: Address, model: InterestRateModel);
-    fn update_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128);
+    fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation;
+    fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel);
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
-    fn get_utilisation(env: Env, asset: Address) -> i128;
+    fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128;
     /// Available reserves = accounted `cash` (asset decimals), not the live token
     /// balance, so direct donations cannot inflate it.
-    fn get_reserves(env: Env, asset: Address) -> i128;
-    fn get_deposit_rate(env: Env, asset: Address) -> i128;
-    fn get_borrow_rate(env: Env, asset: Address) -> i128;
-    fn get_revenue(env: Env, asset: Address) -> i128;
-    fn get_supplied_amount(env: Env, asset: Address) -> i128;
-    fn get_borrowed_amount(env: Env, asset: Address) -> i128;
-    fn get_delta_time(env: Env, asset: Address) -> u64;
-    /// Raw params and accounting state for one asset. Used for pool params
-    /// (decimals, utilization caps); index reads go through `get_bulk_indexes`.
-    fn get_sync_data(env: Env, asset: Address) -> PoolSyncData;
-    /// Borrow/supply indexes accrued to the current ledger time for each asset,
-    /// index-aligned with the request. One call replaces N per-asset reads for
-    /// flows that only need indexes.
-    fn get_bulk_indexes(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw>;
+    fn get_reserves(env: Env, hub_asset: HubAssetKey) -> i128;
+    fn get_deposit_rate(env: Env, hub_asset: HubAssetKey) -> i128;
+    fn get_borrow_rate(env: Env, hub_asset: HubAssetKey) -> i128;
+    fn get_revenue(env: Env, hub_asset: HubAssetKey) -> i128;
+    fn get_supplied_amount(env: Env, hub_asset: HubAssetKey) -> i128;
+    fn get_borrowed_amount(env: Env, hub_asset: HubAssetKey) -> i128;
+    fn get_delta_time(env: Env, hub_asset: HubAssetKey) -> u64;
+    /// Raw params and accounting state for one hub-asset market. Used for pool
+    /// params (decimals, utilization caps); index reads go through `get_bulk_indexes`.
+    fn get_sync_data(env: Env, hub_asset: HubAssetKey) -> PoolSyncData;
+    /// Borrow/supply indexes accrued to the current ledger time for each hub-asset
+    /// market, index-aligned with the request. One call replaces N per-asset reads
+    /// for flows that only need indexes.
+    fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw>;
 }

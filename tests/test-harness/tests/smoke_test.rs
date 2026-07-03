@@ -2,7 +2,7 @@ extern crate std;
 
 use test_harness::{
     apply_flash_fee, build_aggregator_swap, days, eth_preset, usd_cents, usdc_preset,
-    usdt_stable_preset, LendingTest, PositionType, ALICE, BOB, LIQUIDATOR, STABLECOIN_EMODE,
+    usdt_stable_preset, LendingTest, PositionType, ALICE, BOB, LIQUIDATOR, STABLECOIN_SPOKE,
 };
 // 1. test_supply_creates_position
 
@@ -141,25 +141,25 @@ fn test_withdraw_and_repay() {
 
     t.assert_healthy(ALICE);
 }
-// 6. test_emode_higher_ltv
+// 6. test_spoke_higher_ltv
 
 #[test]
-fn test_emode_higher_ltv() {
+fn test_spoke_higher_ltv() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    // Create an e-mode account for Alice.
-    t.create_emode_account(ALICE, 1);
+    // Create an spoke account for Alice.
+    t.create_spoke_account(ALICE, 2);
 
     // Supply 10k USDC.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Borrow at 95% LTV = $9500 USDT. E-mode LTV is 97%, so 95% is safe.
+    // Borrow at 95% LTV = $9500 USDT. Spoke LTV is 97%, so 95% is safe.
     t.borrow(ALICE, "USDT", 9_500.0);
 
     t.assert_healthy(ALICE);
@@ -168,7 +168,7 @@ fn test_emode_higher_ltv() {
     let hf = t.health_factor(ALICE);
     assert!(
         (1.0..1.10).contains(&hf),
-        "e-mode HF should be tight but healthy, got {}",
+        "spoke HF should be tight but healthy, got {}",
         hf
     );
 }
@@ -179,7 +179,7 @@ fn test_revenue_accrues_over_time() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
     // Seed real ETH supply so revenue accrual isn't short-circuited by the
-    // empty-pool guard in `add_protocol_revenue_ray`.
+    // empty-pool guard in `add_protocol_revenue`.
     t.supply(BOB, "ETH", 50.0);
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);

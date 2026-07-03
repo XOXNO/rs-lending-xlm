@@ -4,8 +4,17 @@ use super::*;
 use crate::test_support::init_ledger;
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
+use common::types::HubAssetKey;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
+
+/// Pool tests use hub 0 as a local fixture id.
+fn hub(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    }
+}
 
 struct TestSetup {
     env: Env,
@@ -23,22 +32,22 @@ impl TestSetup {
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
         let params = MarketParamsRaw {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY / 10,
-            slope2_ray: RAY / 5,
-            slope3_ray: RAY / 2,
-            mid_utilization_ray: RAY / 2,
-            optimal_utilization_ray: RAY * 8 / 10,
-            max_utilization_ray: RAY * 95 / 100,
-            reserve_factor_bps: 1_000,
-            supply_cap: 0,
-            borrow_cap: 0,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY / 10,
+            slope2: RAY / 5,
+            slope3: RAY / 2,
+            mid_utilization: RAY / 2,
+            optimal_utilization: RAY * 8 / 10,
+            max_utilization: RAY * 95 / 100,
+            reserve_factor: 1_000,
+            is_flashloanable: false,
+            flashloan_fee: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
         let contract = env.register(LiquidityPool, (admin.clone(),));
-        LiquidityPoolClient::new(&env, &contract).create_market(&params);
+        LiquidityPoolClient::new(&env, &contract).create_market(&0u32, &params);
 
         Self {
             env,
@@ -62,8 +71,8 @@ fn test_load_panics_when_state_is_missing() {
         t.env
             .storage()
             .persistent()
-            .remove(&PoolKey::State(t.asset.clone()));
-        let _ = Cache::load(&t.env, &t.asset);
+            .remove(&PoolKey::State(hub(&t.asset)));
+        let _ = Cache::load(&t.env, &hub(&t.asset));
     });
 }
 
@@ -82,6 +91,7 @@ fn test_calculate_utilization_returns_zero_when_supply_index_zeroes_total_supply
             last_timestamp: 0,
             current_timestamp: 1_000_000,
             params: (&t.params).into(),
+            hub_asset: hub(&t.asset),
             cash: 0,
         };
 
@@ -108,6 +118,7 @@ fn cache_with(
         last_timestamp: 0,
         current_timestamp: 1_000_000,
         params: params.into(),
+        hub_asset: hub(&params.asset_id),
         cash: 0,
     }
 }
@@ -190,12 +201,10 @@ fn test_market_index_reflects_current_indexes() {
     t.as_contract(|| {
         let cache = cache_with(&t.env, &t.params, 0, 0, 0, 2 * RAY, 3 * RAY);
         let idx = cache.market_index();
-        assert_eq!(idx.supply_index_ray, 2 * RAY);
-        assert_eq!(idx.borrow_index_ray, 3 * RAY);
+        assert_eq!(idx.supply_index, 2 * RAY);
+        assert_eq!(idx.borrow_index, 3 * RAY);
     });
 }
-
-// Direct cache tests keep panic scope local.
 
 #[test]
 fn test_burn_claimable_revenue_zero_revenue_returns_zero() {
@@ -252,7 +261,7 @@ fn test_position_mutation_builder_includes_scaled_and_actual() {
     t.as_contract(|| {
         let cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
         let m = cache.position_mutation(Ray::from(42 * RAY), 123);
-        assert_eq!(m.position.scaled_amount_ray, 42 * RAY);
+        assert_eq!(m.position.scaled_amount, 42 * RAY);
         assert_eq!(m.actual_amount, 123);
     });
 }
@@ -270,7 +279,6 @@ fn test_amount_and_strategy_mutation_builders() {
     });
 }
 
-// Direct cache test covers the helper boundary.
 #[test]
 #[should_panic(expected = "Error(Contract, #33)")]
 fn test_ray_checked_sub_assign_panics_on_underflow() {

@@ -6,9 +6,17 @@ use crate::test_support::init_ledger;
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
 use common::math::fp::Ray;
-use common::types::MarketParamsRaw;
+use common::types::{HubAssetKey, MarketParamsRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
+
+/// Pool tests use hub 0 as a local fixture id.
+fn hub(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    }
+}
 
 struct TestSetup {
     env: Env,
@@ -25,22 +33,22 @@ impl TestSetup {
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
         let params = MarketParamsRaw {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY / 10,
-            slope2_ray: RAY / 5,
-            slope3_ray: RAY / 2,
-            mid_utilization_ray: RAY / 2,
-            optimal_utilization_ray: RAY * 8 / 10,
-            max_utilization_ray: RAY * 95 / 100,
-            reserve_factor_bps: 1_000,
-            supply_cap: 0,
-            borrow_cap: 0,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY / 10,
+            slope2: RAY / 5,
+            slope3: RAY / 2,
+            mid_utilization: RAY / 2,
+            optimal_utilization: RAY * 8 / 10,
+            max_utilization: RAY * 95 / 100,
+            reserve_factor: 1_000,
+            is_flashloanable: false,
+            flashloan_fee: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
         let contract = env.register(LiquidityPool, (admin.clone(),));
-        LiquidityPoolClient::new(&env, &contract).create_market(&params);
+        LiquidityPoolClient::new(&env, &contract).create_market(&0u32, &params);
 
         Self {
             env,
@@ -71,58 +79,9 @@ fn cache_with(
         last_timestamp: 0,
         current_timestamp: 1_000_000,
         params: params.into(),
+        hub_asset: hub(&params.asset_id),
         cash,
     }
-}
-
-#[test]
-fn test_enforce_supply_cap_disabled_is_noop() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        let cache = cache_with(&t.env, &t.params, 10 * 10i128.pow(20), 0, 0);
-        let delta = Ray::from(10i128.pow(20));
-        enforce_supply_cap(&t.env, &cache, delta);
-        let mut params = t.params.clone();
-        params.supply_cap = i128::MAX;
-        let cache = cache_with(&t.env, &params, 10 * 10i128.pow(20), 0, 0);
-        enforce_supply_cap(&t.env, &cache, delta);
-    });
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #")]
-fn test_enforce_supply_cap_rejects_over_cap() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        // Use the same scaled convention as other tests in this file (10 * RAY = 10 units @ idx 1)
-        let mut params = t.params.clone();
-        params.supply_cap = 12 * 10_000_000;
-        let cache = cache_with(&t.env, &params, 10 * RAY, 0, 0);
-        let delta = Ray::from(3 * RAY);
-        enforce_supply_cap(&t.env, &cache, delta);
-    });
-}
-
-#[test]
-fn test_enforce_borrow_cap_disabled_is_noop() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        let cache = cache_with(&t.env, &t.params, 0, 5 * RAY, 0);
-        enforce_borrow_cap(&t.env, &cache, Ray::from(RAY));
-    });
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #")]
-fn test_enforce_borrow_cap_rejects_over_cap() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        let mut params = t.params.clone();
-        params.borrow_cap = 7 * 10_000_000;
-        let cache = cache_with(&t.env, &params, 0, 5 * RAY, 0);
-        let delta = Ray::from(3 * RAY);
-        enforce_borrow_cap(&t.env, &cache, delta);
-    });
 }
 
 #[test]
@@ -139,7 +98,7 @@ fn test_require_utilization_below_max_early_returns_when_max_util_ge_one() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut params = t.params.clone();
-        params.max_utilization_ray = RAY;
+        params.max_utilization = RAY;
         let cache = cache_with(&t.env, &params, 10 * RAY, 11 * RAY, 0);
         require_utilization_below_max(&t.env, &cache);
     });

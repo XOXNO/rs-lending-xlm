@@ -1,18 +1,4 @@
-//! # Oracle — USD price resolution for Reflector and RedStone sources.
-//!
-//! One strict, fail-closed path: every source is required and must be fresh,
-//! and dual-source markets blend within the tolerance band or revert. Views
-//! resolve prices the same way, so a view reverts exactly when a transaction
-//! would.
-//!
-//! Call trace: `token_price` (status/sanity gates + price cache) →
-//! `compose::resolve_components`, which reads the primary and, in dual-source
-//! markets, the anchor via `providers::read_required_source` — each normalized
-//! via `observation` — then blends the pair through
-//! `tolerance::calculate_final_price`. A quoted-base Reflector source reprices
-//! by recursing through `token_price` for the quote asset
-//! (`providers::reflector::resolve_usd_quote`). `price_components` exposes the
-//! same resolution to views.
+//! USD oracle resolution with fail-closed sources and tolerance checks.
 
 mod compose;
 mod observation;
@@ -29,9 +15,9 @@ pub(crate) mod tolerance;
 #[path = "../../../../certora/controller/harness/oracle_tolerance.rs"]
 pub(crate) mod tolerance;
 
-use soroban_sdk::Address;
+use common::types::HubAssetKey;
 
-use crate::cache::Cache;
+use crate::context::Cache;
 
 pub use compose::ResolvedOracleComponents;
 
@@ -40,10 +26,12 @@ pub use compose::ResolvedOracleComponents;
 pub(crate) use tolerance::calculate_final_price;
 
 pub(crate) use prefetch::prefetch_redstone_feeds;
-pub use price::token_price;
+pub use price::{price_with_config, token_price};
 
-pub fn price_components(cache: &mut Cache, asset: &Address) -> ResolvedOracleComponents {
-    let market = cache.cached_market_config(asset);
-    let configs = market.oracle_config;
+pub fn price_components(cache: &mut Cache, hub_asset: &HubAssetKey) -> ResolvedOracleComponents {
+    // Pricing is token-rooted (hub-independent), keyed by the bare asset:
+    // `resolve_oracle_config` panics `OracleNotConfigured` for any asset with no
+    // `AssetOracle` entry (unlisted, pending, or disabled).
+    let configs = cache.resolve_oracle_config(&hub_asset.asset);
     compose::resolve_components(cache, &configs)
 }

@@ -29,7 +29,7 @@ controller's own token balances before and after the call.
 The controller measures what crossed the router boundary instead of trusting
 router-reported amounts.
 
-**Pre-call strategy-bound validation** (`contracts/controller/src/strategies/helpers.rs::validate_strategy_swap`).
+**Pre-call strategy-bound validation** (`contracts/controller/src/strategies/swap/route.rs::validate_strategy_swap`).
 `StrategySwap` is opaque `Bytes`; `amount_in` is the strategy's own
 measured leg delta, the withdrawn or borrowed amount, passed into
 `swap_tokens` and bound to `execute_strategy.total_in`. The controller
@@ -43,7 +43,7 @@ validates:
 The route itself is opaque `Bytes` owned by the aggregator/router ABI. The
 controller does not decode or validate paths, hops, pools, venues, or splits.
 
-**Pre-call balance snapshot** (`snapshot_swap_balances`): the controller
+**Pre-call balance snapshot** (`contracts/controller/src/strategies/swap/balances.rs::snapshot_swap_balances`): the controller
 records its own balances of both the input and output tokens.
 
 **On-call binding**: the on-the-wire `execute_strategy.sender` is forced to the
@@ -67,7 +67,7 @@ guard. `call_router_with_reentrancy_guard` sets `FlashLoanOngoing`
 only if it was not already set (`previously_set`), so a swap nested inside an
 outer flash-loan flow keeps the guard live. Every position, strategy, and
 router flow calls `require_not_flash_loaning`
-(`contracts/controller/src/validation.rs`) on entry, so any such controller
+(`contracts/controller/src/risk/validation.rs`) on entry, so any such controller
 mutation entered from the router callback path reverts with
 `FlashLoanError::FlashLoanOngoing`. Governance/controller admin entrypoints
 and the owner-authenticated `renew_account` TTL entrypoint are not on this
@@ -111,11 +111,9 @@ Negative / accepted costs:
 
 ## References
 
-- `SCF_BUILD_ARCHITECTURE.md` §11.1 (Strategies).
-- `contracts/controller/src/strategies/helpers.rs::validate_strategy_swap`
-- `contracts/controller/src/strategies/helpers.rs::snapshot_swap_balances`
-- `contracts/controller/src/strategies/helpers.rs::verify_router_input_spend`
-- `contracts/controller/src/strategies/helpers.rs::verify_router_output`
+- `SCF_BUILD_ARCHITECTURE.md` §12 (Strategies).
+- `contracts/controller/src/strategies/swap/route.rs::validate_strategy_swap`
+- `contracts/controller/src/strategies/swap/balances.rs::{snapshot_swap_balances, verify_router_input_spend, verify_router_output}`
 - `contracts/controller/src/storage/instance.rs::set_flash_loan_ongoing`
-- `contracts/controller/src/validation.rs::require_not_flash_loaning`
+- `contracts/controller/src/risk/validation.rs::require_not_flash_loaning`
 - `common/src/types/aggregator.rs` (`StrategySwap`)

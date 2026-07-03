@@ -1,19 +1,15 @@
-//! Integrator preview views: `max_supply`, `max_borrow`, and `max_withdraw`.
-//!
-//! `max_withdraw` first tries a full close, then caps a partial by closed-form
-//! pool solvency headroom and settles with a short stroop walk
-//! against the exact `partial_ok` replica of the mutating path. Indexes keep
-//! accruing after the read, so callers acting later should leave a margin.
+//! Integrator preview views for supply, borrow, and withdraw limits.
 
+use crate::risk;
+use crate::storage;
 use common::constants::RAY;
 use common::math::fp::{Ray, Wad};
 use common::math::fp_core;
 use common::rates::{scaled_to_original, utilization};
-use controller_interface::types::Account;
-use soroban_sdk::{Address, Env};
+use common::types::{Account, HubAssetKey};
+use soroban_sdk::Env;
 
-use crate::cache::Cache;
-use crate::{helpers, storage};
+use crate::context::Cache;
 
 mod borrow;
 mod supply;
@@ -23,7 +19,7 @@ pub use borrow::max_borrow;
 pub use supply::max_supply;
 pub use withdraw::max_withdraw;
 
-/// Pool-side market state at view-simulated indexes.
+/// Pool-side market state with simulated indexes.
 struct MarketLimitCtx {
     // dimensional: pool totals are scaled shares; indexes convert to Token(asset).
     supplied: Ray,
@@ -39,14 +35,14 @@ struct MarketLimitCtx {
 }
 
 impl MarketLimitCtx {
-    fn load(cache: &mut Cache, asset: &Address) -> Self {
-        let index = cache.cached_market_index(asset);
-        let sync = cache.cached_pool_sync_data(asset);
+    fn load(cache: &mut Cache, hub_asset: &HubAssetKey) -> Self {
+        let index = cache.cached_market_index(hub_asset);
+        let sync = cache.cached_pool_sync_data(hub_asset);
         Self {
-            supplied: Ray::from(sync.state.supplied_ray),
-            borrowed: Ray::from(sync.state.borrowed_ray),
+            supplied: Ray::from(sync.state.supplied),
+            borrowed: Ray::from(sync.state.borrowed),
             cash: sync.state.cash,
-            max_utilization: Ray::from(sync.params.max_utilization_ray),
+            max_utilization: Ray::from(sync.params.max_utilization),
             supply_index: index.supply_index,
             decimals: sync.params.asset_decimals,
             borrow_index: index.borrow_index,
@@ -63,7 +59,12 @@ impl MarketLimitCtx {
         if borrowed_orig == Ray::ZERO {
             return cap;
         }
-        let min_supplied = ray_div_ceil(env, borrowed_orig, self.max_utilization);
+        let min_supplied = Ray::from(fp_core::mul_div_ceil(
+            env,
+            borrowed_orig.raw(),
+            RAY,
+            self.max_utilization.raw(),
+        ));
         if self.supplied <= min_supplied {
             return 0;
         }
@@ -73,8 +74,7 @@ impl MarketLimitCtx {
         cap.min(util_cap)
     }
 
-    /// Mirrors the pool's post-withdraw reserve, utilization, and solvency
-    /// guards for an outflow of `transfer_out` units burning `scaled_out`.
+    /// Mirrors pool post-withdraw reserve, utilization, and solvency guards.
     fn pool_state_ok(&self, env: &Env, scaled_out: Ray, transfer_out: i128) -> bool {
         if transfer_out > self.cash || scaled_out > self.supplied {
             return false;
@@ -95,19 +95,16 @@ impl MarketLimitCtx {
     }
 }
 
-fn ray_div_ceil(env: &Env, num: Ray, den: Ray) -> Ray {
-    Ray::from(fp_core::mul_div_ceil(env, num.raw(), RAY, den.raw()))
-}
-
 /// Replica of `require_post_pool_risk_gates` LTV/HF legs; HF >= 1 in
 /// floor division is equivalent to `weighted >= debt`.
 fn account_gates_ok(env: &Env, cache: &mut Cache, account: &Account) -> bool {
     if account.borrow_positions.is_empty() {
         return true;
     }
-    let totals = helpers::calculate_account_risk_totals(
+    let totals = risk::calculate_account_risk_totals(
         env,
         cache,
+        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );

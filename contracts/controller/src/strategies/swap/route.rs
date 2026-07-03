@@ -1,0 +1,36 @@
+//! Aggregator route execution and route-level validation.
+
+use common::errors::GenericError;
+use common::types::StrategySwap;
+use soroban_sdk::{assert_with_error, panic_with_error, Env};
+
+use crate::storage;
+
+pub(crate) mod aggregator {
+    use soroban_sdk::{contractclient, Address, Bytes, Env};
+
+    #[allow(dead_code)] // Generates the Soroban client proxy.
+    #[contractclient(name = "AggregatorClient")]
+    pub trait Aggregator {
+        fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128;
+    }
+}
+
+pub(super) fn validate_strategy_swap(env: &Env, swap: &StrategySwap, amount_in: i128) {
+    if amount_in <= 0 {
+        panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
+    assert_with_error!(env, !swap.is_empty(), GenericError::InvalidPayments);
+}
+
+pub(super) fn call_router_with_reentrancy_guard(
+    env: &Env,
+    router: &aggregator::AggregatorClient,
+    amount_in: i128,
+    swap: &StrategySwap,
+) {
+    storage::with_flash_guard(env, || {
+        let sender = env.current_contract_address();
+        let _ = router.execute_strategy(&sender, &amount_in, swap);
+    });
+}

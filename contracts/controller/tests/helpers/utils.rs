@@ -1,14 +1,20 @@
 use super::*;
-use controller_interface::types::Payment;
+use common::types::HubAssetKey;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Env, Vec};
 
 #[test]
 fn aggregate_payments_dedups_and_preserves_order() {
     let env = Env::default();
-    let asset_a = Address::generate(&env);
-    let asset_b = Address::generate(&env);
-    let mut payments: Vec<Payment> = Vec::new(&env);
+    let asset_a = HubAssetKey {
+        hub_id: 0,
+        asset: Address::generate(&env),
+    };
+    let asset_b = HubAssetKey {
+        hub_id: 0,
+        asset: Address::generate(&env),
+    };
+    let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&env);
     payments.push_back((asset_a.clone(), 10));
     payments.push_back((asset_a.clone(), 5)); // same asset, summed
     payments.push_back((asset_b.clone(), 3));

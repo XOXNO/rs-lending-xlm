@@ -2,26 +2,26 @@
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
-use soroban_sdk::{Address, Bytes, Env};
+use soroban_sdk::{Address, Bytes, Env, Vec};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
-    AccountPositionType, MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolPositionMutation,
+    MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolPositionMutation, PoolSeizeEntry,
     PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
 };
 
 fn nondet_market_index() -> MarketIndex {
-    let supply_index_ray: i128 = nondet();
-    let borrow_index_ray: i128 = nondet();
-    cvlr_assume!(supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
-    cvlr_assume!(borrow_index_ray >= RAY);
+    let supply_index: i128 = nondet();
+    let borrow_index: i128 = nondet();
+    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assume!(borrow_index >= RAY);
     MarketIndex {
-        supply_index: common::math::fp::Ray::from(supply_index_ray),
-        borrow_index: common::math::fp::Ray::from(borrow_index_ray),
+        supply_index: common::math::fp::Ray::from(supply_index),
+        borrow_index: common::math::fp::Ray::from(borrow_index),
     }
 }
 
-/// Nondet index with supply and borrow indexes >= prior (except seize_position supply drop).
+/// Nondet index with supply and borrow indexes >= prior (except seize_positions supply drop).
 fn nondet_market_index_monotone(prior: &MarketIndex) -> MarketIndex {
     let idx = nondet_market_index();
     cvlr_assume!(idx.supply_index >= prior.supply_index);
@@ -35,12 +35,11 @@ pub fn supply_summary(
     _asset: &Address,
     position: ScaledPositionRaw,
     amount: i128,
-    _supply_cap: i128,
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    cvlr_assume!(new_scaled >= position.scaled_amount_ray);
-    new_position.scaled_amount_ray = new_scaled;
+    cvlr_assume!(new_scaled >= position.scaled_amount);
+    new_position.scaled_amount = new_scaled;
 
     let market_index = nondet_market_index();
     PoolPositionMutation {
@@ -56,12 +55,11 @@ pub fn borrow_summary(
     _asset: &Address,
     amount: i128,
     position: ScaledPositionRaw,
-    _borrow_cap: i128,
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    cvlr_assume!(new_scaled >= position.scaled_amount_ray);
-    new_position.scaled_amount_ray = new_scaled;
+    cvlr_assume!(new_scaled >= position.scaled_amount);
+    new_position.scaled_amount = new_scaled;
 
     let market_index = nondet_market_index();
     PoolPositionMutation {
@@ -83,8 +81,8 @@ pub fn withdraw_summary(
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
     cvlr_assume!(new_scaled >= 0);
-    cvlr_assume!(new_scaled <= position.scaled_amount_ray);
-    new_position.scaled_amount_ray = new_scaled;
+    cvlr_assume!(new_scaled <= position.scaled_amount);
+    new_position.scaled_amount = new_scaled;
 
     let actual_amount: i128 = nondet();
     cvlr_assume!(actual_amount >= 0);
@@ -108,8 +106,8 @@ pub fn repay_summary(
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
     cvlr_assume!(new_scaled >= 0);
-    cvlr_assume!(new_scaled <= position.scaled_amount_ray);
-    new_position.scaled_amount_ray = new_scaled;
+    cvlr_assume!(new_scaled <= position.scaled_amount);
+    new_position.scaled_amount = new_scaled;
 
     let actual_amount: i128 = nondet();
     cvlr_assume!(actual_amount >= 0);
@@ -153,12 +151,11 @@ pub fn create_strategy_summary(
     position: ScaledPositionRaw,
     amount: i128,
     fee: i128,
-    _borrow_cap: i128,
 ) -> PoolStrategyMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    cvlr_assume!(new_scaled >= position.scaled_amount_ray);
-    new_position.scaled_amount_ray = new_scaled;
+    cvlr_assume!(new_scaled >= position.scaled_amount);
+    new_position.scaled_amount = new_scaled;
 
     cvlr_assume!(fee >= 0);
     cvlr_assume!(amount >= 0);
@@ -173,22 +170,10 @@ pub fn create_strategy_summary(
     }
 }
 
-/// Seize: scaled amount zeroed; supply index may drop (floored), borrow index >= RAY.
-pub fn seize_position_summary(
-    _env: &Env,
-    _asset: &Address,
-    _side: AccountPositionType,
-    position: ScaledPositionRaw,
-) -> PoolPositionMutation {
-    let mut zeroed = position.clone();
-    zeroed.scaled_amount_ray = 0;
-    let market_index = nondet_market_index();
-    PoolPositionMutation {
-        position: zeroed,
-        market_index: (&market_index).into(),
-        actual_amount: 0,
-    }
-}
+/// Seize: no return value; per-entry scaled amounts leave the market totals,
+/// the supply index may drop (floored) and the borrow index stays >= RAY, the
+/// nondet index semantics of `nondet_market_index`.
+pub fn seize_positions_summary(_env: &Env, _entries: &Vec<PoolSeizeEntry>) {}
 
 /// Claim revenue: non-negative transfer amount.
 pub fn claim_revenue_summary(_env: &Env, _asset: &Address) -> PoolAmountMutation {
@@ -201,61 +186,57 @@ pub fn claim_revenue_summary(_env: &Env, _asset: &Address) -> PoolAmountMutation
 
 /// Sync data: state fields non-negative with valid indexes; params fully nondet.
 pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
-    let supplied_ray: i128 = nondet();
-    let borrowed_ray: i128 = nondet();
-    let revenue_ray: i128 = nondet();
+    let supplied: i128 = nondet();
+    let borrowed: i128 = nondet();
+    let revenue: i128 = nondet();
     let cash: i128 = nondet();
-    let supply_index_ray: i128 = nondet();
-    let borrow_index_ray: i128 = nondet();
+    let supply_index: i128 = nondet();
+    let borrow_index: i128 = nondet();
     let last_timestamp: u64 = nondet();
 
-    cvlr_assume!(supplied_ray >= 0);
-    cvlr_assume!(borrowed_ray >= 0);
-    cvlr_assume!(revenue_ray >= 0);
+    cvlr_assume!(supplied >= 0);
+    cvlr_assume!(borrowed >= 0);
+    cvlr_assume!(revenue >= 0);
     cvlr_assume!(cash >= 0);
-    cvlr_assume!(supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
-    cvlr_assume!(borrow_index_ray >= RAY);
+    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assume!(borrow_index >= RAY);
 
-    let max_borrow_rate_ray: i128 = nondet();
-    let base_borrow_rate_ray: i128 = nondet();
-    let slope1_ray: i128 = nondet();
-    let slope2_ray: i128 = nondet();
-    let slope3_ray: i128 = nondet();
-    let mid_utilization_ray: i128 = nondet();
-    let optimal_utilization_ray: i128 = nondet();
-    let max_utilization_ray: i128 = nondet();
-    let reserve_factor_bps: u32 = nondet();
-    cvlr_assume!(i128::from(reserve_factor_bps) < common::constants::BPS);
+    let max_borrow_rate: i128 = nondet();
+    let base_borrow_rate: i128 = nondet();
+    let slope1: i128 = nondet();
+    let slope2: i128 = nondet();
+    let slope3: i128 = nondet();
+    let mid_utilization: i128 = nondet();
+    let optimal_utilization: i128 = nondet();
+    let max_utilization: i128 = nondet();
+    let reserve_factor: u32 = nondet();
+    cvlr_assume!(i128::from(reserve_factor) < common::constants::BPS);
     let asset_decimals: u32 = nondet();
     cvlr_assume!(asset_decimals <= 27);
     let asset_id: Address = asset.clone();
-    let supply_cap: i128 = nondet();
-    let borrow_cap: i128 = nondet();
-    cvlr_assume!(supply_cap >= 0);
-    cvlr_assume!(borrow_cap >= 0);
 
     PoolSyncData {
         params: MarketParamsRaw {
-            max_borrow_rate_ray,
-            base_borrow_rate_ray,
-            slope1_ray,
-            slope2_ray,
-            slope3_ray,
-            mid_utilization_ray,
-            optimal_utilization_ray,
-            max_utilization_ray,
-            reserve_factor_bps,
-            supply_cap,
-            borrow_cap,
+            max_borrow_rate,
+            base_borrow_rate,
+            slope1,
+            slope2,
+            slope3,
+            mid_utilization,
+            optimal_utilization,
+            max_utilization,
+            reserve_factor,
+            is_flashloanable: false,
+            flashloan_fee: 0,
             asset_id,
             asset_decimals,
         },
         state: PoolStateRaw {
-            supplied_ray,
-            borrowed_ray,
-            revenue_ray,
-            borrow_index_ray,
-            supply_index_ray,
+            supplied,
+            borrowed,
+            revenue,
+            borrow_index,
+            supply_index,
             last_timestamp,
             cash,
         },

@@ -16,16 +16,20 @@
 #   make testnet upgradeController  Upgrade controller in-place on testnet
 #   make testnet upgradeGovernance  Upgrade governance in-place on testnet
 #   make testnet upgradeAll         Upgrade pool template, controller, pools, then unpause
-#   make testnet setup              Deploy + configure markets/e-modes, then unpause
-#   make mainnet setup              Deploy + configure markets/e-modes, then unpause
-#   make testnet resume             Re-run configure/markets/e-modes/unpause (skips deploy)
+#   make testnet setup              Deploy + configure markets/spokes, then unpause
+#   make mainnet setup              Deploy + configure markets/spokes (LEFT PAUSED)
+#   make testnet resume             Re-run configure/markets/spokes/unpause (skips deploy)
 #
-# Mainnet bootstrap (avoid 48h-per-op waits): deploy with a 1-ledger delay, then
-# raise to the production delay once everything is configured (increase-only):
-#   DEPLOY_MIN_DELAY=1 make mainnet setup
-#   make mainnet updateDelay 34560
+# Mainnet bootstrap (avoid 48h-per-op waits): deploy + configure at a short delay
+# while the protocol is PAUSED, then raise to the production delay (increase-only)
+# and go live. `make mainnet setup` never auto-unpauses, and `make mainnet unpause`
+# refuses until the on-chain timelock delay >= timelock_min_delay_ledgers, so the
+# protocol can never be live below the production floor:
+#   DEPLOY_MIN_DELAY=1 make mainnet setup     # deploys + configures, stays paused
+#   make mainnet updateDelay 34560            # raise to the 48h production floor
+#   make mainnet unpause                      # go live (gated on delay >= floor)
 #
-# Full runbook (markets / oracles / e-modes / roles / recovery): DEPLOYMENT.md
+# Full runbook (markets / oracles / spokes / roles / recovery): DEPLOYMENT.md
 #
 # Ledger signing:
 #   SIGNER=ledger make testnet deploy
@@ -38,22 +42,22 @@ SHELL := /bin/bash
         test test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-merged \
-        fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-strict \
-        wasm-size-check act-ci act-ci-dryrun clean install-stellar-cli \
+        fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
+        wasm-size-check wasm-testing-abi-check act-ci act-ci-dryrun clean install-stellar-cli \
         mutants mutants-math mutants-rates mutants-pool-interest mutants-pool \
         mutants-oracle-policy mutants-controller-positions mutants-controller-strategies mutants-common \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
         keygen deploy-testnet deploy-mainnet upgrade-pool-template upgrade-controller upgrade-governance upgrade-pools upgrade-all _deploy \
-        _preflight-tools _preflight-network-config _preflight-setup _preflight-controller _preflight-governance _preflight-pool-hash \
+        _preflight-tools _preflight-network-config _preflight-validate-configs _preflight-setup _preflight-controller _preflight-governance _preflight-pool-hash \
         _preflight-configure-controller _preflight-upgrade-pools _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
-        configure-controller setup-testnet setup-mainnet _setup-markets create-market \
-        update-indexes \
+        build-aggregator deploy-aggregator prepay-rent \
+        configure-controller setup-testnet setup-mainnet _setup-markets _unpause-after-setup \
         info invoke invoke-id view view-id \
         testnet mainnet \
-        help
+        usage help
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -83,8 +87,8 @@ WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver def
 
 # Coverage exclusions (no executable code / stubs only).
 # Exclude test scaffolding (tests/test-harness internals, the Certora
-# spec layer, vendored cvlr/OZ crates) and trivial type-alias files that have
-# no executable lines. Protocol code in `common/`, `contracts/`, and
+# spec layer, the vendored cvlr-log patch) and trivial type-alias files that
+# have no executable lines. Protocol code in `common/`, `contracts/`, and
 # `interfaces/` stays in scope.
 COV_IGNORE := --ignore-filename-regex='(^|/)(tests/test-harness|tests/fuzz|certora|vendor|target)/|common/src/types/(shared|aggregator)\.rs$$'
 
@@ -96,6 +100,8 @@ CONFIG_DIR  ?= configs
 FLASH_MARKET ?= XLM
 FLASH_LOAN_AMOUNT ?= 10000000
 FLASH_RECEIVER_FUND ?= 10000000
+# Aggregator constructor admin; empty means "use the deploying signer".
+AGGREGATOR_ADMIN ?=
 POOL_WASM_HASH_FILE ?= target/pool_wasm_hash.txt
 POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
 CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
@@ -221,7 +227,7 @@ CERTORA_PROFILE ?= sanity
 
 ## List Certora verification profiles.
 certora-list:
-	@./certora/run_profile.py --list
+	@./certora/scripts/run_profile.py --list
 
 ## Submit profile to Certora cloud: make certora [CERTORA_PROFILE=fast]
 certora: certora-wasm
@@ -308,7 +314,7 @@ coverage-controller:
 	trap 'restore_snapshots' EXIT; \
 	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/controller.lcov.info $(COV_IGNORE) >/dev/null
-	@python3 $(CONFIG_DIR)/coverage_report.py \
+	@python3 scripts/coverage_report.py \
 		$(COV_DIR)/controller.lcov.info \
 		$(COV_DIR)/controller-report.md \
 		controller
@@ -322,7 +328,7 @@ coverage-pool:
 	@cargo llvm-cov clean --workspace
 	@cargo llvm-cov test -p pool --no-report $(COV_IGNORE) 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/pool.lcov.info $(COV_IGNORE) >/dev/null
-	@python3 $(CONFIG_DIR)/coverage_report.py \
+	@python3 scripts/coverage_report.py \
 		$(COV_DIR)/pool.lcov.info \
 		$(COV_DIR)/pool-report.md \
 		pool
@@ -348,7 +354,7 @@ coverage-merged:
 	trap 'restore_snapshots' EXIT; \
 	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null
-	@python3 $(CONFIG_DIR)/coverage_report.py \
+	@python3 scripts/coverage_report.py \
 		$(COV_DIR)/merged.lcov.info \
 		$(COV_DIR)/merged-report.md \
 		merged
@@ -380,11 +386,15 @@ clippy-contracts:
 clippy-fuzz:
 	cargo clippy --manifest-path $(FUZZ_DIR)/Cargo.toml --all-targets -- -D warnings
 
-## Run Scout static analysis on contract crates.
+## Run the scout.yml workflow in Docker via nektos/act (same action + gate as CI).
 scout:
+	bash .github/scripts/act-local.sh scout
+
+## Run Scout directly on the host (no Docker).
+scout-host:
 	.github/scripts/run_scout.sh
 
-## Run Scout and fail if any report is incomplete.
+## Run Scout on the host and fail if any report is incomplete.
 scout-strict:
 	SCOUT_STRICT=1 .github/scripts/run_scout.sh
 
@@ -395,8 +405,23 @@ scout-strict:
 
 WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
 
+## Fail if a deploy WASM exports a test-only ABI. `set_controller` is gated by
+## `#[cfg(any(test, feature = "testing"))]` in governance and is unauthenticated;
+## it must never reach a deployable artifact. Cargo's resolver keeps the dev-only
+## `governance/testing` feature out of the cdylib build today — this guard fails
+## loudly if a future workspace/feature change ever leaks it.
+wasm-testing-abi-check: deploy-artifacts
+	@gov="$(DEPLOY_DIR)/governance.wasm"; \
+	if [ ! -f "$$gov" ]; then echo "governance deploy WASM missing: $$gov"; exit 1; fi; \
+	if strings "$$gov" | grep -q "set_controller"; then \
+		echo "FAIL: governance.wasm exports test-only ABI 'set_controller'"; \
+		echo "  The governance/testing feature leaked into the deployable build."; \
+		exit 1; \
+	fi; \
+	echo "OK   governance.wasm exports no test-only ABI"
+
 ## Fail if any deploy WASM exceeds the committed budget.
-wasm-size-check: deploy-artifacts
+wasm-size-check: deploy-artifacts wasm-testing-abi-check
 	@if [ ! -f $(WASM_BUDGET_FILE) ]; then \
 		echo "WASM budget file missing: $(WASM_BUDGET_FILE)"; \
 		echo "Create one with 'path bytes' lines (one per contract)."; \
@@ -550,8 +575,10 @@ ifeq ($(UNAME_S),Darwin)
 else
   # Static cargo-fuzz binaries default to musl, which cannot link ASan.
   # Pin the Rust host target so the sanitizer links.
-  FUZZ_HOST := $(shell rustc -vV | sed -n 's/^host: //p')
-  FUZZ_FLAGS := --target $(FUZZ_HOST)
+  # Lazy (`=`, not `:=`): `rustc` is invoked only when a fuzz recipe expands
+  # FUZZ_FLAGS, not at parse time on every `make` invocation (e.g. help/clean).
+  FUZZ_HOST = $(shell rustc -vV | sed -n 's/^host: //p')
+  FUZZ_FLAGS = --target $(FUZZ_HOST)
 endif
 
 ## Run all fuzz targets for $(FUZZ_TIME) seconds each (default: 60s)
@@ -663,22 +690,35 @@ _preflight-network-config: _preflight-tools
 	@test -f $(CONFIG_DIR)/$(NETWORK)_markets.json || { echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)_markets.json"; exit 1; }
 	@jq -e '.markets | type == "array" and length > 0' $(CONFIG_DIR)/$(NETWORK)_markets.json >/dev/null || { echo "No configured markets in $(CONFIG_DIR)/$(NETWORK)_markets.json"; exit 1; }
 	@jq -e 'all(.markets[]; (.name // "") != "" and (.asset_address // "") != "")' $(CONFIG_DIR)/$(NETWORK)_markets.json >/dev/null || { echo "Every configured market must have name and asset_address"; exit 1; }
-	@test -f $(CONFIG_DIR)/emodes.json || { echo "Config file not found: $(CONFIG_DIR)/emodes.json"; exit 1; }
-	@jq -e '.["$(NETWORK)"] | type == "object"' $(CONFIG_DIR)/emodes.json >/dev/null || { echo "E-mode config for $(NETWORK) not found in $(CONFIG_DIR)/emodes.json"; exit 1; }
+	@test -f $(CONFIG_DIR)/spokes.json || { echo "Config file not found: $(CONFIG_DIR)/spokes.json"; exit 1; }
+	@jq -e '.["$(NETWORK)"] | type == "object"' $(CONFIG_DIR)/spokes.json >/dev/null || { echo "Spoke config for $(NETWORK) not found in $(CONFIG_DIR)/spokes.json"; exit 1; }
 
-_preflight-setup: _preflight-network-config
+# Setup must not go live without the aggregator (swap router) and accumulator
+# (revenue treasury). ALLOW_MISSING_AGGREGATOR=1 / ALLOW_MISSING_ACCUMULATOR=1
+# are explicit escape hatches for bootstrap runs that will not be unpaused.
+_preflight-setup: _preflight-network-config _preflight-validate-configs
 	@AGG=$$(jq -r '.["$(NETWORK)"].aggregator // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$${AGGREGATOR_CONTRACT:-}" ]; then AGG="$$AGGREGATOR_CONTRACT"; fi; \
 	if [ -z "$$AGG" ] || [ "$$AGG" = "null" ]; then \
-		echo "Aggregator not configured for $(NETWORK). Set $(CONFIG_DIR)/networks.json or AGGREGATOR_CONTRACT=<addr>."; \
-		exit 1; \
+		if [ "$${ALLOW_MISSING_AGGREGATOR:-0}" = "1" ]; then \
+			echo "WARNING: aggregator not configured for $(NETWORK); continuing (ALLOW_MISSING_AGGREGATOR=1). Strategies stay broken until setAggregator runs."; \
+		else \
+			echo "Aggregator not configured for $(NETWORK). Set $(CONFIG_DIR)/networks.json aggregator or AGGREGATOR_CONTRACT=<addr>."; \
+			echo "To deliberately proceed without one, set ALLOW_MISSING_AGGREGATOR=1."; \
+			exit 1; \
+		fi; \
 	fi; \
 	ACC=$$(jq -r '.["$(NETWORK)"].accumulator // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$${ACCUMULATOR_CONTRACT:-}" ]; then ACC="$$ACCUMULATOR_CONTRACT"; fi; \
 	if [ -z "$$ACC" ] || [ "$$ACC" = "null" ]; then \
-		echo "Accumulator not configured for $(NETWORK). Set $(CONFIG_DIR)/networks.json accumulator or ACCUMULATOR_CONTRACT=<treasury-wallet>."; \
-		echo "claimRevenue fails with NoAccumulator (#211) until setAccumulator runs."; \
-		exit 1; \
+		if [ "$${ALLOW_MISSING_ACCUMULATOR:-0}" = "1" ]; then \
+			echo "WARNING: accumulator not configured for $(NETWORK); continuing (ALLOW_MISSING_ACCUMULATOR=1). claimRevenue fails with NoAccumulator (#211) until setAccumulator runs."; \
+		else \
+			echo "Accumulator not configured for $(NETWORK). Set $(CONFIG_DIR)/networks.json accumulator or ACCUMULATOR_CONTRACT=<treasury-wallet>."; \
+			echo "claimRevenue fails with NoAccumulator (#211) until setAccumulator runs."; \
+			echo "To deliberately proceed without one, set ALLOW_MISSING_ACCUMULATOR=1."; \
+			exit 1; \
+		fi; \
 	fi
 
 _preflight-controller: _preflight-network-config
@@ -708,6 +748,11 @@ _preflight-pool-hash: _preflight-network-config
 		exit 1; \
 	fi
 
+# Validate the JSON configs BEFORE anything touches the chain: a misconfig must
+# fail here, not after a deploy or a timelock wait.
+_preflight-validate-configs: _preflight-network-config
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh validateConfigs
+
 _preflight-configure-controller: _preflight-setup _preflight-controller _preflight-governance
 
 _preflight-upgrade-pools: _preflight-controller _preflight-governance _preflight-pool-hash
@@ -717,7 +762,8 @@ _post-setup-status:
 	@echo "=== Setup status ($(NETWORK)) ==="
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh info
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh listMarkets
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh listEModeCategories
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh listSpokes
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh checkDelay
 
 ## Deploy all contracts to a network
 deploy-testnet: NETWORK=testnet
@@ -743,13 +789,16 @@ upgrade-controller: _preflight-controller _preflight-governance deploy-artifacts
 		$(SOURCE_FLAG) \
 		--network $(NETWORK) > $(CONTROLLER_WASM_HASH_FILE); \
 	HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
-	TMP_JSON=$$(mktemp); \
-	jq '.["$(NETWORK)"].controller_wasm_hash = "'$$HASH'"' \
-		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json; \
 	echo "Governance: $$GOV"; \
 	echo "New controller WASM hash: $$HASH"
 	@HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeControllerHash $$HASH
+	@# Record the hash only after the timelocked upgrade landed, so networks.json
+	@# never claims a WASM that is not live.
+	@HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].controller_wasm_hash = "'$$HASH'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 ## Upgrade the deployed governance contract in-place via its self-timelock.
 upgrade-governance: _preflight-governance deploy-artifacts
@@ -768,13 +817,16 @@ upgrade-governance: _preflight-governance deploy-artifacts
 		$(SOURCE_FLAG) \
 		--network $(NETWORK) > $(GOVERNANCE_WASM_HASH_FILE); \
 	HASH=$$(cat $(GOVERNANCE_WASM_HASH_FILE)); \
-	TMP_JSON=$$(mktemp); \
-	jq '.["$(NETWORK)"].governance_wasm_hash = "'$$HASH'"' \
-		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json; \
 	echo "Governance: $$GOV"; \
 	echo "New governance WASM hash: $$HASH"
 	@HASH=$$(cat $(GOVERNANCE_WASM_HASH_FILE)); \
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeGovernanceHash $$HASH
+	@# Record the hash only after the timelocked upgrade landed, so networks.json
+	@# never claims a WASM that is not live.
+	@HASH=$$(cat $(GOVERNANCE_WASM_HASH_FILE)); \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].governance_wasm_hash = "'$$HASH'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 ## Upload the latest pool WASM and set it as the pool template via governance.
 upgrade-pool-template: _preflight-controller _preflight-governance deploy-artifacts
@@ -794,12 +846,15 @@ upgrade-pool-template: _preflight-controller _preflight-governance deploy-artifa
 		--network $(NETWORK) > $(POOL_UPGRADE_WASM_HASH_FILE); \
 	HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
 	echo "Governance: $$GOV"; \
-	echo "New pool template WASM hash: $$HASH"; \
+	echo "New pool template WASM hash: $$HASH"
+	@HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPoolTemplate $$HASH
+	@# Record the hash only after the timelocked template set landed, so
+	@# networks.json never claims a template that is not live.
+	@HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].pool_wasm_hash = "'$$HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
-	@HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
-	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPoolTemplate $$HASH
 
 ## Upgrade the central liquidity pool to the latest pool template hash via governance.
 upgrade-pools: _preflight-upgrade-pools
@@ -824,6 +879,94 @@ upgrade-pools: _preflight-upgrade-pools
 
 ## Upload pool template, upgrade controller, upgrade the central pool, then unpause.
 upgrade-all: upgrade-pool-template upgrade-controller upgrade-pools _unpause-after-setup _post-setup-status
+
+## Prepay protocol storage rent: extend every keeper-discovered entry
+## (instances, wasm code, spoke/hub registries, oracle configs, pool rows)
+## by the keeper's ~31-day bump, funded by SIGNER. Runs at the end of
+## setup/resume; the keeper daemon rolls it forward each tick, so users
+## never hit the contracts' inline 5-day shared-rent safety net.
+prepay-rent:
+	@echo "=== Prepaying protocol rent on $(NETWORK) ==="
+	@mkdir -p target
+	@CFG=target/keeper-prepay-$(NETWORK).yaml; \
+	RPC=$$(jq -r '.["$(NETWORK)"].rpc_url' $(CONFIG_DIR)/networks.json); \
+	PASS=$$(jq -r '.["$(NETWORK)"].network_passphrase' $(CONFIG_DIR)/networks.json); \
+	CTRL=$$(jq -r '.["$(NETWORK)"].controller' $(CONFIG_DIR)/networks.json); \
+	GOV=$$(jq -r '.["$(NETWORK)"].governance' $(CONFIG_DIR)/networks.json); \
+	HASH=$$(jq -r '.["$(NETWORK)"].pool_wasm_hash' $(CONFIG_DIR)/networks.json); \
+	FLR=$$(jq -r '.["$(NETWORK)"].flash_loan_receiver // empty' $(CONFIG_DIR)/networks.json); \
+	{ echo "network: $(NETWORK)"; \
+	  echo "rpc:"; \
+	  echo "  url: $$RPC"; \
+	  echo "  passphrase: \"$$PASS\""; \
+	  echo "  timeout_seconds: 30"; \
+	  echo "contracts:"; \
+	  echo "  controller: $$CTRL"; \
+	  echo "  pool_wasm_hash: $$HASH"; \
+	  echo "  markets:"; \
+	  jq -r '.markets[] | "    - { hub_id: \(.hub_id), asset: \(.asset_address) }"' $(CONFIG_DIR)/$(NETWORK)_markets.json; \
+	  echo "  market_assets: []"; \
+	  echo "  flash_loan_receiver: $$FLR"; \
+	  echo "  governance: $$GOV"; \
+	  echo "keyvault:"; \
+	  echo "  url: https://unused.vault.azure.net"; \
+	  echo "  secret_name: unused"; \
+	  echo "signer:"; \
+	  echo "  derivation_path: \"m/44'/148'/0'\""; \
+	  echo "fees:"; \
+	  echo "  base_fee_stroops: 100"; \
+	  echo "  resource_fee_multiplier: 1.20"; \
+	  echo "schedule:"; \
+	  echo "  ttl_tick_seconds: 21600"; \
+	  echo "  index_tick_seconds: 3600"; \
+	  echo "  ttl_safety_margin_days: 14"; \
+	  echo "  asset_chunk: 20"; \
+	  echo "  max_txs_per_tick: 50"; \
+	  echo "  enable_index_refresh: false"; \
+	  echo "metrics:"; \
+	  echo "  bind: 0.0.0.0:9090"; \
+	  echo "log:"; \
+	  echo "  level: info"; \
+	  echo "  format: json"; \
+	} > $$CFG; \
+	PREPAY_SECRET=$$(stellar keys show $(SIGNER)); \
+	export PREPAY_SECRET; \
+	cargo run --manifest-path services/keeper/Cargo.toml --bin prepay_rent -- --config $$CFG
+
+## Build the swap aggregator (router) contract.
+build-aggregator:
+	@echo "Building aggregator..."
+	@stellar contract build --package aggregator
+	@mkdir -p $(DEPLOY_DIR)
+	@if command -v stellar &>/dev/null; then \
+		stellar contract optimize \
+			--wasm $(RELEASE_DIR)/aggregator.wasm \
+			--wasm-out $(DEPLOY_DIR)/aggregator.wasm 2>/dev/null || \
+		cp $(RELEASE_DIR)/aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
+	else \
+		cp $(RELEASE_DIR)/aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
+	fi
+	@ls -lh $(DEPLOY_DIR)/aggregator.wasm
+
+## Deploy the swap aggregator (router) contract and record its address in
+## networks.json. Constructor admin defaults to the deploying signer;
+## override with AGGREGATOR_ADMIN=<address>.
+deploy-aggregator: build-aggregator
+	@echo "=== Deploying aggregator on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@ADMIN=$${AGGREGATOR_ADMIN:-$(SIGNER_ADDRESS)}; \
+	echo "Admin: $$ADMIN"; \
+	stellar contract deploy \
+		--wasm $(DEPLOY_DIR)/aggregator.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) \
+		--alias aggregator \
+		-- --admin $$ADMIN > target/aggregator_id.txt
+	@AGG=$$(tail -n1 target/aggregator_id.txt); \
+	echo "Aggregator: $$AGG"; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].aggregator = "'$$AGG'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 ## Build the flash-loan receiver test contract for network smoke testing.
 build-flash-loan-receiver:
@@ -885,6 +1028,7 @@ test-flash-loan-receiver:
 		CTRL=$$(jq -r ".\"$(NETWORK)\".controller // empty" $(CONFIG_DIR)/networks.json); \
 	fi; \
 	ASSET=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .asset_address' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
+	HUB_ID=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .hub_id' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
 	RECEIVER=$$(stellar contract alias show flash-loan-receiver --network $(NETWORK) 2>/dev/null | tail -n1); \
 	if [ -z "$$RECEIVER" ]; then \
 		RECEIVER=$$(jq -r ".\"$(NETWORK)\".flash_loan_receiver // empty" $(CONFIG_DIR)/networks.json); \
@@ -897,13 +1041,18 @@ test-flash-loan-receiver:
 		echo "Unknown FLASH_MARKET=$(FLASH_MARKET) for $(NETWORK)"; \
 		exit 1; \
 	fi; \
+	if [ -z "$$HUB_ID" ] || [ "$$HUB_ID" = "null" ]; then \
+		echo "FLASH_MARKET=$(FLASH_MARKET) missing hub_id for $(NETWORK)"; \
+		exit 1; \
+	fi; \
 	if [ -z "$$RECEIVER" ] || [ "$$RECEIVER" = "null" ]; then \
 		echo "Flash receiver not found. Run deploy-flash-loan-receiver first."; \
 		exit 1; \
 	fi; \
 	echo "Controller: $$CTRL"; \
 	echo "Receiver: $$RECEIVER"; \
-	echo "Asset: $$ASSET ($(FLASH_MARKET))"; \
+	HUB_ASSET=$$(jq -nc --argjson hub_id "$$HUB_ID" --arg asset "$$ASSET" '{hub_id:$$hub_id, asset:$$asset}'); \
+	echo "Asset: $$HUB_ASSET ($(FLASH_MARKET))"; \
 	echo "Loan amount: $(FLASH_LOAN_AMOUNT)"; \
 	run_data_case() { \
 		local name="$$1"; \
@@ -915,7 +1064,7 @@ test-flash-loan-receiver:
 		if stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
 			-- flash_loan \
 			--caller $(SIGNER_ADDRESS) \
-			--asset $$ASSET \
+		--asset "$$HUB_ASSET" \
 			--amount $(FLASH_LOAN_AMOUNT) \
 			--receiver $$RECEIVER \
 			--data $$data > "$$log" 2>&1; then \
@@ -997,7 +1146,7 @@ _deploy: deploy-artifacts
 	@MIN_DELAY=$$(jq -r '.["$(NETWORK)"].timelock_min_delay_ledgers // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$$DEPLOY_MIN_DELAY" ]; then \
 		MIN_DELAY="$$DEPLOY_MIN_DELAY"; \
-		echo "Bootstrap: DEPLOY_MIN_DELAY override = $$MIN_DELAY ledger(s). Deploy + setup run at this short delay; raise to the production value with 'make $(NETWORK) updateDelay <ledgers>' once configured (increase-only)."; \
+		echo "Bootstrap: DEPLOY_MIN_DELAY override = $$MIN_DELAY ledger(s). Deploy + setup run at this short delay WHILE PAUSED; raise to the production value with 'make $(NETWORK) updateDelay <ledgers>' (increase-only), then 'make $(NETWORK) unpause' to go live. On mainnet, unpause refuses until the delay reaches timelock_min_delay_ledgers."; \
 	fi; \
 	if [ -z "$$MIN_DELAY" ] || [ "$$MIN_DELAY" = "null" ]; then \
 		echo "timelock_min_delay_ledgers not configured for $(NETWORK) in $(CONFIG_DIR)/networks.json"; \
@@ -1026,8 +1175,8 @@ _deploy: deploy-artifacts
 	echo "Controller: $$CTRL_ID"; \
 	stellar contract alias add controller --id $$CTRL_ID --network $(NETWORK) --overwrite; \
 	TMP_JSON=$$(mktemp); \
-	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'"' \
-		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'" | .["$(NETWORK)"].hub_ids = {} | .["$(NETWORK)"].spoke_ids = {} | .["$(NETWORK)"].pool = ""' \
+	$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
 	@# 6. Set the pool template and deploy the central pool through the timelock
 	@# (schedule -> await min_delay -> execute). Both ops route through governance.
@@ -1051,35 +1200,46 @@ _deploy: deploy-artifacts
 ## Configure controller after deployment (all admin calls route via governance)
 configure-controller: _preflight-configure-controller
 	@echo "=== Configuring Controller via governance on $(NETWORK) ==="
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAggregator
-	@echo "Setting revenue accumulator (treasury wallet; required for claimRevenue)..."
+	@AGG=$$(jq -r '.["$(NETWORK)"].aggregator // empty' $(CONFIG_DIR)/networks.json); \
+	if [ -n "$${AGGREGATOR_CONTRACT:-}" ]; then AGG="$$AGGREGATOR_CONTRACT"; fi; \
+	if [ -z "$$AGG" ] || [ "$$AGG" = "null" ]; then \
+		if [ "$${ALLOW_MISSING_AGGREGATOR:-0}" = "1" ]; then \
+			echo "WARNING: skipping aggregator configuration (ALLOW_MISSING_AGGREGATOR=1)."; \
+		else \
+			echo "ERROR: aggregator not configured. Set networks.json aggregator or AGGREGATOR_CONTRACT before configure-controller."; \
+			echo "To deliberately skip, set ALLOW_MISSING_AGGREGATOR=1."; \
+			exit 1; \
+		fi; \
+	else \
+		NETWORK=$(NETWORK) SIGNER=$(SIGNER) AGGREGATOR_CONTRACT=$$AGG bash $(CONFIG_DIR)/script.sh setAggregator; \
+	fi
+	@echo "Setting revenue accumulator (treasury wallet; required claimRevenue)..."
 	@ACC=$$(jq -r '.["$(NETWORK)"].accumulator // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$${ACCUMULATOR_CONTRACT:-}" ]; then ACC="$$ACCUMULATOR_CONTRACT"; fi; \
 	if [ -z "$$ACC" ] || [ "$$ACC" = "null" ]; then \
-		echo "ERROR: accumulator not configured. Set networks.json accumulator or ACCUMULATOR_CONTRACT before configure-controller."; \
-		exit 1; \
-	fi; \
-	NETWORK=$(NETWORK) SIGNER=$(SIGNER) ACCUMULATOR_CONTRACT=$$ACC bash $(CONFIG_DIR)/script.sh setAccumulator
-	@# The controller constructor auto-grants KEEPER to governance (its admin).
-	@# The deployer EOA needs explicit controller roles: KEEPER for
-	@# update_indexes, ORACLE for disable_token_oracle, REVENUE for
-	@# claim_revenue. Governance's own ORACLE role (configure_market_oracle)
-	@# is granted to the deployer by the governance constructor.
-	@echo "Granting controller KEEPER role to deployer..."
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) KEEPER
-	@echo "Granting controller ORACLE role to deployer..."
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) ORACLE
-	@echo "Granting controller REVENUE role to deployer..."
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) REVENUE
+		if [ "$${ALLOW_MISSING_ACCUMULATOR:-0}" = "1" ]; then \
+			echo "WARNING: skipping accumulator configuration (ALLOW_MISSING_ACCUMULATOR=1). claimRevenue fails with NoAccumulator (#211) until set."; \
+		else \
+			echo "ERROR: accumulator not configured. Set networks.json accumulator or ACCUMULATOR_CONTRACT before configure-controller."; \
+			echo "To deliberately skip, set ALLOW_MISSING_ACCUMULATOR=1."; \
+			exit 1; \
+		fi; \
+	else \
+		NETWORK=$(NETWORK) SIGNER=$(SIGNER) ACCUMULATOR_CONTRACT=$$ACC bash $(CONFIG_DIR)/script.sh setAccumulator; \
+	fi
+	@echo "Controller role grants skipped: controller uses owner-gated admin and caller-auth operational flows."
 	@echo "Controller configured."
 
-## Full setup: deploy + configure + create/configure markets and e-modes, then unpause.
+## Full setup: deploy + configure + create/configure markets and spokes, then unpause.
 ## Constructor pauses the controller; the final unpause turns the protocol live.
 setup-testnet: NETWORK=testnet
 setup-testnet: _preflight-setup deploy-testnet configure-controller _setup-markets _unpause-after-setup _post-setup-status
 
+# Mainnet is left PAUSED after setup — going live is a separate, gated step
+# (raise the timelock to the production floor, then `make mainnet unpause`, which
+# refuses below the floor). Consistent with the `make mainnet setup` dispatcher.
 setup-mainnet: NETWORK=mainnet
-setup-mainnet: _preflight-setup deploy-mainnet configure-controller _setup-markets _unpause-after-setup _post-setup-status
+setup-mainnet: _preflight-setup deploy-mainnet configure-controller _setup-markets _post-setup-status
 
 _unpause-after-setup:
 	@echo "=== Unpausing $(NETWORK) protocol via governance ==="
@@ -1089,75 +1249,66 @@ _setup-markets:
 	@echo "=== Setting up markets from $(CONFIG_DIR)/$(NETWORK)_markets.json ==="
 	@if [ ! -f $(CONFIG_DIR)/$(NETWORK)_markets.json ]; then \
 		echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)_markets.json"; \
-		echo "Create it based on configs/devnet_market_configs.json pattern."; \
+		echo "Create it based on the configs/testnet_markets.json pattern."; \
 		exit 1; \
 	fi
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setupAll
 
-## Schedule a single market create via the governance timelock (interactive).
-## This SCHEDULES the op; the config-driven `make <net> createMarket <name>` path
-## records it for executeOp and awaits+executes. Here we schedule only — run
-## `make <net> awaitOp <id>` then `make <net> executeOp <id>` after the delay.
-create-market:
-	@echo "Scheduling market create for $(ASSET) on $(NETWORK)..."
-	@GOV=$$(stellar contract alias show governance --network $(NETWORK)); \
-	OP=$$(jq -nc --arg asset '$(ASSET_ADDRESS)' --argjson params '$(MARKET_PARAMS)' \
-		--argjson config '$(ASSET_CONFIG)' \
-		'{CreateLiquidityPool:{asset:$$asset, params:$$params, config:$$config}}'); \
-	stellar contract invoke --id $$GOV $(SOURCE_FLAG) --network $(NETWORK) \
-		-- propose \
-		--proposer $(SIGNER_ADDRESS) \
-		--op "$$OP" \
-		--salt $$(printf '%s' "$(ASSET_ADDRESS)create_liquidity_pool" | shasum -a 256 | cut -c1-64)
-
 # ---------------------------------------------------------------------------
 # Config-driven operations (via configs/script.sh)
 #
-# Single unified dispatcher: `make <network> <action> [positional args]`
-# All values are read from JSON configs by name; positional args reference
-# markets / categories / accounts by their config name or id.
+# Single unified dispatcher: `make <network> <action> [positional args]`.
+# Values read JSON configs by name; positional args reference markets,
+# categories, accounts, or operation ids.
 #
 # Examples:
-#   make testnet addEModeCategory 1
-#   make testnet addAssetToEMode 1 USDC
-#   make testnet createMarket USDC
-#   make testnet updateIndexes USDC XLM
-#   make testnet setupAll
-#   make testnet pause
-#   make testnet unpause
-#   make testnet grantRole GAB...XYZ KEEPER
-#   make testnet getPrice USDC
-#   make testnet getHealth 1
-#   make testnet getCollateral 1 XLM
-#   SIGNER=ledger make mainnet setupAll
+# make testnet addSpoke 1
+# make testnet addAssetToSpoke 1 USDC
+# make testnet createMarket USDC
+# make testnet updateIndexes USDC XLM
+# make testnet setupAll
+# make testnet pause
+# make testnet unpause
+# make testnet grantGovRole GAB...XYZ ORACLE
+# make testnet getPrice USDC
+# make testnet getHealth 1
+# make testnet getCollateral 1 XLM
+# SIGNER=ledger make mainnet setupAll
 # ---------------------------------------------------------------------------
 
-# Action classification — the dispatcher routes each action to script.sh
-# passing positional args verbatim. Adding a new verb = add here + script.sh.
-SIMPLE_ACTIONS := listMarkets listEModeCategories \
-                  setupAll setupAllMarkets setupAllEModes \
-                  whitelistBlendPools \
-                  setAggregator setAccumulator pause unpause info \
-                  getAllMarkets getAllIndexes \
-                  claimRevenueAll deployPool
-POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig updateMarketParams updatePoolCaps \
-                             configureMarketOracle \
-                             getPrice getMarket getIndex \
-                             getReflector
-POSITIONAL_ID_ACTIONS := addEModeCategory getEMode \
-                         executeOp cancelOp opState awaitOp
-POSITIONAL_ID_ASSET_ACTIONS := addAssetToEMode
+# Action classification - dispatcher routes action to script.sh,
+# passing positional args verbatim. Adding a new verb means add here + script.sh.
+SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeReady \
+	validateConfigs checkDelay \
+	setupAll setupAllMarkets setupAllSpokes \
+	whitelistBlendPools approveBlendPools \
+	setAggregator setAccumulator pause unpause info \
+	getAllMarkets getAllIndexes getMinBorrowCollateralUsd getBulkIndexes \
+	claimRevenueAll deployPool updateDelay
+POSITIONAL_MARKET_ACTIONS := createMarket updateMarketParams \
+	configureMarketOracle \
+	editOracleTolerance \
+	approveToken revokeToken \
+	getPrice getMarket getIndex \
+	getOracle getReflector \
+	getUtilisation getReserves getSupplied getBorrowed getDepositRate getBorrowRate \
+	getRevenue getSyncData
+POSITIONAL_ID_ACTIONS := addSpoke getSpoke createHub removeSpoke \
+	executeOp cancelOp opState awaitOp transferGovOwnership disableTokenOracle \
+	revokeBlendPool setPositionLimits setMinBorrowCollateralUsd setPositionManager \
+	transferCtrlOwnership migrateController accountExists isBlendPoolApproved
+POSITIONAL_ID_ASSET_ACTIONS := addAssetToSpoke editAssetInSpoke removeAssetFromSpoke getSpokeAsset
 POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd \
                               getLtvUsd getLiqAvailable canLiquidate
-POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow
-POSITIONAL_ACCOUNT_ROLE_ACTIONS := grantRole revokeRole hasRole grantGovRole revokeGovRole
-REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap
-VARARG_ACTIONS := updateIndexes claimRevenue supply borrow
+POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow maxWithdraw maxSupply maxBorrow
+POSITIONAL_ACCOUNT_ROLE_ACTIONS := hasRole grantGovRole revokeGovRole
+REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone
+VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidationEstimate
 
 # Makefile-internal actions — handled directly by make targets, not forwarded
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
 MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePoolTemplate upgradePools upgradeAll \
-                    deployFlashReceiver fundFlashReceiver testFlashReceiver setup resume
+                    deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator prepayRent setup resume
 
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
                $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
@@ -1193,8 +1344,26 @@ define NETWORK_DISPATCH
 				deployFlashReceiver) $(MAKE) --no-print-directory deploy-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \
 				testFlashReceiver)  $(MAKE) --no-print-directory test-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_LOAN_AMOUNT=$(FLASH_LOAN_AMOUNT) ;; \
-				setup)              $(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets _unpause-after-setup _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
-				resume)             $(MAKE) --no-print-directory _preflight-configure-controller configure-controller _setup-markets _unpause-after-setup _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				deployAggregator)   $(MAKE) --no-print-directory deploy-aggregator NETWORK=$(1) SIGNER=$(SIGNER) AGGREGATOR_ADMIN=$(AGGREGATOR_ADMIN) ;; \
+				prepayRent)         $(MAKE) --no-print-directory prepay-rent NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				setup)              if [ "$(1)" = "mainnet" ]; then \
+						$(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
+						echo ""; \
+						echo "Mainnet setup complete — protocol left PAUSED (never unpaused at a bootstrap delay)."; \
+						echo "Raise the timelock to the production floor, then go live:"; \
+						echo "  make mainnet updateDelay <floor>   # e.g. 34560 (48h)"; \
+						echo "  make mainnet unpause               # refuses until delay >= floor"; \
+					else \
+						$(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets _unpause-after-setup prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
+					fi ;; \
+				resume)             if [ "$(1)" = "mainnet" ]; then \
+						$(MAKE) --no-print-directory _preflight-configure-controller configure-controller _setup-markets prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
+						echo ""; \
+						echo "Mainnet resume complete — protocol left PAUSED. Go live with:"; \
+						echo "  make mainnet updateDelay <floor> && make mainnet unpause"; \
+					else \
+						$(MAKE) --no-print-directory _preflight-configure-controller configure-controller _setup-markets _unpause-after-setup prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
+					fi ;; \
 			esac; \
 			exit 0 ;; \
 	esac; \
@@ -1214,20 +1383,15 @@ mainnet:
 $(ALL_ACTIONS):
 	@:
 
-# Catch-all for any remaining positional args (market names, ids, addresses).
+# Catch-all for the remaining positional args (market names, ids, addresses)
+# after a `make testnet|mainnet <action> ...` invocation. Any other unknown
+# target is a hard error — without the guard a typo like `make bulid` would
+# silently succeed.
 %:
-	@:
-
-## Sync indexes for one or more markets from config names.
-update-indexes:
-	@if [ -z "$(ASSETS)" ]; then \
-		echo "Usage: make update-indexes NETWORK=testnet ASSETS='[\"C...\",\"C...\"]'"; \
+	@if [ "$(word 1,$(MAKECMDGOALS))" != "testnet" ] && [ "$(word 1,$(MAKECMDGOALS))" != "mainnet" ]; then \
+		echo "Error: unknown target '$@' (run 'make help')"; \
 		exit 1; \
 	fi
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK)); \
-	CALLER=$(SIGNER_ADDRESS); \
-	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- update_indexes --caller $$CALLER --assets '$(ASSETS)'
 
 # ---------------------------------------------------------------------------
 # Contract inspection (named-parameter escape hatches for ad-hoc calls)
@@ -1255,7 +1419,27 @@ view-id:
 # Help
 # ---------------------------------------------------------------------------
 
-## Show this help
+## Compact overview (default goal). `make help` prints the full reference.
+usage:
+	@echo "Stellar Lending Protocol"
+	@echo ""
+	@echo "  make help                          Full command reference"
+	@echo ""
+	@echo "Develop:"
+	@echo "  make build | test | clippy | fmt | coverage"
+	@echo ""
+	@echo "Deploy & operate (network = testnet | mainnet):"
+	@echo "  make <network> <action> [args]"
+	@echo ""
+	@echo "  make testnet setup                 Deploy + configure + unpause (full bootstrap)"
+	@echo "  make testnet resume                Re-run config phases after a partial failure"
+	@echo "  make testnet validateConfigs       Cross-check markets/spokes/networks JSON"
+	@echo "  make testnet listOps               Governance ops + live state (pending/executed)"
+	@echo "  make testnet info                  Deployed addresses + oracle wiring summary"
+	@echo ""
+	@echo "Docs: DEPLOYMENT.md (runbook) - 'make help' lists every action."
+
+## Show the full command reference
 help:
 	@echo "Stellar Lending Protocol Makefile"
 	@echo ""
@@ -1291,73 +1475,114 @@ help:
 	@echo "  make proptest           proptest accounting invariants (PROPTEST_CASES=256)"
 	@echo "  make mutants            cargo-mutants sweep (common + controller helpers)"
 	@echo "  make mutants-pool       Scoped mutation run (also -math -rates -oracle-policy -controller-*)"
-	@echo "  make scout              Scout static analysis (scout-strict fails on incomplete reports)"
+	@echo "  make scout              Scout audit workflow in Docker via act (scout-host runs on host; scout-strict gates incomplete reports)"
 	@echo ""
 	@echo "Deployment (pattern: make <network> <action>, network = testnet | mainnet):"
-	@echo "  make keygen                         Generate deployer key"
+	@echo "  make keygen                         Generate deployer key (testnet: friendbot-funded)"
 	@echo "  make setup-testnet                  Same as 'make testnet setup'"
-	@echo "  make testnet deploy                 Deploy all contracts"
+	@echo "  make testnet setup                  Full setup (deploy + config + markets/spokes + unpause)"
+	@echo "  make testnet resume                 Re-run configure/markets/spokes/unpause (skips deploy)"
+	@echo "  make testnet deploy                 Deploy all contracts (no market config)"
 	@echo "  make testnet upgradeController      Upgrade controller WASM in-place (timelocked)"
 	@echo "  make testnet upgradeGovernance      Upgrade governance WASM in-place (timelocked)"
-	@echo "  make testnet upgradeAll             Upgrade pool template, controller, all pools, then unpause"
+	@echo "  make testnet upgradePoolTemplate    Upload pool WASM + set as template (timelocked)"
+	@echo "  make testnet upgradePools           Upgrade the central pool to the template hash (timelocked)"
+	@echo "  make testnet upgradeAll             Pool template + controller + pools, then unpause"
 	@echo "  AGGREGATOR_CONTRACT=C... ACCUMULATOR_CONTRACT=G... make mainnet setup"
 	@echo "    Aggregator = swap router (contract). Accumulator = revenue treasury (wallet or contract)."
+	@echo "    ALLOW_MISSING_AGGREGATOR=1 / ALLOW_MISSING_ACCUMULATOR=1 to bootstrap without them (deliberate)."
 	@echo "  AWAIT_MAX_WAIT_SECONDS=259200 make mainnet setup   Optional cap for ~48h mainnet timelock await"
+	@echo "  DEPLOY_MIN_DELAY=1 make mainnet setup              Bootstrap with 1-ledger delay; raise after:"
+	@echo "  make mainnet updateDelay 34560                     Timelocked min-delay increase (cannot shorten)"
 	@echo "  make testnet deployFlashReceiver    Deploy flash-loan test receiver"
 	@echo "  make testnet fundFlashReceiver      Fund flash receiver with FLASH_MARKET"
 	@echo "  make testnet testFlashReceiver      Run flash receiver smoke cases"
-	@echo "  make testnet setup                  Full setup (deploy + config + markets/e-modes + unpause)"
+	@echo "  make testnet deployAggregator       Deploy swap-router contract; writes networks.json aggregator"
+	@echo "    AGGREGATOR_ADMIN=G...              Constructor admin (default: deploying signer)"
+	@echo "    Then: make testnet setAggregator   Point the controller at it (timelocked)"
 	@echo "  make testnet info                   Show deployed contract IDs"
 	@echo ""
 	@echo "Config-driven operations (pattern: make <network> <action> [args]):"
 	@echo ""
+	@echo "  Validation & governance ops:"
+	@echo "    make testnet validateConfigs       Cross-check markets/spokes/networks JSON (also runs pre-setup)"
+	@echo "    make testnet listOps               All recorded governance ops with live state"
+	@echo "    make testnet executeReady          Execute every recorded op that is Ready"
+	@echo "    make testnet opState <op-id>       Unset | Waiting | Ready | Done"
+	@echo "    make testnet awaitOp <op-id>       Poll until the op is Ready"
+	@echo "    make testnet executeOp <op-id>     Execute one recorded, ready op"
+	@echo "    make testnet cancelOp <op-id>      Cancel a pending op (CANCELLER role)"
+	@echo "    make testnet checkDelay            Live timelock delay vs configured target"
+	@echo "    AUTO_EXECUTE=0 make testnet <verb> Schedule-only; execute later via executeOp/executeReady"
+	@echo "    Re-applying a previously-executed setting is AUTOMATIC for direct verbs"
+	@echo "    (fresh salt generation); setupAll*/resume converge and skip Done ops."
+	@echo "    REAPPLY_ON_DONE=0 disables auto re-apply; SALT_NONCE=<n> forces a fresh id."
+	@echo ""
 	@echo "  Markets (writes):"
 	@echo "    make testnet createMarket USDC"
-	@echo "    make testnet editAssetConfig USDC"
 	@echo "    make testnet updateMarketParams USDC                       Push max_utilization/rate model from JSON"
-	@echo "    make testnet updatePoolCaps USDC                           Push hub supply_cap/borrow_cap from JSON"
 	@echo "    make testnet configureMarketOracle USDC"
+	@echo "    make testnet editOracleTolerance USDC 500"
 	@echo "    make testnet updateIndexes USDC XLM"
+	@echo "    make testnet approveToken USDC     Timelocked allow-list add (also raw C... id)"
+	@echo "    make testnet revokeToken USDC      Timelocked allow-list remove"
 	@echo "    make testnet setupAllMarkets       Configure markets only; does not deploy or unpause"
 	@echo "    make testnet listMarkets"
+	@echo "    make testnet listOracles           Per-market oracle wiring from JSON"
 	@echo ""
-	@echo "  E-Mode (writes):"
-	@echo "    make testnet addEModeCategory 1"
-	@echo "    make testnet addAssetToEMode 1 USDC"
-	@echo "    make testnet setupAllEModes        Configure e-modes only; does not deploy or unpause"
-	@echo "    make testnet setupAll              Configure markets/e-modes only; does not deploy or unpause"
-	@echo "    make testnet listEModeCategories"
+	@echo "  Hubs / Spokes (writes):"
+	@echo "    make testnet listHubs"
+	@echo "    make testnet createHub 1"
+	@echo "    make testnet addSpoke 1"
+	@echo "    make testnet addAssetToSpoke 1 USDC"
+	@echo "    make testnet editAssetInSpoke 1 USDC"
+	@echo "    make testnet removeAssetFromSpoke 1 USDC"
+	@echo "    make testnet removeSpoke 1"
+	@echo "    make testnet setupAllSpokes        Configure spokes only; does not deploy or unpause"
+	@echo "    make testnet setupAll              Configure markets/spokes only; does not deploy or unpause"
+	@echo "    make testnet listSpokes"
 	@echo ""
 	@echo "  Positions (writes):"
 	@echo "    make testnet supply USDC 1000000000                  100 USDC at 7 dec, into account 0"
 	@echo "    make testnet borrow USDC 100000000 <account_id>      Direct borrow (no swap)"
+	@echo "    make testnet withdraw USDC 100000000 <account_id>    Withdraw collateral (0 = all)"
 	@echo ""
 	@echo "  Strategies (multiply / swap_debt / swap_collateral / repay_debt_with_collateral)"
 	@echo "  require an AggregatorSwap JSON from the off-chain quote server. Invoke directly:"
 	@echo "    make invoke FN=multiply ARGS='--caller G... --account_id 0 ... --swap @swap.json' NETWORK=testnet"
 	@echo ""
 	@echo "  Protocol control (writes):"
-	@echo "    make testnet pause"
-	@echo "    make testnet unpause"
-	@echo "    make testnet setAggregator"
-	@echo "    make testnet grantRole GAB...XYZ KEEPER     Controller roles via governance (KEEPER|REVENUE|ORACLE)"
-	@echo "    make testnet revokeRole GAB...XYZ KEEPER"
-	@echo "    make testnet grantGovRole GAB...XYZ ORACLE  Governance roles via timelock (ORACLE|PROPOSER|EXECUTOR|CANCELLER)"
-	@echo "    make testnet revokeGovRole GAB...XYZ ORACLE"
-	@echo "    make testnet claimRevenue USDC XLM          Claim revenue for one or more markets (REVENUE role)"
-	@echo "    make testnet claimRevenueAll                Claim revenue for every configured market"
+	@echo "    make testnet pause | unpause                    Immediate (owner), not timelocked"
+	@echo "    make testnet setAggregator                      From networks.json or AGGREGATOR_CONTRACT"
+	@echo "    make testnet setAccumulator                     Revenue treasury (required for claimRevenue)"
+	@echo "    make testnet disableTokenOracle C...            Timelocked oracle circuit-breaker"
+	@echo "    make testnet grantGovRole GAB...XYZ PROPOSER    Roles: ORACLE|PROPOSER|EXECUTOR|CANCELLER"
+	@echo "    make testnet revokeGovRole GAB...XYZ PROPOSER"
+	@echo "    make testnet setPositionLimits 10 10            Timelocked max supply/borrow positions"
+	@echo "    make testnet setMinBorrowCollateralUsd 5000000000000000000"
+	@echo "    make testnet setPositionManager GAB... true"
+	@echo "    make testnet transferCtrlOwnership C... <live_until_ledger>"
+	@echo "    make testnet transferGovOwnership G... <live_until_ledger>"
+	@echo "    make testnet migrateController 2"
+	@echo "    make testnet revokeBlendPool C..."
+	@echo "    make testnet claimRevenue USDC XLM              Claim revenue one or more markets"
+	@echo "    make testnet claimRevenueAll                    Claim revenue for every configured market"
+	@echo "    make testnet whitelistBlendPools                Approve Blend pools from configs/blend_pools.json"
+	@echo "    make testnet approveBlendPools                  Same as whitelistBlendPools"
 	@echo ""
 	@echo "  Quick views (reads, no signing cost):"
 	@echo "    make testnet info                      Deployment addresses"
-	@echo "    make testnet hasRole GAB... KEEPER"
+	@echo "    make testnet hasRole GAB... PROPOSER"
 	@echo "    make testnet getPrice USDC             Spot / safe / aggregator prices"
-	@echo "    make testnet getMarket USDC            Full MarketConfig"
+	@echo "    make testnet getMarket USDC            Base spoke-0 listing"
+	@echo "    make testnet getSpokeAsset 1 USDC      Live config for ANY spoke (not just base 0)"
 	@echo "    make testnet getIndex USDC             Supply / borrow RAY index"
 	@echo "    make testnet getAllMarkets"
 	@echo "    make testnet getAllIndexes"
-	@echo "    make testnet getEMode 1"
+	@echo "    make testnet getSpoke 1"
 	@echo "    make testnet getHealth 1"
 	@echo "    make testnet getAccount 1"
+	@echo "    make testnet accountExists 1"
 	@echo "    make testnet getCollateralUsd 1"
 	@echo "    make testnet getBorrowUsd 1"
 	@echo "    make testnet getLtvUsd 1"
@@ -1365,21 +1590,36 @@ help:
 	@echo "    make testnet canLiquidate 1"
 	@echo "    make testnet getCollateral 1 XLM"
 	@echo "    make testnet getBorrow 1 USDC"
+	@echo "    make testnet maxWithdraw 1 USDC        Largest withdraw currently executable"
+	@echo "    make testnet maxSupply 1 USDC          Remaining supply-cap headroom"
+	@echo "    make testnet maxBorrow 1 USDC          Largest borrow currently executable"
+	@echo "    make testnet getLiquidationEstimate 1 USDC 100000000   Seize/repay/refund/bonus estimate"
+	@echo "    make testnet getMinBorrowCollateralUsd"
+	@echo "    make testnet isBlendPoolApproved C..."
 	@echo ""
-	@echo "  Reflector probes (debug DualOracle wiring):"
-	@echo "    make testnet getReflector USDC                                 Live CEX + DEX for a market"
+	@echo "  Pool views (hub-level utilization/reserves/rates; spokes share hub liquidity):"
+	@echo "    make testnet getUtilisation USDC | getReserves USDC | getSupplied USDC | getBorrowed USDC"
+	@echo "    make testnet getDepositRate USDC | getBorrowRate USDC | getRevenue USDC | getSyncData USDC"
+	@echo "    make testnet getBulkIndexes"
+	@echo ""
+	@echo "  NOTE: no on-chain view exists for is_paused, get_hub, get_aggregator,"
+	@echo "  get_accumulator, or get_position_limits (controller stores them without a"
+	@echo "  getter). 'info'/'listHubs' show local config for those, not chain truth."
+	@echo ""
+	@echo "  Oracle probes (debug Oracle V2 wiring):"
+	@echo "    make testnet getOracle USDC            Live price components for a market"
 	@echo "    make testnet queryReflector CCYOZJ...MJRN63                    decimals + resolution"
 	@echo "    make testnet queryReflectorPrice CCYOZJ... other USDC          lastprice"
 	@echo "    make testnet queryReflectorTwap  CCYOZJ... other USDC 3        prices history"
 	@echo "    make testnet queryReflectorPrice C...DEX... stellar CBIELTK... lastprice on Stellar DEX"
+	@echo "    make testnet queryRedStone <feed_id> [adapter]                 RedStone feed price data"
 	@echo ""
 	@echo "Escape hatches for ad-hoc calls:"
-	@echo "    make view FN=get_market_config ARGS='--asset C...' NETWORK=testnet"
-	@echo "    make invoke CONTRACT=governance FN=set_position_limits ARGS='--limits {...}' NETWORK=testnet"
-	@echo "    make invoke CONTRACT=governance FN=set_min_borrow_collateral_usd ARGS='--floor_wad 5000000000000000000' NETWORK=testnet"
-	@echo "    make update-indexes NETWORK=testnet ASSETS='[\"C...\",\"C...\"]'"
+	@echo "    make view FN=get_markets_detailed ARGS='--hub_assets [{\"hub_id\":1,\"asset\":\"C...\"}]' NETWORK=testnet"
+	@echo "    make invoke FN=<controller_fn> ARGS='...' NETWORK=testnet"
+	@echo "    make invoke-id CONTRACT_ID=C... FN=<fn> ARGS='...' NETWORK=testnet"
 	@echo ""
 	@echo "Ledger signing (any command):"
 	@echo "    SIGNER=ledger make mainnet setupAll"
 
-.DEFAULT_GOAL := help
+.DEFAULT_GOAL := usage

@@ -34,21 +34,21 @@ accrual.
 Socialize uncollectable debt by reducing the pool's `supply_index_ray`,
 floored at `SUPPLY_INDEX_FLOOR_RAW`.
 
-**Trigger** (`contracts/controller/src/positions/liquidation.rs::check_bad_debt_after_liquidation`):
+**Trigger** (`contracts/controller/src/positions/liquidation/apply.rs::check_bad_debt_after_liquidation`):
 After a liquidation, the account is socializable when
 `is_socializable_bad_debt` holds: `debt > collateral` and
 `collateral_usd_wad <= BAD_DEBT_USD_THRESHOLD` (5 USD WAD)
-(`contracts/controller/src/positions/liquidation_math.rs`). The controller
+(`contracts/controller/src/positions/liquidation/math.rs`). The controller
 then runs `execute_bad_debt_cleanup`, which seizes **both** sides of the
 account: each supply (`Deposit`) position and each debt (`Borrow`) position is
-passed to the central pool with its asset key via
-`pool.seize_position(asset, side, position)`. On completion it publishes
+collected into one batch and passed to the central pool via
+`pool.seize_positions(entries)` in a single cross-contract call. On completion it publishes
 `CleanBadDebtEvent { account_id, total_borrow_usd_wad,
 total_collateral_usd_wad }`
-(`common/src/events.rs`) and removes the account.
+(`contracts/controller/src/events/debt.rs`) and removes the account.
 
 **Reduction**: only the `Borrow`-side seizure moves the asset's index. On the pool's
-`seize_position` (`contracts/pool/src/lib.rs`), a `Deposit` seizure adds the
+`seize_positions` (`contracts/pool/src/lib.rs`), a `Deposit` seizure adds the
 scaled amount to pool revenue (no index motion); a `Borrow` seizure unscales
 the debt and calls
 `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`:
@@ -65,7 +65,7 @@ A severe single-step reduction is not emitted as a dedicated event; it is
 observable through the controller's emitted market-state snapshot.
 
 **Standalone path**: `clean_bad_debt(caller, account_id)`
-(`contracts/controller/src/positions/liquidation.rs`) is a **permissionless**
+(`contracts/controller/src/positions/liquidation/mod.rs`) is a **permissionless**
 entrypoint for accounts whose bad-debt state needs to be applied outside a
 liquidation event. It requires only `caller.require_auth()` (to authenticate the
 submitter) plus `require_not_flash_loaning`; it is intentionally **not**
@@ -120,10 +120,11 @@ Negative / accepted costs:
 
 ## References
 
-- `SCF_BUILD_ARCHITECTURE.md` §10.5 (Liquidation and Bad Debt), §15
-  (Implemented Safety Checks).
+- `SCF_BUILD_ARCHITECTURE.md` §6 (Controller Responsibilities), §15 (Security
+  Review Focus).
 - `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`
-- `contracts/controller/src/positions/liquidation.rs::check_bad_debt_after_liquidation`
+- `contracts/controller/src/positions/liquidation/apply.rs::check_bad_debt_after_liquidation`
+- `contracts/controller/src/positions/liquidation/bad_debt.rs::execute_bad_debt_cleanup`
 - `common/src/constants/pool.rs` (`SUPPLY_INDEX_FLOOR_RAW` = `WAD`),
-  `common/src/constants/controller.rs` (`BAD_DEBT_USD_THRESHOLD` = `5 * WAD`)
-- `common/src/events.rs::CleanBadDebtEvent`
+  `contracts/controller/src/constants.rs` (`BAD_DEBT_USD_THRESHOLD` = `5 * WAD`)
+- `contracts/controller/src/events/debt.rs::CleanBadDebtEvent`

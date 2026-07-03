@@ -1,7 +1,10 @@
 use soroban_sdk::testutils::{Ledger, LedgerInfo};
-use soroban_sdk::{Address, Vec};
+use soroban_sdk::Vec;
+
+use common::types::HubAssetKey;
 
 use crate::context::LendingTest;
+use crate::helpers::hub_asset;
 
 impl LendingTest {
     /// Advance the ledger timestamp by `duration_secs` seconds.
@@ -59,10 +62,10 @@ impl LendingTest {
     pub fn advance_and_sync_markets(&mut self, duration_secs: u64, market_names: &[&str]) {
         self.advance_time(duration_secs);
 
-        let assets: Vec<Address> = {
+        let assets: Vec<HubAssetKey> = {
             let mut v = Vec::new(&self.env);
             for name in market_names {
-                v.push_back(self.resolve_asset(name));
+                v.push_back(hub_asset(self.resolve_asset(name)));
             }
             v
         };
@@ -72,10 +75,10 @@ impl LendingTest {
     }
 
     fn sync_all_markets(&self) {
-        let assets: Vec<Address> = {
+        let assets: Vec<HubAssetKey> = {
             let mut v = Vec::new(&self.env);
             for market in self.markets.values() {
-                v.push_back(market.asset.clone());
+                v.push_back(hub_asset(market.asset.clone()));
             }
             v
         };

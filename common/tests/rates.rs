@@ -14,8 +14,8 @@ fn make_test_params() -> MarketParams {
         max_utilization: Ray::from(RAY * 95 / 100),     // 95%
         max_borrow_rate: Ray::from(RAY),                // 100%
         reserve_factor: Bps::from(1000),                // 10%
-        supply_cap: 0,
-        borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee: 0,
         asset_id: soroban_sdk::Address::from_str(
             &Env::default(),
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
@@ -253,17 +253,17 @@ fn test_simulate_update_indexes_nonzero_delta_accrues() {
 
     let env = Env::default();
     let params = MarketParamsRaw {
-        max_borrow_rate_ray: RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY * 4 / 100,
-        slope2_ray: RAY * 10 / 100,
-        slope3_ray: RAY * 300 / 100,
-        mid_utilization_ray: RAY * 50 / 100,
-        optimal_utilization_ray: RAY * 80 / 100,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1_000,
-        supply_cap: 0,
-        borrow_cap: 0,
+        max_borrow_rate: RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 300 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
         asset_id: soroban_sdk::Address::from_str(
             &env,
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
@@ -271,11 +271,11 @@ fn test_simulate_update_indexes_nonzero_delta_accrues() {
         asset_decimals: 7,
     };
     let state = PoolStateRaw {
-        supplied_ray: 100 * RAY,
-        borrowed_ray: 60 * RAY,
-        revenue_ray: 0,
-        borrow_index_ray: RAY,
-        supply_index_ray: RAY,
+        supplied: 100 * RAY,
+        borrowed: 60 * RAY,
+        revenue: 0,
+        borrow_index: RAY,
+        supply_index: RAY,
         last_timestamp: 0,
         cash: 40_000_000,
     };
@@ -305,17 +305,17 @@ fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
 
     let env = Env::default();
     let params = MarketParamsRaw {
-        max_borrow_rate_ray: RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY * 4 / 100,
-        slope2_ray: RAY * 10 / 100,
-        slope3_ray: RAY * 300 / 100,
-        mid_utilization_ray: RAY * 50 / 100,
-        optimal_utilization_ray: RAY * 80 / 100,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1_000,
-        supply_cap: 0,
-        borrow_cap: 0,
+        max_borrow_rate: RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 300 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
         asset_id: soroban_sdk::Address::from_str(
             &env,
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
@@ -323,11 +323,11 @@ fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
         asset_decimals: 7,
     };
     let state = PoolStateRaw {
-        supplied_ray: 100 * RAY,
-        borrowed_ray: 90 * RAY,
-        revenue_ray: 0,
-        borrow_index_ray: RAY,
-        supply_index_ray: RAY,
+        supplied: 100 * RAY,
+        borrowed: 90 * RAY,
+        revenue: 0,
+        borrow_index: RAY,
+        supply_index: RAY,
         last_timestamp: 0,
         cash: 10_000_000,
     };

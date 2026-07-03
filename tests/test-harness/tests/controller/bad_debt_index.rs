@@ -1,9 +1,12 @@
-use test_harness::{days, usd, usd_cents, LendingTest, ALICE, BOB, CAROL, DAVE, LIQUIDATOR};
+use test_harness::{
+    days, hub_asset, usd, usd_cents, LendingTest, ALICE, BOB, CAROL, DAVE, LIQUIDATOR,
+};
 // Bad debt supply index tests -- the only case where supply_index decreases.
 //
 // When debt exceeds collateral and collateral < $5:
 //   1. Seize all remaining collateral (dust -> protocol revenue).
-//   2. Socialize remaining debt via pool.seize_position(borrow_pos).
+//   2. Socialize remaining debt via the batched pool.seize_positions call
+//      (borrow-side entry).
 //   3. Pool calls apply_bad_debt_to_supply_index(debt_amount).
 //   4. Reduce supply index by `(total - bad_debt) / total`.
 //   5. Every supplier's balance shrinks proportionally.
@@ -14,9 +17,9 @@ use test_harness::{days, usd, usd_cents, LendingTest, ALICE, BOB, CAROL, DAVE, L
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let asset_addr = t.resolve_asset(asset);
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset_addr]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
     let idx = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
-    (idx.supply_index_ray, idx.borrow_index_ray)
+    (idx.supply_index, idx.borrow_index)
 }
 
 fn setup() -> LendingTest {

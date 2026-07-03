@@ -1,15 +1,20 @@
 //! Pool calls exchange `ScaledPositionRaw` only.
 //! The controller owns collateral risk parameters and merges them after pool mutations.
 
-use controller_interface::types::{
-    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
-    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
-    PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
+use common::types::{
+    HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
+    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolSeizeEntry,
+    PoolStrategyMutation, PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 
-pub(crate) fn pool_create_market_call(env: &Env, pool_addr: &Address, params: &MarketParamsRaw) {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).create_market(params)
+pub(crate) fn pool_create_market_call(
+    env: &Env,
+    pool_addr: &Address,
+    hub_id: u32,
+    params: &MarketParamsRaw,
+) {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).create_market(&hub_id, params)
 }
 
 pub(crate) fn pool_supply_call(
@@ -63,20 +68,18 @@ pub(crate) fn pool_repay_call(
     pool_interface::LiquidityPoolClient::new(env, pool_addr).repay(payer, actions)
 }
 
-pub(crate) fn pool_seize_position_call(
+pub(crate) fn pool_seize_positions_call(
     env: &Env,
     pool_addr: &Address,
-    asset: &Address,
-    side: AccountPositionType,
-    position: ScaledPositionRaw,
-) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).seize_position(asset, &side, &position)
+    entries: &Vec<PoolSeizeEntry>,
+) {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).seize_positions(entries)
 }
 
 pub(crate) fn pool_flash_loan_call(
     env: &Env,
     pool_addr: &Address,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     initiator: &Address,
     receiver: &Address,
     amount: i128,
@@ -84,62 +87,53 @@ pub(crate) fn pool_flash_loan_call(
     data: &Bytes,
 ) {
     pool_interface::LiquidityPoolClient::new(env, pool_addr)
-        .flash_loan(asset, initiator, receiver, &amount, &fee, data)
+        .flash_loan(hub_asset, initiator, receiver, &amount, &fee, data)
 }
 
-pub(crate) fn pool_update_indexes_call(env: &Env, pool_addr: &Address, asset: &Address) {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).update_indexes(asset)
+pub(crate) fn pool_update_indexes_call(env: &Env, pool_addr: &Address, hub_asset: &HubAssetKey) {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).update_indexes(hub_asset)
 }
 
 pub(crate) fn pool_claim_revenue_call(
     env: &Env,
     pool_addr: &Address,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
 ) -> PoolAmountMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).claim_revenue(asset)
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).claim_revenue(hub_asset)
 }
 
-pub(crate) fn pool_add_rewards_call(env: &Env, pool_addr: &Address, asset: &Address, amount: i128) {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).add_rewards(asset, &amount)
+pub(crate) fn pool_add_rewards_call(
+    env: &Env,
+    pool_addr: &Address,
+    hub_asset: &HubAssetKey,
+    amount: i128,
+) {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).add_rewards(hub_asset, &amount)
 }
 
 pub(crate) fn fetch_pool_sync_data(
     env: &Env,
     pool_addr: &Address,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
 ) -> PoolSyncData {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).get_sync_data(asset)
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).get_sync_data(hub_asset)
 }
 
 pub(crate) fn fetch_pool_bulk_indexes(
     env: &Env,
     pool_addr: &Address,
-    assets: &Vec<Address>,
+    hub_assets: &Vec<HubAssetKey>,
 ) -> Vec<MarketIndexRaw> {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).get_bulk_indexes(assets)
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).get_bulk_indexes(hub_assets)
 }
 
 pub(crate) fn pool_update_params_call(
     env: &Env,
     pool_addr: &Address,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     params: &InterestRateModel,
 ) {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).update_params(asset, params)
-}
-
-pub(crate) fn pool_update_caps_call(
-    env: &Env,
-    pool_addr: &Address,
-    asset: &Address,
-    supply_cap: i128,
-    borrow_cap: i128,
-) {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).update_caps(
-        asset,
-        &supply_cap,
-        &borrow_cap,
-    )
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).update_params(hub_asset, params)
 }
 
 pub(crate) fn pool_upgrade_call(env: &Env, pool_addr: &Address, new_wasm_hash: &BytesN<32>) {

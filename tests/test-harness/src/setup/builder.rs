@@ -2,19 +2,19 @@ extern crate std;
 
 use std::collections::HashMap;
 
-use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EModeAssetArgs};
+use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, TryFromVal};
 
-use crate::core::types::{LendingTest, MarketState, PendingEMode, PendingMarket};
-use crate::helpers::f64_to_i128;
+use crate::core::types::{LendingTest, MarketState, PendingMarket, PendingSpoke};
+use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::presets::{
-    AssetConfigPreset, EModeCategoryPreset, MarketParamsPreset, MarketPreset, DEFAULT_TOLERANCE,
+    AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset, DEFAULT_TOLERANCE,
 };
 
 pub struct LendingTestBuilder {
     pending_markets: Vec<PendingMarket>,
-    pending_emodes: Vec<PendingEMode>,
+    pending_spokes: Vec<PendingSpoke>,
     position_limits: Option<(u32, u32)>,
     min_borrow_collateral_usd_wad: Option<i128>,
     budget_enabled: bool,
@@ -26,7 +26,7 @@ impl LendingTest {
     pub fn new() -> LendingTestBuilder {
         LendingTestBuilder {
             pending_markets: Vec::new(),
-            pending_emodes: Vec::new(),
+            pending_spokes: Vec::new(),
             position_limits: None,
             min_borrow_collateral_usd_wad: None,
             budget_enabled: false,
@@ -88,7 +88,7 @@ impl LendingTestBuilder {
 
     pub fn with_max_utilization_disabled_all_markets(mut self) -> Self {
         for pm in &mut self.pending_markets {
-            pm.params.max_utilization_ray = controller::constants::RAY;
+            pm.params.max_utilization = controller::constants::RAY;
         }
         self
     }
@@ -103,8 +103,8 @@ impl LendingTestBuilder {
         self
     }
 
-    pub fn with_emode(mut self, category_id: u32, preset: EModeCategoryPreset) -> Self {
-        self.pending_emodes.push(PendingEMode {
+    pub fn with_spoke(mut self, category_id: u32, preset: SpokePreset) -> Self {
+        self.pending_spokes.push(PendingSpoke {
             category_id,
             preset,
             assets: Vec::new(),
@@ -112,23 +112,23 @@ impl LendingTestBuilder {
         self
     }
 
-    pub fn with_emode_asset(
+    pub fn with_spoke_asset(
         mut self,
         category_id: u32,
         asset_name: &str,
         can_collateral: bool,
         can_borrow: bool,
     ) -> Self {
-        for emode in &mut self.pending_emodes {
-            if emode.category_id == category_id {
-                emode
+        for spoke in &mut self.pending_spokes {
+            if spoke.category_id == category_id {
+                spoke
                     .assets
                     .push((asset_name.to_string(), can_collateral, can_borrow));
                 return self;
             }
         }
         panic!(
-            "e-mode category {} not found -- call .with_emode() first",
+            "spoke category {} not found -- call .with_spoke() first",
             category_id
         );
     }
@@ -228,6 +228,27 @@ impl LendingTestBuilder {
         let mock_reflector_client =
             crate::mock_reflector::MockReflectorClient::new(&env, &mock_reflector_address);
 
+        // There is no hub 0: a fresh controller has zero hubs. Create the base
+        // harness hub (returns id 1) before listing any market so every
+        // `hub_asset(..)` coordinate resolves to a real, registered hub.
+        let base_hub_val = gov.execute_immediate(&admin, &AdminOperation::CreateHub);
+        let base_hub: u32 = u32::try_from_val(&env, &base_hub_val).unwrap();
+        assert_eq!(
+            base_hub, HARNESS_HUB,
+            "the base setup hub must be the harness hub id"
+        );
+
+        // There is no spoke 0: a fresh controller has zero spokes. Create the
+        // base harness spoke (returns id 1) before listing any market risk so
+        // every regular account binds to a real spoke. Spoke tests create extra
+        // spokes (ids 2+) on top of this one.
+        let base_spoke_val = gov.execute_immediate(&admin, &AdminOperation::AddSpoke);
+        let base_spoke: u32 = u32::try_from_val(&env, &base_spoke_val).unwrap();
+        assert_eq!(
+            base_spoke, HARNESS_SPOKE,
+            "the base setup spoke must be the harness spoke id"
+        );
+
         let mut markets = HashMap::new();
 
         for pm in &self.pending_markets {
@@ -237,21 +258,36 @@ impl LendingTestBuilder {
                 .clone();
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
 
-            let market_params = pm.params.to_market_params(&asset_address, pm.decimals);
-            let asset_config = pm.config.to_asset_config(&env, pm.decimals);
+            let mut market_params = pm.params.to_market_params(&asset_address, pm.decimals);
+            // Flash-loan eligibility/fee live on the pool `MarketParamsRaw` in the
+            // spoke model; thread them from the asset-config preset the test set.
+            market_params.is_flashloanable = pm.config.is_flashloanable;
+            market_params.flashloan_fee = pm.config.flashloan_fee;
             gov.execute_immediate(&admin, &AdminOperation::ApproveToken(asset_address.clone()));
             let pool_address_val = gov.execute_immediate(
                 &admin,
                 &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
+                    hub_id: HARNESS_HUB,
                     asset: asset_address.clone(),
                     params: market_params,
-                    config: asset_config,
                 }),
             );
             let pool_address: Address = Address::try_from_val(&env, &pool_address_val).unwrap();
             assert_eq!(
                 pool_address, global_pool,
                 "create_liquidity_pool must return the global pool address"
+            );
+
+            // Market creation no longer carries risk config; list the asset on the
+            // base harness spoke with the preset's regular risk params. The pool
+            // already exists (required by `add_asset_to_spoke`).
+            gov.execute_immediate(
+                &admin,
+                &AdminOperation::AddAssetToSpoke(pm.config.to_spoke_args(
+                    HARNESS_HUB,
+                    asset_address.clone(),
+                    HARNESS_SPOKE,
+                )),
             );
 
             if pm.configure_oracle {
@@ -265,7 +301,7 @@ impl LendingTestBuilder {
                 gov.execute_immediate(
                     &admin,
                     &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-                        asset: asset_address.clone(),
+                        hub_asset: hub_asset(asset_address.clone()),
                         cfg: oracle_input,
                     }),
                 );
@@ -275,7 +311,7 @@ impl LendingTestBuilder {
             token_admin.mint(&pool_address, &liquidity_amount);
 
             env.as_contract(&pool_address, || {
-                let key = controller::types::PoolKey::State(asset_address.clone());
+                let key = controller::types::PoolKey::State(hub_asset(asset_address.clone()));
                 let mut state: controller::types::PoolStateRaw =
                     env.storage().persistent().get(&key).unwrap();
                 state.cash += liquidity_amount;
@@ -294,18 +330,27 @@ impl LendingTestBuilder {
             );
         }
 
-        for emode in &self.pending_emodes {
-            let id_val = gov.execute_immediate(&admin, &AdminOperation::AddEModeCategory);
-            let _id: u32 = u32::try_from_val(&env, &id_val).unwrap();
+        for spoke in &self.pending_spokes {
+            let id_val = gov.execute_immediate(&admin, &AdminOperation::AddSpoke);
+            let id: u32 = u32::try_from_val(&env, &id_val).unwrap();
+            // The base harness spoke owns id 1, so spoke categories start at 2 and
+            // must be declared in ascending creation order. Assert the auto-assigned
+            // spoke id matches the test's category id so `create_spoke_account(.., id)`
+            // and `with_spoke_asset(id, ..)` land on the spoke created here.
+            assert_eq!(
+                id, spoke.category_id,
+                "spoke category id must match its created spoke id (base spoke is {HARNESS_SPOKE}, spoke ids start at {})",
+                HARNESS_SPOKE + 1
+            );
 
-            // Assets in a builder category share the preset's risk params; tests
-            // that need per-asset divergence use `t.add_asset_to_e_mode(..)`.
-            for (asset_name, can_collateral, can_borrow) in &emode.assets {
+            // Assets in a builder spoke share the preset's risk params; tests
+            // that need per-asset divergence use `t.add_asset_to_spoke(..)`.
+            for (asset_name, can_collateral, can_borrow) in &spoke.assets {
                 let asset_addr = markets
                     .get(asset_name.as_str())
                     .unwrap_or_else(|| {
                         panic!(
-                            "e-mode asset '{}' not found -- add it with .with_market() first",
+                            "spoke asset '{}' not found -- add it with .with_market() first",
                             asset_name
                         )
                     })
@@ -313,16 +358,21 @@ impl LendingTestBuilder {
                     .clone();
                 gov.execute_immediate(
                     &admin,
-                    &AdminOperation::AddAssetToEModeCategory(EModeAssetArgs {
+                    &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
+                        hub_id: HARNESS_HUB,
                         asset: asset_addr.clone(),
-                        category_id: emode.category_id,
+                        spoke_id: spoke.category_id,
                         can_collateral: *can_collateral,
                         can_borrow: *can_borrow,
-                        ltv: emode.preset.ltv,
-                        threshold: emode.preset.threshold,
-                        bonus: emode.preset.bonus,
+                        paused: false,
+                        frozen: false,
+                        ltv: spoke.preset.ltv,
+                        threshold: spoke.preset.threshold,
+                        bonus: spoke.preset.bonus,
+                        liquidation_fees: 0,
                         supply_cap: 0i128,
                         borrow_cap: 0i128,
+                        oracle_override: controller::types::MarketOracleConfigOption::None,
                     }),
                 );
             }

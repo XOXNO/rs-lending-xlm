@@ -29,3 +29,4 @@ testing = []
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+mock-oracle = { path = "../../mock/mock-oracle" }

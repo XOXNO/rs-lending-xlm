@@ -1,5 +1,7 @@
 use soroban_sdk::token;
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE};
+use test_harness::{
+    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, HARNESS_HUB,
+};
 
 fn create_asset_contract(t: &LendingTest) -> soroban_sdk::Address {
     t.env
@@ -79,17 +81,17 @@ fn test_create_liquidity_pool_rejects_asset_id_mismatch() {
     let params = usdc_preset()
         .params
         .to_market_params(&wrong_asset, decimals);
-    let config = usdc_preset().config.to_asset_config(&t.env, decimals);
 
-    let result = match ctrl.try_create_liquidity_pool(&asset, &params, &config) {
+    // Approve the declared asset so the one-shot approval gate passes and the
+    // controller's asset/params.asset_id equality check is what rejects.
+    ctrl.approve_token(&asset);
+
+    let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(err) => Err(err.expect("expected contract error")),
     };
 
-    assert!(
-        result.is_err(),
-        "create_liquidity_pool should reject asset_id mismatch"
-    );
+    assert_contract_error(result, errors::GenericError::WrongToken as u32);
 }
 
 #[test]
@@ -105,9 +107,8 @@ fn test_create_liquidity_pool_rejects_asset_decimals_mismatch() {
     let params = usdc_preset()
         .params
         .to_market_params(&asset, mismatched_decimals);
-    let config = usdc_preset().config.to_asset_config(&t.env, decimals);
 
-    let result = match ctrl.try_create_liquidity_pool(&asset, &params, &config) {
+    let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(err) => Err(err.expect("expected contract error")),
     };

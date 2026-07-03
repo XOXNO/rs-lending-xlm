@@ -9,15 +9,15 @@ use common::oracle::observation::{
 use common::oracle::providers::reflector::{
     min_twap_observations, reflector_lastprice_call, reflector_prices_call, to_reflector_asset,
 };
-use controller_interface::types::{
-    MarketStatus, OracleReadMode, OracleSourceConfig, PriceFeedRaw, ReflectorBase,
-    ReflectorSourceConfig,
+use common::types::{
+    OracleReadMode, OracleSourceConfig, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
-use crate::cache::Cache;
+use crate::context::Cache;
 use crate::oracle;
 use crate::oracle::observation::{reflector_observation_from_price_data, OracleObservation};
+use crate::storage;
 
 pub(crate) fn read_reflector_source(
     cache: &mut Cache,
@@ -59,11 +59,13 @@ fn reprice_to_usd(
 /// Resolves the USD price of a quote asset for repricing.
 fn resolve_usd_quote(cache: &mut Cache, quote: &Address) -> PriceFeedRaw {
     let env = cache.env().clone();
-    let market = cache.cached_market_config(quote);
-    if market.status != MarketStatus::Active {
-        panic_with_error!(&env, OracleError::InvalidOracleBase);
-    }
-    match &market.oracle_config.primary {
+    // The quote must be active: a token-rooted `AssetOracle` entry must exist.
+    // Validate against the base config, not the per-spoke override.
+    let oracle_config = match storage::get_asset_oracle(&env, quote) {
+        Some(config) => config,
+        None => panic_with_error!(&env, OracleError::InvalidOracleBase),
+    };
+    match &oracle_config.primary {
         // RedStone feeds are USD-denominated by construction.
         OracleSourceConfig::RedStone(_) => {}
         // A Reflector quote source must itself be USD-based (no chaining).

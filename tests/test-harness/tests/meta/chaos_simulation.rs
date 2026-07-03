@@ -1,7 +1,7 @@
 use controller::constants::RAY;
 use test_harness::{
-    days, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL, DAVE, EVE,
-    LIQUIDATOR,
+    days, eth_preset, hub_asset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL,
+    DAVE, EVE, LIQUIDATOR,
 };
 
 /// LCG for deterministic test "randomness".
@@ -160,15 +160,15 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
     for asset in &["USDC", "ETH", "WBTC"] {
         let asset_addr = t.resolve_asset(asset);
         let ctrl = t.ctrl_client();
-        let assets = soroban_sdk::Vec::from_array(&t.env, [asset_addr]);
+        let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
         let index = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
         assert!(
-            index.supply_index_ray >= RAY,
+            index.supply_index >= RAY,
             "{} supply index should be >= 1.0 RAY",
             asset
         );
         assert!(
-            index.borrow_index_ray >= RAY,
+            index.borrow_index >= RAY,
             "{} borrow index should be >= 1.0 RAY",
             asset
         );
@@ -478,8 +478,8 @@ fn test_chaos_keeper_revenue_lifecycle() {
     let usdc_addr = t.resolve_asset("USDC");
     let eth_addr = t.resolve_asset("ETH");
     let ctrl = t.ctrl_client();
-    let usdc_assets = soroban_sdk::Vec::from_array(&t.env, [usdc_addr]);
-    let eth_assets = soroban_sdk::Vec::from_array(&t.env, [eth_addr]);
+    let usdc_assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(usdc_addr)]);
+    let eth_assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(eth_addr)]);
     let usdc_index = ctrl
         .get_market_indexes_detailed(&usdc_assets)
         .get(0)
@@ -489,11 +489,11 @@ fn test_chaos_keeper_revenue_lifecycle() {
         .get(0)
         .unwrap();
     assert!(
-        usdc_index.borrow_index_ray > RAY,
+        usdc_index.borrow_index > RAY,
         "USDC borrow index should increase"
     );
     assert!(
-        eth_index.borrow_index_ray > RAY,
+        eth_index.borrow_index > RAY,
         "ETH borrow index should increase"
     );
 

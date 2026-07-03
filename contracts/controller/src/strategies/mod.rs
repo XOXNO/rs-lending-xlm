@@ -1,8 +1,4 @@
 //! Strategy flash-loan flows.
-//!
-//! Entrypoints compose position primitives and aggregator swaps. Swap output
-//! is verified against router reports. Flows that open debt must reach
-//! `strategy_finalize`; solvency gates run there.
 
 pub(crate) mod flash_loan;
 mod migrate_blend;
@@ -13,20 +9,21 @@ pub(crate) mod swap;
 mod swap_collateral;
 mod swap_debt;
 
+pub(crate) use crate::positions::borrow::{borrow_for_migration, borrow_for_strategy};
 pub(crate) use positions::{
-    execute_withdraw_all, open_migration_borrow, open_strategy_borrow, repay_debt_from_controller,
-    withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
+    execute_withdraw_all, repay_debt_from_controller, withdraw_collateral_to_controller,
+    StrategyRepay, StrategyWithdraw,
 };
 pub(crate) use swap::swap_tokens;
 
-use controller_interface::types::Account;
+use common::types::Account;
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::cache::Cache;
-use crate::helpers::utils;
+use crate::context::Cache;
 use crate::oracle;
+use crate::payments as utils;
 use crate::positions::{finalize_position_flow, PositionSides};
-use crate::validation;
+use crate::risk::validation;
 
 /// Bulk-prefetch RedStone feeds for an account's positions plus strategy legs.
 pub(crate) fn prefetch_strategy_oracles(
@@ -34,8 +31,12 @@ pub(crate) fn prefetch_strategy_oracles(
     account: &Account,
     extra_assets: &Vec<Address>,
 ) {
-    let mut priced_assets: Vec<Address> = account.supply_positions.keys();
-    priced_assets.append(&account.borrow_positions.keys());
+    let env = cache.env().clone();
+    let mut priced_assets = crate::risk::position_assets(&env, &account.supply_positions.keys());
+    priced_assets.append(&crate::risk::position_assets(
+        &env,
+        &account.borrow_positions.keys(),
+    ));
     for asset in extra_assets.iter() {
         utils::push_unique_address(&mut priced_assets, asset.clone());
     }

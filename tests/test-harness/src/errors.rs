@@ -1,7 +1,7 @@
 //! Contract error codes for test assertions — sourced from `common::errors`.
 
 pub use common::errors::{
-    CollateralError, EModeError, FlashLoanError, GenericError, OracleError, StrategyError,
+    CollateralError, FlashLoanError, GenericError, OracleError, SpokeError, StrategyError,
 };
 
 /// Stable `u32` aliases used by `assert_contract_error` and integration tests.
@@ -26,14 +26,14 @@ pub mod codes {
     pub const TIMELOCK_OPERATION_EXPIRED: u32 = GenericError::TimelockOperationExpired as u32;
     pub const INVALID_ROLE: u32 = GenericError::InvalidRole as u32;
     pub const BLEND_POOL_NOT_APPROVED: u32 = GenericError::BlendPoolNotApproved as u32;
+    pub const NOT_AUTHORIZED: u32 = GenericError::NotAuthorized as u32;
+    pub const REGISTRY_CAP_REACHED: u32 = GenericError::RegistryCapReached as u32;
 
     // CollateralError
     pub const INSUFFICIENT_COLLATERAL: u32 = CollateralError::InsufficientCollateral as u32;
     pub const HEALTH_FACTOR_TOO_HIGH: u32 = CollateralError::HealthFactorTooHigh as u32;
     pub const HEALTH_FACTOR_TOO_LOW: u32 = CollateralError::HealthFactorTooLow as u32;
     pub const NOT_COLLATERAL: u32 = CollateralError::NotCollateral as u32;
-    pub const SUPPLY_CAP_REACHED: u32 = CollateralError::SupplyCapReached as u32;
-    pub const BORROW_CAP_REACHED: u32 = CollateralError::BorrowCapReached as u32;
     pub const ASSET_NOT_BORROWABLE: u32 = CollateralError::AssetNotBorrowable as u32;
 
     pub const POSITION_LIMIT_EXCEEDED: u32 = CollateralError::PositionLimitExceeded as u32;
@@ -58,6 +58,7 @@ pub mod codes {
     pub const MAX_RATE_BELOW_BASE: u32 = CollateralError::MaxRateBelowBase as u32;
     pub const MAX_BORROW_RATE_TOO_HIGH: u32 = CollateralError::MaxBorrowRateTooHigh as u32;
     pub const ASSET_DECIMALS_TOO_HIGH: u32 = CollateralError::AssetDecimalsTooHigh as u32;
+    pub const SELF_LIQUIDATION_NOT_ALLOWED: u32 = CollateralError::SelfLiquidationNotAllowed as u32;
 
     // OracleError
     pub const INVALID_PRICE: u32 = OracleError::InvalidPrice as u32;
@@ -71,15 +72,16 @@ pub mod codes {
     pub const SANITY_BOUND_VIOLATED: u32 = OracleError::SanityBoundViolated as u32;
     pub const INVALID_SANITY_BOUNDS: u32 = OracleError::InvalidSanityBounds as u32;
 
-    // EModeError
-    pub const EMODE_CATEGORY_NOT_FOUND: u32 = EModeError::EModeCategoryNotFound as u32;
-    pub const EMODE_CATEGORY_DEPRECATED: u32 = EModeError::EModeCategoryDeprecated as u32;
-    pub const ASSET_NOT_IN_EMODE: u32 = EModeError::AssetNotInEmode as u32;
-    pub const EMODE_MISMATCH: u32 = EModeError::EModeMismatch as u32;
-    pub const SPOKE_SUPPLY_CAP_REACHED: u32 = EModeError::SpokeSupplyCapReached as u32;
-    pub const SPOKE_BORROW_CAP_REACHED: u32 = EModeError::SpokeBorrowCapReached as u32;
-    pub const SPOKE_CAP_EXCEEDS_HUB: u32 = EModeError::SpokeCapExceedsHub as u32;
-    pub const SPOKE_CAP_BELOW_USAGE: u32 = EModeError::SpokeCapBelowUsage as u32;
+    // SpokeError
+    pub const SPOKE_NOT_FOUND: u32 = SpokeError::SpokeNotFound as u32;
+    pub const SPOKE_DEPRECATED: u32 = SpokeError::SpokeDeprecated as u32;
+    pub const ASSET_NOT_IN_SPOKE: u32 = SpokeError::AssetNotInSpoke as u32;
+    pub const SPOKE_MISMATCH: u32 = SpokeError::SpokeMismatch as u32;
+    pub const SPOKE_SUPPLY_CAP_REACHED: u32 = SpokeError::SpokeSupplyCapReached as u32;
+    pub const SPOKE_BORROW_CAP_REACHED: u32 = SpokeError::SpokeBorrowCapReached as u32;
+    pub const SPOKE_CAP_BELOW_USAGE: u32 = SpokeError::SpokeCapBelowUsage as u32;
+    pub const SPOKE_ASSET_PAUSED: u32 = SpokeError::SpokeAssetPaused as u32;
+    pub const SPOKE_ASSET_FROZEN: u32 = SpokeError::SpokeAssetFrozen as u32;
 
     // FlashLoanError
     pub const FLASH_LOAN_ONGOING: u32 = FlashLoanError::FlashLoanOngoing as u32;
@@ -89,6 +91,8 @@ pub mod codes {
 
     // StrategyError
     pub const CONVERT_STEPS_REQUIRED: u32 = StrategyError::ConvertStepsRequired as u32;
+    pub const ROUTER_OVERSPEND: u32 = StrategyError::RouterOverspend as u32;
+    pub const NO_SWAP_OUTPUT: u32 = StrategyError::NoSwapOutput as u32;
 
     // OpenZeppelin Pausable (not in common::errors)
     pub const CONTRACT_PAUSED: u32 = 1000;

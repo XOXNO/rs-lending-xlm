@@ -11,6 +11,7 @@ mod flash_loan;
 pub mod helpers;
 mod keeper;
 mod liquidation;
+mod multi_hub;
 pub mod oracle;
 pub mod prelude;
 pub mod presets;
@@ -24,6 +25,7 @@ mod view;
 mod ops;
 
 pub use assert::assert_contract_error;
+pub use common::types::HubAssetKey;
 pub use context::{LendingTest, LendingTestBuilder};
 pub use fixtures::{
     liquidatable_usdc_eth, seed_liquidatable_usdc_eth, seed_liquidator_usdc,

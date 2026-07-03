@@ -1,8 +1,4 @@
-//! Live validation against external oracle contracts.
-//!
-//! Market configuration probes Reflector or RedStone oracles and validates TWAP
-//! history. Quote-market eligibility reads through the controller's
-//! `get_market_config` view.
+//! Live oracle validation for market configuration.
 
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
@@ -17,11 +13,10 @@ use common::oracle::providers::reflector::{
     reflector_prices_call, reflector_resolution_call, to_reflector_asset, ReflectorAsset,
     ReflectorPriceData,
 };
-use controller_interface::types::{
-    MarketOracleConfig, MarketOracleConfigInput, MarketStatus, OraclePriceFluctuation,
-    OracleReadMode, OracleSourceConfig, RedStoneSourceConfig, ReflectorBase, ReflectorSourceConfig,
+use common::types::{
+    MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation, OracleReadMode,
+    OracleSourceConfig, RedStoneSourceConfig, ReflectorBase, ReflectorSourceConfig,
 };
-use controller_interface::ControllerAdminClient;
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use super::asset::validate_and_fetch_token_decimals;
@@ -32,7 +27,6 @@ use super::oracle_config::{
 
 pub(crate) fn validate_market_oracle_sources(
     env: &Env,
-    controller: &Address,
     asset: &Address,
     config: &MarketOracleConfigInput,
     tolerance: OraclePriceFluctuation,
@@ -46,24 +40,15 @@ pub(crate) fn validate_market_oracle_sources(
     );
 
     let asset_decimals = validate_and_fetch_token_decimals(env, asset);
-    let primary = validate_source(
-        env,
-        controller,
-        asset,
-        &config.primary,
-        config.max_price_stale_seconds,
-    );
+    let primary = validate_source(env, asset, &config.primary, config.max_price_stale_seconds);
     let anchor = match config.anchor.as_ref() {
-        Some(anchor) => {
-            controller_interface::types::OracleSourceConfigOption::Some(validate_source(
-                env,
-                controller,
-                asset,
-                anchor,
-                config.max_price_stale_seconds,
-            ))
-        }
-        None => controller_interface::types::OracleSourceConfigOption::None,
+        Some(anchor) => common::types::OracleSourceConfigOption::Some(validate_source(
+            env,
+            asset,
+            anchor,
+            config.max_price_stale_seconds,
+        )),
+        None => common::types::OracleSourceConfigOption::None,
     };
 
     MarketOracleConfig {
@@ -80,14 +65,13 @@ pub(crate) fn validate_market_oracle_sources(
 
 fn validate_source(
     env: &Env,
-    controller: &Address,
     asset: &Address,
-    source: &controller_interface::types::OracleSourceConfigInput,
+    source: &common::types::OracleSourceConfigInput,
     max_stale: u64,
 ) -> OracleSourceConfig {
     match source {
-        controller_interface::types::OracleSourceConfigInput::Reflector(config) => {
-            let base = validate_base(env, controller, asset, &config.contract);
+        common::types::OracleSourceConfigInput::Reflector(config) => {
+            let base = validate_base(env, asset, &config.contract);
             let reflector_asset = to_reflector_asset(env, &config.asset);
             let decimals = reflector_decimals_call(env, &config.contract);
             validate_decimals(env, decimals);
@@ -124,12 +108,10 @@ fn validate_source(
                 base,
             })
         }
-        controller_interface::types::OracleSourceConfigInput::RedStone(config) => {
+        common::types::OracleSourceConfigInput::RedStone(config) => {
             validate_max_stale(env, config.max_stale_seconds);
 
-            // Redstone has no on-chain base() accessor; quote currency is
-            // implicit in `feed_id`. See common::oracle::providers::redstone
-            // for identity-validation details.
+            // RedStone feed id carries quote identity.
             let decimals = REDSTONE_DECIMALS;
             validate_decimals(env, decimals);
 
@@ -150,49 +132,18 @@ fn validate_source(
     }
 }
 
-/// Validates Reflector base currency and quote-market eligibility.
-fn validate_base(
-    env: &Env,
-    controller: &Address,
-    asset: &Address,
-    oracle: &Address,
-) -> ReflectorBase {
+/// Resolves Reflector base; controller re-checks quote activation.
+fn validate_base(env: &Env, asset: &Address, oracle: &Address) -> ReflectorBase {
     match reflector_base_call(env, oracle) {
         ReflectorAsset::Other(symbol) if symbol == soroban_sdk::Symbol::new(env, "USD") => {
             ReflectorBase::Usd
         }
         ReflectorAsset::Stellar(quote) => {
-            // The quote check reads the asset's pre-update config. Reject
-            // self-quotes here to avoid recursive price reads.
+            // Reject self-quotes to avoid recursive price reads.
             assert_with_error!(env, &quote != asset, OracleError::InvalidOracleBase);
-            validate_quote_is_usd_market(env, controller, &quote);
             ReflectorBase::Quoted(quote)
         }
         _ => panic_with_error!(env, OracleError::InvalidOracleBase),
-    }
-}
-
-fn validate_quote_is_usd_market(env: &Env, controller: &Address, quote: &Address) {
-    // The quote market lives in controller storage; missing or failing reads
-    // map to the same error the missing-market case raises.
-    let market = match ControllerAdminClient::new(env, controller).try_get_market_config(quote) {
-        Ok(Ok(market)) => market,
-        _ => panic_with_error!(env, OracleError::InvalidOracleBase),
-    };
-    assert_with_error!(
-        env,
-        market.status == MarketStatus::Active,
-        OracleError::InvalidOracleBase
-    );
-    match &market.oracle_config.primary {
-        // RedStone feeds are USD-denominated by construction.
-        OracleSourceConfig::RedStone(_) => {}
-        // Reflector quote sources must be USD-based to keep conversion to one
-        // hop. Use the cached base from quote-market configuration.
-        OracleSourceConfig::Reflector(r) => match &r.base {
-            ReflectorBase::Usd => {}
-            _ => panic_with_error!(env, OracleError::InvalidOracleBase),
-        },
     }
 }
 

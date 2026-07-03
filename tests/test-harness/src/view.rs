@@ -4,12 +4,28 @@ use controller::types::{AccountPositionType, ControllerKey, PositionLimits};
 use soroban_sdk::token;
 
 use crate::context::LendingTest;
-use crate::helpers::{i128_to_f64, wad_to_f64};
+use crate::helpers::{hub_asset, i128_to_f64, wad_to_f64, HARNESS_SPOKE};
 
 /// Re-export for use in assertions.
 pub enum PositionType {
     Supply,
     Borrow,
+}
+
+/// Harness-level aggregate of an asset's base configuration. In the spoke model
+/// risk parameters live on the general spoke 0 (`SpokeAssetConfig`) while
+/// flash-loan eligibility/fee and decimals live on the pool `MarketParamsRaw`;
+/// this view stitches both so tests read a single config object.
+pub struct AssetConfigView {
+    pub loan_to_value: u32,
+    pub liquidation_threshold: u32,
+    pub liquidation_bonus: u32,
+    pub liquidation_fees: u32,
+    pub is_collateralizable: bool,
+    pub is_borrowable: bool,
+    pub is_flashloanable: bool,
+    pub flashloan_fee: u32,
+    pub asset_decimals: u32,
 }
 
 impl LendingTest {
@@ -106,21 +122,24 @@ impl LendingTest {
         // Supply and debt maps hold different value types; extract the
         // scaled share each carries.
         let scaled_ray = match position_type {
-            AccountPositionType::Deposit => {
-                supplies.get(asset.clone()).map(|p| p.scaled_amount_ray)
-            }
-            AccountPositionType::Borrow => borrows.get(asset.clone()).map(|p| p.scaled_amount_ray),
+            AccountPositionType::Deposit => supplies
+                .get(hub_asset(asset.clone()))
+                .map(|p| p.scaled_amount),
+            AccountPositionType::Borrow => borrows
+                .get(hub_asset(asset.clone()))
+                .map(|p| p.scaled_amount),
         };
 
-        if let Some(scaled_amount_ray) = scaled_ray {
+        if let Some(scaled_amount) = scaled_ray {
             let pool = self.resolve_market_by_asset(asset).pool.clone();
-            let sync = pool::LiquidityPoolClient::new(&self.env, &pool).get_sync_data(asset);
+            let sync = pool::LiquidityPoolClient::new(&self.env, &pool)
+                .get_sync_data(&hub_asset(asset.clone()));
             let index = match position_type {
-                AccountPositionType::Deposit => sync.state.supply_index_ray,
-                AccountPositionType::Borrow => sync.state.borrow_index_ray,
+                AccountPositionType::Deposit => sync.state.supply_index,
+                AccountPositionType::Borrow => sync.state.borrow_index,
             };
             let decimals = self.resolve_market_by_asset(asset).decimals;
-            return Ray::from(scaled_amount_ray)
+            return Ray::from(scaled_amount)
                 .mul(&self.env, Ray::from(index))
                 .to_asset(decimals);
         }
@@ -152,33 +171,39 @@ impl LendingTest {
 
     pub fn pool_utilization(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_utilisation(&asset);
+        let raw = self
+            .pool_client(asset_name)
+            .get_utilisation(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
 
     pub fn pool_reserves(&self, asset_name: &str) -> f64 {
         let decimals = self.resolve_market(asset_name).decimals;
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_reserves(&asset);
+        let raw = self.pool_client(asset_name).get_reserves(&hub_asset(asset));
         i128_to_f64(raw, decimals)
     }
 
     pub fn pool_borrow_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_borrow_rate(&asset);
+        let raw = self
+            .pool_client(asset_name)
+            .get_borrow_rate(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
 
     pub fn pool_supply_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_deposit_rate(&asset);
+        let raw = self
+            .pool_client(asset_name)
+            .get_deposit_rate(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
     // Revenue snapshots
 
     pub fn snapshot_revenue(&self, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
-        self.pool_client(asset_name).get_revenue(&asset)
+        self.pool_client(asset_name).get_revenue(&hub_asset(asset))
     }
     // Liquidation status
 
@@ -210,13 +235,56 @@ impl LendingTest {
         accounts
     }
 
-    pub fn get_asset_config(&self, asset_name: &str) -> controller::types::AssetConfigRaw {
+    pub fn get_asset_config(&self, asset_name: &str) -> AssetConfigView {
         let asset = self.resolve_asset(asset_name);
-        self.ctrl_client().get_market_config(&asset).asset_config
+        let spoke = self
+            .ctrl_client()
+            .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
+        let params = self
+            .pool_client(asset_name)
+            .get_sync_data(&hub_asset(asset))
+            .params;
+        AssetConfigView {
+            loan_to_value: spoke.loan_to_value,
+            liquidation_threshold: spoke.liquidation_threshold,
+            liquidation_bonus: spoke.liquidation_bonus,
+            liquidation_fees: spoke.liquidation_fees,
+            is_collateralizable: spoke.is_collateralizable,
+            is_borrowable: spoke.is_borrowable,
+            is_flashloanable: params.is_flashloanable,
+            flashloan_fee: params.flashloan_fee,
+            asset_decimals: params.asset_decimals,
+        }
     }
 
     pub fn get_pool_address(&self, _asset_name: &str) -> soroban_sdk::Address {
         self.ctrl_client().get_pool_address()
+    }
+
+    /// True when `asset` is active — i.e. its token-rooted `AssetOracle` entry
+    /// exists. Absence is the pending/disabled signal in the spoke model (the
+    /// former `MarketStatus::{PendingOracle,Disabled}` both map to inactive).
+    pub fn market_is_active(&self, asset: &soroban_sdk::Address) -> bool {
+        self.env.as_contract(&self.controller, || {
+            self.env
+                .storage()
+                .persistent()
+                .has(&ControllerKey::AssetOracle(asset.clone()))
+        })
+    }
+
+    /// Reads the resolved `MarketOracleConfig` persisted for an active market.
+    pub fn market_oracle_config(
+        &self,
+        asset: &soroban_sdk::Address,
+    ) -> controller::types::MarketOracleConfig {
+        self.env.as_contract(&self.controller, || {
+            self.env
+                .storage()
+                .persistent()
+                .get(&ControllerKey::AssetOracle(asset.clone()))
+                .expect("market oracle config must exist")
+        })
     }
 
     pub fn get_position_limits(&self) -> controller::types::PositionLimits {

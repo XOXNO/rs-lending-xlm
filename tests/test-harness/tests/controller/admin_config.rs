@@ -7,8 +7,8 @@ use controller::types::{
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
-    DEFAULT_TOLERANCE,
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
+    DEFAULT_TOLERANCE, HARNESS_HUB,
 };
 
 /// Pre-resolved config for the thin `set_market_oracle_config` setter:
@@ -50,17 +50,14 @@ fn test_edit_asset_config() {
 
     // Change LTV from default 7500 to 6000.
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value_bps = 6000;
+        c.loan_to_value = 6000;
     });
 
     let config = t.get_asset_config("USDC");
-    assert_eq!(
-        config.loan_to_value_bps, 6000,
-        "LTV should be updated to 6000"
-    );
+    assert_eq!(config.loan_to_value, 6000, "LTV should be updated to 6000");
     // Threshold must remain unchanged.
     assert_eq!(
-        config.liquidation_threshold_bps, 8000,
+        config.liquidation_threshold, 8000,
         "threshold should remain 8000"
     );
 }
@@ -135,15 +132,15 @@ fn test_upgrade_pool_params() {
     t.upgrade_pool_params(
         "USDC",
         InterestRateModel {
-            max_borrow_rate_ray: RAY * 2,
-            base_borrow_rate_ray: new_base_rate,
-            slope1_ray: new_slope1,
-            slope2_ray: RAY * 10 / 100,
-            slope3_ray: RAY * 150 / 100,
-            mid_utilization_ray: RAY * 50 / 100,
-            optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: controller::constants::RAY * 95 / 100,
-            reserve_factor_bps: 1000,
+            max_borrow_rate: RAY * 2,
+            base_borrow_rate: new_base_rate,
+            slope1: new_slope1,
+            slope2: RAY * 10 / 100,
+            slope3: RAY * 150 / 100,
+            mid_utilization: RAY * 50 / 100,
+            optimal_utilization: RAY * 80 / 100,
+            max_utilization: controller::constants::RAY * 95 / 100,
+            reserve_factor: 1000,
         },
     );
 
@@ -168,17 +165,17 @@ fn test_upgrade_liquidity_pool_params_alias() {
     let rate_before = t.pool_borrow_rate("USDC");
 
     ctrl.upgrade_liquidity_pool_params(
-        &asset,
+        &hub_asset(asset.clone()),
         &InterestRateModel {
-            max_borrow_rate_ray: RAY * 2,
-            base_borrow_rate_ray: RAY * 2 / 100,
-            slope1_ray: RAY * 8 / 100,
-            slope2_ray: RAY * 10 / 100,
-            slope3_ray: RAY * 150 / 100,
-            mid_utilization_ray: RAY * 50 / 100,
-            optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: controller::constants::RAY * 95 / 100,
-            reserve_factor_bps: 1000,
+            max_borrow_rate: RAY * 2,
+            base_borrow_rate: RAY * 2 / 100,
+            slope1: RAY * 8 / 100,
+            slope2: RAY * 10 / 100,
+            slope3: RAY * 150 / 100,
+            mid_utilization: RAY * 50 / 100,
+            optimal_utilization: RAY * 80 / 100,
+            max_utilization: controller::constants::RAY * 95 / 100,
+            reserve_factor: 1000,
         },
     );
 
@@ -190,9 +187,9 @@ fn test_upgrade_liquidity_pool_params_alias() {
         rate_after
     );
 }
-// 6b. Regression: `max_borrow_rate_ray` cap (Taylor envelope)
+// 6b. Regression: `max_borrow_rate` cap (Taylor envelope)
 //
-// `pool::update_params` rejects any `max_borrow_rate_ray > 2 * RAY` to keep
+// `pool::update_params` rejects any `max_borrow_rate > 2 * RAY` to keep
 // `compound_interest`'s 8-term Taylor approximation inside its documented
 // `< 0.01 %` accuracy envelope. See `architecture/MATH_REVIEW.md §0`.
 
@@ -205,15 +202,15 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
     t.upgrade_pool_params(
         "USDC",
         InterestRateModel {
-            max_borrow_rate_ray: 2 * RAY,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY * 4 / 100,
-            slope2_ray: RAY * 10 / 100,
-            slope3_ray: RAY * 150 / 100,
-            mid_utilization_ray: RAY * 50 / 100,
-            optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: controller::constants::RAY * 95 / 100,
-            reserve_factor_bps: 1000,
+            max_borrow_rate: 2 * RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY * 4 / 100,
+            slope2: RAY * 10 / 100,
+            slope3: RAY * 150 / 100,
+            mid_utilization: RAY * 50 / 100,
+            optimal_utilization: RAY * 80 / 100,
+            max_utilization: controller::constants::RAY * 95 / 100,
+            reserve_factor: 1000,
         },
     );
     // The IRM was rewritten — confirm the borrow rate remains readable
@@ -237,30 +234,27 @@ fn test_set_market_oracle_config_activates_pending_market() {
         .register_stellar_asset_contract_v2(admin.clone())
         .address();
     let params = usdc_preset().params.to_market_params(&asset, 7);
-    let config = usdc_preset().config.to_asset_config(&t.env, 7);
     ctrl.approve_token(&asset);
-    ctrl.create_liquidity_pool(&asset, &params, &config);
-    assert_eq!(
-        (ctrl.get_market_config(&asset).status as u32),
-        0,
+    ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params);
+    assert!(
+        !t.market_is_active(&asset),
         "market must start in PendingOracle"
     );
 
     let oracle_cfg = resolved_reflector_primary_anchor_config(&t.mock_reflector, &asset);
-    ctrl.set_market_oracle_config(&asset, &oracle_cfg);
+    ctrl.set_market_oracle_config(&hub_asset(asset.clone()), &oracle_cfg);
 
-    let market = ctrl.get_market_config(&asset);
-    match market.oracle_config.primary {
+    let oracle = t.market_oracle_config(&asset);
+    match oracle.primary {
         controller::types::OracleSourceConfig::Reflector(source) => {
             assert_eq!(source.contract, t.mock_reflector);
             assert_eq!(source.read_mode, controller::types::OracleReadMode::Twap(3));
         }
         _ => panic!("expected Reflector primary source"),
     }
-    assert_eq!(market.oracle_config.max_price_stale_seconds, 900);
-    assert_eq!(
-        (market.status as u32),
-        1,
+    assert_eq!(oracle.max_price_stale_seconds, 900);
+    assert!(
+        t.market_is_active(&asset),
         "market should be Active after oracle config",
     );
 }
@@ -274,12 +268,14 @@ fn test_set_market_oracle_config_rejects_unknown_asset() {
     let unknown = Address::generate(&t.env);
     let result = t
         .ctrl_client()
-        .try_set_market_oracle_config(&unknown, &oracle_cfg);
+        .try_set_market_oracle_config(&hub_asset(unknown.clone()), &oracle_cfg);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert_contract_error(mapped, errors::ASSET_NOT_SUPPORTED);
+    // An unknown asset has no created market; oracle config now fails the
+    // market-existence probe (`fetch_pool_sync_data`) with PoolNotInitialized.
+    assert_contract_error(mapped, errors::GenericError::PoolNotInitialized as u32);
 }
 // 8. test_set_aggregator
 
@@ -325,9 +321,9 @@ fn test_set_oracle_tolerance_overwrites_bands() {
     let tolerance = bands_300_600();
     ctrl.set_oracle_tolerance(&asset, &tolerance);
 
-    let market = ctrl.get_market_config(&asset);
+    let oracle = t.market_oracle_config(&asset);
     assert_eq!(
-        market.oracle_config.tolerance, tolerance,
+        oracle.tolerance, tolerance,
         "tolerance bands must be overwritten in storage"
     );
 }
@@ -345,7 +341,9 @@ fn test_set_oracle_tolerance_rejects_unknown_asset() {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert_contract_error(mapped, errors::ASSET_NOT_SUPPORTED);
+    // set_oracle_tolerance updates the asset's `AssetOracle` entry; an unknown
+    // asset has none, so it reverts PairNotActive in the spoke model.
+    assert_contract_error(mapped, errors::PAIR_NOT_ACTIVE);
 }
 // 10. test_permissionless_keeper_ops
 
@@ -356,7 +354,7 @@ fn test_permissionless_keeper_ops() {
     let bob_addr = t.get_or_create_user(BOB);
 
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::vec![&t.env, t.resolve_market("USDC").asset.clone()];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(t.resolve_market("USDC").asset.clone())];
     t.env.mock_all_auths();
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may update_indexes");
@@ -371,7 +369,7 @@ fn test_permissionless_revenue_ops() {
 
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
-    let assets = soroban_sdk::vec![&t.env, asset];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(asset)];
     t.env.mock_all_auths();
     let result = ctrl.try_claim_revenue(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may claim_revenue");
@@ -387,11 +385,9 @@ fn test_disable_token_oracle_owner_only() {
     let asset = t.resolve_market("USDC").asset.clone();
 
     ctrl.disable_token_oracle(&asset);
-    let after_disable = ctrl.get_market_config(&asset);
-    assert_eq!(
-        (after_disable.status as u32),
-        2,
-        "disable_token_oracle must move market to Disabled (=2)",
+    assert!(
+        !t.market_is_active(&asset),
+        "disable_token_oracle must deactivate the market (its AssetOracle entry is removed)",
     );
 }
 // 14. test_create_liquidity_pool_uniqueness
@@ -402,15 +398,15 @@ fn test_create_liquidity_pool_uniqueness() {
     let ctrl = t.ctrl_client();
     let asset = t.resolve_asset("USDC");
     let params = usdc_preset().params.to_market_params(&asset, 7);
-    let config = usdc_preset().config.to_asset_config(&t.env, 7);
 
-    // USDC was already initialized by the builder.
-    // Calling create_liquidity_pool again should fail with AssetAlreadySupported.
-    let result = match ctrl.try_create_liquidity_pool(&asset, &params, &config) {
+    // USDC was already initialized by the builder. `create_liquidity_pool`
+    // consumes the one-shot token approval on success, so re-creating the same
+    // market finds the token unapproved and rejects with TokenNotApproved.
+    let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error")),
     };
-    assert_contract_error(result, errors::ASSET_ALREADY_SUPPORTED);
+    assert_contract_error(result, errors::GenericError::TokenNotApproved as u32);
 }
 // 16. test_market_initialization_cascade
 
@@ -426,20 +422,17 @@ fn test_market_initialization_cascade() {
         .register_stellar_asset_contract_v2(admin.clone())
         .address();
     let params = usdc_preset().params.to_market_params(&asset, 7);
-    let config = usdc_preset().config.to_asset_config(&t.env, 7);
 
     // 0. Pre-approve the token contract (allow-list gate, T1-7).
     ctrl.approve_token(&asset);
 
     // 1. Create the liquidity pool with no oracle; the call succeeds and
     //    leaves the market in PendingOracle.
-    ctrl.create_liquidity_pool(&asset, &params, &config);
+    ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params);
 
-    // Confirm the market is pending (PendingOracle = 0).
-    let m = ctrl.get_market_config(&asset);
-    assert_eq!(
-        (m.status as u32),
-        0,
+    // Confirm the market is pending (no oracle yet).
+    assert!(
+        !t.market_is_active(&asset),
         "market should be in PendingOracle status"
     );
 
@@ -452,7 +445,9 @@ fn test_market_initialization_cascade() {
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
     t.configure_market_oracle(&asset, &reflector_cfg);
 
-    // 3. Confirm the market is Active (Active = 1).
-    let m = ctrl.get_market_config(&asset);
-    assert_eq!((m.status as u32), 1, "market should be in Active status");
+    // 3. Confirm the market is Active (its AssetOracle entry now exists).
+    assert!(
+        t.market_is_active(&asset),
+        "market should be in Active status"
+    );
 }
