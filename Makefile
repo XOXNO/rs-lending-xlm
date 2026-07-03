@@ -17,13 +17,17 @@
 #   make testnet upgradeGovernance  Upgrade governance in-place on testnet
 #   make testnet upgradeAll         Upgrade pool template, controller, pools, then unpause
 #   make testnet setup              Deploy + configure markets/spokes, then unpause
-#   make mainnet setup              Deploy + configure markets/spokes, then unpause
+#   make mainnet setup              Deploy + configure markets/spokes (LEFT PAUSED)
 #   make testnet resume             Re-run configure/markets/spokes/unpause (skips deploy)
 #
-# Mainnet bootstrap (avoid 48h-per-op waits): deploy with a 1-ledger delay, then
-# raise to the production delay once everything is configured (increase-only):
-#   DEPLOY_MIN_DELAY=1 make mainnet setup
-#   make mainnet updateDelay 34560
+# Mainnet bootstrap (avoid 48h-per-op waits): deploy + configure at a short delay
+# while the protocol is PAUSED, then raise to the production delay (increase-only)
+# and go live. `make mainnet setup` never auto-unpauses, and `make mainnet unpause`
+# refuses until the on-chain timelock delay >= timelock_min_delay_ledgers, so the
+# protocol can never be live below the production floor:
+#   DEPLOY_MIN_DELAY=1 make mainnet setup     # deploys + configures, stays paused
+#   make mainnet updateDelay 34560            # raise to the 48h production floor
+#   make mainnet unpause                      # go live (gated on delay >= floor)
 #
 # Full runbook (markets / oracles / spokes / roles / recovery): DEPLOYMENT.md
 #
@@ -1125,7 +1129,7 @@ _deploy: deploy-artifacts
 	@MIN_DELAY=$$(jq -r '.["$(NETWORK)"].timelock_min_delay_ledgers // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$$DEPLOY_MIN_DELAY" ]; then \
 		MIN_DELAY="$$DEPLOY_MIN_DELAY"; \
-		echo "Bootstrap: DEPLOY_MIN_DELAY override = $$MIN_DELAY ledger(s). Deploy + setup run at this short delay; raise to the production value with 'make $(NETWORK) updateDelay <ledgers>' once configured (increase-only)."; \
+		echo "Bootstrap: DEPLOY_MIN_DELAY override = $$MIN_DELAY ledger(s). Deploy + setup run at this short delay WHILE PAUSED; raise to the production value with 'make $(NETWORK) updateDelay <ledgers>' (increase-only), then 'make $(NETWORK) unpause' to go live. On mainnet, unpause refuses until the delay reaches timelock_min_delay_ledgers."; \
 	fi; \
 	if [ -z "$$MIN_DELAY" ] || [ "$$MIN_DELAY" = "null" ]; then \
 		echo "timelock_min_delay_ledgers not configured for $(NETWORK) in $(CONFIG_DIR)/networks.json"; \
@@ -1214,8 +1218,11 @@ configure-controller: _preflight-configure-controller
 setup-testnet: NETWORK=testnet
 setup-testnet: _preflight-setup deploy-testnet configure-controller _setup-markets _unpause-after-setup _post-setup-status
 
+# Mainnet is left PAUSED after setup — going live is a separate, gated step
+# (raise the timelock to the production floor, then `make mainnet unpause`, which
+# refuses below the floor). Consistent with the `make mainnet setup` dispatcher.
 setup-mainnet: NETWORK=mainnet
-setup-mainnet: _preflight-setup deploy-mainnet configure-controller _setup-markets _unpause-after-setup _post-setup-status
+setup-mainnet: _preflight-setup deploy-mainnet configure-controller _setup-markets _post-setup-status
 
 _unpause-after-setup:
 	@echo "=== Unpausing $(NETWORK) protocol via governance ==="
@@ -1322,8 +1329,24 @@ define NETWORK_DISPATCH
 				testFlashReceiver)  $(MAKE) --no-print-directory test-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_LOAN_AMOUNT=$(FLASH_LOAN_AMOUNT) ;; \
 				deployAggregator)   $(MAKE) --no-print-directory deploy-aggregator NETWORK=$(1) SIGNER=$(SIGNER) AGGREGATOR_ADMIN=$(AGGREGATOR_ADMIN) ;; \
 				prepayRent)         $(MAKE) --no-print-directory prepay-rent NETWORK=$(1) SIGNER=$(SIGNER) ;; \
-				setup)              $(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets _unpause-after-setup prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
-				resume)             $(MAKE) --no-print-directory _preflight-configure-controller configure-controller _setup-markets _unpause-after-setup prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				setup)              if [ "$(1)" = "mainnet" ]; then \
+						$(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
+						echo ""; \
+						echo "Mainnet setup complete — protocol left PAUSED (never unpaused at a bootstrap delay)."; \
+						echo "Raise the timelock to the production floor, then go live:"; \
+						echo "  make mainnet updateDelay <floor>   # e.g. 34560 (48h)"; \
+						echo "  make mainnet unpause               # refuses until delay >= floor"; \
+					else \
+						$(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets _unpause-after-setup prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
+					fi ;; \
+				resume)             if [ "$(1)" = "mainnet" ]; then \
+						$(MAKE) --no-print-directory _preflight-configure-controller configure-controller _setup-markets prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
+						echo ""; \
+						echo "Mainnet resume complete — protocol left PAUSED. Go live with:"; \
+						echo "  make mainnet updateDelay <floor> && make mainnet unpause"; \
+					else \
+						$(MAKE) --no-print-directory _preflight-configure-controller configure-controller _setup-markets _unpause-after-setup prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
+					fi ;; \
 			esac; \
 			exit 0 ;; \
 	esac; \
