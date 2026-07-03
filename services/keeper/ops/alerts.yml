@@ -39,9 +39,14 @@ groups:
       # (RPC outage, unfunded/again-wrong-role signer, bad config). Caught early,
       # before it becomes KeeperEntriesArchived.
       - alert: KeeperNotProgressing
+        # `keeper_jobs_planned_total` is labelled `loop`; `keeper_txs_total` is
+        # labelled `kind`+`status`. A bare `and` matches on identical label sets,
+        # so the two never join and the alert can never fire. Aggregate both sides
+        # to a scalar with `sum(...)`, and `or vector(0)` so a total absence of
+        # success series still reads as 0 rather than an empty vector.
         expr: |
-          increase(keeper_jobs_planned_total[15m]) > 0
-          and increase(keeper_txs_total{status="success"}[15m]) == 0
+          sum(increase(keeper_jobs_planned_total[15m])) > 0
+          and (sum(increase(keeper_txs_total{status="success"}[15m])) or vector(0)) == 0
         for: 15m
         labels:
           severity: warning

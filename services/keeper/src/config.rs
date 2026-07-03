@@ -40,7 +40,9 @@ pub struct ContractsConfig {
     pub market_assets: Vec<String>,
     /// Governance contract that owns the controller. When set, its instance,
     /// `MinDelay` (instance-tier), and access-control role keys are bumped too.
-    #[serde(default)]
+    /// An empty/blank YAML value (`governance: ""`) means "unset" (`None`), not
+    /// `Some("")` — otherwise the blank placeholder fails the `C...` check below.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     pub governance: Option<String>,
 }
 
@@ -134,6 +136,16 @@ fn default_hub_id() -> u32 {
     1
 }
 
+/// Deserialize an optional string, treating an empty or whitespace-only value
+/// as `None`. Lets `governance: ""` in YAML mean "unset" instead of `Some("")`.
+fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    Ok(opt.filter(|s| !s.trim().is_empty()))
+}
+
 impl KeeperConfig {
     pub fn load(path: &Path) -> Result<Self> {
         let raw =
@@ -219,3 +231,30 @@ impl KeeperConfig {
 
 /// Approximate ledgers per day on Stellar.
 pub const LEDGERS_PER_DAY: u32 = 17_280;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn contracts(gov_line: &str) -> ContractsConfig {
+        let yaml = format!(
+            "controller: CCONTROLLER\npool_wasm_hash: {}\nflash_loan_receiver: CFLR\n{}",
+            "0".repeat(64),
+            gov_line
+        );
+        serde_yaml::from_str(&yaml).expect("parse ContractsConfig")
+    }
+
+    #[test]
+    fn governance_blank_yaml_deserializes_to_none() {
+        // Field omitted, empty string, and whitespace-only all mean "unset".
+        assert_eq!(contracts("").governance, None);
+        assert_eq!(contracts("governance: \"\"").governance, None);
+        assert_eq!(contracts("governance: \"   \"").governance, None);
+        // A real address is preserved.
+        assert_eq!(
+            contracts("governance: CGOV").governance,
+            Some("CGOV".to_string())
+        );
+    }
+}

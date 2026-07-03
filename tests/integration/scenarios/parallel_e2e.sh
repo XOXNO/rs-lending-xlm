@@ -51,21 +51,44 @@ for lane in "${LANES[@]}"; do
     pids+=("$!")
 done
 
-# A lane process exiting non-zero (crash/timeout) is only logged — pass/fail is
-# decided by assert_green below, since full_e2e exits 0 even when actions FAILed.
+# Capture each lane's process exit. A non-zero exit (crash) or a timeout kill
+# means the lane did not finish — regardless of what actions.tsv contains, so
+# this must fail the run on its own. full_e2e exits 0 even when actions FAILed,
+# so the exit code is necessary but not sufficient; assert_green covers that.
+declare -a lane_exit
 for i in "${!LANES[@]}"; do
     if wait "${pids[$i]}"; then
+        lane_exit[$i]=0
         log_orch "lane '${LANES[$i]}' process exited 0"
     else
-        log_orch "lane '${LANES[$i]}' process exited NON-ZERO (timeout/crash) — see runs/${BASE}-${LANES[$i]}.log"
+        lane_exit[$i]=$?
+        log_orch "lane '${LANES[$i]}' process exited NON-ZERO (${lane_exit[$i]}: timeout/crash) — see runs/${BASE}-${LANES[$i]}.log"
     fi
 done
 
-# Gate each lane; overall green requires all lanes green.
+# Gate each lane; overall green requires every lane to satisfy ALL of:
+#   1. its process exited 0 (not killed by timeout / did not crash),
+#   2. its log shows the terminal 'run complete' marker — every phase ran to the
+#      end (catches a lane killed after actions.tsv init but before any FAIL row,
+#      which assert_green alone would pass), and
+#   3. assert_green finds no unresolved failure rows.
 overall=0
-for lane in "${LANES[@]}"; do
+for i in "${!LANES[@]}"; do
+    lane="${LANES[$i]}"
+    lane_ts="${BASE}-${lane}"
+    lane_log="$INTEG_DIR/runs/${lane_ts}.log"
     log_orch "gating lane '$lane'"
-    if RUN_TS="${BASE}-${lane}" bash "$HERE/assert_green.sh"; then
+    if [ "${lane_exit[$i]}" -ne 0 ]; then
+        log_orch "lane '$lane' FAILED — process did not exit cleanly (${lane_exit[$i]})"
+        overall=1
+        continue
+    fi
+    if ! grep -q "run complete" "$lane_log" 2>/dev/null; then
+        log_orch "lane '$lane' FAILED — no 'run complete' marker (phases incomplete) in ${lane_ts}.log"
+        overall=1
+        continue
+    fi
+    if RUN_TS="$lane_ts" bash "$HERE/assert_green.sh"; then
         log_orch "lane '$lane' GREEN"
     else
         log_orch "lane '$lane' FAILED gate"
