@@ -33,9 +33,10 @@ pub struct SwapHop {
     pub venue: SwapVenue,
 }
 
-/// One path. `split_ppm` is parts-per-million of the swap's `total_in`
-/// allocated to this path; the LAST path absorbs PPM rounding so the
-/// entire `total_in` is consumed. Hops chain output→input automatically.
+/// One path. `split_ppm` is parts-per-million of the amount entering path
+/// allocation (`total_in` minus any input-side fee) allocated to this path;
+/// the LAST path absorbs PPM rounding so the entire amount is consumed.
+/// Hops chain output→input automatically.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SwapPath {
@@ -51,9 +52,10 @@ pub struct SwapPath {
 pub struct StrategyPayload {
     pub paths: Vec<SwapPath>,
     /// Referral ID for fee attribution. `0` = no fee. `> 0` = static
-    /// fee (admin) + referral fee (referral owner) charged on either
-    /// input or output token (whichever isn't whitelisted; see
-    /// `is_whitelisted` and `apply_fees_on_token`).
+    /// fee (admin) + referral fee (referral owner) charged on the output
+    /// token only when it's whitelisted and the input token isn't;
+    /// otherwise charged on input (see `is_whitelisted` and
+    /// `apply_fees_on_token`).
     pub referral_id: u64,
     pub token_in: Address,
     pub token_out: Address,
@@ -78,7 +80,8 @@ pub enum DataKey {
     /// Contract admin (instance). Set in the constructor.
     Admin,
     /// Static admin-side fee in basis points (instance).
-    /// Applied alongside the referral fee whenever `referral_id > 0`.
+    /// Applied alongside the referral fee whenever `referral_id > 0`
+    /// resolves to an active referral.
     StaticFeeBps,
     /// Monotonic counter for assigning new referral IDs (instance).
     ReferralCounter,
@@ -95,6 +98,6 @@ pub enum DataKey {
     AdminFee(Address),
     /// Accumulated referral fees per (referral_id, token) (persistent).
     /// Claimed via `claim_referral_fees`; transferred to the
-    /// `ReferralConfig.owner` of the time of claim.
+    /// `ReferralConfig.owner` at the time of claim.
     ReferralFee(u64, Address),
 }

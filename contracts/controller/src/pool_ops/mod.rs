@@ -42,8 +42,9 @@ impl Controller {
         crate::account::delegation::renew_account(&env, &caller, account_id);
     }
 
-    /// Owner-only: opts `delegate` into acting on `account_id`. Effective only
-    /// while `delegate` is also a registered, active position manager.
+    /// Account-owner-only: opts `delegate` into acting on `account_id`.
+    /// Effective only while `delegate` is also a registered, active position
+    /// manager.
     pub fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
         crate::account::delegation::set_account_delegate(
@@ -51,7 +52,7 @@ impl Controller {
         );
     }
 
-    /// Owner-only: revokes `delegate` from `account_id`.
+    /// Account-owner-only: revokes `delegate` from `account_id`.
     pub fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
         crate::account::delegation::set_account_delegate(
@@ -60,7 +61,7 @@ impl Controller {
     }
 
     /// One-time deployment of the central liquidity pool owned by this
-    /// controller. Panics PoolAlreadyDeployed on repeat calls.
+    /// controller. Panics `PoolAlreadyDeployed` on repeat calls.
     #[only_owner]
     pub fn deploy_pool(env: Env) -> Address {
         storage::renew_controller_instance(&env);
@@ -195,12 +196,12 @@ fn claim_revenue_for_asset_with_cache(
     hub_asset: &HubAssetKey,
     cache: &mut Cache,
 ) -> i128 {
-    // `claim_revenue` reverts `PoolNotInitialized` for an uncreated market.
     let accumulator = storage::try_get_accumulator(env)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::NoAccumulator));
 
     let pool_addr = cache.cached_pool_address();
 
+    // `claim_revenue` reverts `PoolNotInitialized` for an uncreated market.
     let result = pool_claim_revenue_call(env, &pool_addr, hub_asset);
     let amount = result.actual_amount;
     // dimensional: amount is Token(asset) revenue in asset-native units.
@@ -241,7 +242,6 @@ pub fn add_reward(
     cache: &mut Cache,
 ) {
     // dimensional: amount is Token(asset) reward in asset-native units.
-    // `add_rewards` reverts `PoolNotInitialized` for an uncreated market.
     validation::require_positive_amount(env, amount);
 
     let pool_addr = cache.cached_pool_address();
@@ -255,6 +255,7 @@ pub fn add_reward(
         GenericError::AmountMustBePositive,
     );
 
+    // `add_rewards` reverts `PoolNotInitialized` for an uncreated market.
     pool_add_rewards_call(env, &pool_addr, hub_asset, amount);
 }
 
@@ -265,7 +266,7 @@ pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(HubAssetKey,
     }
 }
 // Syncs risk params on each supply position for one account, then runs a
-/// single HF gate when `has_risks` propagates liquidation thresholds.
+// single HF gate when `has_risks` propagates liquidation thresholds.
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
     // No-op when the account is gone (bad-debt cleanup, full exit).
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {

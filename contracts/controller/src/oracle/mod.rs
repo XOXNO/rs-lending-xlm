@@ -21,7 +21,6 @@ use crate::context::Cache;
 
 pub use compose::ResolvedOracleComponents;
 
-// Certora rules reach tolerance helpers through `crate::oracle::*`.
 #[cfg(feature = "certora")]
 pub(crate) use tolerance::calculate_final_price;
 

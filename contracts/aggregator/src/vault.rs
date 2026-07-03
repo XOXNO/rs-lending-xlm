@@ -1,14 +1,16 @@
 //! In-memory token balance tracker used during `execute_strategy`.
 //!
-//! Tokens move through the vault in three phases per path:
-//!   1. `deposit(token_in, amount_in)` — pulled from `sender` at path start.
-//!   2. `withdraw` + `deposit` chain for each hop against the vault.
+//! Tokens move through the vault in three phases:
+//!   1. `deposit(token_in, total_in)` — the whole payload's input is pulled
+//!      from `sender` once, before any path executes.
+//!   2. `withdraw` + `deposit` chain for each hop of each path against the
+//!      vault.
 //!   3. Final output is withdrawn and transferred back to `sender`.
 //!
-//! We use `soroban_sdk::Map<Address, i128>` because:
-//! - It handles hashing/equality via Soroban's host functions.
-//! - It lives in `Env` memory for the contract's lifetime — no storage I/O
-//!   cost.
+//! Backed by `soroban_sdk::Map<Address, i128>`:
+//! - Handles hashing/equality via Soroban's host functions.
+//! - Lives in host memory for the current invocation only — no storage I/O
+//!   cost, and nothing survives past the transaction that created it.
 //! - Balances are `i128`, matching Soroban SAC token semantics.
 
 use crate::errors::Error;
@@ -32,7 +34,7 @@ impl<'a> Vault<'a> {
         self.balances.get(token.clone()).unwrap_or(0)
     }
 
-    /// Add `amount` to the token's running balance. `amount` must be > 0.
+    /// Add `amount` to the token's running balance. `amount` must be >= 0.
     /// Zero deposits are silently no-op'd (vault has no semantic meaning
     /// for a zero credit).
     pub fn deposit(&mut self, token: &Address, amount: i128) {

@@ -7,7 +7,9 @@ pub enum OracleAssetRef {
     Stellar(Address),
     /// SEP-40 lookup by symbol.
     Symbol(Symbol),
-    /// Provider-specific string identifier RedStone feed id.
+    /// Reserved: Reflector's asset-ref resolution rejects this variant, and
+    /// RedStone identifies feeds via its own `feed_id` field, not this enum.
+    /// No source currently accepts it.
     String(String),
 }
 
@@ -210,9 +212,9 @@ pub struct MarketOracleConfig {
     pub max_sanity_price_wad: i128,
 }
 
-/// Optional per-spoke oracle override. Soroban contract types cannot embed
-/// `Option<MarketOracleConfig>` directly, so this mirrors the
-/// `OracleSourceConfigOption` enum pattern used for `MarketOracleConfig.anchor`.
+/// Optional per-spoke oracle override, mirroring the explicit `None`/`Some`
+/// pattern `OracleSourceConfigOption` uses for `MarketOracleConfig.anchor`
+/// elsewhere in this file, rather than a native `Option<MarketOracleConfig>`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
@@ -241,13 +243,13 @@ impl MarketOracleConfig {
             },
             strategy: OracleStrategy::Single,
             primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                // Pending sentinel self-points the asset; `price_with_config`
+                // rejects this shape before provider calls.
                 contract: asset.clone(),
                 asset: OracleAssetRef::Stellar(asset),
                 read_mode: OracleReadMode::Spot,
                 decimals,
                 resolution_seconds: 0,
-                // Pending sentinel self-points the asset; price reads reject this
-                // shape before provider calls.
                 base: ReflectorBase::Usd,
             }),
             anchor: OracleSourceConfigOption::None,

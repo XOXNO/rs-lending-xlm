@@ -106,7 +106,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
         )
     };
 
-    // D{existing_debt_token.decimals}{Token(existing_debt_token)} repays old debt position.
+    // D{existing_debt_token.decimals}{Token(existing_debt_token)} repays the existing debt position.
     repay_debt_from_controller(
         env,
         &mut account,

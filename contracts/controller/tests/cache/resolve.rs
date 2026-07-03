@@ -111,7 +111,7 @@ fn price_resolution_allows_distinct_and_sequential() {
         cache.enter_price_resolution(&b);
         cache.exit_price_resolution(); // B done
         cache.exit_price_resolution(); // A done
-        // A can be resolved again now that the stack is clear — not a cycle.
+                                       // A can be resolved again now that the stack is clear — not a cycle.
         cache.enter_price_resolution(&a);
         cache.exit_price_resolution();
     });
@@ -130,7 +130,9 @@ fn token_price_mutual_quote_cycle_reverts() {
         OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
         OracleSourceConfigOption, OracleStrategy, ReflectorBase, ReflectorSourceConfig,
     };
-    use mock_oracle::{MockReflectorOracle, MockReflectorOracleClient, ReflectorAsset as MockAsset};
+    use mock_oracle::{
+        MockReflectorOracle, MockReflectorOracleClient, ReflectorAsset as MockAsset,
+    };
 
     let env = Env::default();
     let admin = Address::generate(&env);

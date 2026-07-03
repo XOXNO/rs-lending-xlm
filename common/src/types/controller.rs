@@ -60,9 +60,8 @@ pub struct AccountMeta {
     pub mode: PositionMode,
 }
 
-/// Isolated-liquidity hub registry entry. There is no implicit default hub:
-/// every hub is created on demand by `create_hub` (ids from 1 up) and gates the
-/// `(hub, asset)` markets and positions keyed under it.
+/// Isolated-liquidity hub registry entry, created on demand by `create_hub`
+/// (ids from 1 up). Gates the `(hub, asset)` markets and positions keyed under it.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct HubConfig {
@@ -93,11 +92,11 @@ pub struct SpokeConfig {
 
 /// Per-asset spoke configuration: collateral/borrow flags plus the risk
 /// parameters applied while the owning spoke is active. The risk-ratio fields
-/// are basis points. `paused` blocks risk-increasing actions on this spoke-asset,
-/// `frozen` additionally blocks position increases while still allowing exits,
-/// `liquidation_fees` is the protocol fee taken from seized collateral, and
-/// `oracle_override` supplies an optional per-spoke price source over the
-/// token-rooted base.
+/// are basis points. `paused` blocks every action (supply, borrow, withdraw,
+/// repay) on this spoke-asset; `frozen` blocks only new entries (supply/borrow)
+/// while still allowing exits (withdraw/repay). `liquidation_fees` is the
+/// protocol fee taken from seized collateral, and `oracle_override` supplies
+/// an optional per-spoke price source over the token-rooted base.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetConfig {
@@ -122,10 +121,10 @@ pub struct SpokeAssetConfig {
 /// than the asset's token-rooted base oracle (`MarketOracleConfigOption::None`
 /// keeps the base).
 ///
-/// `paused`/`frozen` are the ADR 0011 per-listing incident flags; every edit
-/// states them explicitly, so a routine parameter edit cannot silently clear
-/// an active pause. Flag changes ride the same timelock as the rest of the
-/// edit — the instant incident brake remains the global controller pause.
+/// `paused`/`frozen` are per-listing incident flags; edits set them explicitly
+/// so parameter changes cannot silently clear an active pause. Flag changes use
+/// the same timelock as the edit; global controller pause remains the immediate
+/// incident brake.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetArgs {
@@ -236,8 +235,7 @@ pub struct LiquidationResult {
 pub struct Account {
     /// Account owner authorized for owner-gated account mutations.
     pub owner: Address,
-    /// Active spoke; always `>= 1`. Every account is bound to a real spoke
-    /// (there is no spoke 0) with its own risk params.
+    /// Active spoke; always `>= 1` and references an existing spoke.
     pub spoke_id: u32,
     pub mode: PositionMode,
     /// Collateral positions keyed by hub asset.
@@ -500,9 +498,10 @@ mod tests {
     }
 }
 
-// Storage tiers (instance/persistent/temporary) live in `controller::storage`
-// accessors. Per-account state is split (`AccountMeta`/`SupplyPositions`/
-// `BorrowPositions`) so callers load only the side they need.
+// Instance and persistent storage tiers for these keys live in
+// `controller::storage` accessors. Per-account state is split
+// (`AccountMeta`/`SupplyPositions`/`BorrowPositions`) so callers load only
+// the side they need.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {

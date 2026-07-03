@@ -18,9 +18,7 @@ pub use stellar_governance::timelock::OperationState;
 
 pub use stellar_governance::timelock::OperationState as GovernanceOperationState;
 
-/// Spoke asset input forwarded verbatim to the controller's `add_asset_to_spoke`
-/// / `edit_asset_in_spoke` entrypoints. Defined in `common` with the controller
-/// ABI DTOs so `AdminOperation` keeps a single source of truth.
+/// Spoke asset input forwarded to controller spoke-asset admin entrypoints without mutation.
 pub use common::types::SpokeAssetArgs;
 
 #[contracttype]
@@ -120,7 +118,7 @@ pub enum AdminOperation {
 /// Governance contract interface: controller deployment, the timelock
 /// lifecycle, the typed controller-admin proposers, and governance-self admin.
 pub trait GovernanceInterface {
-    // --- deploy.rs: one-time controller deployment and lookup ---
+    // --- Deployment ---
 
     /// One-time controller deployment; returns the deployed controller address.
     fn deploy_controller(env: Env, wasm_hash: BytesN<32>) -> Address;
@@ -128,7 +126,7 @@ pub trait GovernanceInterface {
     /// Returns the deployed controller address.
     fn controller(env: Env) -> Address;
 
-    // --- timelock.rs: generic lifecycle, delay setter, and read views ---
+    // --- Timelock lifecycle ---
 
     /// Executes a ready operation, invoking the controller; `Some(executor)`
     /// gates on EXECUTOR, `None` leaves execution open.
@@ -176,7 +174,7 @@ pub trait GovernanceInterface {
     /// matching proposer schedules; read-only.
     fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OraclePriceFluctuation;
 
-    // --- forward.rs: generic proposer ---
+    // --- Administrative proposals ---
 
     /// Schedules an administrative operation.
     fn propose(env: Env, proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>;
@@ -187,7 +185,7 @@ pub trait GovernanceInterface {
     /// Resumes the controller, owner-gated and immediate.
     fn unpause(env: Env);
 
-    // --- access.rs / self_timelock.rs: governance-self administration ---
+    // --- Governance self-administration ---
 
     /// Executes a scheduled self-operation.
     fn execute_self(env: Env, executor: Option<Address>, op: AdminOperation, salt: BytesN<32>);

@@ -3,6 +3,9 @@
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{symbol_short, Address, Env, IntoVal, Vec};
 
+/// Authorizes exactly one `token_in.transfer(controller, router_addr, amount_in)`
+/// sub-invocation. The router can pull no more than `amount_in` of `token_in`
+/// and cannot redirect the transfer to any other recipient.
 pub(super) fn pre_authorize_router_pull(
     env: &Env,
     router_addr: &Address,

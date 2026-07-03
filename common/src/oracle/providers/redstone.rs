@@ -22,8 +22,9 @@ pub trait RedStoneMultiFeed {
     fn read_price_data(env: Env, feed_ids: Vec<String>) -> Result<Vec<RedStonePriceData>, Error>;
 }
 
-/// Single-feed read without cache. Used by validation paths that
-/// have no transaction cache (market config admin flows).
+/// Single-feed read without cache. Called directly by market-config
+/// validation flows (no transaction cache); the production read path also
+/// calls this on a transaction-cache miss to populate its own cache.
 pub fn read_price_data_uncached(
     env: &Env,
     contract: &Address,

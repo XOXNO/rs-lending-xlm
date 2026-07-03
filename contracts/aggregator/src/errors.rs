@@ -10,17 +10,19 @@ pub enum Error {
     EmptyBatch = 1,
     /// A path contained zero hops.
     EmptyPath = 2,
-    /// `total_in <= 0` or per-path allocation underflowed.
+    /// `total_in <= 0` or a per-path allocation computed to zero.
     InvalidAmount = 3,
     /// Token chain broken — `hops[i].token_out != hops[i+1].token_in`,
     /// or two paths disagree on first-hop `token_in` /
     /// last-hop `token_out`.
     BrokenTokenChain = 4,
-    /// Aggregate output across all paths was less than `total_min_out`.
+    /// `total_min_out <= 0`, or aggregate output across all paths was
+    /// less than `total_min_out`.
     SlippageExceeded = 5,
     /// A venue returned zero output — treated as drained pool.
     ZeroOutput = 7,
-    /// Integer conversion out of range.
+    /// Checked arithmetic overflowed, or an integer conversion (e.g.
+    /// `i128` <-> `u128`) was out of range.
     IntegerOverflow = 9,
     /// `path.split_ppm == 0`.
     ZeroSplitPpm = 11,
@@ -28,7 +30,8 @@ pub enum Error {
     SplitPpmMismatch = 12,
     /// Swap XDR did not decode into the router-owned payload type.
     InvalidRouteXdr = 13,
-    /// Caller is not the contract admin.
+    /// No admin is set in storage (contract not yet constructed).
+    /// Caller-vs-admin mismatches instead trap via `Address::require_auth`.
     NotAdmin = 20,
     /// Fee config exceeds the per-side cap.
     FeeTooHigh = 21,

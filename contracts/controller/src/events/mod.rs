@@ -383,7 +383,8 @@ pub struct UpdatePositionBatchEvent {
 
 /// Attributes a liquidation to its caller and carries the aggregate USD repaid
 /// and the applied bonus rate. Per-asset repaid/seized token amounts ride the
-/// position batch legs; total seized USD is `repaid_usd_wad * (1 + bonus_bps)`.
+/// position batch legs; total seized USD is
+/// `repaid_usd_wad * (1 + bonus_bps / 10_000)`.
 #[contractevent(topics = ["position", "liquidation"])]
 #[derive(Clone, Debug)]
 pub struct LiquidationEvent {

@@ -1,5 +1,6 @@
-//! TTL renewal helpers for Soroban's three storage rent tiers (user,
-//! protocol-shared, instance).
+//! TTL renewal helpers for this contract's three renewal tiers: user and
+//! protocol-shared (both Soroban persistent storage, renewed with different
+//! threshold/bump constants) and instance (Soroban's native instance tier).
 
 use crate::constants::{
     TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_BUMP_USER, TTL_THRESHOLD_INSTANCE,

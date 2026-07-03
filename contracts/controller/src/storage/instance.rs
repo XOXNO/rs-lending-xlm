@@ -65,8 +65,8 @@ pub(crate) fn set_token_approved(env: &Env, token: &Address, approved: bool) {
         env.storage().instance().set(&key, &true);
     } else {
         if already_approved {
-            // Saturate at zero: entries approved before counter bookkeeping
-            // existed must still be revocable/consumable.
+            // Saturate at zero: an entry approved before this counter existed
+            // (pre-upgrade state) must still be revocable without underflowing.
             let count = approved_token_count(env).saturating_sub(1);
             env.storage()
                 .instance()
@@ -166,9 +166,9 @@ pub(crate) fn set_accumulator(env: &Env, addr: &Address) {
         .set(&ControllerKey::Accumulator, addr);
 }
 
-/// Token-rooted oracle config under `AssetOracle(asset)`. Persistent
-/// protocol-shared tier, mirroring the `Market` key's TTL so the two never
-/// archive on divergent schedules while both hold the oracle config.
+/// Token-rooted oracle config under `AssetOracle(asset)`. Persistent,
+/// protocol-shared tier, renewed via `renew_protocol_shared_key` like the
+/// rest of that tier.
 pub(crate) fn get_asset_oracle(env: &Env, asset: &Address) -> Option<MarketOracleConfig> {
     let key = ControllerKey::AssetOracle(asset.clone());
     let config: Option<MarketOracleConfig> = env.storage().persistent().get(&key);
@@ -276,7 +276,7 @@ pub(crate) fn increment_hub_id(env: &Env) -> u32 {
 }
 
 /// Reads a hub registry entry. No hub is seeded; hubs are created on demand
-/// (ids from 1). Returns `None` for any uncreated id, including hub 0.
+/// (ids from 1). Returns `None` for any uncreated id.
 /// Persistent, not instance: the registry grows with the hub count, and the
 /// instance envelope is read (and rent-extended) on every invocation.
 pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
@@ -331,8 +331,8 @@ pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionM
         env.storage().instance().set(&key, config);
     } else {
         if already_registered {
-            // Saturate at zero: entries registered before counter bookkeeping
-            // existed must still be deactivatable.
+            // Saturate at zero: an entry registered before this counter existed
+            // (pre-upgrade state) must still be deactivatable without underflowing.
             let count = position_manager_count(env).saturating_sub(1);
             env.storage()
                 .instance()

@@ -1,6 +1,6 @@
 use soroban_sdk::{panic_with_error, Env, I256};
 
-/// Widens the three operands to I256 for an overflow-safe `mul_div`.
+// Widens the three operands to I256 for an overflow-safe `mul_div`.
 fn to_i256_operands(env: &Env, x: i128, y: i128, d: i128) -> (I256, I256, I256) {
     (
         I256::from_i128(env, x),
@@ -55,8 +55,8 @@ pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &rounded.div(&d256))
 }
 
-/// Upscales `a` by `10^diff`, mapping both overflow points to caller-supplied
-/// messages. Uses `checked_pow` because raw `pow` wraps in release.
+// Upscales `a` by `10^diff`, mapping both overflow points to caller-supplied
+// messages via `checked_pow`/`checked_mul` rather than a generic panic.
 fn rescale_upscale(a: i128, diff: u32, factor_msg: &str, value_msg: &str) -> i128 {
     let factor = 10i128.checked_pow(diff).expect(factor_msg);
     // D{from}{U} * D{diff}{1} -> D{to}{U}; U is unchanged.

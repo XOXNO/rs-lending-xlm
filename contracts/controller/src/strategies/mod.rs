@@ -1,4 +1,4 @@
-//! Strategy flash-loan flows.
+//! Strategy entry points: multiply, collateral/debt swaps, Blend migration, and flash loans.
 
 pub(crate) mod flash_loan;
 mod migrate_blend;

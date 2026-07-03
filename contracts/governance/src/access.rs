@@ -101,11 +101,12 @@ pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_unti
     sync_pending_admin_transfer(env, new_owner, live_until_ledger);
 }
 
-/// Disallows EXECUTOR/CANCELLER overlap for non-owner accounts. The owner is
-/// exempt: it must be able to hold both recovery roles at once so it can always
-/// cancel a pending malicious or erroneous operation even while holding
-/// EXECUTOR — otherwise an accidental/malicious revoke of the owner's CANCELLER
-/// could never be undone through the timelocked grant path.
+/// Disallows `EXECUTOR`/`CANCELLER` overlap for non-owner accounts. The owner
+/// is exempt: it must be able to hold both recovery roles at once so it can
+/// always cancel a pending malicious or erroneous operation even while
+/// holding `EXECUTOR` — otherwise an accidental/malicious revoke of the
+/// owner's `CANCELLER` could never be undone through the timelocked grant
+/// path.
 fn require_executor_canceller_separation(
     env: &Env,
     owner: &Address,

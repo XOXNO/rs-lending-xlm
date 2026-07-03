@@ -90,7 +90,6 @@ impl<'a> Ctx<'a> {
         })
     }
 
-    /// Configured `HubAssetKey`; no default hub is inferred.
     fn hub_asset(&self) -> HubAssetKey {
         HubAssetKey {
             hub_id: self.cfg.hub_id,

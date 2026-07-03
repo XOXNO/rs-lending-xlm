@@ -421,7 +421,7 @@ impl LiquidityPoolInterface for LiquidityPool {
             .checked_add(fee)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
 
-        // Payout and verify pool balance delta.
+        // Sends the loan, then confirms the pool balance dropped by exactly `amount`.
         tok.transfer(&pool_addr, &receiver, &amount);
         verify_flash_repay(&env, &tok, &pool_addr, expected_after_payout);
 
@@ -466,7 +466,9 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     #[only_owner]
     // Strategy borrow records fee as protocol revenue before transfer; net amount
-    // is sent. Utilization and borrow cap use the full amount.
+    // is sent. The pool's own utilization check runs against the full pre-fee
+    // amount; the returned scaled delta (also full-amount-based) later feeds
+    // the controller's spoke borrow-cap check.
     fn create_strategy(
         env: Env,
         receiver: Address,

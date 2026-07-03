@@ -8,7 +8,7 @@ use common::oracle::providers::reflector::ReflectorPriceData;
 use soroban_sdk::Env;
 
 /// Provider price observation consumed by the compose layer.
-#[cfg_attr(feature = "certora", allow(dead_code))] // Dead when certora stubs price paths.
+#[cfg_attr(feature = "certora", allow(dead_code))]
 #[derive(Clone, Debug)]
 pub(crate) struct OracleObservation {
     pub price_wad: i128,

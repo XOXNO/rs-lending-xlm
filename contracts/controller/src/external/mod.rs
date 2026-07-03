@@ -1,6 +1,5 @@
-//! Outbound pool and SAC token wrappers.
+//! Outbound pool, SAC token, and Blend migration client wrappers.
 
-/// Blend V2 pool client used by migration flows.
 pub(crate) mod blend;
 
 #[cfg(not(feature = "certora"))]

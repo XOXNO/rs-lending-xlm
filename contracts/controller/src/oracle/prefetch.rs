@@ -11,7 +11,6 @@ use crate::context::Cache;
 #[cfg(not(feature = "certora"))]
 const MIN_BULK_FEEDS: u32 = 2;
 
-/// Certora stub: lazy per-feed reads preserve semantics.
 #[cfg(feature = "certora")]
 pub(crate) fn prefetch_redstone_feeds(_cache: &mut Cache, _assets: &Vec<Address>) {}
 

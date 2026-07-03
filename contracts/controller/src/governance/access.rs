@@ -70,16 +70,11 @@ impl Controller {
 
         storage::set_min_borrow_collateral_usd_wad(&env, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD);
 
-        // No spoke is seeded. Spokes start at id 1 (`add_spoke`), and every
-        // account binds to a real spoke with its own risk configuration.
-
-        // No implicit default hub.
-
         env.storage()
             .instance()
             .set(&ControllerKey::AppVersion, &INITIAL_APP_VERSION);
 
-        // Pause by default.
+        // New deployments start paused until the owner completes configuration and unpauses.
         stellar_contract_utils::pausable::pause(&env);
     }
 

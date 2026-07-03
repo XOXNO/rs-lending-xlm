@@ -68,8 +68,6 @@ pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Acco
     #[cfg(feature = "certora")]
     crate::spec::health_ghost::set_checked();
 
-    // Debt-free accounts carry a saturated health factor, so this passes
-    // without a special case.
     assert_with_error!(
         env,
         totals.health_factor >= Wad::ONE,

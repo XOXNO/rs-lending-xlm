@@ -16,7 +16,6 @@ impl Cache {
         self.market_indexes.set(hub_asset.clone(), index.clone());
     }
 
-    /// Certora stub: lazy per-asset reads preserve semantics.
     #[cfg(feature = "certora")]
     pub fn prefetch_market_indexes(&mut self, _hub_assets: &Vec<HubAssetKey>) {}
 
@@ -48,7 +47,7 @@ impl Cache {
     }
 
     /// Returns the pool-sourced index for `hub_asset`. On a cache miss the pool is
-    /// asked for it (single-asset `bulk_get_indexes`); the controller never
+    /// asked for it (single-asset `get_bulk_indexes`); the controller never
     /// simulates accrual itself.
     pub fn cached_market_index(&mut self, hub_asset: &HubAssetKey) -> MarketIndex {
         if let Some(index) = self.market_indexes.get(hub_asset.clone()) {

@@ -1,4 +1,5 @@
-//! Transaction-local cache for oracle and market reads.
+//! Transaction-local cache for oracle/market/pool reads, plus a write buffer
+//! for spoke usage and position events pending emission.
 
 mod events;
 mod market_index;
@@ -27,6 +28,7 @@ pub struct Cache {
     /// quote/anchor cycle (A quoted in B, B quoted in A) would recurse until the
     /// shadow stack traps. Membership here detects the re-entry and reverts with
     /// a clear error instead.
+    #[cfg_attr(feature = "certora", allow(dead_code))]
     resolving: Vec<Address>,
     /// Per-spoke override price cache, separate from token-rooted prices.
     spoke_prices: Map<HubAssetKey, PriceFeedRaw>,
@@ -38,7 +40,8 @@ pub struct Cache {
     market_indexes: Map<HubAssetKey, MarketIndexRaw>,
     pool_address: Option<Address>,
     pool_sync_data: Map<HubAssetKey, PoolSyncData>,
-    /// One loaded spoke per tx: usage buffer and cap writes.
+    /// One loaded spoke at a time: usage buffer and cap writes. Reset between
+    /// accounts (`reset_spoke_context`) so one batch can cover several spokes.
     spoke_usage: Option<SpokeUsageContext>,
     deposit_updates: Vec<EventDepositDelta>,
     borrow_updates: Vec<EventBorrowDelta>,
@@ -91,6 +94,7 @@ impl Cache {
     /// already on the resolution stack — a quote/anchor cycle that would
     /// otherwise recurse until the shadow stack traps. Paired with
     /// `exit_price_resolution` on the success path.
+    #[cfg_attr(feature = "certora", allow(dead_code))]
     pub(crate) fn enter_price_resolution(&mut self, asset: &Address) {
         if self.resolving.iter().any(|a| a == *asset) {
             panic_with_error!(&self.env, OracleError::OracleCycleDetected);
@@ -99,6 +103,7 @@ impl Cache {
     }
 
     /// Pops the most recently entered asset off the resolution stack.
+    #[cfg_attr(feature = "certora", allow(dead_code))]
     pub(crate) fn exit_price_resolution(&mut self) {
         self.resolving.pop_back();
     }

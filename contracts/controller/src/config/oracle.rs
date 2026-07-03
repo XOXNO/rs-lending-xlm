@@ -23,8 +23,8 @@ pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: M
     // Revalidates sanity bands and quote-market activity at execution.
     validate_market_oracle_config(env, asset, &config);
 
-    // Test markets register pools with preset decimals that may diverge from
-    // the live token probe; keep the pool-registered value authoritative.
+    // With `testing` enabled, preserve pool-registered decimals instead of a
+    // live token probe.
     if cfg!(feature = "testing") && pool_decimals != 0 {
         config.asset_decimals = pool_decimals;
     }
@@ -70,7 +70,9 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
         return;
     };
 
-    // A market quoted in itself would chain forever at read time; reject it here.
+    // A self-quote would otherwise only surface at read time, as a generic
+    // `OracleCycleDetected` revert from the resolution-stack guard; reject it
+    // here at config time with a more specific error.
     assert_with_error!(env, quote != asset, OracleError::InvalidOracleBase);
 
     // The quote must be active: a token-rooted `AssetOracle` entry must exist.

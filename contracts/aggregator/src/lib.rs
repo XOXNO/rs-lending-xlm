@@ -61,7 +61,9 @@ use soroban_sdk::{
 
 const PPM_DENOMINATOR: i128 = 1_000_000;
 const TOTAL_FEE: i128 = 10_000;
-/// Hard cap on combined static fee. 1_000 bps = 10%.
+/// Hard cap applied independently to the static fee and to each referral's
+/// fee. 1_000 bps = 10% per side; static and referral fees are not capped
+/// as a combined total.
 const FEE_CAP: u32 = 1_000;
 
 #[contract]
@@ -201,15 +203,16 @@ impl Router {
     }
 
     /// Recover the router's live balance of the listed tokens to
-    /// `recipient`. Admin-only. The router should hold zero balance of
-    /// any token between transactions — `execute_strategy` always
-    /// drains its in-memory vault to zero before returning — so any
-    /// non-zero balance found here is stray (direct transfers, dust
-    /// from a route that never went through the vault). This ignores
-    /// fee-bucket accounting: sweeping a token that also has an
-    /// unclaimed `AdminFee`/`ReferralFee` entry moves the real balance
-    /// out from under that entry, so claim fee buckets first if they
-    /// matter.
+    /// `recipient`. Admin-only. `execute_strategy` always drains its
+    /// in-memory vault to zero before returning, but accrued admin/referral
+    /// fees intentionally remain as real router balance until claimed
+    /// (`apply_fees_on_token` only adjusts the vault accounting, it never
+    /// transfers the fee out) — so a non-zero balance here can be either
+    /// stray (direct transfers, dust from a route that never went through
+    /// the vault) or an unclaimed fee. This function ignores fee-bucket
+    /// accounting: sweeping a token that also has an unclaimed
+    /// `AdminFee`/`ReferralFee` entry moves the real balance out from
+    /// under that entry, so claim fee buckets first if they matter.
     pub fn sweep_balance(env: Env, recipient: Address, tokens: Vec<Address>) {
         require_admin(&env);
         let router = env.current_contract_address();
@@ -355,12 +358,12 @@ fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address, referral_i
         .get(&DataKey::StaticFeeBps)
         .unwrap_or(0);
 
-    // Compute the combined bps once and bail before doing any vault /
-    // storage work when both the admin slice and the referral slice are
-    // zero. Saves the vault.withdraw + the two persistent reads / writes
-    // when fees are technically enabled (active referral) but nominally
-    // worthless (0 bps both sides) — typical of "tracking" referrals
-    // used purely for attribution.
+    // Compute the combined bps once and bail before computing the
+    // per-side fee amounts when both the admin slice and the referral
+    // slice are zero — the `total <= 0` check below would also catch
+    // this case before any vault/storage work, but this skips the two
+    // `fee_amount` calls up front. Typical of "tracking" referrals
+    // (active but 0 bps both sides) used purely for attribution.
     let combined_bps = static_fee_bps
         .checked_add(cfg.fee_bps)
         .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow));
@@ -479,8 +482,7 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
         let list = load_whitelist(&env);
         let in_wl = list.contains(&input_token);
         let out_wl = list.contains(&output_token);
-        // Same rule as before: fee on input unless output is the
-        // only whitelisted side.
+        // Fee is charged on input unless output is the only whitelisted side.
         !out_wl || in_wl
     } else {
         false

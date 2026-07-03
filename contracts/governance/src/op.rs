@@ -337,7 +337,7 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         AdminOperation::TransferGovOwnership(args) => {
             crate::access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger);
         }
-        // Only self-targeted operations reach execute_self.
+        // Only self-targeted operations reach `execute_self`.
         _ => panic_with_error!(env, GenericError::InternalError),
     }
 }

@@ -1,5 +1,3 @@
-//! Governance-emitted events.
-
 use soroban_sdk::{contractevent, Address, BytesN};
 
 #[contractevent(topics = ["governance", "deploy_controller"])]

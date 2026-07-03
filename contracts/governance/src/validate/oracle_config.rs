@@ -42,12 +42,13 @@ pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfi
             panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);
         }
 
-        // Production anchored markets must cross providers.
+        // Production anchored markets also require a non-spot primary.
         if config.strategy == OracleStrategy::PrimaryWithAnchor {
             if primary_is_spot {
                 panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);
             }
             if let Some(anchor) = config.anchor.as_ref() {
+                // Anchor and primary must come from different oracle providers.
                 let same_provider = matches!(
                     (&config.primary, anchor),
                     (
@@ -75,7 +76,6 @@ pub(crate) fn validate_max_stale(env: &Env, max_stale: u64) {
 }
 
 pub(crate) fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
-    // Uses the shared controller sanity-bound validator.
     common::validation::validate_sanity_bounds(env, min_wad, max_wad);
 }
 

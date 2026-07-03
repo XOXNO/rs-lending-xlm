@@ -19,8 +19,8 @@ pub fn require_nonneg_amount(env: &Env, amount: i128) {
     assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
 }
 
-/// Caps of zero/negative or `i128::MAX` mean "no cap configured"; the pool's
-/// enforcement and the controller's `max_*` previews share this rule.
+/// Caps of zero/negative or `i128::MAX` mean "no cap configured"; the
+/// controller's spoke-cap enforcement and `max_*` previews share this rule.
 pub fn cap_is_enabled(cap: i128) -> bool {
     cap > 0 && cap != i128::MAX
 }

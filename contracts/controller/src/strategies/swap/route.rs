@@ -23,6 +23,10 @@ pub(super) fn validate_strategy_swap(env: &Env, swap: &StrategySwap, amount_in: 
     assert_with_error!(env, !swap.is_empty(), GenericError::InvalidPayments);
 }
 
+/// Invokes the aggregator's `execute_strategy` with the flash-loan
+/// reentrancy flag set, blocking any reentrant controller call (`supply`,
+/// `borrow`, `withdraw`, etc.) for the duration of the swap. `swap` is opaque
+/// route XDR decoded only by the aggregator.
 pub(super) fn call_router_with_reentrancy_guard(
     env: &Env,
     router: &aggregator::AggregatorClient,

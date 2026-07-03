@@ -1,4 +1,5 @@
-//! Levered-long strategy.
+//! Leveraged multiply strategy: opens a collateral/debt position via a
+//! flash-loan-funded swap, for `Multiply`, `Long`, or `Short` modes.
 
 use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;

@@ -80,8 +80,8 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         debt_caps,
     } = params;
 
-    // Both the debt and deposit legs gate `hub_id` only transitively; assert it
-    // once explicitly so the invariant survives refactors.
+    // Debt and deposit legs validate `hub_id` transitively; assert it explicitly
+    // at the migration entry point.
     validation::require_hub_active(env, hub_id);
 
     validate_migration_request(
@@ -349,8 +349,10 @@ fn build_withdraw_requests(
     requests
 }
 
-/// Runs Blend `submit` under the reentrancy guard.
-/// Caller must authorize immediately before this call.
+/// Runs Blend `submit` under the reentrancy guard. Callers that need Blend to
+/// pull controller-held tokens must set up that authorization immediately
+/// before this call (see `authorize_repay_pulls`); withdraw-only submits need
+/// no such authorization.
 fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
     storage::with_flash_guard(env, || {
         let controller = env.current_contract_address();

@@ -311,7 +311,6 @@ pub struct MarketIndexRaw {
     pub supply_index: i128,
 }
 
-/// Typed borrow and supply indexes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MarketIndex {
     pub borrow_index: Ray,
@@ -347,7 +346,8 @@ pub struct MarketStateSnapshot {
     pub supply_index: i128,
     /// Borrow index after accrual, in RAY.
     pub borrow_index: i128,
-    /// Pool token balance, in asset-native units.
+    /// Liquid token reserves the pool holds (tracked internally, not a live
+    /// token-balance read), in asset-native units.
     pub cash: i128,
     /// Total scaled supply shares.
     pub supplied: i128,
@@ -428,22 +428,19 @@ pub struct PoolAction {
     pub hub_asset: HubAssetKey,
 }
 
-/// One asset of a bulk pool `supply`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolSupplyEntry {
     pub action: PoolAction,
 }
 
-/// One asset of a bulk pool `borrow`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolBorrowEntry {
     pub action: PoolAction,
 }
 
-/// One asset of a bulk pool `withdraw`. The liquidation flag is per call;
-/// the protocol fee scales with each asset's value and stays per entry.
+/// `is_liquidation` applies to the whole withdraw call; `protocol_fee` is per entry.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolWithdrawEntry {
@@ -451,7 +448,6 @@ pub struct PoolWithdrawEntry {
     pub protocol_fee: i128,
 }
 
-/// One position of a bulk pool `seize_positions`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolSeizeEntry {
@@ -479,7 +475,6 @@ pub struct PoolStateRaw {
     pub cash: i128,
 }
 
-/// Typed pool accounting state.
 #[derive(Clone, Debug)]
 pub struct PoolState {
     pub supplied: Ray,

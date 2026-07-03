@@ -5,6 +5,7 @@ use soroban_sdk::{assert_with_error, Address, Env};
 
 use crate::storage;
 
+/// Requires account owner.
 pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
     caller.require_auth();
     let meta = storage::get_account_meta(env, account_id);

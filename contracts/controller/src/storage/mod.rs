@@ -7,9 +7,6 @@ mod ttl;
 #[cfg(feature = "certora")]
 #[path = "../../../../certora/controller/harness/storage.rs"]
 mod verification_storage;
-// Certora-only getters preserve storage signatures while replacing heavy reads
-// with verifier-friendly values.
-
 pub(crate) use account::*;
 pub(crate) use instance::*;
 pub(crate) use spoke::*;

@@ -21,7 +21,8 @@ use crate::{constants, storage, validate, Governance, GovernanceArgs, Governance
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DelayTier {
     Standard,
-    /// Governance/controller upgrade and ownership transfer proposals.
+    /// Contract upgrade (governance, controller, or pool) and ownership
+    /// transfer proposals.
     Sensitive,
 }
 
@@ -134,7 +135,7 @@ impl Governance {
     }
 
     /// Executes a ready controller operation. When `executor` is `Some`, that
-    /// address must hold EXECUTOR and authorize; `None` allows open execution.
+    /// address must hold `EXECUTOR` and authorize; `None` allows open execution.
     pub fn execute(
         env: Env,
         executor: Option<Address>,
@@ -182,7 +183,7 @@ impl Governance {
         crate::op::apply_self_op(&env, &op);
     }
 
-    /// Cancels a pending operation. The caller must hold CANCELLER.
+    /// Cancels a pending operation. The caller must hold `CANCELLER`.
     pub fn cancel(env: Env, canceller: Address, operation_id: BytesN<32>) {
         renew_governance_instance(&env);
         canceller.require_auth();
@@ -195,14 +196,14 @@ impl Governance {
         cancel_operation(&env, &operation_id);
     }
 
-    /// Halt the controller immediately; owner-gated and not timelocked.
+    /// Halts the controller immediately; owner-gated and not timelocked.
     #[only_owner]
     pub fn pause(env: Env) {
         storage::renew_governance_instance(&env);
         controller_client(&env).pause();
     }
 
-    /// Resume the controller immediately; owner-gated.
+    /// Resumes the controller immediately; owner-gated.
     #[only_owner]
     pub fn unpause(env: Env) {
         storage::renew_governance_instance(&env);

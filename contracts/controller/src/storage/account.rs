@@ -113,8 +113,8 @@ pub(crate) fn try_get_debt_position(
         .map(|raw| DebtPosition::from(&raw))
 }
 
-// Lifts each entry to `AccountPosition` so call sites read typed fields
-// instead of `Ray::from(position.scaled_amount)`.
+/// Lifts each entry to `AccountPosition` so call sites read typed fields
+/// instead of `Ray::from(position.scaled_amount)`.
 pub(crate) fn iter_typed_positions(
     map: &Map<HubAssetKey, AccountPositionRaw>,
 ) -> impl Iterator<Item = (HubAssetKey, AccountPosition)> + '_ {
@@ -122,8 +122,8 @@ pub(crate) fn iter_typed_positions(
         .map(|(key, raw)| (key, AccountPosition::from(&raw)))
 }
 
-// Debt-side counterpart of `iter_typed_positions`; debt positions carry only
-// the scaled share.
+/// Debt-side counterpart of `iter_typed_positions`; debt positions carry only
+/// the scaled share.
 pub(crate) fn iter_debt_positions(
     map: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> impl Iterator<Item = (HubAssetKey, DebtPosition)> + '_ {

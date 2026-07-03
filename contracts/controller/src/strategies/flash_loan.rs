@@ -26,6 +26,9 @@ impl Controller {
     }
 }
 
+/// Borrows `amount` of `hub_asset` to `receiver`; the pool requires principal
+/// plus fee to be repaid before this call returns. The flash-loan guard traps
+/// any reentrant `flash_loan` call for the duration of the callback.
 pub fn process_flash_loan(
     env: &Env,
     caller: &Address,
@@ -55,7 +58,8 @@ pub fn process_flash_loan(
     let fee = Bps::from(i128::from(params.flashloan_fee)).flash_loan_fee_on(env, amount);
     let pool_addr = cache.cached_pool_address();
 
-    // Reentrancy guard.
+    // Sets the flash-loan guard for the callback; `require_not_flash_loaning`
+    // traps any reentrant `flash_loan` call until this scope exits.
     storage::with_flash_guard(env, || {
         pool_flash_loan_call(
             env, &pool_addr, hub_asset, caller, receiver, amount, fee, data,

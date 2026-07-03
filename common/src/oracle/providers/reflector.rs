@@ -70,8 +70,8 @@ pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
     }
 }
 
-// Minimum observations accepted for a TWAP read. Floor of 2 rejects single-sample
-// "TWAPs"; larger windows require at least ceil(records/2).
+/// Minimum observations accepted for a TWAP read. Floor of 2 rejects single-sample
+/// "TWAPs"; larger windows require at least ceil(records/2).
 pub fn min_twap_observations(records: u32) -> u32 {
     core::cmp::max(2, records.div_ceil(2))
 }

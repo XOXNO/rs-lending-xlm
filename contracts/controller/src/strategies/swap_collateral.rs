@@ -62,7 +62,8 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // The swap leg needs distinct underlying tokens.
+    // Compares assets only (not hub_id): a swap into the same underlying
+    // asset is rejected even across hubs, unlike debt refinance.
     assert_with_error!(
         env,
         current.asset != new.asset,

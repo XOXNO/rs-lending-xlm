@@ -7,10 +7,10 @@
 //!
 //! Key differences vs Soroswap:
 //! - Pool pulls tokens from `user` INSIDE the swap via `token.transfer`.
-//!   We pass `router_contract_addr` as `user` and explicitly authorize the
-//!   exact transfer the pool is allowed to perform.
+//!   The router passes `router_contract_addr` as `user` and explicitly
+//!   authorizes the exact transfer the pool is allowed to perform.
 //! - Pool identifies tokens by INDEX into its token array, not address.
-//!   We call `get_tokens()` to resolve where `token_in`/`token_out` sit.
+//!   `get_tokens()` resolves where `token_in`/`token_out` sit.
 //! - Returns `amount_out` directly — no need for a separate balance check.
 
 use crate::errors::Error;
@@ -42,7 +42,8 @@ pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
         in_idx.into_val(ctx.env),
         out_idx.into_val(ctx.env),
         amount_in_u128.into_val(ctx.env),
-        // out_min = 0; path-level guard in lib.rs handles slippage.
+        // out_min = 0; the router's aggregate total_min_out gate (lib.rs)
+        // enforces slippage after all paths complete.
         0_u128.into_val(ctx.env),
     ];
     let amount_out_u128: u128 =

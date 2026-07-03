@@ -2,8 +2,9 @@ use soroban_sdk::{contracttype, Address};
 
 /// Asset-native amount keyed by token address.
 ///
-/// Kept as a tuple for existing ABI compatibility. Prefer `PaymentTuple` for
-/// new event or view payloads that need named fields.
+/// Legacy tuple shape referenced only by the certora specification harness;
+/// no current controller entrypoint uses this alias (multi-hub payments use
+/// `(HubAssetKey, i128)` instead).
 pub type Payment = (Address, i128);
 
 #[contracttype]

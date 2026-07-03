@@ -61,9 +61,11 @@ pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     lo
 }
 
-/// Amount-independent borrowability of `asset` for `account`, mirroring the
+/// Amount-independent borrowability of `asset` for `account`, mirroring most
 /// pre-pool gates in `positions::validate_position_entry_gates` without
-/// throwing.
+/// throwing (spoke deprecation, listing, paused/frozen flags, borrow
+/// capability, and the position-count limit). Hub activity is not checked
+/// here, so a deactivated hub can still show nonzero headroom.
 fn account_can_borrow_asset(
     env: &Env,
     cache: &mut Cache,

@@ -54,7 +54,8 @@ pub fn process_liquidation(
 
     let aggregated = utils::aggregate_positive_payments(env, debt_payments);
 
-    // Liquidation oracle policy rejects stale, deviating, or loosened prices.
+    // Pricing below uses the same fail-closed staleness/tolerance checks as
+    // every other risk computation; liquidation has no distinct oracle path.
     let mut cache = Cache::new(env);
 
     validate_liquidation_inputs(env, &account, liquidator, &aggregated);
@@ -123,7 +124,8 @@ fn validate_liquidation_inputs(
 /// Socializes small residual bad debt by seizing all collateral and debt shares.
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     // Success removes the account; failure reverts atomically, so no keep-alive is needed.
-    // Cleanup uses the same `Liquidation` policy as inline post-liquidation cleanup.
+    // Uses the same risk-totals computation as the post-liquidation path, so the
+    // bad-debt threshold check stays consistent between both entry points.
     let mut cache = Cache::new(env);
     let account = storage::get_account(env, account_id);
 

@@ -508,7 +508,6 @@ fn base_tier(env: &Env, snap: &LiquidationSnapshot, bounds: BonusBounds) -> Base
 }
 
 /// Estimates liquidation amount and bonus tier.
-/// Prefers the capped candidate when it reaches the minimum close value.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,
@@ -519,7 +518,7 @@ pub(crate) fn estimate_liquidation_amount(
         return result;
     }
 
-    // Fallback is evaluated before the base candidate to preserve math behavior.
+    // Evaluate fallback first; base can override only through the HF guard below.
     let fallback = fallback_tier(env, snap, bounds, curve);
     let base = base_tier(env, snap, bounds);
 

@@ -132,7 +132,6 @@ pub(crate) fn enforce_spoke_asset_flags(
     }
 }
 
-/// Builds a pool action.
 pub(crate) fn make_pool_action(
     position: impl Into<ScaledPositionRaw>,
     amount: i128,
@@ -145,9 +144,9 @@ pub(crate) fn make_pool_action(
     }
 }
 
-/// Exact lookup for user-facing repay/withdraw paths. Kept separate from
-/// `expect_invariant` liquidation apply paths to preserve missing-position
-/// error codes.
+/// Exact lookup for the user-facing withdraw path (repay's counterpart is
+/// `get_debt_position_or_panic`). Kept separate from `expect_invariant`'s
+/// liquidation apply-path lookups to preserve missing-position error codes.
 pub(crate) fn get_supply_position_or_panic(
     env: &Env,
     account: &Account,

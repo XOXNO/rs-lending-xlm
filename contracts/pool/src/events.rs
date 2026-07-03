@@ -115,6 +115,7 @@ pub(crate) fn publish_strategy_fee(
     fee: i128,
     amount_sent: i128,
 ) {
+    // Zero-fee strategy borrows have nothing to report.
     if fee == 0 {
         return;
     }

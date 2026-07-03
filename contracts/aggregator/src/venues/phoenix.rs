@@ -15,16 +15,16 @@
 //! ) -> i128
 //! ```
 //!
-//! Unlike Aquarius, Phoenix identifies tokens by ADDRESS, so we don't need
-//! an extra `get_tokens` round-trip.
+//! Unlike Aquarius, Phoenix identifies tokens by ADDRESS, avoiding an extra
+//! `get_tokens` round-trip.
 //!
-//! Like Aquarius, the pool pulls tokens internally. We pass the router as
-//! `sender` and explicitly authorize the exact token transfer the pool may
+//! Like Aquarius, the pool pulls tokens internally. The router is passed as
+//! `sender` and explicitly authorizes the exact token transfer the pool may
 //! perform.
 //!
-//! We pass `None` for every Option — the aggregate and per-path slippage
-//! guards in `lib.rs` cover our risk; passing `None` here avoids double-
-//! checking and gives Phoenix the freedom to route optimally.
+//! Every `Option` is passed as `None` — the router's aggregate `total_min_out`
+//! gate in `lib.rs` covers this risk, so passing `None` avoids double-checking
+//! and gives Phoenix the freedom to route optimally.
 
 use crate::errors::Error;
 use crate::venues::HopContext;

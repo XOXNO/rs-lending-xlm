@@ -20,7 +20,6 @@ pub fn create_account(
     mode: PositionMode,
     cache: &mut Cache,
 ) -> (u64, Account) {
-    // Accounts cannot be created on spoke 0: there is no spoke 0.
     assert_with_error!(env, spoke_id >= 1, SpokeError::SpokeNotFound);
     cache.active_spoke(env, spoke_id);
 
@@ -49,9 +48,9 @@ pub fn create_account(
 pub enum AccountGuard {
     /// Third-party supply; spoke arg must match stored spoke.
     Supply,
-    /// Blend migration; owner and spoke must match.
+    /// Blend migration; caller must be owner or an active delegate, and spoke must match.
     Migrate,
-    /// Multiply strategy; owner and mode must match.
+    /// Multiply strategy; caller must be owner or an active delegate, and mode must match.
     Multiply,
 }
 
@@ -96,8 +95,7 @@ pub fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, o
     panic_with_error!(env, GenericError::NotAuthorized);
 }
 
-/// Rejects a spoke arg that does not match the account's stored spoke. The
-/// caller must specify the account's real spoke (there is no `0` sentinel).
+/// Rejects a spoke arg that does not match the account's stored spoke.
 fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
     if spoke_id != account.spoke_id {
         panic_with_error!(env, SpokeError::SpokeMismatch);

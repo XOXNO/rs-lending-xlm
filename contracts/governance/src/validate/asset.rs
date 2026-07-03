@@ -12,12 +12,10 @@ const MIN_ASSET_DECIMALS: u32 = 6;
 const MAX_ASSET_DECIMALS: u32 = 18;
 
 pub(crate) fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
-    // Uses the shared controller risk-bound validator.
     common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
 }
 
 pub(crate) fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
-    // Uses the shared liquidation-fee bound (`<= BPS`).
     common::validation::validate_liquidation_fees(env, fees_bps);
 }
 

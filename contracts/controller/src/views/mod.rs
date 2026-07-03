@@ -18,9 +18,6 @@ mod aggregates;
 #[path = "../../../../certora/controller/harness/views/aggregates.rs"]
 mod aggregates;
 mod limits;
-// Certora swaps the pure position-iteration aggregates for summary re-exports
-// defined in shared/summaries/mod.rs.
-
 pub use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
 
 use crate::context::Cache;

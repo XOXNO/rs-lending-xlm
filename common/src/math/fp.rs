@@ -7,15 +7,15 @@ use super::fp_core;
 use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
 use crate::errors::GenericError;
 
-/// Adds two raw fixed-point values, mapping overflow to `MathOverflow`.
+// Adds two raw fixed-point values, mapping overflow to `MathOverflow`.
 fn checked_add_raw(env: &Env, a: i128, b: i128) -> i128 {
     // Dk{U} + Dk{U} -> Dk{U}; caller wrappers enforce matching scale.
     a.checked_add(b)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-/// Subtracts two non-negative raw fixed-point values, rejecting negative
-/// results with `MathOverflow`.
+// Subtracts two non-negative raw fixed-point values, rejecting negative
+// results with `MathOverflow`.
 fn checked_sub_nonneg(env: &Env, a: i128, b: i128) -> i128 {
     if a < 0 || b < 0 || b > a {
         panic_with_error!(env, GenericError::MathOverflow);
@@ -24,8 +24,8 @@ fn checked_sub_nonneg(env: &Env, a: i128, b: i128) -> i128 {
     a - b
 }
 
-// D27{U}: raw 1e27 fixed-point value. U is caller context:
-// Token, Share, Index, RatePerYear, or dimensionless.
+/// D27{U}: raw 1e27 fixed-point value. U is caller context:
+/// Token, Share, Index, RatePerYear, or dimensionless.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ray(i128);
 
@@ -179,8 +179,8 @@ impl SubAssign for Ray {
     }
 }
 
-// D18{U}: raw 1e18 fixed-point value. U is caller context:
-// USD, Token, price, or dimensionless.
+/// D18{U}: raw 1e18 fixed-point value. U is caller context:
+/// USD, Token, price, or dimensionless.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Wad(i128);
 
@@ -320,7 +320,7 @@ impl SubAssign for Wad {
     }
 }
 
-// D4{1}: basis-point ratio, 10_000 == 100%.
+/// D4{1}: basis-point ratio, 10_000 == 100%.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bps(i128);
 

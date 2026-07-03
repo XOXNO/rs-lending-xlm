@@ -22,7 +22,9 @@ pub enum GenericError {
     WrongToken = 8,
     /// Pool template hash is empty or invalid.
     InvalidPoolTemplate = 10,
-    /// Swap source is not accepted by the aggregator route.
+    /// Oracle primary/anchor source configuration is invalid (anchor
+    /// required/unexpected, primary and anchor read the same feed, or an
+    /// anchored pair uses the same oracle provider for both legs).
     InvalidExchangeSrc = 11,
     /// Asset has no active oracle configuration for this operation.
     PairNotActive = 12,
@@ -30,7 +32,9 @@ pub enum GenericError {
     AccountNotInMarket = 13,
     /// Amount must be strictly positive for this operation.
     AmountMustBePositive = 14,
-    /// Payment vector is empty, duplicated incorrectly, or otherwise malformed.
+    /// An input vector (payments, swap/collateral/debt list, or bulk-view
+    /// query) is empty when required, non-empty when unexpected, or exceeds
+    /// the allowed length.
     InvalidPayments = 16,
     /// Address is not a deployed WASM contract.
     NotSmartContract = 18,
@@ -48,9 +52,12 @@ pub enum GenericError {
     PoolNotInitialized = 30,
     /// Ownable storage has no owner.
     OwnerNotSet = 32,
-    /// Integer overflow/underflow in scaled balance or index math.
+    /// Integer overflow/underflow in protocol fixed-point math (balances,
+    /// indexes, rates, oracle prices, tolerances, or TTL/ledger arithmetic).
     MathOverflow = 33,
-    /// Controller invariant failed after prior validation.
+    /// Contract-internal invariant failed after prior validation; raised by
+    /// both the controller and governance contracts for their own
+    /// unreachable-in-theory code paths.
     InternalError = 34,
     /// Token must be approved before market creation.
     TokenNotApproved = 35,
@@ -60,7 +67,8 @@ pub enum GenericError {
     NoSuppliersToReward = 37,
     /// Single-oracle (no TWAP/anchor) mode is rejected in production config.
     SpotOnlyNotProductionSafe = 38,
-    /// Timelock minimum delay is zero, which would nullify the timelock.
+    /// Timelock delay is zero, decreases the current delay, or exceeds the
+    /// protocol's maximum delay cap.
     InvalidTimelockDelay = 39,
     /// Timelock operation is past its execution grace period.
     TimelockOperationExpired = 40,
@@ -87,7 +95,8 @@ pub enum CollateralError {
     InsufficientCollateral = 100,
     /// Account is not liquidatable because health factor is still at or above one.
     HealthFactorTooHigh = 101,
-    /// Post-operation health factor would be below the liquidation threshold.
+    /// Post-operation health factor would fall below the minimum safety
+    /// margin the requested operation requires.
     HealthFactorTooLow = 102,
     /// Asset is not eligible as collateral.
     NotCollateral = 104,
@@ -115,9 +124,11 @@ pub enum CollateralError {
     OptUtilTooHigh = 118,
     /// Reserve factor must be less than 100%.
     InvalidReserveFactor = 119,
-    /// Debt position is missing for a repayment or liquidation.
+    /// Debt position is missing for the requested repayment, liquidation, or
+    /// debt-swap strategy.
     DebtPositionNotFound = 120,
-    /// Collateral position is missing for withdrawal or liquidation.
+    /// Collateral position is missing for the requested withdrawal,
+    /// liquidation, or collateral-swap strategy.
     CollateralPositionNotFound = 121,
     /// Strategy close requested while debt remains.
     CannotCloseWithRemainingDebt = 122,
@@ -229,7 +240,7 @@ pub enum FlashLoanError {
     InvalidFlashloanRepay = 402,
     /// Strategy fee exceeds the borrowed amount.
     StrategyFeeExceeds = 409,
-    // 411 reserved for off-chain monitors.
+    // Error code 411 is intentionally unused to preserve off-chain monitor compatibility.
     /// Flash-loan receiver is not a deployed WASM contract.
     InvalidFlashloanReceiver = 412,
 }

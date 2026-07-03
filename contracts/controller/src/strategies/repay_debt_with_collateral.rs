@@ -145,7 +145,8 @@ fn swap_or_net_collateral_to_debt(
     swap: &StrategySwap,
 ) -> i128 {
     if collateral.asset == debt.asset {
-        // Same-asset netting must not carry a route; a payload here would be silently ignored.
+        // Same-asset netting never consults `swap`; require an empty payload so a
+        // caller-supplied route is not silently dropped.
         assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
         return collateral_amount;
     }

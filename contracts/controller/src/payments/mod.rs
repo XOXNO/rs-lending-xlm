@@ -21,7 +21,7 @@ pub fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
     }
 }
 
-/// Transfers a listed SAC amount and returns it.
+/// Transfers a positive SAC `amount`, reverting with `non_positive_error` otherwise.
 pub fn transfer_amount(
     env: &Env,
     asset: &Address,
