@@ -183,6 +183,10 @@ pub enum OracleError {
     SanityBoundViolated = 223,
     /// Price-bound min/max configuration is invalid.
     InvalidSanityBounds = 224,
+    /// Oracle resolution re-entered an asset already being priced — a quote/anchor
+    /// cycle (e.g. two markets quoted in each other). Trapped to avoid unbounded
+    /// recursion / stack exhaustion.
+    OracleCycleDetected = 225,
 }
 
 #[contracterror]

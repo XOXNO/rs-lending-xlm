@@ -337,6 +337,7 @@ dependencies = [
  "cvlr-soroban",
  "cvlr-soroban-derive",
  "cvlr-soroban-macros",
+ "mock-oracle",
  "pool-interface",
  "soroban-sdk",
  "stellar-access",
