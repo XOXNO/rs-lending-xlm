@@ -441,9 +441,22 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             let a = pick_asset(asset);
             // Keep spot/TWAP divergence inside the configured tolerance band:
             // an out-of-band pair fails closed (`UnsafePriceNotAllowed`) and
-            // would poison every subsequent oracle read in the run.
-            let band = i128::from(test_harness::presets::DEFAULT_TOLERANCE.tolerance_bps);
-            let dev = ((deviation as i128) * 20) % band;
+            // would poison every subsequent oracle read in the run. The oracle
+            // gates the primary/anchor RATIO against a reciprocal-symmetric band
+            // [10000^2/upper, upper] with upper = 10000 + tolerance_bps, so the
+            // downside half-width (~tol*10000/upper) is smaller than tol and a
+            // naive `% tol` multiplier still trips the guard near the edge (e.g.
+            // dev=480 → ratio 10504 > upper 10500). Bound the deviation to that
+            // safe half-width, minus 2 bps for the contract's half-up rounding.
+            let tol = i128::from(test_harness::presets::DEFAULT_TOLERANCE.tolerance_bps);
+            let upper = 10_000 + tol;
+            let lower = 10_000 * 10_000 / upper; // floor of the contract's half-up lower bound
+            let max_dev = (10_000 - lower).min(tol).saturating_sub(2).max(0);
+            let dev = if max_dev == 0 {
+                0
+            } else {
+                ((deviation as i128) * 20) % (max_dev + 1)
+            };
             let mult = if direction_up {
                 10_000 + dev
             } else {
