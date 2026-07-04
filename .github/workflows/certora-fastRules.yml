@@ -69,13 +69,17 @@ jobs:
             exit 1
           fi
 
-      - name: Install Certora CLI
+      - name: Install Python
         # The self-hosted runner's system python3 is externally managed (PEP
-        # 668); install into a per-job venv instead of touching system packages.
-        run: |
-          python3 -m venv "$RUNNER_TEMP/certora-venv"
-          "$RUNNER_TEMP/certora-venv/bin/pip" install --upgrade certora-cli
-          echo "$RUNNER_TEMP/certora-venv/bin" >> "$GITHUB_PATH"
+        # 668) and lacks the venv module. A hermetic interpreter from the tool
+        # cache sidesteps both, so certora-cli installs without touching system
+        # packages.
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Certora CLI
+        run: pip install --upgrade certora-cli
 
       - name: Run fast Certora configs
         env:
