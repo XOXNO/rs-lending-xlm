@@ -151,6 +151,9 @@ pub fn execute_repayment(
         action,
     } = ctx;
 
+    // Strategy chokepoint: paused blocks repay, frozen still allows it.
+    // Liquidation calls `settle_repay_actions` directly and stays exempt.
+    enforce_spoke_asset_flags(env, cache, account.spoke_id, req.hub_asset, false);
     let mut actions: Vec<PoolAction> = Vec::new(env);
     actions.push_back(make_pool_action(
         req.position,
