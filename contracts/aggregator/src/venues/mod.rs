@@ -1,10 +1,13 @@
 //! Per-venue swap dispatchers.
 //!
-//! Every venue's `swap` takes the same shape: it pulls `amount_in` of
-//! `token_in` out of the router's SAC balance (transferring to the pool if
-//! needed), performs the trade, and returns the `amount_out` of `token_out`
-//! now credited to the router. The caller is responsible for vault
-//! accounting.
+//! Every venue's `swap` drives one hop: it moves `amount_in` of `token_in` into
+//! the pool (directly, or via a pull it authorizes) and makes the pool send
+//! `token_out` to the router. A venue's returned/computed amount is advisory —
+//! route pools are caller-supplied and untrusted, so an adversarial pool can
+//! claim output it never delivered. `dispatch_hop` therefore credits the caller
+//! only the router's measured `token_out` balance delta across the venue call.
+//! This single invariant blocks fake-output theft of router-held balances (e.g.
+//! accrued fees) and transparently handles fee-on-transfer output tokens.
 
 pub(crate) mod aquarius;
 pub(crate) mod comet;
@@ -19,16 +22,32 @@ use soroban_sdk::{
     panic_with_error, token, vec, Address, Env, IntoVal, Symbol, Val,
 };
 
-/// Execute a single hop against the venue indicated by `hop.venue`.
+/// Execute a single hop against the venue indicated by `hop.venue`, returning
+/// the amount of `token_out` the router actually received.
+///
+/// The venue's own return value is advisory: route pools are untrusted, so a
+/// malicious pool could report output it never sent and drain router-held
+/// balances at final settlement. We snapshot the router's `token_out` balance
+/// around the venue call and credit only the positive delta, which is the real
+/// value received (and is fee-on-transfer-safe).
 pub(crate) fn dispatch_hop(env: &Env, router: &Address, hop: &SwapHop, amount_in: i128) -> i128 {
     let ctx = HopContext::new(env, router, hop, amount_in);
+    let before_out = ctx.output_balance();
     match hop.venue {
         SwapVenue::Soroswap => soroswap::swap(&ctx),
         SwapVenue::Aquarius => aquarius::swap(&ctx),
         SwapVenue::Phoenix => phoenix::swap(&ctx),
         SwapVenue::Sushi => sushi::swap(&ctx),
         SwapVenue::CometDex => comet::swap(&ctx),
+    };
+    let received = ctx
+        .output_balance()
+        .checked_sub(before_out)
+        .unwrap_or_else(|| panic_with_error!(env, Error::ZeroOutput));
+    if received <= 0 {
+        panic_with_error!(env, Error::ZeroOutput);
     }
+    received
 }
 
 /// Immutable per-hop execution context shared by all venue dispatchers.

@@ -17,8 +17,9 @@
 //! 3. Transfer `amount_in` of `token_in` from router → pool via SAC.
 //! 4. Call `pool.swap(amount_0_out, amount_1_out, router)` with the right slot.
 //! 5. Return the computed output — the pair transfers exactly that to the
-//!    router (the `to` address) or reverts on its k-check, so no balance-delta
-//!    read is required.
+//!    router (the `to` address) or reverts on its k-check. `dispatch_hop`
+//!    credits the router's measured `token_out` balance delta, so this return
+//!    is advisory.
 //!
 //! Computing the output on-chain — rather than trusting the off-chain quoted
 //! `hop.amount_out` — keeps the requested output exactly on the pair's
@@ -58,8 +59,9 @@ fn soroswap_amount_out(amount_in: i128, reserve_in: i128, reserve_out: i128) -> 
 
 /// Execute a swap through a Soroswap pair contract.
 ///
-/// Returns the `amount_out` credited to the router's balance (the router is the
-/// `to` address, and the pair transfers exactly the requested output).
+/// Returns the computed output the pair is asked to honor (the router is the
+/// `to` address). `dispatch_hop` re-verifies receipt via the router's
+/// `token_out` balance delta, so this value is advisory.
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     // 1. Soroswap pairs hold canonically sorted tokens (`token_0 < token_1`
     //    under the host's address ordering), so orientation comes from the
@@ -110,8 +112,8 @@ pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
         .invoke_contract(&ctx.hop.pool, &symbol_short!("swap"), args);
 
     // 5. The pair transfers exactly `requested_out` to the router or reverts on
-    //    its k-check, so the honored output equals the computed amount. The
-    //    router's aggregate output is still verified downstream against
-    //    `total_min_out`, so a balance-delta read here would be redundant.
+    //    its k-check, so the honored output equals the computed amount.
+    //    `dispatch_hop` credits the router's measured balance delta regardless,
+    //    so this return is advisory.
     requested_out
 }
