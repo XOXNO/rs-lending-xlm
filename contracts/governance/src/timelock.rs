@@ -126,10 +126,12 @@ impl Governance {
             salt,
         };
         let operation_id = schedule_operation(&env, &operation, delay);
-        // Role revocations must not be cancellable, otherwise a rogue role holder
-        // could veto their own removal and permanently freeze governance.
-        if matches!(op, crate::op::AdminOperation::RevokeGovRole(_)) {
-            storage::mark_uncancellable(&env, &operation_id);
+        // A role holder must not be able to veto their own removal (a rogue
+        // canceller could otherwise freeze governance), but every other
+        // canceller must stay able to veto a malicious revocation. Record only
+        // the target account, checked per-canceller in `cancel`.
+        if let crate::op::AdminOperation::RevokeGovRole(args) = &op {
+            storage::mark_role_revocation_target(&env, &operation_id, &args.account);
         }
         operation_id
     }
@@ -188,11 +190,16 @@ impl Governance {
         renew_governance_instance(&env);
         canceller.require_auth();
         access_control::ensure_role(&env, &Symbol::new(&env, CANCELLER_ROLE), &canceller);
-        assert_with_error!(
-            &env,
-            !storage::is_uncancellable(&env, &operation_id),
-            GenericError::OperationNotCancellable
-        );
+        // A canceller may veto any pending operation except the revocation of
+        // their own role: self-vetoing would let a rogue canceller entrench
+        // itself and freeze governance. Other cancellers keep the veto.
+        if let Some(target) = storage::role_revocation_target(&env, &operation_id) {
+            assert_with_error!(
+                &env,
+                target != canceller,
+                GenericError::OperationNotCancellable
+            );
+        }
         cancel_operation(&env, &operation_id);
     }
 

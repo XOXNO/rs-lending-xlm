@@ -231,7 +231,7 @@ fn cancel_returns_operation_to_unset() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #46)")]
-fn cannot_cancel_role_revocation() {
+fn revocation_target_cannot_cancel_own_role_revocation() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, _controller, gov) = register_with_controller(&env, 10);
@@ -248,8 +248,45 @@ fn cannot_cancel_role_revocation() {
     );
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 
-    // ...cannot be vetoed by that canceller, so governance stays recoverable.
+    // ...cannot be vetoed by that same canceller, so a rogue canceller cannot
+    // entrench itself and freeze governance.
     gov.cancel(&admin, &id);
+}
+
+#[test]
+fn independent_canceller_can_cancel_role_revocation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let honest_canceller = Address::generate(&env);
+
+    // Grant a second, independent CANCELLER via the timelocked self path.
+    let grant_salt = BytesN::<32>::from_array(&env, &[1u8; 32]);
+    let grant = AdminOperation::GrantGovRole(RoleArgs {
+        account: honest_canceller.clone(),
+        role: Symbol::new(&env, CANCELLER_ROLE),
+    });
+    gov.propose(&admin, &grant, &grant_salt);
+    env.ledger().with_mut(|l| l.sequence_number += delay);
+    gov.execute_self(&Some(admin.clone()), &grant, &grant_salt);
+    assert!(gov.has_role(&honest_canceller, &Symbol::new(&env, CANCELLER_ROLE)));
+
+    // A malicious proposal revoking the admin's CANCELLER role...
+    let revoke_salt = BytesN::<32>::from_array(&env, &[2u8; 32]);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::RevokeGovRole(RoleArgs {
+            account: admin.clone(),
+            role: Symbol::new(&env, CANCELLER_ROLE),
+        }),
+        &revoke_salt,
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+
+    // ...is still vetoable by an independent canceller.
+    gov.cancel(&honest_canceller, &id);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
 
 #[test]
