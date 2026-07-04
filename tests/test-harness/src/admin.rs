@@ -73,6 +73,29 @@ impl LendingTest {
             self.env.storage().persistent().set(&key, &params);
         });
     }
+    /// Set the per-spoke `paused` flag on an asset, preserving its current risk
+    /// params. Paused blocks every user verb (supply/borrow/withdraw/repay and
+    /// the strategy wrappers) while leaving liquidation reachable.
+    pub fn set_spoke_asset_paused(&self, asset_name: &str, paused: bool) {
+        let asset = self.resolve_asset(asset_name);
+        let config = self.get_asset_config(asset_name);
+        self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset,
+            spoke_id: HARNESS_SPOKE,
+            can_collateral: config.is_collateralizable,
+            can_borrow: config.is_borrowable,
+            paused,
+            frozen: false,
+            ltv: config.loan_to_value,
+            threshold: config.liquidation_threshold,
+            bonus: config.liquidation_bonus,
+            liquidation_fees: config.liquidation_fees,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
+        });
+    }
     // Position limits
 
     pub fn set_position_limits(&self, max_supply: u32, max_borrow: u32) {

@@ -1,6 +1,7 @@
 //! Strategy edge-case and rejection tests.
 
 mod multiply;
+mod pause_bypass;
 mod rejections;
 mod swap;
 
