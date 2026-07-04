@@ -216,6 +216,7 @@ asset_config_json() {
 
 # Spoke asset input struct (SpokeAssetArgs) add_asset_to_spoke /
 # edit_asset_in_spoke (single argument). spoke_id 0 base listing.
+# `paused`/`frozen` default to false: a freshly listed asset is fully active.
 # spoke_args <hub_id> <asset> <spoke_id> <can_collateral> <can_borrow> \
 # <ltv> <threshold> <bonus> [supply_cap] [borrow_cap]
 spoke_args() {
@@ -227,6 +228,8 @@ spoke_args() {
         spoke_id: $spoke,
         can_collateral: $cc,
         can_borrow: $cb,
+        paused: false,
+        frozen: false,
         ltv: $ltv,
         threshold: $thr,
         bonus: $bonus,
