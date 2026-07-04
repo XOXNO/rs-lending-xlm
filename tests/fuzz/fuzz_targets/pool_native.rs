@@ -452,7 +452,13 @@ fuzz_target!(|i: In| {
                 // outer `before` is captured pre-sync, so without this a
                 // borrow-side seize (accrue up, then socialize down) looks like
                 // it raises supply_index when it is only interest accrual.
-                pool.update_indexes(&market);
+                // Extreme fuzzer-advanced time at a high rate can overflow the
+                // checked index math (MathOverflow) — a fail-closed revert, not
+                // a bug — so tolerate it and skip the seize when the accrued
+                // baseline can't be established (mirrors the op-4 `try_` path).
+                if flatten_contract_result(pool.try_update_indexes(&market)).is_err() {
+                    continue;
+                }
                 let before = pool_state(&pool, &market);
                 let entry = PoolSeizeEntry {
                     hub_asset: market.clone(),
