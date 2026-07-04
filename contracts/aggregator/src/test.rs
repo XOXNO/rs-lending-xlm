@@ -228,6 +228,59 @@ mod aquarius_mock {
     }
 }
 
+/// Aquarius-ABI pool that lies about its output: it returns `report` and only
+/// transfers `deliver` of `token_out`, never pulling `token_in`. Models an
+/// untrusted route pool an attacker points the router at to fake swap output.
+mod malicious_aquarius_mock {
+    use super::*;
+
+    #[contract]
+    pub struct MaliciousAqPool;
+
+    #[contracttype]
+    enum MalKey {
+        TokenA,
+        TokenB,
+        Report,
+        Deliver,
+    }
+
+    #[contractimpl]
+    impl MaliciousAqPool {
+        pub fn init(env: Env, token_a: Address, token_b: Address, report: u128, deliver: i128) {
+            env.storage().instance().set(&MalKey::TokenA, &token_a);
+            env.storage().instance().set(&MalKey::TokenB, &token_b);
+            env.storage().instance().set(&MalKey::Report, &report);
+            env.storage().instance().set(&MalKey::Deliver, &deliver);
+        }
+
+        pub fn get_tokens(env: Env) -> Vec<Address> {
+            let token_a: Address = env.storage().instance().get(&MalKey::TokenA).unwrap();
+            let token_b: Address = env.storage().instance().get(&MalKey::TokenB).unwrap();
+            vec![&env, token_a, token_b]
+        }
+
+        pub fn swap(
+            env: Env,
+            user: Address,
+            _in_idx: u32,
+            out_idx: u32,
+            _in_amount: u128,
+            _out_min: u128,
+        ) -> u128 {
+            let token_a: Address = env.storage().instance().get(&MalKey::TokenA).unwrap();
+            let token_b: Address = env.storage().instance().get(&MalKey::TokenB).unwrap();
+            let token_out = if out_idx == 0 { token_a } else { token_b };
+            let deliver: i128 = env.storage().instance().get(&MalKey::Deliver).unwrap();
+            if deliver > 0 {
+                let pool = env.current_contract_address();
+                token::Client::new(&env, &token_out).transfer(&pool, &user, &deliver);
+            }
+            env.storage().instance().get(&MalKey::Report).unwrap()
+        }
+    }
+}
+
 mod sushi_mock {
     use super::*;
 
@@ -474,6 +527,100 @@ fn execute_strategy_route_bytes_decode_and_execute() {
     assert_eq!(out, 500);
     assert_eq!(token::Client::new(&env, &token_a).balance(&sender), 500);
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 500);
+}
+
+// A route pool that reports output it never delivered must not let the caller
+// drain the router's own `token_out` balance (e.g. accrued fees). The per-hop
+// balance-delta check credits zero and reverts.
+#[test]
+fn execute_strategy_rejects_fake_venue_output() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (token_a, sac_a) = new_asset(&env, &admin);
+    let (token_b, sac_b) = new_asset(&env, &admin);
+
+    // Pool claims 700 out but transfers nothing.
+    let pool = env.register(malicious_aquarius_mock::MaliciousAqPool, ());
+    malicious_aquarius_mock::MaliciousAqPoolClient::new(&env, &pool)
+        .init(&token_a, &token_b, &700u128, &0i128);
+
+    // Attacker holds 1 token_a; the router holds 700 token_b of accrued fees.
+    sac_a.mint(&sender, &1);
+    sac_b.mint(&router_addr, &700);
+
+    let swap_xdr = strategy_xdr(
+        &env,
+        token_a.clone(),
+        token_b.clone(),
+        700,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_b.clone(),
+                1_000_000,
+            ),
+        ],
+    );
+
+    let err = RouterClient::new(&env, &router_addr)
+        .try_execute_strategy(&sender, &1, &swap_xdr)
+        .unwrap_err();
+    assert_eq!(err.unwrap(), Error::ZeroOutput.into());
+    // Router fees untouched, attacker gained nothing.
+    assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 0);
+    assert_eq!(token::Client::new(&env, &token_b).balance(&router_addr), 700);
+}
+
+// When a pool over-reports, the router credits only what actually arrived.
+#[test]
+fn execute_strategy_credits_only_delivered_output_not_reported() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (token_a, sac_a) = new_asset(&env, &admin);
+    let (token_b, sac_b) = new_asset(&env, &admin);
+
+    // Pool reports 700 but only delivers 500.
+    let pool = env.register(malicious_aquarius_mock::MaliciousAqPool, ());
+    malicious_aquarius_mock::MaliciousAqPoolClient::new(&env, &pool)
+        .init(&token_a, &token_b, &700u128, &500i128);
+    sac_b.mint(&pool, &500);
+    sac_a.mint(&sender, &1);
+
+    let swap_xdr = strategy_xdr(
+        &env,
+        token_a.clone(),
+        token_b.clone(),
+        500,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_b.clone(),
+                1_000_000,
+            ),
+        ],
+    );
+
+    let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1, &swap_xdr);
+    // Credited the real 500 delivered, not the 700 claimed.
+    assert_eq!(out, 500);
+    assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 500);
+    assert_eq!(token::Client::new(&env, &token_b).balance(&router_addr), 0);
 }
 
 #[test]

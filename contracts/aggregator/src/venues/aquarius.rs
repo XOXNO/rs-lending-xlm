@@ -11,7 +11,8 @@
 //!   authorizes the exact transfer the pool is allowed to perform.
 //! - Pool identifies tokens by INDEX into its token array, not address.
 //!   `get_tokens()` resolves where `token_in`/`token_out` sit.
-//! - Returns `amount_out` directly — no need for a separate balance check.
+//! - Returns the pool's reported `amount_out`; `dispatch_hop` re-verifies it
+//!   against the router's `token_out` balance delta, so this return is advisory.
 
 use crate::errors::Error;
 use crate::venues::HopContext;
