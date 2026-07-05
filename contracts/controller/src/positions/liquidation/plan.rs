@@ -1,3 +1,6 @@
+//! Builds the liquidation plan: priced repay/seize legs and the bonus, gated on
+//! the target account's health factor being below one.
+
 use crate::risk;
 use common::errors::CollateralError;
 use common::math::fp::Wad;

@@ -1,3 +1,6 @@
+//! Applies a built liquidation plan: debt repayments, collateral seizures, and
+//! the post-liquidation bad-debt check.
+
 use crate::account;
 use common::math::fp::Wad;
 use common::types::{

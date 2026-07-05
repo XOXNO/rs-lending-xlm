@@ -23,6 +23,26 @@ use crate::{
 
 #[contractimpl]
 impl Controller {
+    /// Liquidates an unhealthy account: repays part of its debt and seizes
+    /// bonused collateral. Requires the target's health factor to be below one.
+    ///
+    /// # Arguments
+    /// * `liquidator` - repays debt and receives seized collateral; must
+    ///   authorize. Cannot be the account owner.
+    /// * `debt_payments` - `(hub-asset, amount)` debt legs to repay; amounts must be positive.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `InvalidPayments` - the debt payment list (or the resulting repayment set) is empty.
+    /// * `AmountMustBePositive` - a leg amount is not strictly positive.
+    /// * `SelfLiquidationNotAllowed` - `liquidator` is the account owner.
+    /// * `HealthFactorTooHigh` - the account is still at or above a health factor of one.
+    /// * A non-market debt asset reverts `OracleNotConfigured` / `PoolNotInitialized`
+    ///   on the fail-closed pricing path.
+    ///
+    /// # Events
+    /// * A `LiquidationEvent` (liquidator, account, repaid USD, bonus bps) and a
+    ///   position-batch event for the account's updated legs.
     pub fn liquidate(
         env: Env,
         liquidator: Address,
@@ -32,6 +52,18 @@ impl Controller {
         process_liquidation(&env, &liquidator, account_id, &debt_payments);
     }
 
+    /// Socializes an account's small residual bad debt by seizing all remaining
+    /// collateral and debt shares. Permissionless; `caller` is recorded only for
+    /// accountability.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `DebtPositionNotFound` - the account carries no debt.
+    /// * `CannotCleanBadDebt` - the account is not eligible (its debt is not
+    ///   socializable residual bad debt).
+    ///
+    /// # Events
+    /// * A position-batch event for the cleaned account.
     pub fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
         // Auth binds the cleanup to an accountable caller; the operation
         // itself is permissionless.

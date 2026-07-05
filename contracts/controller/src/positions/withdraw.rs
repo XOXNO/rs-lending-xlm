@@ -37,7 +37,25 @@ pub(crate) struct WithdrawalRequest<'a> {
 
 #[contractimpl]
 impl Controller {
-    /// Tokens go to `to` (else `caller`); returns actual paid per asset.
+    /// Withdraws collateral to `to` (default `caller`); an amount of `0`
+    /// withdraws the full position. Returns the gross amount paid per asset.
+    ///
+    /// # Arguments
+    /// * `caller` - the account owner or an active delegate; must authorize.
+    /// * `withdrawals` - `(hub-asset, amount)` legs; `0` withdraws the full position.
+    /// * `to` - recipient of the withdrawn tokens; defaults to `caller`.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` - `caller` is neither the account owner nor an active delegate.
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `SpokeAssetPaused` - the spoke asset is paused (a frozen asset may still be withdrawn).
+    /// * `CollateralPositionNotFound` - the account holds no supply position for an asset.
+    /// * `InsufficientLiquidity` - the pool cannot cover the withdrawal.
+    /// * Post-pool risk gates (debt-bearing accounts): `InsufficientCollateral` or
+    ///   `MinBorrowCollateralNotMet`.
+    ///
+    /// # Events
+    /// * A position-batch event summarizing the account's updated supply legs.
     pub fn withdraw(
         env: Env,
         caller: Address,
@@ -230,8 +248,13 @@ pub(crate) fn finish_withdrawal(
     );
 }
 
-/// Single-asset wrapper over bulk pool withdraw for strategies and account-close
-/// paths where one asset moves per call.
+/// Single-asset wrapper over the bulk pool withdraw for strategy and
+/// account-close paths. Enforces the per-spoke paused flag (frozen still allows
+/// withdraw); liquidation bypasses this via `settle_withdraw_entries`.
+///
+/// # Security Warning
+/// * Performs no `require_auth` and re-runs no post-pool solvency gate: the
+///   calling strategy entrypoint owns authorization and the final health check.
 pub fn execute_withdrawal(
     env: &Env,
     account: &mut Account,

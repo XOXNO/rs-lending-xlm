@@ -21,6 +21,26 @@ use crate::{payments as utils, risk::validation, Controller, ControllerArgs, Con
 
 #[contractimpl]
 impl Controller {
+    /// Supplies one or more assets as collateral, opening a new account when
+    /// `account_id == 0`. Returns the account id.
+    ///
+    /// # Arguments
+    /// * `caller` - the account owner (or an active delegate for an existing
+    ///   account); must authorize the call.
+    /// * `account_id` - an existing account, or `0` to open a new one on `spoke_id`.
+    /// * `assets` - `(hub-asset, amount)` deposit legs; amounts must be positive.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` - a leg amount is not strictly positive.
+    /// * Entry gates: `HubNotActive`, `PairNotActive`, `AssetNotInSpoke`,
+    ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `NotCollateral`, or
+    ///   `PositionLimitExceeded`.
+    /// * `SpokeSupplyCapReached` - the deposit would exceed the spoke supply cap.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * A position-batch event summarizing the account's updated supply legs.
     #[when_not_paused]
     pub fn supply(
         env: Env,

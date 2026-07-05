@@ -19,6 +19,27 @@ use crate::{
 
 #[contractimpl]
 impl Controller {
+    /// Borrows one or more assets against `account_id`, sending proceeds to `to`
+    /// (default `caller`). Re-checks account health on pool-returned indexes.
+    ///
+    /// # Arguments
+    /// * `caller` - the account owner or an active delegate; must authorize.
+    /// * `borrows` - `(hub-asset, amount)` legs; amounts must be positive.
+    /// * `to` - proceeds recipient; defaults to `caller`.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` - `caller` is neither the account owner nor an active delegate.
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * Entry gates: `HubNotActive`, `PairNotActive`, `AssetNotInSpoke`,
+    ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `AssetNotBorrowable`, or
+    ///   `PositionLimitExceeded`.
+    /// * `SpokeBorrowCapReached` - the borrow would exceed the spoke borrow cap.
+    /// * Post-pool risk gates: `InsufficientCollateral` (LTV / health factor) or
+    ///   `MinBorrowCollateralNotMet`.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * A position-batch event summarizing the account's updated debt legs.
     #[when_not_paused]
     pub fn borrow(
         env: Env,
@@ -140,6 +161,11 @@ fn merge_borrow_result(
 
 /// Creates strategy debt on `hub_debt`'s market through the shared borrow gates
 /// and returns the asset amount received by the controller.
+///
+/// # Security Warning
+/// * Performs no `require_auth`: caller authorization is enforced by the strategy
+///   entrypoint that invokes it, and post-borrow solvency is deferred to the
+///   strategy's finalize step. Never call from an un-authorized context.
 pub fn borrow_for_strategy(
     env: &Env,
     account: &mut Account,
@@ -161,6 +187,10 @@ pub fn borrow_for_strategy(
 /// Zero-fee strategy borrow used by Blend migration. The caller supplies the
 /// explicit `hub_debt` coordinate. Other strategy borrows defer solvency to
 /// `strategy_finalize`.
+///
+/// # Security Warning
+/// * Performs no `require_auth`: authorization is enforced by the migration
+///   entrypoint that invokes it.
 pub fn borrow_for_migration(
     env: &Env,
     account: &mut Account,
