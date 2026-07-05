@@ -1,3 +1,9 @@
+//! `AdminOperation` resolution and self-operation application.
+//!
+//! `resolve_op` validates each operation's inputs and lowers it to a
+//! `(target, function, args, delay-tier)` timelock call; `apply_self_op`
+//! executes the governance-self variants inline once their timelock matures.
+
 use common::errors::{CollateralError, GenericError, OracleError};
 use soroban_sdk::{
     assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
