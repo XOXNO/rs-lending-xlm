@@ -294,6 +294,7 @@ pub enum PositionAction {
     RpColR = 11,
     CloseWd = 12,
     Migrate = 13,
+    RpColNet = 14,
 }
 
 /// Collateral-side position delta, vec-encoded for client compatibility.

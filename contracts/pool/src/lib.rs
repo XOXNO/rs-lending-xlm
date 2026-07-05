@@ -27,8 +27,8 @@ use common::rates::{simulate_update_indexes, update_supply_index};
 use common::types::{
     AccountPositionType, HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw,
     MarketStateSnapshot, PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolKey,
-    PoolPositionMutation, PoolSeizeEntry, PoolStateRaw, PoolStrategyMutation, PoolSupplyEntry,
-    PoolSyncData, PoolWithdrawEntry,
+    PoolNetSettleEntry, PoolNetSettleResult, PoolPositionMutation, PoolSeizeEntry, PoolStateRaw,
+    PoolStrategyMutation, PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
 };
 use pool_interface::LiquidityPoolInterface;
 use soroban_sdk::{
@@ -234,6 +234,54 @@ fn seize_one(env: &Env, entry: &PoolSeizeEntry) -> MarketStateSnapshot {
     // The seized position is removed from the controller-owned account map.
     cache.save();
     cache.market_snapshot()
+}
+
+/// Nets one supply leg against one debt leg on the same hub-asset. Caps the
+/// settled amount to the debt owed *before* resolving the withdrawal, then
+/// feeds the withdrawal's actual gross amount (not the request) into the
+/// repay resolution. That ordering guarantees `resolve_repay`'s own
+/// full-close branch never triggers here — overpayment is always exactly
+/// zero — so no transfer is ever needed for a leftover: `supplied - borrowed`
+/// (== cash) never moves, because the same real amount that left supply is
+/// exactly what settled the debt.
+fn net_settle_one(
+    env: &Env,
+    entry: &PoolNetSettleEntry,
+) -> (PoolNetSettleResult, MarketStateSnapshot) {
+    require_nonneg_amount(env, entry.amount);
+    let mut cache = load_synced_cache(env, &entry.hub_asset);
+
+    let supply_scaled = Ray::from(entry.supply_position.scaled_amount);
+    let debt_scaled = Ray::from(entry.debt_position.scaled_amount);
+
+    let max_debt = cache.unscale_borrow_ceil(debt_scaled);
+    let capped_amount = entry.amount.min(max_debt);
+
+    let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(capped_amount, supply_scaled);
+    let (scaled_repay, overpayment) = cache.resolve_repay(gross_amount, debt_scaled);
+    assert_with_error!(env, overpayment == 0, GenericError::InternalError);
+
+    cache.supplied.checked_sub_assign(env, scaled_withdrawal);
+    cache.borrowed.checked_sub_assign(env, scaled_repay);
+    // No credit_cash/debit_cash: the withdrawn amount and the repaid amount
+    // are identical (`gross_amount`), so cash is invariant by construction.
+
+    cache.save();
+    let supply_scaled_after = supply_scaled.checked_sub(env, scaled_withdrawal);
+    let debt_scaled_after = debt_scaled.checked_sub(env, scaled_repay);
+    (
+        PoolNetSettleResult {
+            supply_position: ScaledPositionRaw {
+                scaled_amount: supply_scaled_after.raw(),
+            },
+            debt_position: ScaledPositionRaw {
+                scaled_amount: debt_scaled_after.raw(),
+            },
+            market_index: cache.market_index(),
+            settled_amount: gross_amount,
+        },
+        cache.market_snapshot(),
+    )
 }
 
 /// Checks loaned-token balance; mismatches map to InvalidFlashloanRepay.
@@ -696,6 +744,32 @@ impl LiquidityPoolInterface for LiquidityPool {
             snapshots.push_back(seize_one(&env, &entry));
         }
         events::publish_market_state_batch(&env, snapshots);
+    }
+
+    /// Nets a supply leg against a debt leg on the same hub-asset with zero
+    /// token transfer. Settles the lesser of `entry.amount`, the supply
+    /// balance, and the debt owed; any leftover collateral beyond outstanding
+    /// debt is left untouched as supply.
+    ///
+    /// # Arguments
+    /// * `entry` - the hub-asset market plus both legs' current scaled amounts.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - the entry targets a market with no stored state.
+    /// * `AmountMustBePositive` - `entry.amount` is negative.
+    /// * `InternalError` - the repay leg overpaid, which should be structurally
+    ///   impossible given the debt-first capping — surfaces a math bug rather
+    ///   than silently mismatching the two legs.
+    /// * `MathOverflow` - scaled-share accounting overflows.
+    ///
+    /// # Events
+    /// * A market-state update carrying the settled indexes.
+    #[only_owner]
+    fn net_settle(env: Env, entry: PoolNetSettleEntry) -> PoolNetSettleResult {
+        renew_pool_instance(&env);
+        let (result, snapshot) = net_settle_one(&env, &entry);
+        events::publish_market_state(&env, snapshot);
+        result
     }
 
     /// Burns accrued protocol revenue (capped by live reserves) and transfers the

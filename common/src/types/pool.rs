@@ -399,6 +399,17 @@ pub struct PoolStrategyMutation {
     pub amount_received: i128,
 }
 
+/// Result of `net_settle`: both legs share one market index and one settled
+/// amount, since they always move by the identical real amount.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PoolNetSettleResult {
+    pub supply_position: ScaledPositionRaw,
+    pub debt_position: ScaledPositionRaw,
+    pub market_index: MarketIndexRaw,
+    pub settled_amount: i128,
+}
+
 impl From<&PoolStrategyMutation> for PoolPositionMutation {
     fn from(m: &PoolStrategyMutation) -> Self {
         Self {
@@ -479,6 +490,18 @@ pub struct PoolSeizeEntry {
     pub hub_asset: HubAssetKey,
     pub side: AccountPositionType,
     pub position: ScaledPositionRaw,
+}
+
+/// Nets one supply leg against one debt leg on the same hub-asset, with no
+/// token transfer: the settled amount leaves supply and enters repayment in
+/// one step, so `supplied - borrowed` (== cash) never moves.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PoolNetSettleEntry {
+    pub hub_asset: HubAssetKey,
+    pub amount: i128,
+    pub supply_position: ScaledPositionRaw,
+    pub debt_position: ScaledPositionRaw,
 }
 
 /// Persistent pool accounting state.

@@ -1,14 +1,22 @@
 //! Strategy wrappers for borrow, withdraw, and repay primitives.
 
 use common::errors::GenericError;
-use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey};
+use common::math::fp::Ray;
+use common::types::{
+    Account, AccountPosition, DebtPosition, HubAssetKey, PoolNetSettleEntry, ScaledPositionRaw,
+};
 use soroban_sdk::{Address, Env, Vec};
 
+use crate::account::{update_or_remove_debt_position, update_or_remove_supply_position};
 use crate::context::Cache;
 use crate::events;
+use crate::external::pool::pool_net_settle_call;
 use crate::payments::{self as utils, EventContext};
 use crate::positions::repay::{self, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawalRequest, WITHDRAW_ALL_SENTINEL};
+use crate::positions::{
+    enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
+};
 use crate::strategies::swap::balance_delta;
 
 pub(crate) struct StrategyRepay<'a> {
@@ -130,6 +138,87 @@ pub(crate) fn execute_withdraw_all(
             );
         }
     }
+}
+
+/// Nets a supply leg against a debt leg on the identical `HubAssetKey` with
+/// zero token transfer. Returns the real amount settled.
+///
+/// # Security Warning
+/// * Performs no `require_auth` and re-runs no post-pool solvency gate: the
+///   calling strategy entrypoint owns both.
+pub(crate) fn net_settle_collateral_against_debt(
+    env: &Env,
+    account: &mut Account,
+    cache: &mut Cache,
+    hub_asset: &HubAssetKey,
+    amount: i128,
+    action: events::PositionAction,
+) -> i128 {
+    // Strategy chokepoint: paused blocks the settle, frozen still allows it,
+    // matching the withdraw/repay primitives this replaces.
+    enforce_spoke_asset_flags(env, cache, account.spoke_id, hub_asset, false);
+
+    let supply_position = get_supply_position_or_panic(env, account, hub_asset);
+    let debt_position = get_debt_position_or_panic(env, account, hub_asset);
+
+    let pool_addr = cache.cached_pool_address();
+    let entry = PoolNetSettleEntry {
+        hub_asset: hub_asset.clone(),
+        amount,
+        supply_position: ScaledPositionRaw {
+            scaled_amount: supply_position.scaled_amount.raw(),
+        },
+        debt_position: ScaledPositionRaw {
+            scaled_amount: debt_position.scaled_amount.raw(),
+        },
+    };
+    let result = pool_net_settle_call(env, &pool_addr, &entry);
+
+    let new_supply_scaled = Ray::from(result.supply_position.scaled_amount);
+    let new_debt_scaled = Ray::from(result.debt_position.scaled_amount);
+
+    {
+        let ctx = cache.require_spoke_usage_context(account.spoke_id);
+        ctx.apply_withdraw_after_pool(
+            env,
+            hub_asset,
+            supply_position.scaled_amount - new_supply_scaled,
+        );
+    }
+    let mut new_supply_position = supply_position;
+    new_supply_position.scaled_amount = new_supply_scaled;
+    update_or_remove_supply_position(account, hub_asset, &new_supply_position);
+
+    {
+        let ctx = cache.require_spoke_usage_context(account.spoke_id);
+        ctx.apply_repay_after_pool(
+            env,
+            hub_asset,
+            debt_position.scaled_amount - new_debt_scaled,
+        );
+    }
+    let new_debt_position = DebtPosition {
+        scaled_amount: new_debt_scaled,
+    };
+    update_or_remove_debt_position(account, hub_asset, &new_debt_position);
+
+    cache.put_market_index(hub_asset, &result.market_index);
+    cache.record_position_update(
+        action,
+        hub_asset,
+        result.market_index.supply_index,
+        result.settled_amount,
+        &new_supply_position,
+    );
+    cache.record_debt_position_update(
+        action,
+        hub_asset,
+        result.market_index.borrow_index,
+        result.settled_amount,
+        &new_debt_position,
+    );
+
+    result.settled_amount
 }
 
 /// Transfers any positive balance delta of `asset` back to `refund_to`.

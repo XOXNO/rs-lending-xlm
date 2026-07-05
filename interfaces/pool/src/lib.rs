@@ -9,8 +9,9 @@
 
 use common::types::{
     HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
-    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolSeizeEntry,
-    PoolStrategyMutation, PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry,
+    PoolAmountMutation, PoolBorrowEntry, PoolNetSettleEntry, PoolNetSettleResult,
+    PoolPositionMutation, PoolSeizeEntry, PoolStrategyMutation, PoolSupplyEntry, PoolSyncData,
+    PoolWithdrawEntry,
 };
 use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env, Vec};
 
@@ -68,6 +69,14 @@ pub trait LiquidityPoolInterface {
     /// Removes seized liquidation or bad-debt positions; entries targeting the
     /// same hub-asset are applied sequentially.
     fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>);
+
+    /// Nets one supply leg against one debt leg on the same hub-asset with
+    /// zero cash movement — the withdrawal and repayment settle for the
+    /// identical real amount, so `supplied - borrowed` (== cash) is
+    /// invariant. Caps the settled amount to the lesser of the request, the
+    /// supply balance, and the debt owed; any leftover collateral beyond
+    /// outstanding debt is left untouched as supply.
+    fn net_settle(env: Env, entry: PoolNetSettleEntry) -> PoolNetSettleResult;
 
     /// Claims protocol revenue capped by reserves and claimable shares.
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation;
