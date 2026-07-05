@@ -715,6 +715,9 @@ fn validate_batch_shape(env: &Env, paths: &Vec<SwapPath>) -> (Address, Address) 
         .token_in
         .clone();
     let output_token = last_token_out(env, &first_path);
+    if input_token == output_token {
+        panic_with_error!(env, Error::SameToken);
+    }
 
     let mut sum_ppm: u32 = 0;
     let n = paths.len();

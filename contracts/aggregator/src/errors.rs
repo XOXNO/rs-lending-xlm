@@ -39,4 +39,6 @@ pub enum Error {
     ReferralNotFound = 22,
     /// Already initialised.
     AlreadyInitialised = 24,
+    /// Batch input and output token are identical.
+    SameToken = 25,
 }

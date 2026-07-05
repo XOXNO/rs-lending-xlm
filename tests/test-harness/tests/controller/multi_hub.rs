@@ -7,11 +7,11 @@
 //! a hub's borrowable cash cannot be drawn by another hub.
 
 use controller::constants::RAY;
-use controller::types::{AccountPositionRaw, ControllerKey, DebtPositionRaw};
+use controller::types::{AccountPositionRaw, ControllerKey, DebtPositionRaw, PositionMode};
 use soroban_sdk::{Bytes, Map};
 use test_harness::{
-    amount_raw, hub_asset, usd, usd_cents, HubAssetKey, LendingTest, MarketPreset,
-    DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, HARNESS_HUB,
+    amount_raw, assert_contract_error, errors, hub_asset, usd, usd_cents, HubAssetKey, LendingTest,
+    MarketPreset, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, HARNESS_HUB, HARNESS_SPOKE,
 };
 use test_harness::{eth_preset, usdc_preset, ALICE, BOB, CAROL, LIQUIDATOR};
 
@@ -530,4 +530,88 @@ fn keeper_and_revenue_serve_hub_one_markets() {
         0,
         "hub-1 USDC has no revenue to claim"
     );
+}
+
+// 9. Multiply supports a cross-hub same-asset carry trade: flash-borrow USDC
+// on hub 1, net it straight into USDC collateral on hub 2 (no swap, same
+// token). Same-hub-same-asset stays rejected (a single market's own spread
+// is always net-negative); only the cross-hub leg opens.
+#[test]
+fn multiply_opens_cross_hub_same_asset_carry_trade() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_no_seed())
+        .with_min_borrow_collateral_disabled()
+        .build();
+
+    let hub2 = t.create_hub();
+    t.list_market_on_hub(hub2, "USDC", 0.0);
+
+    // Hub 1 must hold cash for the flash-borrowed debt leg.
+    t.supply_on_hub(HARNESS_HUB, BOB, "USDC", 10_000.0);
+
+    // Alice funds a generous initial payment in the collateral token so the
+    // leveraged position is comfortably solvent regardless of exact LTV.
+    let usdc = t.resolve_asset("USDC");
+    let alice = t.get_or_create_user(ALICE);
+    t.resolve_market("USDC")
+        .token_admin
+        .mint(&alice, &amount_raw(2_000.0, 7));
+
+    let collateral = HubAssetKey {
+        hub_id: hub2,
+        asset: usdc.clone(),
+    };
+    let debt = HubAssetKey {
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+    };
+    // Same-token net path never executes the swap and rejects a non-empty route.
+    let steps = Bytes::new(&t.env);
+    let debt_to_flash_loan = amount_raw(100.0, 7);
+    let account_id = t.ctrl_client().multiply(
+        &alice,
+        &0u64,
+        &HARNESS_SPOKE,
+        &collateral,
+        &debt_to_flash_loan,
+        &debt,
+        &PositionMode::Multiply,
+        &steps,
+        &Some((collateral.clone(), amount_raw(2_000.0, 7))),
+        &None,
+    );
+
+    assert!(
+        borrow_scaled_on_hub(&t, account_id, HARNESS_HUB, "USDC") > 0,
+        "hub-1 USDC carries the flash-borrowed debt leg"
+    );
+    assert!(
+        supply_scaled_on_hub(&t, account_id, hub2, "USDC") > 0,
+        "hub-2 USDC carries the collateral leg"
+    );
+
+    // Same-hub-same-asset (identical `HubAssetKey`) still rejects: looping a
+    // single market's own spread is never economically meaningful.
+    let same_hub_debt = HubAssetKey {
+        hub_id: hub2,
+        asset: usdc,
+    };
+    let steps_again = Bytes::new(&t.env);
+    let result = match t.ctrl_client().try_multiply(
+        &alice,
+        &0u64,
+        &HARNESS_SPOKE,
+        &collateral,
+        &debt_to_flash_loan,
+        &same_hub_debt,
+        &PositionMode::Multiply,
+        &steps_again,
+        &None,
+        &None,
+    ) {
+        Ok(Ok(id)) => Ok(id),
+        Ok(Err(e)) => Err(e),
+        Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
+    };
+    assert_contract_error(result, errors::ASSETS_ARE_THE_SAME);
 }

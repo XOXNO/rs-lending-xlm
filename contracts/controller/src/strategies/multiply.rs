@@ -103,15 +103,22 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         .checked_add(debt_extra)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    // D{debt_token.decimals}{Token(debt_token)} -> D{collateral_token.decimals}{Token(collateral_token)}.
-    let swapped_collateral = swap_tokens(
-        env,
-        caller,
-        &debt.asset,
-        swap_amount_in,
-        &collateral.asset,
-        swap,
-    );
+    // D{debt_token.decimals}{Token(debt_token)} -> D{collateral_token.decimals}{Token(collateral_token)},
+    // unless same asset (cross-hub carry trade needs no swap).
+    let swapped_collateral = if debt.asset == collateral.asset {
+        // Same-asset carry trade must not carry a route; a payload here would be silently ignored.
+        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
+        swap_amount_in
+    } else {
+        swap_tokens(
+            env,
+            caller,
+            &debt.asset,
+            swap_amount_in,
+            &collateral.asset,
+            swap,
+        )
+    };
 
     // D{collateral_token.decimals}{Token(collateral_token)} direct plus swapped collateral.
     let total_collateral = collateral_amount
@@ -173,7 +180,8 @@ fn prepare_multiply_account(
     (account_id, account, cache)
 }
 
-/// Rejects same-asset legs, non-leverage modes, and non-positive flash-loan amounts.
+/// Rejects same-asset legs (mode-dependent), non-leverage modes, and
+/// non-positive flash-loan amounts.
 fn validate_multiply_request(
     env: &Env,
     collateral: &HubAssetKey,
@@ -181,20 +189,28 @@ fn validate_multiply_request(
     mode: PositionMode,
     debt_to_flash_loan: i128,
 ) {
-    // The swap leg needs distinct underlying tokens; the same token on two hubs cannot lever itself.
-    assert_with_error!(
-        env,
-        collateral.asset != debt.asset,
-        GenericError::AssetsAreTheSame
-    );
-    assert_with_error!(
-        env,
-        matches!(
-            mode,
-            PositionMode::Multiply | PositionMode::Long | PositionMode::Short
-        ),
-        CollateralError::InvalidPositionMode
-    );
+    match mode {
+        // Same-hub-same-asset loops a single market's own spread, which is
+        // always net-negative (a market's borrow rate structurally exceeds its
+        // own supply rate) and never economically meaningful; cross-hub
+        // same-asset is a legitimate rate-arbitrage carry trade between two
+        // independently-rated markets, so only the identical `(hub, asset)`
+        // leg is rejected here.
+        PositionMode::Multiply => {
+            assert_with_error!(env, collateral != debt, GenericError::AssetsAreTheSame);
+        }
+        // Long/Short are directional price bets and need two genuinely
+        // distinct assets regardless of hub — the same token has no price
+        // divergence to bet on.
+        PositionMode::Long | PositionMode::Short => {
+            assert_with_error!(
+                env,
+                collateral.asset != debt.asset,
+                GenericError::AssetsAreTheSame
+            );
+        }
+        _ => panic_with_error!(env, CollateralError::InvalidPositionMode),
+    }
     validation::require_positive_amount(env, debt_to_flash_loan);
 }
 
