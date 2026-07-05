@@ -26,7 +26,10 @@ fn test_swap_collateral_paused_collateral_reverts() {
     t.set_spoke_asset_paused("USDC", true);
 
     // Direct and strategy paths must now agree: both reject the paused asset.
-    assert_contract_error(t.try_withdraw(ALICE, "USDC", 100.0), errors::SPOKE_ASSET_PAUSED);
+    assert_contract_error(
+        t.try_withdraw(ALICE, "USDC", 100.0),
+        errors::SPOKE_ASSET_PAUSED,
+    );
     let result = t.try_swap_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps);
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }

@@ -576,7 +576,10 @@ fn execute_strategy_rejects_fake_venue_output() {
     assert_eq!(err.unwrap(), Error::ZeroOutput.into());
     // Router fees untouched, attacker gained nothing.
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 0);
-    assert_eq!(token::Client::new(&env, &token_b).balance(&router_addr), 700);
+    assert_eq!(
+        token::Client::new(&env, &token_b).balance(&router_addr),
+        700
+    );
 }
 
 // When a pool over-reports, the router credits only what actually arrived.
