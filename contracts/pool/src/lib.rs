@@ -52,6 +52,7 @@ use utils::{
     require_wasm_receiver,
 };
 
+/// Renews the instance TTL, then loads and interest-syncs the market cache.
 fn load_synced_cache(env: &Env, hub_asset: &HubAssetKey) -> Cache {
     renew_pool_instance(env);
     synced_market_cache(env, hub_asset)
@@ -90,7 +91,6 @@ where
 fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
     require_nonneg_amount(env, action.amount);
     let cache = synced_market_cache(env, &action.hub_asset);
-    // dimensional: action position is Ray<Share(asset, side)>; amount is Token(asset).
     let scaled = Ray::from(action.position.scaled_amount);
     (cache, scaled, action.amount)
 }
@@ -99,20 +99,17 @@ fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
 fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
     cache.require_reserves(amount);
-    // dimensional: Token(asset) borrow amount -> Ray<Share(asset, debt)>.
     let scaled_debt = cache.calculate_scaled_borrow(amount);
-    // dimensional: account debt and market debt totals share the debt-share unit.
     scaled.checked_add_assign(env, scaled_debt);
     cache.borrowed.checked_add_assign(env, scaled_debt);
     utils::require_utilization_below_max(env, cache);
 }
 
+/// Credits one supply leg as scaled shares and tracked cash.
 fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> (PoolPositionMutation, MarketStateSnapshot) {
     let (mut cache, mut scaled, amount) = load_position(env, &entry.action);
 
-    // dimensional: Token(asset) supply amount -> Ray<Share(asset, supply)>.
     let scaled_amount = cache.calculate_scaled_supply(amount);
-    // dimensional: account supply and market supply totals share the supply-share unit.
     scaled.checked_add_assign(env, scaled_amount);
     cache.supplied.checked_add_assign(env, scaled_amount);
     // Controller transferred Token(asset) `amount` into the pool before this call.
@@ -125,6 +122,7 @@ fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> (PoolPositionMutation, Mark
     )
 }
 
+/// Accrues one borrow leg into market debt and transfers the proceeds.
 fn borrow_one(
     env: &Env,
     receiver: &Address,
@@ -133,7 +131,6 @@ fn borrow_one(
     let (mut cache, mut scaled, amount) = load_position(env, &entry.action);
 
     accrue_borrow(env, &mut cache, &mut scaled, amount);
-    // dimensional: borrowed Token(asset) leaves tracked cash.
     cache.debit_cash(amount);
 
     // CEI: snapshot + commit before external call.
@@ -145,6 +142,8 @@ fn borrow_one(
     )
 }
 
+/// Burns one withdraw leg's supply shares (applying any liquidation fee) and
+/// transfers the net amount to `receiver`.
 fn withdraw_one(
     env: &Env,
     receiver: &Address,
@@ -155,12 +154,10 @@ fn withdraw_one(
     // Controller maps user amount `0` to this full-withdraw sentinel.
     let (mut cache, scaled, amount) = load_position(env, &entry.action);
 
-    // dimensional: returns supply shares to burn and Token(asset) gross withdrawal.
     let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(amount, scaled);
 
     // Build the projected post-withdraw state: accrue the liquidation fee and
     // remove the withdrawn shares from supplied before any check runs.
-    // dimensional: gross, protocol fee, and net transfer are Token(asset).
     let net_transfer = apply_liquidation_fee(
         env,
         &mut cache,
@@ -178,7 +175,6 @@ fn withdraw_one(
         utils::require_utilization_below_max(env, &cache);
     }
     utils::require_solvent_withdraw_state(env, &cache);
-    // dimensional: net Token(asset) transfer leaves tracked cash.
     cache.debit_cash(net_transfer);
 
     // CEI: snapshot + commit before external call.
@@ -190,6 +186,7 @@ fn withdraw_one(
     )
 }
 
+/// Burns one repay leg's debt shares and refunds any overpayment to `payer`.
 fn repay_one(
     env: &Env,
     payer: &Address,
@@ -197,12 +194,10 @@ fn repay_one(
 ) -> (PoolPositionMutation, MarketStateSnapshot) {
     let (mut cache, scaled, amount) = load_position(env, action);
 
-    // dimensional: Token(asset) repay amount -> debt shares burned plus Token(asset) refund.
     let (scaled_repay, overpayment) = cache.resolve_repay(amount, scaled);
     let scaled = scaled.checked_sub(env, scaled_repay);
     cache.borrowed.checked_sub_assign(env, scaled_repay);
     // Controller moved Token(asset) `amount` in; `overpayment` is refunded below.
-    // dimensional: Token(asset) paid into tracked cash excludes Token(asset) refund.
     let net_repay = amount
         .checked_sub(overpayment)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
@@ -232,7 +227,6 @@ fn seize_one(env: &Env, entry: &PoolSeizeEntry) -> MarketStateSnapshot {
             cache.borrowed.checked_sub_assign(env, scaled);
         }
         AccountPositionType::Deposit => {
-            // dimensional: seized deposit dust is Ray<Share(asset, supply)> revenue.
             cache.revenue.checked_add_assign(env, scaled);
         }
     }
@@ -332,7 +326,6 @@ impl LiquidityPoolInterface for LiquidityPool {
             .set(&PoolKey::Params(hub_asset.clone()), &params);
 
         let state = PoolStateRaw {
-            // dimensional: zero Ray<Share> totals, unit Ray<Index> indexes, Token(asset) cash.
             supplied: 0,
             borrowed: 0,
             revenue: 0,
@@ -497,7 +490,6 @@ impl LiquidityPoolInterface for LiquidityPool {
             GenericError::NoSuppliersToReward
         );
 
-        // dimensional: Token(asset) rewards -> Ray<Token(asset)> for supply-index growth.
         cache.supply_index = update_supply_index(
             &env,
             cache.supplied,
@@ -564,7 +556,6 @@ impl LiquidityPoolInterface for LiquidityPool {
         let expected_after_payout = pre_balance
             .checked_sub(amount)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        // dimensional: all balances and repayments here are Token(asset).
         let total = amount
             .checked_add(fee)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
@@ -604,7 +595,6 @@ impl LiquidityPoolInterface for LiquidityPool {
             expected_after_repay,
         );
 
-        // dimensional: Token(asset) fee -> Ray<Token(asset)> -> revenue supply shares.
         let protocol_fee = Ray::from_asset(fee, cache.params.asset_decimals);
         interest::add_protocol_revenue(&mut cache, protocol_fee);
         // Net token effect: pool sends `amount` and receives `amount + fee`, so
@@ -662,15 +652,12 @@ impl LiquidityPoolInterface for LiquidityPool {
         assert_with_error!(&env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
 
         let mut cache = load_synced_cache(&env, &hub_asset);
-        // dimensional: strategy position is Ray<Share(asset, debt)>.
         let mut scaled = Ray::from(position.scaled_amount);
         accrue_borrow(&env, &mut cache, &mut scaled, amount);
 
-        // dimensional: Token(asset) fee -> Ray<Token(asset)> -> revenue supply shares.
         let protocol_fee = Ray::from_asset(fee, cache.params.asset_decimals);
         interest::add_protocol_revenue(&mut cache, protocol_fee);
 
-        // dimensional: Token(asset) sent is borrow amount minus Token(asset) fee.
         let amount_to_send = amount
             .checked_sub(fee)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
@@ -729,7 +716,6 @@ impl LiquidityPoolInterface for LiquidityPool {
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
         let mut cache = load_synced_cache(&env, &hub_asset);
 
-        // dimensional: claim burns Ray<Share(asset, supply)> and returns Token(asset).
         let amount_to_transfer = cache.burn_claimable_revenue();
 
         utils::require_utilization_below_max(&env, &cache);

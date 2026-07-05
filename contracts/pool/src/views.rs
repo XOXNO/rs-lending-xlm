@@ -9,7 +9,7 @@ use soroban_sdk::{panic_with_error, Env};
 
 use crate::cache::Cache;
 
-// Raw keyed reads without TTL renewal.
+/// Reads persisted market state, without TTL renewal or interest accrual.
 pub fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
     env.storage()
         .persistent()
@@ -17,6 +17,7 @@ pub fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
+/// Reads persisted market params, without TTL renewal or interest accrual.
 pub fn load_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw {
     env.storage()
         .persistent()

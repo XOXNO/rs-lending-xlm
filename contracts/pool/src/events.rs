@@ -39,12 +39,14 @@ impl From<&MarketStateSnapshot> for PoolMarketStateEvent {
     }
 }
 
+/// Batch of per-market state snapshots emitted after mutating flows.
 #[contractevent(topics = ["market", "batch_state_update"], data_format = "single-value")]
 #[derive(Clone, Debug)]
 pub struct PoolMarketStateBatchEvent {
     pub updates: Vec<PoolMarketStateEvent>,
 }
 
+/// One market's rate-model parameter update.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolMarketParamsEvent {
@@ -53,12 +55,14 @@ pub struct PoolMarketParamsEvent {
     pub params: MarketParamsRaw,
 }
 
+/// Batch of market rate-model parameter updates.
 #[contractevent(topics = ["market", "batch_params_update"], data_format = "single-value")]
 #[derive(Clone, Debug)]
 pub struct PoolMarketParamsBatchEvent {
     pub updates: Vec<PoolMarketParamsEvent>,
 }
 
+/// Protocol fee charged on a strategy borrow.
 #[contractevent(topics = ["strategy", "fee"])]
 #[derive(Clone, Debug)]
 pub struct StrategyFeeEvent {
@@ -69,6 +73,7 @@ pub struct StrategyFeeEvent {
     pub amount_sent: i128,
 }
 
+/// Emits a batch of market-state snapshots; an empty batch is suppressed.
 pub(crate) fn publish_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnapshot>) {
     if snapshots.is_empty() {
         return;
@@ -88,6 +93,7 @@ pub(crate) fn publish_market_state(env: &Env, snapshot: MarketStateSnapshot) {
     publish_market_state_batch(env, snapshots);
 }
 
+/// Emits a batch of market-params updates; an empty batch is suppressed.
 pub(crate) fn publish_market_params_batch(env: &Env, updates: Vec<PoolMarketParamsEvent>) {
     if updates.is_empty() {
         return;
@@ -112,6 +118,7 @@ pub(crate) fn publish_market_params(
     publish_market_params_batch(env, updates);
 }
 
+/// Emits a strategy-fee event; zero-fee strategy borrows are suppressed.
 pub(crate) fn publish_strategy_fee(
     env: &Env,
     hub_id: u32,
