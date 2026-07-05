@@ -102,6 +102,7 @@ fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
     }
 }
 
+/// Removes the account entry from storage when it holds no positions.
 pub fn cleanup_account_if_empty(env: &Env, account: &Account, account_id: u64) {
     if account.is_empty() {
         storage::remove_account_entry(env, account_id);

@@ -66,6 +66,8 @@ impl Controller {
     }
 }
 
+/// Clears Blend debt with zero-fee borrows, sweeps Blend collateral/supply into
+/// controller positions, and returns the account id.
 pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendParams) -> u64 {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -152,6 +154,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     account_id
 }
 
+/// Borrows and repays each Blend debt asset, reconciling Blend's over-repay refunds.
 fn execute_migration_debt_leg(
     env: &Env,
     caller: &Address,
@@ -180,6 +183,8 @@ fn execute_migration_debt_leg(
     reconcile_debt_refunds(env, account, cache, caller, hub_id, debt_caps, &before_debt);
 }
 
+/// Loads or creates the account under the migration guard, prefetches strategy
+/// oracles, and returns it with the deduped withdraw-asset list.
 fn prepare_migration_account(
     env: &Env,
     caller: &Address,
@@ -225,6 +230,7 @@ fn require_migration_markets_active(
     }
 }
 
+/// Rejects empty requests and unapproved Blend pools.
 fn validate_migration_request(
     env: &Env,
     blend_pool: &Address,
@@ -245,6 +251,7 @@ fn validate_migration_request(
     );
 }
 
+/// Rejects duplicate debt assets and returns the deduped withdraw list plus the full asset set.
 fn prepare_migration_assets(
     env: &Env,
     collateral_assets: &Vec<Address>,
@@ -381,6 +388,7 @@ fn authorize_repay_pulls(env: &Env, blend_pool: &Address, debt_caps: &Vec<(Addre
     env.authorize_as_current_contract(entries);
 }
 
+/// Deposits the positive balance delta of each swept asset as controller collateral.
 fn deposit_withdrawn(
     env: &Env,
     account: &mut Account,
@@ -412,6 +420,7 @@ fn deposit_withdrawn(
     }
 }
 
+/// Repays controller debt with any Blend over-repay refund for each debt asset.
 fn reconcile_debt_refunds(
     env: &Env,
     account: &mut Account,
@@ -448,6 +457,7 @@ fn reconcile_debt_refunds(
     }
 }
 
+/// Loads the account's debt position for `hub_debt`, trapping if absent.
 fn load_debt_position(env: &Env, account: &Account, hub_debt: &HubAssetKey) -> DebtPosition {
     let raw = account
         .borrow_positions

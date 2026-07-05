@@ -104,6 +104,8 @@ pub fn process_withdraw(
     paid
 }
 
+/// Builds withdraw entries (`0` means withdraw-all), settles them, and returns
+/// the gross amount paid per asset.
 fn settle_withdraw(
     env: &Env,
     account: &mut Account,
@@ -184,6 +186,8 @@ pub(crate) fn settle_withdraw_entries(
     results
 }
 
+/// Decides whether an asset's risk params refresh from live config or stay
+/// frozen (deprecated spoke or removed spoke member).
 fn withdraw_refresh_spoke_for_asset(
     cache: &mut Cache,
     account: &Account,
@@ -218,7 +222,6 @@ pub(crate) fn finish_withdrawal(
     let mut result_position = get_supply_position_or_panic(env, account, hub_asset);
     let old_scaled = result_position.scaled_amount;
     result_position.scaled_amount = Ray::from(result.position.scaled_amount);
-    // dimensional: scaled delta is Ray<Share(asset, supply)>.
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
     let delta = old_scaled - result_position.scaled_amount;
     ctx.apply_withdraw_after_pool(env, hub_asset, delta);
@@ -238,7 +241,6 @@ pub(crate) fn finish_withdrawal(
     update_or_remove_supply_position(account, hub_asset, &result_position);
 
     cache.put_market_index(hub_asset, &result.market_index);
-    // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, supply)>.
     cache.record_position_update(
         action,
         hub_asset,

@@ -20,6 +20,8 @@ use soroban_sdk::{Map, String};
 #[cfg(not(feature = "certora"))]
 use crate::oracle::providers::redstone::read_price_data_bulk;
 
+/// Bulk-fetches each adapter's RedStone feeds (only when it has at least
+/// `MIN_BULK_FEEDS`) into the transaction cache.
 #[cfg(not(feature = "certora"))]
 pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) {
     let env = cache.env().clone();
@@ -64,6 +66,7 @@ pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) 
 }
 
 #[cfg(not(feature = "certora"))]
+/// Adds a source's RedStone feed to its adapter bucket, skipping feeds already prefetched or seen.
 fn collect_redstone_feed(
     cache: &Cache,
     env: &soroban_sdk::Env,

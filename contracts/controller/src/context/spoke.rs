@@ -34,6 +34,7 @@ impl Cache {
         self.spoke_prices = soroban_sdk::Map::new(&self.env);
     }
 
+    /// Returns the mutable per-spoke usage context, initializing it for `spoke_id` when unset.
     pub(crate) fn require_spoke_usage_context(&mut self, spoke_id: u32) -> &mut SpokeUsageContext {
         self.ensure_spoke_context(spoke_id);
         self.spoke_usage
@@ -41,6 +42,7 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::InternalError))
     }
 
+    /// Returns the per-spoke asset config for `hub_asset`, or `None` when unlisted.
     pub fn cached_spoke_asset(
         &mut self,
         spoke_id: u32,
@@ -63,17 +65,20 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::AssetNotSupported))
     }
 
+    /// Returns the spoke config for `spoke_id` from the per-transaction memo.
     pub fn spoke_config(&mut self, spoke_id: u32) -> SpokeConfig {
         let env = self.env.clone();
         self.require_spoke_usage_context(spoke_id).spoke(&env)
     }
 
+    /// Returns the spoke config, reverting `SpokeDeprecated` when the spoke is deprecated.
     pub fn active_spoke(&mut self, env: &Env, spoke_id: u32) -> SpokeConfig {
         let spoke = self.spoke_config(spoke_id);
         ensure_spoke_not_deprecated(env, &Some(spoke.clone()));
         spoke
     }
 
+    /// Returns buffered per-spoke usage for `hub_asset`, lazily loaded from storage.
     pub fn cached_spoke_usage(
         &mut self,
         spoke_id: u32,
@@ -86,6 +91,7 @@ impl Cache {
         )
     }
 
+    /// Persists any buffered spoke-usage rows to storage.
     pub(crate) fn persist_spoke_usage(&self) {
         if let Some(ctx) = &self.spoke_usage {
             ctx.persist(&self.env);

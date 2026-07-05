@@ -9,18 +9,21 @@ use crate::constants::{
 use common::types::ControllerKey;
 use soroban_sdk::Env;
 
+/// Extends the user-tier TTL on a persistent key.
 pub(crate) fn renew_user_key(env: &Env, key: &ControllerKey) {
     env.storage()
         .persistent()
         .extend_ttl(key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
 }
 
+/// Extends the protocol-shared-tier TTL on a persistent key.
 pub(crate) fn renew_protocol_shared_key(env: &Env, key: &ControllerKey) {
     env.storage()
         .persistent()
         .extend_ttl(key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
+/// Extends the contract's instance-storage TTL.
 pub(crate) fn renew_controller_instance(env: &Env) {
     env.storage()
         .instance()

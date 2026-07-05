@@ -30,6 +30,7 @@ pub fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetK
     );
 }
 
+/// Rejects the call while a flash loan is in progress.
 pub fn require_not_flash_loaning(env: &Env) {
     assert_with_error!(
         env,
@@ -38,6 +39,7 @@ pub fn require_not_flash_loaning(env: &Env) {
     );
 }
 
+/// Rejects an empty payments vector.
 pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
     assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
 }
@@ -80,6 +82,7 @@ pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Acco
     }
 }
 
+/// Rejects a batch that would push supply/borrow position counts past their limits.
 pub fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,

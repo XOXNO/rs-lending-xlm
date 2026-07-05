@@ -61,6 +61,7 @@ impl Cache {
         Self::build(env)
     }
 
+    /// Builds a cache with empty per-transaction memos seeded from the current ledger timestamp.
     pub(crate) fn build(env: &Env) -> Self {
         let current_timestamp_ms = env.ledger().timestamp() * MS_PER_SECOND;
 
@@ -81,6 +82,7 @@ impl Cache {
         }
     }
 
+    /// Returns the transaction environment handle.
     pub fn env(&self) -> &Env {
         &self.env
     }

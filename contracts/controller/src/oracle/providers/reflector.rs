@@ -19,6 +19,7 @@ use crate::oracle;
 use crate::oracle::observation::{reflector_observation_from_price_data, OracleObservation};
 use crate::storage;
 
+/// Reads a Reflector spot or TWAP observation and reprices it to USD.
 pub(crate) fn read_reflector_source(
     cache: &mut Cache,
     config: &ReflectorSourceConfig,
@@ -31,6 +32,7 @@ pub(crate) fn read_reflector_source(
     observation.map(|obs| reprice_to_usd(cache, &config.base, obs))
 }
 
+/// Converts a quoted-base observation into USD, bounding freshness by the staler leg.
 fn reprice_to_usd(
     cache: &mut Cache,
     base: &ReflectorBase,

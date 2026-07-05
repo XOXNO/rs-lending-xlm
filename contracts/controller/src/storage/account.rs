@@ -12,6 +12,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 /// stays bounded; mirrors the instance-tier approval caps.
 const MAX_DELEGATES: u32 = 16;
 
+/// Assembles an `Account` from its metadata and position maps.
 pub(crate) fn account_from_parts(
     meta: AccountMeta,
     supply_positions: Map<HubAssetKey, AccountPositionRaw>,
@@ -26,23 +27,27 @@ pub(crate) fn account_from_parts(
     }
 }
 
+/// Returns account metadata if the account exists.
 pub(crate) fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
     env.storage()
         .persistent()
         .get::<_, AccountMeta>(&ControllerKey::AccountMeta(account_id))
 }
 
+/// Returns account metadata, panicking if the account is not in the market.
 pub(crate) fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
     try_get_account_meta(env, account_id)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotInMarket))
 }
 
+/// Stores account metadata and renews the account's user-tier TTL.
 pub(crate) fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     let key = ControllerKey::AccountMeta(account_id);
     env.storage().persistent().set(&key, meta);
     renew_user_key(env, &key);
 }
 
+/// Returns the account's supply-position map, empty when none exist.
 pub(crate) fn get_supply_positions(
     env: &Env,
     account_id: u64,
@@ -53,6 +58,7 @@ pub(crate) fn get_supply_positions(
         .unwrap_or_else(|| Map::new(env))
 }
 
+/// Returns the account's debt-position map, empty when none exist.
 pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<HubAssetKey, DebtPositionRaw> {
     env.storage()
         .persistent()
@@ -60,6 +66,7 @@ pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<HubAssetKey,
         .unwrap_or_else(|| Map::new(env))
 }
 
+/// Persists the supply-position map and renews the account's TTL.
 pub(crate) fn set_supply_positions(
     env: &Env,
     account_id: u64,
@@ -69,6 +76,7 @@ pub(crate) fn set_supply_positions(
     renew_user_account(env, account_id);
 }
 
+/// Persists the debt-position map and renews the account's TTL.
 pub(crate) fn set_debt_positions(
     env: &Env,
     account_id: u64,
@@ -78,6 +86,7 @@ pub(crate) fn set_debt_positions(
     renew_user_account(env, account_id);
 }
 
+/// Writes a position map, removing the key when the map is empty.
 fn write_side_map<
     V: soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
 >(
@@ -93,6 +102,7 @@ fn write_side_map<
     }
 }
 
+/// Returns a single typed supply position if present.
 pub(crate) fn try_get_supply_position(
     env: &Env,
     account_id: u64,
@@ -103,6 +113,7 @@ pub(crate) fn try_get_supply_position(
         .map(|raw| AccountPosition::from(&raw))
 }
 
+/// Returns a single typed debt position if present.
 pub(crate) fn try_get_debt_position(
     env: &Env,
     account_id: u64,
@@ -130,11 +141,13 @@ pub(crate) fn iter_debt_positions(
     map.iter().map(|(key, raw)| (key, DebtPosition::from(&raw)))
 }
 
+/// Returns the full account, panicking if it does not exist.
 pub(crate) fn get_account(env: &Env, account_id: u64) -> Account {
     try_get_account(env, account_id)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotFound))
 }
 
+/// Returns the full account if it exists.
 pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     try_get_account_meta(env, account_id).map(|meta| {
         account_from_parts(
@@ -145,6 +158,7 @@ pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     })
 }
 
+/// Returns the account with only its debt positions loaded.
 pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     let meta = get_account_meta(env, account_id);
     let borrow_positions = get_debt_positions(env, account_id);
@@ -202,6 +216,7 @@ pub(crate) fn remove_delegate(env: &Env, account_id: u64, delegate: &Address) {
     set_delegates(env, account_id, &next);
 }
 
+/// Removes all persistent storage entries for the account.
 pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     persistent.remove(&ControllerKey::AccountMeta(account_id));
@@ -212,6 +227,7 @@ pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
 
 // Extends TTL on each existing account key. The `has()` guard is required:
 // soroban-sdk 26.x panics on `extend_ttl` against a missing key.
+/// Renews the user-tier TTL on each existing account key.
 pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     let keys = [

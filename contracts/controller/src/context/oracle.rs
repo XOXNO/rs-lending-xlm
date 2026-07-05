@@ -12,6 +12,7 @@ use crate::oracle::{price_with_config, token_price};
 use crate::storage;
 
 impl Cache {
+    /// Returns the token-rooted USD price for `asset`.
     pub fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         (&token_price(self, asset)).into()
     }
@@ -60,6 +61,7 @@ impl Cache {
         feed
     }
 
+    /// Returns the prefetched RedStone payload for `(adapter, feed_id)`, if any.
     pub fn get_redstone_prefetch(
         &self,
         adapter: &Address,
@@ -69,6 +71,7 @@ impl Cache {
             .get((adapter.clone(), feed_id.clone()))
     }
 
+    /// Caches a RedStone payload under `(adapter, feed_id)` for the transaction.
     pub fn set_redstone_prefetch(
         &mut self,
         adapter: &Address,

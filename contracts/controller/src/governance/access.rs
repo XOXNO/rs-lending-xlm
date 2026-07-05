@@ -12,6 +12,7 @@ use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
 const INITIAL_APP_VERSION: u32 = 1;
 
+/// Arms or clears the pending admin transfer and emits the initiated event.
 fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     let pending_admin_key = access_control::AccessControlStorageKey::PendingAdmin;
 
@@ -37,6 +38,7 @@ fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger
     );
 }
 
+/// Promotes `new_owner` to access-control admin, clears the pending admin, and emits completion.
 fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Address) {
     let previous_admin = access_control::get_admin(env).unwrap_or_else(|| previous_owner.clone());
 
@@ -49,6 +51,7 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
     access_control::emit_admin_transfer_completed(env, &previous_admin, new_owner);
 }
 
+/// Returns the current owner or reverts `OwnerNotSet`.
 fn owner_or_panic(env: &Env) -> Address {
     ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
 }

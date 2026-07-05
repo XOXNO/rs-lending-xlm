@@ -73,6 +73,8 @@ impl Controller {
     }
 }
 
+/// Repays part of an unhealthy account's debt, seizes bonused collateral, and
+/// runs the post-liquidation bad-debt check.
 pub fn process_liquidation(
     env: &Env,
     liquidator: &Address,
@@ -133,6 +135,7 @@ pub fn process_liquidation(
     cache.emit_position_batch(account_id, &account);
 }
 
+/// Rejects empty payments and self-liquidation before pricing the account.
 fn validate_liquidation_inputs(
     env: &Env,
     account: &Account,

@@ -241,6 +241,7 @@ impl Controller {
     }
 }
 
+/// Accrues pool indexes for each listed hub-asset market.
 // Pool sync results become the canonical market-state batch for indexers.
 fn sync_market_indexes(env: &Env, cache: &mut Cache, hub_assets: &Vec<HubAssetKey>) {
     let pool_addr = cache.cached_pool_address();
@@ -264,10 +265,8 @@ pub fn upgrade_liquidity_pool_params(
     // `update_indexes` reverts `PoolNotInitialized` for an uncreated market.
     pool_update_indexes_call(env, &pool_addr, hub_asset);
 
-    // dimensional: params carries Ray rates/utilization and Bps reserve factor.
     pool_update_params_call(env, &pool_addr, hub_asset, params);
 
-    // dimensional: event fields mirror the raw Ray and Bps governance update.
     UpdateMarketParamsEvent {
         asset: hub_asset.asset.clone(),
         max_borrow_rate: params.max_borrow_rate,
@@ -283,6 +282,7 @@ pub fn upgrade_liquidity_pool_params(
     .publish(env);
 }
 
+/// Claims one market's revenue and forwards it to the accumulator; returns the amount claimed.
 fn claim_revenue_for_asset_with_cache(
     env: &Env,
     hub_asset: &HubAssetKey,
@@ -296,7 +296,6 @@ fn claim_revenue_for_asset_with_cache(
     // `claim_revenue` reverts `PoolNotInitialized` for an uncreated market.
     let result = pool_claim_revenue_call(env, &pool_addr, hub_asset);
     let amount = result.actual_amount;
-    // dimensional: amount is Token(asset) revenue in asset-native units.
 
     if amount > 0 {
         sac_transfer_call(
@@ -333,7 +332,6 @@ pub fn add_reward(
     amount: i128,
     cache: &mut Cache,
 ) {
-    // dimensional: amount is Token(asset) reward in asset-native units.
     validation::require_positive_amount(env, amount);
 
     let pool_addr = cache.cached_pool_address();
@@ -351,14 +349,15 @@ pub fn add_reward(
     pool_add_rewards_call(env, &pool_addr, hub_asset, amount);
 }
 
+/// Transfers and applies each reward leg through a shared cache.
 pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(HubAssetKey, i128)>) {
     let mut cache = Cache::new(env);
     for (hub_asset, amount) in rewards.iter() {
         add_reward(env, caller, &hub_asset, amount, &mut cache);
     }
 }
-// Syncs risk params on each supply position for one account, then runs a
-// single HF gate when `has_risks` propagates liquidation thresholds.
+/// Syncs risk params on each supply position for one account, then runs a
+/// single HF gate when `has_risks` propagates liquidation thresholds.
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
     // No-op when the account is gone (bad-debt cleanup, full exit).
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
@@ -391,7 +390,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
             validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));
         let mut updated_pos = position;
 
-        // dimensional: raw risk params are Bps snapshots; scaled_amount is unchanged.
+        // Only the Bps risk fields are copied; the position's scaled share amount is unchanged.
         let cfg_lt = asset_config.liquidation_threshold.raw() as u32;
         let cfg_ltv = asset_config.loan_to_value.raw() as u32;
         let cfg_bonus = asset_config.liquidation_bonus.raw() as u32;
@@ -429,7 +428,6 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
             &account.borrow_positions,
         )
         .health_factor;
-        // dimensional: hf and THRESHOLD_UPDATE_MIN_HF_RAW are WAD-scaled HealthFactor.
         assert_with_error!(
             env,
             hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW),

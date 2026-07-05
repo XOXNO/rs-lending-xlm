@@ -35,7 +35,6 @@ pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
         return 0;
     }
 
-    // dimensional: all headrooms in this minimum are Token(asset).
     let mut hi = market
         .cash
         .min(spoke_borrow_cap_headroom(
@@ -57,7 +56,6 @@ pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
             hi = mid - 1;
         }
     }
-    // dimensional: max_borrow returns additional Token(asset) in asset-native units.
     lo
 }
 
@@ -121,7 +119,6 @@ fn spoke_borrow_cap_scaled(
             supplied_scaled_ray: 0,
             borrowed_scaled_ray: 0,
         });
-    // dimensional: spoke borrow cap and usage compare as Ray<Share(asset, debt)>.
     let cap_scaled =
         Ray::from_asset(spoke_cfg.borrow_cap, market.decimals).div_floor(env, market.borrow_index);
     let used_scaled = Ray::from(usage.borrowed_scaled_ray);
@@ -165,7 +162,6 @@ fn borrow_ok(
         return false;
     }
 
-    // dimensional: borrow amount Token(asset) -> Ray<Share(asset, debt)> at borrow index.
     let new_scaled = Ray::from_asset(amount, market.decimals).div(env, market.borrow_index);
     let post_borrowed = market.borrowed + new_scaled;
 

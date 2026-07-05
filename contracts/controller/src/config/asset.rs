@@ -14,6 +14,7 @@ use crate::{
     storage,
 };
 
+/// Lists a hub-asset on a spoke after validating risk bounds, caps, and any oracle override.
 pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     common::validation::validate_liquidation_fees(env, args.liquidation_fees);
@@ -82,6 +83,7 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     .publish(env);
 }
 
+/// Updates a spoke-asset listing, rejecting caps that fall below current spoke usage.
 pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     common::validation::validate_liquidation_fees(env, args.liquidation_fees);
@@ -180,6 +182,7 @@ fn resolve_spoke_oracle_override(
     }
 }
 
+/// Unlists a hub-asset from a spoke, reverting when it is not listed.
 pub fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
     assert_with_error!(
         env,

@@ -2,6 +2,7 @@
 
 use soroban_sdk::{Address, Env};
 
+/// Transfers `amount` of `token` from `from` to `to` via the SAC client.
 pub(crate) fn sac_transfer_call(
     env: &Env,
     token: &Address,

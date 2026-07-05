@@ -51,6 +51,7 @@ impl Controller {
     }
 }
 
+/// Withdraws collateral, swaps it, and deposits the result as replacement collateral.
 pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollateralParams<'_>) {
     let SwapCollateralParams {
         account_id,

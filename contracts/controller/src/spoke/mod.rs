@@ -18,6 +18,7 @@ pub fn effective_asset_config(
     (&cache.require_spoke_asset(spoke_id, hub_asset)).into()
 }
 
+/// Reverts `SpokeDeprecated` when the given spoke config is deprecated.
 pub fn ensure_spoke_not_deprecated(env: &Env, spoke: &Option<SpokeConfig>) {
     if let Some(spoke) = spoke {
         assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);

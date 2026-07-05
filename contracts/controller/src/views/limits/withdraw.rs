@@ -18,6 +18,8 @@ use crate::views::limits::{account_gates_ok, MarketLimitCtx};
 /// Stroop walks before falling back to binary search on the residual range.
 const PARTIAL_SETTLE_STEPS: u32 = 24;
 
+/// Largest withdrawable amount of `hub_asset`; `0` when no position exists or
+/// every partial fails the pool and account gates.
 pub fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;
@@ -51,7 +53,6 @@ pub fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128
 
     // Full close first: any request at or above the half-up position value
     // resolves to it, and the pool pays the floor rounding.
-    // dimensional: full_request is max withdraw Token(asset) in asset-native units.
     let full_request =
         scaled_to_original(env, pos_scaled, market.supply_index).to_asset(market.decimals);
     if full_close_ok(env, &mut cache, &account, hub_asset, &market, pos_scaled) {
@@ -77,6 +78,7 @@ pub fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128
     )
 }
 
+/// Divides two USD WAD values, rounding the quotient up.
 fn wad_div_ceil(env: &Env, num: Wad, den: Wad) -> Wad {
     Wad::from(fp_core::mul_div_ceil(env, num.raw(), WAD, den.raw()))
 }
@@ -92,7 +94,6 @@ fn usd_wad_to_token_cap(env: &Env, usd: Wad, feed: PriceFeed, decimals: u32) -> 
         WAD,
         feed.price.raw(),
     ))
-    // dimensional: output is Token(asset), floored to the asset's decimals.
     .to_token_floor(decimals)
 }
 
@@ -250,6 +251,8 @@ fn settle_partial_max(
     amount
 }
 
+/// Binary-searches the largest partial withdrawal in `[lo, hi]` that clears
+/// `partial_ok`.
 fn binary_search_partial(
     env: &Env,
     cache: &mut Cache,
@@ -306,12 +309,10 @@ fn partial_ok(
     amount: i128,
 ) -> bool {
     // resolve_withdrawal replica: shares burnt at the half-up conversion.
-    // dimensional: withdrawal amount Token(asset) -> Ray<Share(asset, supply)>.
     let scaled_w = Ray::from_asset(amount, market.decimals).div(env, market.supply_index);
     if scaled_w > pos_scaled {
         return false;
     }
-    // dimensional: remaining stays Ray<Share(asset, supply)> for account gates.
     let remaining = pos_scaled - scaled_w;
     let remaining_actual =
         scaled_to_original(env, remaining, market.supply_index).to_asset(market.decimals);

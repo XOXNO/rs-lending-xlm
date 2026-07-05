@@ -68,6 +68,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     );
 }
 
+/// Transfers each repayment in and settles the batch in one pool call.
 fn settle_repay(
     env: &Env,
     caller: &Address,
@@ -136,7 +137,7 @@ pub(crate) fn finish_repayment(
         .unwrap_or(Ray::ZERO);
     let position = DebtPosition::from(&result.position);
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
-    // dimensional: both values are Ray<Share(asset, debt)>; repay subtracts usage.
+    // Repay subtracts the reduced debt shares from spoke usage.
     let delta = old_scaled - position.scaled_amount;
     ctx.apply_repay_after_pool(env, hub_asset, delta);
     update_or_remove_debt_position(account, hub_asset, &position);

@@ -9,6 +9,7 @@ use crate::events::{
 };
 
 impl Cache {
+    /// Buffers a supply-position delta for the next batch event emission.
     pub fn record_position_update(
         &mut self,
         action: PositionAction,
@@ -27,6 +28,7 @@ impl Cache {
         ));
     }
 
+    /// Buffers a debt-position delta for the next batch event emission.
     pub fn record_debt_position_update(
         &mut self,
         action: PositionAction,
@@ -45,6 +47,7 @@ impl Cache {
         ));
     }
 
+    /// Publishes buffered supply and debt deltas as one position-batch event, then clears the buffers.
     pub fn emit_position_batch(&mut self, account_id: u64, account: &Account) {
         if self.deposit_updates.is_empty() && self.borrow_updates.is_empty() {
             return;

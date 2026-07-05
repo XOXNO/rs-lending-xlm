@@ -12,6 +12,7 @@ pub(super) struct SwapBalanceSnapshot {
     pub(super) token_out: i128,
 }
 
+/// Snapshots the controller's `token_in` and `token_out` balances before the router call.
 pub(super) fn snapshot_swap_balances(
     env: &Env,
     token_in_client: &soroban_sdk::token::Client,
@@ -23,6 +24,7 @@ pub(super) fn snapshot_swap_balances(
     }
 }
 
+/// Rejects a router that spent more than `amount_in` of the input token.
 pub(super) fn verify_router_input_spend(
     env: &Env,
     token_in_client: &soroban_sdk::token::Client,
@@ -44,6 +46,7 @@ pub(super) fn verify_router_input_spend(
     );
 }
 
+/// Refunds any unspent input token to `refund_to`.
 pub(super) fn refund_router_underspend(
     env: &Env,
     token_in_client: &soroban_sdk::token::Client,
@@ -64,6 +67,7 @@ pub(super) fn refund_router_underspend(
     }
 }
 
+/// Returns the received output balance delta, trapping if nothing was received.
 pub(super) fn verify_router_output(
     env: &Env,
     token_out_client: &soroban_sdk::token::Client,

@@ -35,6 +35,7 @@ pub fn transfer_amount(
     amount
 }
 
+/// Deduplicates payments by hub asset and sums amounts; a zero leg means withdraw-all when `zero_is_withdraw_all`.
 pub fn aggregate_payments(
     env: &Env,
     payments: &Vec<HubPayment>,
@@ -76,6 +77,7 @@ pub fn aggregate_payments(
     result
 }
 
+/// Adds `amount` to the running total, enforcing the positive-amount gate and withdraw-all sentinel.
 fn aggregate_payment_amount(
     env: &Env,
     previous: Option<i128>,

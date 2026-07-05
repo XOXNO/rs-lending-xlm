@@ -132,6 +132,7 @@ pub(crate) fn enforce_spoke_asset_flags(
     }
 }
 
+/// Builds a `PoolAction` from a position, amount, and hub asset.
 pub(crate) fn make_pool_action(
     position: impl Into<ScaledPositionRaw>,
     amount: i128,
@@ -159,6 +160,7 @@ pub(crate) fn get_supply_position_or_panic(
         .into()
 }
 
+/// Returns the account's debt position for `hub_asset`, panicking if absent.
 pub(crate) fn get_debt_position_or_panic(
     env: &Env,
     account: &Account,

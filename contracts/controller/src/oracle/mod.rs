@@ -27,6 +27,7 @@ pub(crate) use tolerance::calculate_final_price;
 pub(crate) use prefetch::prefetch_redstone_feeds;
 pub use price::{price_with_config, token_price};
 
+/// Resolves the token-rooted oracle components (primary, anchor, final price) for a hub-asset.
 pub fn price_components(cache: &mut Cache, hub_asset: &HubAssetKey) -> ResolvedOracleComponents {
     // Pricing is token-rooted (hub-independent), keyed by the bare asset:
     // `resolve_oracle_config` panics `OracleNotConfigured` for any asset with no

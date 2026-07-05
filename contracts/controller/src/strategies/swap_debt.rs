@@ -48,6 +48,7 @@ impl Controller {
     }
 }
 
+/// Borrows a new debt, swaps it to the existing debt token, and repays the existing debt.
 pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>) {
     let SwapDebtParams {
         account_id,
@@ -124,6 +125,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
+/// Loads the existing debt position, trapping if absent.
 fn load_existing_debt_position(
     env: &Env,
     account: &Account,

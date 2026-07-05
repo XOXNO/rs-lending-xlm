@@ -16,6 +16,7 @@ impl Cache {
         self.market_indexes.set(hub_asset.clone(), index.clone());
     }
 
+    /// No-op under Certora; the harness supplies market indexes directly.
     #[cfg(feature = "certora")]
     pub fn prefetch_market_indexes(&mut self, _hub_assets: &Vec<HubAssetKey>) {}
 

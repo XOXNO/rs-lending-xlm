@@ -7,6 +7,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address};
 use crate::context::Cache;
 use crate::oracle::compose;
 
+/// Returns the cached USD price for `asset`, resolving and caching it under a cycle guard on a miss.
 pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
     if let Some(feed) = cache.prices_cache.get(asset.clone()) {
         return feed;

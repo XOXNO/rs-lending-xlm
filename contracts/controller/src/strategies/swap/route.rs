@@ -16,6 +16,7 @@ pub(crate) mod aggregator {
     }
 }
 
+/// Rejects non-positive amounts and empty swap payloads.
 pub(super) fn validate_strategy_swap(env: &Env, swap: &StrategySwap, amount_in: i128) {
     if amount_in <= 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);

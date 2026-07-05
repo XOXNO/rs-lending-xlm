@@ -19,6 +19,7 @@ pub struct ResolvedOracleComponents {
 }
 
 impl ResolvedOracleComponents {
+    /// Returns the (safe, aggregator) ABI price pair, defaulting each leg to the final price.
     pub fn to_abi_prices(&self) -> (i128, i128) {
         let safe_price_wad = self.primary_price_wad.unwrap_or(self.final_price_wad);
         let aggregator_price_wad = self.anchor_price_wad.unwrap_or(self.final_price_wad);
@@ -26,6 +27,7 @@ impl ResolvedOracleComponents {
     }
 }
 
+/// Reads and freshness-checks the required source(s) and blends them into the final price.
 pub(crate) fn resolve_components(
     cache: &mut Cache,
     config: &MarketOracleConfig,
@@ -71,6 +73,7 @@ pub(crate) fn resolve_components(
     }
 }
 
+/// Reverts `PriceFeedStale` when the observation exceeds `max_stale`.
 fn require_fresh(cache: &Cache, observation: &OracleObservation, max_stale: u64) {
     if is_stale(
         cache.ledger_timestamp_secs(),

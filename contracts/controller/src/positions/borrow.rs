@@ -95,6 +95,7 @@ pub fn process_borrow(
     );
 }
 
+/// Builds the batch's borrow entries, makes one pool call, and merges results.
 fn settle_borrow(
     env: &Env,
     recipient: &Address,
@@ -142,7 +143,6 @@ fn merge_borrow_result(
         .map(|p| Ray::from(p.scaled_amount))
         .unwrap_or(Ray::ZERO);
     let position: DebtPosition = DebtPosition::from(&result.position);
-    // dimensional: scaled delta is Ray<Share(asset, borrow)>.
     // Spoke-cap accounting needs the asset decimals; source them from the active
     // market's oracle config before re-borrowing `cache`.
     let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
@@ -150,7 +150,6 @@ fn merge_borrow_result(
     let delta = position.scaled_amount - old_scaled;
     ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
     cache.put_market_index(hub_asset, &result.market_index);
-    // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, borrow)>.
     cache.record_debt_position_update(
         action,
         hub_asset,

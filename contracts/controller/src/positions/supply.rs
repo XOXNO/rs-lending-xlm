@@ -110,6 +110,7 @@ pub fn process_deposit(
     settle_deposit(env, caller, account, aggregated, cache);
 }
 
+/// Transfers deposits into the pool and applies the batch's pool results.
 fn settle_deposit(
     env: &Env,
     caller: &Address,
@@ -124,6 +125,7 @@ fn settle_deposit(
     apply_supply_results(env, account, &entries, &results, cache);
 }
 
+/// Transfers each deposit to the pool and returns the pool supply entries.
 fn build_supply_entries(
     env: &Env,
     caller: &Address,
@@ -151,6 +153,7 @@ fn build_supply_entries(
     entries
 }
 
+/// Merges pool supply results back into positions, spoke usage, and events.
 fn apply_supply_results(
     env: &Env,
     account: &mut Account,
