@@ -1,3 +1,6 @@
+//! Controller-facing domain types: per-spoke asset-risk projections, account and
+//! position encodings, and their ABI-raw counterparts.
+
 use crate::math::fp::{Bps, Ray};
 use crate::types::oracle::{MarketOracleConfigOption, PriceFeedRaw};
 use crate::types::pool::{
@@ -10,7 +13,7 @@ use soroban_sdk::{contracttype, Address, Map, Vec};
 /// [`SpokeAssetConfig`] that lists the asset on the account's spoke. Supply
 /// and borrow caps live on [`SpokeAssetConfig`] as the only cap layer;
 /// flash-loan parameters live on the pool
-/// [`common::types::pool::MarketParamsRaw`]; the SAC decimal count is sourced
+/// [`crate::types::pool::MarketParamsRaw`]; the SAC decimal count is sourced
 /// from the pool/oracle where a conversion needs it.
 #[derive(Clone, Debug)]
 pub struct AssetConfig {

@@ -1,3 +1,6 @@
+//! Aggregator boundary type: the opaque [`StrategySwap`] swap payload the
+//! controller forwards to the configured aggregator.
+
 use soroban_sdk::Bytes;
 
 /// Opaque aggregator swap payload.

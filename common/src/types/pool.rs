@@ -1,3 +1,7 @@
+//! Pool parameter and position encodings: the ABI-raw (`*Raw`, i128/u32) and
+//! typed (RAY/WAD/BPS) forms of market params, interest-rate model, and
+//! account/debt positions, plus their boundary `verify` guards.
+
 use crate::constants::{BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, RAY, RAY_DECIMALS};
 use crate::errors::CollateralError;
 use crate::math::fp::{Bps, Ray};
@@ -49,9 +53,15 @@ impl MarketParamsRaw {
         self.rate_model_view().verify(env);
     }
 
-    // Boundary validation: rate model plus `asset_decimals <= RAY_DECIMALS`
-    // to keep `Ray::from_asset` inside the supported decimal domain, and the
-    // flash-loan fee cap so strategy borrows can never owe more than borrowed.
+    /// Boundary validation for the raw market params: rate model, asset-decimal
+    /// domain, and the flash-loan fee cap.
+    ///
+    /// # Errors
+    /// * [`CollateralError::AssetDecimalsTooHigh`] - `asset_decimals` exceeds
+    ///   `RAY_DECIMALS`, outside the `Ray::from_asset` domain.
+    /// * [`CollateralError::InvalidBorrowParams`] - `flashloan_fee` exceeds
+    ///   `MAX_FLASHLOAN_FEE_BPS`.
+    /// * refer to [`InterestRateModel::verify`] errors for the rate-model bounds.
     pub fn verify(&self, env: &Env) {
         assert_with_error!(
             env,
@@ -140,6 +150,21 @@ pub struct InterestRateModel {
 }
 
 impl InterestRateModel {
+    /// Boundary validation for the interest-rate curve: non-negative base rate,
+    /// monotonic slopes, and a valid utilization breakpoint ladder.
+    ///
+    /// # Errors
+    /// * [`CollateralError::BaseRateNegative`] - `base_borrow_rate < 0`.
+    /// * [`CollateralError::SlopeNonMonotonic`] - the `base -> slope1 -> slope2
+    ///   -> slope3 -> max_borrow_rate` ladder is not non-decreasing.
+    /// * [`CollateralError::MaxRateBelowBase`] - `max_borrow_rate <= base_borrow_rate`.
+    /// * [`CollateralError::MaxBorrowRateTooHigh`] - `max_borrow_rate` exceeds
+    ///   `MAX_BORROW_RATE_RAY`.
+    /// * [`CollateralError::InvalidUtilRange`] - `mid_utilization <= 0`,
+    ///   `optimal_utilization <= mid_utilization`, or `max_utilization` is outside
+    ///   `[optimal_utilization, RAY]`.
+    /// * [`CollateralError::OptUtilTooHigh`] - `optimal_utilization >= RAY`.
+    /// * [`CollateralError::InvalidReserveFactor`] - `reserve_factor >= BPS`.
     pub fn verify(&self, env: &Env) {
         assert_with_error!(
             env,

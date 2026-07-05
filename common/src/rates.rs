@@ -1,3 +1,7 @@
+//! Interest-rate curve and index accrual: the kinked utilization borrow-rate
+//! model, the Taylor-series compound-interest factor, and the read-path index
+//! simulation shared with the pool's write path.
+
 use soroban_sdk::{panic_with_error, Env, I256};
 
 use crate::constants::{BPS, MAX_BORROW_INDEX_RAY, MILLISECONDS_PER_YEAR, SUPPLY_INDEX_FLOOR_RAW};
@@ -61,6 +65,10 @@ pub fn calculate_deposit_rate(
 }
 
 /// Approximates `e^(rate_per_ms * delta_ms)` using an 8-term Taylor series.
+///
+/// # Errors
+/// * [`crate::errors::GenericError::MathOverflow`] - `rate * delta_ms` (widened
+///   to I256) does not fit back into the i128 fixed-point domain.
 pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
     if delta_ms == 0 {
         return Ray::ONE;
