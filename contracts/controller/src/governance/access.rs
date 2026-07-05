@@ -55,6 +55,10 @@ fn owner_or_panic(env: &Env) -> Address {
 
 #[contractimpl]
 impl Controller {
+    /// Initializes the controller: sets `admin` as owner and access-control
+    /// admin, seeds the default position limits and min-borrow-collateral floor,
+    /// records the initial app version, and starts the contract paused so the
+    /// owner can finish configuration before enabling flows.
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
 
@@ -78,6 +82,11 @@ impl Controller {
         stellar_contract_utils::pausable::pause(&env);
     }
 
+    /// Pauses the contract and upgrades its Wasm to `new_wasm_hash`.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
+    ///   so this executes only after the configured delay.
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_controller_instance(&env);
@@ -85,7 +94,14 @@ impl Controller {
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
-    // Bumps stored AppVersion; enforces strict monotonicity (no data rewrite).
+    /// Bumps the stored app version; strictly monotonic, with no data rewrite.
+    ///
+    /// # Errors
+    /// * `InternalError` - `new_version` is not greater than the current version.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
+    ///   so this executes only after the configured delay.
     #[only_owner]
     pub fn migrate(env: Env, new_version: u32) {
         storage::renew_controller_instance(&env);
@@ -104,6 +120,7 @@ impl Controller {
             .set(&ControllerKey::AppVersion, &new_version);
     }
 
+    /// Returns the stored app version.
     pub fn get_app_version(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -111,18 +128,41 @@ impl Controller {
             .unwrap_or(INITIAL_APP_VERSION)
     }
 
+    /// Pauses the contract, blocking risk-increasing flows.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
+    ///   so this executes only after the configured delay.
     #[only_owner]
     pub fn pause(env: Env) {
         storage::renew_controller_instance(&env);
         stellar_contract_utils::pausable::pause(&env);
     }
 
+    /// Unpauses the contract, re-enabling risk-increasing flows.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
+    ///   so this executes only after the configured delay.
     #[only_owner]
     pub fn unpause(env: Env) {
         storage::renew_controller_instance(&env);
         stellar_contract_utils::pausable::unpause(&env);
     }
 
+    /// Starts a two-step ownership transfer, arming `new_owner` as pending owner
+    /// (and pending access-control admin) until `live_until_ledger`; the new
+    /// owner must call `accept_ownership` to complete it.
+    ///
+    /// # Arguments
+    /// * `live_until_ledger` - offer expiry; `0` cancels the pending transfer.
+    ///
+    /// # Errors
+    /// * `OwnerNotSet` - the contract has no current owner.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
+    ///   so this executes only after the configured delay.
     #[only_owner]
     pub fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
         storage::renew_controller_instance(&env);
@@ -138,6 +178,15 @@ impl Controller {
         sync_pending_admin_transfer(&env, &new_owner, live_until_ledger);
     }
 
+    /// Completes a pending ownership transfer, promoting the pending owner to
+    /// owner and syncing the access-control admin.
+    ///
+    /// # Errors
+    /// * `OwnerNotSet` - no owner is set before or after the transfer.
+    ///
+    /// # Security Warning
+    /// * Auth is enforced by the pending-owner acceptance flow, not `#[only_owner]`;
+    ///   only the address armed by `transfer_ownership` can complete it.
     pub fn accept_ownership(env: Env) {
         storage::renew_controller_instance(&env);
         let previous_owner = owner_or_panic(&env);

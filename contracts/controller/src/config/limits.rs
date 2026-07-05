@@ -1,3 +1,5 @@
+//! Instance-level position-limit and minimum-borrow-collateral floor setters.
+
 use common::errors::CollateralError;
 use common::types::PositionLimits;
 use soroban_sdk::{assert_with_error, Env};

@@ -1,3 +1,5 @@
+//! Hub registry: creation and the active-hub gate.
+
 use common::errors::GenericError;
 use common::types::HubConfig;
 use soroban_sdk::{assert_with_error, Env};

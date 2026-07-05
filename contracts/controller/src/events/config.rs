@@ -1,3 +1,5 @@
+//! Configuration-change events: asset-oracle, spoke, and spoke-asset updates.
+
 use soroban_sdk::{contractevent, contracttype, Address, BytesN};
 
 use common::types::{SpokeAssetConfig, SpokeConfig};

@@ -1,3 +1,6 @@
+//! Registry setters for the aggregator, accumulator, pool template, and the
+//! token and Blend-pool approval allowlists.
+
 use soroban_sdk::{xdr::ToXdr, Address, BytesN, Env};
 
 use crate::events::{

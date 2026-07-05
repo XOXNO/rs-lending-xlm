@@ -1,3 +1,5 @@
+//! Position-manager registry setter (capped active-manager allowlist).
+
 use common::types::PositionManagerConfig;
 use soroban_sdk::{Address, Env};
 

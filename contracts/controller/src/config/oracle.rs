@@ -1,3 +1,6 @@
+//! Per-asset oracle configuration setters and validation. Oracles are
+//! token-rooted (hub-independent) and must resolve to a USD base.
+
 use common::errors::{GenericError, OracleError};
 use common::types::{
     HubAssetKey, MarketOracleConfig, OraclePriceFluctuation, OracleSourceConfig, ReflectorBase,

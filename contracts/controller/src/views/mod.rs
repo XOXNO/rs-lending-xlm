@@ -35,30 +35,60 @@ fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
 
 #[contractimpl]
 impl Controller {
+    /// Returns whether the account's health factor is below one. A debt-free or
+    /// missing account is never liquidatable.
+    ///
+    /// # Errors
+    /// * Pricing an indebted account reads oracles and can revert (e.g.
+    ///   `OracleNotConfigured`, `PriceFeedStale`, `UnsafePriceNotAllowed`).
     pub fn is_liquidatable(env: Env, account_id: u64) -> bool {
         can_be_liquidated(&env, account_id)
     }
 
+    /// Returns the account health factor in WAD; a debt-free or missing account
+    /// returns `i128::MAX`.
+    ///
+    /// # Errors
+    /// * Pricing an indebted account reads oracles and can revert (e.g.
+    ///   `OracleNotConfigured`, `PriceFeedStale`, `UnsafePriceNotAllowed`).
     pub fn get_health_factor(env: Env, account_id: u64) -> i128 {
         health_factor(&env, account_id)
     }
 
+    /// Returns total collateral value in USD WAD; `0` for a missing account or
+    /// one with no supply.
+    ///
+    /// # Errors
+    /// * Pricing supplied positions reads oracles and can revert (e.g.
+    ///   `OracleNotConfigured`, `PriceFeedStale`, `UnsafePriceNotAllowed`).
     pub fn get_total_collateral_usd(env: Env, account_id: u64) -> i128 {
         total_collateral_in_usd(&env, account_id)
     }
 
+    /// Returns total borrow value in USD WAD; `0` for a missing account or one
+    /// with no debt.
+    ///
+    /// # Errors
+    /// * Pricing debt positions reads oracles and can revert (e.g.
+    ///   `OracleNotConfigured`, `PriceFeedStale`, `UnsafePriceNotAllowed`).
     pub fn get_total_borrow_usd(env: Env, account_id: u64) -> i128 {
         total_borrow_in_usd(&env, account_id)
     }
 
+    /// Returns the current underlying collateral amount for one hub-asset; `0`
+    /// when the account holds no such position. Reads no oracle.
     pub fn get_collateral_amount(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128 {
         collateral_amount_for_hub_asset(&env, account_id, &hub_asset)
     }
 
+    /// Returns the current underlying debt amount for one hub-asset; `0` when the
+    /// account holds no such position. Reads no oracle.
     pub fn get_borrow_amount(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128 {
         borrow_amount_for_hub_asset(&env, account_id, &hub_asset)
     }
 
+    /// Returns the raw scaled supply and debt maps for an account; empty maps
+    /// when the account does not exist.
     pub fn get_account_positions(
         env: Env,
         account_id: u64,
@@ -69,6 +99,10 @@ impl Controller {
         get_account_positions(&env, account_id)
     }
 
+    /// Returns the account's mode and spoke attributes.
+    ///
+    /// # Errors
+    /// * `AccountNotInMarket` - no account metadata exists for `account_id`.
     pub fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes {
         get_account_attributes(&env, account_id)
     }
@@ -78,11 +112,20 @@ impl Controller {
         account_exists(&env, account_id)
     }
 
+    /// Returns the per-spoke risk listing for `hub_asset`; each spoke (id `>= 1`)
+    /// holds its own config.
+    ///
+    /// # Errors
+    /// * `AssetNotSupported` - the asset is not listed on the spoke.
     pub fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig {
         storage::get_spoke_asset(&env, spoke_id, &hub_asset)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::AssetNotSupported))
     }
 
+    /// Returns the spoke config for `spoke_id`.
+    ///
+    /// # Errors
+    /// * `SpokeNotFound` - no spoke exists for `spoke_id`.
     pub fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig {
         storage::get_spoke(&env, spoke_id)
     }
@@ -92,6 +135,11 @@ impl Controller {
         get_pool_address(&env)
     }
 
+    /// Returns config and USD price for each requested hub-asset market.
+    ///
+    /// # Errors
+    /// * `InvalidPayments` - `hub_assets` exceeds the view input bound.
+    /// * `OracleNotConfigured` - a requested asset has no configured oracle.
     pub fn get_markets_detailed(
         env: Env,
         hub_assets: Vec<HubAssetKey>,
@@ -99,6 +147,14 @@ impl Controller {
         get_all_markets_detailed(&env, &hub_assets)
     }
 
+    /// Returns accrued indexes and price components for each requested hub-asset
+    /// market.
+    ///
+    /// # Errors
+    /// * `InvalidPayments` - `hub_assets` exceeds the view input bound.
+    /// * `PoolNotInitialized` - a requested `(hub, asset)` market was never created.
+    /// * Price-component resolution reads oracles and can revert (e.g.
+    ///   `OracleNotConfigured`, `PriceFeedStale`, `UnsafePriceNotAllowed`).
     pub fn get_market_indexes_detailed(
         env: Env,
         hub_assets: Vec<HubAssetKey>,
@@ -106,6 +162,14 @@ impl Controller {
         get_all_market_indexes_detailed(&env, &hub_assets)
     }
 
+    /// Estimates the seize, repay, refund, and bonus data for liquidating the
+    /// account with the supplied debt payments.
+    ///
+    /// # Errors
+    /// * `InvalidPayments` - `debt_payments` exceeds the view input bound.
+    /// * `AccountNotFound` - no account exists for `account_id`.
+    /// * The liquidation engine reverts on oracle resolution or when the account
+    ///   is not liquidatable; refer to the liquidation flow errors.
     pub fn get_liquidation_estimate(
         env: Env,
         account_id: u64,
@@ -114,10 +178,22 @@ impl Controller {
         liquidation_estimations_detailed(&env, account_id, &debt_payments)
     }
 
+    /// Returns total collateral value available for liquidation in USD WAD; `0`
+    /// for a missing account.
+    ///
+    /// # Errors
+    /// * Pricing supplied positions reads oracles and can revert (e.g.
+    ///   `OracleNotConfigured`, `PriceFeedStale`, `UnsafePriceNotAllowed`).
     pub fn get_liquidation_collateral(env: Env, account_id: u64) -> i128 {
         liquidation_collateral_available(&env, account_id)
     }
 
+    /// Returns collateral value counted toward LTV in USD WAD; `0` for a missing
+    /// account.
+    ///
+    /// # Errors
+    /// * Pricing supplied positions reads oracles and can revert (e.g.
+    ///   `OracleNotConfigured`, `PriceFeedStale`, `UnsafePriceNotAllowed`).
     pub fn get_ltv_collateral_usd(env: Env, account_id: u64) -> i128 {
         ltv_collateral_in_usd(&env, account_id)
     }

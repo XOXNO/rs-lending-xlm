@@ -1,3 +1,6 @@
+//! Spoke registry: creation stamps liquidation-curve defaults; removal
+//! deprecates the spoke, which gates all subsequent spoke reads.
+
 use common::errors::SpokeError;
 use common::types::SpokeConfig;
 use soroban_sdk::{assert_with_error, Env};

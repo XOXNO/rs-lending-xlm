@@ -1,3 +1,6 @@
+//! Spoke-asset listing setters: add, edit, and remove a hub-asset on a spoke,
+//! with risk-bound, cap-domain, and oracle-override validation.
+
 use common::errors::{CollateralError, GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::types::{HubAssetKey, MarketOracleConfigOption, SpokeAssetArgs, SpokeAssetConfig};

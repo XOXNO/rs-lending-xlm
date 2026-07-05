@@ -1,3 +1,5 @@
+//! Strategy events: multiply initial-payment and related strategy legs.
+
 use soroban_sdk::{contractevent, Address};
 
 #[contractevent(topics = ["strategy", "initial_payment"])]
