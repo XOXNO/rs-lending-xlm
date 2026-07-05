@@ -64,13 +64,9 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Compares assets only (not hub_id): a swap into the same underlying
-    // asset is rejected even across hubs, unlike debt refinance.
-    assert_with_error!(
-        env,
-        current.asset != new.asset,
-        GenericError::AssetsAreTheSame
-    );
+    // Full-coordinate compare so the same token may migrate across hubs; only
+    // an identical `(hub, asset)` collateral leg is rejected.
+    assert_with_error!(env, current != new, GenericError::AssetsAreTheSame);
 
     // The withdraw leg settles on `current`'s hub; `new`'s hub is gated by the
     // deposit's `require_hub_active`.
@@ -107,15 +103,22 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
         },
     );
 
-    // D{current_collateral.decimals}{Token(current_collateral)} -> Token(new_collateral).
-    let swapped_amount = swap_tokens(
-        env,
-        caller,
-        &current.asset,
-        actual_withdrawn,
-        &new.asset,
-        swap,
-    );
+    // D{current_collateral.decimals}{Token(current_collateral)} -> Token(new_collateral),
+    // unless same asset (cross-hub migration needs no swap).
+    let swapped_amount = if current.asset == new.asset {
+        // Same-asset migration must not carry a route; a payload here would be silently ignored.
+        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
+        actual_withdrawn
+    } else {
+        swap_tokens(
+            env,
+            caller,
+            &current.asset,
+            actual_withdrawn,
+            &new.asset,
+            swap,
+        )
+    };
 
     // D{new_collateral.decimals}{Token(new_collateral)} deposited as replacement collateral.
     let deposit_assets = soroban_sdk::vec![env, (new.clone(), swapped_amount)];

@@ -531,3 +531,77 @@ fn keeper_and_revenue_serve_hub_one_markets() {
         "hub-1 USDC has no revenue to claim"
     );
 }
+
+// 9. swap_collateral migrates a USDC collateral position from hub 1 to hub 2
+// (cross-hub). Only an identical `(hub, asset)` leg is rejected — the same
+// underlying token on a different hub nets without an aggregator swap,
+// mirroring test 4's swap_debt refinance.
+#[test]
+fn swap_collateral_migrates_collateral_across_hubs() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_no_seed())
+        .with_min_borrow_collateral_disabled()
+        .build();
+
+    let hub2 = t.create_hub();
+    t.list_market_on_hub(hub2, "USDC", 0.0);
+
+    // Hub 1: Alice supplies USDC collateral, no debt involved.
+    let account_id = t.supply_on_hub(HARNESS_HUB, ALICE, "USDC", 1_000.0);
+
+    assert!(
+        supply_scaled_on_hub(&t, account_id, HARNESS_HUB, "USDC") > 0,
+        "precondition: hub-1 USDC collateral exists"
+    );
+    assert_eq!(
+        supply_scaled_on_hub(&t, account_id, hub2, "USDC"),
+        0,
+        "precondition: no hub-2 USDC collateral yet"
+    );
+
+    // Migrate: withdraw the hub-1 USDC collateral, deposit it on hub 2.
+    let usdc = t.resolve_asset("USDC");
+    let current = HubAssetKey {
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+    };
+    let new = HubAssetKey {
+        hub_id: hub2,
+        asset: usdc.clone(),
+    };
+    let caller = t.get_or_create_user(ALICE);
+    // Same-token net path never executes the swap and rejects a non-empty route.
+    let steps = Bytes::new(&t.env);
+    let migrate_amount = amount_raw(1_000.0, 7);
+    t.ctrl_client().swap_collateral(
+        &caller,
+        &account_id,
+        &current,
+        &migrate_amount,
+        &new,
+        &steps,
+    );
+
+    // The collateral moved hubs: hub-1 USDC collateral is cleared, hub-2 carries it.
+    assert_eq!(
+        supply_scaled_on_hub(&t, account_id, HARNESS_HUB, "USDC"),
+        0,
+        "hub-1 USDC collateral is fully withdrawn by the migration"
+    );
+    assert!(
+        supply_scaled_on_hub(&t, account_id, hub2, "USDC") > 0,
+        "hub-2 USDC collateral now carries the migrated position"
+    );
+
+    // The two markets reflect the move: hub-1 supplied drains to zero, hub-2
+    // supplied becomes non-zero.
+    assert_eq!(
+        t.pool_state_on_hub(HARNESS_HUB, "USDC").supplied,
+        0,
+        "hub-1 USDC market has no supply after the migration"
+    );
+    assert!(
+        t.pool_state_on_hub(hub2, "USDC").supplied > 0,
+        "hub-2 USDC market holds the migrated supply"
+    );
+}
