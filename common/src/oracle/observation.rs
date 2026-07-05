@@ -21,6 +21,10 @@ pub const MIN_ORACLE_RESOLUTION_SECONDS: u32 = 60;
 pub const MIN_ORACLE_DECIMALS: u32 = 1;
 pub const MAX_ORACLE_DECIMALS: u32 = 18;
 
+/// Normalizes a positive token-denominated price to WAD.
+///
+/// # Errors
+/// * [`OracleError::InvalidPrice`] - `price <= 0`.
 pub fn normalize_positive_price(env: &Env, price: i128, decimals: u32) -> i128 {
     assert_with_error!(env, price > 0, OracleError::InvalidPrice);
     Wad::from_token(price, decimals).raw()
@@ -30,6 +34,12 @@ pub fn is_stale(now_secs: u64, feed_ts: u64, max_stale: u64) -> bool {
     now_secs > feed_ts && (now_secs - feed_ts) > max_stale
 }
 
+/// Rejects a feed timestamp beyond the allowed future clock-skew window.
+///
+/// # Errors
+/// * [`GenericError::MathOverflow`] - `now_secs + MAX_FUTURE_SKEW_SECONDS` overflows.
+/// * [`OracleError::PriceFeedStale`] - `feed_ts` is further in the future than the
+///   skew window allows.
 pub fn check_not_future_at(env: &Env, now_secs: u64, feed_ts: u64) {
     let max_future_ts = now_secs
         .checked_add(MAX_FUTURE_SKEW_SECONDS)
@@ -48,6 +58,10 @@ fn validate_timestamp(env: &Env, now_secs: u64, feed_ts: u64, max_stale: u64) {
 
 /// Normalizes a positive token-denominated price to WAD and checks each feed
 /// timestamp for future skew and staleness.
+///
+/// # Errors
+/// * refer to [`normalize_positive_price`] and [`check_not_future_at`] errors.
+/// * [`OracleError::PriceFeedStale`] - a feed timestamp is older than `max_stale`.
 pub fn validate_positive_price_timestamps(
     env: &Env,
     raw_price: i128,
@@ -63,6 +77,10 @@ pub fn validate_positive_price_timestamps(
     price_wad
 }
 
+/// Narrows a `U256` to `i128`, rejecting values outside the `i128` domain.
+///
+/// # Errors
+/// * [`GenericError::MathOverflow`] - `value` exceeds `i128::MAX`.
 pub fn u256_to_i128(env: &Env, value: &U256) -> i128 {
     let Some(raw) = value.to_u128() else {
         panic_with_error!(env, GenericError::MathOverflow);

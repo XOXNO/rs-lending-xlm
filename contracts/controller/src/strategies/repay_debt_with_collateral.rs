@@ -5,6 +5,7 @@ use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey, Strateg
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
+use crate::account;
 use crate::context::Cache;
 use crate::events;
 use crate::strategies::{
@@ -50,6 +51,7 @@ impl Controller {
     }
 }
 
+/// Withdraws collateral, swaps it to the debt token, and repays the debt position.
 pub fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
@@ -74,7 +76,7 @@ pub fn process_repay_debt_with_collateral(
     validation::require_hub_active(env, debt.hub_id);
 
     let mut account = storage::get_account(env, account_id);
-    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    account::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let mut cache = Cache::new(env);
 
@@ -118,6 +120,7 @@ pub fn process_repay_debt_with_collateral(
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
+/// Loads the collateral and debt positions, trapping if either is absent.
 fn load_repay_with_collateral_positions(
     env: &Env,
     account: &Account,
@@ -136,6 +139,7 @@ fn load_repay_with_collateral_positions(
     ((&collateral_pos).into(), (&debt_pos).into())
 }
 
+/// Returns the collateral unchanged for a same-asset repay, otherwise swaps it to the debt token.
 fn swap_or_net_collateral_to_debt(
     env: &Env,
     caller: &Address,
@@ -161,6 +165,7 @@ fn swap_or_net_collateral_to_debt(
     )
 }
 
+/// Withdraws all remaining collateral when closing, requiring no debt remains.
 fn close_remaining_collateral_if_requested(
     env: &Env,
     account: &mut Account,

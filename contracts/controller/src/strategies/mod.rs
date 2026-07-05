@@ -23,7 +23,7 @@ use crate::context::Cache;
 use crate::oracle;
 use crate::payments as utils;
 use crate::positions::{finalize_position_flow, PositionSides};
-use crate::risk::validation;
+use crate::risk::{position_assets, validation};
 
 /// Bulk-prefetch RedStone feeds for an account's positions plus strategy legs.
 pub(crate) fn prefetch_strategy_oracles(
@@ -32,11 +32,8 @@ pub(crate) fn prefetch_strategy_oracles(
     extra_assets: &Vec<Address>,
 ) {
     let env = cache.env().clone();
-    let mut priced_assets = crate::risk::position_assets(&env, &account.supply_positions.keys());
-    priced_assets.append(&crate::risk::position_assets(
-        &env,
-        &account.borrow_positions.keys(),
-    ));
+    let mut priced_assets = position_assets(&env, &account.supply_positions.keys());
+    priced_assets.append(&position_assets(&env, &account.borrow_positions.keys()));
     for asset in extra_assets.iter() {
         utils::push_unique_address(&mut priced_assets, asset.clone());
     }

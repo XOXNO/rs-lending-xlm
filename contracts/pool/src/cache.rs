@@ -1,3 +1,8 @@
+//! In-memory market cache: loads params and interest state for one hub-asset,
+//! runs scaled-share/reserve accounting and rounding conversions, and persists
+//! the result. Rounding direction (half-up, floor, ceil) is chosen per flow to
+//! keep protocol solvency conservative.
+
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::rates::scaled_to_original;
@@ -11,22 +16,27 @@ use soroban_sdk::{assert_with_error, panic_with_error, Env};
 use crate::utils;
 
 pub struct Cache {
+    /// Contract environment handle.
     pub env: Env,
-    // dimensional: Ray<Share(asset, supply)> total scaled supply.
+    /// Total scaled supply shares — `Ray<Share(asset, supply)>`.
     pub supplied: Ray,
-    // dimensional: Ray<Share(asset, debt)> total scaled debt.
+    /// Total scaled debt shares — `Ray<Share(asset, debt)>`.
     pub borrowed: Ray,
-    // dimensional: Ray<Share(asset, supply)> claimable protocol revenue.
+    /// Claimable protocol revenue, held as supply shares — `Ray<Share(asset, supply)>`.
     pub revenue: Ray,
-    // dimensional: Ray<Index(asset, debt)> and Ray<Index(asset, supply)>.
+    /// Debt interest index — `Ray<Index(asset, debt)>`.
     pub borrow_index: Ray,
+    /// Supply interest index — `Ray<Index(asset, supply)>`.
     pub supply_index: Ray,
+    /// Last accrual checkpoint, in milliseconds.
     pub last_timestamp: u64,
+    /// Current ledger time, in milliseconds.
     pub current_timestamp: u64,
+    /// Market interest-rate and risk parameters.
     pub params: MarketParams,
     /// Market key for cache loads and saves.
     pub hub_asset: HubAssetKey,
-    // dimensional: Token(asset) tracked reserves; never Ray.
+    /// Tracked reserves in asset-native units (`Token(asset)`, never Ray).
     pub cash: i128,
 }
 
@@ -143,13 +153,11 @@ impl Cache {
 
     /// Converts an asset amount into scaled supply shares at the current index.
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {
-        // dimensional: Token(asset) / Ray<Index(asset, supply)> -> Ray<Share(asset, supply)>.
         Ray::from_asset(amount, self.params.asset_decimals).div(&self.env, self.supply_index)
     }
 
     /// Converts an asset amount into scaled debt shares at the current index.
     pub fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
-        // dimensional: Token(asset) / Ray<Index(asset, debt)> -> Ray<Share(asset, debt)>.
         Ray::from_asset(amount, self.params.asset_decimals).div(&self.env, self.borrow_index)
     }
 
@@ -185,8 +193,16 @@ impl Cache {
     }
 
     /// Resolves withdrawal into burned supply shares and gross amount.
+    ///
+    /// # Notes
+    /// Full-close quantization is a cross-contract contract: the position closes
+    /// (all `pos_scaled` shares burned, floor-valued gross paid out) whenever the
+    /// request meets or exceeds the half-up-rounded actual balance, or when the
+    /// half-up remainder after a partial burn rounds to zero. The controller's
+    /// dust gate MUST mirror this half-up full-close rule; if it decides "dust
+    /// remains" while the pool full-closes (or vice versa), the position map and
+    /// pool disagree and the withdrawal reverts.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
-        // dimensional: returns Ray<Share(asset, supply)> burned and Token(asset) gross.
         let current_supply_actual = self.unscale_supply(pos_scaled);
         let current_supply_floor = self.unscale_supply_floor(pos_scaled);
         if amount >= current_supply_actual {
@@ -203,7 +219,6 @@ impl Cache {
 
     /// Burns claimable revenue up to live reserves and returns the token amount.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
-        // dimensional: revenue is Ray<Share(asset, supply)>; transfer amount is Token(asset).
         let reserves = self.live_reserves();
         let treasury_actual = self.unscale_supply(self.revenue);
         let amount = reserves.min(treasury_actual);
@@ -213,11 +228,10 @@ impl Cache {
         let scaled_to_burn = if amount >= treasury_actual {
             self.revenue
         } else {
-            // dimensional: Token(asset) / Token(asset) -> Ray<1>.
             let ratio = Ray::from_fraction(&self.env, amount, treasury_actual);
             self.revenue.mul(&self.env, ratio)
         };
-        // dimensional: burn same Ray<Share(asset, supply)> from revenue and total supply.
+        // Burn the same shares from both revenue and total supply.
         self.revenue.checked_sub_assign(&self.env, scaled_to_burn);
         self.supplied.checked_sub_assign(&self.env, scaled_to_burn);
         amount
@@ -225,7 +239,6 @@ impl Cache {
 
     /// Resolves debt-share burn and overpayment refund.
     pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
-        // dimensional: returns Ray<Share(asset, debt)> burned and Token(asset) refund.
         let current_debt_ceil = self.unscale_borrow_ceil(pos_scaled);
         if amount >= current_debt_ceil {
             (
@@ -266,11 +279,9 @@ impl Cache {
     pub fn position_mutation(&self, scaled: Ray, actual_amount: i128) -> PoolPositionMutation {
         PoolPositionMutation {
             position: ScaledPositionRaw {
-                // dimensional: Ray<Share(asset, side)> raw.
                 scaled_amount: scaled.raw(),
             },
             market_index: self.market_index(),
-            // dimensional: Token(asset) actual amount.
             actual_amount,
         }
     }
@@ -289,13 +300,10 @@ impl Cache {
     ) -> PoolStrategyMutation {
         PoolStrategyMutation {
             position: ScaledPositionRaw {
-                // dimensional: Ray<Share(asset, debt)> raw.
                 scaled_amount: scaled.raw(),
             },
             market_index: self.market_index(),
-            // dimensional: Token(asset) borrowed amount before fee.
             actual_amount,
-            // dimensional: Token(asset) sent to caller after fee.
             amount_received,
         }
     }

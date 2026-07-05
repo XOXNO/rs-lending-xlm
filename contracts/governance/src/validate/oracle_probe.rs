@@ -19,8 +19,8 @@ use common::types::{
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
-use super::asset::validate_and_fetch_token_decimals;
-use super::oracle_config::{
+use crate::validate::asset::validate_and_fetch_token_decimals;
+use crate::validate::oracle_config::{
     validate_decimals, validate_max_stale, validate_oracle_config_shape, validate_sanity_bounds,
     validate_twap_records,
 };

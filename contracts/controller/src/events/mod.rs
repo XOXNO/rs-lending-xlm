@@ -1,3 +1,7 @@
+//! Controller event schema: position, market, oracle, and config events plus
+//! their shared wire encodings. Vec-encoded delta field order is stable ABI;
+//! off-chain decoders depend on the enum discriminants.
+
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
 
 use common::types::{

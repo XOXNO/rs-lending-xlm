@@ -1,3 +1,7 @@
+//! Controller-level constants: the bad-debt socialization threshold, the
+//! view-input bound, and the default liquidation-curve parameters stamped into
+//! each spoke at creation.
+
 pub use common::constants::*;
 
 /// Collateral value at or below this USD WAD threshold may be socialized.

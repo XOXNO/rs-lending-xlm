@@ -7,11 +7,13 @@ use common::types::{
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::{finalize_position_flow, AggregatedPayments, PositionSides};
-use crate::account::update_or_remove_debt_position;
+use crate::account::{require_owner_or_delegate, update_or_remove_debt_position};
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
+use crate::positions::{
+    finalize_position_flow, validate_position_entry_gates, AggregatedPayments, PositionSides,
+};
 use crate::positions::{make_pool_action, HubPayment};
 use crate::{
     payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
@@ -19,6 +21,27 @@ use crate::{
 
 #[contractimpl]
 impl Controller {
+    /// Borrows one or more assets against `account_id`, sending proceeds to `to`
+    /// (default `caller`). Re-checks account health on pool-returned indexes.
+    ///
+    /// # Arguments
+    /// * `caller` - the account owner or an active delegate; must authorize.
+    /// * `borrows` - `(hub-asset, amount)` legs; amounts must be positive.
+    /// * `to` - proceeds recipient; defaults to `caller`.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` - `caller` is neither the account owner nor an active delegate.
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * Entry gates: `HubNotActive`, `PairNotActive`, `AssetNotInSpoke`,
+    ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `AssetNotBorrowable`, or
+    ///   `PositionLimitExceeded`.
+    /// * `SpokeBorrowCapReached` - the borrow would exceed the spoke borrow cap.
+    /// * Post-pool risk gates: `InsufficientCollateral` (LTV / health factor) or
+    ///   `MinBorrowCollateralNotMet`.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * A position-batch event summarizing the account's updated debt legs.
     #[when_not_paused]
     pub fn borrow(
         env: Env,
@@ -43,14 +66,14 @@ pub fn process_borrow(
     validation::require_not_flash_loaning(env);
 
     let mut account = storage::get_account(env, account_id);
-    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let recipient = to.unwrap_or_else(|| caller.clone());
 
     let mut cache = Cache::new(env);
     let aggregated = utils::aggregate_positive_payments(env, borrows);
 
-    super::validate_position_entry_gates(
+    validate_position_entry_gates(
         env,
         &account,
         &aggregated,
@@ -72,6 +95,7 @@ pub fn process_borrow(
     );
 }
 
+/// Builds the batch's borrow entries, makes one pool call, and merges results.
 fn settle_borrow(
     env: &Env,
     recipient: &Address,
@@ -119,7 +143,6 @@ fn merge_borrow_result(
         .map(|p| Ray::from(p.scaled_amount))
         .unwrap_or(Ray::ZERO);
     let position: DebtPosition = DebtPosition::from(&result.position);
-    // dimensional: scaled delta is Ray<Share(asset, borrow)>.
     // Spoke-cap accounting needs the asset decimals; source them from the active
     // market's oracle config before re-borrowing `cache`.
     let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
@@ -127,7 +150,6 @@ fn merge_borrow_result(
     let delta = position.scaled_amount - old_scaled;
     ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
     cache.put_market_index(hub_asset, &result.market_index);
-    // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, borrow)>.
     cache.record_debt_position_update(
         action,
         hub_asset,
@@ -140,6 +162,11 @@ fn merge_borrow_result(
 
 /// Creates strategy debt on `hub_debt`'s market through the shared borrow gates
 /// and returns the asset amount received by the controller.
+///
+/// # Security Warning
+/// * Performs no `require_auth`: caller authorization is enforced by the strategy
+///   entrypoint that invokes it, and post-borrow solvency is deferred to the
+///   strategy's finalize step. Never call from an un-authorized context.
 pub fn borrow_for_strategy(
     env: &Env,
     account: &mut Account,
@@ -161,6 +188,10 @@ pub fn borrow_for_strategy(
 /// Zero-fee strategy borrow used by Blend migration. The caller supplies the
 /// explicit `hub_debt` coordinate. Other strategy borrows defer solvency to
 /// `strategy_finalize`.
+///
+/// # Security Warning
+/// * Performs no `require_auth`: authorization is enforced by the migration
+///   entrypoint that invokes it.
 pub fn borrow_for_migration(
     env: &Env,
     account: &mut Account,
@@ -195,7 +226,7 @@ fn borrow_strategy_inner(
     let mut payments: AggregatedPayments = Vec::new(env);
     payments.push_back((hub_debt.clone(), amount));
     let aggregated = utils::aggregate_positive_payments(env, &payments);
-    super::validate_position_entry_gates(
+    validate_position_entry_gates(
         env,
         account,
         &aggregated,

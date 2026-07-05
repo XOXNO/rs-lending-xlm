@@ -1,3 +1,7 @@
+//! Cross-domain shared types: the legacy `Payment` alias and the position-kind
+//! ([`AccountPositionType`]) and account-mode ([`PositionMode`]) enums used by
+//! both the pool and controller.
+
 use soroban_sdk::{contracttype, Address};
 
 /// Asset-native amount keyed by token address.

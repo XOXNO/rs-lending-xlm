@@ -1,3 +1,7 @@
+//! Raw i128 fixed-point primitives: `mul_div` and rescale helpers with I256
+//! intermediates, mapping overflow to a stable error. Typed callers wrap these
+//! in [`crate::math::fp`].
+
 use soroban_sdk::{panic_with_error, Env, I256};
 
 // Widens the three operands to I256 for an overflow-safe `mul_div`.

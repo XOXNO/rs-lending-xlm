@@ -1,8 +1,12 @@
+//! Spoke-asset listing setters: add, edit, and remove a hub-asset on a spoke,
+//! with risk-bound, cap-domain, and oracle-override validation.
+
 use common::errors::{CollateralError, GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::types::{HubAssetKey, MarketOracleConfigOption, SpokeAssetArgs, SpokeAssetConfig};
 use soroban_sdk::{assert_with_error, Address, Env};
 
+use crate::config::oracle::validate_market_oracle_config;
 use crate::external::pool::fetch_pool_sync_data;
 use crate::spoke::caps::validate_spoke_caps_against_usage;
 use crate::{
@@ -10,6 +14,7 @@ use crate::{
     storage,
 };
 
+/// Lists a hub-asset on a spoke after validating risk bounds, caps, and any oracle override.
 pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     common::validation::validate_liquidation_fees(env, args.liquidation_fees);
@@ -78,6 +83,7 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     .publish(env);
 }
 
+/// Updates a spoke-asset listing, rejecting caps that fall below current spoke usage.
 pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     common::validation::validate_liquidation_fees(env, args.liquidation_fees);
@@ -162,7 +168,7 @@ fn resolve_spoke_oracle_override(
     match input {
         MarketOracleConfigOption::None => MarketOracleConfigOption::None,
         MarketOracleConfigOption::Some(cfg) => {
-            crate::config::oracle::validate_market_oracle_config(env, asset, cfg);
+            validate_market_oracle_config(env, asset, cfg);
             // Override decimals feed `usd_value_wad` for every position on the
             // spoke; a mismatch against the pool market's decimals mis-scales
             // valuations by powers of ten.
@@ -176,6 +182,7 @@ fn resolve_spoke_oracle_override(
     }
 }
 
+/// Unlists a hub-asset from a spoke, reverting when it is not listed.
 pub fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
     assert_with_error!(
         env,

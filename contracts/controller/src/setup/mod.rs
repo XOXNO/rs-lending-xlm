@@ -25,12 +25,10 @@ pub fn create_liquidity_pool(
     assert_with_error!(env, params.asset_id == *asset, GenericError::WrongToken);
 
     let pool_address = storage::get_pool(env);
-    // dimensional: params carries Ray rates/utilization and a Bps reserve factor.
     pool_create_market_call(env, &pool_address, hub_id, params);
 
     storage::renew_controller_instance(env);
 
-    // dimensional: event fields preserve raw Ray rate/utilization and Bps reserve-factor inputs.
     CreateMarketEvent {
         hub_id,
         base_asset: asset.clone(),

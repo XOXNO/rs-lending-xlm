@@ -14,9 +14,20 @@ const CONTROLLER_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 
 #[contractimpl]
 impl Governance {
-    /// One-time controller deployment; the governance address is the
-    /// controller's constructor admin. Reverts with `PoolAlreadyDeployed`
-    /// when a controller address is stored.
+    /// Deploys the lending controller once and records its address, with the
+    /// governance contract as the controller's constructor admin.
+    ///
+    /// # Errors
+    /// * `InvalidPoolTemplate` - `wasm_hash` is all-zero.
+    /// * `PoolAlreadyDeployed` - a controller address is already stored.
+    ///
+    /// # Events
+    /// * `DeployControllerEvent` - the deployed controller address and wasm hash.
+    ///
+    /// # Security Warning
+    /// * Governance becomes the controller's admin, so it holds every
+    ///   controller admin power. Owner-gated and one-shot; deployment tooling
+    ///   must set the intended owner before calling.
     #[only_owner]
     pub fn deploy_controller(env: Env, wasm_hash: BytesN<32>) -> Address {
         storage::renew_governance_instance(&env);
@@ -44,7 +55,10 @@ impl Governance {
         controller
     }
 
-    /// Returns the deployed controller; panics `PoolNotInitialized` when unset.
+    /// Returns the deployed controller address.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no controller has been deployed yet.
     pub fn controller(env: Env) -> Address {
         storage::get_controller(&env)
     }

@@ -5,7 +5,6 @@ use common::math::fp::Ray;
 use common::types::{Account, DebtPosition, HubAssetKey, PoolAction, PoolPositionMutation};
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
-use super::{finalize_position_flow, AggregatedPayments, PositionSides};
 use crate::account::update_or_remove_debt_position;
 use crate::context::Cache;
 use crate::events;
@@ -14,6 +13,7 @@ use crate::payments::{self as utils, EventContext};
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, make_pool_action, HubPayment,
 };
+use crate::positions::{finalize_position_flow, AggregatedPayments, PositionSides};
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
 /// Per-asset repayment input.
@@ -25,7 +25,21 @@ pub(crate) struct RepaymentRequest<'a> {
 
 #[contractimpl]
 impl Controller {
-    // Repay only reduces debt; no owner auth.
+    /// Repays one or more debt assets. Permissionless: any caller may repay any
+    /// account's debt (it only reduces debt, so no owner auth is required).
+    ///
+    /// # Arguments
+    /// * `caller` - the payer; must authorize the token transfer.
+    /// * `payments` - `(hub-asset, amount)` repayment legs; amounts must be positive.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` - a leg amount is not strictly positive.
+    /// * `SpokeAssetPaused` - the spoke asset is paused (a frozen asset may still be repaid).
+    /// * `DebtPositionNotFound` - the account holds no debt position for an asset.
+    ///
+    /// # Events
+    /// * A position-batch event summarizing the account's reduced debt legs.
     pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>) {
         process_repay(&env, &caller, account_id, &payments);
     }
@@ -54,6 +68,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     );
 }
 
+/// Transfers each repayment in and settles the batch in one pool call.
 fn settle_repay(
     env: &Env,
     caller: &Address,
@@ -122,7 +137,7 @@ pub(crate) fn finish_repayment(
         .unwrap_or(Ray::ZERO);
     let position = DebtPosition::from(&result.position);
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
-    // dimensional: both values are Ray<Share(asset, debt)>; repay subtracts usage.
+    // Repay subtracts the reduced debt shares from spoke usage.
     let delta = old_scaled - position.scaled_amount;
     ctx.apply_repay_after_pool(env, hub_asset, delta);
     update_or_remove_debt_position(account, hub_asset, &position);
@@ -137,8 +152,13 @@ pub(crate) fn finish_repayment(
     );
 }
 
-/// Calls the pool repay path and merges the returned scaled debt share.
-/// Single-asset wrapper over bulk pool repay for strategy flows.
+/// Single-asset wrapper over the bulk pool repay for strategy flows. Enforces the
+/// per-spoke paused flag (frozen still allows repay); liquidation bypasses this
+/// via `settle_repay_actions`.
+///
+/// # Security Warning
+/// * Performs no `require_auth`: the calling strategy entrypoint owns
+///   authorization. Repay only reduces debt.
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,

@@ -1,3 +1,6 @@
+//! Spoke registry: creation stamps liquidation-curve defaults; removal
+//! deprecates the spoke, which gates all subsequent spoke reads.
+
 use common::errors::SpokeError;
 use common::types::SpokeConfig;
 use soroban_sdk::{assert_with_error, Env};
@@ -11,6 +14,7 @@ use crate::{
     storage,
 };
 
+/// Registers a new spoke stamped with the default liquidation curve and returns its id.
 pub fn add_spoke(env: &Env) -> u32 {
     let id = storage::increment_spoke_id(env);
     // Liquidation-curve defaults are stamped at creation so storage and events
@@ -31,6 +35,7 @@ pub fn add_spoke(env: &Env) -> u32 {
     id
 }
 
+/// Deprecates a spoke, gating all subsequent spoke reads.
 pub fn remove_spoke(env: &Env, id: u32) {
     let mut spoke = storage::get_spoke(env, id);
     assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);

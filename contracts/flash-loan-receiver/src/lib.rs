@@ -69,10 +69,25 @@ pub struct FlashLoanTestReceiver;
 
 #[contractimpl]
 impl FlashLoanTestReceiver {
-    /// Callback invoked by the pool mid-`flash_loan`; dispatches on
-    /// `FlashLoanMode` to exercise the repayment and reentrancy paths the
-    /// pool must guard against. Repayment is by `approve`, not `transfer`:
-    /// the pool pulls the owed amount after this callback returns.
+    /// Callback invoked by the pool mid-`flash_loan`; dispatches on the decoded
+    /// `FlashLoanMode` to exercise the repayment and reentrancy paths the pool
+    /// must guard against. Repayment is by `approve`, not `transfer`: the pool
+    /// pulls the owed amount after this callback returns.
+    ///
+    /// # Arguments
+    /// * `data` - XDR-encoded `FlashLoanRequest` selecting the `FlashLoanMode`.
+    ///
+    /// # Errors
+    /// * `InvalidData` - `data` does not decode to a `FlashLoanRequest`.
+    /// * `InvalidShortfall` - the under-repay mode computed a non-positive owed total.
+    /// * `CallbackPanic` - the `Panic` mode traps deliberately.
+    /// * `MathOverflow` - the `amount + fee` total or the approval expiration ledger overflows.
+    ///
+    /// # Security Warning
+    /// * This test receiver performs NO caller/pool authorization gate: any
+    ///   address can invoke it. A PRODUCTION receiver MUST assert the caller is
+    ///   the trusted pool (or controller) before acting; repayment itself is
+    ///   enforced pull-side by the pool via the token allowance.
     pub fn execute_flash_loan(
         env: Env,
         _initiator: Address,

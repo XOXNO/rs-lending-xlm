@@ -7,14 +7,19 @@ use crate::constants::{BPS, MAX_REASONABLE_PRICE_WAD, RAY_DECIMALS};
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Executable};
 
-/// Rejects a non-positive amount (`amount <= 0`) with `AmountMustBePositive`.
+/// Requires a strictly positive amount.
+///
+/// # Errors
+/// * [`GenericError::AmountMustBePositive`] - `amount <= 0`.
 pub fn require_positive_amount(env: &Env, amount: i128) {
     assert_with_error!(env, amount > 0, GenericError::AmountMustBePositive);
 }
 
-/// Rejects a negative amount (`amount < 0`) with `AmountMustBePositive`. Zero is
-/// accepted for flows where it carries a sentinel meaning (withdraw-all, zero
-/// fee, zero rewards).
+/// Requires a non-negative amount. Zero is accepted for flows where it carries a
+/// sentinel meaning (withdraw-all, zero fee, zero rewards).
+///
+/// # Errors
+/// * [`GenericError::AmountMustBePositive`] - `amount < 0`.
 pub fn require_nonneg_amount(env: &Env, amount: i128) {
     assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
 }
@@ -25,8 +30,13 @@ pub fn cap_is_enabled(cap: i128) -> bool {
     cap > 0 && cap != i128::MAX
 }
 
-/// Rejects caps that overflow asset-to-RAY scaling.
-/// Disabled sentinels (`0` and `i128::MAX`) pass.
+/// Requires a cap that fits asset-to-RAY scaling. Disabled sentinels (`0` and
+/// `i128::MAX`) pass without a bound check.
+///
+/// # Errors
+/// * [`CollateralError::AssetDecimalsTooHigh`] - `asset_decimals > RAY_DECIMALS`.
+/// * [`CollateralError::InvalidBorrowParams`] - `cap` exceeds the asset-to-RAY
+///   scaling ceiling.
 pub fn require_cap_within_asset_domain(env: &Env, cap: i128, asset_decimals: u32) {
     if cap == i128::MAX {
         return;
@@ -45,7 +55,11 @@ pub fn require_cap_within_asset_domain(env: &Env, cap: i128, asset_decimals: u32
     );
 }
 
-/// Rejects a flash-loan receiver that is not a deployed Wasm contract.
+/// Requires the flash-loan receiver to be a deployed Wasm contract.
+///
+/// # Errors
+/// * [`FlashLoanError::InvalidFlashloanReceiver`] - `receiver` is not a deployed
+///   Wasm contract.
 pub fn require_wasm_receiver(env: &Env, receiver: &Address) {
     assert_with_error!(
         env,
@@ -54,10 +68,13 @@ pub fn require_wasm_receiver(env: &Env, receiver: &Address) {
     );
 }
 
-/// Rejects a protocol liquidation fee above 100% (`BPS`).
+/// Requires the protocol liquidation fee to be at most 100% (`BPS`).
 ///
 /// The fee is applied to the seized-collateral bonus at liquidation time; an
 /// oversized value would make liquidation planning revert for the asset.
+///
+/// # Errors
+/// * [`CollateralError::InvalidLiqThreshold`] - `fees_bps` exceeds `BPS` (100%).
 pub fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
     assert_with_error!(
         env,
@@ -66,11 +83,13 @@ pub fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
     );
 }
 
-/// Validates loan-to-value, liquidation-threshold, and liquidation-bonus in bps.
+/// Validates loan-to-value, liquidation-threshold, and liquidation-bonus (bps);
+/// governance and controller setters enforce the same bounds. Keeps the threshold
+/// above the LTV and seizure within collateral backing.
 ///
-/// Governance and controller setters enforce the same bounds:
-///   - `liquidation_threshold` > `loan_to_value` and <= 100% (`BPS`).
-///   - `threshold * (1 + bonus) <= 100%`; seizure stays within collateral backing.
+/// # Errors
+/// * [`CollateralError::InvalidLiqThreshold`] - `threshold <= ltv`,
+///   `threshold > BPS`, or `threshold * (BPS + bonus) > BPS * BPS`.
 pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     let ltv = i128::from(ltv);
     let threshold = i128::from(threshold);
@@ -88,7 +107,10 @@ pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
 }
 
 /// Validates market final-price bounds (USD WAD).
-/// Requires `0 < min < max <= MAX_REASONABLE_PRICE_WAD`.
+///
+/// # Errors
+/// * [`OracleError::InvalidSanityBounds`] - the bounds violate
+///   `0 < min_wad < max_wad <= MAX_REASONABLE_PRICE_WAD`.
 pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     assert_with_error!(
         env,

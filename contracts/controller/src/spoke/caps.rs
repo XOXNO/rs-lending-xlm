@@ -23,6 +23,7 @@ pub(crate) struct SpokeUsageContext {
 }
 
 impl SpokeUsageContext {
+    /// Creates an empty usage buffer for `spoke_id`.
     pub fn new(env: &Env, spoke_id: u32) -> Self {
         Self {
             spoke_id,
@@ -32,16 +33,19 @@ impl SpokeUsageContext {
         }
     }
 
+    /// Writes each buffered usage row back to storage.
     pub fn persist(&self, env: &Env) {
         for (hub_asset, usage) in self.usage.iter() {
             storage::set_spoke_usage(env, self.spoke_id, &hub_asset, &usage);
         }
     }
 
+    /// Returns the spoke id this buffer belongs to.
     pub(crate) fn spoke_id(&self) -> u32 {
         self.spoke_id
     }
 
+    /// Returns the spoke config, loading it from storage on first access.
     pub(crate) fn spoke(&mut self, env: &Env) -> SpokeConfig {
         if let Some(spoke) = &self.spoke {
             return spoke.clone();
@@ -51,6 +55,7 @@ impl SpokeUsageContext {
         spoke
     }
 
+    /// Returns the per-asset spoke config for `hub_asset`; unlisted assets are never memoized.
     pub(crate) fn spoke_asset(
         &mut self,
         env: &Env,
@@ -89,10 +94,12 @@ impl SpokeUsageContext {
         Some(loaded)
     }
 
+    /// Stores the updated usage row in the buffer.
     fn set_usage(&mut self, hub_asset: &HubAssetKey, usage: SpokeUsageRaw) {
         self.usage.set(hub_asset.clone(), usage);
     }
 
+    /// Enforces the spoke supply cap and adds the scaled supply delta to buffered usage.
     pub fn apply_supply_after_pool(
         &mut self,
         env: &Env,
@@ -121,6 +128,7 @@ impl SpokeUsageContext {
         self.set_usage(hub_asset, usage);
     }
 
+    /// Enforces the spoke borrow cap and adds the scaled borrow delta to buffered usage.
     pub fn apply_borrow_after_pool(
         &mut self,
         env: &Env,
@@ -149,6 +157,7 @@ impl SpokeUsageContext {
         self.set_usage(hub_asset, usage);
     }
 
+    /// Subtracts the scaled supply delta from buffered usage when a row already exists.
     pub fn apply_withdraw_after_pool(
         &mut self,
         env: &Env,
@@ -168,6 +177,7 @@ impl SpokeUsageContext {
         self.set_usage(hub_asset, usage);
     }
 
+    /// Subtracts the scaled borrow delta from buffered usage when a row already exists.
     pub fn apply_repay_after_pool(
         &mut self,
         env: &Env,
@@ -188,6 +198,7 @@ impl SpokeUsageContext {
     }
 }
 
+/// Returns the maximum scaled share amount a token-space cap allows at `index`.
 fn max_scaled_for_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
     if !cap_is_enabled(cap) {
         return Ray::from(i128::MAX);
@@ -196,6 +207,7 @@ fn max_scaled_for_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
     Ray::from_asset(cap, decimals).div_floor(env, index)
 }
 
+/// Reverts `SpokeSupplyCapReached` when the new scaled supply would exceed the cap.
 fn enforce_spoke_supply_cap(
     env: &Env,
     usage: &SpokeUsageRaw,
@@ -216,6 +228,7 @@ fn enforce_spoke_supply_cap(
     );
 }
 
+/// Reverts `SpokeBorrowCapReached` when the new scaled borrow would exceed the cap.
 fn enforce_spoke_borrow_cap(
     env: &Env,
     usage: &SpokeUsageRaw,
@@ -236,6 +249,7 @@ fn enforce_spoke_borrow_cap(
     );
 }
 
+/// Reverts `SpokeCapBelowUsage` when either cap sits below current scaled usage.
 pub fn validate_spoke_caps_against_usage(
     env: &Env,
     usage: &SpokeUsageRaw,

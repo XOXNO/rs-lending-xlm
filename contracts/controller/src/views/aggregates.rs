@@ -9,6 +9,8 @@ use crate::context::Cache;
 use crate::oracle;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
+/// Returns the account's total supplied collateral value in USD WAD; `0` for a
+/// missing account or one with no supply.
 pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let spoke_id = match storage::try_get_account_meta(env, account_id) {
         Some(meta) => meta.spoke_id,
@@ -42,10 +44,11 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
         total_collateral += value;
     }
 
-    // dimensional: return is Wad<USD> raw (1e18) total collateral value.
     total_collateral.raw()
 }
 
+/// Returns the account's total debt value in USD WAD; `0` for a missing account
+/// or one with no debt.
 pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     let spoke_id = match storage::try_get_account_meta(env, account_id) {
         Some(meta) => meta.spoke_id,
@@ -79,10 +82,11 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
         total_borrow += value;
     }
 
-    // dimensional: return is Wad<USD> raw (1e18) total borrow value.
     total_borrow.raw()
 }
 
+/// Returns the account's LTV-weighted collateral value in USD WAD; `0` for a
+/// missing account.
 pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let account = match storage::try_get_account(env, account_id) {
         Some(account) => account,
@@ -93,7 +97,6 @@ pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     // calculate_ltv_collateral_wad.
     let priced_assets = risk::position_assets(env, &account.supply_positions.keys());
     oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
-    // dimensional: return is Wad<USD> raw (1e18) LTV-weighted collateral value.
     risk::calculate_ltv_collateral_wad(env, &mut cache, account.spoke_id, &account.supply_positions)
         .raw()
 }

@@ -9,8 +9,10 @@ use soroban_sdk::Env;
 use crate::context::Cache;
 use crate::storage;
 
-use super::MarketLimitCtx;
+use crate::views::limits::MarketLimitCtx;
 
+/// Largest suppliable amount of `hub_asset`; `0` while paused, on a
+/// deprecated spoke or paused/frozen listing, or a non-suppliable asset.
 pub fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
@@ -43,7 +45,6 @@ pub fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
         return 0;
     }
     let market = MarketLimitCtx::load(&mut cache, hub_asset);
-    // dimensional: max_supply returns additional Token(asset) in asset-native units.
     spoke_supply_cap_headroom(env, &mut cache, &account, hub_asset, &market)
 }
 
@@ -67,7 +68,6 @@ fn spoke_supply_cap_headroom(
             supplied_scaled_ray: 0,
             borrowed_scaled_ray: 0,
         });
-    // dimensional: spoke supply cap and usage compare as Ray<Share(asset, supply)>.
     let cap_scaled =
         Ray::from_asset(spoke_cfg.supply_cap, market.decimals).div_floor(env, market.supply_index);
     let used_scaled = Ray::from(usage.supplied_scaled_ray);

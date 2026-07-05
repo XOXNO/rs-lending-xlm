@@ -193,6 +193,17 @@ fn budget_swap_collateral_full() {
         .with_budget_enabled()
         .build();
 
+    // The strategy scaffolding (withdraw + swap + deposit + finalize over two
+    // markets, with a funded router) records a deep auth-invocation tree. The
+    // testutils auth observation XDR-serializes that tree under the host's
+    // cumulative SHADOW budget — a harness-only cost absent on the real network,
+    // where auth is verified by signature rather than recorded and re-serialized
+    // — which sits at `reset_default`'s shadow ceiling and trips it
+    // nondeterministically. Lift limits for setup and measure the real op cost
+    // via reset_unlimited + reset_tracker, matching
+    // `budget_withdraw_5_collateral_double_pass`.
+    t.env.cost_estimate().budget().reset_unlimited();
+
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.fund_router("ETH", 10.0);
@@ -201,7 +212,8 @@ fn budget_swap_collateral_full() {
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 200_000_000_000, 10_0000000);
 
     let mut b = t.env.cost_estimate().budget();
-    b.reset_default();
+    b.reset_unlimited();
+    b.reset_tracker();
     t.swap_collateral(ALICE, "USDC", 20_000.0, "ETH", &steps);
     dump(
         &t.env,

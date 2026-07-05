@@ -1,3 +1,6 @@
+//! Applies a built liquidation plan: debt repayments, collateral seizures, and
+//! the post-liquidation bad-debt check.
+
 use crate::account;
 use common::math::fp::Wad;
 use common::types::{
@@ -5,14 +8,15 @@ use common::types::{
 };
 use soroban_sdk::{Address, Env, Vec};
 
-use super::bad_debt;
-use super::math::is_socializable_bad_debt;
 use crate::context::Cache;
 use crate::events;
 use crate::external::sac::sac_transfer_call;
+use crate::positions::liquidation::bad_debt;
+use crate::positions::liquidation::math::is_socializable_bad_debt;
 use crate::positions::{make_pool_action, repay, withdraw};
 use crate::risk::validation;
 
+/// Transfers each repayment from the liquidator and settles them in one pool call.
 pub(super) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
@@ -24,7 +28,6 @@ pub(super) fn apply_liquidation_repayments(
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
-        // dimensional: entry.amount is Token(asset); usd_wad is plan bookkeeping.
         // Debt lookup uses the full hub coordinate.
         sac_transfer_call(
             env,
@@ -51,6 +54,7 @@ pub(super) fn apply_liquidation_repayments(
     );
 }
 
+/// Builds every seizure entry and settles them in one bulk pool withdraw.
 pub(super) fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
@@ -61,8 +65,7 @@ pub(super) fn apply_liquidation_seizures(
     // Build all seizure entries for one bulk pool call.
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
-        // dimensional: amount and protocol_fee are Token(asset) units. The
-        // supply-position lookup is keyed by the seized position's full hub key.
+        // The supply-position lookup is keyed by the seized position's full hub key.
         let position: AccountPosition = (&validation::expect_invariant(
             env,
             account.supply_positions.get(entry.hub_asset.clone()),
@@ -83,6 +86,7 @@ pub(super) fn apply_liquidation_seizures(
     );
 }
 
+/// Cleans up an emptied account or socializes residual bad debt after liquidation.
 pub(super) fn check_bad_debt_after_liquidation(
     env: &Env,
     cache: &mut Cache,

@@ -5,6 +5,7 @@ use common::types::{Account, AccountPosition, AccountPositionType, HubAssetKey, 
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
+use crate::account;
 use crate::context::Cache;
 use crate::events;
 use crate::strategies::{
@@ -50,6 +51,7 @@ impl Controller {
     }
 }
 
+/// Withdraws collateral, swaps it, and deposits the result as replacement collateral.
 pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollateralParams<'_>) {
     let SwapCollateralParams {
         account_id,
@@ -75,7 +77,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     validation::require_hub_active(env, current.hub_id);
 
     let mut account = storage::get_account(env, account_id);
-    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    account::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let mut cache = Cache::new(env);
 

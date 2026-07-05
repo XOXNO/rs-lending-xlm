@@ -1,3 +1,5 @@
+//! Debt-lifecycle events (bad-debt cleanup).
+
 use soroban_sdk::contractevent;
 
 #[contractevent(topics = ["debt", "bad_debt"])]

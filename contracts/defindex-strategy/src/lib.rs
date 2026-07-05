@@ -57,10 +57,15 @@ pub enum DataKey {
 }
 
 pub trait DeFindexStrategyTrait {
+    /// Returns the configured strategy asset.
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError>;
+    /// Supplies `amount` of the strategy asset into the vault's controller account.
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError>;
+    /// Publishes the market's current supply-index price-per-share.
     fn harvest(env: Env, from: Address, data: Option<Bytes>) -> Result<(), DeFindexStrategyError>;
+    /// Returns the vault's live underlying balance held in the controller.
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError>;
+    /// Withdraws `amount` of the strategy asset from the vault account to `to`.
     fn withdraw(
         env: Env,
         amount: i128,
@@ -151,8 +156,16 @@ impl<'a> Ctx<'a> {
 
 #[contractimpl]
 impl Strategy {
-    /// `init_args = [controller, hub_id, spoke_id]`. Asset is listed for
-    /// `hub_id`; positions use `spoke_id`.
+    /// Deploys the adapter for one controller market, caching the resolved
+    /// `Config` (hub, spoke, asset, controller, pool).
+    ///
+    /// # Arguments
+    /// * `init_args` - `[controller, hub_id, spoke_id]`; the asset must be listed
+    ///   for `hub_id`, and positions are opened on `spoke_id`.
+    ///
+    /// # Errors
+    /// * `NotInitialized` - `init_args` is missing an element or an element has the wrong type.
+    /// * The controller's `get_market_index` reverts when the asset is not listed for `hub_id`.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         let controller_val = init_args
             .get(0)
@@ -192,10 +205,27 @@ impl Strategy {
 
 #[contractimpl]
 impl DeFindexStrategyTrait for Strategy {
+    /// Returns the configured strategy asset.
+    ///
+    /// # Errors
+    /// * `NotInitialized` - the adapter has no cached `Config`.
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError> {
         Ok(config(&env)?.asset)
     }
 
+    /// Pulls `amount` of the strategy asset from `from` and supplies it into the
+    /// vault's controller account (opening one on first deposit); returns the
+    /// post-deposit underlying balance.
+    ///
+    /// # Arguments
+    /// * `amount` - strategy-asset amount to supply; must be positive.
+    /// * `from` - the vault; must authorize.
+    ///
+    /// # Errors
+    /// * `AmountNotPositive` - `amount` is not greater than zero.
+    /// * `NotInitialized` - the adapter has no cached `Config`.
+    /// * The controller `supply` call enforces its own market, spoke, cap, and
+    ///   pause gates; refer to controller errors.
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError> {
         if amount <= 0 {
             return Err(DeFindexStrategyError::AmountNotPositive);
@@ -225,6 +255,18 @@ impl DeFindexStrategyTrait for Strategy {
         Ok(ctx.collateral(new_or_existing_id))
     }
 
+    /// Publishes a `HarvestEvent` carrying the market's current supply-index
+    /// price-per-share (12 decimals); moves no funds and reports zero amount.
+    ///
+    /// # Arguments
+    /// * `from` - the caller; must authorize. `data` is ignored.
+    ///
+    /// # Errors
+    /// * `NotInitialized` - the adapter has no cached `Config`.
+    /// * `ArithmeticError` - the supply-index-to-price-per-share division overflows.
+    ///
+    /// # Events
+    /// * `HarvestEvent` - the current 12-decimal price-per-share.
     fn harvest(env: Env, from: Address, _data: Option<Bytes>) -> Result<(), DeFindexStrategyError> {
         from.require_auth();
         let ctx = Ctx::try_load(&env)?;
@@ -237,11 +279,31 @@ impl DeFindexStrategyTrait for Strategy {
         Ok(())
     }
 
+    /// Returns the vault's live underlying strategy-asset balance held in the
+    /// controller (`0` when no account is open).
+    ///
+    /// # Errors
+    /// * `NotInitialized` - the adapter has no cached `Config`.
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError> {
         // dimensional: strategy balance is live D{AssetDecimals(asset)}{Token(asset)}.
         Ok(Ctx::try_load(&env)?.vault_balance(&from))
     }
 
+    /// Withdraws `amount` of the strategy asset from the vault's controller
+    /// account to `to`, closing the account on a full exit; returns the
+    /// remaining underlying balance.
+    ///
+    /// # Arguments
+    /// * `amount` - strategy-asset amount to withdraw; must be positive and at
+    ///   most the current balance (a full-balance amount closes the position).
+    /// * `from` - the vault; must authorize.
+    /// * `to` - recipient of the withdrawn tokens.
+    ///
+    /// # Errors
+    /// * `AmountNotPositive` - `amount` is not greater than zero.
+    /// * `NotInitialized` - the adapter has no cached `Config`.
+    /// * `InsufficientBalance` - no vault account exists or `amount` exceeds the balance.
+    /// * The controller `withdraw` call enforces its own gates; refer to controller errors.
     fn withdraw(
         env: Env,
         amount: i128,

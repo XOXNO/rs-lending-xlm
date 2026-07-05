@@ -1,3 +1,7 @@
+//! Pool support helpers: TTL renewal, ledger-time conversion, rate-model writes,
+//! post-mutation solvency/utilization guards, liquidation-fee accrual, and the
+//! self-authorized `transfer_from` entry used to pull flash-loan repayments.
+
 use common::constants::{
     MS_PER_SECOND, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };
@@ -14,6 +18,7 @@ pub(crate) use common::validation::{
     require_nonneg_amount, require_positive_amount, require_wasm_receiver,
 };
 
+/// Renews the pool's instance-storage TTL.
 pub(crate) fn renew_pool_instance(env: &Env) {
     env.storage()
         .instance()
@@ -43,6 +48,7 @@ pub(crate) fn renew_market_keys(env: &Env, hub_asset: &HubAssetKey) {
     );
 }
 
+/// Overwrites the market's stored rate-model parameters in place.
 pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestRateModel) {
     let key = PoolKey::Params(hub_asset.clone());
     let mut params: MarketParamsRaw = env
@@ -84,6 +90,7 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     );
 }
 
+/// Rejects a post-mutation state that leaves outstanding debt with zero supply.
 pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
     if cache.supplied == Ray::ZERO && cache.borrowed != Ray::ZERO {
         panic_with_error!(env, CollateralError::PoolInsolvent);
@@ -114,6 +121,8 @@ pub(crate) fn apply_liquidation_fee(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
+/// Pre-authorizes a single self-invoked `transfer_from` on `asset` for the next
+/// sub-call (used to pull flash-loan repayments).
 pub(crate) fn authorize_token_transfer_from(
     env: &Env,
     asset: &Address,

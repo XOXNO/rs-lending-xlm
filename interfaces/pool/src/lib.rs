@@ -1,6 +1,12 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
+//! Client-only ABI mirror of the liquidity-pool contract.
+//!
+//! `#[contractclient]` generates `LiquidityPoolClient` for typed cross-contract
+//! calls. Mirrors the deployed pool's entrypoints 1:1; the pool matches these by
+//! ABI name rather than formally implementing this trait.
+
 use common::types::{
     HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
     PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolSeizeEntry,
@@ -36,7 +42,9 @@ pub trait LiquidityPoolInterface {
     /// Repays each action (tokens pre-transferred by the controller),
     /// refunding overpayments to `payer`; input-ordered.
     fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation>;
+    /// Accrues interest to the current ledger for one hub-asset market.
     fn update_indexes(env: Env, hub_asset: HubAssetKey);
+    /// Adds `amount` of external supply rewards to a hub-asset market.
     fn add_rewards(env: Env, hub_asset: HubAssetKey, amount: i128);
     /// Executes a flash loan that must return `amount + fee`.
     fn flash_loan(
@@ -63,17 +71,26 @@ pub trait LiquidityPoolInterface {
 
     /// Claims protocol revenue capped by reserves and claimable shares.
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation;
+    /// Replaces the interest-rate model for a hub-asset market.
     fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel);
+    /// Upgrades the pool contract to `new_wasm_hash`.
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
+    /// Returns the current utilisation for a hub-asset market.
     fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128;
     /// Available reserves = accounted `cash` (asset decimals), not the live token
     /// balance, so direct donations cannot inflate it.
     fn get_reserves(env: Env, hub_asset: HubAssetKey) -> i128;
+    /// Returns the current deposit (supply) rate for a hub-asset market.
     fn get_deposit_rate(env: Env, hub_asset: HubAssetKey) -> i128;
+    /// Returns the current borrow rate for a hub-asset market.
     fn get_borrow_rate(env: Env, hub_asset: HubAssetKey) -> i128;
+    /// Returns accrued protocol revenue for a hub-asset market.
     fn get_revenue(env: Env, hub_asset: HubAssetKey) -> i128;
+    /// Returns the total supplied underlying for a hub-asset market.
     fn get_supplied_amount(env: Env, hub_asset: HubAssetKey) -> i128;
+    /// Returns the total borrowed underlying for a hub-asset market.
     fn get_borrowed_amount(env: Env, hub_asset: HubAssetKey) -> i128;
+    /// Returns seconds since the market last accrued interest.
     fn get_delta_time(env: Env, hub_asset: HubAssetKey) -> u64;
     /// Raw params and accounting state for one hub-asset market. Used for pool
     /// params (decimals, utilization caps); index reads go through `get_bulk_indexes`.

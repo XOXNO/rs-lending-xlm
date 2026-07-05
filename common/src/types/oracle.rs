@@ -1,3 +1,6 @@
+//! Oracle configuration and price-feed types: SEP-40 asset references, per-source
+//! and per-market oracle config (ABI-raw and typed), and price-feed encodings.
+
 use soroban_sdk::{contracttype, Address, Env, String, Symbol};
 
 #[contracttype]

@@ -1,3 +1,6 @@
+//! Per-asset oracle configuration setters and validation. Oracles are
+//! token-rooted (hub-independent) and must resolve to a USD base.
+
 use common::errors::{GenericError, OracleError};
 use common::types::{
     HubAssetKey, MarketOracleConfig, OraclePriceFluctuation, OracleSourceConfig, ReflectorBase,
@@ -10,6 +13,8 @@ use crate::{
     storage,
 };
 
+/// Configures the token-rooted oracle for an existing market after revalidating
+/// sanity bands and quote-market activity.
 pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: MarketOracleConfig) {
     let asset = &hub_asset.asset;
     // Only an existing `(hub, asset)` market can be activated. The pool owns the
@@ -62,6 +67,7 @@ fn require_quote_markets_active_usd(env: &Env, asset: &Address, config: &MarketO
     }
 }
 
+/// Requires a Reflector source's quoted base to be a distinct, active, one-hop USD asset.
 fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSourceConfig) {
     let OracleSourceConfig::Reflector(reflector) = source else {
         return;
@@ -93,6 +99,7 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
     }
 }
 
+/// Updates the price-fluctuation tolerance on an active asset oracle.
 pub fn set_oracle_tolerance(env: &Env, asset: Address, tolerance: OraclePriceFluctuation) {
     let mut oracle = storage::get_asset_oracle(env, &asset)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PairNotActive));

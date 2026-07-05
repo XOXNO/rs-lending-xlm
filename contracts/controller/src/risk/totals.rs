@@ -47,6 +47,7 @@ pub fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
     threshold.apply_to_wad_floor(env, value)
 }
 
+/// Sums floor-valued, LTV-weighted collateral (USD WAD) across supply positions.
 pub fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut Cache,
@@ -82,6 +83,7 @@ pub(crate) struct AccountRiskTotals {
     pub health_factor: Wad,
 }
 
+/// Computes the account's collateral, debt, and health-factor risk totals.
 pub fn calculate_account_risk_totals(
     env: &Env,
     cache: &mut Cache,
@@ -92,6 +94,7 @@ pub fn calculate_account_risk_totals(
     _calculate_account_risk_totals_impl(env, cache, spoke_id, supply_positions, borrow_positions)
 }
 
+/// Dispatches account risk totals to the shared body in non-Certora builds.
 #[cfg(not(feature = "certora"))]
 fn _calculate_account_risk_totals_impl(
     env: &Env,
@@ -117,6 +120,7 @@ cvlr_soroban_macros::apply_summary!(
     }
 );
 
+/// Prefetches feeds and market indexes, then walks the portfolio to build the risk totals.
 fn calculate_account_risk_totals_body(
     env: &Env,
     cache: &mut Cache,

@@ -5,6 +5,7 @@ use common::types::{Account, DebtPosition, HubAssetKey, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
+use crate::account;
 use crate::context::Cache;
 use crate::events;
 use crate::strategies::{
@@ -47,6 +48,7 @@ impl Controller {
     }
 }
 
+/// Borrows a new debt, swaps it to the existing debt token, and repays the existing debt.
 pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>) {
     let SwapDebtParams {
         account_id,
@@ -72,7 +74,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     validation::require_hub_active(env, existing_debt.hub_id);
 
     let mut account = storage::get_account(env, account_id);
-    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    account::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let mut cache = Cache::new(env);
 
@@ -123,6 +125,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
+/// Loads the existing debt position, trapping if absent.
 fn load_existing_debt_position(
     env: &Env,
     account: &Account,

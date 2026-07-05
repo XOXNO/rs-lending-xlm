@@ -1,3 +1,5 @@
+//! Governance instance storage: controller address and role-revocation guards.
+
 use common::constants::{
     TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };

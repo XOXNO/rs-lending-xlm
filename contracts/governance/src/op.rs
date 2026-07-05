@@ -1,9 +1,16 @@
+//! `AdminOperation` resolution and self-operation application.
+//!
+//! `resolve_op` validates each operation's inputs and lowers it to a
+//! `(target, function, args, delay-tier)` timelock call; `apply_self_op`
+//! executes the governance-self variants inline once their timelock matures.
+
 use common::errors::{CollateralError, GenericError, OracleError};
 use soroban_sdk::{
     assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
 };
 
-use crate::timelock::{validate_delay_update, DelayTier};
+use crate::access;
+use crate::timelock::{apply_update_delay, validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
@@ -36,7 +43,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             )
         }
         AdminOperation::GrantGovRole(args) => {
-            crate::access::require_known_governance_role(env, &args.role);
+            access::require_known_governance_role(env, &args.role);
             (
                 gov_addr,
                 Symbol::new(env, "grant_role"),
@@ -49,7 +56,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             )
         }
         AdminOperation::RevokeGovRole(args) => {
-            crate::access::require_known_governance_role(env, &args.role);
+            access::require_known_governance_role(env, &args.role);
             (
                 gov_addr,
                 Symbol::new(env, "revoke_role"),
@@ -323,19 +330,19 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
 pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
     match op {
         AdminOperation::UpgradeGov(hash) => {
-            crate::access::apply_upgrade(env, hash);
+            access::apply_upgrade(env, hash);
         }
         AdminOperation::UpdateGovDelay(new_delay) => {
-            crate::timelock::apply_update_delay(env, *new_delay);
+            apply_update_delay(env, *new_delay);
         }
         AdminOperation::GrantGovRole(args) => {
-            crate::access::apply_grant_role(env, &args.account, &args.role);
+            access::apply_grant_role(env, &args.account, &args.role);
         }
         AdminOperation::RevokeGovRole(args) => {
-            crate::access::apply_revoke_role(env, &args.account, &args.role);
+            access::apply_revoke_role(env, &args.account, &args.role);
         }
         AdminOperation::TransferGovOwnership(args) => {
-            crate::access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger);
+            access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger);
         }
         // Only self-targeted operations reach `execute_self`.
         _ => panic_with_error!(env, GenericError::InternalError),

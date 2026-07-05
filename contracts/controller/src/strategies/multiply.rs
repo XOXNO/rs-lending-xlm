@@ -61,6 +61,7 @@ impl Controller {
     }
 }
 
+/// Opens a leveraged collateral/debt position via a flash-loan-funded swap and returns the account id.
 pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>) -> u64 {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -140,6 +141,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     account_id
 }
 
+/// Loads or creates the account, verifies the collateral is suppliable, and prefetches strategy oracles.
 fn prepare_multiply_account(
     env: &Env,
     caller: &Address,
@@ -171,6 +173,7 @@ fn prepare_multiply_account(
     (account_id, account, cache)
 }
 
+/// Rejects same-asset legs, non-leverage modes, and non-positive flash-loan amounts.
 fn validate_multiply_request(
     env: &Env,
     collateral: &HubAssetKey,
@@ -195,6 +198,7 @@ fn validate_multiply_request(
     validation::require_positive_amount(env, debt_to_flash_loan);
 }
 
+/// Pulls the optional initial payment and returns its (collateral amount, same-token debt extra) contribution.
 fn collect_initial_multiply_payment(
     env: &Env,
     caller: &Address,
@@ -243,6 +247,7 @@ fn collect_initial_multiply_payment(
     }
 }
 
+/// Publishes the initial-payment event with its USD value when a payment was made.
 fn emit_multiply_initial_payment(
     env: &Env,
     cache: &mut Cache,

@@ -8,6 +8,8 @@ use crate::events::CleanBadDebtEvent;
 use crate::external::pool::pool_seize_positions_call;
 use crate::storage::{self, iter_debt_positions, iter_typed_positions};
 
+/// Seizes all of an account's supply and debt shares, emits the cleanup event,
+/// and removes the account.
 pub(super) fn execute_bad_debt_cleanup(
     env: &Env,
     cache: &mut Cache,
@@ -16,7 +18,6 @@ pub(super) fn execute_bad_debt_cleanup(
     total_debt_usd: i128,
     total_collateral_usd: i128,
 ) {
-    // dimensional: total_debt_usd/total_collateral_usd are Wad<USD>.raw.
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
         ctx.apply_withdraw_after_pool(env, &hub_asset, position.scaled_amount);

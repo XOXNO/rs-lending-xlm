@@ -1,3 +1,7 @@
+//! Protocol-wide numeric constants: fixed-point scales (RAY/WAD/BPS) and their
+//! decimals, time units, price/fee/position caps, oracle tolerance bounds, and
+//! the instance/shared/user TTL bump and threshold tiers.
+
 pub const RAY: i128 = 1_000_000_000_000_000_000_000_000_000;
 
 pub const WAD: i128 = 1_000_000_000_000_000_000;

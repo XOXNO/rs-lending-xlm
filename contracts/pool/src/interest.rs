@@ -1,3 +1,7 @@
+//! Interest accrual and index math for the market cache: compounds borrow/supply
+//! indexes in bounded time chunks, books protocol revenue, and socializes bad
+//! debt by writing down the supply index (floored to avoid share explosion).
+
 use common::constants::SUPPLY_INDEX_FLOOR_RAW;
 use common::math::fp::Ray;
 use common::rates::{
@@ -18,7 +22,6 @@ pub fn global_sync(env: &Env, cache: &mut Cache) {
 
     let mut remaining = total_delta_ms;
     while remaining > 0 {
-        // dimensional: TimeMs chunk bounds Ray<RatePerMs> compounding.
         let chunk = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
         global_sync_step(env, cache, chunk);
         remaining = remaining.saturating_sub(chunk);
@@ -27,13 +30,14 @@ pub fn global_sync(env: &Env, cache: &mut Cache) {
     cache.last_timestamp = cache.current_timestamp;
 }
 
+/// Compounds one bounded time chunk: accrues the borrow and supply indexes and
+/// books protocol revenue.
 fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     // dimensional: Token/Token -> Ray<1>; rate * TimeMs -> Ray<1> interest factor.
     let util = cache.calculate_utilization();
     let borrow_rate = calculate_borrow_rate(env, util, &cache.params);
     let interest_factor = compound_interest(env, borrow_rate, delta_ms);
 
-    // dimensional: debt index scales by dimensionless compound factor.
     let new_borrow_index = update_borrow_index(env, cache.borrow_index, interest_factor);
 
     // dimensional: rewards and fee are Ray<Token(asset)> produced by debt index growth.
@@ -70,7 +74,7 @@ pub fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
     }
     // dimensional: Ray<Token(asset)> / Ray<Index(asset, supply)> -> Ray<Share(asset, supply)>.
     let fee_scaled = fee.div(&cache.env, cache.supply_index);
-    // dimensional: protocol revenue is also included in total scaled supply.
+    // Protocol revenue also counts toward total scaled supply.
     cache.revenue.checked_add_assign(&cache.env, fee_scaled);
     cache.supplied.checked_add_assign(&cache.env, fee_scaled);
 }
@@ -89,7 +93,6 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     } else {
         bad_debt
     };
-    // dimensional: remaining supply value stays Ray<Token(asset)> after bad-debt write-down.
     let remaining = total_supplied_value - capped;
 
     // dimensional: remaining / total_supplied_value is Ray<1>, scaling Ray<Index(asset, supply)>.

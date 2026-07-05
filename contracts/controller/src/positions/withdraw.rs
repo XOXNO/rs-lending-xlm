@@ -6,7 +6,7 @@ use common::types::{
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
-use crate::account::update_or_remove_supply_position;
+use crate::account::{require_owner_or_delegate, update_or_remove_supply_position};
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::pool_withdraw_call;
@@ -37,7 +37,25 @@ pub(crate) struct WithdrawalRequest<'a> {
 
 #[contractimpl]
 impl Controller {
-    /// Tokens go to `to` (else `caller`); returns actual paid per asset.
+    /// Withdraws collateral to `to` (default `caller`); an amount of `0`
+    /// withdraws the full position. Returns the gross amount paid per asset.
+    ///
+    /// # Arguments
+    /// * `caller` - the account owner or an active delegate; must authorize.
+    /// * `withdrawals` - `(hub-asset, amount)` legs; `0` withdraws the full position.
+    /// * `to` - recipient of the withdrawn tokens; defaults to `caller`.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` - `caller` is neither the account owner nor an active delegate.
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `SpokeAssetPaused` - the spoke asset is paused (a frozen asset may still be withdrawn).
+    /// * `CollateralPositionNotFound` - the account holds no supply position for an asset.
+    /// * `InsufficientLiquidity` - the pool cannot cover the withdrawal.
+    /// * Post-pool risk gates (debt-bearing accounts): `InsufficientCollateral` or
+    ///   `MinBorrowCollateralNotMet`.
+    ///
+    /// # Events
+    /// * A position-batch event summarizing the account's updated supply legs.
     pub fn withdraw(
         env: Env,
         caller: Address,
@@ -63,7 +81,7 @@ pub fn process_withdraw(
 
     let mut account = storage::get_account(env, account_id);
 
-    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let recipient = to.unwrap_or_else(|| caller.clone());
 
@@ -86,6 +104,8 @@ pub fn process_withdraw(
     paid
 }
 
+/// Builds withdraw entries (`0` means withdraw-all), settles them, and returns
+/// the gross amount paid per asset.
 fn settle_withdraw(
     env: &Env,
     account: &mut Account,
@@ -166,6 +186,8 @@ pub(crate) fn settle_withdraw_entries(
     results
 }
 
+/// Decides whether an asset's risk params refresh from live config or stay
+/// frozen (deprecated spoke or removed spoke member).
 fn withdraw_refresh_spoke_for_asset(
     cache: &mut Cache,
     account: &Account,
@@ -200,7 +222,6 @@ pub(crate) fn finish_withdrawal(
     let mut result_position = get_supply_position_or_panic(env, account, hub_asset);
     let old_scaled = result_position.scaled_amount;
     result_position.scaled_amount = Ray::from(result.position.scaled_amount);
-    // dimensional: scaled delta is Ray<Share(asset, supply)>.
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
     let delta = old_scaled - result_position.scaled_amount;
     ctx.apply_withdraw_after_pool(env, hub_asset, delta);
@@ -220,7 +241,6 @@ pub(crate) fn finish_withdrawal(
     update_or_remove_supply_position(account, hub_asset, &result_position);
 
     cache.put_market_index(hub_asset, &result.market_index);
-    // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, supply)>.
     cache.record_position_update(
         action,
         hub_asset,
@@ -230,8 +250,13 @@ pub(crate) fn finish_withdrawal(
     );
 }
 
-/// Single-asset wrapper over bulk pool withdraw for strategies and account-close
-/// paths where one asset moves per call.
+/// Single-asset wrapper over the bulk pool withdraw for strategy and
+/// account-close paths. Enforces the per-spoke paused flag (frozen still allows
+/// withdraw); liquidation bypasses this via `settle_withdraw_entries`.
+///
+/// # Security Warning
+/// * Performs no `require_auth` and re-runs no post-pool solvency gate: the
+///   calling strategy entrypoint owns authorization and the final health check.
 pub fn execute_withdrawal(
     env: &Env,
     account: &mut Account,

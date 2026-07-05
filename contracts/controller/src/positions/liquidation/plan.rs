@@ -1,13 +1,17 @@
+//! Builds the liquidation plan: priced repay/seize legs and the bonus, gated on
+//! the target account's health factor being below one.
+
 use crate::risk;
 use common::errors::CollateralError;
 use common::math::fp::Wad;
 use common::types::{Account, LiquidationResult};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
-use super::math::*;
 use crate::context::Cache;
+use crate::positions::liquidation::math::*;
 use crate::positions::HubPayment;
 
+/// Builds the liquidation plan and converts it into the executable result.
 pub(crate) fn execute_liquidation(
     env: &Env,
     account: &Account,
@@ -17,6 +21,8 @@ pub(crate) fn execute_liquidation(
     build_liquidation_plan(env, account, aggregated_debt, cache).into_result()
 }
 
+/// Prices the account's positions, gates on health factor below one, and
+/// returns the full repay/seize plan.
 pub(super) fn build_liquidation_plan(
     env: &Env,
     account: &Account,
@@ -36,7 +42,6 @@ pub(super) fn build_liquidation_plan(
         &account.supply_positions,
         &account.borrow_positions,
     );
-    // dimensional: totals are Wad<USD>; health_factor is Wad<1>.
     assert_with_error!(
         env,
         totals.health_factor < Wad::ONE,

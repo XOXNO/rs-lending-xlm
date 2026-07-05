@@ -1,3 +1,5 @@
+//! Timelock delay bounds and operation-grace constants (ledger units).
+
 /// Mainnet minimum timelock delay in ledgers: 48h at ~5s per ledger.
 /// Constructor parameters may use shorter delays on non-mainnet deployments.
 pub const TIMELOCK_MIN_DELAY_LEDGERS: u32 = 34_560;

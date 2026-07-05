@@ -1,3 +1,5 @@
+//! Flash-loan event.
+
 use soroban_sdk::{contractevent, Address};
 
 #[contractevent(topics = ["position", "flash_loan"])]

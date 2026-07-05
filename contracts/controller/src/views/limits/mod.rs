@@ -24,17 +24,15 @@ struct MarketLimitCtx {
     // dimensional: pool totals are scaled shares; indexes convert to Token(asset).
     supplied: Ray,
     borrowed: Ray,
-    // dimensional: cash is Token(asset) in asset-native decimals.
     cash: i128,
     max_utilization: Ray,
-    // dimensional: supply/borrow indexes are Ray<Index(asset, side)>.
     supply_index: Ray,
-    // dimensional: asset decimals for Token(asset) <-> Ray rescale.
     decimals: u32,
     borrow_index: Ray,
 }
 
 impl MarketLimitCtx {
+    /// Loads pool state and simulated indexes for `hub_asset` into a limit context.
     fn load(cache: &mut Cache, hub_asset: &HubAssetKey) -> Self {
         let index = cache.cached_market_index(hub_asset);
         let sync = cache.cached_pool_sync_data(hub_asset);
@@ -119,6 +117,5 @@ fn account_gates_ok(env: &Env, cache: &mut Cache, account: &Account) -> bool {
         return false;
     }
     let floor = storage::get_min_borrow_collateral_usd_wad(env);
-    // dimensional: floor and ltv_collateral are Wad<USD>.
     floor == 0 || totals.ltv_collateral.raw() >= floor
 }

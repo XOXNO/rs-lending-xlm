@@ -9,11 +9,13 @@ use common::types::{
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::{finalize_position_flow, AggregatedPayments, PositionSides};
 use crate::account::update_or_remove_supply_position;
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::pool_supply_call;
+use crate::positions::{
+    finalize_position_flow, validate_position_entry_gates, AggregatedPayments, PositionSides,
+};
 use crate::positions::{make_pool_action, HubPayment};
 use crate::risk::refresh_supply_risk_params;
 use crate::spoke;
@@ -21,6 +23,26 @@ use crate::{payments as utils, risk::validation, Controller, ControllerArgs, Con
 
 #[contractimpl]
 impl Controller {
+    /// Supplies one or more assets as collateral, opening a new account when
+    /// `account_id == 0`. Returns the account id.
+    ///
+    /// # Arguments
+    /// * `caller` - the account owner (or an active delegate for an existing
+    ///   account); must authorize the call.
+    /// * `account_id` - an existing account, or `0` to open a new one on `spoke_id`.
+    /// * `assets` - `(hub-asset, amount)` deposit legs; amounts must be positive.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` - a leg amount is not strictly positive.
+    /// * Entry gates: `HubNotActive`, `PairNotActive`, `AssetNotInSpoke`,
+    ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `NotCollateral`, or
+    ///   `PositionLimitExceeded`.
+    /// * `SpokeSupplyCapReached` - the deposit would exceed the spoke supply cap.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * A position-batch event summarizing the account's updated supply legs.
     #[when_not_paused]
     pub fn supply(
         env: Env,
@@ -78,7 +100,7 @@ pub fn process_deposit(
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) {
-    super::validate_position_entry_gates(
+    validate_position_entry_gates(
         env,
         account,
         aggregated,
@@ -88,6 +110,7 @@ pub fn process_deposit(
     settle_deposit(env, caller, account, aggregated, cache);
 }
 
+/// Transfers deposits into the pool and applies the batch's pool results.
 fn settle_deposit(
     env: &Env,
     caller: &Address,
@@ -102,6 +125,7 @@ fn settle_deposit(
     apply_supply_results(env, account, &entries, &results, cache);
 }
 
+/// Transfers each deposit to the pool and returns the pool supply entries.
 fn build_supply_entries(
     env: &Env,
     caller: &Address,
@@ -129,6 +153,7 @@ fn build_supply_entries(
     entries
 }
 
+/// Merges pool supply results back into positions, spoke usage, and events.
 fn apply_supply_results(
     env: &Env,
     account: &mut Account,

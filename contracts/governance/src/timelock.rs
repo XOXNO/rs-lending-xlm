@@ -14,6 +14,7 @@ use stellar_governance::timelock::{
 use stellar_macros::only_owner;
 
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, PROPOSER_ROLE};
+use crate::op::{apply_self_op, resolve_op};
 use crate::storage::renew_governance_instance;
 use crate::{constants, storage, validate, Governance, GovernanceArgs, GovernanceClient};
 
@@ -109,6 +110,31 @@ fn resolve_market_oracle(
 
 #[contractimpl]
 impl Governance {
+    /// Validates and schedules an `AdminOperation` on the timelock, returning
+    /// its operation id. Contract upgrades and ownership transfers schedule at
+    /// the elevated Sensitive delay; all other operations use the min delay.
+    ///
+    /// # Arguments
+    /// * `proposer` - must hold the `PROPOSER` role and authorize.
+    /// * `op` - the operation; its inputs are validated per variant before
+    ///   scheduling.
+    /// * `salt` - disambiguates otherwise-identical operations.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - a controller-targeted operation is proposed
+    ///   before the controller is deployed.
+    /// * Per-operation input validation (via `op::resolve_op`), e.g.
+    ///   `InvalidPoolTemplate` (zero wasm hash), `InvalidTimelockDelay` (delay
+    ///   update), `InvalidRole` (unknown governance role), `InvalidAggregator`
+    ///   / `NotSmartContract` (address is not a deployed contract),
+    ///   `InvalidPositionLimits`, `InvalidBorrowParams`, `WrongToken` /
+    ///   `InvalidAsset` (market creation), `BadLastTolerance` /
+    ///   `InvalidExchangeSrc` and live oracle-probe reverts (oracle config).
+    /// * The `PROPOSER` role check and duplicate-schedule rejection are
+    ///   enforced by the access-control and OZ timelock libraries.
+    ///
+    /// # Events
+    /// * A timelock schedule event emitted by the OZ governance library.
     pub fn propose(
         env: Env,
         proposer: Address,
@@ -116,7 +142,7 @@ impl Governance {
         salt: BytesN<32>,
     ) -> BytesN<32> {
         begin_proposal(&env, &proposer);
-        let (target, function, args, delay_tier) = crate::op::resolve_op(&env, &op);
+        let (target, function, args, delay_tier) = resolve_op(&env, &op);
         let delay = operation_delay(&env, delay_tier);
         let operation = Operation {
             target,
@@ -136,8 +162,28 @@ impl Governance {
         operation_id
     }
 
-    /// Executes a ready controller operation. When `executor` is `Some`, that
-    /// address must hold `EXECUTOR` and authorize; `None` allows open execution.
+    /// Executes a ready timelock operation against `target` (a non-self
+    /// contract, typically the controller) and returns its result.
+    ///
+    /// # Arguments
+    /// * `executor` - `Some(addr)` gates execution on the `EXECUTOR` role and
+    ///   that address's authorization; `None` leaves execution open.
+    ///
+    /// # Errors
+    /// * `InternalError` - `target` is the governance contract itself
+    ///   (self-operations must go through `execute_self`).
+    /// * `TimelockOperationExpired` - the operation is past its grace window.
+    /// * The `EXECUTOR` role check and the not-scheduled / not-ready reverts are
+    ///   enforced by the OZ timelock library.
+    ///
+    /// # Events
+    /// * A timelock execute event (OZ governance library); the invoked target
+    ///   entrypoint emits its own events.
+    ///
+    /// # Security Warning
+    /// * With `executor` = `None` any caller may execute a ready operation; the
+    ///   timelock schedule and readiness gate are the operative control, not
+    ///   the caller identity.
     pub fn execute(
         env: Env,
         executor: Option<Address>,
@@ -165,14 +211,35 @@ impl Governance {
         execute_operation(&env, &operation)
     }
 
-    /// Executes a ready governance self-call inline.
+    /// Executes a ready governance-self operation (upgrade, delay update, role
+    /// grant/revoke, or ownership transfer) inline once its timelock matures.
+    ///
+    /// # Arguments
+    /// * `executor` - `Some(addr)` gates on the `EXECUTOR` role and that
+    ///   address's authorization; `None` leaves execution open.
+    /// * `op` - must be a governance-self variant.
+    ///
+    /// # Errors
+    /// * Panics if `op` does not target the governance contract itself.
+    /// * `TimelockOperationExpired` - the operation is past its grace window.
+    /// * Self-application reverts: `InvalidTimelockDelay` (delay update),
+    ///   `InvalidRole` (unknown/no-op role change or executor/canceller
+    ///   overlap), or `OwnerNotSet` (ownership transfer without an owner).
+    ///
+    /// # Events
+    /// * A timelock execute event plus the applied operation's own events
+    ///   (role grant/revoke, ownership transfer, or upgrade).
+    ///
+    /// # Security Warning
+    /// * With `executor` = `None` any caller may execute a ready self-operation;
+    ///   the timelock schedule and readiness gate are the operative control.
     pub fn execute_self(
         env: Env,
         executor: Option<Address>,
         op: crate::op::AdminOperation,
         salt: BytesN<32>,
     ) {
-        let (target, function, args, _) = crate::op::resolve_op(&env, &op);
+        let (target, function, args, _) = resolve_op(&env, &op);
         assert!(target == env.current_contract_address());
         let operation = Operation {
             target,
@@ -182,10 +249,22 @@ impl Governance {
             salt,
         };
         begin_self_execute(&env, executor, &operation);
-        crate::op::apply_self_op(&env, &op);
+        apply_self_op(&env, &op);
     }
 
-    /// Cancels a pending operation. The caller must hold `CANCELLER`.
+    /// Cancels a pending timelock operation.
+    ///
+    /// # Arguments
+    /// * `canceller` - must hold the `CANCELLER` role and authorize.
+    ///
+    /// # Errors
+    /// * `OperationNotCancellable` - the operation revokes `canceller`'s own
+    ///   role (a role holder cannot veto their own removal).
+    /// * The `CANCELLER` role check and the not-pending reject are enforced by
+    ///   the access-control and OZ timelock libraries.
+    ///
+    /// # Events
+    /// * A timelock cancel event emitted by the OZ governance library.
     pub fn cancel(env: Env, canceller: Address, operation_id: BytesN<32>) {
         renew_governance_instance(&env);
         canceller.require_auth();
@@ -203,14 +282,29 @@ impl Governance {
         cancel_operation(&env, &operation_id);
     }
 
-    /// Halts the controller immediately; owner-gated and not timelocked.
+    /// Emergency brake: halts the controller immediately, bypassing the
+    /// timelock. Owner-gated.
+    ///
+    /// # Errors
+    /// * Owner authorization is enforced by `#[only_owner]`; the controller's
+    ///   `pause` may revert per its own rules.
+    ///
+    /// # Events
+    /// * The controller emits its own pause event.
     #[only_owner]
     pub fn pause(env: Env) {
         storage::renew_governance_instance(&env);
         controller_client(&env).pause();
     }
 
-    /// Resumes the controller immediately; owner-gated.
+    /// Resumes the controller immediately, bypassing the timelock. Owner-gated.
+    ///
+    /// # Errors
+    /// * Owner authorization is enforced by `#[only_owner]`; the controller's
+    ///   `unpause` may revert per its own rules.
+    ///
+    /// # Events
+    /// * The controller emits its own unpause event.
     #[only_owner]
     pub fn unpause(env: Env) {
         storage::renew_governance_instance(&env);
@@ -251,7 +345,17 @@ impl Governance {
         hash_operation(&env, &operation)
     }
 
-    /// Resolves scheduled market oracle args using live probes.
+    /// Resolves a market oracle input to the `MarketOracleConfig` the matching
+    /// proposer would schedule, running the same live oracle probes; read-only.
+    ///
+    /// # Errors
+    /// * Tolerance validation: `BadLastTolerance` or `MathOverflow`.
+    /// * Oracle shape/config: `InvalidExchangeSrc`, `SpotOnlyNotProductionSafe`,
+    ///   `InvalidStalenessConfig`, `InvalidSanityBounds`, or
+    ///   `InvalidOracleDecimals`.
+    /// * Live probe: `InvalidAsset`, `InvalidTicker`, `InvalidOracleBase`,
+    ///   `InvalidOracleResolution`, `ReflectorHistoryEmpty`,
+    ///   `TwapInsufficientObservations`, or `PriceFeedStale`.
     pub fn resolve_market_oracle_config(
         env: Env,
         asset: Address,
@@ -260,7 +364,12 @@ impl Governance {
         resolve_market_oracle(&env, &asset, &cfg)
     }
 
-    /// Resolves scheduled tolerance bands.
+    /// Resolves a tolerance-BPS input to the `OraclePriceFluctuation` band the
+    /// matching proposer would schedule; read-only.
+    ///
+    /// # Errors
+    /// * `BadLastTolerance` - `tolerance` is outside the allowed BPS range.
+    /// * `MathOverflow` - band computation overflows.
     pub fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OraclePriceFluctuation {
         validate::tolerance::validate_and_calculate_tolerances(&env, tolerance)
     }
@@ -289,9 +398,9 @@ impl Governance {
                 assert_eq!(caller, owner, "not owner");
             }
         }
-        let (target, function, args, _) = crate::op::resolve_op(&env, &op);
+        let (target, function, args, _) = resolve_op(&env, &op);
         if target == env.current_contract_address() {
-            crate::op::apply_self_op(&env, &op);
+            apply_self_op(&env, &op);
             ().into_val(&env)
         } else {
             env.invoke_contract(&target, &function, args)

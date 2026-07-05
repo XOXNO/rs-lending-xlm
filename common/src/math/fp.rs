@@ -3,9 +3,9 @@
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 use soroban_sdk::{panic_with_error, Env};
 
-use super::fp_core;
 use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
 use crate::errors::GenericError;
+use crate::math::fp_core;
 
 // Adds two raw fixed-point values, mapping overflow to `MathOverflow`.
 fn checked_add_raw(env: &Env, a: i128, b: i128) -> i128 {

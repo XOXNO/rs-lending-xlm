@@ -1,6 +1,13 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
+//! Client-only ABI mirror of the controller contract.
+//!
+//! `#[contractclient]` generates `ControllerClient` for typed cross-contract and
+//! off-chain callers. Mirrors the deployed controller's entrypoints 1:1; the
+//! controller matches these by ABI name rather than formally implementing this
+//! trait. Admin entrypoints are mirrored in the `admin` module.
+
 pub mod admin;
 pub use admin::{ControllerAdmin, ControllerAdminClient};
 use common::types::{

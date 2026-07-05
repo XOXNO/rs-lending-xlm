@@ -1,6 +1,7 @@
 //! Non-position controller entrypoints.
 
 use crate::account;
+use crate::account::delegation;
 use crate::events::UpdateMarketParamsEvent;
 use crate::risk;
 use common::errors::{CollateralError, GenericError, OracleError};
@@ -17,6 +18,7 @@ use crate::external::pool::{
 };
 use crate::external::sac::sac_transfer_call;
 use crate::risk::THRESHOLD_UPDATE_MIN_HF_RAW;
+use crate::setup;
 use crate::spoke;
 use crate::{
     payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
@@ -28,6 +30,12 @@ const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 
 #[contractimpl]
 impl Controller {
+    /// Accrues interest to the current ledger for each listed hub-asset market.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `PoolNotInitialized` - a listed market has not been created.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
     #[when_not_paused]
     pub fn update_indexes(env: Env, caller: Address, assets: Vec<HubAssetKey>) {
         caller.require_auth();
@@ -37,31 +45,50 @@ impl Controller {
         sync_market_indexes(&env, &mut cache, &assets);
     }
 
+    /// Extends the account's storage TTL. Callable by the account owner.
+    ///
+    /// # Errors
+    /// * `AccountNotInMarket` - `caller` is not the account owner.
     pub fn renew_account(env: Env, caller: Address, account_id: u64) {
         storage::renew_controller_instance(&env);
-        crate::account::delegation::renew_account(&env, &caller, account_id);
+        delegation::renew_account(&env, &caller, account_id);
     }
 
-    /// Account-owner-only: opts `delegate` into acting on `account_id`.
-    /// Effective only while `delegate` is also a registered, active position
-    /// manager.
+    /// Registers `delegate` as a manager that may act on `account_id`. Effective
+    /// only while `delegate` is also a registered, active position manager.
+    ///
+    /// # Arguments
+    /// * `caller` - must be the account owner.
+    ///
+    /// # Errors
+    /// * `AccountNotInMarket` - `caller` is not the account owner.
     pub fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
-        crate::account::delegation::set_account_delegate(
-            &env, &caller, account_id, &delegate, true,
-        );
+        delegation::set_account_delegate(&env, &caller, account_id, &delegate, true);
     }
 
-    /// Account-owner-only: revokes `delegate` from `account_id`.
+    /// Revokes `delegate` from `account_id`.
+    ///
+    /// # Arguments
+    /// * `caller` - must be the account owner.
+    ///
+    /// # Errors
+    /// * `AccountNotInMarket` - `caller` is not the account owner.
     pub fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
-        crate::account::delegation::set_account_delegate(
-            &env, &caller, account_id, &delegate, false,
-        );
+        delegation::set_account_delegate(&env, &caller, account_id, &delegate, false);
     }
 
-    /// One-time deployment of the central liquidity pool owned by this
-    /// controller. Panics `PoolAlreadyDeployed` on repeat calls.
+    /// Deploys the central liquidity pool once, owned by this controller. The
+    /// pool address derives from `(controller address, salt)`.
+    ///
+    /// # Errors
+    /// * `PoolAlreadyDeployed` - the pool has already been deployed.
+    /// * `TemplateNotSet` - no pool Wasm template has been configured.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
+    ///   so this executes only after the configured delay.
     #[only_owner]
     pub fn deploy_pool(env: Env) -> Address {
         storage::renew_controller_instance(&env);
@@ -83,6 +110,21 @@ impl Controller {
         pool
     }
 
+    /// Creates a `(hub_id, asset)` market on the deployed pool with the given
+    /// interest-rate and risk params.
+    ///
+    /// # Arguments
+    /// * `asset` - must equal `params.asset_id` and be an approved token.
+    ///
+    /// # Errors
+    /// * `TokenNotApproved` - `asset` has not been approved for market creation.
+    /// * `WrongToken` - `asset` does not match `params.asset_id`.
+    /// * Param validation and market-exists reverts propagate from the pool's
+    ///   `create_market` (rate-model bounds, `AssetAlreadySupported`).
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
+    ///   so this executes only after the configured delay.
     #[only_owner]
     pub fn create_liquidity_pool(
         env: Env,
@@ -90,9 +132,20 @@ impl Controller {
         asset: Address,
         params: MarketParamsRaw,
     ) -> Address {
-        crate::setup::create_liquidity_pool(&env, hub_id, &asset, &params)
+        setup::create_liquidity_pool(&env, hub_id, &asset, &params)
     }
 
+    /// Accrues pool indexes, then replaces the market's interest-rate model.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - the target market has not been created.
+    ///
+    /// # Events
+    /// * `UpdateMarketParamsEvent` - the new rate-model parameters.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
+    ///   so this executes only after the configured delay.
     #[only_owner]
     pub fn upgrade_liquidity_pool_params(
         env: Env,
@@ -102,6 +155,14 @@ impl Controller {
         upgrade_liquidity_pool_params(&env, &hub_asset, &params);
     }
 
+    /// Upgrades the deployed pool contract to `new_wasm_hash`.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - the pool has not been deployed.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
+    ///   so this executes only after the configured delay.
     #[only_owner]
     pub fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_controller_instance(&env);
@@ -109,6 +170,14 @@ impl Controller {
         pool_upgrade_call(&env, &pool_addr, &new_wasm_hash);
     }
 
+    /// Claims protocol revenue for each market and forwards it to the configured
+    /// accumulator. Returns the amount claimed per asset.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `NoAccumulator` - no revenue accumulator has been configured.
+    /// * `PoolNotInitialized` - a listed market has not been created.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
     #[when_not_paused]
     pub fn claim_revenue(env: Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
         caller.require_auth();
@@ -116,6 +185,18 @@ impl Controller {
         claim_revenue(&env, assets)
     }
 
+    /// Transfers external supply rewards into one or more markets, raising each
+    /// market's supply index for its suppliers.
+    ///
+    /// # Arguments
+    /// * `rewards` - `(hub-asset, amount)` legs; amounts must be positive.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` - a leg amount is not strictly positive.
+    /// * `PoolNotInitialized` - a target market has not been created.
+    /// * `NoSuppliersToReward` - a target market has no suppliers to receive the reward.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
     #[when_not_paused]
     pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(HubAssetKey, i128)>) {
         caller.require_auth();
@@ -124,8 +205,19 @@ impl Controller {
         add_rewards_batch(&env, &caller, rewards);
     }
 
-    /// Permissionless risk-param fan-out.
-    /// Any caller may propagate updates because the HF gate prevents risk increases.
+    /// Propagates current spoke risk params onto each account's supply
+    /// positions. Permissionless: a health-factor gate prevents risk increases
+    /// when `has_risks` raises liquidation thresholds.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
+    /// * `AssetNotSupported` - a held asset is not listed on the account's spoke.
+    /// * `HealthFactorTooLow` - a threshold raise would push an account below the
+    ///   minimum safe health factor.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * A position-batch event per updated account.
     #[when_not_paused]
     pub fn update_account_threshold(
         env: Env,
@@ -149,6 +241,7 @@ impl Controller {
     }
 }
 
+/// Accrues pool indexes for each listed hub-asset market.
 // Pool sync results become the canonical market-state batch for indexers.
 fn sync_market_indexes(env: &Env, cache: &mut Cache, hub_assets: &Vec<HubAssetKey>) {
     let pool_addr = cache.cached_pool_address();
@@ -172,10 +265,8 @@ pub fn upgrade_liquidity_pool_params(
     // `update_indexes` reverts `PoolNotInitialized` for an uncreated market.
     pool_update_indexes_call(env, &pool_addr, hub_asset);
 
-    // dimensional: params carries Ray rates/utilization and Bps reserve factor.
     pool_update_params_call(env, &pool_addr, hub_asset, params);
 
-    // dimensional: event fields mirror the raw Ray and Bps governance update.
     UpdateMarketParamsEvent {
         asset: hub_asset.asset.clone(),
         max_borrow_rate: params.max_borrow_rate,
@@ -191,6 +282,7 @@ pub fn upgrade_liquidity_pool_params(
     .publish(env);
 }
 
+/// Claims one market's revenue and forwards it to the accumulator; returns the amount claimed.
 fn claim_revenue_for_asset_with_cache(
     env: &Env,
     hub_asset: &HubAssetKey,
@@ -204,7 +296,6 @@ fn claim_revenue_for_asset_with_cache(
     // `claim_revenue` reverts `PoolNotInitialized` for an uncreated market.
     let result = pool_claim_revenue_call(env, &pool_addr, hub_asset);
     let amount = result.actual_amount;
-    // dimensional: amount is Token(asset) revenue in asset-native units.
 
     if amount > 0 {
         sac_transfer_call(
@@ -241,7 +332,6 @@ pub fn add_reward(
     amount: i128,
     cache: &mut Cache,
 ) {
-    // dimensional: amount is Token(asset) reward in asset-native units.
     validation::require_positive_amount(env, amount);
 
     let pool_addr = cache.cached_pool_address();
@@ -259,14 +349,15 @@ pub fn add_reward(
     pool_add_rewards_call(env, &pool_addr, hub_asset, amount);
 }
 
+/// Transfers and applies each reward leg through a shared cache.
 pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(HubAssetKey, i128)>) {
     let mut cache = Cache::new(env);
     for (hub_asset, amount) in rewards.iter() {
         add_reward(env, caller, &hub_asset, amount, &mut cache);
     }
 }
-// Syncs risk params on each supply position for one account, then runs a
-// single HF gate when `has_risks` propagates liquidation thresholds.
+/// Syncs risk params on each supply position for one account, then runs a
+/// single HF gate when `has_risks` propagates liquidation thresholds.
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
     // No-op when the account is gone (bad-debt cleanup, full exit).
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
@@ -299,7 +390,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
             validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));
         let mut updated_pos = position;
 
-        // dimensional: raw risk params are Bps snapshots; scaled_amount is unchanged.
+        // Only the Bps risk fields are copied; the position's scaled share amount is unchanged.
         let cfg_lt = asset_config.liquidation_threshold.raw() as u32;
         let cfg_ltv = asset_config.loan_to_value.raw() as u32;
         let cfg_bonus = asset_config.liquidation_bonus.raw() as u32;
@@ -337,7 +428,6 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
             &account.borrow_positions,
         )
         .health_factor;
-        // dimensional: hf and THRESHOLD_UPDATE_MIN_HF_RAW are WAD-scaled HealthFactor.
         assert_with_error!(
             env,
             hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW),

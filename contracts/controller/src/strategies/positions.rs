@@ -25,6 +25,7 @@ pub(crate) struct StrategyWithdraw<'a> {
     pub action: events::PositionAction,
 }
 
+/// Builds an event context with the controller as counterparty for the given action.
 fn controller_event_context(env: &Env, action: events::PositionAction) -> EventContext {
     EventContext {
         counterparty: env.current_contract_address(),
@@ -32,6 +33,7 @@ fn controller_event_context(env: &Env, action: events::PositionAction) -> EventC
     }
 }
 
+/// Repays debt from the controller's balance and refunds any excess to the caller.
 pub(crate) fn repay_debt_from_controller(
     env: &Env,
     account: &mut Account,
@@ -75,6 +77,7 @@ pub(crate) fn repay_debt_from_controller(
     );
 }
 
+/// Withdraws collateral to the controller and returns the received balance delta.
 pub(crate) fn withdraw_collateral_to_controller(
     env: &Env,
     account: &mut Account,
@@ -100,6 +103,7 @@ pub(crate) fn withdraw_collateral_to_controller(
     balance_delta(env, &token, balance_before)
 }
 
+/// Withdraws every supply position in full to `destination`.
 pub(crate) fn execute_withdraw_all(
     env: &Env,
     account: &mut Account,
@@ -128,6 +132,7 @@ pub(crate) fn execute_withdraw_all(
     }
 }
 
+/// Transfers any positive balance delta of `asset` back to `refund_to`.
 fn refund_controller_balance_delta(
     env: &Env,
     asset: &Address,
