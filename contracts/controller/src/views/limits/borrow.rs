@@ -9,7 +9,7 @@ use soroban_sdk::Env;
 use crate::context::Cache;
 use crate::{spoke, storage};
 
-use super::{account_gates_ok, MarketLimitCtx};
+use crate::views::limits::{account_gates_ok, MarketLimitCtx};
 
 /// Largest executable borrow amount, or zero when blocked.
 pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {

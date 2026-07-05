@@ -9,11 +9,13 @@ use common::types::{
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::{finalize_position_flow, AggregatedPayments, PositionSides};
 use crate::account::update_or_remove_supply_position;
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::pool_supply_call;
+use crate::positions::{
+    finalize_position_flow, validate_position_entry_gates, AggregatedPayments, PositionSides,
+};
 use crate::positions::{make_pool_action, HubPayment};
 use crate::risk::refresh_supply_risk_params;
 use crate::spoke;
@@ -98,7 +100,7 @@ pub fn process_deposit(
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) {
-    super::validate_position_entry_gates(
+    validate_position_entry_gates(
         env,
         account,
         aggregated,

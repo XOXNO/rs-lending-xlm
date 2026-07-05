@@ -9,7 +9,7 @@ use soroban_sdk::Env;
 use crate::context::Cache;
 use crate::storage;
 
-use super::MarketLimitCtx;
+use crate::views::limits::MarketLimitCtx;
 
 pub fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {

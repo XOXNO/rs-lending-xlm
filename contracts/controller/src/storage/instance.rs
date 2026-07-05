@@ -1,6 +1,7 @@
 //! Non-market controller storage.
 
 use crate::constants;
+use crate::storage::renew_protocol_shared_key;
 use common::errors::GenericError;
 use common::types::{
     ControllerKey, HubConfig, MarketOracleConfig, PositionLimits, PositionManagerConfig,
@@ -173,7 +174,7 @@ pub(crate) fn get_asset_oracle(env: &Env, asset: &Address) -> Option<MarketOracl
     let key = ControllerKey::AssetOracle(asset.clone());
     let config: Option<MarketOracleConfig> = env.storage().persistent().get(&key);
     if config.is_some() {
-        super::renew_protocol_shared_key(env, &key);
+        renew_protocol_shared_key(env, &key);
     }
     config
 }
@@ -181,7 +182,7 @@ pub(crate) fn get_asset_oracle(env: &Env, asset: &Address) -> Option<MarketOracl
 pub(crate) fn set_asset_oracle(env: &Env, asset: &Address, config: &MarketOracleConfig) {
     let key = ControllerKey::AssetOracle(asset.clone());
     env.storage().persistent().set(&key, config);
-    super::renew_protocol_shared_key(env, &key);
+    renew_protocol_shared_key(env, &key);
 }
 
 /// Removes the token-rooted oracle config. Absence is the protocol's
@@ -209,7 +210,7 @@ pub(crate) fn increment_account_nonce(env: &Env) -> u64 {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     let key = ControllerKey::AccountNonce;
     env.storage().persistent().set(&key, &next);
-    super::renew_protocol_shared_key(env, &key);
+    renew_protocol_shared_key(env, &key);
     next
 }
 
@@ -284,7 +285,7 @@ pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
     let hub: Option<HubConfig> = env.storage().persistent().get(&key);
     // Read-renewal policy: active hubs must not archive while markets use them.
     if hub.is_some() {
-        super::renew_protocol_shared_key(env, &key);
+        renew_protocol_shared_key(env, &key);
     }
     hub
 }
@@ -292,7 +293,7 @@ pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
 pub(crate) fn set_hub(env: &Env, hub_id: u32, config: &HubConfig) {
     let key = ControllerKey::Hub(hub_id);
     env.storage().persistent().set(&key, config);
-    super::renew_protocol_shared_key(env, &key);
+    renew_protocol_shared_key(env, &key);
 }
 
 /// Reads a position-manager registry entry. Absence means the address is not a

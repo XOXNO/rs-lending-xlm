@@ -5,7 +5,7 @@ use common::types::{HubAssetKey, MarketIndex, MarketIndexRaw};
 use soroban_sdk::Map;
 use soroban_sdk::Vec;
 
-use super::Cache;
+use crate::context::Cache;
 use crate::external::pool::fetch_pool_bulk_indexes;
 
 impl Cache {

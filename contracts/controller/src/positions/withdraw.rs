@@ -6,7 +6,7 @@ use common::types::{
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
-use crate::account::update_or_remove_supply_position;
+use crate::account::{require_owner_or_delegate, update_or_remove_supply_position};
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::pool_withdraw_call;
@@ -81,7 +81,7 @@ pub fn process_withdraw(
 
     let mut account = storage::get_account(env, account_id);
 
-    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let recipient = to.unwrap_or_else(|| caller.clone());
 

@@ -7,11 +7,13 @@ use common::types::{
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::{finalize_position_flow, AggregatedPayments, PositionSides};
-use crate::account::update_or_remove_debt_position;
+use crate::account::{require_owner_or_delegate, update_or_remove_debt_position};
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
+use crate::positions::{
+    finalize_position_flow, validate_position_entry_gates, AggregatedPayments, PositionSides,
+};
 use crate::positions::{make_pool_action, HubPayment};
 use crate::{
     payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
@@ -64,14 +66,14 @@ pub fn process_borrow(
     validation::require_not_flash_loaning(env);
 
     let mut account = storage::get_account(env, account_id);
-    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let recipient = to.unwrap_or_else(|| caller.clone());
 
     let mut cache = Cache::new(env);
     let aggregated = utils::aggregate_positive_payments(env, borrows);
 
-    super::validate_position_entry_gates(
+    validate_position_entry_gates(
         env,
         &account,
         &aggregated,
@@ -225,7 +227,7 @@ fn borrow_strategy_inner(
     let mut payments: AggregatedPayments = Vec::new(env);
     payments.push_back((hub_debt.clone(), amount));
     let aggregated = utils::aggregate_positive_payments(env, &payments);
-    super::validate_position_entry_gates(
+    validate_position_entry_gates(
         env,
         account,
         &aggregated,

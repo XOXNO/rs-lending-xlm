@@ -7,7 +7,7 @@ use soroban_sdk::{Env, Map};
 use crate::context::Cache;
 use crate::spoke;
 
-use super::calculate_account_risk_totals;
+use crate::risk::calculate_account_risk_totals;
 
 /// Minimum HF (1.05 WAD) required before lowering a position's liquidation threshold.
 pub const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;

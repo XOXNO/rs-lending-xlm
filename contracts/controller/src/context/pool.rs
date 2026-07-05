@@ -3,7 +3,7 @@
 use common::types::{HubAssetKey, PoolSyncData};
 use soroban_sdk::Address;
 
-use super::Cache;
+use crate::context::Cache;
 use crate::external::pool::fetch_pool_sync_data;
 use crate::storage;
 

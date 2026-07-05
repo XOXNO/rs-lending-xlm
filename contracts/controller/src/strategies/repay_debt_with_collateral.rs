@@ -5,6 +5,7 @@ use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey, Strateg
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
+use crate::account;
 use crate::context::Cache;
 use crate::events;
 use crate::strategies::{
@@ -74,7 +75,7 @@ pub fn process_repay_debt_with_collateral(
     validation::require_hub_active(env, debt.hub_id);
 
     let mut account = storage::get_account(env, account_id);
-    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    account::require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let mut cache = Cache::new(env);
 

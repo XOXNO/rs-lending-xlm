@@ -1,6 +1,7 @@
 //! Non-position controller entrypoints.
 
 use crate::account;
+use crate::account::delegation;
 use crate::events::UpdateMarketParamsEvent;
 use crate::risk;
 use common::errors::{CollateralError, GenericError, OracleError};
@@ -17,6 +18,7 @@ use crate::external::pool::{
 };
 use crate::external::sac::sac_transfer_call;
 use crate::risk::THRESHOLD_UPDATE_MIN_HF_RAW;
+use crate::setup;
 use crate::spoke;
 use crate::{
     payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
@@ -49,7 +51,7 @@ impl Controller {
     /// * `AccountNotInMarket` - `caller` is not the account owner.
     pub fn renew_account(env: Env, caller: Address, account_id: u64) {
         storage::renew_controller_instance(&env);
-        crate::account::delegation::renew_account(&env, &caller, account_id);
+        delegation::renew_account(&env, &caller, account_id);
     }
 
     /// Registers `delegate` as a manager that may act on `account_id`. Effective
@@ -62,9 +64,7 @@ impl Controller {
     /// * `AccountNotInMarket` - `caller` is not the account owner.
     pub fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
-        crate::account::delegation::set_account_delegate(
-            &env, &caller, account_id, &delegate, true,
-        );
+        delegation::set_account_delegate(&env, &caller, account_id, &delegate, true);
     }
 
     /// Revokes `delegate` from `account_id`.
@@ -76,9 +76,7 @@ impl Controller {
     /// * `AccountNotInMarket` - `caller` is not the account owner.
     pub fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
-        crate::account::delegation::set_account_delegate(
-            &env, &caller, account_id, &delegate, false,
-        );
+        delegation::set_account_delegate(&env, &caller, account_id, &delegate, false);
     }
 
     /// Deploys the central liquidity pool once, owned by this controller. The
@@ -134,7 +132,7 @@ impl Controller {
         asset: Address,
         params: MarketParamsRaw,
     ) -> Address {
-        crate::setup::create_liquidity_pool(&env, hub_id, &asset, &params)
+        setup::create_liquidity_pool(&env, hub_id, &asset, &params)
     }
 
     /// Accrues pool indexes, then replaces the market's interest-rate model.

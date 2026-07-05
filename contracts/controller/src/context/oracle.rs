@@ -7,8 +7,8 @@ use common::types::{
 };
 use soroban_sdk::{panic_with_error, Address, String};
 
-use super::Cache;
-use crate::oracle::token_price;
+use crate::context::Cache;
+use crate::oracle::{price_with_config, token_price};
 use crate::storage;
 
 impl Cache {
@@ -55,7 +55,7 @@ impl Cache {
         // this override — so it can't form a cycle back to itself. Any chaining it
         // triggers still routes through the guarded `token_price`. If overrides are
         // ever made to participate in nested resolution, guard this call too.
-        let feed = crate::oracle::price_with_config(self, &hub_asset.asset, config);
+        let feed = price_with_config(self, &hub_asset.asset, config);
         self.spoke_prices.set(hub_asset.clone(), feed.clone());
         feed
     }

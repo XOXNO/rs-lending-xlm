@@ -4,8 +4,8 @@ use common::errors::{GenericError, SpokeError};
 use common::types::{HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
-use super::Cache;
-use crate::spoke::SpokeUsageContext;
+use crate::context::Cache;
+use crate::spoke::{ensure_spoke_not_deprecated, SpokeUsageContext};
 
 impl Cache {
     /// Initializes account spoke context once per transaction. Every account
@@ -70,7 +70,7 @@ impl Cache {
 
     pub fn active_spoke(&mut self, env: &Env, spoke_id: u32) -> SpokeConfig {
         let spoke = self.spoke_config(spoke_id);
-        crate::spoke::ensure_spoke_not_deprecated(env, &Some(spoke.clone()));
+        ensure_spoke_not_deprecated(env, &Some(spoke.clone()));
         spoke
     }
 

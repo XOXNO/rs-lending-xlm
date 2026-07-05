@@ -14,6 +14,7 @@ use stellar_governance::timelock::{
 use stellar_macros::only_owner;
 
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, PROPOSER_ROLE};
+use crate::op::{apply_self_op, resolve_op};
 use crate::storage::renew_governance_instance;
 use crate::{constants, storage, validate, Governance, GovernanceArgs, GovernanceClient};
 
@@ -141,7 +142,7 @@ impl Governance {
         salt: BytesN<32>,
     ) -> BytesN<32> {
         begin_proposal(&env, &proposer);
-        let (target, function, args, delay_tier) = crate::op::resolve_op(&env, &op);
+        let (target, function, args, delay_tier) = resolve_op(&env, &op);
         let delay = operation_delay(&env, delay_tier);
         let operation = Operation {
             target,
@@ -238,7 +239,7 @@ impl Governance {
         op: crate::op::AdminOperation,
         salt: BytesN<32>,
     ) {
-        let (target, function, args, _) = crate::op::resolve_op(&env, &op);
+        let (target, function, args, _) = resolve_op(&env, &op);
         assert!(target == env.current_contract_address());
         let operation = Operation {
             target,
@@ -248,7 +249,7 @@ impl Governance {
             salt,
         };
         begin_self_execute(&env, executor, &operation);
-        crate::op::apply_self_op(&env, &op);
+        apply_self_op(&env, &op);
     }
 
     /// Cancels a pending timelock operation.
@@ -397,9 +398,9 @@ impl Governance {
                 assert_eq!(caller, owner, "not owner");
             }
         }
-        let (target, function, args, _) = crate::op::resolve_op(&env, &op);
+        let (target, function, args, _) = resolve_op(&env, &op);
         if target == env.current_contract_address() {
-            crate::op::apply_self_op(&env, &op);
+            apply_self_op(&env, &op);
             ().into_val(&env)
         } else {
             env.invoke_contract(&target, &function, args)

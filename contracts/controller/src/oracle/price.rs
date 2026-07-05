@@ -4,8 +4,8 @@ use common::errors::OracleError;
 use common::types::{MarketOracleConfig, OracleSourceConfig, PriceFeedRaw};
 use soroban_sdk::{assert_with_error, panic_with_error, Address};
 
-use super::compose;
 use crate::context::Cache;
+use crate::oracle::compose;
 
 pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
     if let Some(feed) = cache.prices_cache.get(asset.clone()) {

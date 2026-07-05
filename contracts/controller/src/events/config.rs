@@ -4,7 +4,7 @@ use soroban_sdk::{contractevent, contracttype, Address, BytesN};
 
 use common::types::{SpokeAssetConfig, SpokeConfig};
 
-use super::EventOracleProvider;
+use crate::events::EventOracleProvider;
 
 #[contractevent(topics = ["config", "oracle"])]
 #[derive(Clone, Debug)]

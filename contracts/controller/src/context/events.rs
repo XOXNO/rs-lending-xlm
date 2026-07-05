@@ -3,7 +3,7 @@
 use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey};
 use soroban_sdk::Vec;
 
-use super::Cache;
+use crate::context::Cache;
 use crate::events::{
     EventBorrowDelta, EventDepositDelta, PositionAction, UpdatePositionBatchEvent,
 };

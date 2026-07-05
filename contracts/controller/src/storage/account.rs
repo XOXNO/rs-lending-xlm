@@ -1,6 +1,6 @@
 //! Account storage layout.
 
-use super::renew_user_key;
+use crate::storage::renew_user_key;
 use common::errors::GenericError;
 use common::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,

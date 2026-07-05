@@ -5,7 +5,6 @@ use common::math::fp::Ray;
 use common::types::{Account, DebtPosition, HubAssetKey, PoolAction, PoolPositionMutation};
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
-use super::{finalize_position_flow, AggregatedPayments, PositionSides};
 use crate::account::update_or_remove_debt_position;
 use crate::context::Cache;
 use crate::events;
@@ -14,6 +13,7 @@ use crate::payments::{self as utils, EventContext};
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, make_pool_action, HubPayment,
 };
+use crate::positions::{finalize_position_flow, AggregatedPayments, PositionSides};
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
 /// Per-asset repayment input.

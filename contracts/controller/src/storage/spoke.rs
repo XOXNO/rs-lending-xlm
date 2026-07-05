@@ -1,6 +1,6 @@
 //! Spoke config, per-asset config, and per-asset usage storage.
 
-use super::renew_protocol_shared_key;
+use crate::storage::renew_protocol_shared_key;
 use common::errors::SpokeError;
 use common::types::{ControllerKey, HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
 use soroban_sdk::{panic_with_error, Env};

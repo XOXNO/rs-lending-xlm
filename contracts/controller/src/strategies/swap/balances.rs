@@ -3,7 +3,7 @@
 use common::errors::{GenericError, StrategyError};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
-use super::balance_delta;
+use crate::strategies::swap::balance_delta;
 
 pub(super) struct SwapBalanceSnapshot {
     // D{token_in.decimals}{Token(token_in)} controller balance before router call.

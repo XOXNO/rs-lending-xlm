@@ -7,8 +7,8 @@ use common::math::fp::Wad;
 use common::types::{Account, LiquidationResult};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
-use super::math::*;
 use crate::context::Cache;
+use crate::positions::liquidation::math::*;
 use crate::positions::HubPayment;
 
 pub(crate) fn execute_liquidation(

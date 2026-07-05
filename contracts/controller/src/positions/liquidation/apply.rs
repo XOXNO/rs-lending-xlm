@@ -8,11 +8,11 @@ use common::types::{
 };
 use soroban_sdk::{Address, Env, Vec};
 
-use super::bad_debt;
-use super::math::is_socializable_bad_debt;
 use crate::context::Cache;
 use crate::events;
 use crate::external::sac::sac_transfer_call;
+use crate::positions::liquidation::bad_debt;
+use crate::positions::liquidation::math::is_socializable_bad_debt;
 use crate::positions::{make_pool_action, repay, withdraw};
 use crate::risk::validation;
 

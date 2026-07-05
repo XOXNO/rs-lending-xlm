@@ -7,8 +7,8 @@ use common::errors::{GenericError, OracleError};
 use common::types::OracleSourceConfig;
 use soroban_sdk::panic_with_error;
 
-use super::observation::OracleObservation;
 use crate::context::Cache;
+use crate::oracle::observation::OracleObservation;
 
 /// Reads a required source or reverts with its source error.
 pub(crate) fn read_required_source(

@@ -13,7 +13,7 @@ use soroban_sdk::Env;
 
 use crate::context::Cache;
 
-use super::{account_gates_ok, MarketLimitCtx};
+use crate::views::limits::{account_gates_ok, MarketLimitCtx};
 
 /// Stroop walks before falling back to binary search on the residual range.
 const PARTIAL_SETTLE_STEPS: u32 = 24;

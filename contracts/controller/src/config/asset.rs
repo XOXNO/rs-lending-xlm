@@ -6,6 +6,7 @@ use common::math::fp::Ray;
 use common::types::{HubAssetKey, MarketOracleConfigOption, SpokeAssetArgs, SpokeAssetConfig};
 use soroban_sdk::{assert_with_error, Address, Env};
 
+use crate::config::oracle::validate_market_oracle_config;
 use crate::external::pool::fetch_pool_sync_data;
 use crate::spoke::caps::validate_spoke_caps_against_usage;
 use crate::{
@@ -165,7 +166,7 @@ fn resolve_spoke_oracle_override(
     match input {
         MarketOracleConfigOption::None => MarketOracleConfigOption::None,
         MarketOracleConfigOption::Some(cfg) => {
-            crate::config::oracle::validate_market_oracle_config(env, asset, cfg);
+            validate_market_oracle_config(env, asset, cfg);
             // Override decimals feed `usd_value_wad` for every position on the
             // spoke; a mismatch against the pool market's decimals mis-scales
             // valuations by powers of ten.

@@ -5,10 +5,10 @@ use common::oracle::observation::is_stale;
 use common::types::{MarketOracleConfig, OracleStrategy};
 use soroban_sdk::panic_with_error;
 
-use super::observation::OracleObservation;
-use super::providers;
-use super::tolerance::calculate_final_price;
 use crate::context::Cache;
+use crate::oracle::observation::OracleObservation;
+use crate::oracle::providers;
+use crate::oracle::tolerance::calculate_final_price;
 
 pub struct ResolvedOracleComponents {
     pub primary_price_wad: Option<i128>,

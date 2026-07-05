@@ -18,7 +18,7 @@ pub(crate) fn prefetch_redstone_feeds(_cache: &mut Cache, _assets: &Vec<Address>
 use soroban_sdk::{Map, String};
 
 #[cfg(not(feature = "certora"))]
-use super::providers::redstone::read_price_data_bulk;
+use crate::oracle::providers::redstone::read_price_data_bulk;
 
 #[cfg(not(feature = "certora"))]
 pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) {
