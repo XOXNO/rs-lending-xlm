@@ -1,3 +1,7 @@
+//! Pool support helpers: TTL renewal, ledger-time conversion, rate-model writes,
+//! post-mutation solvency/utilization guards, liquidation-fee accrual, and the
+//! self-authorized `transfer_from` entry used to pull flash-loan repayments.
+
 use common::constants::{
     MS_PER_SECOND, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };

@@ -1,4 +1,10 @@
 #![no_std]
+
+//! Liquidity pool contract. Owns per-market interest accrual, scaled
+//! supply/debt accounting, and reserve (`cash`) tracking. Every mutating
+//! entrypoint is owner-gated: the controller is the sole caller and supplies
+//! all account solvency and risk checks the pool itself does not perform.
+
 mod cache;
 mod events;
 mod interest;
@@ -271,6 +277,14 @@ pub struct LiquidityPool;
 // Soroban constructors cannot be declared in contractclient traits.
 #[contractimpl]
 impl LiquidityPool {
+    /// Sets `admin` as the one-time pool owner at deploy.
+    ///
+    /// # Arguments
+    /// * `admin` - the address granted owner rights; must be the lending controller.
+    ///
+    /// # Security Warning
+    /// * Runs without authorization and can set the owner only once; the
+    ///   deploying factory must pass the trusted controller address.
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
     }
@@ -279,6 +293,22 @@ impl LiquidityPool {
 // This impl is the pool ABI; signatures must match `LiquidityPoolInterface`.
 #[contractimpl]
 impl LiquidityPoolInterface for LiquidityPool {
+    /// Creates the `(hub_id, asset)` market with fresh RAY indexes and zeroed
+    /// accounting.
+    ///
+    /// # Arguments
+    /// * `params` - validated market params; `asset_id` becomes the market asset.
+    ///
+    /// # Errors
+    /// * `AssetAlreadySupported` - a market already exists for this hub-asset.
+    /// * Param validation: `AssetDecimalsTooHigh`, `InvalidBorrowParams`,
+    ///   `BaseRateNegative`, `SlopeNonMonotonic`, `MaxRateBelowBase`,
+    ///   `MaxBorrowRateTooHigh`, `InvalidUtilRange`, `OptUtilTooHigh`, or
+    ///   `InvalidReserveFactor`.
+    /// * `MathOverflow` - ledger timestamp scaling overflows.
+    ///
+    /// # Events
+    /// * A market-params update carrying the new market configuration.
     #[only_owner]
     fn create_market(env: Env, hub_id: u32, params: MarketParamsRaw) {
         renew_pool_instance(&env);
@@ -319,12 +349,45 @@ impl LiquidityPoolInterface for LiquidityPool {
         events::publish_market_params(&env, hub_asset.hub_id, asset, params);
     }
 
+    /// Credits each supply entry as scaled shares and returns the input-ordered
+    /// position mutations. The controller pre-transfers the tokens.
+    ///
+    /// # Arguments
+    /// * `entries` - one supply leg per entry; amounts must be non-negative.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - an entry targets a market with no stored state.
+    /// * `AmountMustBePositive` - an entry amount is negative.
+    /// * `MathOverflow` - scaled-share or cash accounting overflows.
+    ///
+    /// # Events
+    /// * A market-state batch summarizing each mutated market.
     #[only_owner]
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation> {
         // Controller pre-transfers tokens per entry; the first failure reverts all.
         run_batch(&env, entries, supply_one)
     }
 
+    /// Accrues each borrow leg into market debt and transfers the proceeds to
+    /// `receiver`, returning the input-ordered position mutations.
+    ///
+    /// # Arguments
+    /// * `receiver` - proceeds recipient for every leg.
+    /// * `entries` - one borrow leg per entry; amounts must be positive.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - an entry targets a market with no stored state.
+    /// * `AmountMustBePositive` - an entry amount is not strictly positive.
+    /// * `InsufficientLiquidity` - tracked reserves cannot cover the borrow.
+    /// * `UtilizationAboveMax` - the borrow pushes utilization past the market cap.
+    /// * `MathOverflow` - scaled-share or cash accounting overflows.
+    ///
+    /// # Events
+    /// * A market-state batch summarizing each mutated market.
+    ///
+    /// # Security Warning
+    /// * Performs no borrower solvency or collateral check; the owning
+    ///   controller must gate the borrow against account health.
     #[only_owner]
     fn borrow(
         env: Env,
@@ -336,6 +399,31 @@ impl LiquidityPoolInterface for LiquidityPool {
         })
     }
 
+    /// Burns supply shares for each leg and transfers the net amount to
+    /// `receiver`, returning the input-ordered position mutations.
+    ///
+    /// # Arguments
+    /// * `receiver` - recipient of the net withdrawal for every leg.
+    /// * `is_liquidation` - applies to the whole call; enables the protocol fee
+    ///   and skips the max-utilization check for liquidation seizures.
+    /// * `entries` - one withdraw leg per entry; a full-position sentinel amount
+    ///   closes the position, `protocol_fee` must be non-negative.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - an entry targets a market with no stored state.
+    /// * `AmountMustBePositive` - an entry amount or `protocol_fee` is negative.
+    /// * `WithdrawLessThanFee` - the liquidation fee exceeds the gross seized amount.
+    /// * `InsufficientLiquidity` - tracked reserves cannot cover the net transfer.
+    /// * `UtilizationAboveMax` - a non-liquidation withdrawal breaches the utilization cap.
+    /// * `PoolInsolvent` - the projected state leaves debt with zero supply.
+    /// * `MathOverflow` - scaled-share or cash accounting overflows.
+    ///
+    /// # Events
+    /// * A market-state batch summarizing each mutated market.
+    ///
+    /// # Security Warning
+    /// * Performs no borrower solvency check; the owning controller must confirm
+    ///   the account stays healthy after the withdrawal.
     #[only_owner]
     fn withdraw(
         env: Env,
@@ -348,11 +436,35 @@ impl LiquidityPoolInterface for LiquidityPool {
         })
     }
 
+    /// Burns debt shares for each action and refunds any overpayment to `payer`,
+    /// returning the input-ordered position mutations. The controller pre-transfers
+    /// the repayment tokens.
+    ///
+    /// # Arguments
+    /// * `payer` - recipient of any overpayment refund.
+    /// * `actions` - one repay leg per action; amounts must be non-negative.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - an action targets a market with no stored state.
+    /// * `AmountMustBePositive` - an action amount is negative.
+    /// * `MathOverflow` - debt-share or cash accounting overflows.
+    ///
+    /// # Events
+    /// * A market-state batch summarizing each mutated market.
     #[only_owner]
     fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation> {
         run_batch(&env, actions, |env, action| repay_one(env, &payer, action))
     }
 
+    /// Accrues and persists the market's borrow/supply indexes to the current
+    /// ledger time.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `MathOverflow` - interest accrual or timestamp scaling overflows.
+    ///
+    /// # Events
+    /// * A market-state update carrying the accrued indexes.
     #[only_owner]
     fn update_indexes(env: Env, hub_asset: HubAssetKey) {
         let cache = load_synced_cache(&env, &hub_asset);
@@ -360,6 +472,20 @@ impl LiquidityPoolInterface for LiquidityPool {
         events::publish_market_state(&env, cache.market_snapshot());
     }
 
+    /// Distributes `amount` to suppliers by growing the supply index. The
+    /// controller pre-transfers the reward tokens.
+    ///
+    /// # Arguments
+    /// * `amount` - reward tokens to distribute; must be non-negative.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `AmountMustBePositive` - `amount` is negative.
+    /// * `NoSuppliersToReward` - the market has no scaled supply to receive rewards.
+    /// * `MathOverflow` - index or cash accounting overflows.
+    ///
+    /// # Events
+    /// * A market-state update carrying the grown supply index.
     #[only_owner]
     fn add_rewards(env: Env, hub_asset: HubAssetKey, amount: i128) {
         require_nonneg_amount(&env, amount);
@@ -385,6 +511,31 @@ impl LiquidityPoolInterface for LiquidityPool {
         events::publish_market_state(&env, cache.market_snapshot());
     }
 
+    /// Lends `amount` to `receiver`, invokes its `execute_flash_loan` callback,
+    /// and pulls back `amount + fee`; the fee becomes protocol revenue.
+    ///
+    /// # Arguments
+    /// * `initiator` - forwarded to the receiver callback as the loan originator.
+    /// * `receiver` - deployed Wasm contract that receives the loan and repays it.
+    /// * `amount` - loaned amount; must be positive.
+    /// * `fee` - repayment premium; must be non-negative.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `AmountMustBePositive` - `amount` is not positive or `fee` is negative.
+    /// * `InsufficientLiquidity` - tracked reserves cannot fund the loan.
+    /// * `InvalidFlashloanReceiver` - `receiver` is not a deployed Wasm contract.
+    /// * `InvalidFlashloanRepay` - the payout, callback, allowance, or repayment
+    ///   leaves the pool's loaned-token balance off its expected value.
+    /// * `MathOverflow` - loan/fee/balance accounting overflows.
+    ///
+    /// # Events
+    /// * A market-state update carrying the fee added to revenue.
+    ///
+    /// # Security Warning
+    /// * Bridges an external callback: repayment is enforced solely by loaned-token
+    ///   balance and allowance checks that bracket the callback and `transfer_from`,
+    ///   so the asset must be a well-behaved SAC.
     #[only_owner]
     // Flash loan safety: balance and allowance checks bracket callback and transfer_from.
     // State and revenue are saved after callback repayment passes balance checks.
@@ -464,6 +615,29 @@ impl LiquidityPoolInterface for LiquidityPool {
         events::publish_market_state(&env, cache.market_snapshot());
     }
 
+    /// Opens strategy debt for the full `amount`, records `fee` as protocol
+    /// revenue, and transfers `amount - fee` to `receiver`.
+    ///
+    /// # Arguments
+    /// * `receiver` - recipient of the net (post-fee) borrowed amount.
+    /// * `action` - the strategy borrow leg; amount must be non-negative.
+    /// * `fee` - protocol fee withheld from the transfer; must be non-negative
+    ///   and at most `amount`.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for the action's market.
+    /// * `AmountMustBePositive` - `amount` or `fee` is negative.
+    /// * `StrategyFeeExceeds` - `fee` exceeds the borrowed `amount`.
+    /// * `InsufficientLiquidity` - tracked reserves cannot fund the borrow.
+    /// * `UtilizationAboveMax` - the borrow pushes utilization past the market cap.
+    /// * `MathOverflow` - scaled-debt, fee, or cash accounting overflows.
+    ///
+    /// # Events
+    /// * A strategy-fee event (for a non-zero fee) and a market-state update.
+    ///
+    /// # Security Warning
+    /// * Performs no borrower solvency check and enforces no spoke borrow cap; the
+    ///   owning controller must gate the strategy against account health and caps.
     #[only_owner]
     // Strategy borrow records fee as protocol revenue before transfer; net amount
     // is sent. The pool's own utilization check runs against the full pre-fee
@@ -517,6 +691,16 @@ impl LiquidityPoolInterface for LiquidityPool {
         cache.strategy_mutation(scaled, amount, amount_to_send)
     }
 
+    /// Removes seized positions: borrow legs socialize as bad debt into the
+    /// supply index, deposit legs move dust into revenue. Duplicate hub-assets
+    /// in one batch apply sequentially.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - an entry targets a market with no stored state.
+    /// * `MathOverflow` - bad-debt, revenue, or scaled-total accounting overflows.
+    ///
+    /// # Events
+    /// * A market-state batch summarizing each mutated market.
     #[only_owner]
     fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>) {
         renew_pool_instance(&env);
@@ -527,6 +711,18 @@ impl LiquidityPoolInterface for LiquidityPool {
         events::publish_market_state_batch(&env, snapshots);
     }
 
+    /// Burns accrued protocol revenue (capped by live reserves) and transfers the
+    /// asset amount to the pool owner.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `UtilizationAboveMax` - the claim would breach the utilization cap.
+    /// * `PoolInsolvent` - the projected state leaves debt with zero supply.
+    /// * `OwnerNotSet` - the pool has no owner to receive the revenue.
+    /// * `MathOverflow` - revenue-burn or cash accounting overflows.
+    ///
+    /// # Events
+    /// * A market-state update reflecting the burned revenue and reduced cash.
     #[only_owner]
     // Claim burns scaled revenue from revenue and supplied totals, capped by reserves.
     // Solvency is checked before transfer.
@@ -553,6 +749,18 @@ impl LiquidityPoolInterface for LiquidityPool {
         cache.amount_mutation(amount_to_transfer)
     }
 
+    /// Accrues interest at the current model, then replaces the market's
+    /// interest-rate model with a validated `model`.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * Rate-model validation: `BaseRateNegative`, `SlopeNonMonotonic`,
+    ///   `MaxRateBelowBase`, `MaxBorrowRateTooHigh`, `InvalidUtilRange`,
+    ///   `OptUtilTooHigh`, or `InvalidReserveFactor`.
+    /// * `MathOverflow` - interest accrual overflows.
+    ///
+    /// # Events
+    /// * A market-params update carrying the new rate model.
     #[only_owner]
     fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel) {
         let asset = hub_asset.asset.clone();
@@ -566,48 +774,105 @@ impl LiquidityPoolInterface for LiquidityPool {
         events::publish_market_params(&env, hub_asset.hub_id, asset, params);
     }
 
+    /// Replaces the pool contract Wasm with the code at `new_wasm_hash`.
+    ///
+    /// # Arguments
+    /// * `new_wasm_hash` - hash of already-installed Wasm to run on next invocation.
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_pool_instance(&env);
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
+    /// Reads the market's capital-utilization ratio (RAY) from the last
+    /// checkpoint, without accruing interest.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `MathOverflow` - utilization math overflows.
     fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::capital_utilisation(&env, &hub_asset)
     }
 
+    /// Reads available reserves (accounted `cash`, in asset decimals); direct
+    /// token donations are excluded.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
     fn get_reserves(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::reserves(&env, &hub_asset)
     }
 
+    /// Reads the current per-millisecond deposit rate (RAY) without accruing
+    /// interest.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `MathOverflow` - rate math overflows.
     fn get_deposit_rate(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::deposit_rate(&env, &hub_asset)
     }
 
+    /// Reads the current per-millisecond borrow rate (RAY) without accruing
+    /// interest.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `MathOverflow` - rate math overflows.
     fn get_borrow_rate(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::borrow_rate(&env, &hub_asset)
     }
 
+    /// Reads accrued protocol revenue in asset decimals without accruing interest.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `MathOverflow` - unscale math overflows.
     fn get_revenue(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::protocol_revenue(&env, &hub_asset)
     }
 
+    /// Reads total supplied in asset decimals without accruing interest.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `MathOverflow` - unscale math overflows.
     fn get_supplied_amount(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::supplied_amount(&env, &hub_asset)
     }
 
+    /// Reads total borrowed in asset decimals without accruing interest.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `MathOverflow` - unscale math overflows.
     fn get_borrowed_amount(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::borrowed_amount(&env, &hub_asset)
     }
 
+    /// Reads milliseconds elapsed since the market's last accrual checkpoint.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
+    /// * `MathOverflow` - timestamp scaling overflows.
     fn get_delta_time(env: Env, hub_asset: HubAssetKey) -> u64 {
         views::delta_time(&env, &hub_asset)
     }
 
+    /// Reads raw params and accounting state for one market, without accruing.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - no stored state for `hub_asset`.
     fn get_sync_data(env: Env, hub_asset: HubAssetKey) -> PoolSyncData {
         views::load_sync_data(&env, &hub_asset)
     }
 
+    /// Reads borrow/supply indexes accrued to the current ledger time for each
+    /// requested market, index-aligned with `hub_assets`.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - a requested market has no stored state.
+    /// * `MathOverflow` - accrual or timestamp scaling overflows.
     fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw> {
         let now = now_ms(&env);
         let mut indexes: Vec<MarketIndexRaw> = Vec::new(&env);

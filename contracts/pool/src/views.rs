@@ -1,3 +1,7 @@
+//! Read-only market accessors backing the pool view ABI. Each reads persisted
+//! state without renewing TTLs or accruing interest, so values reflect the last
+//! checkpoint; live indexes come from `get_bulk_indexes` instead.
+
 use common::errors::GenericError;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
 use common::types::{HubAssetKey, MarketParamsRaw, PoolKey, PoolStateRaw, PoolSyncData};

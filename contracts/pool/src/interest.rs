@@ -1,3 +1,7 @@
+//! Interest accrual and index math for the market cache: compounds borrow/supply
+//! indexes in bounded time chunks, books protocol revenue, and socializes bad
+//! debt by writing down the supply index (floored to avoid share explosion).
+
 use common::constants::SUPPLY_INDEX_FLOOR_RAW;
 use common::math::fp::Ray;
 use common::rates::{

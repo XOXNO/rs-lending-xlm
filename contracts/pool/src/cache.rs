@@ -1,3 +1,8 @@
+//! In-memory market cache: loads params and interest state for one hub-asset,
+//! runs scaled-share/reserve accounting and rounding conversions, and persists
+//! the result. Rounding direction (half-up, floor, ceil) is chosen per flow to
+//! keep protocol solvency conservative.
+
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::rates::scaled_to_original;
@@ -185,6 +190,15 @@ impl Cache {
     }
 
     /// Resolves withdrawal into burned supply shares and gross amount.
+    ///
+    /// # Notes
+    /// Full-close quantization is a cross-contract contract: the position closes
+    /// (all `pos_scaled` shares burned, floor-valued gross paid out) whenever the
+    /// request meets or exceeds the half-up-rounded actual balance, or when the
+    /// half-up remainder after a partial burn rounds to zero. The controller's
+    /// dust gate MUST mirror this half-up full-close rule; if it decides "dust
+    /// remains" while the pool full-closes (or vice versa), the position map and
+    /// pool disagree and the withdrawal reverts.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         // dimensional: returns Ray<Share(asset, supply)> burned and Token(asset) gross.
         let current_supply_actual = self.unscale_supply(pos_scaled);

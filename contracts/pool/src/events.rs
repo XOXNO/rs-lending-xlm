@@ -1,3 +1,8 @@
+//! Pool event definitions and `publish_*` helpers. Market state and params
+//! updates are emitted as batches (single-element batches for one market) so
+//! indexers consume one topic per flow; empty batches and zero-fee strategy
+//! events are suppressed.
+
 use common::types::{MarketParamsRaw, MarketStateSnapshot};
 use soroban_sdk::{contractevent, contracttype, Address, Env, Vec};
 
