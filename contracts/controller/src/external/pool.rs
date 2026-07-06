@@ -3,8 +3,9 @@
 
 use common::types::{
     HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
-    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolSeizeEntry,
-    PoolStrategyMutation, PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry,
+    PoolAmountMutation, PoolBorrowEntry, PoolNetSettleEntry, PoolNetSettleResult,
+    PoolPositionMutation, PoolSeizeEntry, PoolStrategyMutation, PoolSupplyEntry, PoolSyncData,
+    PoolWithdrawEntry,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 
@@ -72,6 +73,16 @@ pub(crate) fn pool_repay_call(
     actions: &Vec<PoolAction>,
 ) -> Vec<PoolPositionMutation> {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).repay(payer, actions)
+}
+
+/// Calls the pool to net a supply leg against a debt leg on the same
+/// hub-asset with zero token transfer.
+pub(crate) fn pool_net_settle_call(
+    env: &Env,
+    pool_addr: &Address,
+    entry: &PoolNetSettleEntry,
+) -> PoolNetSettleResult {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).net_settle(entry)
 }
 
 /// Calls the pool to seize the given liquidation positions.

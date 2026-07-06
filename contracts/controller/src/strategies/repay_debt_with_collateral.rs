@@ -9,8 +9,9 @@ use crate::account;
 use crate::context::Cache;
 use crate::events;
 use crate::strategies::{
-    execute_withdraw_all, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
-    swap_tokens, withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
+    execute_withdraw_all, net_settle_collateral_against_debt, prefetch_strategy_oracles,
+    repay_debt_from_controller, strategy_finalize, swap_tokens, withdraw_collateral_to_controller,
+    StrategyRepay, StrategyWithdraw,
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
@@ -80,40 +81,57 @@ pub fn process_repay_debt_with_collateral(
 
     let mut cache = Cache::new(env);
 
-    let (collateral_pos, debt_pos) =
-        load_repay_with_collateral_positions(env, &account, collateral, debt);
-
     let extra_assets = soroban_sdk::vec![env, collateral.asset.clone(), debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
-    // D{collateral_token.decimals}{Token(collateral_token)} requested withdrawal to live balance delta.
-    let actual_withdrawn = withdraw_collateral_to_controller(
-        env,
-        &mut account,
-        &mut cache,
-        StrategyWithdraw {
-            hub_asset: collateral,
-            amount: collateral_amount,
-            position: &collateral_pos,
-            action: events::PositionAction::RpColWd,
-        },
-    );
+    if collateral == debt {
+        // Identical hub-asset: net the two legs in the pool with zero token
+        // transfer instead of withdrawing then immediately repaying the same
+        // real amount back in. Strictly more available than the transfer
+        // path below — it never needs idle pool liquidity, only that both
+        // positions exist.
+        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
+        net_settle_collateral_against_debt(
+            env,
+            &mut account,
+            &mut cache,
+            collateral,
+            collateral_amount,
+            events::PositionAction::RpColNet,
+        );
+    } else {
+        let (collateral_pos, debt_pos) =
+            load_repay_with_collateral_positions(env, &account, collateral, debt);
 
-    // D{collateral_token.decimals}{Token(collateral_token)} -> Token(debt_token), unless same asset.
-    let debt_available =
-        swap_or_net_collateral_to_debt(env, caller, collateral, debt, actual_withdrawn, swap);
-    repay_debt_from_controller(
-        env,
-        &mut account,
-        &mut cache,
-        caller,
-        StrategyRepay {
-            debt,
-            debt_available,
-            debt_pos: &debt_pos,
-            action: events::PositionAction::RpColR,
-        },
-    );
+        // D{collateral_token.decimals}{Token(collateral_token)} requested withdrawal to live balance delta.
+        let actual_withdrawn = withdraw_collateral_to_controller(
+            env,
+            &mut account,
+            &mut cache,
+            StrategyWithdraw {
+                hub_asset: collateral,
+                amount: collateral_amount,
+                position: &collateral_pos,
+                action: events::PositionAction::RpColWd,
+            },
+        );
+
+        // D{collateral_token.decimals}{Token(collateral_token)} -> Token(debt_token), unless same asset.
+        let debt_available =
+            swap_or_net_collateral_to_debt(env, caller, collateral, debt, actual_withdrawn, swap);
+        repay_debt_from_controller(
+            env,
+            &mut account,
+            &mut cache,
+            caller,
+            StrategyRepay {
+                debt,
+                debt_available,
+                debt_pos: &debt_pos,
+                action: events::PositionAction::RpColR,
+            },
+        );
+    }
 
     close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
 

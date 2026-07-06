@@ -1,8 +1,24 @@
 use controller::constants::WAD;
+use soroban_sdk::Bytes;
 use test_harness::{
-    apply_flash_fee, build_aggregator_swap, eth_preset, hub_asset, usdc_preset, usdt_stable_preset,
-    wbtc_preset, LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
+    apply_flash_fee, build_aggregator_swap, eth_preset, hub_asset, usd, usdc_preset,
+    usdt_stable_preset, wbtc_preset, LendingTest, MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG,
+    DEFAULT_MARKET_PARAMS, HARNESS_HUB, HARNESS_SPOKE, STABLECOIN_SPOKE,
 };
+
+/// USDC market with no seeded liquidity, so cash is driven purely by the
+/// test's own supplies and borrows — lets a test drain cash to an exact,
+/// predictable tight-market level.
+fn usdc_zero_seed() -> MarketPreset {
+    MarketPreset {
+        name: "USDC",
+        decimals: 7,
+        price_wad: usd(1),
+        initial_liquidity: 0.0,
+        config: DEFAULT_ASSET_CONFIG,
+        params: DEFAULT_MARKET_PARAMS,
+    }
+}
 
 // Multiply happy paths
 //
@@ -397,6 +413,152 @@ fn test_repay_debt_with_collateral_reduces_positions() {
     assert!(
         t.health_factor(ALICE) >= 1.0,
         "HF should stay healthy after repay_debt_with_collateral"
+    );
+}
+
+// Same-hub same-asset repay_debt_with_collateral nets the two legs in the
+// pool with zero token transfer, so it succeeds even when the market has far
+// less idle cash than the settled amount — the withdraw+repay round trip
+// this replaces would have reverted `InsufficientLiquidity` here.
+#[test]
+fn test_repay_debt_with_collateral_same_token_succeeds_at_zero_cash() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_zero_seed())
+        .with_market(eth_preset())
+        .build();
+
+    // Alice: USDC collateral + USDC debt (self-collateralized), plus ETH so
+    // the position is borrowable past 100% USDC-only LTV.
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.supply(ALICE, "ETH", 20.0);
+    t.borrow(ALICE, "USDC", 30_000.0);
+
+    // Bob drains the market's cash toward the 95%-utilization ceiling
+    // (100k supplied, 95k max borrowed), backed by ample ETH collateral of
+    // his own — leaves ~7k cash, below the 10k Alice is about to settle.
+    t.supply(BOB, "ETH", 1_000.0);
+    t.borrow(BOB, "USDC", 63_000.0);
+
+    let cash_before = t.pool_state_on_hub(HARNESS_HUB, "USDC").cash;
+    let ten_thousand_usdc_raw = 100_000_000_000i128;
+    assert!(
+        cash_before < ten_thousand_usdc_raw,
+        "precondition: market must hold less cash than the settle amount, got {cash_before}"
+    );
+
+    let debt_before = t.borrow_balance(ALICE, "USDC");
+    let supply_before = t.supply_balance(ALICE, "USDC");
+
+    let empty_steps = Bytes::new(&t.env);
+    let result =
+        t.try_repay_debt_with_collateral(ALICE, "USDC", 10_000.0, "USDC", &empty_steps, false);
+    assert!(
+        result.is_ok(),
+        "same-hub same-asset repay must not need idle pool cash: {result:?}"
+    );
+
+    let cash_after = t.pool_state_on_hub(HARNESS_HUB, "USDC").cash;
+    assert_eq!(
+        cash_after, cash_before,
+        "net-settle must not move cash at all"
+    );
+
+    let debt_after = t.borrow_balance(ALICE, "USDC");
+    let supply_after = t.supply_balance(ALICE, "USDC");
+    assert!(
+        (debt_before - debt_after - 10_000.0).abs() < 100.0,
+        "USDC debt should drop ~10k, actually dropped {}",
+        debt_before - debt_after
+    );
+    assert!(
+        (supply_before - supply_after - 10_000.0).abs() < 100.0,
+        "USDC supply should drop ~10k, actually dropped {}",
+        supply_before - supply_after
+    );
+}
+
+// Requesting more collateral than the outstanding debt leaves the excess
+// untouched as supply — there is no transfer to refund it through, unlike
+// the cross-asset path's excess-payment refund.
+#[test]
+fn test_repay_debt_with_collateral_same_token_leaves_excess_as_supply() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.supply(ALICE, "ETH", 20.0);
+    t.borrow(ALICE, "USDC", 10_000.0);
+
+    let debt_before = t.borrow_balance(ALICE, "USDC");
+    let supply_before = t.supply_balance(ALICE, "USDC");
+
+    // Request 30k against a ~10k debt: only the debt-owed amount settles,
+    // the rest of the requested collateral is simply never touched.
+    let empty_steps = Bytes::new(&t.env);
+    t.repay_debt_with_collateral(ALICE, "USDC", 30_000.0, "USDC", &empty_steps, false);
+
+    let debt_after = t.borrow_balance(ALICE, "USDC");
+    let supply_after = t.supply_balance(ALICE, "USDC");
+
+    assert!(
+        debt_after < 1.0,
+        "debt should be fully closed, got {debt_after}"
+    );
+    let supply_drop = supply_before - supply_after;
+    assert!(
+        (supply_drop - debt_before).abs() < 100.0,
+        "supply should only drop by the debt actually owed (~{debt_before}), not the full 30k requested: dropped {supply_drop}"
+    );
+}
+
+// The net-settle path must re-stamp risk params from the current effective
+// spoke-asset config, same as a plain withdraw does via `finish_withdrawal`
+// — otherwise a position that only ever touches this path could keep an
+// old LTV/threshold snapshot indefinitely even after governance tightens it.
+#[test]
+fn test_repay_debt_with_collateral_same_token_refreshes_risk_params() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.supply(ALICE, "ETH", 20.0);
+    t.borrow(ALICE, "USDC", 10_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+
+    let usdc = t.resolve_asset("USDC");
+    let (supplies_before, _) = t.ctrl_client().get_account_positions(&account_id);
+    let ltv_before = supplies_before
+        .get(hub_asset(usdc.clone()))
+        .expect("USDC position")
+        .loan_to_value;
+
+    // Tighten USDC's LTV/threshold on the harness spoke while the account is open.
+    let new_ltv = ltv_before - 500;
+    t.edit_asset_in_spoke(
+        "USDC",
+        HARNESS_SPOKE,
+        true,
+        true,
+        new_ltv,
+        new_ltv + 300,
+        200,
+    );
+
+    let empty_steps = Bytes::new(&t.env);
+    t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "USDC", &empty_steps, false);
+
+    let (supplies_after, _) = t.ctrl_client().get_account_positions(&account_id);
+    let ltv_after = supplies_after
+        .get(hub_asset(usdc))
+        .expect("USDC position still open")
+        .loan_to_value;
+    assert_eq!(
+        ltv_after, new_ltv,
+        "net-settle must refresh risk params from current config, not keep the stale snapshot"
     );
 }
 // Spoke strategy tests
