@@ -3,7 +3,7 @@ use soroban_sdk::Bytes;
 use test_harness::{
     apply_flash_fee, build_aggregator_swap, eth_preset, hub_asset, usd, usdc_preset,
     usdt_stable_preset, wbtc_preset, LendingTest, MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG,
-    DEFAULT_MARKET_PARAMS, HARNESS_HUB, STABLECOIN_SPOKE,
+    DEFAULT_MARKET_PARAMS, HARNESS_HUB, HARNESS_SPOKE, STABLECOIN_SPOKE,
 };
 
 /// USDC market with no seeded liquidity, so cash is driven purely by the
@@ -510,6 +510,55 @@ fn test_repay_debt_with_collateral_same_token_leaves_excess_as_supply() {
     assert!(
         (supply_drop - debt_before).abs() < 100.0,
         "supply should only drop by the debt actually owed (~{debt_before}), not the full 30k requested: dropped {supply_drop}"
+    );
+}
+
+// The net-settle path must re-stamp risk params from the current effective
+// spoke-asset config, same as a plain withdraw does via `finish_withdrawal`
+// — otherwise a position that only ever touches this path could keep an
+// old LTV/threshold snapshot indefinitely even after governance tightens it.
+#[test]
+fn test_repay_debt_with_collateral_same_token_refreshes_risk_params() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.supply(ALICE, "ETH", 20.0);
+    t.borrow(ALICE, "USDC", 10_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+
+    let usdc = t.resolve_asset("USDC");
+    let (supplies_before, _) = t.ctrl_client().get_account_positions(&account_id);
+    let ltv_before = supplies_before
+        .get(hub_asset(usdc.clone()))
+        .expect("USDC position")
+        .loan_to_value;
+
+    // Tighten USDC's LTV/threshold on the harness spoke while the account is open.
+    let new_ltv = ltv_before - 500;
+    t.edit_asset_in_spoke(
+        "USDC",
+        HARNESS_SPOKE,
+        true,
+        true,
+        new_ltv,
+        new_ltv + 300,
+        200,
+    );
+
+    let empty_steps = Bytes::new(&t.env);
+    t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "USDC", &empty_steps, false);
+
+    let (supplies_after, _) = t.ctrl_client().get_account_positions(&account_id);
+    let ltv_after = supplies_after
+        .get(hub_asset(usdc))
+        .expect("USDC position still open")
+        .loan_to_value;
+    assert_eq!(
+        ltv_after, new_ltv,
+        "net-settle must refresh risk params from current config, not keep the stale snapshot"
     );
 }
 // Spoke strategy tests

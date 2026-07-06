@@ -17,6 +17,7 @@ use crate::positions::withdraw::{self, WithdrawalRequest, WITHDRAW_ALL_SENTINEL}
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
 };
+use crate::risk;
 use crate::strategies::swap::balance_delta;
 
 pub(crate) struct StrategyRepay<'a> {
@@ -187,6 +188,18 @@ pub(crate) fn net_settle_collateral_against_debt(
     }
     let mut new_supply_position = supply_position;
     new_supply_position.scaled_amount = new_supply_scaled;
+    // Matches `finish_withdrawal`: re-stamp risk params from the current
+    // effective spoke-asset config (no-op for a deprecated spoke or a
+    // removed spoke member) before persisting, so a position that only ever
+    // touches this path doesn't drift onto a stale LTV/threshold/bonus/fees
+    // snapshot that liquidation math reads directly off the stored position.
+    risk::refresh_supply_risk_params_for_asset(
+        env,
+        cache,
+        account,
+        hub_asset,
+        &mut new_supply_position,
+    );
     update_or_remove_supply_position(account, hub_asset, &new_supply_position);
 
     {
