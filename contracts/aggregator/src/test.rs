@@ -840,6 +840,40 @@ fn execute_strategy_errors_on_broken_token_chain() {
 }
 
 #[test]
+fn execute_strategy_rejects_same_token_in_and_out() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (token_a, sac_a) = new_asset(&env, &admin);
+    let pool = env.register(aquarius_mock::AqPool, ());
+    sac_a.mint(&sender, &1_000);
+
+    let swap_xdr = strategy_xdr(
+        &env,
+        token_a.clone(),
+        token_a.clone(),
+        1,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_a,
+                1_000_000,
+            ),
+        ],
+    );
+    let err = RouterClient::new(&env, &router_addr)
+        .try_execute_strategy(&sender, &100, &swap_xdr)
+        .unwrap_err();
+    assert_eq!(err.unwrap(), Error::SameToken.into());
+}
+
+#[test]
 fn split_ppm_must_sum_to_one_million() {
     let env = Env::default();
     env.mock_all_auths();
