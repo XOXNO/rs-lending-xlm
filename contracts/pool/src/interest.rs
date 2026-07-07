@@ -68,7 +68,7 @@ pub fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
     if cache.supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW {
         return;
     }
-    // Fees on an empty pool are dropped; there are no suppliers to dilute.
+    // Fees on an empty pool are dropped; there is no supply base to credit.
     if cache.supplied == Ray::ZERO {
         return;
     }

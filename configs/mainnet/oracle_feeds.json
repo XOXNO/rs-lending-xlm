@@ -1,0 +1,93 @@
+{
+  "_comment": "Mainnet feeds for xoxno-oracle-adapter (make mainnet configureOracleFeeds). feed_id must match xoxno-lending-functions' mainnet/stellar-bot-config/1.yaml priceJobs[].pairs.",
+  "feeds": [
+    {
+      "_note": "Spiko EUTBL. Chainlink EUTBL NAV (EUR) x EUR/USD.",
+      "feed_id": "SPIKOEUTBL",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF"
+      }
+    },
+    {
+      "_note": "Spiko USTBL. Chainlink USTBL NAV, USD.",
+      "feed_id": "SPIKOUSTBL",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CARUUX2FZNPH6DGJOEUFSIUQWYHNL5AVDV7PMVSHWL7OBYIBFC76F4TO"
+      }
+    },
+    {
+      "_note": "Spiko UKTBL. Spiko public NAV API (GBP) x GBP/USD. On-chain feed not reliable yet.",
+      "feed_id": "SPIKOUKTBL",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR"
+      }
+    },
+    {
+      "_note": "Centrifuge deJTRSY. Chronicle ChainlinkAdapter (Ethereum) + CoinGecko.",
+      "feed_id": "DEJTRSY",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV"
+      }
+    },
+    {
+      "_note": "Centrifuge deJAAA. Chronicle ChainlinkAdapter (Ethereum) + CoinGecko.",
+      "feed_id": "DEJAAA",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL"
+      }
+    },
+    {
+      "_note": "Spiko Cash & Carry, USD share class. Chainlink feed, USD.",
+      "feed_id": "SPIKOSPKCC",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CDS2GCAQTNQINSCJUJIVBJXILKBWP5PU7LOBGHMP3X47QCQBFKPMTCNT"
+      }
+    },
+    {
+      "_note": "Spiko Cash & Carry, EUR share class. Chainlink feed (EUR) x EUR/USD.",
+      "feed_id": "SPIKOEURSPKCC",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CDWOB6T7SVSMMQN5V3P2OPTBAXOP7DAZHGVW3PYTZIKHVFKN6TBSXR6A"
+      }
+    },
+    {
+      "_note": "Spiko SAFO, USD share class. Spiko public NAV API, USD.",
+      "feed_id": "SPIKOSAFO",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CDGSC6BA4TCAOVSFQCUEHDMOIIHYYVNYBT6YEARS4MX3ITAHUINVGQHX"
+      }
+    },
+    {
+      "_note": "Spiko SAFO, EUR share class. Spiko public NAV API (EUR) x EUR/USD.",
+      "feed_id": "SPIKOEURSAFO",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CBOOCGZSVRSZFRE4U2NWR2B4RXYVJWRCBTGOUD2JPI2TDJPWMTJX7FZP"
+      }
+    },
+    {
+      "_note": "Spiko SAFO, GBP share class. Spiko public NAV API (GBP) x GBP/USD.",
+      "feed_id": "SPIKOGBPSAFO",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP"
+      }
+    },
+    {
+      "_note": "Ondo USDY. No Chainlink feed; CoinGecko, USD.",
+      "feed_id": "USDY",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP"
+      }
+    }
+  ]
+}

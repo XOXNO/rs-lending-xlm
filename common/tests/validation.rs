@@ -58,6 +58,116 @@ fn sanity_bounds_rejects_max_above_cap() {
 }
 
 #[test]
+fn single_source_band_accepts_within_threshold() {
+    let env = Env::default();
+    // ±8% symmetric band: (10_800 - 9_200) / (10_800 + 9_200) = 800 bps < 1_000.
+    validate_single_source_sanity_band(&env, OracleStrategy::Single, 9_200, 10_800);
+}
+
+#[test]
+fn single_source_band_accepts_at_exact_threshold() {
+    let env = Env::default();
+    // ±10% symmetric band: (11_000 - 9_000) / (11_000 + 9_000) = 1_000 bps ==
+    // threshold: inclusive boundary.
+    validate_single_source_sanity_band(&env, OracleStrategy::Single, 9_000, 11_000);
+}
+
+#[test]
+#[should_panic]
+fn single_source_band_rejects_above_threshold() {
+    let env = Env::default();
+    // ±11% symmetric band: (11_100 - 8_900) / (11_100 + 8_900) = 1_100 bps >
+    // 1_000: too wide for a single source.
+    validate_single_source_sanity_band(&env, OracleStrategy::Single, 8_900, 11_100);
+}
+
+#[test]
+fn single_source_band_exempts_primary_with_anchor() {
+    let env = Env::default();
+    // Anchor strategy is exempt from the band-width gate regardless of width.
+    validate_single_source_sanity_band(&env, OracleStrategy::PrimaryWithAnchor, 1_000, 100_000);
+}
+
+#[test]
+fn liquidation_curve_accepts_defaults() {
+    let env = Env::default();
+    // Mirrors DEFAULT_LIQUIDATION_TARGET_HF_WAD/DEFAULT_HF_FOR_MAX_BONUS_WAD/
+    // DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS.
+    validate_liquidation_curve(&env, 1_020_000_000_000_000_000, 510_000_000_000_000_000, 10_000);
+}
+
+#[test]
+#[should_panic]
+fn liquidation_curve_rejects_target_hf_at_one() {
+    let env = Env::default();
+    validate_liquidation_curve(&env, WAD, WAD / 2, 10_000);
+}
+
+#[test]
+#[should_panic]
+fn liquidation_curve_rejects_target_hf_below_one() {
+    let env = Env::default();
+    validate_liquidation_curve(&env, WAD - 1, WAD / 2, 10_000);
+}
+
+#[test]
+fn liquidation_curve_accepts_target_hf_at_ceiling() {
+    let env = Env::default();
+    // The ceiling itself is inclusive.
+    validate_liquidation_curve(&env, MAX_LIQUIDATION_TARGET_HF_WAD, WAD / 2, 10_000);
+}
+
+#[test]
+#[should_panic]
+fn liquidation_curve_rejects_target_hf_above_ceiling() {
+    let env = Env::default();
+    // An oversized target (e.g. a decimal-scale typo) is rejected before it can
+    // overflow `target_hf * total_debt` in the liquidation-target math.
+    validate_liquidation_curve(&env, MAX_LIQUIDATION_TARGET_HF_WAD + 1, WAD / 2, 10_000);
+}
+
+#[test]
+#[should_panic]
+fn liquidation_curve_rejects_hf_for_max_bonus_at_or_above_target() {
+    let env = Env::default();
+    validate_liquidation_curve(&env, WAD + 100, WAD + 100, 10_000);
+}
+
+#[test]
+#[should_panic]
+fn liquidation_curve_rejects_hf_for_max_bonus_zero() {
+    let env = Env::default();
+    validate_liquidation_curve(&env, WAD + 100, 0, 10_000);
+}
+
+#[test]
+#[should_panic]
+fn liquidation_curve_rejects_hf_for_max_bonus_negative() {
+    let env = Env::default();
+    validate_liquidation_curve(&env, WAD + 100, -1, 10_000);
+}
+
+#[test]
+fn liquidation_curve_accepts_bonus_factor_at_bps_ceiling() {
+    let env = Env::default();
+    validate_liquidation_curve(&env, WAD + 100, WAD / 2, BPS as u32);
+}
+
+#[test]
+#[should_panic]
+fn liquidation_curve_rejects_bonus_factor_above_bps() {
+    let env = Env::default();
+    validate_liquidation_curve(&env, WAD + 100, WAD / 2, BPS as u32 + 1);
+}
+
+#[test]
+fn liquidation_curve_accepts_bonus_factor_zero() {
+    let env = Env::default();
+    // A zero factor is degenerate (bonus never scales past base) but not unsafe.
+    validate_liquidation_curve(&env, WAD + 100, WAD / 2, 0);
+}
+
+#[test]
 fn cap_domain_accepts_disabled_and_reasonable() {
     let env = Env::default();
     // 0 and i128::MAX are disabled sentinels; a real config cap

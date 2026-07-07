@@ -15,6 +15,8 @@ contracts:
   market_assets: [] # Legacy hub_id=1 shorthand; prefer markets.
   flash_loan_receiver: CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ
   governance: CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH
+  # Self-hosted price oracle (networks.json: xoxno_oracle_adapter).
+  xoxno_oracle_adapter: CBC36EELLDMEPKSJLHEQTKUXWKS27TC3TFMTMMB22CZBIU72E7KPIRJS
 
 keyvault:
   url: https://my-vault.vault.azure.net

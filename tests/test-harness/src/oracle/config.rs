@@ -63,16 +63,28 @@ pub fn reflector_primary_anchor_config(
     }
 }
 
+/// +-1% sanity band around `price_wad`, comfortably inside the protocol's
+/// `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` (5%) cap for `OracleStrategy::Single`
+/// markets. The old shared `DEFAULT_MIN_SANITY_PRICE_WAD..DEFAULT_MAX_SANITY_PRICE_WAD`
+/// range is astronomically wide (it spans the whole `MAX_REASONABLE_PRICE_WAD`
+/// domain) and only fits `PrimaryWithAnchor` builders, which the band cap
+/// doesn't apply to.
+fn tight_single_source_band(price_wad: i128) -> (i128, i128) {
+    (price_wad - price_wad / 100, price_wad + price_wad / 100)
+}
+
 pub fn reflector_single_spot_config(
     oracle: &Address,
     asset: &Address,
+    price_wad: i128,
     tolerance_bps: u32,
 ) -> MarketOracleConfigInput {
+    let (min_sanity_price_wad, max_sanity_price_wad) = tight_single_source_band(price_wad);
     MarketOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps,
-        min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
-        max_sanity_price_wad: DEFAULT_MAX_SANITY_PRICE_WAD,
+        min_sanity_price_wad,
+        max_sanity_price_wad,
         strategy: OracleStrategy::Single,
         primary: reflector_source(oracle, asset, OracleReadMode::Spot),
         anchor: OracleSourceConfigInputOption::None,
@@ -82,13 +94,15 @@ pub fn reflector_single_spot_config(
 pub fn redstone_single_config(
     contract: &Address,
     feed_id: &String,
+    price_wad: i128,
     tolerance_bps: u32,
 ) -> MarketOracleConfigInput {
+    let (min_sanity_price_wad, max_sanity_price_wad) = tight_single_source_band(price_wad);
     MarketOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps,
-        min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
-        max_sanity_price_wad: DEFAULT_MAX_SANITY_PRICE_WAD,
+        min_sanity_price_wad,
+        max_sanity_price_wad,
         strategy: OracleStrategy::Single,
         primary: redstone_source(contract, feed_id),
         anchor: OracleSourceConfigInputOption::None,

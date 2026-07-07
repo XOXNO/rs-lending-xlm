@@ -11,10 +11,12 @@
 #   NETWORK=testnet ./configs/script.sh <command> [args...]
 #
 # Config files:
-#   configs/networks.json          — RPC URLs, contract addresses
-#   configs/spokes.json            — Spoke categories per network
-#   configs/testnet_markets.json   — Market configs (testnet)
-#   configs/mainnet_markets.json   — Market configs (mainnet)
+#   configs/networks.json              — RPC URLs, contract addresses (shared, both networks)
+#   configs/${NETWORK}/hubs.json        — Hub id -> display name registry
+#   configs/${NETWORK}/spokes.json      — Spoke categories
+#   configs/${NETWORK}/markets.json     — Market configs
+#   configs/${NETWORK}/blend.json       — Approved Blend V2 pools
+#   configs/${NETWORK}/oracle_feeds.json — xoxno-oracle-adapter feed_id -> asset mapping
 # ===========================================================================
 
 set -e
@@ -29,9 +31,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 NETWORKS_FILE="$SCRIPT_DIR/networks.json"
-SPOKES_FILE="$SCRIPT_DIR/spokes.json"
-MARKET_CONFIG_FILE="$SCRIPT_DIR/${NETWORK}_markets.json"
-BLEND_POOLS_FILE="$SCRIPT_DIR/blend_pools.json"
+HUBS_FILE="$SCRIPT_DIR/${NETWORK}/hubs.json"
+SPOKES_FILE="$SCRIPT_DIR/${NETWORK}/spokes.json"
+MARKET_CONFIG_FILE="$SCRIPT_DIR/${NETWORK}/markets.json"
+BLEND_POOLS_FILE="$SCRIPT_DIR/${NETWORK}/blend.json"
 
 require_tool() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -103,8 +106,8 @@ require_static_config() {
         echo "ERROR: Config file not found: $SPOKES_FILE" >&2
         exit 1
     fi
-    if ! jq -e --arg network "$NETWORK" '.[$network] | type == "object"' "$SPOKES_FILE" >/dev/null; then
-        echo "ERROR: Spoke config for '$NETWORK' not found in $SPOKES_FILE" >&2
+    if ! jq -e 'type == "object"' "$SPOKES_FILE" >/dev/null; then
+        echo "ERROR: Spoke config in $SPOKES_FILE is not a JSON object" >&2
         exit 1
     fi
 }
@@ -118,7 +121,7 @@ get_market_value() {
 get_spoke_value() {
     local category_id=$1
     local path=$2
-    jq -r ".\"$NETWORK\".\"$category_id\"$path" "$SPOKES_FILE"
+    jq -r ".\"$category_id\"$path" "$SPOKES_FILE"
 }
 
 get_controller() {
@@ -1350,9 +1353,9 @@ validate_configs() {
     # Spokes: every asset must resolve to a market on the SAME hub, with sane
     # risk params.
     local cat a sj maddr mhub
-    for cat in $(jq -r --arg n "$NETWORK" '.[$n] | keys[]' "$SPOKES_FILE"); do
-        for a in $(jq -r --arg n "$NETWORK" --arg c "$cat" '.[$n][$c].assets | keys[]' "$SPOKES_FILE"); do
-            sj=$(jq -c --arg n "$NETWORK" --arg c "$cat" --arg a "$a" '.[$n][$c].assets[$a]' "$SPOKES_FILE")
+    for cat in $(jq -r 'keys[]' "$SPOKES_FILE"); do
+        for a in $(jq -r --arg c "$cat" '.[$c].assets | keys[]' "$SPOKES_FILE"); do
+            sj=$(jq -c --arg c "$cat" --arg a "$a" '.[$c].assets[$a]' "$SPOKES_FILE")
             maddr=$(get_market_value "$a" "asset_address")
             if [ -z "$maddr" ] || [ "$maddr" = "null" ]; then
                 vc_err "spoke ${cat}: asset '${a}' has no market in ${MARKET_CONFIG_FILE}"
@@ -1376,7 +1379,7 @@ validate_configs() {
     # A market in no spoke deploys pending (base spoke-0 listing stays
     # non-collateralizable/borrowable) and is unusable until listed.
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
-        if ! jq -e --arg n "$NETWORK" --arg m "$m" '[.[$n][].assets | keys[]] | index($m) != null' "$SPOKES_FILE" >/dev/null; then
+        if ! jq -e --arg m "$m" '[.[].assets | keys[]] | index($m) != null' "$SPOKES_FILE" >/dev/null; then
             vc_warn "market ${m} is not referenced by any spoke (deploys pending; unusable until listed)"
         fi
     done
@@ -1405,7 +1408,7 @@ list_spokes() {
     echo "Spoke categories (${NETWORK}):"
     if [ -f "$SPOKES_FILE" ]; then
         jq -r --arg network "$NETWORK" --slurpfile networks "$NETWORKS_FILE" '
-            .[$network] as $cats |
+            . as $cats |
             ($networks[0][$network].spoke_ids // {}) as $ids |
             $cats | to_entries[] |
             "  \(.key) -> on-chain \($ids[.key] // "unmapped"): \(.value.name) — assets: \(.value.assets | keys | join(", "))"
@@ -1564,7 +1567,7 @@ spoke_assets_match_config() {
 
     local expected_addrs=" "
     local asset_name asset_addr
-    for asset_name in $(jq -r ".\"$NETWORK\".\"$config_category_id\".assets | keys[]" "$SPOKES_FILE"); do
+    for asset_name in $(jq -r ".\"$config_category_id\".assets | keys[]" "$SPOKES_FILE"); do
         asset_addr=$(get_market_value "$asset_name" "asset_address")
         # An unresolved asset means the config references something the markets
         # file lacks; fail with that specific reason rather than silently
@@ -1877,7 +1880,7 @@ ensure_asset_in_spoke() {
 setup_all_spokes() {
     echo "=== Setting up all Spoke categories for ${NETWORK} ==="
     local categories
-    categories=$(jq -r ".\"$NETWORK\" | keys[]" "$SPOKES_FILE")
+    categories=$(jq -r "keys[]" "$SPOKES_FILE")
 
     for cat_id in $categories; do
         local onchain_id
@@ -1892,7 +1895,7 @@ setup_all_spokes() {
         onchain_id=$(printf '%s\n' "$onchain_id" | tail -n1)
 
         local assets
-        assets=$(jq -r ".\"$NETWORK\".\"$cat_id\".assets | keys[]" "$SPOKES_FILE")
+        assets=$(jq -r ".\"$cat_id\".assets | keys[]" "$SPOKES_FILE")
         for asset_name in $assets; do
             ensure_asset_in_spoke "$onchain_id" "$asset_name" "$cat_id"
         done
@@ -2253,7 +2256,7 @@ claim_revenue_all() {
 # Blend V2 migration source allow-list
 #
 # `migrate_from_blend` only accepts a governance-approved Blend pool as its
-# source. `whitelistBlendPools` reads configs/blend_pools.json for the current
+# source. `whitelistBlendPools` reads configs/${NETWORK}/blend.json for the current
 # network, checks each pool against the controller view `is_blend_pool_approved`,
 # and schedules a timelocked `approve_blend_pool` for any that are missing.
 # Already-approved pools are skipped, so re-runs cost no redundant timelock op
@@ -2300,7 +2303,7 @@ whitelist_blend_pools() {
     fi
 
     local pools
-    pools=$(jq -r --arg net "$NETWORK" '(.[$net].pools // [])[] | .address' "$BLEND_POOLS_FILE")
+    pools=$(jq -r '(.pools // [])[] | .address' "$BLEND_POOLS_FILE")
     if [ -z "$pools" ]; then
         echo "No Blend pools configured for ${NETWORK} in ${BLEND_POOLS_FILE}." >&2
         return 0
@@ -3070,6 +3073,33 @@ remove_asset_from_spoke_cmd() {
     echo "remove_asset_from_spoke scheduled for ${market_name} in spoke ${spoke_id}."
 }
 
+set_spoke_liquidation_curve_cmd() {
+    local spoke_id=$1
+    local target_hf_wad=$2
+    local hf_for_max_bonus_wad=$3
+    local bonus_factor_bps=$4
+    # set_spoke_liquidation_curve(spoke_id, target_hf_wad, hf_for_max_bonus_wad,
+    # liquidation_bonus_factor_bps) per governance op.rs.
+    local args_json
+    args_json=$(jq -nc \
+        --argjson spoke "$spoke_id" \
+        --arg target "$target_hf_wad" \
+        --arg maxb "$hf_for_max_bonus_wad" \
+        --argjson factor "$bonus_factor_bps" \
+        '[{u32:$spoke}, {i128:$target}, {i128:$maxb}, {u32:$factor}]')
+    local salt
+    salt=$(gen_salt "set_spoke_liquidation_curve" "$args_json")
+    local admin_op_json
+    admin_op_json=$(admin_op SetSpokeLiquidationCurve \
+        "$(jq -nc --argjson spoke "$spoke_id" --arg target "$target_hf_wad" --arg maxb "$hf_for_max_bonus_wad" --argjson factor "$bonus_factor_bps" \
+            '{spoke_id:$spoke, target_hf_wad:$target, hf_for_max_bonus_wad:$maxb, liquidation_bonus_factor_bps:$factor}')")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        set_spoke_liquidation_curve "$admin_op_json" "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "set_spoke_liquidation_curve scheduled for spoke ${spoke_id} (target_hf=${target_hf_wad}, hf_for_max_bonus=${hf_for_max_bonus_wad}, bonus_factor_bps=${bonus_factor_bps})."
+}
+
 set_position_limits_cmd() {
     local max_supply=$1
     local max_borrow=$2
@@ -3239,12 +3269,12 @@ show_info() {
     echo "Reflector DEX: $(get_dex_oracle)"
     echo "Reflector FX:  $(get_fx_oracle)"
     echo "RedStone adapter: $(get_redstone_adapter)"
+    echo "XOXNO oracle adapter (networks.json, NOT chain-verified): $(get_oracle_adapter_address 2>/dev/null || echo 'not set (make <network> deployOracleAdapter)')"
     # Markets that actually reference RedStone (as primary or anchor) in the
-    # market config. testnet wires RedStone through the shared adapter + symbol
-    # feed_ids, so this reflects real usage even when the optional per-feed
-    # contract registry below is empty.
+    # market config, read through the single shared redstone_adapter_contract
+    # + feed_id string (RedStone has no separate per-feed contract; every feed
+    # is read via that one adapter's read_price_data_for_feed(feed_id)).
     echo "RedStone markets: $(jq -r '[.markets[] | select((.oracle.primary.tag == "RedStone") or (.oracle.anchor.tag == "Some" and (.oracle.anchor.values[0].tag // "") == "RedStone")) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
-    echo "RedStone feed registry: $(jq -r --arg network "$NETWORK" '(.[$network].redstone_feeds // {}) | keys | length' "$NETWORKS_FILE") per-feed contract(s)"
 }
 
 # Compare the LIVE governance min-delay against the configured production value.
@@ -3273,13 +3303,17 @@ list_hubs() {
     echo "Hubs (${NETWORK}) referenced by ${MARKET_CONFIG_FILE}:"
     echo "  NOTE: the controller has no get_hub view; this reads the LOCAL id map in"
     echo "  networks.json, not the on-chain HubConfig.is_active flag." >&2
-    local h mapped
+    local h mapped name
     for h in $(jq -r '[.markets[].hub_id] | map(select(. != null)) | unique | .[]' "$MARKET_CONFIG_FILE"); do
+        name=""
+        if [ -f "$HUBS_FILE" ]; then
+            name=$(jq -r --arg h "$h" '.[$h].name // empty' "$HUBS_FILE")
+        fi
         mapped=$(get_mapped_hub_id "$h")
         if [ -n "$mapped" ] && [ "$mapped" != "null" ]; then
-            echo "  hub ${h} -> on-chain ${mapped}"
+            echo "  hub ${h}${name:+ (${name})} -> on-chain ${mapped}"
         else
-            echo "  hub ${h} -> not created (created on first createMarket/setupAllMarkets)"
+            echo "  hub ${h}${name:+ (${name})} -> not created (created on first createMarket/setupAllMarkets)"
         fi
     done
 }
@@ -3300,6 +3334,109 @@ list_oracles() {
         describe_oracle_source "  primary" "$src"
         describe_oracle_source "  anchor " "$anchor"
     done
+}
+
+# ---------------------------------------------------------------------------
+# XOXNO self-hosted oracle adapter (contracts/xoxno-oracle-adapter)
+#
+# Not governance-owned: a standalone contract with its own single admin key
+# and bot signer set (see the contract's own doc comment). `add_feed` is a
+# direct `stellar contract invoke`, not a timelocked governance proposal —
+# there is no op record/replay machinery here, unlike the controller-targeted
+# actions above.
+# ---------------------------------------------------------------------------
+
+ORACLE_FEEDS_FILE="$SCRIPT_DIR/${NETWORK}/oracle_feeds.json"
+
+get_oracle_adapter_address() {
+    local addr
+    addr=$(jq -r ".\"$NETWORK\".xoxno_oracle_adapter // empty" "$NETWORKS_FILE")
+    if [ -z "$addr" ] || [ "$addr" = "null" ]; then
+        echo ""
+        return 1
+    fi
+    echo "$addr"
+}
+
+# Maps a feeds-file `{tag, value}` asset descriptor to the CLI's JSON encoding
+# of `ReflectorAsset` (`{"Stellar":"<address>"}` or `{"Other":"<symbol>"}`) —
+# same convention `describe_oracle_source` already decodes for market oracles.
+_oracle_asset_json() {
+    local tag=$1 value=$2
+    case "$tag" in
+        Stellar) printf '{"Stellar":"%s"}' "$value" ;;
+        Other)   printf '{"Other":"%s"}' "$value" ;;
+        *) die "Unknown asset.tag '${tag}' (expected Stellar or Other)" ;;
+    esac
+}
+
+# Lists every feed_id -> asset mapping configured in ${NETWORK}/oracle_feeds.json
+# and calls add_feed for each. Tolerates FeedAlreadyMapped (already configured
+# from a prior run) instead of aborting, so this is safe to re-run.
+configure_oracle_feeds() {
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}. Run: make ${NETWORK} deployOracleAdapter"
+    [ -f "$ORACLE_FEEDS_FILE" ] || die "Feeds config file not found: $ORACLE_FEEDS_FILE"
+
+    echo "=== Configuring oracle feeds on ${NETWORK} (adapter ${adapter}) ===" >&2
+    local count i feed_id tag value asset_json errfile out rc
+    count=$(jq '.feeds | length' "$ORACLE_FEEDS_FILE")
+    for ((i = 0; i < count; i++)); do
+        feed_id=$(jq -r ".feeds[$i].feed_id" "$ORACLE_FEEDS_FILE")
+        tag=$(jq -r ".feeds[$i].asset.tag" "$ORACLE_FEEDS_FILE")
+        value=$(jq -r ".feeds[$i].asset.value" "$ORACLE_FEEDS_FILE")
+        asset_json=$(_oracle_asset_json "$tag" "$value")
+
+        echo "  add_feed ${feed_id} -> ${asset_json}" >&2
+        errfile=$(mktemp)
+        out=$(stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+            -- add_feed --feed_id "$feed_id" --asset "$asset_json" 2>"$errfile") && rc=0 || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            if grep -qi "FeedAlreadyMapped" "$errfile"; then
+                echo "    already mapped, skipping" >&2
+            else
+                cat "$errfile" >&2
+                rm -f "$errfile"
+                die "add_feed failed for ${feed_id}"
+            fi
+        fi
+        rm -f "$errfile"
+    done
+    echo "=== Oracle feeds configured (${NETWORK}) ===" >&2
+}
+
+# Read-only: dumps the adapter's live enumerable asset index.
+list_oracle_feeds() {
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
+    echo "=== Oracle adapter feeds (${NETWORK}, ${adapter}) ===" >&2
+    invoke_view "$adapter" assets
+}
+
+# Registers a bot wallet's Stellar public key as a signer (admin-gated direct
+# call, tolerates SignerAlreadyRegistered so this is safe to re-run).
+add_oracle_signer() {
+    local signer=$1
+    [ -n "$signer" ] || die "Usage: $0 addOracleSigner <signer_address>"
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}. Run: make ${NETWORK} deployOracleAdapter"
+
+    echo "=== Adding oracle signer ${signer} on ${NETWORK} (adapter ${adapter}) ===" >&2
+    local errfile rc
+    errfile=$(mktemp)
+    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        -- add_signer --signer "$signer" 2>"$errfile" && rc=0 || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        if grep -qi "SignerAlreadyRegistered" "$errfile"; then
+            echo "  already registered, skipping" >&2
+        else
+            cat "$errfile" >&2
+            rm -f "$errfile"
+            die "add_signer failed for ${signer}"
+        fi
+    fi
+    rm -f "$errfile"
+    echo "=== Signer added (${NETWORK}) ===" >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -3800,6 +3937,19 @@ case "$1" in
     "listOracles")
         list_oracles
         ;;
+    "configureOracleFeeds")
+        configure_oracle_feeds
+        ;;
+    "listOracleFeeds")
+        list_oracle_feeds
+        ;;
+    "addOracleSigner")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 addOracleSigner <signer_address>" >&2
+            exit 1
+        fi
+        add_oracle_signer "$2"
+        ;;
     "createHub")
         if [ -z "$2" ]; then
             echo "Usage: $0 createHub <hub_id>" >&2
@@ -3820,6 +3970,13 @@ case "$1" in
             exit 1
         fi
         remove_asset_from_spoke_cmd "$2" "$3"
+        ;;
+    "setSpokeLiquidationCurve")
+        if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ] || [ -z "$5" ]; then
+            echo "Usage: $0 setSpokeLiquidationCurve <spoke_id> <target_hf_wad> <hf_for_max_bonus_wad> <bonus_factor_bps>" >&2
+            exit 1
+        fi
+        set_spoke_liquidation_curve_cmd "$2" "$3" "$4" "$5"
         ;;
     "approveToken")
         if [ -z "$2" ]; then
@@ -4296,11 +4453,13 @@ disable_token_oracle_cmd "$2"
         echo "  setupAll                        Markets + Spokes only; no deploy/unpause"
         echo "  claimRevenue <name> [...]       Claim revenue one or more markets"
         echo "  claimRevenueAll                 Claim revenue for every configured market"
-        echo "  whitelistBlendPools | approveBlendPools   Approve Blend V2 pools from configs/blend_pools.json (timelocked)"
+        echo "  whitelistBlendPools | approveBlendPools   Approve Blend V2 pools from configs/${NETWORK}/blend.json (timelocked)"
         echo ""
         echo "Quick views (reads):"
         echo "  info                            Deployment addresses & signer"
         echo "  listOracles                     Per-market oracle wiring from config"
+        echo "  configureOracleFeeds           Call add_feed on xoxno_oracle_adapter for every entry in \${NETWORK}/oracle_feeds.json"
+        echo "  listOracleFeeds                Live feed index from the deployed xoxno_oracle_adapter"
         echo "  hasRole <account> <role>        Check role membership"
         echo "  getPrice <market>               Oracle price (spot / safe / aggregator + tolerance)"
         echo "  getMarket <market>              Market config (LTV, liq, caps, flags)"

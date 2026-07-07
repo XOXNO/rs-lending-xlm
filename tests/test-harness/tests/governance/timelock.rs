@@ -19,7 +19,7 @@ use governance_interface::{
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, IntoVal, Symbol};
 use test_harness::{
-    assert_contract_error, errors, hub_asset, reflector_single_spot_config, usdc_preset,
+    assert_contract_error, errors, hub_asset, reflector_single_spot_config, usd, usdc_preset,
     LendingTest, DEFAULT_TOLERANCE,
 };
 
@@ -358,8 +358,12 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
 
     assert_harness_delay(&t);
 
-    let cfg =
-        reflector_single_spot_config(&t.mock_reflector, &asset, DEFAULT_TOLERANCE.tolerance_bps);
+    let cfg = reflector_single_spot_config(
+        &t.mock_reflector,
+        &asset,
+        usd(1),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
 
     // Resolve independently through the read-only view (no schedule, no state
     // change): this is exactly what the CLI invokes under `--send=no`.

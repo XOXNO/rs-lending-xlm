@@ -1,6 +1,6 @@
 use controller::types::{ControllerKey, MarketOracleConfig, OracleReadMode, OracleSourceConfig};
 use soroban_sdk::vec;
-use test_harness::{assert_contract_error, errors, hub_asset, usd_cents, LendingTest, ALICE};
+use test_harness::{assert_contract_error, errors, hub_asset, usd, usd_cents, LendingTest, ALICE};
 
 fn setup() -> LendingTest {
     LendingTest::new().dual_source_two_asset()
@@ -114,6 +114,7 @@ fn test_reflector_spot_missing_lastprice_panics_under_strict() {
     let spot_cfg = test_harness::reflector_single_spot_config(
         &t.mock_reflector,
         &eth_asset,
+        usd(2_000), // dual_source_two_asset's ETH default (WAD * 2_000).
         test_harness::DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.configure_market_oracle(&eth_asset, &spot_cfg);

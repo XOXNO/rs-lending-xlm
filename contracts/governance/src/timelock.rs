@@ -351,8 +351,8 @@ impl Governance {
     /// # Errors
     /// * Tolerance validation: `BadLastTolerance` or `MathOverflow`.
     /// * Oracle shape/config: `InvalidExchangeSrc`, `SpotOnlyNotProductionSafe`,
-    ///   `InvalidStalenessConfig`, `InvalidSanityBounds`, or
-    ///   `InvalidOracleDecimals`.
+    ///   `InvalidStalenessConfig`, `InvalidSanityBounds`,
+    ///   `SanityBandTooWideForSingleSource`, or `InvalidOracleDecimals`.
     /// * Live probe: `InvalidAsset`, `InvalidTicker`, `InvalidOracleBase`,
     ///   `InvalidOracleResolution`, `ReflectorHistoryEmpty`,
     ///   `TwapInsufficientObservations`, or `PriceFeedStale`.

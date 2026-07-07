@@ -66,6 +66,15 @@ pub struct EditToleranceArgs {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+pub struct SpokeLiquidationCurveArgs {
+    pub spoke_id: u32,
+    pub target_hf_wad: i128,
+    pub hf_for_max_bonus_wad: i128,
+    pub liquidation_bonus_factor_bps: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
 pub struct RoleArgs {
     pub account: Address,
     pub role: Symbol,
@@ -105,6 +114,7 @@ pub enum AdminOperation {
     TransferCtrlOwnership(TransferOwnershipArgs),
     ConfigureMarketOracle(ConfigureOracleArgs),
     EditOracleTolerance(EditToleranceArgs),
+    SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs),
 
     // Governance target (Self)
     UpgradeGov(BytesN<32>),

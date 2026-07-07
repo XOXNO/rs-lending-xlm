@@ -37,7 +37,7 @@ fn test_dex_config_rejected_when_quote_market_missing() {
     let dex = register_dex_oracle(&t, &phantom_quote);
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
 
-    let cfg = reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps);
+    let cfg = reflector_single_spot_config(&dex, &xlm, usd(2), DEFAULT_TOLERANCE.tolerance_bps);
     configure(&t, &xlm, &cfg);
 }
 
@@ -60,14 +60,16 @@ fn test_dex_config_rejected_when_quote_market_not_usd_quoted() {
     let dex_usdc = register_dex_oracle(&t, &usdc);
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_usdc)
         .set_price(&xlm, &usd(2));
-    let xlm_cfg = reflector_single_spot_config(&dex_usdc, &xlm, DEFAULT_TOLERANCE.tolerance_bps);
+    let xlm_cfg =
+        reflector_single_spot_config(&dex_usdc, &xlm, usd(2), DEFAULT_TOLERANCE.tolerance_bps);
     configure(&t, &xlm, &xlm_cfg);
 
     // Now try to quote ETH in XLM. XLM is Stellar-quoted, not USD → rejected.
     let dex_xlm = register_dex_oracle(&t, &xlm);
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_xlm)
         .set_price(&eth, &usd(2));
-    let eth_cfg = reflector_single_spot_config(&dex_xlm, &eth, DEFAULT_TOLERANCE.tolerance_bps);
+    let eth_cfg =
+        reflector_single_spot_config(&dex_xlm, &eth, usd(2), DEFAULT_TOLERANCE.tolerance_bps);
     configure(&t, &eth, &eth_cfg);
 }
 
@@ -85,6 +87,6 @@ fn test_dex_config_rejected_when_quote_is_self() {
     let dex = register_dex_oracle(&t, &xlm); // base = the asset itself
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
 
-    let cfg = reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps);
+    let cfg = reflector_single_spot_config(&dex, &xlm, usd(2), DEFAULT_TOLERANCE.tolerance_bps);
     configure(&t, &xlm, &cfg);
 }

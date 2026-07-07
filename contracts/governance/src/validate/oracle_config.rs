@@ -31,18 +31,19 @@ pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfi
         );
     }
 
-    // Production Single markets must use a TWAP source.
+    // Single markets may use a spot primary: `validate_single_source_sanity_band`
+    // (called separately by the composing validator) already caps their sanity
+    // band to `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`, which is the read-mode-independent
+    // defense for a single unchecked source. TWAP smoothing is redundant on top of
+    // that band and not required for slow-moving feeds (e.g. RWA NAV prices).
     #[cfg(not(feature = "testing"))]
     {
         let primary_is_spot = match &config.primary {
             OracleSourceConfigInput::Reflector(r) => matches!(r.read_mode, OracleReadMode::Spot),
             OracleSourceConfigInput::RedStone(_) => true,
         };
-        if config.strategy == OracleStrategy::Single && primary_is_spot {
-            panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);
-        }
 
-        // Production anchored markets also require a non-spot primary.
+        // Production anchored markets require a non-spot primary.
         if config.strategy == OracleStrategy::PrimaryWithAnchor {
             if primary_is_spot {
                 panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);

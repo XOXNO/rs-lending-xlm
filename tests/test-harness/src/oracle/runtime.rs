@@ -127,8 +127,10 @@ impl LendingTest {
                 base: ReflectorBase::Usd,
             }),
             anchor: OracleSourceConfigOption::None,
-            min_sanity_price_wad: 1,
-            max_sanity_price_wad: controller::constants::MAX_REASONABLE_PRICE_WAD,
+            // +-1% band: comfortably inside MAX_SINGLE_SOURCE_SANITY_BAND_BPS
+            // (5%) for OracleStrategy::Single, and contains override_price_wad.
+            min_sanity_price_wad: override_price_wad - override_price_wad / 100,
+            max_sanity_price_wad: override_price_wad + override_price_wad / 100,
         };
 
         self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
@@ -186,8 +188,10 @@ impl LendingTest {
                 base: ReflectorBase::Usd,
             }),
             anchor: OracleSourceConfigOption::None,
-            min_sanity_price_wad: 1,
-            max_sanity_price_wad: controller::constants::MAX_REASONABLE_PRICE_WAD,
+            // +-1% band: comfortably inside MAX_SINGLE_SOURCE_SANITY_BAND_BPS
+            // (5%) for OracleStrategy::Single, and contains override_price_wad.
+            min_sanity_price_wad: override_price_wad - override_price_wad / 100,
+            max_sanity_price_wad: override_price_wad + override_price_wad / 100,
         };
 
         match self.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {

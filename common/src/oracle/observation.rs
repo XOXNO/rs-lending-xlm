@@ -21,6 +21,15 @@ pub const MIN_ORACLE_RESOLUTION_SECONDS: u32 = 60;
 pub const MIN_ORACLE_DECIMALS: u32 = 1;
 pub const MAX_ORACLE_DECIMALS: u32 = 18;
 
+/// Max allowed midpoint-relative sanity half-width
+/// `(max_sanity_price_wad - min_sanity_price_wad) / (max_sanity_price_wad + min_sanity_price_wad)`
+/// (BPS) for a market using `OracleStrategy::Single` — i.e. the per-bound %
+/// deviation from the price for a band symmetric around it. `1_000` (10%) is the
+/// top of the intended 5–10% range. A single unchecked source needs a tight
+/// sanity band as its only defense against a bad price; anything wider must add
+/// an anchor (`PrimaryWithAnchor`) instead.
+pub const MAX_SINGLE_SOURCE_SANITY_BAND_BPS: i128 = 1_000;
+
 /// Normalizes a positive token-denominated price to WAD.
 ///
 /// # Errors

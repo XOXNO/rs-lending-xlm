@@ -15,9 +15,33 @@ use crate::{storage, validate};
 
 pub use governance_interface::{
     AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EditToleranceArgs,
-    RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, TransferOwnershipArgs,
-    UpgradePoolParamsArgs,
+    RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, SpokeLiquidationCurveArgs,
+    TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
+
+/// Runs, at propose time, the pure oracle checks the controller re-runs at
+/// execute time on a resolved spoke oracle override (final-price sanity bounds
+/// and the single-source sanity band). A malformed `Single`-strategy override is
+/// then rejected before the timelock delay instead of after it. Storage-dependent
+/// quote-market activation stays with the controller, which owns that state.
+fn validate_oracle_override(
+    env: &Env,
+    oracle_override: &common::types::MarketOracleConfigOption,
+) {
+    if let common::types::MarketOracleConfigOption::Some(cfg) = oracle_override {
+        common::validation::validate_sanity_bounds(
+            env,
+            cfg.min_sanity_price_wad,
+            cfg.max_sanity_price_wad,
+        );
+        common::validation::validate_single_source_sanity_band(
+            env,
+            cfg.strategy,
+            cfg.min_sanity_price_wad,
+            cfg.max_sanity_price_wad,
+        );
+    }
+}
 
 pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Vec<Val>, DelayTier) {
     let gov_addr = env.current_contract_address();
@@ -144,6 +168,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
             validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
             validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
+            validate_oracle_override(env, &args.oracle_override);
             (
                 storage::get_controller(env),
                 Symbol::new(env, "add_asset_to_spoke"),
@@ -155,6 +180,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
             validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
             validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
+            validate_oracle_override(env, &args.oracle_override);
             (
                 storage::get_controller(env),
                 Symbol::new(env, "edit_asset_in_spoke"),
@@ -320,6 +346,26 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                     env,
                     args.asset.clone().into_val(env),
                     tolerance.into_val(env),
+                ],
+                DelayTier::Standard,
+            )
+        }
+        AdminOperation::SetSpokeLiquidationCurve(args) => {
+            validate::spoke::validate_liquidation_curve(
+                env,
+                args.target_hf_wad,
+                args.hf_for_max_bonus_wad,
+                args.liquidation_bonus_factor_bps,
+            );
+            (
+                storage::get_controller(env),
+                Symbol::new(env, "set_spoke_liquidation_curve"),
+                vec![
+                    env,
+                    args.spoke_id.into_val(env),
+                    args.target_hf_wad.into_val(env),
+                    args.hf_for_max_bonus_wad.into_val(env),
+                    args.liquidation_bonus_factor_bps.into_val(env),
                 ],
                 DelayTier::Standard,
             )

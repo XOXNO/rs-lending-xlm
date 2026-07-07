@@ -157,6 +157,43 @@ impl Controller {
         spoke::remove_spoke(&env, id);
     }
 
+    /// Overrides a spoke's liquidation curve: the health factor a liquidated
+    /// position is restored to (`target_hf_wad`), the health factor at/below
+    /// which the max bonus applies (`hf_for_max_bonus_wad`), and the factor
+    /// scaling the bonus increment between them
+    /// (`liquidation_bonus_factor_bps`). Replaces the defaults stamped at
+    /// spoke creation.
+    ///
+    /// # Errors
+    /// * `SpokeNotFound` - no spoke exists for `id`.
+    /// * `InvalidLiquidationCurve` - `target_hf_wad <= 1.0 WAD`,
+    ///   `hf_for_max_bonus_wad` is outside `(0, target_hf_wad)`, or
+    ///   `liquidation_bonus_factor_bps` exceeds `BPS` (100%).
+    ///
+    /// # Events
+    /// * `UpdateSpokeEvent` - the updated spoke snapshot.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
+    ///   so this executes only after the configured delay.
+    #[only_owner]
+    pub fn set_spoke_liquidation_curve(
+        env: Env,
+        id: u32,
+        target_hf_wad: i128,
+        hf_for_max_bonus_wad: i128,
+        liquidation_bonus_factor_bps: u32,
+    ) {
+        storage::renew_controller_instance(&env);
+        spoke::set_spoke_liquidation_curve(
+            &env,
+            id,
+            target_hf_wad,
+            hf_for_max_bonus_wad,
+            liquidation_bonus_factor_bps,
+        );
+    }
+
     /// Lists a hub-asset on a spoke with its risk params, caps, and optional
     /// oracle override. The market must already exist in the pool.
     ///

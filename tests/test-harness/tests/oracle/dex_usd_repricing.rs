@@ -44,7 +44,8 @@ fn test_dex_quoted_source_repriced_to_usd() {
     let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex);
     dex_client.set_price(&xlm, &usd(2)); // XLM = 2.0 USDC on the DEX
 
-    let cfg = reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps);
+    let cfg =
+        reflector_single_spot_config(&dex, &xlm, usd_frac(2002, 1000), DEFAULT_TOLERANCE.tolerance_bps);
     t.configure_market_oracle(&xlm, &cfg);
 
     // 2.0 USDC * $1.001/USDC = $2.002
@@ -112,7 +113,7 @@ fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
         .set_price(&xlm, &usd(2));
     t.configure_market_oracle(
         &xlm,
-        &reflector_single_spot_config(&dex_usdc, &xlm, DEFAULT_TOLERANCE.tolerance_bps),
+        &reflector_single_spot_config(&dex_usdc, &xlm, usd(2), DEFAULT_TOLERANCE.tolerance_bps),
     );
 
     // Reconfigure USDC itself to quote in ETH (another USD market): USDC is now
@@ -122,7 +123,7 @@ fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
         .set_price(&usdc, &usd(1));
     t.configure_market_oracle(
         &usdc,
-        &reflector_single_spot_config(&dex_eth, &usdc, DEFAULT_TOLERANCE.tolerance_bps),
+        &reflector_single_spot_config(&dex_eth, &usdc, usd(1), DEFAULT_TOLERANCE.tolerance_bps),
     );
 
     // Reading XLM must revert: USDC is no longer a direct USD market.
@@ -146,7 +147,7 @@ fn test_dex_read_rejects_disabled_quote_market() {
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
     t.configure_market_oracle(
         &xlm,
-        &reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps),
+        &reflector_single_spot_config(&dex, &xlm, usd(2), DEFAULT_TOLERANCE.tolerance_bps),
     );
 
     // Disable USDC, then read XLM -> must revert (cannot price off a disabled quote).
@@ -175,7 +176,7 @@ fn test_oracle_config_execute_rejects_disabled_quote_market() {
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
     t.configure_market_oracle(
         &xlm,
-        &reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps),
+        &reflector_single_spot_config(&dex, &xlm, usd(2), DEFAULT_TOLERANCE.tolerance_bps),
     );
 
     // Capture the resolved config governance scheduled for the controller setter.
@@ -214,7 +215,7 @@ fn test_oracle_config_execute_accepts_active_usd_quote_market() {
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
     t.configure_market_oracle(
         &xlm,
-        &reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps),
+        &reflector_single_spot_config(&dex, &xlm, usd(2), DEFAULT_TOLERANCE.tolerance_bps),
     );
 
     let resolved = t.env.as_contract(&t.controller, || {

@@ -15,6 +15,9 @@ contracts:
   # Optional governance owner for controller access checks.
   # Populate alongside other mainnet ids.
   governance: ""
+  # Self-hosted price oracle (networks.json: xoxno_oracle_adapter).
+  # Populate before running the keeper on mainnet.
+  xoxno_oracle_adapter: ""
 
 keyvault:
   url: https://my-vault.vault.azure.net

@@ -98,7 +98,8 @@ pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
 }
 
 /// Adds liquidation protocol fee to revenue and returns net collateral transfer.
-/// Liquidation fees are minted as scaled revenue, diluting suppliers.
+/// The fee stays in the pool as cash and is minted as a protocol-owned scaled
+/// supply position; existing suppliers' shares and supply index are unchanged.
 pub(crate) fn apply_liquidation_fee(
     env: &Env,
     cache: &mut Cache,

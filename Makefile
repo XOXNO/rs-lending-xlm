@@ -54,6 +54,7 @@ SHELL := /bin/bash
         _preflight-configure-controller _preflight-upgrade-pools _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
         build-aggregator deploy-aggregator prepay-rent \
+        build-oracle-adapter deploy-oracle-adapter \
         configure-controller setup-testnet setup-mainnet _setup-markets _unpause-after-setup \
         info invoke invoke-id view view-id \
         testnet mainnet \
@@ -102,6 +103,13 @@ FLASH_LOAN_AMOUNT ?= 10000000
 FLASH_RECEIVER_FUND ?= 10000000
 # Aggregator constructor admin; empty means "use the deploying signer".
 AGGREGATOR_ADMIN ?=
+# xoxno-oracle-adapter constructor args; admin/signers default to the deploying
+# signer alone (fine for a first testnet smoke-deploy, not for production —
+# override with the bot wallets' real derived addresses before real use).
+ORACLE_ADAPTER_ADMIN ?=
+ORACLE_ADAPTER_SIGNERS ?=
+ORACLE_ADAPTER_THRESHOLD ?= 1
+ORACLE_ADAPTER_RESOLUTION ?= 60
 POOL_WASM_HASH_FILE ?= target/pool_wasm_hash.txt
 POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
 CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
@@ -687,11 +695,11 @@ _preflight-tools:
 _preflight-network-config: _preflight-tools
 	@test -f $(CONFIG_DIR)/networks.json || { echo "Config file not found: $(CONFIG_DIR)/networks.json"; exit 1; }
 	@jq -e '.["$(NETWORK)"] != null' $(CONFIG_DIR)/networks.json >/dev/null || { echo "Network $(NETWORK) not found in $(CONFIG_DIR)/networks.json"; exit 1; }
-	@test -f $(CONFIG_DIR)/$(NETWORK)_markets.json || { echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)_markets.json"; exit 1; }
-	@jq -e '.markets | type == "array" and length > 0' $(CONFIG_DIR)/$(NETWORK)_markets.json >/dev/null || { echo "No configured markets in $(CONFIG_DIR)/$(NETWORK)_markets.json"; exit 1; }
-	@jq -e 'all(.markets[]; (.name // "") != "" and (.asset_address // "") != "")' $(CONFIG_DIR)/$(NETWORK)_markets.json >/dev/null || { echo "Every configured market must have name and asset_address"; exit 1; }
-	@test -f $(CONFIG_DIR)/spokes.json || { echo "Config file not found: $(CONFIG_DIR)/spokes.json"; exit 1; }
-	@jq -e '.["$(NETWORK)"] | type == "object"' $(CONFIG_DIR)/spokes.json >/dev/null || { echo "Spoke config for $(NETWORK) not found in $(CONFIG_DIR)/spokes.json"; exit 1; }
+	@test -f $(CONFIG_DIR)/$(NETWORK)/markets.json || { echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)/markets.json"; exit 1; }
+	@jq -e '.markets | type == "array" and length > 0' $(CONFIG_DIR)/$(NETWORK)/markets.json >/dev/null || { echo "No configured markets in $(CONFIG_DIR)/$(NETWORK)/markets.json"; exit 1; }
+	@jq -e 'all(.markets[]; (.name // "") != "" and (.asset_address // "") != "")' $(CONFIG_DIR)/$(NETWORK)/markets.json >/dev/null || { echo "Every configured market must have name and asset_address"; exit 1; }
+	@test -f $(CONFIG_DIR)/$(NETWORK)/spokes.json || { echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)/spokes.json"; exit 1; }
+	@jq -e 'type == "object"' $(CONFIG_DIR)/$(NETWORK)/spokes.json >/dev/null || { echo "Spoke config in $(CONFIG_DIR)/$(NETWORK)/spokes.json is not a JSON object"; exit 1; }
 
 # Setup must not go live without the aggregator (swap router) and accumulator
 # (revenue treasury). ALLOW_MISSING_AGGREGATOR=1 / ALLOW_MISSING_ACCUMULATOR=1
@@ -904,7 +912,7 @@ prepay-rent:
 	  echo "  controller: $$CTRL"; \
 	  echo "  pool_wasm_hash: $$HASH"; \
 	  echo "  markets:"; \
-	  jq -r '.markets[] | "    - { hub_id: \(.hub_id), asset: \(.asset_address) }"' $(CONFIG_DIR)/$(NETWORK)_markets.json; \
+	  jq -r '.markets[] | "    - { hub_id: \(.hub_id), asset: \(.asset_address) }"' $(CONFIG_DIR)/$(NETWORK)/markets.json; \
 	  echo "  market_assets: []"; \
 	  echo "  flash_loan_receiver: $$FLR"; \
 	  echo "  governance: $$GOV"; \
@@ -968,6 +976,49 @@ deploy-aggregator: build-aggregator
 	jq '.["$(NETWORK)"].aggregator = "'$$AGG'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
+## Build the self-hosted multi-signer oracle / SEP-40 reader contract.
+build-oracle-adapter:
+	@echo "Building xoxno-oracle-adapter..."
+	@stellar contract build --package xoxno-oracle-adapter
+	@mkdir -p $(DEPLOY_DIR)
+	@if command -v stellar &>/dev/null; then \
+		stellar contract optimize \
+			--wasm $(RELEASE_DIR)/xoxno_oracle_adapter.wasm \
+			--wasm-out $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm 2>/dev/null || \
+		cp $(RELEASE_DIR)/xoxno_oracle_adapter.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
+	else \
+		cp $(RELEASE_DIR)/xoxno_oracle_adapter.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
+	fi
+	@ls -lh $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm
+
+## Deploy xoxno-oracle-adapter and record its address in networks.json.
+## Admin/signers default to the deploying signer alone if unset — override
+## with the bot wallets' real derived Stellar addresses before real use:
+##   make testnet deployOracleAdapter \
+##     ORACLE_ADAPTER_ADMIN=<address> \
+##     ORACLE_ADAPTER_SIGNERS='["<addr1>","<addr2>","<addr3>"]' \
+##     ORACLE_ADAPTER_THRESHOLD=2
+deploy-oracle-adapter: build-oracle-adapter
+	@echo "=== Deploying xoxno-oracle-adapter on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@ADMIN=$${ORACLE_ADAPTER_ADMIN:-$(SIGNER_ADDRESS)}; \
+	SIGNERS=$${ORACLE_ADAPTER_SIGNERS:-'["'$(SIGNER_ADDRESS)'"]'}; \
+	echo "Admin: $$ADMIN"; \
+	echo "Signers: $$SIGNERS"; \
+	echo "Threshold: $(ORACLE_ADAPTER_THRESHOLD)"; \
+	echo "Resolution: $(ORACLE_ADAPTER_RESOLUTION)"; \
+	stellar contract deploy \
+		--wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) \
+		--alias xoxno-oracle-adapter \
+		-- --admin $$ADMIN --signers "$$SIGNERS" --threshold $(ORACLE_ADAPTER_THRESHOLD) --resolution $(ORACLE_ADAPTER_RESOLUTION) > target/oracle_adapter_id.txt
+	@ORA=$$(tail -n1 target/oracle_adapter_id.txt); \
+	echo "Oracle adapter: $$ORA"; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].xoxno_oracle_adapter = "'$$ORA'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+
 ## Build the flash-loan receiver test contract for network smoke testing.
 build-flash-loan-receiver:
 	@echo "Building flash-loan receiver..."
@@ -1001,7 +1052,7 @@ deploy-flash-loan-receiver: build-flash-loan-receiver
 ## Fund the deployed flash-loan receiver with the selected market asset.
 fund-flash-loan-receiver:
 	@echo "=== Funding flash-loan receiver on $(NETWORK) ==="
-	@ASSET=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .asset_address' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
+	@ASSET=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .asset_address' $(CONFIG_DIR)/$(NETWORK)/markets.json); \
 	RECEIVER=$$(stellar contract alias show flash-loan-receiver --network $(NETWORK) 2>/dev/null | tail -n1); \
 	if [ -z "$$RECEIVER" ]; then \
 		RECEIVER=$$(jq -r ".\"$(NETWORK)\".flash_loan_receiver // empty" $(CONFIG_DIR)/networks.json); \
@@ -1027,8 +1078,8 @@ test-flash-loan-receiver:
 	if [ -z "$$CTRL" ]; then \
 		CTRL=$$(jq -r ".\"$(NETWORK)\".controller // empty" $(CONFIG_DIR)/networks.json); \
 	fi; \
-	ASSET=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .asset_address' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
-	HUB_ID=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .hub_id' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
+	ASSET=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .asset_address' $(CONFIG_DIR)/$(NETWORK)/markets.json); \
+	HUB_ID=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .hub_id' $(CONFIG_DIR)/$(NETWORK)/markets.json); \
 	RECEIVER=$$(stellar contract alias show flash-loan-receiver --network $(NETWORK) 2>/dev/null | tail -n1); \
 	if [ -z "$$RECEIVER" ]; then \
 		RECEIVER=$$(jq -r ".\"$(NETWORK)\".flash_loan_receiver // empty" $(CONFIG_DIR)/networks.json); \
@@ -1246,10 +1297,10 @@ _unpause-after-setup:
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh unpause
 
 _setup-markets:
-	@echo "=== Setting up markets from $(CONFIG_DIR)/$(NETWORK)_markets.json ==="
-	@if [ ! -f $(CONFIG_DIR)/$(NETWORK)_markets.json ]; then \
-		echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)_markets.json"; \
-		echo "Create it based on the configs/testnet_markets.json pattern."; \
+	@echo "=== Setting up markets from $(CONFIG_DIR)/$(NETWORK)/markets.json ==="
+	@if [ ! -f $(CONFIG_DIR)/$(NETWORK)/markets.json ]; then \
+		echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)/markets.json"; \
+		echo "Create it based on the configs/testnet/markets.json pattern."; \
 		exit 1; \
 	fi
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setupAll
@@ -1279,6 +1330,7 @@ _setup-markets:
 # Action classification - dispatcher routes action to script.sh,
 # passing positional args verbatim. Adding a new verb means add here + script.sh.
 SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeReady \
+	configureOracleFeeds listOracleFeeds \
 	validateConfigs checkDelay \
 	setupAll setupAllMarkets setupAllSpokes \
 	whitelistBlendPools approveBlendPools \
@@ -1296,7 +1348,8 @@ POSITIONAL_MARKET_ACTIONS := createMarket updateMarketParams \
 POSITIONAL_ID_ACTIONS := addSpoke getSpoke createHub removeSpoke \
 	executeOp cancelOp opState awaitOp transferGovOwnership disableTokenOracle \
 	revokeBlendPool setPositionLimits setMinBorrowCollateralUsd setPositionManager \
-	transferCtrlOwnership migrateController accountExists isBlendPoolApproved
+	transferCtrlOwnership migrateController accountExists isBlendPoolApproved \
+	addOracleSigner setSpokeLiquidationCurve
 POSITIONAL_ID_ASSET_ACTIONS := addAssetToSpoke editAssetInSpoke removeAssetFromSpoke getSpokeAsset
 POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd \
                               getLtvUsd getLiqAvailable canLiquidate
@@ -1308,7 +1361,7 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidati
 # Makefile-internal actions — handled directly by make targets, not forwarded
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
 MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePoolTemplate upgradePools upgradeAll \
-                    deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator prepayRent setup resume
+                    deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume
 
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
                $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
@@ -1345,6 +1398,7 @@ define NETWORK_DISPATCH
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \
 				testFlashReceiver)  $(MAKE) --no-print-directory test-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_LOAN_AMOUNT=$(FLASH_LOAN_AMOUNT) ;; \
 				deployAggregator)   $(MAKE) --no-print-directory deploy-aggregator NETWORK=$(1) SIGNER=$(SIGNER) AGGREGATOR_ADMIN=$(AGGREGATOR_ADMIN) ;; \
+				deployOracleAdapter) $(MAKE) --no-print-directory deploy-oracle-adapter NETWORK=$(1) SIGNER=$(SIGNER) ORACLE_ADAPTER_ADMIN=$(ORACLE_ADAPTER_ADMIN) ORACLE_ADAPTER_SIGNERS=$(ORACLE_ADAPTER_SIGNERS) ORACLE_ADAPTER_THRESHOLD=$(ORACLE_ADAPTER_THRESHOLD) ORACLE_ADAPTER_RESOLUTION=$(ORACLE_ADAPTER_RESOLUTION) ;; \
 				prepayRent)         $(MAKE) --no-print-directory prepay-rent NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				setup)              if [ "$(1)" = "mainnet" ]; then \
 						$(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
@@ -1500,6 +1554,12 @@ help:
 	@echo "  make testnet deployAggregator       Deploy swap-router contract; writes networks.json aggregator"
 	@echo "    AGGREGATOR_ADMIN=G...              Constructor admin (default: deploying signer)"
 	@echo "    Then: make testnet setAggregator   Point the controller at it (timelocked)"
+	@echo "  make testnet deployOracleAdapter    Deploy xoxno-oracle-adapter; writes networks.json xoxno_oracle_adapter"
+	@echo "    ORACLE_ADAPTER_ADMIN=G...          Constructor admin (default: deploying signer)"
+	@echo "    ORACLE_ADAPTER_SIGNERS='[\"G...\"]' Constructor bot-signer set (default: deploying signer alone)"
+	@echo "    ORACLE_ADAPTER_THRESHOLD=N         N-of-M aggregation threshold (default: 1)"
+	@echo "    Then: make testnet configureOracleFeeds  add_feed for every entry in ${NETWORK}/oracle_feeds.json"
+	@echo "  make testnet addOracleSigner <address>   Register a bot wallet's signer address (idempotent)"
 	@echo "  make testnet info                   Show deployed contract IDs"
 	@echo ""
 	@echo "Config-driven operations (pattern: make <network> <action> [args]):"
@@ -1561,13 +1621,15 @@ help:
 	@echo "    make testnet setPositionLimits 10 10            Timelocked max supply/borrow positions"
 	@echo "    make testnet setMinBorrowCollateralUsd 5000000000000000000"
 	@echo "    make testnet setPositionManager GAB... true"
+	@echo "    make testnet setSpokeLiquidationCurve 1 1020000000000000000 510000000000000000 10000"
+	@echo "                                                     Timelocked target_hf/hf_for_max_bonus/bonus_factor_bps"
 	@echo "    make testnet transferCtrlOwnership C... <live_until_ledger>"
 	@echo "    make testnet transferGovOwnership G... <live_until_ledger>"
 	@echo "    make testnet migrateController 2"
 	@echo "    make testnet revokeBlendPool C..."
 	@echo "    make testnet claimRevenue USDC XLM              Claim revenue one or more markets"
 	@echo "    make testnet claimRevenueAll                    Claim revenue for every configured market"
-	@echo "    make testnet whitelistBlendPools                Approve Blend pools from configs/blend_pools.json"
+	@echo "    make testnet whitelistBlendPools                Approve Blend pools from configs/$(NETWORK)/blend.json"
 	@echo "    make testnet approveBlendPools                  Same as whitelistBlendPools"
 	@echo ""
 	@echo "  Quick views (reads, no signing cost):"

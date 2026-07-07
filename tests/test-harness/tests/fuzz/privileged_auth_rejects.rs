@@ -159,6 +159,14 @@ proptest! {
             ctrl.set_auths(&no_auths)
                 .try_remove_asset_from_spoke(&hub_asset(usdc.clone()), &category_id)
         }).unwrap();
+        expect_rejected("set_spoke_liquidation_curve", || {
+            ctrl.set_auths(&no_auths).try_set_spoke_liquidation_curve(
+                &category_id,
+                &(controller::constants::WAD + controller::constants::WAD / 50),
+                &(controller::constants::WAD / 2),
+                &8_000u32,
+            )
+        }).unwrap();
         expect_rejected("approve_token", || {
             ctrl.set_auths(&no_auths).try_approve_token(&usdc)
         }).unwrap();

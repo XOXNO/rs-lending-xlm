@@ -576,10 +576,10 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// * Bridges an external callback: repayment is enforced solely by loaned-token
     ///   balance and allowance checks that bracket the callback and `transfer_from`,
     ///   so the asset must be a well-behaved SAC.
+    /// Flash loan safety: balance and allowance checks bracket callback and transfer_from.
+    /// State and revenue are saved after callback repayment passes balance checks.
+    /// Repayment is checked against the loaned token balance.
     #[only_owner]
-    // Flash loan safety: balance and allowance checks bracket callback and transfer_from.
-    // State and revenue are saved after callback repayment passes balance checks.
-    // Repayment is checked against the loaned token balance.
     fn flash_loan(
         env: Env,
         hub_asset: HubAssetKey,
@@ -677,10 +677,6 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// * Performs no borrower solvency check and enforces no spoke borrow cap; the
     ///   owning controller must gate the strategy against account health and caps.
     #[only_owner]
-    // Strategy borrow records fee as protocol revenue before transfer; net amount
-    // is sent. The pool's own utilization check runs against the full pre-fee
-    // amount; the returned scaled delta (also full-amount-based) later feeds
-    // the controller's spoke borrow-cap check.
     fn create_strategy(
         env: Env,
         receiver: Address,
@@ -785,8 +781,6 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// # Events
     /// * A market-state update reflecting the burned revenue and reduced cash.
     #[only_owner]
-    // Claim burns scaled revenue from revenue and supplied totals, capped by reserves.
-    // Solvency is checked before transfer.
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
         let mut cache = load_synced_cache(&env, &hub_asset);
 

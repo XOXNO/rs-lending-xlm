@@ -148,7 +148,7 @@ inv manager_deactivate_alice "$ADMIN" "$CONTROLLER" -- set_position_manager \
 # Blend allow-list coverage. Real migration is opt-in because it moves caller's
 # live Blend position; absence of a position is environment, not refactor, risk.
 local blend_pool
-blend_pool=$(jq -r --arg net "$NETWORK" '.[$net].pools[0].address // empty' "$REPO_ROOT/configs/blend_pools.json")
+blend_pool=$(jq -r '.pools[0].address // empty' "$REPO_ROOT/configs/$NETWORK/blend.json")
 if [ -n "$blend_pool" ] && [ "$blend_pool" != "null" ]; then
 view blend_pool_initial "$CONTROLLER" -- is_blend_pool_approved --pool "$blend_pool" >/dev/null
 inv blend_pool_approve "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null

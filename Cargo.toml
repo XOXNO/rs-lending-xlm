@@ -10,6 +10,7 @@ members = [
     "contracts/aggregator",
     "contracts/defindex-strategy",
     "contracts/flash-loan-receiver",
+    "contracts/xoxno-oracle-adapter",
     "mock/mock-oracle",
     "mock/mock-redstone",
     "tests/test-harness",

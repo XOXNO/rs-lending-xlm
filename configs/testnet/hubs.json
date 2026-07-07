@@ -1,0 +1,9 @@
+{
+  "_comment": "Human-readable hub_id -> name registry. hub_id itself is assigned on-chain by create_hub() (sequential, starting at 1); this file is a local label only, read by list_hubs for display.",
+  "1": {
+    "name": "Main"
+  },
+  "2": {
+    "name": "Secondary"
+  }
+}

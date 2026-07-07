@@ -2556,6 +2556,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "xoxno-oracle-adapter"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "soroban-sdk",
+ "stellar-access",
+ "stellar-contract-utils",
+ "stellar-macros",
+]
+
+[[package]]
 name = "zerocopy"
 version = "0.8.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"

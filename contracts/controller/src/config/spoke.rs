@@ -48,3 +48,35 @@ pub fn remove_spoke(env: &Env, id: u32) {
     }
     .publish(env);
 }
+
+/// Overrides a spoke's liquidation curve (target HF, HF for max bonus, bonus
+/// factor), replacing the defaults stamped at creation. `storage::get_spoke`
+/// reverts `SpokeNotFound` for an unknown id.
+pub fn set_spoke_liquidation_curve(
+    env: &Env,
+    id: u32,
+    target_hf_wad: i128,
+    hf_for_max_bonus_wad: i128,
+    liquidation_bonus_factor_bps: u32,
+) {
+    // Re-validated here (not just at governance propose time) so a direct
+    // owner call can't bypass the bounds that keep the bonus interpolation
+    // safe (see `common::validation::validate_liquidation_curve`).
+    common::validation::validate_liquidation_curve(
+        env,
+        target_hf_wad,
+        hf_for_max_bonus_wad,
+        liquidation_bonus_factor_bps,
+    );
+
+    let mut spoke = storage::get_spoke(env, id);
+    spoke.liquidation_target_hf_wad = target_hf_wad;
+    spoke.hf_for_max_bonus_wad = hf_for_max_bonus_wad;
+    spoke.liquidation_bonus_factor_bps = liquidation_bonus_factor_bps;
+    storage::set_spoke(env, id, &spoke);
+
+    UpdateSpokeEvent {
+        spoke: EventSpoke::new(id, &spoke),
+    }
+    .publish(env);
+}

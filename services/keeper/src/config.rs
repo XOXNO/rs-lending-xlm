@@ -44,6 +44,12 @@ pub struct ContractsConfig {
     /// `Some("")` — otherwise the blank placeholder fails the `C...` check below.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub governance: Option<String>,
+    /// Self-hosted `xoxno-oracle-adapter` price oracle. When set, its instance
+    /// plus its enumerable persistent index and price state are TTL-bumped each
+    /// tick. Mirrors `networks.json`'s `xoxno_oracle_adapter` field. An
+    /// empty/blank YAML value means "unset" (`None`), like `governance`.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub xoxno_oracle_adapter: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -180,6 +186,13 @@ impl KeeperConfig {
             if !governance.starts_with('C') {
                 return Err(anyhow!(
                     "config.contracts.governance must be a C... address when set"
+                ));
+            }
+        }
+        if let Some(adapter) = &self.contracts.xoxno_oracle_adapter {
+            if !adapter.starts_with('C') {
+                return Err(anyhow!(
+                    "config.contracts.xoxno_oracle_adapter must be a C... address when set"
                 ));
             }
         }

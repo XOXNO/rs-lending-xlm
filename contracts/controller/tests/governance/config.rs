@@ -65,3 +65,92 @@ fn require_hub_active_rejects_deactivated_hub() {
         hub::require_hub_active(&env, id);
     });
 }
+
+// The setter overrides the defaults stamped at `add_spoke` and the change is
+// visible on the next `storage::get_spoke` read.
+#[test]
+fn set_spoke_liquidation_curve_overrides_defaults() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    env.as_contract(&contract, || {
+        let id = spoke::add_spoke(&env);
+        let before = storage::get_spoke(&env, id);
+        assert_eq!(before.liquidation_target_hf_wad, 1_020_000_000_000_000_000);
+
+        spoke::set_spoke_liquidation_curve(
+            &env,
+            id,
+            1_010_000_000_000_000_000,
+            995_000_000_000_000_000,
+            8_000,
+        );
+
+        let after = storage::get_spoke(&env, id);
+        assert_eq!(after.liquidation_target_hf_wad, 1_010_000_000_000_000_000);
+        assert_eq!(after.hf_for_max_bonus_wad, 995_000_000_000_000_000);
+        assert_eq!(after.liquidation_bonus_factor_bps, 8_000);
+        // Deprecation flag is untouched by the curve setter.
+        assert!(!after.is_deprecated);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #300)")]
+fn set_spoke_liquidation_curve_panics_for_unknown_spoke() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    env.as_contract(&contract, || {
+        spoke::set_spoke_liquidation_curve(
+            &env,
+            999,
+            1_020_000_000_000_000_000,
+            510_000_000_000_000_000,
+            10_000,
+        );
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #134)")]
+fn set_spoke_liquidation_curve_panics_for_target_hf_at_one() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    env.as_contract(&contract, || {
+        let id = spoke::add_spoke(&env);
+        spoke::set_spoke_liquidation_curve(&env, id, 1_000_000_000_000_000_000, 500_000_000_000_000_000, 10_000);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #134)")]
+fn set_spoke_liquidation_curve_panics_for_hf_for_max_bonus_above_target() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    env.as_contract(&contract, || {
+        let id = spoke::add_spoke(&env);
+        spoke::set_spoke_liquidation_curve(
+            &env,
+            id,
+            1_020_000_000_000_000_000,
+            1_030_000_000_000_000_000,
+            10_000,
+        );
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #134)")]
+fn set_spoke_liquidation_curve_panics_for_bonus_factor_above_bps() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    env.as_contract(&contract, || {
+        let id = spoke::add_spoke(&env);
+        spoke::set_spoke_liquidation_curve(
+            &env,
+            id,
+            1_020_000_000_000_000_000,
+            510_000_000_000_000_000,
+            10_001,
+        );
+    });
+}

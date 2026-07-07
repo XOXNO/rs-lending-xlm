@@ -55,6 +55,12 @@ pub(super) fn validate_market_oracle_config(
         config.min_sanity_price_wad,
         config.max_sanity_price_wad,
     );
+    common::validation::validate_single_source_sanity_band(
+        env,
+        config.strategy,
+        config.min_sanity_price_wad,
+        config.max_sanity_price_wad,
+    );
     require_quote_markets_active_usd(env, asset, config);
 }
 

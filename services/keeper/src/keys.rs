@@ -137,6 +137,73 @@ impl PoolPersistentKey {
     }
 }
 
+/// Persistent keys for the self-hosted `xoxno-oracle-adapter` price oracle.
+///
+/// Mirrors the persistent variants of the contract's `DataKey` (see
+/// `contracts/xoxno-oracle-adapter/src/storage.rs`). The enumerable per-asset
+/// and per-feed variants carry the raw on-chain `ReflectorAsset` / feed-id
+/// `String` `ScVal`, harvested verbatim from the index slot entries
+/// (`AssetAt` / `FeedAt`), so their encoding matches the contract's
+/// `#[contracttype]` exactly without re-modeling `ReflectorAsset` in the keeper.
+///
+/// `Signers`, `Threshold`, `MaxStaleSeconds`, and `Resolution` are omitted:
+/// the contract keeps them in INSTANCE storage, so one adapter instance bump
+/// covers them.
+#[derive(Debug, Clone)]
+pub enum OracleAdapterKey {
+    /// Enumerable asset-index count backing `assets()`.
+    AssetCount,
+    /// Enumerable known-feed-index count.
+    FeedCount,
+    /// `AssetAt(u32)` slot holding a `ReflectorAsset`.
+    AssetAt(u32),
+    /// `FeedAt(u32)` slot holding a feed-id `String`.
+    FeedAt(u32),
+    /// `AssetIndex(ReflectorAsset)` reverse lookup; arg is the raw asset ScVal.
+    AssetIndex(ScVal),
+    /// `FeedMapping(ReflectorAsset)`; arg is the raw asset ScVal.
+    FeedMapping(ScVal),
+    /// `FeedIndex(String)`; arg is the raw feed-id ScVal.
+    FeedIndex(ScVal),
+    /// `CurrentAggregate(String)`; arg is the raw feed-id ScVal.
+    CurrentAggregate(ScVal),
+    /// `History(String)`; arg is the raw feed-id ScVal.
+    History(ScVal),
+    /// `LatestSubmission(String, Address)`; args are the raw feed-id ScVal then
+    /// the signer address, in that field order.
+    LatestSubmission(ScVal, ScAddress),
+}
+
+impl OracleAdapterKey {
+    pub fn to_sc_val(&self) -> Result<ScVal> {
+        Ok(match self {
+            Self::AssetCount => sc_enum("AssetCount", &[])?,
+            Self::FeedCount => sc_enum("FeedCount", &[])?,
+            Self::AssetAt(index) => sc_enum("AssetAt", &[ScVal::U32(*index)])?,
+            Self::FeedAt(index) => sc_enum("FeedAt", &[ScVal::U32(*index)])?,
+            Self::AssetIndex(asset) => sc_enum("AssetIndex", std::slice::from_ref(asset))?,
+            Self::FeedMapping(asset) => sc_enum("FeedMapping", std::slice::from_ref(asset))?,
+            Self::FeedIndex(feed) => sc_enum("FeedIndex", std::slice::from_ref(feed))?,
+            Self::CurrentAggregate(feed) => {
+                sc_enum("CurrentAggregate", std::slice::from_ref(feed))?
+            }
+            Self::History(feed) => sc_enum("History", std::slice::from_ref(feed))?,
+            Self::LatestSubmission(feed, signer) => sc_enum(
+                "LatestSubmission",
+                &[feed.clone(), ScVal::Address(signer.clone())],
+            )?,
+        })
+    }
+
+    pub fn to_ledger_key(&self, adapter_id: &[u8; 32]) -> Result<LedgerKey> {
+        Ok(contract_data_key(
+            adapter_id,
+            self.to_sc_val()?,
+            ContractDataDurability::Persistent,
+        ))
+    }
+}
+
 // Governance storage needs no enum here: the contract keeps almost everything
 // in INSTANCE storage, so a single instance bump covers `GovernanceKey::
 // Controller`, ownable `Owner`, access_control `Admin` + per-role `RoleAdmin`,
@@ -468,6 +535,79 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(sym_text(&items[0]), "BorrowPositions");
         assert!(matches!(items[1], ScVal::U64(1)));
+    }
+
+    #[test]
+    fn oracle_adapter_asset_count_is_unit_variant() {
+        let sv = OracleAdapterKey::AssetCount.to_sc_val().unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 1);
+        assert_eq!(sym_text(&items[0]), "AssetCount");
+    }
+
+    #[test]
+    fn oracle_adapter_feed_at_carries_u32_slot() {
+        let sv = OracleAdapterKey::FeedAt(5).to_sc_val().unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(sym_text(&items[0]), "FeedAt");
+        assert!(matches!(items[1], ScVal::U32(5)));
+    }
+
+    #[test]
+    fn oracle_adapter_feed_mapping_wraps_raw_asset_scval() {
+        // The raw `ReflectorAsset` ScVal is passed through verbatim as the arg.
+        let asset = ScVal::Vec(Some(ScVec(
+            vec![ScVal::Symbol(symbol("Other").unwrap())]
+                .try_into()
+                .unwrap(),
+        )));
+        let sv = OracleAdapterKey::FeedMapping(asset.clone())
+            .to_sc_val()
+            .unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(sym_text(&items[0]), "FeedMapping");
+        assert_eq!(items[1], asset);
+    }
+
+    #[test]
+    fn oracle_adapter_latest_submission_is_feed_then_signer() {
+        let feed = ScVal::String(stellar_xdr::curr::ScString(
+            StringM::try_from("BTC").unwrap(),
+        ));
+        let signer = ScAddress::Account(AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(
+            [1u8; 32],
+        ))));
+        let sv = OracleAdapterKey::LatestSubmission(feed.clone(), signer.clone())
+            .to_sc_val()
+            .unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 3);
+        assert_eq!(sym_text(&items[0]), "LatestSubmission");
+        assert_eq!(items[1], feed);
+        assert!(matches!(items[2], ScVal::Address(ScAddress::Account(_))));
+    }
+
+    #[test]
+    fn oracle_adapter_key_is_persistent_contract_data() {
+        let key = OracleAdapterKey::FeedCount.to_ledger_key(&[5u8; 32]).unwrap();
+        let LedgerKey::ContractData(cd) = key else {
+            panic!("expected ContractData");
+        };
+        assert!(matches!(cd.durability, ContractDataDurability::Persistent));
+        assert!(matches!(
+            cd.contract,
+            ScAddress::Contract(ContractId(Hash(b))) if b == [5u8; 32]
+        ));
     }
 
     #[test]
