@@ -51,10 +51,12 @@ impl XoxnoOracle {
         let feed_id = load_feed_id(&env, &asset)?;
         let history = Self::read_price_history(env.clone(), feed_id, MAX_HISTORY_LEN).ok()?;
 
-        // History is newest-first, so the first entry at or before `timestamp`
-        // is the closest sample not in the future.
+        // Filter by the same observation time this endpoint exposes
+        // (`package_timestamp`), not the aggregate write time, so a sample
+        // observed at or before `timestamp` but submitted later still qualifies.
+        // History is newest-first, so the first match is the closest sample.
         for entry in history.iter() {
-            if millis_to_seconds(entry.write_timestamp) <= timestamp {
+            if millis_to_seconds(entry.package_timestamp) <= timestamp {
                 return Some(to_reflector_price_data(&env, &entry));
             }
         }

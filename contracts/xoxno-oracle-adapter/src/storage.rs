@@ -160,6 +160,14 @@ impl XoxnoOracle {
         env.storage()
             .instance()
             .set(&DataKey::MaxStaleSeconds, &seconds);
+
+        // Re-validate every known feed against the new window: lowering the cap
+        // can push a previously-included submission out of range, so recompute
+        // clears any aggregate that would no longer qualify instead of letting
+        // it serve until the next submission. O(known-feeds); infrequent admin op.
+        for feed_id in load_all_feeds(&env).iter() {
+            recompute_aggregate(&env, &feed_id);
+        }
         Ok(())
     }
 
