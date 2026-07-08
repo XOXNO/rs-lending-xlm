@@ -674,11 +674,12 @@ async fn discover_user_keys(
     let ids: Vec<u64> = (1..=scan_ceiling).collect();
 
     for id_chunk in ids.chunks(chunk) {
-        let mut keys = Vec::with_capacity(id_chunk.len() * 3);
+        let mut keys = Vec::with_capacity(id_chunk.len() * 4);
         for &id in id_chunk {
             keys.push(ControllerUserKey::AccountMeta(id).to_ledger_key(controller_id)?);
             keys.push(ControllerUserKey::SupplyPositions(id).to_ledger_key(controller_id)?);
             keys.push(ControllerUserKey::BorrowPositions(id).to_ledger_key(controller_id)?);
+            keys.push(ControllerUserKey::Delegates(id).to_ledger_key(controller_id)?);
         }
         rows.extend(client.get_ledger_entries(&keys).await?);
     }

@@ -85,7 +85,8 @@ impl Controller {
         stellar_contract_utils::pausable::pause(&env);
     }
 
-    /// Pauses the contract and upgrades its Wasm to `new_wasm_hash`.
+    /// Pauses the contract (if not already) and upgrades its Wasm to
+    /// `new_wasm_hash`.
     ///
     /// # Security Warning
     /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
@@ -93,7 +94,13 @@ impl Controller {
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_controller_instance(&env);
-        stellar_contract_utils::pausable::pause(&env);
+        // `pause()` panics `EnforcedPause` if already paused. The contract
+        // deploys paused (`__constructor`) and incident response pauses it, so
+        // guard the call — otherwise `upgrade()` self-reverts in exactly the
+        // paused state it is most needed in.
+        if !stellar_contract_utils::pausable::paused(&env) {
+            stellar_contract_utils::pausable::pause(&env);
+        }
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
