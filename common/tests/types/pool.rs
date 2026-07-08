@@ -347,3 +347,129 @@ fn test_market_params_verify_rate_model_delegates() {
     raw.slope2 = raw.slope1 - 1; // slope2 < slope1.
     raw.verify_rate_model(&env);
 }
+
+// ===== coverage gap-closure tests =====
+// test_pool_scaled_and_debt_position_conversions (+32) common/src/types/pool.rs:276-288,307-328,414-420
+#[test]
+fn test_scaled_position_raw_from_typed_positions() {
+    let raw_pos = AccountPositionRaw {
+        scaled_amount: 7 * RAY,
+        liquidation_threshold: 8_000,
+        liquidation_bonus: 500,
+        loan_to_value: 7_500,
+        liquidation_fees: 100,
+    };
+    let typed_supply = AccountPosition::from(&raw_pos);
+    assert_eq!(
+        ScaledPositionRaw::from(&typed_supply).scaled_amount,
+        7 * RAY
+    );
+
+    let typed_debt = DebtPosition {
+        scaled_amount: Ray::from(3 * RAY),
+    };
+    assert_eq!(ScaledPositionRaw::from(&typed_debt).scaled_amount, 3 * RAY);
+}
+
+#[test]
+fn test_debt_position_conversions_roundtrip() {
+    let raw = DebtPositionRaw {
+        scaled_amount: 5 * RAY,
+    };
+    let typed = DebtPosition::from(&raw);
+    assert_eq!(typed.scaled_amount.raw(), 5 * RAY);
+    assert_eq!(DebtPositionRaw::from(&typed).scaled_amount, 5 * RAY);
+
+    // Pool returns a post-mutation ScaledPositionRaw that decodes to the debt position.
+    let from_scaled = DebtPosition::from(&ScaledPositionRaw {
+        scaled_amount: 9 * RAY,
+    });
+    assert_eq!(from_scaled.scaled_amount.raw(), 9 * RAY);
+}
+
+#[test]
+fn test_pool_strategy_mutation_projects_to_position_mutation() {
+    let m = PoolStrategyMutation {
+        position: ScaledPositionRaw {
+            scaled_amount: 11 * RAY,
+        },
+        market_index: MarketIndexRaw {
+            borrow_index: RAY,
+            supply_index: RAY,
+        },
+        actual_amount: 1_000,
+        amount_received: 900,
+    };
+    let projected = PoolPositionMutation::from(&m);
+    assert_eq!(projected.position.scaled_amount, 11 * RAY);
+    assert_eq!(projected.actual_amount, 1_000);
+    assert_eq!(projected.market_index.borrow_index, RAY);
+}
+// test_rate_model_verify_assert_with_error_branches (+14) common/src/types/pool.rs:169-213 (InterestRateModel::verify)
+#[test]
+#[should_panic(expected = "#128")]
+fn test_rate_model_verify_rejects_negative_base_rate() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.base_borrow_rate = -1;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#130")]
+fn test_rate_model_verify_rejects_max_equal_to_base() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    // Flatten the ladder: monotonic passes, but max == base.
+    m.base_borrow_rate = RAY;
+    m.slope1 = RAY;
+    m.slope2 = RAY;
+    m.slope3 = RAY;
+    m.max_borrow_rate = RAY;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#131")]
+fn test_rate_model_verify_rejects_max_above_cap() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.max_borrow_rate = MAX_BORROW_RATE_RAY + 1;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#117")]
+fn test_rate_model_verify_rejects_zero_mid_util() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.mid_utilization = 0;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#117")]
+fn test_rate_model_verify_rejects_optimal_equal_to_mid() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.optimal_utilization = m.mid_utilization;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#118")]
+fn test_rate_model_verify_rejects_optimal_at_ray() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.optimal_utilization = RAY;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#119")]
+fn test_rate_model_verify_rejects_reserve_factor_at_bps() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.reserve_factor = BPS as u32;
+    m.verify(&env);
+}

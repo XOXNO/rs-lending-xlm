@@ -644,3 +644,64 @@ fn test_simulate_guard_skips_reinvestment_when_supplied_zero() {
     assert_eq!(actual.borrow_index.raw(), expected_borrow_index.raw());
     assert_eq!(actual.supply_index.raw(), expected_supply_index.raw());
 }
+
+// ===== coverage gap-closure tests =====
+// test_rates_uncovered_guards (+6) common/src/rates.rs:59,128,219-222
+#[test]
+fn test_deposit_rate_reserve_factor_out_of_range_returns_zero() {
+    let env = Env::default();
+    // reserve_factor == BPS is outside [0, BPS); supplier rate collapses to zero.
+    let rate = calculate_deposit_rate(
+        &env,
+        Ray::from(RAY / 2),
+        Ray::from(RAY / 10),
+        Bps::from(crate::constants::BPS),
+    );
+    assert_eq!(rate, Ray::ZERO);
+}
+
+#[test]
+fn test_update_supply_index_rounds_supplied_value_to_zero_returns_old_index() {
+    let env = Env::default();
+    // 1 * 1 / RAY == 0, so total_supplied_value is zero despite nonzero rewards.
+    let out = update_supply_index(&env, Ray::from(1), Ray::from(1), Ray::from(5 * RAY));
+    assert_eq!(out, Ray::from(1));
+}
+
+#[test]
+fn test_simulate_update_indexes_zero_delta_is_noop() {
+    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
+    let env = Env::default();
+    let params = MarketParamsRaw {
+        max_borrow_rate: RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 300 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
+        asset_id: soroban_sdk::Address::from_str(
+            &env,
+            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        ),
+        asset_decimals: 7,
+    };
+    let state = PoolStateRaw {
+        supplied: 100 * RAY,
+        borrowed: 60 * RAY,
+        revenue: 0,
+        borrow_index: 2 * RAY,
+        supply_index: 3 * RAY,
+        last_timestamp: 1_000,
+        cash: 40_000_000,
+    };
+    let sync = PoolSyncData { params, state };
+    // Query at the checkpoint timestamp: delta == 0 returns the stored indexes verbatim.
+    let indexes = simulate_update_indexes(&env, 1_000, &sync);
+    assert_eq!(indexes.borrow_index, Ray::from(2 * RAY));
+    assert_eq!(indexes.supply_index, Ray::from(3 * RAY));
+}
