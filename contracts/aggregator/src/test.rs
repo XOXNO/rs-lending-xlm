@@ -228,9 +228,7 @@ mod aquarius_mock {
     }
 }
 
-/// Aquarius-ABI pool that lies about its output: it returns `report` and only
-/// transfers `deliver` of `token_out`, never pulling `token_in`. Models an
-/// untrusted route pool an attacker points the router at to fake swap output.
+/// Aquarius-ABI pool with configurable report/delivery/input pull.
 mod malicious_aquarius_mock {
     use super::*;
 
@@ -243,15 +241,30 @@ mod malicious_aquarius_mock {
         TokenB,
         Report,
         Deliver,
+        PullInput,
     }
 
     #[contractimpl]
     impl MaliciousAqPool {
         pub fn init(env: Env, token_a: Address, token_b: Address, report: u128, deliver: i128) {
+            Self::init_with_pull(env, token_a, token_b, report, deliver, false);
+        }
+
+        pub fn init_with_pull(
+            env: Env,
+            token_a: Address,
+            token_b: Address,
+            report: u128,
+            deliver: i128,
+            pull_input: bool,
+        ) {
             env.storage().instance().set(&MalKey::TokenA, &token_a);
             env.storage().instance().set(&MalKey::TokenB, &token_b);
             env.storage().instance().set(&MalKey::Report, &report);
             env.storage().instance().set(&MalKey::Deliver, &deliver);
+            env.storage()
+                .instance()
+                .set(&MalKey::PullInput, &pull_input);
         }
 
         pub fn get_tokens(env: Env) -> Vec<Address> {
@@ -263,17 +276,30 @@ mod malicious_aquarius_mock {
         pub fn swap(
             env: Env,
             user: Address,
-            _in_idx: u32,
+            in_idx: u32,
             out_idx: u32,
-            _in_amount: u128,
+            in_amount: u128,
             _out_min: u128,
         ) -> u128 {
             let token_a: Address = env.storage().instance().get(&MalKey::TokenA).unwrap();
             let token_b: Address = env.storage().instance().get(&MalKey::TokenB).unwrap();
+            let token_in = if in_idx == 0 {
+                token_a.clone()
+            } else {
+                token_b.clone()
+            };
             let token_out = if out_idx == 0 { token_a } else { token_b };
+            let pool = env.current_contract_address();
+            if env
+                .storage()
+                .instance()
+                .get(&MalKey::PullInput)
+                .unwrap_or(false)
+            {
+                token::Client::new(&env, &token_in).transfer(&user, &pool, &(in_amount as i128));
+            }
             let deliver: i128 = env.storage().instance().get(&MalKey::Deliver).unwrap();
             if deliver > 0 {
-                let pool = env.current_contract_address();
                 token::Client::new(&env, &token_out).transfer(&pool, &user, &deliver);
             }
             env.storage().instance().get(&MalKey::Report).unwrap()
@@ -361,6 +387,26 @@ mod comet_mock {
         ) -> (i128, i128) {
             let pool = env.current_contract_address();
             token::Client::new(&env, &token_in).transfer_from(&pool, &user, &pool, &amount_in);
+            token::Client::new(&env, &token_out).transfer(&pool, &user, &amount_in);
+            (amount_in, 0)
+        }
+    }
+
+    #[contract]
+    pub struct NoPullCometPool;
+
+    #[contractimpl]
+    impl NoPullCometPool {
+        pub fn swap_exact_amount_in(
+            env: Env,
+            _token_in: Address,
+            amount_in: i128,
+            token_out: Address,
+            _min_out: i128,
+            _max_price: i128,
+            user: Address,
+        ) -> (i128, i128) {
+            let pool = env.current_contract_address();
             token::Client::new(&env, &token_out).transfer(&pool, &user, &amount_in);
             (amount_in, 0)
         }
@@ -597,7 +643,7 @@ fn execute_strategy_credits_only_delivered_output_not_reported() {
     // Pool reports 700 but only delivers 500.
     let pool = env.register(malicious_aquarius_mock::MaliciousAqPool, ());
     malicious_aquarius_mock::MaliciousAqPoolClient::new(&env, &pool)
-        .init(&token_a, &token_b, &700u128, &500i128);
+        .init_with_pull(&token_a, &token_b, &700u128, &500i128, &true);
     sac_b.mint(&pool, &500);
     sac_a.mint(&sender, &1);
 
@@ -620,10 +666,53 @@ fn execute_strategy_credits_only_delivered_output_not_reported() {
     );
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1, &swap_xdr);
-    // Credited the real 500 delivered, not the 700 claimed.
     assert_eq!(out, 500);
+    assert_eq!(token::Client::new(&env, &token_a).balance(&router_addr), 0);
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 500);
     assert_eq!(token::Client::new(&env, &token_b).balance(&router_addr), 0);
+}
+
+#[test]
+fn execute_strategy_rejects_output_without_input_spend() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (token_a, sac_a) = new_asset(&env, &admin);
+    let (token_b, sac_b) = new_asset(&env, &admin);
+    let pool = env.register(malicious_aquarius_mock::MaliciousAqPool, ());
+    malicious_aquarius_mock::MaliciousAqPoolClient::new(&env, &pool)
+        .init(&token_a, &token_b, &500u128, &500i128);
+
+    sac_a.mint(&sender, &1);
+    sac_b.mint(&pool, &500);
+
+    let swap_xdr = strategy_xdr(
+        &env,
+        token_a.clone(),
+        token_b.clone(),
+        500,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_b.clone(),
+                1_000_000,
+            ),
+        ],
+    );
+
+    let err = RouterClient::new(&env, &router_addr)
+        .try_execute_strategy(&sender, &1, &swap_xdr)
+        .unwrap_err();
+    assert_eq!(err.unwrap(), Error::InvalidAmount.into());
+    assert_eq!(token::Client::new(&env, &token_a).balance(&router_addr), 0);
+    assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 0);
 }
 
 #[test]
@@ -730,7 +819,7 @@ fn comet_single_hop_happy_path() {
             one_hop_path(
                 &env,
                 SwapVenue::CometDex,
-                pool,
+                pool.clone(),
                 token_a.clone(),
                 token_b.clone(),
                 1_000_000,
@@ -742,6 +831,55 @@ fn comet_single_hop_happy_path() {
     assert_eq!(out, 250);
     assert_eq!(token::Client::new(&env, &token_a).balance(&sender), 750);
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 250);
+    assert_eq!(
+        token::Client::new(&env, &token_a).allowance(&router_addr, &pool),
+        0
+    );
+}
+
+#[test]
+fn comet_rejects_output_without_input_spend() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (token_a, sac_a) = new_asset(&env, &admin);
+    let (token_b, sac_b) = new_asset(&env, &admin);
+    let pool = env.register(comet_mock::NoPullCometPool, ());
+
+    sac_a.mint(&sender, &250);
+    sac_b.mint(&pool, &250);
+
+    let swap_xdr = strategy_xdr(
+        &env,
+        token_a.clone(),
+        token_b.clone(),
+        250,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::CometDex,
+                pool.clone(),
+                token_a.clone(),
+                token_b.clone(),
+                1_000_000,
+            ),
+        ],
+    );
+
+    let err = RouterClient::new(&env, &router_addr)
+        .try_execute_strategy(&sender, &250, &swap_xdr)
+        .unwrap_err();
+    assert_eq!(err.unwrap(), Error::InvalidAmount.into());
+    assert_eq!(
+        token::Client::new(&env, &token_a).allowance(&router_addr, &pool),
+        0
+    );
+    assert_eq!(token::Client::new(&env, &token_a).balance(&router_addr), 0);
+    assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 0);
 }
 
 #[test]
@@ -1020,4 +1158,66 @@ fn sweep_balance_recovers_stray_tokens_to_recipient() {
         token::Client::new(&env, &untouched_token).balance(&router_addr),
         500
     );
+}
+
+#[test]
+fn sweep_balance_keeps_fee_backing_claimable() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let router_addr = env.register(Router, (admin.clone(),));
+    let router = RouterClient::new(&env, &router_addr);
+    let sender = Address::generate(&env);
+    let referral_owner = Address::generate(&env);
+    let sweep_recipient = Address::generate(&env);
+    let asset_admin = Address::generate(&env);
+    let (token_a, sac_a) = new_asset(&env, &asset_admin);
+    let (token_b, sac_b) = new_asset(&env, &asset_admin);
+    let pool = env.register(aquarius_mock::AqPool, ());
+
+    aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
+    router.set_static_fee(&100);
+    let referral_id = router.add_referral(&referral_owner, &100);
+
+    sac_a.mint(&sender, &1_000);
+    sac_b.mint(&pool, &1_000);
+    let swap_xdr = strategy_xdr_with_referral(
+        &env,
+        token_a.clone(),
+        token_b.clone(),
+        980,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_b,
+                1_000_000,
+            ),
+        ],
+        referral_id,
+    );
+
+    assert_eq!(router.execute_strategy(&sender, &1_000, &swap_xdr), 980);
+    assert_eq!(router.admin_fee_balance(&token_a), 10);
+    assert_eq!(router.referral_fee_balance(&referral_id, &token_a), 10);
+
+    sac_a.mint(&router_addr, &123);
+    router.sweep_balance(&sweep_recipient, &vec![&env, token_a.clone()]);
+
+    let token_client = token::Client::new(&env, &token_a);
+    assert_eq!(token_client.balance(&sweep_recipient), 123);
+    assert_eq!(token_client.balance(&router_addr), 20);
+
+    router.claim_admin_fees(&admin, &vec![&env, token_a.clone()]);
+    router.claim_referral_fees(&referral_id, &vec![&env, token_a.clone()]);
+
+    assert_eq!(token_client.balance(&admin), 10);
+    assert_eq!(token_client.balance(&referral_owner), 10);
+    assert_eq!(router.admin_fee_balance(&token_a), 0);
+    assert_eq!(router.referral_fee_balance(&referral_id, &token_a), 0);
+    assert_eq!(token_client.balance(&router_addr), 0);
 }

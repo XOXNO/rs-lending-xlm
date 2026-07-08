@@ -1,13 +1,7 @@
-//! Per-venue swap dispatchers.
+//! Venue dispatch and balance checks.
 //!
-//! Every venue's `swap` drives one hop: it moves `amount_in` of `token_in` into
-//! the pool (directly, or via a pull it authorizes) and makes the pool send
-//! `token_out` to the router. A venue's returned/computed amount is advisory —
-//! route pools are caller-supplied and untrusted, so an adversarial pool can
-//! claim output it never delivered. `dispatch_hop` therefore credits the caller
-//! only the router's measured `token_out` balance delta across the venue call.
-//! This single invariant blocks fake-output theft of router-held balances (e.g.
-//! accrued fees) and transparently handles fee-on-transfer output tokens.
+//! Route pools are untrusted. A hop must spend exactly its input and deliver
+//! real output; venue return values are advisory.
 
 pub(crate) mod aquarius;
 pub(crate) mod comet;
@@ -22,17 +16,12 @@ use soroban_sdk::{
     panic_with_error, token, vec, Address, Env, IntoVal, Symbol, Val,
 };
 
-/// Execute a single hop against the venue indicated by `hop.venue`, returning
-/// the amount of `token_out` the router actually received.
-///
-/// The venue's own return value is advisory: route pools are untrusted, so a
-/// malicious pool could report output it never sent and drain router-held
-/// balances at final settlement. We snapshot the router's `token_out` balance
-/// around the venue call and credit only the positive delta, which is the real
-/// value received (and is fee-on-transfer-safe).
+/// Executes one hop and returns measured output.
 pub(crate) fn dispatch_hop(env: &Env, router: &Address, hop: &SwapHop, amount_in: i128) -> i128 {
     let ctx = HopContext::new(env, router, hop, amount_in);
+    let before_in = ctx.input_balance();
     let before_out = ctx.output_balance();
+
     match hop.venue {
         SwapVenue::Soroswap => soroswap::swap(&ctx),
         SwapVenue::Aquarius => aquarius::swap(&ctx),
@@ -40,6 +29,7 @@ pub(crate) fn dispatch_hop(env: &Env, router: &Address, hop: &SwapHop, amount_in
         SwapVenue::Sushi => sushi::swap(&ctx),
         SwapVenue::CometDex => comet::swap(&ctx),
     };
+
     let received = ctx
         .output_balance()
         .checked_sub(before_out)
@@ -47,13 +37,19 @@ pub(crate) fn dispatch_hop(env: &Env, router: &Address, hop: &SwapHop, amount_in
     if received <= 0 {
         panic_with_error!(env, Error::ZeroOutput);
     }
+
+    let after_in = ctx.input_balance();
+    let spent = before_in
+        .checked_sub(after_in)
+        .unwrap_or_else(|| panic_with_error!(env, Error::InvalidAmount));
+    if spent != amount_in {
+        panic_with_error!(env, Error::InvalidAmount);
+    }
+
     received
 }
 
-/// Immutable per-hop execution context shared by all venue dispatchers.
-///
-/// The constructor performs the common positive-amount check once. Venue
-/// modules then focus only on protocol-specific calls and accounting.
+/// Shared hop context.
 pub(crate) struct HopContext<'a> {
     pub env: &'a Env,
     pub router: &'a Address,
@@ -66,6 +62,9 @@ impl<'a> HopContext<'a> {
         if amount_in <= 0 {
             panic_with_error!(env, Error::InvalidAmount);
         }
+        if hop.token_in == hop.token_out {
+            panic_with_error!(env, Error::SameToken);
+        }
         Self {
             env,
             router,
@@ -74,7 +73,7 @@ impl<'a> HopContext<'a> {
         }
     }
 
-    /// Authorize a pool-pull venue to move exactly this hop's input amount.
+    /// Authorizes a pool pull for this hop.
     pub fn authorize_pool_pull(&self) {
         authorize_token_transfer(
             self.env,
@@ -85,12 +84,17 @@ impl<'a> HopContext<'a> {
         );
     }
 
-    /// Current router balance of this hop's output token.
+    /// Router balance for this hop's input token.
+    pub fn input_balance(&self) -> i128 {
+        token::Client::new(self.env, &self.hop.token_in).balance(self.router)
+    }
+
+    /// Router balance for this hop's output token.
     pub fn output_balance(&self) -> i128 {
         token::Client::new(self.env, &self.hop.token_out).balance(self.router)
     }
 
-    /// Infer token0->token1 direction, rejecting hops that do not match the pool.
+    /// Infers pair direction.
     pub fn direction_for_pair(&self, token0: &Address, token1: &Address) -> bool {
         if self.hop.token_in == *token0 && self.hop.token_out == *token1 {
             true
@@ -102,11 +106,7 @@ impl<'a> HopContext<'a> {
     }
 }
 
-/// Authorize one SAC `transfer(from, to, amount)` on behalf of the router.
-///
-/// Pool-pull venues use this immediately before invoking the pool. Keeping
-/// this helper narrow prevents a venue from accidentally authorizing a broader
-/// token movement than the current hop requires.
+/// Authorizes one SAC transfer from the router.
 pub(crate) fn authorize_token_transfer(
     env: &Env,
     token: &Address,
@@ -127,10 +127,7 @@ pub(crate) fn authorize_token_transfer(
     );
 }
 
-/// Authorize one SAC `approve(owner, spender, amount, expiration_ledger)`.
-///
-/// Comet needs this because its pool pulls via `transfer_from` rather than a
-/// direct `transfer`. The approval amount is still limited to the current hop.
+/// Authorizes one SAC approval from the router.
 pub(crate) fn authorize_token_approve(
     env: &Env,
     token: &Address,
@@ -153,10 +150,7 @@ pub(crate) fn authorize_token_approve(
     );
 }
 
-/// Build one node in Soroban's current-contract authorization tree.
-///
-/// Most venues only need a leaf entry. Comet uses this to express the nested
-/// `swap_exact_amount_in -> transfer_from` authorization expected by its pool.
+/// Builds a Soroban auth entry.
 pub(crate) fn auth_entry(
     env: &Env,
     contract: &Address,
@@ -174,7 +168,7 @@ pub(crate) fn auth_entry(
     })
 }
 
-/// Authorize the router as invoker for a single leaf contract call.
+/// Authorizes a current-contract invocation.
 pub(crate) fn authorize_as_current(
     env: &Env,
     contract: &Address,

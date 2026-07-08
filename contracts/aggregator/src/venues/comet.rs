@@ -1,8 +1,4 @@
-//! Comet weighted-pool venue dispatcher.
-//!
-//! Comet pulls input via SAC `transfer_from`, so the router first approves the
-//! pool and then authorizes the `swap_exact_amount_in` invocation with the
-//! nested transfer the pool is expected to perform.
+//! Comet weighted-pool adapter.
 
 use crate::errors::Error;
 use crate::venues::{auth_entry, authorize_token_approve, HopContext};
@@ -32,6 +28,7 @@ pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
         &Symbol::new(ctx.env, "swap_exact_amount_in"),
         args,
     );
+    clear_comet_approval(ctx);
     if amount_out <= 0 {
         panic_with_error!(ctx.env, Error::ZeroOutput);
     }
@@ -53,6 +50,11 @@ fn swap_args(ctx: &HopContext<'_>) -> Vec<Val> {
         i128::MAX.into_val(ctx.env),
         ctx.router.into_val(ctx.env),
     ]
+}
+
+fn clear_comet_approval(ctx: &HopContext<'_>) {
+    authorize_token_approve(ctx.env, &ctx.hop.token_in, ctx.router, &ctx.hop.pool, 0, 0);
+    token::Client::new(ctx.env, &ctx.hop.token_in).approve(ctx.router, &ctx.hop.pool, &0, &0);
 }
 
 fn authorize_comet_swap(ctx: &HopContext<'_>, swap_args: Vec<Val>) {

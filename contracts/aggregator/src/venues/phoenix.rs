@@ -1,30 +1,4 @@
-//! Phoenix DEX venue dispatcher.
-//!
-//! Phoenix XYK and Stable pools share a single swap entry with an
-//! `Option`-heavy signature:
-//! ```text
-//! fn swap(
-//!     env,
-//!     sender: Address,
-//!     offer_asset: Address,
-//!     offer_amount: i128,
-//!     ask_asset_min_amount: Option<i128>,
-//!     max_spread_bps: Option<i64>,
-//!     deadline: Option<u64>,
-//!     max_allowed_fee_bps: Option<i64>,
-//! ) -> i128
-//! ```
-//!
-//! Unlike Aquarius, Phoenix identifies tokens by ADDRESS, avoiding an extra
-//! `get_tokens` round-trip.
-//!
-//! Like Aquarius, the pool pulls tokens internally. The router is passed as
-//! `sender` and explicitly authorizes the exact token transfer the pool may
-//! perform.
-//!
-//! Every `Option` is passed as `None` — the router's aggregate `total_min_out`
-//! gate in `lib.rs` covers this risk, so passing `None` avoids double-checking
-//! and gives Phoenix the freedom to route optimally.
+//! Phoenix pool adapter.
 
 use crate::errors::Error;
 use crate::venues::HopContext;

@@ -1,18 +1,4 @@
-//! Aquarius AMM venue dispatcher.
-//!
-//! Aquarius pools (both CPMM and Stable) share a single swap entry:
-//! ```text
-//! fn swap(e, user: Address, in_idx: u32, out_idx: u32, in_amount: u128, out_min: u128) -> u128
-//! ```
-//!
-//! Key differences vs Soroswap:
-//! - Pool pulls tokens from `user` INSIDE the swap via `token.transfer`.
-//!   The router passes `router_contract_addr` as `user` and explicitly
-//!   authorizes the exact transfer the pool is allowed to perform.
-//! - Pool identifies tokens by INDEX into its token array, not address.
-//!   `get_tokens()` resolves where `token_in`/`token_out` sit.
-//! - Returns the pool's reported `amount_out`; `dispatch_hop` re-verifies it
-//!   against the router's `token_out` balance delta, so this return is advisory.
+//! Aquarius classic pool adapter.
 
 use crate::errors::Error;
 use crate::venues::HopContext;
