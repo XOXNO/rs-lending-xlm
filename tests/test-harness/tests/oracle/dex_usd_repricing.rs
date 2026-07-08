@@ -44,8 +44,12 @@ fn test_dex_quoted_source_repriced_to_usd() {
     let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex);
     dex_client.set_price(&xlm, &usd(2)); // XLM = 2.0 USDC on the DEX
 
-    let cfg =
-        reflector_single_spot_config(&dex, &xlm, usd_frac(2002, 1000), DEFAULT_TOLERANCE.tolerance_bps);
+    let cfg = reflector_single_spot_config(
+        &dex,
+        &xlm,
+        usd_frac(2002, 1000),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
     t.configure_market_oracle(&xlm, &cfg);
 
     // 2.0 USDC * $1.001/USDC = $2.002

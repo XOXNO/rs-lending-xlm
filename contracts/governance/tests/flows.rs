@@ -421,3 +421,131 @@ fn entrypoint_renews_governance_instance_ttl() {
         "instance TTL must be renewed: renewed={renewed_ttl}, initial={initial_ttl}"
     );
 }
+
+// ===== coverage: op-variant resolution + self-op execution =====
+
+// propose_resolves_all_controller_and_self_variants  (+56)  contracts/governance/src/op.rs:95-104,161-166,191-200,207-212,219-224,274-285,295-300
+#[test]
+fn propose_resolves_all_controller_and_self_variants() {
+    use crate::op::{RemoveAssetFromSpokeArgs, TransferOwnershipArgs};
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, gov_id, gov) = register_governance(&env);
+    let _controller = register_native_controller(&env, &gov_id, &gov);
+
+    let asset = Address::generate(&env);
+    let mut n: u8 = 0;
+    let mut salt = || {
+        n += 1;
+        BytesN::<32>::from_array(&env, &[n; 32])
+    };
+
+    // op.rs:95-104 TransferGovOwnership (self target, Sensitive)
+    gov.propose(
+        &admin,
+        &AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
+            new_owner: Address::generate(&env),
+            live_until_ledger: u32::MAX,
+        }),
+        &salt(),
+    );
+    // op.rs:161-166 RemoveSpoke
+    gov.propose(&admin, &AdminOperation::RemoveSpoke(2), &salt());
+    // op.rs:191-200 RemoveAssetFromSpoke
+    gov.propose(
+        &admin,
+        &AdminOperation::RemoveAssetFromSpoke(RemoveAssetFromSpokeArgs {
+            hub_asset: HubAssetKey {
+                hub_id: 0,
+                asset: asset.clone(),
+            },
+            spoke_id: 1,
+        }),
+        &salt(),
+    );
+    // op.rs:207-212 RevokeToken
+    gov.propose(&admin, &AdminOperation::RevokeToken(asset.clone()), &salt());
+    // op.rs:219-224 RevokeBlendPool
+    gov.propose(
+        &admin,
+        &AdminOperation::RevokeBlendPool(Address::generate(&env)),
+        &salt(),
+    );
+    // op.rs:274-279 DisableTokenOracle
+    gov.propose(
+        &admin,
+        &AdminOperation::DisableTokenOracle(asset.clone()),
+        &salt(),
+    );
+    // op.rs:280-285 SetPositionManager
+    gov.propose(
+        &admin,
+        &AdminOperation::SetPositionManager(Address::generate(&env), true),
+        &salt(),
+    );
+    // op.rs:295-300 MigrateController
+    gov.propose(&admin, &AdminOperation::MigrateController(3), &salt());
+}
+
+// execute_self_transfer_then_accept_migrates_owner_and_roles  (+58)  contracts/governance/src/op.rs:390-392; contracts/governance/src/access.rs:34-57,59-79,90-102,194-200
+#[test]
+fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
+    use crate::access::{EXECUTOR_ROLE, ORACLE_ROLE};
+    use crate::constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS;
+    use crate::op::{AdminOperation, TransferOwnershipArgs};
+    use crate::{constants, Governance, GovernanceClient};
+    use soroban_sdk::testutils::{Address as _, Ledger as _};
+    use soroban_sdk::{Address, BytesN, Env, Symbol};
+    use stellar_access::{access_control, ownable};
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let gov_id = env.register(
+        Governance,
+        (admin.clone(), constants::TIMELOCK_MIN_DELAY_LEDGERS),
+    );
+    let gov = GovernanceClient::new(&env, &gov_id);
+    let new_owner = Address::generate(&env);
+
+    let live_until = env.ledger().sequence() + TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS + 10_000;
+    let op = AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
+        new_owner: new_owner.clone(),
+        live_until_ledger: live_until,
+    });
+    let salt = BytesN::<32>::from_array(&env, &[0u8; 32]);
+    gov.propose(&admin, &op, &salt);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
+    gov.execute_self(&Some(admin.clone()), &op, &salt);
+
+    // New owner accepts -> sync_owner_access_control migrates admin + roles.
+    gov.accept_ownership();
+    env.as_contract(&gov_id, || {
+        assert_eq!(ownable::get_owner(&env), Some(new_owner.clone()));
+        assert_eq!(access_control::get_admin(&env), Some(new_owner.clone()));
+    });
+    assert!(gov.has_role(&new_owner, &Symbol::new(&env, ORACLE_ROLE)));
+    assert!(gov.has_role(&new_owner, &Symbol::new(&env, EXECUTOR_ROLE)));
+    assert!(!gov.has_role(&admin, &Symbol::new(&env, ORACLE_ROLE)));
+}
+
+// execute_immediate_self_op_applies_inline  (+2)  contracts/governance/src/timelock.rs:402-404
+#[test]
+fn execute_immediate_self_op_applies_inline() {
+    use crate::op::RoleArgs;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _gov_id, gov) = register_governance(&env);
+    let grantee = Address::generate(&env);
+    let role = Symbol::new(&env, EXECUTOR_ROLE);
+
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: grantee.clone(),
+            role: role.clone(),
+        }),
+    );
+    assert!(gov.has_role(&grantee, &role));
+}

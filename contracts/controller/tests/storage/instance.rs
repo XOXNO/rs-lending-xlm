@@ -88,3 +88,41 @@ fn test_position_manager_cap_rejects_overflowing_registration() {
         );
     });
 }
+
+// ===== coverage gap-closure tests =====
+// blend_pool_allowlist_counter_and_removal (+8) contracts/controller/src/storage/instance.rs:106-126 (uncovered 115,118,119,120,121,122,123,124) + is_blend_pool_approved 84-89
+#[test]
+fn blend_pool_allowlist_counter_tracks_outstanding_set() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        let pool = Address::generate(&env);
+        set_blend_pool_approved(&env, &pool, true);
+        set_blend_pool_approved(&env, &pool, true); // idempotent re-approve
+        assert_eq!(approved_blend_pool_count(&env), 1);
+        assert!(is_blend_pool_approved(&env, &pool));
+
+        set_blend_pool_approved(&env, &pool, false);
+        assert_eq!(approved_blend_pool_count(&env), 0);
+        assert!(!is_blend_pool_approved(&env, &pool));
+
+        // Revoking an unapproved pool cannot underflow the counter.
+        set_blend_pool_approved(&env, &pool, false);
+        assert_eq!(approved_blend_pool_count(&env), 0);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #45)")]
+fn blend_pool_cap_rejects_overflowing_approval() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        for _ in 0..MAX_APPROVED_BLEND_POOLS {
+            set_blend_pool_approved(&env, &Address::generate(&env), true);
+        }
+        set_blend_pool_approved(&env, &Address::generate(&env), true);
+    });
+}

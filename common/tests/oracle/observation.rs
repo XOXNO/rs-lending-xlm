@@ -79,3 +79,14 @@ fn validate_positive_price_timestamps_returns_wad() {
     let out = validate_positive_price_timestamps(&env, 1, 6, 1_000, &timestamps, 60);
     assert_eq!(out, 1_000_000_000_000);
 }
+
+// ===== coverage gap-closure tests =====
+// test_u256_to_i128_rejects_above_u128 (+1) common/src/oracle/observation.rs:97
+#[test]
+#[should_panic(expected = "#33")]
+fn test_u256_to_i128_rejects_above_u128() {
+    let env = Env::default();
+    // u128::MAX + 2 overflows the u128 domain, so to_u128() returns None.
+    let big = U256::from_u128(&env, u128::MAX).add(&U256::from_u32(&env, 2));
+    let _ = u256_to_i128(&env, &big);
+}

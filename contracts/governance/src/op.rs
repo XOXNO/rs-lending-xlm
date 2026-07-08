@@ -24,10 +24,7 @@ pub use governance_interface::{
 /// and the single-source sanity band). A malformed `Single`-strategy override is
 /// then rejected before the timelock delay instead of after it. Storage-dependent
 /// quote-market activation stays with the controller, which owns that state.
-fn validate_oracle_override(
-    env: &Env,
-    oracle_override: &common::types::MarketOracleConfigOption,
-) {
+fn validate_oracle_override(env: &Env, oracle_override: &common::types::MarketOracleConfigOption) {
     if let common::types::MarketOracleConfigOption::Some(cfg) = oracle_override {
         common::validation::validate_sanity_bounds(
             env,

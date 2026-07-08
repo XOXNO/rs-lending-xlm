@@ -1,36 +1,25 @@
-//! Self-hosted multi-signer price oracle. Bot wallets call `submit_price`/
-//! `submit_prices` under plain `require_auth`; each signer's latest
-//! submission per feed is aggregated via median, gated by an N-of-M
-//! threshold.
+//! Self-hosted multi-signer price oracle. Registered bot wallets submit
+//! prices under plain `require_auth`; each feed's latest per-signer
+//! submissions are aggregated into a median at write time, gated by an
+//! N-of-M threshold, so reads stay O(1).
 //!
-//! Exposes two read shapes from one contract: RedStone-ABI bulk reads
-//! (`read_price_data_for_feed`/`read_price_data`, matching
-//! `common::oracle::providers::redstone::RedStoneMultiFeed`) and SEP-40 /
-//! Reflector-ABI reads (`base`/`decimals`/`resolution`/`assets`/`lastprice`/
-//! `price`/`prices`). Either is a drop-in primary/anchor source for
-//! rs-lending-xlm's controller. SEP-40 reads call the RedStone-ABI reads
-//! directly (same contract, no cross-contract overhead).
+//! One contract exposes two read ABIs: RedStone-style bulk reads
+//! (`read_price_data`/`read_price_data_for_feed`) and SEP-40 / Reflector
+//! reads (`base`/`decimals`/`resolution`/`assets`/`lastprice`/`price`/
+//! `prices`). Either shape is a drop-in primary/anchor source for the
+//! rs-lending-xlm controller.
 //!
-//! Owner-gated entrypoints reuse `stellar_access::ownable` +
-//! `stellar_macros::only_owner` and `stellar_contract_utils::upgradeable`.
-//! Ownership transfer is the 2-step `transfer_ownership`/`accept_ownership`
-//! handshake so a typo'd new-owner address can't brick admin control.
-//!
-//! Aggregation runs at write-time (inside `submit_price`/`submit_prices`) so
-//! reads stay O(1) regardless of signer count.
-//!
-//! Two decoupled staleness windows so a single lagging signer cannot pin a
-//! feed's reported freshness: `recompute_aggregate` includes only submissions
-//! younger than the tight `MaxSubmissionAgeSeconds` (in both the median and the
-//! reported observation time), while `read_price_data_for_feed` rejects a cached
-//! aggregate whose write time exceeds the looser `MaxStaleSeconds` cache TTL.
-//! `MaxSubmissionAgeSeconds` must be kept `<=` every consumer's own `max_stale`.
+//! Two decoupled staleness windows: `MaxSubmissionAgeSeconds` bounds which
+//! submissions may enter an aggregate (so one lagging signer cannot pin a
+//! feed's freshness), `MaxStaleSeconds` bounds how long a cached aggregate
+//! keeps serving. Keep the former `<=` every consumer's own `max_stale`.
 #![no_std]
 
+mod admin;
 mod aggregation;
-mod feed_reads;
-mod sep40_reads;
+mod reads;
 mod storage;
+mod submit;
 
 use soroban_sdk::{contract, contracterror, contractimpl, Address, BytesN, Env, Vec};
 use stellar_access::ownable::{self, Ownable};
@@ -64,8 +53,8 @@ pub struct XoxnoOracle;
 #[contractimpl]
 impl XoxnoOracle {
     /// Registers `admin` as the OZ `Ownable` owner, the initial `signers`
-    /// set, the N-of-M `threshold`, and the SEP-40 `resolution`. The staleness
-    /// windows take their defaults; tune them via the owner setters.
+    /// set, the N-of-M `threshold`, and the SEP-40 `resolution`. Staleness
+    /// windows start at their defaults; tune them via the owner setters.
     ///
     /// # Errors
     /// * `InvalidThreshold` - `threshold == 0`, `threshold > signers.len()`,
@@ -110,10 +99,9 @@ impl XoxnoOracle {
     }
 }
 
-/// `#[contractimpl]` needs each method's body written out here (it can't see
-/// through to `Ownable`'s trait defaults). `transfer_ownership`/
-/// `renounce_ownership` already gate on owner auth internally, so no
-/// `#[only_owner]` here.
+/// `#[contractimpl]` can't see through to `Ownable`'s trait defaults, so each
+/// body is written out. `transfer_ownership`/`renounce_ownership` gate on
+/// owner auth internally — no `#[only_owner]` here.
 #[contractimpl]
 impl Ownable for XoxnoOracle {
     fn get_owner(e: &Env) -> Option<Address> {

@@ -732,3 +732,24 @@ fn test_bps_apply_to_wad_floor_rounds_down() {
         80 * WAD
     );
 }
+
+// ===== coverage gap-closure tests =====
+// test_fp_uncovered_ops (+7) common/src/math/fp.rs:117-119,295-297,416
+#[test]
+fn test_ray_from_fraction_builds_ratio() {
+    let env = Env::default();
+    // 1 / 4 in RAY scale.
+    assert_eq!(Ray::from_fraction(&env, 1, 4).raw(), RAY / 4);
+}
+
+#[test]
+fn test_wad_add_operator() {
+    let sum = Wad::from(WAD) + Wad::from(WAD / 2);
+    assert_eq!(sum.raw(), WAD + WAD / 2);
+}
+
+#[test]
+#[should_panic(expected = "Bps subtraction underflow")]
+fn test_bps_sub_underflow_panics() {
+    let _ = Bps::from(100) - Bps::from(500);
+}

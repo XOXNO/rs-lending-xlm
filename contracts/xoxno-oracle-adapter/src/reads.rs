@@ -1,0 +1,174 @@
+//! Read entrypoints: the RedStone `RedStoneMultiFeed` ABI and the SEP-40
+//! `PriceFeedTrait` shape. SEP-40 reads delegate to the RedStone reads via
+//! plain function calls (same contract, no cross-contract overhead).
+
+use common::constants::MS_PER_SECOND;
+use common::oracle::observation::{millis_to_seconds, u256_to_i128};
+use common::oracle::providers::redstone::{RedStonePriceData, REDSTONE_DECIMALS};
+use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
+use soroban_sdk::{contractimpl, Env, String, Symbol, Vec};
+
+use crate::aggregation::MAX_HISTORY_LEN;
+use crate::storage::{
+    load_all_assets, load_feed_id, load_max_stale_seconds, load_resolution, DataKey,
+};
+use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
+
+// RedStone ABI — mirrors `RedStoneMultiFeed` exactly.
+#[contractimpl]
+impl XoxnoOracle {
+    /// Returns the cached aggregate for `feed_id`.
+    ///
+    /// # Errors
+    /// * `NoDataForFeed` - no aggregate has been computed for `feed_id` yet.
+    /// * `StaleData` - the cached aggregate exceeds `MaxStaleSeconds`.
+    pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
+        let aggregate: RedStonePriceData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CurrentAggregate(feed_id))
+            .ok_or(Error::NoDataForFeed)?;
+
+        let max_stale = load_max_stale_seconds(&env);
+        // `write_timestamp` is milliseconds, the ledger clock is seconds;
+        // saturate so a write at/after `now` reads as fresh.
+        let age_seconds = env
+            .ledger()
+            .timestamp()
+            .saturating_sub(aggregate.write_timestamp / MS_PER_SECOND);
+        if age_seconds > max_stale {
+            return Err(Error::StaleData);
+        }
+        Ok(aggregate)
+    }
+
+    /// Bulk read: all-or-nothing. Propagates the first missing/stale feed
+    /// instead of returning partial results, matching the real RedStone
+    /// adapter's bulk semantics.
+    pub fn read_price_data(
+        env: Env,
+        feed_ids: Vec<String>,
+    ) -> Result<Vec<RedStonePriceData>, Error> {
+        let mut results = Vec::new(&env);
+        for feed_id in feed_ids.iter() {
+            results.push_back(Self::read_price_data_for_feed(env.clone(), feed_id)?);
+        }
+        Ok(results)
+    }
+
+    /// Returns up to `limit` most-recent aggregates for `feed_id`, newest
+    /// first. Not part of `RedStoneMultiFeed`; backs the SEP-40
+    /// `price()`/`prices()` reads.
+    ///
+    /// # Errors
+    /// * `NoDataForFeed` - no history exists for `feed_id`.
+    pub fn read_price_history(
+        env: Env,
+        feed_id: String,
+        limit: u32,
+    ) -> Result<Vec<RedStonePriceData>, Error> {
+        let history: Vec<RedStonePriceData> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::History(feed_id))
+            .ok_or(Error::NoDataForFeed)?;
+        if history.is_empty() {
+            return Err(Error::NoDataForFeed);
+        }
+
+        let take = core::cmp::min(limit, history.len());
+        let mut newest_first = Vec::new(&env);
+        for i in 0..take {
+            // safe: i < take <= history.len()
+            newest_first.push_back(history.get(history.len() - 1 - i).unwrap());
+        }
+        Ok(newest_first)
+    }
+}
+
+// SEP-40 / Reflector ABI.
+#[contractimpl]
+impl XoxnoOracle {
+    /// This oracle always quotes in USD.
+    pub fn base(env: Env) -> ReflectorAsset {
+        ReflectorAsset::Other(Symbol::new(&env, "USD"))
+    }
+
+    /// Always `REDSTONE_DECIMALS` (8): every price comes from this contract's
+    /// own aggregation.
+    pub fn decimals(_env: Env) -> u32 {
+        REDSTONE_DECIMALS
+    }
+
+    pub fn resolution(env: Env) -> u32 {
+        load_resolution(&env)
+    }
+
+    pub fn assets(env: Env) -> Vec<ReflectorAsset> {
+        load_all_assets(&env)
+    }
+
+    /// Latest price for `asset`, or `None` if unmapped or no aggregate
+    /// exists. SEP-40 models "no data" as `None`, so read errors are
+    /// swallowed here rather than propagated.
+    pub fn lastprice(env: Env, asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        let feed_id = load_feed_id(&env, &asset)?;
+        let data = Self::read_price_data_for_feed(env.clone(), feed_id).ok()?;
+        Some(to_reflector_price_data(&env, &data))
+    }
+
+    /// Sample whose observation time is closest to, at or before,
+    /// `timestamp`.
+    pub fn price(env: Env, asset: ReflectorAsset, timestamp: u64) -> Option<ReflectorPriceData> {
+        let feed_id = load_feed_id(&env, &asset)?;
+        let history = Self::read_price_history(env.clone(), feed_id, MAX_HISTORY_LEN).ok()?;
+
+        // Select on `package_timestamp` (the exposed observation time), which
+        // is non-monotonic across recomputes — scan the whole window for the
+        // greatest qualifying observation rather than trusting position.
+        let mut best: Option<RedStonePriceData> = None;
+        for entry in history.iter() {
+            if millis_to_seconds(entry.package_timestamp) > timestamp {
+                continue;
+            }
+            let closer = match &best {
+                Some(b) => entry.package_timestamp > b.package_timestamp,
+                None => true,
+            };
+            if closer {
+                best = Some(entry);
+            }
+        }
+        best.map(|entry| to_reflector_price_data(&env, &entry))
+    }
+
+    /// Up to `records` price samples for `asset`, newest-first, for the
+    /// caller's TWAP computation.
+    pub fn prices(
+        env: Env,
+        asset: ReflectorAsset,
+        records: u32,
+    ) -> Option<Vec<ReflectorPriceData>> {
+        let feed_id = load_feed_id(&env, &asset)?;
+        let history = Self::read_price_history(env.clone(), feed_id, records).ok()?;
+        if history.is_empty() {
+            return None;
+        }
+        let mut out = Vec::new(&env);
+        for entry in history.iter() {
+            out.push_back(to_reflector_price_data(&env, &entry));
+        }
+        Some(out)
+    }
+}
+
+/// Converts wire data into the SEP-40 shape. `u256_to_i128` fails closed on
+/// overflow. The single SEP-40 `timestamp` carries the observation time
+/// (`package_timestamp`), not `write_timestamp` (always ~now): exposing the
+/// write time would let this path accept stale aggregates the RedStone path
+/// rejects.
+fn to_reflector_price_data(env: &Env, data: &RedStonePriceData) -> ReflectorPriceData {
+    let price = u256_to_i128(env, &data.price);
+    let timestamp = millis_to_seconds(data.package_timestamp);
+    ReflectorPriceData { price, timestamp }
+}

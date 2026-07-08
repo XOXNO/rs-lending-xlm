@@ -93,7 +93,12 @@ fn liquidation_curve_accepts_defaults() {
     let env = Env::default();
     // Mirrors DEFAULT_LIQUIDATION_TARGET_HF_WAD/DEFAULT_HF_FOR_MAX_BONUS_WAD/
     // DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS.
-    validate_liquidation_curve(&env, 1_020_000_000_000_000_000, 510_000_000_000_000_000, 10_000);
+    validate_liquidation_curve(
+        &env,
+        1_020_000_000_000_000_000,
+        510_000_000_000_000_000,
+        10_000,
+    );
 }
 
 #[test]
@@ -254,4 +259,19 @@ fn require_wasm_receiver_rejects_account() {
     let env = Env::default();
     let account = Address::generate(&env);
     require_wasm_receiver(&env, &account);
+}
+
+// ===== coverage gap-closure tests =====
+// test_validate_liquidation_fees (+6) common/src/validation.rs:83-89
+#[test]
+fn test_validate_liquidation_fees_accepts_full_bps() {
+    let env = Env::default();
+    validate_liquidation_fees(&env, crate::constants::BPS as u32);
+}
+
+#[test]
+#[should_panic(expected = "#113")]
+fn test_validate_liquidation_fees_rejects_above_bps() {
+    let env = Env::default();
+    validate_liquidation_fees(&env, crate::constants::BPS as u32 + 1);
 }

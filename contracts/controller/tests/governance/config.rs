@@ -117,7 +117,13 @@ fn set_spoke_liquidation_curve_panics_for_target_hf_at_one() {
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
         let id = spoke::add_spoke(&env);
-        spoke::set_spoke_liquidation_curve(&env, id, 1_000_000_000_000_000_000, 500_000_000_000_000_000, 10_000);
+        spoke::set_spoke_liquidation_curve(
+            &env,
+            id,
+            1_000_000_000_000_000_000,
+            500_000_000_000_000_000,
+            10_000,
+        );
     });
 }
 
@@ -152,5 +158,25 @@ fn set_spoke_liquidation_curve_panics_for_bonus_factor_above_bps() {
             510_000_000_000_000_000,
             10_001,
         );
+    });
+}
+
+// ===== coverage gap-closure tests =====
+// config_getters_and_blend_wrapper (+6) contracts/controller/src/config/limits.rs:31-33 + config/approvals.rs:43-45,48-51
+#[test]
+fn min_borrow_floor_defaults_and_blend_wrapper_reflects_storage() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    env.as_contract(&contract, || {
+        // Unset floor returns the default constant (limits.rs 31-33).
+        assert_eq!(
+            limits::get_min_borrow_collateral_usd(&env),
+            crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD
+        );
+        // Blend-pool wrapper reflects storage both ways (approvals.rs 43-45,48-51).
+        let pool = Address::generate(&env);
+        assert!(!approvals::is_blend_pool_approved(&env, pool.clone()));
+        approvals::set_blend_pool_approval(&env, pool.clone(), true);
+        assert!(approvals::is_blend_pool_approved(&env, pool));
     });
 }
