@@ -84,10 +84,17 @@ impl XoxnoOracle {
 /// Converts internal wire data into the SEP-40 shape: `U256` price narrowed
 /// to `i128` via the shared, already-tested `u256_to_i128` (fails closed with
 /// a panic if the value ever doesn't fit, rather than silently substituting a
-/// wrong price), and `write_timestamp` from milliseconds to seconds
-/// (Reflector's `ReflectorPriceData.timestamp` is second-resolution).
+/// wrong price).
+///
+/// The single SEP-40 `timestamp` carries the observation time
+/// (`package_timestamp`), not the aggregate `write_timestamp`. SEP-40 exposes
+/// one timestamp, and the controller uses it directly for freshness; the
+/// RedStone path reports both and bounds freshness by the older observation
+/// time, so exposing `write_timestamp` here (always ~now) would let the SEP-40
+/// path accept an aggregate built from stale submissions that the RedStone
+/// path would reject. Both are milliseconds; SEP-40 is second-resolution.
 fn to_reflector_price_data(env: &Env, data: &RedStonePriceData) -> ReflectorPriceData {
     let price = u256_to_i128(env, &data.price);
-    let timestamp = millis_to_seconds(data.write_timestamp);
+    let timestamp = millis_to_seconds(data.package_timestamp);
     ReflectorPriceData { price, timestamp }
 }

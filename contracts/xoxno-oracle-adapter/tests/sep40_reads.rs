@@ -93,6 +93,29 @@ fn lastprice_converts_price_and_timestamp() {
 }
 
 #[test]
+fn lastprice_exposes_observation_time_not_write_time() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let asset = xlm_asset(&env);
+    client.add_feed(&feed_id(&env), &asset);
+
+    // A package observed an hour before it is submitted (still within the
+    // default 24h staleness ceiling, so it is aggregated). The aggregate's
+    // write time is `now`, but its observation time is `now - 3600`.
+    advance_ledger_seconds(&env, 100_000);
+    let now = env.ledger().timestamp();
+    let observed_at = now - 3600;
+    client.submit_price(&signers[0], &feed_id(&env), &12_345_678i128, &(observed_at * 1000));
+
+    // SEP-40 must expose the observation time so downstream freshness checks
+    // see the true age, not the ~now write time (which would look fresh).
+    let data = client.lastprice(&asset).expect("expected price data");
+    assert_eq!(data.timestamp, observed_at);
+    assert_ne!(data.timestamp, now);
+}
+
+#[test]
 fn decimals_always_equals_redstone_decimals() {
     let env = Env::default();
     let (client, _admin, _signers) = setup(&env, 1, 1);
