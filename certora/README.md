@@ -22,7 +22,7 @@ certora/
 
 Partitioning is by **crate/WASM boundary** (`common` / `pool` / `controller`),
 not by proof theme. Domain docs live in each layer's `spec/README.txt`.
-Cross-reference: [`architecture/INVARIANTS.md`](../../architecture/INVARIANTS.md).
+Cross-reference: [`architecture/INVARIANTS.md`](../architecture/INVARIANTS.md).
 
 ## WASM artifacts (deploy + prover)
 

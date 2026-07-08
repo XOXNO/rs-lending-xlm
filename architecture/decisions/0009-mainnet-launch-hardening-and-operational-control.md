@@ -65,9 +65,9 @@ Initial exposure stays small:
 - Per-market borrow cap: USD 50,000.
 - Flash-loan exposure is bounded by pool `cash` and per-market launch caps.
 
-USD figures are off-chain launch policy. On-chain, each market enforces
-asset-native `supply_cap` and `borrow_cap`. Operators set asset-unit caps that
-implement the USD policy.
+USD figures are off-chain launch policy. On-chain, caps are enforced per spoke
+asset (`SpokeAssetConfig` `supply_cap` / `borrow_cap`). Operators set asset-unit
+caps that implement the USD policy.
 
 Caps may increase only after at least 7 consecutive days without unresolved
 P0/P1 incidents, unexplained accounting drift, oracle misconfiguration, or missed

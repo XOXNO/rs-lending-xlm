@@ -40,8 +40,10 @@ policy are credited, with consent, in the release notes that ship the fix.
 
 In scope:
 
-- `controller/`, `pool/`, `pool-interface/`, `common/` (the deployed
-  on-chain crates).
+- The on-chain crates: `contracts/controller`, `contracts/pool`,
+  `contracts/governance`, `contracts/aggregator`,
+  `contracts/xoxno-oracle-adapter`, `contracts/defindex-strategy`,
+  `contracts/flash-loan-receiver`, plus shared `common/` and `interfaces/`.
 - The Makefile + `configs/script.sh` operator path that deploys and
   configures the protocol.
 
@@ -49,8 +51,8 @@ Not in scope:
 
 - Vulnerabilities in third-party dependencies (Soroban SDK,
   OpenZeppelin Stellar contracts, Reflector oracle) — report those upstream.
-- Issues that require already-compromised operator (Owner / KEEPER / REVENUE /
-  ORACLE) keys.
+- Issues that require already-compromised operator keys (the governance owner
+  or governance role holders).
 - Theoretical attacks without a reproducible proof of concept.
 
 ## Supported Versions

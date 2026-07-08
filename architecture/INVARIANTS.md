@@ -218,10 +218,14 @@ Configuration requires `liquidation_threshold_bps > loan_to_value_bps`.
 
 ### 3.3 Liquidation Progress
 
-Liquidation is allowed only when `HF < 1.0 WAD`. The controller first attempts
-the primary target, then the fallback target, then a maximum-collateral path for
-accounts that cannot be restored by the target paths. The fallback path cannot
-make account health worse.
+Liquidation is allowed only when `HF < 1.0 WAD`. Repayment is sized to restore
+the account to its spoke's liquidation-curve target health factor
+(`DEFAULT_LIQUIDATION_TARGET_HF_WAD = 1.02 WAD` unless the spoke overrides it);
+a requested repayment above that ideal amount is capped. The liquidation bonus
+interpolates linearly between the asset's base bonus and its protocol max: the
+scale is 0 at the target health factor, reaches 1 at or below
+`hf_for_max_bonus_wad`, and the increment is weighted by
+`liquidation_bonus_factor_bps`.
 
 Liquidation review needs before-and-after account snapshots: debt repaid,
 collateral seized, protocol fee applied to the bonus, and any bad debt pushed
@@ -230,13 +234,11 @@ through the supply-index floor path.
 ```mermaid
 flowchart TD
     A["HF < 1.0 WAD?"] -->|no| R["revert"]
-    A -->|yes| B["try 1.02 target"]
-    B -->|works| E["repay debt"]
-    B -->|does not work| C["try 1.01 target"]
-    C -->|works| E
-    C -->|does not work| D["max-collateral fallback"]
-    D --> E
-    E --> F["seize collateral + bonus"]
+    A -->|yes| B["resolve spoke liquidation curve"]
+    B --> C["size repayment to target HF"]
+    C --> D["interpolate bonus from HF depth"]
+    D --> E["repay debt"]
+    E --> F["seize collateral + bonus (per-asset caps)"]
     F --> G["protocol fee on bonus"]
     G --> H{"bad-debt threshold met?"}
     H -->|yes| I["socialize loss into supply index"]
@@ -262,6 +264,13 @@ Market configuration enforces these constraints:
 - rate slopes are monotonic and bounded by `MAX_BORROW_RATE_RAY`
 - `MinBorrowCollateralUsd` is non-negative
 
+When a per-spoke liquidation-curve override is set
+(`validate_liquidation_curve`):
+
+- `WAD < target_hf_wad <= MAX_LIQUIDATION_TARGET_HF_WAD`
+- `0 < hf_for_max_bonus_wad < target_hf_wad`
+- `bonus_factor_bps <= BPS`
+
 The liquidation-bonus bound is a per-asset seizure ceiling. There is no flat
 `MAX_LIQUIDATION_BONUS`. `MinBorrowCollateralUsd` gates debt-bearing accounts
 through the post-pool LTV collateral check.
@@ -280,7 +289,8 @@ For each active market:
 - Reflector `Twap` sources require `twap_records <= 12`
 - stale-price windows stay in `[60, 86_400]` seconds
 - sanity bounds use `0 < min_sanity_price_wad < max_sanity_price_wad`
-- tolerance bounds use `first_tolerance_bps < last_tolerance_bps`
+- tolerance is a single band built from one `tolerance_bps` input within
+  `[MIN_TOLERANCE, MAX_TOLERANCE]` (150..2,500 BPS)
 
 Operators do not supply token or oracle decimals directly; the contracts read
 them on-chain during configuration.
@@ -296,18 +306,18 @@ Supported `OracleStrategy` values:
 
 When primary and anchor prices are both available:
 
-1. Return the primary price inside the first tolerance band.
-2. Return the midpoint inside the last tolerance band.
-3. Outside the last tolerance band, strict paths revert and permissive paths
-   return the primary price.
+1. Inside the tolerance band, the resolved price is the midpoint of the two.
+2. Outside the band, resolution reverts with `UnsafePriceNotAllowed`.
 
-`PrimaryWithAnchor` can degrade to primary-only only when the anchor is missing,
-unreadable, or stale and unusable, and only when the active `OraclePolicy`
-allows `allows_degraded_dual_source`.
+Both sources are required and fail closed: a missing, stale, or unreadable
+primary or anchor reverts the read. There is no permissive out-of-band path and
+no degraded primary-only mode. Permissiveness exists only as a flow choosing
+not to read a price at all (ADR 0004) — never as relaxed validation of a price
+once read.
 
 Oracle samples dated beyond the clock-skew window always revert. Review new
-oracle code for timestamp handling, stale-cache behavior, degraded dual-source
-policy, and WAD normalization.
+oracle code for timestamp handling, stale-cache behavior, and WAD
+normalization.
 
 ```mermaid
 flowchart TD
@@ -320,13 +330,11 @@ flowchart TD
     D -->|PrimaryWithAnchor| T["primary + anchor"]
     S --> E["staleness, sanity, future checks"]
     T --> E
-    E --> F{"inside first band?"}
-    F -->|yes| G["primary price"]
-    F -->|no| H{"inside last band?"}
+    E --> F{"strategy"}
+    F -->|Single| G["primary price"]
+    F -->|PrimaryWithAnchor| H{"inside tolerance band?"}
     H -->|yes| I["midpoint"]
-    H -->|no| J{"permissive cache?"}
-    J -->|yes| G
-    J -->|no| R2["revert"]
+    H -->|no| R2["revert"]
     G --> Z
     I --> Z
 ```

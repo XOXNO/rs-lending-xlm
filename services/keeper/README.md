@@ -1,4 +1,4 @@
-# keeper-bot
+# XOXNO Lending Keeper
 
 Soroban contract storage has time-to-live (TTL). When TTL lapses, entries
 archive and must be restored before contract calls can use them again. This

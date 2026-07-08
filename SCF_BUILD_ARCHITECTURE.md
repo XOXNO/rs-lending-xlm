@@ -13,6 +13,11 @@ XOXNO Lending has three core Soroban contracts:
 - `pool`: one central controller-owned liquidity contract with accounting rows
   keyed by `HubAssetKey { hub_id, asset }`.
 
+Supporting in-repo contracts: `contracts/aggregator` (DEX aggregation router),
+`contracts/xoxno-oracle-adapter` (multi-signer, SEP-40/Reflector-compatible
+price feed), `contracts/defindex-strategy`, and
+`contracts/flash-loan-receiver`.
+
 Pre-audit; mainnet launch is gated by ADR 0009 and the §14 verification
 evidence.
 
