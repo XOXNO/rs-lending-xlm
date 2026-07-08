@@ -1233,7 +1233,11 @@ validate_configs() {
     fi
 
     # Per-market checks
-    local m mj hub addr missing o strat anchor_tag minw maxw ptag pcontract atag acontract
+    # Keep in sync with xoxno-lending-functions config.{network}.yaml
+    # stellarOracle.heartbeatSeconds: the bot re-submits every feed at least
+    # once per heartbeat even when the price has not moved.
+    local oracle_bot_heartbeat_seconds=3600
+    local m mj hub addr missing o strat anchor_tag minw maxw ptag pcontract atag acontract pstale astale
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
         mj=$(jq -c --arg m "$m" 'first(.markets[] | select(.name == $m))' "$MARKET_CONFIG_FILE")
 
@@ -1333,6 +1337,26 @@ validate_configs() {
         acontract=$(printf '%s' "$o" | jq -r '.anchor.values[0].values[0].contract // ""')
         if [ "$atag" = "RedStone" ] && [ -n "$acontract" ] && [ "$acontract" != "$redstone" ]; then
             vc_warn "market ${m}: anchor RedStone contract differs from networks.json redstone_adapter_contract"
+        fi
+
+        # RedStone staleness limits must dominate the bot heartbeat, or a
+        # brief bot outage makes the controller revert PriceFeedStale for
+        # the market. Require >= 4 heartbeats of slack.
+        if [ "$ptag" = "RedStone" ]; then
+            pstale=$(printf '%s' "$o" | jq -r '.primary.values[0].max_stale_seconds // "missing"')
+            if [ "$pstale" = "missing" ]; then
+                vc_err "market ${m}: primary RedStone missing max_stale_seconds"
+            elif [ "$pstale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
+                vc_err "market ${m}: primary RedStone max_stale_seconds ${pstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
+            fi
+        fi
+        if [ "$atag" = "RedStone" ]; then
+            astale=$(printf '%s' "$o" | jq -r '.anchor.values[0].values[0].max_stale_seconds // "missing"')
+            if [ "$astale" = "missing" ]; then
+                vc_err "market ${m}: anchor RedStone missing max_stale_seconds"
+            elif [ "$astale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
+                vc_err "market ${m}: anchor RedStone max_stale_seconds ${astale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
+            fi
         fi
     done
 
