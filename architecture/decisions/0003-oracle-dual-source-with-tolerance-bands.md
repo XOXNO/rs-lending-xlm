@@ -97,7 +97,7 @@ providers alone.
 `OraclePriceFluctuation { upper_ratio_bps, lower_ratio_bps }`
 (`common/src/types/oracle.rs`), built from a single `tolerance_bps` input by
 `contracts/governance/src/validate/tolerance.rs::validate_and_calculate_tolerances`,
-which enforces `MIN_TOLERANCE`/`MAX_TOLERANCE` (150..5,000 BPS,
+which enforces `MIN_TOLERANCE`/`MAX_TOLERANCE` (150..2,500 BPS,
 `common/src/constants/shared.rs`).
 
 Composition happens in `contracts/controller/src/oracle/compose.rs::resolve_components`.

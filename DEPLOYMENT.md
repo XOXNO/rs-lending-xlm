@@ -23,8 +23,9 @@ values and the timelock delay differ.
   | File | Purpose |
   |------|---------|
   | `networks.json` | RPC URL, passphrase, contract addresses, timelock delay, spoke id map (per network) |
-  | `<network>_markets.json` | Market list: asset address, risk params, oracle config |
-  | `spokes.json` | Spoke categories and their per-asset risk params (per network) |
+  | `<network>/markets.json` | Market list: asset address, risk params, oracle config |
+  | `<network>/spokes.json` | Spoke categories and their per-asset risk params |
+  | `<network>/hubs.json`, `<network>/oracle_feeds.json`, `<network>/blend.json` | Hub id map, oracle feed catalog, Blend migration inputs |
 
 ---
 
@@ -90,8 +91,9 @@ the documented target — the unpause gate reads it as the floor.
 3. `configure-controller`: set aggregator + revenue accumulator (both must be in
    `networks.json` — `aggregator`, `accumulator` — or passed via
    `AGGREGATOR_CONTRACT` / `ACCUMULATOR_CONTRACT`).
-4. `setupAll`: create every market in `<network>_markets.json`, wire its oracle,
-   activate it; then create every spoke category in `spokes.json` and add its assets.
+4. `setupAll`: create every market in `configs/<network>/markets.json`, wire its
+   oracle, activate it; then create every spoke category in
+   `configs/<network>/spokes.json` and add its assets.
 5. `unpause` (owner-immediate — no timelock wait). **Mainnet: skipped** — setup
    leaves the protocol paused, and unpause is a separate step gated on the
    timelock delay reaching the production floor (see §3).
@@ -118,7 +120,7 @@ make mainnet unpause
 
 ## 5. Markets & oracles
 
-Markets are defined in `configs/<network>_markets.json`. Each entry: `name`,
+Markets are defined in `configs/<network>/markets.json`. Each entry: `name`,
 `asset_address`, `market_params` (rates, caps, LTV/threshold/bonus, flags), and
 `oracle` (strategy + primary/anchor feeds + sanity bounds).
 
@@ -159,7 +161,7 @@ parity) and is also run automatically before any `setup`/`resume`/`setupAll*`.
 
 ## 6. Spokes
 
-Spoke categories live in `configs/spokes.json` per network. Each has a `name`
+Spoke categories live in `configs/<network>/spokes.json`. Each has a `name`
 and per-asset risk params (LTV, threshold, bonus, optional caps).
 
 ```bash
@@ -193,7 +195,7 @@ make <network> getSpoke 1            # category params
 ```
 
 A live, usable deployment shows: governance owns the controller, all markets
-active, protocol unpaused, and `getPrice` returning a price `within_first_tolerance`.
+active, protocol unpaused, and `getPrice` resolving a live price for each market.
 
 ---
 
