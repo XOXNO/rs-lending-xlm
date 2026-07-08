@@ -1243,6 +1243,7 @@ mod phoenix_mock {
             env.storage().instance().set(&PhKey::TokenB, &token_b);
         }
         // Adapter calls: swap(router, token_in, amount_in, None, None, None, None) -> i128
+        #[allow(clippy::too_many_arguments)] // mirrors the real Phoenix pool ABI
         pub fn swap(
             env: Env,
             sender: Address,
@@ -1343,7 +1344,7 @@ fn admin_setters_and_views_surface() {
     router.set_referral_owner(&id, &new_owner);
     let cfg: ReferralConfig = router.referral(&id).unwrap();
     assert_eq!(cfg.fee_bps, 200);
-    assert_eq!(cfg.active, false);
+    assert!(!cfg.active);
     assert_eq!(cfg.owner, new_owner);
     assert!(router.referral(&999).is_none());
 }
