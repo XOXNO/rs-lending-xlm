@@ -18,7 +18,12 @@ fn validate_liquidation_curve_accepts_protocol_defaults() {
 #[should_panic]
 fn validate_liquidation_curve_rejects_target_hf_at_one() {
     let env = Env::default();
-    validate_liquidation_curve(&env, 1_000_000_000_000_000_000, 500_000_000_000_000_000, 10_000);
+    validate_liquidation_curve(
+        &env,
+        1_000_000_000_000_000_000,
+        500_000_000_000_000_000,
+        10_000,
+    );
 }
 
 #[test]

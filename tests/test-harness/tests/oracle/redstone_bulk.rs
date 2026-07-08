@@ -618,10 +618,18 @@ fn test_redstone_primary_markets_fire_one_bulk() {
     let eth_feed = String::from_str(&t.env, "ETH");
 
     // Both markets use RedStone Single strategy (primary = RedStone, no anchor).
-    let usdc_cfg =
-        redstone_single_config(&redstone, &usdc_feed, usd(1), DEFAULT_TOLERANCE.tolerance_bps);
-    let eth_cfg =
-        redstone_single_config(&redstone, &eth_feed, usd(2_000), DEFAULT_TOLERANCE.tolerance_bps);
+    let usdc_cfg = redstone_single_config(
+        &redstone,
+        &usdc_feed,
+        usd(1),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
+    let eth_cfg = redstone_single_config(
+        &redstone,
+        &eth_feed,
+        usd(2_000),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
     t.configure_market_oracle(&t.resolve_asset("USDC"), &usdc_cfg);
     t.configure_market_oracle(&t.resolve_asset("ETH"), &eth_cfg);
 
