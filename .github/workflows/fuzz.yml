@@ -49,7 +49,9 @@ jobs:
       # across concurrent jobs, so parallel toolchain installs race and wedge
       # (rust-std-wasm32v1-none component conflict).
       - name: Isolate rustup toolchain dir
-        run: echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@master
@@ -110,7 +112,9 @@ jobs:
       # across concurrent jobs, so parallel toolchain installs race and wedge
       # (rust-std-wasm32v1-none component conflict).
       - name: Isolate rustup toolchain dir
-        run: echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri, rust-src
@@ -204,7 +208,9 @@ jobs:
       # across concurrent jobs, so parallel toolchain installs race and wedge
       # (rust-std-wasm32v1-none component conflict).
       - name: Isolate rustup toolchain dir
-        run: echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@master
         with:

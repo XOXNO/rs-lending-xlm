@@ -31,7 +31,9 @@ jobs:
       # one $HOME/.rustup across concurrent jobs, so parallel nightly installs race
       # and wedge the toolchain (rust-std-wasm32v1-none component conflict).
       - name: Isolate rustup toolchain dir
-        run: echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
       - name: Reset workspace, preserve target/ build cache
         run: |
