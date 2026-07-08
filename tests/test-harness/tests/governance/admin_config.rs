@@ -3,7 +3,9 @@
 
 use controller::constants::RAY;
 use controller::types::InterestRateModel;
-use governance::op::{AdminOperation, SpokeAssetArgs, UpgradePoolParamsArgs};
+use governance::op::{
+    AdminOperation, SpokeAssetArgs, SpokeLiquidationCurveArgs, UpgradePoolParamsArgs,
+};
 use test_harness::{
     assert_contract_error, errors, hub_asset, usdc_preset, LendingTest, HARNESS_HUB, HARNESS_SPOKE,
 };
@@ -98,6 +100,80 @@ fn assert_invalid_position_limits(t: &LendingTest, supply: u32, borrow: u32) {
             supply, borrow, invoke_err
         ),
     }
+}
+
+// End-to-end: propose (via `execute_immediate`) -> governance validates ->
+// controller re-validates and mutates storage -> `get_spoke` view reflects
+// the override, replacing the defaults `add_spoke` stamped.
+#[test]
+fn test_set_spoke_liquidation_curve_overrides_defaults_end_to_end() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let admin = t.admin();
+
+    let before = t.ctrl_client().get_spoke(&HARNESS_SPOKE);
+    assert_eq!(before.liquidation_target_hf_wad, 1_020_000_000_000_000_000);
+
+    t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs {
+            spoke_id: HARNESS_SPOKE,
+            target_hf_wad: 1_010_000_000_000_000_000,
+            hf_for_max_bonus_wad: 990_000_000_000_000_000,
+            liquidation_bonus_factor_bps: 8_000,
+        }),
+    );
+
+    let after = t.ctrl_client().get_spoke(&HARNESS_SPOKE);
+    assert_eq!(after.liquidation_target_hf_wad, 1_010_000_000_000_000_000);
+    assert_eq!(after.hf_for_max_bonus_wad, 990_000_000_000_000_000);
+    assert_eq!(after.liquidation_bonus_factor_bps, 8_000);
+}
+
+// The governance-side `validate::spoke::validate_liquidation_curve` gate
+// (bonus_factor_bps > BPS) rejects at propose time, before the controller is
+// ever invoked.
+#[test]
+fn test_set_spoke_liquidation_curve_rejects_bonus_factor_above_bps() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let admin = t.admin();
+
+    let result = t.gov_client().try_execute_immediate(
+        &admin,
+        &AdminOperation::SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs {
+            spoke_id: HARNESS_SPOKE,
+            target_hf_wad: 1_020_000_000_000_000_000,
+            hf_for_max_bonus_wad: 510_000_000_000_000_000,
+            liquidation_bonus_factor_bps: 10_001,
+        }),
+    );
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::INVALID_LIQUIDATION_CURVE);
+}
+
+// Unknown spoke ids revert `SpokeNotFound` at the controller, past governance
+// validation (which has no spoke-existence check of its own).
+#[test]
+fn test_set_spoke_liquidation_curve_rejects_unknown_spoke() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let admin = t.admin();
+
+    let result = t.gov_client().try_execute_immediate(
+        &admin,
+        &AdminOperation::SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs {
+            spoke_id: 999,
+            target_hf_wad: 1_020_000_000_000_000_000,
+            hf_for_max_bonus_wad: 510_000_000_000_000_000,
+            liquidation_bonus_factor_bps: 10_000,
+        }),
+    );
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::SPOKE_NOT_FOUND);
 }
 
 // Regression: `max_borrow_rate` cap (Taylor envelope).

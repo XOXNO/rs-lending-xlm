@@ -29,6 +29,15 @@ pub trait ControllerAdmin {
     fn add_spoke(env: Env) -> u32;
     /// Removes the spoke with `id`.
     fn remove_spoke(env: Env, id: u32);
+    /// Overrides a spoke's liquidation curve (target HF, HF for max bonus,
+    /// bonus factor).
+    fn set_spoke_liquidation_curve(
+        env: Env,
+        id: u32,
+        target_hf_wad: i128,
+        hf_for_max_bonus_wad: i128,
+        liquidation_bonus_factor_bps: u32,
+    );
     /// Lists an asset on a spoke with its risk config.
     fn add_asset_to_spoke(env: Env, input: SpokeAssetArgs);
     /// Updates the risk config of an asset already listed on a spoke.

@@ -14,6 +14,7 @@ GOV_SALT_EXEC="2222222222222222222222222222222222222222222222222222222222222222"
 GOV_SALT_DENY="3333333333333333333333333333333333333333333333333333333333333333"
 GOV_SALT_BADLIMITS="4444444444444444444444444444444444444444444444444444444444444444"
 GOV_SALT_SELF_GRANT="5555555555555555555555555555555555555555555555555555555555555555"
+GOV_SALT_BADCURVE="6666666666666666666666666666666666666666666666666666666666666666"
 
 # Raw operation state (Unset|Waiting|Ready|Done) for an op id.
 gov_state() {
@@ -130,6 +131,16 @@ xfail gov_propose_bad_limits 'Error\(Contract, #36\)' "$ADMIN" "$GOVERNANCE" -- 
 --proposer "$ADMIN_ADDR" \
 --op '{"SetPositionLimits":{"max_supply_positions":11,"max_borrow_positions":11}}' \
 --salt "$GOV_SALT_BADLIMITS"
+
+# SetSpokeLiquidationCurve: bonus_factor_bps above BPS (10000) is rejected at
+# propose time (#134, InvalidLiquidationCurve) by validate::spoke, before the
+# controller is ever invoked. Exercises the real CLI friendly-JSON encoding
+# for the new struct-payload variant, not just the Rust `execute_immediate`
+# shortcut the test-harness suite uses.
+xfail gov_propose_bad_liquidation_curve 'Error\(Contract, #134\)' "$ADMIN" "$GOVERNANCE" -- propose \
+--proposer "$ADMIN_ADDR" \
+--op '{"SetSpokeLiquidationCurve":{"spoke_id":1,"target_hf_wad":"1020000000000000000","hf_for_max_bonus_wad":"510000000000000000","liquidation_bonus_factor_bps":10001}}' \
+--salt "$GOV_SALT_BADCURVE"
 
 # Governance-self timelock path: grant a role to DAVE through execute_self.
 local op_self

@@ -45,6 +45,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
+      # across concurrent jobs, so parallel toolchain installs race and wedge
+      # (rust-std-wasm32v1-none component conflict).
+      - name: Isolate rustup toolchain dir
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@master
         with:
@@ -92,8 +100,21 @@ jobs:
     if: github.event_name == 'pull_request'
     name: Miri pass (common + pool::interest + controller::helpers)
     runs-on: self-hosted
+    # rust-toolchain.toml pins the repo to 1.95, but this job is nightly-only and
+    # its isolated RUSTUP_HOME never installs 1.95. Pin the job to nightly so
+    # dtolnay's cachekey and any bare rustc/cargo resolve to the installed
+    # nightly instead of the absent 1.95. `make miri-all` uses `cargo +nightly`.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@v7
+      # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
+      # across concurrent jobs, so parallel toolchain installs race and wedge
+      # (rust-std-wasm32v1-none component conflict).
+      - name: Isolate rustup toolchain dir
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri, rust-src
@@ -182,6 +203,14 @@ jobs:
             kind: contract
     steps:
       - uses: actions/checkout@v7
+
+      # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
+      # across concurrent jobs, so parallel toolchain installs race and wedge
+      # (rust-std-wasm32v1-none component conflict).
+      - name: Isolate rustup toolchain dir
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@master
         with:

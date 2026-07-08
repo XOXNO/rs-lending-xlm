@@ -2,6 +2,12 @@
 # liquidations, spoke liquidation, clean_bad_debt, and the
 # healthy-account guard reverts. Mock prices make HF crashes deterministic.
 #
+# Markets use the anchored (Reflector-mock primary + RedStone-mock anchor) shape
+# so the wide sanity band survives the crashes below: a `Single`-strategy band is
+# capped at +/-10%, but these tests crash prices to ~15% of the listing price.
+# Both legs are moved in lock-step (`dual_px`), so the resolved midpoint equals
+# the intended price and the primary/anchor tolerance check stays satisfied.
+#
 # Scenario ordering matters: price crashes are market-global, so accounts
 # created later are sized against the already-crashed price.
 
@@ -14,6 +20,7 @@ flow_liq_setup() {
     phase liq_setup
     [ -n "${LIQ_SETUP_DONE:-}" ] && return 0
     deploy_mock_reflector
+    deploy_mock_redstone
     local code var sac
     for code in "${LIQ_CODES[@]}"; do
         var="SAC_$code"
@@ -24,16 +31,18 @@ flow_liq_setup() {
         done
         mint_to "$sac" "$code" "$BOB_ADDR"   $((100000 * LIQ_UNIT))
         mint_to "$sac" "$code" "$CAROL_ADDR" $((100000 * LIQ_UNIT))
-        set_mock_price "$sac" "$WAD" "px_init_$code"
+        # Seed primary + anchor at the listing price ($1) before configuring.
+        dual_px "$sac" "$code" "$WAD" "px_init_$code"
     done
-    # Markets: LIQE/LIQF get spoke-friendly base config.
-    create_market LIQA "$PRIMARY_HUB_ID" "$SAC_LIQA" 7 "$(oracle_cfg_mock_single "$SAC_LIQA")" "$(asset_config_json 7000 7500 800)"
-    create_market LIQB "$PRIMARY_HUB_ID" "$SAC_LIQB" 7 "$(oracle_cfg_mock_single "$SAC_LIQB")" "$(asset_config_json 7000 7500 800)"
-    create_market LIQC "$PRIMARY_HUB_ID" "$SAC_LIQC" 7 "$(oracle_cfg_mock_single "$SAC_LIQC")" "$(asset_config_json 7000 7500 800)"
-    create_market LIQD "$PRIMARY_HUB_ID" "$SAC_LIQD" 7 "$(oracle_cfg_mock_single "$SAC_LIQD")" "$(asset_config_json 7000 7500 800)"
-    create_market LIQE "$PRIMARY_HUB_ID" "$SAC_LIQE" 7 "$(oracle_cfg_mock_single "$SAC_LIQE")" "$(asset_config_json 7000 7500 200)"
-    create_market LIQF "$PRIMARY_HUB_ID" "$SAC_LIQF" 7 "$(oracle_cfg_mock_single "$SAC_LIQF")" "$(asset_config_json 7000 7500 200)"
-    create_market LIQG "$PRIMARY_HUB_ID" "$SAC_LIQG" 7 "$(oracle_cfg_mock_single "$SAC_LIQG")" "$(asset_config_json 7000 7500 800)"
+    # Markets: LIQE/LIQF get spoke-friendly base config. Anchored shape (feed id =
+    # asset code) keeps the wide sanity band exempt from the single-source cap.
+    create_market LIQA "$PRIMARY_HUB_ID" "$SAC_LIQA" 7 "$(oracle_cfg_mock_dual "$SAC_LIQA" LIQA)" "$(asset_config_json 7000 7500 800)"
+    create_market LIQB "$PRIMARY_HUB_ID" "$SAC_LIQB" 7 "$(oracle_cfg_mock_dual "$SAC_LIQB" LIQB)" "$(asset_config_json 7000 7500 800)"
+    create_market LIQC "$PRIMARY_HUB_ID" "$SAC_LIQC" 7 "$(oracle_cfg_mock_dual "$SAC_LIQC" LIQC)" "$(asset_config_json 7000 7500 800)"
+    create_market LIQD "$PRIMARY_HUB_ID" "$SAC_LIQD" 7 "$(oracle_cfg_mock_dual "$SAC_LIQD" LIQD)" "$(asset_config_json 7000 7500 800)"
+    create_market LIQE "$PRIMARY_HUB_ID" "$SAC_LIQE" 7 "$(oracle_cfg_mock_dual "$SAC_LIQE" LIQE)" "$(asset_config_json 7000 7500 200)"
+    create_market LIQF "$PRIMARY_HUB_ID" "$SAC_LIQF" 7 "$(oracle_cfg_mock_dual "$SAC_LIQF" LIQF)" "$(asset_config_json 7000 7500 200)"
+    create_market LIQG "$PRIMARY_HUB_ID" "$SAC_LIQG" 7 "$(oracle_cfg_mock_dual "$SAC_LIQG" LIQG)" "$(asset_config_json 7000 7500 800)"
     # Carol seeds liquidity on every borrow-side market in one bulk supply
     # (the issuer cannot hold a trustline to its own asset, so the admin
     # never holds LIQ tokens itself).
@@ -61,7 +70,7 @@ flow_liq_single() {
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((100 * LIQ_UNIT)))"
 
     # Crash collateral 30% → HF ≈ 0.875.
-    set_mock_price "$SAC_LIQA" $((WAD / 10 * 7)) liq1_crash
+    dual_px "$SAC_LIQA" LIQA $((WAD / 10 * 7)) liq1_crash
     assert_hf_below_wad liq1_hf "$acct"
     assert_can_liquidated liq1_can_liq "$acct" true
     view liq1_estimate "$CONTROLLER" -- get_liquidation_estimate \
@@ -115,8 +124,8 @@ flow_liq_bulk() {
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((500 * LIQ_UNIT)) "$SAC_LIQD" $((500 * LIQ_UNIT)))" --to null >/dev/null
 
     # Crash both collaterals 30%; LIQA moves from 0.70 to 0.49.
-    set_mock_price "$SAC_LIQC" $((WAD / 10 * 7)) liq2_crash_c
-    set_mock_price "$SAC_LIQA" $((WAD / 100 * 49)) liq2_crash_a
+    dual_px "$SAC_LIQC" LIQC $((WAD / 10 * 7)) liq2_crash_c
+    dual_px "$SAC_LIQA" LIQA $((WAD / 100 * 49)) liq2_crash_a
     assert_hf_below_wad liq2_hf "$acct"
 
     local liq2_debt_b_pre liq2_debt_d_pre
@@ -153,7 +162,7 @@ flow_liq_spoke() {
         --caller "$BOB_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQF" $((920 * LIQ_UNIT)))" --to null >/dev/null
     # 6% price drop puts HF under 1 at the 97% spoke threshold.
-    set_mock_price "$SAC_LIQE" $((WAD / 100 * 94)) liq3_crash
+    dual_px "$SAC_LIQE" LIQE $((WAD / 100 * 94)) liq3_crash
     assert_hf_below_wad liq3_hf "$acct"
     local liq3_debt_pre=$((920 * LIQ_UNIT))
     inv liq3_liquidate_spoke "$CAROL" "$CONTROLLER" -- liquidate \
@@ -180,7 +189,7 @@ flow_clean_bad_debt() {
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((12 * LIQ_UNIT)))" --to null >/dev/null
     # LIQC is at $0.70 → 30 units = $21 collateral, $12 debt. Crash to $0.15:
     # collateral $4.50 ≤ $5 threshold and debt > collateral → socializable.
-    set_mock_price "$SAC_LIQC" $((WAD / 100 * 15)) cbd_crash
+    dual_px "$SAC_LIQC" LIQC $((WAD / 100 * 15)) cbd_crash
     inv cbd_clean "$ADMIN" "$CONTROLLER" -- clean_bad_debt \
         --caller "$ADMIN_ADDR" --account_id "$acct" >/dev/null
     assert_borrow_at_most cbd_debt_cleared "$acct" "$SAC_LIQB" 0

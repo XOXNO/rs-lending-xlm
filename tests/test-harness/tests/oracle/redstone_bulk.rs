@@ -514,8 +514,10 @@ fn test_shared_feed_two_assets_single_redstone_call() {
     // Configure both USDC and ETH with RedStone Single strategy on "SHARED".
     // Both markets now resolve to the same (adapter, feed_id) — the degenerate
     // shared-feed case that exposes the 2-call bug.
-    let usdc_cfg = redstone_single_config(&redstone, &feed_id, DEFAULT_TOLERANCE.tolerance_bps);
-    let eth_cfg = redstone_single_config(&redstone, &feed_id, DEFAULT_TOLERANCE.tolerance_bps);
+    let usdc_cfg =
+        redstone_single_config(&redstone, &feed_id, usd(1), DEFAULT_TOLERANCE.tolerance_bps);
+    let eth_cfg =
+        redstone_single_config(&redstone, &feed_id, usd(1), DEFAULT_TOLERANCE.tolerance_bps);
     t.configure_market_oracle(&t.resolve_asset("USDC"), &usdc_cfg);
     t.configure_market_oracle(&t.resolve_asset("ETH"), &eth_cfg);
 
@@ -616,8 +618,10 @@ fn test_redstone_primary_markets_fire_one_bulk() {
     let eth_feed = String::from_str(&t.env, "ETH");
 
     // Both markets use RedStone Single strategy (primary = RedStone, no anchor).
-    let usdc_cfg = redstone_single_config(&redstone, &usdc_feed, DEFAULT_TOLERANCE.tolerance_bps);
-    let eth_cfg = redstone_single_config(&redstone, &eth_feed, DEFAULT_TOLERANCE.tolerance_bps);
+    let usdc_cfg =
+        redstone_single_config(&redstone, &usdc_feed, usd(1), DEFAULT_TOLERANCE.tolerance_bps);
+    let eth_cfg =
+        redstone_single_config(&redstone, &eth_feed, usd(2_000), DEFAULT_TOLERANCE.tolerance_bps);
     t.configure_market_oracle(&t.resolve_asset("USDC"), &usdc_cfg);
     t.configure_market_oracle(&t.resolve_asset("ETH"), &eth_cfg);
 

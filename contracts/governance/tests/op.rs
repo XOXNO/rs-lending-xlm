@@ -37,4 +37,16 @@ fn admin_op_xdr_is_byte_stable() {
         b64(&env, AdminOperation::SetAggregator(addr.clone())),
         "AAAAEAAAAAEAAAACAAAADwAAAA1TZXRBZ2dyZWdhdG9yAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ=="
     );
+    assert_eq!(
+        b64(
+            &env,
+            AdminOperation::SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs {
+                spoke_id: 1,
+                target_hf_wad: 1_020_000_000_000_000_000,
+                hf_for_max_bonus_wad: 510_000_000_000_000_000,
+                liquidation_bonus_factor_bps: 10_000,
+            })
+        ),
+        "AAAAEAAAAAEAAAACAAAADwAAABhTZXRTcG9rZUxpcXVpZGF0aW9uQ3VydmUAAAARAAAAAQAAAAQAAAAPAAAAFGhmX2Zvcl9tYXhfYm9udXNfd2FkAAAACgAAAAAAAAAABxPiTENzAAAAAAAPAAAAHGxpcXVpZGF0aW9uX2JvbnVzX2ZhY3Rvcl9icHMAAAADAAAnEAAAAA8AAAAIc3Bva2VfaWQAAAADAAAAAQAAAA8AAAANdGFyZ2V0X2hmX3dhZAAAAAAAAAoAAAAAAAAAAA4nxJiG5gAA"
+    );
 }

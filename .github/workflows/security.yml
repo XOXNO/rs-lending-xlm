@@ -27,6 +27,14 @@ jobs:
           # a clean source tree while keeping the Cargo build cache).
           clean: false
 
+      # Job-private rustup dir under the per-job temp: the persistent runner shares
+      # one $HOME/.rustup across concurrent jobs, so parallel nightly installs race
+      # and wedge the toolchain (rust-std-wasm32v1-none component conflict).
+      - name: Isolate rustup toolchain dir
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+
       - name: Reset workspace, preserve target/ build cache
         run: |
           git reset --hard

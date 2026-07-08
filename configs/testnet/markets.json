@@ -54,19 +54,9 @@
         "slope2": "100000000000000000000000000",
         "slope3": "1500000000000000000000000000",
         "mid_utilization": "500000000000000000000000000",
-        "optimal_utilization": "800000000000000000000000000",
+        "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
         "reserve_factor": 1000
-      },
-      "asset_config": {
-        "loan_to_value": 7500,
-        "liquidation_threshold": 8000,
-        "liquidation_bonus": 500,
-        "liquidation_fees": 100,
-        "is_collateralizable": true,
-        "is_borrowable": true,
-        "is_flashloanable": true,
-        "flashloan_fee": 9
       }
     },
     {
@@ -122,19 +112,9 @@
         "slope2": "100000000000000000000000000",
         "slope3": "1500000000000000000000000000",
         "mid_utilization": "500000000000000000000000000",
-        "optimal_utilization": "800000000000000000000000000",
+        "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1500
-      },
-      "asset_config": {
-        "loan_to_value": 6500,
-        "liquidation_threshold": 7000,
-        "liquidation_bonus": 700,
-        "liquidation_fees": 100,
-        "is_collateralizable": true,
-        "is_borrowable": true,
-        "is_flashloanable": true,
-        "flashloan_fee": 9
+        "reserve_factor": 1000
       }
     },
     {
@@ -179,19 +159,9 @@
         "slope2": "100000000000000000000000000",
         "slope3": "1500000000000000000000000000",
         "mid_utilization": "500000000000000000000000000",
-        "optimal_utilization": "800000000000000000000000000",
+        "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
         "reserve_factor": 1000
-      },
-      "asset_config": {
-        "loan_to_value": 7500,
-        "liquidation_threshold": 8000,
-        "liquidation_bonus": 500,
-        "liquidation_fees": 100,
-        "is_collateralizable": true,
-        "is_borrowable": true,
-        "is_flashloanable": true,
-        "flashloan_fee": 9
       }
     },
     {
@@ -247,19 +217,9 @@
         "slope2": "100000000000000000000000000",
         "slope3": "1500000000000000000000000000",
         "mid_utilization": "500000000000000000000000000",
-        "optimal_utilization": "800000000000000000000000000",
+        "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1500
-      },
-      "asset_config": {
-        "loan_to_value": 6500,
-        "liquidation_threshold": 7000,
-        "liquidation_bonus": 700,
-        "liquidation_fees": 100,
-        "is_collateralizable": true,
-        "is_borrowable": true,
-        "is_flashloanable": true,
-        "flashloan_fee": 9
+        "reserve_factor": 1000
       }
     },
     {
@@ -315,19 +275,9 @@
         "slope2": "100000000000000000000000000",
         "slope3": "1500000000000000000000000000",
         "mid_utilization": "500000000000000000000000000",
-        "optimal_utilization": "800000000000000000000000000",
+        "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1500
-      },
-      "asset_config": {
-        "loan_to_value": 6500,
-        "liquidation_threshold": 7000,
-        "liquidation_bonus": 700,
-        "liquidation_fees": 100,
-        "is_collateralizable": true,
-        "is_borrowable": true,
-        "is_flashloanable": true,
-        "flashloan_fee": 9
+        "reserve_factor": 1000
       }
     },
     {
@@ -383,19 +333,9 @@
         "slope2": "100000000000000000000000000",
         "slope3": "1500000000000000000000000000",
         "mid_utilization": "500000000000000000000000000",
-        "optimal_utilization": "800000000000000000000000000",
+        "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
         "reserve_factor": 1000
-      },
-      "asset_config": {
-        "loan_to_value": 7500,
-        "liquidation_threshold": 8000,
-        "liquidation_bonus": 500,
-        "liquidation_fees": 100,
-        "is_collateralizable": true,
-        "is_borrowable": true,
-        "is_flashloanable": true,
-        "flashloan_fee": 9
       }
     }
   ]

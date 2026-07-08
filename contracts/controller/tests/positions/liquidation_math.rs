@@ -120,6 +120,63 @@ fn bonus_factor_scales_increment() {
     assert_eq!(inc_scaled, inc_default * 2);
 }
 
+// A bonus factor above BPS (100%) can push the realized bonus past `max` —
+// this is why `common::validation::validate_liquidation_curve` (enforced by
+// the `set_spoke_liquidation_curve` governance op) caps the configurable
+// factor at BPS. At the cap itself, the realized bonus never exceeds `max`,
+// for any severity between the curve's target and its max-bonus floor.
+#[test]
+fn bonus_factor_above_bps_can_exceed_max_uncapped() {
+    let env = Env::default();
+    let base = Bps::from(500i128);
+    let max = Bps::from(1_500i128);
+    let target = Wad::from(1_020_000_000_000_000_000i128);
+    let hf = Wad::from(510_000_000_000_000_000i128); // == hf_for_max_bonus -> scale 1
+
+    let over_cap = SpokeConfig {
+        liquidation_bonus_factor_bps: 20_000, // 200%, above the enforced BPS ceiling
+        ..default_spoke_config()
+    };
+    let curve = LiquidationCurve::from_config(&over_cap);
+    let got = calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target);
+
+    assert!(
+        got.raw() > max.raw(),
+        "expected an over-cap factor to breach max, got {} vs max {}",
+        got.raw(),
+        max.raw()
+    );
+}
+
+// At the enforced ceiling (bonus_factor_bps == BPS, i.e. the default and the
+// max the governance op now allows), the realized bonus never exceeds `max`
+// across the full HF range from target down to hf_for_max_bonus.
+#[test]
+fn bonus_factor_at_bps_ceiling_never_exceeds_max() {
+    let env = Env::default();
+    let base = Bps::from(500i128);
+    let max = Bps::from(1_500i128);
+    let target = Wad::from(1_020_000_000_000_000_000i128);
+    let curve = LiquidationCurve::from_config(&default_spoke_config()); // factor == BPS
+
+    for hf_raw in [
+        1_019_000_000_000_000_000i128, // just below target
+        900_000_000_000_000_000i128,
+        700_000_000_000_000_000i128,
+        510_000_000_000_000_000i128, // == hf_for_max_bonus -> scale saturates at 1
+        100_000_000_000_000_000i128, // below hf_for_max_bonus -> scale still 1
+    ] {
+        let hf = Wad::from(hf_raw);
+        let got = calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target);
+        assert!(
+            got.raw() <= max.raw(),
+            "hf={hf_raw} produced bonus {} exceeding max {}",
+            got.raw(),
+            max.raw()
+        );
+    }
+}
+
 // A custom target HF changes the estimated close amount vs the 1.02 default.
 #[test]
 fn custom_target_changes_estimate() {

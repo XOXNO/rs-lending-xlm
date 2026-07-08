@@ -240,7 +240,10 @@ spoke_args() {
     }'
 }
 
-# Single-source oracle config: Reflector-shaped mock, Twap(3).
+# Single-source oracle config: Reflector-shaped mock, Twap(3). The sanity band
+# is a tight +/-10% around $1 (the mock's fixed price), the widest a `Single`
+# strategy may use. Flows that crash the mock price below this band must use the
+# anchored (`oracle_cfg_mock_dual`) shape, which is exempt from the cap.
 #   oracle_cfg_mock_single <sac-id>
 oracle_cfg_mock_single() {
     local sac="$1"
@@ -250,8 +253,8 @@ oracle_cfg_mock_single() {
         strategy: 0,
         primary: {Reflector: {contract: $mock, asset: {Stellar: $sac}, read_mode: {Twap: 3}}},
         anchor: "None",
-        min_sanity_price_wad: "1000000000000000",
-        max_sanity_price_wad: "1000000000000000000000"
+        min_sanity_price_wad: "900000000000000000",
+        max_sanity_price_wad: "1100000000000000000"
     }'
 }
 

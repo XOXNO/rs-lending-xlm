@@ -148,7 +148,7 @@ inv manager_deactivate_alice "$ADMIN" "$CONTROLLER" -- set_position_manager \
 # Blend allow-list coverage. Real migration is opt-in because it moves caller's
 # live Blend position; absence of a position is environment, not refactor, risk.
 local blend_pool
-blend_pool=$(jq -r --arg net "$NETWORK" '.[$net].pools[0].address // empty' "$REPO_ROOT/configs/blend_pools.json")
+blend_pool=$(jq -r '.pools[0].address // empty' "$REPO_ROOT/configs/$NETWORK/blend.json")
 if [ -n "$blend_pool" ] && [ "$blend_pool" != "null" ]; then
 view blend_pool_initial "$CONTROLLER" -- is_blend_pool_approved --pool "$blend_pool" >/dev/null
 inv blend_pool_approve "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
@@ -171,7 +171,7 @@ fi
     # Secondary hub smoke: same asset can be listed and used independently by
     # explicit HubAssetKey, with no hub-0 listing assumption.
     create_market XLM_SECONDARY "$SECONDARY_HUB_ID" "$XLM_SAC" 7 \
-        "$(oracle_cfg_reflector XLM 1000000000000000 100000000000000000000)" \
+        "$(oracle_cfg_reflector XLM 99000000000000000 121000000000000000)" \
         "$(asset_config_json 7000 7500 1000)"
     view market_index_secondary_xlm "$CONTROLLER" -- get_market_index \
         --hub_asset "$(hub_key "$SECONDARY_HUB_ID" "$XLM_SAC")" >/dev/null

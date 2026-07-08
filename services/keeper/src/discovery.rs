@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use crate::config::{ContractsConfig, ScheduleConfig};
 use crate::keys::{
     contract_code_key, contract_instance_key, AccessControlPersistentKey, ControllerInstanceKey,
-    ControllerPersistentKey, ControllerUserKey, HubAssetKey, PoolPersistentKey,
+    ControllerPersistentKey, ControllerUserKey, HubAssetKey, OracleAdapterKey, PoolPersistentKey,
 };
 use crate::stellar::client::{
     contract_id_from_strkey, hash32_from_hex, LedgerEntryQuery, RpcClient,
@@ -24,6 +24,8 @@ pub struct ContractIds {
     pub flash_receiver: [u8; 32],
     /// Governance contract id; `None` when no `governance` address is configured.
     pub governance: Option<[u8; 32]>,
+    /// xoxno-oracle-adapter contract id; `None` when unset in config.
+    pub xoxno_oracle_adapter: Option<[u8; 32]>,
 }
 
 impl ContractIds {
@@ -33,11 +35,17 @@ impl ContractIds {
             .as_deref()
             .map(contract_id_from_strkey)
             .transpose()?;
+        let xoxno_oracle_adapter = contracts
+            .xoxno_oracle_adapter
+            .as_deref()
+            .map(contract_id_from_strkey)
+            .transpose()?;
         Ok(Self {
             controller: contract_id_from_strkey(&contracts.controller)?,
             pool_wasm_hash: hash32_from_hex(&contracts.pool_wasm_hash)?,
             flash_receiver: contract_id_from_strkey(&contracts.flash_loan_receiver)?,
             governance,
+            xoxno_oracle_adapter,
         })
     }
 }
@@ -70,7 +78,8 @@ pub struct DiscoverySnapshot {
     /// Controller, central pool, flash receiver, and (when configured)
     /// governance instance entries.
     pub instance_entries: Vec<LedgerEntryQuery>,
-    /// WASM code entries for controller, pool, and flash receiver.
+    /// WASM code entries for controller, pool, flash receiver, and (when
+    /// configured) the xoxno-oracle-adapter.
     pub wasm_code_entries: Vec<LedgerEntryQuery>,
     /// Account id ceiling exposed as the `keeper_account_nonce` metric.
     pub account_nonce: u64,
@@ -223,6 +232,24 @@ pub async fn snapshot(
         }
     }
 
+    // -- xoxno-oracle-adapter coverage (instance + enumerable index + price
+    //    state). A read failure must not sink the tick: warn and carry on with
+    //    the controller/pool/governance surface already gathered. --
+    let mut adapter_instance: Option<LedgerEntryQuery> = None;
+    if let Some(adapter_id) = ids.xoxno_oracle_adapter {
+        match discover_oracle_adapter(client, &adapter_id, chunk_size).await {
+            Ok(adapter) => {
+                adapter_instance = Some(adapter.instance);
+                persistent_entries.extend(adapter.persistent_entries);
+            }
+            Err(err) => warn!(
+                target: "keeper.discovery",
+                error = %err,
+                "xoxno-oracle-adapter discovery failed — adapter TTLs skipped this tick"
+            ),
+        }
+    }
+
     // -- Instance entries (controller + central pool + flash receiver) --
     let mut instance_keys = Vec::with_capacity(3);
     instance_keys.push(contract_instance_key(&controller_id));
@@ -260,6 +287,16 @@ pub async fn snapshot(
     {
         wasm_keys.push(contract_code_key(&flash_hash));
     }
+    // The adapter's code entry can archive independently of its bumped
+    // instance/persistent state, which would break the contract; harvest its
+    // wasm hash from the instance row read during adapter discovery. Guarded by
+    // `adapter_instance` being `Some`, i.e. `xoxno_oracle_adapter` configured.
+    if let Some(adapter_hash) = adapter_instance
+        .as_ref()
+        .and_then(wasm_hash_from_instance_row)
+    {
+        wasm_keys.push(contract_code_key(&adapter_hash));
+    }
     let wasm_code_entries = client.get_ledger_entries(&wasm_keys).await?;
 
     // Append the governance instance only now: the flash-receiver wasm harvest
@@ -269,6 +306,12 @@ pub async fn snapshot(
     // (instance-tier — see `keys.rs` governance notes).
     if let Some(gov_instance) = governance_instance {
         instance_entries.push(gov_instance);
+    }
+    // One adapter instance bump covers its INSTANCE-tier `Signers`, `Threshold`,
+    // `MaxStaleSeconds`, and `Resolution`. Appended after the wasm harvest for
+    // the same flash-receiver-LAST reason as the governance instance above.
+    if let Some(adapter) = adapter_instance {
+        instance_entries.push(adapter);
     }
 
     Ok(DiscoverySnapshot {
@@ -412,6 +455,192 @@ async fn discover_governance(
         instance,
         role_entries,
     })
+}
+
+/// Entries discovered for the xoxno-oracle-adapter contract.
+struct OracleAdapterEntries {
+    /// The adapter instance entry (covers the INSTANCE-tier `Signers`,
+    /// `Threshold`, `MaxStaleSeconds`, and `Resolution`).
+    instance: LedgerEntryQuery,
+    /// Persistent enumerable-index and price-state entries.
+    persistent_entries: Vec<LedgerEntryQuery>,
+}
+
+/// Discover the xoxno-oracle-adapter instance plus its enumerable persistent
+/// index and price state.
+///
+/// The adapter keeps its asset/feed index and all price state
+/// (`CurrentAggregate`, `History`, `FeedMapping`, `LatestSubmission`) in
+/// PERSISTENT storage whose TTL only renews on write, so an idle feed set would
+/// archive and trap reads. This walks the on-chain index — `AssetCount` /
+/// `FeedCount`, then each `AssetAt(i)` / `FeedAt(i)` slot — and derives every
+/// dependent key from the raw slot values (`ReflectorAsset` / feed-id `String`
+/// passed through verbatim), so no asset or feed id is hardcoded in the keeper.
+///
+/// `LatestSubmission(feed, signer)` and the per-signer `SignerFeeds(signer)`
+/// index are both keyed by the registered signer set, which is read from the
+/// adapter's INSTANCE storage `Signers` entry.
+async fn discover_oracle_adapter(
+    client: &RpcClient,
+    adapter_id: &[u8; 32],
+    chunk_size: usize,
+) -> Result<OracleAdapterEntries> {
+    let chunk = chunk_size.max(1);
+
+    // Instance entry: bump target + source of the signer set that keys
+    // `LatestSubmission(feed, signer)`.
+    let instance_rows = client
+        .get_ledger_entries(&[contract_instance_key(adapter_id)])
+        .await?;
+    let instance = instance_rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("oracle-adapter instance query returned no row"))?;
+    if instance.value.is_none() {
+        warn!(
+            target: "keeper.discovery",
+            adapter = %stellar_strkey::Contract(*adapter_id),
+            "oracle-adapter instance entry absent — persistent coverage skipped this tick"
+        );
+        return Ok(OracleAdapterEntries {
+            instance,
+            persistent_entries: Vec::new(),
+        });
+    }
+    let signers = signers_from_instance(&instance);
+
+    let mut persistent_entries: Vec<LedgerEntryQuery> = Vec::new();
+
+    // -- Enumerable counts --
+    let count_keys = vec![
+        OracleAdapterKey::AssetCount.to_ledger_key(adapter_id)?,
+        OracleAdapterKey::FeedCount.to_ledger_key(adapter_id)?,
+    ];
+    let count_rows = client.get_ledger_entries(&count_keys).await?;
+    let asset_count = count_rows.first().and_then(extract_u32).unwrap_or(0);
+    let feed_count = count_rows.get(1).and_then(extract_u32).unwrap_or(0);
+    persistent_entries.extend(count_rows);
+
+    // -- Asset index slots + per-asset derived keys (AssetIndex, FeedMapping) --
+    let mut derived_keys: Vec<LedgerKey> = Vec::new();
+
+    // Per-signer feed index: `remove_signer` reads `SignerFeeds(signer)` to
+    // enumerate a signer's feeds, so an idle signer's index must stay alive.
+    for signer in &signers {
+        derived_keys
+            .push(OracleAdapterKey::SignerFeeds(signer.clone()).to_ledger_key(adapter_id)?);
+    }
+
+    for id_chunk in (0..asset_count).collect::<Vec<_>>().chunks(chunk) {
+        let keys = id_chunk
+            .iter()
+            .map(|i| OracleAdapterKey::AssetAt(*i).to_ledger_key(adapter_id))
+            .collect::<Result<Vec<_>>>()?;
+        for row in client.get_ledger_entries(&keys).await? {
+            if let Some(asset) = contract_data_scval(&row) {
+                derived_keys.push(
+                    OracleAdapterKey::AssetIndex(asset.clone()).to_ledger_key(adapter_id)?,
+                );
+                derived_keys.push(OracleAdapterKey::FeedMapping(asset).to_ledger_key(adapter_id)?);
+            }
+            persistent_entries.push(row);
+        }
+    }
+
+    // -- Feed index slots + per-feed derived keys (FeedIndex, CurrentAggregate,
+    //    History, and LatestSubmission for every registered signer) --
+    for id_chunk in (0..feed_count).collect::<Vec<_>>().chunks(chunk) {
+        let keys = id_chunk
+            .iter()
+            .map(|i| OracleAdapterKey::FeedAt(*i).to_ledger_key(adapter_id))
+            .collect::<Result<Vec<_>>>()?;
+        for row in client.get_ledger_entries(&keys).await? {
+            if let Some(feed) = contract_data_scval(&row) {
+                derived_keys
+                    .push(OracleAdapterKey::FeedIndex(feed.clone()).to_ledger_key(adapter_id)?);
+                derived_keys.push(
+                    OracleAdapterKey::CurrentAggregate(feed.clone())
+                        .to_ledger_key(adapter_id)?,
+                );
+                derived_keys
+                    .push(OracleAdapterKey::History(feed.clone()).to_ledger_key(adapter_id)?);
+                for signer in &signers {
+                    derived_keys.push(
+                        OracleAdapterKey::LatestSubmission(feed.clone(), signer.clone())
+                            .to_ledger_key(adapter_id)?,
+                    );
+                }
+            }
+            persistent_entries.push(row);
+        }
+    }
+
+    for key_chunk in derived_keys.chunks(chunk) {
+        persistent_entries.extend(client.get_ledger_entries(key_chunk).await?);
+    }
+
+    debug!(
+        target: "keeper.discovery",
+        assets = asset_count,
+        feeds = feed_count,
+        signers = signers.len(),
+        adapter_entries = persistent_entries.len(),
+        "oracle-adapter keys discovered"
+    );
+    Ok(OracleAdapterEntries {
+        instance,
+        persistent_entries,
+    })
+}
+
+/// Extract the raw `ScVal` payload of a ContractData ledger row.
+fn contract_data_scval(row: &LedgerEntryQuery) -> Option<ScVal> {
+    match row.value.as_ref()? {
+        LedgerEntryData::ContractData(cd) => Some(cd.val.clone()),
+        _ => None,
+    }
+}
+
+/// Decode the registered signer set from the adapter instance storage.
+///
+/// `DataKey::Signers` is INSTANCE-tier and holds a `Vec<Address>`; absence
+/// (never initialized) yields an empty set.
+fn signers_from_instance(instance: &LedgerEntryQuery) -> Vec<ScAddress> {
+    let Some(LedgerEntryData::ContractData(cd)) = instance.value.as_ref() else {
+        return Vec::new();
+    };
+    let ScVal::ContractInstance(inst) = &cd.val else {
+        return Vec::new();
+    };
+    let Some(storage) = &inst.storage else {
+        return Vec::new();
+    };
+    let Some(needle) = signers_needle() else {
+        return Vec::new();
+    };
+    for ScMapEntry { key, val } in storage.0.iter() {
+        if key == &needle {
+            let ScVal::Vec(Some(vec)) = val else {
+                return Vec::new();
+            };
+            return vec
+                .0
+                .iter()
+                .filter_map(|v| match v {
+                    ScVal::Address(addr) => Some(addr.clone()),
+                    _ => None,
+                })
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+/// Instance-storage lookup key for `DataKey::Signers` (`Vec[Symbol("Signers")]`).
+fn signers_needle() -> Option<ScVal> {
+    let symbol = ScSymbol(StringM::<32>::try_from("Signers").ok()?);
+    let vec = vec![ScVal::Symbol(symbol)].try_into().ok()?;
+    Some(ScVal::Vec(Some(stellar_xdr::curr::ScVec(vec))))
 }
 
 /// Discover the per-user controller keys for accounts `1..=account_nonce`.
@@ -633,6 +862,7 @@ mod tests {
             markets: Vec::new(),
             market_assets: Vec::new(),
             governance: Some("CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH".into()),
+            xoxno_oracle_adapter: None,
         };
         let ids = ContractIds::resolve(&contracts).unwrap();
         assert!(ids.governance.is_some());
@@ -648,6 +878,7 @@ mod tests {
             markets: Vec::new(),
             market_assets: Vec::new(),
             governance: None,
+            xoxno_oracle_adapter: None,
         };
         let ids = ContractIds::resolve(&contracts).unwrap();
         assert!(ids.governance.is_none());

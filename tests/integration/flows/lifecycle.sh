@@ -6,13 +6,13 @@
 flow_real_markets() {
     phase real_markets
     create_market XLM "$PRIMARY_HUB_ID" "$XLM_SAC" 7 \
-        "$(oracle_cfg_reflector XLM 1000000000000000 100000000000000000000)" \
+        "$(oracle_cfg_reflector XLM 99000000000000000 121000000000000000)" \
         "$(asset_config_json 7000 7500 1000)"
     create_market USDC "$PRIMARY_HUB_ID" "$USDC_SAC" 7 \
         "$(oracle_cfg_reflector USDC 900000000000000000 1100000000000000000)" \
         "$(asset_config_json 7500 8000 500)"
     create_market EURC "$PRIMARY_HUB_ID" "$EURC_SAC" 7 \
-        "$(oracle_cfg_reflector EURC 800000000000000000 1500000000000000000)" \
+        "$(oracle_cfg_reflector EURC 980000000000000000 1180000000000000000)" \
         "$(asset_config_json 7500 8000 500)"
 }
 

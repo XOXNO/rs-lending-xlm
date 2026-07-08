@@ -6,8 +6,8 @@ use soroban_sdk::{Address, Bytes, Env, Vec};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
-    MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolPositionMutation, PoolSeizeEntry,
-    PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
+    MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolNetSettleResult, PoolPositionMutation,
+    PoolSeizeEntry, PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
 };
 
 fn nondet_market_index() -> MarketIndex {
@@ -118,6 +118,57 @@ pub fn repay_summary(
         position: new_position,
         market_index: (&market_index).into(),
         actual_amount,
+    }
+}
+
+/// Net-settle: nets a supply leg against a debt leg on the same hub-asset,
+/// zero token transfer. `0 <= settled_amount <= amount`, both scaled amounts
+/// non-increasing, and both legs tied to the single shared settled amount:
+/// production `net_settle_one` burns `scaled_withdrawal` from supply and
+/// `scaled_repay` from debt, both derived from ONE `gross_amount` (the returned
+/// `settled_amount`), so the two legs always move by the identical real amount.
+pub fn net_settle_summary(
+    _env: &Env,
+    _asset: &Address,
+    amount: i128,
+    supply_position: ScaledPositionRaw,
+    debt_position: ScaledPositionRaw,
+) -> PoolNetSettleResult {
+    // One shared gross real amount drives both legs; draw it once.
+    let settled_amount: i128 = nondet();
+    cvlr_assume!(settled_amount >= 0);
+    cvlr_assume!(settled_amount <= amount);
+
+    let mut new_supply = supply_position.clone();
+    let new_supply_scaled: i128 = nondet();
+    cvlr_assume!(new_supply_scaled >= 0);
+    cvlr_assume!(new_supply_scaled <= supply_position.scaled_amount);
+    new_supply.scaled_amount = new_supply_scaled;
+
+    let mut new_debt = debt_position.clone();
+    let new_debt_scaled: i128 = nondet();
+    cvlr_assume!(new_debt_scaled >= 0);
+    cvlr_assume!(new_debt_scaled <= debt_position.scaled_amount);
+    new_debt.scaled_amount = new_debt_scaled;
+
+    // Couple both scaled reductions to the shared settled amount: a zero
+    // settlement burns no shares on either leg, so any scaled reduction implies
+    // `settled_amount > 0`. This rules out the contradictory states the prior
+    // three independent draws permitted (a supply or debt burn while
+    // `settled_amount` is zero). It stays a sound over-approximation: a positive
+    // settlement may still leave a leg unchanged when its per-index share
+    // conversion rounds to zero, so movement is never forced and no exact index
+    // math is assumed.
+    let supply_unchanged = new_supply_scaled == supply_position.scaled_amount;
+    let debt_unchanged = new_debt_scaled == debt_position.scaled_amount;
+    cvlr_assume!(settled_amount != 0 || (supply_unchanged && debt_unchanged));
+
+    let market_index = nondet_market_index();
+    PoolNetSettleResult {
+        supply_position: new_supply,
+        debt_position: new_debt,
+        market_index: (&market_index).into(),
+        settled_amount,
     }
 }
 

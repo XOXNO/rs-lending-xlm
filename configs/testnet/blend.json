@@ -1,0 +1,16 @@
+{
+  "_comment": "Blend V2 lending pools approved as migrate_from_blend sources. `make <network> whitelistBlendPools` checks each against the controller allow-list (is_blend_pool_approved) and, if missing, schedules a timelocked approve_blend_pool through governance. Requires the migration-capable controller/governance to be deployed first.",
+  "pool_factory_v2": "CDV6RX4CGPCOKGTBFS52V3LMWQGZN3LCQTXF5RVPOOCG4XVMHXQ4NTF6",
+  "pools": [
+    {
+      "name": "TestnetV2",
+      "address": "CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF",
+      "reserves": [
+        "XLM",
+        "USDC",
+        "wETH",
+        "wBTC"
+      ]
+    }
+  ]
+}

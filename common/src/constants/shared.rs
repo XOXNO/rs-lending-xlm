@@ -19,6 +19,13 @@ pub const MILLISECONDS_PER_YEAR: u64 = 31_556_926_000;
 /// Protocol-wide upper bound for operator-supplied per-asset price caps.
 pub const MAX_REASONABLE_PRICE_WAD: i128 = 1_000_000_000 * WAD;
 
+/// Upper bound (WAD) for a per-spoke liquidation-curve restored health-factor
+/// target. A restored target above ~2x is already extremely aggressive, so 10.0
+/// is generous for the semantic; it also keeps `target_hf_wad * total_debt_wad`
+/// far inside the i128 range, so a mis-scaled governance input cannot overflow
+/// the liquidation-target math.
+pub const MAX_LIQUIDATION_TARGET_HF_WAD: i128 = 10 * WAD;
+
 /// Default instance-level minimum LTV-weighted collateral (USD WAD) required
 /// while an account carries debt.
 pub const DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD: i128 = 5 * WAD;

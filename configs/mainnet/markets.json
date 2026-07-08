@@ -1,0 +1,842 @@
+{
+  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. asset_config here is the CONSERVATIVE baseline (mixed-spoke tier) - the dedicated Forex spoke overrides stablecoin LTV higher (correlated-asset context). strategy=0 (Single) for RWA documents intent; controller doesn't enforce single-oracle-only-if-tight-bounds yet.",
+  "network": "mainnet",
+  "markets": [
+    {
+      "name": "XLM",
+      "hub_id": 1,
+      "asset_address": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+      "oracle": {
+        "max_price_stale_seconds": 3600,
+        "tolerance_bps": 1000,
+        "strategy": 1,
+        "primary": {
+          "tag": "Reflector",
+          "values": [
+            {
+              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+              "asset": {
+                "tag": "Symbol",
+                "values": [
+                  "XLM"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "XLM",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
+        },
+        "min_sanity_price_wad": "50000000000000000",
+        "max_sanity_price_wad": "1000000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 7500,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 700,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    {
+      "name": "USDC",
+      "hub_id": 1,
+      "asset_address": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+      "oracle": {
+        "max_price_stale_seconds": 3600,
+        "tolerance_bps": 500,
+        "strategy": 1,
+        "primary": {
+          "tag": "Reflector",
+          "values": [
+            {
+              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+              "asset": {
+                "tag": "Symbol",
+                "values": [
+                  "USDC"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USDC",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
+        },
+        "min_sanity_price_wad": "950000000000000000",
+        "max_sanity_price_wad": "1050000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "5000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "60000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "600000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "980000000000000000000000000",
+        "reserve_factor": 1000
+      },
+      "asset_config": {
+        "loan_to_value": 7600,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1000,
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    {
+      "name": "EURC",
+      "hub_id": 1,
+      "asset_address": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
+      "oracle": {
+        "max_price_stale_seconds": 3600,
+        "tolerance_bps": 500,
+        "strategy": 1,
+        "primary": {
+          "tag": "Reflector",
+          "values": [
+            {
+              "contract": "CBKGPWGKSKZF52CFHMTRR23TBWTPMRDIYZ4O2P5VS65BMHYH4DXMCJZC",
+              "asset": {
+                "tag": "Symbol",
+                "values": [
+                  "EURC"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "EUROC/EUR",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
+        },
+        "min_sanity_price_wad": "900000000000000000",
+        "max_sanity_price_wad": "1350000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "5000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "60000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "600000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "980000000000000000000000000",
+        "reserve_factor": 1000
+      },
+      "asset_config": {
+        "loan_to_value": 7600,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1000,
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    {
+      "name": "PYUSD",
+      "hub_id": 1,
+      "asset_address": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2",
+      "oracle": {
+        "max_price_stale_seconds": 3600,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+              "feed_id": "PYUSD",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "950000000000000000",
+        "max_sanity_price_wad": "1050000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "5000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "60000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "600000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "980000000000000000000000000",
+        "reserve_factor": 1000
+      },
+      "asset_config": {
+        "loan_to_value": 7600,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1000,
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    {
+      "name": "SolvBTC",
+      "hub_id": 1,
+      "asset_address": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
+      "oracle": {
+        "max_price_stale_seconds": 3600,
+        "tolerance_bps": 1000,
+        "strategy": 1,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+              "feed_id": "SolvBTC",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "Reflector",
+              "values": [
+                {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "tag": "Symbol",
+                    "values": [
+                      "BTC"
+                    ]
+                  },
+                  "read_mode": {
+                    "tag": "Twap",
+                    "values": [
+                      3
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "min_sanity_price_wad": "40000000000000000000000",
+        "max_sanity_price_wad": "150000000000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "2000000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 7600,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 500,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    {
+      "name": "SPIKOEUTBL",
+      "hub_id": 2,
+      "asset_address": "CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "feed_id": "SPIKOEUTBL",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "1110546720000000000",
+        "max_sanity_price_wad": "1303685280000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "SPIKOUSTBL",
+      "hub_id": 2,
+      "asset_address": "CARUUX2FZNPH6DGJOEUFSIUQWYHNL5AVDV7PMVSHWL7OBYIBFC76F4TO",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "feed_id": "SPIKOUSTBL",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "1001653680000000000",
+        "max_sanity_price_wad": "1175854320000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "SPIKOUKTBL",
+      "hub_id": 2,
+      "asset_address": "CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "feed_id": "SPIKOUKTBL",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "1261045840000000000",
+        "max_sanity_price_wad": "1480358160000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "SPIKOSAFO",
+      "hub_id": 2,
+      "asset_address": "CDGSC6BA4TCAOVSFQCUEHDMOIIHYYVNYBT6YEARS4MX3ITAHUINVGQHX",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "feed_id": "SPIKOSAFO",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "931885480000000000",
+        "max_sanity_price_wad": "1093952520000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "SPIKOEURSAFO",
+      "hub_id": 2,
+      "asset_address": "CBOOCGZSVRSZFRE4U2NWR2B4RXYVJWRCBTGOUD2JPI2TDJPWMTJX7FZP",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "feed_id": "SPIKOEURSAFO",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "1061177680000000000",
+        "max_sanity_price_wad": "1245730320000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "SPIKOGBPSAFO",
+      "hub_id": 2,
+      "asset_address": "CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "feed_id": "SPIKOGBPSAFO",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "1248319480000000000",
+        "max_sanity_price_wad": "1465418520000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "DEJTRSY",
+      "hub_id": 2,
+      "asset_address": "CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "feed_id": "DEJTRSY",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "1020015960000000000",
+        "max_sanity_price_wad": "1197410040000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "DEJAAA",
+      "hub_id": 2,
+      "asset_address": "CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "feed_id": "DEJAAA",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "957002400000000000",
+        "max_sanity_price_wad": "1123437600000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "USTRY",
+      "hub_id": 2,
+      "asset_address": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+              "feed_id": "USTRY",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "962238600000000000",
+        "max_sanity_price_wad": "1176069400000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 7500,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 500,
+        "liquidation_fees": 1500,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "CETES",
+      "hub_id": 2,
+      "asset_address": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+              "feed_id": "CETES",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "60411600000000000",
+        "max_sanity_price_wad": "73836400000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 7500,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 500,
+        "liquidation_fees": 1500,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "USDY",
+      "hub_id": 2,
+      "asset_address": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP",
+      "oracle": {
+        "max_price_stale_seconds": 7200,
+        "tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "feed_id": "USDY",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        },
+        "min_sanity_price_wad": "1030785020000000000",
+        "max_sanity_price_wad": "1210051980000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1500000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "80000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "700000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "970000000000000000000000000",
+        "reserve_factor": 1500
+      },
+      "asset_config": {
+        "loan_to_value": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "liquidation_fees": 1200,
+        "is_collateralizable": true,
+        "is_borrowable": false,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    }
+  ]
+}

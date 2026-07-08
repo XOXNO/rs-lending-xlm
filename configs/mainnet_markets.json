@@ -1,5 +1,0 @@
-{
-  "_comment": "Mainnet markets are not chosen yet. Populate from the token/hub/spoke research before release, using configs/testnet_markets.json as the shape reference. `make mainnet validateConfigs` must pass before any deploy.",
-  "network": "mainnet",
-  "markets": []
-}

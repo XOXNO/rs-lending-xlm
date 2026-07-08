@@ -38,6 +38,12 @@ pub(crate) fn validate_market_oracle_sources(
         config.min_sanity_price_wad,
         config.max_sanity_price_wad,
     );
+    common::validation::validate_single_source_sanity_band(
+        env,
+        config.strategy,
+        config.min_sanity_price_wad,
+        config.max_sanity_price_wad,
+    );
 
     let asset_decimals = validate_and_fetch_token_decimals(env, asset);
     let primary = validate_source(env, asset, &config.primary, config.max_price_stale_seconds);

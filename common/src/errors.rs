@@ -150,6 +150,10 @@ pub enum CollateralError {
     AssetDecimalsTooHigh = 132,
     /// An account owner cannot liquidate their own account.
     SelfLiquidationNotAllowed = 133,
+    /// Spoke liquidation curve bounds are invalid: `target_hf_wad` must sit in
+    /// `(WAD, MAX_LIQUIDATION_TARGET_HF_WAD]`, `hf_for_max_bonus_wad` must sit in
+    /// `(0, target_hf_wad)`, and `bonus_factor_bps` must not exceed `BPS`.
+    InvalidLiquidationCurve = 134,
 }
 
 #[contracterror]
@@ -198,6 +202,9 @@ pub enum OracleError {
     /// cycle (e.g. two markets quoted in each other). Trapped to avoid unbounded
     /// recursion / stack exhaustion.
     OracleCycleDetected = 225,
+    /// `OracleStrategy::Single` requires a sanity band within
+    /// `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`; wider bands need `PrimaryWithAnchor`.
+    SanityBandTooWideForSingleSource = 226,
 }
 
 #[contracterror]

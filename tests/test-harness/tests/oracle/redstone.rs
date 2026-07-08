@@ -7,8 +7,12 @@ use test_harness::{hub_asset, usd, usdc_preset, LendingTest, ALICE, BOB, DEFAULT
 
 fn configure_usdc_with_redstone_single(t: &LendingTest, redstone: &Address, feed_id: &String) {
     let asset = t.resolve_asset("USDC");
-    let cfg =
-        test_harness::redstone_single_config(redstone, feed_id, DEFAULT_TOLERANCE.tolerance_bps);
+    let cfg = test_harness::redstone_single_config(
+        redstone,
+        feed_id,
+        usd(1),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
     t.configure_market_oracle(&asset, &cfg);
 }
 

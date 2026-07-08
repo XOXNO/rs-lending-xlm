@@ -52,8 +52,7 @@ fn test_single_twap_primary_passes_production_shape() {
 
 #[test]
 #[cfg(not(feature = "testing"))]
-#[should_panic]
-fn test_single_spot_primary_rejects_spot_only_production() {
+fn test_single_spot_primary_passes_production_shape() {
     let env = Env::default();
     let contract = Address::generate(&env);
     let asset = OracleAssetRef::Stellar(Address::generate(&env));
@@ -66,8 +65,7 @@ fn test_single_spot_primary_rejects_spot_only_production() {
 
 #[test]
 #[cfg(not(feature = "testing"))]
-#[should_panic]
-fn test_single_redstone_primary_rejects_spot_only_production() {
+fn test_single_redstone_primary_passes_production_shape() {
     let env = Env::default();
     let primary = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
         contract: Address::generate(&env),

@@ -3,6 +3,7 @@
 pub(crate) mod asset;
 pub(crate) mod oracle_config;
 pub(crate) mod oracle_probe;
+pub(crate) mod spoke;
 pub(crate) mod tolerance;
 
 use common::errors::GenericError;

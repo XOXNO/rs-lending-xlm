@@ -1,0 +1,75 @@
+{
+  "_comment": "Testnet feeds for the self-hosted xoxno-oracle-adapter (make testnet configureOracleFeeds). feed_id must match exactly what the off-chain bot submits (xoxno-lending-functions' devnet/stellar-bot-config priceJobs[].pairs entries). None of the RWA tokens below have a known Stellar TESTNET deployment (their real contract IDs found during research are Stellar MAINNET only) \u2014 every asset here uses tag=Other with the plain ticker as a placeholder, purely so the bot's submit/aggregate/read flow can be smoke-tested end to end. See mainnet_oracle_feeds.json for the real mainnet asset mappings and sourcing notes.",
+  "feeds": [
+    {
+      "feed_id": "SPIKOEUTBL",
+      "asset": {
+        "tag": "Other",
+        "value": "SPIKOEUTBL"
+      }
+    },
+    {
+      "feed_id": "SPIKOUSTBL",
+      "asset": {
+        "tag": "Other",
+        "value": "SPIKOUSTBL"
+      }
+    },
+    {
+      "feed_id": "SPIKOUKTBL",
+      "asset": {
+        "tag": "Other",
+        "value": "SPIKOUKTBL"
+      }
+    },
+    {
+      "feed_id": "DEJTRSY",
+      "asset": {
+        "tag": "Other",
+        "value": "DEJTRSY"
+      }
+    },
+    {
+      "feed_id": "DEJAAA",
+      "asset": {
+        "tag": "Other",
+        "value": "DEJAAA"
+      }
+    },
+    {
+      "feed_id": "SPIKOSPKCC",
+      "asset": {
+        "tag": "Other",
+        "value": "SPIKOSPKCC"
+      }
+    },
+    {
+      "feed_id": "SPIKOEURSPKCC",
+      "asset": {
+        "tag": "Other",
+        "value": "SPIKOEURSPKCC"
+      }
+    },
+    {
+      "feed_id": "SPIKOSAFO",
+      "asset": {
+        "tag": "Other",
+        "value": "SPIKOSAFO"
+      }
+    },
+    {
+      "feed_id": "SPIKOEURSAFO",
+      "asset": {
+        "tag": "Other",
+        "value": "SPIKOEURSAFO"
+      }
+    },
+    {
+      "feed_id": "SPIKOGBPSAFO",
+      "asset": {
+        "tag": "Other",
+        "value": "SPIKOGBPSAFO"
+      }
+    }
+  ]
+}

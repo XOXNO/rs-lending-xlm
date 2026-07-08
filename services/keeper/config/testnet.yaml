@@ -16,6 +16,8 @@ contracts:
   market_assets: []
   flash_loan_receiver: CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ
   governance: CBIQYXXYFN7UGIPLCXDDXN4FKE5POJROESTAB3UFPCDITZUIFDYYYTJ7
+  # Self-hosted price oracle (networks.json: xoxno_oracle_adapter).
+  xoxno_oracle_adapter: CBC36EELLDMEPKSJLHEQTKUXWKS27TC3TFMTMMB22CZBIU72E7KPIRJS
 keyvault:
   url: https://unused.vault.azure.net
   secret_name: unused
