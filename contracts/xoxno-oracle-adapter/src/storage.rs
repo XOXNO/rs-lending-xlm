@@ -140,6 +140,15 @@ impl XoxnoOracle {
         env.storage()
             .instance()
             .set(&DataKey::Threshold, &threshold);
+
+        // Re-validate every known feed's cached aggregate against the new
+        // threshold: feeds that no longer meet quorum are cleared by
+        // `recompute_aggregate`'s fail-safe branch, so a value computed under an
+        // old lower threshold can't keep serving. O(known-feeds); acceptable for
+        // an infrequent admin op.
+        for feed_id in load_all_feeds(&env).iter() {
+            recompute_aggregate(&env, &feed_id);
+        }
         Ok(())
     }
 
@@ -268,6 +277,23 @@ pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
             // read.
             renew_persistent_key(env, &key);
             out.push_back(asset);
+        }
+    }
+    out
+}
+
+/// Materializes the known-feed index into a `Vec` of every feed id that has
+/// ever received a submission. Read-renews each enumerated slot so an active
+/// index can't archive under this read and later trap a swap-remove partner
+/// read.
+fn load_all_feeds(env: &Env) -> Vec<String> {
+    let count = feed_count(env);
+    let mut out = Vec::new(env);
+    for i in 0..count {
+        let key = DataKey::FeedAt(i);
+        if let Some(feed_id) = env.storage().persistent().get::<DataKey, String>(&key) {
+            renew_persistent_key(env, &key);
+            out.push_back(feed_id);
         }
     }
     out

@@ -121,9 +121,9 @@ pub(crate) fn store_submission(
 /// Recomputes and caches the aggregate for `feed_id` from every registered
 /// signer's latest submission. Submissions older than `MaxStaleSeconds` are
 /// excluded from consideration. If fewer than `Threshold` submissions remain
-/// fresh, this returns without touching `CurrentAggregate`/`History` — the
-/// signer's raw submission recorded by the caller stays in place regardless;
-/// only the cached aggregate is stale-gated.
+/// fresh, the cached `CurrentAggregate` is removed (fail-safe: reads return
+/// `NoDataForFeed` rather than a stale/poisoned price) — the signer's raw
+/// submission recorded by the caller stays in place regardless.
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let signers = load_signers(env);
     let max_stale = load_max_stale_seconds(env);
@@ -160,6 +160,14 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
 
     let threshold = load_threshold(env);
     if kept_prices.len() < threshold {
+        // Below quorum: evict the cached aggregate so reads fail safe with
+        // `NoDataForFeed` instead of serving a stale value that may include a
+        // just-removed (possibly compromised) signer's price. `History` is
+        // intentionally left — it is append-only TWAP history and the
+        // controller re-checks TWAP staleness on those reads.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::CurrentAggregate(feed_id.clone()));
         return;
     }
 

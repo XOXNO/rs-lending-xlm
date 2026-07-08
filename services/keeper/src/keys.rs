@@ -172,6 +172,10 @@ pub enum OracleAdapterKey {
     /// `LatestSubmission(String, Address)`; args are the raw feed-id ScVal then
     /// the signer address, in that field order.
     LatestSubmission(ScVal, ScAddress),
+    /// `SignerFeeds(Address)`; per-signer index of the feed ids that signer has
+    /// submitted to. Read by `remove_signer` to enumerate a signer's feeds, so
+    /// an idle signer's index must not archive.
+    SignerFeeds(ScAddress),
 }
 
 impl OracleAdapterKey {
@@ -192,6 +196,9 @@ impl OracleAdapterKey {
                 "LatestSubmission",
                 &[feed.clone(), ScVal::Address(signer.clone())],
             )?,
+            Self::SignerFeeds(signer) => {
+                sc_enum("SignerFeeds", &[ScVal::Address(signer.clone())])?
+            }
         })
     }
 
@@ -595,6 +602,20 @@ mod tests {
         assert_eq!(sym_text(&items[0]), "LatestSubmission");
         assert_eq!(items[1], feed);
         assert!(matches!(items[2], ScVal::Address(ScAddress::Account(_))));
+    }
+
+    #[test]
+    fn oracle_adapter_signer_feeds_carries_single_address() {
+        let signer = ScAddress::Account(AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(
+            [2u8; 32],
+        ))));
+        let sv = OracleAdapterKey::SignerFeeds(signer).to_sc_val().unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(sym_text(&items[0]), "SignerFeeds");
+        assert!(matches!(items[1], ScVal::Address(ScAddress::Account(_))));
     }
 
     #[test]

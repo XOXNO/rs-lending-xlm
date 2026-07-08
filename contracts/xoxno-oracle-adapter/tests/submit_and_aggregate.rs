@@ -114,15 +114,14 @@ fn stale_submission_excluded_from_aggregate() {
 
     // A fresh submission from signer[0] triggers recompute; signer[1]'s
     // now-stale submission (package_timestamp 0) must be excluded, dropping
-    // the kept count below threshold (2), so CurrentAggregate is untouched.
+    // the kept count below threshold (2), so CurrentAggregate is cleared.
     client.submit_price(&signers[0], &feed, &500i128, &90_000_000u64);
 
-    // The cached aggregate is still the OLD one (recompute returned early),
-    // and by now its own write_timestamp is far enough in the past to trip
-    // the read-side absolute staleness check.
+    // Fail-safe: dropping below threshold removes the cached aggregate, so the
+    // read returns NoDataForFeed rather than serving the old poisoned value.
     assert_eq!(
         expect_error(client.try_read_price_data_for_feed(&feed)),
-        Error::StaleData
+        Error::NoDataForFeed
     );
 }
 
@@ -275,4 +274,50 @@ fn remove_signer_only_recomputes_touched_feeds() {
     client.remove_signer(&signers[0]);
     assert_eq!(client.read_price_data_for_feed(&feed_a).price.to_u128(), Some(250u128));
     assert_eq!(client.read_price_data_for_feed(&feed_b).price.to_u128(), Some(15u128));
+}
+
+#[test]
+fn remove_signer_clears_aggregate_when_dropping_below_threshold() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 3, 2);
+    let feed = feed_id(&env);
+
+    // Exactly two of the three signers submit — meets threshold 2.
+    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
+    assert_eq!(client.read_price_data_for_feed(&feed).price.to_u128(), Some(150u128));
+
+    // Removing signer[1] keeps the signer count (3 -> 2) at threshold, but
+    // leaves only signer[0]'s fresh submission (1 < 2). Fail-safe: the cached
+    // aggregate is cleared rather than left serving signer[1]'s poisoned price.
+    client.remove_signer(&signers[1]);
+    assert_eq!(
+        expect_error(client.try_read_price_data_for_feed(&feed)),
+        Error::NoDataForFeed
+    );
+}
+
+#[test]
+fn raising_threshold_invalidates_below_quorum_aggregate() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 3, 1);
+    let feed = feed_id(&env);
+
+    // 1-of-N aggregate readable under threshold 1.
+    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
+    assert_eq!(client.read_price_data_for_feed(&feed).price.to_u128(), Some(100u128));
+
+    // Raising the threshold to 2 re-validates every known feed; this feed now
+    // has only one fresh submission (1 < 2), so its aggregate is cleared.
+    client.set_threshold(&2u32);
+    assert_eq!(
+        expect_error(client.try_read_price_data_for_feed(&feed)),
+        Error::NoDataForFeed
+    );
+
+    // A second fresh submission restores quorum and the aggregate reappears.
+    client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
+    assert_eq!(client.read_price_data_for_feed(&feed).price.to_u128(), Some(150u128));
 }

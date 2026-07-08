@@ -78,7 +78,8 @@ pub struct DiscoverySnapshot {
     /// Controller, central pool, flash receiver, and (when configured)
     /// governance instance entries.
     pub instance_entries: Vec<LedgerEntryQuery>,
-    /// WASM code entries for controller, pool, and flash receiver.
+    /// WASM code entries for controller, pool, flash receiver, and (when
+    /// configured) the xoxno-oracle-adapter.
     pub wasm_code_entries: Vec<LedgerEntryQuery>,
     /// Account id ceiling exposed as the `keeper_account_nonce` metric.
     pub account_nonce: u64,
@@ -286,6 +287,16 @@ pub async fn snapshot(
     {
         wasm_keys.push(contract_code_key(&flash_hash));
     }
+    // The adapter's code entry can archive independently of its bumped
+    // instance/persistent state, which would break the contract; harvest its
+    // wasm hash from the instance row read during adapter discovery. Guarded by
+    // `adapter_instance` being `Some`, i.e. `xoxno_oracle_adapter` configured.
+    if let Some(adapter_hash) = adapter_instance
+        .as_ref()
+        .and_then(wasm_hash_from_instance_row)
+    {
+        wasm_keys.push(contract_code_key(&adapter_hash));
+    }
     let wasm_code_entries = client.get_ledger_entries(&wasm_keys).await?;
 
     // Append the governance instance only now: the flash-receiver wasm harvest
@@ -466,8 +477,9 @@ struct OracleAdapterEntries {
 /// dependent key from the raw slot values (`ReflectorAsset` / feed-id `String`
 /// passed through verbatim), so no asset or feed id is hardcoded in the keeper.
 ///
-/// `LatestSubmission(feed, signer)` is keyed by the registered signer set,
-/// which is read from the adapter's INSTANCE storage `Signers` entry.
+/// `LatestSubmission(feed, signer)` and the per-signer `SignerFeeds(signer)`
+/// index are both keyed by the registered signer set, which is read from the
+/// adapter's INSTANCE storage `Signers` entry.
 async fn discover_oracle_adapter(
     client: &RpcClient,
     adapter_id: &[u8; 32],
@@ -511,6 +523,14 @@ async fn discover_oracle_adapter(
 
     // -- Asset index slots + per-asset derived keys (AssetIndex, FeedMapping) --
     let mut derived_keys: Vec<LedgerKey> = Vec::new();
+
+    // Per-signer feed index: `remove_signer` reads `SignerFeeds(signer)` to
+    // enumerate a signer's feeds, so an idle signer's index must stay alive.
+    for signer in &signers {
+        derived_keys
+            .push(OracleAdapterKey::SignerFeeds(signer.clone()).to_ledger_key(adapter_id)?);
+    }
+
     for id_chunk in (0..asset_count).collect::<Vec<_>>().chunks(chunk) {
         let keys = id_chunk
             .iter()

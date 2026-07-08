@@ -171,7 +171,7 @@ fi
     # Secondary hub smoke: same asset can be listed and used independently by
     # explicit HubAssetKey, with no hub-0 listing assumption.
     create_market XLM_SECONDARY "$SECONDARY_HUB_ID" "$XLM_SAC" 7 \
-        "$(oracle_cfg_reflector XLM 1000000000000000 100000000000000000000)" \
+        "$(oracle_cfg_reflector XLM 99000000000000000 121000000000000000)" \
         "$(asset_config_json 7000 7500 1000)"
     view market_index_secondary_xlm "$CONTROLLER" -- get_market_index \
         --hub_asset "$(hub_key "$SECONDARY_HUB_ID" "$XLM_SAC")" >/dev/null
