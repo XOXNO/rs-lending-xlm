@@ -20,17 +20,18 @@ jobs:
   security-scan:
     name: Security Scan (OpenZeppelin)
     runs-on: self-hosted
-    # Job-private rustup dir under the per-job temp: the persistent runner shares
-    # one $HOME/.rustup across concurrent jobs, so parallel nightly installs race
-    # and wedge the toolchain (rust-std-wasm32v1-none component conflict).
-    env:
-      RUSTUP_HOME: ${{ runner.temp }}/rustup
     steps:
       - uses: actions/checkout@v7
         with:
           # Persistent runner: preserve target/ across runs (the next step restores
           # a clean source tree while keeping the Cargo build cache).
           clean: false
+
+      # Job-private rustup dir under the per-job temp: the persistent runner shares
+      # one $HOME/.rustup across concurrent jobs, so parallel nightly installs race
+      # and wedge the toolchain (rust-std-wasm32v1-none component conflict).
+      - name: Isolate rustup toolchain dir
+        run: echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
       - name: Reset workspace, preserve target/ build cache
         run: |

@@ -42,13 +42,14 @@ jobs:
     if: github.event_name == 'pull_request'
     name: Fuzz smoke (PR)
     runs-on: self-hosted
-    # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
-    # across concurrent jobs, so parallel toolchain installs race and wedge
-    # (rust-std-wasm32v1-none component conflict).
-    env:
-      RUSTUP_HOME: ${{ runner.temp }}/rustup
     steps:
       - uses: actions/checkout@v7
+
+      # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
+      # across concurrent jobs, so parallel toolchain installs race and wedge
+      # (rust-std-wasm32v1-none component conflict).
+      - name: Isolate rustup toolchain dir
+        run: echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@master
@@ -97,13 +98,13 @@ jobs:
     if: github.event_name == 'pull_request'
     name: Miri pass (common + pool::interest + controller::helpers)
     runs-on: self-hosted
-    # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
-    # across concurrent jobs, so parallel toolchain installs race and wedge
-    # (rust-std-wasm32v1-none component conflict).
-    env:
-      RUSTUP_HOME: ${{ runner.temp }}/rustup
     steps:
       - uses: actions/checkout@v7
+      # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
+      # across concurrent jobs, so parallel toolchain installs race and wedge
+      # (rust-std-wasm32v1-none component conflict).
+      - name: Isolate rustup toolchain dir
+        run: echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri, rust-src
@@ -173,11 +174,6 @@ jobs:
     runs-on: self-hosted
     needs: stellar-tool
     timeout-minutes: 1440
-    # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
-    # across concurrent jobs, so parallel toolchain installs race and wedge
-    # (rust-std-wasm32v1-none component conflict).
-    env:
-      RUSTUP_HOME: ${{ runner.temp }}/rustup
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -197,6 +193,12 @@ jobs:
             kind: contract
     steps:
       - uses: actions/checkout@v7
+
+      # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
+      # across concurrent jobs, so parallel toolchain installs race and wedge
+      # (rust-std-wasm32v1-none component conflict).
+      - name: Isolate rustup toolchain dir
+        run: echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@master
         with:
