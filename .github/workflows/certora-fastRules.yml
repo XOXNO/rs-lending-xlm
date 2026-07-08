@@ -84,4 +84,4 @@ jobs:
       - name: Run fast Certora configs
         env:
           CERTORAKEY: ${{ secrets.CERTORAKEY }}
-        run: ./certora/run_profile.py fast
+        run: ./certora/scripts/run_profile.py fast
