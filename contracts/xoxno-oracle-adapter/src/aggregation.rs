@@ -144,16 +144,21 @@ pub(crate) fn store_submission(
 /// Recomputes and caches the aggregate for `feed_id` from every registered
 /// signer's latest submission. Submissions older than `MaxStaleSeconds` are
 /// excluded from consideration. If fewer than `Threshold` submissions remain
-/// fresh, the cached `CurrentAggregate` is removed (fail-safe: reads return
-/// `NoDataForFeed` rather than a stale/poisoned price) — the signer's raw
-/// submission recorded by the caller stays in place regardless.
+/// fresh, the cached `CurrentAggregate` and `History` are both removed
+/// (fail-safe: spot and TWAP reads return `NoDataForFeed`/`None` rather than a
+/// stale/poisoned price) — the signer's raw submission recorded by the caller
+/// stays in place regardless.
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let signers = load_signers(env);
     let max_stale = load_max_stale_seconds(env);
     let now = env.ledger().timestamp();
 
     let mut kept_prices: Vec<i128> = Vec::new(env);
-    let mut max_package_timestamp: u64 = 0;
+    // Oldest contributing observation time: an aggregate is only as fresh as
+    // its stalest included submission, so downstream freshness checks must see
+    // that bound (using the freshest would let a near-stale median input hide
+    // behind a current one).
+    let mut oldest_package_timestamp: u64 = u64::MAX;
 
     for signer in signers.iter() {
         let key = DataKey::LatestSubmission(feed_id.clone(), signer.clone());
@@ -176,21 +181,23 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
         }
 
         kept_prices.push_back(submission.price);
-        if submission.package_timestamp > max_package_timestamp {
-            max_package_timestamp = submission.package_timestamp;
-        }
+        oldest_package_timestamp = oldest_package_timestamp.min(submission.package_timestamp);
     }
 
     let threshold = load_threshold(env);
     if kept_prices.len() < threshold {
-        // Below quorum: evict the cached aggregate so reads fail safe with
-        // `NoDataForFeed` instead of serving a stale value that may include a
-        // just-removed (possibly compromised) signer's price. `History` is
-        // intentionally left — it is append-only TWAP history and the
-        // controller re-checks TWAP staleness on those reads.
+        // Below quorum: evict both the cached aggregate and the TWAP history so
+        // spot and TWAP reads fail safe (`NoDataForFeed`/`None`) instead of
+        // serving values that may include a just-removed (possibly compromised)
+        // signer's price. History is cleared too because `prices()`/`price()`
+        // read it directly and the controller only re-checks sample
+        // timestamps, not whether the samples came from the current quorum.
         env.storage()
             .persistent()
             .remove(&DataKey::CurrentAggregate(feed_id.clone()));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::History(feed_id.clone()));
         return;
     }
 
@@ -198,7 +205,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let write_timestamp = now * MS_PER_SECOND;
     let aggregate = RedStonePriceData {
         price: U256::from_u128(env, median as u128),
-        package_timestamp: max_package_timestamp,
+        package_timestamp: oldest_package_timestamp,
         write_timestamp,
     };
 

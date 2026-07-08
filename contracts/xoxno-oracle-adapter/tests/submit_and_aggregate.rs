@@ -92,8 +92,9 @@ fn median_odd_count() {
 
     let data = client.read_price_data_for_feed(&feed);
     assert_eq!(data.price.to_u128(), Some(200u128));
-    // Freshest contributing package_timestamp among kept entries.
-    assert_eq!(data.package_timestamp, 3_000u64);
+    // Oldest contributing package_timestamp: the aggregate is only as fresh as
+    // its stalest included submission.
+    assert_eq!(data.package_timestamp, 1_000u64);
 }
 
 #[test]
@@ -338,4 +339,24 @@ fn raising_threshold_invalidates_below_quorum_aggregate() {
     // A second fresh submission restores quorum and the aggregate reappears.
     client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
     assert_eq!(client.read_price_data_for_feed(&feed).price.to_u128(), Some(150u128));
+}
+
+#[test]
+fn losing_quorum_clears_twap_history() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 3, 2);
+    let feed = feed_id(&env);
+    let asset = xlm_asset(&env);
+    client.add_feed(&feed, &asset);
+
+    // Quorum met: SEP-40 TWAP history is populated.
+    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
+    assert!(client.prices(&asset, &12).is_some());
+
+    // Dropping below quorum clears History too, so the TWAP path can't keep
+    // driving prices off samples that no longer meet the current quorum.
+    client.remove_signer(&signers[1]);
+    assert!(client.prices(&asset, &12).is_none());
 }
