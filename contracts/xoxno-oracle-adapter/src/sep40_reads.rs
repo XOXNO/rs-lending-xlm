@@ -8,7 +8,7 @@ use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
 use soroban_sdk::{contractimpl, Env, Symbol, Vec};
 
 use crate::aggregation::MAX_HISTORY_LEN;
-use crate::storage::{load_all_assets, load_feed_id, DataKey};
+use crate::storage::{load_all_assets, load_feed_id, load_resolution};
 use crate::{XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
 #[contractimpl]
@@ -26,10 +26,7 @@ impl XoxnoOracle {
     }
 
     pub fn resolution(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::Resolution)
-            .unwrap_or(0)
+        load_resolution(&env)
     }
 
     pub fn assets(env: Env) -> Vec<ReflectorAsset> {
@@ -46,21 +43,32 @@ impl XoxnoOracle {
         Some(to_reflector_price_data(&env, &data))
     }
 
-    /// Price sample at or before `timestamp`, closest to it.
+    /// Sample whose observation time is closest to, at or before, `timestamp`.
     pub fn price(env: Env, asset: ReflectorAsset, timestamp: u64) -> Option<ReflectorPriceData> {
         let feed_id = load_feed_id(&env, &asset)?;
         let history = Self::read_price_history(env.clone(), feed_id, MAX_HISTORY_LEN).ok()?;
 
-        // Filter by the same observation time this endpoint exposes
-        // (`package_timestamp`), not the aggregate write time, so a sample
-        // observed at or before `timestamp` but submitted later still qualifies.
-        // History is newest-first, so the first match is the closest sample.
+        // Select on the observation time this endpoint exposes
+        // (`package_timestamp`), not the write time, so a sample observed at or
+        // before `timestamp` but recorded later still qualifies. History is
+        // ordered by recording, and `package_timestamp` is the median's oldest
+        // contributor — non-monotonic across recomputes — so scan the whole
+        // window for the greatest qualifying observation rather than trusting
+        // position.
+        let mut best: Option<RedStonePriceData> = None;
         for entry in history.iter() {
-            if millis_to_seconds(entry.package_timestamp) <= timestamp {
-                return Some(to_reflector_price_data(&env, &entry));
+            if millis_to_seconds(entry.package_timestamp) > timestamp {
+                continue;
+            }
+            let closer = match &best {
+                Some(b) => entry.package_timestamp > b.package_timestamp,
+                None => true,
+            };
+            if closer {
+                best = Some(entry);
             }
         }
-        None
+        best.map(|entry| to_reflector_price_data(&env, &entry))
     }
 
     /// Up to `records` price samples for `asset`, newest-first, for the
@@ -83,18 +91,14 @@ impl XoxnoOracle {
     }
 }
 
-/// Converts internal wire data into the SEP-40 shape: `U256` price narrowed
-/// to `i128` via the shared, already-tested `u256_to_i128` (fails closed with
-/// a panic if the value ever doesn't fit, rather than silently substituting a
-/// wrong price).
+/// Converts wire data into the SEP-40 shape. `u256_to_i128` fails closed with a
+/// panic if the price ever exceeds `i128` rather than substituting a wrong one.
 ///
 /// The single SEP-40 `timestamp` carries the observation time
-/// (`package_timestamp`), not the aggregate `write_timestamp`. SEP-40 exposes
-/// one timestamp, and the controller uses it directly for freshness; the
-/// RedStone path reports both and bounds freshness by the older observation
-/// time, so exposing `write_timestamp` here (always ~now) would let the SEP-40
-/// path accept an aggregate built from stale submissions that the RedStone
-/// path would reject. Both are milliseconds; SEP-40 is second-resolution.
+/// (`package_timestamp`), not `write_timestamp` (always ~now): exposing the
+/// write time would let this path accept an aggregate built from stale
+/// submissions that the RedStone path, which bounds freshness by the older
+/// observation time, would reject.
 fn to_reflector_price_data(env: &Env, data: &RedStonePriceData) -> ReflectorPriceData {
     let price = u256_to_i128(env, &data.price);
     let timestamp = millis_to_seconds(data.package_timestamp);

@@ -128,7 +128,7 @@ fn stale_submission_excluded_from_aggregate() {
     let data = client.read_price_data_for_feed(&feed);
     assert_eq!(data.price.to_u128(), Some(150u128));
 
-    // Advance ledger time well past MaxStaleSeconds (default 86400s).
+    // Advance ledger time well past MaxSubmissionAgeSeconds (default 900s).
     advance_ledger_seconds(&env, 90_000);
 
     // A fresh submission from signer[0] triggers recompute; signer[1]'s
@@ -142,6 +142,54 @@ fn stale_submission_excluded_from_aggregate() {
         expect_error(client.try_read_price_data_for_feed(&feed)),
         Error::NoDataForFeed
     );
+}
+
+#[test]
+fn lagging_signer_does_not_pin_feed_freshness() {
+    // Regression: the aggregate's reported observation time must track the fresh
+    // honest quorum, not the oldest single submission retained within the cache
+    // TTL. One signer that stops submitting cannot drag the whole feed's
+    // freshness below what consumers tolerate.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 3, 2);
+    let feed = feed_id(&env);
+
+    advance_ledger_seconds(&env, 1_000);
+    // Signer C submits, then goes silent.
+    let t0_ms = env.ledger().timestamp() * 1_000;
+    client.submit_price(&signers[2], &feed, &200i128, &t0_ms);
+
+    // Move past the 900s inclusion window; the honest quorum keeps submitting.
+    advance_ledger_seconds(&env, 1_000);
+    let t1_ms = env.ledger().timestamp() * 1_000;
+    client.submit_price(&signers[0], &feed, &100i128, &t1_ms);
+    client.submit_price(&signers[1], &feed, &102i128, &t1_ms);
+
+    let data = client.read_price_data_for_feed(&feed);
+    // C's stale submission (age 1000 > 900) is excluded from the median...
+    assert_eq!(data.price.to_u128(), Some(101u128));
+    // ...and from the reported observation time, which now tracks the fresh
+    // quorum (2_000_000 ms) rather than being pinned to C's t0 (1_000_000 ms).
+    assert_eq!(data.package_timestamp, t1_ms);
+}
+
+#[test]
+fn submit_price_rejects_stale_package_timestamp() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    advance_ledger_seconds(&env, 2_000);
+
+    let now = env.ledger().timestamp();
+    // 901s old exceeds the 900s inclusion window.
+    let too_old_ms = (now - 901) * 1_000;
+    let result = client.try_submit_price(&signers[0], &feed_id(&env), &100i128, &too_old_ms);
+    assert_eq!(result, Err(Ok(Error::StaleSubmission)));
+
+    // Exactly at the window boundary is accepted.
+    let ok_ms = (now - 900) * 1_000;
+    client.submit_price(&signers[0], &feed_id(&env), &100i128, &ok_ms);
 }
 
 #[test]
@@ -166,9 +214,10 @@ fn read_price_history_newest_first_and_capped() {
     let (client, _admin, signers) = setup(&env, 1, 1);
     let feed = feed_id(&env);
 
-    // Push 15 aggregates (cap is 12); prices 1..=15 at increasing timestamps.
+    // Push 15 aggregates (cap is 12); a full `resolution` apart so each is a
+    // distinct history bucket rather than an in-place overwrite.
     for i in 1..=15u64 {
-        advance_ledger_seconds(&env, 10);
+        advance_ledger_seconds(&env, TEST_RESOLUTION as u64);
         let ts_ms = env.ledger().timestamp() * 1000;
         client.submit_price(&signers[0], &feed, &(i as i128), &ts_ms);
     }
@@ -179,6 +228,35 @@ fn read_price_history_newest_first_and_capped() {
     // Newest first: last pushed price was 15, oldest retained is 4 (15-12+1).
     assert_eq!(history.get(0).unwrap().price.to_u128(), Some(15u128));
     assert_eq!(history.get(11).unwrap().price.to_u128(), Some(4u128));
+}
+
+#[test]
+fn sub_resolution_submissions_overwrite_same_history_bucket() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let feed = feed_id(&env);
+
+    // Three submissions within one `resolution` window collapse to a single
+    // history sample carrying the latest median, so a fast submit cadence can't
+    // shrink the TWAP window below what `resolution()` advertises.
+    for (offset, price) in [(0u64, 100i128), (30, 101), (60, 102)] {
+        advance_ledger_seconds(&env, offset);
+        let ts_ms = env.ledger().timestamp() * 1000;
+        client.submit_price(&signers[0], &feed, &price, &ts_ms);
+    }
+    let history = client.read_price_history(&feed, &100u32);
+    assert_eq!(history.len(), 1);
+    assert_eq!(history.get(0).unwrap().price.to_u128(), Some(102u128));
+
+    // Crossing the resolution boundary starts a new bucket.
+    advance_ledger_seconds(&env, TEST_RESOLUTION as u64);
+    let ts_ms = env.ledger().timestamp() * 1000;
+    client.submit_price(&signers[0], &feed, &200i128, &ts_ms);
+    let history = client.read_price_history(&feed, &100u32);
+    assert_eq!(history.len(), 2);
+    assert_eq!(history.get(0).unwrap().price.to_u128(), Some(200u128));
+    assert_eq!(history.get(1).unwrap().price.to_u128(), Some(102u128));
 }
 
 #[test]
@@ -206,7 +284,10 @@ fn submit_price_rejects_price_above_ceiling() {
     // Exactly at the ceiling is accepted.
     client.submit_price(&signers[0], &feed_id(&env), &MAX_PRICE, &1_000u64);
     assert_eq!(
-        client.read_price_data_for_feed(&feed_id(&env)).price.to_u128(),
+        client
+            .read_price_data_for_feed(&feed_id(&env))
+            .price
+            .to_u128(),
         Some(MAX_PRICE as u128)
     );
 }
@@ -262,12 +343,18 @@ fn remove_signer_refreshes_aggregate_excluding_removed() {
     client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
     client.submit_price(&signers[2], &feed, &300i128, &1_000u64);
     // median of [100, 200, 300] = 200
-    assert_eq!(client.read_price_data_for_feed(&feed).price.to_u128(), Some(200u128));
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(200u128)
+    );
 
     // Removing the high outlier recomputes immediately over [100, 200] (still
     // meets threshold 2) -> median 150, without waiting for MaxStaleSeconds.
     client.remove_signer(&signers[2]);
-    assert_eq!(client.read_price_data_for_feed(&feed).price.to_u128(), Some(150u128));
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(150u128)
+    );
 }
 
 #[test]
@@ -285,14 +372,26 @@ fn remove_signer_only_recomputes_touched_feeds() {
     client.submit_price(&signers[1], &feed_b, &10i128, &1_000u64);
     client.submit_price(&signers[2], &feed_b, &20i128, &1_000u64);
 
-    assert_eq!(client.read_price_data_for_feed(&feed_a).price.to_u128(), Some(200u128));
-    assert_eq!(client.read_price_data_for_feed(&feed_b).price.to_u128(), Some(15u128));
+    assert_eq!(
+        client.read_price_data_for_feed(&feed_a).price.to_u128(),
+        Some(200u128)
+    );
+    assert_eq!(
+        client.read_price_data_for_feed(&feed_b).price.to_u128(),
+        Some(15u128)
+    );
 
     // Only feed_a is in signer 0's SignerFeeds, so only feed_a recomputes
     // (median of [200, 300] = 250); feed_b is left exactly as-is.
     client.remove_signer(&signers[0]);
-    assert_eq!(client.read_price_data_for_feed(&feed_a).price.to_u128(), Some(250u128));
-    assert_eq!(client.read_price_data_for_feed(&feed_b).price.to_u128(), Some(15u128));
+    assert_eq!(
+        client.read_price_data_for_feed(&feed_a).price.to_u128(),
+        Some(250u128)
+    );
+    assert_eq!(
+        client.read_price_data_for_feed(&feed_b).price.to_u128(),
+        Some(15u128)
+    );
 }
 
 #[test]
@@ -305,7 +404,10 @@ fn remove_signer_clears_aggregate_when_dropping_below_threshold() {
     // Exactly two of the three signers submit — meets threshold 2.
     client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
     client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
-    assert_eq!(client.read_price_data_for_feed(&feed).price.to_u128(), Some(150u128));
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(150u128)
+    );
 
     // Removing signer[1] keeps the signer count (3 -> 2) at threshold, but
     // leaves only signer[0]'s fresh submission (1 < 2). Fail-safe: the cached
@@ -326,7 +428,10 @@ fn raising_threshold_invalidates_below_quorum_aggregate() {
 
     // 1-of-N aggregate readable under threshold 1.
     client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
-    assert_eq!(client.read_price_data_for_feed(&feed).price.to_u128(), Some(100u128));
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(100u128)
+    );
 
     // Raising the threshold to 2 re-validates every known feed; this feed now
     // has only one fresh submission (1 < 2), so its aggregate is cleared.
@@ -338,7 +443,10 @@ fn raising_threshold_invalidates_below_quorum_aggregate() {
 
     // A second fresh submission restores quorum and the aggregate reappears.
     client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
-    assert_eq!(client.read_price_data_for_feed(&feed).price.to_u128(), Some(150u128));
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(150u128)
+    );
 }
 
 #[test]

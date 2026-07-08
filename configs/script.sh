@@ -3463,6 +3463,68 @@ add_oracle_signer() {
     echo "=== Signer added (${NETWORK}) ===" >&2
 }
 
+# Invokes one window setter; returns its rc without dying (used for the
+# order-retry in configure_oracle_windows).
+_invoke_set_window() {
+    local fn=$1 seconds=$2 adapter=$3
+    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        -- "$fn" --seconds "$seconds" >/dev/null 2>&1
+}
+
+# Applies the two staleness windows from ${NETWORK}/oracle_feeds.json (top-level
+# `max_submission_age_seconds` / `max_stale_seconds`). The contract enforces
+# 60 <= submission_age <= max_stale; with both set there is no on-chain getter
+# to decide the safe order up front, so try stale-then-age (widening) and fall
+# back to age-then-stale (tightening).
+configure_oracle_windows() {
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}. Run: make ${NETWORK} deployOracleAdapter"
+    [ -f "$ORACLE_FEEDS_FILE" ] || die "Feeds config file not found: $ORACLE_FEEDS_FILE"
+
+    local max_stale age
+    max_stale=$(jq -r '.max_stale_seconds // empty' "$ORACLE_FEEDS_FILE")
+    age=$(jq -r '.max_submission_age_seconds // empty' "$ORACLE_FEEDS_FILE")
+    [ -n "${max_stale}${age}" ] || die "Set max_stale_seconds and/or max_submission_age_seconds in ${ORACLE_FEEDS_FILE}"
+
+    echo "=== Configuring oracle windows on ${NETWORK} (adapter ${adapter}) ===" >&2
+    echo "  max_stale_seconds=${max_stale:-<unchanged>} max_submission_age_seconds=${age:-<unchanged>}" >&2
+
+    if [ -n "$max_stale" ] && [ -n "$age" ]; then
+        { _invoke_set_window set_max_stale_seconds "$max_stale" "$adapter" \
+            && _invoke_set_window set_max_submission_age_seconds "$age" "$adapter"; } \
+        || { _invoke_set_window set_max_submission_age_seconds "$age" "$adapter" \
+            && _invoke_set_window set_max_stale_seconds "$max_stale" "$adapter"; } \
+        || die "Failed to apply windows; ensure 60 <= max_submission_age_seconds (${age}) <= max_stale_seconds (${max_stale})"
+    elif [ -n "$max_stale" ]; then
+        _invoke_set_window set_max_stale_seconds "$max_stale" "$adapter" || die "set_max_stale_seconds failed"
+    else
+        _invoke_set_window set_max_submission_age_seconds "$age" "$adapter" || die "set_max_submission_age_seconds failed"
+    fi
+    echo "=== Oracle windows configured (${NETWORK}) ===" >&2
+}
+
+# One-off setter for the tight aggregation inclusion window.
+set_oracle_submission_age() {
+    local seconds=$1
+    [ -n "$seconds" ] || die "Usage: $0 setOracleSubmissionAge <seconds>"
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
+    echo "=== set_max_submission_age_seconds ${seconds} on ${NETWORK} (adapter ${adapter}) ===" >&2
+    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        -- set_max_submission_age_seconds --seconds "$seconds"
+}
+
+# One-off setter for the cache TTL.
+set_oracle_max_stale() {
+    local seconds=$1
+    [ -n "$seconds" ] || die "Usage: $0 setOracleMaxStale <seconds>"
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
+    echo "=== set_max_stale_seconds ${seconds} on ${NETWORK} (adapter ${adapter}) ===" >&2
+    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        -- set_max_stale_seconds --seconds "$seconds"
+}
+
 # ---------------------------------------------------------------------------
 # Market-level views
 # ---------------------------------------------------------------------------
@@ -3974,6 +4036,15 @@ case "$1" in
         fi
         add_oracle_signer "$2"
         ;;
+    "configureOracleWindows")
+        configure_oracle_windows
+        ;;
+    "setOracleSubmissionAge")
+        set_oracle_submission_age "$2"
+        ;;
+    "setOracleMaxStale")
+        set_oracle_max_stale "$2"
+        ;;
     "createHub")
         if [ -z "$2" ]; then
             echo "Usage: $0 createHub <hub_id>" >&2
@@ -4483,6 +4554,9 @@ disable_token_oracle_cmd "$2"
         echo "  info                            Deployment addresses & signer"
         echo "  listOracles                     Per-market oracle wiring from config"
         echo "  configureOracleFeeds           Call add_feed on xoxno_oracle_adapter for every entry in \${NETWORK}/oracle_feeds.json"
+        echo "  configureOracleWindows         Apply max_submission_age_seconds/max_stale_seconds from \${NETWORK}/oracle_feeds.json"
+        echo "  setOracleSubmissionAge <secs>  Set the tight aggregation inclusion window (>=60, <= max_stale)"
+        echo "  setOracleMaxStale <secs>       Set the cache TTL (>= submission-age window)"
         echo "  listOracleFeeds                Live feed index from the deployed xoxno_oracle_adapter"
         echo "  hasRole <account> <role>        Check role membership"
         echo "  getPrice <market>               Oracle price (spot / safe / aggregator + tolerance)"
