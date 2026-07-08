@@ -32,6 +32,29 @@ fn constructor_rejects_threshold_above_signer_count() {
 }
 
 #[test]
+#[should_panic]
+fn constructor_rejects_duplicate_signers() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let dup = Address::generate(&env);
+    // Same address twice -> has_duplicate -> InvalidThreshold.
+    let signers = soroban_sdk::vec![&env, dup.clone(), dup];
+    env.register(XoxnoOracle, (admin, signers, 1u32, TEST_RESOLUTION));
+}
+
+#[test]
+fn renounce_ownership_clears_owner() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _signers) = setup(&env, 1, 1);
+
+    assert!(client.get_owner().is_some());
+    client.renounce_ownership();
+    assert!(client.get_owner().is_none());
+}
+
+#[test]
 fn remove_signer_rejected_below_threshold() {
     let env = Env::default();
     env.mock_all_auths();

@@ -468,3 +468,164 @@ fn losing_quorum_clears_twap_history() {
     client.remove_signer(&signers[1]);
     assert!(client.prices(&asset, &12).is_none());
 }
+
+#[test]
+fn submit_prices_stores_multiple_feeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+
+    let feed_a = String::from_str(&env, "A/USD");
+    let feed_b = String::from_str(&env, "B/USD");
+    let feeds = vec![&env, feed_a.clone(), feed_b.clone()];
+    let prices = vec![&env, 100i128, 200i128];
+
+    client.submit_prices(&signers[0], &feeds, &prices, &1_000u64);
+    assert_eq!(
+        client.read_price_data_for_feed(&feed_a).price.to_u128(),
+        Some(100u128)
+    );
+    assert_eq!(
+        client.read_price_data_for_feed(&feed_b).price.to_u128(),
+        Some(200u128)
+    );
+}
+
+#[test]
+fn submit_prices_rejects_length_mismatch() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+
+    let feeds = vec![
+        &env,
+        String::from_str(&env, "A/USD"),
+        String::from_str(&env, "B/USD"),
+    ];
+    let prices = vec![&env, 100i128];
+    let result = client.try_submit_prices(&signers[0], &feeds, &prices, &1_000u64);
+    assert_eq!(expect_error(result), Error::LengthMismatch);
+}
+
+#[test]
+fn submit_prices_rejects_non_positive_price_upfront() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+
+    let feed_a = String::from_str(&env, "A/USD");
+    let feeds = vec![&env, feed_a.clone(), String::from_str(&env, "B/USD")];
+    let prices = vec![&env, 100i128, 0i128];
+    let result = client.try_submit_prices(&signers[0], &feeds, &prices, &1_000u64);
+    assert_eq!(expect_error(result), Error::InvalidPrice);
+    // Checked upfront: the valid first price is not stored on failure.
+    assert_eq!(
+        expect_error(client.try_read_price_data_for_feed(&feed_a)),
+        Error::NoDataForFeed
+    );
+}
+
+#[test]
+fn read_price_data_bulk_succeeds_when_all_present() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+
+    let feed_a = String::from_str(&env, "A/USD");
+    let feed_b = String::from_str(&env, "B/USD");
+    client.submit_price(&signers[0], &feed_a, &100i128, &1_000u64);
+    client.submit_price(&signers[0], &feed_b, &200i128, &1_000u64);
+
+    let results = client.read_price_data(&vec![&env, feed_a, feed_b]);
+    assert_eq!(results.len(), 2);
+    assert_eq!(results.get(0).unwrap().price.to_u128(), Some(100u128));
+    assert_eq!(results.get(1).unwrap().price.to_u128(), Some(200u128));
+}
+
+#[test]
+fn read_price_data_for_feed_reports_stale_data() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let feed = feed_id(&env);
+
+    // Cache an aggregate at ledger time 0 (write_timestamp = 0).
+    client.submit_price(&signers[0], &feed, &100i128, &0u64);
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(100u128)
+    );
+
+    // Advance past the cache TTL (default 86_400s) without any recompute, so
+    // the cached aggregate's write time is now stale.
+    advance_ledger_seconds(&env, 86_401);
+    assert_eq!(
+        expect_error(client.try_read_price_data_for_feed(&feed)),
+        Error::StaleData
+    );
+}
+
+#[test]
+fn purge_feed_clears_submission_state_and_allows_reuse() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 2, 2);
+    let feed = feed_id(&env);
+
+    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(150u128)
+    );
+
+    client.purge_feed(&feed);
+    assert_eq!(
+        expect_error(client.try_read_price_data_for_feed(&feed)),
+        Error::NoDataForFeed
+    );
+
+    // The feed id is re-usable after a purge: fresh submissions rebuild it.
+    client.submit_price(&signers[0], &feed, &100i128, &2_000u64);
+    client.submit_price(&signers[1], &feed, &200i128, &2_000u64);
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(150u128)
+    );
+}
+
+#[test]
+fn purge_feed_rejects_unknown_feed() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _signers) = setup(&env, 1, 1);
+
+    let result = client.try_purge_feed(&String::from_str(&env, "NEVER/USD"));
+    assert_eq!(expect_error(result), Error::FeedNotKnown);
+}
+
+#[test]
+fn purge_feed_keeps_other_feeds_and_rewrites_indexes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    // Two signers, threshold 1: signer[0] feeds two ids; signer[1] never
+    // submits, so its per-signer index is absent during the purge sweep.
+    let (client, _admin, signers) = setup(&env, 2, 1);
+    let feed_a = String::from_str(&env, "A/USD");
+    let feed_b = String::from_str(&env, "B/USD");
+
+    client.submit_price(&signers[0], &feed_a, &100i128, &1_000u64);
+    client.submit_price(&signers[0], &feed_b, &200i128, &1_000u64);
+
+    // Purge the non-last known feed: signer[0]'s per-signer index keeps feed_b
+    // (rewritten, not emptied), and the known-feed index swap-removes feed_a.
+    client.purge_feed(&feed_a);
+    assert_eq!(
+        expect_error(client.try_read_price_data_for_feed(&feed_a)),
+        Error::NoDataForFeed
+    );
+    assert_eq!(
+        client.read_price_data_for_feed(&feed_b).price.to_u128(),
+        Some(200u128)
+    );
+}
