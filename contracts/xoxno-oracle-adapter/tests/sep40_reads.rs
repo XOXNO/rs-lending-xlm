@@ -9,7 +9,7 @@ use common::*;
 use xoxno_oracle_adapter::Error;
 
 use ::common::oracle::providers::reflector::ReflectorAsset;
-use soroban_sdk::{Env, Symbol};
+use soroban_sdk::{Env, String, Symbol};
 
 #[test]
 fn add_feed_and_remove_feed_maintain_asset_index() {
@@ -245,4 +245,36 @@ fn price_selects_closest_when_history_is_non_monotonic() {
     // older_obs sample (160) that a naive first-match scan would return.
     let data = client.price(&asset, &t_early).expect("expected sample");
     assert_eq!(data.price, 150i128);
+}
+
+#[test]
+fn remove_feed_swap_moves_last_asset_into_gap() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _signers) = setup(&env, 1, 1);
+    let asset_a = xlm_asset(&env);
+    let asset_b = ReflectorAsset::Other(Symbol::new(&env, "BTC"));
+    client.add_feed(&feed_id(&env), &asset_a);
+    client.add_feed(&String::from_str(&env, "BTC/USD"), &asset_b);
+    assert_eq!(client.assets().len(), 2);
+
+    // Removing the FIRST asset swaps the last slot into the gap, so the index
+    // stays gap-free and the survivor is still enumerable.
+    client.remove_feed(&asset_a);
+    let assets = client.assets();
+    assert_eq!(assets.len(), 1);
+    assert_eq!(assets.get(0).unwrap(), asset_b);
+}
+
+#[test]
+fn prices_returns_none_for_zero_records() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let asset = xlm_asset(&env);
+    client.add_feed(&feed_id(&env), &asset);
+    client.submit_price(&signers[0], &feed_id(&env), &100i128, &1_000u64);
+
+    // History exists, but zero records requested yields an empty slice -> None.
+    assert!(client.prices(&asset, &0u32).is_none());
 }
