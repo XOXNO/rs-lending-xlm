@@ -8,8 +8,10 @@ use crate::errors::{GenericError, OracleError};
 use crate::math::fp::Wad;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, U256};
 
-// Max drift between the ledger clock and an oracle publication timestamp.
-const MAX_FUTURE_SKEW_SECONDS: u64 = 60;
+/// Max drift between the ledger clock and an oracle publication timestamp.
+/// Shared so price sources (e.g. the xoxno-oracle-adapter) can reject a
+/// too-far-future submission with the same bound the reader enforces.
+pub const MAX_FUTURE_SKEW_SECONDS: u64 = 60;
 
 pub const MAX_TWAP_RECORDS: u32 = 12;
 

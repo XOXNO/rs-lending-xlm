@@ -3,7 +3,7 @@
 //! reads stay O(1) regardless of signer count.
 
 use common::constants::MS_PER_SECOND;
-use common::oracle::observation::MAX_TWAP_RECORDS;
+use common::oracle::observation::{MAX_FUTURE_SKEW_SECONDS, MAX_TWAP_RECORDS};
 use common::oracle::providers::redstone::RedStonePriceData;
 use soroban_sdk::{contractimpl, Address, Env, String, Vec, U256};
 
@@ -38,6 +38,8 @@ impl XoxnoOracle {
     /// * `NotAuthorizedSigner` - `signer` is not a registered signer.
     /// * `InvalidPrice` - `price <= 0`.
     /// * `PriceOutOfRange` - `price > MAX_SUBMITTED_PRICE`.
+    /// * `FutureTimestamp` - `package_timestamp` is more than
+    ///   `MAX_FUTURE_SKEW_SECONDS` ahead of the ledger clock.
     pub fn submit_price(
         env: Env,
         signer: Address,
@@ -54,6 +56,7 @@ impl XoxnoOracle {
         if price > MAX_SUBMITTED_PRICE {
             return Err(Error::PriceOutOfRange);
         }
+        require_not_future(&env, package_timestamp)?;
 
         store_submission(&env, &feed_id, &signer, price, package_timestamp);
         recompute_aggregate(&env, &feed_id);
@@ -70,6 +73,8 @@ impl XoxnoOracle {
     ///   application on failure).
     /// * `PriceOutOfRange` - any `prices[i] > MAX_SUBMITTED_PRICE` (checked
     ///   upfront; no partial application on failure).
+    /// * `FutureTimestamp` - the shared `package_timestamp` is more than
+    ///   `MAX_FUTURE_SKEW_SECONDS` ahead of the ledger clock.
     pub fn submit_prices(
         env: Env,
         signer: Address,
@@ -83,6 +88,7 @@ impl XoxnoOracle {
         if feed_ids.len() != prices.len() {
             return Err(Error::LengthMismatch);
         }
+        require_not_future(&env, package_timestamp)?;
         for price in prices.iter() {
             if price <= 0 {
                 return Err(Error::InvalidPrice);
@@ -98,6 +104,23 @@ impl XoxnoOracle {
         }
         Ok(())
     }
+}
+
+/// Rejects a `package_timestamp` (milliseconds) more than
+/// `MAX_FUTURE_SKEW_SECONDS` ahead of the ledger clock. `recompute_aggregate`
+/// treats any future timestamp as age zero, so without this a signer clock/unit
+/// bug could cache a far-future `package_timestamp` that then reverts every
+/// downstream read on the reader's future-timestamp guard until corrected.
+fn require_not_future(env: &Env, package_timestamp: u64) -> Result<(), Error> {
+    let ts_secs = package_timestamp / MS_PER_SECOND;
+    let max_future = env
+        .ledger()
+        .timestamp()
+        .saturating_add(MAX_FUTURE_SKEW_SECONDS);
+    if ts_secs > max_future {
+        return Err(Error::FutureTimestamp);
+    }
+    Ok(())
 }
 
 pub(crate) fn store_submission(

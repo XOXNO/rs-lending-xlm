@@ -48,6 +48,7 @@ pub enum Error {
     StaleData = 8,
     PriceOutOfRange = 9,
     LengthMismatch = 10,
+    FutureTimestamp = 11,
     FeedAlreadyMapped = 12,
     FeedNotMapped = 13,
     FeedNotKnown = 14,

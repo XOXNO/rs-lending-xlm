@@ -36,6 +36,24 @@ fn submit_price_rejects_non_positive_price() {
 }
 
 #[test]
+fn submit_price_rejects_package_timestamp_beyond_future_skew() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    advance_ledger_seconds(&env, 100_000);
+
+    let now = env.ledger().timestamp();
+    // 61s ahead exceeds the 60s skew window; ms conversion.
+    let too_future_ms = (now + 61) * 1_000;
+    let result = client.try_submit_price(&signers[0], &feed_id(&env), &100i128, &too_future_ms);
+    assert_eq!(result, Err(Ok(Error::FutureTimestamp)));
+
+    // Within the skew window is accepted.
+    let ok_ms = (now + 60) * 1_000;
+    client.submit_price(&signers[0], &feed_id(&env), &100i128, &ok_ms);
+}
+
+#[test]
 fn aggregate_not_produced_until_threshold_reached() {
     let env = Env::default();
     env.mock_all_auths();
