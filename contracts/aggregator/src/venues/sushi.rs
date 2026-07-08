@@ -1,14 +1,4 @@
-//! Sushi V3 concentrated-liquidity venue dispatcher.
-//!
-//! Sushi pools expose Uniswap V3-style metadata:
-//! `token0()`, `token1()`, `get_oracle_hints()`, and
-//! `swap(sender, recipient, zero_for_one, amount_specified,
-//! sqrt_price_limit_x96, hints)`.
-//!
-//! The pool pulls `token_in` from `sender`, so the router authorizes only the
-//! exact SAC transfer the pool may perform. Output is measured by router
-//! `token_out` balance delta because Sushi's return value is direction-specific
-//! and pool fees are reflected in the final transfer.
+//! Sushi V3 pool adapter.
 
 use crate::errors::Error;
 use crate::venues::HopContext;

@@ -1,34 +1,4 @@
-//! Soroswap pair venue dispatcher.
-//!
-//! Soroswap pairs follow Uniswap v2 semantics. The caller transfers the input
-//! token to the pair BEFORE calling `swap`, and the pair computes the effective
-//! input as the delta between its current balance and stored reserves. The
-//! caller must name the exact output amounts; the pair only verifies its
-//! k-invariant against them.
-//!
-//! ## Flow per hop
-//! 1. Derive the pair's orientation from the hop's token addresses. Soroswap's
-//!    factory creates pairs with canonically sorted tokens (`token_0 < token_1`
-//!    under the host's address ordering), so `token_in < token_out` means
-//!    `token_in` is `token_0` — no on-chain `token_0`/`token_1` reads needed.
-//! 2. Read the pair's LIVE reserves (`get_reserves`) and derive the output
-//!    ON-CHAIN from the actual input using Soroswap's exact ceil-fee /
-//!    floor-output math.
-//! 3. Transfer `amount_in` of `token_in` from router → pool via SAC.
-//! 4. Call `pool.swap(amount_0_out, amount_1_out, router)` with the right slot.
-//! 5. Return the computed output — the pair transfers exactly that to the
-//!    router (the `to` address) or reverts on its k-check. `dispatch_hop`
-//!    credits the router's measured `token_out` balance delta, so this return
-//!    is advisory.
-//!
-//! Computing the output on-chain — rather than trusting the off-chain quoted
-//! `hop.amount_out` — keeps the requested output exactly on the pair's
-//! k-invariant boundary for the CURRENT reserves, so the swap cannot revert
-//! when live reserves have drifted from the quote snapshot (the source of the
-//! intermittent `Error(Contract, #114)` pair rejections). The off-chain quote
-//! stays the routing/UX estimate; slippage is enforced once via the router's
-//! `total_min_out` gate (and, for lending strategies, the controller's own
-//! end-to-end output verification).
+//! Soroswap pair adapter.
 
 use crate::errors::Error;
 use crate::venues::HopContext;

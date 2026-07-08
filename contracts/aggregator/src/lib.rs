@@ -1,47 +1,10 @@
-//! Stellar Router aggregator contract.
+//! Stellar swap router.
 //!
-//! ## Design
-//! - **In-memory vault**: per-tx token balances live in `Vault` (a
-//!   Soroban `Map<Address, i128>` held in a stack struct), not in
-//!   storage. Zero per-hop storage I/O for swap state.
-//! - **Opaque swap bytes**: callers pass `sender`, `total_in`, and a
-//!   `StrategyPayload` encoded as ScVal XDR bytes. The payload carries route
-//!   paths, endpoint tokens, slippage floor, and referral id.
-//! - **PPM splits**: each path carries `split_ppm` (parts-per-million)
-//!   instead of an absolute `amount_in`. The router pulls `total_in` ONCE
-//!   from sender, then slices per path from the vault. Last path absorbs PPM
-//!   rounding.
-//! - **Hop forward**: within a path, output of hop N feeds hop N+1
-//!   directly. Hop `amount_out` is supplied by the off-chain quote and is
-//!   needed only for venues whose ABI requires a requested output.
-//! - **Single slippage gate**: only `total_min_out` after all paths.
-//!   Per-path mins were intentionally dropped; stale venue state is handled by
-//!   the venue reverting or by the final aggregate output check.
-//!
-//! ## Persistent state (the only storage in the contract)
-//! - `Admin` — contract admin (instance entry).
-//! - `StaticFeeBps` — admin-side fee in basis points (instance).
-//! - `ReferralCounter` — monotonic counter (instance).
-//! - `Referral(u64)` — `ReferralConfig { owner, fee_bps, active }`.
-//! - `WhitelistedTokens` — single instance entry holding `Vec<Address>`
-//!   of whitelisted tokens (fee-direction hints).
-//! - `AdminFee(Address)` — accumulated admin fees (claimable by admin).
-//! - `ReferralFee(u64, Address)` — accumulated referral fees per
-//!   (id, token), transferred to `Referral(id).owner` on claim.
-//!
-//! No swap state ever goes into storage.
-//!
-//! ## Fees
-//! `referral_id == 0` → no fee. `referral_id > 0` and active → charge
-//! `static_fee_bps + referral_fee_bps` from either the input token
-//! (default) or the output token (when output is whitelisted but input
-//! isn't). Static portion → admin accumulator. Referral portion →
-//! per-referral accumulator.
+//! Pulls one input amount, executes split paths, and returns measured output.
+//! Storage holds only admin, referral config, whitelist, and fee buckets.
 
 #![no_std]
-// Soroban's `#[contractimpl]` macro emits an internal `allow(unsafe_code)`,
-// so `forbid(unsafe_code)` is incompatible with the contract toolchain. Keep
-// hand-written unsafe denied while allowing the macro expansion to compile.
+// Soroban macros emit their own unsafe allowances.
 #![deny(unsafe_code)]
 
 mod errors;
@@ -61,9 +24,6 @@ use soroban_sdk::{
 
 const PPM_DENOMINATOR: i128 = 1_000_000;
 const TOTAL_FEE: i128 = 10_000;
-/// Hard cap applied independently to the static fee and to each referral's
-/// fee. 1_000 bps = 10% per side; static and referral fees are not capped
-/// as a combined total.
 const FEE_CAP: u32 = 1_000;
 
 #[contract]
@@ -71,11 +31,6 @@ pub struct Router;
 
 #[contractimpl]
 impl Router {
-    /// Initializes the router with `admin`, zeroing the static fee and the
-    /// referral counter. Runs once, automatically, at deploy time.
-    ///
-    /// # Errors
-    /// * `AlreadyInitialised` - an admin is already set (constructor re-run).
     pub fn __constructor(env: Env, admin: Address) {
         let storage = env.storage().instance();
         if storage.has(&DataKey::Admin) {
@@ -90,28 +45,11 @@ impl Router {
     // Admin endpoints — gated by `Admin` storage entry's auth.
     // -----------------------------------------------------------------
 
-    /// Transfers contract admin authority to `new_admin`.
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    ///
-    /// # Security Warning
-    /// * Admin authority: gated by `require_admin`; only the stored admin may
-    ///   reassign it, and a compromised admin can hand control to any address.
     pub fn set_admin(env: Env, new_admin: Address) {
         require_admin(&env);
         env.storage().instance().set(&DataKey::Admin, &new_admin);
     }
 
-    /// Sets the admin-side fee in basis points.
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    /// * `FeeTooHigh` - `fee_bps` exceeds the per-side cap (`FEE_CAP`).
-    ///
-    /// # Security Warning
-    /// * Admin authority: gated by `require_admin`; only the stored admin may
-    ///   change the fee charged on referral-attributed swaps.
     pub fn set_static_fee(env: Env, fee_bps: u32) {
         require_admin(&env);
         if fee_bps > FEE_CAP {
@@ -122,14 +60,6 @@ impl Router {
             .set(&DataKey::StaticFeeBps, &fee_bps);
     }
 
-    /// Adds `token` to the fee-direction whitelist (idempotent).
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    ///
-    /// # Security Warning
-    /// * Admin authority: gated by `require_admin`; only the stored admin may
-    ///   change which side (input vs output) swap fees are charged on.
     pub fn add_to_whitelist(env: Env, token: Address) {
         require_admin(&env);
         let mut list = load_whitelist(&env);
@@ -141,14 +71,6 @@ impl Router {
         }
     }
 
-    /// Removes `token` from the fee-direction whitelist (no-op if absent).
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    ///
-    /// # Security Warning
-    /// * Admin authority: gated by `require_admin`; only the stored admin may
-    ///   change which side (input vs output) swap fees are charged on.
     pub fn remove_from_whitelist(env: Env, token: Address) {
         require_admin(&env);
         let mut list = load_whitelist(&env);
@@ -160,35 +82,11 @@ impl Router {
         }
     }
 
-    /// Replaces the contract WASM bytecode in place, keeping the contract
-    /// address stable for all integrators.
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    ///
-    /// # Security Warning
-    /// * Admin authority: gated by `require_admin`; only the stored admin may
-    ///   call. The new hash replaces all contract logic, so an unvetted image
-    ///   can arbitrarily change router behavior and move accrued fees.
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         require_admin(&env);
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
-    /// Registers a new active referral owned by `owner`, returning its
-    /// assigned ID.
-    ///
-    /// # Arguments
-    /// * `fee_bps` - the referral-owner fee slice; capped at `FEE_CAP`.
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    /// * `FeeTooHigh` - `fee_bps` exceeds the per-side cap (`FEE_CAP`).
-    /// * `IntegerOverflow` - the referral-ID counter would overflow.
-    ///
-    /// # Security Warning
-    /// * Admin authority: gated by `require_admin`; only the stored admin may
-    ///   register referrals and set their fee.
     pub fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64 {
         require_admin(&env);
         if fee_bps > FEE_CAP {
@@ -211,19 +109,6 @@ impl Router {
         id
     }
 
-    /// Updates an existing referral's fee (bps).
-    ///
-    /// # Arguments
-    /// * `fee_bps` - the new referral-owner fee slice; capped at `FEE_CAP`.
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    /// * `FeeTooHigh` - `fee_bps` exceeds the per-side cap (`FEE_CAP`).
-    /// * `ReferralNotFound` - `id` does not exist.
-    ///
-    /// # Security Warning
-    /// * Admin authority: gated by `require_admin`; only the stored admin may
-    ///   change referral fees.
     pub fn set_referral_fee(env: Env, id: u64, fee_bps: u32) {
         require_admin(&env);
         if fee_bps > FEE_CAP {
@@ -234,15 +119,6 @@ impl Router {
         env.storage().persistent().set(&DataKey::Referral(id), &cfg);
     }
 
-    /// Enables or disables a referral without altering its owner or fee.
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    /// * `ReferralNotFound` - `id` does not exist.
-    ///
-    /// # Security Warning
-    /// * Admin authority: gated by `require_admin`; only the stored admin may
-    ///   toggle a referral. An inactive referral charges no fee.
     pub fn set_referral_active(env: Env, id: u64, active: bool) {
         require_admin(&env);
         let mut cfg = load_referral(&env, id);
@@ -250,16 +126,6 @@ impl Router {
         env.storage().persistent().set(&DataKey::Referral(id), &cfg);
     }
 
-    /// Rotates a referral's owner address.
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    /// * `ReferralNotFound` - `id` does not exist.
-    ///
-    /// # Security Warning
-    /// * Admin authority: gated by `require_admin`; only the stored admin may
-    ///   rotate the owner. The new owner receives all future referral-fee
-    ///   claims for `id`.
     pub fn set_referral_owner(env: Env, id: u64, new_owner: Address) {
         require_admin(&env);
         let mut cfg = load_referral(&env, id);
@@ -267,53 +133,18 @@ impl Router {
         env.storage().persistent().set(&DataKey::Referral(id), &cfg);
     }
 
-    /// Claims accumulated admin fees for `tokens` to `recipient`, clearing
-    /// each token's admin-fee accumulator.
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    ///
-    /// # Security Warning
-    /// * Admin authority + fund-moving: gated by `require_admin`; transfers the
-    ///   router's real balance of each token to `recipient`.
     pub fn claim_admin_fees(env: Env, recipient: Address, tokens: Vec<Address>) {
         require_admin(&env);
         let router = env.current_contract_address();
         claim_fee_bucket(&env, &router, &recipient, tokens, FeeBucket::Admin);
     }
 
-    /// Claims accumulated referral fees for `tokens`, sending them to the
-    /// referral's current owner and clearing each accumulator.
-    ///
-    /// # Arguments
-    /// * `id` - the referral whose fees are claimed; proceeds always go to its
-    ///   stored owner, never to the caller.
-    ///
-    /// # Errors
-    /// * `ReferralNotFound` - `id` does not exist.
-    ///
-    /// # Security Warning
-    /// * Fund-moving + permissionless: no caller auth is required, but the
-    ///   transfer target is fixed to the referral's stored owner, so any caller
-    ///   can only route fees to that owner.
     pub fn claim_referral_fees(env: Env, id: u64, tokens: Vec<Address>) {
         let cfg = load_referral(&env, id);
         let router = env.current_contract_address();
         claim_fee_bucket(&env, &router, &cfg.owner, tokens, FeeBucket::Referral(id));
     }
 
-    /// Recovers the router's live on-chain balance of `tokens` to `recipient`,
-    /// ignoring fee-bucket accounting.
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set in storage.
-    ///
-    /// # Security Warning
-    /// * Admin authority + fund-moving: gated by `require_admin`; transfers the
-    ///   token's entire router balance. Because it ignores the
-    ///   `AdminFee`/`ReferralFee` accumulators, sweeping a token with unclaimed
-    ///   fees moves the backing balance out from under those entries — claim
-    ///   fee buckets first if they matter.
     pub fn sweep_balance(env: Env, recipient: Address, tokens: Vec<Address>) {
         require_admin(&env);
         let router = env.current_contract_address();
@@ -324,8 +155,9 @@ impl Router {
                 .unwrap_or_else(|| panic_with_error!(&env, Error::InvalidAmount));
             let client = token::Client::new(&env, &token);
             let balance = client.balance(&router);
-            if balance > 0 {
-                client.transfer(&router, &recipient, &balance);
+            let reserved = reserved_fee_balance(&env, &token);
+            if balance > reserved {
+                client.transfer(&router, &recipient, &(balance - reserved));
             }
         }
     }
@@ -334,15 +166,10 @@ impl Router {
     // Views — read-only, free for off-chain callers via `simulateTransaction`.
     // -----------------------------------------------------------------
 
-    /// Returns the contract admin.
-    ///
-    /// # Errors
-    /// * `NotAdmin` - no admin is set (contract not yet constructed).
     pub fn admin(env: Env) -> Address {
         load_admin(&env)
     }
 
-    /// Returns the static admin-side fee in basis points (`0` if unset).
     pub fn static_fee_bps(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -350,12 +177,10 @@ impl Router {
             .unwrap_or(0)
     }
 
-    /// Returns the referral config for `id`, or `None` if unknown.
     pub fn referral(env: Env, id: u64) -> Option<ReferralConfig> {
         env.storage().persistent().get(&DataKey::Referral(id))
     }
 
-    /// Returns the monotonic referral-ID counter (the highest ID assigned).
     pub fn referral_counter(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -363,19 +188,14 @@ impl Router {
             .unwrap_or(0)
     }
 
-    /// Returns whether `token` is on the fee-direction whitelist.
     pub fn is_whitelisted(env: Env, token: Address) -> bool {
         load_whitelist(&env).contains(&token)
     }
 
-    /// Return the full whitelist as a `Vec<Address>`. Lets the off-chain
-    /// quote server fetch the list in one read instead of probing every
-    /// known token via `is_whitelisted` individually.
     pub fn whitelisted_tokens(env: Env) -> Vec<Address> {
         load_whitelist(&env)
     }
 
-    /// Returns the accumulated (unclaimed) admin fee for `token`.
     pub fn admin_fee_balance(env: Env, token: Address) -> i128 {
         env.storage()
             .persistent()
@@ -383,7 +203,6 @@ impl Router {
             .unwrap_or(0)
     }
 
-    /// Returns the accumulated (unclaimed) referral fee for `(id, token)`.
     pub fn referral_fee_balance(env: Env, id: u64, token: Address) -> i128 {
         env.storage()
             .persistent()
@@ -395,30 +214,6 @@ impl Router {
     // Main entry — execute an opaque strategy payload.
     // -----------------------------------------------------------------
 
-    /// Executes an opaque, XDR-encoded swap payload: pulls `total_in` from
-    /// `sender`, routes it across the payload's paths, and returns the aggregate
-    /// output sent back to `sender`. Keeps callers off the router's
-    /// route/hop/venue types at their ABI boundary.
-    ///
-    /// # Arguments
-    /// * `sender` - funds source and output recipient; must authorize.
-    /// * `total_in` - input amount to pull; must be positive.
-    /// * `swap_xdr` - a `StrategyPayload` encoded as ScVal XDR bytes.
-    ///
-    /// # Errors
-    /// * `InvalidRouteXdr` - `swap_xdr` does not decode into a `StrategyPayload`.
-    /// * `InvalidAmount` - `total_in <= 0`, a per-path allocation is non-positive, or the post-fee input drains to zero.
-    /// * `SlippageExceeded` - `total_min_out <= 0`, or aggregate output is below `total_min_out`.
-    /// * Batch-shape gates: `EmptyBatch`, `EmptyPath`, `ZeroSplitPpm`, `SplitPpmMismatch`, or `BrokenTokenChain` (endpoint / hop-chain mismatch).
-    /// * `ZeroOutput` - a venue delivered no measured `token_out`.
-    /// * `IntegerOverflow` - checked arithmetic (allocation, fee, or venue amount conversion) overflowed.
-    ///
-    /// # Security Warning
-    /// * Fund-moving: pulls `sender` funds via `sender.require_auth`. Route
-    ///   pools are caller-supplied and untrusted — output is credited only from
-    ///   each venue's measured `token_out` balance delta and gated once by
-    ///   `total_min_out`, so `sender` must set `total_min_out` to enforce
-    ///   slippage.
     pub fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
         let payload = StrategyPayload::from_xdr(&env, &swap_xdr)
             .unwrap_or_else(|_| panic_with_error!(&env, Error::InvalidRouteXdr));
@@ -448,10 +243,6 @@ fn load_referral(env: &Env, id: u64) -> ReferralConfig {
         .unwrap_or_else(|| panic_with_error!(env, Error::ReferralNotFound))
 }
 
-/// Load the whitelist (instance storage). Returns an empty `Vec` when
-/// nothing has been whitelisted yet — fresh deploys hit this path so
-/// the bare-metal cost of "no whitelist set" is one instance read of
-/// `None`, not a per-token persistent probe.
 fn load_whitelist(env: &Env) -> Vec<Address> {
     env.storage()
         .instance()
@@ -459,8 +250,6 @@ fn load_whitelist(env: &Env) -> Vec<Address> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
-/// Split a token's vault balance into static-fee + referral-fee
-/// portions and accumulate each into its respective storage key.
 fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address, referral_id: u64) {
     if referral_id == 0 {
         return;
@@ -557,6 +346,28 @@ fn claim_fee_bucket(
             token::Client::new(env, &token).transfer(router, recipient, &amount);
         }
     }
+}
+
+fn reserved_fee_balance(env: &Env, token: &Address) -> i128 {
+    let mut total: i128 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::AdminFee(token.clone()))
+        .unwrap_or(0);
+    let counter: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::ReferralCounter)
+        .unwrap_or(0);
+    for id in 1..=counter {
+        let amount: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ReferralFee(id, token.clone()))
+            .unwrap_or(0);
+        total = checked_add(env, total, amount);
+    }
+    total
 }
 
 fn accumulate_fee(env: &Env, key: DataKey, amount: i128) {
