@@ -3416,7 +3416,10 @@ configure_oracle_feeds() {
         out=$(stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
             -- add_feed --feed_id "$feed_id" --asset "$asset_json" 2>"$errfile") && rc=0 || rc=$?
         if [ "$rc" -ne 0 ]; then
-            if grep -qi "FeedAlreadyMapped" "$errfile"; then
+            # The CLI may print only the numeric contract error ("Error(Contract,
+            # #12)", DebugInfo unavailable) instead of the enum name — match
+            # both. FeedAlreadyMapped = 12 in xoxno-oracle-adapter's Error enum.
+            if grep -qiE 'FeedAlreadyMapped|Error\(Contract, #12\)' "$errfile"; then
                 echo "    already mapped, skipping" >&2
             else
                 cat "$errfile" >&2
@@ -3451,7 +3454,10 @@ add_oracle_signer() {
     stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- add_signer --signer "$signer" 2>"$errfile" && rc=0 || rc=$?
     if [ "$rc" -ne 0 ]; then
-        if grep -qi "SignerAlreadyRegistered" "$errfile"; then
+        # The CLI may print only the numeric contract error ("Error(Contract,
+        # #4)", DebugInfo unavailable) instead of the enum name — match both.
+        # SignerAlreadyRegistered = 4 in xoxno-oracle-adapter's Error enum.
+        if grep -qiE 'SignerAlreadyRegistered|Error\(Contract, #4\)' "$errfile"; then
             echo "  already registered, skipping" >&2
         else
             cat "$errfile" >&2
