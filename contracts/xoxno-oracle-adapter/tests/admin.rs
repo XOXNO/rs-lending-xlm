@@ -111,6 +111,42 @@ fn only_owner_can_initiate_ownership_transfer() {
 }
 
 #[test]
+fn set_max_submission_age_enforces_floor_and_ttl_ceiling() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _signers) = setup(&env, 1, 1);
+
+    // Below the 60s floor is rejected.
+    assert_eq!(
+        client.try_set_max_submission_age_seconds(&59u64),
+        Err(Ok(Error::InvalidSubmissionAge))
+    );
+    // Above the cache TTL (default 86_400s) is rejected.
+    assert_eq!(
+        client.try_set_max_submission_age_seconds(&86_401u64),
+        Err(Ok(Error::InvalidSubmissionAge))
+    );
+    // The floor and the ceiling themselves are accepted.
+    client.set_max_submission_age_seconds(&60u64);
+    client.set_max_submission_age_seconds(&86_400u64);
+}
+
+#[test]
+fn set_max_stale_cannot_drop_below_submission_age() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _signers) = setup(&env, 1, 1);
+
+    // Default submission-age window is 900s; the cache TTL cannot go tighter.
+    assert_eq!(
+        client.try_set_max_stale_seconds(&899u64),
+        Err(Ok(Error::InvalidSubmissionAge))
+    );
+    // Equal to the window is accepted.
+    client.set_max_stale_seconds(&900u64);
+}
+
+#[test]
 fn only_admin_can_call_add_feed() {
     let env = Env::default();
     let (client, admin, _signers) = setup(&env, 1, 1);

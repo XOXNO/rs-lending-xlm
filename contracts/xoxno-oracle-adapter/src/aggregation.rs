@@ -8,9 +8,9 @@ use common::oracle::providers::redstone::RedStonePriceData;
 use soroban_sdk::{contractimpl, Address, Env, String, Vec, U256};
 
 use crate::storage::{
-    load_max_stale_seconds, load_signers, load_threshold, record_known_feed, record_signer_feed,
-    renew_oracle_instance, renew_persistent_key, require_registered_signer, DataKey,
-    SignerSubmission,
+    load_max_submission_age, load_resolution, load_signers, load_threshold, record_known_feed,
+    record_signer_feed, renew_oracle_instance, renew_persistent_key, require_registered_signer,
+    DataKey, SignerSubmission,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -27,10 +27,6 @@ pub(crate) const MAX_SUBMITTED_PRICE: i128 = 1_000_000_000_000_000_000_000_000;
 
 #[contractimpl]
 impl XoxnoOracle {
-    // -----------------------------------------------------------------
-    // Write functions — bot wallets, gated by `signer.require_auth()`.
-    // -----------------------------------------------------------------
-
     /// Records `signer`'s latest observation for `feed_id` and recomputes
     /// the cached aggregate for that feed.
     ///
@@ -40,6 +36,8 @@ impl XoxnoOracle {
     /// * `PriceOutOfRange` - `price > MAX_SUBMITTED_PRICE`.
     /// * `FutureTimestamp` - `package_timestamp` is more than
     ///   `MAX_FUTURE_SKEW_SECONDS` ahead of the ledger clock.
+    /// * `StaleSubmission` - `package_timestamp` is already older than the
+    ///   `MaxSubmissionAgeSeconds` inclusion window.
     pub fn submit_price(
         env: Env,
         signer: Address,
@@ -57,6 +55,7 @@ impl XoxnoOracle {
             return Err(Error::PriceOutOfRange);
         }
         require_not_future(&env, package_timestamp)?;
+        require_fresh_submission(&env, package_timestamp)?;
 
         store_submission(&env, &feed_id, &signer, price, package_timestamp);
         recompute_aggregate(&env, &feed_id);
@@ -75,6 +74,8 @@ impl XoxnoOracle {
     ///   upfront; no partial application on failure).
     /// * `FutureTimestamp` - the shared `package_timestamp` is more than
     ///   `MAX_FUTURE_SKEW_SECONDS` ahead of the ledger clock.
+    /// * `StaleSubmission` - the shared `package_timestamp` is already older
+    ///   than the `MaxSubmissionAgeSeconds` inclusion window.
     pub fn submit_prices(
         env: Env,
         signer: Address,
@@ -89,6 +90,7 @@ impl XoxnoOracle {
             return Err(Error::LengthMismatch);
         }
         require_not_future(&env, package_timestamp)?;
+        require_fresh_submission(&env, package_timestamp)?;
         for price in prices.iter() {
             if price <= 0 {
                 return Err(Error::InvalidPrice);
@@ -123,6 +125,20 @@ fn require_not_future(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     Ok(())
 }
 
+/// Rejects a `package_timestamp` (milliseconds) already older than the
+/// `MaxSubmissionAgeSeconds` inclusion window — the past-side bound paired with
+/// `require_not_future`. Surfaces a units bug (seconds as milliseconds) as an
+/// explicit error rather than a silent `recompute_aggregate` drop, and blocks a
+/// compromised signer from backdating a submission to pin the feed's freshness.
+fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Result<(), Error> {
+    let ts_secs = package_timestamp / MS_PER_SECOND;
+    let now = env.ledger().timestamp();
+    if now.saturating_sub(ts_secs) > load_max_submission_age(env) {
+        return Err(Error::StaleSubmission);
+    }
+    Ok(())
+}
+
 pub(crate) fn store_submission(
     env: &Env,
     feed_id: &String,
@@ -142,15 +158,18 @@ pub(crate) fn store_submission(
 }
 
 /// Recomputes and caches the aggregate for `feed_id` from every registered
-/// signer's latest submission. Submissions older than `MaxStaleSeconds` are
-/// excluded from consideration. If fewer than `Threshold` submissions remain
-/// fresh, the cached `CurrentAggregate` and `History` are both removed
-/// (fail-safe: spot and TWAP reads return `NoDataForFeed`/`None` rather than a
-/// stale/poisoned price) — the signer's raw submission recorded by the caller
-/// stays in place regardless.
+/// signer's latest submission. Submissions older than the tight
+/// `MaxSubmissionAgeSeconds` inclusion window are excluded from both the median
+/// and the reported observation time, so a single lagging/offline signer whose
+/// last submission is older than that window can neither skew the price nor pin
+/// the feed's freshness below what consumers tolerate. If fewer than
+/// `Threshold` submissions remain fresh, the cached `CurrentAggregate` and
+/// `History` are both removed (fail-safe: spot and TWAP reads return
+/// `NoDataForFeed`/`None` rather than a stale/poisoned price) — the signer's raw
+/// submission recorded by the caller stays in place regardless.
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let signers = load_signers(env);
-    let max_stale = load_max_stale_seconds(env);
+    let max_submission_age = load_max_submission_age(env);
     let now = env.ledger().timestamp();
 
     let mut kept_prices: Vec<i128> = Vec::new(env);
@@ -170,13 +189,11 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
             continue;
         };
 
-        // `package_timestamp` is milliseconds (RedStone convention);
-        // `ledger().timestamp()` is seconds. Divide before comparing, or
-        // every submission looks 1000x staler than it is. Saturate rather
-        // than subtract directly: a `package_timestamp` at or after `now`
-        // (clock skew, or same-second submission) must read as "not stale".
+        // `package_timestamp` is milliseconds (RedStone convention), the ledger
+        // clock is seconds: divide before comparing. Saturate so a timestamp at
+        // or after `now` (clock skew, same-second submission) reads as fresh.
         let age_seconds = now.saturating_sub(submission.package_timestamp / MS_PER_SECOND);
-        if age_seconds > max_stale {
+        if age_seconds > max_submission_age {
             continue;
         }
 
@@ -187,11 +204,9 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let threshold = load_threshold(env);
     if kept_prices.len() < threshold {
         // Below quorum: evict both the cached aggregate and the TWAP history so
-        // spot and TWAP reads fail safe (`NoDataForFeed`/`None`) instead of
-        // serving values that may include a just-removed (possibly compromised)
-        // signer's price. History is cleared too because `prices()`/`price()`
-        // read it directly and the controller only re-checks sample
-        // timestamps, not whether the samples came from the current quorum.
+        // spot and TWAP reads fail safe (`NoDataForFeed`/`None`). History must go
+        // too — `prices()`/`price()` read it directly, and consumers re-check
+        // sample timestamps but not whether the samples still meet quorum.
         env.storage()
             .persistent()
             .remove(&DataKey::CurrentAggregate(feed_id.clone()));
@@ -243,15 +258,20 @@ fn median_of(prices: &Vec<i128>) -> i128 {
     } else {
         let a = sorted.get(mid - 1).unwrap(); // safe: even len >= 2 so mid >= 1
         let b = sorted.get(mid).unwrap(); // safe: mid = len/2 < len
-        // Overflow-safe midpoint: both prices are > 0 and sorted so b >= a,
-        // thus `b - a` can't overflow and `a + (b - a)/2` stays within [a, b],
-        // avoiding the `a + b` overflow that `overflow-checks` would abort on.
+                                          // Overflow-safe midpoint: both prices are > 0 and sorted so b >= a,
+                                          // thus `b - a` can't overflow and `a + (b - a)/2` stays within [a, b],
+                                          // avoiding the `a + b` overflow that `overflow-checks` would abort on.
         a + (b - a) / 2
     }
 }
 
-/// Pushes `aggregate` onto `History(feed_id)`, evicting the oldest entry
-/// once the bounded FIFO would exceed `MAX_HISTORY_LEN`.
+/// Records `aggregate` in `History(feed_id)` as a `resolution`-spaced sample.
+/// When the newest retained sample is less than `resolution` seconds older than
+/// this one, it is overwritten in place (same bucket) rather than appended, so
+/// retained samples stay ~`resolution` apart and the bounded FIFO spans
+/// ~`MAX_HISTORY_LEN` buckets instead of collapsing to the raw submission
+/// cadence — keeping `resolution()` an honest description of the TWAP window a
+/// consumer reads. A `resolution` of 0 (unset) appends every submission.
 pub(crate) fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePriceData) {
     let key = DataKey::History(feed_id.clone());
     let mut history: Vec<RedStonePriceData> = env
@@ -260,10 +280,21 @@ pub(crate) fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePrice
         .get(&key)
         .unwrap_or_else(|| Vec::new(env));
 
-    if history.len() >= MAX_HISTORY_LEN {
-        history.pop_front();
+    let resolution_ms = u64::from(load_resolution(env)) * MS_PER_SECOND;
+    let len = history.len();
+    let replace_last = len > 0 && {
+        let last = history.get(len - 1).unwrap(); // safe: len > 0
+        aggregate.write_timestamp < last.write_timestamp.saturating_add(resolution_ms)
+    };
+
+    if replace_last {
+        history.set(len - 1, aggregate); // safe: len > 0
+    } else {
+        if len >= MAX_HISTORY_LEN {
+            history.pop_front();
+        }
+        history.push_back(aggregate);
     }
-    history.push_back(aggregate);
     env.storage().persistent().set(&key, &history);
     renew_persistent_key(env, &key);
 }

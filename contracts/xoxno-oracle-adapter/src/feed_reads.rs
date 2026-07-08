@@ -22,10 +22,9 @@ impl XoxnoOracle {
             .ok_or(Error::NoDataForFeed)?;
 
         let max_stale = load_max_stale_seconds(&env);
-        // `write_timestamp` is milliseconds; `ledger().timestamp()` is
-        // seconds. Saturate rather than subtract directly: a `write_timestamp`
-        // at or after `now` (clock skew, or same-second write) must read as
-        // "not stale", not underflow.
+        // `write_timestamp` is milliseconds, the ledger clock is seconds: divide
+        // before comparing. Saturate so a write at or after `now` (clock skew,
+        // same-second write) reads as fresh, not underflow.
         let age_seconds = env
             .ledger()
             .timestamp()

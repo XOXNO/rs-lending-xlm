@@ -21,7 +21,24 @@ use crate::aggregation::recompute_aggregate;
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
 /// Real RedStone's own staleness convention for cache freshness (24 hours).
+/// This is the *cache TTL*: how long a feed keeps serving after it stops
+/// receiving submissions entirely. It is deliberately looser than the
+/// aggregation inclusion window below.
 pub(crate) const DEFAULT_MAX_STALE_SECONDS: u64 = 86_400;
+
+/// Tight inclusion window for `recompute_aggregate`: a submission older than
+/// this counts toward neither the median price nor the reported observation
+/// time, so a single lagging/offline signer whose last submission is older than
+/// this — but still within the 24h cache TTL — can no longer drag the whole
+/// feed's freshness below what consumers tolerate. Must be kept `<=` every
+/// consumer's own `max_stale`. 15 minutes by default: far tighter than the 24h
+/// TTL, yet wide enough to absorb ordinary bot cadence and propagation delay.
+pub(crate) const DEFAULT_MAX_SUBMISSION_AGE_SECONDS: u64 = 900;
+
+/// Floor for `MaxSubmissionAgeSeconds`, mirroring the reader-side
+/// `MIN_PRICE_STALE_SECONDS`, so the window can't be set so tight that ordinary
+/// propagation delay drops the quorum on every recompute.
+pub(crate) const MIN_SUBMISSION_AGE_SECONDS: u64 = 60;
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -29,6 +46,7 @@ pub(crate) enum DataKey {
     Signers,
     Threshold,
     MaxStaleSeconds,
+    MaxSubmissionAgeSeconds,
     Resolution,
     LatestSubmission(String, Address),
     /// Per-signer index of the feed ids that signer has submitted to. Lets
@@ -64,10 +82,6 @@ pub(crate) struct SignerSubmission {
 
 #[contractimpl]
 impl XoxnoOracle {
-    // -----------------------------------------------------------------
-    // Owner functions — gated by `#[only_owner]` (stellar_access::ownable).
-    // -----------------------------------------------------------------
-
     /// Adds `signer` to the registered signer set.
     ///
     /// # Errors
@@ -152,19 +166,51 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Sets the absolute staleness ceiling (seconds) applied to cached
-    /// aggregates in `read_price_data_for_feed`.
+    /// Sets the cache-TTL ceiling (seconds) applied to cached aggregates in
+    /// `read_price_data_for_feed`. Must stay `>=` the aggregation inclusion
+    /// window (`MaxSubmissionAgeSeconds`): the TTL a feed serves under cannot be
+    /// tighter than the window a submission is allowed to contribute over.
+    ///
+    /// # Errors
+    /// * `InvalidSubmissionAge` - `seconds < MaxSubmissionAgeSeconds`.
     #[only_owner]
     pub fn set_max_stale_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_oracle_instance(&env);
+        if seconds < load_max_submission_age(&env) {
+            return Err(Error::InvalidSubmissionAge);
+        }
         env.storage()
             .instance()
             .set(&DataKey::MaxStaleSeconds, &seconds);
+        // No recompute here: the inclusion set is gated by
+        // `MaxSubmissionAgeSeconds`, not this TTL, and the TTL is re-evaluated
+        // live against `write_timestamp` on every read, so no cached state
+        // depends on it.
+        Ok(())
+    }
 
-        // Re-validate every known feed against the new window: lowering the cap
-        // can push a previously-included submission out of range, so recompute
-        // clears any aggregate that would no longer qualify instead of letting
-        // it serve until the next submission. O(known-feeds); infrequent admin op.
+    /// Sets the tight aggregation inclusion window (seconds): a submission older
+    /// than this is excluded from both the median and the reported observation
+    /// time. Keep this `<=` every consumer's `max_stale`.
+    ///
+    /// # Errors
+    /// * `InvalidSubmissionAge` - `seconds < MIN_SUBMISSION_AGE_SECONDS` or
+    ///   `seconds > MaxStaleSeconds`.
+    #[only_owner]
+    pub fn set_max_submission_age_seconds(env: Env, seconds: u64) -> Result<(), Error> {
+        renew_oracle_instance(&env);
+        if seconds < MIN_SUBMISSION_AGE_SECONDS || seconds > load_max_stale_seconds(&env) {
+            return Err(Error::InvalidSubmissionAge);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxSubmissionAgeSeconds, &seconds);
+
+        // Re-validate every known feed against the new window: tightening it can
+        // push a previously-included submission out of range, so recompute
+        // clears (or refreshes) any aggregate that would no longer qualify
+        // instead of letting it serve until the next submission.
+        // O(known-feeds); infrequent admin op.
         for feed_id in load_all_feeds(&env).iter() {
             recompute_aggregate(&env, &feed_id);
         }
@@ -221,8 +267,9 @@ impl XoxnoOracle {
 
     /// Purges all submission-side storage for a retired `feed_id`:
     /// `CurrentAggregate`, `History`, every currently-registered signer's
-    /// `LatestSubmission` entry, and its known-feed index entry. Does not
-    /// touch `FeedMapping`/the asset index — use `remove_feed` for that.
+    /// `LatestSubmission` entry and its trace in that signer's `SignerFeeds`
+    /// index, and the known-feed index entry. Does not touch `FeedMapping`/the
+    /// asset index — use `remove_feed` for that.
     ///
     /// # Errors
     /// * `FeedNotKnown` - `feed_id` has never received a submission.
@@ -243,7 +290,12 @@ impl XoxnoOracle {
         for signer in load_signers(&env).iter() {
             env.storage()
                 .persistent()
-                .remove(&DataKey::LatestSubmission(feed_id.clone(), signer));
+                .remove(&DataKey::LatestSubmission(feed_id.clone(), signer.clone()));
+            // Keep the per-signer feed index consistent with the known-feed set:
+            // without this the purged feed lingers in `SignerFeeds` forever,
+            // bloating a later `remove_signer` and growing unbounded across
+            // purge/re-add cycles.
+            remove_signer_feed(&env, &signer, &feed_id);
         }
 
         feed_index_remove(&env, &feed_id);
@@ -270,6 +322,13 @@ pub(crate) fn load_max_stale_seconds(env: &Env) -> u64 {
         .instance()
         .get(&DataKey::MaxStaleSeconds)
         .unwrap_or(DEFAULT_MAX_STALE_SECONDS)
+}
+
+pub(crate) fn load_max_submission_age(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxSubmissionAgeSeconds)
+        .unwrap_or(DEFAULT_MAX_SUBMISSION_AGE_SECONDS)
 }
 
 /// Materializes the asset index into a `Vec`, for `assets()`'s external
@@ -354,12 +413,46 @@ fn load_signer_feeds(env: &Env, signer: &Address) -> Vec<String> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
+/// Drops `feed_id` from `signer`'s per-signer feed index, removing the whole
+/// entry when it empties. Inverse of `record_signer_feed`.
+fn remove_signer_feed(env: &Env, signer: &Address, feed_id: &String) {
+    let key = DataKey::SignerFeeds(signer.clone());
+    let Some(feeds): Option<Vec<String>> = env.storage().persistent().get(&key) else {
+        return;
+    };
+    let mut kept = Vec::new(env);
+    for f in feeds.iter() {
+        if &f != feed_id {
+            kept.push_back(f);
+        }
+    }
+    if kept.is_empty() {
+        env.storage().persistent().remove(&key);
+    } else {
+        env.storage().persistent().set(&key, &kept);
+        renew_persistent_key(env, &key);
+    }
+}
+
+pub(crate) fn load_resolution(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::Resolution)
+        .unwrap_or(0)
+}
+
 fn asset_count(env: &Env) -> u32 {
-    env.storage().persistent().get(&DataKey::AssetCount).unwrap_or(0)
+    env.storage()
+        .persistent()
+        .get(&DataKey::AssetCount)
+        .unwrap_or(0)
 }
 
 fn feed_count(env: &Env) -> u32 {
-    env.storage().persistent().get(&DataKey::FeedCount).unwrap_or(0)
+    env.storage()
+        .persistent()
+        .get(&DataKey::FeedCount)
+        .unwrap_or(0)
 }
 
 fn feed_index_contains(env: &Env, feed_id: &String) -> bool {
@@ -409,10 +502,14 @@ fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
         renew_persistent_key(env, &moved_at_key);
 
         let moved_index_key = DataKey::AssetIndex(moved);
-        env.storage().persistent().set(&moved_index_key, &removed_at);
+        env.storage()
+            .persistent()
+            .set(&moved_index_key, &removed_at);
         renew_persistent_key(env, &moved_index_key);
     }
-    env.storage().persistent().remove(&DataKey::AssetAt(last_at));
+    env.storage()
+        .persistent()
+        .remove(&DataKey::AssetAt(last_at));
 
     let count_key = DataKey::AssetCount;
     env.storage().persistent().set(&count_key, &last_at);
@@ -458,7 +555,9 @@ fn feed_index_remove(env: &Env, feed_id: &String) {
         renew_persistent_key(env, &moved_at_key);
 
         let moved_index_key = DataKey::FeedIndex(moved);
-        env.storage().persistent().set(&moved_index_key, &removed_at);
+        env.storage()
+            .persistent()
+            .set(&moved_index_key, &removed_at);
         renew_persistent_key(env, &moved_index_key);
     }
     env.storage().persistent().remove(&DataKey::FeedAt(last_at));

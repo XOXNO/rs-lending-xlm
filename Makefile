@@ -1330,7 +1330,7 @@ _setup-markets:
 # Action classification - dispatcher routes action to script.sh,
 # passing positional args verbatim. Adding a new verb means add here + script.sh.
 SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeReady \
-	configureOracleFeeds listOracleFeeds \
+	configureOracleFeeds listOracleFeeds configureOracleWindows \
 	validateConfigs checkDelay \
 	setupAll setupAllMarkets setupAllSpokes \
 	whitelistBlendPools approveBlendPools \
@@ -1349,7 +1349,7 @@ POSITIONAL_ID_ACTIONS := addSpoke getSpoke createHub removeSpoke \
 	executeOp cancelOp opState awaitOp transferGovOwnership disableTokenOracle \
 	revokeBlendPool setPositionLimits setMinBorrowCollateralUsd setPositionManager \
 	transferCtrlOwnership migrateController accountExists isBlendPoolApproved \
-	addOracleSigner setSpokeLiquidationCurve
+	addOracleSigner setOracleSubmissionAge setOracleMaxStale setSpokeLiquidationCurve
 POSITIONAL_ID_ASSET_ACTIONS := addAssetToSpoke editAssetInSpoke removeAssetFromSpoke getSpokeAsset
 POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd \
                               getLtvUsd getLiqAvailable canLiquidate

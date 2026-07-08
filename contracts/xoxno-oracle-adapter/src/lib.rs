@@ -19,10 +19,12 @@
 //! Aggregation runs at write-time (inside `submit_price`/`submit_prices`) so
 //! reads stay O(1) regardless of signer count.
 //!
-//! Two independent staleness checks: `recompute_aggregate` gates which
-//! *submissions* count toward a refreshed aggregate; `read_price_data_for_feed`
-//! separately rejects a *cached* aggregate older than `MaxStaleSeconds`, so a
-//! feed that stops receiving submissions doesn't serve a stale value forever.
+//! Two decoupled staleness windows so a single lagging signer cannot pin a
+//! feed's reported freshness: `recompute_aggregate` includes only submissions
+//! younger than the tight `MaxSubmissionAgeSeconds` (in both the median and the
+//! reported observation time), while `read_price_data_for_feed` rejects a cached
+//! aggregate whose write time exceeds the looser `MaxStaleSeconds` cache TTL.
+//! `MaxSubmissionAgeSeconds` must be kept `<=` every consumer's own `max_stale`.
 #![no_std]
 
 mod aggregation;
@@ -52,6 +54,8 @@ pub enum Error {
     FeedAlreadyMapped = 12,
     FeedNotMapped = 13,
     FeedNotKnown = 14,
+    InvalidSubmissionAge = 15,
+    StaleSubmission = 16,
 }
 
 #[contract]
@@ -60,8 +64,8 @@ pub struct XoxnoOracle;
 #[contractimpl]
 impl XoxnoOracle {
     /// Registers `admin` as the OZ `Ownable` owner, the initial `signers`
-    /// set, the N-of-M `threshold`, and the SEP-40 `resolution`.
-    /// `MaxStaleSeconds` defaults to `DEFAULT_MAX_STALE_SECONDS`.
+    /// set, the N-of-M `threshold`, and the SEP-40 `resolution`. The staleness
+    /// windows take their defaults; tune them via the owner setters.
     ///
     /// # Errors
     /// * `InvalidThreshold` - `threshold == 0`, `threshold > signers.len()`,
@@ -88,6 +92,10 @@ impl XoxnoOracle {
         store.set(
             &storage::DataKey::MaxStaleSeconds,
             &storage::DEFAULT_MAX_STALE_SECONDS,
+        );
+        store.set(
+            &storage::DataKey::MaxSubmissionAgeSeconds,
+            &storage::DEFAULT_MAX_SUBMISSION_AGE_SECONDS,
         );
         store.set(&storage::DataKey::Resolution, &resolution);
         Ok(())
