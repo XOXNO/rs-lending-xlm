@@ -72,3 +72,35 @@ fn add_delegate_rejects_overflowing_cap() {
         add_delegate(&env, account_id, &Address::generate(&env));
     });
 }
+
+// Regression: `Delegates` was missing from `renew_user_account`'s renewed-key
+// set, so a delegate-only account let it archive. Aging past the user TTL
+// threshold and calling the renewal must bump the `Delegates` key.
+#[test]
+fn renew_user_account_renews_delegates_ttl() {
+    use common::constants::TTL_BUMP_USER;
+    use soroban_sdk::testutils::storage::Persistent as _;
+    use soroban_sdk::testutils::Ledger as _;
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        let account_id = 7u64;
+        add_delegate(&env, account_id, &Address::generate(&env));
+
+        // Age the ledger so the key's remaining TTL drops below the threshold
+        // (extend_ttl is a no-op above it), while staying live.
+        env.ledger()
+            .with_mut(|l| l.sequence_number += TTL_BUMP_USER - 1_000);
+
+        let key = ControllerKey::Delegates(account_id);
+        let aged = env.storage().persistent().get_ttl(&key);
+        renew_user_account(&env, account_id);
+        let renewed = env.storage().persistent().get_ttl(&key);
+
+        assert!(
+            renewed > aged,
+            "Delegates TTL must be renewed: renewed={renewed}, aged={aged}"
+        );
+    });
+}

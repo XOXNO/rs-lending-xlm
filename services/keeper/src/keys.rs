@@ -40,13 +40,16 @@ impl ControllerPersistentKey {
 
 /// Controller per-user persistent keys, keyed by the `u64` account id.
 ///
-/// The contract splits each account across three persistent entries:
-/// `AccountMeta(id)`, `SupplyPositions(id)`, and `BorrowPositions(id)`.
+/// The contract splits each account across four persistent entries:
+/// `AccountMeta(id)`, `SupplyPositions(id)`, `BorrowPositions(id)`, and
+/// `Delegates(id)`. `Delegates` exists only for accounts that have set a
+/// delegate; a missing entry is skipped by the batch read.
 #[derive(Debug, Clone)]
 pub enum ControllerUserKey {
     AccountMeta(u64),
     SupplyPositions(u64),
     BorrowPositions(u64),
+    Delegates(u64),
 }
 
 impl ControllerUserKey {
@@ -55,6 +58,7 @@ impl ControllerUserKey {
             Self::AccountMeta(id) => sc_enum("AccountMeta", &[ScVal::U64(*id)])?,
             Self::SupplyPositions(id) => sc_enum("SupplyPositions", &[ScVal::U64(*id)])?,
             Self::BorrowPositions(id) => sc_enum("BorrowPositions", &[ScVal::U64(*id)])?,
+            Self::Delegates(id) => sc_enum("Delegates", &[ScVal::U64(*id)])?,
         })
     }
 
@@ -542,6 +546,17 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(sym_text(&items[0]), "BorrowPositions");
         assert!(matches!(items[1], ScVal::U64(1)));
+    }
+
+    #[test]
+    fn delegates_user_key_carries_u64_id() {
+        let sv = ControllerUserKey::Delegates(9).to_sc_val().unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(sym_text(&items[0]), "Delegates");
+        assert!(matches!(items[1], ScVal::U64(9)));
     }
 
     #[test]

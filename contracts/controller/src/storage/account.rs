@@ -234,6 +234,10 @@ pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
         ControllerKey::AccountMeta(account_id),
         ControllerKey::SupplyPositions(account_id),
         ControllerKey::BorrowPositions(account_id),
+        // `Delegates` is read on every delegate-driven action but only written
+        // by add/remove_delegate; without renewing it here a delegate-only
+        // account lets it archive (unrevivable), bricking delegate access.
+        ControllerKey::Delegates(account_id),
     ];
     for key in &keys {
         if persistent.has(key) {
