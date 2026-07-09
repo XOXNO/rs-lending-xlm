@@ -54,7 +54,7 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Compile Certora feature paths
-        run: ./certora/compile_all.sh
+        run: ./certora/compile_all.sh --wasm
 
       # Fork PRs without org-secret access must skip this workflow at the
       # trigger level — a missing CERTORAKEY fails the job here.
