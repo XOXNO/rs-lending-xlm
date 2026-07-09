@@ -506,3 +506,28 @@ fn test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds() {
          BorrowRoundsToZeroShares guard rejects if it's ever reached"
     );
 }
+
+// 12. Borrowing a single raw unit of an 18-decimal asset against large
+// collateral must succeed. The resulting health factor is finite but too large
+// for the WAD i128 range, so the risk gate saturates it instead of reverting
+// with MathOverflow.
+
+#[test]
+fn test_borrow_1_raw_unit_18dec_saturates_hf() {
+    let mut t = LendingTest::new()
+        .with_market(dai_18dec())
+        .with_market(usdc_6dec())
+        .with_min_borrow_collateral_disabled()
+        .build();
+
+    t.supply(ALICE, "USDC6", 10_000.0);
+    t.borrow_raw(ALICE, "DAI18", 1);
+
+    // Debt is exactly the 1 raw unit that was borrowed.
+    assert_eq!(t.borrow_balance_raw(ALICE, "DAI18"), 1);
+
+    // Astronomically over-collateralised: HF saturates to the i128::MAX WAD
+    // sentinel, matching the debt-free branch, and the account stays healthy.
+    assert_eq!(t.health_factor_raw(ALICE), i128::MAX);
+    t.assert_healthy(ALICE);
+}

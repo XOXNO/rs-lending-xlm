@@ -217,6 +217,15 @@ impl Wad {
         Wad(fp_core::mul_div_floor(env, self.0, WAD, other.0))
     }
 
+    /// Divides two WAD values with floor rounding, saturating at `i128::MAX`
+    /// when the ratio exceeds the WAD range. For non-negative inputs; used for
+    /// health factors where a tiny debt against large collateral is finite but
+    /// too large to represent.
+    pub fn div_floor_saturating(self, env: &Env, other: Wad) -> Wad {
+        // D18{A} * D18{1} / D18{B} -> D18{A/B}.
+        Wad(fp_core::mul_div_floor_saturating(env, self.0, WAD, other.0))
+    }
+
     /// Multiplies two WAD values with floor rounding for non-negative inputs.
     pub fn mul_floor(self, env: &Env, other: Wad) -> Wad {
         // D18{A} * D18{B} / D18{1} -> D18{A*B}.

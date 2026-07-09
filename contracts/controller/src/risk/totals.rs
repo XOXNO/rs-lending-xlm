@@ -179,7 +179,9 @@ fn calculate_account_risk_totals_body(
     let health_factor = if total_debt == Wad::ZERO {
         Wad::from(i128::MAX)
     } else {
-        weighted_coll.div_floor(env, total_debt)
+        // A tiny debt against large collateral yields a finite but
+        // unrepresentable ratio; saturate rather than revert a healthy account.
+        weighted_coll.div_floor_saturating(env, total_debt)
     };
 
     AccountRiskTotals {
