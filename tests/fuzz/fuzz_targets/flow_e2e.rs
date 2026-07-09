@@ -182,7 +182,7 @@ fn supply_amount(asset: &str, size: u8) -> f64 {
 fn borrow_amount(asset: &str, size: u8) -> f64 {
     // Occasionally use dust/tiny amounts (to stress scaling/rounding after high index from Advance ops).
     // These can combine with AdvanceAndSync in the fuzzer to hit the "small raw after large borrow_index" edge.
-    if size % 17 == 0 || size == 1 {
+    if size.is_multiple_of(17) || size == 1 {
         // Extremely small positive that, for high-dec assets + accrued index, can produce scaled==0
         // while still transferring positive tokens (the debated abuse vector).
         return if size == 1 { 1e-12 } else { 1e-9 };
