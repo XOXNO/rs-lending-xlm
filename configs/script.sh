@@ -3001,24 +3001,6 @@ unpause_protocol() {
 }
 
 # ---------------------------------------------------------------------------
-# Oracle circuit-breaker (controller has no operational roles)
-# ---------------------------------------------------------------------------
-
-disable_token_oracle_cmd() {
-    local asset=$1
-    local args_json
-    args_json=$(jq -nc --arg a "$asset" '[{address:$a}]')
-    local salt
-    salt=$(gen_salt "disable_token_oracle" "$args_json")
-    local op_id
-    op_id=$(schedule_via_proposer \
-        disable_token_oracle "$(admin_op DisableTokenOracle "$(jq -nc --arg a "$asset" '$a')")" \
-        "$args_json" true "$salt")
-    schedule_and_maybe_execute "$op_id"
-    echo "disable_token_oracle scheduled for ${asset}."
-}
-
-# ---------------------------------------------------------------------------
 # Remaining AdminOperation verbs (incident response + controller admin).
 # Each schedules through the generic proposer; args mirror governance op.rs's
 # resolve_op mapping so the recorded replay args match byte-for-byte.
@@ -4291,13 +4273,6 @@ case "$1" in
     "deployPool")
         schedule_deploy_pool
         ;;
-"disableTokenOracle")
-if [ -z "$2" ]; then
-echo "Usage: $0 disableTokenOracle <asset_contract_id>" >&2
-exit 1
-fi
-disable_token_oracle_cmd "$2"
-;;
 "grantGovRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 grantGovRole <account> <role>" >&2
@@ -4513,7 +4488,7 @@ disable_token_oracle_cmd "$2"
         echo ""
         echo "Timelock (admin writes are scheduled then executed after the delay):"
         echo "  Admin verbs (createMarket, configureMarketOracle, spoke,"
-        echo "  setAggregator, disableTokenOracle, ...) SCHEDULE a governance op and, by default"
+        echo "  setAggregator, editOracleTolerance, ...) SCHEDULE a governance op and, by default"
         echo "  (AUTO_EXECUTE=1), await the min-delay then execute it. Set AUTO_EXECUTE=0"
         echo "  to schedule-only and execute later with executeOp."
         echo "  Scheduling is idempotent AND re-apply-aware: an op already Waiting/Ready"
@@ -4534,7 +4509,6 @@ disable_token_oracle_cmd "$2"
         echo "Protocol control (writes, all routed through governance):"
         echo "  pause | unpause                 Pause/unpause protocol (immediate, owner)"
         echo "  checkDelay                      Compare live timelock delay vs configured target"
-        echo "  disableTokenOracle <asset>      Timelock disable_token_oracle on controller"
         echo "  approveToken <m|C...>           Timelocked market-token allow-list add"
         echo "  revokeToken <m|C...>            Timelocked market-token allow-list remove"
         echo "  revokeBlendPool <C...>          Timelocked Blend-pool allow-list remove"
@@ -4612,7 +4586,6 @@ disable_token_oracle_cmd "$2"
         echo "  NETWORK=testnet $0 getPrice USDC"
         echo "  NETWORK=testnet $0 getHealth 1"
         echo "  NETWORK=testnet $0 getCollateral 1 XLM"
-        echo "  NETWORK=testnet $0 disableTokenOracle C...USDC"
         echo "  SIGNER=ledger NETWORK=mainnet $0 pause"
         ;;
 esac

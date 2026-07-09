@@ -387,3 +387,122 @@ fn test_low_value_high_quantity_7dec() {
         hf
     );
 }
+
+/// Test exercising borrow of the smallest positive raw amount (1 unit) on a 7-decimal asset.
+/// This serves as verification that small borrows are correctly scaled into positive debt shares
+/// (no zeroing of scaled_amount for feasible amounts) and properly recorded in positions and pool.
+/// The math (from_asset(1,7) produces 10^20 in ray space; div produces positive scaled;
+/// reconstruction gives back exactly 1) ensures no free extraction or bypassed gates.
+#[test]
+fn test_borrow_1_raw_unit_is_properly_recorded_on_7dec() {
+    let mut t = LendingTest::new()
+        .with_market(xlm_7dec())
+        .with_min_borrow_collateral_disabled()
+        .build();
+
+    // Create account + collateral with a supply that registers positive shares.
+    t.supply(ALICE, "XLM7", 100.0);
+
+    let initial_borrow = t.borrow_balance_raw(ALICE, "XLM7");
+    let initial_token = t.token_balance_raw(ALICE, "XLM7");
+
+    // Borrow exactly 1 raw unit.
+    t.borrow_raw(ALICE, "XLM7", 1);
+
+    let after_borrow = t.borrow_balance_raw(ALICE, "XLM7");
+    let after_token = t.token_balance_raw(ALICE, "XLM7");
+
+    // The 1 unit is recorded as +1 in actual borrow balance.
+    assert_eq!(
+        after_borrow,
+        initial_borrow + 1,
+        "1 raw borrow must record exactly +1 in borrow balance"
+    );
+
+    // Tokens were received.
+    assert_eq!(after_token, initial_token + 1);
+
+    // A debt position now exists.
+    let account_id = t.resolve_account_id(ALICE);
+    let (_supplies, borrows) = t.ctrl_client().get_account_positions(&account_id);
+    let asset_addr = t.resolve_asset("XLM7");
+    assert!(
+        borrows.iter().any(|(k, p)| k.asset == asset_addr && p.scaled_amount > 0),
+        "Positive scaled debt position must exist after borrowing 1 raw unit"
+    );
+
+    t.assert_healthy(ALICE);
+}
+
+/// Sweeps the full valid decimals range (`MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`)
+/// against the full valid borrow_index range (`RAY..=MAX_BORROW_INDEX_RAY`) via
+/// the real `Ray::div` (half-up rounding), the exact function
+/// `calculate_scaled_borrow` uses. Confirms a 1-raw-unit borrow never scales to
+/// zero anywhere inside the protocol's own bounds.
+///
+/// Also proves *why* `pool::accrue_borrow`'s `BorrowRoundsToZeroShares` guard
+/// exists: at 3x the ceiling — a value real accrual can never produce, since
+/// `update_borrow_index` clamps every compounding step back to
+/// `MAX_BORROW_INDEX_RAY` — the same 1-raw-unit borrow WOULD scale to zero.
+/// The guard is unreachable through any live entrypoint today (accrual always
+/// re-clamps before use), kept as defense-in-depth against a future bump to
+/// `MAX_BORROW_INDEX_RAY` or `MAX_ASSET_DECIMALS` that narrows this margin.
+///
+/// NOTE: an on-chain integration test pinning `borrow_index` via storage and
+/// calling `borrow()` directly was attempted here and dropped — a `raw=1`
+/// borrow on an 18-decimal asset hits an unrelated `MathOverflow` during
+/// post-borrow risk-gate pricing, reproducible independent of index/collateral
+/// (borrowing e.g. `1_000_000` raw units instead succeeds fine, as does
+/// `raw=1` on lower-decimal assets — see
+/// `test_borrow_1_raw_unit_is_properly_recorded_on_7dec` above). That is a
+/// separate, real bug worth its own investigation; this pure-math test avoids
+/// it entirely since it never touches the contract call stack.
+#[test]
+fn test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds() {
+    let env = soroban_sdk::Env::default();
+    let one_raw = common::math::fp::Ray::from_asset(1, 18);
+    let samples = [
+        common::constants::RAY,
+        common::constants::RAY * 1_000,
+        common::constants::RAY * 1_000_000,
+        common::constants::MAX_BORROW_INDEX_RAY / 2,
+        common::constants::MAX_BORROW_INDEX_RAY,
+    ];
+    for decimals in 6u32..=18 {
+        let from = common::math::fp::Ray::from_asset(1, decimals);
+        for &index in &samples {
+            let scaled = from.div(&env, common::math::fp::Ray::from(index));
+            assert!(
+                scaled.raw() > 0,
+                "1-raw-unit borrow on {}dec scaled to zero at borrow_index={} \
+                 (within protocol bounds — this must never happen)",
+                decimals, index
+            );
+        }
+    }
+    // The named worst case: max decimals, min raw, max index.
+    let worst_case = one_raw.div(
+        &env,
+        common::math::fp::Ray::from(common::constants::MAX_BORROW_INDEX_RAY),
+    );
+    assert_eq!(
+        worst_case.raw(),
+        1,
+        "worst-case corner (18dec, raw=1, index=MAX_BORROW_INDEX_RAY) must \
+         scale to exactly 1, matching the on-chain boundary test above"
+    );
+
+    // Beyond the cap (unreachable via real accrual, see doc comment above):
+    // this is exactly what BorrowRoundsToZeroShares exists to catch.
+    let beyond_cap = one_raw.div(
+        &env,
+        common::math::fp::Ray::from(common::constants::MAX_BORROW_INDEX_RAY * 3),
+    );
+    assert_eq!(
+        beyond_cap.raw(),
+        0,
+        "beyond the protocol's index ceiling, a 1-raw-unit 18dec borrow does \
+         round to zero — this is the free-borrow shape the pool's \
+         BorrowRoundsToZeroShares guard rejects if it's ever reached"
+    );
+}

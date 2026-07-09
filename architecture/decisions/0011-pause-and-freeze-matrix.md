@@ -57,7 +57,8 @@ explicitly, so a routine parameter edit cannot silently clear an active
 flag. Flag changes therefore ride the same governance timelock as the rest
 of the listing edit — the per-asset flags are planned wind-down and
 containment tools, while the instant incident brake remains the layer-1
-global pause (and `disable_token_oracle` for oracle incidents).
+global pause; an oracle incident on one asset is contained per spoke via
+the layer-2 `paused` flag.
 
 ## Liquidations
 
@@ -89,8 +90,10 @@ Positive:
 Explicit limitation: the global pause is NOT an oracle killswitch.
 `withdraw` with outstanding debt and `liquidate` still read oracles while
 globally paused. In an oracle incident the correct tool is the per-asset
-`paused` flag (or `disable_token_oracle`), which stops the flows that would
-consume the bad price.
+`paused` flag, which stops the flows that would consume the bad price.
+There is deliberately no admin op that removes an asset's oracle entry
+outright: that would brick every live position referencing the asset
+(repay only) instead of containing exposure via the flag above.
 
 Accepted costs:
 

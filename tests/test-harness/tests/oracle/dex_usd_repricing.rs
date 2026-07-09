@@ -134,46 +134,24 @@ fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
     index_view(&t, &xlm);
 }
 
-/// A Disabled quote market is rejected at read time regardless of the caller's
-/// policy: a dependent market cannot be priced off a disabled quote.
-#[test]
-#[should_panic(expected = "Error(Contract, #220)")]
-fn test_dex_read_rejects_disabled_quote_market() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(xlm_preset())
-        .build();
-    t.set_price("USDC", usd(1));
-    let usdc = t.resolve_asset("USDC");
-    let xlm = t.resolve_asset("XLM");
-
-    let dex = register_dex_oracle(&t, &usdc);
-    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
-    t.configure_market_oracle(
-        &xlm,
-        &reflector_single_spot_config(&dex, &xlm, usd(2), DEFAULT_TOLERANCE.tolerance_bps),
-    );
-
-    // Disable USDC, then read XLM -> must revert (cannot price off a disabled quote).
-    t.ctrl_client().disable_token_oracle(&usdc);
-    index_view(&t, &xlm);
-}
-
 /// Execute-time re-check: governance validates the quote market at propose time,
 /// but the controller stores the config ~48h later. If the quote market is
-/// disabled during the timelock delay, replaying the stale op (a direct
-/// `set_market_oracle_config` of the resolved config) reverts (#220) instead of
-/// landing a config that prices off a disabled quote.
+/// reconfigured to a non-USD base during the timelock delay, replaying the
+/// stale op (a direct `set_market_oracle_config` of the resolved config)
+/// reverts (#220) instead of landing a config that prices off a quote that no
+/// longer resolves to USD.
 #[test]
 #[should_panic(expected = "Error(Contract, #220)")]
-fn test_oracle_config_execute_rejects_disabled_quote_market() {
+fn test_oracle_config_execute_rejects_quote_reconfigured_during_delay() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(xlm_preset())
+        .with_market(eth_preset())
         .build();
     t.set_price("USDC", usd(1));
     let usdc = t.resolve_asset("USDC");
     let xlm = t.resolve_asset("XLM");
+    let eth = t.resolve_asset("ETH");
 
     // Configure XLM quoted in USDC while USDC is Active+USD (propose-time view).
     let dex = register_dex_oracle(&t, &usdc);
@@ -194,8 +172,15 @@ fn test_oracle_config_execute_rejects_disabled_quote_market() {
             .unwrap()
     });
 
-    // During the timelock delay the quote market is disabled.
-    t.ctrl_client().disable_token_oracle(&usdc);
+    // During the timelock delay, USDC itself is reconfigured to quote in ETH:
+    // USDC is no longer a direct USD market.
+    let dex_eth = register_dex_oracle(&t, &eth);
+    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_eth)
+        .set_price(&usdc, &usd(1));
+    t.configure_market_oracle(
+        &usdc,
+        &reflector_single_spot_config(&dex_eth, &usdc, usd(1), DEFAULT_TOLERANCE.tolerance_bps),
+    );
 
     // Executing the stale op re-asserts the quote invariant and reverts.
     t.ctrl_client()

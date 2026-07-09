@@ -201,15 +201,6 @@ pub(crate) fn set_asset_oracle(env: &Env, asset: &Address, config: &MarketOracle
     renew_protocol_shared_key(env, &key);
 }
 
-/// Removes the token-rooted oracle config. Absence is the protocol's
-/// disabled/pending signal: price resolution and `require_market_active` reject
-/// assets with no `AssetOracle` entry.
-pub(crate) fn remove_asset_oracle(env: &Env, asset: &Address) {
-    env.storage()
-        .persistent()
-        .remove(&ControllerKey::AssetOracle(asset.clone()));
-}
-
 // Persistent, not instance: the nonce changes on every account creation, and
 // an instance write rewrites (and re-rents) the whole instance envelope.
 /// Returns the current account-id nonce, or 0 before any account is created.

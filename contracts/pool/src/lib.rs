@@ -100,6 +100,15 @@ fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
     cache.require_reserves(amount);
     let scaled_debt = cache.calculate_scaled_borrow(amount);
+    // A positive raw amount must mint positive scaled debt. At an extreme
+    // borrow_index (bounded by MAX_BORROW_INDEX_RAY) a tiny raw amount can
+    // floor to zero shares here; accepting it would still debit cash and
+    // transfer real tokens below with no debt recorded — a free borrow.
+    assert_with_error!(
+        env,
+        scaled_debt.raw() > 0,
+        GenericError::BorrowRoundsToZeroShares
+    );
     scaled.checked_add_assign(env, scaled_debt);
     cache.borrowed.checked_add_assign(env, scaled_debt);
     utils::require_utilization_below_max(env, cache);
@@ -419,6 +428,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// # Errors
     /// * `PoolNotInitialized` - an entry targets a market with no stored state.
     /// * `AmountMustBePositive` - an entry amount is not strictly positive.
+    /// * `BorrowRoundsToZeroShares` - the amount is positive but rounds down
+    ///   to zero scaled debt shares at the current borrow index.
     /// * `InsufficientLiquidity` - tracked reserves cannot cover the borrow.
     /// * `UtilizationAboveMax` - the borrow pushes utilization past the market cap.
     /// * `MathOverflow` - scaled-share or cash accounting overflows.

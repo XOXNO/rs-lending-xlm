@@ -104,12 +104,6 @@ pub struct UpdateMinBorrowCollateralEvent {
     pub min_borrow_collateral_usd_wad: i128,
 }
 
-#[contractevent(topics = ["config", "oracle_disabled"])]
-#[derive(Clone, Debug)]
-pub struct OracleDisabledEvent {
-    pub asset: Address,
-}
-
 #[contractevent(topics = ["config", "hub"])]
 #[derive(Clone, Debug)]
 pub struct CreateHubEvent {

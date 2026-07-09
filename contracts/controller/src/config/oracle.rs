@@ -9,7 +9,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::external::pool::fetch_pool_sync_data;
 use crate::{
-    events::{EventOracleProvider, OracleDisabledEvent, UpdateAssetOracleEvent},
+    events::{EventOracleProvider, UpdateAssetOracleEvent},
     storage,
 };
 
@@ -119,14 +119,3 @@ pub fn set_oracle_tolerance(env: &Env, asset: Address, tolerance: OraclePriceFlu
     .publish(env);
 }
 
-/// Disables an active asset by removing its `AssetOracle` entry. Absence is the
-/// disabled signal: price resolution then reverts for the asset.
-pub fn disable_token_oracle(env: &Env, asset: Address) {
-    assert_with_error!(
-        env,
-        storage::get_asset_oracle(env, &asset).is_some(),
-        GenericError::PairNotActive
-    );
-    storage::remove_asset_oracle(env, &asset);
-    OracleDisabledEvent { asset }.publish(env);
-}

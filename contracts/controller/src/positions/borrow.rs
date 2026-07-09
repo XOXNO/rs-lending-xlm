@@ -36,6 +36,8 @@ impl Controller {
     ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `AssetNotBorrowable`, or
     ///   `PositionLimitExceeded`.
     /// * `SpokeBorrowCapReached` - the borrow would exceed the spoke borrow cap.
+    /// * `BorrowRoundsToZeroShares` - the amount rounds down to zero scaled
+    ///   debt shares at the current borrow index (pool-raised).
     /// * Post-pool risk gates: `InsufficientCollateral` (LTV / health factor) or
     ///   `MinBorrowCollateralNotMet`.
     /// * The `#[when_not_paused]` guard reverts while the contract is paused.

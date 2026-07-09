@@ -1,5 +1,5 @@
 use super::setup;
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, HARNESS_HUB};
+use test_harness::{eth_preset, usdc_preset, LendingTest, HARNESS_HUB};
 
 // 6. Oracle tolerance config update (thin owner setter)
 
@@ -61,26 +61,6 @@ fn test_set_liquidity_pool_template() {
             .unwrap()
     });
     assert_eq!(stored, hash, "pool template hash should be stored");
-}
-
-#[test]
-fn test_disable_token_oracle_blocks_operations() {
-    let mut t = setup();
-
-    t.supply(ALICE, "USDC", 10_000.0);
-
-    // Disable the USDC oracle: oracle_type becomes 0 (None).
-    let usdc_asset = t.resolve_market("USDC").asset.clone();
-    let _admin = t.admin();
-    t.ctrl_client().disable_token_oracle(&usdc_asset);
-
-    // The disabled USDC oracle returns zero, changing HF-sensitive behavior.
-    // Borrowing against zero-value collateral must fail.
-    let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert!(
-        result.is_err(),
-        "borrow should fail when collateral oracle is disabled (price=0)"
-    );
 }
 
 #[test]

@@ -372,24 +372,6 @@ impl Controller {
         oracle::set_oracle_tolerance(&env, asset, tolerance);
     }
 
-    /// Disables an asset by removing its oracle entry; price resolution then
-    /// reverts for the asset (absence is the disabled signal).
-    ///
-    /// # Errors
-    /// * `PairNotActive` - the asset has no configured oracle.
-    ///
-    /// # Events
-    /// * `OracleDisabledEvent` - the disabled asset.
-    ///
-    /// # Security Warning
-    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
-    ///   so this executes only after the configured delay.
-    #[only_owner]
-    pub fn disable_token_oracle(env: Env, asset: Address) {
-        storage::renew_controller_instance(&env);
-        oracle::disable_token_oracle(&env, asset);
-    }
-
     /// Registers or deactivates a position manager. Absence of an entry is the
     /// inactive signal, so deactivation removes it.
     ///
