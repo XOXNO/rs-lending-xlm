@@ -200,7 +200,7 @@ output was reviewed.
 ## 15. Security Review Focus
 
 High-priority review areas: `HubAssetKey` isolation across controller, pool,
-keeper, and docs; oracle disable/reconfigure behavior through
+keeper, and docs; oracle reconfigure behavior through
 `AssetOracle(asset)`; spoke asset listing and cap enforcement; account
 authorization, delegates, and position managers; flash-loan and strategy
 callback reentrancy; internal `cash` accounting and bad-debt socialization;

@@ -471,12 +471,6 @@ fn propose_resolves_all_controller_and_self_variants() {
         &AdminOperation::RevokeBlendPool(Address::generate(&env)),
         &salt(),
     );
-    // op.rs:274-279 DisableTokenOracle
-    gov.propose(
-        &admin,
-        &AdminOperation::DisableTokenOracle(asset.clone()),
-        &salt(),
-    );
     // op.rs:280-285 SetPositionManager
     gov.propose(
         &admin,

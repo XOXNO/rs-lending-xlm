@@ -11,7 +11,7 @@ decision, alternatives, consequences, and implementation paths.
 | 0001 | [Governance, Controller, and Central Pool Boundary](./0001-controller-pool-ownership-boundary.md) | Accepted |
 | 0002 | [Per-Side Scaled-Balance Storage](./0002-per-side-scaled-balance-storage.md)                   | Accepted |
 | 0003 | [Oracle Dual-Source Pricing With Tolerance Bands](./0003-oracle-dual-source-with-tolerance-bands.md) | Accepted |
-| 0004 | [Cache Permissiveness Policy for Oracle Failures](./0004-cache-permissiveness-policy.md)       | Accepted |
+| 0004 | [Oracle Policy By Flow](./0004-cache-permissiveness-policy.md)                                 | Accepted |
 | 0005 | [Validate Strategy Aggregator Output by Balance Delta](./0005-strategy-aggregator-output-validated-by-balance-delta.md) | Accepted |
 | 0006 | [Flash-Loan Settlement by Pool Balance Snapshot](./0006-flash-loan-balance-snapshot.md)        | Accepted |
 | 0007 | [Bad-Debt Socialization With Supply-Index Floor](./0007-bad-debt-socialization-with-index-floor.md) | Accepted |

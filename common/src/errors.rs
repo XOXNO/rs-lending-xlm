@@ -85,6 +85,10 @@ pub enum GenericError {
     /// Operation cannot be cancelled (role revocations are protected so a rogue
     /// role holder cannot veto their own removal).
     OperationNotCancellable = 46,
+    /// A positive raw borrow amount rounds down to zero scaled debt shares at
+    /// the current borrow index; accepting it would transfer real tokens out
+    /// while recording no debt.
+    BorrowRoundsToZeroShares = 47,
 }
 
 #[contracterror]

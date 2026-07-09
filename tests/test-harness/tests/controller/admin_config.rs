@@ -374,22 +374,6 @@ fn test_permissionless_revenue_ops() {
     let result = ctrl.try_claim_revenue(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may claim_revenue");
 }
-// 13. test_disable_token_oracle_owner_only
-
-#[test]
-fn test_disable_token_oracle_owner_only() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
-    let _ = t.get_or_create_user(BOB);
-
-    let ctrl = t.ctrl_client();
-    let asset = t.resolve_market("USDC").asset.clone();
-
-    ctrl.disable_token_oracle(&asset);
-    assert!(
-        !t.market_is_active(&asset),
-        "disable_token_oracle must deactivate the market (its AssetOracle entry is removed)",
-    );
-}
 // 14. test_create_liquidity_pool_uniqueness
 
 #[test]

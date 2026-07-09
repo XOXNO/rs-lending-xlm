@@ -1,72 +1,11 @@
 use soroban_sdk::token;
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, HARNESS_HUB,
-};
+use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest, HARNESS_HUB};
 
 fn create_asset_contract(t: &LendingTest) -> soroban_sdk::Address {
     t.env
         .register_stellar_asset_contract_v2(t.admin())
         .address()
         .clone()
-}
-
-#[test]
-fn test_disabled_market_blocks_supply_and_borrow() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
-
-    let _admin = t.admin();
-    let eth_asset = t.resolve_asset("ETH");
-    t.ctrl_client().disable_token_oracle(&eth_asset);
-
-    t.supply(ALICE, "USDC", 10_000.0);
-
-    let supply_result = t.try_supply(ALICE, "ETH", 1.0);
-    assert!(
-        supply_result.is_err(),
-        "disabled market should block supply"
-    );
-
-    let borrow_result = t.try_borrow(ALICE, "ETH", 0.1);
-    assert!(
-        borrow_result.is_err(),
-        "disabled market should block borrow"
-    );
-}
-
-#[test]
-fn test_disabled_debt_oracle_allows_repay_but_blocks_risk_increasing_ops() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
-
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 1.0);
-
-    let eth_asset = t.resolve_market("ETH").asset.clone();
-    let _admin = t.admin();
-    t.ctrl_client().disable_token_oracle(&eth_asset);
-
-    let repay_result = t.try_repay(ALICE, "ETH", 0.25);
-    assert!(
-        repay_result.is_ok(),
-        "disabled debt oracle should still allow repay"
-    );
-
-    let borrow_result = t.try_borrow(ALICE, "ETH", 0.1);
-    assert!(
-        borrow_result.is_err(),
-        "disabled debt oracle should block additional borrow"
-    );
-
-    let withdraw_result = t.try_withdraw(ALICE, "USDC", 1_000.0);
-    assert!(
-        withdraw_result.is_err(),
-        "disabled debt oracle should block risk-increasing withdraw"
-    );
 }
 
 #[test]

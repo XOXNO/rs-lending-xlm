@@ -28,6 +28,7 @@ pub mod codes {
     pub const BLEND_POOL_NOT_APPROVED: u32 = GenericError::BlendPoolNotApproved as u32;
     pub const NOT_AUTHORIZED: u32 = GenericError::NotAuthorized as u32;
     pub const REGISTRY_CAP_REACHED: u32 = GenericError::RegistryCapReached as u32;
+    pub const BORROW_ROUNDS_TO_ZERO_SHARES: u32 = GenericError::BorrowRoundsToZeroShares as u32;
 
     // CollateralError
     pub const INSUFFICIENT_COLLATERAL: u32 = CollateralError::InsufficientCollateral as u32;

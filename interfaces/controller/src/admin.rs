@@ -56,8 +56,6 @@ pub trait ControllerAdmin {
     fn set_market_oracle_config(env: Env, hub_asset: HubAssetKey, config: MarketOracleConfig);
     /// Sets the price-fluctuation tolerance for `asset`.
     fn set_oracle_tolerance(env: Env, asset: Address, tolerance: OraclePriceFluctuation);
-    /// Disables the oracle for `asset`.
-    fn disable_token_oracle(env: Env, asset: Address);
     /// Registers or deactivates `manager` as a position manager.
     fn set_position_manager(env: Env, manager: Address, is_active: bool);
     /// Creates a hub-asset market and returns its pool address.

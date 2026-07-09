@@ -181,18 +181,6 @@ fi
         --assets "$(pay_vec "$SECONDARY_HUB_ID" "$XLM_SAC" 1000000000)" | tr -d '"')
     assert_bool_view secondary_account_exists true account_exists --account_id "$secondary_acct"
 
-    # Oracle circuit-breaker: owner disables a market (clears its oracle config);
-    # re-disable rejects (#12 PairNotActive), which proves the first disable landed
-    # (market status is no longer a discrete view). disable_token_oracle is
-    # owner-only, so a non-owner caller can't satisfy the owner's require_auth() and
-    # the CLI reports a missing signing key (same shape as oracle_tol_owner_guard).
-    inv disable_oracle "$ADMIN" "$CONTROLLER" -- disable_token_oracle \
-        --asset "$EURC_SAC" >/dev/null
-    xfail disable_non_active 'Error\(Contract, #12\)' "$ADMIN" "$CONTROLLER" -- disable_token_oracle \
-        --asset "$EURC_SAC"
-    xfail disable_non_owner 'Missing signing key' "$ALICE" "$CONTROLLER" -- disable_token_oracle \
-        --asset "$USDC_SAC"
-
     # Token approval admin (idle EURC: revoke then re-approve round-trip).
     inv revoke_token_admin "$ADMIN" "$CONTROLLER" -- revoke_token --token "$EURC_SAC" >/dev/null
     inv approve_token_again "$ADMIN" "$CONTROLLER" -- approve_token --token "$EURC_SAC" >/dev/null

@@ -204,22 +204,6 @@ fn test_supply_duplicate_raw_amount_overflow_reverts() {
     assert_contract_error(result, errors::GenericError::MathOverflow as u32);
 }
 
-#[test]
-fn test_supply_rejects_disabled_market_with_pair_not_active() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
-
-    let caller = t.get_or_create_user(ALICE);
-    let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().disable_token_oracle(&usdc);
-
-    let assets = vec![&t.env, (hub_asset(usdc), 10_000_000i128)];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
-        Ok(res) => res,
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-
-    assert_contract_error(result, errors::PAIR_NOT_ACTIVE);
-}
 // 7. test_supply_rejects_non_collateralizable
 
 #[test]

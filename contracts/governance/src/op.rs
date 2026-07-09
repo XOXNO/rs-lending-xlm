@@ -268,12 +268,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 DelayTier::Sensitive,
             )
         }
-        AdminOperation::DisableTokenOracle(asset) => (
-            storage::get_controller(env),
-            Symbol::new(env, "disable_token_oracle"),
-            vec![env, asset.clone().into_val(env)],
-            DelayTier::Standard,
-        ),
         AdminOperation::SetPositionManager(manager, is_active) => (
             storage::get_controller(env),
             Symbol::new(env, "set_position_manager"),

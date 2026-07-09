@@ -107,7 +107,6 @@ pub enum AdminOperation {
     UpgradeLiquidityPoolParams(UpgradePoolParamsArgs),
     DeployPool,
     UpgradePool(BytesN<32>),
-    DisableTokenOracle(Address),
     SetPositionManager(Address, bool),
     UpgradeController(BytesN<32>),
     MigrateController(u32),

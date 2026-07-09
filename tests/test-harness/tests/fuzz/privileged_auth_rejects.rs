@@ -243,9 +243,6 @@ proptest! {
             let tolerance = sample_tolerance();
             ctrl.set_auths(&no_auths).try_set_oracle_tolerance(&usdc, &tolerance)
         }).unwrap();
-        expect_rejected("disable_token_oracle (owner)", || {
-            ctrl.set_auths(&no_auths).try_disable_token_oracle(&usdc)
-        }).unwrap();
     }
 
     // Governance timelock proposers + immediate emergency/meta entrypoints: every
@@ -261,7 +258,6 @@ proptest! {
         let gov = t.gov_client();
         let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
         let limits = sample_position_limits();
-        let usdc = t.resolve_asset("USDC");
         let random_addr = Address::generate(&env);
         let salt = dummy_bytes_n(&env, seed);
 
@@ -282,37 +278,11 @@ proptest! {
             )
         }).unwrap();
 
-        expect_rejected("gov.propose(DisableTokenOracle)", || {
-            gov.set_auths(&no_auths).try_propose(
-                &random_addr,
-                &AdminOperation::DisableTokenOracle(usdc),
-                &salt,
-            )
-        }).unwrap();
-
         // Immediate admin actions
         expect_rejected("gov.deploy_controller", || {
             gov.set_auths(&no_auths).try_deploy_controller(&dummy_bytes_n(&env, seed))
         }).unwrap();
         expect_rejected("gov.pause", || gov.set_auths(&no_auths).try_pause()).unwrap();
         expect_rejected("gov.unpause", || gov.set_auths(&no_auths).try_unpause()).unwrap();
-    }
-
-    #[test]
-    fn prop_non_owner_cannot_disable_token_oracle(_case in 0u8..2) {
-        let t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
-        let ctrl = t.ctrl_client();
-        let usdc = t.resolve_asset("USDC");
-        let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
-
-        let res = ctrl
-            .set_auths(&no_auths)
-            .try_disable_token_oracle(&usdc)
-            .map(|inner| inner.map(|_| ()))
-            .map_err(|e| std::format!("{:?}", e));
-        prop_assert!(
-            !matches!(res, Ok(Ok(_))),
-            "CRITICAL: non-owner must not disable_token_oracle without owner auth"
-        );
     }
 }
