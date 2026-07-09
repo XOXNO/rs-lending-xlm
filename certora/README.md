@@ -62,6 +62,31 @@ Runs `cargo check` for all `certora` feature paths, then `check_orphans.py`
 (conf ↔ `#[rule]` alignment) and `check_invariant_coverage.py` (INVARIANTS.md
 ↔ spec modules).
 
+## Local prover (no cloud)
+
+The open-source [CertoraProver](https://github.com/Certora/CertoraProver) is
+built on this server and runs our Soroban confs fully locally:
+
+| Piece | Location |
+| --- | --- |
+| Prover source | `~/GitHub/CertoraProver` (+ `.venv` with CLI deps) |
+| Built artifacts (`emv.jar`, `tac_optimizer`, scripts) | `~/certora-build` (`$CERTORA`) |
+| JDK 21 / z3 4.16 / cvc5 1.3.4 / llvm tools / rustfilt | `~/opt/jdk-21*`, `~/.local/bin`, `~/.cargo/bin` |
+| Wrappers | `~/.local/bin/certoraSorobanLocal`, `certoraRunLocal`, `certora-local-env` |
+
+```bash
+cd verification/certora/common/confs
+certoraSorobanLocal math.conf                     # whole conf
+certoraSorobanLocal math.conf --rule ray_mul_identity
+```
+
+The wrapper appends `--jar $CERTORA/emv.jar`, which forces local execution —
+our confs keep `"server": "prover"` so plain `certoraSorobanProver` still
+submits to the cloud unchanged. Reports land next to the conf in
+`emv-*-certora-*/Reports`. Rebuild the prover after upstream updates with
+`cd ~/GitHub/CertoraProver && CERTORA=~/certora-build ./gradlew assemble`.
+Local runs still need `make certora-wasm` first, same as cloud.
+
 ## Hosted prover
 
 **CI:** `.github/workflows/certora-verification.yml` runs the `sanity` profile
@@ -148,7 +173,12 @@ Run `sanity` profile rules first (14 reachability checks) before `fast`/`core`.
   with a basic-sanity config for the same rule family
 - `independent_satisfy: true` on all configs
 - `loop_iter`: `1` (light math), `2` (boundary), `3` (state rules)
-- `precise_bitwise_ops: true` only for math/boundary configs
+- `precise_bitwise_ops` is escalation-only: the default LIA encoding
+  overapproximates bitwise ops, which is sound for Verified verdicts and an
+  order of magnitude faster (common/math: 8/8 in 6 min locally vs 4/8 with
+  bit-blasting). Enable it per-rule only when a counterexample is
+  bitwise-spurious. Boundary confs that assert exact overflow behavior may
+  still need it — validate locally before removing
 - EVM-only options (`multi_assert_check`, `solc`, Gambit) are not used
 - `-maxCommandCount` must exceed the rule's expanded command count, or the job
   errors (`expanded to too many commands: N > limit`). Controller state confs
