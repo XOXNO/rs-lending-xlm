@@ -447,16 +447,6 @@ fn test_borrow_1_raw_unit_is_properly_recorded_on_7dec() {
 /// The guard is unreachable through any live entrypoint today (accrual always
 /// re-clamps before use), kept as defense-in-depth against a future bump to
 /// `MAX_BORROW_INDEX_RAY` or `MAX_ASSET_DECIMALS` that narrows this margin.
-///
-/// NOTE: an on-chain integration test pinning `borrow_index` via storage and
-/// calling `borrow()` directly was attempted here and dropped — a `raw=1`
-/// borrow on an 18-decimal asset hits an unrelated `MathOverflow` during
-/// post-borrow risk-gate pricing, reproducible independent of index/collateral
-/// (borrowing e.g. `1_000_000` raw units instead succeeds fine, as does
-/// `raw=1` on lower-decimal assets — see
-/// `test_borrow_1_raw_unit_is_properly_recorded_on_7dec` above). That is a
-/// separate, real bug worth its own investigation; this pure-math test avoids
-/// it entirely since it never touches the contract call stack.
 #[test]
 fn test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds() {
     let env = soroban_sdk::Env::default();
@@ -505,4 +495,29 @@ fn test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds() {
          round to zero — this is the free-borrow shape the pool's \
          BorrowRoundsToZeroShares guard rejects if it's ever reached"
     );
+}
+
+// 12. Borrowing a single raw unit of an 18-decimal asset against large
+// collateral must succeed. The resulting health factor is finite but too large
+// for the WAD i128 range, so the risk gate saturates it instead of reverting
+// with MathOverflow.
+
+#[test]
+fn test_borrow_1_raw_unit_18dec_saturates_hf() {
+    let mut t = LendingTest::new()
+        .with_market(dai_18dec())
+        .with_market(usdc_6dec())
+        .with_min_borrow_collateral_disabled()
+        .build();
+
+    t.supply(ALICE, "USDC6", 10_000.0);
+    t.borrow_raw(ALICE, "DAI18", 1);
+
+    // Debt is exactly the 1 raw unit that was borrowed.
+    assert_eq!(t.borrow_balance_raw(ALICE, "DAI18"), 1);
+
+    // Astronomically over-collateralised: HF saturates to the i128::MAX WAD
+    // sentinel, matching the debt-free branch, and the account stays healthy.
+    assert_eq!(t.health_factor_raw(ALICE), i128::MAX);
+    t.assert_healthy(ALICE);
 }

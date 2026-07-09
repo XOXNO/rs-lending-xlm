@@ -44,6 +44,14 @@ pub fn mul_div_ceil(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &result)
 }
 
+/// Computes `(x * y) / d` with floor rounding, saturating to `i128::MAX` when
+/// the quotient exceeds the `i128` range. Non-negative inputs only: the ratio
+/// can only overflow on the high side, so saturation preserves ordering.
+pub fn mul_div_floor_saturating(env: &Env, x: i128, y: i128, d: i128) -> i128 {
+    let (x256, y256, d256) = to_i256_operands(env, x, y, d);
+    x256.mul(&y256).div(&d256).to_i128().unwrap_or(i128::MAX)
+}
+
 /// Computes signed `(x * y) / d` with half-up rounding away from zero.
 pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
