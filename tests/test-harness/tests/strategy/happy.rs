@@ -513,6 +513,51 @@ fn test_repay_debt_with_collateral_same_token_leaves_excess_as_supply() {
     );
 }
 
+#[test]
+fn test_same_token_net_settle_restores_spoke_cap_headroom() {
+    const UNIT: i128 = 10_000_000;
+
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.supply(ALICE, "ETH", 20.0);
+    t.borrow(ALICE, "USDC", 30_000.0);
+    t.edit_asset_in_spoke_caps(
+        "USDC",
+        HARNESS_SPOKE,
+        true,
+        true,
+        DEFAULT_ASSET_CONFIG.loan_to_value,
+        DEFAULT_ASSET_CONFIG.liquidation_threshold,
+        DEFAULT_ASSET_CONFIG.liquidation_bonus,
+        120_000 * UNIT,
+        50_000 * UNIT,
+    );
+
+    let account_id = t.resolve_account_id(ALICE);
+    let usdc = hub_asset(t.resolve_asset("USDC"));
+    let supply_headroom_before = t.ctrl_client().max_supply(&account_id, &usdc);
+    let borrow_headroom_before = t.ctrl_client().max_borrow(&account_id, &usdc);
+
+    t.repay_debt_with_collateral(ALICE, "USDC", 10_000.0, "USDC", &Bytes::new(&t.env), false);
+
+    let supply_headroom_after = t.ctrl_client().max_supply(&account_id, &usdc);
+    let borrow_headroom_after = t.ctrl_client().max_borrow(&account_id, &usdc);
+    let restored_supply = supply_headroom_after - supply_headroom_before;
+    let restored_borrow = borrow_headroom_after - borrow_headroom_before;
+    assert!(
+        (9_900 * UNIT..=10_000 * UNIT).contains(&restored_supply),
+        "net settlement should restore about 10,000 USDC of supply headroom, restored {restored_supply}"
+    );
+    assert!(
+        (9_900 * UNIT..=10_000 * UNIT).contains(&restored_borrow),
+        "net settlement should restore about 10,000 USDC of borrow headroom, restored {restored_borrow}"
+    );
+}
+
 // The net-settle path must re-stamp risk params from the current effective
 // spoke-asset config, same as a plain withdraw does via `finish_withdrawal`
 // — otherwise a position that only ever touches this path could keep an

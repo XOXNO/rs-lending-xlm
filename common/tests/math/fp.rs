@@ -90,16 +90,16 @@ fn test_wad_div_floor_saturating() {
     // In-range ratio matches ordinary floor division.
     let total = Wad::from(6 * WAD);
     let divisor = Wad::from(3 * WAD);
-    assert_eq!(total.div_floor_saturating(&env, divisor), Wad::from(2 * WAD));
+    assert_eq!(
+        total.div_floor_saturating(&env, divisor),
+        Wad::from(2 * WAD)
+    );
 
     // A tiny divisor makes the true ratio exceed i128; it saturates instead of
     // overflowing.
     let large = Wad::from(i128::MAX / 2);
     let tiny = Wad::from(1);
-    assert_eq!(
-        large.div_floor_saturating(&env, tiny),
-        Wad::from(i128::MAX)
-    );
+    assert_eq!(large.div_floor_saturating(&env, tiny), Wad::from(i128::MAX));
 }
 
 #[test]

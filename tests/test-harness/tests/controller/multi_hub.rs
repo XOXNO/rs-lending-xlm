@@ -214,10 +214,7 @@ fn borrow_cannot_cross_hub_cash() {
     // A borrow that exceeds hub-1 cash reverts even though hub 2 holds far more,
     // and even though the collateral easily covers it.
     let result = t.try_borrow_on_hub(HARNESS_HUB, ALICE, a, "USDC", 1_000.0);
-    assert!(
-        result.is_err(),
-        "hub-1 borrow exceeding hub-1 cash must revert despite hub-2 liquidity"
-    );
+    assert_contract_error(result, errors::INSUFFICIENT_LIQUIDITY);
 }
 
 // 4. swap_debt refinances a USDC debt from hub 1 to hub 2 (cross-hub). The

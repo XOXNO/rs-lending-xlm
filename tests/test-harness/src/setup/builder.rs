@@ -177,7 +177,8 @@ impl LendingTestBuilder {
 
         gov.unpause();
 
-        let pool_wasm_path = "target/wasm32v1-none/release/pool.wasm".to_string();
+        let pool_wasm_path = std::env::var("POOL_WASM_PATH")
+            .unwrap_or_else(|_| "target/wasm32v1-none/release/pool.wasm".to_string());
         let mut bytes = std::fs::read(&pool_wasm_path);
         if bytes.is_err() {
             bytes = std::fs::read(format!("../{}", pool_wasm_path));

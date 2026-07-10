@@ -100,25 +100,21 @@ fn fuzz_mul_div(i: &In) {
 }
 
 fn fuzz_div_by_int(i: &In) {
-    // Impl requires b > 0
-    if i.b <= 0 || i.b > MAX_A {
-        return;
-    }
-    // Prevent (a + half_b) or (a - half_b) overflowing i128.
-    if i.a == i128::MIN || i.a.abs() > MAX_A {
-        return;
-    }
+    // Map every input into the production magnitude domain instead of dropping
+    // almost every arbitrary i128 before it reaches the implementation.
+    let a = i.a % (MAX_A + 1);
+    let b = (i.b % MAX_A).saturating_abs() + 1;
 
-    let r = div_by_int_half_up(i.a, i.b);
+    let r = div_by_int_half_up(a, b);
 
     // Reconstruct and check error bound: |r*b - a| <= b/2 + 1
-    if let Some(rb) = r.checked_mul(i.b) {
-        let err = (rb - i.a).abs();
+    if let Some(rb) = r.checked_mul(b) {
+        let err = (rb - a).abs();
         assert!(
-            err <= i.b / 2 + 1,
+            err <= b / 2 + 1,
             "div_by_int error bound: a={} b={} r={} rb={} err={}",
-            i.a,
-            i.b,
+            a,
+            b,
             r,
             rb,
             err
@@ -126,11 +122,11 @@ fn fuzz_div_by_int(i: &In) {
     }
 
     // Away-from-zero: sign(r) == sign(a) when |a| >= b
-    if i.a.abs() >= i.b {
-        if i.a > 0 {
-            assert!(r > 0, "sign lost for positive: {} / {} = {}", i.a, i.b, r);
-        } else if i.a < 0 {
-            assert!(r < 0, "sign lost for negative: {} / {} = {}", i.a, i.b, r);
+    if a.abs() >= b {
+        if a > 0 {
+            assert!(r > 0, "sign lost for positive: {} / {} = {}", a, b, r);
+        } else if a < 0 {
+            assert!(r < 0, "sign lost for negative: {} / {} = {}", a, b, r);
         }
     }
 
@@ -138,8 +134,8 @@ fn fuzz_div_by_int(i: &In) {
     // range (|x| < 2^53 ≈ 9.007e15), compute half-up-away-from-zero via f64
     // and compare. Catches off-by-one defects the sign/error-bound checks miss.
     const F64_EXACT_MAX: i128 = 1i128 << 53;
-    if i.a.abs() < F64_EXACT_MAX && i.b < F64_EXACT_MAX {
-        let q = i.a as f64 / i.b as f64;
+    if a.abs() < F64_EXACT_MAX && b < F64_EXACT_MAX {
+        let q = a as f64 / b as f64;
         let expected = if q >= 0.0 {
             (q + 0.5).floor() as i128
         } else {
@@ -149,8 +145,8 @@ fn fuzz_div_by_int(i: &In) {
         assert!(
             diff <= 1,
             "div_by_int differs from f64 reference: a={} b={} r={} expected={} diff={}",
-            i.a,
-            i.b,
+            a,
+            b,
             r,
             expected,
             diff
@@ -163,14 +159,11 @@ fn fuzz_rescale(i: &In) {
     let from = (i.choice % 28) as u32;
     let to = (i.extra % 28) as u32;
 
-    // Skip pathological magnitudes outside protocol usage
-    if i.a == i128::MIN || i.a.abs() > MAX_A {
-        return;
-    }
+    let a = i.a % (MAX_A + 1);
 
     // Same-precision is identity
     if from == to {
-        assert_eq!(rescale_half_up(i.a, from, to), i.a);
+        assert_eq!(rescale_half_up(a, from, to), a);
         return;
     }
 
@@ -179,33 +172,39 @@ fn fuzz_rescale(i: &In) {
         let factor: i128 = 10i128.pow(diff);
         // Bound |a| such that |a * factor| < i128::MAX / 2
         let bound = (i128::MAX / 2) / factor;
-        if i.a.abs() > bound {
-            return;
-        }
-        // `rescale_half_up` panics on upscale overflow; the bound on `a`
-        // above prevents that.
-        let up = rescale_half_up(i.a, from, to);
+        let bounded = a % (bound + 1);
+        let up = rescale_half_up(bounded, from, to);
         let back = rescale_half_up(up, to, from);
         assert_eq!(
-            back, i.a,
+            back, bounded,
             "upscale roundtrip lost data: a={} up={} back={}",
-            i.a, up, back
+            bounded, up, back
         );
-        if i.a > 0 {
-            assert!(up > 0, "upscale lost positive sign: a={} -> {}", i.a, up);
-        } else if i.a < 0 {
-            assert!(up < 0, "upscale lost negative sign: a={} -> {}", i.a, up);
+        if bounded > 0 {
+            assert!(
+                up > 0,
+                "upscale lost positive sign: a={} -> {}",
+                bounded,
+                up
+            );
+        } else if bounded < 0 {
+            assert!(
+                up < 0,
+                "upscale lost negative sign: a={} -> {}",
+                bounded,
+                up
+            );
         }
     } else {
         let diff = from - to;
         let factor: i128 = 10i128.pow(diff);
-        let down = rescale_half_up(i.a, from, to);
+        let down = rescale_half_up(a, from, to);
         if let Some(reconstructed) = down.checked_mul(factor) {
-            let err = (reconstructed - i.a).abs();
+            let err = (reconstructed - a).abs();
             assert!(
                 err <= factor / 2 + 1,
                 "downscale exceeds half-up bound: a={} down={} recon={} err={} factor={}",
-                i.a,
+                a,
                 down,
                 reconstructed,
                 err,
@@ -213,19 +212,19 @@ fn fuzz_rescale(i: &In) {
             );
         }
         // Strict away-from-zero: |a| >= factor/2 must produce non-zero w/ sign(a)
-        if i.a.abs() >= factor / 2 && i.a != 0 {
+        if a.abs() >= factor / 2 && a != 0 {
             assert!(
                 down != 0,
                 "downscale rounded non-zero |a|>=factor/2 to 0: a={} factor={} down={}",
-                i.a,
+                a,
                 factor,
                 down
             );
-            if i.a > 0 {
+            if a > 0 {
                 assert!(
                     down > 0,
                     "downscale lost positive sign: a={} factor={} down={}",
-                    i.a,
+                    a,
                     factor,
                     down
                 );
@@ -233,7 +232,7 @@ fn fuzz_rescale(i: &In) {
                 assert!(
                     down < 0,
                     "downscale lost negative sign: a={} factor={} down={}",
-                    i.a,
+                    a,
                     factor,
                     down
                 );
@@ -242,11 +241,11 @@ fn fuzz_rescale(i: &In) {
         // Tighter magnitude bound than the half-up check.
         if let Some(reconstructed) = down.checked_mul(factor) {
             let abs_recon = reconstructed.abs();
-            let abs_a = i.a.abs();
+            let abs_a = a.abs();
             assert!(
                 abs_recon + (factor - 1) >= abs_a,
                 "downscale truncated too aggressively: a={} down={} factor={} |recon|={}",
-                i.a,
+                a,
                 down,
                 factor,
                 abs_recon

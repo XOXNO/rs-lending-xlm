@@ -52,8 +52,5 @@ fn test_create_liquidity_pool_rejects_asset_decimals_mismatch() {
         Err(err) => Err(err.expect("expected contract error")),
     };
 
-    assert!(
-        result.is_err(),
-        "create_liquidity_pool should reject asset_decimals mismatch"
-    );
+    assert_contract_error(result, errors::INVALID_ASSET);
 }

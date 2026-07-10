@@ -290,7 +290,7 @@ fn independent_canceller_can_cancel_role_revocation() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #2000)")]
 fn non_proposer_cannot_propose() {
     let env = Env::default();
     env.mock_all_auths();
@@ -306,7 +306,7 @@ fn non_proposer_cannot_propose() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #2000)")]
 fn non_executor_cannot_execute() {
     let env = Env::default();
     env.mock_all_auths();
@@ -337,7 +337,7 @@ fn non_executor_cannot_execute() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #2000)")]
 fn non_canceller_cannot_cancel() {
     let env = Env::default();
     env.mock_all_auths();

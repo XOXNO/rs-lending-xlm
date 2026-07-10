@@ -7,6 +7,7 @@ on:
       - 'common/**'
       - 'contracts/pool/**'
       - 'contracts/controller/**'
+      - 'contracts/governance/**'
       - 'tests/test-harness/**'
       - 'tests/fuzz/**'
   schedule:
@@ -16,6 +17,15 @@ on:
     - cron: '0 2 * * 0'
   workflow_dispatch:
     inputs:
+      suite:
+        description: 'Long-running suite to execute'
+        type: choice
+        options:
+          - all
+          - fuzz
+          - proptest
+          - mutants
+        default: all
       fuzz_time:
         description: 'Seconds per function-level target'
         required: false
@@ -28,6 +38,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   STELLAR_VERSION: '27.0.0'
+  CARGO_MUTANTS_VERSION: '27.1.0'
   # Pin untrusted workflow_dispatch inputs into env to avoid injection.
   FUZZ_TIME_INPUT: ${{ github.event.inputs.fuzz_time }}
   PROPTEST_CASES_INPUT: ${{ github.event.inputs.proptest_cases }}
@@ -93,8 +104,8 @@ jobs:
         # PR-only smoke; full long-run lives in the nightly job below.
         run: make fuzz-contract FUZZ_TIME=60
 
-      - name: Contract-level proptest (256 cases each)
-        run: make proptest PROPTEST_CASES=256
+      - name: Contract-level property suite
+        run: make proptest
 
   miri:
     if: github.event_name == 'pull_request'
@@ -147,7 +158,10 @@ jobs:
           path: ${{ runner.temp }}/stellar-cli/stellar
 
   mutants-tool:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+      (inputs.suite == 'all' || inputs.suite == 'mutants'))
     name: Prepare cargo-mutants
     runs-on: self-hosted
     steps:
@@ -158,17 +172,12 @@ jobs:
       - name: Cache cargo
         uses: actions/cache@v6
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-mutants
-          restore-keys: |
-            ${{ runner.os }}-cargo-mutants-
+          tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
 
-      - name: Install cargo-mutants
-        env:
-          CARGO_BUILD_JOBS: '4'
-        run: cargo install cargo-mutants --locked --root "$RUNNER_TEMP/cargo-mutants"
+      - name: Stage cargo-mutants
+        run: |
+          mkdir -p "$RUNNER_TEMP/cargo-mutants/bin"
+          cp "$(command -v cargo-mutants)" "$RUNNER_TEMP/cargo-mutants/bin/cargo-mutants"
 
       - name: Upload cargo-mutants
         uses: actions/upload-artifact@v7
@@ -179,7 +188,10 @@ jobs:
   # Nightly/manual: one job per libFuzzer target. A 32-core runner can run the
   # six single-core fuzzers concurrently when enough runner services are online.
   fuzz-long:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+      (inputs.suite == 'all' || inputs.suite == 'fuzz'))
     name: Fuzz long (${{ matrix.target }})
     runs-on: self-hosted
     needs: stellar-tool
@@ -268,25 +280,24 @@ jobs:
             tests/fuzz/artifacts/${{ matrix.target }}/
 
   proptest-long:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+      (inputs.suite == 'all' || inputs.suite == 'proptest'))
     name: Proptest (${{ matrix.test }})
     runs-on: self-hosted
     needs: stellar-tool
     timeout-minutes: 1440
     strategy:
       fail-fast: false
-      max-parallel: 9
+      max-parallel: 5
       matrix:
         test:
           - prop_accounting_conservation
-          - prop_short_aggregator_rejected
           - prop_liquidation_matches_bigrational_reference
-          - prop_owner_only_endpoints_reject_unauthed
-          - prop_governance_endpoints_reject_unauthed
-          - prop_non_owner_cannot_disable_token_oracle
-          - prop_strategy_under_budget
-          - prop_multiply_leverage_hf_safe
-          - prop_strategy_swap_collateral_balance_delta
+          - prop_valid_multiply_fits_default_budget
+          - prop_multiply_succeeds_with_safe_hf_and_clean_router
+          - prop_swap_collateral_conserves_position_delta
     steps:
       - uses: actions/checkout@v7
 
@@ -332,10 +343,13 @@ jobs:
         with:
           name: proptest-regressions-${{ matrix.test }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            tests/test-harness/tests/*.proptest-regressions
+            tests/test-harness/tests/fuzz/*.proptest-regressions
 
   mutants:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+      (inputs.suite == 'all' || inputs.suite == 'mutants'))
     name: Mutants (${{ matrix.target }})
     runs-on: self-hosted
     needs: [stellar-tool, mutants-tool]
@@ -345,14 +359,15 @@ jobs:
       max-parallel: 8
       matrix:
         target:
-          - mutants
-          - mutants-math
-          - mutants-rates
-          - mutants-pool-interest
+          - mutants-common
           - mutants-pool
-          - mutants-oracle-policy
+          - mutants-governance
+          - mutants-governance-oracle-probe
+          - mutants-controller-core
+          - mutants-controller-oracle
           - mutants-controller-positions
           - mutants-controller-strategies
+          - mutants-controller-views
     steps:
       - uses: actions/checkout@v7
 
@@ -392,12 +407,13 @@ jobs:
       - name: Run mutation target
         env:
           CARGO_BUILD_JOBS: '1'
-          MUTANTS_JOBS: '2'
-        run: make "${{ matrix.target }}" MUTANTS_JOBS="$MUTANTS_JOBS"
+        run: make "${{ matrix.target }}" MUTANTS_RUN_MODE=--in-place
 
-      - name: Upload mutation artifacts on failure
-        if: failure()
+      - name: Upload mutation results
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: mutants-artifacts-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: mutants.out/
+          if-no-files-found: ignore
+          retention-days: 7

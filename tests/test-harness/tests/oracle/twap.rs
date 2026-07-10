@@ -1,9 +1,52 @@
 use controller::types::{ControllerKey, MarketOracleConfig, OracleReadMode, OracleSourceConfig};
 use soroban_sdk::vec;
-use test_harness::{assert_contract_error, errors, hub_asset, usd, usd_cents, LendingTest, ALICE};
+use test_harness::{
+    assert_contract_error, errors, hub_asset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
+};
 
 fn setup() -> LendingTest {
     LendingTest::new().dual_source_two_asset()
+}
+
+#[test]
+fn configure_accepts_minimum_resolution_equal_to_max_stale() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let usdc = t.resolve_asset("USDC");
+    t.mock_reflector_client().set_resolution(&60);
+    let mut cfg = test_harness::reflector_single_spot_config(
+        &t.mock_reflector,
+        &usdc,
+        usd(1),
+        test_harness::DEFAULT_TOLERANCE.tolerance_bps,
+    );
+    cfg.max_price_stale_seconds = 60;
+
+    t.configure_market_oracle(&usdc, &cfg);
+
+    let stored: MarketOracleConfig = t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .get(&ControllerKey::AssetOracle(usdc))
+            .expect("configured oracle")
+    });
+    assert_eq!(stored.max_price_stale_seconds, 60);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #217)")]
+fn configure_rejects_nonpositive_live_reflector_price() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let usdc = t.resolve_asset("USDC");
+    t.mock_reflector_client().set_price(&usdc, &0);
+    let cfg = test_harness::reflector_single_spot_config(
+        &t.mock_reflector,
+        &usdc,
+        usd(1),
+        test_harness::DEFAULT_TOLERANCE.tolerance_bps,
+    );
+
+    t.configure_market_oracle(&usdc, &cfg);
 }
 
 // `prices()` returns an empty Vec — drives `history.is_empty()` branch.
@@ -33,6 +76,19 @@ fn test_insufficient_twap_history_blocks_strict_borrow() {
     assert_contract_error(result, errors::TWAP_INSUFFICIENT_OBSERVATIONS);
 }
 
+#[test]
+fn test_exact_minimum_twap_history_is_accepted() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &6);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    assert!(t.health_factor(ALICE) > 1.0);
+}
+
 // Round-trip the `set_price` / `set_safe_price` plumbing so the
 // `to_reflector_asset` / `read_spot` / observation-from-pricedata helpers
 // see live data. `usd_cents` import is the only way to exercise the
@@ -58,12 +114,7 @@ fn test_twap_invalid_price_blocks_strict_borrow() {
 
     t.supply(ALICE, "USDC", 100_000.0);
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    // The reader emits `OracleError::InvalidPrice` via the
-    // `has_invalid_price` branch.
-    assert!(
-        result.is_err(),
-        "borrow should fail when a TWAP entry has non-positive price"
-    );
+    assert_contract_error(result, errors::INVALID_PRICE);
 }
 
 // Mode 5: oldest TWAP timestamp is far in the past → the staleness check
@@ -77,10 +128,7 @@ fn test_twap_stale_history_blocks_strict_borrow() {
 
     t.supply(ALICE, "USDC", 100_000.0);
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert!(
-        result.is_err(),
-        "borrow should fail when TWAP window contains a stale timestamp"
-    );
+    assert_contract_error(result, errors::PRICE_FEED_STALE);
 }
 
 // Fail-closed: there is no degraded fallback and no `twap_degraded` event.
@@ -156,7 +204,7 @@ fn test_twap_zero_records_reverts_on_view() {
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
-// PR-5: `records > MAX_TWAP_RECORDS` hits the guard in `read_twap` (twap.rs:38-41).
+// TWAP requests above the protocol record cap are rejected.
 #[test]
 #[should_panic(expected = "Error(Contract, #204)")]
 fn test_twap_records_above_max_rejects_on_view() {

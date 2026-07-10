@@ -51,10 +51,11 @@ Implementation in `contracts/pool/src/lib.rs::flash_loan`, orchestrated by
    (`InvalidFlashloanRepay`); the callback must not change the pool's balance
    before settlement.
 9. Verify the receiver authorized at least `amount + fee` allowance for the
-   pool, then `authorize_token_transfer_from` (the pool self-authorizes its own
-   `transfer_from` spender leg via `env.authorize_as_current_contract`; the
-   receiver authorizes the debit of its own balance during the callback), then
-   `transfer_from(spender=pool, from=receiver, to=pool, amount + fee)`.
+   pool, then call
+   `transfer_from(spender=pool, from=receiver, to=pool, amount + fee)`. The pool
+   is the direct contract invoker and therefore authenticates its own spender
+   leg; the receiver authorizes the debit during the callback through the token
+   allowance.
 10. Assert `balance_after == expected_after_repay`; any mismatch reverts with
     `InvalidFlashloanRepay`.
 11. Convert the fee to RAY (`Ray::from_asset(fee, asset_decimals)`), record it

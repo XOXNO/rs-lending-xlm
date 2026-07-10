@@ -1,6 +1,7 @@
 //! Proptest run sizing: `PROPTEST_CASES=N` overrides per-module defaults.
 
 use proptest::prelude::ProptestConfig;
+use proptest::test_runner::FileFailurePersistence;
 
 pub fn cases(default: u32) -> u32 {
     std::env::var("PROPTEST_CASES")
@@ -12,14 +13,11 @@ pub fn cases(default: u32) -> u32 {
 pub fn config(default_cases: u32) -> ProptestConfig {
     ProptestConfig {
         cases: cases(default_cases),
-        ..ProptestConfig::default()
-    }
-}
-
-pub fn config_with_rejects(default_cases: u32, max_global_rejects: u32) -> ProptestConfig {
-    ProptestConfig {
-        cases: cases(default_cases),
-        max_global_rejects,
+        // Keep regressions beside each property module, where they are easy to
+        // review and already committed by this repository.
+        failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
+            "proptest-regressions",
+        ))),
         ..ProptestConfig::default()
     }
 }

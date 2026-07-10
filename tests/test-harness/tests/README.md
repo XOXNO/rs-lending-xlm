@@ -98,9 +98,10 @@ make test-match PATTERN=liquidation
 
 ### Proptest
 
-Properties live in `fuzz/`. Case count is controlled by `PROPTEST_CASES` (Makefile default: `256`). Use release builds for long runs.
+Properties live in `fuzz/`. `make proptest` uses tuned per-property defaults; `PROPTEST_CASES` optionally overrides all of them. Use release builds for long runs.
 
 ```bash
+make proptest
 make proptest PROPTEST_CASES=256
 make proptest-one TEST=prop_accounting_conservation PROPTEST_CASES=1000
 PROPTEST_CASES=10000 cargo test --release -p test-harness --test fuzz -- --test-threads=1

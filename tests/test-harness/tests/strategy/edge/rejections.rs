@@ -277,9 +277,9 @@ fn test_swap_collateral_rejects_new_asset_when_supply_limit_reached() {
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
     t.supply_to(ALICE, account_id, "USDT", 5_000.0);
 
-    t.fund_router("DAI", 1.0);
-    let steps = build_swap_steps(&t, "USDC", "DAI", 1_0000000);
-    let result = t.try_swap_collateral(ALICE, "USDC", 100.0, "DAI", &steps);
+    // Invalid swap data proves the position limit is rejected in preflight,
+    // before the router payload is decoded or any external call is attempted.
+    let result = t.try_swap_collateral(ALICE, "USDC", 100.0, "DAI", &Bytes::new(&t.env));
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
 // Spoke account; new collateral is not in the spoke category.

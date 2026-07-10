@@ -21,7 +21,8 @@ Use the Makefile from the repository root for normal workflows:
 make fuzz-build                         # compile libFuzzer targets
 make fuzz FUZZ_TIME=60                  # fast math/native fuzz targets
 make fuzz-contract FUZZ_TIME=60         # full protocol flow fuzz targets
-make proptest PROPTEST_CASES=256        # contract-level property tests
+make proptest                           # tuned per-property defaults
+make proptest PROPTEST_CASES=256        # uniform deeper property run
 make miri-common                        # UB checks for pure fixed-point math
 ```
 
@@ -79,16 +80,17 @@ cargo +nightly fuzz run flow_e2e --sanitizer=thread -Zbuild-std -- -max_total_ti
 | Property (`--test fuzz`) | Scope |
 |---|---|
 | `prop_accounting_conservation` | Pool accounting laws, non-negative reserves, index monotonicity. |
-| `prop_owner_only_endpoints_reject_unauthed` / `prop_wrong_role_rejected` | Privileged endpoint auth gates. |
-| `prop_governance_endpoints_reject_unauthed` | Governance timelock proposers and self meta-admin auth gates. |
-| `prop_strategy_under_budget` | `multiply` under Soroban default budget limits. |
-| `prop_multiply_leverage_hf_safe` / `prop_strategy_swap_collateral_balance_delta` | Strategy HF, allowance, payload guards. |
-| `prop_short_aggregator_rejected` | Zero-output aggregator rejection. |
+| `owner_only_endpoints_reject_unauthed_before_validation` / `governance_endpoints_reject_unauthed_before_validation` | Deterministic privileged endpoint auth matrices. |
+| `prop_valid_multiply_fits_default_budget` | Valid `multiply` calls under Soroban default budget limits. |
+| `prop_multiply_succeeds_with_safe_hf_and_clean_router` / `prop_swap_collateral_conserves_position_delta` | Strategy success, exact deltas, HF, allowance, and flash-guard cleanup. |
 | `prop_liquidation_matches_bigrational_reference` | Liquidation vs `BigRational` reference. |
 
 ## Corpus And Regressions
 
-The libFuzzer corpus is local and ignored by git:
+Each target starts from one small committed, structurally accepted input under
+`tests/fuzz/seeds/`. This prevents short CI campaigns from spending their
+budget merely growing inputs to the target's minimum useful length. New
+coverage inputs are written to the local, ignored corpus:
 
 ```text
 tests/fuzz/corpus/
@@ -96,8 +98,11 @@ tests/fuzz/artifacts/
 tests/fuzz/coverage/
 ```
 
-Seed the corpus from generated ledger snapshots before long campaigns. Flow
-seeds are valid 5-byte operation streams, not `Arbitrary<Vec<_>>` prefixes.
+For long campaigns, enrich the writable corpus from generated ledger
+snapshots. Flow seeds are valid 5-byte operation streams, not
+`Arbitrary<Vec<_>>` prefixes. Numeric seed generation is intentionally bounded
+so corpus replay remains fast, and `rates_and_index` has a production-preset
+fallback when snapshots contain no decodable market parameters.
 
 ```bash
 make fuzz-seed-corpus

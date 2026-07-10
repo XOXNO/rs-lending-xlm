@@ -12,7 +12,7 @@ use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{Address, Env, IntoVal};
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn constructor_rejects_threshold_of_zero() {
     let env = Env::default();
     env.mock_all_auths();
@@ -22,7 +22,7 @@ fn constructor_rejects_threshold_of_zero() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn constructor_rejects_threshold_above_signer_count() {
     let env = Env::default();
     env.mock_all_auths();
@@ -32,7 +32,7 @@ fn constructor_rejects_threshold_above_signer_count() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn constructor_rejects_duplicate_signers() {
     let env = Env::default();
     env.mock_all_auths();

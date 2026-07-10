@@ -161,8 +161,6 @@ fn set_spoke_liquidation_curve_panics_for_bonus_factor_above_bps() {
     });
 }
 
-// ===== coverage gap-closure tests =====
-// config_getters_and_blend_wrapper (+6) contracts/controller/src/config/limits.rs:31-33 + config/approvals.rs:43-45,48-51
 #[test]
 fn min_borrow_floor_defaults_and_blend_wrapper_reflects_storage() {
     let env = Env::default();

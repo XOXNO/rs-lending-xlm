@@ -4,8 +4,9 @@
 
 use libfuzzer_sys::fuzz_target;
 use stellar_fuzz::{
-    amount_for_value, assert_global_invariants, assert_state_preserved_on_failure, asset_price_usd,
-    build_wide_context, fraction, snapshot, ALICE, BOB, HF_WAD_FLOOR, LIQUIDATOR,
+    amount_for_value, assert_flash_guard_cleared, assert_pool_accounting,
+    assert_state_preserved_on_failure, assert_user_health, asset_price_usd, build_wide_context,
+    fraction, snapshot, ALICE, BOB, HF_WAD_FLOOR, LIQUIDATOR,
 };
 
 const ASSETS: [&str; 3] = ["USDC", "ETH", "XLM"];
@@ -285,8 +286,9 @@ fuzz_target!(|data: &[u8]| {
     let mut t = build_wide_context();
     bootstrap(&mut t);
     for u in USERS {
-        assert_global_invariants(&t, u, &ASSETS, HF_WAD_FLOOR);
+        assert_user_health(&t, u, HF_WAD_FLOOR);
     }
+    assert_pool_accounting(&t, &ASSETS);
 
     for op in ops {
         // Price stress mutates oracle state; apply it before snapshotting so a
@@ -304,7 +306,7 @@ fuzz_target!(|data: &[u8]| {
 
         if ok {
             for (user, min_hf) in hf_users {
-                assert_global_invariants(&t, user, &ASSETS, min_hf);
+                assert_user_health(&t, user, min_hf);
             }
             for a in ASSETS {
                 let r = t.pool_reserves(a);
@@ -322,6 +324,8 @@ fuzz_target!(|data: &[u8]| {
             assert_state_preserved_on_failure(&before_alice, &after_alice);
             assert_state_preserved_on_failure(&before_bob, &after_bob);
         }
+        assert_pool_accounting(&t, &ASSETS);
+        assert_flash_guard_cleared(&t);
     }
 });
 

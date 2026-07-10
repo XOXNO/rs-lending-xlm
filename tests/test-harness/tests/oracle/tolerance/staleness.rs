@@ -1,5 +1,13 @@
 use super::{enable_dual_source, set_dual_oracle_dex, setup};
-use test_harness::{assert_contract_error, errors, usd, ALICE};
+use soroban_sdk::testutils::Ledger as _;
+use test_harness::{assert_contract_error, errors, usd, LendingTest, ALICE};
+
+fn age_oracle_observations(t: &LendingTest) {
+    // Advance only wall-clock time. Advancing the ledger sequence as well would
+    // expire the mock's temporary entries and test missing history (#212)
+    // instead of stale observations (#206).
+    t.env.ledger().with_mut(|ledger| ledger.timestamp += 1_000);
+}
 
 // 4. Staleness tests
 
@@ -12,7 +20,7 @@ fn test_stale_price_allows_supply_without_price_read() {
 
     // Advance time beyond the staleness window (900 seconds) without
     // refreshing prices.
-    t.advance_time_no_refresh(1000);
+    age_oracle_observations(&t);
 
     // Supply is a risk-decreasing path and V2 emits no per-position oracle
     // price for pure supply analytics. Stale prices are still covered by the
@@ -28,11 +36,11 @@ fn test_stale_price_blocks_borrow() {
     t.supply(ALICE, "USDC", 100_000.0);
 
     // Advance time beyond the staleness window without refreshing prices.
-    t.advance_time_no_refresh(1000);
+    age_oracle_observations(&t);
 
     // Borrow fails: stale price blocked for risk-increasing ops.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
-    assert!(result.is_err(), "borrow should fail with stale price");
+    assert_contract_error(result, errors::PRICE_FEED_STALE);
 }
 
 #[test]
@@ -43,14 +51,11 @@ fn test_stale_price_blocks_withdraw_with_borrows() {
     t.borrow(ALICE, "ETH", 10.0);
 
     // Advance time beyond the staleness window without refreshing.
-    t.advance_time_no_refresh(1000);
+    age_oracle_observations(&t);
 
     // Withdraw fails when borrows exist (risk-increasing).
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
-    assert!(
-        result.is_err(),
-        "withdraw with borrows should fail with stale price"
-    );
+    assert_contract_error(result, errors::PRICE_FEED_STALE);
 }
 
 #[test]

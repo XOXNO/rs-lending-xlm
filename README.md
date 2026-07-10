@@ -122,8 +122,9 @@ Protocol correctness is enforced in independent layers:
 - **Property-based tests** — randomized proptest suites for accounting
   conservation, auth gates, strategy safety, and liquidation math against an
   exact-rational reference (`make proptest`).
-- **Mutation testing** — `cargo-mutants` runs against the contract crates
-  (`make mutants`).
+- **Mutation testing** — non-overlapping `cargo-mutants` scopes cover common,
+  pool, governance, and controller production behavior (`make mutants`), with
+  focused math/rates/pool-interest targets for local iteration.
 - **Miri** — undefined-behavior checks on the pure fixed-point math core
   (`make miri-common`).
 - **Formal verification** — Certora proofs over math, pool accounting,

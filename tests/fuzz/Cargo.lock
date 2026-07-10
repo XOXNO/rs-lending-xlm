@@ -1763,6 +1763,7 @@ dependencies = [
  "num-traits",
  "pool",
  "soroban-sdk",
+ "xoxno-oracle-adapter",
 ]
 
 [[package]]
@@ -2006,6 +2007,17 @@ name = "wit-bindgen"
 version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
+
+[[package]]
+name = "xoxno-oracle-adapter"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "soroban-sdk",
+ "stellar-access",
+ "stellar-contract-utils",
+ "stellar-macros",
+]
 
 [[package]]
 name = "zerocopy"

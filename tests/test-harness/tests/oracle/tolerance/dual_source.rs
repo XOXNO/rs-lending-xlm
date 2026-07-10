@@ -58,10 +58,7 @@ fn test_mixed_tolerance_states() {
 
     // Borrowing ETH must fail: ETH's price is beyond the second tolerance.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
-    assert!(
-        result.is_err(),
-        "borrow should fail when debt asset price is unsafe"
-    );
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 // 11. Liquidation rejects on out-of-band deviation during a flash crash
 

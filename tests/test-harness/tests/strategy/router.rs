@@ -1,8 +1,10 @@
 //! Router adversarial tests, panic-site coverage, and oracle boundaries.
 
 use controller::constants::{RAY, WAD};
+use soroban_sdk::testutils::{ContractEvents, Events, MockAuth, MockAuthInvoke};
 use soroban_sdk::token;
-use soroban_sdk::Address;
+use soroban_sdk::xdr::{ContractEventBody, ScVal};
+use soroban_sdk::{Address, IntoVal, Val};
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
 use test_harness::{
     apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, hub_asset,
@@ -13,6 +15,38 @@ use crate::helpers::build_swap_steps;
 
 const SWAP_REQUESTED_ETH: i128 = 10_000_000;
 const SWAP_MIN_OUT_USDC: i128 = 30_000_000_000;
+
+fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
+    events
+        .events()
+        .iter()
+        .filter(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            matches!(
+                (body.topics.first(), body.topics.get(1)),
+                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b)))
+                    if a.0.to_utf8_string().as_deref() == Ok(first)
+                        && b.0.to_utf8_string().as_deref() == Ok(second)
+            )
+        })
+        .count()
+}
+
+fn count_zero_transfers(events: &ContractEvents) -> usize {
+    events
+        .events()
+        .iter()
+        .filter(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            let is_transfer = matches!(
+                body.topics.first(),
+                Some(ScVal::Symbol(topic))
+                    if topic.0.to_utf8_string().as_deref() == Ok("transfer")
+            );
+            is_transfer && matches!(&body.data, ScVal::I128(amount) if i128::from(amount) == 0)
+        })
+        .count()
+}
 
 fn install_bad_router(t: &LendingTest, mode: BadMode) -> Address {
     let admin = t.admin.clone();
@@ -243,6 +277,75 @@ fn test_repay_debt_with_collateral_refunds_router_underspend_to_caller() {
         "fully repaid and fully withdrawn account should be removed"
     );
 }
+
+#[test]
+fn test_repay_without_excess_skips_zero_value_refund() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+    t.fund_router("ETH", 0.5);
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_000_000);
+    let zero_transfers_before = count_zero_transfers(&t.env.events().all());
+
+    t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps, false);
+
+    assert_eq!(
+        count_zero_transfers(&t.env.events().all()),
+        zero_transfers_before,
+        "an empty refund must not invoke a zero-value token transfer"
+    );
+}
+
+#[test]
+fn test_router_pull_uses_controller_self_authorization() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    let caller = t.get_or_create_user(ALICE);
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.fund_router("ETH", 5.0);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let current = test_harness::hub_asset(t.resolve_asset("USDC"));
+    let replacement = test_harness::hub_asset(t.resolve_asset("ETH"));
+    let amount = 10_000_000_000;
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", amount, 50_000_000);
+    let args: soroban_sdk::Vec<Val> = (
+        caller.clone(),
+        account_id,
+        current.clone(),
+        amount,
+        replacement.clone(),
+        steps.clone(),
+    )
+        .into_val(&t.env);
+    let invoke = MockAuthInvoke {
+        contract: &t.controller,
+        fn_name: "swap_collateral",
+        args,
+        sub_invokes: &[],
+    };
+    let auths = [MockAuth {
+        address: &caller,
+        invoke: &invoke,
+    }];
+
+    t.ctrl_client().mock_auths(&auths).swap_collateral(
+        &caller,
+        &account_id,
+        &current,
+        &amount,
+        &replacement,
+        &steps,
+    );
+
+    assert!(t.supply_balance(ALICE, "ETH") > 4.9);
+}
 // BadMode::OutputShortfall -- router pulls token_in but transfers zero
 // token_out. The controller's positive output-delta check rejects the swap
 // immediately.
@@ -277,12 +380,8 @@ fn test_swap_tokens_handles_zero_output_from_router() {
     assert_contract_error(result, errors::NO_SWAP_OUTPUT);
 }
 
-// Part 1: missing `panic_with_error!` sites in strategy.rs
-// strategy.rs:91 -- ConvertStepsRequired
-//
 // When multiply receives an initial_payment whose token is a third token
-// (neither collateral nor debt), `convert_steps` must be Some. The current
-// suite had zero coverage for this panic site.
+// (neither collateral nor debt), `convert_steps` must be Some.
 #[test]
 fn test_multiply_third_token_payment_without_convert_steps_rejects() {
     let mut t = LendingTest::new()
@@ -320,10 +419,7 @@ fn test_multiply_third_token_payment_without_convert_steps_rejects() {
     );
     assert_contract_error(flatten(result), errors::CONVERT_STEPS_REQUIRED);
 }
-// strategy.rs:140 -- AccountModeMismatch
-//
-// Reusing an existing account with a different mode must be rejected. No
-// prior test exercised this path.
+// Reusing an existing account with a different mode must be rejected.
 #[test]
 fn test_multiply_existing_account_mode_mismatch_rejects() {
     let mut t = LendingTest::new()
@@ -357,15 +453,13 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
     );
     assert_contract_error(flatten(result), errors::ACCOUNT_MODE_MISMATCH);
 }
-// strategy.rs:284 -- DebtPositionNotFound in swap_debt
-// Alice tries to swap an ETH debt she does not owe. The test was missing.
+// Alice tries to swap an ETH debt she does not owe.
 //
 // Call order in process_swap_debt:
 //   1. borrow_for_strategy(new_debt_token): flash-borrows the new
 //      token.
 //   2. swap_tokens(new_debt -> existing_debt).
-//   3. borrow_positions.get(existing_debt_token): panics if missing (line
-//      284).
+//   3. borrow_positions.get(existing_debt_token): panics if missing.
 // The router must be funded correctly and the flash borrow must succeed.
 #[test]
 fn test_swap_debt_existing_position_missing_rejects() {
@@ -390,7 +484,6 @@ fn test_swap_debt_existing_position_missing_rejects() {
     let result = t.try_swap_debt(ALICE, "ETH", 0.001, "WBTC", &steps);
     assert_contract_error(result, errors::DEBT_POSITION_NOT_FOUND);
 }
-// strategy.rs:373 -- CollateralPositionNotFound in swap_collateral
 // Alice tries to swap WBTC collateral she does not hold.
 
 #[test]
@@ -408,7 +501,6 @@ fn test_swap_collateral_position_missing_rejects() {
     let result = t.try_swap_collateral(ALICE, "WBTC", 0.01, "ETH", &steps);
     assert_contract_error(result, errors::COLLATERAL_POSITION_NOT_FOUND);
 }
-// strategy.rs:527 -- CollateralPositionNotFound in repay_debt_with_collateral
 // Alice tries to repay using WBTC collateral she does not hold.
 
 #[test]
@@ -427,8 +519,6 @@ fn test_repay_debt_with_collateral_missing_collateral_rejects() {
     let result = t.try_repay_debt_with_collateral(ALICE, "WBTC", 0.01, "ETH", &steps, false);
     assert_contract_error(result, errors::COLLATERAL_POSITION_NOT_FOUND);
 }
-// strategy.rs -- DebtPositionNotFound in repay_debt_with_collateral.
-//
 // The function validates both positions before token movement, then measures
 // the actual withdrawal delta and feeds it
 // into swap_tokens. This test pins the DebtPositionNotFound guard.
@@ -449,10 +539,7 @@ fn test_repay_debt_with_collateral_missing_debt_rejects() {
     let result = t.try_repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "WBTC", &steps, false);
     assert_contract_error(result, errors::DEBT_POSITION_NOT_FOUND);
 }
-// strategy.rs:600 -- CannotCloseWithRemainingDebt
-//
 // close_position=true must be rejected if the account still has debt.
-// Lines 599-601 guard this explicitly; no prior test exercised it.
 #[test]
 fn test_repay_debt_with_collateral_close_with_remaining_debt_rejects() {
     let mut t = LendingTest::new()
@@ -473,10 +560,7 @@ fn test_repay_debt_with_collateral_close_with_remaining_debt_rejects() {
     let result = t.try_repay_debt_with_collateral(ALICE, "USDC", 20.0, "ETH", &steps, true);
     assert_contract_error(result, errors::CANNOT_CLOSE_WITH_REMAINING_DEBT);
 }
-// Part 2: initial_payment branches
-// Case 1: initial_payment == collateral_token (happy path).
-// strategy.rs:80-82 -- the payment is added directly to collateral_amount.
-// No prior directed test exercised this branch end-to-end.
+// An initial payment in the collateral token is added directly to collateral.
 #[test]
 fn test_multiply_with_collateral_token_initial_payment() {
     let mut t = LendingTest::new()
@@ -520,6 +604,12 @@ fn test_multiply_with_collateral_token_initial_payment() {
         &None,
     );
 
+    assert_eq!(
+        count_topic(&t.env.events().all(), "strategy", "initial_payment"),
+        1,
+        "multiply with an initial payment must emit its strategy event"
+    );
+
     // Total collateral must equal initial payment (500) plus the swapped
     // amount (~3000).
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
@@ -547,9 +637,7 @@ fn test_multiply_with_collateral_token_initial_payment() {
         alice_usdc_after
     );
 }
-// Case 3: initial_payment is a third token, with convert_steps supplied.
-// strategy.rs:87-100 -- the payment is swapped to collateral via
-// convert_steps. No prior directed happy-path test.
+// A third-token initial payment is swapped to collateral via convert_steps.
 #[test]
 fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
     let mut t = LendingTest::new()
@@ -666,9 +754,8 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
     );
 }
 // Defense-in-depth: allowance still zero after a successful swap via the
-// happy-path mock. The controller explicitly calls `approve(..0, 0)` at
-// strategy.rs:483. Without the zeroing call, allowance would remain equal to
-// `amount_in`.
+// happy-path mock. Without the explicit zeroing call, allowance would remain
+// equal to `amount_in`.
 #[test]
 fn test_swap_tokens_allowance_zero_after_successful_multiply() {
     let mut t = LendingTest::new()
@@ -699,7 +786,7 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
     let allowance = eth_tok.allowance(&t.controller_address(), &t.aggregator);
     assert_eq!(
         allowance, 0,
-        "controller allowance on the router must be zero after a successful swap (strategy.rs:483), got {}",
+        "controller allowance on the router must be zero after a successful swap, got {}",
         allowance
     );
 }

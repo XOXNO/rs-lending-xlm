@@ -17,8 +17,6 @@ fn test_edit_asset_config_persists_flashloan_fee_at_cap() {
     let updated = t.get_asset_config("USDC");
     assert_eq!(updated.flashloan_fee, MAX_FLASHLOAN_FEE_BPS as u32);
 }
-// spoke.rs:95 -- SpokeDeprecated rejection on user supply path
-//
 // `remove_spoke_category` flips `is_deprecated = true` and walks asset
 // reverse-indexes. A user attempting to supply with the deprecated category
 // triggers `ensure_spoke_not_deprecated` via `active_spoke_category` which

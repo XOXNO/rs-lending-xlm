@@ -11,6 +11,8 @@ use libfuzzer_sys::fuzz_target;
 use pool::{LiquidityPool, LiquidityPoolClient};
 use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, token, Address, Env};
 
+const ACCOUNTING_TOLERANCE_UNITS: i128 = 4;
+
 #[derive(Debug, Arbitrary)]
 struct In {
     // Interest-curve geometry (same clamping as rates_and_index).
@@ -107,6 +109,49 @@ fn assert_cash_matches_balance(env: &Env, pool: &Address, asset: &Address, state
         "cash exceeds token balance: cash={} balance={}",
         state.cash,
         balance,
+    );
+}
+
+fn assert_pool_invariants(
+    env: &Env,
+    pool: &LiquidityPoolClient<'_>,
+    pool_addr: &Address,
+    asset: &Address,
+    market: &HubAssetKey,
+) {
+    let state = pool_state(pool, market);
+    let supplied = pool.get_supplied_amount(market);
+    let borrowed = pool.get_borrowed_amount(market);
+    let revenue = pool.get_revenue(market);
+
+    assert_cash_matches_balance(env, pool_addr, asset, &state);
+    assert!(state.cash >= 0, "negative tracked cash: {}", state.cash);
+    assert!(
+        state.supplied >= 0,
+        "negative scaled supply: {}",
+        state.supplied
+    );
+    assert!(
+        state.borrowed >= 0,
+        "negative scaled debt: {}",
+        state.borrowed
+    );
+    assert!(
+        state.revenue >= 0,
+        "negative scaled revenue: {}",
+        state.revenue
+    );
+    assert!(state.borrow_index >= RAY, "borrow index below RAY");
+    // Borrow-side bad-debt seizure socializes losses by reducing the supply
+    // index, so RAY is not a valid global floor after that operation.
+    assert!(state.supply_index > 0, "supply index is non-positive");
+    assert!(revenue <= supplied + ACCOUNTING_TOLERANCE_UNITS);
+    assert!(
+        state.cash + borrowed + ACCOUNTING_TOLERANCE_UNITS >= supplied,
+        "pool insolvent: cash={} borrowed={} supplied={}",
+        state.cash,
+        borrowed,
+        supplied
     );
 }
 
@@ -243,7 +288,7 @@ fuzz_target!(|i: In| {
     ))
     .expect("bootstrap borrow should succeed");
     let mut borrow_scaled = bootstrap_borrow_out.get_unchecked(0).position.scaled_amount;
-    assert_cash_matches_balance(&env, &pool_addr, &asset, &pool_state(&pool, &market));
+    assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
 
     // Track ledger time in seconds — Soroban's TestLedger timestamp is seconds.
     let mut cur_ts_s: u64 = env.ledger().timestamp();
@@ -387,7 +432,16 @@ fuzz_target!(|i: In| {
                 }
             }
             4 => {
-                let _ = pool.try_update_indexes(&market);
+                let result = flatten_contract_result(pool.try_update_indexes(&market));
+                match result {
+                    Ok(_) => {
+                        let after = pool_state(&pool, &market);
+                        assert!(after.borrow_index >= before.borrow_index);
+                        assert!(after.supply_index >= before.supply_index);
+                        assert_eq!(after.cash, before.cash);
+                    }
+                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
+                }
             }
             5 => {
                 // add_rewards — pre-fund the pool, then exercise the supply
@@ -457,6 +511,7 @@ fuzz_target!(|i: In| {
                 // a bug — so tolerate it and skip the seize when the accrued
                 // baseline can't be established (mirrors the op-4 `try_` path).
                 if flatten_contract_result(pool.try_update_indexes(&market)).is_err() {
+                    assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
                     continue;
                 }
                 let before = pool_state(&pool, &market);
@@ -533,5 +588,6 @@ fuzz_target!(|i: In| {
             }
             _ => unreachable!(),
         }
+        assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
     }
 });

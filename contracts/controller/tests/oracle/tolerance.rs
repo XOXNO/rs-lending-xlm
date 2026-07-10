@@ -26,7 +26,7 @@ fn equal_feeds_return_that_price() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #205)")]
 fn beyond_band_panics() {
     let env = Env::default();
     let tight = OraclePriceFluctuation {
@@ -37,14 +37,14 @@ fn beyond_band_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #205)")]
 fn zero_anchor_is_out_of_band_panics() {
     let env = Env::default();
     let _ = calculate_final_price(&env, 0, 100 * constants::WAD, &sample_tolerance());
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #205)")]
 fn degenerate_anchor_overflow_is_out_of_band_panics() {
     // A near-zero anchor against a near-maximum primary overflows the fixed-point
     // narrowing; the ratio short-circuits to out-of-band, so the read reverts
