@@ -929,8 +929,9 @@ fn test_spoke_borrow_cap_enforced() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 400.0);
+    t.borrow(ALICE, "USDT", 50.0);
 
-    let result = t.try_borrow(ALICE, "USDT", 200.0);
+    let result = t.try_borrow(ALICE, "USDT", 100.0);
     assert_contract_error(result, errors::SPOKE_BORROW_CAP_REACHED);
 }
 
@@ -1013,9 +1014,10 @@ fn test_deprecated_spoke_repay_decrements_usage() {
     );
 
     let usage_after = spoke_borrow_usage(&t, 2, "USDT");
+    let expected_remaining = usage_before * 3 / 4;
     assert!(
-        usage_after < usage_before,
-        "repay must decrement usage even when category is deprecated"
+        (usage_after - expected_remaining).abs() <= 1,
+        "a 500 USDT partial repay should leave 75% of the original usage: before={usage_before}, after={usage_after}"
     );
 }
 

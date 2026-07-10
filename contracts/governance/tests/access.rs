@@ -39,6 +39,18 @@ fn grant_role_enforces_executor_canceller_separation() {
     });
 }
 
+#[test]
+#[should_panic(expected = "Error(Contract, #41)")]
+fn grant_role_enforces_canceller_executor_separation() {
+    let env = Env::default();
+    let id = fresh_governance(&env);
+    let delegate = Address::generate(&env);
+    env.as_contract(&id, || {
+        apply_grant_role(&env, &delegate, &Symbol::new(&env, EXECUTOR_ROLE));
+        apply_grant_role(&env, &delegate, &Symbol::new(&env, CANCELLER_ROLE));
+    });
+}
+
 // Separate EXECUTOR and CANCELLER delegates are allowed.
 #[test]
 fn grant_role_allows_separated_executor_and_canceller() {
@@ -84,6 +96,25 @@ fn grant_role_allows_owner_to_hold_executor_and_canceller() {
             access_control::has_role(&env, &owner, &Symbol::new(&env, CANCELLER_ROLE)).is_some()
         );
     });
+}
+
+#[test]
+fn accepting_self_transfer_preserves_all_owner_roles() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let owner = Address::generate(&env);
+    let id = env.register(
+        Governance,
+        (owner.clone(), constants::TIMELOCK_MIN_DELAY_LEDGERS),
+    );
+    let client = GovernanceClient::new(&env, &id);
+
+    env.as_contract(&id, || apply_transfer_ownership(&env, &owner, 1_000));
+    client.accept_ownership();
+
+    for role in default_operational_roles(&env) {
+        assert!(client.has_role(&owner, &role));
+    }
 }
 
 // Revoke requires the account to hold the role.

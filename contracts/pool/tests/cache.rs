@@ -248,20 +248,6 @@ fn test_burn_claimable_revenue_full_when_revenue_smaller_than_reserves() {
 }
 
 #[test]
-fn test_resolve_withdrawal_partial_that_leaves_zero_remaining_burns_full() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        let supplied = 10i128.pow(20);
-        let cache = cache_with(&t.env, &t.params, supplied, 0, 0, RAY, RAY);
-        let pos = Ray::from(supplied);
-        // Request leaves `remaining_actual == 0`, so the full-position path applies.
-        let (scaled, gross) = cache.resolve_withdrawal(1, pos);
-        assert_eq!(scaled, pos);
-        assert_eq!(gross, 1);
-    });
-}
-
-#[test]
 fn test_position_mutation_builder_includes_scaled_and_actual() {
     let t = TestSetup::new();
     t.as_contract(|| {

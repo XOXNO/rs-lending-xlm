@@ -35,6 +35,25 @@ exclude_globs = [
 exclude_re = [
     "test_support::",
 
+    # Eager strategy prefetch only warms the same transaction cache that the
+    # final portfolio-risk pass bulk-prefetches before reading. Removing this
+    # call intentionally leaves results and adapter call counts unchanged.
+    "replace prefetch_strategy_oracles with \\(\\)",
+
+    # At primary / anchor == u32::MAX, BPS scaling already puts the ratio
+    # above every representable u32 tolerance band. Both branches therefore
+    # reject the price in calculate_final_price.
+    "replace > with >= in anchor_ratio_bps",
+
+    # Reassigning oldest_ts when the next timestamp is equal stores the same
+    # value and cannot affect freshness or the returned observation.
+    "reflector.rs:[0-9]+:25: replace < with <= in read_twap",
+
+    # A zero revenue claim reaches only `transfer_out(..., 0)`, whose explicit
+    # nonpositive guard returns without a token call; the pool owner is set by
+    # the constructor, so entering the branch at equality is unobservable.
+    "replace > with >= in <impl LiquidityPoolInterface for LiquidityPool>::claim_revenue",
+
     # Provably-equivalent boundary mutants (equality pre-handled or symmetric at 0):
     "replace < with <= in Wad::min",
     "replace > with >= in Wad::max",

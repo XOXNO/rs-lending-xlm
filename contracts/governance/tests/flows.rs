@@ -14,6 +14,7 @@ use soroban_sdk::{Address, BytesN, Env, IntoVal, Symbol};
 use stellar_access::ownable;
 
 use crate::access::EXECUTOR_ROLE;
+use crate::test_support::upload_controller_wasm;
 use crate::{constants, storage, Governance, GovernanceClient};
 
 fn register_governance(env: &Env) -> (Address, Address, GovernanceClient<'_>) {
@@ -30,25 +31,6 @@ fn register_native_controller(env: &Env, gov_id: &Address, gov: &GovernanceClien
     let controller_id = env.register(controller::Controller, (gov_id.clone(),));
     gov.set_controller(&controller_id);
     controller_id
-}
-
-fn upload_controller_wasm(env: &Env) -> BytesN<32> {
-    let path = std::env::var("CONTROLLER_WASM_PATH").unwrap_or_else(|_| {
-        std::string::String::from("target/wasm32v1-none/release/controller.wasm")
-    });
-    let mut bytes = std::fs::read(&path);
-    if bytes.is_err() {
-        bytes = std::fs::read(std::format!("../{path}"));
-    }
-    if bytes.is_err() {
-        bytes = std::fs::read(std::format!("../../{path}"));
-    }
-    match bytes {
-        Ok(b) => env
-            .deployer()
-            .upload_contract_wasm(soroban_sdk::Bytes::from_slice(env, &b)),
-        Err(_) => panic!("Controller WASM not found. Run 'make build' first."),
-    }
 }
 
 fn sample_oracle_input(env: &Env) -> MarketOracleConfigInput {
@@ -201,6 +183,29 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
 }
 
 #[test]
+fn pause_and_unpause_forward_to_controller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_admin, gov_id, gov) = register_governance(&env);
+    let controller_id = register_native_controller(&env, &gov_id, &gov);
+
+    gov.unpause();
+    assert!(!env.as_contract(&controller_id, || {
+        stellar_contract_utils::pausable::paused(&env)
+    }));
+
+    gov.pause();
+    assert!(env.as_contract(&controller_id, || {
+        stellar_contract_utils::pausable::paused(&env)
+    }));
+
+    gov.unpause();
+    assert!(!env.as_contract(&controller_id, || {
+        stellar_contract_utils::pausable::paused(&env)
+    }));
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #2000)")]
 fn configure_market_oracle_requires_oracle_role() {
     let env = Env::default();
@@ -247,6 +252,19 @@ fn set_aggregator_rejects_non_contract_address() {
         &admin,
         &AdminOperation::SetAggregator(Address::generate(&env)),
     );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #201)")]
+fn set_aggregator_rejects_stellar_asset_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, gov) = register_governance(&env);
+    let stellar_asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+
+    gov.execute_immediate(&admin, &AdminOperation::SetAggregator(stellar_asset));
 }
 
 #[test]
@@ -505,6 +523,17 @@ fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
         .with_mut(|l| l.sequence_number += TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
     gov.execute_self(&Some(admin.clone()), &op, &salt);
 
+    let pending_admin = env.as_contract(&gov_id, || {
+        env.storage()
+            .temporary()
+            .get::<_, stellar_access::role_transfer::PendingTransfer>(
+                &access_control::AccessControlStorageKey::PendingAdmin,
+            )
+            .expect("pending admin transfer")
+    });
+    assert_eq!(pending_admin.address, new_owner);
+    assert_eq!(pending_admin.live_until_ledger, live_until);
+
     // New owner accepts -> sync_owner_access_control migrates admin + roles.
     gov.accept_ownership();
     env.as_contract(&gov_id, || {
@@ -533,4 +562,13 @@ fn execute_immediate_self_op_applies_inline() {
         }),
     );
     assert!(gov.has_role(&grantee, &role));
+
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::RevokeGovRole(RoleArgs {
+            account: grantee.clone(),
+            role: role.clone(),
+        }),
+    );
+    assert!(!gov.has_role(&grantee, &role));
 }

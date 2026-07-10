@@ -1,5 +1,5 @@
 use super::*;
-use common::constants::RAY;
+use common::constants::{BPS, RAY};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Env;
 
@@ -26,6 +26,13 @@ fn sample_market_params(asset: &Address, decimals: u32) -> MarketParamsRaw {
 fn validate_risk_bounds_rejects_threshold_above_bps() {
     let env = Env::default();
     validate_risk_bounds(&env, 5_000, 10_001, 100);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #113)")]
+fn validate_liquidation_fees_rejects_above_bps() {
+    let env = Env::default();
+    validate_liquidation_fees(&env, BPS as u32 + 1);
 }
 
 #[test]

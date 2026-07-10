@@ -83,3 +83,7 @@ fn require_fresh(cache: &Cache, observation: &OracleObservation, max_stale: u64)
         panic_with_error!(cache.env(), OracleError::PriceFeedStale);
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/oracle/compose.rs"]
+mod tests;

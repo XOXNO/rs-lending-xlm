@@ -45,7 +45,8 @@ SHELL := /bin/bash
         fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
         wasm-size-check wasm-testing-abi-check act-ci act-ci-dryrun clean install-stellar-cli \
         _mutants-check _mutants-harness-prepare \
-        mutants mutants-math mutants-rates mutants-pool-interest mutants-common mutants-pool mutants-governance \
+        mutants mutants-math mutants-rates mutants-pool-interest mutants-common mutants-pool \
+        mutants-governance mutants-governance-oracle-probe \
         mutants-controller-core mutants-controller-oracle mutants-controller-positions \
         mutants-controller-strategies mutants-controller-views \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
@@ -475,9 +476,10 @@ act-ci:
 
 MUTANTS_JOBS ?= 4
 CARGO_MUTANTS_VERSION ?= 27.1.0
-# Test-harness integration tests can run long under accrual-loop mutations.
-# 120s separates infinite loops from slow test runs.
-MUTANTS_TIMEOUT ?= 120
+# Mutants can make later integration binaries fail while Cargo still finishes
+# the remaining targets. Keep the in-place default floor so those assertion
+# kills are not misclassified as timeouts on a busy self-hosted runner.
+MUTANTS_TIMEOUT ?= 300
 # Empty by default for safe scratch-tree mutation. CI passes --in-place because
 # every matrix job owns a disposable checkout and can reuse its cached target.
 MUTANTS_RUN_MODE ?=
@@ -514,7 +516,8 @@ _mutants-harness-prepare: _mutants-check
 	$(MAKE) build
 
 ## Run every non-overlapping production mutation scope.
-mutants: mutants-common mutants-pool mutants-governance mutants-controller-core \
+mutants: mutants-common mutants-pool mutants-governance mutants-governance-oracle-probe \
+		 mutants-controller-core \
          mutants-controller-oracle mutants-controller-positions \
          mutants-controller-strategies mutants-controller-views
 
@@ -542,7 +545,16 @@ mutants-pool: _mutants-check
 	$(call run_mutants,--package pool --test-package pool)
 
 mutants-governance: _mutants-harness-prepare
+	# Do not combine this with test-harness: that dependency enables the
+	# governance `testing` feature and compiles out production-only validators.
 	$(call run_mutants,--package governance \
+		--exclude 'contracts/governance/src/validate/oracle_probe.rs' \
+		--test-package governance)
+
+## Live oracle probes need the integration harness's deployed provider mocks.
+mutants-governance-oracle-probe: _mutants-harness-prepare
+	$(call run_mutants,--package governance \
+		--file 'contracts/governance/src/validate/oracle_probe.rs' \
 		--test-package governance --test-package test-harness)
 
 ## Everything outside the separately sharded oracle/position/strategy/view trees.

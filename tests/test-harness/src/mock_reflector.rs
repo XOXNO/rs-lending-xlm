@@ -85,7 +85,8 @@ impl MockReflector {
 
     /// 0 = normal, 1 = None, 2 = empty, 3 = insufficient,
     /// 4 = invalid-price (one entry has price <= 0),
-    /// 5 = stale (oldest timestamp is far in the past).
+    /// 5 = stale (oldest timestamp is far in the past),
+    /// 6 = exactly the minimum accepted observation count.
     pub fn set_twap_history_mode(env: Env, asset: Address, mode: u32) {
         env.storage()
             .temporary()
@@ -144,10 +145,10 @@ impl MockReflector {
         };
 
         let mut out = Vec::new(&env);
-        let len = if mode == 3 {
-            records.saturating_sub(2).max(1)
-        } else {
-            records
+        let len = match mode {
+            3 => records.saturating_sub(2).max(1),
+            6 => common::oracle::providers::reflector::min_twap_observations(records),
+            _ => records,
         };
         for i in 0..len {
             let mut entry = twap_pd.clone();

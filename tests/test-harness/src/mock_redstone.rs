@@ -16,6 +16,7 @@ pub enum MockKey {
     PriceData(String),
     SingleCalls,
     BulkCalls,
+    TruncateBulk,
     Decimals,
 }
 
@@ -71,6 +72,12 @@ impl MockRedStonePriceFeed {
         env.storage().temporary().set(&MockKey::Decimals, &decimals);
     }
 
+    pub fn set_bulk_truncate(env: Env, truncate: bool) {
+        env.storage()
+            .temporary()
+            .set(&MockKey::TruncateBulk, &truncate);
+    }
+
     /// SEP-40-style decimals probe, as served by the XOXNO adapter.
     pub fn decimals(env: Env) -> u32 {
         env.storage()
@@ -92,6 +99,14 @@ impl MockRedStonePriceFeed {
         let mut values = Vec::new(&env);
         for feed_id in feed_ids.iter() {
             values.push_back(Self::get_feed(&env, feed_id)?);
+        }
+        if env
+            .storage()
+            .temporary()
+            .get(&MockKey::TruncateBulk)
+            .unwrap_or(false)
+        {
+            let _ = values.pop_back();
         }
         Ok(values)
     }

@@ -358,6 +358,7 @@ jobs:
           - mutants-common
           - mutants-pool
           - mutants-governance
+          - mutants-governance-oracle-probe
           - mutants-controller-core
           - mutants-controller-oracle
           - mutants-controller-positions

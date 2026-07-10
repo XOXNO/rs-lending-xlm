@@ -5,6 +5,7 @@ use stellar_governance::timelock::OperationState;
 use crate::access::EXECUTOR_ROLE;
 use crate::constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS;
 use crate::op::{AdminOperation, RoleArgs};
+use crate::test_support::upload_controller_wasm;
 use crate::{Governance, GovernanceClient};
 
 const ZERO_SALT: [u8; 32] = [0u8; 32];
@@ -76,6 +77,26 @@ fn propose_governance_upgrade_uses_sensitive_delay() {
         gov.get_operation_ledger(&id),
         current + TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS
     );
+}
+
+#[test]
+fn execute_governance_upgrade_replaces_contract_code() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (admin, gov) = register(&env, 10);
+    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let hash = upload_controller_wasm(&env);
+    let op = AdminOperation::UpgradeGov(hash);
+
+    gov.propose(&admin, &op, &salt);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
+    gov.execute_self(&Some(admin), &op, &salt);
+
+    let upgraded = controller::ControllerClient::new(&env, &gov.address);
+    assert_eq!(upgraded.get_app_version(), 1);
 }
 
 #[test]

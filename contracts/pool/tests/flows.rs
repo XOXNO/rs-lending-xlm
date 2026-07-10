@@ -1,7 +1,10 @@
 extern crate std;
 
 use super::*;
-use common::constants::{BPS, MS_PER_SECOND, RAY};
+use common::constants::{
+    BPS, MS_PER_SECOND, RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE,
+    TTL_THRESHOLD_SHARED,
+};
 use common::types::{HubAssetKey, ScaledPositionRaw};
 
 /// Pool tests use hub 0 as a local fixture id.
@@ -11,6 +14,7 @@ fn hub(asset: &Address) -> HubAssetKey {
         asset: asset.clone(),
     }
 }
+use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, Env};
@@ -28,6 +32,20 @@ fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
                 }
                 _ => false,
             }
+        })
+        .count()
+}
+
+fn count_first_topic(events: &ContractEvents, first: &str) -> usize {
+    events
+        .events()
+        .iter()
+        .filter(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            matches!(
+                body.topics.first(),
+                Some(ScVal::Symbol(topic)) if topic.0.to_utf8_string().as_deref() == Ok(first)
+            )
         })
         .count()
 }
@@ -67,6 +85,9 @@ pub struct PoolNoRepayReceiver;
 
 #[contract]
 pub struct PoolUnderRepayReceiver;
+
+#[contract]
+pub struct PoolCallbackOverpayReceiver;
 
 #[contractimpl]
 impl PoolFlashLoanReceiver {
@@ -140,6 +161,29 @@ impl PoolUnderRepayReceiver {
             &pool,
             &partial,
             &expiration_ledger,
+        );
+    }
+}
+
+#[contractimpl]
+impl PoolCallbackOverpayReceiver {
+    pub fn execute_flash_loan(
+        env: Env,
+        _initiator: Address,
+        asset: Address,
+        amount: i128,
+        fee: i128,
+        pool: Address,
+        _data: Bytes,
+    ) {
+        let receiver = env.current_contract_address();
+        let token = token::Client::new(&env, &asset);
+        token.transfer(&receiver, &pool, &1);
+        token.approve(
+            &receiver,
+            &pool,
+            &amount.checked_add(fee).unwrap(),
+            &env.ledger().sequence().checked_add(1).unwrap(),
         );
     }
 }
@@ -384,8 +428,76 @@ fn test_supply() {
         "position should have scaled amount"
     );
 
-    let supplied = client.get_supplied_amount(&hub(&t.asset));
-    assert!(supplied > 0, "supplied_amount should be positive");
+    assert_eq!(
+        client.get_supplied_amount(&hub(&t.asset)),
+        amount,
+        "supplied amount should round-trip at the initial unit index"
+    );
+}
+
+#[test]
+fn test_market_mutations_emit_indexer_events() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let second_asset = Address::generate(&t.env);
+
+    client.create_market(&1, &market_params(&second_asset));
+    assert_eq!(
+        count_topic(&t.env.events().all(), "market", "batch_params_update"),
+        1,
+        "market creation should publish its parameters"
+    );
+
+    client.supply(&t.sup(0, 10_000_000_000));
+    assert_eq!(
+        count_topic(&t.env.events().all(), "market", "batch_state_update"),
+        1,
+        "batched position mutations should publish one state event"
+    );
+
+    client.update_indexes(&hub(&t.asset));
+    assert_eq!(
+        count_topic(&t.env.events().all(), "market", "batch_state_update"),
+        1,
+        "a single-market mutation should publish a one-element state batch"
+    );
+}
+
+#[test]
+fn test_pool_mutation_renews_instance_and_market_ttls() {
+    let t = TestSetup::new();
+    let params_key = PoolKey::Params(hub(&t.asset));
+    let state_key = PoolKey::State(hub(&t.asset));
+    let initial_instance_ttl = t
+        .env
+        .as_contract(&t.pool, || t.env.storage().instance().get_ttl());
+    let ledgers_to_age = initial_instance_ttl - TTL_THRESHOLD_INSTANCE + 1;
+
+    t.env
+        .ledger()
+        .with_mut(|ledger| ledger.sequence_number += ledgers_to_age);
+    t.env.as_contract(&t.pool, || {
+        assert!(t.env.storage().instance().get_ttl() < TTL_THRESHOLD_INSTANCE);
+        assert!(t.env.storage().persistent().get_ttl(&params_key) < TTL_THRESHOLD_SHARED);
+        assert!(t.env.storage().persistent().get_ttl(&state_key) < TTL_THRESHOLD_SHARED);
+    });
+
+    t.client().supply(&t.sup(0, 10_000_000_000));
+
+    t.env.as_contract(&t.pool, || {
+        assert!(
+            t.env.storage().instance().get_ttl() >= TTL_BUMP_INSTANCE - 1,
+            "instance TTL should be restored to the bump horizon"
+        );
+        assert!(
+            t.env.storage().persistent().get_ttl(&params_key) >= TTL_BUMP_SHARED - 1,
+            "market params TTL should be restored to the bump horizon"
+        );
+        assert!(
+            t.env.storage().persistent().get_ttl(&state_key) >= TTL_BUMP_SHARED - 1,
+            "market state TTL should be restored to the bump horizon"
+        );
+    });
 }
 #[test]
 fn test_borrow() {
@@ -766,6 +878,32 @@ fn test_flash_loan_rejects_under_repay_with_invalid_flashloan_repay() {
     client.supply(&t.sup(0, 10_000_000_000i128));
 
     token::StellarAssetClient::new(&t.env, &t.asset).mint(&receiver, &flash_fee);
+
+    let result = flatten_contract_result(client.try_flash_loan(
+        &hub(&t.asset),
+        &t.admin,
+        &receiver,
+        &flash_amount,
+        &flash_fee,
+        &Bytes::new(&t.env),
+    ));
+
+    assert_contract_error(
+        result,
+        common::errors::FlashLoanError::InvalidFlashloanRepay as u32,
+    );
+}
+
+#[test]
+fn test_flash_loan_rejects_callback_balance_change() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let receiver = t.env.register(PoolCallbackOverpayReceiver, ());
+    let flash_amount = 100_0000000i128;
+    let flash_fee = 1_0000000i128;
+
+    client.supply(&t.sup(0, 10_000_000_000i128));
+    token::StellarAssetClient::new(&t.env, &t.asset).mint(&receiver, &(flash_fee + 1));
 
     let result = flatten_contract_result(client.try_flash_loan(
         &hub(&t.asset),
@@ -1247,10 +1385,10 @@ fn test_views() {
 
     client.supply(&t.sup(0, 10_000_000_000i128));
 
-    let supplied = client.get_supplied_amount(&hub(&t.asset));
-    assert!(
-        supplied > 0,
-        "supplied_amount should be positive after supply"
+    assert_eq!(
+        client.get_supplied_amount(&hub(&t.asset)),
+        10_000_000_000,
+        "supplied amount should round-trip at the initial unit index"
     );
 
     let reserves = client.get_reserves(&hub(&t.asset));
@@ -1259,8 +1397,11 @@ fn test_views() {
     let borrower = Address::generate(&t.env);
     client.borrow(&borrower, &t.bor(0, 100_0000000i128));
 
-    let borrowed = client.get_borrowed_amount(&hub(&t.asset));
-    assert!(borrowed > 0, "borrowed_amount should be positive");
+    assert_eq!(
+        client.get_borrowed_amount(&hub(&t.asset)),
+        100_0000000,
+        "borrowed amount should round-trip at the initial unit index"
+    );
 
     let util_after = client.get_utilisation(&hub(&t.asset));
     assert!(
@@ -1268,22 +1409,36 @@ fn test_views() {
         "utilization should be positive after borrow"
     );
 
+    let deposit_rate = client.get_deposit_rate(&hub(&t.asset));
+    let borrow_rate = client.get_borrow_rate(&hub(&t.asset));
     assert!(
-        client.get_deposit_rate(&hub(&t.asset)) >= 0,
-        "deposit rate view should be callable"
+        deposit_rate > 1,
+        "active suppliers should earn a nonzero rate"
     );
     assert!(
-        client.get_borrow_rate(&hub(&t.asset)) >= 0,
-        "borrow rate view should be callable"
+        borrow_rate > deposit_rate,
+        "borrow rate should exceed the supplier rate after reserve retention"
     );
     assert!(
         client.get_revenue(&hub(&t.asset)) >= 0,
         "protocol revenue view should be callable"
     );
     t.advance_time(60);
+    assert_eq!(
+        client.get_delta_time(&hub(&t.asset)),
+        60_000,
+        "delta time should report elapsed milliseconds"
+    );
+}
+
+#[test]
+fn test_upgrade_rejects_unknown_wasm_hash() {
+    let t = TestSetup::new();
+    let missing_hash = BytesN::from_array(&t.env, &[0xA5; 32]);
+
     assert!(
-        client.get_delta_time(&hub(&t.asset)) > 0,
-        "delta_time should be positive"
+        t.client().try_upgrade(&missing_hash).is_err(),
+        "upgrade must invoke the host and reject an unknown Wasm hash"
     );
 }
 
@@ -1510,10 +1665,16 @@ fn test_create_strategy_emits_position_and_transfers_net() {
 fn test_claim_revenue_zero_revenue_early_returns() {
     let t = TestSetup::new();
     let client = t.client();
+    let transfers_before = count_first_topic(&t.env.events().all(), "transfer");
 
     // No supply, no accrual; revenue is zero.
     let claimed = client.claim_revenue(&hub(&t.asset)).actual_amount;
     assert_eq!(claimed, 0, "claim_revenue should return 0 when no revenue");
+    assert_eq!(
+        count_first_topic(&t.env.events().all(), "transfer"),
+        transfers_before,
+        "a zero claim must not invoke a token transfer"
+    );
 }
 
 // update_params fields round-trip through get_sync_data().

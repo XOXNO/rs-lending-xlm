@@ -1,8 +1,10 @@
 //! Router adversarial tests, panic-site coverage, and oracle boundaries.
 
 use controller::constants::{RAY, WAD};
+use soroban_sdk::testutils::{ContractEvents, Events, MockAuth, MockAuthInvoke};
 use soroban_sdk::token;
-use soroban_sdk::Address;
+use soroban_sdk::xdr::{ContractEventBody, ScVal};
+use soroban_sdk::{Address, IntoVal, Val};
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
 use test_harness::{
     apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, hub_asset,
@@ -13,6 +15,38 @@ use crate::helpers::build_swap_steps;
 
 const SWAP_REQUESTED_ETH: i128 = 10_000_000;
 const SWAP_MIN_OUT_USDC: i128 = 30_000_000_000;
+
+fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
+    events
+        .events()
+        .iter()
+        .filter(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            matches!(
+                (body.topics.first(), body.topics.get(1)),
+                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b)))
+                    if a.0.to_utf8_string().as_deref() == Ok(first)
+                        && b.0.to_utf8_string().as_deref() == Ok(second)
+            )
+        })
+        .count()
+}
+
+fn count_zero_transfers(events: &ContractEvents) -> usize {
+    events
+        .events()
+        .iter()
+        .filter(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            let is_transfer = matches!(
+                body.topics.first(),
+                Some(ScVal::Symbol(topic))
+                    if topic.0.to_utf8_string().as_deref() == Ok("transfer")
+            );
+            is_transfer && matches!(&body.data, ScVal::I128(amount) if i128::from(amount) == 0)
+        })
+        .count()
+}
 
 fn install_bad_router(t: &LendingTest, mode: BadMode) -> Address {
     let admin = t.admin.clone();
@@ -242,6 +276,75 @@ fn test_repay_debt_with_collateral_refunds_router_underspend_to_caller() {
         !t.account_exists(account_id),
         "fully repaid and fully withdrawn account should be removed"
     );
+}
+
+#[test]
+fn test_repay_without_excess_skips_zero_value_refund() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+    t.fund_router("ETH", 0.5);
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_000_000);
+    let zero_transfers_before = count_zero_transfers(&t.env.events().all());
+
+    t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps, false);
+
+    assert_eq!(
+        count_zero_transfers(&t.env.events().all()),
+        zero_transfers_before,
+        "an empty refund must not invoke a zero-value token transfer"
+    );
+}
+
+#[test]
+fn test_router_pull_uses_controller_self_authorization() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    let caller = t.get_or_create_user(ALICE);
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.fund_router("ETH", 5.0);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let current = test_harness::hub_asset(t.resolve_asset("USDC"));
+    let replacement = test_harness::hub_asset(t.resolve_asset("ETH"));
+    let amount = 10_000_000_000;
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", amount, 50_000_000);
+    let args: soroban_sdk::Vec<Val> = (
+        caller.clone(),
+        account_id,
+        current.clone(),
+        amount,
+        replacement.clone(),
+        steps.clone(),
+    )
+        .into_val(&t.env);
+    let invoke = MockAuthInvoke {
+        contract: &t.controller,
+        fn_name: "swap_collateral",
+        args,
+        sub_invokes: &[],
+    };
+    let auths = [MockAuth {
+        address: &caller,
+        invoke: &invoke,
+    }];
+
+    t.ctrl_client().mock_auths(&auths).swap_collateral(
+        &caller,
+        &account_id,
+        &current,
+        &amount,
+        &replacement,
+        &steps,
+    );
+
+    assert!(t.supply_balance(ALICE, "ETH") > 4.9);
 }
 // BadMode::OutputShortfall -- router pulls token_in but transfers zero
 // token_out. The controller's positive output-delta check rejects the swap
@@ -499,6 +602,12 @@ fn test_multiply_with_collateral_token_initial_payment() {
         &steps,
         &Some((hub_asset(usdc.clone()), 500_0000000i128)), // 500 USDC initial payment
         &None,
+    );
+
+    assert_eq!(
+        count_topic(&t.env.events().all(), "strategy", "initial_payment"),
+        1,
+        "multiply with an initial payment must emit its strategy event"
     );
 
     // Total collateral must equal initial payment (500) plus the swapped

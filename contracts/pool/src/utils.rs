@@ -8,8 +8,7 @@ use common::constants::{
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw, PoolKey};
-use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, IntoVal, Symbol, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::cache::Cache;
 use crate::interest;
@@ -117,29 +116,6 @@ pub(crate) fn apply_liquidation_fee(
     gross_amount
         .checked_sub(protocol_fee)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
-}
-
-/// Pre-authorizes a single self-invoked `transfer_from` on `asset` for the next
-/// sub-call (used to pull flash-loan repayments).
-pub(crate) fn authorize_token_transfer_from(
-    env: &Env,
-    asset: &Address,
-    from: &Address,
-    to: &Address,
-    amount: i128,
-) {
-    let pool_addr = env.current_contract_address();
-    let token_transfer_from = InvokerContractAuthEntry::Contract(SubContractInvocation {
-        context: ContractContext {
-            contract: asset.clone(),
-            fn_name: Symbol::new(env, "transfer_from"),
-            args: (pool_addr, from.clone(), to.clone(), amount).into_val(env),
-        },
-        sub_invocations: Vec::new(env),
-    });
-    let mut auth_entries: Vec<InvokerContractAuthEntry> = Vec::new(env);
-    auth_entries.push_back(token_transfer_from);
-    env.authorize_as_current_contract(auth_entries);
 }
 
 #[cfg(test)]

@@ -1,9 +1,52 @@
 use controller::types::{ControllerKey, MarketOracleConfig, OracleReadMode, OracleSourceConfig};
 use soroban_sdk::vec;
-use test_harness::{assert_contract_error, errors, hub_asset, usd, usd_cents, LendingTest, ALICE};
+use test_harness::{
+    assert_contract_error, errors, hub_asset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
+};
 
 fn setup() -> LendingTest {
     LendingTest::new().dual_source_two_asset()
+}
+
+#[test]
+fn configure_accepts_minimum_resolution_equal_to_max_stale() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let usdc = t.resolve_asset("USDC");
+    t.mock_reflector_client().set_resolution(&60);
+    let mut cfg = test_harness::reflector_single_spot_config(
+        &t.mock_reflector,
+        &usdc,
+        usd(1),
+        test_harness::DEFAULT_TOLERANCE.tolerance_bps,
+    );
+    cfg.max_price_stale_seconds = 60;
+
+    t.configure_market_oracle(&usdc, &cfg);
+
+    let stored: MarketOracleConfig = t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .get(&ControllerKey::AssetOracle(usdc))
+            .expect("configured oracle")
+    });
+    assert_eq!(stored.max_price_stale_seconds, 60);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #217)")]
+fn configure_rejects_nonpositive_live_reflector_price() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let usdc = t.resolve_asset("USDC");
+    t.mock_reflector_client().set_price(&usdc, &0);
+    let cfg = test_harness::reflector_single_spot_config(
+        &t.mock_reflector,
+        &usdc,
+        usd(1),
+        test_harness::DEFAULT_TOLERANCE.tolerance_bps,
+    );
+
+    t.configure_market_oracle(&usdc, &cfg);
 }
 
 // `prices()` returns an empty Vec — drives `history.is_empty()` branch.
@@ -31,6 +74,19 @@ fn test_insufficient_twap_history_blocks_strict_borrow() {
     t.supply(ALICE, "USDC", 100_000.0);
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::TWAP_INSUFFICIENT_OBSERVATIONS);
+}
+
+#[test]
+fn test_exact_minimum_twap_history_is_accepted() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &6);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    assert!(t.health_factor(ALICE) > 1.0);
 }
 
 // Round-trip the `set_price` / `set_safe_price` plumbing so the
