@@ -28,7 +28,7 @@ fn fresh_governance(env: &Env) -> Address {
 
 // Delegates cannot hold both EXECUTOR and CANCELLER.
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #41)")]
 fn grant_role_enforces_executor_canceller_separation() {
     let env = Env::default();
     let id = fresh_governance(&env);
@@ -88,7 +88,7 @@ fn grant_role_allows_owner_to_hold_executor_and_canceller() {
 
 // Revoke requires the account to hold the role.
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #41)")]
 fn revoke_role_rejects_unheld() {
     let env = Env::default();
     let id = fresh_governance(&env);

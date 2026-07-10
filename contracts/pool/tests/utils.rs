@@ -105,7 +105,7 @@ fn test_require_utilization_below_max_early_returns_when_max_util_ge_one() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #")]
+#[should_panic(expected = "Error(Contract, #127)")]
 fn test_require_utilization_below_max_panics_when_above() {
     let t = TestSetup::new();
     t.as_contract(|| {
@@ -124,7 +124,7 @@ fn test_require_solvent_withdraw_state_happy() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #")]
+#[should_panic(expected = "Error(Contract, #123)")]
 fn test_require_solvent_withdraw_state_panics_when_insolvent() {
     let t = TestSetup::new();
     t.as_contract(|| {
@@ -158,7 +158,7 @@ fn test_apply_liquidation_fee_accrues_to_revenue_and_reduces_net() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #")]
+#[should_panic(expected = "Error(Contract, #115)")]
 fn test_apply_liquidation_fee_rejects_fee_greater_than_gross() {
     let t = TestSetup::new();
     t.as_contract(|| {

@@ -1864,8 +1864,11 @@ fn test_bulk_get_indexes_unknown_asset_panics() {
     let t = TestSetup::new();
     let unknown = Address::generate(&t.env);
     let assets = soroban_sdk::vec![&t.env, hub(&unknown)];
-    let result = t.client().try_get_bulk_indexes(&assets);
-    assert!(result.is_err(), "unknown asset must fail the bulk read");
+    let result = flatten_contract_result(t.client().try_get_bulk_indexes(&assets));
+    assert_contract_error(
+        result,
+        common::errors::GenericError::PoolNotInitialized as u32,
+    );
 }
 
 // Bulk supply across two markets returns input-ordered mutations and matches

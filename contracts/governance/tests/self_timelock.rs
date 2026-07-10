@@ -117,7 +117,7 @@ fn propose_grant_governance_role_rejects_unknown_role() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #2000)")]
 fn non_proposer_cannot_propose_governance_upgrade() {
     let env = Env::default();
     env.mock_all_auths();

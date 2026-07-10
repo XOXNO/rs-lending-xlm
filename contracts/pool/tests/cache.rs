@@ -63,7 +63,7 @@ impl TestSetup {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #")]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn test_load_panics_when_state_is_missing() {
     let t = TestSetup::new();
 
@@ -221,12 +221,14 @@ fn test_burn_claimable_revenue_zero_revenue_returns_zero() {
 fn test_burn_claimable_revenue_capped_by_reserves() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        let mut cache = cache_with(&t.env, &t.params, 100 * RAY, 0, 10_000_000, RAY, RAY);
+        let mut cache = cache_with(&t.env, &t.params, 100 * RAY, 0, 0, RAY, RAY);
+        cache.cash = 10_000_000;
         cache.revenue = Ray::from(50 * RAY);
-        let before = cache.revenue;
-        let _amt = cache.burn_claimable_revenue();
-        // Reserve-cap path reduces scaled revenue and supplied totals.
-        assert!(cache.revenue <= before);
+        let amount = cache.burn_claimable_revenue();
+
+        assert_eq!(amount, 10_000_000);
+        assert_eq!(cache.revenue, Ray::from(49 * RAY));
+        assert_eq!(cache.supplied, Ray::from(99 * RAY));
     });
 }
 
@@ -234,10 +236,14 @@ fn test_burn_claimable_revenue_capped_by_reserves() {
 fn test_burn_claimable_revenue_full_when_revenue_smaller_than_reserves() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        let mut cache = cache_with(&t.env, &t.params, 100 * RAY, 0, 100_000_000, RAY, RAY);
+        let mut cache = cache_with(&t.env, &t.params, 100 * RAY, 0, 0, RAY, RAY);
+        cache.cash = 100_000_000;
         cache.revenue = Ray::from(5 * RAY);
-        let _amt = cache.burn_claimable_revenue();
-        // Burn path reduces revenue and supplied totals.
+        let amount = cache.burn_claimable_revenue();
+
+        assert_eq!(amount, 50_000_000);
+        assert_eq!(cache.revenue, Ray::ZERO);
+        assert_eq!(cache.supplied, Ray::from(95 * RAY));
     });
 }
 

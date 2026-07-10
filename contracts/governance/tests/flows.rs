@@ -422,9 +422,6 @@ fn entrypoint_renews_governance_instance_ttl() {
     );
 }
 
-// ===== coverage: op-variant resolution + self-op execution =====
-
-// propose_resolves_all_controller_and_self_variants  (+56)  contracts/governance/src/op.rs:95-104,161-166,191-200,207-212,219-224,274-285,295-300
 #[test]
 fn propose_resolves_all_controller_and_self_variants() {
     use crate::op::{RemoveAssetFromSpokeArgs, TransferOwnershipArgs};
@@ -440,7 +437,7 @@ fn propose_resolves_all_controller_and_self_variants() {
         BytesN::<32>::from_array(&env, &[n; 32])
     };
 
-    // op.rs:95-104 TransferGovOwnership (self target, Sensitive)
+    // Self-targeted, sensitive operation.
     gov.propose(
         &admin,
         &AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
@@ -449,9 +446,7 @@ fn propose_resolves_all_controller_and_self_variants() {
         }),
         &salt(),
     );
-    // op.rs:161-166 RemoveSpoke
     gov.propose(&admin, &AdminOperation::RemoveSpoke(2), &salt());
-    // op.rs:191-200 RemoveAssetFromSpoke
     gov.propose(
         &admin,
         &AdminOperation::RemoveAssetFromSpoke(RemoveAssetFromSpokeArgs {
@@ -463,25 +458,20 @@ fn propose_resolves_all_controller_and_self_variants() {
         }),
         &salt(),
     );
-    // op.rs:207-212 RevokeToken
     gov.propose(&admin, &AdminOperation::RevokeToken(asset.clone()), &salt());
-    // op.rs:219-224 RevokeBlendPool
     gov.propose(
         &admin,
         &AdminOperation::RevokeBlendPool(Address::generate(&env)),
         &salt(),
     );
-    // op.rs:280-285 SetPositionManager
     gov.propose(
         &admin,
         &AdminOperation::SetPositionManager(Address::generate(&env), true),
         &salt(),
     );
-    // op.rs:295-300 MigrateController
     gov.propose(&admin, &AdminOperation::MigrateController(3), &salt());
 }
 
-// execute_self_transfer_then_accept_migrates_owner_and_roles  (+58)  contracts/governance/src/op.rs:390-392; contracts/governance/src/access.rs:34-57,59-79,90-102,194-200
 #[test]
 fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
     use crate::access::{EXECUTOR_ROLE, ORACLE_ROLE};
@@ -524,7 +514,6 @@ fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
     assert!(!gov.has_role(&admin, &Symbol::new(&env, ORACLE_ROLE)));
 }
 
-// execute_immediate_self_op_applies_inline  (+2)  contracts/governance/src/timelock.rs:402-404
 #[test]
 fn execute_immediate_self_op_applies_inline() {
     use crate::op::RoleArgs;
