@@ -69,3 +69,24 @@ fn common_math_reachability(e: Env, amount: i128) {
     let out = Ray::from(amount).mul(&e, Ray::ONE);
     cvlr_satisfy!(out.raw() > 0);
 }
+
+#[rule]
+fn bps_apply_to_wad_floor_le_value(e: Env, value: i128, bps: i128) {
+    cvlr_assume!((0..=1_000_000 * WAD).contains(&value));
+    cvlr_assume!((0..=BPS).contains(&bps));
+
+    let out = Bps::from(bps).apply_to_wad_floor(&e, Wad::from(value));
+    cvlr_assert!(out.raw() >= 0);
+    cvlr_assert!(out.raw() <= value);
+}
+
+#[rule]
+fn bps_apply_to_wad_floor_monotone(e: Env, v1: i128, v2: i128, bps: i128) {
+    cvlr_assume!((0..=1_000_000 * WAD).contains(&v1));
+    cvlr_assume!((v1..=1_000_000 * WAD).contains(&v2));
+    cvlr_assume!((0..=BPS).contains(&bps));
+
+    let w1 = Bps::from(bps).apply_to_wad_floor(&e, Wad::from(v1));
+    let w2 = Bps::from(bps).apply_to_wad_floor(&e, Wad::from(v2));
+    cvlr_assert!(w2.raw() >= w1.raw());
+}
