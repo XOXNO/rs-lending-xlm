@@ -95,6 +95,17 @@ fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
     (cache, scaled, action.amount)
 }
 
+fn position_result(
+    cache: &Cache,
+    scaled: Ray,
+    actual_amount: i128,
+) -> (PoolPositionMutation, MarketStateSnapshot) {
+    (
+        cache.position_mutation(scaled, actual_amount),
+        cache.market_snapshot(),
+    )
+}
+
 /// Accrues borrow into caller and market debt.
 fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
@@ -125,10 +136,7 @@ fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> (PoolPositionMutation, Mark
     cache.credit_cash(amount);
 
     cache.save();
-    (
-        cache.position_mutation(scaled, amount),
-        cache.market_snapshot(),
-    )
+    position_result(&cache, scaled, amount)
 }
 
 /// Accrues one borrow leg into market debt and transfers the proceeds.
@@ -145,10 +153,7 @@ fn borrow_one(
     // CEI: snapshot + commit before external call.
     cache.save();
     cache.transfer_out(receiver, amount);
-    (
-        cache.position_mutation(scaled, amount),
-        cache.market_snapshot(),
-    )
+    position_result(&cache, scaled, amount)
 }
 
 /// Burns one withdraw leg's supply shares (applying any liquidation fee) and
@@ -189,10 +194,7 @@ fn withdraw_one(
     // CEI: snapshot + commit before external call.
     cache.save();
     cache.transfer_out(receiver, net_transfer);
-    (
-        cache.position_mutation(scaled, gross_amount),
-        cache.market_snapshot(),
-    )
+    position_result(&cache, scaled, gross_amount)
 }
 
 /// Burns one repay leg's debt shares and refunds any overpayment to `payer`.
@@ -215,10 +217,7 @@ fn repay_one(
     // CEI: snapshot + commit before external call.
     cache.save();
     cache.transfer_out(payer, overpayment);
-    (
-        cache.position_mutation(scaled, net_repay),
-        cache.market_snapshot(),
-    )
+    position_result(&cache, scaled, net_repay)
 }
 
 /// Seize: bad borrow debt reduces the supply index, subject to floor.
@@ -587,9 +586,6 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// * Bridges an external callback: repayment is enforced solely by loaned-token
     ///   balance and allowance checks that bracket the callback and `transfer_from`,
     ///   so the asset must be a well-behaved SAC.
-    /// Flash loan safety: balance and allowance checks bracket callback and transfer_from.
-    /// State and revenue are saved after callback repayment passes balance checks.
-    /// Repayment is checked against the loaned token balance.
     #[only_owner]
     fn flash_loan(
         env: Env,
@@ -699,8 +695,6 @@ impl LiquidityPoolInterface for LiquidityPool {
             amount,
             hub_asset,
         } = action;
-        let asset = hub_asset.asset.clone();
-        let caller = receiver.clone();
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 
@@ -720,11 +714,11 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         // CEI: snapshot + commit before external call.
         cache.save();
-        cache.transfer_out(&caller, amount_to_send);
+        cache.transfer_out(&receiver, amount_to_send);
         events::publish_strategy_fee(
             &env,
             hub_asset.hub_id,
-            asset.clone(),
+            hub_asset.asset,
             amount,
             fee,
             amount_to_send,
@@ -828,7 +822,6 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// * A market-params update carrying the new rate model.
     #[only_owner]
     fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel) {
-        let asset = hub_asset.asset.clone();
         // Accrue at the existing rate model before replacing it.
         let cache = load_synced_cache(&env, &hub_asset);
         cache.save();
@@ -836,7 +829,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         model.verify(&env);
         apply_rate_model(&env, &hub_asset, &model);
         let params = views::load_params(&env, &hub_asset);
-        events::publish_market_params(&env, hub_asset.hub_id, asset, params);
+        events::publish_market_params(&env, hub_asset.hub_id, hub_asset.asset, params);
     }
 
     /// Replaces the pool contract Wasm with the code at `new_wasm_hash`.

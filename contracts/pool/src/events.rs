@@ -1,7 +1,7 @@
 //! Pool event definitions and `publish_*` helpers. Market state and params
 //! updates are emitted as batches (single-element batches for one market) so
-//! indexers consume one topic per flow; empty batches and zero-fee strategy
-//! events are suppressed.
+//! indexers consume one topic per flow; empty state batches and zero-fee
+//! strategy events are suppressed.
 
 use common::types::{MarketParamsRaw, MarketStateSnapshot};
 use soroban_sdk::{contractevent, contracttype, Address, Env, Vec};
@@ -93,15 +93,6 @@ pub(crate) fn publish_market_state(env: &Env, snapshot: MarketStateSnapshot) {
     publish_market_state_batch(env, snapshots);
 }
 
-/// Emits a batch of market-params updates; an empty batch is suppressed.
-pub(crate) fn publish_market_params_batch(env: &Env, updates: Vec<PoolMarketParamsEvent>) {
-    if updates.is_empty() {
-        return;
-    }
-
-    PoolMarketParamsBatchEvent { updates }.publish(env);
-}
-
 /// Emits a single market-params update as a one-element batch.
 pub(crate) fn publish_market_params(
     env: &Env,
@@ -115,7 +106,7 @@ pub(crate) fn publish_market_params(
         asset,
         params,
     });
-    publish_market_params_batch(env, updates);
+    PoolMarketParamsBatchEvent { updates }.publish(env);
 }
 
 /// Emits a strategy-fee event; zero-fee strategy borrows are suppressed.

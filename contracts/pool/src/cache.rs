@@ -60,7 +60,7 @@ impl Cache {
         let market_params = MarketParams::from(&params);
         let timestamp = utils::now_ms(env);
 
-        Cache {
+        Self {
             env: env.clone(),
             supplied: state.supplied,
             borrowed: state.borrowed,
@@ -107,17 +107,16 @@ impl Cache {
 
     /// Returns true when available reserves are at least `amount`.
     pub fn has_reserves(&self, amount: i128) -> bool {
-        let reserves = self.live_reserves();
-        reserves >= amount
+        self.live_reserves() >= amount
     }
 
-    /// Panics with InsufficientLiquidity if available reserves < amount.
+    /// Panics with `InsufficientLiquidity` if available reserves < amount.
     pub fn require_reserves(&self, amount: i128) {
         assert_with_error!(
             self.env,
             self.has_reserves(amount),
             common::errors::CollateralError::InsufficientLiquidity
-        )
+        );
     }
 
     /// Available reserves are tracked `cash`; direct token donations do not

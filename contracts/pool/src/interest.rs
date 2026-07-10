@@ -22,7 +22,7 @@ pub fn global_sync(env: &Env, cache: &mut Cache) {
 
     let mut remaining = total_delta_ms;
     while remaining > 0 {
-        let chunk = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
+        let chunk = remaining.min(MAX_COMPOUND_DELTA_MS);
         global_sync_step(env, cache, chunk);
         remaining = remaining.saturating_sub(chunk);
     }
@@ -62,14 +62,11 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
 
 /// Adds a RAY-denominated fee as scaled protocol revenue.
 pub fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
-    if fee == Ray::ZERO {
-        return;
-    }
-    if cache.supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW {
-        return;
-    }
-    // Fees on an empty pool are dropped; there is no supply base to credit.
-    if cache.supplied == Ray::ZERO {
+    // Zero fees, fees at/below the index floor, or fees without suppliers have no supply base.
+    if fee == Ray::ZERO
+        || cache.supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW
+        || cache.supplied == Ray::ZERO
+    {
         return;
     }
     // dimensional: Ray<Token(asset)> / Ray<Index(asset, supply)> -> Ray<Share(asset, supply)>.
@@ -88,24 +85,14 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
         return;
     }
 
-    let capped = if bad_debt > total_supplied_value {
-        total_supplied_value
-    } else {
-        bad_debt
-    };
+    let capped = bad_debt.min(total_supplied_value);
     let remaining = total_supplied_value - capped;
 
     // dimensional: remaining / total_supplied_value is Ray<1>, scaling Ray<Index(asset, supply)>.
     let reduction_factor = remaining.div(&cache.env, total_supplied_value);
     let new_supply_index = cache.supply_index.mul(&cache.env, reduction_factor);
 
-    let floor_index = Ray::from(SUPPLY_INDEX_FLOOR_RAW);
-
-    cache.supply_index = if new_supply_index < floor_index {
-        floor_index
-    } else {
-        new_supply_index
-    };
+    cache.supply_index = new_supply_index.max(Ray::from(SUPPLY_INDEX_FLOOR_RAW));
 }
 
 #[cfg(test)]
