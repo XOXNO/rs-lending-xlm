@@ -14,7 +14,7 @@ pub(crate) use positions::{
     execute_withdraw_all, net_settle_collateral_against_debt, repay_debt_from_controller,
     withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
 };
-pub(crate) use swap::swap_tokens;
+pub(crate) use swap::{swap_tokens, swap_tokens_or_passthrough};
 
 use common::types::Account;
 use soroban_sdk::{Address, Env, Vec};

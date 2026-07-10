@@ -79,7 +79,6 @@ pub fn borrowed_amount(env: &Env, hub_asset: &HubAssetKey) -> i128 {
 /// Milliseconds elapsed since last accrual. Does not trigger interest accrual.
 pub fn delta_time(env: &Env, hub_asset: &HubAssetKey) -> u64 {
     let cache = Cache::load(env, hub_asset);
-
     cache.current_timestamp.saturating_sub(cache.last_timestamp)
 }
 

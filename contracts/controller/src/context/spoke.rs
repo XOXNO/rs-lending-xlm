@@ -2,10 +2,10 @@
 
 use common::errors::{GenericError, SpokeError};
 use common::types::{HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
-use soroban_sdk::{assert_with_error, panic_with_error, Env};
+use soroban_sdk::{assert_with_error, panic_with_error};
 
 use crate::context::Cache;
-use crate::spoke::{ensure_spoke_not_deprecated, SpokeUsageContext};
+use crate::spoke::SpokeUsageContext;
 
 impl Cache {
     /// Initializes account spoke context once per transaction. Every account
@@ -72,23 +72,17 @@ impl Cache {
     }
 
     /// Returns the spoke config, reverting `SpokeDeprecated` when the spoke is deprecated.
-    pub fn active_spoke(&mut self, env: &Env, spoke_id: u32) -> SpokeConfig {
+    pub fn active_spoke(&mut self, spoke_id: u32) -> SpokeConfig {
         let spoke = self.spoke_config(spoke_id);
-        ensure_spoke_not_deprecated(env, &Some(spoke.clone()));
+        assert_with_error!(&self.env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
         spoke
     }
 
     /// Returns buffered per-spoke usage for `hub_asset`, lazily loaded from storage.
-    pub fn cached_spoke_usage(
-        &mut self,
-        spoke_id: u32,
-        hub_asset: &HubAssetKey,
-    ) -> Option<SpokeUsageRaw> {
+    pub fn cached_spoke_usage(&mut self, spoke_id: u32, hub_asset: &HubAssetKey) -> SpokeUsageRaw {
         let env = self.env.clone();
-        Some(
-            self.require_spoke_usage_context(spoke_id)
-                .spoke_usage(&env, hub_asset),
-        )
+        self.require_spoke_usage_context(spoke_id)
+            .spoke_usage(&env, hub_asset)
     }
 
     /// Persists any buffered spoke-usage rows to storage.

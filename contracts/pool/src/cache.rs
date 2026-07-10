@@ -60,7 +60,7 @@ impl Cache {
         let market_params = MarketParams::from(&params);
         let timestamp = utils::now_ms(env);
 
-        Cache {
+        Self {
             env: env.clone(),
             supplied: state.supplied,
             borrowed: state.borrowed,
@@ -105,25 +105,13 @@ impl Cache {
         common::rates::utilization(&self.env, total_borrowed, total_supplied)
     }
 
-    /// Returns true when available reserves are at least `amount`.
-    pub fn has_reserves(&self, amount: i128) -> bool {
-        let reserves = self.live_reserves();
-        reserves >= amount
-    }
-
-    /// Panics with InsufficientLiquidity if available reserves < amount.
+    /// Panics with `InsufficientLiquidity` if tracked cash is below `amount`.
     pub fn require_reserves(&self, amount: i128) {
         assert_with_error!(
             self.env,
-            self.has_reserves(amount),
+            self.cash >= amount,
             common::errors::CollateralError::InsufficientLiquidity
-        )
-    }
-
-    /// Available reserves are tracked `cash`; direct token donations do not
-    /// increase borrowable liquidity, and no token balance call is needed.
-    pub fn live_reserves(&self) -> i128 {
-        self.cash
+        );
     }
 
     /// Adds Token(asset) to tracked cash, panicking on overflow.
@@ -217,13 +205,12 @@ impl Cache {
         }
     }
 
-    /// Burns claimable revenue up to live reserves and returns the token amount.
+    /// Burns claimable revenue up to tracked cash and returns the token amount.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
-        let reserves = self.live_reserves();
         let treasury_actual = self.unscale_supply(self.revenue);
-        let amount = reserves.min(treasury_actual);
+        let amount = self.cash.min(treasury_actual);
         if amount <= 0 {
-            return amount.max(0);
+            return 0;
         }
         let scaled_to_burn = if amount >= treasury_actual {
             self.revenue

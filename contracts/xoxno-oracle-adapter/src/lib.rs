@@ -66,10 +66,7 @@ impl XoxnoOracle {
         threshold: u32,
         resolution: u32,
     ) -> Result<(), Error> {
-        if threshold == 0 || threshold > signers.len() {
-            return Err(Error::InvalidThreshold);
-        }
-        if storage::has_duplicate(&signers) {
+        if threshold == 0 || threshold > signers.len() || storage::has_duplicate(&signers) {
             return Err(Error::InvalidThreshold);
         }
 

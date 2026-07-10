@@ -2,7 +2,7 @@
 
 use common::math::fp::Ray;
 use common::rates::{scaled_to_original, utilization};
-use common::types::{Account, DebtPositionRaw, HubAssetKey, SpokeUsageRaw};
+use common::types::{Account, DebtPositionRaw, HubAssetKey};
 use common::validation::cap_is_enabled;
 use soroban_sdk::Env;
 
@@ -113,12 +113,7 @@ fn spoke_borrow_cap_scaled(
     if !cap_is_enabled(spoke_cfg.borrow_cap) {
         return None;
     }
-    let usage = cache
-        .cached_spoke_usage(account.spoke_id, hub_asset)
-        .unwrap_or(SpokeUsageRaw {
-            supplied_scaled_ray: 0,
-            borrowed_scaled_ray: 0,
-        });
+    let usage = cache.cached_spoke_usage(account.spoke_id, hub_asset);
     let cap_scaled =
         Ray::from_asset(spoke_cfg.borrow_cap, market.decimals).div_floor(env, market.borrow_index);
     let used_scaled = Ray::from(usage.borrowed_scaled_ray);

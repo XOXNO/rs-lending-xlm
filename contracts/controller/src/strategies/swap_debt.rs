@@ -1,16 +1,17 @@
 //! Swaps debt between hub markets.
 
-use common::errors::{CollateralError, GenericError};
-use common::types::{Account, DebtPosition, HubAssetKey, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
+use common::errors::GenericError;
+use common::types::{HubAssetKey, StrategySwap};
+use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::account;
 use crate::context::Cache;
 use crate::events;
+use crate::positions::get_debt_position_or_panic;
 use crate::strategies::{
     borrow_for_strategy, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
-    swap_tokens, StrategyRepay,
+    swap_tokens_or_passthrough, StrategyRepay,
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
@@ -80,7 +81,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
 
     validation::require_positive_amount(env, new_debt_amount);
 
-    let existing_pos = load_existing_debt_position(env, &account, existing_debt);
+    let existing_pos = get_debt_position_or_panic(env, &account, existing_debt);
 
     let extra_assets = soroban_sdk::vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
@@ -92,21 +93,14 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
 
     // Same underlying token (cross-hub refinance) needs no swap; otherwise route
     // the borrowed token into the existing debt token.
-    let repay_amount = if new_debt.asset == existing_debt.asset {
-        // Same-asset refinance must not carry a route; a payload here would be silently ignored.
-        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
-        amount_received
-    } else {
-        // D{new_debt_token.decimals}{Token(new_debt_token)} -> Token(existing_debt_token).
-        swap_tokens(
-            env,
-            caller,
-            &new_debt.asset,
-            amount_received,
-            &existing_debt.asset,
-            swap,
-        )
-    };
+    let repay_amount = swap_tokens_or_passthrough(
+        env,
+        caller,
+        &new_debt.asset,
+        amount_received,
+        &existing_debt.asset,
+        swap,
+    );
 
     // D{existing_debt_token.decimals}{Token(existing_debt_token)} repays the existing debt position.
     repay_debt_from_controller(
@@ -123,17 +117,4 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     );
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
-}
-
-/// Loads the existing debt position, trapping if absent.
-fn load_existing_debt_position(
-    env: &Env,
-    account: &Account,
-    existing_debt: &HubAssetKey,
-) -> DebtPosition {
-    let raw = account
-        .borrow_positions
-        .get(existing_debt.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound));
-    DebtPosition::from(&raw)
 }

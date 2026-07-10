@@ -45,7 +45,7 @@ pub(crate) struct NormalizedRepaymentPlan {
 impl NormalizedRepaymentPlan {
     /// Panics unless the repaid legs sum to the recorded repay total.
     fn validate(&self, env: &Env) {
-        if sum_repaid_usd(env, &self.repaid) != self.repay_usd {
+        if sum_repaid_usd(&self.repaid) != self.repay_usd {
             panic_with_error!(env, GenericError::InternalError);
         }
     }
@@ -127,8 +127,7 @@ pub(crate) fn calculate_repayment_amounts(
 
     let merged = utils::aggregate_positive_payments(env, raw_payments);
 
-    for i in 0..merged.len() {
-        let (hub_asset, amount) = validation::expect_invariant(env, merged.get(i));
+    for (hub_asset, amount) in merged {
         let feed = cache.cached_price_for(account.spoke_id, &hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
@@ -185,8 +184,8 @@ pub(crate) fn normalize_repayment_plan(
     let (total_debt_payment_usd, repaid_tokens) =
         calculate_repayment_amounts(env, raw_payments, account, &mut refunds, cache);
 
-    let (max_debt_to_repay_usd, bonus) =
-        calculate_liquidation_amounts(env, snap, bonus_bounds, total_debt_payment_usd, curve);
+    let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
+    let max_debt_to_repay_usd = total_debt_payment_usd.min(ideal_repayment_usd);
 
     let mut final_repayment_tokens = repaid_tokens;
     if total_debt_payment_usd > max_debt_to_repay_usd {
@@ -195,7 +194,7 @@ pub(crate) fn normalize_repayment_plan(
     }
 
     let repayment = NormalizedRepaymentPlan {
-        repay_usd: sum_repaid_usd(env, &final_repayment_tokens),
+        repay_usd: sum_repaid_usd(&final_repayment_tokens),
         repaid: final_repayment_tokens,
         refunds,
         bonus,
@@ -219,28 +218,12 @@ fn debt_close_amount(
 }
 
 /// Sums the USD value across the repaid legs.
-pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
+pub(crate) fn sum_repaid_usd(repaid_tokens: &Vec<RepayEntry>) -> Wad {
     let mut total = Wad::ZERO;
-    for i in 0..repaid_tokens.len() {
-        let entry = validation::expect_invariant(env, repaid_tokens.get(i));
+    for entry in repaid_tokens.iter() {
         total += Wad::from(entry.usd_wad);
     }
     total
-}
-
-/// Caps the requested repayment to the curve's ideal amount and returns the bonus.
-pub(crate) fn calculate_liquidation_amounts(
-    env: &Env,
-    snap: &LiquidationSnapshot,
-    bonus_bounds: BonusBounds,
-    total_payment_usd: Wad,
-    curve: &LiquidationCurve,
-) -> (Wad, Bps) {
-    let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
-
-    let final_repayment_usd = total_payment_usd.min(ideal_repayment_usd);
-
-    (final_repayment_usd, bonus)
 }
 
 /// Distributes the bonused seizure across collateral, applying per-asset caps
@@ -647,8 +630,7 @@ pub(crate) fn get_account_bonus_params(
     }
 
     let mut weighted_bonus_sum: i128 = 0;
-    for i in 0..asset_values.len() {
-        let (value_raw, bonus_bps) = validation::expect_invariant(env, asset_values.get(i));
+    for (value_raw, bonus_bps) in asset_values.iter() {
         let weight = Wad::from(value_raw).div(env, total_collateral);
         weighted_bonus_sum = weighted_bonus_sum
             .checked_add(weight.mul(env, Wad::from(bonus_bps)).raw())

@@ -40,7 +40,27 @@ fn validate_oracle_override(env: &Env, oracle_override: &common::types::MarketOr
     }
 }
 
-pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Vec<Val>, DelayTier) {
+type ResolvedOperation = (Address, Symbol, Vec<Val>, DelayTier);
+
+fn controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
+    (
+        storage::get_controller(env),
+        Symbol::new(env, function),
+        args,
+        DelayTier::Standard,
+    )
+}
+
+fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
+    (
+        storage::get_controller(env),
+        Symbol::new(env, function),
+        args,
+        DelayTier::Sensitive,
+    )
+}
+
+pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
     let gov_addr = env.current_contract_address();
 
     match op {
@@ -103,74 +123,51 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
         // --- Controller target ---
         AdminOperation::SetAggregator(addr) => {
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "set_aggregator"),
-                vec![env, addr.clone().into_val(env)],
-                DelayTier::Standard,
-            )
+            controller_operation(env, "set_aggregator", vec![env, addr.clone().into_val(env)])
         }
-        AdminOperation::SetAccumulator(addr) => (
-            storage::get_controller(env),
-            Symbol::new(env, "set_accumulator"),
+        AdminOperation::SetAccumulator(addr) => controller_operation(
+            env,
+            "set_accumulator",
             vec![env, addr.clone().into_val(env)],
-            DelayTier::Standard,
         ),
         AdminOperation::SetLiquidityPoolTemplate(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "set_liquidity_pool_template"),
+            controller_operation(
+                env,
+                "set_liquidity_pool_template",
                 vec![env, hash.clone().into_val(env)],
-                DelayTier::Standard,
             )
         }
         AdminOperation::SetPositionLimits(limits) => {
             validate::asset::validate_position_limits(env, limits);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "set_position_limits"),
+            controller_operation(
+                env,
+                "set_position_limits",
                 vec![env, limits.clone().into_val(env)],
-                DelayTier::Standard,
             )
         }
         AdminOperation::SetMinBorrowCollateralUsd(floor_wad) => {
             assert_with_error!(env, *floor_wad >= 0, CollateralError::InvalidBorrowParams);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "set_min_borrow_collateral_usd"),
+            controller_operation(
+                env,
+                "set_min_borrow_collateral_usd",
                 vec![env, floor_wad.into_val(env)],
-                DelayTier::Standard,
             )
         }
-        AdminOperation::CreateHub => (
-            storage::get_controller(env),
-            Symbol::new(env, "create_hub"),
-            vec![env],
-            DelayTier::Standard,
-        ),
-        AdminOperation::AddSpoke => (
-            storage::get_controller(env),
-            Symbol::new(env, "add_spoke"),
-            vec![env],
-            DelayTier::Standard,
-        ),
-        AdminOperation::RemoveSpoke(id) => (
-            storage::get_controller(env),
-            Symbol::new(env, "remove_spoke"),
-            vec![env, id.into_val(env)],
-            DelayTier::Standard,
-        ),
+        AdminOperation::CreateHub => controller_operation(env, "create_hub", vec![env]),
+        AdminOperation::AddSpoke => controller_operation(env, "add_spoke", vec![env]),
+        AdminOperation::RemoveSpoke(id) => {
+            controller_operation(env, "remove_spoke", vec![env, id.into_val(env)])
+        }
         AdminOperation::AddAssetToSpoke(args) => {
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
             validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
             validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
             validate_oracle_override(env, &args.oracle_override);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "add_asset_to_spoke"),
+            controller_operation(
+                env,
+                "add_asset_to_spoke",
                 vec![env, args.clone().into_val(env)],
-                DelayTier::Standard,
             )
         }
         AdminOperation::EditAssetInSpoke(args) => {
@@ -178,46 +175,36 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
             validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
             validate_oracle_override(env, &args.oracle_override);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "edit_asset_in_spoke"),
+            controller_operation(
+                env,
+                "edit_asset_in_spoke",
                 vec![env, args.clone().into_val(env)],
-                DelayTier::Standard,
             )
         }
-        AdminOperation::RemoveAssetFromSpoke(args) => (
-            storage::get_controller(env),
-            Symbol::new(env, "remove_asset_from_spoke"),
+        AdminOperation::RemoveAssetFromSpoke(args) => controller_operation(
+            env,
+            "remove_asset_from_spoke",
             vec![
                 env,
                 args.hub_asset.clone().into_val(env),
                 args.spoke_id.into_val(env),
             ],
-            DelayTier::Standard,
         ),
-        AdminOperation::ApproveToken(token) => (
-            storage::get_controller(env),
-            Symbol::new(env, "approve_token"),
-            vec![env, token.clone().into_val(env)],
-            DelayTier::Standard,
-        ),
-        AdminOperation::RevokeToken(token) => (
-            storage::get_controller(env),
-            Symbol::new(env, "revoke_token"),
-            vec![env, token.clone().into_val(env)],
-            DelayTier::Standard,
-        ),
-        AdminOperation::ApproveBlendPool(pool) => (
-            storage::get_controller(env),
-            Symbol::new(env, "approve_blend_pool"),
+        AdminOperation::ApproveToken(token) => {
+            controller_operation(env, "approve_token", vec![env, token.clone().into_val(env)])
+        }
+        AdminOperation::RevokeToken(token) => {
+            controller_operation(env, "revoke_token", vec![env, token.clone().into_val(env)])
+        }
+        AdminOperation::ApproveBlendPool(pool) => controller_operation(
+            env,
+            "approve_blend_pool",
             vec![env, pool.clone().into_val(env)],
-            DelayTier::Standard,
         ),
-        AdminOperation::RevokeBlendPool(pool) => (
-            storage::get_controller(env),
-            Symbol::new(env, "revoke_blend_pool"),
+        AdminOperation::RevokeBlendPool(pool) => controller_operation(
+            env,
+            "revoke_blend_pool",
             vec![env, pool.clone().into_val(env)],
-            DelayTier::Standard,
         ),
         AdminOperation::CreateLiquidityPool(args) => {
             let token_decimals =
@@ -228,82 +215,64 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 &args.params,
                 token_decimals,
             );
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "create_liquidity_pool"),
+            controller_operation(
+                env,
+                "create_liquidity_pool",
                 vec![
                     env,
                     args.hub_id.into_val(env),
                     args.asset.clone().into_val(env),
                     args.params.clone().into_val(env),
                 ],
-                DelayTier::Standard,
             )
         }
         AdminOperation::UpgradeLiquidityPoolParams(args) => {
             args.params.verify(env);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "upgrade_liquidity_pool_params"),
+            controller_operation(
+                env,
+                "upgrade_liquidity_pool_params",
                 vec![
                     env,
                     args.hub_asset.clone().into_val(env),
                     args.params.clone().into_val(env),
                 ],
-                DelayTier::Standard,
             )
         }
-        AdminOperation::DeployPool => (
-            storage::get_controller(env),
-            Symbol::new(env, "deploy_pool"),
-            vec![env],
-            DelayTier::Standard,
-        ),
+        AdminOperation::DeployPool => controller_operation(env, "deploy_pool", vec![env]),
         AdminOperation::UpgradePool(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "upgrade_pool"),
+            sensitive_controller_operation(
+                env,
+                "upgrade_pool",
                 vec![env, hash.clone().into_val(env)],
-                DelayTier::Sensitive,
             )
         }
-        AdminOperation::SetPositionManager(manager, is_active) => (
-            storage::get_controller(env),
-            Symbol::new(env, "set_position_manager"),
+        AdminOperation::SetPositionManager(manager, is_active) => controller_operation(
+            env,
+            "set_position_manager",
             vec![env, manager.clone().into_val(env), is_active.into_val(env)],
-            DelayTier::Standard,
         ),
         AdminOperation::UpgradeController(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "upgrade"),
-                vec![env, hash.clone().into_val(env)],
-                DelayTier::Sensitive,
-            )
+            sensitive_controller_operation(env, "upgrade", vec![env, hash.clone().into_val(env)])
         }
-        AdminOperation::MigrateController(version) => (
-            storage::get_controller(env),
-            Symbol::new(env, "migrate"),
-            vec![env, version.into_val(env)],
-            DelayTier::Standard,
-        ),
+        AdminOperation::MigrateController(version) => {
+            controller_operation(env, "migrate", vec![env, version.into_val(env)])
+        }
         AdminOperation::TransferCtrlOwnership(args) => {
             validate::require_contract_address(
                 env,
                 &args.new_owner,
                 GenericError::NotSmartContract,
             );
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "transfer_ownership"),
+            sensitive_controller_operation(
+                env,
+                "transfer_ownership",
                 vec![
                     env,
                     args.new_owner.clone().into_val(env),
                     args.live_until_ledger.into_val(env),
                 ],
-                DelayTier::Sensitive,
             )
         }
         AdminOperation::ConfigureMarketOracle(args) => {
@@ -330,15 +299,14 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
         AdminOperation::EditOracleTolerance(args) => {
             let tolerance =
                 validate::tolerance::validate_and_calculate_tolerances(env, args.tolerance);
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "set_oracle_tolerance"),
+            controller_operation(
+                env,
+                "set_oracle_tolerance",
                 vec![
                     env,
                     args.asset.clone().into_val(env),
                     tolerance.into_val(env),
                 ],
-                DelayTier::Standard,
             )
         }
         AdminOperation::SetSpokeLiquidationCurve(args) => {
@@ -348,9 +316,9 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 args.hf_for_max_bonus_wad,
                 args.liquidation_bonus_factor_bps,
             );
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "set_spoke_liquidation_curve"),
+            controller_operation(
+                env,
+                "set_spoke_liquidation_curve",
                 vec![
                     env,
                     args.spoke_id.into_val(env),
@@ -358,7 +326,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                     args.hf_for_max_bonus_wad.into_val(env),
                     args.liquidation_bonus_factor_bps.into_val(env),
                 ],
-                DelayTier::Standard,
             )
         }
     }
@@ -366,20 +333,16 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
 
 pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
     match op {
-        AdminOperation::UpgradeGov(hash) => {
-            access::apply_upgrade(env, hash);
-        }
-        AdminOperation::UpdateGovDelay(new_delay) => {
-            apply_update_delay(env, *new_delay);
-        }
+        AdminOperation::UpgradeGov(hash) => access::apply_upgrade(env, hash),
+        AdminOperation::UpdateGovDelay(new_delay) => apply_update_delay(env, *new_delay),
         AdminOperation::GrantGovRole(args) => {
-            access::apply_grant_role(env, &args.account, &args.role);
+            access::apply_grant_role(env, &args.account, &args.role)
         }
         AdminOperation::RevokeGovRole(args) => {
-            access::apply_revoke_role(env, &args.account, &args.role);
+            access::apply_revoke_role(env, &args.account, &args.role)
         }
         AdminOperation::TransferGovOwnership(args) => {
-            access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger);
+            access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger)
         }
         // Only self-targeted operations reach `execute_self`.
         _ => panic_with_error!(env, GenericError::InternalError),

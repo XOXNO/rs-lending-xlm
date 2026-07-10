@@ -2,7 +2,7 @@
 
 use common::math::fp::Ray;
 use common::rates::scaled_to_original;
-use common::types::{Account, AssetConfig, HubAssetKey, SpokeUsageRaw};
+use common::types::{Account, AssetConfig, HubAssetKey};
 use common::validation::cap_is_enabled;
 use soroban_sdk::Env;
 
@@ -62,12 +62,7 @@ fn spoke_supply_cap_headroom(
     if !cap_is_enabled(spoke_cfg.supply_cap) {
         return i128::MAX;
     }
-    let usage = cache
-        .cached_spoke_usage(account.spoke_id, hub_asset)
-        .unwrap_or(SpokeUsageRaw {
-            supplied_scaled_ray: 0,
-            borrowed_scaled_ray: 0,
-        });
+    let usage = cache.cached_spoke_usage(account.spoke_id, hub_asset);
     let cap_scaled =
         Ray::from_asset(spoke_cfg.supply_cap, market.decimals).div_floor(env, market.supply_index);
     let used_scaled = Ray::from(usage.supplied_scaled_ray);

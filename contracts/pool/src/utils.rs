@@ -72,12 +72,9 @@ pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestR
 
 /// Rejects post-mutation utilization above the market's max-utilization cap.
 pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
-    if cache.supplied == Ray::ZERO {
-        return;
-    }
     // RAY is the disabled sentinel. Utilization exceeds RAY when
     // `borrowed > supplied`; enabled params are validated below RAY.
-    if cache.params.max_utilization >= Ray::ONE {
+    if cache.supplied == Ray::ZERO || cache.params.max_utilization >= Ray::ONE {
         return;
     }
     // Use index-aware utilization; index drift can push the real ratio above

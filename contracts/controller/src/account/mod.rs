@@ -21,7 +21,7 @@ pub fn create_account(
     cache: &mut Cache,
 ) -> (u64, Account) {
     assert_with_error!(env, spoke_id >= 1, SpokeError::SpokeNotFound);
-    cache.active_spoke(env, spoke_id);
+    cache.active_spoke(spoke_id);
 
     let account_id = storage::increment_account_nonce(env);
     let account = Account {

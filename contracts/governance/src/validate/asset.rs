@@ -21,9 +21,8 @@ pub(crate) fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
 
 pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u32 {
     let token_client = token::Client::new(env, token);
-    let decimals = match token_client.try_decimals() {
-        Ok(Ok(d)) => d,
-        _ => panic_with_error!(env, GenericError::InvalidAsset),
+    let Ok(Ok(decimals)) = token_client.try_decimals() else {
+        panic_with_error!(env, GenericError::InvalidAsset);
     };
     assert_with_error!(
         env,
@@ -34,13 +33,13 @@ pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u
 }
 
 pub(crate) fn validate_position_limits(env: &Env, limits: &PositionLimits) {
-    if limits.max_supply_positions == 0
-        || limits.max_borrow_positions == 0
-        || limits.max_supply_positions > POSITION_LIMIT_MAX
-        || limits.max_borrow_positions > POSITION_LIMIT_MAX
-    {
-        panic_with_error!(env, GenericError::InvalidPositionLimits);
-    }
+    let valid = 1..=POSITION_LIMIT_MAX;
+    assert_with_error!(
+        env,
+        valid.contains(&limits.max_supply_positions)
+            && valid.contains(&limits.max_borrow_positions),
+        GenericError::InvalidPositionLimits
+    );
 }
 
 pub(crate) fn validate_market_creation(
