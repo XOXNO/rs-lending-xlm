@@ -156,7 +156,7 @@ jobs:
           toolchain: '1.95'
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -238,7 +238,7 @@ jobs:
 
       - name: Download stellar-cli
         if: matrix.kind == 'contract'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: stellar-cli-${{ github.run_id }}-${{ github.run_attempt }}
           path: .github/tools
@@ -296,7 +296,7 @@ jobs:
           targets: wasm32v1-none
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -307,7 +307,7 @@ jobs:
             ${{ runner.os }}-proptest-
 
       - name: Download stellar-cli
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: stellar-cli-${{ github.run_id }}-${{ github.run_attempt }}
           path: .github/tools
@@ -362,7 +362,7 @@ jobs:
           targets: wasm32v1-none
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -373,13 +373,13 @@ jobs:
             ${{ runner.os }}-mutants-
 
       - name: Download stellar-cli
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: stellar-cli-${{ github.run_id }}-${{ github.run_attempt }}
           path: .github/tools
 
       - name: Download cargo-mutants
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: cargo-mutants-${{ github.run_id }}-${{ github.run_attempt }}
           path: .github/tools
