@@ -1222,11 +1222,7 @@ fn sweep_balance_keeps_fee_backing_claimable() {
     assert_eq!(token_client.balance(&router_addr), 0);
 }
 
-// ===================================================================
-// Coverage tests (venues/admin/referral/vault gap closure).
-// ===================================================================
-
-// phoenix_single_hop_happy_path  (+24)  contracts/aggregator/src/venues/phoenix.rs:7-33 (+ venues/mod.rs:28)
+// Additional venue, admin, referral, and vault behavior.
 mod phoenix_mock {
     use super::*;
     #[contract]
@@ -1305,7 +1301,6 @@ fn phoenix_single_hop_happy_path() {
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 400);
 }
 
-// admin_setters_and_views_surface  (+69)  contracts/aggregator/src/lib.rs:48-51,63-83,112-134,169-197
 #[test]
 fn admin_setters_and_views_surface() {
     let env = Env::default();
@@ -1351,7 +1346,6 @@ fn admin_setters_and_views_surface() {
     assert!(router.referral(&999).is_none());
 }
 
-// admin_rejects_fee_over_cap  (+3)  contracts/aggregator/src/lib.rs:56,93,115
 #[test]
 fn admin_rejects_fee_over_cap() {
     let env = Env::default();
@@ -1380,7 +1374,6 @@ fn admin_rejects_fee_over_cap() {
     );
 }
 
-// execute_strategy_rejects_nonpositive_amounts  (+2)  contracts/aggregator/src/lib.rs:400,403
 #[test]
 fn execute_strategy_rejects_nonpositive_amounts() {
     let env = Env::default();
@@ -1436,7 +1429,6 @@ fn execute_strategy_rejects_nonpositive_amounts() {
     );
 }
 
-// validate_batch_shape_empty_and_endpoint_errors  (+3)  contracts/aggregator/src/lib.rs:520,540,557
 #[test]
 fn validate_batch_shape_empty_and_endpoint_errors() {
     let env = Env::default();
@@ -1520,7 +1512,6 @@ fn validate_batch_shape_empty_and_endpoint_errors() {
     );
 }
 
-// referral_missing_id_is_noop  (+1)  contracts/aggregator/src/lib.rs:265
 #[test]
 fn referral_missing_id_is_noop() {
     let env = Env::default();
@@ -1557,10 +1548,9 @@ fn referral_missing_id_is_noop() {
     assert_eq!(router.admin_fee_balance(&token_a), 0);
 }
 
-// referral_inactive_and_zero_combined_bps_noop  (+3)  contracts/aggregator/src/lib.rs:268,291,298
 #[test]
 fn referral_inactive_and_zero_combined_bps_noop() {
-    // ---- phase (a): inactive referral -> lib.rs:268 ----
+    // Inactive referrals do not collect a fee.
     {
         let env = Env::default();
         env.mock_all_auths();
@@ -1599,7 +1589,7 @@ fn referral_inactive_and_zero_combined_bps_noop() {
         assert_eq!(router.execute_strategy(&sender, &500, &xdr), 500);
         assert_eq!(router.admin_fee_balance(&token_a), 0);
     }
-    // ---- phase (b): active 0bps referral, static fee 0 -> lib.rs:291 ----
+    // An active zero-BPS referral with no static fee collects nothing.
     {
         let env = Env::default();
         env.mock_all_auths();
@@ -1635,7 +1625,7 @@ fn referral_inactive_and_zero_combined_bps_noop() {
         assert_eq!(router.execute_strategy(&sender, &500, &xdr), 500);
         assert_eq!(router.admin_fee_balance(&token_a), 0);
     }
-    // ---- phase (c): static fee 100bps, total_in=1 -> fee rounds to 0 -> lib.rs:298 ----
+    // A one-unit input rounds a 100-BPS fee down to zero.
     {
         let env = Env::default();
         env.mock_all_auths();
@@ -1674,7 +1664,6 @@ fn referral_inactive_and_zero_combined_bps_noop() {
     }
 }
 
-// soroswap_reverse_orientation  (+2)  contracts/aggregator/src/venues/soroswap.rs:51,72
 #[test]
 fn soroswap_reverse_orientation() {
     let env = Env::default();
@@ -1718,7 +1707,6 @@ fn soroswap_reverse_orientation() {
     assert!(token::Client::new(&env, &t0).balance(&sender) >= 900);
 }
 
-// soroswap_zero_output_rejected  (+3)  contracts/aggregator/src/venues/soroswap.rs:21,25,60
 #[test]
 fn soroswap_zero_output_rejected() {
     let env = Env::default();
@@ -1735,7 +1723,7 @@ fn soroswap_zero_output_rejected() {
         ((ay, sacy), (ax, sacx))
     };
 
-    // (a) reserve_out (reserve_1) == 0 -> soroswap.rs:21
+    // A pool with no output reserves cannot produce a swap.
     let pool0 = env.register(soroswap_mock::SoroswapPair, ());
     soroswap_mock::SoroswapPairClient::new(&env, &pool0).init(&t0, &t1, &1_000_000, &0);
     sac0.mint(&sender, &1_000);
@@ -1764,7 +1752,7 @@ fn soroswap_zero_output_rejected() {
         Error::ZeroOutput.into()
     );
 
-    // (b) amount_in==1 -> in_less==0 -> soroswap.rs:25
+    // A one-unit input is consumed by fee rounding and produces no output.
     let pool1 = env.register(soroswap_mock::SoroswapPair, ());
     soroswap_mock::SoroswapPairClient::new(&env, &pool1).init(&t0, &t1, &1_000_000, &1_000_000);
     let xdr = strategy_xdr(
@@ -1793,7 +1781,6 @@ fn soroswap_zero_output_rejected() {
     );
 }
 
-// sushi_reverse_direction  (+4)  contracts/aggregator/src/venues/sushi.rs:59,60 (+ venues/mod.rs:101,102)
 #[test]
 fn sushi_reverse_direction() {
     let env = Env::default();
@@ -1831,7 +1818,6 @@ fn sushi_reverse_direction() {
     assert_eq!(token::Client::new(&env, &token_a).balance(&sender), 300);
 }
 
-// aquarius_token_not_in_pool_rejected  (+1)  contracts/aggregator/src/venues/aquarius.rs:54
 #[test]
 fn aquarius_token_not_in_pool_rejected() {
     let env = Env::default();
@@ -1871,7 +1857,6 @@ fn aquarius_token_not_in_pool_rejected() {
     );
 }
 
-// aquarius_zero_report_rejected  (+1)  contracts/aggregator/src/venues/aquarius.rs:40
 #[test]
 fn aquarius_zero_report_rejected() {
     let env = Env::default();
@@ -1911,7 +1896,6 @@ fn aquarius_zero_report_rejected() {
     );
 }
 
-// comet_zero_report_rejected  (+1)  contracts/aggregator/src/venues/comet.rs:33
 mod comet_zero_mock {
     use super::*;
     #[contract]
@@ -1971,46 +1955,41 @@ fn comet_zero_report_rejected() {
     );
 }
 
-// vault_accounting_unit  (+2)  contracts/aggregator/src/vault.rs:25,39 (+ happy lines)
 #[test]
 fn vault_accounting_unit() {
     let env = Env::default();
     let token = Address::generate(&env);
     let mut v = crate::vault::Vault::new(&env);
     assert_eq!(v.balance_of(&token), 0);
-    v.deposit(&token, 0); // vault.rs:25 no-op
+    v.deposit(&token, 0);
     assert_eq!(v.balance_of(&token), 0);
     v.deposit(&token, 100);
     assert_eq!(v.balance_of(&token), 100);
-    v.withdraw(&token, 0); // vault.rs:39 no-op
+    v.withdraw(&token, 0);
     assert_eq!(v.balance_of(&token), 100);
     v.withdraw(&token, 40);
     assert_eq!(v.balance_of(&token), 60);
 }
 
-// vault_invalid_amount_panics  (+3)  contracts/aggregator/src/vault.rs:28,42,46
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn vault_deposit_negative_panics() {
-    // vault.rs:28
     let env = Env::default();
     let token = Address::generate(&env);
     crate::vault::Vault::new(&env).deposit(&token, -1);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn vault_withdraw_negative_panics() {
-    // vault.rs:42
     let env = Env::default();
     let token = Address::generate(&env);
     crate::vault::Vault::new(&env).withdraw(&token, -1);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn vault_withdraw_overdraw_panics() {
-    // vault.rs:46
     let env = Env::default();
     let token = Address::generate(&env);
     let mut v = crate::vault::Vault::new(&env);

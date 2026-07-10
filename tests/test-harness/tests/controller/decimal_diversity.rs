@@ -427,7 +427,9 @@ fn test_borrow_1_raw_unit_is_properly_recorded_on_7dec() {
     let (_supplies, borrows) = t.ctrl_client().get_account_positions(&account_id);
     let asset_addr = t.resolve_asset("XLM7");
     assert!(
-        borrows.iter().any(|(k, p)| k.asset == asset_addr && p.scaled_amount > 0),
+        borrows
+            .iter()
+            .any(|(k, p)| k.asset == asset_addr && p.scaled_amount > 0),
         "Positive scaled debt position must exist after borrowing 1 raw unit"
     );
 
@@ -476,7 +478,8 @@ fn test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds() {
                 scaled.raw() > 0,
                 "1-raw-unit borrow on {}dec scaled to zero at borrow_index={} \
                  (within protocol bounds — this must never happen)",
-                decimals, index
+                decimals,
+                index
             );
         }
     }

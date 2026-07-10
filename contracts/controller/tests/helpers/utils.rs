@@ -27,14 +27,14 @@ fn aggregate_payments_dedups_and_preserves_order() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #14)")]
 fn aggregate_rejects_negative() {
     let env = Env::default();
     aggregate_payment_amount(&env, None, -1, false);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #14)")]
 fn aggregate_rejects_zero_when_not_withdraw_all() {
     let env = Env::default();
     aggregate_payment_amount(&env, None, 0, false);

@@ -15,7 +15,7 @@ fn validate_liquidation_curve_accepts_protocol_defaults() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #134)")]
 fn validate_liquidation_curve_rejects_target_hf_at_one() {
     let env = Env::default();
     validate_liquidation_curve(
@@ -27,7 +27,7 @@ fn validate_liquidation_curve_rejects_target_hf_at_one() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #134)")]
 fn validate_liquidation_curve_rejects_hf_for_max_bonus_above_target() {
     let env = Env::default();
     validate_liquidation_curve(
@@ -39,7 +39,7 @@ fn validate_liquidation_curve_rejects_hf_for_max_bonus_above_target() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #134)")]
 fn validate_liquidation_curve_rejects_bonus_factor_above_bps() {
     let env = Env::default();
     validate_liquidation_curve(

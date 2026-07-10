@@ -4,8 +4,8 @@ use stellar_access::access_control::AccessControlStorageKey;
 use stellar_access::ownable::OwnableStorageKey;
 
 #[test]
-#[should_panic]
-fn test_sync_pending_admin_transfer_without_owner_or_admin() {
+#[should_panic(expected = "Error(Contract, #32)")]
+fn sync_pending_admin_transfer_requires_owner_or_admin() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));

@@ -9,9 +9,11 @@
 //! `create_account`, `supply`) run BEFORE the `MockBlendClient` is created,
 //! because the client holds an immutable borrow of `t.env`.
 
-use soroban_sdk::{Address, Vec as SorobanVec};
+use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
+use soroban_sdk::{Address, IntoVal, Val, Vec as SorobanVec};
 use test_harness::mock_blend::{
-    MockBlend, MockBlendClient, MockBlendError, KIND_COLLATERAL, KIND_LIABILITY, KIND_SUPPLY,
+    BlendRequest as MockBlendRequest, MockBlend, MockBlendClient, MockBlendError, KIND_COLLATERAL,
+    KIND_LIABILITY, KIND_SUPPLY,
 };
 use test_harness::{
     assert_contract_error, errors, eth_preset, helpers::f64_to_i128, usdc_preset, LendingTest,
@@ -147,6 +149,28 @@ fn test_migrate_supply_only() {
     assert_eq!(blend.position(&caller, &usdc, &KIND_SUPPLY), 0);
 }
 
+#[test]
+fn test_migrate_ignores_listed_asset_with_zero_blend_balance() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let caller = t.get_or_create_user(ALICE);
+    let blend_addr = register_approved_blend(&t);
+    let usdc = t.resolve_asset("USDC");
+
+    let account_id = t.ctrl_client().migrate_from_blend(
+        &caller,
+        &0u64,
+        &1u32,
+        &HARNESS_HUB,
+        &blend_addr,
+        &SorobanVec::from_array(&t.env, [usdc]),
+        &empty_assets(&t),
+        &empty_debt(&t),
+    );
+
+    assert!(account_id > 0);
+    assert!(!t.ctrl_client().account_exists(&account_id));
+}
+
 /// Debt + collateral migration (the flash-borrow flow). Blend: 2000 USDC
 /// collateral + 0.5 ETH debt. Cap is 0.6 ETH (buffer); the controller borrows
 /// 0.6 ETH, repays Blend (which refunds 0.1 ETH), and reconciles the refund so
@@ -175,15 +199,81 @@ fn test_migrate_debt_and_collateral() {
     let eth = t.resolve_asset("ETH");
     let cap = f64_to_i128(0.6, t.resolve_market("ETH").decimals);
 
-    let account_id = t.ctrl_client().migrate_from_blend(
+    let collateral_assets = SorobanVec::from_array(&t.env, [usdc.clone()]);
+    let supply_assets = empty_assets(&t);
+    let debt_caps = SorobanVec::from_array(&t.env, [(eth.clone(), cap)]);
+    let args: SorobanVec<Val> = (
+        caller.clone(),
+        0u64,
+        1u32,
+        HARNESS_HUB,
+        blend_addr.clone(),
+        collateral_assets.clone(),
+        supply_assets.clone(),
+        debt_caps.clone(),
+    )
+        .into_val(&t.env);
+    let debt_submit_args: SorobanVec<Val> = (
+        caller.clone(),
+        t.controller.clone(),
+        t.controller.clone(),
+        SorobanVec::from_array(
+            &t.env,
+            [MockBlendRequest {
+                request_type: 5,
+                address: eth.clone(),
+                amount: cap,
+            }],
+        ),
+    )
+        .into_val(&t.env);
+    let withdraw_submit_args: SorobanVec<Val> = (
+        caller.clone(),
+        t.controller.clone(),
+        t.controller.clone(),
+        SorobanVec::from_array(
+            &t.env,
+            [MockBlendRequest {
+                request_type: 3,
+                address: usdc.clone(),
+                amount: i128::MAX,
+            }],
+        ),
+    )
+        .into_val(&t.env);
+    let sub_invokes = [
+        MockAuthInvoke {
+            contract: &blend_addr,
+            fn_name: "submit",
+            args: debt_submit_args,
+            sub_invokes: &[],
+        },
+        MockAuthInvoke {
+            contract: &blend_addr,
+            fn_name: "submit",
+            args: withdraw_submit_args,
+            sub_invokes: &[],
+        },
+    ];
+    let invoke = MockAuthInvoke {
+        contract: &t.controller,
+        fn_name: "migrate_from_blend",
+        args,
+        sub_invokes: &sub_invokes,
+    };
+    let auths = [MockAuth {
+        address: &caller,
+        invoke: &invoke,
+    }];
+    let account_id = t.ctrl_client().mock_auths(&auths).migrate_from_blend(
         &caller,
         &0u64,
         &1u32,
         &HARNESS_HUB,
         &blend_addr,
-        &SorobanVec::from_array(&t.env, [usdc.clone()]),
-        &empty_assets(&t),
-        &SorobanVec::from_array(&t.env, [(eth.clone(), cap)]),
+        &collateral_assets,
+        &supply_assets,
+        &debt_caps,
     );
 
     assert!(account_id > 0);
@@ -357,6 +447,27 @@ fn test_migrate_duplicate_debt_rejected() {
             &SorobanVec::from_array(&t.env, [(usdc.clone(), cap), (usdc, cap)]),
         ));
     assert_contract_error(result, errors::ASSETS_ARE_THE_SAME);
+}
+
+#[test]
+fn test_migrate_unlisted_withdraw_asset_rejected_before_token_call() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let caller = t.get_or_create_user(ALICE);
+    let blend_addr = register_approved_blend(&t);
+    let unlisted = Address::generate(&t.env);
+
+    let result: Result<u64, soroban_sdk::Error> =
+        revert_result!(t.ctrl_client().try_migrate_from_blend(
+            &caller,
+            &0u64,
+            &1u32,
+            &HARNESS_HUB,
+            &blend_addr,
+            &SorobanVec::from_array(&t.env, [unlisted]),
+            &empty_assets(&t),
+            &empty_debt(&t),
+        ));
+    assert_contract_error(result, errors::PAIR_NOT_ACTIVE);
 }
 
 /// A debt cap below the actual Blend debt leaves Blend debt after the

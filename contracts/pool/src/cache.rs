@@ -185,24 +185,17 @@ impl Cache {
     /// # Notes
     /// Full-close quantization is a cross-contract contract: the position closes
     /// (all `pos_scaled` shares burned, floor-valued gross paid out) whenever the
-    /// request meets or exceeds the half-up-rounded actual balance, or when the
-    /// half-up remainder after a partial burn rounds to zero. The controller's
-    /// dust gate MUST mirror this half-up full-close rule; if it decides "dust
-    /// remains" while the pool full-closes (or vice versa), the position map and
-    /// pool disagree and the withdrawal reverts.
+    /// request meets or exceeds the half-up-rounded actual balance. The
+    /// controller's dust gate MUST mirror this full-close rule; if it decides
+    /// "dust remains" while the pool full-closes (or vice versa), the position
+    /// map and pool disagree and the withdrawal reverts.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         let current_supply_actual = self.unscale_supply(pos_scaled);
         let current_supply_floor = self.unscale_supply_floor(pos_scaled);
         if amount >= current_supply_actual {
             return (pos_scaled, current_supply_floor);
         }
-        let scaled = self.calculate_scaled_supply(amount);
-        let remaining_actual = self.unscale_supply(pos_scaled - scaled);
-        if remaining_actual == 0 {
-            (pos_scaled, current_supply_floor)
-        } else {
-            (scaled, amount)
-        }
+        (self.calculate_scaled_supply(amount), amount)
     }
 
     /// Burns claimable revenue up to tracked cash and returns the token amount.

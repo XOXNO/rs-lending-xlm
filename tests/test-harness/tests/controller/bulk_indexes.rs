@@ -10,7 +10,9 @@ use common::rates::simulate_update_indexes;
 use controller::constants::MS_PER_SECOND;
 use controller::types::MarketIndexRaw;
 use soroban_sdk::testutils::Address as _;
-use test_harness::{eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
+};
 
 #[test]
 fn test_detailed_indexes_view_matches_pool_simulation() {
@@ -74,6 +76,9 @@ fn test_index_view_with_unlisted_asset_still_fails() {
         hub_asset(t.resolve_asset("USDC")),
         hub_asset(unlisted)
     ];
-    let result = t.ctrl_client().try_get_market_indexes_detailed(&assets);
-    assert!(result.is_err(), "unlisted asset must still fail the view");
+    let result = match t.ctrl_client().try_get_market_indexes_detailed(&assets) {
+        Ok(res) => res.map(|_| ()).map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(result, errors::GenericError::PoolNotInitialized as u32);
 }

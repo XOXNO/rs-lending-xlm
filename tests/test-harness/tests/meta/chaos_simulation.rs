@@ -34,9 +34,7 @@ impl Rng {
 /// Deterministic chaos scenario: 15 users, fixed-seed (42) LCG-driven
 /// scenario over 8 weeks with one ETH price oscillation. Assertions:
 ///  (1) every borrowing account stays HF >= 1 OR has no debt (no-debt HF
-///      surfaces as `i128::MAX / WAD` per
-///      tests/test-harness/src/view.rs:28-32 + helpers.rs:69-71, hence the
-///      `> 1e18` discriminator below).
+///      surfaces as `i128::MAX / WAD`, hence the `> 1e18` discriminator below).
 ///  (2) supply and borrow indexes >= 1.0 RAY for every market.
 ///  (3) protocol revenue >= 0 for every market.
 #[test]

@@ -11,6 +11,10 @@
 # Env:
 #   FUZZ_COV_TIME   If >0, run `cargo fuzz run` for N seconds to grow the corpus
 #                   before collecting coverage. Default: 0 (corpus replay only).
+#   FUZZ_MAX_LEN    Maximum generated input length. Default: 82 bytes, matching
+#                   the largest target layout.
+#   FUZZ_LEN_CONTROL libFuzzer length ramp. Default: 0, so short CI runs reach
+#                    multi-operation inputs immediately.
 #   SANITIZER       Passed through as `--sanitizer=$SANITIZER`. On macOS contract-level
 #                   targets require `thread`. Default: "" (no sanitizer) — function-level.
 #   BUILD_STD       If set, adds `-Zbuild-std` (needed with --sanitizer=thread).
@@ -28,6 +32,8 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
 fi
 
 FUZZ_COV_TIME="${FUZZ_COV_TIME:-0}"
+FUZZ_MAX_LEN="${FUZZ_MAX_LEN:-82}"
+FUZZ_LEN_CONTROL="${FUZZ_LEN_CONTROL:-0}"
 SANITIZER="${SANITIZER:-}"
 BUILD_STD="${BUILD_STD:-}"
 
@@ -104,11 +110,14 @@ cd "$SCRIPT_DIR"
 for target in "${TARGETS[@]}"; do
     echo
     echo "--- $target ---"
+    mkdir -p "corpus/$target"
 
     if [ "$FUZZ_COV_TIME" -gt 0 ]; then
         echo "  [1/3] short fuzz run (${FUZZ_COV_TIME}s)"
-        cargo +nightly fuzz run --fuzz-dir . "$target" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} -- \
-            -max_total_time="$FUZZ_COV_TIME" 2>&1 | tail -20
+        cargo +nightly fuzz run --fuzz-dir . "$target" "corpus/$target" "seeds/$target" \
+            ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} -- \
+            -max_total_time="$FUZZ_COV_TIME" -max_len="$FUZZ_MAX_LEN" \
+            -len_control="$FUZZ_LEN_CONTROL" 2>&1 | tail -20
     fi
 
     echo "  [2/3] coverage build + corpus replay"
@@ -119,7 +128,8 @@ for target in "${TARGETS[@]}"; do
     # runtime dependency). cargo-fuzz appends its own flags to user RUSTFLAGS,
     # so ours lands first and applies to sysroot crates.
     RUSTFLAGS="-Cunsafe-allow-abi-mismatch=sanitizer${RUSTFLAGS:+ }${RUSTFLAGS:-}" \
-        cargo +nightly fuzz coverage --fuzz-dir . "$target" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}
+        cargo +nightly fuzz coverage --fuzz-dir . "$target" "corpus/$target" "seeds/$target" \
+            ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}
 
     profdata="coverage/$target/coverage.profdata"
     binary="target/$HOST_TRIPLE/coverage/$HOST_TRIPLE/release/$target"

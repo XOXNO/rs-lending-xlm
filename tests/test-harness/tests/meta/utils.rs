@@ -1,4 +1,6 @@
-use test_harness::{eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE};
+use test_harness::{
+    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
+};
 // 1. test_validate_healthy_passes
 
 #[test]
@@ -37,10 +39,7 @@ fn test_validate_healthy_fails() {
 
     // Attempting to withdraw must fail due to low HF.
     let result = t.try_withdraw(ALICE, "USDC", 1.0);
-    assert!(
-        result.is_err(),
-        "withdraw should fail when HF is below threshold"
-    );
+    assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
 // 3. test_health_factor_no_debt_is_max
 
@@ -117,7 +116,7 @@ fn test_borrow_exceeds_ltv_fails() {
 
     // Borrow 4 ETH = $8000 > $7500.
     let result = t.try_borrow(ALICE, "ETH", 4.0);
-    assert!(result.is_err(), "borrow exceeding LTV should fail");
+    assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
 // 7. test_total_debt_zero_after_full_repay
 

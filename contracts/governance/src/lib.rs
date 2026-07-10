@@ -16,6 +16,10 @@ mod validate;
 #[path = "../tests/flows.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "../tests/support.rs"]
+mod test_support;
+
 use soroban_sdk::{contract, contractmeta};
 
 pub use crate::constants::{

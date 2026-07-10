@@ -581,7 +581,7 @@ fn test_flash_loan_adversarial_receiver_rejects_invalid_data() {
 // Exercises `FlashLoanMode::ReenterControllerSupply` — the reference
 // receiver tries to call `controller.supply` from inside the callback. The
 // controller's `require_not_flash_loaning` guard must reject this and roll
-// the loan back. Covers flash-loan-receiver lines 99-101 + 183-210.
+// the loan back.
 #[test]
 fn test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();

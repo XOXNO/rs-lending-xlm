@@ -166,6 +166,30 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
 }
 
 #[test]
+fn test_bulk_length_mismatch_falls_back_to_per_feed_reads() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
+    anchor_market_with_redstone(&t, &redstone, "USDC");
+    anchor_market_with_redstone(&t, &redstone, "ETH");
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(ALICE, "USDC", 10_000.0);
+
+    let rs = redstone_counters(&t, &redstone);
+    rs.set_bulk_truncate(&true);
+    let bulk_before = rs.bulk_calls();
+    let single_before = rs.single_calls();
+
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let rs = redstone_counters(&t, &redstone);
+    assert_eq!(rs.bulk_calls() - bulk_before, 1);
+    assert_eq!(rs.single_calls() - single_before, 2);
+}
+
+#[test]
 fn test_prefetched_prices_resolve_to_expected_values() {
     // Both feeds priced; ALICE supplies USDC and borrows ETH so the bulk path
     // is exercised inside both txs.  Assert the resulting account is healthy

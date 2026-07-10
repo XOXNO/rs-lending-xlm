@@ -47,9 +47,8 @@ use stellar_access::ownable;
 use stellar_macros::only_owner;
 
 use utils::{
-    apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from, now_ms,
-    renew_market_keys, renew_pool_instance, require_nonneg_amount, require_positive_amount,
-    require_wasm_receiver,
+    apply_liquidation_fee, apply_rate_model, now_ms, renew_market_keys, renew_pool_instance,
+    require_nonneg_amount, require_positive_amount, require_wasm_receiver,
 };
 
 /// Renews the instance TTL, then loads and interest-syncs the market cache.
@@ -305,7 +304,6 @@ fn verify_flash_repay(env: &Env, tok: &token::Client, pool_addr: &Address, expec
 fn pull_flash_repayment(
     env: &Env,
     tok: &token::Client,
-    asset_id: &Address,
     receiver: &Address,
     pool_addr: &Address,
     total: i128,
@@ -316,7 +314,6 @@ fn pull_flash_repayment(
         tok.allowance(receiver, pool_addr) >= total,
         FlashLoanError::InvalidFlashloanRepay
     );
-    authorize_token_transfer_from(env, asset_id, receiver, pool_addr, total);
     tok.transfer_from(pool_addr, receiver, pool_addr, &total);
     verify_flash_repay(env, tok, pool_addr, expected_after_repay);
 }
@@ -642,7 +639,6 @@ impl LiquidityPoolInterface for LiquidityPool {
         pull_flash_repayment(
             &env,
             &tok,
-            &cache.params.asset_id,
             &receiver,
             &pool_addr,
             total,

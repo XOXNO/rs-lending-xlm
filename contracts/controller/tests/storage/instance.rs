@@ -89,8 +89,6 @@ fn test_position_manager_cap_rejects_overflowing_registration() {
     });
 }
 
-// ===== coverage gap-closure tests =====
-// blend_pool_allowlist_counter_and_removal (+8) contracts/controller/src/storage/instance.rs:106-126 (uncovered 115,118,119,120,121,122,123,124) + is_blend_pool_approved 84-89
 #[test]
 fn blend_pool_allowlist_counter_tracks_outstanding_set() {
     let env = Env::default();

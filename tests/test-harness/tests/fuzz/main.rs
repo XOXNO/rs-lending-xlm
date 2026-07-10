@@ -3,7 +3,6 @@
 extern crate std;
 
 mod accounting_conservation;
-mod adversarial_aggregator;
 mod config;
 mod liquidation_vs_reference;
 mod ops;

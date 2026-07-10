@@ -1,5 +1,5 @@
 use super::{enable_dual_source, setup};
-use test_harness::{usd, usd_cents, ALICE};
+use test_harness::{assert_contract_error, errors, usd, usd_cents, ALICE};
 
 // 5. Edge cases
 
@@ -65,8 +65,5 @@ fn test_safe_price_below_aggregator_blocks_borrow() {
 
     // Beyond second tolerance in the negative direction: blocked.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
-    assert!(
-        result.is_err(),
-        "borrow should fail with safe price 10% below aggregator"
-    );
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }

@@ -203,7 +203,9 @@ fn update_asset_oracle_event_nests_oracle_fields_under_oracle_key() {
 }
 
 #[test]
-fn emit_helpers_publish_without_panicking() {
+fn all_event_helpers_publish_one_event() {
+    use soroban_sdk::testutils::Events as _;
+
     let (env, contract) = setup();
     env.as_contract(&contract, || {
         let asset = dummy_address(&env);
@@ -347,6 +349,8 @@ fn emit_helpers_publish_without_panicking() {
         // Reference vec! to keep it used even if the macro path changes.
         let _ignored: Vec<Address> = vec![&env];
     });
+
+    assert_eq!(env.events().all().events().len(), 12);
 }
 
 #[test]

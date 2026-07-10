@@ -39,7 +39,7 @@ fn test_pool_claim_revenue_burns_supplied_ray_coverage() {
     let pool_before = tok.balance(&pool_addr);
     let acc_before = tok.balance(&accumulator);
 
-    // 5. Claim revenue. This must hit pool/src/lib.rs:401.
+    // Claim the full accrued revenue.
     let claimed = t.claim_revenue("USDC");
     assert_eq!(
         claimed, rev,
