@@ -187,6 +187,10 @@ get_redstone_adapter() {
     get_network_value "redstone_adapter_contract"
 }
 
+get_xoxno_oracle_adapter() {
+    get_network_value "xoxno_oracle_adapter"
+}
+
 get_signer_address() {
     echo "$SIGNER_ADDRESS"
 }
@@ -1215,11 +1219,12 @@ validate_configs() {
     done
 
     # Known oracle contracts for cross-checks.
-    local cex dex fx redstone
+    local cex dex fx redstone xoxno_adapter
     cex=$(get_cex_oracle)
     dex=$(get_dex_oracle)
     fx=$(get_fx_oracle)
     redstone=$(get_redstone_adapter)
+    xoxno_adapter=$(get_xoxno_oracle_adapter)
 
     # Markets: duplicates
     local dup
@@ -1333,29 +1338,35 @@ validate_configs() {
         if [ "$ptag" = "RedStone" ] && [ -n "$pcontract" ] && [ "$pcontract" != "$redstone" ]; then
             vc_warn "market ${m}: primary RedStone contract differs from networks.json redstone_adapter_contract"
         fi
+        if [ "$ptag" = "Xoxno" ] && [ -n "$pcontract" ] && [ "$pcontract" != "$xoxno_adapter" ]; then
+            vc_warn "market ${m}: primary Xoxno contract differs from networks.json xoxno_oracle_adapter"
+        fi
         atag=$(printf '%s' "$o" | jq -r '.anchor.values[0].tag // ""')
         acontract=$(printf '%s' "$o" | jq -r '.anchor.values[0].values[0].contract // ""')
         if [ "$atag" = "RedStone" ] && [ -n "$acontract" ] && [ "$acontract" != "$redstone" ]; then
             vc_warn "market ${m}: anchor RedStone contract differs from networks.json redstone_adapter_contract"
         fi
+        if [ "$atag" = "Xoxno" ] && [ -n "$acontract" ] && [ "$acontract" != "$xoxno_adapter" ]; then
+            vc_warn "market ${m}: anchor Xoxno contract differs from networks.json xoxno_oracle_adapter"
+        fi
 
-        # RedStone staleness limits must dominate the bot heartbeat, or a
-        # brief bot outage makes the controller revert PriceFeedStale for
+        # RedStone/Xoxno staleness limits must dominate the bot heartbeat, or
+        # a brief bot outage makes the controller revert PriceFeedStale for
         # the market. Require >= 4 heartbeats of slack.
-        if [ "$ptag" = "RedStone" ]; then
+        if [ "$ptag" = "RedStone" ] || [ "$ptag" = "Xoxno" ]; then
             pstale=$(printf '%s' "$o" | jq -r '.primary.values[0].max_stale_seconds // "missing"')
             if [ "$pstale" = "missing" ]; then
-                vc_err "market ${m}: primary RedStone missing max_stale_seconds"
+                vc_err "market ${m}: primary ${ptag} missing max_stale_seconds"
             elif [ "$pstale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
-                vc_err "market ${m}: primary RedStone max_stale_seconds ${pstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
+                vc_err "market ${m}: primary ${ptag} max_stale_seconds ${pstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
             fi
         fi
-        if [ "$atag" = "RedStone" ]; then
+        if [ "$atag" = "RedStone" ] || [ "$atag" = "Xoxno" ]; then
             astale=$(printf '%s' "$o" | jq -r '.anchor.values[0].values[0].max_stale_seconds // "missing"')
             if [ "$astale" = "missing" ]; then
-                vc_err "market ${m}: anchor RedStone missing max_stale_seconds"
+                vc_err "market ${m}: anchor ${atag} missing max_stale_seconds"
             elif [ "$astale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
-                vc_err "market ${m}: anchor RedStone max_stale_seconds ${astale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
+                vc_err "market ${m}: anchor ${atag} max_stale_seconds ${astale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
             fi
         fi
     done
