@@ -74,8 +74,8 @@ impl Router {
     pub fn remove_from_whitelist(env: Env, token: Address) {
         require_admin(&env);
         let mut list = load_whitelist(&env);
-        if let Some(idx) = list.iter().position(|t| t == token) {
-            list.remove(idx as u32);
+        if let Some(idx) = list.first_index_of(&token) {
+            list.remove(idx);
             env.storage()
                 .instance()
                 .set(&DataKey::WhitelistedTokens, &list);
@@ -523,8 +523,7 @@ fn validate_batch_shape(env: &Env, paths: &Vec<SwapPath>) -> (Address, Address) 
         .hops
         .get(0)
         .unwrap_or_else(|| panic_with_error!(env, Error::EmptyPath))
-        .token_in
-        .clone();
+        .token_in;
     let output_token = last_token_out(env, &first_path);
     if input_token == output_token {
         panic_with_error!(env, Error::SameToken);
@@ -550,8 +549,7 @@ fn validate_batch_shape(env: &Env, paths: &Vec<SwapPath>) -> (Address, Address) 
             .hops
             .get(0)
             .unwrap_or_else(|| panic_with_error!(env, Error::EmptyPath))
-            .token_in
-            .clone();
+            .token_in;
         let path_out = last_token_out(env, &path);
         if path_in != input_token || path_out != output_token {
             panic_with_error!(env, Error::BrokenTokenChain);
