@@ -3,7 +3,9 @@
 
 use common::errors::{CollateralError, GenericError, SpokeError};
 use common::math::fp::Ray;
-use common::types::{HubAssetKey, MarketOracleConfigOption, SpokeAssetArgs, SpokeAssetConfig};
+use common::types::{
+    HubAssetKey, MarketOracleConfigOption, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig,
+};
 use soroban_sdk::{assert_with_error, Address, Env};
 
 use crate::config::oracle::validate_market_oracle_config;
@@ -16,75 +18,45 @@ use crate::{
 
 /// Lists a hub-asset on a spoke after validating risk bounds, caps, and any oracle override.
 pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
-    common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
-    common::validation::validate_liquidation_fees(env, args.liquidation_fees);
-    assert_with_error!(
-        env,
-        args.supply_cap >= 0 && args.borrow_cap >= 0,
-        CollateralError::InvalidBorrowParams
-    );
-    let spoke = storage::get_spoke(env, args.spoke_id);
-    assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
-
-    let hub_asset = HubAssetKey {
-        hub_id: args.hub_id,
-        asset: args.asset.clone(),
-    };
+    let hub_asset = validate_spoke_asset_args(env, args);
     assert_with_error!(
         env,
         storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_none(),
         SpokeError::AssetAlreadyInSpoke
     );
 
-    // The pool owns the market record; `fetch_pool_sync_data` reverts
-    // `PoolNotInitialized` when the (hub, asset) market was never created, so the
-    // asset must already have a created market before a spoke lists it.
-    let pool_addr = storage::get_pool(env);
-    let hub = fetch_pool_sync_data(env, &pool_addr, &hub_asset);
-    // Spoke caps feed the Ray::from_asset rescale; reject any that would
-    // overflow it so a misconfig fails here, not at view time.
-    common::validation::require_cap_within_asset_domain(
-        env,
-        args.supply_cap,
-        hub.params.asset_decimals,
-    );
-    common::validation::require_cap_within_asset_domain(
-        env,
-        args.borrow_cap,
-        hub.params.asset_decimals,
-    );
-
-    let config = SpokeAssetConfig {
-        is_collateralizable: args.can_collateral,
-        is_borrowable: args.can_borrow,
-        paused: args.paused,
-        frozen: args.frozen,
-        loan_to_value: args.ltv,
-        liquidation_threshold: args.threshold,
-        liquidation_bonus: args.bonus,
-        liquidation_fees: args.liquidation_fees,
-        supply_cap: args.supply_cap,
-        borrow_cap: args.borrow_cap,
-        oracle_override: resolve_spoke_oracle_override(
-            env,
-            &args.asset,
-            hub.params.asset_decimals,
-            &args.oracle_override,
-        ),
-    };
-    storage::set_spoke_asset(env, args.spoke_id, &hub_asset, &config);
-
-    UpdateSpokeAssetEvent {
-        asset: args.asset.clone(),
-        config,
-        spoke_id: args.spoke_id,
-        hub_id: args.hub_id,
-    }
-    .publish(env);
+    let market = load_market_and_validate_caps(env, args, &hub_asset);
+    let config = build_spoke_asset_config(env, args, market.params.asset_decimals);
+    store_spoke_asset(env, args, &hub_asset, config);
 }
 
 /// Updates a spoke-asset listing, rejecting caps that fall below current spoke usage.
 pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
+    let hub_asset = validate_spoke_asset_args(env, args);
+    assert_with_error!(
+        env,
+        storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_some(),
+        SpokeError::AssetNotInSpoke
+    );
+
+    let market = load_market_and_validate_caps(env, args, &hub_asset);
+    let usage = storage::get_spoke_usage(env, args.spoke_id, &hub_asset).unwrap_or_default();
+    validate_spoke_caps_against_usage(
+        env,
+        &usage,
+        args.supply_cap,
+        args.borrow_cap,
+        Ray::from(market.state.supply_index),
+        Ray::from(market.state.borrow_index),
+        market.params.asset_decimals,
+    );
+
+    let config = build_spoke_asset_config(env, args, market.params.asset_decimals);
+    store_spoke_asset(env, args, &hub_asset, config);
+}
+
+/// Validates common risk bounds and returns the listing's hub coordinate.
+fn validate_spoke_asset_args(env: &Env, args: &SpokeAssetArgs) -> HubAssetKey {
     common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     common::validation::validate_liquidation_fees(env, args.liquidation_fees);
     assert_with_error!(
@@ -94,42 +66,43 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     );
     let spoke = storage::get_spoke(env, args.spoke_id);
     assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
-    let hub_asset = HubAssetKey {
+
+    HubAssetKey {
         hub_id: args.hub_id,
         asset: args.asset.clone(),
-    };
-    assert_with_error!(
-        env,
-        storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_some(),
-        SpokeError::AssetNotInSpoke
-    );
+    }
+}
 
-    let pool_addr = storage::get_pool(env);
-    let hub = fetch_pool_sync_data(env, &pool_addr, &hub_asset);
-    // Spoke caps feed the Ray::from_asset rescale; reject any that would
-    // overflow it so a misconfig fails here, not at view time.
+/// Loads the pool market and validates both caps against its decimal domain.
+fn load_market_and_validate_caps(
+    env: &Env,
+    args: &SpokeAssetArgs,
+    hub_asset: &HubAssetKey,
+) -> PoolSyncData {
+    // The pool owns the market record; this reverts `PoolNotInitialized` when
+    // `(hub, asset)` was never created.
+    let market = fetch_pool_sync_data(env, &storage::get_pool(env), hub_asset);
+    // These caps feed `Ray::from_asset`; reject overflow-prone configs here.
     common::validation::require_cap_within_asset_domain(
         env,
         args.supply_cap,
-        hub.params.asset_decimals,
+        market.params.asset_decimals,
     );
     common::validation::require_cap_within_asset_domain(
         env,
         args.borrow_cap,
-        hub.params.asset_decimals,
+        market.params.asset_decimals,
     );
-    let usage = storage::get_spoke_usage(env, args.spoke_id, &hub_asset).unwrap_or_default();
-    validate_spoke_caps_against_usage(
-        env,
-        &usage,
-        args.supply_cap,
-        args.borrow_cap,
-        Ray::from(hub.state.supply_index),
-        Ray::from(hub.state.borrow_index),
-        hub.params.asset_decimals,
-    );
+    market
+}
 
-    let config = SpokeAssetConfig {
+/// Resolves the stored listing from validated arguments and pool decimals.
+fn build_spoke_asset_config(
+    env: &Env,
+    args: &SpokeAssetArgs,
+    pool_decimals: u32,
+) -> SpokeAssetConfig {
+    SpokeAssetConfig {
         is_collateralizable: args.can_collateral,
         is_borrowable: args.can_borrow,
         paused: args.paused,
@@ -143,11 +116,20 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
         oracle_override: resolve_spoke_oracle_override(
             env,
             &args.asset,
-            hub.params.asset_decimals,
+            pool_decimals,
             &args.oracle_override,
         ),
-    };
-    storage::set_spoke_asset(env, args.spoke_id, &hub_asset, &config);
+    }
+}
+
+/// Persists the listing and publishes its resolved snapshot.
+fn store_spoke_asset(
+    env: &Env,
+    args: &SpokeAssetArgs,
+    hub_asset: &HubAssetKey,
+    config: SpokeAssetConfig,
+) {
+    storage::set_spoke_asset(env, args.spoke_id, hub_asset, &config);
 
     UpdateSpokeAssetEvent {
         asset: args.asset.clone(),
