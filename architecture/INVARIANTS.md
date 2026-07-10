@@ -201,6 +201,10 @@ Rules:
 - Debt plus `HF >= 1.0 WAD`: the account is solvent.
 - Debt plus `HF < 1.0 WAD`: liquidation is available.
 - No debt: `HF = i128::MAX`.
+- Debt present but negligible against collateral: the division saturates to
+  `i128::MAX` instead of reverting (`div_floor_saturating`). A tiny-debt,
+  large-collateral position stays a well-defined solvent HF rather than
+  trapping the read.
 
 The health factor uses liquidation thresholds, not LTV. A borrow check that
 uses liquidation thresholds would admit too much debt.
@@ -215,6 +219,12 @@ post_borrow_total_debt <= sum(collateral_value * loan_to_value_bps / BPS)
 
 LTV gates new borrowing. The liquidation threshold gates liquidation.
 Configuration requires `liquidation_threshold_bps > loan_to_value_bps`.
+
+A borrow whose raw amount floors to zero scaled debt shares is rejected
+(`BorrowRoundsToZeroShares`) rather than admitted. At an extreme borrow index
+a small enough raw amount can round down to zero shares; accepting it would
+still debit reserves and transfer real tokens while recording no debt — a
+free borrow.
 
 ### 3.3 Liquidation Progress
 

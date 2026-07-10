@@ -30,6 +30,8 @@ on-chain governance.
   and prover commands.
 - [Deployment & operations](./DEPLOYMENT.md) — runbook for deploying and
   operating the protocol.
+- [Integration skills](./skills/README.md) — publishable AI-agent skills for
+  third-party developers integrating or building on the protocol.
 
 ## Architecture
 
