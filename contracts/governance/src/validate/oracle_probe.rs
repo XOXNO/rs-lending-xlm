@@ -115,26 +115,38 @@ fn validate_source(
             })
         }
         common::types::OracleSourceConfigInput::RedStone(config) => {
-            validate_max_stale(env, config.max_stale_seconds);
-
-            // RedStone feed id carries quote identity.
-            let decimals = REDSTONE_DECIMALS;
-            validate_decimals(env, decimals);
-
-            let price_data = match read_price_data_uncached(env, &config.contract, &config.feed_id)
-            {
-                Some(data) => data,
-                _ => panic_with_error!(env, GenericError::InvalidTicker),
-            };
-            validate_redstone_feed(env, &price_data, config.max_stale_seconds, decimals);
-
-            OracleSourceConfig::RedStone(RedStoneSourceConfig {
-                contract: config.contract.clone(),
-                feed_id: config.feed_id.clone(),
-                decimals,
-                max_stale_seconds: config.max_stale_seconds,
-            })
+            // RedStone feeds are 8-decimal; the adapter has no `decimals()`.
+            let redstone = validate_feed_id_source(env, config, REDSTONE_DECIMALS);
+            OracleSourceConfig::RedStone(redstone)
         }
+        common::types::OracleSourceConfigInput::Xoxno(config) => {
+            let decimals = reflector_decimals_call(env, &config.contract);
+            let xoxno = validate_feed_id_source(env, config, decimals);
+            OracleSourceConfig::Xoxno(xoxno)
+        }
+    }
+}
+
+/// Validates a RedStone-shaped (feed-id keyed) source with a live feed probe.
+fn validate_feed_id_source(
+    env: &Env,
+    config: &common::types::RedStoneSourceConfigInput,
+    decimals: u32,
+) -> RedStoneSourceConfig {
+    validate_max_stale(env, config.max_stale_seconds);
+    validate_decimals(env, decimals);
+
+    let price_data = match read_price_data_uncached(env, &config.contract, &config.feed_id) {
+        Some(data) => data,
+        _ => panic_with_error!(env, GenericError::InvalidTicker),
+    };
+    validate_redstone_feed(env, &price_data, config.max_stale_seconds, decimals);
+
+    RedStoneSourceConfig {
+        contract: config.contract.clone(),
+        feed_id: config.feed_id.clone(),
+        decimals,
+        max_stale_seconds: config.max_stale_seconds,
     }
 }
 

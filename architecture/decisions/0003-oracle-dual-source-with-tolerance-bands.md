@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-05
-- Revised: 2026-07-02
+- Revised: 2026-07-10
 - Deciders: XOXNO Lending contract team
 - Supersedes: none
 
@@ -17,7 +17,9 @@
 > further: the two-tier `first`/`last` band and its policy-gated
 > degradation path were replaced by a single band with a binary outcome,
 > and oracle listing-time validation moved from the controller into
-> governance. See Revisions for the full change record and
+> governance. The 2026-07-10 revision added a third provider variant,
+> **Xoxno** (the first-party `xoxno-oracle-adapter`, RedStone wire shape,
+> listing-time-probed decimals). See Revisions for the full change record and
 > `SCF_BUILD_ARCHITECTURE.md` §9 (Oracle Model) for the matching reference description.
 
 ## Context
@@ -27,12 +29,16 @@ operation: borrow, withdraw with debt, liquidation, and account-threshold
 migration. A stale, wrong, or manipulated single price source can create bad debt
 or wrongful liquidations.
 
-On Soroban the protocol can price an asset through two independent providers:
+On Soroban the protocol can price an asset through independent providers:
 
 - **Reflector** (SEP-40): CEX-aggregated and DEX-derived feeds, queried as
   spot or as a TWAP over a requested record count.
 - **RedStone** (price-feed): a pull-based feed identified by a `feed_id`,
   carrying its own staleness bound and dual publish/write timestamps.
+- **Xoxno** (`contracts/xoxno-oracle-adapter`): the first-party adapter,
+  serving the same RedStone price-feed wire shape but backed by a
+  protocol-operated N-of-M signer set — an independent trust root next to
+  both external providers.
 
 Two practical risks dominate:
 
@@ -50,22 +56,26 @@ declares a `MarketOracleConfig` (`common/src/types/oracle.rs`) with a
 `strategy`, a `primary` source, and an optional `anchor` source.
 
 **Two sources across two providers.** A source is an
-`OracleSourceConfig::Reflector(..)` or `OracleSourceConfig::RedStone(..)`
-(`OracleProviderKind::{ReflectorSep40, RedStonePriceFeed}`). A Reflector source
-reads `Spot` or `Twap(records)` (`OracleReadMode`); RedStone reads spot.
-`validate_oracle_config_shape` (`contracts/governance/src/validate/oracle_config.rs`)
-enforces two diversity rules on a `PrimaryWithAnchor` pair:
+`OracleSourceConfig::Reflector(..)`, `OracleSourceConfig::RedStone(..)`, or
+`OracleSourceConfig::Xoxno(..)`
+(`OracleProviderKind::{ReflectorSep40, RedStonePriceFeed, XoxnoPriceFeed}`). A
+Reflector source reads `Spot` or `Twap(records)` (`OracleReadMode`); RedStone
+and Xoxno read spot. `validate_oracle_config_shape`
+(`contracts/governance/src/validate/oracle_config.rs`)
+enforces three diversity rules on a `PrimaryWithAnchor` pair:
 
 1. **Different feeds.** Primary and anchor must not read the same feed (else
    `GenericError::InvalidExchangeSrc`), compared by feed identity via
    `OracleSourceConfigInput::reads_same_feed_as`: for Reflector the contract,
-   asset, and read mode; for RedStone the contract and feed id, ignoring
-   policy-only fields such as RedStone `max_stale_seconds`. The validator
-   rejects two RedStone configs on the same contract and feed even when only
-   their staleness bounds differ.
+   asset, and read mode; for RedStone/Xoxno the contract and feed id, ignoring
+   policy-only fields such as `max_stale_seconds`. RedStone and Xoxno share a
+   wire ABI, so the same `(contract, feed_id)` pair counts as the same feed
+   even across the two variant names; the validator likewise rejects two
+   configs on the same contract and feed when only their staleness bounds
+   differ.
 2. **Different providers (production).** In non-`testing` builds the primary and
-   anchor must come from *different* providers: one Reflector, one RedStone
-   (else `GenericError::InvalidExchangeSrc`). This places the two sources behind
+   anchor must come from *different* providers (else
+   `GenericError::InvalidExchangeSrc`). This places the two sources behind
    independent trust boundaries: a single provider's failure (bad feed,
    signer/contract compromise, feed-mapping error) moves only one side, so the
    deviation check trips instead of both prices sliding together. A same-provider
@@ -73,9 +83,14 @@ enforces two diversity rules on a `PrimaryWithAnchor` pair:
    invalid as a production `PrimaryWithAnchor`; temporal-only diversity
    is available instead through `Single` + Reflector TWAP (which carries no
    cross-check).
+3. **Different contracts (production).** The primary and anchor must not share
+   a contract address, regardless of variant. The Xoxno adapter serves both the
+   RedStone and the SEP-40 wire ABI, so without this guard one adapter could be
+   listed once as a Reflector-shaped source and once as a Xoxno source — two
+   variant names, one aggregation state, no real second opinion.
 
-Markets still choose the specific Reflector and RedStone feeds and which one is
-primary; operators must also choose economically independent feeds, not distinct
+Markets still choose the specific provider feeds and which one is primary;
+operators must also choose economically independent feeds, not distinct
 providers alone.
 
 **Two validation strategies.** Configured per market by
@@ -83,15 +98,18 @@ providers alone.
 
 - `PrimaryWithAnchor`: read both sources and cross-check them against the
   market's tolerance band. An anchor is required, and in production the
-  primary/anchor pair must cross providers (one Reflector, one RedStone); see
-  the two diversity rules above.
-- `Single`: use the primary source without a cross-check. In
-  non-`testing` builds a `Single` market's primary must carry temporal
-  diversity, so only a Reflector `Twap` primary is accepted; a Reflector
-  `Spot` primary or any RedStone primary (RedStone reads spot) is
-  rejected at listing time (`GenericError::SpotOnlyNotProductionSafe`). A
-  RedStone source must therefore be used under `PrimaryWithAnchor` (paired with
-  an anchor) in production.
+  primary/anchor pair must cross providers and contracts; see the diversity
+  rules above. Since only Reflector offers a non-spot read, a production
+  anchored market is always a Reflector `Twap` primary with a RedStone or
+  Xoxno anchor.
+- `Single`: use the primary source without a cross-check. Any source shape
+  qualifies, spot included: the read-mode-independent defense is the sanity
+  band, which `validate_single_source_sanity_band`
+  (`common/src/validation.rs`) caps at
+  `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` (±10% midpoint-relative) for `Single`
+  markets only. `GenericError::SpotOnlyNotProductionSafe` guards the
+  *anchored* path instead: a production `PrimaryWithAnchor` market rejects a
+  spot primary, so a RedStone or Xoxno source can only ever be its anchor.
 
 **A single tolerance band; binary outcome.** Each market stores one
 `OraclePriceFluctuation { upper_ratio_bps, lower_ratio_bps }`
@@ -146,29 +164,34 @@ persists the config. The validation path
 (`contracts/governance/src/validate/{oracle_config.rs, oracle_probe.rs, tolerance.rs}`)
 covers: strategy/anchor coherence (`PrimaryWithAnchor` ⇔ an anchor is configured);
 primary/anchor diversity: different feeds, and in production different
-providers (`GenericError::InvalidExchangeSrc`); the production
-naked-spot-`Single` rejection (a `Single` primary that reads spot: Reflector
-`Spot` or any RedStone); token decimals fetched from the token contract;
-staleness and sanity bounds; and, per source, a live feed read plus
+providers and different contracts (`GenericError::InvalidExchangeSrc`); the
+production spot-primary rejection for anchored markets
+(`SpotOnlyNotProductionSafe`) and the `Single` sanity-band cap
+(`validate_single_source_sanity_band`); token decimals fetched from the token
+contract; staleness and sanity bounds; and, per source, a live feed read plus
 provider-specific checks. For a Reflector source: `base() == USD`
 (`InvalidOracleBase`), oracle decimals in `[1, 18]` (`InvalidOracleDecimals`),
 resolution in `[MIN_ORACLE_RESOLUTION_SECONDS, max_stale]`
 (`InvalidOracleResolution`), a live `lastprice`, and, for a TWAP read, at
 most `MAX_TWAP_RECORDS` (12) records with sufficient non-empty history
 (`TwapInsufficientObservations`, `ReflectorHistoryEmpty`). For a RedStone
-source: a per-source staleness bound, fixed `REDSTONE_DECIMALS`, and a live
-`read_price_data` validated on both its package and write timestamps.
+source: a per-source staleness bound, fixed `REDSTONE_DECIMALS` (the canonical
+adapter exposes no `decimals()` entrypoint), and a live `read_price_data`
+validated on both its package and write timestamps. For a Xoxno source: the
+same feed probe as RedStone, except decimals are read live from the adapter's
+SEP-40 `decimals()` at listing time and stored in the resolved config.
 `AdminOperation::EditOracleTolerance` only re-validates the tolerance input
 (`validate_and_calculate_tolerances`) and schedules the rewritten band; it
 does not re-probe the configured sources.
 
 ## Alternatives Considered
 
-- **Single CEX spot price.** Rejected: no manipulation defense; a single
-  manipulated tick can trigger a liquidation or under-collateralized
-  borrow. Production markets cannot run a naked-spot `Single` source: a
-  `Single` primary must be a Reflector TWAP, and RedStone (spot) must be
-  paired with an anchor.
+- **Single CEX spot price with an unbounded band.** Rejected: no manipulation
+  defense; a single manipulated tick can trigger a liquidation or
+  under-collateralized borrow. A production `Single` market may read spot, but
+  only inside a sanity band capped at ±10%
+  (`validate_single_source_sanity_band`), which bounds how far any one feed
+  can move the price; wider bands require `PrimaryWithAnchor`.
 - **TWAP-only.** Rejected: TWAP lags real moves and exposes the protocol
   to predictable arbitrage during fast price drops; users cannot react to
   threshold migrations either. TWAP remains available as a Reflector read
@@ -177,7 +200,7 @@ does not re-probe the configured sources.
   strategies).** Rejected: baking specific source roles into named strategy
   enums removed per-market feed choice and assumed a single provider. The
   generic `primary`/`anchor` model is kept instead: each market picks its own
-  Reflector and RedStone feeds and which one is primary, with one production
+  provider feeds and which one is primary, with one production
   constraint layered on top: the pair must cross providers (above), so the
   cross-check spans two independent trust boundaries rather than one.
 - **Two-tier tolerance band with policy-gated degradation (the 2026-06-02
@@ -231,6 +254,28 @@ Negative / accepted costs:
   independent feeds and a conservative band remains an operator responsibility.
 
 ## Revisions
+
+### 2026-07-10: Third provider variant — Xoxno (first-party adapter, probed decimals)
+
+- `OracleSourceConfig{,Input}` gained a `Xoxno` variant
+  (`OracleProviderKind::XoxnoPriceFeed`), carrying the same
+  `RedStoneSourceConfig{,Input}` wire shape: the `xoxno-oracle-adapter`
+  implements the `RedStoneMultiFeed` ABI, so the read path, transaction cache,
+  and bulk prefetch are shared with RedStone. Only the provider *identity*
+  differs — the adapter's trust root is a protocol-operated N-of-M signer set,
+  independent of both Reflector and RedStone, so the production
+  different-providers rule now accepts a Reflector-TWAP primary with a Xoxno
+  anchor. Previously the adapter had to be listed under the `RedStone` variant
+  and could never be paired with a real RedStone feed.
+- Listing-time decimals: a Xoxno source probes the adapter's SEP-40
+  `decimals()` (`reflector_decimals_call`) and stores the result, instead of
+  assuming `REDSTONE_DECIMALS`; the RedStone variant keeps the constant since
+  the canonical RedStone adapter has no `decimals()` entrypoint.
+- Two new diversity guards close the dual-ABI hole: `reads_same_feed_as`
+  treats a RedStone and a Xoxno source with equal `(contract, feed_id)` as the
+  same feed, and a production `PrimaryWithAnchor` pair must not share a
+  contract address across any two variants (one adapter listed under two
+  variant names is one aggregation state).
 
 ### 2026-06-02: Generalized from the `ExchangeSource` model to the `OracleStrategy` model with Reflector + RedStone
 

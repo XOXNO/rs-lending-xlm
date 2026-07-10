@@ -144,11 +144,14 @@ parity) and is also run automatically before any `setup`/`resume`/`setupAll*`.
 
 ### Oracle rules (must hold or `set_market_oracle_config` reverts)
 
-- **Production strategy requires a non-spot primary.** RedStone is always spot,
-  so it can never be the primary; only **Reflector with `read_mode = Twap`**
-  qualifies. For `PrimaryWithAnchor`, the primary is Reflector-TWAP and the
-  anchor is a **different** provider (RedStone). A spot-only primary fails with
-  `SpotOnlyNotProductionSafe (#38)`.
+- **Anchored markets require a non-spot primary.** RedStone and the XOXNO
+  adapter are always spot, so neither can be the primary; only **Reflector
+  with `read_mode = Twap`** qualifies. For `PrimaryWithAnchor`, the primary is
+  Reflector-TWAP and the anchor is a **different** provider (RedStone or
+  XOXNO) on a **different contract**. A spot primary on an anchored market
+  fails with `SpotOnlyNotProductionSafe (#38)`. `Single` markets may read
+  spot, but their sanity band is capped at ±10%
+  (`SanityBandTooWideForSingleSource`).
 - The oracle proposer **live-probes feeds at schedule time**, so the quote market
   must already exist on-chain before configuring an oracle that references it.
 - `max_utilization_ray` is required in `market_params` (optimal < max ≤ RAY).

@@ -36,7 +36,7 @@ pub fn price_with_config(
     // Reject the `MarketOracleConfig::pending_for` self-pointer sentinel.
     let primary_contract = match &config.primary {
         OracleSourceConfig::Reflector(r) => &r.contract,
-        OracleSourceConfig::RedStone(r) => &r.contract,
+        OracleSourceConfig::RedStone(r) | OracleSourceConfig::Xoxno(r) => &r.contract,
     };
     assert_with_error!(
         cache.env(),

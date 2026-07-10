@@ -74,7 +74,9 @@ fn collect_redstone_feed(
     seen: &mut Map<(Address, String), bool>,
     source: &common::types::OracleSourceConfig,
 ) {
-    let common::types::OracleSourceConfig::RedStone(r) = source else {
+    let (common::types::OracleSourceConfig::RedStone(r)
+    | common::types::OracleSourceConfig::Xoxno(r)) = source
+    else {
         return;
     };
     if cache

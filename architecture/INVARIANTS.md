@@ -293,8 +293,11 @@ For each active market:
 - per-source decimals come from the configured oracle source
 - Reflector decimals fall in `[1, 18]`
 - RedStone decimals are fixed
+- Xoxno decimals are probed from the adapter's SEP-40 `decimals()` at listing
 - `PrimaryWithAnchor` requires an anchor source
 - `primary != anchor`
+- in production, primary and anchor come from different providers and never
+  share a contract address (the dual-ABI Xoxno adapter cannot back both legs)
 - required feeds resolve during configuration
 - Reflector `Twap` sources require `twap_records <= 12`
 - stale-price windows stay in `[60, 86_400]` seconds

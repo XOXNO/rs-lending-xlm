@@ -40,7 +40,7 @@ pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfi
     {
         let primary_is_spot = match &config.primary {
             OracleSourceConfigInput::Reflector(r) => matches!(r.read_mode, OracleReadMode::Spot),
-            OracleSourceConfigInput::RedStone(_) => true,
+            OracleSourceConfigInput::RedStone(_) | OracleSourceConfigInput::Xoxno(_) => true,
         };
 
         // Production anchored markets require a non-spot primary.
@@ -58,9 +58,16 @@ pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfi
                     ) | (
                         OracleSourceConfigInput::RedStone(_),
                         OracleSourceConfigInput::RedStone(_)
+                    ) | (
+                        OracleSourceConfigInput::Xoxno(_),
+                        OracleSourceConfigInput::Xoxno(_)
                     )
                 );
                 if same_provider {
+                    panic_with_error!(env, GenericError::InvalidExchangeSrc);
+                }
+                // The dual-ABI XOXNO adapter must not back both legs.
+                if config.primary.contract() == anchor.contract() {
                     panic_with_error!(env, GenericError::InvalidExchangeSrc);
                 }
             }
