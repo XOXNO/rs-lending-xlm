@@ -365,9 +365,7 @@ fn test_third_party_supply_cannot_force_low_threshold_update() {
     );
 }
 
-// --- coverage_gap ---
-
-// PR-6: bulk supply dedupes duplicate assets in one payment vector.
+// Bulk supply dedupes duplicate assets in one payment vector.
 #[test]
 fn test_bulk_supply_duplicate_asset_counts_once() {
     let mut t = LendingTest::new()

@@ -13,6 +13,7 @@ use test_harness::{
 #[test]
 fn test_upgrade_pool_admin_path() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
+    let reserves_before = t.pool_reserves("USDC");
 
     // Read the template hash that build() set on the controller.
     let template_hash: BytesN<32> = t.env.as_contract(&t.controller_address(), || {
@@ -26,6 +27,7 @@ fn test_upgrade_pool_admin_path() {
     // Drive the admin-gated upgrade entry point with the controller's own
     // template hash, producing a no-op upgrade without altering pool behavior.
     t.ctrl_client().upgrade_pool(&template_hash);
+    assert_eq!(t.pool_reserves("USDC"), reserves_before);
 }
 
 // 2. TemplateNotSet -- deploy_pool must panic with

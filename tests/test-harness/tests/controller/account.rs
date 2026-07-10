@@ -74,10 +74,7 @@ fn test_remove_rejects_with_positions() {
     t.supply(ALICE, "USDC", 1_000.0);
 
     let result = t.try_remove_account(ALICE);
-    assert!(
-        result.is_err(),
-        "remove should fail when account has positions"
-    );
+    assert_contract_error(result, errors::POSITION_NOT_FOUND);
 }
 // 7. test_multiple_accounts_per_user
 
@@ -162,11 +159,11 @@ fn test_account_owner_verified() {
 
     let ctrl = t.ctrl_client();
     let withdrawals = soroban_sdk::vec![&t.env, (hub_asset(usdc_addr), 10_000_000_000i128)];
-    let result = ctrl.try_withdraw(&bob_addr, &alice_account_id, &withdrawals, &None);
-    assert!(
-        result.is_err() || result.unwrap().is_err(),
-        "BOB should not be able to withdraw from ALICE's account"
-    );
+    let result = match ctrl.try_withdraw(&bob_addr, &alice_account_id, &withdrawals, &None) {
+        Ok(res) => res.map(|_| ()).map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(result, errors::NOT_AUTHORIZED);
 }
 
 #[test]

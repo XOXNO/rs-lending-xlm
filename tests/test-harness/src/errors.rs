@@ -103,6 +103,10 @@ pub mod codes {
     // when a caller lacks a timelock role (PROPOSER/EXECUTOR/CANCELLER).
     pub const UNAUTHORIZED: u32 = 2000;
 
+    // Stellar Access role transfer (not in common::errors): raised when an
+    // ownership/admin transfer has no pending candidate to accept.
+    pub const NO_PENDING_TRANSFER: u32 = 2200;
+
     // Legacy aliases kept for existing tests (variant removed or renumbered in common)
     pub const REFLECTOR_NOT_CONFIGURED: u32 = 215;
     pub const SWAP_DEBT_NOT_SUPPORTED: u32 = 406;

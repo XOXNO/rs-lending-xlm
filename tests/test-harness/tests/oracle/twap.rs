@@ -58,12 +58,7 @@ fn test_twap_invalid_price_blocks_strict_borrow() {
 
     t.supply(ALICE, "USDC", 100_000.0);
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    // The reader emits `OracleError::InvalidPrice` via the
-    // `has_invalid_price` branch.
-    assert!(
-        result.is_err(),
-        "borrow should fail when a TWAP entry has non-positive price"
-    );
+    assert_contract_error(result, errors::INVALID_PRICE);
 }
 
 // Mode 5: oldest TWAP timestamp is far in the past → the staleness check
@@ -77,10 +72,7 @@ fn test_twap_stale_history_blocks_strict_borrow() {
 
     t.supply(ALICE, "USDC", 100_000.0);
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert!(
-        result.is_err(),
-        "borrow should fail when TWAP window contains a stale timestamp"
-    );
+    assert_contract_error(result, errors::PRICE_FEED_STALE);
 }
 
 // Fail-closed: there is no degraded fallback and no `twap_degraded` event.
@@ -156,7 +148,7 @@ fn test_twap_zero_records_reverts_on_view() {
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
-// PR-5: `records > MAX_TWAP_RECORDS` hits the guard in `read_twap` (twap.rs:38-41).
+// TWAP requests above the protocol record cap are rejected.
 #[test]
 #[should_panic(expected = "Error(Contract, #204)")]
 fn test_twap_records_above_max_rejects_on_view() {

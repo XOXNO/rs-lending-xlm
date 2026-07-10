@@ -89,8 +89,8 @@ fn budget_withdraw_with_debt_hf_check() {
 
 /// Mirrors testnet account 3 (5 collateral positions + 1 debt that overlaps a
 /// collateral). `withdraw` runs the SAME double-pass valuation
-/// (`require_within_ltv` → `require_healthy_account`, withdraw.rs:76-77) that
-/// `strategy_finalize` runs — so this measures, with no router/oracle-reset
+/// (`require_within_ltv` → `require_healthy_account`) that `strategy_finalize`
+/// runs — so this measures, with no router/oracle-reset
 /// noise, the cost the repay-on-account-3 budget failure is dominated by.
 /// Compare against the fused-valuation variant to read the savings.
 #[test]

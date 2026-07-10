@@ -44,7 +44,7 @@ fn test_borrow_at_max_utilization_succeeds() {
     t.borrow(BOB, "USDC", 850.0);
 }
 
-// Regression for Codex re-pass #1: the cap must use index-aware utilization
+// The cap must use index-aware utilization
 // (`borrowed * borrow_index / (supplied * supply_index)`), not the scaled
 // ratio. After time passes, borrow_index grows faster than supply_index
 // (the reserve factor diverts a slice of interest to revenue rather than
