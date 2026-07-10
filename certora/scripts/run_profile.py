@@ -84,17 +84,17 @@ def main() -> int:
     if "--no-key-check" in extra_args:
         args.no_key_check = True
         extra_args = [arg for arg in extra_args if arg != "--no-key-check"]
+    if "--local" in extra_args:
+        args.local = True
+        extra_args = [arg for arg in extra_args if arg != "--local"]
+    if args.local:
+        args.no_key_check = True  # local runs never touch the cloud
     if extra_args and extra_args[0] == "--":
         extra_args = extra_args[1:]
 
     commands = expand_profile(profiles, args.profile)
     if not args.no_key_check and not args.dry_run and not os.environ.get("CERTORAKEY"):
         raise SystemExit("error: CERTORAKEY is not set")
-    if "--local" in extra_args:
-        args.local = True
-        extra_args = [arg for arg in extra_args if arg != "--local"]
-    if args.local:
-        args.no_key_check = True  # local runs never touch the cloud
     binary = "certoraSorobanLocal" if args.local else "certoraSorobanProver"
     if not args.dry_run and shutil.which(binary) is None:
         raise SystemExit(f"error: {binary} is not installed or not on PATH")
