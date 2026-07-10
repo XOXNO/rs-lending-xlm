@@ -42,7 +42,12 @@ impl Controller {
         validation::require_not_flash_loaning(&env);
 
         let mut cache = Cache::new(&env);
-        sync_market_indexes(&env, &mut cache, &assets);
+        let pool_addr = cache.cached_pool_address();
+        for hub_asset in assets {
+            // The pool owns the authoritative market record and reverts
+            // `PoolNotInitialized` for an uncreated market.
+            pool_update_indexes_call(&env, &pool_addr, &hub_asset);
+        }
     }
 
     /// Extends the account's storage TTL. Callable by the account owner.
@@ -182,7 +187,13 @@ impl Controller {
     pub fn claim_revenue(env: Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
         caller.require_auth();
         validation::require_not_flash_loaning(&env);
-        claim_revenue(&env, assets)
+        let mut results = Vec::new(&env);
+        let mut cache = Cache::new(&env);
+        for hub_asset in assets {
+            let amount = claim_revenue_for_asset_with_cache(&env, &hub_asset, &mut cache);
+            results.push_back(amount);
+        }
+        results
     }
 
     /// Transfers external supply rewards into one or more markets, raising each
@@ -200,9 +211,11 @@ impl Controller {
     #[when_not_paused]
     pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(HubAssetKey, i128)>) {
         caller.require_auth();
-        // Instance TTL is renewed by `Cache::new` inside `add_rewards_batch`.
         validation::require_not_flash_loaning(&env);
-        add_rewards_batch(&env, &caller, rewards);
+        let mut cache = Cache::new(&env);
+        for (hub_asset, amount) in rewards {
+            add_reward(&env, &caller, &hub_asset, amount, &mut cache);
+        }
     }
 
     /// Propagates current spoke risk params onto each account's supply
@@ -241,16 +254,6 @@ impl Controller {
     }
 }
 
-/// Accrues pool indexes for each listed hub-asset market.
-// Pool sync results become the canonical market-state batch for indexers.
-fn sync_market_indexes(env: &Env, cache: &mut Cache, hub_assets: &Vec<HubAssetKey>) {
-    let pool_addr = cache.cached_pool_address();
-    for hub_asset in hub_assets {
-        // The pool owns the authoritative market record: `update_indexes`
-        // reverts `PoolNotInitialized` for an uncreated (hub, asset).
-        pool_update_indexes_call(env, &pool_addr, &hub_asset);
-    }
-}
 /// Accrues pool indexes before replacing the market's interest-rate model.
 pub fn upgrade_liquidity_pool_params(
     env: &Env,
@@ -258,7 +261,6 @@ pub fn upgrade_liquidity_pool_params(
     params: &InterestRateModel,
 ) {
     let mut cache = Cache::new(env);
-    storage::renew_controller_instance(env);
 
     let pool_addr = cache.cached_pool_address();
 
@@ -310,20 +312,6 @@ fn claim_revenue_for_asset_with_cache(
     amount
 }
 
-/// Claims protocol revenue per market and forwards SAC balances to the accumulator.
-pub fn claim_revenue(
-    env: &Env,
-    hub_assets: soroban_sdk::Vec<HubAssetKey>,
-) -> soroban_sdk::Vec<i128> {
-    let mut results = soroban_sdk::Vec::new(env);
-    let mut cache = Cache::new(env);
-    for hub_asset in hub_assets.iter() {
-        let amount = claim_revenue_for_asset_with_cache(env, &hub_asset, &mut cache);
-        results.push_back(amount);
-    }
-    results
-}
-
 /// Transfers rewards into a pool and increases the supply index for suppliers.
 pub fn add_reward(
     env: &Env,
@@ -349,13 +337,6 @@ pub fn add_reward(
     pool_add_rewards_call(env, &pool_addr, hub_asset, amount);
 }
 
-/// Transfers and applies each reward leg through a shared cache.
-pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(HubAssetKey, i128)>) {
-    let mut cache = Cache::new(env);
-    for (hub_asset, amount) in rewards.iter() {
-        add_reward(env, caller, &hub_asset, amount, &mut cache);
-    }
-}
 /// Syncs risk params on each supply position for one account, then runs a
 /// single HF gate when `has_risks` propagates liquidation thresholds.
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
