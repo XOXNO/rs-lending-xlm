@@ -364,10 +364,9 @@ impl LiquidityPoolInterface for LiquidityPool {
         renew_pool_instance(&env);
         params.verify(&env);
 
-        let asset = params.asset_id.clone();
         let hub_asset = HubAssetKey {
             hub_id,
-            asset: asset.clone(),
+            asset: params.asset_id.clone(),
         };
         assert_with_error!(
             &env,
@@ -395,7 +394,7 @@ impl LiquidityPoolInterface for LiquidityPool {
             .set(&PoolKey::State(hub_asset.clone()), &state);
 
         renew_market_keys(&env, &hub_asset);
-        events::publish_market_params(&env, hub_asset.hub_id, asset, params);
+        events::publish_market_params(&env, hub_id, hub_asset.asset, params);
     }
 
     /// Credits each supply entry as scaled shares and returns the input-ordered
