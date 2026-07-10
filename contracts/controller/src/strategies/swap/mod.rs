@@ -2,7 +2,7 @@
 
 use common::errors::GenericError;
 use common::types::StrategySwap;
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 mod auth;
 mod balances;
@@ -50,6 +50,24 @@ pub(crate) fn swap_tokens(
     );
 
     balances::verify_router_output(env, &token_out_client, balance_before.token_out)
+}
+
+/// Returns `amount_in` unchanged for the same token, rejecting an unused route;
+/// otherwise executes the guarded router swap.
+pub(crate) fn swap_tokens_or_passthrough(
+    env: &Env,
+    refund_to: &Address,
+    token_in: &Address,
+    amount_in: i128,
+    token_out: &Address,
+    swap: &StrategySwap,
+) -> i128 {
+    if token_in == token_out {
+        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
+        amount_in
+    } else {
+        swap_tokens(env, refund_to, token_in, amount_in, token_out, swap)
+    }
 }
 
 /// Token balance the controller gained since `balance_before`; may be

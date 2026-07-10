@@ -2,15 +2,16 @@
 
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, AccountPosition, AccountPositionType, HubAssetKey, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
+use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::account;
 use crate::context::Cache;
 use crate::events;
+use crate::positions::get_supply_position_or_panic;
 use crate::strategies::{
-    prefetch_strategy_oracles, strategy_finalize, swap_tokens, withdraw_collateral_to_controller,
-    StrategyWithdraw,
+    prefetch_strategy_oracles, strategy_finalize, swap_tokens_or_passthrough,
+    withdraw_collateral_to_controller, StrategyWithdraw,
 };
 use crate::{
     positions::supply, risk::validation, spoke, storage, Controller, ControllerArgs,
@@ -84,11 +85,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     let extra_assets = soroban_sdk::vec![env, current.asset.clone(), new.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
-    let current_pos: AccountPosition = (&account
-        .supply_positions
-        .get(current.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound)))
-        .into();
+    let current_pos: AccountPosition = get_supply_position_or_panic(env, &account, current);
 
     // D{current_collateral.decimals}{Token(current_collateral)} withdrawal request to balance delta.
     let actual_withdrawn = withdraw_collateral_to_controller(
@@ -105,20 +102,14 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
 
     // D{current_collateral.decimals}{Token(current_collateral)} -> Token(new_collateral),
     // unless same asset (cross-hub migration needs no swap).
-    let swapped_amount = if current.asset == new.asset {
-        // Same-asset migration must not carry a route; a payload here would be silently ignored.
-        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
-        actual_withdrawn
-    } else {
-        swap_tokens(
-            env,
-            caller,
-            &current.asset,
-            actual_withdrawn,
-            &new.asset,
-            swap,
-        )
-    };
+    let swapped_amount = swap_tokens_or_passthrough(
+        env,
+        caller,
+        &current.asset,
+        actual_withdrawn,
+        &new.asset,
+        swap,
+    );
 
     // D{new_collateral.decimals}{Token(new_collateral)} deposited as replacement collateral.
     let deposit_assets = soroban_sdk::vec![env, (new.clone(), swapped_amount)];

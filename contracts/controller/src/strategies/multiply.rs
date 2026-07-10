@@ -12,6 +12,7 @@ use crate::context::Cache;
 use crate::spoke;
 use crate::strategies::{
     borrow_for_strategy, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
+    swap_tokens_or_passthrough,
 };
 use crate::{positions::supply, risk::validation, Controller, ControllerArgs, ControllerClient};
 
@@ -105,20 +106,14 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
 
     // D{debt_token.decimals}{Token(debt_token)} -> D{collateral_token.decimals}{Token(collateral_token)},
     // unless same asset (cross-hub carry trade needs no swap).
-    let swapped_collateral = if debt.asset == collateral.asset {
-        // Same-asset carry trade must not carry a route; a payload here would be silently ignored.
-        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
-        swap_amount_in
-    } else {
-        swap_tokens(
-            env,
-            caller,
-            &debt.asset,
-            swap_amount_in,
-            &collateral.asset,
-            swap,
-        )
-    };
+    let swapped_collateral = swap_tokens_or_passthrough(
+        env,
+        caller,
+        &debt.asset,
+        swap_amount_in,
+        &collateral.asset,
+        swap,
+    );
 
     // D{collateral_token.decimals}{Token(collateral_token)} direct plus swapped collateral.
     let total_collateral = collateral_amount

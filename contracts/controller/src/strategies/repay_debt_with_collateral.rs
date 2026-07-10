@@ -1,17 +1,18 @@
 //! Repays debt by withdrawing and swapping collateral.
 
 use common::errors::{CollateralError, GenericError};
-use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
+use common::types::{Account, HubAssetKey, StrategySwap};
+use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::account;
 use crate::context::Cache;
 use crate::events;
+use crate::positions::{get_debt_position_or_panic, get_supply_position_or_panic};
 use crate::strategies::{
     execute_withdraw_all, net_settle_collateral_against_debt, prefetch_strategy_oracles,
-    repay_debt_from_controller, strategy_finalize, swap_tokens, withdraw_collateral_to_controller,
-    StrategyRepay, StrategyWithdraw,
+    repay_debt_from_controller, strategy_finalize, swap_tokens_or_passthrough,
+    withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
@@ -100,8 +101,8 @@ pub fn process_repay_debt_with_collateral(
             events::PositionAction::RpColNet,
         );
     } else {
-        let (collateral_pos, debt_pos) =
-            load_repay_with_collateral_positions(env, &account, collateral, debt);
+        let collateral_pos = get_supply_position_or_panic(env, &account, collateral);
+        let debt_pos = get_debt_position_or_panic(env, &account, debt);
 
         // D{collateral_token.decimals}{Token(collateral_token)} requested withdrawal to live balance delta.
         let actual_withdrawn = withdraw_collateral_to_controller(
@@ -117,8 +118,14 @@ pub fn process_repay_debt_with_collateral(
         );
 
         // D{collateral_token.decimals}{Token(collateral_token)} -> Token(debt_token), unless same asset.
-        let debt_available =
-            swap_or_net_collateral_to_debt(env, caller, collateral, debt, actual_withdrawn, swap);
+        let debt_available = swap_tokens_or_passthrough(
+            env,
+            caller,
+            &collateral.asset,
+            actual_withdrawn,
+            &debt.asset,
+            swap,
+        );
         repay_debt_from_controller(
             env,
             &mut account,
@@ -136,51 +143,6 @@ pub fn process_repay_debt_with_collateral(
     close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
-}
-
-/// Loads the collateral and debt positions, trapping if either is absent.
-fn load_repay_with_collateral_positions(
-    env: &Env,
-    account: &Account,
-    collateral: &HubAssetKey,
-    debt: &HubAssetKey,
-) -> (AccountPosition, DebtPosition) {
-    let collateral_pos = account
-        .supply_positions
-        .get(collateral.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound));
-    let debt_pos = account
-        .borrow_positions
-        .get(debt.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound));
-
-    ((&collateral_pos).into(), (&debt_pos).into())
-}
-
-/// Returns the collateral unchanged for a same-asset repay, otherwise swaps it to the debt token.
-fn swap_or_net_collateral_to_debt(
-    env: &Env,
-    caller: &Address,
-    collateral: &HubAssetKey,
-    debt: &HubAssetKey,
-    collateral_amount: i128,
-    swap: &StrategySwap,
-) -> i128 {
-    if collateral.asset == debt.asset {
-        // Same-asset netting never consults `swap`; require an empty payload so a
-        // caller-supplied route is not silently dropped.
-        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
-        return collateral_amount;
-    }
-
-    swap_tokens(
-        env,
-        caller,
-        &collateral.asset,
-        collateral_amount,
-        &debt.asset,
-        swap,
-    )
 }
 
 /// Withdraws all remaining collateral when closing, requiring no debt remains.
