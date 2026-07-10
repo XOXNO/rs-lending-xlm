@@ -55,14 +55,10 @@ pub fn aggregate_payments(
     let mut totals: Map<HubAssetKey, i128> = Map::new(env);
 
     for (hub_asset, amount) in payments {
-        let next = aggregate_payment_amount(
-            env,
-            totals.get(hub_asset.clone()),
-            amount,
-            zero_is_withdraw_all,
-        );
+        let previous = totals.get(hub_asset.clone());
+        let next = aggregate_payment_amount(env, previous, amount, zero_is_withdraw_all);
 
-        if !totals.contains_key(hub_asset.clone()) {
+        if previous.is_none() {
             order.push_back(hub_asset.clone());
         }
         totals.set(hub_asset, next);

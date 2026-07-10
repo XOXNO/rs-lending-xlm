@@ -23,7 +23,7 @@ pub use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collatera
 use crate::context::Cache;
 use crate::oracle::{price_components, token_price};
 use crate::positions::{liquidation::execute_liquidation, HubPayment};
-use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
+use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
 /// Rejects a view request whose input vector exceeds `MAX_VIEW_INPUTS`.
 fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
@@ -260,9 +260,8 @@ pub fn collateral_amount_for_hub_asset(
     account_id: u64,
     hub_asset: &HubAssetKey,
 ) -> i128 {
-    let position = match storage::try_get_supply_position(env, account_id, hub_asset) {
-        Some(position) => position,
-        None => return 0,
+    let Some(position) = storage::try_get_supply_position(env, account_id, hub_asset) else {
+        return 0;
     };
 
     let mut cache = Cache::new_view(env);
@@ -278,9 +277,8 @@ pub fn collateral_amount_for_hub_asset(
 /// Returns the account's current underlying debt for one hub-asset; `0` when no
 /// such debt position exists.
 pub fn borrow_amount_for_hub_asset(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
-    let position = match storage::try_get_debt_position(env, account_id, hub_asset) {
-        Some(position) => position,
-        None => return 0,
+    let Some(position) = storage::try_get_debt_position(env, account_id, hub_asset) else {
+        return 0;
     };
 
     let mut cache = Cache::new_view(env);
@@ -325,9 +323,8 @@ pub fn get_account_attributes(env: &Env, account_id: u64) -> AccountAttributes {
 /// Returns the account's liquidation-threshold weighted collateral in USD WAD;
 /// `0` for a missing account.
 pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
-    let account = match storage::try_get_account(env, account_id) {
-        Some(account) => account,
-        None => return 0,
+    let Some(account) = storage::try_get_account(env, account_id) else {
+        return 0;
     };
     let mut cache = Cache::new_view(env);
     // dimensional: return is Wad<USD> raw (1e18) liquidation collateral.
@@ -356,8 +353,7 @@ pub fn get_all_markets_detailed(
     let mut cache = Cache::new_view(env);
     let mut result = Vec::new(env);
 
-    for i in 0..hub_assets.len() {
-        let hub_asset = validation::expect_invariant(env, hub_assets.get(i));
+    for hub_asset in hub_assets.iter() {
         // Pool address is resolved per-row, so the view is safe on empty input.
         // `token_price` panics `OracleNotConfigured` for an unpriced asset.
         let pool_address = cache.cached_pool_address();
@@ -383,8 +379,7 @@ pub fn get_all_market_indexes_detailed(
     cache.prefetch_market_indexes(hub_assets);
     let mut result = Vec::new(env);
 
-    for i in 0..hub_assets.len() {
-        let hub_asset = validation::expect_invariant(env, hub_assets.get(i));
+    for hub_asset in hub_assets.iter() {
         let index = cache.cached_market_index(&hub_asset);
         let components = price_components(&mut cache, &hub_asset);
         let (safe_price_wad, aggregator_price_wad) = components.to_abi_prices();
@@ -417,8 +412,7 @@ pub fn liquidation_estimations_detailed(
 
     let mut seized_collaterals = Vec::new(env);
     let mut protocol_fees = Vec::new(env);
-    for i in 0..result.seized.len() {
-        let entry = validation::expect_invariant(env, result.seized.get(i));
+    for entry in result.seized {
         seized_collaterals.push_back(PaymentTuple {
             asset: entry.hub_asset.asset.clone(),
             amount: entry.amount,
@@ -429,15 +423,10 @@ pub fn liquidation_estimations_detailed(
         });
     }
 
-    let mut refunds_view = Vec::new(env);
-    for i in 0..result.refunds.len() {
-        refunds_view.push_back(validation::expect_invariant(env, result.refunds.get(i)));
-    }
-
     LiquidationEstimate {
         seized_collaterals,
         protocol_fees,
-        refunds: refunds_view,
+        refunds: result.refunds,
         max_payment_wad: result.max_debt_usd,
         bonus_rate_bps: result.bonus_bps,
     }
