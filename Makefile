@@ -1019,6 +1019,34 @@ deploy-oracle-adapter: build-oracle-adapter
 	jq '.["$(NETWORK)"].xoxno_oracle_adapter = "'$$ORA'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
+## Upgrade the deployed aggregator in-place. Standalone contract (not
+## governance-owned): direct owner-gated call, no timelock — SIGNER must be
+## the current aggregator owner.
+upgrade-aggregator: build-aggregator
+	@echo "=== Upgrading aggregator on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@stellar contract upload \
+		--wasm $(DEPLOY_DIR)/aggregator.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > target/aggregator_wasm_hash.txt
+	@HASH=$$(cat target/aggregator_wasm_hash.txt); \
+	echo "New aggregator WASM hash: $$HASH"; \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeAggregatorHash $$HASH
+
+## Upgrade the deployed xoxno-oracle-adapter in-place. Standalone contract
+## (not governance-owned): direct owner-gated call, no timelock — SIGNER
+## must be the current oracle adapter owner.
+upgrade-oracle-adapter: build-oracle-adapter
+	@echo "=== Upgrading xoxno-oracle-adapter on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@stellar contract upload \
+		--wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > target/oracle_adapter_wasm_hash.txt
+	@HASH=$$(cat target/oracle_adapter_wasm_hash.txt); \
+	echo "New oracle adapter WASM hash: $$HASH"; \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeOracleAdapterHash $$HASH
+
 ## Build the flash-loan receiver test contract for network smoke testing.
 build-flash-loan-receiver:
 	@echo "Building flash-loan receiver..."
@@ -1336,7 +1364,8 @@ SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeRea
 	whitelistBlendPools approveBlendPools \
 	setAggregator setAccumulator pause unpause info \
 	getAllMarkets getAllIndexes getMinBorrowCollateralUsd getBulkIndexes \
-	claimRevenueAll deployPool updateDelay
+	claimRevenueAll deployPool updateDelay \
+	acceptAggregatorOwnership acceptOracleAdapterOwnership
 POSITIONAL_MARKET_ACTIONS := createMarket updateMarketParams \
 	configureMarketOracle \
 	editOracleTolerance \
@@ -1349,19 +1378,25 @@ POSITIONAL_ID_ACTIONS := addSpoke getSpoke createHub removeSpoke \
 	executeOp cancelOp opState awaitOp transferGovOwnership disableTokenOracle \
 	revokeBlendPool setPositionLimits setMinBorrowCollateralUsd setPositionManager \
 	transferCtrlOwnership migrateController accountExists isBlendPoolApproved \
-	addOracleSigner setOracleSubmissionAge setOracleMaxStale setSpokeLiquidationCurve
+	addOracleSigner setOracleSubmissionAge setOracleMaxStale setSpokeLiquidationCurve \
+	setAggregatorFee addAggregatorWhitelist removeAggregatorWhitelist \
+	addAggregatorReferral setAggregatorReferralFee setAggregatorReferralActive \
+	setAggregatorReferralOwner upgradeAggregatorHash upgradeOracleAdapterHash \
+	transferAggregatorOwnership transferOracleAdapterOwnership
 POSITIONAL_ID_ASSET_ACTIONS := addAssetToSpoke editAssetInSpoke removeAssetFromSpoke getSpokeAsset
 POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd \
                               getLtvUsd getLiqAvailable canLiquidate
 POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow maxWithdraw maxSupply maxBorrow
 POSITIONAL_ACCOUNT_ROLE_ACTIONS := hasRole grantGovRole revokeGovRole
 REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone
-VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidationEstimate
+VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidationEstimate \
+	claimAggregatorAdminFees sweepAggregatorBalance
 
 # Makefile-internal actions — handled directly by make targets, not forwarded
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
 MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePoolTemplate upgradePools upgradeAll \
-                    deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume
+                    deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume \
+                    upgradeAggregator upgradeOracleAdapter
 
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
                $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
@@ -1399,6 +1434,8 @@ define NETWORK_DISPATCH
 				testFlashReceiver)  $(MAKE) --no-print-directory test-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_LOAN_AMOUNT=$(FLASH_LOAN_AMOUNT) ;; \
 				deployAggregator)   $(MAKE) --no-print-directory deploy-aggregator NETWORK=$(1) SIGNER=$(SIGNER) AGGREGATOR_ADMIN=$(AGGREGATOR_ADMIN) ;; \
 				deployOracleAdapter) $(MAKE) --no-print-directory deploy-oracle-adapter NETWORK=$(1) SIGNER=$(SIGNER) ORACLE_ADAPTER_ADMIN=$(ORACLE_ADAPTER_ADMIN) ORACLE_ADAPTER_SIGNERS=$(ORACLE_ADAPTER_SIGNERS) ORACLE_ADAPTER_THRESHOLD=$(ORACLE_ADAPTER_THRESHOLD) ORACLE_ADAPTER_RESOLUTION=$(ORACLE_ADAPTER_RESOLUTION) ;; \
+				upgradeAggregator)  $(MAKE) --no-print-directory upgrade-aggregator NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				upgradeOracleAdapter) $(MAKE) --no-print-directory upgrade-oracle-adapter NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				prepayRent)         $(MAKE) --no-print-directory prepay-rent NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				setup)              if [ "$(1)" = "mainnet" ]; then \
 						$(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
@@ -1560,6 +1597,23 @@ help:
 	@echo "    ORACLE_ADAPTER_THRESHOLD=N         N-of-M aggregation threshold (default: 1)"
 	@echo "    Then: make testnet configureOracleFeeds  add_feed for every entry in ${NETWORK}/oracle_feeds.json"
 	@echo "  make testnet addOracleSigner <address>   Register a bot wallet's signer address (idempotent)"
+	@echo ""
+	@echo "  Aggregator + oracle adapter are standalone contracts (NOT governance-owned);"
+	@echo "  every verb below is a direct owner-gated stellar contract invoke, no timelock:"
+	@echo "    make testnet setAggregatorFee <bps>"
+	@echo "    make testnet addAggregatorWhitelist <token>       / removeAggregatorWhitelist <token>"
+	@echo "    make testnet addAggregatorReferral <owner> <bps>"
+	@echo "    make testnet setAggregatorReferralFee <id> <bps>  / setAggregatorReferralActive <id> <bool>"
+	@echo "    make testnet setAggregatorReferralOwner <id> <new_owner>"
+	@echo "    make testnet claimAggregatorAdminFees <recipient> <token...>"
+	@echo "    make testnet sweepAggregatorBalance <recipient> <token...>"
+	@echo "    make testnet upgradeAggregator                    Build + upload + upgrade in place"
+	@echo "    make testnet upgradeOracleAdapter                 Build + upload + upgrade in place"
+	@echo "  Ownership handoff (both are OZ Ownable, two-step transfer -> accept):"
+	@echo "    make testnet transferAggregatorOwnership <new_owner> <live_until_ledger>"
+	@echo "    SIGNER=ledger make testnet acceptAggregatorOwnership       Run as the NEW owner"
+	@echo "    make testnet transferOracleAdapterOwnership <new_owner> <live_until_ledger>"
+	@echo "    SIGNER=ledger make testnet acceptOracleAdapterOwnership    Run as the NEW owner"
 	@echo "  make testnet info                   Show deployed contract IDs"
 	@echo ""
 	@echo "Config-driven operations (pattern: make <network> <action> [args]):"

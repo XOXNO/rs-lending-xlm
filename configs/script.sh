@@ -1276,16 +1276,13 @@ validate_configs() {
             vc_err "market ${m}: reserve_factor out of [0, 10000] bps"
         fi
 
-        # asset_config risk bounds (base spoke-0 listing)
-        if ! printf '%s' "$mj" | jq -e '
-            (.asset_config // {}) as $c |
-            ($c.loan_to_value // 99999) < ($c.liquidation_threshold // 0) and
-            ($c.liquidation_threshold // 99999) <= 10000 and
-            ($c.liquidation_bonus // 99999) <= 10000 and
-            (($c.liquidation_threshold // 0) * (10000 + ($c.liquidation_bonus // 0))) <= 100000000' >/dev/null; then
-            vc_err "market ${m}: asset_config risk bounds invalid (need ltv < threshold <= 10000, bonus <= 10000, threshold*(1+bonus) <= 100%)"
-        fi
-        if ! printf '%s' "$mj" | jq -e '(.asset_config.flashloan_fee // 0) <= 10000' >/dev/null; then
+        # is_flashloanable/flashloan_fee live directly on market_params
+        # (MarketParamsRaw is one flat struct on-chain, no separate
+        # asset-config type). Real per-asset risk config (ltv/threshold/
+        # bonus/collateralizable/borrowable) is spoke-scoped only
+        # (spokes.json, effective_asset_config on-chain) — not validated
+        # here, since create_market() never reads it off this file.
+        if ! printf '%s' "$mj" | jq -e '(.market_params.flashloan_fee // 0) <= 10000' >/dev/null; then
             vc_err "market ${m}: flashloan_fee > 10000 bps"
         fi
 
@@ -1701,12 +1698,13 @@ add_asset_to_spoke() {
     borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
-    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else fall
-    # back to the market's asset_config.liquidation_fees, else 0.
+    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else
+    # fall back to the market's own top-level liquidation_fees (config-file-only
+    # convenience default — MarketParamsRaw has no such field on-chain), else 0.
     local liquidation_fees
     liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
-        liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
+        liquidation_fees=$(get_market_value "$asset_name" "liquidation_fees")
     fi
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
     # SpokeAssetArgs.paused / .frozen: per-listing incident flags; optional in
@@ -1782,12 +1780,13 @@ edit_asset_in_spoke() {
     borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
-    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else fall
-    # back to the market's asset_config.liquidation_fees, else 0.
+    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else
+    # fall back to the market's own top-level liquidation_fees (config-file-only
+    # convenience default — MarketParamsRaw has no such field on-chain), else 0.
     local liquidation_fees
     liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
-        liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
+        liquidation_fees=$(get_market_value "$asset_name" "liquidation_fees")
     fi
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
     # SpokeAssetArgs.paused / .frozen: per-listing incident flags; optional in
@@ -1851,12 +1850,13 @@ ensure_asset_in_spoke() {
     borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
-    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else fall
-    # back to the market's asset_config.liquidation_fees, else 0.
+    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else
+    # fall back to the market's own top-level liquidation_fees (config-file-only
+    # convenience default — MarketParamsRaw has no such field on-chain), else 0.
     local liquidation_fees
     liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
-        liquidation_fees=$(get_market_value "$asset_name" "asset_config.liquidation_fees")
+        liquidation_fees=$(get_market_value "$asset_name" "liquidation_fees")
     fi
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
     local category_json
@@ -2087,15 +2087,17 @@ create_market() {
         return 0
     fi
 
-    # Build MarketParamsRaw JSON: rate model + hub caps + flash-loan eligibility
-    # (moved off the per-asset config) + asset_id + asset_decimals.
+    # Build MarketParamsRaw JSON: rate model + is_flashloanable/flashloan_fee
+    # (both live directly on market_params — MarketParamsRaw is one flat
+    # struct, there is no separate on-chain asset-config type) + asset_id +
+    # asset_decimals.
     local params
     params=$(jq -c --arg decimals "$decimals" \
         ".markets[] | select(.name == \"$market_name\") | .market_params + {
             asset_id: .asset_address,
             asset_decimals: (\$decimals | tonumber),
-            is_flashloanable: (.asset_config.is_flashloanable // false),
-            flashloan_fee: (.asset_config.flashloan_fee // 0)
+            is_flashloanable: (.market_params.is_flashloanable // false),
+            flashloan_fee: (.market_params.flashloan_fee // 0)
         }" \
         "$MARKET_CONFIG_FILE")
     # The controller deploys markets in a pending state (base spoke-0 listing
@@ -3287,6 +3289,15 @@ show_info() {
     echo "Reflector FX:  $(get_fx_oracle)"
     echo "RedStone adapter: $(get_redstone_adapter)"
     echo "XOXNO oracle adapter (networks.json, NOT chain-verified): $(get_oracle_adapter_address 2>/dev/null || echo 'not set (make <network> deployOracleAdapter)')"
+    # Aggregator/oracle-adapter both expose their owner directly (unlike the
+    # controller fields above), so these two ARE chain-verified.
+    local agg_addr adapter_addr
+    if agg_addr=$(get_aggregator_address 2>/dev/null); then
+        echo "Aggregator owner (chain-verified): $(invoke_view "$agg_addr" admin 2>/dev/null | tail -n1 || echo 'read failed')"
+    fi
+    if adapter_addr=$(get_oracle_adapter_address 2>/dev/null); then
+        echo "Oracle adapter owner (chain-verified): $(invoke_view "$adapter_addr" get_owner 2>/dev/null | tail -n1 || echo 'read failed')"
+    fi
     # Markets that actually reference RedStone (as primary or anchor) in the
     # market config, read through the single shared redstone_adapter_contract
     # + feed_id string (RedStone has no separate per-feed contract; every feed
@@ -3356,11 +3367,11 @@ list_oracles() {
 # ---------------------------------------------------------------------------
 # XOXNO self-hosted oracle adapter (contracts/xoxno-oracle-adapter)
 #
-# Not governance-owned: a standalone contract with its own single admin key
-# and bot signer set (see the contract's own doc comment). `add_feed` is a
-# direct `stellar contract invoke`, not a timelocked governance proposal —
-# there is no op record/replay machinery here, unlike the controller-targeted
-# actions above.
+# Not governance-owned: a standalone contract, OZ `Ownable` owner (two-step
+# transfer/accept, see the ownership-handoff section below) plus its own bot
+# signer set. `add_feed` is a direct `stellar contract invoke`, not a
+# timelocked governance proposal — there is no op record/replay machinery
+# here, unlike the controller-targeted actions above.
 # ---------------------------------------------------------------------------
 
 ORACLE_FEEDS_FILE="$SCRIPT_DIR/${NETWORK}/oracle_feeds.json"
@@ -3522,6 +3533,178 @@ set_oracle_max_stale() {
     echo "=== set_max_stale_seconds ${seconds} on ${NETWORK} (adapter ${adapter}) ===" >&2
     stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- set_max_stale_seconds --seconds "$seconds"
+}
+
+# ---------------------------------------------------------------------------
+# Swap aggregator (contracts/aggregator)
+#
+# Not governance-owned: a standalone contract, OZ `Ownable` owner (two-step
+# transfer/accept) with `#[only_owner]`-gated admin fns. Direct
+# `stellar contract invoke`, no timelock.
+# ---------------------------------------------------------------------------
+
+# Friendly-JSON-encodes its positional args as a `Vec<Address>` (e.g.
+# `["C...","C..."]`) for aggregator admin fns that take a token list.
+_json_addr_vec() {
+    jq -nc '$ARGS.positional' --args "$@"
+}
+
+set_aggregator_fee() {
+    local bps=$1
+    [ -n "$bps" ] || die "Usage: $0 setAggregatorFee <bps>"
+    local router
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    echo "=== set_static_fee ${bps} on aggregator ${router} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- set_static_fee --fee_bps "$bps"
+}
+
+add_aggregator_whitelist() {
+    local token=$1
+    [ -n "$token" ] || die "Usage: $0 addAggregatorWhitelist <token_address>"
+    local router
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    echo "=== add_to_whitelist ${token} on aggregator ${router} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- add_to_whitelist --token "$token"
+}
+
+remove_aggregator_whitelist() {
+    local token=$1
+    [ -n "$token" ] || die "Usage: $0 removeAggregatorWhitelist <token_address>"
+    local router
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    echo "=== remove_from_whitelist ${token} on aggregator ${router} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- remove_from_whitelist --token "$token"
+}
+
+add_aggregator_referral() {
+    local owner=$1 fee_bps=$2
+    [ -n "$owner" ] && [ -n "$fee_bps" ] || die "Usage: $0 addAggregatorReferral <owner_address> <fee_bps>"
+    local router
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    echo "=== add_referral ${owner} ${fee_bps}bps on aggregator ${router} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- add_referral --owner "$owner" --fee_bps "$fee_bps"
+}
+
+set_aggregator_referral_fee() {
+    local id=$1 fee_bps=$2
+    [ -n "$id" ] && [ -n "$fee_bps" ] || die "Usage: $0 setAggregatorReferralFee <id> <fee_bps>"
+    local router
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    echo "=== set_referral_fee ${id} ${fee_bps}bps on aggregator ${router} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- set_referral_fee --id "$id" --fee_bps "$fee_bps"
+}
+
+set_aggregator_referral_active() {
+    local id=$1 active=$2
+    [ -n "$id" ] && [ -n "$active" ] || die "Usage: $0 setAggregatorReferralActive <id> <true|false>"
+    local router
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    echo "=== set_referral_active ${id} ${active} on aggregator ${router} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- set_referral_active --id "$id" --active "$active"
+}
+
+set_aggregator_referral_owner() {
+    local id=$1 new_owner=$2
+    [ -n "$id" ] && [ -n "$new_owner" ] || die "Usage: $0 setAggregatorReferralOwner <id> <new_owner>"
+    local router
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    echo "=== set_referral_owner ${id} -> ${new_owner} on aggregator ${router} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- set_referral_owner --id "$id" --new_owner "$new_owner"
+}
+
+claim_aggregator_admin_fees() {
+    local recipient=$1
+    shift || true
+    [ -n "$recipient" ] && [ $# -ge 1 ] || die "Usage: $0 claimAggregatorAdminFees <recipient> <token> [token...]"
+    local router tokens_json
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    tokens_json=$(_json_addr_vec "$@")
+    echo "=== claim_admin_fees -> ${recipient} on aggregator ${router} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- claim_admin_fees --recipient "$recipient" --tokens "$tokens_json"
+}
+
+sweep_aggregator_balance() {
+    local recipient=$1
+    shift || true
+    [ -n "$recipient" ] && [ $# -ge 1 ] || die "Usage: $0 sweepAggregatorBalance <recipient> <token> [token...]"
+    local router tokens_json
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    tokens_json=$(_json_addr_vec "$@")
+    echo "=== sweep_balance -> ${recipient} on aggregator ${router} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- sweep_balance --recipient "$recipient" --tokens "$tokens_json"
+}
+
+upgrade_aggregator_hash() {
+    local hash=$1
+    [ -n "$hash" ] || die "Usage: $0 upgradeAggregatorHash <wasm_hash>"
+    local router
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    echo "=== upgrade aggregator ${router} -> ${hash} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- upgrade --new_wasm_hash "$hash"
+}
+
+upgrade_oracle_adapter_hash() {
+    local hash=$1
+    [ -n "$hash" ] || die "Usage: $0 upgradeOracleAdapterHash <wasm_hash>"
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
+    echo "=== upgrade oracle adapter ${adapter} -> ${hash} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        -- upgrade --new_wasm_hash "$hash"
+}
+
+# ---------------------------------------------------------------------------
+# Standalone-contract ownership handoff (aggregator, xoxno-oracle-adapter)
+#
+# Both are OZ `Ownable`, two-step: `transfer_*` is signed by the CURRENT
+# owner (deployer); `accept_*` MUST be signed by the NEW owner (e.g.
+# `SIGNER=ledger`). Neither routes through governance — direct invoke only.
+# ---------------------------------------------------------------------------
+
+transfer_aggregator_ownership() {
+    local new_owner=$1 live_until=$2
+    [ -n "$new_owner" ] && [ -n "$live_until" ] || die "Usage: $0 transferAggregatorOwnership <new_owner> <live_until_ledger>"
+    local router
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    echo "=== transfer_ownership(${new_owner}, ${live_until}) on aggregator ${router} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- transfer_ownership --new_owner "$new_owner" --live_until_ledger "$live_until"
+}
+
+accept_aggregator_ownership() {
+    local router
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    echo "=== accept_ownership on aggregator ${router} (${NETWORK}); signer must be the pending owner ===" >&2
+    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- accept_ownership
+}
+
+transfer_oracle_adapter_ownership() {
+    local new_owner=$1 live_until=$2
+    [ -n "$new_owner" ] && [ -n "$live_until" ] || die "Usage: $0 transferOracleAdapterOwnership <new_owner> <live_until_ledger>"
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
+    echo "=== transfer_ownership(${new_owner}, ${live_until}) on oracle adapter ${adapter} (${NETWORK}) ===" >&2
+    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        -- transfer_ownership --new_owner "$new_owner" --live_until_ledger "$live_until"
+}
+
+accept_oracle_adapter_ownership() {
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
+    echo "=== accept_ownership on oracle adapter ${adapter} (${NETWORK}); signer must be the pending owner ===" >&2
+    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        -- accept_ownership
 }
 
 # ---------------------------------------------------------------------------
@@ -4044,6 +4227,53 @@ case "$1" in
     "setOracleMaxStale")
         set_oracle_max_stale "$2"
         ;;
+    "setAggregatorFee")
+        set_aggregator_fee "$2"
+        ;;
+    "addAggregatorWhitelist")
+        add_aggregator_whitelist "$2"
+        ;;
+    "removeAggregatorWhitelist")
+        remove_aggregator_whitelist "$2"
+        ;;
+    "addAggregatorReferral")
+        add_aggregator_referral "$2" "$3"
+        ;;
+    "setAggregatorReferralFee")
+        set_aggregator_referral_fee "$2" "$3"
+        ;;
+    "setAggregatorReferralActive")
+        set_aggregator_referral_active "$2" "$3"
+        ;;
+    "setAggregatorReferralOwner")
+        set_aggregator_referral_owner "$2" "$3"
+        ;;
+    "claimAggregatorAdminFees")
+        shift
+        claim_aggregator_admin_fees "$@"
+        ;;
+    "sweepAggregatorBalance")
+        shift
+        sweep_aggregator_balance "$@"
+        ;;
+    "upgradeAggregatorHash")
+        upgrade_aggregator_hash "$2"
+        ;;
+    "upgradeOracleAdapterHash")
+        upgrade_oracle_adapter_hash "$2"
+        ;;
+    "transferAggregatorOwnership")
+        transfer_aggregator_ownership "$2" "$3"
+        ;;
+    "acceptAggregatorOwnership")
+        accept_aggregator_ownership
+        ;;
+    "transferOracleAdapterOwnership")
+        transfer_oracle_adapter_ownership "$2" "$3"
+        ;;
+    "acceptOracleAdapterOwnership")
+        accept_oracle_adapter_ownership
+        ;;
     "createHub")
         if [ -z "$2" ]; then
             echo "Usage: $0 createHub <hub_id>" >&2
@@ -4549,6 +4779,22 @@ case "$1" in
         echo "  setOracleSubmissionAge <secs>  Set the tight aggregation inclusion window (>=60, <= max_stale)"
         echo "  setOracleMaxStale <secs>       Set the cache TTL (>= submission-age window)"
         echo "  listOracleFeeds                Live feed index from the deployed xoxno_oracle_adapter"
+        echo ""
+        echo "Aggregator + oracle adapter admin (standalone, direct invoke, no timelock):"
+        echo "  setAggregatorFee <bps>"
+        echo "  addAggregatorWhitelist <token> / removeAggregatorWhitelist <token>"
+        echo "  addAggregatorReferral <owner> <fee_bps>"
+        echo "  setAggregatorReferralFee <id> <fee_bps> / setAggregatorReferralActive <id> <true|false>"
+        echo "  setAggregatorReferralOwner <id> <new_owner>"
+        echo "  claimAggregatorAdminFees <recipient> <token> [token...]"
+        echo "  sweepAggregatorBalance <recipient> <token> [token...]"
+        echo "  upgradeAggregatorHash <wasm_hash>       (make <net> upgradeAggregator builds+uploads+invokes)"
+        echo "  upgradeOracleAdapterHash <wasm_hash>    (make <net> upgradeOracleAdapter builds+uploads+invokes)"
+        echo "  Ownership handoff (OZ Ownable, two-step transfer -> accept):"
+        echo "    transferAggregatorOwnership <new_owner> <live_until_ledger>"
+        echo "    acceptAggregatorOwnership               Run with SIGNER=<new owner>"
+        echo "    transferOracleAdapterOwnership <new_owner> <live_until_ledger>"
+        echo "    acceptOracleAdapterOwnership            Run with SIGNER=<new owner>"
         echo "  hasRole <account> <role>        Check role membership"
         echo "  getPrice <market>               Oracle price (spot / safe / aggregator + tolerance)"
         echo "  getMarket <market>              Market config (LTV, liq, caps, flags)"
