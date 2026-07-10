@@ -7,8 +7,10 @@ use common::types::PositionLimits;
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 // SAC decimal range for RAY/WAD conversions. Assets below 6 decimals can
-// truncate small collateral toward zero in fixed-point valuation.
-const MIN_ASSET_DECIMALS: u32 = 6;
+// truncate small collateral toward zero in fixed-point valuation; floor
+// lowered to 3 to admit lower-decimal RWA tokens (e.g. 5-decimal Spiko money
+// market funds) at the cost of coarser dust-level precision for those assets.
+const MIN_ASSET_DECIMALS: u32 = 3;
 const MAX_ASSET_DECIMALS: u32 = 18;
 
 pub(crate) fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
