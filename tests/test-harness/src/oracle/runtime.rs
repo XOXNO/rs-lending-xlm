@@ -291,5 +291,6 @@ fn source_with_read_mode(
             OracleSourceConfig::Reflector(config)
         }
         OracleSourceConfig::RedStone(config) => OracleSourceConfig::RedStone(config.clone()),
+        OracleSourceConfig::Xoxno(config) => OracleSourceConfig::Xoxno(config.clone()),
     }
 }

@@ -123,7 +123,7 @@ The controller resolves prices through a strict path:
 
 1. Load token-rooted `AssetOracle(asset)`.
 2. Apply an optional spoke oracle override.
-3. Read Reflector or RedStone source data.
+3. Read Reflector, RedStone, or XOXNO-adapter source data.
 4. Enforce staleness, future-timestamp, decimals, sanity, and tolerance bounds.
 5. Normalize to USD WAD.
 

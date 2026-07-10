@@ -96,7 +96,7 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
     // The quote's primary must itself be USD-based: keeps the conversion exactly
     // one hop, forbidding a quote chain.
     match &quote_oracle.primary {
-        OracleSourceConfig::RedStone(_) => {}
+        OracleSourceConfig::RedStone(_) | OracleSourceConfig::Xoxno(_) => {}
         OracleSourceConfig::Reflector(quote_primary) => assert_with_error!(
             env,
             matches!(quote_primary.base, ReflectorBase::Usd),
@@ -118,4 +118,3 @@ pub fn set_oracle_tolerance(env: &Env, asset: Address, tolerance: OraclePriceFlu
     }
     .publish(env);
 }
-

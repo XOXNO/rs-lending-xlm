@@ -2145,6 +2145,7 @@ dependencies = [
  "pool",
  "proptest",
  "soroban-sdk",
+ "xoxno-oracle-adapter",
 ]
 
 [[package]]

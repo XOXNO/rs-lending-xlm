@@ -16,7 +16,10 @@ pub enum MockKey {
     PriceData(String),
     SingleCalls,
     BulkCalls,
+    Decimals,
 }
+
+const DEFAULT_DECIMALS: u32 = 8;
 
 #[contract]
 pub struct MockRedStonePriceFeed;
@@ -49,15 +52,31 @@ impl MockRedStonePriceFeed {
         package_timestamp: u64,
         write_timestamp: u64,
     ) {
-        let price_8 = (price_wad / 10_000_000_000) as u128;
+        // Scale the WAD input down to the mock's advertised decimals.
+        let decimals = Self::decimals(env.clone());
+        let price_raw = (price_wad / 10i128.pow(18 - decimals)) as u128;
         let data = RedStonePriceData {
-            price: U256::from_u128(&env, price_8),
+            price: U256::from_u128(&env, price_raw),
             package_timestamp,
             write_timestamp,
         };
         env.storage()
             .temporary()
             .set(&MockKey::PriceData(feed_id), &data);
+    }
+
+    /// Overrides the advertised feed decimals (default 8, the RedStone width).
+    /// Set before `set_price*`: prices are scaled at write time.
+    pub fn set_decimals(env: Env, decimals: u32) {
+        env.storage().temporary().set(&MockKey::Decimals, &decimals);
+    }
+
+    /// SEP-40-style decimals probe, as served by the XOXNO adapter.
+    pub fn decimals(env: Env) -> u32 {
+        env.storage()
+            .temporary()
+            .get(&MockKey::Decimals)
+            .unwrap_or(DEFAULT_DECIMALS)
     }
 
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {

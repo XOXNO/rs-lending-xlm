@@ -31,6 +31,8 @@ pub struct OraclePriceFluctuation {
 pub enum OracleProviderKind {
     ReflectorSep40 = 0,
     RedStonePriceFeed = 1,
+    /// XOXNO oracle adapter: RedStone-shaped wire ABI, independent signer set.
+    XoxnoPriceFeed = 2,
 }
 
 #[contracttype]
@@ -73,19 +75,34 @@ pub struct RedStoneSourceConfigInput {
 pub enum OracleSourceConfigInput {
     Reflector(ReflectorSourceConfigInput),
     RedStone(RedStoneSourceConfigInput),
+    /// XOXNO oracle adapter. Same wire shape as `RedStone` (the adapter
+    /// implements the `RedStoneMultiFeed` ABI) but a distinct provider
+    /// identity: its prices come from XOXNO's own signer set, so it counts
+    /// as an independent source next to a real RedStone or Reflector leg.
+    Xoxno(RedStoneSourceConfigInput),
 }
 
 impl OracleSourceConfigInput {
-    /// True when two configs read the same provider feed.
+    /// True when two configs read the same provider feed. `RedStone` and
+    /// `Xoxno` share a wire ABI, so the same `(contract, feed_id)` pair is the
+    /// same feed regardless of which of the two variants declares it.
     pub fn reads_same_feed_as(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Reflector(x), Self::Reflector(y)) => {
                 x.contract == y.contract && x.asset == y.asset && x.read_mode == y.read_mode
             }
-            (Self::RedStone(x), Self::RedStone(y)) => {
+            (Self::RedStone(x) | Self::Xoxno(x), Self::RedStone(y) | Self::Xoxno(y)) => {
                 x.contract == y.contract && x.feed_id == y.feed_id
             }
             _ => false,
+        }
+    }
+
+    /// Provider contract address, independent of variant.
+    pub fn contract(&self) -> &Address {
+        match self {
+            Self::Reflector(config) => &config.contract,
+            Self::RedStone(config) | Self::Xoxno(config) => &config.contract,
         }
     }
 }
@@ -149,6 +166,10 @@ pub struct RedStoneSourceConfig {
 pub enum OracleSourceConfig {
     Reflector(ReflectorSourceConfig),
     RedStone(RedStoneSourceConfig),
+    /// XOXNO oracle adapter (RedStone wire shape, independent provider).
+    /// Unlike `RedStone`, `decimals` is probed from the adapter's SEP-40
+    /// `decimals()` at listing time rather than assumed.
+    Xoxno(RedStoneSourceConfig),
 }
 
 #[contracttype]
@@ -173,27 +194,32 @@ impl OracleSourceConfig {
         match self {
             OracleSourceConfig::Reflector(_) => OracleProviderKind::ReflectorSep40,
             OracleSourceConfig::RedStone(_) => OracleProviderKind::RedStonePriceFeed,
+            OracleSourceConfig::Xoxno(_) => OracleProviderKind::XoxnoPriceFeed,
         }
     }
 
     pub fn read_mode(&self) -> OracleReadMode {
         match self {
             OracleSourceConfig::Reflector(config) => config.read_mode,
-            OracleSourceConfig::RedStone(_) => OracleReadMode::Spot,
+            OracleSourceConfig::RedStone(_) | OracleSourceConfig::Xoxno(_) => OracleReadMode::Spot,
         }
     }
 
     pub fn decimals(&self) -> u32 {
         match self {
             OracleSourceConfig::Reflector(config) => config.decimals,
-            OracleSourceConfig::RedStone(config) => config.decimals,
+            OracleSourceConfig::RedStone(config) | OracleSourceConfig::Xoxno(config) => {
+                config.decimals
+            }
         }
     }
 
     pub fn max_stale_seconds(&self, default_max_stale_seconds: u64) -> u64 {
         match self {
             OracleSourceConfig::Reflector(_) => default_max_stale_seconds,
-            OracleSourceConfig::RedStone(config) => config.max_stale_seconds,
+            OracleSourceConfig::RedStone(config) | OracleSourceConfig::Xoxno(config) => {
+                config.max_stale_seconds
+            }
         }
     }
 }
@@ -450,6 +476,77 @@ mod tests {
             max_stale_seconds: 900,
         });
         assert!(a.reads_same_feed_as(&b));
+    }
+
+    #[test]
+    fn test_reads_same_feed_as_redstone_vs_xoxno_same_wire_feed_is_true() {
+        let env = Env::default();
+        let contract = Address::generate(&env);
+        let feed_id = String::from_str(&env, "BTC/USD");
+        let redstone = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
+            contract: contract.clone(),
+            feed_id: feed_id.clone(),
+            max_stale_seconds: 600,
+        });
+        let xoxno = OracleSourceConfigInput::Xoxno(RedStoneSourceConfigInput {
+            contract,
+            feed_id,
+            max_stale_seconds: 900,
+        });
+        assert!(redstone.reads_same_feed_as(&xoxno));
+        assert!(xoxno.reads_same_feed_as(&redstone));
+    }
+
+    #[test]
+    fn test_reads_same_feed_as_redstone_vs_xoxno_different_contract_is_false() {
+        let env = Env::default();
+        let feed_id = String::from_str(&env, "BTC/USD");
+        let redstone = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
+            contract: Address::generate(&env),
+            feed_id: feed_id.clone(),
+            max_stale_seconds: 600,
+        });
+        let xoxno = OracleSourceConfigInput::Xoxno(RedStoneSourceConfigInput {
+            contract: Address::generate(&env),
+            feed_id,
+            max_stale_seconds: 600,
+        });
+        assert!(!redstone.reads_same_feed_as(&xoxno));
+    }
+
+    #[test]
+    fn test_input_contract_accessor_all_variants() {
+        let env = Env::default();
+        let contract = Address::generate(&env);
+        let reflector = OracleSourceConfigInput::Reflector(ReflectorSourceConfigInput {
+            contract: contract.clone(),
+            asset: OracleAssetRef::Stellar(Address::generate(&env)),
+            read_mode: OracleReadMode::Spot,
+        });
+        let redstone = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
+            contract: contract.clone(),
+            feed_id: String::from_str(&env, "BTC/USD"),
+            max_stale_seconds: 600,
+        });
+        let xoxno = OracleSourceConfigInput::Xoxno(RedStoneSourceConfigInput {
+            contract: contract.clone(),
+            feed_id: String::from_str(&env, "ETH/USD"),
+            max_stale_seconds: 600,
+        });
+        assert_eq!(reflector.contract(), &contract);
+        assert_eq!(redstone.contract(), &contract);
+        assert_eq!(xoxno.contract(), &contract);
+    }
+
+    #[test]
+    fn test_oracle_source_config_xoxno_accessors() {
+        let env = Env::default();
+        let cfg = OracleSourceConfig::Xoxno(redstone_resolved(&env));
+        assert_eq!(cfg.provider_kind(), OracleProviderKind::XoxnoPriceFeed);
+        assert_eq!(cfg.read_mode(), OracleReadMode::Spot);
+        assert_eq!(cfg.decimals(), 8);
+        // Xoxno carries its own per-source max-stale, like RedStone.
+        assert_eq!(cfg.max_stale_seconds(60), 900);
     }
 
     #[test]

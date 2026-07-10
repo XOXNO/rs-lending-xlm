@@ -15,8 +15,16 @@ One contract exposes two drop-in read shapes for the lending controller:
   `lastprice`, `price`, `prices`, including TWAP reads bucketed by the
   configured `resolution`.
 
-Either shape can serve as a `primary` or `anchor` source in a market's
-`MarketOracleConfig`.
+The lending controller lists this adapter as its own provider variant,
+`OracleSourceConfig::Xoxno` (`OracleProviderKind::XoxnoPriceFeed`): the
+RedStone wire shape on the read path, but a distinct provider identity, so a
+Xoxno source counts as an independent second opinion next to a Reflector or
+RedStone leg in `PrimaryWithAnchor` markets. At listing time governance probes
+the adapter's SEP-40 `decimals()` and stores the result (the plain `RedStone`
+variant assumes the fixed 8-decimal RedStone width instead). The Reflector
+wire shape remains available to other consumers, but a production market pair
+can never place this adapter on both legs: primary and anchor must not share a
+contract address, whichever variants declare them.
 
 ## Freshness model
 

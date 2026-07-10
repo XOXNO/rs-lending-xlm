@@ -68,8 +68,8 @@ fn resolve_usd_quote(cache: &mut Cache, quote: &Address) -> PriceFeedRaw {
         None => panic_with_error!(&env, OracleError::InvalidOracleBase),
     };
     match &oracle_config.primary {
-        // RedStone feeds are USD-denominated by construction.
-        OracleSourceConfig::RedStone(_) => {}
+        // RedStone-shaped feeds (RedStone, Xoxno) are USD-denominated by construction.
+        OracleSourceConfig::RedStone(_) | OracleSourceConfig::Xoxno(_) => {}
         // A Reflector quote source must itself be USD-based (no chaining).
         // Use the base cached at config time; do not call live `base()`.
         OracleSourceConfig::Reflector(r) => match &r.base {

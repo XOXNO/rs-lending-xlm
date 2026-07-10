@@ -218,8 +218,8 @@ impl EventOracleSource {
                     max_stale_seconds: market_max_stale_seconds,
                 }
             }
-            OracleSourceConfig::RedStone(config) => Self {
-                provider: OracleProviderKind::RedStonePriceFeed as u32,
+            OracleSourceConfig::RedStone(config) | OracleSourceConfig::Xoxno(config) => Self {
+                provider: source.provider_kind() as u32,
                 contract: config.contract.clone(),
                 asset: None,
                 symbol: None,

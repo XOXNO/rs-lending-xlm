@@ -43,6 +43,14 @@ pub fn redstone_source_with_max_stale(
     })
 }
 
+pub fn xoxno_source(contract: &Address, feed_id: &String) -> OracleSourceConfigInput {
+    OracleSourceConfigInput::Xoxno(RedStoneSourceConfigInput {
+        contract: contract.clone(),
+        feed_id: feed_id.clone(),
+        max_stale_seconds: DEFAULT_REDSTONE_MAX_STALE_SECONDS,
+    })
+}
+
 pub fn reflector_primary_anchor_config(
     oracle: &Address,
     asset: &Address,
@@ -64,7 +72,7 @@ pub fn reflector_primary_anchor_config(
 }
 
 /// +-1% sanity band around `price_wad`, comfortably inside the protocol's
-/// `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` (5%) cap for `OracleStrategy::Single`
+/// `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` (10%) cap for `OracleStrategy::Single`
 /// markets. The old shared `DEFAULT_MIN_SANITY_PRICE_WAD..DEFAULT_MAX_SANITY_PRICE_WAD`
 /// range is astronomically wide (it spans the whole `MAX_REASONABLE_PRICE_WAD`
 /// domain) and only fits `PrimaryWithAnchor` builders, which the band cap
@@ -106,6 +114,42 @@ pub fn redstone_single_config(
         strategy: OracleStrategy::Single,
         primary: redstone_source(contract, feed_id),
         anchor: OracleSourceConfigInputOption::None,
+    }
+}
+
+pub fn xoxno_single_config(
+    contract: &Address,
+    feed_id: &String,
+    price_wad: i128,
+    tolerance_bps: u32,
+) -> MarketOracleConfigInput {
+    let (min_sanity_price_wad, max_sanity_price_wad) = tight_single_source_band(price_wad);
+    MarketOracleConfigInput {
+        max_price_stale_seconds: 900,
+        tolerance_bps,
+        min_sanity_price_wad,
+        max_sanity_price_wad,
+        strategy: OracleStrategy::Single,
+        primary: xoxno_source(contract, feed_id),
+        anchor: OracleSourceConfigInputOption::None,
+    }
+}
+
+pub fn reflector_primary_xoxno_anchor_config(
+    reflector_oracle: &Address,
+    asset: &Address,
+    xoxno_contract: &Address,
+    feed_id: &String,
+    tolerance_bps: u32,
+) -> MarketOracleConfigInput {
+    MarketOracleConfigInput {
+        max_price_stale_seconds: 900,
+        tolerance_bps,
+        min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
+        max_sanity_price_wad: DEFAULT_MAX_SANITY_PRICE_WAD,
+        strategy: OracleStrategy::PrimaryWithAnchor,
+        primary: reflector_source(reflector_oracle, asset, OracleReadMode::Twap(3)),
+        anchor: OracleSourceConfigInputOption::Some(xoxno_source(xoxno_contract, feed_id)),
     }
 }
 
