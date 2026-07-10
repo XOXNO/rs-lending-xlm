@@ -19,6 +19,5 @@ pub enum Error {
     NotAdmin = 20,
     FeeTooHigh = 21,
     ReferralNotFound = 22,
-    AlreadyInitialised = 24,
     SameToken = 25,
 }

@@ -50,7 +50,6 @@ pub struct ReferralConfig {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum DataKey {
-    Admin,
     StaticFeeBps,
     ReferralCounter,
     Referral(u64),

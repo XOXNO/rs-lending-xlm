@@ -1,7 +1,8 @@
 //! Stellar swap router.
 //!
 //! Pulls one input amount, executes split paths, and returns measured output.
-//! Storage holds only admin, referral config, whitelist, and fee buckets.
+//! Owner is OZ `Ownable` (two-step transfer); storage otherwise holds only
+//! referral config, whitelist, and fee buckets.
 
 #![no_std]
 // Soroban macros emit their own unsafe allowances.
@@ -21,6 +22,8 @@ use crate::vault::Vault;
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, xdr::FromXdr, Address, Bytes, BytesN, Env, Vec,
 };
+use stellar_access::ownable::{self, Ownable};
+use stellar_macros::only_owner;
 
 const PPM_DENOMINATOR: i128 = 1_000_000;
 const TOTAL_FEE: i128 = 10_000;
@@ -32,26 +35,18 @@ pub struct Router;
 #[contractimpl]
 impl Router {
     pub fn __constructor(env: Env, admin: Address) {
+        ownable::set_owner(&env, &admin);
         let storage = env.storage().instance();
-        if storage.has(&DataKey::Admin) {
-            panic_with_error!(&env, Error::AlreadyInitialised);
-        }
-        storage.set(&DataKey::Admin, &admin);
         storage.set(&DataKey::StaticFeeBps, &0u32);
         storage.set(&DataKey::ReferralCounter, &0u64);
     }
 
     // -----------------------------------------------------------------
-    // Admin endpoints — gated by `Admin` storage entry's auth.
+    // Admin endpoints — gated by `#[only_owner]` (OZ `Ownable`).
     // -----------------------------------------------------------------
 
-    pub fn set_admin(env: Env, new_admin: Address) {
-        require_admin(&env);
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
-    }
-
+    #[only_owner]
     pub fn set_static_fee(env: Env, fee_bps: u32) {
-        require_admin(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -60,8 +55,8 @@ impl Router {
             .set(&DataKey::StaticFeeBps, &fee_bps);
     }
 
+    #[only_owner]
     pub fn add_to_whitelist(env: Env, token: Address) {
-        require_admin(&env);
         let mut list = load_whitelist(&env);
         if !list.contains(&token) {
             list.push_back(token);
@@ -71,8 +66,8 @@ impl Router {
         }
     }
 
+    #[only_owner]
     pub fn remove_from_whitelist(env: Env, token: Address) {
-        require_admin(&env);
         let mut list = load_whitelist(&env);
         if let Some(idx) = list.first_index_of(&token) {
             list.remove(idx);
@@ -82,13 +77,13 @@ impl Router {
         }
     }
 
+    #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        require_admin(&env);
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
+    #[only_owner]
     pub fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64 {
-        require_admin(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -109,8 +104,8 @@ impl Router {
         id
     }
 
+    #[only_owner]
     pub fn set_referral_fee(env: Env, id: u64, fee_bps: u32) {
-        require_admin(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -119,22 +114,22 @@ impl Router {
         env.storage().persistent().set(&DataKey::Referral(id), &cfg);
     }
 
+    #[only_owner]
     pub fn set_referral_active(env: Env, id: u64, active: bool) {
-        require_admin(&env);
         let mut cfg = load_referral(&env, id);
         cfg.active = active;
         env.storage().persistent().set(&DataKey::Referral(id), &cfg);
     }
 
+    #[only_owner]
     pub fn set_referral_owner(env: Env, id: u64, new_owner: Address) {
-        require_admin(&env);
         let mut cfg = load_referral(&env, id);
         cfg.owner = new_owner;
         env.storage().persistent().set(&DataKey::Referral(id), &cfg);
     }
 
+    #[only_owner]
     pub fn claim_admin_fees(env: Env, recipient: Address, tokens: Vec<Address>) {
-        require_admin(&env);
         let router = env.current_contract_address();
         claim_fee_bucket(&env, &router, &recipient, tokens, FeeBucket::Admin);
     }
@@ -145,8 +140,8 @@ impl Router {
         claim_fee_bucket(&env, &router, &cfg.owner, tokens, FeeBucket::Referral(id));
     }
 
+    #[only_owner]
     pub fn sweep_balance(env: Env, recipient: Address, tokens: Vec<Address>) {
-        require_admin(&env);
         let router = env.current_contract_address();
         let n = tokens.len();
         for i in 0..n {
@@ -167,7 +162,7 @@ impl Router {
     // -----------------------------------------------------------------
 
     pub fn admin(env: Env) -> Address {
-        load_admin(&env)
+        ownable::get_owner(&env).unwrap_or_else(|| panic_with_error!(&env, Error::NotAdmin))
     }
 
     pub fn static_fee_bps(env: Env) -> u32 {
@@ -221,20 +216,31 @@ impl Router {
     }
 }
 
+/// `#[contractimpl]` can't see through to `Ownable`'s trait defaults, so each
+/// body is written out. `transfer_ownership`/`accept_ownership` gate on
+/// owner auth internally — no `#[only_owner]` here.
+#[contractimpl]
+impl Ownable for Router {
+    fn get_owner(e: &Env) -> Option<Address> {
+        ownable::get_owner(e)
+    }
+
+    fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32) {
+        ownable::transfer_ownership(e, &new_owner, live_until_ledger);
+    }
+
+    fn accept_ownership(e: &Env) {
+        ownable::accept_ownership(e);
+    }
+
+    fn renounce_ownership(e: &Env) {
+        ownable::renounce_ownership(e);
+    }
+}
+
 // ---------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------
-
-fn load_admin(env: &Env) -> Address {
-    env.storage()
-        .instance()
-        .get(&DataKey::Admin)
-        .unwrap_or_else(|| panic_with_error!(env, Error::NotAdmin))
-}
-
-fn require_admin(env: &Env) {
-    load_admin(env).require_auth();
-}
 
 fn load_referral(env: &Env, id: u64) -> ReferralConfig {
     env.storage()

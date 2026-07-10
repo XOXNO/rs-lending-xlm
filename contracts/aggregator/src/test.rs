@@ -1320,7 +1320,9 @@ fn admin_setters_and_views_surface() {
     assert_eq!(router.whitelisted_tokens(), Vec::<Address>::new(&env));
 
     let new_admin = Address::generate(&env);
-    router.set_admin(&new_admin);
+    let live_until = env.ledger().sequence() + 100;
+    router.transfer_ownership(&new_admin, &live_until);
+    router.accept_ownership();
     assert_eq!(router.admin(), new_admin);
 
     let (token_a, _) = new_asset(&env, &admin);
