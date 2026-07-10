@@ -93,8 +93,8 @@ jobs:
         # PR-only smoke; full long-run lives in the nightly job below.
         run: make fuzz-contract FUZZ_TIME=60
 
-      - name: Contract-level proptest (256 cases each)
-        run: make proptest PROPTEST_CASES=256
+      - name: Contract-level property suite
+        run: make proptest
 
   miri:
     if: github.event_name == 'pull_request'
@@ -275,18 +275,14 @@ jobs:
     timeout-minutes: 1440
     strategy:
       fail-fast: false
-      max-parallel: 9
+      max-parallel: 5
       matrix:
         test:
           - prop_accounting_conservation
-          - prop_short_aggregator_rejected
           - prop_liquidation_matches_bigrational_reference
-          - prop_owner_only_endpoints_reject_unauthed
-          - prop_governance_endpoints_reject_unauthed
-          - prop_non_owner_cannot_disable_token_oracle
-          - prop_strategy_under_budget
-          - prop_multiply_leverage_hf_safe
-          - prop_strategy_swap_collateral_balance_delta
+          - prop_valid_multiply_fits_default_budget
+          - prop_multiply_succeeds_with_safe_hf_and_clean_router
+          - prop_swap_collateral_conserves_position_delta
     steps:
       - uses: actions/checkout@v7
 
@@ -332,7 +328,7 @@ jobs:
         with:
           name: proptest-regressions-${{ matrix.test }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            tests/test-harness/tests/*.proptest-regressions
+            tests/test-harness/tests/fuzz/*.proptest-regressions
 
   mutants:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

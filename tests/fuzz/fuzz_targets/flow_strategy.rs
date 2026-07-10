@@ -5,8 +5,9 @@
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::token;
 use stellar_fuzz::{
-    amount_for_value, assert_global_invariants, assert_state_preserved_on_failure, asset_price_usd,
-    build_wide_context, fraction, snapshot, LendingTest, ALICE, HF_WAD_FLOOR,
+    amount_for_value, assert_flash_guard_cleared, assert_pool_accounting,
+    assert_state_preserved_on_failure, assert_user_health, asset_price_usd, build_wide_context,
+    fraction, snapshot, LendingTest, ALICE, HF_WAD_FLOOR,
 };
 
 use common::types::{PositionMode, StrategySwap};
@@ -193,7 +194,7 @@ enum HealthCheck {
 
 fn assert_health_check(t: &LendingTest, check: HealthCheck) {
     match check {
-        HealthCheck::User(user, min_hf) => assert_global_invariants(t, user, &ASSETS, min_hf),
+        HealthCheck::User(user, min_hf) => assert_user_health(t, user, min_hf),
         HealthCheck::Account(account_id, min_hf) => {
             let hf = t.health_factor_for(ALICE, account_id);
             assert!(
@@ -216,7 +217,8 @@ fuzz_target!(|data: &[u8]| {
     let mut t = build_wide_context();
     fund_aggregator(&t);
     bootstrap(&mut t);
-    assert_global_invariants(&t, ALICE, &ASSETS, 0.0);
+    assert_user_health(&t, ALICE, 0.0);
+    assert_pool_accounting(&t, &ASSETS);
 
     for op in ops {
         let before = snapshot(&t, ALICE, &ASSETS);
@@ -245,6 +247,8 @@ fuzz_target!(|data: &[u8]| {
             );
             assert_router_allowance_zeroed(&t);
         }
+        assert_pool_accounting(&t, &ASSETS);
+        assert_flash_guard_cleared(&t);
     }
 });
 

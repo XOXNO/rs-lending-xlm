@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 /// Numeric entropy extracted from a single snapshot file.
 ///
 /// Fields are multi-valued (one snapshot carries many market states, positions,
-/// etc.); every combination a target can use is enumerated downstream.
+/// etc.); packers select a bounded representative subset downstream.
 #[derive(Debug, Default)]
 struct ExtractedFields {
     // i128 values found anywhere in ledger_entries (indexes, amounts, rates).
@@ -218,6 +218,17 @@ fn is_symbol_key(key_val: &Value, symbol: &str) -> bool {
 fn harvest_structured(val: &Value, out: &mut ExtractedFields) {
     match val {
         Value::Object(map) => {
+            // Persistent pool records are contract-data entries whose typed
+            // key starts with `Params` or `State` and whose value is the
+            // corresponding contracttype map.
+            if let (Some(key), Some(value)) = (map.get("key"), map.get("val")) {
+                if is_symbol_key(key, "Params") {
+                    out.market_params.push(extract_market_params(value));
+                } else if is_symbol_key(key, "State") {
+                    out.market_states.push(extract_market_state(value));
+                }
+            }
+
             // Contract instance storage?
             if let Some(ci) = map.get("contract_instance") {
                 if let Some(storage) = ci.get("storage").and_then(|v| v.as_array()) {
@@ -362,19 +373,19 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
             pairs.push((a, b));
         }
     }
-    for chunk in f.i128s.chunks(2) {
+    for chunk in f.i128s.chunks(2).take(128) {
         if chunk.len() == 2 {
             pairs.push((chunk[0], chunk[1]));
         }
     }
-    for (a, b) in &pairs {
+    for (a, b) in pairs.iter().take(128) {
         for d in 0u8..3 {
             push(&mut out, 0, *a, *b, d, 0);
         }
     }
 
     // --- DivByInt arm (kind = 1): i128 pairs with b > 0.
-    for chunk in f.i128s.chunks(2) {
+    for chunk in f.i128s.chunks(2).take(128) {
         if chunk.len() < 2 {
             continue;
         }
@@ -397,7 +408,7 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
         (27, 4),
         (4, 27),
     ];
-    for &a in f.i128s.iter().take(200) {
+    for &a in f.i128s.iter().take(64) {
         for &(from, to) in &transitions {
             push(&mut out, 2, a, 0, from, to);
         }
@@ -484,7 +495,24 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
 
     // Cap matches make_params (the decoder): the rate model is verified ≤ 2·RAY.
     const CAP: i128 = MAX_BORROW_RATE_RAY;
-    for p in &f.market_params {
+    let fallback = MarketParamsFields {
+        base_borrow_rate: Some(RAY / 100),
+        slope1: Some(RAY * 4 / 100),
+        slope2: Some(RAY * 10 / 100),
+        slope3: Some(RAY * 150 / 100),
+        mid_utilization: Some(RAY / 2),
+        optimal_utilization: Some(RAY * 80 / 100),
+        max_borrow_rate: Some(MAX_BORROW_RATE_RAY),
+        reserve_factor: Some(BPS / 10),
+        asset_decimals: Some(7),
+    };
+    let params = if f.market_params.is_empty() {
+        std::slice::from_ref(&fallback)
+    } else {
+        &f.market_params
+    };
+
+    for p in params.iter().take(12) {
         // Inverse of make_params' decode: pick the byte each field will decode
         // back to (≈) its snapshot value, so seeds replay real high-rate curves
         // instead of collapsing to the low end. Cumulative slopes mirror the

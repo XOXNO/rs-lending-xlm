@@ -1,63 +1,49 @@
 use crate::config::config;
-use controller::constants::WAD;
+use crate::strategy_helpers::{flash_guard_cleared, router_allowance};
 use controller::types::PositionMode;
 use proptest::prelude::*;
-use test_harness::{LendingTest, ALICE};
-
-fn is_budget_panic(msg: &str) -> bool {
-    let low = msg.to_lowercase();
-    low.contains("budget")
-        || low.contains("exceeded")
-        || low.contains("limit")
-        || low.contains("cpu")
-        || low.contains("memory")
-}
+use test_harness::{build_aggregator_swap, LendingTest, ALICE};
 
 proptest! {
     #![proptest_config(config(4))]
 
     #[test]
-    fn prop_strategy_under_budget(
-        supply_u in 100u32..10_000,
-        leverage_bps in 10_000u32..30_000,
+    fn prop_valid_multiply_fits_default_budget(
+        debt_tenths in 1u32..50,
+        collateral_ratio_bps in 15_000u32..20_000,
     ) {
-        let mut t = LendingTest::new().three_asset_usdc_eth_wbtc_with_budget().build();
-        t.fund_router("ETH", 1_000_000.0);
-        let _ = t.get_or_create_user(ALICE);
+        let mut t = LendingTest::new()
+            .standard_two_asset()
+            .with_budget_enabled()
+            .build();
 
-        let borrow_eth =
-            (supply_u as f64) * (leverage_bps as f64 - 10_000.0) / 10_000.0 / 2_000.0;
-        if borrow_eth < 0.0001 {
-            return Ok(());
-        }
+        let debt_eth = debt_tenths as f64 / 10.0;
+        let collateral_usdc = debt_eth * 2_000.0 * collateral_ratio_bps as f64 / 10_000.0;
+        t.fund_router("USDC", collateral_usdc);
 
-        let steps = t.mock_swap_steps("ETH", "USDC", WAD);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            t.try_multiply(ALICE, "USDC", borrow_eth, "ETH", PositionMode::Normal, &steps)
-        }));
+        let eth_decimals = t.resolve_market("ETH").decimals;
+        let usdc_decimals = t.resolve_market("USDC").decimals;
+        let amount_in_raw = test_harness::f64_to_i128(debt_eth, eth_decimals);
+        let min_out_raw = test_harness::f64_to_i128(collateral_usdc, usdc_decimals);
+        let steps = build_aggregator_swap(&t, "ETH", "USDC", amount_in_raw, min_out_raw);
 
-        match result {
-            Ok(Ok(_)) => {
-                prop_assert!(
-                    t.health_factor(ALICE) > 0.0,
-                    "successful multiply must leave a live position"
-                );
-            }
-            Ok(Err(_)) => {}
-            Err(payload) => {
-                let msg = if let Some(s) = payload.downcast_ref::<&str>() {
-                    (*s).to_string()
-                } else if let Some(s) = payload.downcast_ref::<std::string::String>() {
-                    s.clone()
-                } else {
-                    std::string::String::from("<non-string panic payload>")
-                };
-                prop_assert!(
-                    is_budget_panic(&msg),
-                    "multiply panicked outside budget category: {}",
-                    msg
-                );
-            }
-        }
+        // Setup calls are not part of the transaction-equivalent operation.
+        t.env.cost_estimate().budget().reset_default();
+        let result = t.try_multiply(
+            ALICE,
+            "USDC",
+            debt_eth,
+            "ETH",
+            PositionMode::Multiply,
+            &steps,
+        );
+        prop_assert!(
+            result.is_ok(),
+            "valid multiply exceeded the default budget or failed: {:?}",
+            result.err()
+        );
+        prop_assert!(t.health_factor_raw(ALICE) >= controller::constants::WAD);
+        prop_assert_eq!(router_allowance(&t, "ETH"), 0);
+        prop_assert!(flash_guard_cleared(&t));
     }
 }

@@ -6,9 +6,10 @@ use common::math::fp::{Bps, Ray, Wad};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::Env;
 
-/// Keeps operands inside the `mul_div` safe envelope. `10^18` provides
-/// headroom below the `i128` product bound for fixed-point roundtrips.
-const MAX_MAG: i128 = 1_000_000_000_000_000_000; // 10^18
+/// Keeps signed operands in the realistic low-double-digit WAD range. The
+/// previous exclusive 1-WAD cap made the `|a| >= WAD && |b| >= WAD`
+/// multiplication/division property unreachable.
+const MAX_MAG: i128 = 10_000_000_000_000_000_000; // 10^19
 
 #[derive(Debug, Arbitrary)]
 struct In {
@@ -23,9 +24,7 @@ struct In {
     bps: u16,
     // 0..=27, asset-decimal domain.
     decimals: u8,
-    // Amount for token conversion tests. Constrained separately because
-    // `Wad::from_token` multiplies by 10^(18 - decimals), so large values
-    // at low decimals overflow.
+    // Amount for token conversion tests.
     token_amount: i64,
 }
 
@@ -124,18 +123,17 @@ fuzz_target!(|i: In| {
     );
 
     // ---- Wad::mul/div roundtrip ----
-    // Domain: the identity `mul(a,b).div(b) == a` holds within 1 ulp only
+    // Domain: the identity `mul(a,b).div(b) == a` holds within 2 ulp
     // when both |a| ≥ 1.0 Wad (= WAD raw) and |b| ≥ 1.0 Wad. Below 1.0,
     // the intermediate `a*b/WAD` truncates so aggressively that subsequent
-    // `* WAD / b` cannot recover `a`. Production Wad amounts from real
-    // tokens always satisfy this (smallest unit is 10^(18-decimals) raw,
-    // already ≥ 1 for realistic token amounts).
-    if a.abs() <= 10i128.pow(15) && b.abs() <= 10i128.pow(15) && a.abs() >= WAD && b.abs() >= WAD {
+    // `* WAD / b` cannot recover `a`. Smaller token-unit conversions are
+    // covered by the precision-aware roundtrip below.
+    if a.abs() >= WAD && b.abs() >= WAD {
         let prod = wad_a.mul(&env, wad_b);
         let roundtrip = prod.div(&env, wad_b);
         let err = (roundtrip.raw() - wad_a.raw()).abs();
         assert!(
-            err <= 1,
+            err <= 2,
             "Wad mul/div roundtrip: a={} * b={} / b = {} (err {})",
             wad_a.raw(),
             wad_b.raw(),
@@ -179,37 +177,25 @@ fuzz_target!(|i: In| {
     );
 
     // ---- Wad <-> token conversion ----
-    // Exercises `Wad::from_token` and `Wad::to_token`. Assertions are
-    // deliberately loose: `from_token` uses half-up rescale which can
-    // round away from zero, so a strict `to_token(from_token(x)) <= x`
-    // bound doesn't hold for negative amounts or near-boundary values.
-    // Durable invariants: non-zero roundtrips preserve sign and zero maps to zero.
-    // Skip i64::MIN — `.abs()` overflows i64.
-    let token_amount_safe = i.token_amount.saturating_abs() as i128;
-    if i.token_amount != i64::MIN && (decimals >= 2 || token_amount_safe <= 10i128.pow(15)) {
-        let w = Wad::from_token(i.token_amount as i128, decimals);
-        let back = w.to_token(decimals);
-        // Sign preservation across the roundtrip.
-        if i.token_amount != 0 && back != 0 {
-            assert_eq!(
-                back.signum(),
-                (i.token_amount as i128).signum(),
-                "Wad token roundtrip flipped sign: {} -> wad={} -> {}",
-                i.token_amount,
-                w.raw(),
-                back
-            );
-        }
-        // Zero is a fixed point.
-        if i.token_amount == 0 {
-            assert_eq!(
-                w.raw(),
-                0,
-                "Wad::from_token(0) != 0 for decimals={}",
-                decimals
-            );
-            assert_eq!(back, 0, "Wad::to_token of zero Wad != 0");
-        }
+    // At <=18 decimals the conversion roundtrip is exact. Above WAD
+    // precision it quantizes once, within half one WAD-sized token unit.
+    let token_amount = i.token_amount as i128;
+    let w = Wad::from_token(token_amount, decimals);
+    let back = w.to_token(decimals);
+    if decimals <= 18 {
+        assert_eq!(
+            back, token_amount,
+            "Wad token roundtrip at decimals={decimals}"
+        );
+    } else {
+        let factor = 10i128.pow(decimals - 18);
+        assert!(
+            (back - token_amount).abs() <= factor / 2 + 1,
+            "Wad token roundtrip exceeded half-up bound: amount={} back={} decimals={}",
+            token_amount,
+            back,
+            decimals
+        );
     }
 
     // ---- Bps ops ----

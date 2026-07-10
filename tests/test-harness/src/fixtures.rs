@@ -61,6 +61,10 @@ pub fn seed_fuzz_conservation_book(t: &mut LendingTest) {
     t.supply(BOB, "USDC", 50_000.0);
     t.supply(ALICE, "ETH", 20.0);
     t.supply(BOB, "WBTC", 1.0);
+    // Seed both debt sides so repay, liquidation, revenue, and debt-swap
+    // operations exercise live state from the first generated step.
+    t.borrow(ALICE, "ETH", 5.0);
+    t.borrow(BOB, "USDC", 5_000.0);
 }
 
 /// Seeds a healthy two-user USDC/ETH book.

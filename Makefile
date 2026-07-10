@@ -573,6 +573,8 @@ install-stellar-cli:
 FUZZ_TARGETS := fp_math rates_and_index fp_ops
 FUZZ_CONTRACT_TARGETS := flow_e2e flow_strategy pool_native
 FUZZ_TIME ?= 60
+FUZZ_MAX_LEN ?= 82
+FUZZ_LEN_CONTROL ?= 0
 
 # macOS requires `--sanitizer=thread -Zbuild-std` to link the contract-level
 # targets (stellar-access cdylib + libFuzzer sancov conflict). Linux builds
@@ -593,19 +595,22 @@ endif
 fuzz:
 	@set -o pipefail; for t in $(FUZZ_TARGETS); do \
 		echo "=== $$t ==="; \
-		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
+		mkdir -p $(FUZZ_DIR)/corpus/$$t; \
+		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t $(FUZZ_DIR)/corpus/$$t $(FUZZ_DIR)/seeds/$$t -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
 	done
 
 ## Run all contract-level libFuzzer targets for $(FUZZ_TIME) seconds each.
 fuzz-contract:
 	@set -o pipefail; for t in $(FUZZ_CONTRACT_TARGETS); do \
 		echo "=== $$t ==="; \
-		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
+		mkdir -p $(FUZZ_DIR)/corpus/$$t; \
+		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t $(FUZZ_DIR)/corpus/$$t $(FUZZ_DIR)/seeds/$$t -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
 	done
 
 ## Run a single fuzz target: make fuzz-one TARGET=fp_math FUZZ_TIME=300
 fuzz-one:
-	@cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $(TARGET) -- -max_total_time=$(FUZZ_TIME)
+	@mkdir -p $(FUZZ_DIR)/corpus/$(TARGET)
+	@cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $(TARGET) $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET) -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL)
 
 ## Build all fuzz targets (compile-only)
 fuzz-build:
@@ -636,12 +641,12 @@ endif
 
 ## Fast: coverage for function-level targets (fp_math, rates_and_index)
 fuzz-coverage:
-	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) \
+	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) FUZZ_MAX_LEN=$(FUZZ_MAX_LEN) FUZZ_LEN_CONTROL=$(FUZZ_LEN_CONTROL) \
 		./$(FUZZ_DIR)/coverage.sh $(FUZZ_TARGETS)
 
 ## All: adds contract-level targets — same flags, same cache, just more targets
 fuzz-coverage-all:
-	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) \
+	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) FUZZ_MAX_LEN=$(FUZZ_MAX_LEN) FUZZ_LEN_CONTROL=$(FUZZ_LEN_CONTROL) \
 		./$(FUZZ_DIR)/coverage.sh $(FUZZ_TARGETS) $(FUZZ_CONTRACT_TARGETS)
 
 ## Single target: make fuzz-coverage-one TARGET=flow_e2e [FUZZ_COV_TIME=30]
@@ -650,7 +655,7 @@ fuzz-coverage-one:
 		echo "Usage: make fuzz-coverage-one TARGET=<name> [FUZZ_COV_TIME=30]"; \
 		exit 1; \
 	fi
-	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) \
+	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) FUZZ_MAX_LEN=$(FUZZ_MAX_LEN) FUZZ_LEN_CONTROL=$(FUZZ_LEN_CONTROL) \
 		./$(FUZZ_DIR)/coverage.sh $(TARGET)
 
 ## Remove fuzz coverage artifacts (keeps the corpus)
@@ -661,17 +666,18 @@ fuzz-coverage-clean:
 # Contract-level property tests (proptest inside test-harness)
 # ---------------------------------------------------------------------------
 
-PROPTEST_CASES ?= 256
+PROPTEST_CASES ?=
+PROPTEST_ENV = $(if $(strip $(PROPTEST_CASES)),PROPTEST_CASES=$(PROPTEST_CASES),)
 
 ## Run all contract-level property tests (`tests/test-harness/tests/fuzz/`).
 ## Set PROPTEST_CASES=10000 (or higher) for longer runs on dedicated hardware.
 proptest:
 	@echo "=== fuzz (proptest) ==="
-	@PROPTEST_CASES=$(PROPTEST_CASES) cargo test --release -p test-harness --test fuzz -- --test-threads=1
+	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz -- --test-threads=1
 
 ## Run a single property: make proptest-one TEST=prop_accounting_conservation PROPTEST_CASES=10000
 proptest-one:
-	@PROPTEST_CASES=$(PROPTEST_CASES) cargo test --release -p test-harness --test fuzz $(TEST) -- --test-threads=1
+	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz $(TEST) -- --test-threads=1
 
 ## Build property tests without running
 proptest-build:
@@ -1526,7 +1532,7 @@ help:
 	@echo "  make miri-all           Miri UB checks on pure-i128 math (common/pool/controller)"
 	@echo "  make fuzz               libFuzzer math primitives (FUZZ_TIME=60)"
 	@echo "  make fuzz-contract      libFuzzer contract-level flows (flow_e2e, pool_native, ...)"
-	@echo "  make proptest           proptest accounting invariants (PROPTEST_CASES=256)"
+	@echo "  make proptest           Contract properties (tuned defaults; override PROPTEST_CASES=N)"
 	@echo "  make mutants            cargo-mutants sweep (common + controller helpers)"
 	@echo "  make mutants-pool       Scoped mutation run (also -math -rates -oracle-policy -controller-*)"
 	@echo "  make scout              Scout audit workflow in Docker via act (scout-host runs on host; scout-strict gates incomplete reports)"
