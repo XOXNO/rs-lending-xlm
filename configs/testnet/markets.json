@@ -56,7 +56,9 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000
+        "reserve_factor": 1000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
       }
     },
     {
@@ -114,7 +116,9 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000
+        "reserve_factor": 1000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
       }
     },
     {
@@ -161,7 +165,9 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000
+        "reserve_factor": 1000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
       }
     },
     {
@@ -219,7 +225,9 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000
+        "reserve_factor": 1000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
       }
     },
     {
@@ -277,7 +285,9 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000
+        "reserve_factor": 1000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
       }
     },
     {
@@ -335,7 +345,9 @@
         "mid_utilization": "500000000000000000000000000",
         "optimal_utilization": "890000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000
+        "reserve_factor": 1000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
       }
     }
   ]
