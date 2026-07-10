@@ -44,8 +44,10 @@ SHELL := /bin/bash
         coverage coverage-controller coverage-pool coverage-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
         wasm-size-check wasm-testing-abi-check act-ci act-ci-dryrun clean install-stellar-cli \
-        mutants mutants-math mutants-rates mutants-pool-interest mutants-pool \
-        mutants-oracle-policy mutants-controller-positions mutants-controller-strategies mutants-common \
+        _mutants-check _mutants-harness-prepare \
+        mutants mutants-math mutants-rates mutants-pool-interest mutants-common mutants-pool mutants-governance \
+        mutants-controller-core mutants-controller-oracle mutants-controller-positions \
+        mutants-controller-strategies mutants-controller-views \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
@@ -463,86 +465,110 @@ act-ci:
 # ---------------------------------------------------------------------------
 # Mutation testing
 # ---------------------------------------------------------------------------
-# Requires: cargo install --locked cargo-mutants
+# Requires: cargo install --version 27.1.0 --locked cargo-mutants
 # Config:   .cargo/mutants.toml (workspace-wide excludes)
 # Output:   mutants.out/ (gitignored)
 #
-# `mutants` is the broad sweep (common + controller helpers). The `mutants-*`
-# targets scope a single module so each invocation stays under ~10 min;
-# parallelise with MUTANTS_JOBS (defaults to 4 workers).
+# `mutants` runs the non-overlapping production scopes below. The focused
+# math/rates/pool-interest targets are local diagnostics and are intentionally
+# omitted from CI because their mutants are already covered by common/pool.
 
 MUTANTS_JOBS ?= 4
+CARGO_MUTANTS_VERSION ?= 27.1.0
 # Test-harness integration tests can run long under accrual-loop mutations.
 # 120s separates infinite loops from slow test runs.
 MUTANTS_TIMEOUT ?= 120
+# Empty by default for safe scratch-tree mutation. CI passes --in-place because
+# every matrix job owns a disposable checkout and can reuse its cached target.
+MUTANTS_RUN_MODE ?=
+# Filters must be repeated during the non-empty scope preflight.
+MUTANTS_FILTER ?=
+# Execution-only flags such as --list, --check, or --iterate.
+MUTANTS_EXTRA_ARGS ?=
+MUTANTS_JOB_ARGS = $(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j $(MUTANTS_JOBS))
+MUTANTS_POOL_WASM := $(abspath $(RELEASE_DIR)/pool.wasm)
+MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
+# Keep Proptest deterministic and cheap when cargo-mutants runs the whole
+# test-harness for each mutant.
+MUTANTS_ENV = PROPTEST_CASES=1 PROPTEST_RNG_SEED=0 \
+	POOL_WASM_PATH="$(MUTANTS_POOL_WASM)" \
+	CONTROLLER_WASM_PATH="$(MUTANTS_CONTROLLER_WASM)"
 
-## Run cargo-mutants on common/ + controller/src/helpers/.
-## We deliberately exclude certora spec files and test scaffolding because they
-## contain large amounts of test-only / modeling code that produces noisy
-## "missed" mutants and are not part of the production attack surface we
-## care about protecting with mutation testing.
-mutants:
+define run_mutants
+	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
+		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
+		echo "Mutation scope: $$count mutants"
+	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) $(1) \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		$(MUTANTS_JOB_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+endef
+
+_mutants-check:
 	@command -v cargo-mutants >/dev/null 2>&1 || { \
 		echo "cargo-mutants not installed. Install with:"; \
-		echo "  cargo install cargo-mutants --locked"; \
+		echo "  cargo install cargo-mutants --version $(CARGO_MUTANTS_VERSION) --locked"; \
 		exit 1; \
 	}
-	# The harness loads target/wasm32v1-none/release/pool.wasm at setup
-	# (test-harness builder.rs); build it so the baseline phase does not panic
-	# on a clean checkout.
+
+_mutants-harness-prepare: _mutants-check
 	$(MAKE) build
-	cargo mutants --package common --package controller \
-		--file 'common/src/**/*.rs' \
-		--file 'contracts/controller/src/helpers/**/*.rs' \
-		--exclude '**/tests/**' \
-		--exclude '**/certora/**' \
-		--test-package common \
-		--test-package controller \
-		--test-package test-harness \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		--jobs 1
 
-mutants-math:
-	cargo mutants --package common --file 'common/src/math/**' -j $(MUTANTS_JOBS)
+## Run every non-overlapping production mutation scope.
+mutants: mutants-common mutants-pool mutants-governance mutants-controller-core \
+         mutants-controller-oracle mutants-controller-positions \
+         mutants-controller-strategies mutants-controller-views
 
-mutants-rates:
-	cargo mutants --package common --file 'common/src/rates.rs' -j $(MUTANTS_JOBS)
+## Focused local diagnostics (already covered by mutants-common/pool).
+mutants-math: _mutants-check
+	$(call run_mutants,--package common --file 'common/src/math/**')
 
-mutants-pool-interest:
-	cargo mutants --package pool --file 'contracts/pool/src/interest.rs' -j $(MUTANTS_JOBS)
+mutants-rates: _mutants-check
+	$(call run_mutants,--package common --file 'common/src/rates.rs')
 
-mutants-pool:
-	$(MAKE) build  # harness loads the pool.wasm fixture; see `mutants`
-	cargo mutants --package pool \
-		--test-package pool --test-package test-harness \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		-j $(MUTANTS_JOBS)
+mutants-pool-interest: _mutants-check
+	$(call run_mutants,--package pool --file 'contracts/pool/src/interest.rs')
 
-mutants-oracle-policy:
-	$(MAKE) build  # harness loads the pool.wasm fixture; see `mutants`
-	cargo mutants --package controller \
-		--file 'contracts/controller/src/oracle/policy.rs' \
-		--file 'contracts/controller/src/oracle/compose.rs' \
-		--test-package controller --test-package test-harness \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		-j $(MUTANTS_JOBS)
+## Shared math, rates, oracle primitives, validation, and ABI data behavior.
+# Run every native consumer plus the integration harness so shared-code mutants
+# cannot survive merely because their only exercising contract was omitted.
+mutants-common: _mutants-harness-prepare
+	$(call run_mutants,--package common \
+		--test-package common --test-package controller --test-package pool \
+		--test-package governance --test-package test-harness)
 
-mutants-controller-positions:
-	$(MAKE) build  # harness loads the pool.wasm fixture; see `mutants`
-	cargo mutants --package controller --file 'contracts/controller/src/positions/**' \
-		--test-package controller --test-package test-harness \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		-j $(MUTANTS_JOBS)
+## Native pool tests exercise the mutated Rust directly. The harness deploys a
+## prebuilt, unmutated pool WASM, so including it here would add no signal.
+mutants-pool: _mutants-check
+	$(call run_mutants,--package pool --test-package pool)
 
-mutants-controller-strategies:
-	$(MAKE) build  # harness loads the pool.wasm fixture; see `mutants`
-	cargo mutants --package controller --file 'contracts/controller/src/strategies/**' \
-		--test-package controller --test-package test-harness \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		-j $(MUTANTS_JOBS)
+mutants-governance: _mutants-harness-prepare
+	$(call run_mutants,--package governance \
+		--test-package governance --test-package test-harness)
 
-mutants-common:
-	cargo mutants --package common -j $(MUTANTS_JOBS)
+## Everything outside the separately sharded oracle/position/strategy/view trees.
+mutants-controller-core: _mutants-harness-prepare
+	$(call run_mutants,--package controller --file 'contracts/controller/src/**' \
+		--exclude 'contracts/controller/src/oracle/**' \
+		--exclude 'contracts/controller/src/positions/**' \
+		--exclude 'contracts/controller/src/strategies/**' \
+		--exclude 'contracts/controller/src/views/**' \
+		--test-package controller --test-package governance --test-package test-harness)
+
+mutants-controller-oracle: _mutants-harness-prepare
+	$(call run_mutants,--package controller --file 'contracts/controller/src/oracle/**' \
+		--test-package controller --test-package governance --test-package test-harness)
+
+mutants-controller-positions: _mutants-harness-prepare
+	$(call run_mutants,--package controller --file 'contracts/controller/src/positions/**' \
+		--test-package controller --test-package governance --test-package test-harness)
+
+mutants-controller-strategies: _mutants-harness-prepare
+	$(call run_mutants,--package controller --file 'contracts/controller/src/strategies/**' \
+		--test-package controller --test-package governance --test-package test-harness)
+
+mutants-controller-views: _mutants-harness-prepare
+	$(call run_mutants,--package controller --file 'contracts/controller/src/views/**' \
+		--test-package controller --test-package governance --test-package test-harness)
 
 # ---------------------------------------------------------------------------
 # Clean
@@ -1533,8 +1559,8 @@ help:
 	@echo "  make fuzz               libFuzzer math primitives (FUZZ_TIME=60)"
 	@echo "  make fuzz-contract      libFuzzer contract-level flows (flow_e2e, pool_native, ...)"
 	@echo "  make proptest           Contract properties (tuned defaults; override PROPTEST_CASES=N)"
-	@echo "  make mutants            cargo-mutants sweep (common + controller helpers)"
-	@echo "  make mutants-pool       Scoped mutation run (also -math -rates -oracle-policy -controller-*)"
+	@echo "  make mutants            Full non-overlapping mutation suite (common/pool/governance/controller)"
+	@echo "  make mutants-math       Focused local mutation run (also -rates and -pool-interest)"
 	@echo "  make scout              Scout audit workflow in Docker via act (scout-host runs on host; scout-strict gates incomplete reports)"
 	@echo ""
 	@echo "Deployment (pattern: make <network> <action>, network = testnet | mainnet):"

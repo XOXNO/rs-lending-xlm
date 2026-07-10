@@ -8,6 +8,10 @@
 # Selection lives on the CLI (`--file`, `--package`) so this file only
 # encodes "never mutate this regardless of scope" rules.
 
+# Keep ignored build products, generated snapshots, local worktrees, and
+# verification artifacts out of cargo-mutants scratch copies.
+gitignore = true
+
 exclude_globs = [
     # Compile-time ABI guards — pure type-pointer bindings, no behavior.
     "contracts/controller/src/abi.rs",
@@ -16,26 +20,20 @@ exclude_globs = [
     # Test scaffolding — mutating tests just produces noise.
     "tests/test-harness/**",
     "tests/fuzz/**",
-    "certora/**",
+    # Cargo discovers these through relative #[path] modules such as
+    # `contracts/pool/src/../../../certora/...`, so the leading ** is required.
+    "**/certora/**",
     "**/test_support.rs",
     "**/tests.rs",
-
-    # Top-level orchestration shells — mostly re-exports and module declarations.
-    "**/lib.rs",
-    "**/mod.rs",
-    "**/router.rs",
 
     # Strict type-alias / re-export files (no executable lines worth mutating).
     "common/src/types/shared.rs",
     "common/src/types/aggregator.rs",
 ]
 
-# Drop mutations on non-behavioral patterns:
-#   - Default::default() replacements on `()` returning fns (always equivalent).
-#   - Deleting / replacing trivial accessors (getters that just `clone()`).
+# Drop only mutations proven equivalent or confined to test support.
 exclude_re = [
-    # `replace .* with Default::default()` on unit-returning fns.
-    "replace .* -> \\(\\) with \\(\\)",
+    "test_support::",
 
     # Provably-equivalent boundary mutants (equality pre-handled or symmetric at 0):
     "replace < with <= in Wad::min",
@@ -45,15 +43,9 @@ exclude_re = [
     "replace > with >= in rescale_ceil",
     "replace < with <= in mul_div_half_up_signed",
     # `is_stale` first guard: at now == feed_ts elapsed is 0, never > max_stale,
-    # so `>` vs `>=` is unobservable. Col-anchored to spare the killable :30:48.
-    "observation.rs:30:14: replace > with >= in is_stale",
-
-    # `apply_bad_debt_to_supply_index` cap/floor clamps: at the exact
-    # boundary (bad_debt == total_supplied_value, new_supply_index ==
-    # floor_index) both branches return the same value, so `>`/`>=` and
-    # `<`/`<=` are unobservable.
-    "replace > with >= in apply_bad_debt_to_supply_index",
-    "replace < with <= in apply_bad_debt_to_supply_index",
+    # so `>` vs `>=` is unobservable. Column-anchored to spare the killable
+    # second comparison while remaining stable when preceding lines move.
+    "observation.rs:[0-9]+:14: replace > with >= in is_stale",
 
     # `calculate_borrow_rate` / `update_borrow_index` cap clamps: same
     # equivalent-at-boundary shape as the pool clamps above.

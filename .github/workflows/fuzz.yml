@@ -7,6 +7,7 @@ on:
       - 'common/**'
       - 'contracts/pool/**'
       - 'contracts/controller/**'
+      - 'contracts/governance/**'
       - 'tests/test-harness/**'
       - 'tests/fuzz/**'
   schedule:
@@ -28,6 +29,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   STELLAR_VERSION: '27.0.0'
+  CARGO_MUTANTS_VERSION: '27.1.0'
   # Pin untrusted workflow_dispatch inputs into env to avoid injection.
   FUZZ_TIME_INPUT: ${{ github.event.inputs.fuzz_time }}
   PROPTEST_CASES_INPUT: ${{ github.event.inputs.proptest_cases }}
@@ -151,24 +153,15 @@ jobs:
     name: Prepare cargo-mutants
     runs-on: self-hosted
     steps:
-      - uses: dtolnay/rust-toolchain@master
+      - name: Install cargo-mutants (prebuilt)
+        uses: taiki-e/install-action@v2
         with:
-          toolchain: '1.95'
+          tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
 
-      - name: Cache cargo
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-mutants
-          restore-keys: |
-            ${{ runner.os }}-cargo-mutants-
-
-      - name: Install cargo-mutants
-        env:
-          CARGO_BUILD_JOBS: '4'
-        run: cargo install cargo-mutants --locked --root "$RUNNER_TEMP/cargo-mutants"
+      - name: Stage cargo-mutants
+        run: |
+          mkdir -p "$RUNNER_TEMP/cargo-mutants/bin"
+          cp "$(command -v cargo-mutants)" "$RUNNER_TEMP/cargo-mutants/bin/cargo-mutants"
 
       - name: Upload cargo-mutants
         uses: actions/upload-artifact@v7
@@ -341,14 +334,14 @@ jobs:
       max-parallel: 8
       matrix:
         target:
-          - mutants
-          - mutants-math
-          - mutants-rates
-          - mutants-pool-interest
+          - mutants-common
           - mutants-pool
-          - mutants-oracle-policy
+          - mutants-governance
+          - mutants-controller-core
+          - mutants-controller-oracle
           - mutants-controller-positions
           - mutants-controller-strategies
+          - mutants-controller-views
     steps:
       - uses: actions/checkout@v7
 
@@ -388,12 +381,13 @@ jobs:
       - name: Run mutation target
         env:
           CARGO_BUILD_JOBS: '1'
-          MUTANTS_JOBS: '2'
-        run: make "${{ matrix.target }}" MUTANTS_JOBS="$MUTANTS_JOBS"
+        run: make "${{ matrix.target }}" MUTANTS_RUN_MODE=--in-place
 
-      - name: Upload mutation artifacts on failure
-        if: failure()
+      - name: Upload mutation results
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: mutants-artifacts-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: mutants.out/
+          if-no-files-found: ignore
+          retention-days: 7
