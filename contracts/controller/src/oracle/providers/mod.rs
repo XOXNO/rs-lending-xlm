@@ -21,7 +21,6 @@ pub(crate) fn read_required_source(
             reflector::read_reflector_source(cache, config, max_stale)
                 .unwrap_or_else(|| panic_with_error!(cache.env(), OracleError::NoLastPrice))
         }
-        // Xoxno shares the RedStone wire ABI; only its provider identity differs.
         OracleSourceConfig::RedStone(config) | OracleSourceConfig::Xoxno(config) => {
             redstone::read_redstone_source(cache, config)
                 .unwrap_or_else(|| panic_with_error!(cache.env(), GenericError::InvalidTicker))

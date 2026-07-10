@@ -115,14 +115,11 @@ fn validate_source(
             })
         }
         common::types::OracleSourceConfigInput::RedStone(config) => {
-            // The canonical RedStone adapter has no `decimals()` entrypoint;
-            // its feeds are 8-decimal by protocol definition.
+            // RedStone feeds are 8-decimal; the adapter has no `decimals()`.
             let redstone = validate_feed_id_source(env, config, REDSTONE_DECIMALS);
             OracleSourceConfig::RedStone(redstone)
         }
         common::types::OracleSourceConfigInput::Xoxno(config) => {
-            // The XOXNO adapter also serves the SEP-40 ABI: probe its
-            // `decimals()` at listing instead of assuming the RedStone width.
             let decimals = reflector_decimals_call(env, &config.contract);
             let xoxno = validate_feed_id_source(env, config, decimals);
             OracleSourceConfig::Xoxno(xoxno)
@@ -130,8 +127,7 @@ fn validate_source(
     }
 }
 
-/// Shared validation for RedStone-shaped (feed-id keyed) sources: staleness
-/// and decimal bounds, plus a live probe of the configured feed.
+/// Validates a RedStone-shaped (feed-id keyed) source with a live feed probe.
 fn validate_feed_id_source(
     env: &Env,
     config: &common::types::RedStoneSourceConfigInput,

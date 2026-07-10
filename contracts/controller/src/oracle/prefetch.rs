@@ -74,7 +74,6 @@ fn collect_redstone_feed(
     seen: &mut Map<(Address, String), bool>,
     source: &common::types::OracleSourceConfig,
 ) {
-    // Xoxno sources share the RedStone wire ABI, including the bulk endpoint.
     let (common::types::OracleSourceConfig::RedStone(r)
     | common::types::OracleSourceConfig::Xoxno(r)) = source
     else {

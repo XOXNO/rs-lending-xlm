@@ -31,7 +31,6 @@ pub struct OraclePriceFluctuation {
 pub enum OracleProviderKind {
     ReflectorSep40 = 0,
     RedStonePriceFeed = 1,
-    /// XOXNO oracle adapter: RedStone-shaped wire ABI, independent signer set.
     XoxnoPriceFeed = 2,
 }
 
@@ -75,17 +74,12 @@ pub struct RedStoneSourceConfigInput {
 pub enum OracleSourceConfigInput {
     Reflector(ReflectorSourceConfigInput),
     RedStone(RedStoneSourceConfigInput),
-    /// XOXNO oracle adapter. Same wire shape as `RedStone` (the adapter
-    /// implements the `RedStoneMultiFeed` ABI) but a distinct provider
-    /// identity: its prices come from XOXNO's own signer set, so it counts
-    /// as an independent source next to a real RedStone or Reflector leg.
     Xoxno(RedStoneSourceConfigInput),
 }
 
 impl OracleSourceConfigInput {
-    /// True when two configs read the same provider feed. `RedStone` and
-    /// `Xoxno` share a wire ABI, so the same `(contract, feed_id)` pair is the
-    /// same feed regardless of which of the two variants declares it.
+    /// True when two configs read the same provider feed; `RedStone` and
+    /// `Xoxno` share a wire ABI, so the variant name does not split feeds.
     pub fn reads_same_feed_as(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Reflector(x), Self::Reflector(y)) => {
@@ -98,7 +92,6 @@ impl OracleSourceConfigInput {
         }
     }
 
-    /// Provider contract address, independent of variant.
     pub fn contract(&self) -> &Address {
         match self {
             Self::Reflector(config) => &config.contract,
@@ -166,9 +159,6 @@ pub struct RedStoneSourceConfig {
 pub enum OracleSourceConfig {
     Reflector(ReflectorSourceConfig),
     RedStone(RedStoneSourceConfig),
-    /// XOXNO oracle adapter (RedStone wire shape, independent provider).
-    /// Unlike `RedStone`, `decimals` is probed from the adapter's SEP-40
-    /// `decimals()` at listing time rather than assumed.
     Xoxno(RedStoneSourceConfig),
 }
 

@@ -66,10 +66,7 @@ pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfi
                 if same_provider {
                     panic_with_error!(env, GenericError::InvalidExchangeSrc);
                 }
-                // The XOXNO adapter serves both the RedStone and the SEP-40
-                // wire ABI, so the same contract could otherwise be listed
-                // under two different variants and pass the provider check
-                // while both legs read one aggregation state.
+                // The dual-ABI XOXNO adapter must not back both legs.
                 if config.primary.contract() == anchor.contract() {
                     panic_with_error!(env, GenericError::InvalidExchangeSrc);
                 }
