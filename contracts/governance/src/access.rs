@@ -23,12 +23,11 @@ pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 4] {
 }
 
 pub(crate) fn require_known_governance_role(env: &Env, role: &Symbol) {
-    for known in default_operational_roles(env) {
-        if role == &known {
-            return;
-        }
-    }
-    assert_with_error!(env, false, GenericError::InvalidRole);
+    assert_with_error!(
+        env,
+        default_operational_roles(env).contains(role),
+        GenericError::InvalidRole
+    );
 }
 
 fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger: u32) {

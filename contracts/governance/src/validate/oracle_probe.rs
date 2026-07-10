@@ -15,7 +15,8 @@ use common::oracle::providers::reflector::{
 };
 use common::types::{
     MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation, OracleReadMode,
-    OracleSourceConfig, RedStoneSourceConfig, ReflectorBase, ReflectorSourceConfig,
+    OracleSourceConfig, OracleSourceConfigInput, OracleSourceConfigOption, RedStoneSourceConfig,
+    RedStoneSourceConfigInput, ReflectorBase, ReflectorSourceConfig,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
@@ -48,13 +49,13 @@ pub(crate) fn validate_market_oracle_sources(
     let asset_decimals = validate_and_fetch_token_decimals(env, asset);
     let primary = validate_source(env, asset, &config.primary, config.max_price_stale_seconds);
     let anchor = match config.anchor.as_ref() {
-        Some(anchor) => common::types::OracleSourceConfigOption::Some(validate_source(
+        Some(anchor) => OracleSourceConfigOption::Some(validate_source(
             env,
             asset,
             anchor,
             config.max_price_stale_seconds,
         )),
-        None => common::types::OracleSourceConfigOption::None,
+        None => OracleSourceConfigOption::None,
     };
 
     MarketOracleConfig {
@@ -72,11 +73,11 @@ pub(crate) fn validate_market_oracle_sources(
 fn validate_source(
     env: &Env,
     asset: &Address,
-    source: &common::types::OracleSourceConfigInput,
+    source: &OracleSourceConfigInput,
     max_stale: u64,
 ) -> OracleSourceConfig {
     match source {
-        common::types::OracleSourceConfigInput::Reflector(config) => {
+        OracleSourceConfigInput::Reflector(config) => {
             let base = validate_base(env, asset, &config.contract);
             let reflector_asset = to_reflector_asset(env, &config.asset);
             let decimals = reflector_decimals_call(env, &config.contract);
@@ -114,12 +115,12 @@ fn validate_source(
                 base,
             })
         }
-        common::types::OracleSourceConfigInput::RedStone(config) => {
+        OracleSourceConfigInput::RedStone(config) => {
             // RedStone feeds are 8-decimal; the adapter has no `decimals()`.
             let redstone = validate_feed_id_source(env, config, REDSTONE_DECIMALS);
             OracleSourceConfig::RedStone(redstone)
         }
-        common::types::OracleSourceConfigInput::Xoxno(config) => {
+        OracleSourceConfigInput::Xoxno(config) => {
             let decimals = reflector_decimals_call(env, &config.contract);
             let xoxno = validate_feed_id_source(env, config, decimals);
             OracleSourceConfig::Xoxno(xoxno)
@@ -130,15 +131,14 @@ fn validate_source(
 /// Validates a RedStone-shaped (feed-id keyed) source with a live feed probe.
 fn validate_feed_id_source(
     env: &Env,
-    config: &common::types::RedStoneSourceConfigInput,
+    config: &RedStoneSourceConfigInput,
     decimals: u32,
 ) -> RedStoneSourceConfig {
     validate_max_stale(env, config.max_stale_seconds);
     validate_decimals(env, decimals);
 
-    let price_data = match read_price_data_uncached(env, &config.contract, &config.feed_id) {
-        Some(data) => data,
-        _ => panic_with_error!(env, GenericError::InvalidTicker),
+    let Some(price_data) = read_price_data_uncached(env, &config.contract, &config.feed_id) else {
+        panic_with_error!(env, GenericError::InvalidTicker);
     };
     validate_redstone_feed(env, &price_data, config.max_stale_seconds, decimals);
 
@@ -161,7 +161,7 @@ fn validate_base(env: &Env, asset: &Address, oracle: &Address) -> ReflectorBase 
             assert_with_error!(env, &quote != asset, OracleError::InvalidOracleBase);
             ReflectorBase::Quoted(quote)
         }
-        _ => panic_with_error!(env, OracleError::InvalidOracleBase),
+        ReflectorAsset::Other(_) => panic_with_error!(env, OracleError::InvalidOracleBase),
     }
 }
 

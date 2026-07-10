@@ -38,7 +38,7 @@ pub(crate) fn operation_delay(env: &Env, tier: DelayTier) -> u32 {
 
 /// Rejects zero timelock delay.
 pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
-    assert_with_error!(env, delay >= 1, GenericError::InvalidTimelockDelay);
+    assert_with_error!(env, delay != 0, GenericError::InvalidTimelockDelay);
 }
 
 /// Requires non-decreasing delay, capped at 14 days.
@@ -91,9 +91,9 @@ fn begin_proposal(env: &Env, proposer: &Address) {
 }
 
 /// Advances self-targeted timelock operation inline; Soroban blocks self-reentry.
-fn begin_self_execute(env: &Env, executor: Option<Address>, operation: &Operation) {
+fn begin_self_execute(env: &Env, executor: Option<&Address>, operation: &Operation) {
     renew_governance_instance(env);
-    authorize_executor(env, executor.as_ref());
+    authorize_executor(env, executor);
     require_operation_not_expired(env, operation);
     set_execute_operation(env, operation);
 }
@@ -248,7 +248,7 @@ impl Governance {
             predecessor: BytesN::from_array(&env, &[0u8; 32]),
             salt,
         };
-        begin_self_execute(&env, executor, &operation);
+        begin_self_execute(&env, executor.as_ref(), &operation);
         apply_self_op(&env, &op);
     }
 
@@ -381,10 +381,10 @@ impl Governance {
 impl Governance {
     pub fn execute_immediate(env: Env, caller: Address, op: crate::op::AdminOperation) -> Val {
         storage::renew_governance_instance(&env);
+        caller.require_auth();
         match &op {
             crate::op::AdminOperation::ConfigureMarketOracle(_)
             | crate::op::AdminOperation::EditOracleTolerance(_) => {
-                caller.require_auth();
                 stellar_access::access_control::ensure_role(
                     &env,
                     &Symbol::new(&env, crate::access::ORACLE_ROLE),
@@ -392,7 +392,6 @@ impl Governance {
                 );
             }
             _ => {
-                caller.require_auth();
                 let owner = stellar_access::ownable::get_owner(&env)
                     .unwrap_or_else(|| panic!("Owner not set"));
                 assert_eq!(caller, owner, "not owner");
