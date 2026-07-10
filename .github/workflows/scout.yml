@@ -32,7 +32,7 @@ jobs:
         # Pinned to an immutable commit SHA (not the mutable v1.3.0 tag): a
         # retargeted tag or compromised action repo would otherwise run
         # attacker code on the self-hosted runner.
-        uses: mihaieremia/scout-audit@49d74adcaaed50c55271dc6b3f44e2b9217d5d27 # v1.3.0
+        uses: mihaieremia/scout-audit@26779da2e72880ba77ab796ee7f71a785ba315f3 # v1.3.0
         with:
           contracts: |
             contracts/pool
