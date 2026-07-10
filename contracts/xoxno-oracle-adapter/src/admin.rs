@@ -44,8 +44,7 @@ impl XoxnoOracle {
     pub fn remove_signer(env: Env, signer: Address) -> Result<(), Error> {
         renew_oracle_instance(&env);
         let mut signers = load_signers(&env);
-        let index = signers.iter().position(|s| s == signer);
-        let Some(index) = index else {
+        let Some(index) = signers.first_index_of(&signer) else {
             return Err(Error::SignerNotRegistered);
         };
 
@@ -54,7 +53,7 @@ impl XoxnoOracle {
             return Err(Error::CannotRemoveBelowThreshold);
         }
 
-        signers.remove(index as u32);
+        signers.remove(index);
         env.storage().instance().set(&DataKey::Signers, &signers);
 
         // Recompute each affected feed so a value this signer poisoned into

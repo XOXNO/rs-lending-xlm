@@ -10,6 +10,16 @@ use crate::aggregation::{
 use crate::storage::{renew_oracle_instance, require_registered_signer};
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
+fn validate_price(price: i128) -> Result<(), Error> {
+    if price <= 0 {
+        return Err(Error::InvalidPrice);
+    }
+    if price > MAX_SUBMITTED_PRICE {
+        return Err(Error::PriceOutOfRange);
+    }
+    Ok(())
+}
+
 #[contractimpl]
 impl XoxnoOracle {
     /// Records `signer`'s latest observation for `feed_id` and recomputes
@@ -33,12 +43,7 @@ impl XoxnoOracle {
         renew_oracle_instance(&env);
         signer.require_auth();
         require_registered_signer(&env, &signer)?;
-        if price <= 0 {
-            return Err(Error::InvalidPrice);
-        }
-        if price > MAX_SUBMITTED_PRICE {
-            return Err(Error::PriceOutOfRange);
-        }
+        validate_price(price)?;
         require_not_future(&env, package_timestamp)?;
         require_fresh_submission(&env, package_timestamp)?;
 
@@ -76,12 +81,7 @@ impl XoxnoOracle {
         require_not_future(&env, package_timestamp)?;
         require_fresh_submission(&env, package_timestamp)?;
         for price in prices.iter() {
-            if price <= 0 {
-                return Err(Error::InvalidPrice);
-            }
-            if price > MAX_SUBMITTED_PRICE {
-                return Err(Error::PriceOutOfRange);
-            }
+            validate_price(price)?;
         }
 
         for (feed_id, price) in feed_ids.iter().zip(prices.iter()) {
