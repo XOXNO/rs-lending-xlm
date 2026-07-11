@@ -6,7 +6,9 @@ use crate::events::UpdateMarketParamsEvent;
 use crate::risk;
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
-use common::types::{AccountPosition, HubAssetKey, InterestRateModel, MarketParamsRaw};
+use common::types::{
+    AccountPosition, AssetConfig, HubAssetKey, InterestRateModel, MarketParamsRaw,
+};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, when_not_paused};
 
@@ -19,7 +21,6 @@ use crate::external::pool::{
 use crate::external::sac::sac_transfer_call;
 use crate::risk::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::setup;
-use crate::spoke;
 use crate::{
     payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
 };
@@ -220,11 +221,11 @@ impl Controller {
 
     /// Propagates current spoke risk params onto each account's supply
     /// positions. Permissionless: a health-factor gate prevents risk increases
-    /// when `has_risks` raises liquidation thresholds.
+    /// when `has_risks` raises liquidation thresholds. Assets no longer listed
+    /// on the account's spoke keep their stamped params and are skipped.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * `AssetNotSupported` - a held asset is not listed on the account's spoke.
     /// * `HealthFactorTooLow` - a threshold raise would push an account below the
     ///   minimum safe health factor.
     /// * The `#[when_not_paused]` guard reverts while the contract is paused.
@@ -363,9 +364,14 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     let assets = account.supply_positions.keys();
 
     for hub_asset in assets.iter() {
-        // `effective_asset_config` reverts `AssetNotSupported` when the held
-        // asset is not listed on the account's spoke.
-        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
+        // A delisted held asset keeps its stamped params (same freeze rule as
+        // withdraw); skipping it must not block syncing the account's other
+        // assets. Deprecated spokes sync normally: their listings stay
+        // governance-managed via `edit_asset_in_spoke`.
+        let Some(spoke_config) = cache.cached_spoke_asset(account.spoke_id, &hub_asset) else {
+            continue;
+        };
+        let asset_config = AssetConfig::from(&spoke_config);
 
         let position =
             validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));

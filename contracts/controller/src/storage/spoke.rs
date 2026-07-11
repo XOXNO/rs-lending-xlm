@@ -68,9 +68,14 @@ pub(crate) fn get_spoke_usage(
     spoke_id: u32,
     hub_asset: &HubAssetKey,
 ) -> Option<SpokeUsageRaw> {
-    env.storage()
-        .persistent()
-        .get(&ControllerKey::SpokeUsage(spoke_id, hub_asset.clone()))
+    let key = ControllerKey::SpokeUsage(spoke_id, hub_asset.clone());
+    let usage: Option<SpokeUsageRaw> = env.storage().persistent().get(&key);
+    // Read-renewal policy matches `get_spoke`/`get_spoke_asset`: a dormant
+    // nonzero row read by views or cap checks must not archive.
+    if usage.is_some() {
+        renew_protocol_shared_key(env, &key);
+    }
+    usage
 }
 
 /// Stores per-spoke asset usage, pruning the entry when fully zero.

@@ -108,10 +108,12 @@ impl SpokeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cfg = match self.spoke_asset(env, hub_asset) {
-            Some(c) => c,
-            None => return,
-        };
+        // Entry gates (`require_listed_active_config`) guarantee the listing
+        // exists before any pool call; a missing listing here is an invariant
+        // breach, and skipping it would silently corrupt usage accounting.
+        let cfg = self
+            .spoke_asset(env, hub_asset)
+            .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::InternalError));
         let mut usage = self.spoke_usage(env, hub_asset);
         enforce_spoke_supply_cap(
             env,
@@ -137,10 +139,11 @@ impl SpokeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cfg = match self.spoke_asset(env, hub_asset) {
-            Some(c) => c,
-            None => return,
-        };
+        // Same invariant as `apply_supply_after_pool`: the borrow entry gates
+        // already proved the listing exists.
+        let cfg = self
+            .spoke_asset(env, hub_asset)
+            .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::InternalError));
         let mut usage = self.spoke_usage(env, hub_asset);
         enforce_spoke_borrow_cap(
             env,
@@ -174,6 +177,15 @@ impl SpokeUsageContext {
             .supplied_scaled_ray
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
+        // Usage is the sum of live scaled positions; a negative total means a
+        // decrement without a matching increment. `checked_sub` on i128 does
+        // not catch sign underflow, and a silently-negative row would fake a
+        // zero later (breaking the zero-usage ⟺ no-positions removal gate).
+        assert_with_error!(
+            env,
+            usage.supplied_scaled_ray >= 0,
+            common::errors::GenericError::InternalError
+        );
         self.set_usage(hub_asset, usage);
     }
 
@@ -194,6 +206,12 @@ impl SpokeUsageContext {
             .borrowed_scaled_ray
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
+        // Same sign guard as the supply decrement.
+        assert_with_error!(
+            env,
+            usage.borrowed_scaled_ray >= 0,
+            common::errors::GenericError::InternalError
+        );
         self.set_usage(hub_asset, usage);
     }
 }

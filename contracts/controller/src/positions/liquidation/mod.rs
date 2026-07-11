@@ -36,6 +36,9 @@ impl Controller {
     /// * `InvalidPayments` - the debt payment list (or the resulting repayment set) is empty.
     /// * `AmountMustBePositive` - a leg amount is not strictly positive.
     /// * `SelfLiquidationNotAllowed` - `liquidator` is the account owner.
+    /// * `SpokeAssetPaused` - a repaid debt leg's listing is paused (paused
+    ///   listings accept no inbound tokens; seizure of paused collateral stays
+    ///   allowed).
     /// * `HealthFactorTooHigh` - the account is still at or above a health factor of one.
     /// * A non-market debt asset reverts `OracleNotConfigured` / `PoolNotInitialized`
     ///   on the fail-closed pricing path.
@@ -153,7 +156,8 @@ fn validate_liquidation_inputs(
     );
 
     // Debt assets are priced and repaid downstream; a non-market asset reverts
-    // `OracleNotConfigured`/`PoolNotInitialized` there.
+    // `OracleNotConfigured`/`PoolNotInitialized` there. Paused debt legs are
+    // rejected in `build_liquidation_plan` (shared with the estimate view).
 }
 
 /// Socializes small residual bad debt by seizing all collateral and debt shares.

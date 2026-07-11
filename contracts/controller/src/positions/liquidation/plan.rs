@@ -2,7 +2,7 @@
 //! the target account's health factor being below one.
 
 use crate::risk;
-use common::errors::CollateralError;
+use common::errors::{CollateralError, SpokeError};
 use common::math::fp::Wad;
 use common::types::{Account, LiquidationResult};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
@@ -34,6 +34,17 @@ pub(super) fn build_liquidation_plan(
     // but the early panic skips pricing it.
     if account.borrow_positions.is_empty() {
         panic_with_error!(env, CollateralError::HealthFactorTooHigh);
+    }
+
+    // Fast-fail twin of the authoritative per-transfer gate in
+    // `apply_liquidation_repayments`: a paused debt listing accepts no
+    // liquidator tokens. Sitting here (not in the entrypoint validation) it
+    // also keeps the estimate view honest about executability.
+    for (hub_asset, _) in aggregated_debt.iter() {
+        let debt_paused = cache
+            .cached_spoke_asset(account.spoke_id, &hub_asset)
+            .is_some_and(|c| c.paused);
+        assert_with_error!(env, !debt_paused, SpokeError::SpokeAssetPaused);
     }
     let totals = risk::calculate_account_risk_totals(
         env,

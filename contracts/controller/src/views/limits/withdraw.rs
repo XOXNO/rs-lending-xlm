@@ -18,8 +18,8 @@ use crate::views::limits::{account_gates_ok, MarketLimitCtx};
 /// Stroop walks before falling back to binary search on the residual range.
 const PARTIAL_SETTLE_STEPS: u32 = 24;
 
-/// Largest withdrawable amount of `hub_asset`; `0` when no position exists or
-/// every partial fails the pool and account gates.
+/// Largest withdrawable amount of `hub_asset`; `0` when no position exists,
+/// the listing is paused, or every partial fails the pool and account gates.
 pub fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;
@@ -33,6 +33,14 @@ pub fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128
     }
 
     let mut cache = Cache::new_view(env);
+    // Mirrors `enforce_spoke_asset_flags` on the mutating path: a paused
+    // listing rejects every withdraw, so the preview reports no capacity.
+    // Frozen stays withdraw-permissive by design.
+    if let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) {
+        if spoke_cfg.paused {
+            return 0;
+        }
+    }
     // The mutating path refreshes the withdrawn asset's risk params before
     // its LTV/HF gates; mirror that on the in-memory account.
     if !account.borrow_positions.is_empty() {

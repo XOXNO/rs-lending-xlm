@@ -579,3 +579,22 @@ fn test_max_withdraw_spoke_account_respects_stored_spoke_ltv() {
     t.withdraw_raw(ALICE, "USDC", max);
     assert!(t.health_factor(ALICE) >= 1.0);
 }
+
+// A paused listing rejects every withdraw, so the preview must mirror the
+// mutating path and report zero capacity (frozen stays withdraw-permissive).
+#[test]
+fn test_max_withdraw_paused_listing_returns_zero() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    t.supply(ALICE, "USDC", 10_000.0);
+
+    let asset = t.resolve_asset("USDC");
+    let account_id = t.resolve_account_id(ALICE);
+
+    t.set_spoke_asset_paused("USDC", true);
+
+    assert_eq!(
+        t.ctrl_client().max_withdraw(&account_id, &hub_asset(asset)),
+        0,
+        "paused listing must preview zero withdraw capacity"
+    );
+}

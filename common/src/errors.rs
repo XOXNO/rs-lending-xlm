@@ -223,8 +223,8 @@ pub enum SpokeError {
     AssetNotInSpoke = 307,
     /// Asset is already listed on the requested spoke.
     AssetAlreadyInSpoke = 308,
-    /// Spoke asset count would exceed the cap.
-    SpokeAssetsLimitReached = 309,
+    /// Spoke asset still carries nonzero usage (live positions).
+    SpokeAssetInUse = 309,
     /// Requested spoke does not match the account's spoke.
     SpokeMismatch = 310,
     /// Spoke supply cap would be exceeded.

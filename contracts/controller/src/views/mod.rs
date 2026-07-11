@@ -4,7 +4,7 @@
 
 use crate::constants::{MAX_VIEW_INPUTS, WAD};
 use crate::risk;
-use common::errors::GenericError;
+use common::errors::{GenericError, SpokeError};
 use common::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
     LiquidationEstimate, MarketIndexRaw, MarketIndexView, PaymentTuple, SpokeAssetConfig,
@@ -117,10 +117,10 @@ impl Controller {
     /// holds its own config.
     ///
     /// # Errors
-    /// * `AssetNotSupported` - the asset is not listed on the spoke.
+    /// * `AssetNotInSpoke` - the asset is not listed on the spoke.
     pub fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig {
         storage::get_spoke_asset(&env, spoke_id, &hub_asset)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::AssetNotSupported))
+            .unwrap_or_else(|| panic_with_error!(&env, SpokeError::AssetNotInSpoke))
     }
 
     /// Returns the spoke config for `spoke_id`.
