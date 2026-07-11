@@ -296,8 +296,11 @@ fn create_market_rejects_existing(e: Env, admin: Address, asset: Address) {
 
     crate::LiquidityPool::create_market(e.clone(), 0, valid_params(asset.clone()));
 
-    // Reaching this line means a second registration succeeded.
-    cvlr_satisfy!(false);
+    // Assert-unreachable form: Verified iff the second registration traps on
+    // every path. (satisfy-form rules on this pool WASM die in the OSS
+    // prover's presolver — instant "Violated (unsat)" after a
+    // ConstArrayInitSummary warning — while the assert pipeline works.)
+    cvlr_assert!(false);
 }
 
 #[rule]
