@@ -5,7 +5,7 @@ use common::errors::{CollateralError, GenericError, SpokeError};
 use common::types::{
     HubAssetKey, MarketOracleConfigOption, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig,
 };
-use soroban_sdk::{assert_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::config::oracle::validate_market_oracle_config;
 use crate::external::pool::fetch_pool_sync_data;
@@ -154,6 +154,31 @@ fn resolve_spoke_oracle_override(
             MarketOracleConfigOption::Some(cfg.clone())
         }
     }
+}
+
+/// Sets only the `paused`/`frozen` flags on an existing listing, preserving
+/// every other field. The guardian incident path: no risk params, caps, or
+/// override travel with it, and it works on deprecated spokes.
+pub fn set_spoke_asset_flags(
+    env: &Env,
+    spoke_id: u32,
+    hub_asset: HubAssetKey,
+    paused: bool,
+    frozen: bool,
+) {
+    let mut config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
+        .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
+    config.paused = paused;
+    config.frozen = frozen;
+    storage::set_spoke_asset(env, spoke_id, &hub_asset, &config);
+
+    UpdateSpokeAssetEvent {
+        asset: hub_asset.asset,
+        config,
+        spoke_id,
+        hub_id: hub_asset.hub_id,
+    }
+    .publish(env);
 }
 
 /// Unlists a hub-asset from a spoke. Requires zero usage so a live position's

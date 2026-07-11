@@ -88,8 +88,24 @@ Immediate owner operations are limited to:
 - deploy controller;
 - pause;
 - unpause;
+- revoke a governance role (`revoke_role_immediate`) — emergency
+  de-authorization of a compromised immediate-role key must be at least as
+  fast as the powers it holds; grants stay timelocked;
 - accept already scheduled governance ownership transfer;
 - read-only views.
+
+Role-gated immediate operations (added 2026-07-11) bypass the timelock for
+containment actions that cannot move funds or loosen risk:
+
+- `GUARDIAN`: per-listing `paused`/`frozen` flags
+  (`set_spoke_asset_flags`) and instant hub/spoke registry creation
+  (`create_hub`, `add_spoke`) — new registries are inert until assets are
+  listed through the timelocked path;
+- `ORACLE`: sanity-band moves (`set_oracle_sanity_bounds`) — the controller
+  proves the new band contains the current live price by resolving it
+  under the new band, so a band move can only re-admit the market's real
+  price, never smuggle a fabricated one. Asset listings, caps, risk
+  params, and full oracle configs remain timelocked.
 
 Testing-only immediate forwarders are behind `#[cfg(any(test, feature =
 "testing"))]` and are not part of the production admin path.

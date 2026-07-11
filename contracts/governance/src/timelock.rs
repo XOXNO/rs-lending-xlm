@@ -13,7 +13,7 @@ use stellar_governance::timelock::{
 };
 use stellar_macros::only_owner;
 
-use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, PROPOSER_ROLE};
+use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
 use crate::op::{apply_self_op, resolve_op};
 use crate::storage::renew_governance_instance;
 use crate::{constants, storage, validate, Governance, GovernanceArgs, GovernanceClient};
@@ -88,6 +88,13 @@ fn begin_proposal(env: &Env, proposer: &Address) {
     storage::renew_governance_instance(env);
     proposer.require_auth();
     access_control::ensure_role(env, &Symbol::new(env, PROPOSER_ROLE), proposer);
+}
+
+/// Shared auth for role-gated immediate (timelock-bypassing) operations.
+fn begin_immediate(env: &Env, caller: &Address, role: &str) {
+    storage::renew_governance_instance(env);
+    caller.require_auth();
+    access_control::ensure_role(env, &Symbol::new(env, role), caller);
 }
 
 /// Advances self-targeted timelock operation inline; Soroban blocks self-reentry.
@@ -309,6 +316,93 @@ impl Governance {
     pub fn unpause(env: Env) {
         storage::renew_governance_instance(&env);
         controller_client(&env).unpause();
+    }
+
+    /// Sets a spoke listing's `paused`/`frozen` flags immediately, bypassing
+    /// the timelock. Guardian incident brake for one listing.
+    ///
+    /// # Arguments
+    /// * `caller` - must hold the `GUARDIAN` role and authorize.
+    ///
+    /// # Errors
+    /// * The `GUARDIAN` role check is enforced here; `AssetNotInSpoke`
+    ///   propagates from the controller.
+    ///
+    /// # Events
+    /// * The controller emits `UpdateSpokeAssetEvent`.
+    pub fn set_spoke_asset_flags(
+        env: Env,
+        caller: Address,
+        spoke_id: u32,
+        hub_asset: common::types::HubAssetKey,
+        paused: bool,
+        frozen: bool,
+    ) {
+        begin_immediate(&env, &caller, GUARDIAN_ROLE);
+        controller_client(&env).set_spoke_asset_flags(&spoke_id, &hub_asset, &paused, &frozen);
+    }
+
+    /// Moves an asset oracle's sanity band immediately, bypassing the
+    /// timelock. Bot incident path for band exits; the controller proves the
+    /// new band contains the current live price.
+    ///
+    /// # Arguments
+    /// * `caller` - must hold the `ORACLE` role and authorize.
+    ///
+    /// # Errors
+    /// * The `ORACLE` role check is enforced here; `PairNotActive`,
+    ///   `InvalidSanityBounds`, `SanityBandTooWideForSingleSource`,
+    ///   `SanityBoundViolated`, and feed-resolution errors propagate from the
+    ///   controller.
+    ///
+    /// # Events
+    /// * The controller emits `UpdateAssetOracleEvent`.
+    pub fn set_oracle_sanity_bounds(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        min_wad: i128,
+        max_wad: i128,
+    ) {
+        begin_immediate(&env, &caller, crate::access::ORACLE_ROLE);
+        controller_client(&env).set_oracle_sanity_bounds(&asset, &min_wad, &max_wad);
+    }
+
+    /// Creates a hub immediately, bypassing the timelock, and returns its id.
+    /// Safe instant: the new registry entry is inert until assets are listed
+    /// through the timelocked path.
+    ///
+    /// # Arguments
+    /// * `caller` - must hold the `GUARDIAN` role and authorize.
+    pub fn create_hub(env: Env, caller: Address) -> u32 {
+        begin_immediate(&env, &caller, GUARDIAN_ROLE);
+        controller_client(&env).create_hub()
+    }
+
+    /// Creates a spoke immediately, bypassing the timelock, and returns its
+    /// id. Safe instant: listings on it still ride the timelock.
+    ///
+    /// # Arguments
+    /// * `caller` - must hold the `GUARDIAN` role and authorize.
+    pub fn add_spoke(env: Env, caller: Address) -> u32 {
+        begin_immediate(&env, &caller, GUARDIAN_ROLE);
+        controller_client(&env).add_spoke()
+    }
+
+    /// Revokes a governance role immediately, bypassing the timelock.
+    /// Owner-gated emergency de-authorization: stripping a compromised
+    /// immediate-role key must be at least as fast as the powers it holds.
+    /// Grants stay timelocked.
+    ///
+    /// # Errors
+    /// * `InvalidRole` - unknown role or `account` does not hold it.
+    ///
+    /// # Events
+    /// * A role-revoke event from the access-control library.
+    #[only_owner]
+    pub fn revoke_role_immediate(env: Env, account: Address, role: Symbol) {
+        crate::access::require_known_governance_role(&env, &role);
+        crate::access::apply_revoke_role(&env, &account, &role);
     }
 
     /// Minimum timelock delay in ledgers.

@@ -12,13 +12,17 @@ pub(crate) const ORACLE_ROLE: &str = "ORACLE";
 pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
 pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
 pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
+/// Immediate incident role: per-listing pause/freeze flags and instant
+/// hub/spoke registry creation, bypassing the timelock.
+pub(crate) const GUARDIAN_ROLE: &str = "GUARDIAN";
 
-pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 4] {
+pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 5] {
     [
         Symbol::new(env, ORACLE_ROLE),
         Symbol::new(env, PROPOSER_ROLE),
         Symbol::new(env, EXECUTOR_ROLE),
         Symbol::new(env, CANCELLER_ROLE),
+        Symbol::new(env, GUARDIAN_ROLE),
     ]
 }
 
