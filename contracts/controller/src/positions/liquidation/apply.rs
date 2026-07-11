@@ -29,15 +29,9 @@ pub(super) fn apply_liquidation_repayments(
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
-        // Authoritative tainted-debt gate: a paused debt listing must not
-        // accept liquidator tokens (a compromised paused asset would extinguish
-        // real debt with fake value and become withdrawable pool cash). Checked
-        // here — on the post-normalization legs that actually transfer — not
-        // only on the raw request, because `process_excess_payment` can drop
-        // legs. Seizure of paused collateral stays open: the liquidator pays
-        // real value and bears the seized asset's risk. An unlisted debt asset
-        // passes (exit convention; unreachable while removal requires zero
-        // usage). See ADR 0011 addendum.
+        // Tainted-debt gate (ADR 0011 addendum): a paused debt listing accepts
+        // no liquidator tokens. Checked on the post-normalization legs that
+        // actually transfer, since the plan normalizer can drop request legs.
         let debt_paused = cache
             .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
             .is_some_and(|c| c.paused);

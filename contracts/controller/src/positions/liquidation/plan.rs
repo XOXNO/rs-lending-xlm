@@ -36,10 +36,8 @@ pub(super) fn build_liquidation_plan(
         panic_with_error!(env, CollateralError::HealthFactorTooHigh);
     }
 
-    // Fast-fail twin of the authoritative per-transfer gate in
-    // `apply_liquidation_repayments`: a paused debt listing accepts no
-    // liquidator tokens. Sitting here (not in the entrypoint validation) it
-    // also keeps the estimate view honest about executability.
+    // Fast-fail twin of the per-transfer gate in `apply_liquidation_repayments`,
+    // placed here so the estimate view mirrors executability.
     for (hub_asset, _) in aggregated_debt.iter() {
         let debt_paused = cache
             .cached_spoke_asset(account.spoke_id, &hub_asset)

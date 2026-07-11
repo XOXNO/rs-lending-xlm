@@ -156,8 +156,7 @@ fn validate_liquidation_inputs(
     );
 
     // Debt assets are priced and repaid downstream; a non-market asset reverts
-    // `OracleNotConfigured`/`PoolNotInitialized` there. Paused debt legs are
-    // rejected in `build_liquidation_plan` (shared with the estimate view).
+    // `OracleNotConfigured`/`PoolNotInitialized` there.
 }
 
 /// Socializes small residual bad debt by seizing all collateral and debt shares.

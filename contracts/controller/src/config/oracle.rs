@@ -34,10 +34,8 @@ pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: M
         config.asset_decimals = pool_decimals;
     }
 
-    // Oracle decimals feed `usd_value_wad` for every position and the spoke
-    // cap conversion, while listing-time cap validation uses the pool market's
-    // decimals; a mismatch mis-scales both by powers of ten. Mirrors the same
-    // assert on the spoke oracle-override path.
+    // Oracle decimals feed valuations and spoke-cap conversion; a mismatch
+    // against the pool market mis-scales both by powers of ten.
     assert_with_error!(
         env,
         config.asset_decimals == pool_decimals,

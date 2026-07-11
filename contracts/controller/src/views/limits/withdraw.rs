@@ -33,9 +33,8 @@ pub fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128
     }
 
     let mut cache = Cache::new_view(env);
-    // Mirrors `enforce_spoke_asset_flags` on the mutating path: a paused
-    // listing rejects every withdraw, so the preview reports no capacity.
-    // Frozen stays withdraw-permissive by design.
+    // Paused rejects every withdraw, so the preview reports no capacity;
+    // frozen stays withdraw-permissive.
     if let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) {
         if spoke_cfg.paused {
             return 0;

@@ -223,9 +223,10 @@ impl Controller {
     }
 
     /// Updates an existing spoke-asset listing's risk params, caps, and optional
-    /// oracle override; new caps may not drop below current spoke usage.
-    /// Allowed on deprecated spokes: live listings stay manageable (flags,
-    /// caps, oracle override) while their usage drains.
+    /// oracle override. Allowed on deprecated spokes: live listings stay
+    /// manageable while their usage drains. Caps may be set below current
+    /// usage to ratchet exposure down; entries stay blocked until usage
+    /// drains under the cap.
     ///
     /// # Errors
     /// * `InvalidLiqThreshold` - risk bounds (LTV / threshold / bonus) or the
@@ -236,7 +237,6 @@ impl Controller {
     /// * `AssetNotInSpoke` - the asset is not currently listed on the spoke.
     /// * `PoolNotInitialized` - the `(hub, asset)` market was never created.
     /// * `AssetDecimalsTooHigh` - the market's asset decimals exceed the RAY domain.
-    /// * `SpokeCapBelowUsage` - a new cap is below current scaled spoke usage.
     /// * Oracle override (when `Some`): `InvalidSanityBounds`, `InvalidOracleBase`,
     ///   or `InvalidAsset` (override decimals disagree with the market).
     ///

@@ -179,10 +179,8 @@ pub(crate) fn settle_withdraw_entries(
     results
 }
 
-/// Decides whether an asset's risk params refresh from live config or stay
-/// frozen. Params are live while the listing exists — deprecated spokes stay
-/// governance-managed via `edit_asset_in_spoke` — and freeze only for removed
-/// spoke members (removal requires zero usage, so this is a backstop).
+/// Params refresh while the listing exists (deprecated spokes included);
+/// only removed spoke members stay frozen.
 fn withdraw_refresh_spoke_for_asset(
     cache: &mut Cache,
     account: &Account,

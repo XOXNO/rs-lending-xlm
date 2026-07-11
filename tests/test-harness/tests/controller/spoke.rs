@@ -1062,7 +1062,7 @@ fn test_deprecated_spoke_repay_decrements_usage() {
 }
 
 #[test]
-fn test_edit_spoke_rejects_supply_cap_below_usage() {
+fn test_edit_spoke_supply_cap_below_usage_ratchets_down() {
     let spoke_cap = 1_000 * UNIT;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -1091,7 +1091,10 @@ fn test_edit_spoke_rejects_supply_cap_below_usage() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
 
-    let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+    // A cap below current usage is a valid ratchet-down: it soft-closes new
+    // entries until exits drain usage under it, instead of forcing governance
+    // to chase a falling number through timelocked edits.
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
         oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
@@ -1106,11 +1109,27 @@ fn test_edit_spoke_rejects_supply_cap_below_usage() {
         bonus: 200,
         supply_cap: 100 * UNIT,
         borrow_cap: 0,
-    }) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(result, errors::SPOKE_CAP_BELOW_USAGE);
+    });
+
+    // Over-cap usage blocks any new supply and previews zero headroom.
+    let account_id = t.resolve_account_id(ALICE);
+    assert_eq!(
+        t.ctrl_client()
+            .max_supply(&account_id, &hub_asset(usdc.clone())),
+        0,
+        "over-cap listing must preview zero supply headroom"
+    );
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 1.0),
+        errors::SPOKE_SUPPLY_CAP_REACHED,
+    );
+
+    // Draining usage under the cap re-opens entries.
+    t.withdraw(ALICE, "USDC", 450.0);
+    assert!(
+        t.try_supply(ALICE, "USDC", 10.0).is_ok(),
+        "supply must resume once usage drains under the ratcheted cap"
+    );
 }
 
 #[test]
@@ -1160,11 +1179,10 @@ fn test_max_supply_respects_spoke_cap_headroom() {
     );
 }
 
-// Borrow-side twin of `test_edit_spoke_rejects_supply_cap_below_usage`: editing
-// the spoke borrow cap below the category's current borrow usage must be
-// rejected (the borrow branch of `validate_spoke_caps_against_usage`).
+// Borrow-side twin: a borrow cap set below current usage blocks new borrows
+// until repayments drain usage under it.
 #[test]
-fn test_edit_spoke_rejects_borrow_cap_below_usage() {
+fn test_edit_spoke_borrow_cap_below_usage_ratchets_down() {
     let spoke_cap = 1_000 * UNIT;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -1194,9 +1212,9 @@ fn test_edit_spoke_rejects_borrow_cap_below_usage() {
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "USDT", 500.0); // ~500 USDT of borrow usage
+    t.borrow(ALICE, "USDT", 500.0);
 
-    let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
         oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
@@ -1210,12 +1228,20 @@ fn test_edit_spoke_rejects_borrow_cap_below_usage() {
         threshold: 9_800,
         bonus: 200,
         supply_cap: 0,
-        borrow_cap: 100 * UNIT, // spoke borrow cap below the ~500 current usage
-    }) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(result, errors::SPOKE_CAP_BELOW_USAGE);
+        borrow_cap: 100 * UNIT, // below the ~500 current borrow usage
+    });
+
+    assert_contract_error(
+        t.try_borrow(ALICE, "USDT", 1.0),
+        errors::SPOKE_BORROW_CAP_REACHED,
+    );
+
+    // Repaying under the cap re-opens borrowing.
+    t.repay(ALICE, "USDT", 450.0);
+    assert!(
+        t.try_borrow(ALICE, "USDT", 10.0).is_ok(),
+        "borrow must resume once usage drains under the ratcheted cap"
+    );
 }
 
 // Integration of the from_asset-domain guard on the spoke path: a spoke cap far

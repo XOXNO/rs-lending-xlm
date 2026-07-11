@@ -364,10 +364,8 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     let assets = account.supply_positions.keys();
 
     for hub_asset in assets.iter() {
-        // A delisted held asset keeps its stamped params (same freeze rule as
-        // withdraw); skipping it must not block syncing the account's other
-        // assets. Deprecated spokes sync normally: their listings stay
-        // governance-managed via `edit_asset_in_spoke`.
+        // Delisted assets keep their stamped params; skip them instead of
+        // blocking the rest of the account. Deprecated spokes sync normally.
         let Some(spoke_config) = cache.cached_spoke_asset(account.spoke_id, &hub_asset) else {
             continue;
         };

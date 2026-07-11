@@ -2,7 +2,6 @@
 //! with risk-bound, cap-domain, and oracle-override validation.
 
 use common::errors::{CollateralError, GenericError, SpokeError};
-use common::math::fp::Ray;
 use common::types::{
     HubAssetKey, MarketOracleConfigOption, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig,
 };
@@ -10,17 +9,15 @@ use soroban_sdk::{assert_with_error, Address, Env};
 
 use crate::config::oracle::validate_market_oracle_config;
 use crate::external::pool::fetch_pool_sync_data;
-use crate::spoke::caps::validate_spoke_caps_against_usage;
 use crate::{
     events::{RemoveSpokeAssetEvent, UpdateSpokeAssetEvent},
     storage,
 };
 
 /// Lists a hub-asset on a spoke after validating risk bounds, caps, and any oracle override.
+/// New listings are refused on a deprecated spoke; edits stay allowed.
 pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
-    // New listings are refused on a deprecated spoke; edits stay allowed so a
-    // retiring spoke's live listings remain manageable (flags, caps, override).
     let spoke = storage::get_spoke(env, args.spoke_id);
     assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
     assert_with_error!(
@@ -30,17 +27,14 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     );
 
     let market = load_market_and_validate_caps(env, args, &hub_asset);
-    // Removal requires zero usage, so no usage row can survive a re-listing;
-    // this check is the fail-closed backstop should that invariant ever break.
-    validate_caps_cover_usage(env, args, &hub_asset, &market);
     let config = build_spoke_asset_config(env, args, market.params.asset_decimals);
     store_spoke_asset(env, args, &hub_asset, config);
 }
 
-/// Updates a spoke-asset listing, rejecting caps that fall below current spoke usage.
-/// Allowed on deprecated spokes: deprecation blocks new entries at the account
-/// gates, while live listings still need incident management (flags, oracle
-/// override, caps) until their usage drains.
+/// Updates a spoke-asset listing. Works on deprecated spokes so live listings
+/// stay manageable while usage drains. Caps may sit below current usage:
+/// enforcement is entry-time only, so a lower cap just blocks new exposure
+/// until exits drain usage under it.
 pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
     storage::get_spoke(env, args.spoke_id);
@@ -51,29 +45,8 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     );
 
     let market = load_market_and_validate_caps(env, args, &hub_asset);
-    validate_caps_cover_usage(env, args, &hub_asset, &market);
-
     let config = build_spoke_asset_config(env, args, market.params.asset_decimals);
     store_spoke_asset(env, args, &hub_asset, config);
-}
-
-/// Rejects caps that fall below the listing's current scaled usage.
-fn validate_caps_cover_usage(
-    env: &Env,
-    args: &SpokeAssetArgs,
-    hub_asset: &HubAssetKey,
-    market: &PoolSyncData,
-) {
-    let usage = storage::get_spoke_usage(env, args.spoke_id, hub_asset).unwrap_or_default();
-    validate_spoke_caps_against_usage(
-        env,
-        &usage,
-        args.supply_cap,
-        args.borrow_cap,
-        Ray::from(market.state.supply_index),
-        Ray::from(market.state.borrow_index),
-        market.params.asset_decimals,
-    );
 }
 
 /// Validates common risk bounds and returns the listing's hub coordinate.
@@ -183,20 +156,14 @@ fn resolve_spoke_oracle_override(
     }
 }
 
-/// Unlists a hub-asset from a spoke, reverting when it is not listed or when
-/// any position still references it. The zero-usage gate makes removal pure
-/// registry cleanup: it upholds the invariant that a live position's listing
-/// always exists (flags stay enforceable, the spoke oracle override cannot
-/// vanish mid-position, and no usage row survives into a re-listing). Wind a
-/// listing down with `frozen` and let exits drain usage first.
+/// Unlists a hub-asset from a spoke. Requires zero usage so a live position's
+/// listing always exists; wind a listing down with `frozen` first.
 pub fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
     assert_with_error!(
         env,
         storage::get_spoke_asset(env, spoke_id, &hub_asset).is_some(),
         SpokeError::AssetNotInSpoke
     );
-    // Usage is the sum of live scaled positions (zero rows are pruned), so a
-    // present row means the listing is still referenced.
     let usage = storage::get_spoke_usage(env, spoke_id, &hub_asset).unwrap_or_default();
     assert_with_error!(
         env,

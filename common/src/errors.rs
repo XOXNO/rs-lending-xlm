@@ -231,8 +231,7 @@ pub enum SpokeError {
     SpokeSupplyCapReached = 311,
     /// Spoke borrow cap would be exceeded.
     SpokeBorrowCapReached = 312,
-    /// Spoke cap would fall below current spoke usage.
-    SpokeCapBelowUsage = 314,
+    // Error code 314 (SpokeCapBelowUsage) retired: caps may sit below usage.
     /// Spoke asset is paused: no supply/borrow/withdraw/repay.
     SpokeAssetPaused = 315,
     /// Spoke asset is frozen: no new supply/borrow (repay/withdraw allowed).

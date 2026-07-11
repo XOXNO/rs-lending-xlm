@@ -34,9 +34,8 @@ pub fn refresh_supply_risk_params(
     );
 }
 
-/// Refreshes position risk params while the spoke listing exists; a removed
-/// spoke member keeps its stamped params. Deprecated spokes refresh normally:
-/// their listings stay governance-managed via `edit_asset_in_spoke`.
+/// Refreshes position risk params while the listing exists (deprecated
+/// spokes included); a removed spoke member keeps its stamped params.
 pub fn refresh_supply_risk_params_for_asset(
     env: &Env,
     cache: &mut Cache,

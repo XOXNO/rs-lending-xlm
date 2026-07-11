@@ -108,9 +108,7 @@ impl SpokeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        // Entry gates (`require_listed_active_config`) guarantee the listing
-        // exists before any pool call; a missing listing here is an invariant
-        // breach, and skipping it would silently corrupt usage accounting.
+        // Entry gates guarantee the listing exists; fail loud on a breach.
         let cfg = self
             .spoke_asset(env, hub_asset)
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::InternalError));
@@ -139,8 +137,7 @@ impl SpokeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        // Same invariant as `apply_supply_after_pool`: the borrow entry gates
-        // already proved the listing exists.
+        // Entry gates guarantee the listing exists; fail loud on a breach.
         let cfg = self
             .spoke_asset(env, hub_asset)
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::InternalError));
@@ -177,10 +174,8 @@ impl SpokeUsageContext {
             .supplied_scaled_ray
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
-        // Usage is the sum of live scaled positions; a negative total means a
-        // decrement without a matching increment. `checked_sub` on i128 does
-        // not catch sign underflow, and a silently-negative row would fake a
-        // zero later (breaking the zero-usage ⟺ no-positions removal gate).
+        // `checked_sub` misses sign underflow; negative usage would fake the
+        // zero-usage removal gate.
         assert_with_error!(
             env,
             usage.supplied_scaled_ray >= 0,
@@ -206,7 +201,6 @@ impl SpokeUsageContext {
             .borrowed_scaled_ray
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
-        // Same sign guard as the supply decrement.
         assert_with_error!(
             env,
             usage.borrowed_scaled_ray >= 0,
@@ -265,32 +259,4 @@ fn enforce_spoke_borrow_cap(
         next_scaled <= cap_scaled,
         SpokeError::SpokeBorrowCapReached
     );
-}
-
-/// Reverts `SpokeCapBelowUsage` when either cap sits below current scaled usage.
-pub fn validate_spoke_caps_against_usage(
-    env: &Env,
-    usage: &SpokeUsageRaw,
-    supply_cap: i128,
-    borrow_cap: i128,
-    supply_index: Ray,
-    borrow_index: Ray,
-    decimals: u32,
-) {
-    if cap_is_enabled(supply_cap) {
-        let cap_scaled = max_scaled_for_cap(env, supply_cap, decimals, supply_index);
-        assert_with_error!(
-            env,
-            Ray::from(usage.supplied_scaled_ray) <= cap_scaled,
-            SpokeError::SpokeCapBelowUsage
-        );
-    }
-    if cap_is_enabled(borrow_cap) {
-        let cap_scaled = max_scaled_for_cap(env, borrow_cap, decimals, borrow_index);
-        assert_with_error!(
-            env,
-            Ray::from(usage.borrowed_scaled_ray) <= cap_scaled,
-            SpokeError::SpokeCapBelowUsage
-        );
-    }
 }
