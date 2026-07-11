@@ -3,7 +3,7 @@ use soroban_sdk::Vec;
 
 use crate::context::LendingTest;
 use crate::helpers::hub_asset;
-use crate::ops::internal::{amount_raw, asset_payment_vec, map_try_ok_unit};
+use crate::ops::internal::{amount_raw, asset_payment_vec, burn_prefund, map_try_ok_unit};
 
 impl LendingTest {
     /// Liquidate: proportional seizure across all collateral.
@@ -86,8 +86,12 @@ impl LendingTest {
             .mint(&liquidator_addr, &raw_amount);
 
         let ctrl = self.ctrl_client();
-        let payments = asset_payment_vec(&self.env, asset_addr, raw_amount);
-        map_try_ok_unit(ctrl.try_liquidate(&liquidator_addr, &account_id, &payments))
+        let payments = asset_payment_vec(&self.env, asset_addr.clone(), raw_amount);
+        let res = map_try_ok_unit(ctrl.try_liquidate(&liquidator_addr, &account_id, &payments));
+        if res.is_err() {
+            burn_prefund(&self.env, &asset_addr, &liquidator_addr, raw_amount);
+        }
+        res
     }
 
     /// Liquidate with multiple debt payments (different tokens).

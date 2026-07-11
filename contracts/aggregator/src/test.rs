@@ -12,7 +12,7 @@ extern crate std;
 use crate::errors::Error;
 use crate::types::{ReferralConfig, StrategyPayload, SwapHop, SwapPath, SwapVenue};
 use crate::{Router, RouterClient};
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{
     contract, contractimpl, contracttype, token, vec, xdr::ToXdr, Address, Env, Val, Vec, U256,
 };
@@ -1995,4 +1995,491 @@ fn vault_withdraw_overdraw_panics() {
     let mut v = crate::vault::Vault::new(&env);
     v.deposit(&token, 10);
     v.withdraw(&token, 20);
+}
+
+// FEE_CAP is inclusive: setters accept exactly the cap and reject cap + 1
+// (the rejection side is covered by `admin_rejects_fee_over_cap`).
+#[test]
+fn fee_setters_accept_exact_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let router_addr = env.register(Router, (admin.clone(),));
+    let router = RouterClient::new(&env, &router_addr);
+
+    router.set_static_fee(&crate::FEE_CAP);
+    assert_eq!(router.static_fee_bps(), crate::FEE_CAP);
+
+    let owner = Address::generate(&env);
+    let id = router.add_referral(&owner, &crate::FEE_CAP);
+    assert_eq!(router.referral(&id).unwrap().fee_bps, crate::FEE_CAP);
+
+    router.set_referral_fee(&id, &0);
+    router.set_referral_fee(&id, &crate::FEE_CAP);
+    assert_eq!(router.referral(&id).unwrap().fee_bps, crate::FEE_CAP);
+}
+
+#[test]
+fn ownable_get_owner_and_renounce() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let router_addr = env.register(Router, (admin.clone(),));
+    let router = RouterClient::new(&env, &router_addr);
+
+    assert_eq!(router.get_owner(), Some(admin));
+    router.renounce_ownership();
+    assert_eq!(router.get_owner(), None);
+    assert!(router.try_admin().is_err());
+}
+
+// Upgrading to a wasm hash that was never uploaded must fail rather than
+// silently succeed.
+#[test]
+fn upgrade_to_unknown_wasm_hash_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let router = RouterClient::new(&env, &router_addr);
+    let missing = soroban_sdk::BytesN::from_array(&env, &[7u8; 32]);
+    assert!(router.try_upgrade(&missing).is_err());
+}
+
+// A fee side that computes to zero must not create a zero-amount bucket entry
+// (a phantom ledger entry would accrue rent for nothing).
+#[test]
+fn zero_fee_side_creates_no_bucket_entry() {
+    use crate::types::DataKey;
+
+    // Referral fee only: the zero static side must not create an AdminFee entry.
+    {
+        let env = Env::default();
+        env.mock_all_auths();
+        let router_addr = env.register(Router, (Address::generate(&env),));
+        let router = RouterClient::new(&env, &router_addr);
+        let sender = Address::generate(&env);
+        let asset_admin = Address::generate(&env);
+        let (token_a, sac_a) = new_asset(&env, &asset_admin);
+        let (token_b, sac_b) = new_asset(&env, &asset_admin);
+        let pool = env.register(aquarius_mock::AqPool, ());
+        aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
+        sac_a.mint(&sender, &1_000);
+        sac_b.mint(&pool, &1_000);
+        let id = router.add_referral(&Address::generate(&env), &100);
+        let xdr = strategy_xdr_with_referral(
+            &env,
+            token_a.clone(),
+            token_b.clone(),
+            990,
+            vec![
+                &env,
+                one_hop_path(
+                    &env,
+                    SwapVenue::Aquarius,
+                    pool,
+                    token_a.clone(),
+                    token_b,
+                    1_000_000,
+                ),
+            ],
+            id,
+        );
+        assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 990);
+        assert_eq!(router.referral_fee_balance(&id, &token_a), 10);
+        assert_eq!(router.admin_fee_balance(&token_a), 0);
+        let has_admin_entry = env.as_contract(&router_addr, || {
+            env.storage()
+                .persistent()
+                .has(&DataKey::AdminFee(token_a.clone()))
+        });
+        assert!(!has_admin_entry, "zero static fee must not create a bucket");
+    }
+
+    // Static fee only (active zero-BPS referral): no ReferralFee entry.
+    {
+        let env = Env::default();
+        env.mock_all_auths();
+        let router_addr = env.register(Router, (Address::generate(&env),));
+        let router = RouterClient::new(&env, &router_addr);
+        let sender = Address::generate(&env);
+        let asset_admin = Address::generate(&env);
+        let (token_a, sac_a) = new_asset(&env, &asset_admin);
+        let (token_b, sac_b) = new_asset(&env, &asset_admin);
+        let pool = env.register(aquarius_mock::AqPool, ());
+        aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
+        sac_a.mint(&sender, &1_000);
+        sac_b.mint(&pool, &1_000);
+        router.set_static_fee(&100);
+        let id = router.add_referral(&Address::generate(&env), &0);
+        let xdr = strategy_xdr_with_referral(
+            &env,
+            token_a.clone(),
+            token_b.clone(),
+            990,
+            vec![
+                &env,
+                one_hop_path(
+                    &env,
+                    SwapVenue::Aquarius,
+                    pool,
+                    token_a.clone(),
+                    token_b,
+                    1_000_000,
+                ),
+            ],
+            id,
+        );
+        assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 990);
+        assert_eq!(router.admin_fee_balance(&token_a), 10);
+        assert_eq!(router.referral_fee_balance(&id, &token_a), 0);
+        let has_referral_entry = env.as_contract(&router_addr, || {
+            env.storage()
+                .persistent()
+                .has(&DataKey::ReferralFee(id, token_a.clone()))
+        });
+        assert!(
+            !has_referral_entry,
+            "zero referral fee must not create a bucket"
+        );
+    }
+}
+
+/// Token that panics on any `transfer` — proves a code path performs no
+/// transfer at all (zero-value transfers are not free: they emit events and
+/// cost a cross-contract call).
+mod no_transfer_token_mock {
+    use super::*;
+
+    #[contract]
+    pub struct NoTransferToken;
+
+    #[contracttype]
+    enum Key {
+        Balance,
+    }
+
+    #[contractimpl]
+    impl NoTransferToken {
+        pub fn init(env: Env, balance: i128) {
+            env.storage().instance().set(&Key::Balance, &balance);
+        }
+
+        pub fn balance(env: Env, _id: Address) -> i128 {
+            env.storage().instance().get(&Key::Balance).unwrap_or(0)
+        }
+
+        pub fn transfer(_env: Env, _from: Address, _to: Address, _amount: i128) {
+            panic!("transfer must not be called");
+        }
+    }
+}
+
+// When the router's whole balance is reserved fee backing, a sweep must not
+// touch the token at all (not even a zero-value transfer).
+#[test]
+fn sweep_balance_skips_transfer_when_balance_equals_reserved() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let router_addr = env.register(Router, (admin.clone(),));
+    let router = RouterClient::new(&env, &router_addr);
+    let token = env.register(no_transfer_token_mock::NoTransferToken, ());
+    no_transfer_token_mock::NoTransferTokenClient::new(&env, &token).init(&20);
+    env.as_contract(&router_addr, || {
+        env.storage()
+            .persistent()
+            .set(&crate::types::DataKey::AdminFee(token.clone()), &20_i128);
+    });
+
+    router.sweep_balance(&Address::generate(&env), &vec![&env, token.clone()]);
+    assert_eq!(router.admin_fee_balance(&token), 20);
+}
+
+// Claiming an empty fee bucket must not call `transfer`.
+#[test]
+fn claim_skips_transfer_when_bucket_is_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let router_addr = env.register(Router, (admin.clone(),));
+    let router = RouterClient::new(&env, &router_addr);
+    let token = env.register(no_transfer_token_mock::NoTransferToken, ());
+
+    router.claim_admin_fees(&admin, &vec![&env, token.clone()]);
+    let id = router.add_referral(&Address::generate(&env), &100);
+    router.claim_referral_fees(&id, &vec![&env, token]);
+}
+
+/// SEP-41-shaped token whose allowance does NOT auto-decrement on
+/// `transfer_from` (infinite-approval-style semantics). Models the token class
+/// `clear_comet_approval` defends against: the router cannot rely on the
+/// pool's pull consuming the approval, so it must zero it explicitly.
+mod sticky_allowance_token_mock {
+    use super::*;
+
+    #[contract]
+    pub struct StickyAllowanceToken;
+
+    #[contracttype]
+    enum Key {
+        Bal(Address),
+        Allow(Address, Address),
+    }
+
+    #[contractimpl]
+    impl StickyAllowanceToken {
+        pub fn mint(env: Env, to: Address, amount: i128) {
+            env.storage().instance().set(&Key::Bal(to), &amount);
+        }
+
+        pub fn balance(env: Env, id: Address) -> i128 {
+            env.storage().instance().get(&Key::Bal(id)).unwrap_or(0)
+        }
+
+        pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+            let from_bal = Self::balance(env.clone(), from.clone()) - amount;
+            let to_bal = Self::balance(env.clone(), to.clone()) + amount;
+            env.storage().instance().set(&Key::Bal(from), &from_bal);
+            env.storage().instance().set(&Key::Bal(to), &to_bal);
+        }
+
+        pub fn approve(
+            env: Env,
+            from: Address,
+            spender: Address,
+            amount: i128,
+            _expiration_ledger: u32,
+        ) {
+            env.storage()
+                .instance()
+                .set(&Key::Allow(from, spender), &amount);
+        }
+
+        pub fn allowance(env: Env, from: Address, spender: Address) -> i128 {
+            env.storage()
+                .instance()
+                .get(&Key::Allow(from, spender))
+                .unwrap_or(0)
+        }
+
+        pub fn transfer_from(
+            env: Env,
+            _spender: Address,
+            from: Address,
+            to: Address,
+            amount: i128,
+        ) {
+            Self::transfer(env, from, to, amount);
+        }
+    }
+}
+
+// A comet hop over a token whose `transfer_from` leaves the allowance in place
+// must still end with zero residual approval from the router to the pool.
+#[test]
+fn comet_clears_unconsumed_allowance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let token_a = env.register(sticky_allowance_token_mock::StickyAllowanceToken, ());
+    let token_a_client =
+        sticky_allowance_token_mock::StickyAllowanceTokenClient::new(&env, &token_a);
+    let (token_b, sac_b) = new_asset(&env, &admin);
+    let pool = env.register(comet_mock::CometPool, ());
+    token_a_client.mint(&sender, &250);
+    sac_b.mint(&pool, &250);
+
+    let xdr = strategy_xdr(
+        &env,
+        token_a.clone(),
+        token_b.clone(),
+        250,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::CometDex,
+                pool.clone(),
+                token_a.clone(),
+                token_b.clone(),
+                1_000_000,
+            ),
+        ],
+    );
+    let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &250, &xdr);
+    assert_eq!(out, 250);
+    assert_eq!(
+        token_a_client.allowance(&router_addr, &pool),
+        0,
+        "unconsumed comet approval must be cleared"
+    );
+}
+
+// The comet approval expiration must land at or after the current ledger for
+// any sequence, otherwise the SAC rejects the approve outright. A sequence
+// just past a 100k boundary distinguishes every arithmetic slip in
+// `comet_approval_ledger` (each computes an expiration below the sequence).
+#[test]
+fn comet_approval_ledger_covers_current_sequence() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.sequence_number = 3_000_000_001);
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (token_a, sac_a) = new_asset(&env, &admin);
+    let (token_b, sac_b) = new_asset(&env, &admin);
+    let pool = env.register(comet_mock::CometPool, ());
+    sac_a.mint(&sender, &250);
+    sac_b.mint(&pool, &250);
+
+    let xdr = strategy_xdr(
+        &env,
+        token_a.clone(),
+        token_b.clone(),
+        250,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::CometDex,
+                pool.clone(),
+                token_a.clone(),
+                token_b.clone(),
+                1_000_000,
+            ),
+        ],
+    );
+    let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &250, &xdr);
+    assert_eq!(out, 250);
+    assert_eq!(
+        token::Client::new(&env, &token_a).allowance(&router_addr, &pool),
+        0
+    );
+}
+
+// A hop whose tokens only half-match the pool's pair (one side matches, the
+// other is a third token) must be rejected as a broken chain, in both
+// orientations.
+#[test]
+fn sushi_direction_requires_exact_pair_match() {
+    // token_in matches token0 but token_out is a third token.
+    {
+        let env = Env::default();
+        env.mock_all_auths();
+        let router_addr = env.register(Router, (Address::generate(&env),));
+        let sender = Address::generate(&env);
+        let admin = Address::generate(&env);
+        let (token_a, sac_a) = new_asset(&env, &admin);
+        let (token_b, sac_b) = new_asset(&env, &admin);
+        let (token_c, _) = new_asset(&env, &admin);
+        let pool = env.register(sushi_mock::SushiPool, ());
+        sushi_mock::SushiPoolClient::new(&env, &pool).init(&token_a, &token_b);
+        sac_a.mint(&sender, &500);
+        sac_b.mint(&pool, &500);
+
+        let xdr = strategy_xdr(
+            &env,
+            token_a.clone(),
+            token_c.clone(),
+            1,
+            vec![
+                &env,
+                one_hop_path(&env, SwapVenue::Sushi, pool, token_a, token_c, 1_000_000),
+            ],
+        );
+        assert_eq!(
+            RouterClient::new(&env, &router_addr)
+                .try_execute_strategy(&sender, &500, &xdr)
+                .unwrap_err()
+                .unwrap(),
+            Error::BrokenTokenChain.into()
+        );
+    }
+    // token_out matches token0 but token_in is a third token.
+    {
+        let env = Env::default();
+        env.mock_all_auths();
+        let router_addr = env.register(Router, (Address::generate(&env),));
+        let sender = Address::generate(&env);
+        let admin = Address::generate(&env);
+        let (token_a, sac_a) = new_asset(&env, &admin);
+        let (token_b, sac_b) = new_asset(&env, &admin);
+        let (token_c, sac_c) = new_asset(&env, &admin);
+        let pool = env.register(sushi_mock::SushiPool, ());
+        sushi_mock::SushiPoolClient::new(&env, &pool).init(&token_a, &token_b);
+        sac_c.mint(&sender, &500);
+        sac_a.mint(&pool, &500);
+        sac_b.mint(&pool, &500);
+
+        let xdr = strategy_xdr(
+            &env,
+            token_c.clone(),
+            token_a.clone(),
+            1,
+            vec![
+                &env,
+                one_hop_path(&env, SwapVenue::Sushi, pool, token_c, token_a, 1_000_000),
+            ],
+        );
+        assert_eq!(
+            RouterClient::new(&env, &router_addr)
+                .try_execute_strategy(&sender, &500, &xdr)
+                .unwrap_err()
+                .unwrap(),
+            Error::BrokenTokenChain.into()
+        );
+    }
+}
+
+// A pool with an empty INPUT reserve cannot honor any output; the amount-out
+// math must return zero (→ ZeroOutput) instead of dividing against a zero
+// reserve and requesting the pool's whole output side.
+#[test]
+fn soroswap_zero_input_reserve_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (ax, sacx) = new_asset(&env, &admin);
+    let (ay, sacy) = new_asset(&env, &admin);
+    let ((t0, sac0), (t1, sac1)) = if ax < ay {
+        ((ax, sacx), (ay, sacy))
+    } else {
+        ((ay, sacy), (ax, sacx))
+    };
+
+    let pool = env.register(soroswap_mock::SoroswapPair, ());
+    soroswap_mock::SoroswapPairClient::new(&env, &pool).init(&t0, &t1, &0, &1_000_000);
+    sac1.mint(&pool, &1_000_000);
+    sac0.mint(&sender, &500);
+
+    let xdr = strategy_xdr(
+        &env,
+        t0.clone(),
+        t1.clone(),
+        1,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Soroswap,
+                pool,
+                t0.clone(),
+                t1.clone(),
+                1_000_000,
+            ),
+        ],
+    );
+    assert_eq!(
+        RouterClient::new(&env, &router_addr)
+            .try_execute_strategy(&sender, &500, &xdr)
+            .unwrap_err()
+            .unwrap(),
+        Error::ZeroOutput.into()
+    );
 }

@@ -81,12 +81,17 @@ impl LendingTest {
         let account_id = self.resolve_account_id(target_user);
         let spoke = self.account_spoke_or_default(account_id);
         let ctrl = self.ctrl_client();
-        let assets: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
-        match ctrl.try_supply(&caller_addr, &account_id, &spoke, &assets) {
+        let assets: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr.clone()), raw_amount)];
+        let res = match ctrl.try_supply(&caller_addr, &account_id, &spoke, &assets) {
             Ok(Ok(id)) => Ok(id),
             Ok(Err(err)) => Err(err),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        };
+        if res.is_err() {
+            crate::ops::internal::burn_prefund(&self.env, &asset_addr, &caller_addr, raw_amount);
         }
+        res
     }
 
     pub fn try_supply_with_spoke(
@@ -106,12 +111,17 @@ impl LendingTest {
         let account_id = self.default_account_id_or_zero(user);
 
         let ctrl = self.ctrl_client();
-        let assets: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
-        match ctrl.try_supply(&addr, &account_id, &spoke_id, &assets) {
+        let assets: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr.clone()), raw_amount)];
+        let res = match ctrl.try_supply(&addr, &account_id, &spoke_id, &assets) {
             Ok(Ok(id)) => Ok(id),
             Ok(Err(err)) => Err(err),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        };
+        if res.is_err() {
+            crate::ops::internal::burn_prefund(&self.env, &asset_addr, &addr, raw_amount);
         }
+        res
     }
 
     /// Supply multiple assets in a single controller call.

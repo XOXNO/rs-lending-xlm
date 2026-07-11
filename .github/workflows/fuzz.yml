@@ -368,6 +368,9 @@ jobs:
           - mutants-controller-positions
           - mutants-controller-strategies
           - mutants-controller-views
+          - mutants-aggregator
+          - mutants-oracle-adapter
+          - mutants-defindex-strategy
     steps:
       - uses: actions/checkout@v7
 

@@ -8,7 +8,18 @@ use xoxno_oracle_adapter::{Error, XoxnoOracle, XoxnoOracleClient};
 
 use common::oracle::providers::reflector::ReflectorAsset;
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-use soroban_sdk::{Address, ConversionError, Env, InvokeError, String, Symbol};
+use soroban_sdk::{contracttype, Address, ConversionError, Env, InvokeError, String, Symbol};
+
+/// Mirror of the crate-private `DataKey` variants that tests assert on
+/// directly (storage-invariant and TTL checks). `#[contracttype]` enum keys
+/// serialize as `[variant-name, payload...]`, so a variant with the same name
+/// and payload produces the identical storage key regardless of the enum's
+/// Rust-side name.
+#[contracttype]
+pub enum MirrorKey {
+    LatestSubmission(String, Address),
+    SignerFeeds(Address),
+}
 
 pub const FEED: &str = "XLM/USD";
 pub const TEST_RESOLUTION: u32 = 300;

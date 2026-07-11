@@ -3,7 +3,8 @@
 extern crate std;
 
 use defindex_strategy::{DataKey, DeFindexStrategyError, Strategy, StrategyClient};
-use soroban_sdk::testutils::{Address as _, Events};
+use soroban_sdk::testutils::storage::Persistent as _;
+use soroban_sdk::testutils::{Address as _, Events, MockAuth, MockAuthInvoke};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{vec, Address, Env, IntoVal, Val, Vec};
 use test_harness::{
@@ -13,6 +14,10 @@ use test_harness::{
 const UNIT: i128 = 10_000_000; // 1.0 at the presets' 7 decimals
 const PPS_SCALAR: i128 = 1_000_000_000_000;
 const RAY: i128 = 1_000_000_000_000_000_000_000_000_000;
+
+// Mirror of the contract's vault-mapping TTL policy (lib.rs constants).
+const LEDGERS_PER_DAY: u32 = 17_280;
+const VAULT_TTL_THRESHOLD: u32 = LEDGERS_PER_DAY * 30;
 
 fn pps_from_supply_index(supply_index: i128) -> i128 {
     supply_index / (RAY / PPS_SCALAR)
@@ -173,6 +178,16 @@ impl StrategyTest {
         } else {
             0
         }
+    }
+
+    /// Remaining TTL (in ledgers) of the vault->account mapping entry.
+    fn vault_mapping_ttl(&self, vault: &Address) -> u32 {
+        let env = &self.t.env;
+        env.as_contract(&self.client_address, || {
+            env.storage()
+                .persistent()
+                .get_ttl(&DataKey::VaultAccount(vault.clone()))
+        })
     }
 }
 
@@ -335,6 +350,75 @@ fn test_full_withdraw_clears_stored_vault_mapping_immediately() {
         raw_stored, 0,
         "full withdraw must clear the stored vault mapping, not defer it"
     );
+}
+
+// The vault-mapping TTL policy: fresh entries are extended to ~180 days, and
+// any read that resolves a live account re-extends once the remaining TTL
+// drops below the ~30-day threshold (17_280 * 30 = 518_400 ledgers).
+//
+// Deposit-time extension cannot distinguish the threshold value (a fresh entry
+// starts at the harness's 10-ledger minimum, below every candidate), so pin
+// the boundary on the re-extension path: age the entry into a window that is
+// below the real threshold but above corrupted thresholds (17_280 / 30 = 576,
+// 17_280 + 30 = 17_310), then assert the read path re-extends.
+#[test]
+fn test_read_path_reextends_vault_mapping_ttl_below_threshold() {
+    let mut s = StrategyTest::new();
+    s.client().deposit(&(1_000 * UNIT), &s.vault);
+
+    let initial = s.vault_mapping_ttl(&s.vault);
+    assert!(
+        initial > VAULT_TTL_THRESHOLD,
+        "deposit must extend the fresh mapping well past the threshold, got {initial}"
+    );
+
+    // Age ~174 days: remaining = 3_110_400 - 3_006_720 = 103_680 ledgers,
+    // inside (17_310, 518_400).
+    s.t.advance_time(60 * 60 * 24 * 174);
+    let aged = s.vault_mapping_ttl(&s.vault);
+    assert!(
+        aged < VAULT_TTL_THRESHOLD && aged > 50_000,
+        "aged TTL must sit between the mutant thresholds and the real one, got {aged}"
+    );
+
+    // Any resolving read (balance) must re-extend the mapping to ~180 days.
+    assert!(s.client().balance(&s.vault) > 0);
+    let renewed = s.vault_mapping_ttl(&s.vault);
+    assert!(
+        renewed > VAULT_TTL_THRESHOLD,
+        "read path must re-extend the mapping TTL below threshold: {aged} -> {renewed}"
+    );
+}
+
+// Deposit must explicitly authorize the strategy->pool token transfer via
+// `authorize_as_current_contract`: the controller (not the strategy) invokes
+// `transfer(strategy, pool, amount)`, so invoker auth does not cover it.
+// Mock only the vault's signature tree — the strategy's contract auth must
+// come from the contract itself for the supply to settle.
+#[test]
+fn test_deposit_authorizes_pool_transfer_without_global_auth_mock() {
+    let s = StrategyTest::new();
+    let env = &s.t.env;
+    let amount = 100 * UNIT;
+
+    env.mock_auths(&[MockAuth {
+        address: &s.vault,
+        invoke: &MockAuthInvoke {
+            contract: &s.client_address,
+            fn_name: "deposit",
+            args: (amount, s.vault.clone()).into_val(env),
+            sub_invokes: &[MockAuthInvoke {
+                contract: &s.asset,
+                fn_name: "transfer",
+                args: (s.vault.clone(), s.client_address.clone(), amount).into_val(env),
+                sub_invokes: &[],
+            }],
+        },
+    }]);
+
+    let reported = s.client().deposit(&amount, &s.vault);
+    assert_eq!(reported, amount);
+    assert_eq!(s.usdc_balance(&s.client_address), 0, "no funds may strand on the adapter");
 }
 
 #[test]
