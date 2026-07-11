@@ -169,8 +169,8 @@ jobs:
         with:
           toolchain: '1.95'
 
-      - name: Cache cargo
-        uses: actions/cache@v6
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@v2
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
 
