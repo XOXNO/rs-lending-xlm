@@ -36,6 +36,9 @@ impl Controller {
     /// * `InvalidPayments` - the debt payment list (or the resulting repayment set) is empty.
     /// * `AmountMustBePositive` - a leg amount is not strictly positive.
     /// * `SelfLiquidationNotAllowed` - `liquidator` is the account owner.
+    /// * `SpokeAssetPaused` - a repaid debt leg's listing is paused (paused
+    ///   listings accept no inbound tokens; seizure of paused collateral stays
+    ///   allowed).
     /// * `HealthFactorTooHigh` - the account is still at or above a health factor of one.
     /// * A non-market debt asset reverts `OracleNotConfigured` / `PoolNotInitialized`
     ///   on the fail-closed pricing path.

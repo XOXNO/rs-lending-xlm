@@ -2,7 +2,7 @@
 
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry, SpokeConfig,
+    Account, AccountPosition, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry,
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
@@ -159,19 +159,12 @@ pub(crate) fn settle_withdraw_entries(
     let is_liquidation = matches!(action, events::PositionAction::LiqSeize);
     let pool_addr = cache.cached_pool_address();
     let results = pool_withdraw_call(env, &pool_addr, recipient, is_liquidation, entries);
-    // Resolve the spoke once, then decide per asset whether active membership
-    // still applies.
-    let spoke = if is_liquidation {
-        None
-    } else {
-        Some(cache.spoke_config(account.spoke_id))
-    };
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
         let refresh_spoke = if is_liquidation {
             SpokeRefresh::Frozen
         } else {
-            withdraw_refresh_spoke_for_asset(cache, account, &entry.action.hub_asset, &spoke)
+            withdraw_refresh_spoke_for_asset(cache, account, &entry.action.hub_asset)
         };
         finish_withdrawal(
             env,
@@ -186,21 +179,16 @@ pub(crate) fn settle_withdraw_entries(
     results
 }
 
-/// Decides whether an asset's risk params refresh from live config or stay
-/// frozen (deprecated spoke or removed spoke member).
+/// Params refresh while the listing exists (deprecated spokes included);
+/// only removed spoke members stay frozen.
 fn withdraw_refresh_spoke_for_asset(
     cache: &mut Cache,
     account: &Account,
     hub_asset: &HubAssetKey,
-    spoke: &Option<SpokeConfig>,
 ) -> SpokeRefresh {
-    let Some(spoke) = spoke else {
-        return SpokeRefresh::Frozen;
-    };
-    if spoke.is_deprecated
-        || cache
-            .cached_spoke_asset(account.spoke_id, hub_asset)
-            .is_none()
+    if cache
+        .cached_spoke_asset(account.spoke_id, hub_asset)
+        .is_none()
     {
         return SpokeRefresh::Frozen;
     }

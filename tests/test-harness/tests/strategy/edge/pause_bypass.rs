@@ -81,19 +81,36 @@ fn test_close_position_paused_residual_collateral_reverts() {
 }
 
 // Regression guard for the fix's placement: the pause check lives in the
-// strategy wrappers, NOT the shared `settle_*` helpers that liquidation reuses.
-// Pausing both the seized collateral and the repaid debt must leave liquidation
-// reachable, otherwise an incident pause would freeze bad debt in place.
+// strategy wrappers, NOT the shared `settle_*` helpers that liquidation's
+// seizure leg reuses. Pausing the seized collateral must leave liquidation
+// reachable, otherwise an incident pause would freeze bad debt in place
+// (ADR 0011).
 #[test]
-fn test_liquidation_of_paused_assets_still_succeeds() {
+fn test_liquidation_of_paused_collateral_still_succeeds() {
     let mut t = liquidatable_usdc_eth();
 
     t.set_spoke_asset_paused("USDC", true);
-    t.set_spoke_asset_paused("ETH", true);
 
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
     assert!(
         result.is_ok(),
-        "liquidation must stay reachable on paused assets: {result:?}"
+        "liquidation must stay reachable on paused collateral: {result:?}"
+    );
+}
+
+// Tainted-debt gate (ADR 0011 addendum): a paused DEBT listing accepts no
+// inbound tokens from anyone — user repay and the liquidation repay leg must
+// agree, otherwise a compromised paused token could extinguish real debt with
+// fake value and become withdrawable pool cash.
+#[test]
+fn test_liquidation_of_paused_debt_reverts() {
+    let mut t = liquidatable_usdc_eth();
+
+    t.set_spoke_asset_paused("ETH", true);
+
+    assert_contract_error(t.try_repay(ALICE, "ETH", 0.5), errors::SPOKE_ASSET_PAUSED);
+    assert_contract_error(
+        t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0),
+        errors::SPOKE_ASSET_PAUSED,
     );
 }

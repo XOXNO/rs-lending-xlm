@@ -54,7 +54,7 @@ impl Cache {
     }
 
     /// Per-spoke risk config for `hub_asset` on `spoke_id`, served from the
-    /// per-tx memo. Panics `AssetNotSupported` when the asset is not listed on
+    /// per-tx memo. Panics `AssetNotInSpoke` when the asset is not listed on
     /// the spoke (the absence revert that risk resolution depends on).
     pub(crate) fn require_spoke_asset(
         &mut self,
@@ -62,7 +62,7 @@ impl Cache {
         hub_asset: &HubAssetKey,
     ) -> SpokeAssetConfig {
         self.cached_spoke_asset(spoke_id, hub_asset)
-            .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::AssetNotSupported))
+            .unwrap_or_else(|| panic_with_error!(&self.env, SpokeError::AssetNotInSpoke))
     }
 
     /// Returns the spoke config for `spoke_id` from the per-transaction memo.

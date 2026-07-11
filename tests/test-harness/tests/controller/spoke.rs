@@ -1,4 +1,4 @@
-use controller::types::SpokeAssetArgs;
+use controller::types::{ControllerKey, SpokeAssetArgs};
 use test_harness::{
     assert_contract_error, errors, eth_preset, f64_to_i128, hub_asset, usd, usd_cents, usdc_preset,
     usdt_stable_preset, LendingTest, PositionType, ALICE, HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR,
@@ -342,12 +342,13 @@ fn test_spoke_two_assets_same_category() {
     t.assert_borrow_near(ALICE, "USDC", 2_000.0, 1.0);
     t.assert_healthy(ALICE);
 }
-// 16. test_spoke_deprecated_category_operations_rejected
+// 16. test_spoke_deprecated_category_operations
 
 #[test]
-fn test_spoke_deprecated_category_operations_rejected() {
+fn test_spoke_deprecated_category_operations() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();
@@ -364,13 +365,38 @@ fn test_spoke_deprecated_category_operations_rejected() {
     };
     assert_contract_error(flat_remove, errors::SPOKE_DEPRECATED);
 
-    // 2. Trying to edit an asset in the deprecated category must fail.
+    // 2. Editing an existing listing on a deprecated category must succeed:
+    // live listings stay governance-managed (flags, caps, override) while
+    // their usage drains (ADR 0011 addendum).
     let asset_address = t.resolve_asset("USDC");
     let edit_asset_result = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
         oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: asset_address.clone(),
+        spoke_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        paused: true,
+        frozen: false,
+        ltv: 9_000,
+        threshold: 9_300,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: 0,
+    });
+    assert!(
+        edit_asset_result.is_ok(),
+        "editing a live listing on a deprecated spoke must stay possible: {edit_asset_result:?}"
+    );
+
+    // 3. Listing a NEW asset on the deprecated category must fail.
+    let usdt_address = t.resolve_asset("USDT");
+    let add_asset_result = t.ctrl_client().try_add_asset_to_spoke(&SpokeAssetArgs {
+        liquidation_fees: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+        hub_id: HARNESS_HUB,
+        asset: usdt_address,
         spoke_id: 2,
         can_collateral: true,
         can_borrow: true,
@@ -382,12 +408,12 @@ fn test_spoke_deprecated_category_operations_rejected() {
         supply_cap: 0,
         borrow_cap: 0,
     });
-    let flat_edit_asset: Result<(), soroban_sdk::Error> = match edit_asset_result {
+    let flat_add_asset: Result<(), soroban_sdk::Error> = match add_asset_result {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert_contract_error(flat_edit_asset, errors::SPOKE_DEPRECATED);
+    assert_contract_error(flat_add_asset, errors::SPOKE_DEPRECATED);
 }
 
 // Regression: passing a non-zero `spoke_id` argument to supply on an
@@ -607,6 +633,20 @@ fn test_deprecated_spoke_views_block_new_borrow_but_preserve_exit_preview() {
     );
 }
 
+/// Deletes a listing at the storage layer, bypassing the zero-usage removal
+/// gate, to model a legacy delisted-with-positions state. The public
+/// `remove_asset_from_spoke` refuses this (`SpokeAssetInUse`); these tests keep
+/// the exit/liquidation backstops covered for that otherwise-unreachable state.
+fn force_delist(t: &LendingTest, asset_name: &str, spoke_id: u32) {
+    let asset = t.resolve_asset(asset_name);
+    t.env.as_contract(&t.controller_address(), || {
+        t.env
+            .storage()
+            .persistent()
+            .remove(&ControllerKey::SpokeAsset(spoke_id, hub_asset(asset)));
+    });
+}
+
 #[test]
 fn test_removed_spoke_collateral_asset_blocks_new_supply_but_existing_withdraw_works() {
     let mut t = LendingTest::new()
@@ -620,7 +660,7 @@ fn test_removed_spoke_collateral_asset_blocks_new_supply_but_existing_withdraw_w
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
-    t.remove_asset_from_spoke("USDC", 2);
+    force_delist(&t, "USDC", 2);
 
     let add_more = t.try_supply(ALICE, "USDC", 1.0);
     assert_contract_error(add_more, errors::ASSET_NOT_IN_SPOKE);
@@ -648,7 +688,7 @@ fn test_removed_spoke_debt_asset_blocks_new_borrow_but_existing_repay_works() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 2_000.0);
-    t.remove_asset_from_spoke("USDT", 2);
+    force_delist(&t, "USDT", 2);
 
     let borrow_more = t.try_borrow(ALICE, "USDT", 1.0);
     assert_contract_error(borrow_more, errors::ASSET_NOT_IN_SPOKE);
@@ -679,7 +719,7 @@ fn test_removed_spoke_collateral_asset_stays_liquidatable() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 9_500.0);
-    t.remove_asset_from_spoke("USDC", 2);
+    force_delist(&t, "USDC", 2);
     t.set_price("USDC", usd_cents(85));
     // Snapshotted position risk still marks the account underwater.
     t.assert_liquidatable(ALICE);
@@ -976,7 +1016,7 @@ fn test_removed_spoke_asset_withdraw_decrements_usage() {
     let usage_before = spoke_supply_usage(&t, 2, "USDC");
     assert!(usage_before > 0, "supply should record spoke usage");
 
-    t.remove_asset_from_spoke("USDC", 2);
+    force_delist(&t, "USDC", 2);
     let withdraw = t.try_withdraw(ALICE, "USDC", 400.0);
     assert!(
         withdraw.is_ok(),
@@ -1022,7 +1062,7 @@ fn test_deprecated_spoke_repay_decrements_usage() {
 }
 
 #[test]
-fn test_edit_spoke_rejects_supply_cap_below_usage() {
+fn test_edit_spoke_supply_cap_below_usage_ratchets_down() {
     let spoke_cap = 1_000 * UNIT;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -1051,7 +1091,10 @@ fn test_edit_spoke_rejects_supply_cap_below_usage() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
 
-    let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+    // A cap below current usage is a valid ratchet-down: it soft-closes new
+    // entries until exits drain usage under it, instead of forcing governance
+    // to chase a falling number through timelocked edits.
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
         oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
@@ -1066,11 +1109,27 @@ fn test_edit_spoke_rejects_supply_cap_below_usage() {
         bonus: 200,
         supply_cap: 100 * UNIT,
         borrow_cap: 0,
-    }) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(result, errors::SPOKE_CAP_BELOW_USAGE);
+    });
+
+    // Over-cap usage blocks any new supply and previews zero headroom.
+    let account_id = t.resolve_account_id(ALICE);
+    assert_eq!(
+        t.ctrl_client()
+            .max_supply(&account_id, &hub_asset(usdc.clone())),
+        0,
+        "over-cap listing must preview zero supply headroom"
+    );
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 1.0),
+        errors::SPOKE_SUPPLY_CAP_REACHED,
+    );
+
+    // Draining usage under the cap re-opens entries.
+    t.withdraw(ALICE, "USDC", 450.0);
+    assert!(
+        t.try_supply(ALICE, "USDC", 10.0).is_ok(),
+        "supply must resume once usage drains under the ratcheted cap"
+    );
 }
 
 #[test]
@@ -1120,11 +1179,10 @@ fn test_max_supply_respects_spoke_cap_headroom() {
     );
 }
 
-// Borrow-side twin of `test_edit_spoke_rejects_supply_cap_below_usage`: editing
-// the spoke borrow cap below the category's current borrow usage must be
-// rejected (the borrow branch of `validate_spoke_caps_against_usage`).
+// Borrow-side twin: a borrow cap set below current usage blocks new borrows
+// until repayments drain usage under it.
 #[test]
-fn test_edit_spoke_rejects_borrow_cap_below_usage() {
+fn test_edit_spoke_borrow_cap_below_usage_ratchets_down() {
     let spoke_cap = 1_000 * UNIT;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -1154,9 +1212,9 @@ fn test_edit_spoke_rejects_borrow_cap_below_usage() {
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "USDT", 500.0); // ~500 USDT of borrow usage
+    t.borrow(ALICE, "USDT", 500.0);
 
-    let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
         oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
@@ -1170,12 +1228,20 @@ fn test_edit_spoke_rejects_borrow_cap_below_usage() {
         threshold: 9_800,
         bonus: 200,
         supply_cap: 0,
-        borrow_cap: 100 * UNIT, // spoke borrow cap below the ~500 current usage
-    }) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(result, errors::SPOKE_CAP_BELOW_USAGE);
+        borrow_cap: 100 * UNIT, // below the ~500 current borrow usage
+    });
+
+    assert_contract_error(
+        t.try_borrow(ALICE, "USDT", 1.0),
+        errors::SPOKE_BORROW_CAP_REACHED,
+    );
+
+    // Repaying under the cap re-opens borrowing.
+    t.repay(ALICE, "USDT", 450.0);
+    assert!(
+        t.try_borrow(ALICE, "USDT", 10.0).is_ok(),
+        "borrow must resume once usage drains under the ratcheted cap"
+    );
 }
 
 // Integration of the from_asset-domain guard on the spoke path: a spoke cap far
@@ -1590,5 +1656,143 @@ fn test_frozen_spoke_asset_zeroes_supply_and_borrow_previews() {
     assert!(
         t.try_withdraw(ALICE, "USDC", 100.0).is_ok(),
         "frozen listing must still allow withdrawal"
+    );
+}
+
+// Zero-usage removal gate (ADR 0011 addendum): a listing referenced by any
+// live position cannot be unlisted out from under it — flags stay enforceable
+// and a spoke oracle override cannot vanish mid-position. Draining the
+// position re-enables removal (frozen wind-down, then delist).
+#[test]
+fn test_remove_asset_with_live_supply_usage_reverts_until_drained() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
+        .build();
+
+    t.create_spoke_account(ALICE, 2);
+    t.supply(ALICE, "USDT", 1_000.0);
+
+    let usdt = t.resolve_asset("USDT");
+    let result = t
+        .ctrl_client()
+        .try_remove_asset_from_spoke(&hub_asset(usdt), &2u32);
+    let flat: Result<(), soroban_sdk::Error> = match result {
+        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(flat, errors::SPOKE_ASSET_IN_USE);
+
+    t.withdraw_all(ALICE, "USDT");
+    t.remove_asset_from_spoke("USDT", 2);
+}
+
+// Debt-side usage blocks removal the same way supply-side usage does.
+#[test]
+fn test_remove_asset_with_live_borrow_usage_reverts() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
+        .build();
+
+    t.create_spoke_account(ALICE, 2);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 2_000.0);
+
+    let usdt = t.resolve_asset("USDT");
+    let result = t
+        .ctrl_client()
+        .try_remove_asset_from_spoke(&hub_asset(usdt), &2u32);
+    let flat: Result<(), soroban_sdk::Error> = match result {
+        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(flat, errors::SPOKE_ASSET_IN_USE);
+}
+
+// `update_account_threshold` must skip a held asset whose listing is gone
+// instead of reverting the whole batch. The zero-usage removal gate makes this
+// state unreachable through the public API, so the listing is force-deleted at
+// the storage layer to model a legacy delisted-with-positions state.
+#[test]
+fn test_update_account_threshold_skips_force_delisted_asset() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .with_spoke_asset(2, "USDT", true, true)
+        .build();
+
+    t.create_spoke_account(ALICE, 2);
+    t.supply(ALICE, "USDC", 5_000.0);
+    t.supply(ALICE, "USDT", 5_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+
+    let usdt = t.resolve_asset("USDT");
+    t.env.as_contract(&t.controller_address(), || {
+        t.env
+            .storage()
+            .persistent()
+            .remove(&ControllerKey::SpokeAsset(2, hub_asset(usdt)));
+    });
+
+    let result = t.try_update_account_threshold(false, &[account_id]);
+    assert!(
+        result.is_ok(),
+        "threshold sync must skip delisted assets, not revert the batch: {result:?}"
+    );
+}
+
+// Deprecation no longer freezes param stewardship: listings on a deprecated
+// spoke stay live-managed (one rule: params refresh while the listing exists),
+// so a permissionless threshold sync propagates a post-deprecation edit.
+#[test]
+fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_spoke(2, STABLECOIN_SPOKE)
+        .with_spoke_asset(2, "USDC", true, true)
+        .build();
+
+    t.create_spoke_account(ALICE, 2);
+    t.supply(ALICE, "USDC", 1_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+
+    t.remove_spoke_category(2);
+    // Lower the listing LTV on the deprecated spoke, then propagate it.
+    let usdc = t.resolve_asset("USDC");
+    let listing = t
+        .ctrl_client()
+        .get_spoke_asset(&2u32, &hub_asset(usdc.clone()));
+    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset: usdc,
+        spoke_id: 2,
+        can_collateral: listing.is_collateralizable,
+        can_borrow: listing.is_borrowable,
+        paused: false,
+        frozen: false,
+        ltv: 5_000,
+        threshold: listing.liquidation_threshold,
+        bonus: listing.liquidation_bonus,
+        liquidation_fees: listing.liquidation_fees,
+        supply_cap: 0,
+        borrow_cap: 0,
+        oracle_override: controller::types::MarketOracleConfigOption::None,
+    });
+
+    let result = t.try_update_account_threshold(false, &[account_id]);
+    assert!(
+        result.is_ok(),
+        "threshold sync must work on deprecated spokes: {result:?}"
     );
 }

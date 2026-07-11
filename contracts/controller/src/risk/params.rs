@@ -34,7 +34,8 @@ pub fn refresh_supply_risk_params(
     );
 }
 
-/// Refreshes position risk params when the spoke asset remains active.
+/// Refreshes position risk params while the listing exists (deprecated
+/// spokes included); a removed spoke member keeps its stamped params.
 pub fn refresh_supply_risk_params_for_asset(
     env: &Env,
     cache: &mut Cache,
@@ -42,11 +43,9 @@ pub fn refresh_supply_risk_params_for_asset(
     hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
 ) {
-    let active = !cache.spoke_config(account.spoke_id).is_deprecated;
-    if !active
-        || cache
-            .cached_spoke_asset(account.spoke_id, hub_asset)
-            .is_none()
+    if cache
+        .cached_spoke_asset(account.spoke_id, hub_asset)
+        .is_none()
     {
         return;
     }

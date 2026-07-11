@@ -2,11 +2,12 @@
 //! the post-liquidation bad-debt check.
 
 use crate::account;
+use common::errors::SpokeError;
 use common::math::fp::Wad;
 use common::types::{
     Account, AccountPosition, DebtPosition, PoolAction, PoolWithdrawEntry, RepayEntry, SeizeEntry,
 };
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 use crate::context::Cache;
 use crate::events;
@@ -28,6 +29,13 @@ pub(super) fn apply_liquidation_repayments(
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
+        // Tainted-debt gate (ADR 0011 addendum): a paused debt listing accepts
+        // no liquidator tokens. Checked on the post-normalization legs that
+        // actually transfer, since the plan normalizer can drop request legs.
+        let debt_paused = cache
+            .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
+            .is_some_and(|c| c.paused);
+        assert_with_error!(env, !debt_paused, SpokeError::SpokeAssetPaused);
         // Debt lookup uses the full hub coordinate.
         sac_transfer_call(
             env,

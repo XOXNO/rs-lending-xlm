@@ -34,6 +34,14 @@ pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: M
         config.asset_decimals = pool_decimals;
     }
 
+    // Oracle decimals feed valuations and spoke-cap conversion; a mismatch
+    // against the pool market mis-scales both by powers of ten.
+    assert_with_error!(
+        env,
+        config.asset_decimals == pool_decimals,
+        GenericError::InvalidAsset
+    );
+
     // The oracle is token-rooted (hub-independent), keyed by the bare asset.
     storage::set_asset_oracle(env, asset, &config);
 

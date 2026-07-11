@@ -108,10 +108,10 @@ impl SpokeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cfg = match self.spoke_asset(env, hub_asset) {
-            Some(c) => c,
-            None => return,
-        };
+        // Entry gates guarantee the listing exists; fail loud on a breach.
+        let cfg = self
+            .spoke_asset(env, hub_asset)
+            .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::InternalError));
         let mut usage = self.spoke_usage(env, hub_asset);
         enforce_spoke_supply_cap(
             env,
@@ -137,10 +137,10 @@ impl SpokeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cfg = match self.spoke_asset(env, hub_asset) {
-            Some(c) => c,
-            None => return,
-        };
+        // Entry gates guarantee the listing exists; fail loud on a breach.
+        let cfg = self
+            .spoke_asset(env, hub_asset)
+            .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::InternalError));
         let mut usage = self.spoke_usage(env, hub_asset);
         enforce_spoke_borrow_cap(
             env,
@@ -174,6 +174,13 @@ impl SpokeUsageContext {
             .supplied_scaled_ray
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
+        // `checked_sub` misses sign underflow; negative usage would fake the
+        // zero-usage removal gate.
+        assert_with_error!(
+            env,
+            usage.supplied_scaled_ray >= 0,
+            common::errors::GenericError::InternalError
+        );
         self.set_usage(hub_asset, usage);
     }
 
@@ -194,6 +201,11 @@ impl SpokeUsageContext {
             .borrowed_scaled_ray
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
+        assert_with_error!(
+            env,
+            usage.borrowed_scaled_ray >= 0,
+            common::errors::GenericError::InternalError
+        );
         self.set_usage(hub_asset, usage);
     }
 }
@@ -247,32 +259,4 @@ fn enforce_spoke_borrow_cap(
         next_scaled <= cap_scaled,
         SpokeError::SpokeBorrowCapReached
     );
-}
-
-/// Reverts `SpokeCapBelowUsage` when either cap sits below current scaled usage.
-pub fn validate_spoke_caps_against_usage(
-    env: &Env,
-    usage: &SpokeUsageRaw,
-    supply_cap: i128,
-    borrow_cap: i128,
-    supply_index: Ray,
-    borrow_index: Ray,
-    decimals: u32,
-) {
-    if cap_is_enabled(supply_cap) {
-        let cap_scaled = max_scaled_for_cap(env, supply_cap, decimals, supply_index);
-        assert_with_error!(
-            env,
-            Ray::from(usage.supplied_scaled_ray) <= cap_scaled,
-            SpokeError::SpokeCapBelowUsage
-        );
-    }
-    if cap_is_enabled(borrow_cap) {
-        let cap_scaled = max_scaled_for_cap(env, borrow_cap, decimals, borrow_index);
-        assert_with_error!(
-            env,
-            Ray::from(usage.borrowed_scaled_ray) <= cap_scaled,
-            SpokeError::SpokeCapBelowUsage
-        );
-    }
 }

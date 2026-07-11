@@ -1,6 +1,6 @@
 # ADR 0011: Pause And Freeze Matrix
 
-- Status: Accepted
+- Status: Accepted (amended 2026-07-11, see Addendum)
 - Date: 2026-07-02
 - Deciders: XOXNO Lending contract team
 
@@ -62,9 +62,13 @@ the layer-2 `paused` flag.
 
 ## Liquidations
 
-`liquidate` and `clean_bad_debt` are never blocked — not by the global
-pause and not by the per-asset flags — preserving the solvency defense in
-every incident mode.
+`liquidate` and `clean_bad_debt` are never blocked by the global pause or
+by the `frozen` flag, preserving the solvency defense in every incident
+mode. One narrow exception exists for `paused` (see Addendum): a liquidation
+**repay leg** whose debt listing is paused reverts, because a paused listing
+accepts no inbound tokens from anyone. Seizure of paused **collateral**
+remains fully allowed, and `clean_bad_debt` (which takes no tokens in) is
+never blocked.
 
 ## Alternatives Considered
 
@@ -102,9 +106,70 @@ Accepted costs:
 - A per-asset `paused` flag blocks exits for that asset, so it is a stronger
   intervention than the global pause for the affected market.
 
+## Addendum (2026-07-11): Tainted-Debt Gate And Listing Lifecycle
+
+Three amendments after an adversarial review of the pause/liquidation
+interaction. None reverses the core decision that liquidation outlives the
+halt controls; the first closes a token-integrity hole the original
+analysis (which reasoned only about price/HF integrity) did not cover.
+
+### Tainted-debt liquidation gate
+
+The original blanket exemption let liquidators pay a **paused debt asset**
+into the pool while user `repay` of the same asset was blocked. Pausing a
+listing usually means its token or oracle is untrusted; if the token is
+compromised (e.g. infinite mint), the liquidation repay leg was the one
+remaining path accepting it — fake tokens would extinguish real debt,
+become withdrawable pool cash, and seize real collateral at bonus.
+
+Amendment: a liquidation repay leg whose debt listing is `paused` reverts
+`SpokeAssetPaused`. The authoritative check sits in
+`apply_liquidation_repayments`, on the post-normalization legs that
+actually transfer (the plan normalizer can drop request legs, so checking
+the raw request alone is insufficient); a fast-fail twin runs in
+`validate_liquidation_inputs`. Seizure of paused **collateral** stays open:
+the liquidator pays real value and bears the seized asset's risk, so the
+original bad-debt argument still holds on the collateral side. This gate
+does not reintroduce a liquidation-DoS: it binds only accounts whose chosen
+repay asset is paused — exactly the population where accepting payment is
+the exploit.
+
+### Listing lifecycle
+
+- `remove_asset_from_spoke` requires **zero usage** (`SpokeAssetInUse`
+  otherwise). Invariant: a live position's listing always exists — flags
+  stay enforceable for the lifetime of every position, the spoke oracle
+  override cannot vanish under a live position (which would instantly
+  reprice it to the base oracle), and no usage row survives into a
+  re-listing. Removal is registry cleanup; `frozen` is the wind-down tool.
+- `edit_asset_in_spoke` now works on **deprecated** spokes. Deprecation
+  blocks new entries at the account gates independently; refusing edits
+  only stranded live listings (a listing paused at deprecation time was
+  permanently locked). Risk-param stewardship therefore follows one rule:
+  **params are live while the listing exists; frozen only when unlisted** —
+  applied uniformly by withdraw refresh, net-settle refresh, and
+  `update_account_threshold` (which skips delisted assets instead of
+  reverting).
+- Caps are **not** validated against usage: a cap below live usage is the
+  ratchet-down tool. Enforcement is entry-time only, so the lower cap
+  soft-closes new exposure until exits drain usage under it; previews
+  report zero headroom meanwhile. Interest accrual alone can push
+  token-space usage over a cap (scaled usage is constant while the index
+  grows) — expected, entries resume once exits catch up.
+- "Unlisted" is not an operational state. Because positions require the
+  listing to open and removal requires zero usage, a listing exists for
+  the full lifetime of every position; the lifecycle is active →
+  frozen/paused → removed-when-empty. The only reachable "unlisted"
+  behavior is the entry rejection (`AssetNotInSpoke`) for never-listed
+  assets. Every unlisted branch on exit/liquidation/refresh paths is
+  invariant-breach insurance chosen to fail safe (exits and the solvency
+  defense stay live), while the entry-side accounting fails loud.
+
 ## References
 
 - `contracts/controller/src/governance/access.rs`
 - `contracts/controller/src/positions/mod.rs` (`enforce_spoke_asset_flags`)
+- `contracts/controller/src/positions/liquidation/apply.rs` (tainted-debt gate)
+- `contracts/controller/src/config/asset.rs` (listing lifecycle)
 - [ADR 0009](./0009-mainnet-launch-hardening-and-operational-control.md)
 - [ADR 0010](./0010-governance-timelock-for-controller-admin.md)

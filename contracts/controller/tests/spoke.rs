@@ -78,9 +78,9 @@ fn effective_asset_config_reads_each_spoke_directly() {
     });
 }
 
-// An asset not listed on the account's spoke is rejected.
+// An asset not listed on the account's spoke is rejected (#307 AssetNotInSpoke).
 #[test]
-#[should_panic(expected = "Error(Contract, #1)")]
+#[should_panic(expected = "Error(Contract, #307)")]
 fn effective_asset_config_panics_when_unlisted_on_spoke() {
     let env = Env::default();
     let contract = new_controller(&env);
@@ -125,5 +125,99 @@ fn lowering_spoke_ltv_keeps_existing_position_ltv() {
         // The existing position keeps the snapshotted 9000.
         let existing = account.get_or_create_supply_position(&hub(&asset), &cfg_5000);
         assert_eq!(existing.loan_to_value.raw() as u32, 9_000);
+    });
+}
+
+// The usage-decrement sign guard fires: a decrement larger than the stored
+// total is an accounting invariant breach (#34 InternalError), not a silent
+// negative row that would later fake the zero-usage removal gate.
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn usage_supply_decrement_below_zero_panics() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    env.as_contract(&contract, || {
+        storage::set_spoke_usage(
+            &env,
+            1,
+            &hub(&asset),
+            &common::types::SpokeUsageRaw {
+                supplied_scaled_ray: 5,
+                borrowed_scaled_ray: 0,
+            },
+        );
+        let mut ctx = SpokeUsageContext::new(&env, 1);
+        ctx.apply_withdraw_after_pool(&env, &hub(&asset), common::math::fp::Ray::from(10));
+    });
+}
+
+// Borrow-side twin of the sign guard.
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn usage_borrow_decrement_below_zero_panics() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    env.as_contract(&contract, || {
+        storage::set_spoke_usage(
+            &env,
+            1,
+            &hub(&asset),
+            &common::types::SpokeUsageRaw {
+                supplied_scaled_ray: 0,
+                borrowed_scaled_ray: 5,
+            },
+        );
+        let mut ctx = SpokeUsageContext::new(&env, 1);
+        ctx.apply_repay_after_pool(&env, &hub(&asset), common::math::fp::Ray::from(10));
+    });
+}
+
+// Reaching the post-pool supply accounting without a listing means the entry
+// gates were bypassed; the branch fails loud (#34) instead of silently
+// skipping the cap check and usage increment.
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn apply_supply_without_listing_panics() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    env.as_contract(&contract, || {
+        let mut ctx = SpokeUsageContext::new(&env, 1);
+        let index = common::types::MarketIndexRaw {
+            supply_index: common::constants::RAY,
+            borrow_index: common::constants::RAY,
+        };
+        ctx.apply_supply_after_pool(
+            &env,
+            &hub(&asset),
+            common::math::fp::Ray::from(1),
+            &index,
+            7,
+        );
+    });
+}
+
+// Borrow-side twin of the missing-listing guard.
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn apply_borrow_without_listing_panics() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    env.as_contract(&contract, || {
+        let mut ctx = SpokeUsageContext::new(&env, 1);
+        let index = common::types::MarketIndexRaw {
+            supply_index: common::constants::RAY,
+            borrow_index: common::constants::RAY,
+        };
+        ctx.apply_borrow_after_pool(
+            &env,
+            &hub(&asset),
+            common::math::fp::Ray::from(1),
+            &index,
+            7,
+        );
     });
 }
