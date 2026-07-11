@@ -115,6 +115,47 @@ fn median_even_count() {
 }
 
 #[test]
+fn submission_at_exact_inclusion_window_boundary_is_aggregated() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    advance_ledger_seconds(&env, 2_000);
+
+    // A submission aged exactly MaxSubmissionAgeSeconds (900s) is the last
+    // one still inside the inclusion window: it must contribute to the
+    // aggregate, not be skipped as stale.
+    let now = env.ledger().timestamp();
+    let boundary_ms = (now - 900) * 1_000;
+    client.submit_price(&signers[0], &feed_id(&env), &100i128, &boundary_ms);
+    assert_eq!(
+        client
+            .read_price_data_for_feed(&feed_id(&env))
+            .price
+            .to_u128(),
+        Some(100u128)
+    );
+}
+
+#[test]
+fn median_even_count_with_odd_gap_rounds_toward_lower_middle() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 2, 2);
+    let feed = feed_id(&env);
+
+    // Middle pair (100, 101) differs by an odd amount, so the midpoint
+    // truncates from the LOWER middle element: 100 + (101 - 100)/2 = 100.
+    // This pins the ascending sort order — a reversed comparator would
+    // compute 101 + (100 - 101)/2 = 101.
+    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &101i128, &1_000u64);
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(100u128)
+    );
+}
+
+#[test]
 fn stale_submission_excluded_from_aggregate() {
     let env = Env::default();
     env.mock_all_auths();
@@ -566,6 +607,36 @@ fn read_price_data_for_feed_reports_stale_data() {
 }
 
 #[test]
+fn read_price_data_for_feed_accepts_exact_ttl_boundary_and_converts_ms() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let feed = feed_id(&env);
+
+    // Start from a non-zero ledger time so write_timestamp (ms) is non-zero:
+    // a zero timestamp is a fixed point of any ms/seconds unit confusion and
+    // would let a broken conversion pass unnoticed.
+    advance_ledger_seconds(&env, 10_000);
+    let now = env.ledger().timestamp();
+    client.submit_price(&signers[0], &feed, &100i128, &(now * 1_000));
+
+    // Aged exactly MaxStaleSeconds (default 86_400): still served.
+    advance_ledger_seconds(&env, 86_400);
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(100u128)
+    );
+
+    // One second past the TTL: stale. A ms-conversion bug would make the
+    // cached write time look absurdly far in the future and read as fresh.
+    advance_ledger_seconds(&env, 1);
+    assert_eq!(
+        expect_error(client.try_read_price_data_for_feed(&feed)),
+        Error::StaleData
+    );
+}
+
+#[test]
 fn purge_feed_clears_submission_state_and_allows_reuse() {
     let env = Env::default();
     env.mock_all_auths();
@@ -628,4 +699,53 @@ fn purge_feed_keeps_other_feeds_and_rewrites_indexes() {
         client.read_price_data_for_feed(&feed_b).price.to_u128(),
         Some(200u128)
     );
+}
+
+#[test]
+fn purge_feed_prunes_only_the_purged_feed_from_signer_indexes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 2, 1);
+    let feed_a = String::from_str(&env, "A/USD");
+    let feed_b = String::from_str(&env, "B/USD");
+
+    // signer 0 touches both feeds; signer 1 only feed_b.
+    client.submit_price(&signers[0], &feed_a, &100i128, &1_000u64);
+    client.submit_price(&signers[0], &feed_b, &100i128, &1_000u64);
+    client.submit_price(&signers[1], &feed_b, &300i128, &1_000u64);
+
+    // Invariant: purging feed_a drops exactly feed_a from signer 0's
+    // per-signer feed index — feed_b stays, nothing lingers.
+    client.purge_feed(&feed_a);
+    let s0_feeds: soroban_sdk::Vec<String> = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get(&MirrorKey::SignerFeeds(signers[0].clone()))
+            .unwrap()
+    });
+    assert_eq!(s0_feeds, vec![&env, feed_b.clone()]);
+
+    // Consequence: remove_signer recomputes exactly the feeds left in the
+    // removed signer's index, so feed_b must shed signer 0's price (median
+    // [300]); a mispruned index would keep serving the old 200 median.
+    client.remove_signer(&signers[0]);
+    assert_eq!(
+        client.read_price_data_for_feed(&feed_b).price.to_u128(),
+        Some(300u128)
+    );
+}
+
+#[test]
+fn purge_feed_removes_feed_from_known_feed_index() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let feed = feed_id(&env);
+
+    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
+    client.purge_feed(&feed);
+
+    // The known-feed index entry is gone, so a second purge of the same feed
+    // finds nothing to purge.
+    assert_eq!(expect_error(client.try_purge_feed(&feed)), Error::FeedNotKnown);
 }

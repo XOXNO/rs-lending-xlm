@@ -511,6 +511,12 @@ _mutants-check:
 		echo "  cargo install cargo-mutants --version $(CARGO_MUTANTS_VERSION) --locked"; \
 		exit 1; \
 	}
+	@INSTALLED=$$(cargo mutants --version | awk '{print $$2}'); \
+	if [ "$$INSTALLED" != "$(CARGO_MUTANTS_VERSION)" ]; then \
+		echo "cargo-mutants $$INSTALLED installed but $(CARGO_MUTANTS_VERSION) pinned (mutant generation can differ across versions). Install with:"; \
+		echo "  cargo install cargo-mutants --version $(CARGO_MUTANTS_VERSION) --locked"; \
+		exit 1; \
+	fi
 
 _mutants-harness-prepare: _mutants-check
 	$(MAKE) build
@@ -519,7 +525,8 @@ _mutants-harness-prepare: _mutants-check
 mutants: mutants-common mutants-pool mutants-governance mutants-governance-oracle-probe \
 		 mutants-controller-core \
          mutants-controller-oracle mutants-controller-positions \
-         mutants-controller-strategies mutants-controller-views
+         mutants-controller-strategies mutants-controller-views \
+         mutants-aggregator mutants-oracle-adapter mutants-defindex-strategy
 
 ## Focused local diagnostics (already covered by mutants-common/pool).
 mutants-math: _mutants-check
@@ -581,6 +588,16 @@ mutants-controller-strategies: _mutants-harness-prepare
 mutants-controller-views: _mutants-harness-prepare
 	$(call run_mutants,--package controller --file 'contracts/controller/src/views/**' \
 		--test-package controller --test-package governance --test-package test-harness)
+
+## Standalone contracts: each has its own native test suite, no harness needed.
+mutants-aggregator: _mutants-check
+	$(call run_mutants,--package aggregator --test-package aggregator)
+
+mutants-oracle-adapter: _mutants-check
+	$(call run_mutants,--package xoxno-oracle-adapter --test-package xoxno-oracle-adapter)
+
+mutants-defindex-strategy: _mutants-check
+	$(call run_mutants,--package defindex-strategy --test-package defindex-strategy)
 
 # ---------------------------------------------------------------------------
 # Clean

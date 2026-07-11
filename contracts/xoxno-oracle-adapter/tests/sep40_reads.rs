@@ -248,6 +248,30 @@ fn price_selects_closest_when_history_is_non_monotonic() {
 }
 
 #[test]
+fn price_prefers_newest_recorded_sample_on_equal_observation_time() {
+    let env = Env::default();
+    env.mock_all_auths();
+    advance_ledger_seconds(&env, 1_000);
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let asset = xlm_asset(&env);
+    client.add_feed(&feed_id(&env), &asset);
+    // Disable bucketing so both recomputes retain distinct history samples.
+    client.set_resolution(&0);
+
+    // Two samples with the SAME observation time: the signer re-submits a
+    // corrected price for the same package timestamp. History (newest-first)
+    // holds [(200, t), (100, t)].
+    let t = env.ledger().timestamp();
+    client.submit_price(&signers[0], &feed_id(&env), &100i128, &(t * 1000));
+    client.submit_price(&signers[0], &feed_id(&env), &200i128, &(t * 1000));
+
+    // On an observation-time tie the scan must keep the first (newest
+    // recorded) qualifying sample — the correction, not the superseded price.
+    let data = client.price(&asset, &t).expect("expected sample");
+    assert_eq!(data.price, 200i128);
+}
+
+#[test]
 fn remove_feed_swap_moves_last_asset_into_gap() {
     let env = Env::default();
     env.mock_all_auths();

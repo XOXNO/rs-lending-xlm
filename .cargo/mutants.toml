@@ -7,16 +7,20 @@
 #
 # Selection lives on the CLI (`--file`, `--package`) so this file only
 # encodes "never mutate this regardless of scope" rules.
+#
+# KNOWN BLIND SPOT: cargo-mutants cannot mutate inside macro arguments, so
+# every comparison written inside `assert_with_error!(env, <cond>, Err)` (and
+# `#[contractevent]` internals) generates NO operator mutants — only a
+# whole-function deletion mutant. Guard *existence* is mutation-tested; guard
+# *boundary precision* (`<=` vs `<`, operand order) is not. Do not read
+# "0 missed" as boundary coverage for those guards; the compensating control
+# is explicit unit tests at exact boundary values.
 
 # Keep ignored build products, generated snapshots, local worktrees, and
 # verification artifacts out of cargo-mutants scratch copies.
 gitignore = true
 
 exclude_globs = [
-    # Compile-time ABI guards — pure type-pointer bindings, no behavior.
-    "contracts/controller/src/abi.rs",
-    "contracts/pool/src/abi.rs",
-
     # Test scaffolding — mutating tests just produces noise.
     "tests/test-harness/**",
     "tests/fuzz/**",
@@ -71,6 +75,14 @@ exclude_re = [
     "replace > with >= in calculate_borrow_rate",
     "replace > with >= in update_borrow_index",
 
+    # Oracle-adapter insertion-sort comparator over i128 prices: `>=` vs `>`
+    # only changes which of two EQUAL elements shifts first, i.e. sort
+    # stability. Equal i128 values are indistinguishable, so the output
+    # vector is value-identical and the downstream median cannot differ.
+    # Column-anchored to spare the killable `j > 0` loop guard on the same
+    # line while remaining stable when preceding lines move.
+    "aggregation.rs:[0-9]+:51: replace > with >= in sorted_copy",
+
     # `update_supply_index`'s `supplied == ZERO || rewards_increase == ZERO`
     # short-circuit: mutating `||` to `&&` only changes behavior when
     # exactly one side is zero, and in both single-zero cases a downstream
@@ -78,4 +90,38 @@ exclude_re = [
     # (`0.div(x) == 0`, then `old_index.mul(ONE) == old_index`) reproduces
     # the same result, so the branch choice is unobservable.
     "replace \\|\\| with && in update_supply_index",
+
+    # Aggregator vault negative-amount guards (`amount < 0`): the preceding
+    # `amount == 0` early-return makes 0 unreachable at the comparison, so
+    # `<` and `<=` agree on every reachable input. Column-anchored to :19 so
+    # the killable `current < amount` overdraw check (col 20) stays mutated.
+    "vault.rs:[0-9]+:19: replace < with <= in Vault",
+
+    # Soroswap pair orientation `token_in < token_out`: equality means
+    # token_in == token_out, which `HopContext::new` already rejects with
+    # `SameToken` before any venue code runs, so `<` vs `<=` is unreachable
+    # at the only diverging input.
+    "soroswap.rs:[0-9]+:42: replace < with <= in swap",
+
+    # Sushi's local `amount_out = after - before` is re-derived independently
+    # by `dispatch_hop`'s balance-delta check over the same pre-call snapshot
+    # (no transfers occur between the two reads). In every case where the
+    # mutated `+` changes the local `<= 0` verdict, `dispatch_hop` computes
+    # the true delta and raises the identical `ZeroOutput`, and the venue's
+    # return value is discarded by `dispatch_hop`, so callers see no
+    # difference.
+    "sushi.rs:[0-9]+:43: replace - with \\+ in swap",
+
+    # Router-side pre-authorization entries that are never consumable under
+    # SEP-41 auth semantics: `authorize_token_approve` precedes a DIRECT
+    # `token.approve` call (owner = router = direct invoker, so invoker auth
+    # satisfies `require_auth` without the entry), and `authorize_comet_swap`
+    # covers `require_auth(router)` inside a pool the router invokes DIRECTLY
+    # plus a `transfer_from` sub-call whose SEP-41 auth is on the SPENDER
+    # (the pool, itself a direct invoker). Verified empirically: with both
+    # bodies stubbed to no-ops the full aggregator suite still passes. The
+    # entries are kept as defense-in-depth for live venues with richer auth
+    # trees, which native unit tests cannot model.
+    "replace authorize_token_approve with \\(\\)",
+    "replace authorize_comet_swap with \\(\\)",
 ]
