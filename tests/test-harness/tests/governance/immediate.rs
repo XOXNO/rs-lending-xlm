@@ -207,4 +207,12 @@ fn owner_revokes_role_immediately() {
     // Unknown roles are rejected outright.
     let result = gov.try_revoke_role_immediate(&admin, &Symbol::new(&t.env, "NOPE"));
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
+
+    // Timelock-governance roles are NOT immediately revocable: a compromised
+    // owner key must not be able to strip the independent cancellers and run
+    // a malicious proposal through the delay window without a veto.
+    for role in ["CANCELLER", "PROPOSER", "EXECUTOR"] {
+        let result = gov.try_revoke_role_immediate(&admin, &Symbol::new(&t.env, role));
+        assert_contract_error(flatten(result), errors::INVALID_ROLE);
+    }
 }

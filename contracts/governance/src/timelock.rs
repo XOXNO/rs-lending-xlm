@@ -389,19 +389,27 @@ impl Governance {
         controller_client(&env).add_spoke()
     }
 
-    /// Revokes a governance role immediately, bypassing the timelock.
+    /// Revokes `GUARDIAN` or `ORACLE` immediately, bypassing the timelock.
     /// Owner-gated emergency de-authorization: stripping a compromised
     /// immediate-role key must be at least as fast as the powers it holds.
-    /// Grants stay timelocked.
+    /// Restricted to the immediate incident roles — `PROPOSER`/`EXECUTOR`/
+    /// `CANCELLER` revocations stay timelocked so a compromised owner key
+    /// cannot instantly strip the independent cancellers and leave a
+    /// malicious pending proposal without a veto. Grants stay timelocked.
     ///
     /// # Errors
-    /// * `InvalidRole` - unknown role or `account` does not hold it.
+    /// * `InvalidRole` - role is not `GUARDIAN`/`ORACLE`, or `account` does
+    ///   not hold it.
     ///
     /// # Events
     /// * A role-revoke event from the access-control library.
     #[only_owner]
     pub fn revoke_role_immediate(env: Env, account: Address, role: Symbol) {
-        access::require_known_governance_role(&env, &role);
+        assert_with_error!(
+            &env,
+            role == Symbol::new(&env, GUARDIAN_ROLE) || role == Symbol::new(&env, ORACLE_ROLE),
+            GenericError::InvalidRole
+        );
         access::apply_revoke_role(&env, &account, &role);
     }
 

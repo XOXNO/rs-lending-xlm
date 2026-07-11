@@ -88,9 +88,12 @@ Immediate owner operations are limited to:
 - deploy controller;
 - pause;
 - unpause;
-- revoke a governance role (`revoke_role_immediate`) — emergency
+- revoke `GUARDIAN`/`ORACLE` (`revoke_role_immediate`) — emergency
   de-authorization of a compromised immediate-role key must be at least as
-  fast as the powers it holds; grants stay timelocked;
+  fast as the powers it holds. Only those two roles: grants and
+  `PROPOSER`/`EXECUTOR`/`CANCELLER` revocations stay timelocked, so a
+  compromised owner key cannot instantly strip the independent cancellers
+  and leave a malicious pending proposal without a veto;
 - accept already scheduled governance ownership transfer;
 - read-only views.
 

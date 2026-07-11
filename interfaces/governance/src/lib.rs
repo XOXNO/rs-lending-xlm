@@ -220,8 +220,10 @@ pub trait GovernanceInterface {
     /// Creates a spoke immediately; GUARDIAN-gated. Returns the new spoke id.
     fn add_spoke(env: Env, caller: Address) -> u32;
 
-    /// Revokes a governance role immediately; owner-gated emergency
-    /// de-authorization. Grants stay timelocked.
+    /// Revokes GUARDIAN or ORACLE immediately; owner-gated emergency
+    /// de-authorization of the immediate incident roles. All other role
+    /// changes (grants, and PROPOSER/EXECUTOR/CANCELLER revocations) stay
+    /// timelocked.
     fn revoke_role_immediate(env: Env, account: Address, role: Symbol);
 
     // --- Governance self-administration ---
