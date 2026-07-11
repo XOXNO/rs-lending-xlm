@@ -5,7 +5,6 @@
 //! The harness admin holds every operational role (constructor grant), so it
 //! doubles as GUARDIAN/ORACLE here; strangers prove the role gates.
 
-use controller::types::{ControllerKey, MarketOracleConfig};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Symbol};
 use test_harness::{
@@ -20,16 +19,6 @@ fn flatten<T, C>(
         Err(Ok(err)) => Err(err),
         Err(Err(_)) => panic!("expected contract error, got InvokeError"),
     }
-}
-
-fn stored_oracle(t: &LendingTest, asset: &Address) -> MarketOracleConfig {
-    t.env.as_contract(&t.controller, || {
-        t.env
-            .storage()
-            .persistent()
-            .get(&ControllerKey::AssetOracle(asset.clone()))
-            .expect("oracle configured")
-    })
 }
 
 // GUARDIAN flips a listing's flags instantly; the flags bind and every other
@@ -102,11 +91,11 @@ fn oracle_role_moves_sanity_band_containing_price() {
     let admin = t.admin();
     let usdc = t.resolve_asset("USDC");
 
-    let before = stored_oracle(&t, &usdc);
+    let before = t.market_oracle_config(&usdc);
     // Live price is $1; the new band contains it.
     gov.set_oracle_sanity_bounds(&admin, &usdc, &(usd(1) / 2), &(usd(2)));
 
-    let after = stored_oracle(&t, &usdc);
+    let after = t.market_oracle_config(&usdc);
     assert_eq!(after.min_sanity_price_wad, usd(1) / 2);
     assert_eq!(after.max_sanity_price_wad, usd(2));
     assert_eq!(
@@ -131,6 +120,30 @@ fn sanity_band_not_containing_price_rejected() {
     // Entirely below the $1 live price.
     let result = gov.try_set_oracle_sanity_bounds(&admin, &usdc, &(usd(1) / 100), &(usd(1) / 2));
     assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
+}
+
+// The new band must overlap the old one: bands are walked, never teleported
+// to a disjoint range on one call.
+#[test]
+fn sanity_band_disjoint_from_old_band_rejected() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let gov = t.gov_iface_client();
+    let admin = t.admin();
+    let usdc = t.resolve_asset("USDC");
+
+    // Narrow the band around the live $1 price first.
+    gov.set_oracle_sanity_bounds(&admin, &usdc, &(usd(1) / 2), &usd(2));
+
+    // A new band disjoint from [0.5, 2.0] is rejected even before pricing
+    // (containment would also fail here; the overlap rule fires first).
+    let result = gov.try_set_oracle_sanity_bounds(&admin, &usdc, &usd(3), &usd(4));
+    assert_contract_error(flatten(result), errors::INVALID_SANITY_BOUNDS);
+
+    // An overlapping widening that still contains the live price passes.
+    gov.set_oracle_sanity_bounds(&admin, &usdc, &(usd(1) / 4), &usd(3));
+    let after = t.market_oracle_config(&usdc);
+    assert_eq!(after.min_sanity_price_wad, usd(1) / 4);
+    assert_eq!(after.max_sanity_price_wad, usd(3));
 }
 
 // Malformed bounds and missing roles are rejected before any oracle read.

@@ -13,7 +13,9 @@ use stellar_governance::timelock::{
 };
 use stellar_macros::only_owner;
 
-use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
+use crate::access::{
+    self, CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, ORACLE_ROLE, PROPOSER_ROLE,
+};
 use crate::op::{apply_self_op, resolve_op};
 use crate::storage::renew_governance_instance;
 use crate::{constants, storage, validate, Governance, GovernanceArgs, GovernanceClient};
@@ -85,12 +87,10 @@ fn controller_client(env: &Env) -> ControllerAdminClient<'_> {
 
 /// Shared proposal auth and TTL renewal.
 fn begin_proposal(env: &Env, proposer: &Address) {
-    storage::renew_governance_instance(env);
-    proposer.require_auth();
-    access_control::ensure_role(env, &Symbol::new(env, PROPOSER_ROLE), proposer);
+    begin_immediate(env, proposer, PROPOSER_ROLE);
 }
 
-/// Shared auth for role-gated immediate (timelock-bypassing) operations.
+/// Shared auth for role-gated operations: TTL renewal, caller auth, role check.
 fn begin_immediate(env: &Env, caller: &Address, role: &str) {
     storage::renew_governance_instance(env);
     caller.require_auth();
@@ -364,7 +364,7 @@ impl Governance {
         min_wad: i128,
         max_wad: i128,
     ) {
-        begin_immediate(&env, &caller, crate::access::ORACLE_ROLE);
+        begin_immediate(&env, &caller, ORACLE_ROLE);
         controller_client(&env).set_oracle_sanity_bounds(&asset, &min_wad, &max_wad);
     }
 
@@ -401,8 +401,8 @@ impl Governance {
     /// * A role-revoke event from the access-control library.
     #[only_owner]
     pub fn revoke_role_immediate(env: Env, account: Address, role: Symbol) {
-        crate::access::require_known_governance_role(&env, &role);
-        crate::access::apply_revoke_role(&env, &account, &role);
+        access::require_known_governance_role(&env, &role);
+        access::apply_revoke_role(&env, &account, &role);
     }
 
     /// Minimum timelock delay in ledgers.

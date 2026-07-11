@@ -103,9 +103,16 @@ containment actions that cannot move funds or loosen risk:
   listed through the timelocked path;
 - `ORACLE`: sanity-band moves (`set_oracle_sanity_bounds`) — the controller
   proves the new band contains the current live price by resolving it
-  under the new band, so a band move can only re-admit the market's real
-  price, never smuggle a fabricated one. Asset listings, caps, risk
-  params, and full oracle configs remain timelocked.
+  under the new band, and requires the new band to overlap the old one, so
+  a band can be walked (each step live-price-contained and evented) but
+  never teleported to a disjoint range on one transient print. Asset
+  listings, caps, risk params, and full oracle configs remain timelocked.
+
+Roles are granted only by the constructor (fresh deployments) or the
+timelocked `GrantGovRole`. An in-place governance upgrade therefore leaves
+`GUARDIAN`/`ORACLE` unheld until a grant clears the timelock: schedule the
+role grants for the intended incident keys before or alongside the upgrade
+proposal, or the immediate paths are unusable exactly when first needed.
 
 Testing-only immediate forwarders are behind `#[cfg(any(test, feature =
 "testing"))]` and are not part of the production admin path.

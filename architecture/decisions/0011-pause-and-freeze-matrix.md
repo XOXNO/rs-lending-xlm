@@ -54,11 +54,15 @@ The `frozen` flag blocks only new `supply` and `borrow`; `withdraw` and
 Both flags travel on `SpokeAssetArgs` and are written by
 `add_asset_to_spoke` / `edit_asset_in_spoke`; every edit states them
 explicitly, so a routine parameter edit cannot silently clear an active
-flag. Flag changes therefore ride the same governance timelock as the rest
-of the listing edit — the per-asset flags are planned wind-down and
-containment tools, while the instant incident brake remains the layer-1
-global pause; an oracle incident on one asset is contained per spoke via
-the layer-2 `paused` flag.
+flag. Two paths set them:
+
+- the timelocked listing edit (`edit_asset_in_spoke`), for planned
+  wind-down and parameter changes;
+- the `GUARDIAN`-gated immediate `set_spoke_asset_flags` (flags only, no
+  params/caps/override; see ADR 0010), which makes the layer-2 `paused`
+  flag a true per-listing incident brake in both directions. The layer-1
+  global pause remains the protocol-wide brake; an oracle or token
+  incident on one asset is contained instantly per spoke via layer 2.
 
 ## Liquidations
 

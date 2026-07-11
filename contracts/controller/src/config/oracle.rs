@@ -118,19 +118,27 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
 /// The bot incident path for band exits: the new band must contain the
 /// current live price, proven by resolving the price under the new band
 /// (bypassing the old one) — out-of-band reverts `SanityBoundViolated`,
-/// a stale feed reverts `PriceFeedStale`.
+/// a stale feed reverts `PriceFeedStale`. The new band must also overlap the
+/// old one: a band can be walked (each step live-price-contained and
+/// evented), never teleported to a disjoint range on one transient print.
 pub fn set_oracle_sanity_bounds(env: &Env, asset: Address, min_wad: i128, max_wad: i128) {
     let mut oracle = storage::get_asset_oracle(env, &asset)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PairNotActive));
 
     common::validation::validate_sanity_bounds(env, min_wad, max_wad);
     common::validation::validate_single_source_sanity_band(env, oracle.strategy, min_wad, max_wad);
+    assert_with_error!(
+        env,
+        min_wad < oracle.max_sanity_price_wad && max_wad > oracle.min_sanity_price_wad,
+        OracleError::InvalidSanityBounds
+    );
     oracle.min_sanity_price_wad = min_wad;
     oracle.max_sanity_price_wad = max_wad;
 
     // Containment probe with the updated config; nothing is cached or stored
-    // unless the live price sits inside the new band.
-    let mut cache = Cache::new(env);
+    // unless the live price sits inside the new band. Read-only: the
+    // entrypoint already renewed the instance TTL.
+    let mut cache = Cache::new_view(env);
     crate::oracle::price_with_config(&mut cache, &asset, &oracle);
 
     storage::set_asset_oracle(env, &asset, &oracle);

@@ -116,8 +116,10 @@ impl Controller {
     /// * `CreateHubEvent` - the new hub id.
     ///
     /// # Security Warning
-    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
-    ///   so this executes only after the configured delay.
+    /// * Owner-only via `#[only_owner]`; the owner is the governance contract,
+    ///   reachable through the timelocked proposal path or the GUARDIAN-gated
+    ///   immediate forwarder (the new registry is inert until assets are
+    ///   listed through the timelocked path).
     #[only_owner]
     pub fn create_hub(env: Env) -> u32 {
         storage::renew_controller_instance(&env);
@@ -131,8 +133,10 @@ impl Controller {
     /// * `UpdateSpokeEvent` - the new spoke snapshot.
     ///
     /// # Security Warning
-    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
-    ///   so this executes only after the configured delay.
+    /// * Owner-only via `#[only_owner]`; the owner is the governance contract,
+    ///   reachable through the timelocked proposal path or the GUARDIAN-gated
+    ///   immediate forwarder (the new registry is inert until assets are
+    ///   listed through the timelocked path).
     #[only_owner]
     pub fn add_spoke(env: Env) -> u32 {
         storage::renew_controller_instance(&env);
