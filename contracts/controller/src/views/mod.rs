@@ -8,7 +8,7 @@ use common::errors::{GenericError, SpokeError};
 use common::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
     LiquidationEstimate, MarketIndexRaw, MarketIndexView, PaymentTuple, SpokeAssetConfig,
-    SpokeConfig,
+    SpokeConfig, SpokeUsageRaw,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec};
 
@@ -129,6 +129,12 @@ impl Controller {
     /// * `SpokeNotFound` - no spoke exists for `spoke_id`.
     pub fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig {
         storage::get_spoke(&env, spoke_id)
+    }
+
+    /// Returns the listing's scaled usage totals; zero when no row exists.
+    /// Token-space usage = `scaled * index`; cap headroom = `cap - usage`.
+    pub fn get_spoke_usage(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeUsageRaw {
+        storage::get_spoke_usage(&env, spoke_id, &hub_asset).unwrap_or_default()
     }
 
     /// Central liquidity pool for all markets; reads instance storage only.

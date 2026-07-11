@@ -150,6 +150,20 @@ the exploit.
   applied uniformly by withdraw refresh, net-settle refresh, and
   `update_account_threshold` (which skips delisted assets instead of
   reverting).
+- Caps are **not** validated against usage: a cap below live usage is the
+  ratchet-down tool. Enforcement is entry-time only, so the lower cap
+  soft-closes new exposure until exits drain usage under it; previews
+  report zero headroom meanwhile. Interest accrual alone can push
+  token-space usage over a cap (scaled usage is constant while the index
+  grows) — expected, entries resume once exits catch up.
+- "Unlisted" is not an operational state. Because positions require the
+  listing to open and removal requires zero usage, a listing exists for
+  the full lifetime of every position; the lifecycle is active →
+  frozen/paused → removed-when-empty. The only reachable "unlisted"
+  behavior is the entry rejection (`AssetNotInSpoke`) for never-listed
+  assets. Every unlisted branch on exit/liquidation/refresh paths is
+  invariant-breach insurance chosen to fail safe (exits and the solvency
+  defense stay live), while the entry-side accounting fails loud.
 
 ## References
 

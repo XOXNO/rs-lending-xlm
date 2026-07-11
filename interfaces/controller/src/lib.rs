@@ -13,7 +13,7 @@ pub use admin::{ControllerAdmin, ControllerAdminClient};
 use common::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
     LiquidationEstimate, MarketIndexRaw, MarketIndexView, PositionMode, SpokeAssetConfig,
-    SpokeConfig,
+    SpokeConfig, SpokeUsageRaw,
 };
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
@@ -194,12 +194,15 @@ pub trait ControllerInterface {
     fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes;
 
     /// Returns the per-spoke risk listing for `hub_asset` on `spoke_id`. Each
-    /// spoke (id `>= 1`) holds its own config. Panics `AssetNotSupported` when
+    /// spoke (id `>= 1`) holds its own config. Panics `AssetNotInSpoke` when
     /// not listed on the spoke.
     fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig;
 
     /// Returns spoke config by id.
     fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig;
+
+    /// Returns the listing's scaled usage totals; zero when no row exists.
+    fn get_spoke_usage(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeUsageRaw;
 
     /// Returns the central liquidity pool shared by every listed market.
     fn get_pool_address(env: Env) -> Address;
