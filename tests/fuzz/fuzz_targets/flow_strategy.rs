@@ -143,15 +143,20 @@ fn bootstrap(t: &mut LendingTest) {
     t.borrow(ALICE, "XLM", 1_000.0);
 }
 
-fn assert_router_allowance_zeroed(t: &LendingTest) {
+/// The controller must never hold residual tokens: strategy flows pull from
+/// the pool, route through the aggregator (which pulls via
+/// `authorize_as_current_contract` + `transfer`, never token allowances), and
+/// deposit/refund everything before returning. Any balance left on the
+/// controller is stuck value.
+fn assert_controller_residual_zero(t: &LendingTest) {
     for a in ASSETS {
         let addr = t.resolve_asset(a);
         let tok = token::Client::new(&t.env, &addr);
-        let allowance = tok.allowance(&t.controller, &t.aggregator);
+        let residual = tok.balance(&t.controller);
         assert_eq!(
-            allowance, 0,
-            "router allowance for {} left at {} after strategy op",
-            a, allowance
+            residual, 0,
+            "controller holds residual {} of {} after strategy op",
+            residual, a
         );
     }
 }
@@ -235,7 +240,7 @@ fuzz_target!(|data: &[u8]| {
             }
             // AdvanceAndSync does not touch the router.
             if !matches!(op, Op::AdvanceAndSync { .. }) {
-                assert_router_allowance_zeroed(&t);
+                assert_controller_residual_zero(&t);
             }
         } else {
             let after = snapshot(&t, ALICE, &ASSETS);
@@ -245,7 +250,7 @@ fuzz_target!(|data: &[u8]| {
                 t.get_active_accounts(ALICE).len(),
                 "failed strategy op leaked or removed an account"
             );
-            assert_router_allowance_zeroed(&t);
+            assert_controller_residual_zero(&t);
         }
         assert_pool_accounting(&t, &ASSETS);
         assert_flash_guard_cleared(&t);

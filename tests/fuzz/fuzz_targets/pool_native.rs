@@ -3,6 +3,7 @@
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY};
+use common::errors::GenericError;
 use common::types::{
     HubAssetKey, InterestRateModel, MarketParamsRaw, PoolAction, PoolBorrowEntry, PoolKey,
     PoolSeizeEntry, PoolStateRaw, PoolSupplyEntry, PoolWithdrawEntry, ScaledPositionRaw,
@@ -566,23 +567,41 @@ fuzz_target!(|i: In| {
                 }
             }
             10 => {
-                // Pure-view sweep — read-only functions shouldn't fail
-                // under fresh-pool state; assert cross-function invariants.
-                let util = pool.get_utilisation(&market);
+                // Pure-view sweep. The ratio views (utilisation, deposit rate,
+                // borrow rate) are DOCUMENTED to panic MathOverflow when
+                // borrowed_value * RAY / supplied_value exceeds i128 — a state
+                // reachable here via deposit-seize -> claim-revenue -> dust
+                // withdraw. Tolerate exactly that error and nothing else; any
+                // view value that does come back must satisfy sign invariants.
+                let math_overflow =
+                    soroban_sdk::Error::from_contract_error(GenericError::MathOverflow as u32);
+                let check_ratio_view = |label: &str,
+                                            res: Result<
+                    Result<i128, soroban_sdk::Error>,
+                    Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
+                >| {
+                    match res {
+                        Ok(Ok(v)) => assert!(v >= 0, "negative {}: {}", label, v),
+                        Err(Ok(err)) => assert_eq!(
+                            err, math_overflow,
+                            "{} failed with unexpected error: {:?}",
+                            label, err
+                        ),
+                        other => panic!("unexpected {} result: {:?}", label, other),
+                    }
+                };
+                check_ratio_view("utilization", pool.try_get_utilisation(&market));
+                check_ratio_view("deposit rate", pool.try_get_deposit_rate(&market));
+                check_ratio_view("borrow rate", pool.try_get_borrow_rate(&market));
                 let reserves = pool.get_reserves(&market);
-                let deposit = pool.get_deposit_rate(&market);
-                let borrow = pool.get_borrow_rate(&market);
                 let rev = pool.get_revenue(&market);
                 let supplied = pool.get_supplied_amount(&market);
                 let borrowed = pool.get_borrowed_amount(&market);
                 let _dt = pool.get_delta_time(&market);
                 let _sync = pool.get_sync_data(&market);
 
-                assert!(util >= 0, "negative utilization: {}", util);
                 assert!(reserves >= 0, "negative reserves: {}", reserves);
                 assert!(rev >= 0, "negative protocol revenue: {}", rev);
-                assert!(deposit >= 0, "negative deposit rate: {}", deposit);
-                assert!(borrow >= 0, "negative borrow rate: {}", borrow);
                 assert!(supplied >= 0, "negative supplied amount: {}", supplied);
                 assert!(borrowed >= 0, "negative borrowed amount: {}", borrowed);
             }

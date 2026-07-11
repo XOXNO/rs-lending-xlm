@@ -59,11 +59,15 @@ impl LendingTest {
         let market = self.resolve_market(asset_name);
 
         market.token_admin.mint(&self.admin, &raw);
-        let rewards = soroban_sdk::vec![&self.env, (hub_asset(asset), raw)];
-        match self.ctrl_client().try_add_rewards(&self.admin, &rewards) {
+        let rewards = soroban_sdk::vec![&self.env, (hub_asset(asset.clone()), raw)];
+        let res = match self.ctrl_client().try_add_rewards(&self.admin, &rewards) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        };
+        if res.is_err() {
+            crate::ops::internal::burn_prefund(&self.env, &asset, &self.admin, raw);
         }
+        res
     }
 }
