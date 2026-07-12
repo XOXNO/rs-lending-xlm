@@ -221,7 +221,14 @@ fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account, MarketOracleC
         borrow_positions,
     };
 
-    let config = MarketOracleConfig {
+    let config = single_usd_oracle_config(oracle_id, asset);
+
+    (contract, hub_asset, account, config)
+}
+
+/// Single-source spot Reflector config quoting `asset` in USD.
+fn single_usd_oracle_config(oracle_id: Address, asset: Address) -> MarketOracleConfig {
+    MarketOracleConfig {
         asset_decimals: 7,
         max_price_stale_seconds: 900,
         tolerance: OraclePriceFluctuation {
@@ -240,9 +247,7 @@ fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account, MarketOracleC
         anchor: OracleSourceConfigOption::None,
         min_sanity_price_wad: 0,
         max_sanity_price_wad: i128::MAX,
-    };
-
-    (contract, hub_asset, account, config)
+    }
 }
 
 // A payment exactly equal to the closable debt produces no refund entry.
@@ -482,4 +487,399 @@ fn post_liquidation_hf_does_not_decrease_for_partial_zero_bonus_repay() {
     let snap = curve_snap(900_000_000_000_000_000, 90 * WAD);
     let hf = calculate_post_liquidation_hf(&env, &snap, Wad::from(10 * WAD), Bps::from(0i128));
     assert!(hf >= snap.hf);
+}
+
+/// One supply position of 1000 tokens (7 decimals) at $1 under unit indexes,
+/// with the given position-stamped liquidation fee.
+fn seize_fixture(env: &Env, fees_bps: u32) -> (Address, HubAssetKey, Account, MarketOracleConfig) {
+    use mock_oracle::{
+        MockReflectorOracle, MockReflectorOracleClient, ReflectorAsset as MockAsset,
+    };
+
+    let contract = env.register(crate::Controller, (Address::generate(env),));
+    let oracle_id = env.register(MockReflectorOracle, ());
+    let asset = Address::generate(env);
+    MockReflectorOracleClient::new(env, &oracle_id)
+        .set_price(&MockAsset::Stellar(asset.clone()), &WAD);
+
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
+    let mut supply_positions = Map::new(env);
+    supply_positions.set(
+        hub_asset.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(10_000_000_000, 7).raw(),
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: fees_bps,
+        },
+    );
+    let account = Account {
+        owner: Address::generate(env),
+        spoke_id: 1,
+        mode: PositionMode::Normal,
+        supply_positions,
+        borrow_positions: Map::new(env),
+    };
+
+    let config = single_usd_oracle_config(oracle_id, asset);
+    (contract, hub_asset, account, config)
+}
+
+fn plan_for_seizure(env: &Env, repay_usd_raw: i128, bonus_bps: i128) -> NormalizedRepaymentPlan {
+    NormalizedRepaymentPlan {
+        repaid: Vec::new(env),
+        refunds: Vec::new(env),
+        repay_usd: Wad::from(repay_usd_raw),
+        bonus: Bps::from(bonus_bps),
+    }
+}
+
+fn run_seizure(env: &Env, fees_bps: u32, repay_usd_raw: i128, bonus_bps: i128) -> Vec<SeizeEntry> {
+    let (contract, hub_asset, account, config) = seize_fixture(env, fees_bps);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(env);
+        cache.put_market_index(&hub_asset, &index_raw());
+        let plan = plan_for_seizure(env, repay_usd_raw, bonus_bps);
+        calculate_seized_collateral(env, &account, Wad::from(1_000 * WAD), &plan, &mut cache)
+    })
+}
+
+// A partial seizure floors the token conversion (half-up is reserved for the
+// exact full-position close) and a zero-fee position pays zero protocol fee.
+#[test]
+fn partial_seizure_floors_amount_and_zero_fee_stays_zero() {
+    let env = Env::default();
+    // 100 tokens plus half a stroop of USD at $1; floor -> 1_000_000_000.
+    let seized = run_seizure(&env, 0, 100 * WAD + 50_000_000_000, 0);
+    assert_eq!(seized.len(), 1);
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, 1_000_000_000);
+    assert_eq!(entry.protocol_fee, 0);
+}
+
+// A positive fee that floors to zero stroops is bumped to the one-unit
+// minimum.
+#[test]
+fn dust_protocol_fee_rounds_up_to_one_unit() {
+    let env = Env::default();
+    // 1 stroop repaid at 50% bonus: seizure 1.5 stroops, bonus leg 0.5
+    // stroops, 100% fee on it floors to 0 -> minimum fee of 1 unit.
+    let seized = run_seizure(&env, 10_000, WAD / 10_000_000, 5_000);
+    assert_eq!(seized.len(), 1);
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, 1);
+    assert_eq!(entry.protocol_fee, 1);
+}
+
+// A fee that converts to whole units is passed through exactly, not clamped
+// to the one-unit minimum.
+#[test]
+fn whole_unit_protocol_fee_is_exact() {
+    let env = Env::default();
+    // 100 tokens repaid at 50% bonus: seizure 150, bonus leg 50, 10% fee = 5
+    // tokens exactly.
+    let seized = run_seizure(&env, 1_000, 100 * WAD, 5_000);
+    assert_eq!(seized.len(), 1);
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, 1_500_000_000);
+    assert_eq!(entry.protocol_fee, 50_000_000);
+}
+
+fn stroops(tokens: i128) -> i128 {
+    tokens * 10_000_000
+}
+
+// Zero excess is a no-op: no refund entries, no leg mutation.
+#[test]
+fn process_excess_payment_zero_excess_is_noop() {
+    let env = Env::default();
+    let mut repaid = Vec::new(&env);
+    repaid.push_back(repay_entry(&env, stroops(100), 100 * WAD));
+    let mut refunds = Vec::new(&env);
+
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::ZERO);
+
+    assert_eq!(refunds.len(), 0);
+    assert_eq!(repaid.len(), 1);
+    assert_eq!(repaid.get_unchecked(0).amount, stroops(100));
+}
+
+// Excess equal to the tail leg's USD removes the whole leg instead of
+// leaving a zero-amount split residue.
+#[test]
+fn process_excess_payment_boundary_leg_is_removed() {
+    let env = Env::default();
+    let mut repaid = Vec::new(&env);
+    repaid.push_back(repay_entry(&env, stroops(10), 10 * WAD));
+    repaid.push_back(repay_entry(&env, stroops(5), 5 * WAD));
+    let mut refunds = Vec::new(&env);
+
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(5 * WAD));
+
+    assert_eq!(repaid.len(), 1, "the exactly-consumed leg must be removed");
+    assert_eq!(repaid.get_unchecked(0).amount, stroops(10));
+    assert_eq!(refunds.len(), 1);
+    assert_eq!(refunds.get_unchecked(0).amount, stroops(5));
+}
+
+// Excess larger than everything refunds every leg and returns cleanly with
+// the shortfall unconsumed.
+#[test]
+fn process_excess_payment_survives_exhausting_all_legs() {
+    let env = Env::default();
+    let mut repaid = Vec::new(&env);
+    repaid.push_back(repay_entry(&env, stroops(10), 5 * WAD));
+    let mut refunds = Vec::new(&env);
+
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(8 * WAD));
+
+    assert_eq!(repaid.len(), 0);
+    assert_eq!(refunds.len(), 1);
+    assert_eq!(refunds.get_unchecked(0).amount, stroops(10));
+}
+
+// Excess spanning legs: the tail leg refunds fully and reduces the running
+// excess; the boundary leg splits pro-rata.
+#[test]
+fn process_excess_payment_spans_legs_with_pro_rata_split() {
+    let env = Env::default();
+    let mut repaid = Vec::new(&env);
+    repaid.push_back(repay_entry(&env, stroops(100), 100 * WAD));
+    repaid.push_back(repay_entry(&env, stroops(40), 40 * WAD));
+    let mut refunds = Vec::new(&env);
+
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(60 * WAD));
+
+    // Tail leg ($40) fully refunded; remaining $20 splits the $100 leg 20%.
+    assert_eq!(refunds.len(), 2);
+    assert_eq!(refunds.get_unchecked(0).amount, stroops(40));
+    assert_eq!(refunds.get_unchecked(1).amount, stroops(20));
+    assert_eq!(repaid.len(), 1);
+    let kept = repaid.get_unchecked(0);
+    assert_eq!(kept.amount, stroops(80));
+    assert_eq!(kept.usd_wad, 80 * WAD);
+}
+
+fn snap(
+    debt: i128,
+    collateral: i128,
+    weighted: i128,
+    proportion: i128,
+    hf: i128,
+) -> LiquidationSnapshot {
+    LiquidationSnapshot {
+        total_debt: Wad::from(debt),
+        total_collateral: Wad::from(collateral),
+        weighted_coll: Wad::from(weighted),
+        proportion_seized: Wad::from(proportion),
+        hf: Wad::from(hf),
+    }
+}
+
+// Base tier restoring HF to exactly 1.0 must NOT win over fallback: the
+// strict `< ONE` guard sends the estimate down the fallback tier, whose
+// target sits 0.01 below primary and whose bonus is interpolated there.
+#[test]
+fn estimate_prefers_fallback_when_base_lands_exactly_on_hf_one() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    // W=100, D=100, C=50, p=1: base tier (bonus 0) seizes d=C=50 and lands
+    // exactly on new HF = (100-50)/(100-50) = 1.0. Primary fails its
+    // HF-restored check at hf=1.005.
+    let s = snap(
+        100 * WAD,
+        50 * WAD,
+        100 * WAD,
+        WAD,
+        1_005_000_000_000_000_000,
+    );
+    let bounds = BonusBounds {
+        base: Bps::from(0i128),
+        max: Bps::from(1_000i128),
+    };
+
+    let fallback_target = curve.target_hf - Wad::from(WAD / 100);
+    let expected_bonus = calculate_linear_bonus_with_target(
+        &env,
+        s.hf,
+        bounds.base,
+        bounds.max,
+        &curve,
+        fallback_target,
+    );
+    let expected_d = try_liquidation_at_target(&env, &s, expected_bonus, fallback_target).unwrap();
+    assert!(
+        expected_bonus.raw() > 0,
+        "fallback bonus must be interpolated"
+    );
+
+    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!(bonus.raw(), expected_bonus.raw());
+    assert_eq!(d.raw(), expected_d.raw());
+}
+
+// Base tier landing exactly on the current HF (no improvement) must NOT win:
+// the strict `< snap.hf` guard sends the estimate to the fallback tier.
+#[test]
+fn estimate_prefers_fallback_when_base_does_not_improve_hf() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    // W=85, D=100, C=50, p=0.9: base tier (bonus 0) seizes d=50 and lands on
+    // new HF = (85-45)/(100-50) = 0.8 == snap.hf exactly.
+    let s = snap(
+        100 * WAD,
+        50 * WAD,
+        85 * WAD,
+        900_000_000_000_000_000,
+        800_000_000_000_000_000,
+    );
+    let bounds = BonusBounds {
+        base: Bps::from(0i128),
+        max: Bps::from(100i128),
+    };
+
+    let fallback_target = curve.target_hf - Wad::from(WAD / 100);
+    let expected_bonus = calculate_linear_bonus_with_target(
+        &env,
+        s.hf,
+        bounds.base,
+        bounds.max,
+        &curve,
+        fallback_target,
+    );
+    let expected_d = try_liquidation_at_target(&env, &s, expected_bonus, fallback_target).unwrap();
+    assert!(expected_bonus.raw() > 0);
+
+    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!(bonus.raw(), expected_bonus.raw());
+    assert_eq!(d.raw(), expected_d.raw());
+}
+
+// Deep bad debt: both curve tiers are infeasible (proportion * (1+bonus)
+// exceeds their targets) and the base tier wins with d = C / (1 + base).
+#[test]
+fn estimate_falls_back_to_base_tier_with_exact_base_divisor() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    // W=40, D=100, hf=0.4, p=1, C=50; base bonus 5%.
+    let s = snap(100 * WAD, 50 * WAD, 40 * WAD, WAD, 400_000_000_000_000_000);
+    let bounds = BonusBounds {
+        base: Bps::from(500i128),
+        max: Bps::from(1_000i128),
+    };
+
+    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!(bonus.raw(), bounds.base.raw());
+    let expected_d = Wad::from(50 * WAD)
+        .div(&env, Wad::ONE + bounds.base.to_wad(&env))
+        .min(s.total_debt);
+    assert_eq!(d.raw(), expected_d.raw());
+}
+
+// The post-liquidation HF must weight the seized side by 1 + bonus.
+#[test]
+fn post_liquidation_hf_applies_bonus_on_seized_weight() {
+    let env = Env::default();
+    // W=100, D=100, p=1, repay 10 at 10% bonus: seized weighted = 11,
+    // HF = 89/90.
+    let s = snap(
+        100 * WAD,
+        120 * WAD,
+        100 * WAD,
+        WAD,
+        900_000_000_000_000_000,
+    );
+    let hf = calculate_post_liquidation_hf(&env, &s, Wad::from(10 * WAD), Bps::from(1_000i128));
+    let expected = Wad::from(89 * WAD).div(&env, Wad::from(90 * WAD));
+    assert_eq!(hf.raw(), expected.raw());
+}
+
+// The effective threshold ceils and the derived max floors: at exactly 50%
+// the bound is exactly 100% (10000 bps); any drifted rounding constant moves
+// it off this value.
+#[test]
+fn max_bonus_for_threshold_is_exact_at_half() {
+    let env = Env::default();
+    assert_eq!(
+        max_bonus_for_threshold(&env, Wad::from(WAD / 2)).raw(),
+        10_000
+    );
+}
+
+// Payment above the ideal liquidation amount is trimmed: the excess comes
+// back as a refund and the plan's repay total is the ideal, not the payment.
+#[test]
+fn normalize_repayment_plan_refunds_payment_above_ideal() {
+    let env = Env::default();
+    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        // Deep bad debt: both curve tiers infeasible (p * (1+max bonus)
+        // exceeds the targets), base tier caps the ideal at C = $100.
+        let s = snap(500 * WAD, 100 * WAD, 40 * WAD, WAD, 400_000_000_000_000_000);
+        let bounds = BonusBounds {
+            base: Bps::from(0i128),
+            max: Bps::from(1_000i128),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        // Pay the full $500 debt; ideal is $100 -> $400 refunded.
+        let payments = soroban_sdk::vec![&env, (hub_asset.clone(), 500_0000000i128)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+
+        assert_eq!(plan.repay_usd.raw(), 100 * WAD);
+        assert_eq!(plan.bonus.raw(), 0);
+        assert_eq!(plan.refunds.len(), 1);
+        assert_eq!(plan.refunds.get_unchecked(0).amount, 400_0000000);
+        assert_eq!(plan.repaid.len(), 1);
+        assert_eq!(plan.repaid.get_unchecked(0).amount, 100_0000000);
+    });
+}
+
+// When the base tier legitimately wins (improves HF but cannot restore it),
+// it must actually be chosen over a feasible fallback tier.
+#[test]
+fn estimate_prefers_base_when_it_improves_hf_below_one() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    // W=60, D=100, C=70, p=0.85, hf=0.6: base (bonus 0) seizes d=C=70 for
+    // new HF = (60 - 59.5)/30 << 0.6; the fallback tier is feasible here
+    // and would seize a different amount, so tier choice is observable.
+    let s = snap(
+        100 * WAD,
+        70 * WAD,
+        60 * WAD,
+        850_000_000_000_000_000,
+        600_000_000_000_000_000,
+    );
+    let bounds = BonusBounds {
+        base: Bps::from(0i128),
+        max: Bps::from(100i128),
+    };
+
+    let fallback_target = curve.target_hf - Wad::from(WAD / 100);
+    let fb_bonus = calculate_linear_bonus_with_target(
+        &env,
+        s.hf,
+        bounds.base,
+        bounds.max,
+        &curve,
+        fallback_target,
+    );
+    let fb_d = try_liquidation_at_target(&env, &s, fb_bonus, fallback_target)
+        .expect("fallback must be feasible in this scenario");
+    assert_ne!(fb_d.raw(), 70 * WAD, "fallback and base must differ");
+
+    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!(d.raw(), 70 * WAD);
+    assert_eq!(bonus.raw(), 0);
 }

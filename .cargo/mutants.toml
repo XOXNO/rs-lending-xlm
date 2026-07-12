@@ -75,6 +75,13 @@ exclude_re = [
     "replace > with >= in calculate_borrow_rate",
     "replace > with >= in update_borrow_index",
 
+    # `normalize_repayment_plan` excess gate: `max_debt_to_repay_usd` is
+    # `min(total, ideal)`, so at equality the excess is zero and
+    # `process_excess_payment` with a zero excess is a proven no-op (its
+    # `remaining > ZERO` loop guard never admits an iteration). `>` vs `>=`
+    # therefore cannot change any output.
+    "replace > with >= in normalize_repayment_plan",
+
     # Oracle-adapter insertion-sort comparator over i128 prices: `>=` vs `>`
     # only changes which of two EQUAL elements shifts first, i.e. sort
     # stability. Equal i128 values are indistinguishable, so the output
