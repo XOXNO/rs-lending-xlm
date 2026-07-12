@@ -266,3 +266,215 @@ fn borrow_gated_sanity(e: Env, caller: Address, asset: Address, amount: i128) {
     crate::spec::compat::borrow_single(e, caller, account_id, asset, amount);
     cvlr_satisfy!(health_ghost::get_checked());
 }
+
+// Strategy HF gates + unhealthy-only-improves + threshold-downgrade
+// (ported from the pre-hub-refactor certora-hardening branch).
+
+/// A freshly opened leverage position must satisfy the safety inequality.
+#[rule]
+fn hf_safe_after_multiply(
+    e: Env,
+    caller: Address,
+    collateral_token: Address,
+    debt_token: Address,
+    flash_amount: i128,
+    steps: crate::types::StrategySwap,
+) {
+    cvlr_assume!(flash_amount > 0 && flash_amount <= WAD * 1000);
+    cvlr_assume!(collateral_token != debt_token);
+
+    let account_id = crate::spec::compat::multiply_minimal(
+        e.clone(),
+        caller,
+        0, // default spoke
+        collateral_token,
+        flash_amount,
+        debt_token,
+        1, // PositionMode::Multiply
+        steps,
+    );
+
+    let mut cache = crate::context::Cache::new(&e);
+    let weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
+    let total_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
+    cvlr_assert!(weighted.raw() >= total_debt.raw());
+}
+
+/// swap_debt lands inside the safety inequality.
+#[rule]
+fn hf_safe_after_swap_debt(
+    e: Env,
+    caller: Address,
+    existing_debt_token: Address,
+    new_debt_amount: i128,
+    new_debt_token: Address,
+    swap: soroban_sdk::Bytes,
+) {
+    let account_id: u64 = 1;
+    cvlr_assume!(new_debt_amount > 0 && new_debt_amount <= WAD * 1000);
+    cvlr_assume!(existing_debt_token != new_debt_token);
+
+    let pre_account = crate::storage::get_account(&e, account_id);
+    cvlr_assume!(pre_account.supply_positions.len() <= 1);
+    cvlr_assume!(pre_account.borrow_positions.len() <= 1);
+
+    crate::Controller::swap_debt(
+        e.clone(),
+        caller,
+        account_id,
+        hub0(&existing_debt_token),
+        new_debt_amount,
+        hub0(&new_debt_token),
+        swap,
+    );
+
+    let mut cache = crate::context::Cache::new(&e);
+    let weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
+    let total_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
+    cvlr_assert!(weighted.raw() >= total_debt.raw());
+}
+
+/// swap_collateral lands inside the safety inequality.
+#[rule]
+fn hf_safe_after_swap_collateral(
+    e: Env,
+    caller: Address,
+    current_collateral: Address,
+    amount: i128,
+    new_collateral: Address,
+    swap: soroban_sdk::Bytes,
+) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+    cvlr_assume!(current_collateral != new_collateral);
+
+    let pre_account = crate::storage::get_account(&e, account_id);
+    cvlr_assume!(pre_account.supply_positions.len() <= 1);
+    cvlr_assume!(pre_account.borrow_positions.len() <= 1);
+
+    crate::Controller::swap_collateral(
+        e.clone(),
+        caller,
+        account_id,
+        hub0(&current_collateral),
+        amount,
+        hub0(&new_collateral),
+        swap,
+    );
+
+    let mut cache = crate::context::Cache::new(&e);
+    let weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
+    let total_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
+    cvlr_assert!(weighted.raw() >= total_debt.raw());
+}
+
+#[rule]
+fn hf_multiply_sanity(
+    e: Env,
+    caller: Address,
+    collateral_token: Address,
+    debt_token: Address,
+    flash_amount: i128,
+    steps: crate::types::StrategySwap,
+) {
+    cvlr_assume!(flash_amount > 0);
+    cvlr_assume!(collateral_token != debt_token);
+    crate::spec::compat::multiply_minimal(
+        e,
+        caller,
+        0,
+        collateral_token,
+        flash_amount,
+        debt_token,
+        1,
+        steps,
+    );
+    cvlr_satisfy!(true);
+}
+
+/// On an unhealthy account, repay must not grow debt and must not shrink
+/// weighted collateral — division-free "HF below 1 can only increase".
+#[rule]
+fn unhealthy_repay_only_improves(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+
+    let pre_account = crate::storage::get_account(&e, account_id);
+    cvlr_assume!(pre_account.supply_positions.len() <= 1);
+    cvlr_assume!(pre_account.borrow_positions.len() <= 1);
+
+    let mut cache = crate::context::Cache::new(&e);
+    let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
+    let pre_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
+    cvlr_assume!(pre_weighted.raw() < pre_debt.raw()); // account is unhealthy
+
+    crate::spec::compat::repay_single(e.clone(), caller, account_id, asset, amount);
+
+    let mut cache2 = crate::context::Cache::new(&e);
+    let post_weighted = inline_weighted_collateral_wad(&e, &mut cache2, account_id);
+    let post_debt = inline_total_borrow_wad(&e, &mut cache2, account_id);
+
+    cvlr_assert!(post_debt.raw() <= pre_debt.raw());
+    cvlr_assert!(post_weighted.raw() >= pre_weighted.raw());
+}
+
+/// Supply leg of the only-improves family.
+#[rule]
+fn unhealthy_supply_only_improves(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+
+    let pre_account = crate::storage::get_account(&e, account_id);
+    cvlr_assume!(pre_account.supply_positions.len() <= 1);
+    cvlr_assume!(pre_account.borrow_positions.len() <= 1);
+
+    let mut cache = crate::context::Cache::new(&e);
+    let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
+    let pre_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
+    cvlr_assume!(pre_weighted.raw() < pre_debt.raw());
+
+    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset, amount);
+
+    let mut cache2 = crate::context::Cache::new(&e);
+    let post_weighted = inline_weighted_collateral_wad(&e, &mut cache2, account_id);
+    let post_debt = inline_total_borrow_wad(&e, &mut cache2, account_id);
+
+    cvlr_assert!(post_debt.raw() <= pre_debt.raw());
+    cvlr_assert!(post_weighted.raw() >= pre_weighted.raw());
+}
+
+/// `apply_liquidation_threshold` only lowers a stored threshold on an
+/// indebted account when the simulated HF clears the 1.05 buffer: any supply
+/// that actually lowered the stored threshold leaves the account safe.
+#[rule]
+fn threshold_downgrade_implies_account_safe(
+    e: Env,
+    caller: Address,
+    asset: Address,
+    amount: i128,
+) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+
+    let pre_account = crate::storage::get_account(&e, account_id);
+    cvlr_assume!(pre_account.supply_positions.len() == 1);
+    cvlr_assume!(pre_account.borrow_positions.len() == 1);
+    let pre_position = pre_account.supply_positions.get(hub0(&asset));
+    cvlr_assume!(pre_position.is_some());
+    let pre_lt = pre_position.unwrap().liquidation_threshold;
+
+    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
+
+    let post_account = crate::storage::get_account(&e, account_id);
+    let post_position = post_account.supply_positions.get(hub0(&asset));
+    cvlr_assume!(post_position.is_some());
+    let post_lt = post_position.unwrap().liquidation_threshold;
+
+    // Only audit executions where the stored threshold actually dropped.
+    cvlr_assume!(post_lt < pre_lt);
+
+    let mut cache = crate::context::Cache::new(&e);
+    let weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
+    let total_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
+    cvlr_assert!(weighted.raw() >= total_debt.raw());
+}

@@ -41,10 +41,13 @@ def expand_profile(
     return commands
 
 
-def command_line(item: dict[str, object], extra_args: list[str]) -> tuple[Path, list[str]]:
+def command_line(
+    item: dict[str, object], extra_args: list[str], local: bool = False
+) -> tuple[Path, list[str]]:
     conf_path = ROOT / str(item["conf"])
     args = [str(arg) for arg in item.get("args", [])]
-    return conf_path.parent, ["certoraSorobanProver", conf_path.name, *args, *extra_args]
+    prover = "certoraSorobanLocal" if local else "certoraSorobanProver"
+    return conf_path.parent, [prover, conf_path.name, *args, *extra_args]
 
 
 def main() -> int:
@@ -56,6 +59,11 @@ def main() -> int:
         "--no-key-check",
         action="store_true",
         help="do not require CERTORAKEY before executing",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="run with the locally built prover (certoraSorobanLocal) instead of the cloud",
     )
     parser.add_argument("extra_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -76,17 +84,23 @@ def main() -> int:
     if "--no-key-check" in extra_args:
         args.no_key_check = True
         extra_args = [arg for arg in extra_args if arg != "--no-key-check"]
+    if "--local" in extra_args:
+        args.local = True
+        extra_args = [arg for arg in extra_args if arg != "--local"]
+    if args.local:
+        args.no_key_check = True  # local runs never touch the cloud
     if extra_args and extra_args[0] == "--":
         extra_args = extra_args[1:]
 
     commands = expand_profile(profiles, args.profile)
     if not args.no_key_check and not args.dry_run and not os.environ.get("CERTORAKEY"):
         raise SystemExit("error: CERTORAKEY is not set")
-    if not args.dry_run and shutil.which("certoraSorobanProver") is None:
-        raise SystemExit("error: certoraSorobanProver is not installed or not on PATH")
+    binary = "certoraSorobanLocal" if args.local else "certoraSorobanProver"
+    if not args.dry_run and shutil.which(binary) is None:
+        raise SystemExit(f"error: {binary} is not installed or not on PATH")
 
     for item in commands:
-        cwd, cmd = command_line(item, extra_args)
+        cwd, cmd = command_line(item, extra_args, local=args.local)
         print(f"=== {cwd.relative_to(ROOT)}/{cmd[1]} {' '.join(cmd[2:])} ===", flush=True)
         if args.dry_run:
             print(f"cd {cwd} && {' '.join(cmd)}")

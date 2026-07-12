@@ -1,11 +1,13 @@
 //! Controller Certora rules (`certora` feature only). One module per verification domain.
 
+pub mod account_isolation_rules;
 pub mod boundary_rules;
 pub mod compat;
 pub mod consistency_rules;
 pub mod flash_loan_rules;
 pub mod health_ghost;
 pub mod health_rules;
+pub mod hf_lemma_rules;
 pub mod index_rules;
 pub mod interest_rules;
 pub mod liquidation_rules;

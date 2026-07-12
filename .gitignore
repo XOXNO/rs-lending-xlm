@@ -80,3 +80,6 @@ Thumbs.db
 __pycache__/
 
 outputs
+
+# Certora local prover run reports
+**/emv-*-certora-*/
