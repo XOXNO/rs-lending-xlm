@@ -12,13 +12,17 @@ pub(crate) const ORACLE_ROLE: &str = "ORACLE";
 pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
 pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
 pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
+/// Immediate incident role: per-listing pause/freeze flags and instant
+/// hub/spoke registry creation, bypassing the timelock.
+pub(crate) const GUARDIAN_ROLE: &str = "GUARDIAN";
 
-pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 4] {
+pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 5] {
     [
         Symbol::new(env, ORACLE_ROLE),
         Symbol::new(env, PROPOSER_ROLE),
         Symbol::new(env, EXECUTOR_ROLE),
         Symbol::new(env, CANCELLER_ROLE),
+        Symbol::new(env, GUARDIAN_ROLE),
     ]
 }
 
@@ -153,7 +157,7 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
 #[contractimpl]
 impl Governance {
     /// Initializes governance: sets `admin` as owner and access-control admin,
-    /// grants it the four operational roles, and sets the timelock min delay.
+    /// grants it the five operational roles, and sets the timelock min delay.
     ///
     /// # Arguments
     /// * `min_delay` - initial timelock delay in ledgers; must be non-zero.
@@ -163,7 +167,8 @@ impl Governance {
     ///
     /// # Security Warning
     /// * Runs once at deploy with no authorization; `admin` becomes owner and
-    ///   holds `ORACLE`, `PROPOSER`, `EXECUTOR`, and `CANCELLER`. Deployment
+    ///   holds `ORACLE`, `PROPOSER`, `EXECUTOR`, `CANCELLER`, and `GUARDIAN`
+    ///   (the latter two grant timelock-bypassing incident powers). Deployment
     ///   tooling must pass the intended admin address.
     pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
         ownable::set_owner(&env, &admin);
@@ -188,8 +193,8 @@ impl Governance {
     ///
     /// # Events
     /// * An ownership-transfer-completed event and an admin-transfer-completed
-    ///   event, plus role grant/revoke events as the four roles move to the
-    ///   new owner.
+    ///   event, plus role grant/revoke events as the five operational roles
+    ///   move to the new owner.
     pub fn accept_ownership(env: Env) {
         storage::renew_governance_instance(&env);
         let previous_owner = owner_or_panic(&env);

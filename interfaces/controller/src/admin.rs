@@ -44,6 +44,17 @@ pub trait ControllerAdmin {
     fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs);
     /// Delists an asset from a spoke.
     fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32);
+    /// Sets only the paused/frozen flags on an existing spoke listing.
+    fn set_spoke_asset_flags(
+        env: Env,
+        spoke_id: u32,
+        hub_asset: HubAssetKey,
+        paused: bool,
+        frozen: bool,
+    );
+    /// Moves only the sanity band on an active asset oracle; the new band must
+    /// contain the current live price.
+    fn set_oracle_sanity_bounds(env: Env, asset: Address, min_wad: i128, max_wad: i128);
     /// Adds `token` to the supported-token allow-list.
     fn approve_token(env: Env, token: Address);
     /// Removes `token` from the supported-token allow-list.

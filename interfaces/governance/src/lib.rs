@@ -194,6 +194,38 @@ pub trait GovernanceInterface {
     /// Resumes the controller, owner-gated and immediate.
     fn unpause(env: Env);
 
+    /// Sets a spoke listing's paused/frozen flags immediately; GUARDIAN-gated.
+    fn set_spoke_asset_flags(
+        env: Env,
+        caller: Address,
+        spoke_id: u32,
+        hub_asset: HubAssetKey,
+        paused: bool,
+        frozen: bool,
+    );
+
+    /// Moves an asset oracle's sanity band immediately; ORACLE-gated. The new
+    /// band must contain the current live price.
+    fn set_oracle_sanity_bounds(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        min_wad: i128,
+        max_wad: i128,
+    );
+
+    /// Creates a hub immediately; GUARDIAN-gated. Returns the new hub id.
+    fn create_hub(env: Env, caller: Address) -> u32;
+
+    /// Creates a spoke immediately; GUARDIAN-gated. Returns the new spoke id.
+    fn add_spoke(env: Env, caller: Address) -> u32;
+
+    /// Revokes GUARDIAN or ORACLE immediately; owner-gated emergency
+    /// de-authorization of the immediate incident roles. All other role
+    /// changes (grants, and PROPOSER/EXECUTOR/CANCELLER revocations) stay
+    /// timelocked.
+    fn revoke_role_immediate(env: Env, account: Address, role: Symbol);
+
     // --- Governance self-administration ---
 
     /// Executes a scheduled self-operation.

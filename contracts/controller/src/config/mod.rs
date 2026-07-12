@@ -116,8 +116,10 @@ impl Controller {
     /// * `CreateHubEvent` - the new hub id.
     ///
     /// # Security Warning
-    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
-    ///   so this executes only after the configured delay.
+    /// * Owner-only via `#[only_owner]`; the owner is the governance contract,
+    ///   reachable through the timelocked proposal path or the GUARDIAN-gated
+    ///   immediate forwarder (the new registry is inert until assets are
+    ///   listed through the timelocked path).
     #[only_owner]
     pub fn create_hub(env: Env) -> u32 {
         storage::renew_controller_instance(&env);
@@ -131,8 +133,10 @@ impl Controller {
     /// * `UpdateSpokeEvent` - the new spoke snapshot.
     ///
     /// # Security Warning
-    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
-    ///   so this executes only after the configured delay.
+    /// * Owner-only via `#[only_owner]`; the owner is the governance contract,
+    ///   reachable through the timelocked proposal path or the GUARDIAN-gated
+    ///   immediate forwarder (the new registry is inert until assets are
+    ///   listed through the timelocked path).
     #[only_owner]
     pub fn add_spoke(env: Env) -> u32 {
         storage::renew_controller_instance(&env);
@@ -250,6 +254,54 @@ impl Controller {
     pub fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs) {
         storage::renew_controller_instance(&env);
         asset::edit_asset_in_spoke(&env, &input);
+    }
+
+    /// Sets only the `paused`/`frozen` flags on an existing spoke listing,
+    /// preserving every other field. Guardian incident path: governance may
+    /// forward it immediately, and it works on deprecated spokes.
+    ///
+    /// # Errors
+    /// * `AssetNotInSpoke` - the asset is not listed on the spoke.
+    ///
+    /// # Events
+    /// * `UpdateSpokeAssetEvent` - the listing snapshot with updated flags.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance contract,
+    ///   which gates its immediate path on the `GUARDIAN` role.
+    #[only_owner]
+    pub fn set_spoke_asset_flags(
+        env: Env,
+        spoke_id: u32,
+        hub_asset: HubAssetKey,
+        paused: bool,
+        frozen: bool,
+    ) {
+        storage::renew_controller_instance(&env);
+        asset::set_spoke_asset_flags(&env, spoke_id, hub_asset, paused, frozen);
+    }
+
+    /// Moves only the sanity band on an active asset oracle. Bot incident path
+    /// for band exits: the new band must contain the current live price.
+    ///
+    /// # Errors
+    /// * `PairNotActive` - the asset has no configured oracle.
+    /// * `InvalidSanityBounds` - not `0 < min < max`.
+    /// * `SanityBandTooWideForSingleSource` - band exceeds the single-source cap.
+    /// * `SanityBoundViolated` - the live price is outside the new band.
+    /// * `PriceFeedStale` (and other resolution errors) - the feed cannot
+    ///   currently prove containment.
+    ///
+    /// # Events
+    /// * `UpdateAssetOracleEvent` - the updated oracle snapshot.
+    ///
+    /// # Security Warning
+    /// * Owner-only via `#[only_owner]`; the owner is the governance contract,
+    ///   which gates its immediate path on the `ORACLE` role.
+    #[only_owner]
+    pub fn set_oracle_sanity_bounds(env: Env, asset: Address, min_wad: i128, max_wad: i128) {
+        storage::renew_controller_instance(&env);
+        oracle::set_oracle_sanity_bounds(&env, asset, min_wad, max_wad);
     }
 
     /// Unlists a hub-asset from a spoke. Registry cleanup only: the listing
