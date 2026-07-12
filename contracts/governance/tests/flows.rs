@@ -597,3 +597,135 @@ fn execute_immediate_self_op_applies_inline() {
     );
     assert!(!gov.has_role(&grantee, &role));
 }
+
+// Guardian/oracle immediate forwarders: the role gate must run and the call
+// must reach the controller. These live here (not only in the harness)
+// because the governance mutation scope runs governance tests alone.
+
+fn grant_incident_role(
+    env: &Env,
+    admin: &Address,
+    gov: &GovernanceClient<'_>,
+    who: &Address,
+    role: &str,
+) {
+    gov.execute_immediate(
+        admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: who.clone(),
+            role: Symbol::new(env, role),
+        }),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2000)")]
+fn set_spoke_asset_flags_requires_guardian_role() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, gov_id, gov) = register_governance(&env);
+    register_native_controller(&env, &gov_id, &gov);
+    let stranger = Address::generate(&env);
+
+    gov.set_spoke_asset_flags(
+        &stranger,
+        &1u32,
+        &HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        },
+        &true,
+        &true,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #307)")]
+fn guardian_set_spoke_asset_flags_reaches_controller_listing_check() {
+    use crate::access::GUARDIAN_ROLE;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, gov_id, gov) = register_governance(&env);
+    register_native_controller(&env, &gov_id, &gov);
+    let guardian = Address::generate(&env);
+    grant_incident_role(&env, &admin, &gov, &guardian, GUARDIAN_ROLE);
+
+    // Spoke exists but the asset is not listed on it: the controller's
+    // AssetNotInSpoke proves the forwarding happened.
+    let spoke_id = gov.add_spoke(&guardian);
+    gov.set_spoke_asset_flags(
+        &guardian,
+        &spoke_id,
+        &HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        },
+        &true,
+        &true,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2000)")]
+fn set_oracle_sanity_bounds_requires_oracle_role() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, gov_id, gov) = register_governance(&env);
+    register_native_controller(&env, &gov_id, &gov);
+    let stranger = Address::generate(&env);
+
+    gov.set_oracle_sanity_bounds(&stranger, &Address::generate(&env), &1i128, &2i128);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #12)")]
+fn oracle_set_sanity_bounds_reaches_controller_pair_check() {
+    use crate::access::ORACLE_ROLE;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, gov_id, gov) = register_governance(&env);
+    register_native_controller(&env, &gov_id, &gov);
+    let bot = Address::generate(&env);
+    grant_incident_role(&env, &admin, &gov, &bot, ORACLE_ROLE);
+
+    // No oracle configured for the asset: the controller's PairNotActive
+    // proves the forwarding happened.
+    gov.set_oracle_sanity_bounds(&bot, &Address::generate(&env), &1i128, &2i128);
+}
+
+#[test]
+fn guardian_create_hub_and_add_spoke_forward_and_return_controller_ids() {
+    use crate::access::GUARDIAN_ROLE;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, gov_id, gov) = register_governance(&env);
+    register_native_controller(&env, &gov_id, &gov);
+    let guardian = Address::generate(&env);
+    grant_incident_role(&env, &admin, &gov, &guardian, GUARDIAN_ROLE);
+
+    assert_eq!(gov.create_hub(&guardian), 1);
+    assert_eq!(gov.create_hub(&guardian), 2);
+
+    let first_spoke = gov.add_spoke(&guardian);
+    let second_spoke = gov.add_spoke(&guardian);
+    assert!(first_spoke >= 1);
+    assert_eq!(second_spoke, first_spoke + 1);
+}
+
+#[test]
+fn revoke_role_immediate_strips_only_the_named_incident_role() {
+    use crate::access::{GUARDIAN_ROLE, ORACLE_ROLE};
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, gov) = register_governance(&env);
+    let key = Address::generate(&env);
+    grant_incident_role(&env, &admin, &gov, &key, GUARDIAN_ROLE);
+    grant_incident_role(&env, &admin, &gov, &key, ORACLE_ROLE);
+
+    gov.revoke_role_immediate(&key, &Symbol::new(&env, GUARDIAN_ROLE));
+    assert!(!gov.has_role(&key, &Symbol::new(&env, GUARDIAN_ROLE)));
+    assert!(gov.has_role(&key, &Symbol::new(&env, ORACLE_ROLE)));
+
+    gov.revoke_role_immediate(&key, &Symbol::new(&env, ORACLE_ROLE));
+    assert!(!gov.has_role(&key, &Symbol::new(&env, ORACLE_ROLE)));
+}
