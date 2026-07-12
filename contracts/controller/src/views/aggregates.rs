@@ -88,9 +88,8 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
 /// Returns the account's LTV-weighted collateral value in USD WAD; `0` for a
 /// missing account.
 pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
-    let account = match storage::try_get_account(env, account_id) {
-        Some(account) => account,
-        None => return 0,
+    let Some(account) = storage::try_get_account(env, account_id) else {
+        return 0;
     };
     let mut cache = Cache::new_view(env);
     // Bulk-prefetch all RedStone feeds before the per-market price reads inside

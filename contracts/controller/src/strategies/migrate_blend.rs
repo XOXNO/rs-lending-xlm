@@ -140,7 +140,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         );
     }
 
-    strategy_finalize(env, account_id, &mut account, &mut cache);
+    strategy_finalize(env, account_id, &account, &mut cache);
 
     BlendMigrationEvent {
         account_id,

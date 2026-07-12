@@ -70,7 +70,6 @@ pub(super) fn apply_liquidation_seizures(
     seized: &Vec<SeizeEntry>,
     cache: &mut Cache,
 ) {
-    // Build all seizure entries for one bulk pool call.
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
         // The supply-position lookup is keyed by the seized position's full hub key.

@@ -55,8 +55,7 @@ impl Cache {
             return (&index).into();
         }
         let pool_addr = self.cached_pool_address();
-        let mut request = Vec::new(&self.env);
-        request.push_back(hub_asset.clone());
+        let request = soroban_sdk::vec![&self.env, hub_asset.clone()];
         let index = fetch_pool_bulk_indexes(&self.env, &pool_addr, &request).get_unchecked(0);
         self.market_indexes.set(hub_asset.clone(), index.clone());
         (&index).into()

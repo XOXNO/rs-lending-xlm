@@ -189,7 +189,7 @@ pub(crate) fn set_delegates(env: &Env, account_id: u64, delegates: &Vec<Address>
 /// growth past `MAX_DELEGATES` so the persisted list stays bounded.
 pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) {
     let mut delegates = get_delegates(env, account_id);
-    if delegates.contains(delegate.clone()) {
+    if delegates.contains(delegate) {
         return;
     }
     assert_with_error!(
@@ -203,17 +203,11 @@ pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) {
 
 /// Removes `delegate` if present; absent removal is a no-op.
 pub(crate) fn remove_delegate(env: &Env, account_id: u64, delegate: &Address) {
-    let delegates = get_delegates(env, account_id);
-    if !delegates.contains(delegate.clone()) {
-        return;
+    let mut delegates = get_delegates(env, account_id);
+    if let Some(index) = delegates.first_index_of(delegate) {
+        delegates.remove(index);
+        set_delegates(env, account_id, &delegates);
     }
-    let mut next = Vec::new(env);
-    for existing in delegates.iter() {
-        if existing != *delegate {
-            next.push_back(existing);
-        }
-    }
-    set_delegates(env, account_id, &next);
 }
 
 /// Removes all persistent storage entries for the account.

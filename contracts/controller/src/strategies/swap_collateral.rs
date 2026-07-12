@@ -121,7 +121,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
         &mut cache,
     );
 
-    strategy_finalize(env, account_id, &mut account, &mut cache);
+    strategy_finalize(env, account_id, &account, &mut cache);
 }
 
 /// Rejects replacement collateral that cannot be supplied after the swap.

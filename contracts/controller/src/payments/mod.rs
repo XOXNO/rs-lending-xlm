@@ -16,7 +16,7 @@ pub fn aggregate_positive_payments(env: &Env, payments: &Vec<HubPayment>) -> Vec
 
 /// Appends `addr` to `out` if absent (order-preserving dedup).
 pub fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
-    if !out.contains(addr.clone()) {
+    if !out.contains(&addr) {
         out.push_back(addr);
     }
 }
@@ -42,15 +42,6 @@ pub fn aggregate_payments(
     zero_is_withdraw_all: bool,
 ) -> Vec<HubPayment> {
     validation::require_non_empty_payments(env, payments);
-    if payments.len() == 1 {
-        // Single-payment fast path: skip the dedup machinery but still enforce
-        // the positive-amount gate (and withdraw-all sentinel) the loop applies.
-        let (hub_asset, amount) = payments.get_unchecked(0);
-        let amount = aggregate_payment_amount(env, None, amount, zero_is_withdraw_all);
-        let mut result = Vec::new(env);
-        result.push_back((hub_asset, amount));
-        return result;
-    }
     let mut order: Vec<HubAssetKey> = Vec::new(env);
     let mut totals: Map<HubAssetKey, i128> = Map::new(env);
 

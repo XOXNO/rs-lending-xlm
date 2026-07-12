@@ -27,7 +27,7 @@ pub(crate) fn read_reflector_source(
 ) -> Option<OracleObservation> {
     let observation = match config.read_mode {
         OracleReadMode::Spot => read_spot(cache.env(), config),
-        OracleReadMode::Twap(records) => read_twap(cache, config, records, max_stale),
+        OracleReadMode::Twap(records) => Some(read_twap(cache, config, records, max_stale)),
     };
     observation.map(|obs| reprice_to_usd(cache, &config.base, obs))
 }
@@ -63,9 +63,8 @@ fn resolve_usd_quote(cache: &mut Cache, quote: &Address) -> PriceFeedRaw {
     let env = cache.env().clone();
     // The quote must be active: a token-rooted `AssetOracle` entry must exist.
     // Validate against the base config, not the per-spoke override.
-    let oracle_config = match storage::get_asset_oracle(&env, quote) {
-        Some(config) => config,
-        None => panic_with_error!(&env, OracleError::InvalidOracleBase),
+    let Some(oracle_config) = storage::get_asset_oracle(&env, quote) else {
+        panic_with_error!(&env, OracleError::InvalidOracleBase)
     };
     match &oracle_config.primary {
         // RedStone-shaped feeds (RedStone, Xoxno) are USD-denominated by construction.
@@ -95,11 +94,11 @@ fn read_spot(env: &Env, config: &ReflectorSourceConfig) -> Option<OracleObservat
 /// Reverts when history is missing, insufficient, stale, or contains a
 /// non-positive price; there is no spot fallback.
 fn read_twap(
-    cache: &mut Cache,
+    cache: &Cache,
     config: &ReflectorSourceConfig,
     records: u32,
     max_stale: u64,
-) -> Option<OracleObservation> {
+) -> OracleObservation {
     let env = cache.env();
     if records == 0 {
         panic_with_error!(env, OracleError::TwapInsufficientObservations);
@@ -142,9 +141,9 @@ fn read_twap(
 
     // Average over returned samples, not the requested count.
     let raw_price = sum / history.len() as i128;
-    Some(OracleObservation {
+    OracleObservation {
         price_wad: normalize_positive_price(env, raw_price, config.decimals),
         observed_at: oldest_ts,
         published_at: None,
-    })
+    }
 }

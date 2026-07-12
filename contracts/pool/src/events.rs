@@ -88,9 +88,7 @@ pub(crate) fn publish_market_state_batch(env: &Env, snapshots: Vec<MarketStateSn
 
 /// Emits a single market-state snapshot as a one-element batch.
 pub(crate) fn publish_market_state(env: &Env, snapshot: MarketStateSnapshot) {
-    let mut snapshots = Vec::new(env);
-    snapshots.push_back(snapshot);
-    publish_market_state_batch(env, snapshots);
+    publish_market_state_batch(env, soroban_sdk::vec![env, snapshot]);
 }
 
 /// Emits a single market-params update as a one-element batch.
@@ -100,12 +98,14 @@ pub(crate) fn publish_market_params(
     asset: Address,
     params: MarketParamsRaw,
 ) {
-    let mut updates = Vec::new(env);
-    updates.push_back(PoolMarketParamsEvent {
-        hub_id,
-        asset,
-        params,
-    });
+    let updates = soroban_sdk::vec![
+        env,
+        PoolMarketParamsEvent {
+            hub_id,
+            asset,
+            params
+        }
+    ];
     PoolMarketParamsBatchEvent { updates }.publish(env);
 }
 

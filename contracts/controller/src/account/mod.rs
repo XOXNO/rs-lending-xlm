@@ -89,7 +89,7 @@ pub fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, o
     }
     let active_manager =
         storage::get_position_manager(env, caller).is_some_and(|config| config.is_active);
-    if active_manager && storage::get_delegates(env, account_id).contains(caller.clone()) {
+    if active_manager && storage::get_delegates(env, account_id).contains(caller) {
         return;
     }
     panic_with_error!(env, GenericError::NotAuthorized);

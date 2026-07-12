@@ -800,7 +800,9 @@ impl LiquidityPoolInterface for LiquidityPool {
         }
 
         events::publish_market_state(&env, cache.market_snapshot());
-        cache.amount_mutation(amount_to_transfer)
+        PoolAmountMutation {
+            actual_amount: amount_to_transfer,
+        }
     }
 
     /// Accrues interest at the current model, then replaces the market's

@@ -40,6 +40,13 @@ fn validate_oracle_override(env: &Env, oracle_override: &common::types::MarketOr
     }
 }
 
+fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
+    validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
+    validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
+    validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
+    validate_oracle_override(env, &args.oracle_override);
+}
+
 type ResolvedOperation = (Address, Symbol, Vec<Val>, DelayTier);
 
 fn controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
@@ -160,10 +167,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             controller_operation(env, "remove_spoke", vec![env, id.into_val(env)])
         }
         AdminOperation::AddAssetToSpoke(args) => {
-            validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
-            validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
-            validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
-            validate_oracle_override(env, &args.oracle_override);
+            validate_spoke_asset(env, args);
             controller_operation(
                 env,
                 "add_asset_to_spoke",
@@ -171,10 +175,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             )
         }
         AdminOperation::EditAssetInSpoke(args) => {
-            validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
-            validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
-            validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
-            validate_oracle_override(env, &args.oracle_override);
+            validate_spoke_asset(env, args);
             controller_operation(
                 env,
                 "edit_asset_in_spoke",

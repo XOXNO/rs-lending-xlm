@@ -7,9 +7,8 @@ use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::rates::scaled_to_original;
 use common::types::{
-    HubAssetKey, MarketIndexRaw, MarketParams, MarketParamsRaw, MarketStateSnapshot,
-    PoolAmountMutation, PoolKey, PoolPositionMutation, PoolState, PoolStateRaw,
-    PoolStrategyMutation, ScaledPositionRaw,
+    HubAssetKey, MarketIndexRaw, MarketParams, MarketParamsRaw, MarketStateSnapshot, PoolKey,
+    PoolPositionMutation, PoolState, PoolStateRaw, PoolStrategyMutation, ScaledPositionRaw,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
@@ -211,7 +210,6 @@ impl Cache {
             let ratio = Ray::from_fraction(&self.env, amount, treasury_actual);
             self.revenue.mul(&self.env, ratio)
         };
-        // Burn the same shares from both revenue and total supply.
         self.revenue.checked_sub_assign(&self.env, scaled_to_burn);
         self.supplied.checked_sub_assign(&self.env, scaled_to_burn);
         amount
@@ -264,11 +262,6 @@ impl Cache {
             market_index: self.market_index(),
             actual_amount,
         }
-    }
-
-    /// Revenue claim mutation snapshot; actual amount is Token(asset).
-    pub fn amount_mutation(&self, actual_amount: i128) -> PoolAmountMutation {
-        PoolAmountMutation { actual_amount }
     }
 
     /// Strategy borrow mutation snapshot, including net amount sent to caller.

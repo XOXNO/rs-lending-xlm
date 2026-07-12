@@ -97,9 +97,8 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
     assert_with_error!(env, quote != asset, OracleError::InvalidOracleBase);
 
     // The quote must be active: a token-rooted `AssetOracle` entry must exist.
-    let quote_oracle = match storage::get_asset_oracle(env, quote) {
-        Some(oracle) => oracle,
-        None => panic_with_error!(env, OracleError::InvalidOracleBase),
+    let Some(quote_oracle) = storage::get_asset_oracle(env, quote) else {
+        panic_with_error!(env, OracleError::InvalidOracleBase)
     };
 
     // The quote's primary must itself be USD-based: keeps the conversion exactly
