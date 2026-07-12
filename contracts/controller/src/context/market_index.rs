@@ -1,8 +1,6 @@
 //! Pool market-index context methods.
 
 use common::types::{HubAssetKey, MarketIndex, MarketIndexRaw};
-#[cfg(not(feature = "certora"))]
-use soroban_sdk::Map;
 use soroban_sdk::Vec;
 
 use crate::context::Cache;
@@ -26,14 +24,10 @@ impl Cache {
     #[cfg(not(feature = "certora"))]
     pub fn prefetch_market_indexes(&mut self, hub_assets: &Vec<HubAssetKey>) {
         let mut missing: Vec<HubAssetKey> = Vec::new(&self.env);
-        let mut seen: Map<HubAssetKey, bool> = Map::new(&self.env);
         for hub_asset in hub_assets.iter() {
-            if self.market_indexes.contains_key(hub_asset.clone())
-                || seen.contains_key(hub_asset.clone())
-            {
+            if self.market_indexes.contains_key(hub_asset.clone()) || missing.contains(&hub_asset) {
                 continue;
             }
-            seen.set(hub_asset.clone(), true);
             missing.push_back(hub_asset);
         }
         if missing.is_empty() {

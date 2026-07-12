@@ -26,7 +26,6 @@ use crate::oracle::providers::redstone::read_price_data_bulk;
 pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) {
     let env = cache.env().clone();
     let mut by_adapter: Map<Address, Vec<String>> = Map::new(&env);
-    let mut seen: Map<(Address, String), bool> = Map::new(&env);
 
     for asset in assets.iter() {
         // Feed resolved this tx: nothing left to fetch for it.
@@ -38,15 +37,9 @@ pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) 
         let Some(oracle_config) = cache.cached_asset_oracle_opt(&asset) else {
             continue;
         };
-        collect_redstone_feed(
-            cache,
-            &env,
-            &mut by_adapter,
-            &mut seen,
-            &oracle_config.primary,
-        );
+        collect_redstone_feed(cache, &env, &mut by_adapter, &oracle_config.primary);
         if let Some(anchor) = oracle_config.anchor.as_ref() {
-            collect_redstone_feed(cache, &env, &mut by_adapter, &mut seen, anchor);
+            collect_redstone_feed(cache, &env, &mut by_adapter, anchor);
         }
     }
 
@@ -71,7 +64,6 @@ fn collect_redstone_feed(
     cache: &Cache,
     env: &soroban_sdk::Env,
     by_adapter: &mut Map<Address, Vec<String>>,
-    seen: &mut Map<(Address, String), bool>,
     source: &common::types::OracleSourceConfig,
 ) {
     let (common::types::OracleSourceConfig::RedStone(r)
@@ -85,14 +77,12 @@ fn collect_redstone_feed(
     {
         return;
     }
-    let key = (r.contract.clone(), r.feed_id.clone());
-    if seen.contains_key(key.clone()) {
-        return;
-    }
-    seen.set(key, true);
     let mut feeds = by_adapter
         .get(r.contract.clone())
         .unwrap_or_else(|| Vec::new(env));
+    if feeds.contains(&r.feed_id) {
+        return;
+    }
     feeds.push_back(r.feed_id.clone());
     by_adapter.set(r.contract.clone(), feeds);
 }
@@ -117,10 +107,8 @@ mod tests {
             max_stale_seconds: 900,
         });
         let mut by_adapter: Map<Address, Vec<String>> = Map::new(&env);
-        let mut seen: Map<(Address, String), bool> = Map::new(&env);
-
-        collect_redstone_feed(&cache, &env, &mut by_adapter, &mut seen, &source);
-        collect_redstone_feed(&cache, &env, &mut by_adapter, &mut seen, &source);
+        collect_redstone_feed(&cache, &env, &mut by_adapter, &source);
+        collect_redstone_feed(&cache, &env, &mut by_adapter, &source);
 
         let feeds = by_adapter.get(adapter).expect("adapter feeds");
         assert_eq!(feeds.len(), 1);
