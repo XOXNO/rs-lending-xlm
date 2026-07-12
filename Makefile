@@ -514,7 +514,8 @@ endef
 # Two-pass execution for scopes whose kill criteria include the integration
 # harness. Pass 1 runs only the cheap native suites in $(2), killing the
 # large majority of mutants in seconds each; its exit code is ignored (the
-# `-` prefix) because survivors are expected. Pass 2 re-tests ONLY the
+# `-` prefix) and its GitHub annotations are suppressed (GITHUB_ACTIONS=false)
+# because survivors are expected there — only pass 2 misses are real. Pass 2 re-tests ONLY the
 # survivors (`--iterate` skips mutants already caught or unviable) against
 # the full test set in $(3), which is byte-identical to the single-pass
 # configuration — so the final verdict set is the same, just reached faster.
@@ -522,7 +523,7 @@ define run_mutants_two_pass
 	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
 		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
 		echo "Mutation scope: $$count mutants (two-pass)"
-	-$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
+	-$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
 		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
