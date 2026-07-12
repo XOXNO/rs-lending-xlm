@@ -362,3 +362,129 @@ fn full_close_ok_tracks_pool_cash() {
         ));
     });
 }
+
+// A zero-LTV listing is valid (validate_risk_bounds only pins threshold
+// strictly above LTV), and LTV slack can come entirely from OTHER
+// collateral. Withdrawing the zero-LTV asset must produce a zero analytic
+// cap instead of dividing the slack by the position's zero ratio.
+#[test]
+fn risk_partial_cap_zero_ltv_position_caps_at_zero() {
+    use mock_oracle::{
+        MockReflectorOracle, MockReflectorOracleClient, ReflectorAsset as MockAsset,
+    };
+
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    let oracle_id = env.register(MockReflectorOracle, ());
+    let oracle = MockReflectorOracleClient::new(&env, &oracle_id);
+
+    // Withdrawn asset A: 100 tokens at $1, LTV 0 / threshold 0.8.
+    // Backing asset B: 100 tokens at $1, LTV 0.75 / threshold 0.8 — the sole
+    // source of LTV collateral ($75) against $40 of debt.
+    let asset_a = Address::generate(&env);
+    let asset_b = Address::generate(&env);
+    oracle.set_price(&MockAsset::Stellar(asset_a.clone()), &WAD);
+    oracle.set_price(&MockAsset::Stellar(asset_b.clone()), &WAD);
+
+    let hub_a = HubAssetKey {
+        hub_id: 0,
+        asset: asset_a.clone(),
+    };
+    let hub_b = HubAssetKey {
+        hub_id: 0,
+        asset: asset_b.clone(),
+    };
+
+    let mut supply_positions = Map::new(&env);
+    supply_positions.set(
+        hub_a.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(100 * UNIT, 7).raw(),
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 0,
+            liquidation_fees: 100,
+        },
+    );
+    supply_positions.set(
+        hub_b.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(100 * UNIT, 7).raw(),
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 100,
+        },
+    );
+    let mut borrow_positions = Map::new(&env);
+    borrow_positions.set(
+        hub_b.clone(),
+        DebtPositionRaw {
+            scaled_amount: Ray::from_asset(40 * UNIT, 7).raw(),
+        },
+    );
+    let account = Account {
+        owner: Address::generate(&env),
+        spoke_id: 1,
+        mode: PositionMode::Normal,
+        supply_positions,
+        borrow_positions,
+    };
+
+    let usd_config = |asset: &Address| MarketOracleConfig {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        tolerance: OraclePriceFluctuation {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_500,
+        },
+        strategy: OracleStrategy::Single,
+        primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+            contract: oracle_id.clone(),
+            asset: OracleAssetRef::Stellar(asset.clone()),
+            read_mode: OracleReadMode::Spot,
+            decimals: 14,
+            resolution_seconds: 300,
+            base: ReflectorBase::Usd,
+        }),
+        anchor: OracleSourceConfigOption::None,
+        min_sanity_price_wad: 0,
+        max_sanity_price_wad: i128::MAX,
+    };
+
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &asset_a, &usd_config(&asset_a));
+        crate::storage::set_asset_oracle(&env, &asset_b, &usd_config(&asset_b));
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(
+            &hub_a,
+            &MarketIndexRaw {
+                borrow_index: RAY,
+                supply_index: RAY,
+            },
+        );
+        cache.put_market_index(
+            &hub_b,
+            &MarketIndexRaw {
+                borrow_index: RAY,
+                supply_index: RAY,
+            },
+        );
+
+        // LTV slack is $75 - $40 = $35 > 0, but the withdrawn position's
+        // LTV ratio is zero: the LTV cap arm must yield 0, and the overall
+        // partial cap collapses to 0.
+        let pos = position(100, 0, 8_000);
+        let market = ctx(1_000, 0, 1_000 * UNIT);
+        let cap = risk_partial_cap(
+            &env,
+            &mut cache,
+            &account,
+            &hub_a,
+            &pos,
+            &market,
+            100 * UNIT,
+        );
+        assert_eq!(cap, 0);
+    });
+}

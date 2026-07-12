@@ -138,15 +138,17 @@ exclude_re = [
     # `risk_partial_cap` zero-slack shortcuts: when exactly one slack is
     # zero, the corresponding per-cap arm already yields 0 and the final
     # `min` reproduces the early return, so the combined guard's shape is
-    # unobservable. A nonzero slack implies its risk ratio is nonzero
-    # (the slack is derived from that ratio), so the ratio-zero arm of the
-    # per-cap `||` can never divide by zero on reachable inputs.
-    # Column-anchored so the killable slack/ratio comparisons on the same
-    # lines stay mutated.
+    # unobservable. Column-anchored so the killable slack/ratio comparisons
+    # on the same lines stay mutated. The HF-arm `||` (col 35) is excluded
+    # because its ratio is the position's liquidation threshold, which
+    # `validate_risk_bounds` pins strictly above LTV (>= 0), so a zero
+    # threshold is unreachable. The LTV-arm `||` (col 37) is deliberately
+    # NOT excluded: LTV 0 is a valid listing, and with slack contributed by
+    # other collateral the mutant divides by the zero ratio — killed by
+    # `risk_partial_cap_zero_ltv_position_caps_at_zero`.
     "replace && with \\|\\| in risk_partial_cap",
     "withdraw.rs:[0-9]+:18: replace == with != in risk_partial_cap",
     "withdraw.rs:[0-9]+:35: replace == with != in risk_partial_cap",
-    "withdraw.rs:[0-9]+:37: replace \\|\\| with && in risk_partial_cap",
     "withdraw.rs:[0-9]+:35: replace \\|\\| with && in risk_partial_cap",
 
     # Oracle-adapter insertion-sort comparator over i128 prices: `>=` vs `>`

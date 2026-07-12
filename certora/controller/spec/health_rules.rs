@@ -447,12 +447,7 @@ fn unhealthy_supply_only_improves(e: Env, caller: Address, asset: Address, amoun
 /// indebted account when the simulated HF clears the 1.05 buffer: any supply
 /// that actually lowered the stored threshold leaves the account safe.
 #[rule]
-fn threshold_downgrade_implies_account_safe(
-    e: Env,
-    caller: Address,
-    asset: Address,
-    amount: i128,
-) {
+fn threshold_downgrade_implies_account_safe(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
 
