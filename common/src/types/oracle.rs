@@ -371,6 +371,19 @@ mod tests {
         }
     }
 
+    // The explicit None/Some enum must mirror native `Option` exactly: a
+    // `Some` payload is borrowed through `as_ref`, never dropped to `None`.
+    #[test]
+    fn test_market_oracle_config_option_as_ref_mirrors_native_option() {
+        let env = Env::default();
+        let config = MarketOracleConfig::pending_for(Address::generate(&env), 7);
+        assert_eq!(MarketOracleConfigOption::None.as_ref(), None);
+        assert_eq!(
+            MarketOracleConfigOption::Some(config.clone()).as_ref(),
+            Some(&config)
+        );
+    }
+
     #[test]
     fn test_reads_same_feed_as_detects_duplicate_reflector_feed() {
         let env = Env::default();

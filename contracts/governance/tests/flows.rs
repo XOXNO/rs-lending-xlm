@@ -267,6 +267,31 @@ fn set_aggregator_rejects_stellar_asset_contract() {
     gov.execute_immediate(&admin, &AdminOperation::SetAggregator(stellar_asset));
 }
 
+// The Wasm-executable acceptance leg of `require_contract_address`: a real
+// deployed contract must pass validation and reach controller storage.
+#[test]
+fn set_aggregator_accepts_wasm_contract_address() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (admin, _, gov) = register_governance(&env);
+    let controller_id = gov.deploy_controller(&upload_controller_wasm(&env));
+
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::SetAggregator(controller_id.clone()),
+    );
+
+    let stored: Address = env.as_contract(&controller_id, || {
+        env.storage()
+            .instance()
+            .get(&ControllerKey::Aggregator)
+            .expect("aggregator stored")
+    });
+    assert_eq!(stored, controller_id);
+}
+
 #[test]
 fn set_accumulator_accepts_wallet_address() {
     let env = Env::default();

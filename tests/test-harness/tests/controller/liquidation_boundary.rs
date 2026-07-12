@@ -42,6 +42,37 @@ fn test_hf_exactly_one_is_healthy() {
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_HIGH);
 }
 
+// `is_liquidatable` uses strict `<`: an account sitting exactly on
+// HF = 1.0 is healthy, and the view flips only strictly below it. The
+// construction is rounding-free: $10k USDC (threshold 0.80) → weighted
+// $8000 exactly; 2 ETH borrowed at $1000 and repriced to $4000 → debt
+// $8000 exactly under unit indexes.
+#[test]
+fn test_is_liquidatable_flips_strictly_below_hf_one() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.set_price("ETH", usd(1_000));
+    t.borrow(ALICE, "ETH", 2.0);
+    t.set_price("ETH", usd(4_000));
+
+    let account_id = t.resolve_account_id(ALICE);
+    let hf_raw = t.health_factor_raw(ALICE);
+    assert_eq!(hf_raw, WAD, "construction must land exactly on HF = 1.0");
+    assert!(
+        !t.ctrl_client().is_liquidatable(&account_id),
+        "HF exactly 1.0 is healthy"
+    );
+
+    // One ETH cent deeper flips the strict inequality.
+    t.set_price("ETH", usd(4_000) + usd(1) / 100);
+    assert!(t.health_factor_raw(ALICE) < WAD);
+    assert!(t.ctrl_client().is_liquidatable(&account_id));
+}
+
 // One step below the boundary triggers liquidation. Same setup but
 // price nudged to $0.874 → HF ≈ 0.999.
 #[test]

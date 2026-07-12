@@ -119,3 +119,7 @@ fn account_gates_ok(env: &Env, cache: &mut Cache, account: &Account) -> bool {
     let floor = storage::get_min_borrow_collateral_usd_wad(env);
     floor == 0 || totals.ltv_collateral.raw() >= floor
 }
+
+#[cfg(test)]
+#[path = "../../../tests/views/limits.rs"]
+mod tests;
