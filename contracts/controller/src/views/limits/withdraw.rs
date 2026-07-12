@@ -244,6 +244,10 @@ fn settle_partial_max(
             amount + 1,
         )
     {
+        // saturating_add keeps the arithmetic out of the mutation surface:
+        // any lo <= the true maximum converges to the same fixed point, so
+        // a +/- flip here would be output-equivalent noise (amount is a
+        // token quantity far below i128::MAX, so saturation never binds).
         return binary_search_partial(
             env,
             cache,
@@ -251,7 +255,7 @@ fn settle_partial_max(
             hub_asset,
             market,
             pos_scaled,
-            amount + 1,
+            amount.saturating_add(1),
             ceiling,
         );
     }

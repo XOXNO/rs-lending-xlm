@@ -488,3 +488,193 @@ fn risk_partial_cap_zero_ltv_position_caps_at_zero() {
         assert_eq!(cap, 0);
     });
 }
+
+// A candidate over-seeded beyond the 24-step downward walk must still land
+// on the true maximum via the post-walk binary-search fallback — skipping
+// that fallback would return an infeasible amount.
+#[test]
+fn settle_recovers_from_overseeded_candidate() {
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    env.as_contract(&contract, || {
+        let mut account = debt_free_account(&env);
+        let hub = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
+        account.supply_positions.set(
+            hub.clone(),
+            AccountPositionRaw {
+                scaled_amount: Ray::from_asset(1_000 * UNIT, 7).raw(),
+                liquidation_threshold: 8_000,
+                liquidation_bonus: 500,
+                loan_to_value: 7_500,
+                liquidation_fees: 100,
+            },
+        );
+        let market = ctx(1_000, 0, 500 * UNIT);
+        let pos_scaled = Ray::from_asset(1_000 * UNIT, 7);
+        let mut cache = Cache::new_view(&env);
+
+        let settled = settle_partial_max(
+            &env,
+            &mut cache,
+            &account,
+            &hub,
+            &market,
+            pos_scaled,
+            500 * UNIT + 30,
+            1_000 * UNIT - 1,
+        );
+        assert_eq!(settled, 500 * UNIT);
+    });
+}
+
+// A candidate under-seeded beyond the 24-step upward walk must still land
+// on the true maximum via the post-walk binary-search fallback — weakening
+// that re-check would return the under-walked amount.
+#[test]
+fn settle_recovers_from_underseeded_candidate() {
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    env.as_contract(&contract, || {
+        let mut account = debt_free_account(&env);
+        let hub = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
+        account.supply_positions.set(
+            hub.clone(),
+            AccountPositionRaw {
+                scaled_amount: Ray::from_asset(1_000 * UNIT, 7).raw(),
+                liquidation_threshold: 8_000,
+                liquidation_bonus: 500,
+                loan_to_value: 7_500,
+                liquidation_fees: 100,
+            },
+        );
+        let market = ctx(1_000, 0, 500 * UNIT);
+        let pos_scaled = Ray::from_asset(1_000 * UNIT, 7);
+        let mut cache = Cache::new_view(&env);
+
+        let settled = settle_partial_max(
+            &env,
+            &mut cache,
+            &account,
+            &hub,
+            &market,
+            pos_scaled,
+            500 * UNIT - 30,
+            1_000 * UNIT - 1,
+        );
+        assert_eq!(settled, 500 * UNIT);
+    });
+}
+
+// Dust-underwater account (debt one price-quantum above the LTV collateral,
+// threshold one basis point above LTV): no partial passes the gates, and
+// the preview must settle at exactly zero — never walk into negative
+// amounts, where a tiny "negative withdrawal" would make the gates pass.
+#[test]
+fn settle_returns_zero_for_dust_underwater_account_without_going_negative() {
+    use mock_oracle::{
+        MockReflectorOracle, MockReflectorOracleClient, ReflectorAsset as MockAsset,
+    };
+
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    let oracle_id = env.register(MockReflectorOracle, ());
+    let asset = Address::generate(&env);
+    MockReflectorOracleClient::new(&env, &oracle_id)
+        .set_price(&MockAsset::Stellar(asset.clone()), &WAD);
+
+    let hub = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
+    // LTV 99.99 % / threshold 100 %: LTV collateral $99.99, weighted $100.
+    let mut supply_positions = Map::new(&env);
+    supply_positions.set(
+        hub.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(100 * UNIT, 7).raw(),
+            liquidation_threshold: 10_000,
+            liquidation_bonus: 500,
+            loan_to_value: 9_999,
+            liquidation_fees: 100,
+        },
+    );
+    // Debt a sub-stroop hair above the $99.99 LTV collateral: the LTV gate
+    // fails for the unchanged account but passes after a single-stroop
+    // negative "withdrawal".
+    let mut borrow_positions = Map::new(&env);
+    borrow_positions.set(
+        hub.clone(),
+        DebtPositionRaw {
+            scaled_amount: Ray::from_asset(999_900_000, 7).raw() + 50_000_000_000,
+        },
+    );
+    let account = Account {
+        owner: Address::generate(&env),
+        spoke_id: 1,
+        mode: PositionMode::Normal,
+        supply_positions,
+        borrow_positions,
+    };
+
+    let config = MarketOracleConfig {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        tolerance: OraclePriceFluctuation {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_500,
+        },
+        strategy: OracleStrategy::Single,
+        primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+            contract: oracle_id,
+            asset: OracleAssetRef::Stellar(asset.clone()),
+            read_mode: OracleReadMode::Spot,
+            decimals: 14,
+            resolution_seconds: 300,
+            base: ReflectorBase::Usd,
+        }),
+        anchor: OracleSourceConfigOption::None,
+        min_sanity_price_wad: 0,
+        max_sanity_price_wad: i128::MAX,
+    };
+
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(
+            &hub,
+            &MarketIndexRaw {
+                borrow_index: RAY,
+                supply_index: RAY,
+            },
+        );
+        let pos_scaled = Ray::from_asset(100 * UNIT, 7);
+        let market = ctx(1_000, 0, 1_000 * UNIT);
+
+        // Sanity: the unchanged account fails the gates, a small negative
+        // amount would pass them — exactly the divergence window.
+        assert!(!partial_ok(
+            &env, &mut cache, &account, &hub, &market, pos_scaled, 0
+        ));
+        assert!(partial_ok(
+            &env, &mut cache, &account, &hub, &market, pos_scaled, -1
+        ));
+
+        let settled = settle_partial_max(
+            &env,
+            &mut cache,
+            &account,
+            &hub,
+            &market,
+            pos_scaled,
+            0,
+            100 * UNIT - 1,
+        );
+        assert_eq!(settled, 0, "preview must never settle negative");
+    });
+}

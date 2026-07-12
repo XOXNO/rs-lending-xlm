@@ -89,32 +89,48 @@ exclude_re = [
     # unobservable — the mutant changes cost, never results.
     "replace \\|\\| with && in Cache::prefetch_market_indexes",
 
-    # `settle_partial_max` stepping internals: the function is a bounded
-    # step-optimizer over `binary_search_partial` on a monotone feasibility
-    # predicate (`partial_ok` only tightens as the amount grows). Any
-    # mutation of its increments, decrements, loop guards, or the
-    # post-loop re-check degrades to the binary-search fallback (or the
-    # loop's natural exit) and returns the identical maximum; only the
-    # ceiling-zero early return and the fallback target itself are
-    # observable, and those stay mutated. The upward-walk guard at
-    # equality cannot overshoot: `partial_ok(ceiling + 1)` replicates the
-    # full close that `max_withdraw` already rejected before settling.
-    # The downward-walk zero check is the same fallback in both arms:
-    # mutating `amount == 0` to `!=` just takes the binary-search fallback
-    # immediately, returning the identical maximum. Column-anchored so the
-    # killable `ceiling == 0` early return stays mutated.
-    "withdraw.rs:[0-9]+:19: replace == with != in settle_partial_max",
+    # `settle_partial_max` is a bounded step-optimizer over
+    # `binary_search_partial` on a monotone feasibility predicate
+    # (`partial_ok` only tightens as the amount grows). Only the mutants
+    # below are excluded, each with its own equivalence argument; the
+    # zero guard, both `!` negations, the `amount + 1` probes, and the
+    # post-loop `>`/`==` shapes all stay mutated and are killed by the
+    # settle seed tests.
+    # Downward-walk step mutants degrade to the post-loop binary-search
+    # fallback: a wrong step leaves `amount` infeasible, the `!partial_ok`
+    # re-check catches it, and the fallback returns the same maximum.
     "replace -= with \\+= in settle_partial_max",
     "replace -= with /= in settle_partial_max",
-    "delete ! in settle_partial_max",
-    "replace < with <= in settle_partial_max",
-    "replace < with == in settle_partial_max",
-    "replace < with > in settle_partial_max",
-    "replace && with \\|\\| in settle_partial_max",
+    # Upward-walk step mutants degrade to the post-loop check: a wrong step
+    # leaves `amount` feasible-but-short (or loops to the step cap), and the
+    # `amount < ceiling && partial_ok(amount + 1)` re-check routes to the
+    # binary-search fallback with the same result.
     "replace \\+= with -= in settle_partial_max",
     "replace \\+= with \\*= in settle_partial_max",
-    "replace \\+ with - in settle_partial_max",
-    "replace \\+ with \\* in settle_partial_max",
+    # While-loop guards only (columns 18 and 37 on the `while` line): the
+    # post-loop re-check recovers a skipped or shortened walk via the
+    # fallback, so only the iteration count changes. The post-loop `<` at
+    # column 15 is NOT excluded — weakening it returns an under-walked
+    # amount when the analytic seed is short (killed by
+    # `settle_recovers_from_underseeded_candidate`). Likewise the zero
+    # guard (`==` at col 19), both `!` negations, and the `amount + 1`
+    # probes stay mutated: the zero-guard mutant can walk negative and
+    # return a negative withdrawal on a dust-underwater account, and the
+    # probe/negation mutants overshoot the maximum (killed by the settle
+    # seed tests).
+    "withdraw.rs:[0-9]+:18: replace < with <= in settle_partial_max",
+    "withdraw.rs:[0-9]+:18: replace < with == in settle_partial_max",
+    "withdraw.rs:[0-9]+:18: replace < with > in settle_partial_max",
+    "withdraw.rs:[0-9]+:37: replace < with <= in settle_partial_max",
+    "withdraw.rs:[0-9]+:37: replace < with == in settle_partial_max",
+    "withdraw.rs:[0-9]+:37: replace < with > in settle_partial_max",
+    # Post-loop re-check `<` -> `<=` only differs at amount == ceiling,
+    # where the probe amount+1 equals the full request whose full close
+    # max_withdraw already rejected, so partial_ok is false and both
+    # shapes skip the fallback identically. The `>`/`==` shapes at the
+    # same column stay mutated (killed by the under-seeded settle test).
+    "withdraw.rs:[0-9]+:15: replace < with <= in settle_partial_max",
+    "replace && with \\|\\| in settle_partial_max",
 
     # `max_withdraw`'s debt-free refresh guard: for a debt-free account the
     # refreshed risk params are never read (the account gates are trivially
