@@ -19,6 +19,13 @@ pub use borrow::max_borrow;
 pub use supply::max_supply;
 pub use withdraw::max_withdraw;
 
+/// Upper bound on binary-search iterations in the preview limits. A halving
+/// search over an `i128` range empties in at most 127 steps, so the cap never
+/// binds on correct arithmetic — it exists to keep the searches total (a
+/// non-converging step, e.g. under fault injection, terminates with a wrong
+/// value instead of hanging the transaction).
+const BINARY_SEARCH_MAX_STEPS: u32 = 128;
+
 /// Pool-side market state with simulated indexes.
 struct MarketLimitCtx {
     // dimensional: pool totals are scaled shares; indexes convert to Token(asset).

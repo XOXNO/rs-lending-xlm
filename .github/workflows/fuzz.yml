@@ -131,6 +131,75 @@ jobs:
           components: miri, rust-src
       - run: make miri-all
 
+  # PR gate: mutate only the lines this PR changes so test-coverage gaps
+  # surface at review time instead of in the nightly full run. Early signal
+  # only — the nightly per-scope jobs stay authoritative (this job
+  # feature-unifies the workspace with the harness's `testing` feature, so
+  # governance validators behind cfg(not(feature = "testing")) are only
+  # mutation-tested nightly).
+  mutants-diff:
+    if: github.event_name == 'pull_request'
+    name: Mutants (PR diff)
+    runs-on: self-hosted
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
+      # across concurrent jobs, so parallel toolchain installs race and wedge
+      # (rust-std-wasm32v1-none component conflict).
+      - name: Isolate rustup toolchain dir
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mutants-diff-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mutants-diff-
+            ${{ runner.os }}-mutants-
+
+      - name: Install stellar-cli
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      - name: Compute PR diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git diff "$BASE_SHA"...HEAD > pr.diff
+
+      - name: Mutate changed lines
+        env:
+          CARGO_BUILD_JOBS: '4'
+        run: make mutants-diff MUTANTS_RUN_MODE=--in-place
+
+      - name: Upload mutation results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants-artifacts-diff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: mutants.out/
+          if-no-files-found: ignore
+          retention-days: 7
+
   stellar-tool:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     name: Prepare stellar-cli
@@ -350,7 +419,7 @@ jobs:
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' &&
       (inputs.suite == 'all' || inputs.suite == 'mutants'))
-    name: Mutants (${{ matrix.target }})
+    name: Mutants (${{ matrix.target }}${{ matrix.suffix || '' }})
     runs-on: self-hosted
     needs: [stellar-tool, mutants-tool]
     timeout-minutes: 1440
@@ -358,19 +427,37 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        target:
-          - mutants-common
-          - mutants-pool
-          - mutants-governance
-          - mutants-governance-oracle-probe
-          - mutants-controller-core
-          - mutants-controller-oracle
-          - mutants-controller-positions
-          - mutants-controller-strategies
-          - mutants-controller-views
-          - mutants-aggregator
-          - mutants-oracle-adapter
-          - mutants-defindex-strategy
+        # The three largest scopes split into deterministic cargo-mutants
+        # shards (`--shard k/2`) so they finish in half the wall clock;
+        # `suffix` keeps job names, cache keys, and artifact names unique.
+        include:
+          - target: mutants-common
+          - target: mutants-pool
+          - target: mutants-governance
+          - target: mutants-governance-oracle-probe
+          - target: mutants-controller-core
+            shard: 0/2
+            suffix: '-1of2'
+          - target: mutants-controller-core
+            shard: 1/2
+            suffix: '-2of2'
+          - target: mutants-controller-oracle
+          - target: mutants-controller-positions
+            shard: 0/2
+            suffix: '-1of2'
+          - target: mutants-controller-positions
+            shard: 1/2
+            suffix: '-2of2'
+          - target: mutants-controller-strategies
+          - target: mutants-controller-views
+            shard: 0/2
+            suffix: '-1of2'
+          - target: mutants-controller-views
+            shard: 1/2
+            suffix: '-2of2'
+          - target: mutants-aggregator
+          - target: mutants-oracle-adapter
+          - target: mutants-defindex-strategy
     steps:
       - uses: actions/checkout@v7
 
@@ -386,8 +473,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
+          key: ${{ runner.os }}-${{ matrix.target }}${{ matrix.suffix || '' }}-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
           restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-
             ${{ runner.os }}-mutants-
 
       - name: Download stellar-cli
@@ -410,13 +498,13 @@ jobs:
       - name: Run mutation target
         env:
           CARGO_BUILD_JOBS: '1'
-        run: make "${{ matrix.target }}" MUTANTS_RUN_MODE=--in-place
+        run: make "${{ matrix.target }}" MUTANTS_RUN_MODE=--in-place MUTANTS_SHARD="${{ matrix.shard || '' }}"
 
       - name: Upload mutation results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: mutants-artifacts-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: mutants-artifacts-${{ matrix.target }}${{ matrix.suffix || '' }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: mutants.out/
           if-no-files-found: ignore
           retention-days: 7

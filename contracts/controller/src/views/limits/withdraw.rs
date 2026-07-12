@@ -272,12 +272,17 @@ fn binary_search_partial(
 ) -> i128 {
     let mut lo = lo;
     let mut hi = hi;
-    while lo < hi {
+    // Iterations are capped so the search stays total (see
+    // `BINARY_SEARCH_MAX_STEPS`).
+    for _ in 0..crate::views::limits::BINARY_SEARCH_MAX_STEPS {
+        if lo >= hi {
+            break;
+        }
         let mid = hi - (hi - lo) / 2;
         if partial_ok(env, cache, account, hub_asset, market, pos_scaled, mid) {
             lo = mid;
         } else {
-            hi = mid - 1;
+            hi = mid.saturating_sub(1);
         }
     }
     lo

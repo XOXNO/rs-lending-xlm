@@ -46,14 +46,18 @@ pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     }
 
     // Feasibility only tightens as the amount grows; binary-search the largest
-    // amount that clears each gate.
+    // amount that clears each gate. Iterations are capped so the search stays
+    // total (see `BINARY_SEARCH_MAX_STEPS`).
     let mut lo: i128 = 0;
-    while lo < hi {
+    for _ in 0..crate::views::limits::BINARY_SEARCH_MAX_STEPS {
+        if lo >= hi {
+            break;
+        }
         let mid = hi - (hi - lo) / 2;
         if borrow_ok(env, &mut cache, &account, hub_asset, &market, mid) {
             lo = mid;
         } else {
-            hi = mid - 1;
+            hi = mid.saturating_sub(1);
         }
     }
     lo

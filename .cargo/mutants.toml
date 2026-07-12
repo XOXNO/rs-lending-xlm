@@ -124,6 +124,17 @@ exclude_re = [
     # makes unreachable.
     "delete ! in max_withdraw",
 
+    # Preview binary-search break guards (`if lo >= hi break`): the loop
+    # maintains `lo <= hi` (mid >= lo + 1, so `hi = mid.saturating_sub(1)`
+    # never drops below `lo`), making `>` and `==` coincide with `>=` on
+    # every reachable state; with the iteration cap the search then exits at
+    # the same fixed point, so only the iteration count changes. The `<`
+    # replacement breaks immediately and stays killed.
+    "replace >= with > in max_borrow",
+    "replace >= with == in max_borrow",
+    "replace >= with > in binary_search_partial",
+    "replace >= with == in binary_search_partial",
+
     # `risk_partial_cap` zero-slack shortcuts: when exactly one slack is
     # zero, the corresponding per-cap arm already yields 0 and the final
     # `min` reproduces the early return, so the combined guard's shape is
