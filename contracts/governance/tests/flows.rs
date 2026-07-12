@@ -729,3 +729,32 @@ fn revoke_role_immediate_strips_only_the_named_incident_role() {
     gov.revoke_role_immediate(&key, &Symbol::new(&env, ORACLE_ROLE));
     assert!(!gov.has_role(&key, &Symbol::new(&env, ORACLE_ROLE)));
 }
+
+// `Controller::upgrade` must pause a running controller before swapping the
+// Wasm, and must actually perform the swap-side pause even when invoked
+// while already paused (the guard skips only the double-pause panic).
+#[test]
+fn controller_upgrade_pauses_running_contract_before_wasm_swap() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (_, gov_id, gov) = register_governance(&env);
+    let controller_id = register_native_controller(&env, &gov_id, &gov);
+
+    // The controller deploys paused; bring it into the running state.
+    gov.unpause();
+    env.as_contract(&controller_id, || {
+        assert!(!stellar_contract_utils::pausable::paused(&env));
+    });
+
+    let ctrl = controller::ControllerClient::new(&env, &controller_id);
+    ctrl.upgrade(&upload_controller_wasm(&env));
+
+    env.as_contract(&controller_id, || {
+        assert!(
+            stellar_contract_utils::pausable::paused(&env),
+            "upgrade must leave the controller paused"
+        );
+    });
+}

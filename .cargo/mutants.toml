@@ -82,6 +82,13 @@ exclude_re = [
     # therefore cannot change any output.
     "replace > with >= in normalize_repayment_plan",
 
+    # `prefetch_market_indexes` dedup skip (`cached || seen`): weakening the
+    # skip only re-requests indexes that are already cached or duplicated in
+    # the batch. The pool returns identical values within the same
+    # transaction, and re-setting a map key with the same value is
+    # unobservable — the mutant changes cost, never results.
+    "replace \\|\\| with && in Cache::prefetch_market_indexes",
+
     # Oracle-adapter insertion-sort comparator over i128 prices: `>=` vs `>`
     # only changes which of two EQUAL elements shifts first, i.e. sort
     # stability. Equal i128 values are indistinguishable, so the output
