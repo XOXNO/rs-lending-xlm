@@ -105,8 +105,6 @@ fn settle_borrow(
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) {
-    // Build the whole batch's entries, make ONE pool call, then merge results
-    // input-ordered in one cross-contract frame.
     let mut entries: Vec<PoolBorrowEntry> = Vec::new(env);
     for (hub_asset, amount) in aggregated {
         let borrow_position = account.get_or_create_debt_position(&hub_asset);
@@ -142,8 +140,7 @@ fn merge_borrow_result(
     let old_scaled = account
         .borrow_positions
         .get(hub_asset.clone())
-        .map(|p| Ray::from(p.scaled_amount))
-        .unwrap_or(Ray::ZERO);
+        .map_or(Ray::ZERO, |p| Ray::from(p.scaled_amount));
     let position: DebtPosition = DebtPosition::from(&result.position);
     // Spoke-cap accounting needs the asset decimals; source them from the active
     // market's oracle config before re-borrowing `cache`.
@@ -225,8 +222,7 @@ fn borrow_strategy_inner(
     event_action: events::PositionAction,
 ) -> i128 {
     let hub_debt = hub_debt.clone();
-    let mut payments: AggregatedPayments = Vec::new(env);
-    payments.push_back((hub_debt.clone(), amount));
+    let payments: AggregatedPayments = soroban_sdk::vec![env, (hub_debt.clone(), amount)];
     let aggregated = utils::aggregate_positive_payments(env, &payments);
     validate_position_entry_gates(
         env,

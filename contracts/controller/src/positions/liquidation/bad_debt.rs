@@ -18,17 +18,11 @@ pub(super) fn execute_bad_debt_cleanup(
     total_debt_usd: i128,
     total_collateral_usd: i128,
 ) {
+    // One batched pool call covering every seized position, supplies first.
+    let mut entries: Vec<PoolSeizeEntry> = Vec::new(env);
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
         ctx.apply_withdraw_after_pool(env, &hub_asset, position.scaled_amount);
-    }
-    for (hub_asset, position) in iter_debt_positions(&account.borrow_positions) {
-        ctx.apply_repay_after_pool(env, &hub_asset, position.scaled_amount);
-    }
-
-    // One batched pool call covering every seized position, supplies first.
-    let mut entries: Vec<PoolSeizeEntry> = Vec::new(env);
-    for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
         entries.push_back(PoolSeizeEntry {
             hub_asset,
             side: AccountPositionType::Deposit,
@@ -36,6 +30,7 @@ pub(super) fn execute_bad_debt_cleanup(
         });
     }
     for (hub_asset, position) in iter_debt_positions(&account.borrow_positions) {
+        ctx.apply_repay_after_pool(env, &hub_asset, position.scaled_amount);
         entries.push_back(PoolSeizeEntry {
             hub_asset,
             side: AccountPositionType::Borrow,

@@ -85,11 +85,6 @@ fn controller_client(env: &Env) -> ControllerAdminClient<'_> {
     ControllerAdminClient::new(env, &storage::get_controller(env))
 }
 
-/// Shared proposal auth and TTL renewal.
-fn begin_proposal(env: &Env, proposer: &Address) {
-    begin_immediate(env, proposer, PROPOSER_ROLE);
-}
-
 /// Shared auth for role-gated operations: TTL renewal, caller auth, role check.
 fn begin_immediate(env: &Env, caller: &Address, role: &str) {
     storage::renew_governance_instance(env);
@@ -148,7 +143,7 @@ impl Governance {
         op: crate::op::AdminOperation,
         salt: BytesN<32>,
     ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
+        begin_immediate(&env, &proposer, PROPOSER_ROLE);
         let (target, function, args, delay_tier) = resolve_op(&env, &op);
         let delay = operation_delay(&env, delay_tier);
         let operation = Operation {

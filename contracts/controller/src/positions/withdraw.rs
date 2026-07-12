@@ -259,11 +259,13 @@ pub fn execute_withdrawal(
     // Strategy chokepoint: paused blocks withdraw, frozen still allows it.
     // Liquidation calls `settle_withdraw_entries` directly and stays exempt.
     enforce_spoke_asset_flags(env, cache, account.spoke_id, req.hub_asset, false);
-    let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
-    entries.push_back(PoolWithdrawEntry {
-        action: make_pool_action(req.position, req.amount, req.hub_asset.clone()),
-        protocol_fee: 0,
-    });
+    let entries = soroban_sdk::vec![
+        env,
+        PoolWithdrawEntry {
+            action: make_pool_action(req.position, req.amount, req.hub_asset.clone()),
+            protocol_fee: 0,
+        }
+    ];
     let results = settle_withdraw_entries(env, account, &counterparty, action, &entries, cache);
     validation::expect_invariant(env, results.get(0))
 }

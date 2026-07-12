@@ -186,8 +186,7 @@ fn borrow_ok(
     let existing = adjusted
         .borrow_positions
         .get(hub_asset.clone())
-        .map(|r| Ray::from(r.scaled_amount))
-        .unwrap_or(Ray::ZERO);
+        .map_or(Ray::ZERO, |r| Ray::from(r.scaled_amount));
     adjusted.borrow_positions.set(
         hub_asset.clone(),
         DebtPositionRaw {

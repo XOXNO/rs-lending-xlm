@@ -116,5 +116,5 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
         },
     );
 
-    strategy_finalize(env, account_id, &mut account, &mut cache);
+    strategy_finalize(env, account_id, &account, &mut cache);
 }

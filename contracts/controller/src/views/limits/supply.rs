@@ -21,9 +21,8 @@ pub fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if storage::get_asset_oracle(env, &hub_asset.asset).is_none() {
         return 0;
     }
-    let account = match storage::try_get_account(env, account_id) {
-        Some(account) => account,
-        None => return 0,
+    let Some(account) = storage::try_get_account(env, account_id) else {
+        return 0;
     };
     let mut cache = Cache::new_view(env);
     // Mutating supplies pass `require_listed_active_config`: a deprecated

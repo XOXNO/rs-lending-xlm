@@ -142,7 +142,7 @@ pub fn process_repay_debt_with_collateral(
 
     close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
 
-    strategy_finalize(env, account_id, &mut account, &mut cache);
+    strategy_finalize(env, account_id, &account, &mut cache);
 }
 
 /// Withdraws all remaining collateral when closing, requiring no debt remains.

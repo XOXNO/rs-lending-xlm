@@ -449,7 +449,6 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
         panic_with_error!(&env, Error::InvalidAmount);
     }
 
-    // Walk paths.
     let n = payload.paths.len();
     let mut consumed: i128 = 0;
     for i in 0..n {

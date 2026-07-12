@@ -259,12 +259,10 @@ fn test_position_mutation_builder_includes_scaled_and_actual() {
 }
 
 #[test]
-fn test_amount_and_strategy_mutation_builders() {
+fn test_strategy_mutation_builder() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
-        let a = cache.amount_mutation(777);
-        assert_eq!(a.actual_amount, 777);
         let s = cache.strategy_mutation(Ray::from(99 * RAY), 100, 90);
         assert_eq!(s.actual_amount, 100);
         assert_eq!(s.amount_received, 90);

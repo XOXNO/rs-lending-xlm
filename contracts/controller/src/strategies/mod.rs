@@ -42,12 +42,7 @@ pub(crate) fn prefetch_strategy_oracles(
 
 /// Re-check solvency, persist both sides (or remove empty accounts), and emit
 /// batched position/market events.
-pub(crate) fn strategy_finalize(
-    env: &Env,
-    account_id: u64,
-    account: &mut Account,
-    cache: &mut Cache,
-) {
+pub(crate) fn strategy_finalize(env: &Env, account_id: u64, account: &Account, cache: &mut Cache) {
     // Borrow-cap enforcement lives at the entrypoints that open debt (multiply,
     // swap_debt), mirroring `process_borrow`; debt-neutral strategies
     // (swap_collateral, repay_debt_with_collateral) skip it.

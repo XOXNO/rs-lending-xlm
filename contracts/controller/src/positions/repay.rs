@@ -133,8 +133,7 @@ pub(crate) fn finish_repayment(
     let old_scaled = account
         .borrow_positions
         .get(hub_asset.clone())
-        .map(|p| Ray::from(p.scaled_amount))
-        .unwrap_or(Ray::ZERO);
+        .map_or(Ray::ZERO, |p| Ray::from(p.scaled_amount));
     let position = DebtPosition::from(&result.position);
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
     // Repay subtracts the reduced debt shares from spoke usage.
@@ -174,12 +173,10 @@ pub fn execute_repayment(
     // Strategy chokepoint: paused blocks repay, frozen still allows it.
     // Liquidation calls `settle_repay_actions` directly and stays exempt.
     enforce_spoke_asset_flags(env, cache, account.spoke_id, req.hub_asset, false);
-    let mut actions: Vec<PoolAction> = Vec::new(env);
-    actions.push_back(make_pool_action(
-        req.position,
-        req.amount,
-        req.hub_asset.clone(),
-    ));
+    let actions = soroban_sdk::vec![
+        env,
+        make_pool_action(req.position, req.amount, req.hub_asset.clone(),)
+    ];
     let results = settle_repay_actions(env, account, &counterparty, action, &actions, cache);
     validation::expect_invariant(env, results.get(0))
 }

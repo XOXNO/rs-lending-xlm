@@ -33,96 +33,88 @@ enum SessionKey {
     FlashLoanOngoing,
 }
 
-/// Returns whether `token` is on the outbound-approval allowlist.
-pub(crate) fn is_token_approved(env: &Env, token: &Address) -> bool {
-    env.storage()
-        .instance()
-        .get(&LocalKey::ApprovedToken(token.clone()))
-        .unwrap_or(false)
+fn registry_contains(env: &Env, key: &LocalKey) -> bool {
+    env.storage().instance().get(key).unwrap_or(false)
 }
 
-/// Returns the number of currently approved tokens.
+fn registry_count(env: &Env, key: &LocalKey) -> u32 {
+    env.storage().instance().get(key).unwrap_or(0)
+}
+
+fn increment_registry_count(env: &Env, key: &LocalKey, max_entries: u32) {
+    let count = registry_count(env, key);
+    assert_with_error!(env, count < max_entries, GenericError::RegistryCapReached);
+    env.storage().instance().set(key, &(count + 1));
+}
+
+fn decrement_registry_count(env: &Env, key: &LocalKey) {
+    // Entries created before counters existed must remain removable.
+    let count = registry_count(env, key).saturating_sub(1);
+    env.storage().instance().set(key, &count);
+}
+
+#[cfg(test)]
 fn approved_token_count(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&LocalKey::ApprovedTokenCount)
-        .unwrap_or(0u32)
+    registry_count(env, &LocalKey::ApprovedTokenCount)
+}
+
+#[cfg(test)]
+fn approved_blend_pool_count(env: &Env) -> u32 {
+    registry_count(env, &LocalKey::BlendPoolAllowedCount)
+}
+
+fn set_registry_entry(
+    env: &Env,
+    key: &LocalKey,
+    count_key: &LocalKey,
+    max_entries: u32,
+    enabled: bool,
+) {
+    let already_enabled = registry_contains(env, key);
+
+    if enabled {
+        if !already_enabled {
+            increment_registry_count(env, count_key, max_entries);
+        }
+        env.storage().instance().set(key, &true);
+    } else {
+        if already_enabled {
+            decrement_registry_count(env, count_key);
+        }
+        env.storage().instance().remove(key);
+    }
+}
+
+/// Returns whether `token` is on the outbound-approval allowlist.
+pub(crate) fn is_token_approved(env: &Env, token: &Address) -> bool {
+    registry_contains(env, &LocalKey::ApprovedToken(token.clone()))
 }
 
 /// Adds or removes `token` from the approval allowlist, maintaining the capped count.
 pub(crate) fn set_token_approved(env: &Env, token: &Address, approved: bool) {
-    let key = LocalKey::ApprovedToken(token.clone());
-    let already_approved: bool = env.storage().instance().get(&key).unwrap_or(false);
-
-    if approved {
-        if !already_approved {
-            let count = approved_token_count(env);
-            assert_with_error!(
-                env,
-                count < MAX_OUTSTANDING_TOKEN_APPROVALS,
-                GenericError::RegistryCapReached
-            );
-            env.storage()
-                .instance()
-                .set(&LocalKey::ApprovedTokenCount, &(count + 1));
-        }
-        env.storage().instance().set(&key, &true);
-    } else {
-        if already_approved {
-            // Saturate at zero: an entry approved before this counter existed
-            // (pre-upgrade state) must still be revocable without underflowing.
-            let count = approved_token_count(env).saturating_sub(1);
-            env.storage()
-                .instance()
-                .set(&LocalKey::ApprovedTokenCount, &count);
-        }
-        env.storage().instance().remove(&key);
-    }
+    set_registry_entry(
+        env,
+        &LocalKey::ApprovedToken(token.clone()),
+        &LocalKey::ApprovedTokenCount,
+        MAX_OUTSTANDING_TOKEN_APPROVALS,
+        approved,
+    );
 }
 
 /// Returns whether `pool` is an approved Blend migration source.
 pub(crate) fn is_blend_pool_approved(env: &Env, pool: &Address) -> bool {
-    env.storage()
-        .instance()
-        .get(&LocalKey::BlendPoolAllowed(pool.clone()))
-        .unwrap_or(false)
-}
-
-/// Returns the number of currently approved Blend pools.
-fn approved_blend_pool_count(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&LocalKey::BlendPoolAllowedCount)
-        .unwrap_or(0u32)
+    registry_contains(env, &LocalKey::BlendPoolAllowed(pool.clone()))
 }
 
 /// Adds or removes `pool` from the Blend migration allowlist, maintaining the capped count.
 pub(crate) fn set_blend_pool_approved(env: &Env, pool: &Address, approved: bool) {
-    let key = LocalKey::BlendPoolAllowed(pool.clone());
-    let already_approved: bool = env.storage().instance().get(&key).unwrap_or(false);
-
-    if approved {
-        if !already_approved {
-            let count = approved_blend_pool_count(env);
-            assert_with_error!(
-                env,
-                count < MAX_APPROVED_BLEND_POOLS,
-                GenericError::RegistryCapReached
-            );
-            env.storage()
-                .instance()
-                .set(&LocalKey::BlendPoolAllowedCount, &(count + 1));
-        }
-        env.storage().instance().set(&key, &true);
-    } else {
-        if already_approved {
-            let count = approved_blend_pool_count(env).saturating_sub(1);
-            env.storage()
-                .instance()
-                .set(&LocalKey::BlendPoolAllowedCount, &count);
-        }
-        env.storage().instance().remove(&key);
-    }
+    set_registry_entry(
+        env,
+        &LocalKey::BlendPoolAllowed(pool.clone()),
+        &LocalKey::BlendPoolAllowedCount,
+        MAX_APPROVED_BLEND_POOLS,
+        approved,
+    );
 }
 
 /// Returns the pool WASM template hash, panicking if unset.
@@ -238,14 +230,6 @@ pub(crate) fn set_position_limits(env: &Env, limits: &PositionLimits) {
         .set(&ControllerKey::PositionLimits, limits);
 }
 
-/// Returns the highest allocated spoke id, or 0 when none exist.
-pub(crate) fn get_last_spoke_id(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&ControllerKey::LastSpokeId)
-        .unwrap_or(0u32)
-}
-
 /// Returns the minimum borrow-collateral USD floor, defaulting to the constant when unset.
 pub(crate) fn get_min_borrow_collateral_usd_wad(env: &Env) -> i128 {
     env.storage()
@@ -263,33 +247,24 @@ pub(crate) fn set_min_borrow_collateral_usd_wad(env: &Env, floor_wad: i128) {
 
 /// Allocates and returns the next spoke id, panicking on overflow.
 pub(crate) fn increment_spoke_id(env: &Env) -> u32 {
-    let current = get_last_spoke_id(env);
-    let next = current
-        .checked_add(1)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    env.storage()
-        .instance()
-        .set(&ControllerKey::LastSpokeId, &next);
-    next
-}
-
-/// Returns the highest allocated hub id, or 0 when none exist.
-pub(crate) fn get_last_hub_id(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&ControllerKey::LastHubId)
-        .unwrap_or(0u32)
+    increment_id(env, &ControllerKey::LastSpokeId)
 }
 
 /// Allocates and returns the next hub id, panicking on overflow.
 pub(crate) fn increment_hub_id(env: &Env) -> u32 {
-    let current = get_last_hub_id(env);
+    increment_id(env, &ControllerKey::LastHubId)
+}
+
+fn get_last_id(env: &Env, key: &ControllerKey) -> u32 {
+    env.storage().instance().get(key).unwrap_or(0)
+}
+
+fn increment_id(env: &Env, key: &ControllerKey) -> u32 {
+    let current = get_last_id(env, key);
     let next = current
         .checked_add(1)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    env.storage()
-        .instance()
-        .set(&ControllerKey::LastHubId, &next);
+    env.storage().instance().set(key, &next);
     next
 }
 
@@ -322,12 +297,9 @@ pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<Position
         .get(&ControllerKey::PositionManager(addr.clone()))
 }
 
-/// Returns the number of active position managers.
+#[cfg(test)]
 fn position_manager_count(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&LocalKey::PositionManagerCount)
-        .unwrap_or(0u32)
+    registry_count(env, &LocalKey::PositionManagerCount)
 }
 
 /// Capped registry of active managers; deactivation removes the entry
@@ -338,25 +310,12 @@ pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionM
 
     if config.is_active {
         if !already_registered {
-            let count = position_manager_count(env);
-            assert_with_error!(
-                env,
-                count < MAX_POSITION_MANAGERS,
-                GenericError::RegistryCapReached
-            );
-            env.storage()
-                .instance()
-                .set(&LocalKey::PositionManagerCount, &(count + 1));
+            increment_registry_count(env, &LocalKey::PositionManagerCount, MAX_POSITION_MANAGERS);
         }
         env.storage().instance().set(&key, config);
     } else {
         if already_registered {
-            // Saturate at zero: an entry registered before this counter existed
-            // (pre-upgrade state) must still be deactivatable without underflowing.
-            let count = position_manager_count(env).saturating_sub(1);
-            env.storage()
-                .instance()
-                .set(&LocalKey::PositionManagerCount, &count);
+            decrement_registry_count(env, &LocalKey::PositionManagerCount);
         }
         env.storage().instance().remove(&key);
     }
