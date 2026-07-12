@@ -161,6 +161,82 @@ fn set_spoke_liquidation_curve_panics_for_bonus_factor_above_bps() {
     });
 }
 
+// The owner-gated entrypoints must round-trip through the contract ABI —
+// wrapper-level coverage, distinct from the internal-helper tests below.
+#[test]
+fn min_borrow_floor_entrypoints_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract = new_controller(&env);
+    let client = crate::ControllerClient::new(&env, &contract);
+
+    let floor = 25 * common::constants::WAD;
+    client.set_min_borrow_collateral_usd(&floor);
+    assert_eq!(client.get_min_borrow_collateral_usd(), floor);
+}
+
+#[test]
+fn blend_pool_approval_entrypoints_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract = new_controller(&env);
+    let client = crate::ControllerClient::new(&env, &contract);
+    let pool = Address::generate(&env);
+
+    assert!(!client.is_blend_pool_approved(&pool));
+    client.approve_blend_pool(&pool);
+    assert!(client.is_blend_pool_approved(&pool));
+    client.revoke_blend_pool(&pool);
+    assert!(!client.is_blend_pool_approved(&pool));
+}
+
+#[test]
+fn token_approval_entrypoints_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract = new_controller(&env);
+    let client = crate::ControllerClient::new(&env, &contract);
+    let token = Address::generate(&env);
+
+    client.approve_token(&token);
+    env.as_contract(&contract, || {
+        assert!(storage::is_token_approved(&env, &token));
+    });
+    client.revoke_token(&token);
+    env.as_contract(&contract, || {
+        assert!(!storage::is_token_approved(&env, &token));
+    });
+}
+
+// `upgrade_pool` must reach the pool lookup: with no pool deployed the
+// entrypoint reverts instead of silently returning.
+#[test]
+fn upgrade_pool_reverts_without_deployed_pool() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract = new_controller(&env);
+    let client = crate::ControllerClient::new(&env, &contract);
+
+    let bogus = soroban_sdk::BytesN::from_array(&env, &[7u8; 32]);
+    assert!(client.try_upgrade_pool(&bogus).is_err());
+}
+
+// `remove_delegate` must reach the owner check: a caller that owns no such
+// account reverts instead of silently returning.
+#[test]
+fn remove_delegate_reverts_for_non_owner() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract = new_controller(&env);
+    let client = crate::ControllerClient::new(&env, &contract);
+
+    let stranger = Address::generate(&env);
+    let delegate = Address::generate(&env);
+    assert!(client
+        .try_remove_delegate(&stranger, &1u64, &delegate)
+        .is_err());
+}
+
 #[test]
 fn min_borrow_floor_defaults_and_blend_wrapper_reflects_storage() {
     let env = Env::default();

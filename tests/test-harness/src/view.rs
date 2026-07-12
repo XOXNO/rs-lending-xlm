@@ -1,5 +1,5 @@
 use common::math::fp::Ray;
-use controller::constants::{RAY, WAD};
+use controller::constants::RAY;
 use controller::types::{AccountPositionType, ControllerKey, PositionLimits};
 use soroban_sdk::token;
 
@@ -209,12 +209,12 @@ impl LendingTest {
 
     pub fn can_be_liquidated(&self, user: &str) -> bool {
         self.find_account_id(user)
-            .map(|account_id| self.ctrl_client().get_health_factor(&account_id) < WAD)
+            .map(|account_id| self.ctrl_client().is_liquidatable(&account_id))
             .unwrap_or(false)
     }
 
     pub fn can_be_liquidated_by_id(&self, account_id: u64) -> bool {
-        self.ctrl_client().get_health_factor(&account_id) < WAD
+        self.ctrl_client().is_liquidatable(&account_id)
     }
     // Account info
 

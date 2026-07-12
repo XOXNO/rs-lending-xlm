@@ -68,6 +68,24 @@ fn validate_position_limits_rejects_above_cap() {
     );
 }
 
+// The probed decimals must flow through verbatim; a freshly registered SAC
+// reports 7 and that exact value is what market creation later compares
+// against `params.asset_decimals`.
+#[test]
+fn validate_and_fetch_token_decimals_returns_token_value() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin).address();
+    assert_eq!(validate_and_fetch_token_decimals(&env, &sac), 7);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn validate_and_fetch_token_decimals_rejects_non_token() {
+    let env = Env::default();
+    validate_and_fetch_token_decimals(&env, &Address::generate(&env));
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #8)")]
 fn validate_market_creation_rejects_wrong_asset_id() {
