@@ -68,7 +68,10 @@ SHELL := /bin/bash
 # ---------------------------------------------------------------------------
 
 WASM_TARGET  := wasm32v1-none
-RELEASE_DIR  := target/$(WASM_TARGET)/release
+# Honor CARGO_TARGET_DIR so callers that isolate their build dir (the CI
+# mutation jobs) find the wasm fixtures where cargo actually wrote them.
+CARGO_TARGET_DIR ?= target
+RELEASE_DIR  := $(CARGO_TARGET_DIR)/$(WASM_TARGET)/release
 # Wasm shadow-stack size. Smaller stacks reduce Soroban memory budget charged
 # on cross-contract calls while preserving trap-on-overflow behavior.
 WASM_STACK_SIZE ?= 16384

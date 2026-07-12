@@ -173,6 +173,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
+            target-mutants
           key: ${{ runner.os }}-mutants-diff-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
           restore-keys: |
             ${{ runner.os }}-mutants-diff-
@@ -187,8 +188,10 @@ jobs:
         run: git diff "$BASE_SHA"...HEAD > pr.diff
 
       - name: Mutate changed lines
+        # Same CARGO_TARGET_DIR isolation as the matrix jobs (see above).
         env:
           CARGO_BUILD_JOBS: '4'
+          CARGO_TARGET_DIR: target-mutants
         run: make mutants-diff MUTANTS_RUN_MODE=--in-place
 
       - name: Upload mutation results
@@ -473,6 +476,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
+            target-mutants
           key: ${{ runner.os }}-${{ matrix.target }}${{ matrix.suffix || '' }}-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-
@@ -496,8 +500,15 @@ jobs:
           echo "$PWD/.github/tools" >> "$GITHUB_PATH"
 
       - name: Run mutation target
+        # CARGO_TARGET_DIR isolation: --in-place mutates real sources and
+        # builds them into the target dir. A cancelled run can leave
+        # mutant-built artifacts behind, and other workflows on the same
+        # persistent runner (e.g. Build & Test) deliberately preserve
+        # target/ across checkouts — a shared dir lets a mutated rlib leak
+        # into an ordinary test build.
         env:
           CARGO_BUILD_JOBS: '1'
+          CARGO_TARGET_DIR: target-mutants
         run: make "${{ matrix.target }}" MUTANTS_RUN_MODE=--in-place MUTANTS_SHARD="${{ matrix.shard || '' }}"
 
       - name: Upload mutation results
