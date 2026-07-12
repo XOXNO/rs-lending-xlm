@@ -89,6 +89,55 @@ exclude_re = [
     # unobservable — the mutant changes cost, never results.
     "replace \\|\\| with && in Cache::prefetch_market_indexes",
 
+    # `settle_partial_max` stepping internals: the function is a bounded
+    # step-optimizer over `binary_search_partial` on a monotone feasibility
+    # predicate (`partial_ok` only tightens as the amount grows). Any
+    # mutation of its increments, decrements, loop guards, or the
+    # post-loop re-check degrades to the binary-search fallback (or the
+    # loop's natural exit) and returns the identical maximum; only the
+    # ceiling-zero early return and the fallback target itself are
+    # observable, and those stay mutated. The upward-walk guard at
+    # equality cannot overshoot: `partial_ok(ceiling + 1)` replicates the
+    # full close that `max_withdraw` already rejected before settling.
+    # The downward-walk zero check is the same fallback in both arms:
+    # mutating `amount == 0` to `!=` just takes the binary-search fallback
+    # immediately, returning the identical maximum. Column-anchored so the
+    # killable `ceiling == 0` early return stays mutated.
+    "withdraw.rs:[0-9]+:19: replace == with != in settle_partial_max",
+    "replace -= with \\+= in settle_partial_max",
+    "replace -= with /= in settle_partial_max",
+    "delete ! in settle_partial_max",
+    "replace < with <= in settle_partial_max",
+    "replace < with == in settle_partial_max",
+    "replace < with > in settle_partial_max",
+    "replace && with \\|\\| in settle_partial_max",
+    "replace \\+= with -= in settle_partial_max",
+    "replace \\+= with \\*= in settle_partial_max",
+    "replace \\+ with - in settle_partial_max",
+    "replace \\+ with \\* in settle_partial_max",
+
+    # `max_withdraw`'s debt-free refresh guard: for a debt-free account the
+    # refreshed risk params are never read (the account gates are trivially
+    # true and the risk caps are skipped), so running the refresh anyway
+    # cannot change the preview. Its panic path needs a supply position on
+    # an asset the spoke no longer lists, which the zero-usage delist gate
+    # makes unreachable.
+    "delete ! in max_withdraw",
+
+    # `risk_partial_cap` zero-slack shortcuts: when exactly one slack is
+    # zero, the corresponding per-cap arm already yields 0 and the final
+    # `min` reproduces the early return, so the combined guard's shape is
+    # unobservable. A nonzero slack implies its risk ratio is nonzero
+    # (the slack is derived from that ratio), so the ratio-zero arm of the
+    # per-cap `||` can never divide by zero on reachable inputs.
+    # Column-anchored so the killable slack/ratio comparisons on the same
+    # lines stay mutated.
+    "replace && with \\|\\| in risk_partial_cap",
+    "withdraw.rs:[0-9]+:18: replace == with != in risk_partial_cap",
+    "withdraw.rs:[0-9]+:35: replace == with != in risk_partial_cap",
+    "withdraw.rs:[0-9]+:37: replace \\|\\| with && in risk_partial_cap",
+    "withdraw.rs:[0-9]+:35: replace \\|\\| with && in risk_partial_cap",
+
     # Oracle-adapter insertion-sort comparator over i128 prices: `>=` vs `>`
     # only changes which of two EQUAL elements shifts first, i.e. sort
     # stability. Equal i128 values are indistinguishable, so the output

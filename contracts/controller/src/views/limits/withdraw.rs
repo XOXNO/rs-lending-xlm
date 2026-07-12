@@ -340,3 +340,7 @@ fn partial_ok(
     adjusted.supply_positions.set(hub_asset.clone(), pos_raw);
     account_gates_ok(env, cache, &adjusted)
 }
+
+#[cfg(test)]
+#[path = "../../../tests/views/withdraw.rs"]
+mod tests;

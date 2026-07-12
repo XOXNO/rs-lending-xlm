@@ -195,3 +195,7 @@ fn borrow_ok(
     );
     account_gates_ok(env, cache, &adjusted)
 }
+
+#[cfg(test)]
+#[path = "../../../tests/views/borrow.rs"]
+mod tests;
