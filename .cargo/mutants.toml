@@ -101,36 +101,27 @@ exclude_re = [
     # re-check catches it, and the fallback returns the same maximum.
     "replace -= with \\+= in settle_partial_max",
     "replace -= with /= in settle_partial_max",
-    # Upward-walk step mutants degrade to the post-loop check: a wrong step
-    # leaves `amount` feasible-but-short (or loops to the step cap), and the
-    # `amount < ceiling && partial_ok(amount + 1)` re-check routes to the
-    # binary-search fallback with the same result.
+    # Upward-walk amount-step mutants (the only `+=` in the function — the
+    # step counter is the bounded `for` itself) degrade to the post-loop
+    # check: a wrong step leaves `amount` feasible-but-short within the
+    # 24-iteration cap, and the `amount < ceiling && partial_ok(amount+1)`
+    # re-check routes to the binary-search fallback with the same result.
     "replace \\+= with -= in settle_partial_max",
     "replace \\+= with \\*= in settle_partial_max",
-    # While-loop guards only (columns 18 and 37 on the `while` line): the
-    # post-loop re-check recovers a skipped or shortened walk via the
-    # fallback, so only the iteration count changes. The post-loop `<` at
-    # column 15 is NOT excluded — weakening it returns an under-walked
-    # amount when the analytic seed is short (killed by
-    # `settle_recovers_from_underseeded_candidate`). Likewise the zero
-    # guard (`==` at col 19), both `!` negations, and the `amount + 1`
-    # probes stay mutated: the zero-guard mutant can walk negative and
-    # return a negative withdrawal on a dust-underwater account, and the
-    # probe/negation mutants overshoot the maximum (killed by the settle
-    # seed tests).
-    "withdraw.rs:[0-9]+:18: replace < with <= in settle_partial_max",
-    "withdraw.rs:[0-9]+:18: replace < with == in settle_partial_max",
-    "withdraw.rs:[0-9]+:18: replace < with > in settle_partial_max",
-    "withdraw.rs:[0-9]+:37: replace < with <= in settle_partial_max",
-    "withdraw.rs:[0-9]+:37: replace < with == in settle_partial_max",
-    "withdraw.rs:[0-9]+:37: replace < with > in settle_partial_max",
+    # Upward-walk ceiling break guard: the loop maintains amount <= ceiling
+    # (steps stop at the guard or the probe), so `>`/`==` coincide with
+    # `>=` on every reachable state, and `<` breaks immediately — which the
+    # post-loop re-check recovers via the fallback. All shapes are bounded
+    # by the `for` cap, so none can extend the walk.
+    "replace >= with < in settle_partial_max",
+    "replace >= with > in settle_partial_max",
+    "replace >= with == in settle_partial_max",
     # Post-loop re-check `<` -> `<=` only differs at amount == ceiling,
     # where the probe amount+1 equals the full request whose full close
     # max_withdraw already rejected, so partial_ok is false and both
     # shapes skip the fallback identically. The `>`/`==` shapes at the
     # same column stay mutated (killed by the under-seeded settle test).
     "withdraw.rs:[0-9]+:15: replace < with <= in settle_partial_max",
-    "replace && with \\|\\| in settle_partial_max",
 
     # `max_withdraw`'s debt-free refresh guard: for a debt-free account the
     # refreshed risk params are never read (the account gates are trivially

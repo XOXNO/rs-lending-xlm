@@ -217,8 +217,10 @@ fn settle_partial_max(
         );
     }
 
-    let mut steps = 0;
-    while amount < ceiling && steps < PARTIAL_SETTLE_STEPS {
+    for _ in 0..PARTIAL_SETTLE_STEPS {
+        if amount >= ceiling {
+            break;
+        }
         if !partial_ok(
             env,
             cache,
@@ -231,7 +233,6 @@ fn settle_partial_max(
             break;
         }
         amount += 1;
-        steps += 1;
     }
     if amount < ceiling
         && partial_ok(
