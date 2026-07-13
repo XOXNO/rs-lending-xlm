@@ -123,14 +123,6 @@ exclude_re = [
     # same column stay mutated (killed by the under-seeded settle test).
     "withdraw.rs:[0-9]+:15: replace < with <= in settle_partial_max",
 
-    # `max_withdraw`'s debt-free refresh guard: for a debt-free account the
-    # refreshed risk params are never read (the account gates are trivially
-    # true and the risk caps are skipped), so running the refresh anyway
-    # cannot change the preview. Its panic path needs a supply position on
-    # an asset the spoke no longer lists, which the zero-usage delist gate
-    # makes unreachable.
-    "delete ! in max_withdraw",
-
     # Preview binary-search break guards (`if lo >= hi break`): the loop
     # maintains `lo <= hi` (mid >= lo + 1, so `hi = mid.saturating_sub(1)`
     # never drops below `lo`), making `>` and `==` coincide with `>=` on
