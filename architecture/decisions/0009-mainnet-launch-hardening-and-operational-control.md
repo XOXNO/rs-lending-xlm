@@ -24,7 +24,7 @@ Current runtime controls:
 - account owners can renew their own account TTL.
 
 The current controller does not have `KEEPER`, `REVENUE`, or `ORACLE` roles.
-Governance roles are `PROPOSER`, `EXECUTOR`, `CANCELLER`, and `ORACLE`.
+Governance roles are `PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, and `GUARDIAN` (for immediate per-listing incident actions).
 
 ## Decision
 

@@ -51,7 +51,7 @@ issue_sac() {
             [ "$attempt" -gt 1 ] && backoff_sleep "$attempt" 3 15
             if stellar contract asset deploy --asset "$asset" --source "$ADMIN" \
                 --network "$NETWORK" >"$out_f" 2>"$err_f"; then
-                hash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
+                hash=$(extract_signing_hash "$err_f")
                 break
             fi
             # A racing duplicate deploy reverts but still lands the SAC.
@@ -59,7 +59,7 @@ issue_sac() {
         done
         if ! sac_wait_live "$sac"; then
             die "issue_sac_$code" \
-                "SAC $code not live after $DEPLOY_MAX_ATTEMPTS deploy attempts: $(tail -c 200 "$err_f" | tr '\n\t' '  ')"
+                "SAC $code not live after $DEPLOY_MAX_ATTEMPTS deploy attempts: $(tail_err_note "$err_f" 200)"
         fi
         record "issue_sac_$code" ok "asset_deploy" "${hash:-}" "" "" "" "" "$sac"
     fi

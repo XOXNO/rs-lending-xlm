@@ -16,14 +16,18 @@ mod venues;
 #[cfg(test)]
 mod test;
 
-use crate::errors::Error;
-use crate::types::{DataKey, ReferralConfig, StrategyPayload, SwapPath};
-use crate::vault::Vault;
+use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, xdr::FromXdr, Address, Bytes, BytesN, Env, Vec,
 };
+
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
+
+use crate::errors::Error;
+use crate::types::{DataKey, ReferralConfig, StrategyPayload, SwapPath};
+use crate::vault::Vault;
 
 const PPM_DENOMINATOR: i128 = 1_000_000;
 const TOTAL_FEE: i128 = 10_000;
@@ -41,9 +45,7 @@ impl Router {
         storage.set(&DataKey::ReferralCounter, &0u64);
     }
 
-    // -----------------------------------------------------------------
-    // Admin endpoints — gated by `#[only_owner]` (OZ `Ownable`).
-    // -----------------------------------------------------------------
+    // ################## ADMIN ##################
 
     #[only_owner]
     pub fn set_static_fee(env: Env, fee_bps: u32) {
@@ -157,9 +159,7 @@ impl Router {
         }
     }
 
-    // -----------------------------------------------------------------
-    // Views — read-only, free for off-chain callers via `simulateTransaction`.
-    // -----------------------------------------------------------------
+    // ################## VIEWS ##################
 
     pub fn admin(env: Env) -> Address {
         ownable::get_owner(&env).unwrap_or_else(|| panic_with_error!(&env, Error::NotAdmin))
@@ -173,7 +173,14 @@ impl Router {
     }
 
     pub fn referral(env: Env, id: u64) -> Option<ReferralConfig> {
-        env.storage().persistent().get(&DataKey::Referral(id))
+        let key = DataKey::Referral(id);
+        let v: Option<ReferralConfig> = env.storage().persistent().get(&key);
+        if v.is_some() {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+        }
+        v
     }
 
     pub fn referral_counter(env: Env) -> u64 {
@@ -192,22 +199,28 @@ impl Router {
     }
 
     pub fn admin_fee_balance(env: Env, token: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::AdminFee(token))
-            .unwrap_or(0)
+        let key = DataKey::AdminFee(token);
+        let v: Option<i128> = env.storage().persistent().get(&key);
+        if v.is_some() {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+        }
+        v.unwrap_or(0)
     }
 
     pub fn referral_fee_balance(env: Env, id: u64, token: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::ReferralFee(id, token))
-            .unwrap_or(0)
+        let key = DataKey::ReferralFee(id, token);
+        let v: Option<i128> = env.storage().persistent().get(&key);
+        if v.is_some() {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+        }
+        v.unwrap_or(0)
     }
 
-    // -----------------------------------------------------------------
-    // Main entry — execute an opaque strategy payload.
-    // -----------------------------------------------------------------
+    // ################## EXECUTION ##################
 
     pub fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
         let payload = StrategyPayload::from_xdr(&env, &swap_xdr)
@@ -238,15 +251,19 @@ impl Ownable for Router {
     }
 }
 
-// ---------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------
+// ################## LOW-LEVEL HELPERS ##################
 
 fn load_referral(env: &Env, id: u64) -> ReferralConfig {
+    let key = DataKey::Referral(id);
+    let v: ReferralConfig = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| panic_with_error!(env, Error::ReferralNotFound));
     env.storage()
         .persistent()
-        .get(&DataKey::Referral(id))
-        .unwrap_or_else(|| panic_with_error!(env, Error::ReferralNotFound))
+        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+    v
 }
 
 fn load_whitelist(env: &Env) -> Vec<Address> {
@@ -355,22 +372,27 @@ fn claim_fee_bucket(
 }
 
 fn reserved_fee_balance(env: &Env, token: &Address) -> i128 {
-    let mut total: i128 = env
-        .storage()
-        .persistent()
-        .get(&DataKey::AdminFee(token.clone()))
-        .unwrap_or(0);
+    let admin_key = DataKey::AdminFee(token.clone());
+    let mut total: i128 = env.storage().persistent().get(&admin_key).unwrap_or(0);
+    if total > 0 {
+        env.storage()
+            .persistent()
+            .extend_ttl(&admin_key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+    }
+
     let counter: u64 = env
         .storage()
         .instance()
         .get(&DataKey::ReferralCounter)
         .unwrap_or(0);
     for id in 1..=counter {
-        let amount: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::ReferralFee(id, token.clone()))
-            .unwrap_or(0);
+        let key = DataKey::ReferralFee(id, token.clone());
+        let amount: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        if amount > 0 {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+        }
         total = checked_add(env, total, amount);
     }
     total

@@ -5,6 +5,9 @@
 //! executes the governance-self variants inline once their timelock matures.
 
 use common::errors::{CollateralError, GenericError, OracleError};
+use common::types::MarketOracleConfigOption;
+use common::validation::{validate_sanity_bounds, validate_single_source_sanity_band};
+
 use soroban_sdk::{
     assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
 };
@@ -12,6 +15,8 @@ use soroban_sdk::{
 use crate::access;
 use crate::timelock::{apply_update_delay, validate_delay_update, DelayTier};
 use crate::{storage, validate};
+
+// ################## REEXPORTS ##################
 
 pub use governance_interface::{
     AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EditToleranceArgs,
@@ -24,14 +29,10 @@ pub use governance_interface::{
 /// and the single-source sanity band). A malformed `Single`-strategy override is
 /// then rejected before the timelock delay instead of after it. Storage-dependent
 /// quote-market activation stays with the controller, which owns that state.
-fn validate_oracle_override(env: &Env, oracle_override: &common::types::MarketOracleConfigOption) {
-    if let common::types::MarketOracleConfigOption::Some(cfg) = oracle_override {
-        common::validation::validate_sanity_bounds(
-            env,
-            cfg.min_sanity_price_wad,
-            cfg.max_sanity_price_wad,
-        );
-        common::validation::validate_single_source_sanity_band(
+fn validate_oracle_override(env: &Env, oracle_override: &MarketOracleConfigOption) {
+    if let MarketOracleConfigOption::Some(cfg) = oracle_override {
+        validate_sanity_bounds(env, cfg.min_sanity_price_wad, cfg.max_sanity_price_wad);
+        validate_single_source_sanity_band(
             env,
             cfg.strategy,
             cfg.min_sanity_price_wad,

@@ -5,7 +5,9 @@ use common::constants::{
     BPS, MS_PER_SECOND, RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE,
     TTL_THRESHOLD_SHARED,
 };
-use common::types::{HubAssetKey, ScaledPositionRaw};
+use common::errors::{CollateralError, FlashLoanError, GenericError};
+use simulate_update_indexes;
+use common::types::{HubAssetKey, MarketIndexRaw, ScaledPositionRaw};
 
 /// Pool tests use hub 0 as a local fixture id.
 fn hub(asset: &Address) -> HubAssetKey {
@@ -16,8 +18,8 @@ fn hub(asset: &Address) -> HubAssetKey {
 }
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
-use soroban_sdk::xdr::{ContractEventBody, ScVal};
-use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, Env};
+use soroban_sdk::xdr::{ContractEventBody, ScVal, SorobanAuthorizationEntry};
+use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, ConversionError, Env, Error, InvokeError, Vec};
 
 fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
     events
@@ -390,10 +392,10 @@ fn assert_pool_state_eq(left: &PoolStateRaw, right: &PoolStateRaw) {
 
 fn flatten_contract_result<T>(
     result: Result<
-        Result<T, soroban_sdk::ConversionError>,
-        Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
+        Result<T, ConversionError>,
+        Result<Error, InvokeError>,
     >,
-) -> Result<T, soroban_sdk::Error> {
+) -> Result<T, Error> {
     match result {
         Ok(Ok(value)) => Ok(value),
         Ok(Err(err)) => panic!("contract call succeeded but output conversion failed: {err:?}"),
@@ -402,14 +404,14 @@ fn flatten_contract_result<T>(
 }
 
 fn assert_contract_error<T: core::fmt::Debug>(
-    result: Result<T, soroban_sdk::Error>,
+    result: Result<T, Error>,
     expected_code: u32,
 ) {
     match result {
         Ok(value) => panic!("expected contract error {expected_code}, got Ok({value:?})"),
         Err(err) => assert_eq!(
             err,
-            soroban_sdk::Error::from_contract_error(expected_code),
+            Error::from_contract_error(expected_code),
             "unexpected contract error"
         ),
     }
@@ -537,7 +539,7 @@ fn test_borrow_rejects_zero_amount() {
     let result = flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 0i128)));
     assert_contract_error(
         result,
-        common::errors::GenericError::AmountMustBePositive as u32,
+        GenericError::AmountMustBePositive as u32,
     );
 }
 
@@ -551,7 +553,7 @@ fn test_borrow_rejects_when_reserves_are_insufficient() {
         flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 200_000_000_000_000i128)));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InsufficientLiquidity as u32,
+        CollateralError::InsufficientLiquidity as u32,
     );
 }
 #[test]
@@ -605,7 +607,7 @@ fn test_withdraw_rejects_fee_greater_than_withdrawn_amount() {
     ));
     assert_contract_error(
         result,
-        common::errors::CollateralError::WithdrawLessThanFee as u32,
+        CollateralError::WithdrawLessThanFee as u32,
     );
 }
 
@@ -632,7 +634,7 @@ fn test_borrow_above_max_utilization_panics() {
     let result = flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 60_000i128)));
     assert_contract_error(
         result,
-        common::errors::CollateralError::UtilizationAboveMax as u32,
+        CollateralError::UtilizationAboveMax as u32,
     );
 }
 
@@ -664,7 +666,7 @@ fn test_withdraw_rejects_when_reserves_are_insufficient() {
     ));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InsufficientLiquidity as u32,
+        CollateralError::InsufficientLiquidity as u32,
     );
 }
 
@@ -686,7 +688,7 @@ fn test_withdraw_rejects_supplied_accounting_underflow() {
         &false,
         &t.wdr(updated_pos.position.scaled_amount, i128::MAX, 0i128),
     ));
-    assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
+    assert_contract_error(result, GenericError::MathOverflow as u32);
 }
 #[test]
 fn test_repay() {
@@ -819,7 +821,7 @@ fn test_flash_loan_rejects_zero_amount_at_pool() {
 
     assert_contract_error(
         result,
-        common::errors::GenericError::AmountMustBePositive as u32,
+        GenericError::AmountMustBePositive as u32,
     );
 }
 
@@ -840,7 +842,7 @@ fn test_flash_loan_rejects_non_contract_receiver_at_pool() {
 
     assert_contract_error(
         result,
-        common::errors::FlashLoanError::InvalidFlashloanReceiver as u32,
+        FlashLoanError::InvalidFlashloanReceiver as u32,
     );
 }
 
@@ -850,7 +852,7 @@ fn test_flash_loan_rejects_direct_non_owner_pool_call() {
     let client = t.client();
     let receiver = t.env.register(PoolFlashLoanReceiver, ());
     let attacker = Address::generate(&t.env);
-    let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
+    let no_auths: [SorobanAuthorizationEntry; 0] = [];
 
     let result = client.set_auths(&no_auths).try_flash_loan(
         &hub(&t.asset),
@@ -890,7 +892,7 @@ fn test_flash_loan_rejects_under_repay_with_invalid_flashloan_repay() {
 
     assert_contract_error(
         result,
-        common::errors::FlashLoanError::InvalidFlashloanRepay as u32,
+        FlashLoanError::InvalidFlashloanRepay as u32,
     );
 }
 
@@ -916,7 +918,7 @@ fn test_flash_loan_rejects_callback_balance_change() {
 
     assert_contract_error(
         result,
-        common::errors::FlashLoanError::InvalidFlashloanRepay as u32,
+        FlashLoanError::InvalidFlashloanRepay as u32,
     );
 }
 
@@ -962,7 +964,7 @@ fn test_flash_loan_rejects_insufficient_liquidity() {
     ));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InsufficientLiquidity as u32,
+        CollateralError::InsufficientLiquidity as u32,
     );
 }
 
@@ -982,7 +984,7 @@ fn test_flash_loan_rejects_negative_fee() {
     ));
     assert_contract_error(
         result,
-        common::errors::GenericError::AmountMustBePositive as u32,
+        GenericError::AmountMustBePositive as u32,
     );
 }
 
@@ -996,7 +998,7 @@ fn test_create_strategy_rejects_zero_amount() {
         flatten_contract_result(client.try_create_strategy(&caller, &t.action(0, 0i128), &0i128));
     assert_contract_error(
         result,
-        common::errors::GenericError::AmountMustBePositive as u32,
+        GenericError::AmountMustBePositive as u32,
     );
 }
 
@@ -1013,7 +1015,7 @@ fn test_create_strategy_rejects_fee_greater_than_amount() {
     ));
     assert_contract_error(
         result,
-        common::errors::FlashLoanError::StrategyFeeExceeds as u32,
+        FlashLoanError::StrategyFeeExceeds as u32,
     );
 }
 
@@ -1030,7 +1032,7 @@ fn test_create_strategy_rejects_insufficient_liquidity() {
     ));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InsufficientLiquidity as u32,
+        CollateralError::InsufficientLiquidity as u32,
     );
 }
 #[test]
@@ -1081,7 +1083,7 @@ fn test_seize_positions_rejects_borrowed_accounting_underflow() {
     let result = flatten_contract_result(
         client.try_seize_positions(&t.sez(AccountPositionType::Borrow, &updated_borrow.position)),
     );
-    assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
+    assert_contract_error(result, GenericError::MathOverflow as u32);
 }
 #[test]
 fn test_seize_positions_deposit_dust() {
@@ -1214,7 +1216,7 @@ fn test_claim_revenue_rejects_utilization_above_max_after_revenue_burn() {
     let result = flatten_contract_result(client.try_claim_revenue(&hub(&t.asset)));
     assert_contract_error(
         result,
-        common::errors::CollateralError::UtilizationAboveMax as u32,
+        CollateralError::UtilizationAboveMax as u32,
     );
 }
 
@@ -1232,7 +1234,7 @@ fn test_claim_revenue_rejects_revenue_above_supplied() {
     });
 
     let result = flatten_contract_result(client.try_claim_revenue(&hub(&t.asset)));
-    assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
+    assert_contract_error(result, GenericError::MathOverflow as u32);
 }
 
 #[test]
@@ -1254,7 +1256,7 @@ fn test_update_params_rejects_invalid_utilization_range() {
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InvalidUtilRange as u32,
+        CollateralError::InvalidUtilRange as u32,
     );
 }
 
@@ -1277,7 +1279,7 @@ fn test_update_params_rejects_optimal_utilization_above_one() {
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::OptUtilTooHigh as u32,
+        CollateralError::OptUtilTooHigh as u32,
     );
 }
 
@@ -1300,7 +1302,7 @@ fn test_update_params_rejects_invalid_reserve_factor() {
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InvalidReserveFactor as u32,
+        CollateralError::InvalidReserveFactor as u32,
     );
 }
 
@@ -1323,7 +1325,7 @@ fn test_update_params_rejects_negative_base_rate() {
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::BaseRateNegative as u32,
+        CollateralError::BaseRateNegative as u32,
     );
 }
 
@@ -1347,7 +1349,7 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::MaxRateBelowBase as u32,
+        CollateralError::MaxRateBelowBase as u32,
     );
 }
 
@@ -1371,7 +1373,7 @@ fn test_update_params_rejects_max_borrow_rate_above_cap() {
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::MaxBorrowRateTooHigh as u32,
+        CollateralError::MaxBorrowRateTooHigh as u32,
     );
 }
 
@@ -1746,7 +1748,7 @@ fn test_update_params_rejects_invalid_slope_ordering() {
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::SlopeNonMonotonic as u32,
+        CollateralError::SlopeNonMonotonic as u32,
     );
 }
 
@@ -1770,7 +1772,7 @@ fn test_update_params_rejects_mid_utilization_zero() {
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InvalidUtilRange as u32,
+        CollateralError::InvalidUtilRange as u32,
     );
 }
 
@@ -1795,7 +1797,7 @@ fn test_update_params_rejects_reserve_factor_at_bps() {
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InvalidReserveFactor as u32,
+        CollateralError::InvalidReserveFactor as u32,
     );
 }
 
@@ -1816,7 +1818,7 @@ fn test_create_market_rejects_invalid_rate_model() {
     let result = flatten_contract_result(client.try_create_market(&0u32, &params));
     assert_contract_error(
         result,
-        common::errors::CollateralError::BaseRateNegative as u32,
+        CollateralError::BaseRateNegative as u32,
     );
 }
 
@@ -1829,7 +1831,7 @@ fn test_create_market_rejects_duplicate_asset() {
     let result = flatten_contract_result(client.try_create_market(&0u32, &market_params(&t.asset)));
     assert_contract_error(
         result,
-        common::errors::GenericError::AssetAlreadySupported as u32,
+        GenericError::AssetAlreadySupported as u32,
     );
 }
 
@@ -1844,7 +1846,7 @@ fn test_supply_rejects_unknown_market() {
         flatten_contract_result(client.try_supply(&t.sup_for(&unknown_asset, 0, 1_0000000i128)));
     assert_contract_error(
         result,
-        common::errors::GenericError::PoolNotInitialized as u32,
+        GenericError::PoolNotInitialized as u32,
     );
 }
 
@@ -1920,7 +1922,7 @@ fn test_create_market_rejects_non_owner() {
     let t = TestSetup::new();
     let client = t.client();
     let asset_b = Address::generate(&t.env);
-    let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
+    let no_auths: [SorobanAuthorizationEntry; 0] = [];
 
     let result = client
         .set_auths(&no_auths)
@@ -1945,12 +1947,12 @@ fn test_bulk_get_indexes_matches_per_asset() {
 
     t.advance_time(86_400);
 
-    let assets = soroban_sdk::vec![&t.env, hub(&t.asset)];
+    let assets = vec![&t.env, hub(&t.asset)];
     let bulk = client.get_bulk_indexes(&assets);
     assert_eq!(bulk.len(), 1, "one entry per requested asset");
 
-    let now_ms = t.env.ledger().timestamp() * common::constants::MS_PER_SECOND;
-    let reference = common::types::MarketIndexRaw::from(&common::rates::simulate_update_indexes(
+    let now_ms = t.env.ledger().timestamp() * MS_PER_SECOND;
+    let reference = MarketIndexRaw::from(&simulate_update_indexes(
         &t.env,
         now_ms,
         &client.get_sync_data(&hub(&t.asset)),
@@ -1983,7 +1985,7 @@ fn test_bulk_get_indexes_multi_asset_alignment() {
 
     t.advance_time(86_400);
 
-    let assets = soroban_sdk::vec![&t.env, hub(&t.asset), hub(&asset_b)];
+    let assets = vec![&t.env, hub(&t.asset), hub(&asset_b)];
     let bulk = client.get_bulk_indexes(&assets);
     assert_eq!(bulk.len(), 2);
 
@@ -1996,13 +1998,13 @@ fn test_bulk_get_indexes_multi_asset_alignment() {
     assert_eq!(b.supply_index, RAY, "no borrows, no supplier rewards");
 
     // Input alignment: each entry matches its own per-asset simulation.
-    let now_ms = t.env.ledger().timestamp() * common::constants::MS_PER_SECOND;
-    let ref_a = common::types::MarketIndexRaw::from(&common::rates::simulate_update_indexes(
+    let now_ms = t.env.ledger().timestamp() * MS_PER_SECOND;
+    let ref_a = MarketIndexRaw::from(&simulate_update_indexes(
         &t.env,
         now_ms,
         &client.get_sync_data(&hub(&t.asset)),
     ));
-    let ref_b = common::types::MarketIndexRaw::from(&common::rates::simulate_update_indexes(
+    let ref_b = MarketIndexRaw::from(&simulate_update_indexes(
         &t.env,
         now_ms,
         &client.get_sync_data(&hub(&asset_b)),
@@ -2015,7 +2017,7 @@ fn test_bulk_get_indexes_multi_asset_alignment() {
 #[test]
 fn test_bulk_get_indexes_empty_request() {
     let t = TestSetup::new();
-    let bulk = t.client().get_bulk_indexes(&soroban_sdk::Vec::new(&t.env));
+    let bulk = t.client().get_bulk_indexes(&Vec::new(&t.env));
     assert_eq!(bulk.len(), 0);
 }
 
@@ -2024,11 +2026,11 @@ fn test_bulk_get_indexes_empty_request() {
 fn test_bulk_get_indexes_unknown_asset_panics() {
     let t = TestSetup::new();
     let unknown = Address::generate(&t.env);
-    let assets = soroban_sdk::vec![&t.env, hub(&unknown)];
+    let assets = vec![&t.env, hub(&unknown)];
     let result = flatten_contract_result(t.client().try_get_bulk_indexes(&assets));
     assert_contract_error(
         result,
-        common::errors::GenericError::PoolNotInitialized as u32,
+        GenericError::PoolNotInitialized as u32,
     );
 }
 
@@ -2233,7 +2235,7 @@ fn test_withdraw_above_max_utilization_panics_but_within_cap_succeeds() {
     ));
     assert_contract_error(
         result,
-        common::errors::CollateralError::UtilizationAboveMax as u32,
+        CollateralError::UtilizationAboveMax as u32,
     );
 }
 

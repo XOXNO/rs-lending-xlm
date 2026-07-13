@@ -10,7 +10,7 @@ use common::types::{
     PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
 };
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::Address;
+use soroban_sdk::{vec, Address};
 
 /// Curve values that `add_spoke` stamps at creation.
 fn default_spoke_config() -> SpokeConfig {
@@ -260,7 +260,7 @@ fn repayment_at_exact_debt_produces_no_refund() {
         let mut cache = Cache::new_view(&env);
         cache.put_market_index(&hub_asset, &index_raw());
 
-        let payments = soroban_sdk::vec![&env, (hub_asset.clone(), 500_0000000i128)];
+        let payments = vec![&env, (hub_asset.clone(), 500_0000000i128)];
         let mut refunds = Vec::new(&env);
         let (total, repaid) =
             calculate_repayment_amounts(&env, &payments, &account, &mut refunds, &mut cache);
@@ -283,7 +283,7 @@ fn repayment_above_debt_refunds_exact_excess() {
         let mut cache = Cache::new_view(&env);
         cache.put_market_index(&hub_asset, &index_raw());
 
-        let payments = soroban_sdk::vec![&env, (hub_asset.clone(), 500_0000005i128)];
+        let payments = vec![&env, (hub_asset.clone(), 500_0000005i128)];
         let mut refunds = Vec::new(&env);
         let (total, repaid) =
             calculate_repayment_amounts(&env, &payments, &account, &mut refunds, &mut cache);
@@ -832,7 +832,7 @@ fn normalize_repayment_plan_refunds_payment_above_ideal() {
         let curve = LiquidationCurve::from_config(&default_spoke_config());
 
         // Pay the full $500 debt; ideal is $100 -> $400 refunded.
-        let payments = soroban_sdk::vec![&env, (hub_asset.clone(), 500_0000000i128)];
+        let payments = vec![&env, (hub_asset.clone(), 500_0000000i128)];
         let plan =
             normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
 

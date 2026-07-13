@@ -1,8 +1,11 @@
 //! Comet weighted-pool adapter.
 
+use soroban_sdk::{panic_with_error, token, vec, Env, IntoVal, Symbol, Val, Vec};
+
 use crate::errors::Error;
 use crate::venues::{auth_entry, authorize_token_approve, HopContext};
-use soroban_sdk::{panic_with_error, token, vec, Env, IntoVal, Symbol, Val, Vec};
+
+// ################## EXECUTION ##################
 
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     let approval_ledger = comet_approval_ledger(ctx.env);

@@ -1,12 +1,16 @@
 //! Non-market controller storage.
 
-use crate::constants;
-use crate::storage::renew_protocol_shared_key;
 use common::errors::GenericError;
 use common::types::{
     ControllerKey, HubConfig, MarketOracleConfig, PositionLimits, PositionManagerConfig,
 };
+
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, BytesN, Env};
+
+use crate::constants;
+use crate::storage::renew_protocol_shared_key;
+
+// ################## CONSTANTS ##################
 
 /// Cap on unconsumed token approvals.
 const MAX_OUTSTANDING_TOKEN_APPROVALS: u32 = 16;

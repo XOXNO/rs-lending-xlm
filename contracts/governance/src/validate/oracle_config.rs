@@ -6,11 +6,16 @@ use common::oracle::observation::{
     MIN_PRICE_STALE_SECONDS,
 };
 use common::types::{MarketOracleConfigInput, OracleStrategy};
+use common::validation::validate_sanity_bounds as common_validate_sanity_bounds;
+
 #[cfg(not(feature = "testing"))]
 use common::types::{OracleReadMode, OracleSourceConfigInput};
 #[cfg(not(feature = "testing"))]
 use soroban_sdk::panic_with_error;
+
 use soroban_sdk::{assert_with_error, Env};
+
+// ################## LOW-LEVEL HELPERS ##################
 
 /// Validates oracle shape without live calls.
 pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
@@ -84,7 +89,7 @@ pub(crate) fn validate_max_stale(env: &Env, max_stale: u64) {
 }
 
 pub(crate) fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
-    common::validation::validate_sanity_bounds(env, min_wad, max_wad);
+    common_validate_sanity_bounds(env, min_wad, max_wad);
 }
 
 pub(crate) fn validate_decimals(env: &Env, decimals: u32) {

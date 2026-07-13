@@ -6,6 +6,7 @@ use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
 use common::math::fp::Ray;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
+use common::types::MarketParams;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, Address};
 
@@ -107,7 +108,7 @@ fn test_views_load_and_compute_expected_values() {
         assert_eq!(delta_time(&t.env, &hub(&t.asset)), 50_000);
 
         let util = Ray::from(capital_utilisation(&t.env, &hub(&t.asset)));
-        let params: common::types::MarketParams = (&t.params).into();
+        let params: MarketParams = (&t.params).into();
         let expected_borrow = calculate_borrow_rate(&t.env, util, &params);
         let expected_deposit =
             calculate_deposit_rate(&t.env, util, expected_borrow, params.reserve_factor);

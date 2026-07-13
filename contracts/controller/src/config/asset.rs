@@ -5,6 +5,10 @@ use common::errors::{CollateralError, GenericError, SpokeError};
 use common::types::{
     HubAssetKey, MarketOracleConfigOption, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig,
 };
+use common::validation::{
+    require_cap_within_asset_domain, validate_liquidation_fees as common_validate_liquidation_fees,
+    validate_risk_bounds as common_validate_risk_bounds,
+};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::config::oracle::validate_market_oracle_config;
@@ -51,8 +55,8 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
 
 /// Validates common risk bounds and returns the listing's hub coordinate.
 fn validate_spoke_asset_args(env: &Env, args: &SpokeAssetArgs) -> HubAssetKey {
-    common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
-    common::validation::validate_liquidation_fees(env, args.liquidation_fees);
+    common_validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
+    common_validate_liquidation_fees(env, args.liquidation_fees);
     assert_with_error!(
         env,
         args.supply_cap >= 0 && args.borrow_cap >= 0,
@@ -75,12 +79,12 @@ fn load_market_and_validate_caps(
     // `(hub, asset)` was never created.
     let market = fetch_pool_sync_data(env, &storage::get_pool(env), hub_asset);
     // These caps feed `Ray::from_asset`; reject overflow-prone configs here.
-    common::validation::require_cap_within_asset_domain(
+    require_cap_within_asset_domain(
         env,
         args.supply_cap,
         market.params.asset_decimals,
     );
-    common::validation::require_cap_within_asset_domain(
+    require_cap_within_asset_domain(
         env,
         args.borrow_cap,
         market.params.asset_decimals,

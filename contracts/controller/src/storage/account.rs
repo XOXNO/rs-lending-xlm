@@ -29,9 +29,13 @@ pub(crate) fn account_from_parts(
 
 /// Returns account metadata if the account exists.
 pub(crate) fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
+    let key = ControllerKey::AccountMeta(account_id);
     env.storage()
         .persistent()
-        .get::<_, AccountMeta>(&ControllerKey::AccountMeta(account_id))
+        .get::<_, AccountMeta>(&key)
+        .inspect(|_| {
+            renew_user_key(env, &key);
+        })
 }
 
 /// Returns account metadata, panicking if the account is not in the market.
@@ -52,18 +56,34 @@ pub(crate) fn get_supply_positions(
     env: &Env,
     account_id: u64,
 ) -> Map<HubAssetKey, AccountPositionRaw> {
-    env.storage()
+    let key = ControllerKey::SupplyPositions(account_id);
+    match env
+        .storage()
         .persistent()
-        .get::<_, Map<HubAssetKey, AccountPositionRaw>>(&ControllerKey::SupplyPositions(account_id))
-        .unwrap_or_else(|| Map::new(env))
+        .get::<_, Map<HubAssetKey, AccountPositionRaw>>(&key)
+    {
+        Some(map) => {
+            renew_user_key(env, &key);
+            map
+        }
+        None => Map::new(env),
+    }
 }
 
 /// Returns the account's debt-position map, empty when none exist.
 pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<HubAssetKey, DebtPositionRaw> {
-    env.storage()
+    let key = ControllerKey::BorrowPositions(account_id);
+    match env
+        .storage()
         .persistent()
-        .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&ControllerKey::BorrowPositions(account_id))
-        .unwrap_or_else(|| Map::new(env))
+        .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&key)
+    {
+        Some(map) => {
+            renew_user_key(env, &key);
+            map
+        }
+        None => Map::new(env),
+    }
 }
 
 /// Persists the supply-position map and renews the account's TTL.
@@ -167,10 +187,14 @@ pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
 
 /// Opt-in delegate list for an account; empty when none are set.
 pub(crate) fn get_delegates(env: &Env, account_id: u64) -> Vec<Address> {
-    env.storage()
-        .persistent()
-        .get(&ControllerKey::Delegates(account_id))
-        .unwrap_or_else(|| Vec::new(env))
+    let key = ControllerKey::Delegates(account_id);
+    match env.storage().persistent().get(&key) {
+        Some(vec) => {
+            renew_user_key(env, &key);
+            vec
+        }
+        None => Vec::new(env),
+    }
 }
 
 /// Persists the delegate list, removing the entry when it becomes empty so a

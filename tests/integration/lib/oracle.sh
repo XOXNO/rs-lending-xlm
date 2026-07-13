@@ -12,9 +12,9 @@ deploy_mock_reflector() {
     run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/mock_oracle.wasm" \
         --source "$ADMIN" --network "$NETWORK"
     local mock hash
-    mock=$(tr -d '"\n' < "$out_f")
-    hash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-    is_contract_id "$mock" || die deploy_mock_reflector "mock reflector deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
+    mock=$(sanitize_output "$out_f")
+    hash=$(extract_signing_hash "$err_f")
+    is_contract_id "$mock" || die deploy_mock_reflector "mock reflector deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
     save_state MOCK "$mock"
     record deploy_mock_reflector ok deploy "$hash" "" "" "" "" "$mock"
     log "mock reflector = $mock"
@@ -27,9 +27,9 @@ deploy_mock_redstone() {
     run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/mock_redstone.wasm" \
         --source "$ADMIN" --network "$NETWORK"
     local mock hash
-    mock=$(tr -d '"\n' < "$out_f")
-    hash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-    is_contract_id "$mock" || die deploy_mock_redstone "mock redstone deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
+    mock=$(sanitize_output "$out_f")
+    hash=$(extract_signing_hash "$err_f")
+    is_contract_id "$mock" || die deploy_mock_redstone "mock redstone deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
     save_state MOCKRS "$mock"
     record deploy_mock_redstone ok deploy "$hash" "" "" "" "" "$mock"
     log "mock redstone = $mock"

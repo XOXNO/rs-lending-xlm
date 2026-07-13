@@ -2,7 +2,7 @@
 
 use common::errors::GenericError;
 use common::types::{HubAssetKey, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
+use soroban_sdk::{assert_with_error, contractimpl, vec, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::account;
@@ -83,7 +83,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
 
     let existing_pos = get_debt_position_or_panic(env, &account, existing_debt);
 
-    let extra_assets = soroban_sdk::vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
+    let extra_assets = vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     // D{new_debt_token.decimals}{Token(new_debt_token)} net borrow received after

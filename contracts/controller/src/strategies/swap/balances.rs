@@ -1,22 +1,22 @@
 //! Router balance-delta verification.
 
 use common::errors::{GenericError, StrategyError};
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 use crate::strategies::swap::balance_delta;
 
-pub(super) struct SwapBalanceSnapshot {
+pub(crate) struct SwapBalanceSnapshot {
     // D{token_in.decimals}{Token(token_in)} controller balance before router call.
-    pub(super) token_in: i128,
+    pub(crate) token_in: i128,
     // D{token_out.decimals}{Token(token_out)} controller balance before router call.
-    pub(super) token_out: i128,
+    pub(crate) token_out: i128,
 }
 
 /// Snapshots the controller's `token_in` and `token_out` balances before the router call.
-pub(super) fn snapshot_swap_balances(
+pub(crate) fn snapshot_swap_balances(
     env: &Env,
-    token_in_client: &soroban_sdk::token::Client,
-    token_out_client: &soroban_sdk::token::Client,
+    token_in_client: &token::Client,
+    token_out_client: &token::Client,
 ) -> SwapBalanceSnapshot {
     SwapBalanceSnapshot {
         token_in: token_in_client.balance(&env.current_contract_address()),
@@ -25,9 +25,9 @@ pub(super) fn snapshot_swap_balances(
 }
 
 /// Rejects a router that spent more than `amount_in` of the input token.
-pub(super) fn verify_router_input_spend(
+pub(crate) fn verify_router_input_spend(
     env: &Env,
-    token_in_client: &soroban_sdk::token::Client,
+    token_in_client: &token::Client,
     balance_before: i128,
     amount_in: i128,
 ) {
@@ -47,9 +47,9 @@ pub(super) fn verify_router_input_spend(
 }
 
 /// Refunds any unspent input token to `refund_to`.
-pub(super) fn refund_router_underspend(
+pub(crate) fn refund_router_underspend(
     env: &Env,
-    token_in_client: &soroban_sdk::token::Client,
+    token_in_client: &token::Client,
     balance_before: i128,
     amount_in: i128,
     refund_to: &Address,
@@ -68,9 +68,9 @@ pub(super) fn refund_router_underspend(
 }
 
 /// Returns the received output balance delta, trapping if nothing was received.
-pub(super) fn verify_router_output(
+pub(crate) fn verify_router_output(
     env: &Env,
-    token_out_client: &soroban_sdk::token::Client,
+    token_out_client: &token::Client,
     balance_before: i128,
 ) -> i128 {
     // D{token_out.decimals}{Token(token_out)} verified router output by balance delta.

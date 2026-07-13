@@ -46,7 +46,13 @@ than through a runtime policy value threaded through the transaction cache:
 There is no flow-level override of oracle strictness: every price read either
 resolves under the ADR 0003 rules or the call reverts. Permissiveness is
 achieved only by a flow choosing not to read a price, never by relaxing how a
-price is validated once read.
+price is validated once read. This is sometimes called "permissiveness by
+omission."
+
+The transaction `Cache` (in `context/`) holds per-tx memos such as
+`prices_cache` and a `resolving` stack (to detect quote/anchor cycles during
+strict resolution), but no `OraclePolicy` value. The call-graph structure
+itself encodes the policy.
 
 ## Flow Assignment
 
@@ -106,10 +112,13 @@ transaction cache, with strict policies failing closed and permissive policies
 allowing degraded reads (a stale, missing, or out-of-tolerance price accepted
 under specific flows). No such type exists in the current tree: price
 resolution (ADR 0003) has one fail-closed path with no permissive variant. The
-flow-level distinction this ADR records is unchanged in substance — some flows
-must not proceed on bad pricing, others do not need pricing at all — but it is
-now expressed by whether a flow's code path calls price resolution, not by a
-policy value passed into it.
+`Cache` struct (see `context/mod.rs`) now only carries resolution memos
+(`prices_cache`, cycle `resolving` stack, etc.).
+
+The flow-level distinction this ADR records is unchanged in substance — some
+flows must not proceed on bad pricing, others do not need pricing at all — but
+it is now expressed structurally by whether a flow's code path calls price
+resolution (permissiveness by omission), not by a policy value passed into it.
 
 ## References
 
@@ -117,4 +126,6 @@ policy value passed into it.
 - `contracts/controller/src/risk/validation.rs::require_post_pool_risk_gates`
 - `contracts/controller/src/risk/totals.rs::calculate_account_risk_totals`
 - `contracts/controller/src/positions/repay.rs`
+- `contracts/controller/src/context/mod.rs` (Cache with prices_cache and resolving stack; no OraclePolicy)
 - [ADR 0003](./0003-oracle-dual-source-with-tolerance-bands.md)
+- `architecture/INVARIANTS.md` §4.3 (Call-site policy / permissiveness by omission)

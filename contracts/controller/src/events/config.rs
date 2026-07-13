@@ -52,7 +52,7 @@ pub struct UpdateSpokeAssetEvent {
 }
 
 #[contractevent(topics = ["config", "remove_spoke_asset"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RemoveSpokeAssetEvent {
     pub asset: Address,
     pub spoke_id: u32,
@@ -60,52 +60,52 @@ pub struct RemoveSpokeAssetEvent {
 }
 
 #[contractevent(topics = ["config", "approve_token"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApproveTokenEvent {
     pub wasm_hash: BytesN<32>,
     pub approved: bool,
 }
 
 #[contractevent(topics = ["config", "approve_blend_pool"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApproveBlendPoolEvent {
     pub pool: Address,
     pub approved: bool,
 }
 
 #[contractevent(topics = ["config", "aggregator"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateAggregatorEvent {
     pub aggregator: Address,
 }
 
 #[contractevent(topics = ["config", "accumulator"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateAccumulatorEvent {
     pub accumulator: Address,
 }
 
 #[contractevent(topics = ["config", "pool_template"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdatePoolTemplateEvent {
     pub wasm_hash: BytesN<32>,
 }
 
 #[contractevent(topics = ["config", "position_limits"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdatePositionLimitsEvent {
     pub max_supply_positions: u32,
     pub max_borrow_positions: u32,
 }
 
 #[contractevent(topics = ["config", "min_borrow_collateral"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateMinBorrowCollateralEvent {
     pub min_borrow_collateral_usd_wad: i128,
 }
 
 #[contractevent(topics = ["config", "hub"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateHubEvent {
     pub hub_id: u32,
 }

@@ -5,8 +5,8 @@ extern crate std;
 use defindex_strategy::{DataKey, DeFindexStrategyError, Strategy, StrategyClient};
 use soroban_sdk::testutils::storage::Persistent as _;
 use soroban_sdk::testutils::{Address as _, Events, MockAuth, MockAuthInvoke};
-use soroban_sdk::xdr::{ContractEventBody, ScVal};
-use soroban_sdk::{vec, Address, Env, IntoVal, Val, Vec};
+use soroban_sdk::xdr::{ContractEventBody, ContractEventV0, ScVal};
+use soroban_sdk::{token, vec, Address, Env, Error, IntoVal, InvokeError, Val, Vec};
 use test_harness::{
     eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB, HARNESS_HUB, HARNESS_SPOKE,
 };
@@ -25,32 +25,32 @@ fn pps_from_supply_index(supply_index: i128) -> i128 {
 
 fn flatten_strategy_result<T>(
     result: Result<
-        Result<T, soroban_sdk::Error>,
-        Result<DeFindexStrategyError, soroban_sdk::InvokeError>,
+        Result<T, Error>,
+        Result<DeFindexStrategyError, InvokeError>,
     >,
-) -> Result<T, soroban_sdk::Error> {
+) -> Result<T, Error> {
     match result {
         Ok(Ok(value)) => Ok(value),
         Ok(Err(err)) => Err(err),
-        Err(Ok(err)) => Err(soroban_sdk::Error::from(&err)),
+        Err(Ok(err)) => Err(Error::from(&err)),
         Err(Err(invoke)) => {
             panic!("expected contract error, got host-level InvokeError: {invoke:?}")
         }
     }
 }
 
-fn assert_strategy_error<T: core::fmt::Debug>(result: Result<T, soroban_sdk::Error>, code: u32) {
+fn assert_strategy_error<T: core::fmt::Debug>(result: Result<T, Error>, code: u32) {
     match result {
         Ok(value) => panic!("expected contract error {code}, got Ok({value:?})"),
         Err(err) => assert_eq!(
             err,
-            soroban_sdk::Error::from_contract_error(code),
+            Error::from_contract_error(code),
             "unexpected contract error"
         ),
     }
 }
 
-fn topic_is(body: &soroban_sdk::xdr::ContractEventV0, first: &str, second: &str) -> bool {
+fn topic_is(body: &ContractEventV0, first: &str, second: &str) -> bool {
     match (body.topics.first(), body.topics.get(1)) {
         (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b))) => {
             a.0.to_string() == first && b.0.to_string() == second
@@ -160,7 +160,7 @@ impl StrategyTest {
     }
 
     fn usdc_balance(&self, of: &Address) -> i128 {
-        soroban_sdk::token::Client::new(&self.t.env, &self.asset).balance(of)
+        token::Client::new(&self.t.env, &self.asset).balance(of)
     }
 
     /// Live controller account id for `vault`, mirroring the strategy's read
@@ -323,12 +323,10 @@ fn test_supply_clears_stale_vault_mapping_after_full_withdraw() {
     assert!(s.live_account_id(&s.vault) != 0);
 }
 
-// A full withdraw clears the stored vault->account mapping immediately, not
-// lazily on the next deposit. This is what prevents the dust-pinning grief: if
-// the controller account were kept alive by dust of another asset, a deferred
-// cleanup would leave the mapping pointing at that account and the next deposit
-// would reuse it (and could hit PositionLimitExceeded). `live_account_id` masks
-// this because it also checks account_exists — assert the raw stored value.
+// Full withdraw clears the vault->account mapping immediately. A deferred
+// clear would let dust of another asset keep the controller account alive,
+// allowing an attacker to hit PositionLimitExceeded on redeposit.
+// Assert raw storage (live_account_id also checks existence).
 #[test]
 fn test_full_withdraw_clears_stored_vault_mapping_immediately() {
     let mut s = StrategyTest::new();
@@ -352,15 +350,11 @@ fn test_full_withdraw_clears_stored_vault_mapping_immediately() {
     );
 }
 
-// The vault-mapping TTL policy: fresh entries are extended to ~180 days, and
-// any read that resolves a live account re-extends once the remaining TTL
-// drops below the ~30-day threshold (17_280 * 30 = 518_400 ledgers).
+// Vault mapping TTL: fresh entries extend to ~180d; live-account reads
+// re-extend below the ~30d threshold (518_400 ledgers).
 //
-// Deposit-time extension cannot distinguish the threshold value (a fresh entry
-// starts at the harness's 10-ledger minimum, below every candidate), so pin
-// the boundary on the re-extension path: age the entry into a window that is
-// below the real threshold but above corrupted thresholds (17_280 / 30 = 576,
-// 17_280 + 30 = 17_310), then assert the read path re-extends.
+// Deposit-time extension starts below every candidate threshold, so age into
+// the gap (17_310, 518_400) and assert re-extension on read.
 #[test]
 fn test_read_path_reextends_vault_mapping_ttl_below_threshold() {
     let mut s = StrategyTest::new();
@@ -418,7 +412,11 @@ fn test_deposit_authorizes_pool_transfer_without_global_auth_mock() {
 
     let reported = s.client().deposit(&amount, &s.vault);
     assert_eq!(reported, amount);
-    assert_eq!(s.usdc_balance(&s.client_address), 0, "no funds may strand on the adapter");
+    assert_eq!(
+        s.usdc_balance(&s.client_address),
+        0,
+        "no funds may strand on the adapter"
+    );
 }
 
 #[test]

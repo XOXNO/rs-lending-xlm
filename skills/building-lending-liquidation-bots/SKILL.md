@@ -11,9 +11,10 @@ description: Use when building a liquidation bot, keeper, or risk monitor for XO
 
 An account is liquidatable when its health factor drops below 1 WAD. Any
 address **except the account owner** may liquidate (self-liquidation reverts
-`SelfLiquidationNotAllowed`; registered delegates are deliberately allowed):
-the liquidator repays part of the debt and seizes discounted collateral, all
-through the controller.
+`SelfLiquidationNotAllowed`; registered delegates and active position managers
+are deliberately allowed per governance). Liquidations survive global pause and
+frozen; a paused debt listing blocks only the repay leg (tainted-debt). All
+through the controller (see ADR 0011 addendum, INVARIANTS §3.3/4.4).
 
 ```rust
 fn is_liquidatable(account_id: u64) -> bool;         // HF < 1 WAD

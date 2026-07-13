@@ -63,7 +63,7 @@ Governance: curve changes ride the timelock as
 - **A single global curve.** Rejected: spokes exist precisely to segment risk
   profiles; a volatile-collateral spoke and an RWA spoke need different
   targets and bonus ramps.
-- **Per-position dynamic bonus snapshots (Aave V4 style).** Rejected for now:
+- **Per-position dynamic bonus snapshots.** Rejected for now:
   snapshotting curve output per position adds storage and re-stamp churn; the
   spoke-level curve achieves depth sensitivity with zero per-position state.
 - **Auction-based liquidation.** Rejected: a different protocol design with

@@ -33,7 +33,13 @@ make test
 make test-pool
 ```
 
-Use `make help` for the full local command surface.
+The `services/keeper` is a separate workspace:
+
+```bash
+cargo test --manifest-path services/keeper/Cargo.toml
+```
+
+Use `make help` for the full local command surface (build, optimize, test layers, certora, fuzz, proptest, mutants, miri, coverage, scout, etc.).
 
 ## Change Guidelines
 
@@ -60,14 +66,18 @@ make test
 make test-pool
 ```
 
-For protocol-sensitive changes, also include the relevant verification output:
+For protocol-sensitive changes (accounting, risk, oracle, liquidation, flash loans, strategies, governance, storage), also run the relevant parts of the verification surface (see `SCF_BUILD_ARCHITECTURE.md §14` and `INVARIANTS.md` verification matrix):
 
 ```bash
-./certora/compile_all.sh
+make certora-wasm            # before Certora runs
 ./certora/scripts/run_profile.py fast
 make fuzz FUZZ_TIME=30
 make proptest PROPTEST_CASES=256
+make mutants
+make miri-common
 ```
+
+See `make help` and the full test layers in `README.md` and `SCF_BUILD_ARCHITECTURE.md`.
 
 To mirror CI locally, use [nektos/act](https://github.com/nektos/act) (runs
 workflows in Docker, same step order as GitHub):
@@ -89,9 +99,11 @@ Runner image mappings live in `.actrc` at the repo root (`self-hosted` →
 Each pull request should explain:
 
 - What changed and why.
-- Which invariants or architecture decisions are affected.
-- Which local checks, fuzzing, or formal-verification profiles were run.
+- Which invariants (see `INVARIANTS.md`) or architecture decisions (see `architecture/decisions/`) are affected.
+- Which local checks, fuzzing, Certora profiles, or other verification were run (reference the matrix in `SCF_BUILD_ARCHITECTURE.md §14` when relevant).
 - Any deployment, migration, governance, oracle, or operational follow-up.
+
+All changes must preserve the rules in `INVARIANTS.md`. The live implementation facts (controller owns accounts/risk/oracle/strategies and is the sole caller of the pool; 3-layer pause/freeze matrix; fail-closed oracle with Xoxno as distinct provider; scaled balances + index monotonicity except bad-debt floor; etc.) are the ground truth.
 
 ## CI/CD Security
 

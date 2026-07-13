@@ -186,15 +186,9 @@ fn _simulate_update_indexes_impl(
     simulate_update_indexes_body(env, current_timestamp, sync)
 }
 
-// The read-path accrual loop runs an 8-term Taylor `compound_interest` per
-// chunk. Under `certora`, the prover uses a monotone nondet index model
-// (`summaries::simulate_update_indexes_summary`); its soundness against this
-// production body is established compositionally by
-// `rates_rules::update_borrow_index_monotonic_when_factor_gte_one`,
-// `update_supply_index_monotonic_when_rewards_positive`, and
-// `simulate_indexes_no_time_noop`, not by one end-to-end rule (which would
-// re-run the degree-8 Taylor expansion symbolically and is intractable for
-// the SMT solver).
+// Read-path accrual uses 8-term Taylor `compound_interest`. Under certora the
+// prover applies a monotone nondet summary; soundness is shown compositionally
+// by the individual monotonicity/noop rules (full expansion is intractable).
 #[cfg(feature = "certora")]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::simulate_update_indexes_summary,

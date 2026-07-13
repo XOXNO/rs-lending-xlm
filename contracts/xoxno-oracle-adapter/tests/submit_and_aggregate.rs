@@ -747,5 +747,8 @@ fn purge_feed_removes_feed_from_known_feed_index() {
 
     // The known-feed index entry is gone, so a second purge of the same feed
     // finds nothing to purge.
-    assert_eq!(expect_error(client.try_purge_feed(&feed)), Error::FeedNotKnown);
+    assert_eq!(
+        expect_error(client.try_purge_feed(&feed)),
+        Error::FeedNotKnown
+    );
 }

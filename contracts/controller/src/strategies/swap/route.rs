@@ -2,9 +2,12 @@
 
 use common::errors::GenericError;
 use common::types::StrategySwap;
+
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::storage;
+
+// ################## INTERNAL ##################
 
 pub(crate) mod aggregator {
     use soroban_sdk::{contractclient, Address, Bytes, Env};
@@ -17,7 +20,7 @@ pub(crate) mod aggregator {
 }
 
 /// Rejects non-positive amounts and empty swap payloads.
-pub(super) fn validate_strategy_swap(env: &Env, swap: &StrategySwap, amount_in: i128) {
+pub(crate) fn validate_strategy_swap(env: &Env, swap: &StrategySwap, amount_in: i128) {
     if amount_in <= 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
     }
@@ -28,7 +31,7 @@ pub(super) fn validate_strategy_swap(env: &Env, swap: &StrategySwap, amount_in: 
 /// reentrancy flag set, blocking any reentrant controller call (`supply`,
 /// `borrow`, `withdraw`, etc.) for the duration of the swap. `swap` is opaque
 /// route XDR decoded only by the aggregator.
-pub(super) fn call_router_with_reentrancy_guard(
+pub(crate) fn call_router_with_reentrancy_guard(
     env: &Env,
     router: &aggregator::AggregatorClient,
     amount_in: i128,

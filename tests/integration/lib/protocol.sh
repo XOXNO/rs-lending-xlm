@@ -26,9 +26,9 @@ deploy_protocol() {
         run_deploy "$out_f" "$err_f" -- stellar contract upload --wasm "$WASM_DIR/pool.wasm" \
             --source "$ADMIN" --network "$NETWORK"
         local hash txh
-        hash=$(tr -d '"\n' < "$out_f")
-        txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        is_wasm_hash "$hash" || die upload_pool_wasm "pool wasm upload produced no hash after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
+        hash=$(sanitize_output "$out_f")
+        txh=$(extract_signing_hash "$err_f")
+        is_wasm_hash "$hash" || die upload_pool_wasm "pool wasm upload produced no hash after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
         save_state POOL_HASH "$hash"
         record upload_pool_wasm ok upload "$txh" "" "" "" "" "$hash"
     fi
@@ -37,9 +37,9 @@ deploy_protocol() {
         run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/controller.wasm" \
             --source "$ADMIN" --network "$NETWORK" -- --admin "$ADMIN_ADDR"
         local ctrl txh
-        ctrl=$(tr -d '"\n' < "$out_f")
-        txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        is_contract_id "$ctrl" || die deploy_controller "controller deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
+        ctrl=$(sanitize_output "$out_f")
+        txh=$(extract_signing_hash "$err_f")
+        is_contract_id "$ctrl" || die deploy_controller "controller deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
         save_state CONTROLLER "$ctrl"
         record deploy_controller ok deploy "$txh" "" "" "" "" "$ctrl"
         log "controller = $ctrl"
@@ -83,9 +83,9 @@ deploy_protocol() {
         run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/flash_loan_receiver.wasm" \
             --source "$ADMIN" --network "$NETWORK"
         local recv txh
-        recv=$(tr -d '"\n' < "$out_f")
-        txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        is_contract_id "$recv" || die deploy_flash_receiver "flash receiver deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
+        recv=$(sanitize_output "$out_f")
+        txh=$(extract_signing_hash "$err_f")
+        is_contract_id "$recv" || die deploy_flash_receiver "flash receiver deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
         save_state FLASH_RECEIVER "$recv"
         record deploy_flash_receiver ok deploy "$txh" "" "" "" "" "$recv"
     fi
@@ -103,9 +103,9 @@ deploy_protocol() {
             --source "$ADMIN" --network "$NETWORK" \
             -- --admin "$ADMIN_ADDR" --min_delay "$INTEG_MIN_DELAY"
         local gov txh
-        gov=$(tr -d '"\n' < "$out_f")
-        txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        is_contract_id "$gov" || die deploy_governance "governance deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
+        gov=$(sanitize_output "$out_f")
+        txh=$(extract_signing_hash "$err_f")
+        is_contract_id "$gov" || die deploy_governance "governance deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
         save_state GOVERNANCE "$gov"
         record deploy_governance ok deploy "$txh" "" "" "" "" "$gov"
         log "governance = $gov"
@@ -117,9 +117,9 @@ deploy_protocol() {
         run_deploy "$out_f" "$err_f" -- stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
             --source "$ADMIN" --network "$NETWORK"
         local chash txh
-        chash=$(tr -d '"\n' < "$out_f")
-        txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        is_wasm_hash "$chash" || die upload_controller_wasm "controller wasm upload produced no hash after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
+        chash=$(sanitize_output "$out_f")
+        txh=$(extract_signing_hash "$err_f")
+        is_wasm_hash "$chash" || die upload_controller_wasm "controller wasm upload produced no hash after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
         save_state CTRL_HASH "$chash"
         record upload_controller_wasm ok upload "$txh" "" "" "" "" "$chash"
     fi

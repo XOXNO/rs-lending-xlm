@@ -60,10 +60,10 @@ A reference implementation exercising all success/failure modes lives at
 
 ## Security requirements for production receivers
 
-- **Gate the caller.** The reference receiver is test-only and open; a
+- **Gate the caller.** The reference receiver (`contracts/flash-loan-receiver/`) is test-only/adversarial harness (multi-mode XDR for smoke/fuzz); a
   production receiver MUST verify the invoker is the trusted pool (or
   controller) before acting on `data`.
-- **Reentrancy is blocked protocol-side** — re-entering `flash_loan` or
+- **Reentrancy is blocked protocol-side** (shared `FlashLoanOngoing` guard with strategies; see INVARIANTS §2.5, ADR 0006) — re-entering `flash_loan` or
   controller verbs from the callback reverts — but treat `data` as untrusted
   input regardless.
 - **Approve exactly `amount + fee`** with a short expiration ledger; a

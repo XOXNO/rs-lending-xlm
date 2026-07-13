@@ -2,8 +2,12 @@
 
 Self-hosted multi-signer price oracle for assets without a native
 Reflector/RedStone feed (e.g. RWA listings). Registered signer wallets push
-signed price submissions; the contract aggregates them into a median at write
-time, gated by an N-of-M signer threshold, so reads stay O(1).
+signed price submissions; the contract stores the latest submission per signer
+per feed and recomputes a median aggregate at write time. Aggregation is gated
+by an N-of-M signer threshold so that reads remain O(1) regardless of the number
+of signers. Submissions older than the submission-age window are excluded from
+both the median and the reported observation time, preventing a lagging or
+malicious signer from skewing the price or pinning the feed's freshness.
 
 ## Read ABIs
 
@@ -31,12 +35,23 @@ contract address, whichever variants declare them.
 Two decoupled staleness windows:
 
 - `MaxSubmissionAgeSeconds` bounds which per-signer submissions may enter an
-  aggregate, so one lagging or malicious signer cannot pin a feed's reported
-  freshness.
-- `MaxStaleSeconds` bounds how long a cached aggregate keeps serving reads.
+  aggregate (and contribute to the reported observation time). This prevents a
+  lagging or offline signer from pinning a feed's freshness or skewing the
+  median.
+- `MaxStaleSeconds` bounds how long a cached aggregate may be served on reads.
 
 Keep `MaxSubmissionAgeSeconds <=` every consumer's own staleness bound
 (`max_price_stale_seconds` on the lending market config).
+
+If the number of fresh submissions for a feed drops below the configured
+threshold, the cached aggregate and history are cleared. Subsequent reads for
+that feed will fail with `NoDataForFeed` (or return `None` on the SEP-40 path)
+until enough signers submit again.
+
+The adapter is treated as a distinct provider (`OracleProviderKind::XoxnoPriceFeed`).
+In dual-source (`PrimaryWithAnchor`) markets it can serve as the independent
+second opinion; a production market never places the same contract address on
+both legs. Reads are strict fail-closed when used for risk.
 
 ## Layout
 
@@ -60,3 +75,9 @@ feed.
 - Markets priced only by this adapter under a `Single` strategy have no
   cross-provider deviation check; the market's sanity band is the remaining
   price defense and must be configured tightly.
+- The owner (via admin entrypoints) manages the signer set, threshold,
+  per-feed mappings, staleness windows, and can purge per-signer submission
+  state for a feed (`purge_feed`).
+- `submit_price` / `submit_prices` are the write paths (signer must be
+  registered and pass `require_auth`). Aggregation runs on every successful
+  submit.

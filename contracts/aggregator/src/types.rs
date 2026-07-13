@@ -2,6 +2,8 @@
 
 use soroban_sdk::{contracttype, Address, Vec};
 
+// ################## TYPES ##################
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SwapVenue {

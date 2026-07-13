@@ -12,20 +12,27 @@ Shared model every integration layer builds on. The layer-specific skills
 
 ## Architecture
 
-Three core contracts:
+Three core contracts (strict ownership chain: Governance owns Controller owns Pool):
 
-- **Governance** — owns the controller; timelocks all admin changes.
+- **Governance** — owns the controller; timelocks all admin changes (except
+  immediate pause/unpause and certain GUARDIAN actions).
 - **Controller** — the only user-facing contract: accounts, risk checks,
-  oracle validation, liquidations, flash loans, strategies.
-- **Pool** — single central liquidity contract, owned by the controller. Its
-  mutating entrypoints are `only_owner`: never call the pool directly; its
-  read-only views are open to everyone.
+  oracle validation, liquidations, flash loans, and strategies. It is the
+  sole caller of the pool for all mutations.
+- **Pool** — single central liquidity contract. Its mutating entrypoints are
+  `#[only_owner]` (Controller only); read-only views are public. The pool
+  performs no risk, solvency, or oracle logic.
+
+Fresh deployments start with the controller paused; it must be explicitly
+unpaused after configuration.
 
 ## Markets: HubAssetKey
 
 Every market is keyed by `HubAssetKey { hub_id: u32, asset: Address }`. The
-same token listed on two hubs is **two isolated markets** — never identify a
-market by asset address alone; always carry `hub_id`.
+same token listed on two hubs is **two fully isolated markets** (separate
+indexes, cash, revenue, debt, and bad-debt socialization) — never identify a
+market by asset address alone; always carry `hub_id`. Hubs provide complete
+isolation.
 
 ## Accounts, spokes, delegates
 
@@ -33,10 +40,21 @@ market by asset address alone; always carry `hub_id`.
   `account_id == 0` creates an account and returns the id. One address can
   own many accounts.
 - Each account binds at creation to a **spoke** (`spoke_id: u32`) — its risk
-  configuration (LTV, liquidation thresholds/bonuses, caps, pause/freeze
-  flags per asset). The spoke is immutable after creation. **Spoke ids start
+  configuration (LTV, liquidation thresholds/bonuses, caps, and per-asset
+  pause/freeze flags). The spoke is immutable after creation. **Spoke ids start
   at 1**; `spoke_id == 0` does not exist and account creation with it reverts
   `SpokeNotFound`. Read `get_spoke` / `get_spoke_asset` before choosing.
+
+  Halt controls are layered:
+  - Global controller pause (immediate): blocks risk-increasing actions
+    (supply, borrow, most strategies, flash loans, update_indexes, etc.) but
+    leaves withdraw, repay, liquidate, and clean_bad_debt open.
+  - Per-spoke-asset `paused`: blocks supply/borrow/withdraw/repay for that
+    listing (including exits).
+  - Per-spoke-asset `frozen`: blocks only new supply/borrow; exits remain
+    possible.
+  Liquidations and clean_bad_debt survive global pause and frozen (narrow
+  exception: repay leg on a paused debt listing reverts — "tainted debt").
 - The owner can `add_delegate` / `remove_delegate`: a delegate may act on
   owner-gated verbs, but only while also registered as an active position
   manager by governance.
@@ -50,6 +68,10 @@ market by asset address alone; always carry `hub_id`.
 | Interest indexes, rates | RAY = 1e27 (rates are per **millisecond**) |
 | Risk ratios (LTV, thresholds, bonuses, fees) | basis points (10_000 = 100%) |
 
+**Scaled balances**: Positions store scaled shares (not token amounts). Actual
+balance = `scaled * current_index / RAY`. Indexes only increase on normal
+accrual (supply index has a floor during bad-debt socialization).
+
 Health factor < 1 WAD means liquidatable. `get_health_factor` returns
 `i128::MAX` for debt-free accounts, missing accounts, and dust-debt accounts
 whose ratio saturates.
@@ -58,9 +80,14 @@ whose ratio saturates.
 
 - `repay` is permissionless and refunds overpayment to the payer.
 - `liquidate` only pulls the accepted close amounts from the liquidator;
-  amounts above the cap are never transferred.
+  amounts above the cap are never transferred. Protocol fee is taken on the
+  bonus; bad debt may be socialized if collateral <= 5 WAD USD threshold.
 - `withdraw` with amount `0` closes the position and pays its full value;
   it returns the actual amounts paid, which can differ from the request.
+- `supply`/`repay` (and strategy equivalents) require the caller to pre-authorize
+  the exact token transfer to the pool for the next sub-invocation.
+
+Never call the Pool contract directly from user or integrator code.
 
 ## Addresses and networks — never hardcode
 
@@ -83,3 +110,7 @@ Contract errors live in `common/src/errors.rs` of the protocol repo, grouped
 as `GenericError`, `CollateralError`, `OracleError`, `SpokeError`,
 `FlashLoanError`, `StrategyError`. Off-chain, map raw Soroban error codes to
 these names with the SDK's `mapSorobanError`.
+
+See the layer-specific skills for cross-contract auth patterns, flash-loan
+receivers, liquidation bots, indexing, and SDK usage. Always treat network and
+contract addresses as configuration (never hardcode).

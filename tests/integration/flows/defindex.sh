@@ -42,9 +42,9 @@ deploy_dfx_strategy() {
         -- --asset "$SAC_DFX" --init_args "[{\"address\":\"$CONTROLLER\"}]" \
         >"$out_f" 2>"$err_f"
     local strat txh
-    strat=$(tr -d '"\n' < "$out_f")
-    txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-    [ -z "$strat" ] && { log "strategy deploy failed: $(tail -3 "$err_f")"; return 1; }
+    strat=$(sanitize_output "$out_f")
+    txh=$(extract_signing_hash "$err_f")
+    [ -z "$strat" ] && { log "strategy deploy failed: $(tail_err_note "$err_f" 200)"; return 1; }
     save_state STRATEGY "$strat"
     record deploy_defindex_strategy ok deploy "$txh" "" "" "" "" "$strat"
     log "defindex strategy = $strat"

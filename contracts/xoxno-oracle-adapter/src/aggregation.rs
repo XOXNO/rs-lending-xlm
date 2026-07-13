@@ -5,6 +5,7 @@
 use common::constants::MS_PER_SECOND;
 use common::oracle::observation::{MAX_FUTURE_SKEW_SECONDS, MAX_TWAP_RECORDS};
 use common::oracle::providers::redstone::RedStonePriceData;
+
 use soroban_sdk::{Address, Env, String, Vec, U256};
 
 use crate::storage::{
@@ -138,10 +139,12 @@ fn sorted_copy(prices: &Vec<i128>) -> Vec<i128> {
     let mut sorted = prices.clone();
     let len = sorted.len();
     for i in 1..len {
-        let key = sorted.get(i).unwrap(); // safe: i in 1..len
+        let key = sorted
+            .get(i)
+            .expect("invariant: i in 1..len after clone of input vec");
         let mut j = i;
-        while j > 0 && sorted.get(j - 1).unwrap() > key {
-            let prev = sorted.get(j - 1).unwrap(); // safe: j-1 < j <= len
+        while j > 0 && sorted.get(j - 1).expect("invariant: j-1 < j <= len") > key {
+            let prev = sorted.get(j - 1).expect("invariant: j-1 < j <= len");
             sorted.set(j, prev);
             j -= 1;
         }
@@ -155,11 +158,15 @@ fn median_of(prices: &Vec<i128>) -> i128 {
     let len = sorted.len();
     let mid = len / 2;
     if len % 2 == 1 {
-        sorted.get(mid).unwrap() // safe: mid = len/2 < len for odd len >= 1
+        sorted
+            .get(mid)
+            .expect("invariant: mid = len/2 < len for odd len >= 1")
     } else {
-        let a = sorted.get(mid - 1).unwrap(); // safe: even len >= 2 so mid >= 1
-        let b = sorted.get(mid).unwrap(); // safe: mid = len/2 < len
-                                          // Overflow-safe midpoint: sorted so b >= a, both > 0.
+        let a = sorted
+            .get(mid - 1)
+            .expect("invariant: even len >= 2 so mid-1 valid");
+        let b = sorted.get(mid).expect("invariant: mid = len/2 < len");
+        // Overflow-safe midpoint: sorted so b >= a, both > 0.
         a + (b - a) / 2
     }
 }
@@ -180,7 +187,7 @@ fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePriceData) {
     let resolution_ms = u64::from(load_resolution(env)) * MS_PER_SECOND;
     let len = history.len();
     let replace_last = len > 0 && {
-        let last = history.get(len - 1).unwrap(); // safe: len > 0
+        let last = history.get(len - 1).expect("invariant: len > 0 checked");
         aggregate.write_timestamp < last.write_timestamp.saturating_add(resolution_ms)
     };
 

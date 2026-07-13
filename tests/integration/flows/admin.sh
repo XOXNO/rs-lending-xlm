@@ -192,10 +192,10 @@ flow_admin_upgrade() {
     local ctrl_hash out_f="$LOG_DIR/upload_ctrl.out" err_f="$LOG_DIR/upload_ctrl.err"
     stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
         --source "$ADMIN" --network "$NETWORK" >"$out_f" 2>"$err_f" || true
-    ctrl_hash=$(tr -d '"\n' < "$out_f")
+    ctrl_hash=$(sanitize_output "$out_f")
     if [ -n "$ctrl_hash" ]; then
         record upload_controller_wasm ok upload \
-            "$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')" \
+            "$(extract_signing_hash "$err_f")" \
             "" "" "" "" "$ctrl_hash"
  inv pool_upgrade "$ADMIN" "$CONTROLLER" -- upgrade_pool --new_wasm_hash "$POOL_HASH" >/dev/null
  view pool_address_after_pool_upgrade "$CONTROLLER" -- get_pool_address >/dev/null

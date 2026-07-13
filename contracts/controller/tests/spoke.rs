@@ -1,7 +1,12 @@
 use super::*;
 use crate::storage;
 use crate::Controller;
-use common::types::{Account, MarketOracleConfigOption, PositionMode, SpokeAssetConfig};
+use common::constants::RAY;
+use common::math::fp::Ray;
+use common::types::{
+    Account, MarketIndexRaw, MarketOracleConfigOption, PositionMode, SpokeAssetConfig,
+    SpokeUsageRaw,
+};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Map};
 
@@ -142,13 +147,13 @@ fn usage_supply_decrement_below_zero_panics() {
             &env,
             1,
             &hub(&asset),
-            &common::types::SpokeUsageRaw {
+            &SpokeUsageRaw {
                 supplied_scaled_ray: 5,
                 borrowed_scaled_ray: 0,
             },
         );
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        ctx.apply_withdraw_after_pool(&env, &hub(&asset), common::math::fp::Ray::from(10));
+        ctx.apply_withdraw_after_pool(&env, &hub(&asset), Ray::from(10));
     });
 }
 
@@ -164,13 +169,13 @@ fn usage_borrow_decrement_below_zero_panics() {
             &env,
             1,
             &hub(&asset),
-            &common::types::SpokeUsageRaw {
+            &SpokeUsageRaw {
                 supplied_scaled_ray: 0,
                 borrowed_scaled_ray: 5,
             },
         );
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        ctx.apply_repay_after_pool(&env, &hub(&asset), common::math::fp::Ray::from(10));
+        ctx.apply_repay_after_pool(&env, &hub(&asset), Ray::from(10));
     });
 }
 
@@ -185,14 +190,14 @@ fn apply_supply_without_listing_panics() {
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        let index = common::types::MarketIndexRaw {
-            supply_index: common::constants::RAY,
-            borrow_index: common::constants::RAY,
+        let index = MarketIndexRaw {
+            supply_index: RAY,
+            borrow_index: RAY,
         };
         ctx.apply_supply_after_pool(
             &env,
             &hub(&asset),
-            common::math::fp::Ray::from(1),
+            Ray::from(1),
             &index,
             7,
         );
@@ -208,14 +213,14 @@ fn apply_borrow_without_listing_panics() {
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        let index = common::types::MarketIndexRaw {
-            supply_index: common::constants::RAY,
-            borrow_index: common::constants::RAY,
+        let index = MarketIndexRaw {
+            supply_index: RAY,
+            borrow_index: RAY,
         };
         ctx.apply_borrow_after_pool(
             &env,
             &hub(&asset),
-            common::math::fp::Ray::from(1),
+            Ray::from(1),
             &index,
             7,
         );

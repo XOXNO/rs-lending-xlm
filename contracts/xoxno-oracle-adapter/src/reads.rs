@@ -6,11 +6,13 @@ use common::constants::MS_PER_SECOND;
 use common::oracle::observation::{millis_to_seconds, u256_to_i128};
 use common::oracle::providers::redstone::{RedStonePriceData, REDSTONE_DECIMALS};
 use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
+
 use soroban_sdk::{contractimpl, Env, String, Symbol, Vec};
 
 use crate::aggregation::MAX_HISTORY_LEN;
 use crate::storage::{
-    load_all_assets, load_feed_id, load_max_stale_seconds, load_resolution, DataKey,
+    load_all_assets, load_feed_id, load_max_stale_seconds, load_resolution, renew_persistent_key,
+    DataKey,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -23,11 +25,14 @@ impl XoxnoOracle {
     /// * `NoDataForFeed` - no aggregate has been computed for `feed_id` yet.
     /// * `StaleData` - the cached aggregate exceeds `MaxStaleSeconds`.
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
+        let key = DataKey::CurrentAggregate(feed_id.clone());
         let aggregate: RedStonePriceData = env
             .storage()
             .persistent()
-            .get(&DataKey::CurrentAggregate(feed_id))
+            .get(&key)
             .ok_or(Error::NoDataForFeed)?;
+
+        renew_persistent_key(&env, &key);
 
         let max_stale = load_max_stale_seconds(&env);
         // `write_timestamp` is milliseconds, the ledger clock is seconds;
@@ -67,20 +72,25 @@ impl XoxnoOracle {
         feed_id: String,
         limit: u32,
     ) -> Result<Vec<RedStonePriceData>, Error> {
+        let key = DataKey::History(feed_id.clone());
         let history: Vec<RedStonePriceData> = env
             .storage()
             .persistent()
-            .get(&DataKey::History(feed_id))
+            .get(&key)
             .ok_or(Error::NoDataForFeed)?;
         if history.is_empty() {
             return Err(Error::NoDataForFeed);
         }
+        renew_persistent_key(&env, &key);
 
         let take = core::cmp::min(limit, history.len());
         let mut newest_first = Vec::new(&env);
         for i in 0..take {
-            // safe: i < take <= history.len()
-            newest_first.push_back(history.get(history.len() - 1 - i).unwrap());
+            newest_first.push_back(
+                history
+                    .get(history.len() - 1 - i)
+                    .expect("invariant: i < take <= history.len()"),
+            );
         }
         Ok(newest_first)
     }

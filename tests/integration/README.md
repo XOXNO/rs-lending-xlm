@@ -5,11 +5,20 @@ End-to-end protocol exercise against **live Stellar testnet** using the
 bricks: primitives (`lib/`) → flows (`flows/`) → scenarios (`scenarios/`),
 so any subset can run standalone or inside a release workflow.
 
+**Quality note**: The harness has been hardened for robustness (centralized
+CLI hash extraction + sanitization via `extract_signing_hash`/`sanitize_output`,
+tool/version guards, centralized constants, non-silent appendix handling,
+preflight targets, etc.). See "Requirements" and "Extending" below. Run
+`make integration-preflight integration-validate` before important runs.
+
 ## Run
 
 ```bash
 # Build wasm first (controller, pool, governance, flash receiver, mock oracles):
 make integration-wasm   # or: stellar contract build
+
+# (Optional but recommended) Preflight + fresh appendix
+make integration-preflight integration-appendix
 
 # Release e2e — three independent lanes in PARALLEL, then gate each (what CI runs):
 RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/parallel_e2e.sh
@@ -45,8 +54,8 @@ EURC market, not liquidation's mocks; `caps` uses its own mock collateral).
 
 | Tier | Scripts | Gate |
 |------|---------|------|
-| **Release CI** | `parallel_e2e.sh` (per-lane `full_e2e.sh` → `assert_green.sh`) | All actions must be `ok`, `xfail`, `read`, or `sim-*` (not `sim-error`); no unresolved `FAIL` in any lane |
-| **Research** | `liq_20feed.sh`, `liq20_v2_walk.sh`, `liq_20feed_*.sh` | Width probes record `research` status (intentional frontier misses); run manually after stress |
+| **Release CI** | `parallel_e2e.sh` (per-lane `full_e2e.sh` → `assert_green.sh`) | All actions must be `ok`, `xfail`, `read`, or `sim-*` (not `sim-error`); no unresolved `FAIL` in any lane. Exercises the full model (see central facts: 3-contract ownership, scaled balances, pause matrix, multi-hub, bad-debt floor, etc.). |
+| **Research** | `liq_20feed.sh`, `liq20_v2_walk.sh`, `liq_20feed_*.sh` | Width probes record `research` status (intentional frontier misses); run manually after stress. See `tests/test-harness/tests/fuzz/` for proptest coverage of INVARIANTS/ADRs. |
 
 Shared width logic lives in `lib/liq20_width.sh`. **`liq20_v2_walk.sh`** is the canonical instruction-cap walk; `liq_20feed_walk.sh`, `width.sh`, `bisect.sh`, and `retry9.sh` are thin wrappers.
 
@@ -58,6 +67,29 @@ Each run writes `runs/<RUN_TS>/`:
 | `actions.tsv` | the same data, machine-readable |
 | `state.env` | deployed contract ids, wallet aliases, completed-block markers (resume support) |
 | `logs/` | per-action stdout/stderr, quotes, simulation JSON |
+
+### Interpreting reports
+
+`report.md` (and `combined.md` for parallel lanes) are the primary human-readable artifacts.
+
+- **Statuses**: `ok` (success), `xfail` (expected revert as designed), `read` (view-only), `sim-ok` / `sim-exceeded` (budget probe results), `research` (intentional wide probes in liquidation/stress research flows — these are expected to have errors in the note and are ignored by green gates), `retry` (transient handled internally).
+- **Gates** (`assert_green.sh`): No unresolved `FAIL` or `UNEXPECTED-OK` or `sim-error`. All lanes must complete with the "run complete" marker.
+- `combined.md` concatenates per-lane reports (used for release attachments). Research scenarios intentionally use `research` rows.
+- Full simulation JSON and raw CLI output live under `logs/`. Resource numbers are the ones declared on the signed envelope (see explorer link for full receipt including memory).
+- Appendix (memory budgets) is a snapshot from `tests/test-harness` budget tests; prefer regenerating when the harness changes rather than hand-editing historical copies.
+- Historical runs are for reference/CI archiving. Do not hand-edit generated `report.md` / `actions.tsv`.
+
+See `tests/integration/lib/report.sh` for the generator and `scenarios/assert_green.sh` for the exact gate.
+
+## Extending the Harness (post-quality improvements)
+
+- Use `inv` / `view` / `xfail` / `sim_probe` / `run_deploy` for all contract work (they record + retry + capture hashes via the centralized helpers).
+- For direct `stellar contract deploy/upload` (rare): use `extract_signing_hash "$err_f"` + `sanitize_output "$out_f"` + `is_contract_id`/`is_wasm_hash` + `tail_err_note` + `record` + `save_state`.
+- Add new constants to `env.sh` (or document overrides). Prefer `require_var FOO` for load-bearing state.
+- Always `phase` + record meaningful statuses (`ok`/`xfail`/`research` etc.).
+- Run `make integration-validate integration-preflight` locally.
+- Research flows should still record `research` for intentional misses so `assert_green` ignores them.
+
 
 ## Layers
 

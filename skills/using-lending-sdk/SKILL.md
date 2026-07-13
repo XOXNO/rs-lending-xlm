@@ -136,7 +136,7 @@ Map simulation/submission failures to protocol error names with
 - **Skipping prepareTransaction** — builders return raw XDR without
   footprint, auth entries, or fees; submission fails without simulation.
 - **Omitting `spokeId` on account creation** — defaults to 0 and reverts
-  `SpokeNotFound`.
+  `SpokeNotFound` (spoke ids start at 1; see fundamentals + INVARIANTS §5.2).
 - **Passing a bare array to batch builders** — they take
   `{ accountNonce, assets|borrows|withdrawals|payments: [...] }`.
 - **Quoting `debt_to_flash_loan` gross for multiply** — the swapped amount is

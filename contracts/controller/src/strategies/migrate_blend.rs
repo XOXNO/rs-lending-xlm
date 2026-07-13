@@ -5,8 +5,8 @@ use common::errors::GenericError;
 use common::types::{Account, DebtPosition, HubAssetKey, PositionMode};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, IntoVal, Map,
-    Vec,
+    assert_with_error, contractimpl, panic_with_error, symbol_short, token, Address, Env, IntoVal,
+    Map, Vec,
 };
 use stellar_macros::when_not_paused;
 
@@ -312,7 +312,7 @@ fn snapshot_balances(env: &Env, assets: &Vec<Address>) -> Map<Address, i128> {
     let controller = env.current_contract_address();
     let mut before: Map<Address, i128> = Map::new(env);
     for asset in assets.iter() {
-        let bal = soroban_sdk::token::Client::new(env, &asset).balance(&controller);
+        let bal = token::Client::new(env, &asset).balance(&controller);
         before.set(asset, bal);
     }
     before
@@ -399,7 +399,7 @@ fn deposit_withdrawn(
 ) {
     let mut deposits: Vec<(HubAssetKey, i128)> = Vec::new(env);
     for asset in withdraw_assets.iter() {
-        let token = soroban_sdk::token::Client::new(env, &asset);
+        let token = token::Client::new(env, &asset);
         let prev = before.get(asset.clone()).unwrap_or(0);
         // D{asset.decimals}{Token(asset)} positive delta becomes controller supply deposit.
         let received = balance_delta(env, &token, prev);
@@ -431,7 +431,7 @@ fn reconcile_debt_refunds(
     before: &Map<Address, i128>,
 ) {
     for (debt_asset, _max) in debt_caps.iter() {
-        let token = soroban_sdk::token::Client::new(env, &debt_asset);
+        let token = token::Client::new(env, &debt_asset);
         let prev = before.get(debt_asset.clone()).unwrap_or(0);
         // D{debt_asset.decimals}{Token(debt_asset)} Blend over-repay refund repays controller debt.
         let refund = balance_delta(env, &token, prev);

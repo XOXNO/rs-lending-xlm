@@ -1,9 +1,10 @@
 use super::*;
 use common::constants::{RAY, WAD};
 use common::types::{
-    AccountPositionRaw, MarketIndexRaw, MarketOracleConfig, OracleAssetRef, OraclePriceFluctuation,
-    OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, PositionLimits,
-    PositionMode, ReflectorBase, ReflectorSourceConfig, SpokeAssetConfig, SpokeUsageRaw,
+    AccountPositionRaw, MarketIndexRaw, MarketOracleConfig, MarketOracleConfigOption,
+    OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
+    OracleSourceConfigOption, OracleStrategy, PositionLimits, PositionMode, ReflectorBase,
+    ReflectorSourceConfig, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Map};
@@ -27,8 +28,8 @@ fn ctx(
     }
 }
 
-fn default_spoke(_env: &Env) -> common::types::SpokeConfig {
-    common::types::SpokeConfig {
+fn default_spoke(_env: &Env) -> SpokeConfig {
+    SpokeConfig {
         is_deprecated: false,
         liquidation_target_hf_wad: 1_020_000_000_000_000_000,
         hf_for_max_bonus_wad: 510_000_000_000_000_000,
@@ -48,7 +49,7 @@ fn spoke_listing(borrow_cap: i128) -> SpokeAssetConfig {
         liquidation_fees: 100,
         supply_cap: 0,
         borrow_cap,
-        oracle_override: common::types::MarketOracleConfigOption::None,
+        oracle_override: MarketOracleConfigOption::None,
     }
 }
 
@@ -152,7 +153,7 @@ fn account_can_reborrow_held_asset_at_position_limit() {
         let mut borrow_positions = Map::new(&env);
         borrow_positions.set(
             hub.clone(),
-            common::types::DebtPositionRaw {
+            DebtPositionRaw {
                 scaled_amount: Ray::from_asset(UNIT, 7).raw(),
             },
         );

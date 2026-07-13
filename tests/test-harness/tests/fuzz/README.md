@@ -34,14 +34,14 @@ cargo test -p test-harness --test fuzz prop_liquidation_matches_bigrational_refe
 
 | Property | Asserts | Catches |
 |----------|---------|---------|
-| `prop_accounting_conservation` | After random supply/borrow/repay/withdraw/advance/claim sequences: solvency inequality, supply/borrow/revenue conservation (±4 units), non-negative reserves, monotonic supply/borrow indexes | Accounting drift, revenue skim, index regression |
-| `owner_only_endpoints_reject_unauthed_before_validation` | One exhaustive call matrix rejects every privileged controller endpoint before argument validation | Missing `only_owner` / caller auth gates |
-| `governance_endpoints_reject_unauthed_before_validation` | Representative governance proposer and immediate-admin calls reject without auth | Missing proposer or owner gates |
-| `prop_valid_multiply_fits_default_budget` | A valid multiply succeeds within a fresh default Soroban budget, remains healthy, and clears transient state | Strategy budget regression, vacuous invalid-mode coverage |
+| `prop_accounting_conservation` | After random supply/borrow/repay/withdraw/advance/claim sequences: solvency inequality, supply/borrow/revenue conservation (±4 units), non-negative reserves, monotonic supply/borrow indexes (scaled balances; supply-index floor on bad debt per INVARIANTS §1.5/3.3 and ADR 0007) | Accounting drift, revenue skim, index regression |
+| `owner_only_endpoints_reject_unauthed_before_validation` | One exhaustive call matrix rejects every privileged controller endpoint before argument validation | Missing `only_owner` / caller auth gates (governance owns controller) |
+| `governance_endpoints_reject_unauthed_before_validation` | Representative governance proposer and immediate-admin calls reject without auth (including GUARDIAN immediate paths) | Missing proposer or owner gates |
+| `prop_valid_multiply_fits_default_budget` | A valid multiply succeeds within a fresh default Soroban budget, remains healthy, and clears transient state (flash guard + router delta per ADR 0005) | Strategy budget regression, vacuous invalid-mode coverage |
 | `prop_multiply_succeeds_with_safe_hf_and_clean_router` | Valid multiply inputs always succeed with HF ≥ 1 WAD, zero router allowance, and a cleared flash guard | Strategy HF regression, allowance or guard leak |
 | `prop_swap_collateral_conserves_position_delta` | Successful stablecoin swaps debit and credit the exact raw position amounts | Router or accounting delta drift |
 | `empty_swap_payload_reverts_without_state_or_guard_leak` | Empty swap bytes reject atomically | Payload validation and rollback gaps |
-| `prop_liquidation_matches_bigrational_reference` | Every generated account is liquidatable and in differential scope; production liquidation must succeed and match `reference::compute_liquidation` within documented ULP bounds | Liquidation math drift and silently skipped cases |
+| `prop_liquidation_matches_bigrational_reference` | Every generated account is liquidatable and in differential scope; production liquidation must succeed and match `reference::compute_liquidation` within documented ULP bounds (per-spoke curves per ADR 0012, tainted debt) | Liquidation math drift and silently skipped cases |
 
 Flash-loan repayment with strict per-call auth is covered by deterministic tests in `tests/controller/flash_loan.rs`.
 

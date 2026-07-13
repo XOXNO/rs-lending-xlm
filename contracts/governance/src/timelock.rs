@@ -1,11 +1,16 @@
 //! Timelocked governance operations and immediate pause controls.
 
 use common::errors::GenericError;
-use common::types::{MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation};
+use common::types::{
+    HubAssetKey, MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
+};
+
 use controller_interface::ControllerAdminClient;
+
 #[cfg(any(test, feature = "testing"))]
 use soroban_sdk::IntoVal;
 use soroban_sdk::{assert_with_error, contractimpl, Address, BytesN, Env, Symbol, Val, Vec};
+
 use stellar_access::access_control;
 use stellar_governance::timelock::{
     cancel_operation, execute_operation, get_min_delay, get_operation_ledger, get_operation_state,
@@ -19,6 +24,8 @@ use crate::access::{
 use crate::op::{apply_self_op, resolve_op};
 use crate::storage::renew_governance_instance;
 use crate::{constants, storage, validate, Governance, GovernanceArgs, GovernanceClient};
+
+// ################## TYPES ##################
 
 /// Standard vs elevated schedule delays for governance operations.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -105,7 +112,7 @@ fn resolve_market_oracle(
     env: &Env,
     asset: &Address,
     cfg: &MarketOracleConfigInput,
-) -> common::types::MarketOracleConfig {
+) -> MarketOracleConfig {
     let tolerance = validate::tolerance::validate_and_calculate_tolerances(env, cfg.tolerance_bps);
     validate::oracle_probe::validate_market_oracle_sources(env, asset, cfg, tolerance)
 }
@@ -242,7 +249,11 @@ impl Governance {
         salt: BytesN<32>,
     ) {
         let (target, function, args, _) = resolve_op(&env, &op);
-        assert!(target == env.current_contract_address());
+        assert_with_error!(
+            env,
+            target == env.current_contract_address(),
+            GenericError::InternalError
+        );
         let operation = Operation {
             target,
             function,
@@ -324,12 +335,13 @@ impl Governance {
     ///   propagates from the controller.
     ///
     /// # Events
-    /// * The controller emits `UpdateSpokeAssetEvent`.
+    ///
+    /// Refer to controller `update_spoke_asset` events.
     pub fn set_spoke_asset_flags(
         env: Env,
         caller: Address,
         spoke_id: u32,
-        hub_asset: common::types::HubAssetKey,
+        hub_asset: HubAssetKey,
         paused: bool,
         frozen: bool,
     ) {

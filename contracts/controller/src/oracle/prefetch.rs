@@ -19,6 +19,8 @@ use soroban_sdk::{Map, String};
 
 #[cfg(not(feature = "certora"))]
 use crate::oracle::providers::redstone::read_price_data_bulk;
+#[cfg(not(feature = "certora"))]
+use common::types::OracleSourceConfig;
 
 /// Bulk-fetches each adapter's RedStone feeds (only when it has at least
 /// `MIN_BULK_FEEDS`) into the transaction cache.
@@ -64,11 +66,9 @@ fn collect_redstone_feed(
     cache: &Cache,
     env: &soroban_sdk::Env,
     by_adapter: &mut Map<Address, Vec<String>>,
-    source: &common::types::OracleSourceConfig,
+    source: &OracleSourceConfig,
 ) {
-    let (common::types::OracleSourceConfig::RedStone(r)
-    | common::types::OracleSourceConfig::Xoxno(r)) = source
-    else {
+    let (OracleSourceConfig::RedStone(r) | OracleSourceConfig::Xoxno(r)) = source else {
         return;
     };
     if cache
@@ -89,7 +89,7 @@ fn collect_redstone_feed(
 
 #[cfg(all(test, not(feature = "certora")))]
 mod tests {
-    use super::*;
+    use crate::oracle::prefetch::*;
     use common::types::{OracleSourceConfig, RedStoneSourceConfig};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::Env;

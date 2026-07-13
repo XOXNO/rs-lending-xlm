@@ -364,3 +364,12 @@ to the current shape:
 - `contracts/governance/src/timelock.rs::{propose, resolve_market_oracle_config, resolve_oracle_tolerance}`
 - `common/src/types/oracle.rs` (`OracleStrategy`, `OracleSourceConfig`, `MarketOracleConfig`, `OraclePriceFluctuation`, `OracleReadMode`, `OracleAssetRef`)
 - `common/src/constants/shared.rs` (`MIN_TOLERANCE`, `MAX_TOLERANCE`)
+
+**Implementation Status (verified 2026-07-13):** The dual-source + single tolerance band design is implemented exactly as described.
+
+- Resolution + band logic (midpoint or `UnsafePriceNotAllowed`, no degradation): `contracts/controller/src/oracle/{compose.rs:30, tolerance.rs:19}`.
+- `PrimaryWithAnchor` diversity (different feeds via `reads_same_feed_as`; prod different providers + contracts; non-spot primary): `contracts/governance/src/validate/oracle_config.rs:19` + tests.
+- Xoxno provider (distinct `XoxnoPriceFeed` variant; shared RedStone wire + prefetch; SEP-40 decimals probed at listing; dual-ABI guards): `contracts/controller/src/oracle/providers/mod.rs`, `governance/src/validate/oracle_probe.rs:123`, `common/src/types/oracle.rs:88`, `contracts/xoxno-oracle-adapter`.
+- Validation split, sanity for Single, staleness, future-skew: governance probe + `common/src/validation.rs`, controller re-checks in `config/oracle.rs`.
+
+See also `contracts/controller/tests/oracle/`, governance validate tests, adapter README, and `INVARIANTS.md` §4.2–4.3. Legacy tolerance error codes remain for ABI stability.

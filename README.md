@@ -28,6 +28,9 @@ on-chain governance.
   protocol design choices.
 - [Formal verification](./certora/README.md) — Certora proof domains, profiles,
   and prover commands.
+- [Deep discovery & threat-modeling artifacts](./artifacts/02_discovery/README.md)
+  — automated candidate findings and coverage (complements STRIDE, invariants,
+  and Certora).
 - [Deployment & operations](./DEPLOYMENT.md) — runbook for deploying and
   operating the protocol.
 - [Integration skills](./skills/README.md) — publishable AI-agent skills for
@@ -38,17 +41,26 @@ on-chain governance.
 The protocol separates administration, risk logic, and liquidity into three
 core contracts:
 
-- **Governance** — owns the controller and timelocks all protocol-admin
-  changes; pause and unpause remain immediate.
-- **Controller** — the user-facing contract: accounts, risk checks, oracle
-  validation, liquidations, flash loans, and strategies.
-- **Pool** — a single central contract that holds all liquidity and per-market
-  accounting.
+- **Governance** — owns the controller and timelocks protocol-admin changes
+  (except immediate pause/unpause and certain GUARDIAN actions).
+- **Controller** — the only user-facing contract: accounts, risk checks, oracle
+  validation, liquidations, flash loans, and strategies. It is the sole caller
+  of the pool for all mutations; it defines no `KEEPER`/`REVENUE`/`ORACLE` roles.
+- **Pool** — single central liquidity contract (owned by the controller). All
+  mutating entrypoints are `#[only_owner]`; it performs no risk, solvency, or
+  oracle decisions. The off-chain keeper self-authorizes its calls.
 
-Markets are keyed by hub and asset, so the same token can be listed
-independently on different hubs; spokes bind user accounts to their risk
-configuration. See the
-[architecture reference](./SCF_BUILD_ARCHITECTURE.md) for the full design.
+Pause is layered: a global controller pause (immediate) blocks risk-increasing
+and index-mutating flows but keeps `withdraw`, `repay`, `liquidate`, and
+`clean_bad_debt` open. Per-spoke `paused` and `frozen` flags provide finer
+controls. New deployments start paused. See [ADR 0011](./architecture/decisions/0011-pause-and-freeze-matrix.md) and the [protocol invariants](./architecture/INVARIANTS.md).
+
+Markets are keyed by `HubAssetKey { hub_id, asset }`. The same token listed on
+different hubs forms fully isolated markets (separate indexes, cash, revenue,
+debt, and bad-debt socialization). Spokes bind accounts to immutable risk
+configuration (LTVs, liquidation curves, caps, pause/freeze flags). See the
+[architecture reference](./SCF_BUILD_ARCHITECTURE.md) for the full design
+(boundary: [ADR 0001](./architecture/decisions/0001-controller-pool-ownership-boundary.md); timelock: [ADR 0010](./architecture/decisions/0010-governance-timelock-for-controller-admin.md); oracle: [ADR 0003](./architecture/decisions/0003-oracle-dual-source-with-tolerance-bands.md); pause/freeze: [ADR 0011](./architecture/decisions/0011-pause-and-freeze-matrix.md)).
 
 ## Repository Structure
 
@@ -93,7 +105,7 @@ Use `make help` for the full command surface.
 - **Build WASM artifacts**: `make build`
 - **Build optimized deployment binaries**: `make optimize`
 - **Run workspace tests**: `cargo test --workspace`
-- **Run Soroban integration tests**: `make test`
+- **Run Soroban integration tests**: `make test` (harness); pool-only via `make test-pool`
 - **Lint and format**: `make clippy` and `make fmt`
 - **Static analysis**: `scripts/scout-local.sh`
 

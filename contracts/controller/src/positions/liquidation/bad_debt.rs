@@ -10,7 +10,7 @@ use crate::storage::{self, iter_debt_positions, iter_typed_positions};
 
 /// Seizes all of an account's supply and debt shares, emits the cleanup event,
 /// and removes the account.
-pub(super) fn execute_bad_debt_cleanup(
+pub(crate) fn execute_bad_debt_cleanup(
     env: &Env,
     cache: &mut Cache,
     account_id: u64,

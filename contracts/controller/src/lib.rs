@@ -3,11 +3,16 @@
 
 //! Lending controller. Owns accounts, risk rules, oracle policy, strategies,
 //! flash loans, and admin configuration.
+//!
+//! Top level only declares modules; business logic lives in the submodules
+//! following mod.rs + storage.rs (where state owned) layout.
 
 pub mod constants;
 pub mod events;
 
 pub use common::types;
+
+// ################## MODULES ##################
 
 mod account;
 mod config;

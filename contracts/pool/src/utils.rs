@@ -8,6 +8,7 @@ use common::constants::{
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw, PoolKey};
+
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::cache::Cache;
@@ -16,6 +17,8 @@ use crate::interest;
 pub(crate) use common::validation::{
     require_nonneg_amount, require_positive_amount, require_wasm_receiver,
 };
+
+// ################## QUERY STATE ##################
 
 /// Renews the pool's instance-storage TTL.
 pub(crate) fn renew_pool_instance(env: &Env) {
@@ -31,6 +34,8 @@ pub(crate) fn now_ms(env: &Env) -> u64 {
         .checked_mul(MS_PER_SECOND)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
+
+// ################## CHANGE STATE ##################
 
 /// Renews TTLs for market params/state entries. Both keys must exist.
 pub(crate) fn renew_market_keys(env: &Env, hub_asset: &HubAssetKey) {
@@ -68,6 +73,8 @@ pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestR
 
     env.storage().persistent().set(&key, &params);
 }
+
+// ################## LOW-LEVEL HELPERS ##################
 
 /// Rejects post-mutation utilization above the market's max-utilization cap.
 pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {

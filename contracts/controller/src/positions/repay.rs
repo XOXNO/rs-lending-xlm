@@ -3,7 +3,7 @@
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{Account, DebtPosition, HubAssetKey, PoolAction, PoolPositionMutation};
-use soroban_sdk::{contractimpl, Address, Env, Vec};
+use soroban_sdk::{contractimpl, vec, Address, Env, Vec};
 
 use crate::account::update_or_remove_debt_position;
 use crate::context::Cache;
@@ -173,7 +173,7 @@ pub fn execute_repayment(
     // Strategy chokepoint: paused blocks repay, frozen still allows it.
     // Liquidation calls `settle_repay_actions` directly and stays exempt.
     enforce_spoke_asset_flags(env, cache, account.spoke_id, req.hub_asset, false);
-    let actions = soroban_sdk::vec![
+    let actions = vec![
         env,
         make_pool_action(req.position, req.amount, req.hub_asset.clone(),)
     ];

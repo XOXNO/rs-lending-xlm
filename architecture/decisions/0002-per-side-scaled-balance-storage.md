@@ -27,9 +27,12 @@ Supply and debt balances are stored as RAY-scaled shares. Actual token amounts
 are reconstructed with the pool supply or borrow index. Indexes advance through
 pool market sync, not account sweeps.
 
-Collateral positions also store the risk parameters used by health-factor,
-liquidation, and LTV math. Those values are refreshed by account threshold update
-flows when spoke risk parameters change.
+Collateral (supply) positions also store the risk parameters (LTV, liquidation
+threshold/bonus/fees) used by health-factor, liquidation, and LTV math at open
+time. Debt positions carry only the scaled share. Risk parameters on collateral
+are refreshed explicitly via `update_account_threshold` (or on supply) when
+spoke risk parameters change. Empty side maps are pruned on write to bound
+storage/TTL cost.
 
 ## Alternatives Considered
 
@@ -44,11 +47,11 @@ flows when spoke risk parameters change.
 
 Positive:
 
-- Interest accrual is `O(1)` per market row.
-- Supply-only and repay-only flows touch only the relevant side.
-- Account TTL renewal remains bounded to three account keys.
-- Position maps are keyed by `HubAssetKey`, matching controller and pool market
-  isolation.
+- Interest accrual is `O(1)` per market row (pool sync, no account sweeps).
+- Supply-only and repay-only flows touch only the relevant side map.
+- Account TTL renewal remains bounded (AccountMeta + the two side maps; empty sides are removed on write).
+- Position maps are keyed by `HubAssetKey`, matching controller and pool market isolation.
+- Risk snapshots live only on collateral; debt is pure scaled (minimizes storage for borrow-heavy accounts).
 
 Accepted costs:
 
@@ -58,8 +61,12 @@ Accepted costs:
 
 ## References
 
-- `common/src/types/controller.rs`
+- `common/src/types/controller.rs` (Account, AccountMeta, AccountPositionRaw, DebtPositionRaw, ControllerKey)
 - `common/src/types/pool.rs`
-- `contracts/controller/src/account`
-- `contracts/controller/src/positions`
+- `contracts/controller/src/storage/account.rs` (AccountMeta, SupplyPositions/BorrowPositions maps; empty map pruning on write)
+- `contracts/controller/src/positions` (risk snapshot on supply positions, scaled-only debt)
+- `contracts/controller/src/risk/params.rs` and `pool_ops/mod.rs` (refresh_supply_risk_params, update_account_threshold)
 - `contracts/pool/src/interest.rs`
+- `architecture/INVARIANTS.md` §5.2 (Account Storage) and §5.4 (Halt Controls interaction)
+
+This storage design remains the implemented ground truth (per-side scaled maps, collateral carries risk snapshot at open/refresh time, debt is scaled-only, O(1) per-market interest).

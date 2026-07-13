@@ -11,8 +11,9 @@
 # Scenario ordering matters: price crashes are market-global, so accounts
 # created later are sized against the already-crashed price.
 
-LIQ_CODES=(LIQA LIQB LIQC LIQD LIQE LIQF LIQG)
-LIQ_UNIT=10000000   # 1.0 token at 7 decimals
+# LIQ_CODES / LIQ_UNIT centralized in env.sh
+: "${LIQ_UNIT:=10000000}"
+: "${LIQ_CODES:=(LIQA LIQB LIQC LIQD LIQE LIQF LIQG)}"
 
 # Issues SACs, trustlines, mints, creates single-source mock markets at $1,
 # seeds debt-side liquidity.

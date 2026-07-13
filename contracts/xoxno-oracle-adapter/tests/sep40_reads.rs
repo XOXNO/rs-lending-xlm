@@ -8,6 +8,7 @@ use common::*;
 
 use xoxno_oracle_adapter::Error;
 
+use ::common::oracle::providers::redstone::REDSTONE_DECIMALS;
 use ::common::oracle::providers::reflector::ReflectorAsset;
 use soroban_sdk::{Env, String, Symbol};
 
@@ -126,7 +127,7 @@ fn decimals_always_equals_redstone_decimals() {
     let (client, _admin, _signers) = setup(&env, 1, 1);
     assert_eq!(
         client.decimals(),
-        ::common::oracle::providers::redstone::REDSTONE_DECIMALS
+        REDSTONE_DECIMALS
     );
 }
 

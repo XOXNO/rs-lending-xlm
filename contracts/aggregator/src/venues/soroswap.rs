@@ -1,8 +1,11 @@
 //! Soroswap pair adapter.
 
+use soroban_sdk::{panic_with_error, symbol_short, token, vec, IntoVal, Symbol, Val};
+
 use crate::errors::Error;
 use crate::venues::HopContext;
-use soroban_sdk::{panic_with_error, symbol_short, token, vec, IntoVal, Symbol, Val};
+
+// ################## LOW-LEVEL HELPERS ##################
 
 /// Soroswap's 0.3% swap fee, ceil-rounded — mirrors the pair's k-invariant
 /// `fee_in = ceil(amount_in * 3 / 1000)`.

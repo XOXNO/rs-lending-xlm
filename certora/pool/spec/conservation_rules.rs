@@ -89,7 +89,11 @@ fn supply_first(e: &Env, act: PoolAction) -> common::types::PoolPositionMutation
     crate::LiquidityPool::supply(e.clone(), entries).get_unchecked(0)
 }
 
-fn borrow_first(e: &Env, receiver: Address, act: PoolAction) -> common::types::PoolPositionMutation {
+fn borrow_first(
+    e: &Env,
+    receiver: Address,
+    act: PoolAction,
+) -> common::types::PoolPositionMutation {
     let mut entries: soroban_sdk::Vec<common::types::PoolBorrowEntry> = soroban_sdk::Vec::new(e);
     entries.push_back(common::types::PoolBorrowEntry { action: act });
     crate::LiquidityPool::borrow(e.clone(), receiver, entries).get_unchecked(0)
@@ -284,7 +288,7 @@ fn supply_bulk_two_entries_conserves_totals(
 }
 
 /// Re-registering an existing market must revert (would otherwise zero the
-/// live aggregates — the Aave V4 M-03 bug shape).
+/// live aggregates).
 #[rule]
 fn create_market_rejects_existing(e: Env, admin: Address, asset: Address) {
     seed_pool(

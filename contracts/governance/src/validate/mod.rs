@@ -7,12 +7,15 @@ pub(crate) mod spoke;
 pub(crate) mod tolerance;
 
 use common::errors::GenericError;
-use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, Env, Executable};
+
+use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, Env, Error, Executable, SpecShakingMarker};
+
+// ################## LOW-LEVEL HELPERS ##################
 
 pub(crate) fn require_contract_address(
     env: &Env,
     addr: &Address,
-    error: impl Into<soroban_sdk::Error> + soroban_sdk::SpecShakingMarker,
+    error: impl Into<Error> + SpecShakingMarker,
 ) {
     if !addr.exists() || !matches!(addr.executable(), Some(Executable::Wasm(_))) {
         panic_with_error!(env, error);

@@ -2,8 +2,8 @@
 
 use common::constants::POSITION_LIMIT_MAX;
 use common::errors::{CollateralError, GenericError};
-use common::types::MarketParamsRaw;
-use common::types::PositionLimits;
+use common::types::{MarketParamsRaw, PositionLimits};
+use common::validation::{validate_liquidation_fees as common_validate_liquidation_fees, validate_risk_bounds as common_validate_risk_bounds};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 // SAC decimal range for RAY/WAD conversions. Assets below 6 decimals can
@@ -13,12 +13,14 @@ use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 const MIN_ASSET_DECIMALS: u32 = 3;
 const MAX_ASSET_DECIMALS: u32 = 18;
 
+// ################## LOW-LEVEL HELPERS ##################
+
 pub(crate) fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
-    common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
+    common_validate_risk_bounds(env, ltv, threshold, bonus);
 }
 
 pub(crate) fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
-    common::validation::validate_liquidation_fees(env, fees_bps);
+    common_validate_liquidation_fees(env, fees_bps);
 }
 
 pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u32 {

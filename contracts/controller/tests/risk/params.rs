@@ -1,4 +1,5 @@
 use super::*;
+use common::math::fp::Ray;
 use common::types::PositionMode;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
@@ -15,7 +16,7 @@ fn debt_free_account(env: &Env) -> Account {
 
 fn position_with_threshold(lt_bps: i128) -> AccountPosition {
     AccountPosition {
-        scaled_amount: common::math::fp::Ray::from(0),
+        scaled_amount: Ray::from(0),
         liquidation_threshold: Bps::from(lt_bps),
         liquidation_bonus: Bps::from(500i128),
         loan_to_value: Bps::from(7_500i128),

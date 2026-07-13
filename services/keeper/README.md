@@ -29,8 +29,11 @@ Each TTL tick discovers:
   configured markets.
 
 The current protocol does not have controller `KEEPER`, `REVENUE`, or `ORACLE`
-roles. Governance role keys are discovered from `ExistingRoles`; expected
-governance roles are `PROPOSER`, `EXECUTOR`, `CANCELLER`, and `ORACLE`.
+roles (see central implementation facts and governance access control). Governance
+role keys are discovered from `ExistingRoles`; expected governance roles are
+`PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, and `GUARDIAN`. See
+`architecture/INVARIANTS.md` and `SCF_BUILD_ARCHITECTURE.md` for the full
+controller/pool/governance boundary and role model.
 
 ## Market Configuration
 

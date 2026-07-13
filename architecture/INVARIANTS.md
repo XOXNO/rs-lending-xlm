@@ -324,9 +324,18 @@ When primary and anchor prices are both available:
 
 Both sources are required and fail closed: a missing, stale, or unreadable
 primary or anchor reverts the read. There is no permissive out-of-band path and
-no degraded primary-only mode. Permissiveness exists only as a flow choosing
-not to read a price at all (ADR 0004) — never as relaxed validation of a price
-once read.
+no degraded primary-only mode. Permissiveness ("by omission") exists only as a
+flow choosing not to read a price at all (ADR 0004: Oracle Policy By Flow) —
+never as relaxed validation of a price once read.
+
+**Call-site policy**: Repay and pure debt-free withdraw paths skip pricing. All
+risk-affecting flows that need prices (borrow, withdraw-with-debt, liquidation
+sizing/HF, views that drive decisions) use the strict fail-closed path above.
+See ADR 0004 for the full table of which flows read the oracle.
+
+### 4.4 Bad Debt Socialization and Supply Index Floor (ADR 0007)
+
+Bad debt is socializable only when debt exceeds collateral *and* the collateral USD value is at or below the small threshold (5 WAD). `clean_bad_debt` is permissionless (re-validates the predicate on call). Seizure processes both sides; supply index is pulled down (subject to the floor) only on the seized supply positions. A `CleanBadDebtEvent` is emitted. When a debt listing is per-spoke `paused`, the liquidation repay leg reverts (tainted-debt), while collateral seizure and clean_bad_debt remain available.
 
 Oracle samples dated beyond the clock-skew window always revert. Review new
 oracle code for timestamp handling, stale-cache behavior, and WAD
@@ -366,19 +375,21 @@ not make protocol-level risk decisions.
 
 ### 5.2 Account Storage
 
-Account state is split into three storage families:
+Account state is split into three storage families (see ADR 0002):
 
 - `AccountMeta(account_id)`
-- `SupplyPositions(account_id): Map<Address, AccountPositionRaw>`
-- `BorrowPositions(account_id): Map<Address, DebtPositionRaw>`
+- `SupplyPositions(account_id): Map<HubAssetKey, AccountPositionRaw>`
+- `BorrowPositions(account_id): Map<HubAssetKey, DebtPositionRaw>`
 
-The asset address is the map key. The storage family identifies the side.
-Collateral positions carry the open-time risk snapshot. Debt positions carry
-only the scaled share. Position rows do not duplicate asset, account id, or
-side.
+The storage family identifies the side (per-side scaled balances). Keys are
+`HubAssetKey` (hub + asset) so markets on different hubs are isolated.
+Collateral positions carry the open-time (or refreshed) risk snapshot from the
+spoke/asset config. Debt positions carry only the scaled share. Position rows
+do not duplicate asset, account id, or side.
 
 Side-map writes remove empty maps and extend account metadata TTL when metadata
-exists. Account removal deletes metadata and both side maps.
+exists. Account removal deletes metadata and both side maps. Risk params on
+collateral positions are refreshed via `update_account_threshold` flows.
 
 ### 5.3 TTL Maintenance
 
@@ -392,6 +403,18 @@ extension. Keeper keepalive covers:
 
 Storage review should confirm that new persistent keys have a TTL path and that
 position updates do not force unrelated side maps into memory.
+
+### 5.4 Halt Controls (Pause, Freeze, and Tainted Debt)
+
+Three independent layers with deliberately different scopes (see ADR 0011):
+
+- **Global pause** (`#[when_not_paused]` on controller): blocks risk-increasing and most mutating entrypoints (`supply`, `borrow`, strategy flows that increase exposure, `flash_loan`, `update_indexes`, `claim_revenue`, etc.). `withdraw`, `repay`, `liquidate`, and `clean_bad_debt` remain live. Global pause is immediate (never timelocked) and constructor/upgrade start paused.
+- **Per-spoke-asset `paused`**: blocks `supply`/`borrow`/`withdraw`/`repay` (including strategy equivalents) for that listing. Exits are blocked.
+- **Per-spoke-asset `frozen`**: blocks only new `supply`/`borrow`; `withdraw`/`repay` stay live (orderly wind-down).
+
+Liquidations and `clean_bad_debt` are never blocked by global pause or `frozen`. A narrow exception: when the *debt* side of a liquidation is per-asset `paused`, the repay leg reverts (tainted-debt gate); collateral seizure and `clean_bad_debt` are unaffected.
+
+These layers are enforced via `stellar_macros::when_not_paused`, `enforce_spoke_asset_flags` in positions, and spoke config checks in risk/views/limits paths. Previews (`max_*`) correctly report 0 capacity under the relevant halt.
 
 ## 6. Design Commitments
 

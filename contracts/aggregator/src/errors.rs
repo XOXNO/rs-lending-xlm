@@ -2,6 +2,8 @@
 
 use soroban_sdk::contracterror;
 
+// ################## ERRORS ##################
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]

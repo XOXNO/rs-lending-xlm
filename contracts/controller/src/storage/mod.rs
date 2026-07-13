@@ -7,6 +7,7 @@ mod ttl;
 #[cfg(feature = "certora")]
 #[path = "../../../../certora/controller/harness/storage.rs"]
 mod verification_storage;
+
 pub(crate) use account::*;
 pub(crate) use instance::*;
 pub(crate) use spoke::*;
@@ -14,3 +15,5 @@ pub(crate) use ttl::*;
 #[cfg(feature = "certora")]
 pub(crate) use verification_storage::*;
 // Verification storage helpers are not compiled into production contracts.
+
+// ################## STORAGE LAYOUT ##################

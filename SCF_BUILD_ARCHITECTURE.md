@@ -18,8 +18,12 @@ Supporting in-repo contracts: `contracts/aggregator` (DEX aggregation router),
 price feed), `contracts/defindex-strategy`, and
 `contracts/flash-loan-receiver`.
 
-Pre-audit; mainnet launch is gated by ADR 0009 and the §14 verification
-evidence.
+The architecture has been extended with later decisions (ADR 0010 governance
+timelock details, ADR 0011 pause/freeze matrix, ADR 0012 per-spoke liquidation
+curve). New deployments start with the controller paused; the owner must
+explicitly unpause after configuration. All pool state mutations are
+controller-only (`#[only_owner]`). See §14 and the protocol invariants for
+current verification expectations.
 
 ## 2. Contract Topology
 
@@ -27,7 +31,7 @@ evidence.
 flowchart TB
     User["User / liquidator / integrator"] --> Controller["Controller"]
     Governance["Governance"] ==>|"owner calls"| Controller
-    GovRoles["PROPOSER / EXECUTOR / CANCELLER / ORACLE"] --> Governance
+    GovRoles["PROPOSER / EXECUTOR / CANCELLER / ORACLE / GUARDIAN"] --> Governance
     Keeper["Keeper"] -->|"TTL / update_indexes"| Controller
 
     Controller ==>|"owner-gated calls"| Pool["Pool"]
@@ -38,8 +42,7 @@ flowchart TB
     Pool --> Tokens["SAC / SEP-41 tokens"]
 ```
 
-The controller defines no `KEEPER`, `REVENUE`, or `ORACLE` roles — those live
-on governance; the off-chain keeper self-authorizes its transactions.
+The controller defines no `KEEPER`, `REVENUE`, or `ORACLE` roles (only owner + pausable) — those live on governance (plus GUARDIAN for immediate per-listing incident actions). The off-chain keeper self-authorizes via signed caller (no on-chain role on the controller).
 
 ## 3. Addressing Model
 
@@ -49,9 +52,12 @@ bad-debt socialization.
 
 Accounts bind to a spoke id `>= 1` (spokes are not base overlays); each spoke
 keeps its own `SpokeAsset(spoke_id, HubAssetKey)` rows for risk and caps.
-Configs (`configs/`) currently list only `hub_id = 1` markets; those addresses
-are confirmed live only after ADR 0009's launch-gate validation, not merely by
-appearing in config.
+
+Hubs fully isolate markets: the same asset on different hubs has separate
+indexes, cash, revenue, debt, and bad-debt socialization. Configs
+(`configs/`) enumerate markets by `hub_id` (core hub 1 + RWA hub 2 and beyond);
+addresses are confirmed live only after ADR 0009's launch-gate validation (see
+DEPLOYMENT.md), not merely by appearing in config.
 
 ## 4. Storage Shape
 
@@ -74,10 +80,12 @@ No market-status enum exists: an asset is price-active when its token-rooted
 
 Governance owns the controller, validates admin inputs, timelocks operations
 by ledger delay, and executes them once ready. Roles: `PROPOSER`, `EXECUTOR`,
-`CANCELLER`, `ORACLE`.
+`CANCELLER`, `ORACLE`, `GUARDIAN` (immediate per-listing incident actions for
+flags etc.).
 
 Emergency `pause`/`unpause` stay immediate; governance-self operations (role
 and delay changes, ownership-transfer initiation, upgrades) are timelocked.
+See ADR 0010 and ADR 0011.
 
 ## 6. Controller Responsibilities
 
@@ -91,9 +99,18 @@ Controller entrypoints cover:
   oracle, aggregator, and accumulator configuration, including pool
   deployment, params, caps, rewards, revenue claim, and WASM upgrade.
 
-Risk-increasing/external-surface flows are `#[when_not_paused]`-gated; repay,
-withdraw, liquidation, bad-debt cleanup, and account renewal stay open for
+Risk-increasing/external-surface flows are `#[when_not_paused]`-gated (supply,
+borrow, strategies, flash loans, `update_indexes`, `claim_revenue`,
+`add_rewards`, `update_account_threshold`); repay, withdraw, liquidation,
+bad-debt cleanup (`clean_bad_debt`), and account renewal stay open for
 de-risking.
+
+Global pause leaves exits and liquidations live. Per-spoke `paused` blocks
+supply/borrow + exits for that listing (stronger brake). `frozen` blocks only
+new supply/borrow (orderly wind-down). Liquidations and `clean_bad_debt` survive
+global pause and `frozen`; a paused *debt* leg in liquidation reverts
+(tainted-debt gate). See ADR 0011 (full matrix + 2026-07-11 addendum) and
+`architecture/INVARIANTS.md`.
 
 ## 7. Pool Responsibilities
 
@@ -105,8 +122,11 @@ The controller-owned pool:
 - Accrues interest through borrow/supply indexes and stores revenue as scaled
   supply shares.
 - Settles flash loans with balance snapshots, callback invocation, repayment
-  pull, and post-repayment verification.
-- Socializes unrecoverable bad debt through the supply index floor.
+  pull, and post-repayment verification (see ADR 0006).
+- Socializes unrecoverable bad debt through the supply index floor — only when
+  `debt > collateral && collateral_usd <= BAD_DEBT_USD_THRESHOLD` (5 WAD); see
+  ADR 0007 and `INVARIANTS.md`. Direct token donations never increase tracked
+  `cash`.
 
 ## 8. Spokes And Risk
 
@@ -123,12 +143,16 @@ The controller resolves prices through a strict path:
 
 1. Load token-rooted `AssetOracle(asset)`.
 2. Apply an optional spoke oracle override.
-3. Read Reflector, RedStone, or XOXNO-adapter source data.
+3. Read Reflector, RedStone, or XOXNO-adapter source data. (Xoxno uses a
+   distinct `OracleSourceConfig::Xoxno` + dedicated multi-signer adapter
+   contract and `OracleProviderKind::XoxnoPriceFeed`; treated as an
+   independent second opinion in dual-source markets.)
 4. Enforce staleness, future-timestamp, decimals, sanity, and tolerance bounds.
 5. Normalize to USD WAD.
 
 Dual-source markets require the primary and anchor to stay within the
 tolerance band; missing source data fails closed with source-specific errors.
+See ADR 0003 and `INVARIANTS.md`.
 
 ## 10. Account And Position Model
 

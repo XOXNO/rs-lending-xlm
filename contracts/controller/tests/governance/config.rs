@@ -1,4 +1,5 @@
 use super::*;
+use common::constants::WAD;
 use soroban_sdk::testutils::Address as _;
 
 fn new_controller(env: &Env) -> Address {
@@ -170,7 +171,7 @@ fn min_borrow_floor_entrypoints_round_trip() {
     let contract = new_controller(&env);
     let client = crate::ControllerClient::new(&env, &contract);
 
-    let floor = 25 * common::constants::WAD;
+    let floor = 25 * WAD;
     client.set_min_borrow_collateral_usd(&floor);
     assert_eq!(client.get_min_borrow_collateral_usd(), floor);
 }

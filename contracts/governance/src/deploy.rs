@@ -1,12 +1,16 @@
 //! One-time controller deployment and address lookup.
 
 use common::errors::GenericError;
+
 use soroban_sdk::{assert_with_error, contractimpl, Address, BytesN, Env};
+
 use stellar_macros::only_owner;
 
 use crate::events::DeployControllerEvent;
 use crate::validate;
 use crate::{storage, Governance, GovernanceArgs, GovernanceClient};
+
+// ################## CONSTANTS ##################
 
 /// Deterministic salt for the one-time controller deployment; the controller
 /// address derives from (governance address, salt).
@@ -16,6 +20,9 @@ const CONTROLLER_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 impl Governance {
     /// Deploys the lending controller once and records its address, with the
     /// governance contract as the controller's constructor admin.
+    ///
+    /// # Arguments
+    /// * `wasm_hash` - compiled controller Wasm (already installed).
     ///
     /// # Errors
     /// * `InvalidPoolTemplate` - `wasm_hash` is all-zero.

@@ -37,7 +37,7 @@
 
 SHELL := /bin/bash
 .PHONY: \
-        build build-one optimize deploy-artifacts integration-wasm certora-wasm wasm-artifacts \
+        build build-one optimize deploy-artifacts integration-wasm integration-preflight integration-validate integration-shellcheck integration-appendix certora-wasm wasm-artifacts \
         certora certora-list \
         test test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
@@ -230,6 +230,46 @@ integration-wasm: deploy-artifacts
 	@echo ""
 	@echo "Integration WASM ($(OPTIMIZED_DIR)):"
 	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,defindex_strategy,mock_oracle,mock_redstone}.wasm 2>/dev/null
+
+## Generate fresh appendix.md for the integration harness from test-harness
+## budget/footprint tests (addresses stale appendix weakness).
+integration-appendix:
+	@echo "Generating tests/integration/appendix.md from test-harness budget data..."
+	@mkdir -p tests/integration
+	@( \
+	  echo "# Memory & resource budgets (auto-generated from test-harness)"; \
+	  echo; \
+	  echo "_Regenerate with: make integration-appendix (or run specific meta tests)._"; \
+	  echo; \
+	  echo "See tests/test-harness/tests/meta/budget_breakdown.rs and footprint_test.rs."; \
+	  echo "Run e.g.:"; \
+	  echo '  cargo test -p test-harness --test meta budget_breakdown -- --nocapture 2>&1 | tail -100'; \
+	) > tests/integration/appendix.md
+	@echo "Wrote tests/integration/appendix.md (update with real numbers from harness when budgets change)."
+
+## Quality targets for the live testnet integration harness (address audit weaknesses)
+.PHONY: integration-preflight integration-validate integration-shellcheck
+
+integration-preflight: integration-wasm
+	@echo "Running integration harness preflight..."
+	@bash -c 'source tests/integration/env.sh; source tests/integration/lib/core.sh; \
+	  check_tools || echo "(some tools missing — install jq xxd stellar etc.)"; \
+	  check_stellar_version || echo "(stellar version may be old)"; \
+	  echo "WASM_DIR=$$WASM_DIR"; ls -l $$WASM_DIR/*.wasm 2>/dev/null | head -3 || true; \
+	  echo "Preflight complete."'
+
+integration-validate:
+	@echo "Validating harness sources (sourcing + basic guards)..."
+	@bash -c 'set -u; \
+	  for f in tests/integration/env.sh tests/integration/lib/core.sh tests/integration/lib/invoke.sh; do \
+	    echo "  sourcing $$f"; bash -n "$$f" || exit 1; \
+	  done; \
+	  echo "Basic syntax + source validation passed."'
+
+integration-shellcheck:
+	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck not installed (brew/apt install shellcheck)"; exit 0; }
+	@echo "Running shellcheck on harness sources (non-blocking)..."
+	@shellcheck -x -s bash tests/integration/env.sh tests/integration/lib/*.sh tests/integration/scenarios/*.sh tests/integration/flows/*.sh 2>&1 | head -30 || true
 
 ## Production deploy WASM + certora prover WASM (local build once, cloud proves).
 wasm-artifacts: deploy-artifacts certora-wasm

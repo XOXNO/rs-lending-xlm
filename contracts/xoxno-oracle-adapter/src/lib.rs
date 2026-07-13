@@ -22,8 +22,11 @@ mod storage;
 mod submit;
 
 use soroban_sdk::{contract, contracterror, contractimpl, Address, BytesN, Env, Vec};
+
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
+
+// ################## ERRORS ##################
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]

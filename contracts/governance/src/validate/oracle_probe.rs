@@ -18,7 +18,11 @@ use common::types::{
     OracleSourceConfig, OracleSourceConfigInput, OracleSourceConfigOption, RedStoneSourceConfig,
     RedStoneSourceConfigInput, ReflectorBase, ReflectorSourceConfig,
 };
+use common::validation::validate_single_source_sanity_band;
+
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
+
+// ################## LOW-LEVEL HELPERS ##################
 
 use crate::validate::asset::validate_and_fetch_token_decimals;
 use crate::validate::oracle_config::{
@@ -39,7 +43,7 @@ pub(crate) fn validate_market_oracle_sources(
         config.min_sanity_price_wad,
         config.max_sanity_price_wad,
     );
-    common::validation::validate_single_source_sanity_band(
+    validate_single_source_sanity_band(
         env,
         config.strategy,
         config.min_sanity_price_wad,

@@ -2,7 +2,7 @@
 
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, AccountPosition, AccountPositionType, HubAssetKey, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
+use soroban_sdk::{assert_with_error, contractimpl, vec, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::account;
@@ -82,7 +82,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
 
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new);
 
-    let extra_assets = soroban_sdk::vec![env, current.asset.clone(), new.asset.clone()];
+    let extra_assets = vec![env, current.asset.clone(), new.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     let current_pos: AccountPosition = get_supply_position_or_panic(env, &account, current);
@@ -112,7 +112,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     );
 
     // D{new_collateral.decimals}{Token(new_collateral)} deposited as replacement collateral.
-    let deposit_assets = soroban_sdk::vec![env, (new.clone(), swapped_amount)];
+    let deposit_assets = vec![env, (new.clone(), swapped_amount)];
     supply::process_deposit(
         env,
         &env.current_contract_address(),
@@ -136,7 +136,7 @@ pub(crate) fn validate_swap_new_collateral_preflight(
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
 
     if !account.supply_positions.contains_key(new.clone()) {
-        let new_assets = soroban_sdk::vec![env, (new.clone(), 0i128)];
+        let new_assets = vec![env, (new.clone(), 0i128)];
         validation::validate_bulk_position_limits(
             env,
             account,

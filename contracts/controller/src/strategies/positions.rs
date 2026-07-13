@@ -5,7 +5,7 @@ use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, DebtPosition, HubAssetKey, PoolNetSettleEntry, ScaledPositionRaw,
 };
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{token, Address, Env, Vec};
 
 use crate::account::{update_or_remove_debt_position, update_or_remove_supply_position};
 use crate::context::Cache;
@@ -51,7 +51,7 @@ pub(crate) fn repay_debt_from_controller(
     req: StrategyRepay<'_>,
 ) {
     let debt_pool_addr = cache.cached_pool_address();
-    let debt_tok = soroban_sdk::token::Client::new(env, &req.debt.asset);
+    let debt_tok = token::Client::new(env, &req.debt.asset);
 
     // D{debt_token.decimals}{Token(debt_token)} repay transfer and debt request use same token units.
     utils::transfer_amount(
@@ -93,7 +93,7 @@ pub(crate) fn withdraw_collateral_to_controller(
     cache: &mut Cache,
     req: StrategyWithdraw<'_>,
 ) -> i128 {
-    let token = soroban_sdk::token::Client::new(env, &req.hub_asset.asset);
+    let token = token::Client::new(env, &req.hub_asset.asset);
     // D{asset.decimals}{Token(asset)} withdrawal result is measured from live balance delta.
     let balance_before = token.balance(&env.current_contract_address());
 
@@ -241,7 +241,7 @@ fn refund_controller_balance_delta(
     balance_before: i128,
     refund_to: &Address,
 ) {
-    let token = soroban_sdk::token::Client::new(env, asset);
+    let token = token::Client::new(env, asset);
     // D{asset.decimals}{Token(asset)} refund only the excess balance delta in same asset.
     let excess = balance_delta(env, &token, balance_before);
     if excess > 0 {

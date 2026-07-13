@@ -8,9 +8,12 @@ use common::rates::{
     calculate_borrow_rate, calculate_supplier_rewards, compound_interest, update_borrow_index,
     update_supply_index, MAX_COMPOUND_DELTA_MS,
 };
+
 use soroban_sdk::Env;
 
 use crate::cache::Cache;
+
+// ################## CHANGE STATE ##################
 
 /// Accrues interest from the last pool timestamp to the current ledger timestamp.
 pub fn global_sync(env: &Env, cache: &mut Cache) {
@@ -59,6 +62,8 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     // same accrual use diluted utilization.
     add_protocol_revenue(cache, protocol_fee);
 }
+
+// ################## LOW-LEVEL HELPERS ##################
 
 /// Adds a RAY-denominated fee as scaled protocol revenue.
 pub fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {

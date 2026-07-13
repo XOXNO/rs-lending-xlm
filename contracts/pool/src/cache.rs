@@ -3,17 +3,21 @@
 //! the result. Rounding direction (half-up, floor, ceil) is chosen per flow to
 //! keep protocol solvency conservative.
 
-use common::errors::GenericError;
+use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
-use common::rates::scaled_to_original;
+use common::rates::{scaled_to_original, utilization as rate_utilization};
 use common::types::{
     HubAssetKey, MarketIndexRaw, MarketParams, MarketParamsRaw, MarketStateSnapshot, PoolKey,
     PoolPositionMutation, PoolState, PoolStateRaw, PoolStrategyMutation, ScaledPositionRaw,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Env};
+
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 use crate::utils;
 
+/// In-memory representation of a market's params + mutable interest state.
+/// Used to batch accrual, accounting mutations, and a single save at the end
+/// of each high-level operation.
 pub struct Cache {
     /// Contract environment handle.
     pub env: Env,
@@ -41,6 +45,13 @@ pub struct Cache {
 
 impl Cache {
     /// Loads market params and mutable interest state.
+    ///
+    /// # Arguments
+    /// * `env` - Soroban environment.
+    /// * `hub_asset` - the market identifier.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` - params or state missing for the market.
     pub fn load(env: &Env, hub_asset: &HubAssetKey) -> Self {
         let params: MarketParamsRaw = env
             .storage()
@@ -75,6 +86,9 @@ impl Cache {
     }
 
     /// Persists accrued market state.
+    ///
+    /// # Notes
+    /// Only state is written; params are immutable after market creation.
     pub fn save(&self) {
         let state = PoolStateRaw {
             supplied: self.supplied.raw(),
@@ -92,6 +106,8 @@ impl Cache {
             .set(&PoolKey::State(self.hub_asset.clone()), &state);
     }
 
+    // ################## QUERY STATE ##################
+
     /// Utilization is borrowed / supplied; zero supply returns zero.
     pub fn calculate_utilization(&self) -> Ray {
         if self.supplied == Ray::ZERO {
@@ -101,7 +117,7 @@ impl Cache {
         let total_borrowed = scaled_to_original(&self.env, self.borrowed, self.borrow_index);
         let total_supplied = scaled_to_original(&self.env, self.supplied, self.supply_index);
 
-        common::rates::utilization(&self.env, total_borrowed, total_supplied)
+        rate_utilization(&self.env, total_borrowed, total_supplied)
     }
 
     /// Panics with `InsufficientLiquidity` if tracked cash is below `amount`.
@@ -109,9 +125,11 @@ impl Cache {
         assert_with_error!(
             self.env,
             self.cash >= amount,
-            common::errors::CollateralError::InsufficientLiquidity
+            CollateralError::InsufficientLiquidity
         );
     }
+
+    // ################## CHANGE STATE ##################
 
     /// Adds Token(asset) to tracked cash, panicking on overflow.
     pub fn credit_cash(&mut self, amount: i128) {
@@ -130,13 +148,15 @@ impl Cache {
     }
 
     /// Transfers Token(asset) to `recipient`; zero and negative amounts are no-ops.
-    pub fn transfer_out(&self, recipient: &soroban_sdk::Address, amount: i128) {
+    pub fn transfer_out(&self, recipient: &Address, amount: i128) {
         if amount <= 0 {
             return;
         }
-        let tok = soroban_sdk::token::Client::new(&self.env, &self.params.asset_id);
+        let tok = token::Client::new(&self.env, &self.params.asset_id);
         tok.transfer(&self.env.current_contract_address(), recipient, &amount);
     }
+
+    // ################## LOW-LEVEL HELPERS ##################
 
     /// Converts an asset amount into scaled supply shares at the current index.
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {

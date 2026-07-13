@@ -9,12 +9,15 @@ pub(crate) mod phoenix;
 pub(crate) mod soroswap;
 pub(crate) mod sushi;
 
-use crate::errors::Error;
-use crate::types::{SwapHop, SwapVenue};
 use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
     panic_with_error, token, vec, Address, Env, IntoVal, Symbol, Val,
 };
+
+use crate::errors::Error;
+use crate::types::{SwapHop, SwapVenue};
+
+// ################## EXECUTION ##################
 
 /// Executes one hop and returns measured output.
 pub(crate) fn dispatch_hop(env: &Env, router: &Address, hop: &SwapHop, amount_in: i128) -> i128 {
@@ -105,6 +108,8 @@ impl<'a> HopContext<'a> {
         }
     }
 }
+
+// ################## LOW-LEVEL HELPERS ##################
 
 /// Authorizes one SAC transfer from the router.
 pub(crate) fn authorize_token_transfer(

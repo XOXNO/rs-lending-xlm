@@ -2,7 +2,7 @@
 
 use common::errors::{GenericError, SpokeError};
 use common::types::{HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
-use soroban_sdk::{assert_with_error, panic_with_error};
+use soroban_sdk::{assert_with_error, panic_with_error, Map};
 
 use crate::context::Cache;
 use crate::spoke::SpokeUsageContext;
@@ -31,7 +31,7 @@ impl Cache {
     /// persisted (or when the flow never mutates usage).
     pub(crate) fn reset_spoke_context(&mut self) {
         self.spoke_usage = None;
-        self.spoke_prices = soroban_sdk::Map::new(&self.env);
+        self.spoke_prices = Map::new(&self.env);
     }
 
     /// Returns the mutable per-spoke usage context, initializing it for `spoke_id` when unset.

@@ -1,7 +1,7 @@
 //! Pool market-index context methods.
 
 use common::types::{HubAssetKey, MarketIndex, MarketIndexRaw};
-use soroban_sdk::Vec;
+use soroban_sdk::{vec, Vec};
 
 use crate::context::Cache;
 use crate::external::pool::fetch_pool_bulk_indexes;
@@ -49,7 +49,7 @@ impl Cache {
             return (&index).into();
         }
         let pool_addr = self.cached_pool_address();
-        let request = soroban_sdk::vec![&self.env, hub_asset.clone()];
+        let request = vec![&self.env, hub_asset.clone()];
         let index = fetch_pool_bulk_indexes(&self.env, &pool_addr, &request).get_unchecked(0);
         self.market_indexes.set(hub_asset.clone(), index.clone());
         (&index).into()

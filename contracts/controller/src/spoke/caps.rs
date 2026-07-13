@@ -1,6 +1,6 @@
 //! Spoke cap checks and per-asset usage accounting.
 
-use common::errors::SpokeError;
+use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::types::{HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
 use common::validation::cap_is_enabled;
@@ -111,7 +111,7 @@ impl SpokeUsageContext {
         // Entry gates guarantee the listing exists; fail loud on a breach.
         let cfg = self
             .spoke_asset(env, hub_asset)
-            .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::InternalError));
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
         let mut usage = self.spoke_usage(env, hub_asset);
         enforce_spoke_supply_cap(
             env,
@@ -124,7 +124,7 @@ impl SpokeUsageContext {
         usage.supplied_scaled_ray = usage
             .supplied_scaled_ray
             .checked_add(delta_scaled.raw())
-            .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
         self.set_usage(hub_asset, usage);
     }
 
@@ -140,7 +140,7 @@ impl SpokeUsageContext {
         // Entry gates guarantee the listing exists; fail loud on a breach.
         let cfg = self
             .spoke_asset(env, hub_asset)
-            .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::InternalError));
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
         let mut usage = self.spoke_usage(env, hub_asset);
         enforce_spoke_borrow_cap(
             env,
@@ -153,7 +153,7 @@ impl SpokeUsageContext {
         usage.borrowed_scaled_ray = usage
             .borrowed_scaled_ray
             .checked_add(delta_scaled.raw())
-            .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
         self.set_usage(hub_asset, usage);
     }
 
@@ -173,13 +173,13 @@ impl SpokeUsageContext {
         usage.supplied_scaled_ray = usage
             .supplied_scaled_ray
             .checked_sub(delta_scaled.raw())
-            .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
         // `checked_sub` misses sign underflow; negative usage would fake the
         // zero-usage removal gate.
         assert_with_error!(
             env,
             usage.supplied_scaled_ray >= 0,
-            common::errors::GenericError::InternalError
+            GenericError::InternalError
         );
         self.set_usage(hub_asset, usage);
     }
@@ -200,11 +200,11 @@ impl SpokeUsageContext {
         usage.borrowed_scaled_ray = usage
             .borrowed_scaled_ray
             .checked_sub(delta_scaled.raw())
-            .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
         assert_with_error!(
             env,
             usage.borrowed_scaled_ray >= 0,
-            common::errors::GenericError::InternalError
+            GenericError::InternalError
         );
         self.set_usage(hub_asset, usage);
     }

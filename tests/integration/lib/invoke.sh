@@ -124,7 +124,7 @@ inv() {
         if stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" -- "$@" \
             >"$out_f" 2>"$err_f"; then
             local hash
-            hash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
+            hash=$(extract_signing_hash "$err_f")
             if [ -n "$hash" ]; then
                 fetch_resources "$hash"
                 record "$label" ok "$fn" "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" ""
@@ -164,7 +164,7 @@ inv() {
             && grep -qE "$RPC_TRANSIENT_RE" "$err_f" \
             && ! grep -q "Error(Contract" "$err_f"; then
             local thash
-            thash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
+            thash=$(extract_signing_hash "$err_f")
             if [ -z "$thash" ]; then
                 # No signed hash: the transient hit simulate/pre-send, nothing
                 # was submitted. Safe to resubmit.

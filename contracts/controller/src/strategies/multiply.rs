@@ -5,7 +5,7 @@ use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
 use common::types::{Account, HubAssetKey, PositionMode, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, token, vec, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::context::Cache;
@@ -120,7 +120,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         .checked_add(swapped_collateral)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    let deposit_assets = soroban_sdk::vec![env, (collateral.clone(), total_collateral)];
+    let deposit_assets = vec![env, (collateral.clone(), total_collateral)];
 
     supply::process_deposit(
         env,
@@ -170,7 +170,7 @@ fn prepare_multiply_account(
         collateral_config.can_supply(),
         CollateralError::NotCollateral
     );
-    let extra_assets = soroban_sdk::vec![env, collateral.asset.clone(), debt.asset.clone()];
+    let extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
     (account_id, account, cache)
 }
@@ -234,7 +234,7 @@ fn collect_initial_multiply_payment(
         GenericError::AssetNotSupported
     );
 
-    let payment_tok = soroban_sdk::token::Client::new(env, &payment.asset);
+    let payment_tok = token::Client::new(env, &payment.asset);
     payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
 
     if payment.asset == collateral.asset {

@@ -2,7 +2,7 @@
 
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, HubAssetKey, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
+use soroban_sdk::{assert_with_error, contractimpl, vec, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::account;
@@ -82,7 +82,7 @@ pub fn process_repay_debt_with_collateral(
 
     let mut cache = Cache::new(env);
 
-    let extra_assets = soroban_sdk::vec![env, collateral.asset.clone(), debt.asset.clone()];
+    let extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     if collateral == debt {

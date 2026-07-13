@@ -1,8 +1,11 @@
 //! Phoenix pool adapter.
 
+use soroban_sdk::{panic_with_error, symbol_short, vec, IntoVal, Val, Vec};
+
 use crate::errors::Error;
 use crate::venues::HopContext;
-use soroban_sdk::{panic_with_error, symbol_short, vec, IntoVal, Val, Vec};
+
+// ################## EXECUTION ##################
 
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     // `Option<T>` in Soroban is represented at the `Val` boundary via the

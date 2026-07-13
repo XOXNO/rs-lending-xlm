@@ -122,9 +122,13 @@ Negative / accepted costs:
 
 - `SCF_BUILD_ARCHITECTURE.md` §6 (Controller Responsibilities), §15 (Security
   Review Focus).
+- `architecture/INVARIANTS.md` §3.3 and §4.4 (bad-debt trigger, supply-index
+  floor, tainted-debt gate on paused debt).
 - `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`
 - `contracts/controller/src/positions/liquidation/apply.rs::check_bad_debt_after_liquidation`
 - `contracts/controller/src/positions/liquidation/bad_debt.rs::execute_bad_debt_cleanup`
 - `common/src/constants/pool.rs` (`SUPPLY_INDEX_FLOOR_RAW` = `WAD`),
   `contracts/controller/src/constants.rs` (`BAD_DEBT_USD_THRESHOLD` = `5 * WAD`)
 - `contracts/controller/src/events/debt.rs::CleanBadDebtEvent`
+
+Matches central facts: socializable only when debt > collateral && collateral_usd <= 5 WAD; seize both sides; index floor only on seized supply; permissionless clean; liquidation repay on paused debt reverts.

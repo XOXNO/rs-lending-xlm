@@ -5,24 +5,36 @@
 use common::errors::GenericError;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
 use common::types::{HubAssetKey, MarketParamsRaw, PoolKey, PoolStateRaw, PoolSyncData};
+
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::cache::Cache;
+use crate::utils;
+
+// ################## QUERY STATE ##################
 
 /// Reads persisted market state, without TTL renewal or interest accrual.
 pub fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
-    env.storage()
+    let key = PoolKey::State(hub_asset.clone());
+    let v = env
+        .storage()
         .persistent()
-        .get(&PoolKey::State(hub_asset.clone()))
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
+        .get(&key)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
+    utils::renew_market_keys(env, hub_asset);
+    v
 }
 
 /// Reads persisted market params, without TTL renewal or interest accrual.
 pub fn load_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw {
-    env.storage()
+    let key = PoolKey::Params(hub_asset.clone());
+    let v = env
+        .storage()
         .persistent()
-        .get(&PoolKey::Params(hub_asset.clone()))
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
+        .get(&key)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
+    utils::renew_market_keys(env, hub_asset);
+    v
 }
 
 /// Loads params and state without TTL renewal or interest accrual.

@@ -204,14 +204,14 @@ fn test_dual_redstone_and_xoxno_same_feed_rejects() {
     let env = Env::default();
     let contract = Address::generate(&env);
     let feed_id = soroban_sdk::String::from_str(&env, "BTC/USD");
-    let primary = OracleSourceConfigInput::RedStone(common::types::RedStoneSourceConfigInput {
+    let primary = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
         contract: contract.clone(),
         feed_id: feed_id.clone(),
         max_stale_seconds: 600,
     });
     let mut cfg = sample_config(OracleStrategy::PrimaryWithAnchor, primary);
     cfg.anchor = OracleSourceConfigInputOption::Some(OracleSourceConfigInput::Xoxno(
-        common::types::RedStoneSourceConfigInput {
+        RedStoneSourceConfigInput {
             contract,
             feed_id,
             max_stale_seconds: 900,

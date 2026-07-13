@@ -3,7 +3,7 @@
 use soroban_sdk::{contractevent, Address};
 
 #[contractevent(topics = ["strategy", "initial_payment"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InitialMultiplyPaymentEvent {
     pub token: Address,
     pub amount: i128,
@@ -13,7 +13,7 @@ pub struct InitialMultiplyPaymentEvent {
 
 /// Emitted after Blend V2 migration into controller.
 #[contractevent(topics = ["strategy", "blend_migration"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlendMigrationEvent {
     pub account_id: u64,
     pub blend_pool: Address,

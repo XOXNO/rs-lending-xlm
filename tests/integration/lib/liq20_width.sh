@@ -1,9 +1,10 @@
 # 20-feed liquidation width research helpers (requires stress.sh, invoke.sh, core.sh).
 # Intentional frontier misses are recorded as status=research so assert_green ignores them.
 
-LIQ20_TX_CAP="${LIQ20_TX_CAP:-400000000}"
-LIQ20_DEFAULT_REPAY_EACH="${LIQ20_DEFAULT_REPAY_EACH:-$((3000 * STRESS_UNIT))}"
-LIQ20_DEFAULT_LEEWAY="${LIQ20_DEFAULT_LEEWAY:-8000000}"
+# LIQ20_* now primarily from env.sh (with same defaults for backward compat).
+: "${LIQ20_TX_CAP:=400000000}"
+: "${LIQ20_DEFAULT_REPAY_EACH:=$((3000 * ${STRESS_UNIT:-10000000}))}"
+: "${LIQ20_DEFAULT_LEEWAY:=8000000}"
 
 liq20_pay_vec() {
 local hub_id="$1" n="$2" repay_each="${3:-$LIQ20_DEFAULT_REPAY_EACH}" args="" i
@@ -33,7 +34,7 @@ liq20_liquidate_send() {
         --debt_payments "$(liq20_pay_vec "$PRIMARY_HUB_ID" "$n" "$repay_each")" \
         >"$out_f" 2>"$err_f"; then
         local hash
-        hash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
+        hash=$(extract_signing_hash "$err_f")
         fetch_resources "$hash"
         record "$label" ok liquidate "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" ""
         log "width $n LANDED ($RES_INSTR insns) tx=$hash"

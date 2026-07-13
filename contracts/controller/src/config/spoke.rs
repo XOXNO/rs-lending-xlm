@@ -3,6 +3,7 @@
 
 use common::errors::SpokeError;
 use common::types::SpokeConfig;
+use common::validation::validate_liquidation_curve;
 use soroban_sdk::{assert_with_error, Env};
 
 use crate::{
@@ -62,7 +63,7 @@ pub fn set_spoke_liquidation_curve(
     // Re-validated here (not just at governance propose time) so a direct
     // owner call can't bypass the bounds that keep the bonus interpolation
     // safe (see `common::validation::validate_liquidation_curve`).
-    common::validation::validate_liquidation_curve(
+    validate_liquidation_curve(
         env,
         target_hf_wad,
         hf_for_max_bonus_wad,

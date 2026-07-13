@@ -22,7 +22,9 @@ certora/
 
 Partitioning is by **crate/WASM boundary** (`common` / `pool` / `controller`),
 not by proof theme. Domain docs live in each layer's `spec/README.txt`.
-Cross-reference: [`architecture/INVARIANTS.md`](../architecture/INVARIANTS.md).
+Cross-reference: [`architecture/INVARIANTS.md`](../architecture/INVARIANTS.md) (the enforceable properties these rules protect, including numeric model, pool accounting, account solvency, oracle, storage/boundaries, pause/freeze, and bad-debt socialization) and the verification surface in `SCF_BUILD_ARCHITECTURE.md §14`.
+
+See also the central implementation facts: controller owns risk/oracle/strategies and is sole caller of the pool; governance owns controller; new deployments start paused; 3-layer pause/freeze; GUARDIAN for immediate per-listing actions; keeper self-authorizes.
 
 ## WASM artifacts (deploy + prover)
 
@@ -119,7 +121,7 @@ Forward extra prover flags after `--`:
 
 ## Lemma-before-main
 
-Follow Aave-style ordering when adding proofs:
+Follow lemma-before-main ordering when adding proofs:
 
 1. `pool/confs/summary-contract.conf` before controller solvency that summarizes pool calls
 2. `tolerance-math.conf` before full oracle-dependent liquidation
@@ -230,7 +232,7 @@ artifact reproduces it and cascades into spurious `Violated` sanity rules.
 
 - [Sunbeam docs](https://docs.certora.com/en/latest/docs/sunbeam/index.html) and [tutorials](https://certora-sunbeam-tutorials.readthedocs-hosted.com/en/latest/)
 - [Certora user guide](https://docs.certora.com/en/latest/docs/user-guide/index.html) — sanity, CI, timeout strategy (translate to Sunbeam)
-- [Aave V3 certora](https://github.com/Certora/aave-v3-origin/tree/main/certora) — solvency README pattern, lemma→main split
+- Large Certora projects for examples of solvency README patterns and lemma→main splits (see Certora user guide)
 - [AIComposer](https://github.com/Certora/AIComposer) — Solidity/CVL only; use its spec-first workflow manually with `*_rules.rs`
 
 ## Targeted high-signal runs

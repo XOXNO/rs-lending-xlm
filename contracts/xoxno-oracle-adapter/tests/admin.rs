@@ -9,7 +9,7 @@ use common::*;
 use xoxno_oracle_adapter::{Error, XoxnoOracle, XoxnoOracleClient};
 
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{Address, BytesN, Env, IntoVal};
+use soroban_sdk::{vec, Address, BytesN, Env, IntoVal};
 
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
@@ -17,7 +17,7 @@ fn constructor_rejects_threshold_of_zero() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
-    let signers = soroban_sdk::vec![&env, Address::generate(&env)];
+    let signers = vec![&env, Address::generate(&env)];
     env.register(XoxnoOracle, (admin, signers, 0u32, TEST_RESOLUTION));
 }
 
@@ -27,7 +27,7 @@ fn constructor_rejects_threshold_above_signer_count() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
-    let signers = soroban_sdk::vec![&env, Address::generate(&env)];
+    let signers = vec![&env, Address::generate(&env)];
     env.register(XoxnoOracle, (admin, signers, 2u32, TEST_RESOLUTION));
 }
 
@@ -39,7 +39,7 @@ fn constructor_rejects_duplicate_signers() {
     let admin = Address::generate(&env);
     let dup = Address::generate(&env);
     // Same address twice -> has_duplicate -> InvalidThreshold.
-    let signers = soroban_sdk::vec![&env, dup.clone(), dup];
+    let signers = vec![&env, dup.clone(), dup];
     env.register(XoxnoOracle, (admin, signers, 1u32, TEST_RESOLUTION));
 }
 
@@ -151,7 +151,7 @@ fn only_owner_can_initiate_ownership_transfer() {
     // the contract needs no mocked auths at all.
     let admin = Address::generate(&env);
     let signer = Address::generate(&env);
-    let signers = soroban_sdk::vec![&env, signer.clone()];
+    let signers = vec![&env, signer.clone()];
     let contract_id = env.register(XoxnoOracle, (admin.clone(), signers, 1u32, TEST_RESOLUTION));
     let client = XoxnoOracleClient::new(&env, &contract_id);
 
@@ -193,7 +193,7 @@ fn only_owner_can_initiate_ownership_transfer() {
         invoke: &MockAuthInvoke {
             contract: &contract_id,
             fn_name: "accept_ownership",
-            args: soroban_sdk::vec![&env],
+            args: vec![&env],
             sub_invokes: &[],
         },
     }]);

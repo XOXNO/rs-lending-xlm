@@ -44,16 +44,23 @@ In scope:
   `contracts/governance`, `contracts/aggregator`,
   `contracts/xoxno-oracle-adapter`, `contracts/defindex-strategy`,
   `contracts/flash-loan-receiver`, plus shared `common/` and `interfaces/`.
-- The Makefile + `configs/script.sh` operator path that deploys and
-  configures the protocol.
+- `services/keeper` (TTL renewal and archive restoration for critical storage).
+- The Makefile, config files, and operator tooling that deploys, configures,
+  and maintains the protocol on-chain.
 
 Not in scope:
 
 - Vulnerabilities in third-party dependencies (Soroban SDK,
-  OpenZeppelin Stellar contracts, Reflector oracle) — report those upstream.
-- Issues that require already-compromised operator keys (the governance owner
-  or governance role holders).
+  OpenZeppelin Stellar contracts, Reflector/RedStone oracles, etc.) — report
+  those upstream.
+- Issues that require already-compromised operator keys (governance owner,
+  role holders including GUARDIAN, or keeper operator keys).
 - Theoretical attacks without a reproducible proof of concept.
+
+Technical security properties, invariants, pause/freeze matrix, oracle policy,
+and governance model are documented in `architecture/INVARIANTS.md`,
+`STRIDE.md`, and `SCF_BUILD_ARCHITECTURE.md`. Report concrete deviations from
+those properties.
 
 ## Supported Versions
 
@@ -73,7 +80,16 @@ not pursue legal action against researchers who:
 - Use testnet or local environments for active exploitation testing.
 - Do not exploit a vulnerability beyond what is necessary to demonstrate it.
 
+Researchers are encouraged to consult `STRIDE.md`, `architecture/INVARIANTS.md`,
+and the central implementation facts (controller/pool boundary, 3-layer pause
+matrix, fail-closed oracle policy, scaled accounting, etc.) when scoping
+research.
+
 ## Audit Status
 
-External audit artifacts will be published with the corresponding release once
-available.
+The protocol has undergone significant hardening (see ADR 0009 and subsequent
+decisions on governance timelock, pause/freeze matrix, and operational controls).
+External audit artifacts, when available for a given release, will be published
+with that release or linked from the repository. Current security design is
+captured in `STRIDE.md`, `architecture/INVARIANTS.md`, and the central
+implementation facts in the contracts.

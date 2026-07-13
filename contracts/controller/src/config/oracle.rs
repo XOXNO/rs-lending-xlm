@@ -5,6 +5,9 @@ use common::errors::{GenericError, OracleError};
 use common::types::{
     HubAssetKey, MarketOracleConfig, OraclePriceFluctuation, OracleSourceConfig, ReflectorBase,
 };
+use common::validation::{
+    validate_sanity_bounds, validate_single_source_sanity_band,
+};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::context::Cache;
@@ -54,17 +57,17 @@ pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: M
 }
 
 /// Validates market oracle config before storage.
-pub(super) fn validate_market_oracle_config(
+pub(crate) fn validate_market_oracle_config(
     env: &Env,
     asset: &Address,
     config: &MarketOracleConfig,
 ) {
-    common::validation::validate_sanity_bounds(
+    validate_sanity_bounds(
         env,
         config.min_sanity_price_wad,
         config.max_sanity_price_wad,
     );
-    common::validation::validate_single_source_sanity_band(
+    validate_single_source_sanity_band(
         env,
         config.strategy,
         config.min_sanity_price_wad,
@@ -124,8 +127,8 @@ pub fn set_oracle_sanity_bounds(env: &Env, asset: Address, min_wad: i128, max_wa
     let mut oracle = storage::get_asset_oracle(env, &asset)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PairNotActive));
 
-    common::validation::validate_sanity_bounds(env, min_wad, max_wad);
-    common::validation::validate_single_source_sanity_band(env, oracle.strategy, min_wad, max_wad);
+    validate_sanity_bounds(env, min_wad, max_wad);
+    validate_single_source_sanity_band(env, oracle.strategy, min_wad, max_wad);
     assert_with_error!(
         env,
         min_wad < oracle.max_sanity_price_wad && max_wad > oracle.min_sanity_price_wad,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Submit Certora Soroban verification jobs (Aave-style entry point).
+# Submit Certora Soroban verification jobs.
 #
 # Usage (from repo root):
 #   ./certora/scripts/run-all.sh [profile] [-- extra prover args...]

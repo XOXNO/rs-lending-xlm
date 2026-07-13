@@ -2,13 +2,15 @@
 
 use common::errors::GenericError;
 use common::types::StrategySwap;
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 mod auth;
 mod balances;
 mod route;
 
 use crate::storage;
+use route::aggregator::AggregatorClient;
+use route::validate_strategy_swap;
 
 /// Swaps `amount_in` of `token_in` for `token_out` through the
 /// governance-configured aggregator router. The router address is read from
@@ -28,11 +30,11 @@ pub(crate) fn swap_tokens(
 ) -> i128 {
     // D{token_in.decimals}{Token(token_in)} -> D{token_out.decimals}{Token(token_out)}.
     let router_addr = storage::get_aggregator(env);
-    let router = route::aggregator::AggregatorClient::new(env, &router_addr);
-    let token_out_client = soroban_sdk::token::Client::new(env, token_out);
-    let token_in_client = soroban_sdk::token::Client::new(env, token_in);
+    let router = AggregatorClient::new(env, &router_addr);
+    let token_out_client = token::Client::new(env, token_out);
+    let token_in_client = token::Client::new(env, token_in);
 
-    route::validate_strategy_swap(env, swap, amount_in);
+    validate_strategy_swap(env, swap, amount_in);
 
     let balance_before = balances::snapshot_swap_balances(env, &token_in_client, &token_out_client);
 
@@ -75,7 +77,7 @@ pub(crate) fn swap_tokens_or_passthrough(
 /// an ordinary negative result — every caller checks the sign itself.
 pub(crate) fn balance_delta(
     env: &Env,
-    token: &soroban_sdk::token::Client,
+    token: &token::Client,
     balance_before: i128,
 ) -> i128 {
     token

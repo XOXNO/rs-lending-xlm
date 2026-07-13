@@ -49,9 +49,7 @@ fn submit_price_arms_shared_ttl_on_submission_key() {
     client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
 
     let key = MirrorKey::LatestSubmission(feed.clone(), signers[0].clone());
-    let ttl = env.as_contract(&client.address, || {
-        env.storage().persistent().get_ttl(&key)
-    });
+    let ttl = env.as_contract(&client.address, || env.storage().persistent().get_ttl(&key));
     assert!(
         ttl >= TTL_THRESHOLD_SHARED,
         "submission key TTL ({ttl}) must be lifted above the shared threshold"

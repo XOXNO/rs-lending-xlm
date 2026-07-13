@@ -243,7 +243,7 @@ fn read_mode_parts(read_mode: &OracleReadMode) -> (u32, u32) {
 }
 
 #[contractevent(topics = ["market", "create"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateMarketEvent {
     pub hub_id: u32,
     pub base_asset: Address,
@@ -260,7 +260,7 @@ pub struct CreateMarketEvent {
 }
 
 #[contractevent(topics = ["market", "params_update"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateMarketParamsEvent {
     pub asset: Address,
     pub max_borrow_rate: i128,
@@ -391,7 +391,7 @@ pub struct UpdatePositionBatchEvent {
 /// position batch legs; total seized USD is
 /// `repaid_usd_wad * (1 + bonus_bps / 10_000)`.
 #[contractevent(topics = ["position", "liquidation"])]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LiquidationEvent {
     pub liquidator: Address,
     pub account_id: u64,

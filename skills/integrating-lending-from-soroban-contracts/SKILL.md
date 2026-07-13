@@ -116,7 +116,7 @@ client.repay(&me, &account_id, &vec![env, (hub_asset, amount)]);
   **reads no oracle** — safe for share pricing (defindex derives its
   price-per-share from `supply_index`).
 - `max_withdraw` / `max_borrow` fold in liquidity, caps, and LTV/HF gates;
-  `max_supply` is supply-cap headroom only. All return `0` while paused.
+  `max_supply` is supply-cap headroom only (i128::MAX uncapped). All return `0` while paused (global or per-spoke) or on frozen/paused listings for the relevant op (3-layer matrix: global blocks risk-increasing; per-spoke paused blocks exits; frozen only new entries). See INVARIANTS §5.4, ADR 0011, central facts.
 - `account_exists(account_id)` — reconcile your stored id; clear it if the
   account is gone.
 - Full view surface: `reading-lending-protocol-state` skill.

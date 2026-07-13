@@ -46,20 +46,24 @@ controller does not decode or validate paths, hops, pools, venues, or splits.
 **Pre-call balance snapshot** (`contracts/controller/src/strategies/swap/balances.rs::snapshot_swap_balances`): the controller
 records its own balances of both the input and output tokens.
 
-**On-call binding**: the on-the-wire `execute_strategy.sender` is forced to the
-controller and `total_in` is the controller's committed input amount. The
-opaque swap bytes are forwarded unchanged. The controller pre-authorizes a
-single input-token pull from itself.
+**On-call binding**: the controller passes itself as `sender` and its own
+measured `amount_in` as `total_in`. The aggregator requires auth from that
+sender and can pull at most that amount (enforced on the controller side by
+pre-authorization of exactly `amount_in` plus post-call overspend check). The
+opaque swap XDR is forwarded unchanged; the controller never decodes routes.
 
-**Post-call delta verification**:
+**Post-call delta verification** (in `balances.rs`):
 
-- `verify_router_input_spend` rejects any post-call input spend exceeding
-  the committed `amount_in`. Underspend stays on the controller.
-- `verify_router_output` rejects when the post-call output delta is not
-  positive.
+- `verify_router_input_spend` rejects if the router spent more input than the
+  committed `amount_in` (overspend protection).
+- `refund_router_underspend` refunds any unspent input back to the provided
+  refund recipient (leftover stays with the caller; does not stay trapped in
+  the router).
+- `verify_router_output` computes the output delta and rejects if it is not
+  strictly positive (`NoSwapOutput`).
 
-Both delta checks surface their rejection as the generic
-`GenericError::InternalError`.
+These checks use strategy-specific errors (`StrategyError::RouterOverspend`,
+`StrategyError::NoSwapOutput`) rather than a generic internal error.
 
 **Reentrancy**: the router call runs inside the flash-loan single-flight
 guard. `call_router_with_reentrancy_guard` sets `FlashLoanOngoing`
@@ -112,8 +116,13 @@ Negative / accepted costs:
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §12 (Strategies).
-- `contracts/controller/src/strategies/swap/route.rs::validate_strategy_swap`
-- `contracts/controller/src/strategies/swap/balances.rs::{snapshot_swap_balances, verify_router_input_spend, verify_router_output}`
+- `contracts/controller/src/strategies/swap/route.rs` (validate + call with reentrancy guard)
+- `contracts/controller/src/strategies/swap/balances.rs` (snapshot + verify_input_spend + refund_underspend + verify_output)
+- `contracts/controller/src/strategies/swap/auth.rs` (pre-authorize exactly the committed input)
 - `contracts/controller/src/storage/instance.rs::set_flash_loan_ongoing`
 - `contracts/controller/src/risk/validation.rs::require_not_flash_loaning`
+- `common/src/errors.rs` (`StrategyError::RouterOverspend`, `StrategyError::NoSwapOutput`)
 - `common/src/types/aggregator.rs` (`StrategySwap`)
+- Aggregator side (`contracts/aggregator/src/vault.rs`): the router itself tracks real balance deltas internally using an invocation-local vault; the controller performs an independent outer verification on its own token balances.
+
+The decision (treat router output as untrusted and verify controller-measured deltas) remains the implemented approach.

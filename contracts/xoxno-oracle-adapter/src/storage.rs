@@ -8,6 +8,7 @@ use common::constants::{
     TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };
 use common::oracle::providers::reflector::ReflectorAsset;
+
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 use crate::Error;
@@ -61,6 +62,8 @@ pub(crate) struct SignerSubmission {
     pub(crate) package_timestamp: u64,
 }
 
+// ################## QUERY STATE ##################
+
 pub(crate) fn load_signers(env: &Env) -> Vec<Address> {
     env.storage()
         .instance()
@@ -97,9 +100,10 @@ pub(crate) fn load_resolution(env: &Env) -> u32 {
 }
 
 pub(crate) fn load_feed_id(env: &Env, asset: &ReflectorAsset) -> Option<String> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::FeedMapping(asset.clone()))
+    let key = DataKey::FeedMapping(asset.clone());
+    env.storage().persistent().get(&key).inspect(|_| {
+        renew_persistent_key(env, &key);
+    })
 }
 
 /// Materializes the asset index into a `Vec` for `assets()`. Read-renews each
@@ -132,6 +136,8 @@ pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
     }
     out
 }
+
+// ################## CHANGE STATE ##################
 
 /// Records `feed_id` in the known-feed index on its first submission. Later
 /// calls renew the feed's index slots (read-renewal on the hot submit path)
@@ -214,6 +220,8 @@ pub(crate) fn feed_index_contains(env: &Env, feed_id: &String) -> bool {
         .has(&DataKey::FeedIndex(feed_id.clone()))
 }
 
+// ################## LOW-LEVEL HELPERS ##################
+
 /// Appends `asset` as the last slot and records its slot in the reverse
 /// index, so membership checks and removal are both O(1).
 pub(crate) fn asset_index_insert(env: &Env, asset: ReflectorAsset) {
@@ -247,7 +255,11 @@ pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
         let last_key = DataKey::AssetAt(last_at);
         // safe: slots 0..count are always populated by the index invariant;
         // `load_all_assets` read-renews them so an active slot can't archive.
-        let moved: ReflectorAsset = env.storage().persistent().get(&last_key).unwrap();
+        let moved: ReflectorAsset = env
+            .storage()
+            .persistent()
+            .get(&last_key)
+            .expect("invariant: active AssetAt slot within 0..count");
         let moved_at_key = DataKey::AssetAt(removed_at);
         env.storage().persistent().set(&moved_at_key, &moved);
         renew_persistent_key(env, &moved_at_key);
@@ -298,7 +310,11 @@ pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
         let last_key = DataKey::FeedAt(last_at);
         // safe: slots 0..count are always populated by the index invariant;
         // `record_known_feed` read-renews an active feed's slots.
-        let moved: String = env.storage().persistent().get(&last_key).unwrap();
+        let moved: String = env
+            .storage()
+            .persistent()
+            .get(&last_key)
+            .expect("invariant: active FeedAt slot within 0..count");
         let moved_at_key = DataKey::FeedAt(removed_at);
         env.storage().persistent().set(&moved_at_key, &moved);
         renew_persistent_key(env, &moved_at_key);
@@ -327,7 +343,9 @@ pub(crate) fn require_registered_signer(env: &Env, signer: &Address) -> Result<(
 pub(crate) fn has_duplicate(signers: &Vec<Address>) -> bool {
     for i in 0..signers.len() {
         for j in (i + 1)..signers.len() {
-            if signers.get(i).unwrap() == signers.get(j).unwrap() {
+            if signers.get(i).expect("invariant: i within signer vec len")
+                == signers.get(j).expect("invariant: j within signer vec len")
+            {
                 return true;
             }
         }

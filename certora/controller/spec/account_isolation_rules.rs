@@ -2,8 +2,7 @@
 //!
 //! A controller action on one account never mutates another account's
 //! positions — cross-account non-interference for supply, borrow, repay and
-//! liquidation (the liquidation leg mirrors Aave V4's
-//! noChangeToOtherAccounts_liquidationCall).
+//! liquidation.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};

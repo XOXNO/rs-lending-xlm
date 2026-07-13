@@ -4,7 +4,7 @@ use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry,
 };
-use soroban_sdk::{contractimpl, Address, Env, Vec};
+use soroban_sdk::{contractimpl, vec, Address, Env, Vec};
 
 use crate::account::{require_owner_or_delegate, update_or_remove_supply_position};
 use crate::context::Cache;
@@ -259,7 +259,7 @@ pub fn execute_withdrawal(
     // Strategy chokepoint: paused blocks withdraw, frozen still allows it.
     // Liquidation calls `settle_withdraw_entries` directly and stays exempt.
     enforce_spoke_asset_flags(env, cache, account.spoke_id, req.hub_asset, false);
-    let entries = soroban_sdk::vec![
+    let entries = vec![
         env,
         PoolWithdrawEntry {
             action: make_pool_action(req.position, req.amount, req.hub_asset.clone()),

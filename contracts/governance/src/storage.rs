@@ -4,7 +4,10 @@ use common::constants::{
     TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };
 use common::errors::GenericError;
+
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
+
+// ################## STORAGE KEYS ##################
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -15,6 +18,8 @@ enum GovernanceKey {
     /// other canceller can still veto the operation.
     RoleRevocationTarget(BytesN<32>),
 }
+
+// ################## CHANGE STATE ##################
 
 pub(crate) fn renew_governance_instance(env: &Env) {
     env.storage()
@@ -34,10 +39,15 @@ pub(crate) fn mark_role_revocation_target(env: &Env, operation_id: &BytesN<32>, 
         .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
+// ################## QUERY STATE ##################
+
 pub(crate) fn role_revocation_target(env: &Env, operation_id: &BytesN<32>) -> Option<Address> {
-    env.storage()
-        .persistent()
-        .get(&GovernanceKey::RoleRevocationTarget(operation_id.clone()))
+    let key = GovernanceKey::RoleRevocationTarget(operation_id.clone());
+    env.storage().persistent().get(&key).inspect(|_| {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+    })
 }
 
 pub(crate) fn has_controller(env: &Env) -> bool {
@@ -56,3 +66,5 @@ pub(crate) fn set_controller(env: &Env, addr: &Address) {
         .instance()
         .set(&GovernanceKey::Controller, addr);
 }
+
+// ################## LOW-LEVEL HELPERS ##################

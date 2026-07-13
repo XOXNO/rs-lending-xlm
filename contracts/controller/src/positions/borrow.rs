@@ -4,7 +4,7 @@ use common::math::fp::{Bps, Ray};
 use common::types::{
     Account, AccountPositionType, DebtPosition, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
 };
-use soroban_sdk::{contractimpl, Address, Env, Vec};
+use soroban_sdk::{contractimpl, vec, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::account::{require_owner_or_delegate, update_or_remove_debt_position};
@@ -222,7 +222,7 @@ fn borrow_strategy_inner(
     event_action: events::PositionAction,
 ) -> i128 {
     let hub_debt = hub_debt.clone();
-    let payments: AggregatedPayments = soroban_sdk::vec![env, (hub_debt.clone(), amount)];
+    let payments: AggregatedPayments = vec![env, (hub_debt.clone(), amount)];
     let aggregated = utils::aggregate_positive_payments(env, &payments);
     validate_position_entry_gates(
         env,

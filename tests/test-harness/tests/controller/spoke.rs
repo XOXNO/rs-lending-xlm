@@ -785,7 +785,7 @@ fn test_spoke_borrow_flag_update_blocks_new_borrow_but_existing_repay_works() {
     assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
 }
 
-// Defense-in-depth (AAVE-D-028): the controller's own edit_asset_in_spoke
+// Defense-in-depth (D-028): the controller's own edit_asset_in_spoke
 // rejects an edit that would invert the LTV<threshold gap or breach the
 // seizure ceiling, even on a direct call that bypasses the governance
 // contract's validation. A collateral position inherits its ltv and threshold

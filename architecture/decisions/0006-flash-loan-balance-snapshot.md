@@ -58,9 +58,9 @@ Implementation in `contracts/pool/src/lib.rs::flash_loan`, orchestrated by
    allowance.
 10. Assert `balance_after == expected_after_repay`; any mismatch reverts with
     `InvalidFlashloanRepay`.
-11. Convert the fee to RAY (`Ray::from_asset(fee, asset_decimals)`), record it
-    as protocol revenue (`interest::add_protocol_revenue_ray`), add the fee to
-    the market's internal `cash`, and persist the asset state.
+11. Record the fee as protocol revenue (`interest::add_protocol_revenue`),
+    add the fee to the market's internal `cash`, and persist the asset state
+    (market-state batch event only; no dedicated flash event from the pool).
 
 **Controller-side guards** (`contracts/controller/src/strategies/flash_loan.rs::process_flash_loan`;
 the entrypoint signature is `flash_loan(caller, asset, amount, receiver, data)`):
@@ -74,10 +74,11 @@ the entrypoint signature is `flash_loan(caller, asset, amount, receiver, data)`)
   `is_flashloanable` (`FlashLoanError::FlashloanNotEnabled` otherwise).
 - Require the receiver to be a deployed Wasm contract.
 - Set `FlashLoanOngoing = true` for the entire call window.
-- Compute `fee` from `flashloan_fee` via `flash_loan_fee`, which floors a
-  positive-rate dust fee up to 1 unit. The rate is capped at
-  `MAX_FLASHLOAN_FEE_BPS` = 500 bps at listing time
-  (`FlashLoanError::StrategyFeeExceeds`).
+- Compute `fee` from the market's `flashloan_fee` (via `Bps::flash_loan_fee_on`),
+  which floors a positive-rate dust fee up to 1 unit. The cap
+  `MAX_FLASHLOAN_FEE_BPS` = 500 bps is enforced at market configuration time
+  via `MarketParams::verify` (not in the flash path itself). `FlashLoanError::StrategyFeeExceeds`
+  is only used for strategy fee checks (not flash loans).
 
 ## Alternatives Considered
 
@@ -113,16 +114,22 @@ Negative / accepted costs:
 
 - A few extra `token.balance` reads per flash loan.
 - Receivers must implement `execute_flash_loan(initiator, asset, amount,
-  fee, pool, data)` with the expected ABI and pre-authorize the pool's pull.
+  fee, pool, data)` with the expected ABI and pre-authorize the pool's pull
+  (via token `approve` + `authorize_as_current_contract` inside the callback).
+  The crate `contracts/flash-loan-receiver/` (and its `examples/`) is a
+  test/adversarial harness only; production receivers follow the pattern in
+  the test harness's `GoodFlashLoanReceiver`.
 - The pool emits no fine-grained event from the local snapshot; observers must
   rely on `FlashLoanEvent` from the controller.
 
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §11 (Flash Loans).
-- `contracts/pool/src/lib.rs::flash_loan`
-- `contracts/pool/src/interest.rs::add_protocol_revenue_ray`
+- `architecture/INVARIANTS.md` §2.5 (Flash-loan settlement).
+- `contracts/pool/src/lib.rs::flash_loan` (balance snapshots, `verify_flash_repay`, repayment)
+- `contracts/pool/src/interest.rs::add_protocol_revenue`
 - `contracts/controller/src/strategies/flash_loan.rs::process_flash_loan`
 - `contracts/controller/src/risk/validation.rs::require_not_flash_loaning`
 - `common/src/constants/shared.rs` (`MAX_FLASHLOAN_FEE_BPS` = 500)
-- `common/src/errors.rs` (`FlashLoanError::{InvalidFlashloanRepay, FlashloanNotEnabled, StrategyFeeExceeds, FlashLoanOngoing}`)
+- `common/src/errors.rs` (`FlashLoanError` variants)
+- `common/src/validation.rs` (wasm receiver + amount guards)

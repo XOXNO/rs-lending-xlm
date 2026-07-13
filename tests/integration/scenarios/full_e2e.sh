@@ -19,7 +19,16 @@ for f in lifecycle strategies liquidation defindex admin governance stress; do
 done
 
 init_run
-cp -n "$INTEG_DIR/appendix.md" "$RUN_DIR/appendix.md" 2>/dev/null || true
+if [ -f "$INTEG_DIR/appendix.md" ]; then
+    cp -n "$INTEG_DIR/appendix.md" "$RUN_DIR/appendix.md" 2>/dev/null || cp "$INTEG_DIR/appendix.md" "$RUN_DIR/appendix.md" 2>/dev/null || true
+else
+    log "NOTE: no $INTEG_DIR/appendix.md (run 'make integration-appendix' to (re)generate)"
+fi
+
+# Quality guards (non-fatal for now so existing runs continue to work; CI can enforce).
+check_tools 2>/dev/null || log "WARNING: some required tools missing (see check_tools)"
+check_stellar_version 2>/dev/null || log "WARNING: stellar CLI version check failed or not met"
+
 trap 'write_report; run_summary' EXIT
 
 PHASES="${PHASES:-deploy lifecycle strategies liquidation admin governance stress}"

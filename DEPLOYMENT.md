@@ -188,7 +188,7 @@ so the idempotent setup re-creates it.
 ## 7. Verify the deployment
 
 ```bash
-make <network> info                  # governance/controller/aggregator/accumulator + min_delay + paused
+make <network> info                  # governance/controller/aggregator/accumulator + min_delay + paused (see INVARIANTS.md §5.4 pause/freeze matrix)
 make <network> checkDelay            # live timelock delay vs configured target (bootstrap guard)
 make <network> listMarkets           # configured markets
 make <network> listSpokes            # categories + their assets
@@ -199,6 +199,14 @@ make <network> getSpoke 1            # category params
 
 A live, usable deployment shows: governance owns the controller, all markets
 active, protocol unpaused, and `getPrice` resolving a live price for each market.
+
+**Keeper (TTL maintenance):** Deploy and run the separate `services/keeper`
+workspace (see its README). It discovers and extends TTL for controller
+instance/persistent keys (including `AssetOracle`, `Spoke`, account maps,
+`Params`/`State`), pool entries, governance, and WASM code. The keeper
+self-authorizes `update_indexes` (no controller `KEEPER` role). Without it,
+storage can archive after TTL windows. Config uses the same `networks.json`
+and `contracts.markets` list.
 
 ---
 
@@ -271,13 +279,17 @@ Each transaction prompts the device; a fresh deploy is ~30 confirmations.
 
 ## 10. Roles
 
-Governance operational roles are `ORACLE | PROPOSER | EXECUTOR | CANCELLER`
-(all timelocked grants). A PROPOSER can schedule ops; an EXECUTOR can execute
-ready ops.
+Governance operational roles are `PROPOSER | EXECUTOR | CANCELLER | ORACLE | GUARDIAN`.
+Most grants are timelocked; `GUARDIAN` is intended for immediate per-listing
+incident actions (e.g. set flags) and is not timelocked for those. The controller
+itself defines no `KEEPER`, `REVENUE`, or `ORACLE` roles — those live on governance.
+
+A PROPOSER can schedule ops; an EXECUTOR can execute ready ops.
 
 ```bash
 make <network> grantGovRole G...ADDRESS PROPOSER
 make <network> grantGovRole G...ADDRESS EXECUTOR
+make <network> grantGovRole G...ADDRESS GUARDIAN
 make <network> hasRole       G...ADDRESS PROPOSER     # → true|false
 make <network> revokeGovRole G...ADDRESS PROPOSER
 ```

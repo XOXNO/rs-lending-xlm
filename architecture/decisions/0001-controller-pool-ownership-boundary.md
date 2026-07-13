@@ -26,17 +26,30 @@ Adopt a three-contract production topology:
 
 - One governance contract owns the controller. It validates admin inputs,
   schedules protocol-affecting changes through typed timelock proposers, and
-  executes ready operations after the configured ledger delay.
+  executes ready operations after the configured ledger delay (see ADR 0010
+  for the full `AdminOperation`, role, and `DelayTier` implementation).
+  A narrow set of incident-response operations can execute immediately
+  (owner `pause`/`unpause`; GUARDIAN per-listing flags; ORACLE sanity bounds).
 - One controller contract is the user-facing protocol contract. It owns accounts,
   spoke configuration, oracle resolution, risk checks, liquidations, strategies,
   flash-loan orchestration, pause state, and pool ownership.
 - One central pool contract is owned by the controller. It holds custody and
   stores `PoolKey::Params(HubAssetKey)` and `PoolKey::State(HubAssetKey)`.
+  Pool ownership is set once in the pool constructor and the pool ABI exposes
+  no `transfer_ownership` surface (contrast with controller and governance).
 
 Market creation requires a token approval and creates pool rows for the supplied
 `HubAssetKey`. Price activation is separate: an asset becomes price-active only
 when governance configures the token-rooted `AssetOracle(asset)` entry and the
 source passes validation.
+
+Controller deployments start paused; the owner must explicitly unpause after
+configuration.
+
+Ownership wiring (constructors):
+- Governance deploys controller, passing itself as initial owner.
+- Controller deploys pool (via template), passing itself as owner.
+- Pool ABI has no ownership transfer surface.
 
 ## Alternatives Considered
 
@@ -59,7 +72,13 @@ Positive:
 - Liquidity rows remain isolated by `HubAssetKey`.
 - Internal pool `cash` prevents direct token donations from increasing borrowable
   liquidity.
-- Governance provides one timelocked admin path above the controller.
+- Governance provides the primary timelocked admin path above the controller
+  (narrow immediate paths exist for incident response — see ADR 0010).
+- Revenue claim crosses the boundary cleanly: pool `claim_revenue` (owner-only)
+  transfers to the pool's owner (the controller); the controller forwards to the
+  configured accumulator.
+- Controller and governance use both `stellar_access::ownable` (`#[only_owner]`)
+  and access-control admin roles; these are kept in sync on ownership transfer.
 
 Accepted costs:
 
@@ -70,8 +89,14 @@ Accepted costs:
 
 ## References
 
-- [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md)
+- [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md) (topology + sections 1–7)
+- ADR 0010 (governance timelock, roles, `DelayTier`, immediate paths)
+- ADR 0009 (launch gates using this ownership chain)
 - `common/src/types/pool.rs`
 - `common/src/types/controller.rs`
-- `contracts/controller/src/config`
-- `contracts/pool/src/lib.rs`
+- `contracts/governance/src/{deploy.rs, timelock.rs, op.rs, access.rs}`
+- `contracts/controller/src/{governance/access.rs, pool_ops/mod.rs, config/mod.rs, setup/mod.rs, external/pool.rs, storage/instance.rs, storage/mod.rs}`
+- `contracts/pool/src/lib.rs` (ctor owner, all mutators `#[only_owner]`)
+- `interfaces/{pool, controller_admin}`
+- Ownership/transfer tests (e.g. test-harness controller ownership tests)
+- Central implementation facts: Governance owns Controller (via ownable + access-control); Controller is sole owner of Pool (no transfer surface in pool ABI); revenue flows Pool → Controller → accumulator.

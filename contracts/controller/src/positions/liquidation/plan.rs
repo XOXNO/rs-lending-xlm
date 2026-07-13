@@ -23,7 +23,7 @@ pub(crate) fn execute_liquidation(
 
 /// Prices the account's positions, gates on health factor below one, and
 /// returns the full repay/seize plan.
-pub(super) fn build_liquidation_plan(
+pub(crate) fn build_liquidation_plan(
     env: &Env,
     account: &Account,
     aggregated_debt: &Vec<HubPayment>,

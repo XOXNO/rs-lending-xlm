@@ -1,12 +1,16 @@
 //! Governance ownership, roles, and self-admin helpers.
 
 use common::errors::GenericError;
+
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol,
 };
-use stellar_access::{access_control, ownable};
+
+use stellar_access::{access_control, ownable, role_transfer};
 
 use crate::{storage, timelock, Governance, GovernanceArgs, GovernanceClient};
+
+// ################## CONSTANTS ##################
 
 pub(crate) const ORACLE_ROLE: &str = "ORACLE";
 pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
@@ -40,12 +44,7 @@ fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger
     if live_until_ledger == 0 {
         env.storage().temporary().remove(&pending_admin_key);
     } else {
-        stellar_access::role_transfer::transfer_role(
-            env,
-            new_owner,
-            &pending_admin_key,
-            live_until_ledger,
-        );
+        role_transfer::transfer_role(env, new_owner, &pending_admin_key, live_until_ledger);
     }
 
     let current_admin = access_control::get_admin(env)
@@ -94,7 +93,7 @@ pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_unti
     storage::renew_governance_instance(env);
     let current_owner = owner_or_panic(env);
 
-    stellar_access::role_transfer::transfer_role(
+    role_transfer::transfer_role(
         env,
         new_owner,
         &ownable::OwnableStorageKey::PendingOwner,

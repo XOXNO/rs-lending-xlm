@@ -4,6 +4,8 @@ use super::*;
 // The settlement loop can recover a wrong seed through binary search, so the
 // exact analytic values are pinned here at the unit level.
 
+use common::constants::{RAY, WAD};
+
 fn ctx(
     supplied_tokens: i128,
     borrowed_tokens: i128,
@@ -96,7 +98,7 @@ mod gates {
         let oracle_id = env.register(MockReflectorOracle, ());
         let asset = Address::generate(env);
         MockReflectorOracleClient::new(env, &oracle_id)
-            .set_price(&MockAsset::Stellar(asset.clone()), &common::constants::WAD);
+            .set_price(&MockAsset::Stellar(asset.clone()), &WAD);
 
         let hub = HubAssetKey {
             hub_id: 0,
@@ -159,8 +161,8 @@ mod gates {
         cache.put_market_index(
             hub,
             &MarketIndexRaw {
-                borrow_index: common::constants::RAY,
-                supply_index: common::constants::RAY,
+                borrow_index: RAY,
+                supply_index: RAY,
             },
         );
         cache
@@ -204,7 +206,7 @@ mod gates {
         let env = Env::default();
         let (contract, hub, account) = fixture(&env, 7_500, 8_000, 10);
         env.as_contract(&contract, || {
-            crate::storage::set_min_borrow_collateral_usd_wad(&env, 100 * common::constants::WAD);
+            crate::storage::set_min_borrow_collateral_usd_wad(&env, 100 * WAD);
             let mut cache = seeded_cache(&env, &hub);
             // LTV collateral $75 < floor $100.
             assert!(!account_gates_ok(&env, &mut cache, &account));

@@ -3,14 +3,15 @@
 extern crate std;
 
 use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs};
+use common::constants::MAX_REASONABLE_PRICE_WAD;
 use common::types::{
-    ControllerKey, HubAssetKey, MarketOracleConfigInput, OracleAssetRef, OracleReadMode,
-    OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
-    ReflectorSourceConfigInput,
+    ControllerKey, HubAssetKey, MarketOracleConfig, MarketOracleConfigInput,
+    MarketOracleConfigOption, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
+    OracleSourceConfigInputOption, OracleStrategy, PositionLimits, ReflectorSourceConfigInput,
 };
 use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{Address, BytesN, Env, IntoVal, Symbol};
+use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol};
 use stellar_access::ownable;
 
 use crate::access::EXECUTOR_ROLE;
@@ -45,7 +46,7 @@ fn sample_oracle_input(env: &Env) -> MarketOracleConfigInput {
         }),
         anchor: OracleSourceConfigInputOption::None,
         min_sanity_price_wad: 1,
-        max_sanity_price_wad: common::constants::MAX_REASONABLE_PRICE_WAD,
+        max_sanity_price_wad: MAX_REASONABLE_PRICE_WAD,
     }
 }
 
@@ -167,7 +168,7 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
         invoke: &MockAuthInvoke {
             contract: &gov_id,
             fn_name: "execute_immediate",
-            args: soroban_sdk::vec![
+            args: vec![
                 &env,
                 admin.clone().into_val(&env),
                 op.clone().into_val(&env)
@@ -387,7 +388,7 @@ fn edit_asset_in_spoke_rejects_bad_risk_bounds_before_any_cross_call() {
         liquidation_fees: 100,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: common::types::MarketOracleConfigOption::None,
+        oracle_override: MarketOracleConfigOption::None,
     };
     gov.execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
@@ -405,7 +406,7 @@ fn add_asset_to_spoke_rejects_wide_single_source_override_at_propose_time() {
     // `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`: (2_000 - 1_000) / (2_000 + 1_000) is
     // ~3_333 bps. `resolve_op` must reject it before scheduling, not at execute
     // time after the timelock delay.
-    let mut override_cfg = common::types::MarketOracleConfig::pending_for(asset.clone(), 7);
+    let mut override_cfg = MarketOracleConfig::pending_for(asset.clone(), 7);
     override_cfg.min_sanity_price_wad = 1_000;
     override_cfg.max_sanity_price_wad = 2_000;
 
@@ -423,7 +424,7 @@ fn add_asset_to_spoke_rejects_wide_single_source_override_at_propose_time() {
         liquidation_fees: 100,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: common::types::MarketOracleConfigOption::Some(override_cfg),
+        oracle_override: MarketOracleConfigOption::Some(override_cfg),
     };
     gov.propose(&admin, &AdminOperation::AddAssetToSpoke(args), &salt);
 }

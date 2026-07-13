@@ -18,7 +18,7 @@ use crate::positions::{make_pool_action, repay, withdraw};
 use crate::risk::validation;
 
 /// Transfers each repayment from the liquidator and settles them in one pool call.
-pub(super) fn apply_liquidation_repayments(
+pub(crate) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
     account: &mut Account,
@@ -63,7 +63,7 @@ pub(super) fn apply_liquidation_repayments(
 }
 
 /// Builds every seizure entry and settles them in one bulk pool withdraw.
-pub(super) fn apply_liquidation_seizures(
+pub(crate) fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
     account: &mut Account,
@@ -94,7 +94,7 @@ pub(super) fn apply_liquidation_seizures(
 }
 
 /// Cleans up an emptied account or socializes residual bad debt after liquidation.
-pub(super) fn check_bad_debt_after_liquidation(
+pub(crate) fn check_bad_debt_after_liquidation(
     env: &Env,
     cache: &mut Cache,
     account_id: u64,
