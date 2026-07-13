@@ -121,3 +121,34 @@ fn max_actions_return_zero_for_missing_account_or_inactive_asset() {
         assert_eq!(max_borrow(&env, 1, &key), 0);
     });
 }
+
+// The spoke-usage view reads the stored row verbatim, not a default.
+#[test]
+fn get_spoke_usage_returns_stored_row() {
+    use crate::Controller;
+    use common::types::SpokeUsageRaw;
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    let client = crate::ControllerClient::new(&env, &contract_id);
+
+    let key = HubAssetKey {
+        hub_id: 0,
+        asset: Address::generate(&env),
+    };
+    env.as_contract(&contract_id, || {
+        storage::set_spoke_usage(
+            &env,
+            1,
+            &key,
+            &SpokeUsageRaw {
+                supplied_scaled_ray: 5,
+                borrowed_scaled_ray: 7,
+            },
+        );
+    });
+
+    let usage = client.get_spoke_usage(&1u32, &key);
+    assert_eq!(usage.supplied_scaled_ray, 5);
+    assert_eq!(usage.borrowed_scaled_ray, 7);
+}

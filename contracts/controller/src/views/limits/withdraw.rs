@@ -217,8 +217,10 @@ fn settle_partial_max(
         );
     }
 
-    let mut steps = 0;
-    while amount < ceiling && steps < PARTIAL_SETTLE_STEPS {
+    for _ in 0..PARTIAL_SETTLE_STEPS {
+        if amount >= ceiling {
+            break;
+        }
         if !partial_ok(
             env,
             cache,
@@ -231,7 +233,6 @@ fn settle_partial_max(
             break;
         }
         amount += 1;
-        steps += 1;
     }
     if amount < ceiling
         && partial_ok(
@@ -244,6 +245,10 @@ fn settle_partial_max(
             amount + 1,
         )
     {
+        // saturating_add keeps the arithmetic out of the mutation surface:
+        // any lo <= the true maximum converges to the same fixed point, so
+        // a +/- flip here would be output-equivalent noise (amount is a
+        // token quantity far below i128::MAX, so saturation never binds).
         return binary_search_partial(
             env,
             cache,
@@ -251,7 +256,7 @@ fn settle_partial_max(
             hub_asset,
             market,
             pos_scaled,
-            amount + 1,
+            amount.saturating_add(1),
             ceiling,
         );
     }
@@ -272,12 +277,17 @@ fn binary_search_partial(
 ) -> i128 {
     let mut lo = lo;
     let mut hi = hi;
-    while lo < hi {
+    // Iterations are capped so the search stays total (see
+    // `BINARY_SEARCH_MAX_STEPS`).
+    for _ in 0..crate::views::limits::BINARY_SEARCH_MAX_STEPS {
+        if lo >= hi {
+            break;
+        }
         let mid = hi - (hi - lo) / 2;
         if partial_ok(env, cache, account, hub_asset, market, pos_scaled, mid) {
             lo = mid;
         } else {
-            hi = mid - 1;
+            hi = mid.saturating_sub(1);
         }
     }
     lo
@@ -340,3 +350,7 @@ fn partial_ok(
     adjusted.supply_positions.set(hub_asset.clone(), pos_raw);
     account_gates_ok(env, cache, &adjusted)
 }
+
+#[cfg(test)]
+#[path = "../../../tests/views/withdraw.rs"]
+mod tests;

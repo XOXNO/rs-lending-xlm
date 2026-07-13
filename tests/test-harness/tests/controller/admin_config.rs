@@ -435,3 +435,84 @@ fn test_market_initialization_cascade() {
         "market should be in Active status"
     );
 }
+
+// Oracle decimals must match the pool market's registered decimals; a
+// market registered with decimals 0 cannot accept a 7-decimals oracle.
+// (Under the harness `testing` feature the pool value is preserved only
+// when nonzero, so the zero case exercises the real mismatch assert.)
+#[test]
+fn test_set_market_oracle_config_rejects_pool_decimals_mismatch() {
+    let t = LendingTest::new().build();
+    let ctrl = t.ctrl_client();
+    let admin = &t.admin;
+
+    let asset = t
+        .env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let params = usdc_preset().params.to_market_params(&asset, 0);
+    ctrl.approve_token(&asset);
+    ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params);
+
+    let oracle_cfg = resolved_reflector_primary_anchor_config(&t.mock_reflector, &asset);
+    let result = ctrl.try_set_market_oracle_config(&hub_asset(asset.clone()), &oracle_cfg);
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::GenericError::InvalidAsset as u32);
+}
+
+// `upgrade_pool` must forward the hash to the deployed pool: upgrading to a
+// hash that was never uploaded fails inside the pool's upgrade call.
+#[test]
+fn test_upgrade_pool_forwards_hash_to_pool() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let bogus = soroban_sdk::BytesN::from_array(&t.env, &[9u8; 32]);
+    assert!(
+        t.ctrl_client().try_upgrade_pool(&bogus).is_err(),
+        "upgrading the deployed pool to a missing wasm hash must fail"
+    );
+}
+
+// A zero-revenue claim must not touch the token: no SAC transfer happens
+// (and thus no transfer event) when nothing accrued.
+#[test]
+fn test_claim_revenue_zero_accrual_skips_transfer() {
+    use soroban_sdk::testutils::Events as _;
+
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let accumulator = Address::generate(&t.env);
+    t.set_accumulator(&accumulator);
+
+    // Fresh market, no borrows: nothing accrued.
+    let claimed = t.claim_revenue("USDC");
+    assert_eq!(claimed, 0);
+
+    // No SAC transfer may run for a zero claim: the token contract emits
+    // nothing during the claim invocation.
+    let token = t.resolve_market("USDC").asset.clone();
+    let token_events = t.env.events().all().filter_by_contract(&token);
+    assert!(
+        token_events.events().is_empty(),
+        "zero-revenue claim must not emit a token transfer"
+    );
+}
+
+// The min-borrow-collateral floor is inclusive: an account whose
+// LTV-weighted collateral equals the floor exactly may borrow.
+#[test]
+fn test_min_borrow_floor_is_inclusive_at_exact_boundary() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // $10k USDC at LTV 0.75 -> LTV collateral exactly $7500.
+    let floor: i128 = 7_500 * 1_000_000_000_000_000_000;
+    t.ctrl_client().set_min_borrow_collateral_usd(&floor);
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 0.1);
+    assert!(t.borrow_balance(ALICE, "ETH") > 0.09);
+}

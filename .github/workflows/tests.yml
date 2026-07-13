@@ -33,14 +33,18 @@ jobs:
         with:
           # Persistent self-hosted runners keep $HOME (cargo registry, git, and
           # installed tool binaries) and the workspace between runs. Skip the
-          # default git clean so the Cargo build cache in target/ survives; the
-          # next step restores a clean source tree while preserving target/.
+          # default clean so the next step controls exactly what is removed.
           clean: false
 
-      - name: Reset workspace, preserve target/ build cache
+      # Full clean, including target/: sccache already provides the per-crate
+      # compilation cache, and a preserved target/ is a poisoning vector on
+      # shared runners — a cancelled in-place cargo-mutants job can leave a
+      # mutant-built rlib whose mtime beats the (unchanged) source file, and
+      # cargo will happily keep linking it into ordinary test builds.
+      - name: Reset workspace
         run: |
           git reset --hard
-          git clean -ffdx -e target
+          git clean -ffdx
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master

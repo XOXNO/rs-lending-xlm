@@ -46,7 +46,7 @@ SHELL := /bin/bash
         wasm-size-check wasm-testing-abi-check act-ci act-ci-dryrun clean install-stellar-cli \
         _mutants-check _mutants-harness-prepare \
         mutants mutants-math mutants-rates mutants-pool-interest mutants-common mutants-pool \
-        mutants-governance mutants-governance-oracle-probe \
+        mutants-governance mutants-governance-oracle-probe mutants-diff \
         mutants-controller-core mutants-controller-oracle mutants-controller-positions \
         mutants-controller-strategies mutants-controller-views \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
@@ -68,7 +68,10 @@ SHELL := /bin/bash
 # ---------------------------------------------------------------------------
 
 WASM_TARGET  := wasm32v1-none
-RELEASE_DIR  := target/$(WASM_TARGET)/release
+# Honor CARGO_TARGET_DIR so callers that isolate their build dir (the CI
+# mutation jobs) find the wasm fixtures where cargo actually wrote them.
+CARGO_TARGET_DIR ?= target
+RELEASE_DIR  := $(CARGO_TARGET_DIR)/$(WASM_TARGET)/release
 # Wasm shadow-stack size. Smaller stacks reduce Soroban memory budget charged
 # on cross-contract calls while preserving trap-on-overflow behavior.
 WASM_STACK_SIZE ?= 16384
@@ -487,7 +490,13 @@ MUTANTS_RUN_MODE ?=
 MUTANTS_FILTER ?=
 # Execution-only flags such as --list, --check, or --iterate.
 MUTANTS_EXTRA_ARGS ?=
+# Optional deterministic shard (e.g. 0/2) so CI can split one scope across
+# runners. The preflight counts the whole scope; the shard only splits runs.
+MUTANTS_SHARD ?=
+# Diff file consumed by the `mutants-diff` PR gate.
+MUTANTS_DIFF_FILE ?= pr.diff
 MUTANTS_JOB_ARGS = $(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j $(MUTANTS_JOBS))
+MUTANTS_SHARD_ARGS = $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
 MUTANTS_POOL_WASM := $(abspath $(RELEASE_DIR)/pool.wasm)
 MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
 # Keep Proptest deterministic and cheap when cargo-mutants runs the whole
@@ -502,7 +511,27 @@ define run_mutants
 		echo "Mutation scope: $$count mutants"
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) $(1) \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+endef
+
+# Two-pass execution for scopes whose kill criteria include the integration
+# harness. Pass 1 runs only the cheap native suites in $(2), killing the
+# large majority of mutants in seconds each; its exit code is ignored (the
+# `-` prefix) and its GitHub annotations are suppressed (GITHUB_ACTIONS=false)
+# because survivors are expected there — only pass 2 misses are real. Pass 2 re-tests ONLY the
+# survivors (`--iterate` skips mutants already caught or unviable) against
+# the full test set in $(3), which is byte-identical to the single-pass
+# configuration — so the final verdict set is the same, just reached faster.
+define run_mutants_two_pass
+	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
+		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
+		echo "Mutation scope: $$count mutants (two-pass)"
+	-$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
 endef
 
 _mutants-check:
@@ -541,8 +570,11 @@ mutants-pool-interest: _mutants-check
 ## Shared math, rates, oracle primitives, validation, and ABI data behavior.
 # Run every native consumer plus the integration harness so shared-code mutants
 # cannot survive merely because their only exercising contract was omitted.
+# Pass 1 = the native consumers; pass 2 adds the harness for the survivors.
 mutants-common: _mutants-harness-prepare
-	$(call run_mutants,--package common \
+	$(call run_mutants_two_pass,--package common,\
+		--test-package common --test-package controller --test-package pool \
+		--test-package governance,\
 		--test-package common --test-package controller --test-package pool \
 		--test-package governance --test-package test-harness)
 
@@ -564,30 +596,48 @@ mutants-governance-oracle-probe: _mutants-harness-prepare
 		--file 'contracts/governance/src/validate/oracle_probe.rs' \
 		--test-package governance --test-package test-harness)
 
+# Controller scopes run two-pass: the native controller suite kills the bulk
+# of mutants in seconds; governance + harness only re-test the survivors.
+CONTROLLER_FAST_TESTS = --test-package controller
+CONTROLLER_FULL_TESTS = --test-package controller --test-package governance \
+	--test-package test-harness
+
 ## Everything outside the separately sharded oracle/position/strategy/view trees.
 mutants-controller-core: _mutants-harness-prepare
-	$(call run_mutants,--package controller --file 'contracts/controller/src/**' \
+	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/**' \
 		--exclude 'contracts/controller/src/oracle/**' \
 		--exclude 'contracts/controller/src/positions/**' \
 		--exclude 'contracts/controller/src/strategies/**' \
-		--exclude 'contracts/controller/src/views/**' \
-		--test-package controller --test-package governance --test-package test-harness)
+		--exclude 'contracts/controller/src/views/**',\
+		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-oracle: _mutants-harness-prepare
-	$(call run_mutants,--package controller --file 'contracts/controller/src/oracle/**' \
-		--test-package controller --test-package governance --test-package test-harness)
+	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/oracle/**',\
+		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-positions: _mutants-harness-prepare
-	$(call run_mutants,--package controller --file 'contracts/controller/src/positions/**' \
-		--test-package controller --test-package governance --test-package test-harness)
+	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/positions/**',\
+		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-strategies: _mutants-harness-prepare
-	$(call run_mutants,--package controller --file 'contracts/controller/src/strategies/**' \
-		--test-package controller --test-package governance --test-package test-harness)
+	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/strategies/**',\
+		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-views: _mutants-harness-prepare
-	$(call run_mutants,--package controller --file 'contracts/controller/src/views/**' \
-		--test-package controller --test-package governance --test-package test-harness)
+	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/views/**',\
+		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
+
+## PR-diff mutation gate: mutates only the lines changed in
+## $(MUTANTS_DIFF_FILE) and runs the whole workspace test suite per mutant.
+# Early signal only — the nightly per-scope jobs stay authoritative: this
+# gate feature-unifies with the harness (`testing` on), so governance
+# validators behind cfg(not(feature = "testing")) are not exercised here.
+mutants-diff: _mutants-harness-prepare
+	@[ -s "$(MUTANTS_DIFF_FILE)" ] || { echo "Empty diff; nothing to mutate."; exit 0; }
+	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --in-diff "$(MUTANTS_DIFF_FILE)" \
+		--test-workspace true \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		$(MUTANTS_JOB_ARGS) $(MUTANTS_EXTRA_ARGS)
 
 ## Standalone contracts: each has its own native test suite, no harness needed.
 mutants-aggregator: _mutants-check

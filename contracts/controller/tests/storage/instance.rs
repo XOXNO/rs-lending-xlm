@@ -124,3 +124,31 @@ fn blend_pool_cap_rejects_overflowing_approval() {
         set_blend_pool_approved(&env, &Address::generate(&env), true);
     });
 }
+
+// The instance-TTL renewal must actually re-extend: once the remaining TTL
+// falls under the threshold, a renewal restores the full bump horizon.
+#[test]
+fn renew_controller_instance_re_extends_instance_ttl() {
+    use crate::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
+    use soroban_sdk::testutils::storage::Instance as _;
+    use soroban_sdk::testutils::Ledger as _;
+
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+
+    env.as_contract(&contract_id, || {
+        crate::storage::renew_controller_instance(&env);
+        assert_eq!(env.storage().instance().get_ttl(), TTL_BUMP_INSTANCE);
+    });
+
+    // Age the entry until it sits below the renewal threshold.
+    let aged = TTL_BUMP_INSTANCE - TTL_THRESHOLD_INSTANCE + 1;
+    env.ledger().with_mut(|l| l.sequence_number += aged);
+
+    env.as_contract(&contract_id, || {
+        assert!(env.storage().instance().get_ttl() < TTL_THRESHOLD_INSTANCE);
+        crate::storage::renew_controller_instance(&env);
+        assert_eq!(env.storage().instance().get_ttl(), TTL_BUMP_INSTANCE);
+    });
+}

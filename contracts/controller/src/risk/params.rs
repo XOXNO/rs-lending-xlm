@@ -101,3 +101,7 @@ fn supply_positions_with(
     supply_positions.set(hub_asset.clone(), (&hypothetical).into());
     supply_positions
 }
+
+#[cfg(test)]
+#[path = "../../tests/risk/params.rs"]
+mod tests;

@@ -598,3 +598,54 @@ fn test_max_withdraw_paused_listing_returns_zero() {
         "paused listing must preview zero withdraw capacity"
     );
 }
+
+// The indebted preview must refresh the withdrawn asset's risk params from
+// the CURRENT spoke listing (mirroring the mutating path) rather than the
+// values stamped into the stored position: after the LTV is tightened, a
+// preview computed on the stale stamped LTV would report headroom the real
+// withdrawal rejects.
+#[test]
+fn test_max_withdraw_refreshes_spoke_risk_params_after_ltv_edit() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // Position stamped at LTV 75 %: $10k collateral, $4k debt.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 2.0);
+
+    // Tighten USDC LTV to 50 %. Removable value drops to
+    // (5000 - 4000) / 0.50 = $2000; on the stale stamped 75 % it would
+    // read (7500 - 4000) / 0.75 ≈ $4666.67.
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 5000;
+    });
+
+    let asset = t.resolve_asset("USDC");
+    let account_id = t.resolve_account_id(ALICE);
+    let max = t
+        .ctrl_client()
+        .max_withdraw(&account_id, &hub_asset(asset.clone()));
+    let expected = 2_000 * UNIT;
+    assert!(
+        (max - expected).abs() < UNIT / 100,
+        "expected ~2000 USDC under the tightened LTV, got {max}"
+    );
+
+    // The preview is executable and one dollar more is not.
+    let alice = t.get_or_create_user(ALICE);
+    let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (hub_asset(asset.clone()), max + UNIT)];
+    let res = match t
+        .ctrl_client()
+        .try_withdraw(&alice, &account_id, &over, &None)
+    {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(res, errors::INSUFFICIENT_COLLATERAL);
+
+    t.withdraw_raw(ALICE, "USDC", max);
+    assert!(t.health_factor(ALICE) >= 1.0);
+}
