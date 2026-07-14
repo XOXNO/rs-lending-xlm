@@ -142,6 +142,49 @@ fn test_calculate_utilization_returns_ratio_at_normal_state() {
     });
 }
 
+// At MIN_ASSET_DECIMALS (3) a single raw unit can be worth material USD, so any
+// user-favorable rounding on a roundtrip is a value leak. Drives the Cache paths
+// across the 3..=5 decimals the `decimal_diversity` sweep (6..=18) skips: supply
+// mints half-up shares and withdraws via `resolve_withdrawal`; borrow mints
+// half-up debt and closes via `unscale_borrow_ceil`. A supplier never withdraws
+// more than deposited, and a borrower never owes less than borrowed.
+#[test]
+fn test_low_decimal_roundtrip_never_favors_user() {
+    let t = TestSetup::new();
+    // Realistic accrued indexes, incl. non-terminating ratios that maximize drift.
+    let indexes = [RAY, RAY * 3 / 2, RAY * 2, RAY * 7 / 3];
+    let amounts = [1i128, 2, 3, 7, 99, 1_000, 123_457];
+    t.as_contract(|| {
+        for decimals in 3u32..=5 {
+            let mut params = t.params.clone();
+            params.asset_decimals = decimals;
+            for &index in &indexes {
+                for &a in &amounts {
+                    let cache = cache_with(&t.env, &params, 0, 0, 0, index, index);
+
+                    // Supplier: supply `a` (mint shares half-up), withdraw all.
+                    let shares = cache.calculate_scaled_supply(a);
+                    let (_burned, paid) = cache.resolve_withdrawal(a, shares);
+                    assert!(
+                        paid <= a,
+                        "supply roundtrip favored the user: dec={decimals} \
+                         index={index} deposited={a} withdrew={paid}"
+                    );
+
+                    // Borrower: borrow `a` (mint debt half-up), owe rounded up.
+                    let debt = cache.calculate_scaled_borrow(a);
+                    let owed = cache.unscale_borrow_ceil(debt);
+                    assert!(
+                        owed >= a,
+                        "borrow roundtrip favored the user: dec={decimals} \
+                         index={index} borrowed={a} owed={owed}"
+                    );
+                }
+            }
+        }
+    });
+}
+
 #[test]
 fn test_resolve_repay_partial_returns_zero_overpayment() {
     let t = TestSetup::new();

@@ -363,6 +363,90 @@ fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
     assert!(chunked.borrow_index.raw() > one_year.borrow_index.raw());
 }
 
+// A borrower must not reduce realized debt by choosing when accrual runs.
+// Splitting one interval into two accrual calls can only raise both indexes,
+// so `split >= single` for borrow and supply alike.
+//
+// The upside gap is not rounding dust: above optimal utilization the kinked rate
+// steepens, so finer accrual snapshots the rising utilization sooner and books
+// interest closer to the continuous-time value that a single long chunk
+// under-books. That extra is backed by the matching debt-index rise and bounded
+// by the max borrow rate, so only a loose runaway guard applies here. Chaining
+// via `simulate_update_indexes` omits the per-chunk fee re-mint into scaled
+// supply, which would only push the split higher.
+#[test]
+fn test_split_accrual_never_reduces_borrow_index() {
+    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
+
+    let env = Env::default();
+    let asset = soroban_sdk::Address::from_str(
+        &env,
+        "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    );
+    let mk = |borrow_index: i128, supply_index: i128, last_timestamp: u64| PoolSyncData {
+        params: MarketParamsRaw {
+            max_borrow_rate: RAY,
+            base_borrow_rate: RAY / 100,
+            slope1: RAY * 4 / 100,
+            slope2: RAY * 10 / 100,
+            slope3: RAY * 300 / 100,
+            mid_utilization: RAY * 50 / 100,
+            optimal_utilization: RAY * 80 / 100,
+            max_utilization: RAY * 95 / 100,
+            reserve_factor: 1_000,
+            is_flashloanable: false,
+            flashloan_fee: 0,
+            asset_id: asset.clone(),
+            asset_decimals: 7,
+        },
+        state: PoolStateRaw {
+            supplied: 100 * RAY,
+            borrowed: 80 * RAY,
+            revenue: 0,
+            borrow_index,
+            supply_index,
+            last_timestamp,
+            cash: 20_000_000,
+        },
+    };
+
+    // Sub-chunk interval so the single call is exactly one Taylor evaluation.
+    let total = MAX_COMPOUND_DELTA_MS / 2;
+    let single = simulate_update_indexes(&env, total, &mk(RAY, RAY, 0));
+
+    // Same interval, split at an arbitrary interior point (two Taylor evals).
+    let split_at = total * 3 / 7;
+    let step1 = simulate_update_indexes(&env, split_at, &mk(RAY, RAY, 0));
+    let split = simulate_update_indexes(
+        &env,
+        total,
+        &mk(step1.borrow_index.raw(), step1.supply_index.raw(), split_at),
+    );
+
+    // Non-farmability: cadence can only raise realized debt/rewards, never lower.
+    assert!(
+        split.borrow_index.raw() >= single.borrow_index.raw(),
+        "splitting accrual REDUCED the borrow index — a borrower could farm lower \
+         debt by timing update_indexes: split={} single={}",
+        split.borrow_index.raw(),
+        single.borrow_index.raw()
+    );
+    assert!(
+        split.supply_index.raw() >= single.supply_index.raw(),
+        "splitting accrual REDUCED the supply index: split={} single={}",
+        split.supply_index.raw(),
+        single.supply_index.raw()
+    );
+    // Loose runaway guard: real rate-feedback drift is a few % here, never a
+    // multiple. Doubling the index over the interval from cadence alone = a bug.
+    assert!(
+        split.borrow_index.raw() <= single.borrow_index.raw() * 2,
+        "split accrual ran away vs single-shot (not rate-feedback): split={} single={}",
+        split.borrow_index.raw(),
+        single.borrow_index.raw()
+    );
+}
+
 // Compares compound_interest with e^0.5. Tolerance detects a sign flip on
 // any Taylor term (term2..term8). Truncation
 // bound at x = 0.5 is x^9/9! ≈ 5.4e-9 → 5.4e18 in Ray units.
