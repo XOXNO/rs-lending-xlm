@@ -3,7 +3,10 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::constants::{BPS, WAD};
+use crate::constants::{
+    BAD_DEBT_USD_THRESHOLD, BPS, DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_TARGET_HF_WAD,
+    WAD,
+};
 use crate::types::{AccountPositionType, HubAssetKey};
 use common::math::fp::{Bps, Wad};
 use common::math::fp_core::{mul_div_floor, mul_div_half_up};
@@ -293,6 +296,132 @@ fn liquidation_bonus_sanity(e: Env) {
         Wad::from(target),
     );
     cvlr_satisfy!(bonus.raw() > 0);
+}
+
+/// Single-bonus core property: the bonus is monotone non-increasing in HF, so a
+/// lower health factor never earns a smaller liquidation bonus. This is the
+/// defining safety property of the HF-scaled curve (blocks a partial-liquidation
+/// bonus ratchet). Proven over the production `calculate_linear_bonus_with_target`.
+#[rule]
+fn bonus_monotone_in_hf(
+    e: Env,
+    hf_lo: i128,
+    hf_hi: i128,
+    base_bps: i128,
+    max_bps: i128,
+) {
+    cvlr_assume!(hf_lo >= 0);
+    cvlr_assume!(hf_lo <= hf_hi);
+    cvlr_assume!(base_bps >= 0);
+    cvlr_assume!(max_bps >= base_bps);
+    cvlr_assume!(max_bps <= BPS);
+
+    let curve = default_curve();
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    let bonus_lo = crate::positions::liquidation::math::calculate_linear_bonus_with_target(
+        &e,
+        Wad::from(hf_lo),
+        Bps::from(base_bps),
+        Bps::from(max_bps),
+        &curve,
+        target,
+    );
+    let bonus_hi = crate::positions::liquidation::math::calculate_linear_bonus_with_target(
+        &e,
+        Wad::from(hf_hi),
+        Bps::from(base_bps),
+        Bps::from(max_bps),
+        &curve,
+        target,
+    );
+
+    cvlr_assert!(bonus_lo.raw() >= bonus_hi.raw());
+}
+
+/// Curve floor clamp: at or below `hf_for_max_bonus` the bonus is exactly `max`.
+#[rule]
+fn bonus_is_max_below_curve_floor(e: Env, hf: i128, base_bps: i128, max_bps: i128) {
+    cvlr_assume!(hf >= 0);
+    cvlr_assume!(hf <= DEFAULT_HF_FOR_MAX_BONUS_WAD);
+    cvlr_assume!(base_bps >= 0);
+    cvlr_assume!(max_bps >= base_bps);
+    cvlr_assume!(max_bps <= BPS);
+
+    let curve = default_curve();
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    let bonus = crate::positions::liquidation::math::calculate_linear_bonus_with_target(
+        &e,
+        Wad::from(hf),
+        Bps::from(base_bps),
+        Bps::from(max_bps),
+        &curve,
+        target,
+    );
+    cvlr_assert!(bonus.raw() == max_bps);
+}
+
+/// Curve target clamp: at or above the target HF the bonus is exactly `base`.
+#[rule]
+fn bonus_is_base_at_or_above_target(e: Env, hf: i128, base_bps: i128, max_bps: i128) {
+    cvlr_assume!(hf >= DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    cvlr_assume!(base_bps >= 0);
+    cvlr_assume!(max_bps >= base_bps);
+    cvlr_assume!(max_bps <= BPS);
+
+    let curve = default_curve();
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    let bonus = crate::positions::liquidation::math::calculate_linear_bonus_with_target(
+        &e,
+        Wad::from(hf),
+        Bps::from(base_bps),
+        Bps::from(max_bps),
+        &curve,
+        target,
+    );
+    cvlr_assert!(bonus.raw() == base_bps);
+}
+
+/// Dust guard: after estimation the residual debt is either fully cleared or at
+/// least the bad-debt socialization floor -- never a sub-floor remainder that is
+/// neither profitably liquidatable nor socializable.
+#[rule]
+fn estimate_leaves_no_sub_threshold_dust(
+    e: Env,
+    total_debt_wad: i128,
+    weighted_collateral_wad: i128,
+    hf_wad: i128,
+    base_bonus_bps: i128,
+    max_bonus_bps: i128,
+) {
+    cvlr_assume!(total_debt_wad > 0);
+    cvlr_assume!(total_debt_wad <= 1_000_000 * WAD);
+    cvlr_assume!(weighted_collateral_wad > 0);
+    cvlr_assume!(weighted_collateral_wad < total_debt_wad);
+    cvlr_assume!(hf_wad > 0);
+    cvlr_assume!(hf_wad < WAD);
+    cvlr_assume!(base_bonus_bps > 0);
+    cvlr_assume!(base_bonus_bps <= 500);
+    cvlr_assume!(max_bonus_bps >= base_bonus_bps);
+    cvlr_assume!(max_bonus_bps <= BPS);
+
+    let proportion_seized_wad = mul_div_half_up(&e, weighted_collateral_wad, WAD, total_debt_wad);
+    let snap = crate::positions::liquidation::math::LiquidationSnapshot {
+        total_debt: Wad::from(total_debt_wad),
+        total_collateral: Wad::from(total_debt_wad),
+        weighted_coll: Wad::from(weighted_collateral_wad),
+        proportion_seized: Wad::from(proportion_seized_wad),
+        hf: Wad::from(hf_wad),
+    };
+    let bounds = crate::positions::liquidation::math::BonusBounds {
+        base: Bps::from(base_bonus_bps),
+        max: Bps::from(max_bonus_bps),
+    };
+    let curve = default_curve();
+    let (ideal, _bonus) =
+        crate::positions::liquidation::math::estimate_liquidation_amount(&e, &snap, bounds, &curve);
+
+    let remaining = total_debt_wad - ideal.raw();
+    cvlr_assert!(remaining == 0 || remaining >= BAD_DEBT_USD_THRESHOLD);
 }
 
 /// Estimate liquidation amount is reachable for liquidatable accounts (non-vacuous).
