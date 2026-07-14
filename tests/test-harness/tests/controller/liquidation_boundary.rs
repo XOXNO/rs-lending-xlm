@@ -227,10 +227,10 @@ fn test_liquidation_bonus_clamped_at_max() {
     let usd_received = usdc_received * 0.50;
     let realized_bonus = (usd_received / 200.0) - 1.0;
 
-    // USDC's effective threshold caps the bonus below 16% via (1-T)/T.
-    // Allow small arithmetic slop; the gate is "no runaway profit".
+    // USDC's 80% effective threshold caps the bonus at (1-T)/T = 25%, so seizure
+    // never exceeds collateral. Allow small arithmetic slop.
     assert!(
-        realized_bonus <= 0.16,
+        realized_bonus <= 0.26,
         "realized bonus must stay under the per-account ceiling, got {:.4}",
         realized_bonus
     );

@@ -329,35 +329,8 @@ fn try_liquidation_at_target(
     Some(out)
 }
 
-fn calculate_post_liquidation_hf(
-    weighted_coll: &BigRational,
-    total_debt: &BigRational,
-    debt_to_repay: &BigRational,
-    proportion_seized: &BigRational,
-    bonus_bps: &BigRational,
-) -> BigRational {
-    // one_plus_bonus in BPS scale (= BPS + bonus)
-    let one_plus_bonus_bps = &bps_scale() + bonus_bps;
-    let seized_proportion = proportion_seized * debt_to_repay / wad_scale();
-    let seized_weighted = &seized_proportion * &one_plus_bonus_bps / bps_scale();
-    let seized_weighted = if seized_weighted > *weighted_coll {
-        weighted_coll.clone()
-    } else {
-        seized_weighted
-    };
-    let new_weighted = weighted_coll - &seized_weighted;
-    let new_debt = if debt_to_repay >= total_debt {
-        br_zero()
-    } else {
-        total_debt - debt_to_repay
-    };
-    if new_debt.is_zero() {
-        return BigRational::from_integer(BigInt::from(i128::MAX));
-    }
-    new_weighted * wad_scale() / new_debt
-}
-
-/// Mirror of `select_liquidation_tier`: picks the tier before the dust guard.
+/// Mirror of the single HF-scaled bonus and the target-HF repayment (or the
+/// collateral-capped maximum when the bonus makes the target unreachable).
 fn select_liquidation_tier(
     total_debt_wad: &BigRational,
     weighted_coll_wad: &BigRational,
@@ -367,71 +340,33 @@ fn select_liquidation_tier(
     proportion_seized: &BigRational,
     total_collateral_wad: &BigRational,
 ) -> (BigRational, BigRational) {
-    let target_primary = &wad_scale() * BigRational::from_integer(BigInt::from(102))
+    let target = &wad_scale() * BigRational::from_integer(BigInt::from(102))
         / BigRational::from_integer(BigInt::from(100));
 
-    let bonus_primary =
-        calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target_primary);
+    let bonus = calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target);
 
-    if let Some(d) = try_liquidation_at_target(
+    let ideal = match try_liquidation_at_target(
         total_debt_wad,
         weighted_coll_wad,
-        &bonus_primary,
+        &bonus,
         proportion_seized,
         total_collateral_wad,
-        &target_primary,
+        &target,
     ) {
-        let new_hf = calculate_post_liquidation_hf(
-            weighted_coll_wad,
-            total_debt_wad,
-            &d,
-            proportion_seized,
-            &bonus_primary,
-        );
-        if new_hf >= wad_scale() {
-            return (d, bonus_primary);
+        Some(d) => d,
+        None => {
+            let bonus_wad = &bonus * &wad_scale() / bps_scale();
+            let one_plus_bonus = &wad_scale() + &bonus_wad;
+            let d_max = total_collateral_wad * &wad_scale() / &one_plus_bonus;
+            if d_max > *total_debt_wad {
+                total_debt_wad.clone()
+            } else {
+                d_max
+            }
         }
-    }
-
-    let target_fallback = &wad_scale() * BigRational::from_integer(BigInt::from(101))
-        / BigRational::from_integer(BigInt::from(100));
-    let bonus_fallback =
-        calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target_fallback);
-    let fallback_result = try_liquidation_at_target(
-        total_debt_wad,
-        weighted_coll_wad,
-        &bonus_fallback,
-        proportion_seized,
-        total_collateral_wad,
-        &target_fallback,
-    );
-
-    // Unrecoverable-position path.
-    let base_bonus_wad = base_bonus_bps * &wad_scale() / bps_scale();
-    let one_plus_base = &wad_scale() + &base_bonus_wad;
-    let d_max = total_collateral_wad * &wad_scale() / &one_plus_base;
-    let d_max = if d_max > *total_debt_wad {
-        total_debt_wad.clone()
-    } else {
-        d_max
     };
-    let base_new_hf = calculate_post_liquidation_hf(
-        weighted_coll_wad,
-        total_debt_wad,
-        &d_max,
-        proportion_seized,
-        base_bonus_bps,
-    );
 
-    // Base tier is pinned only on the unrecoverable path (HF would drop).
-    if base_new_hf < wad_scale() && base_new_hf < *hf_wad {
-        return (d_max, base_bonus_bps.clone());
-    }
-
-    match fallback_result {
-        Some(d) => (d, bonus_fallback),
-        None => (d_max, base_bonus_bps.clone()),
-    }
+    (ideal, bonus)
 }
 
 /// Mirror of `estimate_liquidation_amount`: tier selection + dust-leftover guard.

@@ -98,13 +98,13 @@ fn test_partial_chain_does_not_out_extract_single_recoverable() {
     );
 }
 
-// Regime 2: deep / unrecoverable (normal LT). HF ~0.33 is far below
-// m = proportion*(1+bonus), so every partial LOWERS HF — the exact setting the
-// ratchet hypothesis targets. The engine pins the bonus to BASE here; it must
-// NOT scale toward the ~25% max for 80%-LT collateral. So the realized bonus
-// stays flat across the chain and the chain cannot out-extract a single shot.
+// Regime 2: deep (normal LT). HF ~0.33 takes the max bonus (~25% for 80%-LT
+// collateral). At the max bonus `proportion*(1+bonus) == 1`, so a partial is
+// HF-neutral-to-rising: the account heals, later slices earn a non-increasing
+// bonus, and the chain cannot out-extract a single shot — anti-ratchet holds via
+// the per-threshold ceiling, not a base-bonus pin.
 #[test]
-fn test_partial_chain_bonus_pinned_to_base_when_deep() {
+fn test_partial_chain_deep_does_not_ratchet() {
     let build = || {
         let mut t = LendingTest::new()
             .with_market(usdc_preset())
@@ -123,11 +123,10 @@ fn test_partial_chain_bonus_pinned_to_base_when_deep() {
     let mut single = build();
     let (s_coll, s_debt) = liquidate_once(&mut single, "ETH", 0.5, "USDC", coll_price);
     let single_multiple = s_coll / s_debt;
-    // Deep liquidation must use the (small) base bonus, NOT the scaled max
-    // (`max_bonus_for_threshold(0.8)` ~= 25%). A scaled multiple would be ~1.25.
+    // Deep liquidation takes the max bonus, bounded by the per-threshold ceiling.
     assert!(
-        single_multiple < 1.20,
-        "deep liquidation must use base bonus, not the scaled max: multiple={single_multiple:.5}"
+        single_multiple <= 1.26,
+        "deep bonus bounded by the per-threshold max: multiple={single_multiple:.5}"
     );
 
     let mut chain = build();
@@ -141,8 +140,8 @@ fn test_partial_chain_bonus_pinned_to_base_when_deep() {
         let slice = coll / debt;
         match first_slice {
             None => first_slice = Some(slice),
-            // Pinned to base: later (lower-HF) slices must not earn a larger
-            // bonus than the first. A ratchet would make them strictly grow.
+            // As the account heals, later slices earn a non-increasing bonus.
+            // A ratchet would make them strictly grow.
             Some(first) => assert!(
                 slice <= first * 1.01,
                 "deep partials must not ratchet bonus: first={first:.5}, slice={slice:.5}"

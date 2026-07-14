@@ -681,106 +681,6 @@ fn snap(
     }
 }
 
-// Base tier restoring HF to exactly 1.0 must NOT win over fallback: the
-// strict `< ONE` guard sends the estimate down the fallback tier, whose
-// target sits 0.01 below primary and whose bonus is interpolated there.
-#[test]
-fn estimate_prefers_fallback_when_base_lands_exactly_on_hf_one() {
-    let env = Env::default();
-    let curve = LiquidationCurve::from_config(&default_spoke_config());
-    // W=100, D=100, C=50, p=1: base tier (bonus 0) seizes d=C=50 and lands
-    // exactly on new HF = (100-50)/(100-50) = 1.0. Primary fails its
-    // HF-restored check at hf=1.005.
-    let s = snap(
-        100 * WAD,
-        50 * WAD,
-        100 * WAD,
-        WAD,
-        1_005_000_000_000_000_000,
-    );
-    let bounds = BonusBounds {
-        base: Bps::from(0i128),
-        max: Bps::from(1_000i128),
-    };
-
-    let fallback_target = curve.target_hf - Wad::from(WAD / 100);
-    let expected_bonus = calculate_linear_bonus_with_target(
-        &env,
-        s.hf,
-        bounds.base,
-        bounds.max,
-        &curve,
-        fallback_target,
-    );
-    let expected_d = try_liquidation_at_target(&env, &s, expected_bonus, fallback_target).unwrap();
-    assert!(
-        expected_bonus.raw() > 0,
-        "fallback bonus must be interpolated"
-    );
-
-    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-    assert_eq!(bonus.raw(), expected_bonus.raw());
-    assert_eq!(d.raw(), expected_d.raw());
-}
-
-// Base tier landing exactly on the current HF (no improvement) must NOT win:
-// the strict `< snap.hf` guard sends the estimate to the fallback tier.
-#[test]
-fn estimate_prefers_fallback_when_base_does_not_improve_hf() {
-    let env = Env::default();
-    let curve = LiquidationCurve::from_config(&default_spoke_config());
-    // W=85, D=100, C=50, p=0.9: base tier (bonus 0) seizes d=50 and lands on
-    // new HF = (85-45)/(100-50) = 0.8 == snap.hf exactly.
-    let s = snap(
-        100 * WAD,
-        50 * WAD,
-        85 * WAD,
-        900_000_000_000_000_000,
-        800_000_000_000_000_000,
-    );
-    let bounds = BonusBounds {
-        base: Bps::from(0i128),
-        max: Bps::from(100i128),
-    };
-
-    let fallback_target = curve.target_hf - Wad::from(WAD / 100);
-    let expected_bonus = calculate_linear_bonus_with_target(
-        &env,
-        s.hf,
-        bounds.base,
-        bounds.max,
-        &curve,
-        fallback_target,
-    );
-    let expected_d = try_liquidation_at_target(&env, &s, expected_bonus, fallback_target).unwrap();
-    assert!(expected_bonus.raw() > 0);
-
-    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-    assert_eq!(bonus.raw(), expected_bonus.raw());
-    assert_eq!(d.raw(), expected_d.raw());
-}
-
-// Deep bad debt: both curve tiers are infeasible (proportion * (1+bonus)
-// exceeds their targets) and the base tier wins with d = C / (1 + base).
-#[test]
-fn estimate_falls_back_to_base_tier_with_exact_base_divisor() {
-    let env = Env::default();
-    let curve = LiquidationCurve::from_config(&default_spoke_config());
-    // W=40, D=100, hf=0.4, p=1, C=50; base bonus 5%.
-    let s = snap(100 * WAD, 50 * WAD, 40 * WAD, WAD, 400_000_000_000_000_000);
-    let bounds = BonusBounds {
-        base: Bps::from(500i128),
-        max: Bps::from(1_000i128),
-    };
-
-    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-    assert_eq!(bonus.raw(), bounds.base.raw());
-    let expected_d = Wad::from(50 * WAD)
-        .div(&env, Wad::ONE + bounds.base.to_wad(&env))
-        .min(s.total_debt);
-    assert_eq!(d.raw(), expected_d.raw());
-}
-
 // The post-liquidation HF must weight the seized side by 1 + bonus.
 #[test]
 fn post_liquidation_hf_applies_bonus_on_seized_weight() {
@@ -822,12 +722,12 @@ fn normalize_repayment_plan_refunds_payment_above_ideal() {
         let mut cache = Cache::new_view(&env);
         cache.put_market_index(&hub_asset, &index_raw());
 
-        // Deep bad debt: both curve tiers infeasible (p * (1+max bonus)
-        // exceeds the targets), base tier caps the ideal at C = $100.
+        // Zero bonus: the repayment is capped at the collateral value C = $100,
+        // so a $500 payment refunds $400.
         let s = snap(500 * WAD, 100 * WAD, 40 * WAD, WAD, 400_000_000_000_000_000);
         let bounds = BonusBounds {
             base: Bps::from(0i128),
-            max: Bps::from(1_000i128),
+            max: Bps::from(0i128),
         };
         let curve = LiquidationCurve::from_config(&default_spoke_config());
 
@@ -845,53 +745,13 @@ fn normalize_repayment_plan_refunds_payment_above_ideal() {
     });
 }
 
-// When the base tier legitimately wins (improves HF but cannot restore it),
-// it must actually be chosen over a feasible fallback tier.
+// A deeply unhealthy low-threshold position (collateral $100, debt $90,
+// threshold 0.45 -> weighted $45, HF 0.5) takes the single max bonus and, since
+// that bonus makes the target unreachable, repays the collateral-capped maximum
+// (a partial). Any residual bad debt is socialized -- an accepted residual that
+// Aave V4 accepts too.
 #[test]
-fn estimate_prefers_base_when_it_improves_hf_below_one() {
-    let env = Env::default();
-    let curve = LiquidationCurve::from_config(&default_spoke_config());
-    // W=60, D=100, C=70, p=0.85, hf=0.6: base (bonus 0) seizes d=C=70 for
-    // new HF = (60 - 59.5)/30 << 0.6; the fallback tier is feasible here
-    // and would seize a different amount, so tier choice is observable.
-    let s = snap(
-        100 * WAD,
-        70 * WAD,
-        60 * WAD,
-        850_000_000_000_000_000,
-        600_000_000_000_000_000,
-    );
-    let bounds = BonusBounds {
-        base: Bps::from(0i128),
-        max: Bps::from(100i128),
-    };
-
-    let fallback_target = curve.target_hf - Wad::from(WAD / 100);
-    let fb_bonus = calculate_linear_bonus_with_target(
-        &env,
-        s.hf,
-        bounds.base,
-        bounds.max,
-        &curve,
-        fallback_target,
-    );
-    let fb_d = try_liquidation_at_target(&env, &s, fb_bonus, fallback_target)
-        .expect("fallback must be feasible in this scenario");
-    assert_ne!(fb_d.raw(), 70 * WAD, "fallback and base must differ");
-
-    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-    assert_eq!(d.raw(), 70 * WAD);
-    assert_eq!(bonus.raw(), 0);
-}
-
-// A solvent low-threshold position (collateral $100 > debt $90, threshold 0.45 ->
-// weighted $45, HF 0.5) takes the fallback tier at the max bonus: it repays a
-// partial amount and seizes ~all collateral, stranding bad debt that is later
-// socialized. This is an accepted residual (Aave V4 accepts the same). The base
-// tier stays reserved for the HF-decreasing path, so a recovering position never
-// takes it -- which keeps partial liquidations from out-seizing a single one.
-#[test]
-fn estimate_solvent_low_threshold_takes_fallback_tier() {
+fn estimate_low_hf_uses_max_bonus_collateral_capped() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
 
@@ -903,14 +763,14 @@ fn estimate_solvent_low_threshold_takes_fallback_tier() {
     };
 
     let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-    assert_eq!(bonus.raw(), max.raw(), "recovering position takes the max bonus");
-    assert!(d < s.total_debt, "partial repayment, not a base-bonus full close");
+    assert_eq!(bonus.raw(), max.raw(), "deep HF takes the max bonus");
+    assert!(d < s.total_debt, "collateral-capped partial repayment");
 }
 
-// A tier whose ideal repayment would strand a sub-floor ($5) debt remainder is
-// escalated to a full close. Underwater account (weighted $30 << debt $100): the
-// base tier cannot heal and is collateral-capped at $100/1.05 ≈ $95.24, leaving
-// ~$4.76 (< $5) of dust debt, so the estimate escalates to the full $100.
+// The dust guard escalates a sub-floor debt remainder to a full close. A
+// high-threshold position (D=$100, C=$104, threshold 0.95 -> weighted $98.8,
+// HF 0.988) repays at ~the base bonus but is collateral-capped at
+// C/(1+bonus) ≈ $99, leaving < $5 of dust, so the estimate closes it fully.
 #[test]
 fn estimate_escalates_sub_floor_debt_dust_to_full_close() {
     let env = Env::default();
@@ -918,51 +778,10 @@ fn estimate_escalates_sub_floor_debt_dust_to_full_close() {
 
     let s = snap(
         100 * WAD,
-        100 * WAD,
-        30 * WAD,
-        30 * WAD / 100,
-        30 * WAD / 100,
-    );
-    let bounds = BonusBounds {
-        base: Bps::from(500i128),
-        max: max_bonus_for_threshold(&env, s.proportion_seized),
-    };
-
-    // Pre-guard the base tier would leave ~$4.76 of dust debt.
-    let base_d = s
-        .total_collateral
-        .div(&env, Wad::ONE + bounds.base.to_wad(&env))
-        .min(s.total_debt);
-    let dust = s.total_debt - base_d;
-    assert!(
-        dust.raw() > 0 && dust.raw() < BAD_DEBT_USD_THRESHOLD,
-        "setup: base tier must leave sub-floor dust, got {}",
-        dust.raw()
-    );
-
-    // The guard escalates to a full debt close.
-    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-    assert_eq!(
-        d.raw(),
-        s.total_debt.raw(),
-        "dust debt escalated to full close"
-    );
-    assert_eq!(bonus.raw(), bounds.base.raw());
-}
-
-// The dust guard leaves an above-floor remainder untouched: same shape but
-// collateral $94.5 caps the base tier at $90, leaving $10 (> $5) — no escalation.
-#[test]
-fn estimate_leaves_above_floor_debt_remainder_unescalated() {
-    let env = Env::default();
-    let curve = LiquidationCurve::from_config(&default_spoke_config());
-
-    let s = snap(
-        100 * WAD,
-        945 * WAD / 10,
-        2_835 * WAD / 100,
-        30 * WAD / 100,
-        2_835 * WAD / 10_000,
+        104 * WAD,
+        988 * WAD / 10,
+        95 * WAD / 100,
+        988 * WAD / 1000,
     );
     let bounds = BonusBounds {
         base: Bps::from(500i128),
@@ -972,8 +791,35 @@ fn estimate_leaves_above_floor_debt_remainder_unescalated() {
     let (d, _bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
     assert_eq!(
         d.raw(),
-        90 * WAD,
-        "above-floor remainder must not be escalated"
+        s.total_debt.raw(),
+        "sub-floor dust escalated to a full close"
     );
-    assert!(s.total_debt - d >= Wad::from(BAD_DEBT_USD_THRESHOLD));
+}
+
+// An above-floor remainder is left untouched: a moderately unhealthy position
+// (D=$100, C=$75, threshold 0.8 -> weighted $60, HF 0.6) repays a partial toward
+// the target and keeps a >$5 debt remainder.
+#[test]
+fn estimate_leaves_above_floor_debt_remainder_unescalated() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+    let s = snap(
+        100 * WAD,
+        75 * WAD,
+        60 * WAD,
+        80 * WAD / 100,
+        60 * WAD / 100,
+    );
+    let bounds = BonusBounds {
+        base: Bps::from(500i128),
+        max: max_bonus_for_threshold(&env, s.proportion_seized),
+    };
+
+    let (d, _bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert!(d < s.total_debt, "partial repayment");
+    assert!(
+        s.total_debt - d >= Wad::from(BAD_DEBT_USD_THRESHOLD),
+        "remainder stays above the socialization floor"
+    );
 }

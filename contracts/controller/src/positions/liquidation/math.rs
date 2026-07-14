@@ -443,73 +443,38 @@ pub fn calculate_linear_bonus_with_target(
     )
 }
 
-/// Candidate close amount and bonus for the unconditional base tier, plus the
-/// post-liquidation HF used to decide whether the base tier pre-empts fallback.
-struct BaseTier {
-    candidate: (Wad, Bps),
-    new_hf: Wad,
-}
-
-/// Primary tier: seize toward the curve's target HF and accept only when the
-/// result restores HF to at least one.
-fn primary_tier(
-    env: &Env,
-    snap: &LiquidationSnapshot,
-    bounds: BonusBounds,
-    curve: &LiquidationCurve,
-) -> Option<(Wad, Bps)> {
-    let target = curve.target_hf;
-    let bonus =
-        calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, curve, target);
-    let d = try_liquidation_at_target(env, snap, bonus, target)?;
-    if calculate_post_liquidation_hf(env, snap, d, bonus) >= Wad::ONE {
-        Some((d, bonus))
-    } else {
-        None
-    }
-}
-
-/// Fallback tier: seize toward the curve's fallback HF target (0.01 below
-/// primary) without the HF-restored check.
-fn fallback_tier(
-    env: &Env,
-    snap: &LiquidationSnapshot,
-    bounds: BonusBounds,
-    curve: &LiquidationCurve,
-) -> Option<(Wad, Bps)> {
-    // Fallback-tier target: 0.01 WAD below the primary target.
-    let target = curve.target_hf - Wad::from(WAD / 100);
-    let bonus =
-        calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, curve, target);
-    try_liquidation_at_target(env, snap, bonus, target).map(|d| (d, bonus))
-}
-
-/// Base tier: largest seizure at base bonus, capped at total debt.
-fn base_tier(env: &Env, snap: &LiquidationSnapshot, bounds: BonusBounds) -> BaseTier {
-    let one_plus_base = Wad::ONE + bounds.base.to_wad(env);
-    let d_max = snap
-        .total_collateral
-        .div(env, one_plus_base)
-        .min(snap.total_debt);
-    BaseTier {
-        candidate: (d_max, bounds.base),
-        new_hf: calculate_post_liquidation_hf(env, snap, d_max, bounds.base),
-    }
-}
-
-/// Estimates the ideal liquidation repayment and bonus, then applies the
-/// dust-leftover guard.
+/// Estimates the ideal liquidation repayment and its bonus (Aave V4 model).
+///
+/// A single health-factor-scaled bonus is applied: the protocol max below the
+/// curve's max-bonus floor, interpolated toward the base above it, monotone in
+/// HF. The repayment restores HF to the curve target; when the bonus makes the
+/// target unreachable it is the largest the collateral supports,
+/// `collateral / (1 + bonus)`. A dust guard escalates a sub-floor debt remainder
+/// to a full close. Both are capped at `total_debt`.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,
     bounds: BonusBounds,
     curve: &LiquidationCurve,
 ) -> (Wad, Bps) {
-    let (ideal, bonus) = select_liquidation_tier(env, snap, bounds, curve);
+    let bonus = calculate_linear_bonus_with_target(
+        env,
+        snap.hf,
+        bounds.base,
+        bounds.max,
+        curve,
+        curve.target_hf,
+    );
+
+    let ideal = try_liquidation_at_target(env, snap, bonus, curve.target_hf).unwrap_or_else(|| {
+        snap.total_collateral
+            .div(env, Wad::ONE + bonus.to_wad(env))
+            .min(snap.total_debt)
+    });
 
     // Escalate a sub-floor debt remainder to a full close: the position keeps
     // either zero debt or an amount above the socialization floor, never
-    // un-liquidatable dust. Tiers cap `ideal` at `total_debt`, so the remainder
+    // un-liquidatable dust. `ideal` is capped at `total_debt`, so the remainder
     // is non-negative.
     let remaining_debt = snap.total_debt - ideal;
     if remaining_debt > Wad::ZERO && remaining_debt < Wad::from(BAD_DEBT_USD_THRESHOLD) {
@@ -519,33 +484,8 @@ pub(crate) fn estimate_liquidation_amount(
     (ideal, bonus)
 }
 
-/// Selects the liquidation tier (repayment amount + bonus) before the dust guard.
-fn select_liquidation_tier(
-    env: &Env,
-    snap: &LiquidationSnapshot,
-    bounds: BonusBounds,
-    curve: &LiquidationCurve,
-) -> (Wad, Bps) {
-    if let Some(result) = primary_tier(env, snap, bounds, curve) {
-        return result;
-    }
-
-    // Evaluate fallback first; base can override only through the guard below.
-    let fallback = fallback_tier(env, snap, bounds, curve);
-    let base = base_tier(env, snap, bounds);
-
-    // The base tier is pinned only on the unrecoverable path, where a base-bonus
-    // seizure would lower HF rather than restore it. Using the minimum bonus
-    // there keeps a chain of partial liquidations from out-seizing a single one;
-    // recovering positions always take the HF-scaled curve bonus above.
-    if base.new_hf < Wad::ONE && base.new_hf < snap.hf {
-        return base.candidate;
-    }
-
-    fallback.unwrap_or(base.candidate)
-}
-
 /// Returns the account's health factor after repaying `debt_to_repay` at `bonus`.
+#[cfg(test)]
 fn calculate_post_liquidation_hf(
     env: &Env,
     snap: &LiquidationSnapshot,

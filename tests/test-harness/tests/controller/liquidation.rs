@@ -120,11 +120,12 @@ fn test_liquidation_dynamic_bonus_moderate() {
         "liquidator should profit from bonus: received ${} of collateral for $2000 debt",
         collateral_received_usd
     );
-    // Bonus rate must be within the dynamic range (5-15%) for moderate HF (~0.67).
+    // The HF-scaled bonus at moderate HF (~0.67) sits between the base and the
+    // 25% per-threshold max for 80%-LT collateral.
     let bonus_rate = collateral_received_usd / 2000.0 - 1.0;
     assert!(
-        bonus_rate > 0.04 && bonus_rate < 0.16,
-        "moderate-HF bonus must fall in 4-16% range, got {:.4}",
+        bonus_rate > 0.10 && bonus_rate < 0.25,
+        "moderate-HF bonus must be a mid-range HF-scaled value, got {:.4}",
         bonus_rate
     );
     // Borrower debt reduced.
