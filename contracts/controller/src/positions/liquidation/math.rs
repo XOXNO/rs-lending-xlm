@@ -443,7 +443,7 @@ pub fn calculate_linear_bonus_with_target(
     )
 }
 
-/// Estimates the ideal liquidation repayment and its bonus (Aave V4 model).
+/// Estimates the ideal liquidation repayment and its bonus.
 ///
 /// A single health-factor-scaled bonus is applied: the protocol max below the
 /// curve's max-bonus floor, interpolated toward the base above it, monotone in

@@ -748,8 +748,7 @@ fn normalize_repayment_plan_refunds_payment_above_ideal() {
 // A deeply unhealthy low-threshold position (collateral $100, debt $90,
 // threshold 0.45 -> weighted $45, HF 0.5) takes the single max bonus and, since
 // that bonus makes the target unreachable, repays the collateral-capped maximum
-// (a partial). Any residual bad debt is socialized -- an accepted residual that
-// Aave V4 accepts too.
+// (a partial). Any residual bad debt is socialized -- an accepted residual.
 #[test]
 fn estimate_low_hf_uses_max_bonus_collateral_capped() {
     let env = Env::default();
@@ -825,13 +824,13 @@ fn estimate_leaves_above_floor_debt_remainder_unescalated() {
 }
 
 // ---------------------------------------------------------------------------
-// Aave V4 parity: bonus + seizure invariants
+// Bonus + seizure invariants
 // ---------------------------------------------------------------------------
 
-// Aave `calculateLiquidationBonus` is monotone: a lower health factor never
-// yields a smaller bonus. Mirrors Aave's `monotonicityOfBonus`.
+// The bonus is monotone in health factor: a lower HF never yields a smaller
+// bonus.
 #[test]
-fn aave_bonus_monotone_decreasing_in_hf() {
+fn bonus_monotone_decreasing_in_hf() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
     let base = Bps::from(500i128);
@@ -850,10 +849,9 @@ fn aave_bonus_monotone_decreasing_in_hf() {
     }
 }
 
-// The bonus stays within `[base, max]` across the whole HF range. Mirrors Aave's
-// `bonusIsAtLeastNoBonus` / `bonusDoesNotExceedMax`.
+// The bonus stays within `[base, max]` across the whole HF range.
 #[test]
-fn aave_bonus_within_base_and_max_bounds() {
+fn bonus_within_base_and_max_bounds() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
     let base = Bps::from(500i128);
@@ -874,10 +872,10 @@ fn aave_bonus_within_base_and_max_bounds() {
 
 // The estimated seizure never exceeds the account's collateral, at any
 // liquidatable HF. This is the per-threshold ceiling that keeps a liquidation
-// from over-seizing (Aave's `collateralToLiquidateValueLessThanDebtToLiquidate`
-// family). Single 0.80-threshold collateral, swept from shallow to deep.
+// from over-seizing. Single 0.80-threshold collateral, swept from shallow to
+// deep.
 #[test]
-fn aave_seizure_never_exceeds_collateral() {
+fn seizure_never_exceeds_collateral() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
     let collateral = 100 * WAD;
