@@ -1,9 +1,21 @@
 name: Certora Prover Fast Rules
 
 on:
-  # Runs the small Certora rule set on demand.
+  # Runs a Certora rule profile on demand (default: fast).
   # PR confidence comes from ci.yml and fuzz.yml.
   workflow_dispatch:
+    inputs:
+      profile:
+        description: "Certora profile to run (see certora/profiles.json)"
+        type: choice
+        default: fast
+        options:
+          - fast
+          - core
+          - critical
+          - heavy
+          - sanity
+          - all
 
 permissions:
   contents: read
@@ -81,7 +93,8 @@ jobs:
       - name: Install Certora CLI
         run: pip install --upgrade certora-cli
 
-      - name: Run fast Certora configs
+      - name: Run Certora configs
         env:
           CERTORAKEY: ${{ secrets.CERTORAKEY }}
-        run: ./certora/scripts/run_profile.py fast
+          PROFILE: ${{ inputs.profile || 'fast' }}
+        run: ./certora/scripts/run_profile.py "$PROFILE"
