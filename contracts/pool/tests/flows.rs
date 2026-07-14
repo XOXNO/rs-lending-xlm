@@ -6,7 +6,6 @@ use common::constants::{
     TTL_THRESHOLD_SHARED,
 };
 use common::errors::{CollateralError, FlashLoanError, GenericError};
-use simulate_update_indexes;
 use common::types::{HubAssetKey, MarketIndexRaw, ScaledPositionRaw};
 
 /// Pool tests use hub 0 as a local fixture id.
