@@ -1161,6 +1161,42 @@ fn sweep_balance_recovers_stray_tokens_to_recipient() {
 }
 
 #[test]
+fn reserved_fee_balance_skips_absent_referral_slot() {
+    // A registered referral bumps ReferralCounter, so `reserved_fee_balance`
+    // iterates that slot even when it never accrued a fee for the swept token.
+    // The `amount > 0` presence guard must skip the TTL bump on the absent
+    // entry — extending a nonexistent persistent entry panics. This pins the
+    // referral half of that guard the way `sweep_balance_recovers_stray_tokens`
+    // pins the admin half.
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let router_addr = env.register(Router, (admin.clone(),));
+    let router = RouterClient::new(&env, &router_addr);
+    let referral_owner = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let asset_admin = Address::generate(&env);
+    let (stray_token, sac_stray) = new_asset(&env, &asset_admin);
+
+    // Counter goes to 1; no swap runs, so ReferralFee(1, stray_token) is absent.
+    router.add_referral(&referral_owner, &100);
+
+    sac_stray.mint(&router_addr, &777);
+    router.sweep_balance(&recipient, &vec![&env, stray_token.clone()]);
+
+    // No fees are reserved for this token, so the full stray balance sweeps out.
+    // Under a guard mutant that bumps the absent slot the sweep panics instead.
+    assert_eq!(
+        token::Client::new(&env, &stray_token).balance(&router_addr),
+        0
+    );
+    assert_eq!(
+        token::Client::new(&env, &stray_token).balance(&recipient),
+        777
+    );
+}
+
+#[test]
 fn sweep_balance_keeps_fee_backing_claimable() {
     let env = Env::default();
     env.mock_all_auths();
