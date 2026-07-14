@@ -823,3 +823,89 @@ fn estimate_leaves_above_floor_debt_remainder_unescalated() {
         "remainder stays above the socialization floor"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Aave V4 parity: bonus + seizure invariants
+// ---------------------------------------------------------------------------
+
+// Aave `calculateLiquidationBonus` is monotone: a lower health factor never
+// yields a smaller bonus. Mirrors Aave's `monotonicityOfBonus`.
+#[test]
+fn aave_bonus_monotone_decreasing_in_hf() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let base = Bps::from(500i128);
+    let max = Bps::from(2_500i128);
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+
+    let mut prev = i128::MAX;
+    for pct in (10..=102).step_by(2) {
+        let hf = Wad::from(WAD * pct / 100);
+        let b = calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target).raw();
+        assert!(
+            b <= prev,
+            "bonus must not increase as HF rises: hf={pct}% bonus={b} prev={prev}"
+        );
+        prev = b;
+    }
+}
+
+// The bonus stays within `[base, max]` across the whole HF range. Mirrors Aave's
+// `bonusIsAtLeastNoBonus` / `bonusDoesNotExceedMax`.
+#[test]
+fn aave_bonus_within_base_and_max_bounds() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let base = Bps::from(500i128);
+    let max = Bps::from(2_500i128);
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+
+    for pct in (5..=110).step_by(3) {
+        let hf = Wad::from(WAD * pct / 100);
+        let b = calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target).raw();
+        assert!(
+            b >= base.raw() && b <= max.raw(),
+            "bonus {b} out of [{}, {}] at hf={pct}%",
+            base.raw(),
+            max.raw()
+        );
+    }
+}
+
+// The estimated seizure never exceeds the account's collateral, at any
+// liquidatable HF. This is the per-threshold ceiling that keeps a liquidation
+// from over-seizing (Aave's `collateralToLiquidateValueLessThanDebtToLiquidate`
+// family). Single 0.80-threshold collateral, swept from shallow to deep.
+#[test]
+fn aave_seizure_never_exceeds_collateral() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let collateral = 100 * WAD;
+    let weighted = 80 * WAD; // threshold 0.80
+    let proportion = 80 * WAD / 100;
+    let bounds = BonusBounds {
+        base: Bps::from(500i128),
+        max: max_bonus_for_threshold(&env, Wad::from(proportion)),
+    };
+
+    for hf_pct in (10..100).step_by(5) {
+        // hf = weighted / debt  =>  debt = weighted / hf
+        let debt = weighted * 100 / hf_pct as i128;
+        let s = snap(debt, collateral, weighted, proportion, WAD * hf_pct as i128 / 100);
+        let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+        // The dust guard may escalate to a full close whose notional seizure
+        // exceeds collateral; the real per-asset seizure is capped downstream in
+        // `calculate_seized_collateral`. Assert the ceiling only on the
+        // non-escalated (target-HF or collateral-capped) path.
+        if ideal.raw() == s.total_debt.raw() {
+            continue;
+        }
+        let seizure = ideal.mul(&env, Wad::ONE + bonus.to_wad(&env));
+        assert!(
+            seizure.raw() <= collateral + WAD / 1_000,
+            "seizure {} exceeds collateral {} at hf={hf_pct}%",
+            seizure.raw(),
+            collateral
+        );
+    }
+}
