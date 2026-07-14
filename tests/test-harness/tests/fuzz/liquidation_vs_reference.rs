@@ -3,6 +3,7 @@ use controller::constants::WAD;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 use test_harness::reference;
 use test_harness::{LendingTest, ALICE, LIQUIDATOR};
 
@@ -35,6 +36,126 @@ fn price_for_debt_ratio(
         / (10_000 * debt_tokens)
 }
 
+/// Shared body: seed a liquidatable position, crash the price into the
+/// differential scope, liquidate, and assert production matches the exact
+/// rational reference. `max_ltv_frac` sizes the borrow to the collateral's LTV.
+fn run_liquidation_differential(
+    mut t: LendingTest,
+    max_ltv_frac: f64,
+    supply_usdc: u64,
+    borrow_eth_frac_bps: u16,
+    debt_ratio_bps: u16,
+    liq_repay_frac_bps: u16,
+) -> Result<(), TestCaseError> {
+    t.supply(ALICE, "USDC", supply_usdc as f64);
+
+    let max_eth = (supply_usdc as f64) * max_ltv_frac / 2000.0;
+    let borrow_amt = max_eth * (borrow_eth_frac_bps as f64 / 10_000.0);
+    let borrow_result = t.try_borrow(ALICE, "ETH", borrow_amt);
+    prop_assert!(
+        borrow_result.is_ok(),
+        "generated in-LTV borrow failed: amount={} error={:?}",
+        borrow_amt,
+        borrow_result.err()
+    );
+
+    let collateral_usd_wad = t.total_collateral_raw(ALICE);
+    let debt_tokens = t.borrow_balance_raw(ALICE, "ETH");
+    let eth_decimals = t.resolve_market("ETH").decimals;
+    let new_eth_price = price_for_debt_ratio(
+        collateral_usd_wad,
+        debt_tokens,
+        eth_decimals,
+        debt_ratio_bps as i128,
+    );
+    t.set_price("ETH", new_eth_price);
+    prop_assert!(
+        t.health_factor_raw(ALICE) < WAD,
+        "generated account must be liquidatable"
+    );
+
+    let coll_wad = t.total_collateral_raw(ALICE);
+    let debt_wad = t.total_debt_raw(ALICE);
+    prop_assert!(
+        in_differential_scope(coll_wad, debt_wad),
+        "generated account escaped differential scope: collateral={} debt={}",
+        coll_wad,
+        debt_wad
+    );
+
+    let ref_coll = reference::snapshot_collateral(&t, ALICE);
+    let ref_debt = reference::snapshot_debt(&t, ALICE);
+    prop_assert!(!ref_coll.is_empty() && !ref_debt.is_empty());
+
+    let current_debt_eth = t.borrow_balance(ALICE, "ETH");
+    let repay_amt = current_debt_eth * (liq_repay_frac_bps as f64 / 10_000.0);
+
+    let repay_tokens = reference::float_to_bigrational(repay_amt, eth_decimals);
+    let ref_payments = std::vec![(0u32, repay_tokens)];
+    let ref_result =
+        reference::compute_liquidation(&ref_coll, &ref_debt, &ref_payments, target_hf_wad());
+    let ref_total_repaid_usd_wad =
+        reference::bigrational_to_i128_wad(&ref_result.total_repaid_usd_wad);
+    let ref_total_seized_usd_wad =
+        reference::bigrational_to_i128_wad(&ref_result.total_seized_usd_wad);
+
+    let debt_before_usd = t.total_debt_raw(ALICE);
+    let coll_before_usd = t.total_collateral_raw(ALICE);
+    let usdc_supply_before_tokens = t.supply_balance_raw(ALICE, "USDC");
+    let liq_res = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay_amt);
+    prop_assert!(
+        liq_res.is_ok(),
+        "in-scope liquidation failed: repay={} reference_repaid={} error={:?}",
+        repay_amt,
+        ref_total_repaid_usd_wad,
+        liq_res.err()
+    );
+
+    let debt_after_usd = if t.find_account_id(ALICE).is_some() {
+        t.total_debt_raw(ALICE)
+    } else {
+        0
+    };
+    let coll_after_usd = if t.find_account_id(ALICE).is_some() {
+        t.total_collateral_raw(ALICE)
+    } else {
+        0
+    };
+
+    let prod_debt_reduction = debt_before_usd - debt_after_usd;
+    let prod_coll_reduction = coll_before_usd - coll_after_usd;
+
+    let debt_diff = (prod_debt_reduction - ref_total_repaid_usd_wad).abs();
+    let debt_ref_abs = ref_total_repaid_usd_wad.abs();
+    let debt_rel_ok = debt_ref_abs == 0 || debt_diff * 1_000 <= debt_ref_abs;
+    prop_assert!(debt_diff <= ULP_BOUND_USD_WAD || debt_rel_ok);
+
+    let coll_diff = (prod_coll_reduction - ref_total_seized_usd_wad).abs();
+    let coll_ref_abs = ref_total_seized_usd_wad.abs();
+    let coll_rel_ok = coll_ref_abs == 0 || coll_diff * 1_000 <= coll_ref_abs;
+    prop_assert!(coll_diff <= ULP_BOUND_USD_WAD || coll_rel_ok);
+
+    let usdc_supply_after_tokens = if t.find_account_id(ALICE).is_some() {
+        t.supply_balance_raw(ALICE, "USDC")
+    } else {
+        0
+    };
+    let prod_usdc_seized = usdc_supply_before_tokens - usdc_supply_after_tokens;
+    let (_aid, ref_usdc_seized_tokens) = ref_result
+        .seized_per_collateral
+        .iter()
+        .find(|(aid, _)| *aid == 0)
+        .expect("reference should seize collateral");
+    let ref_usdc_seized_i128 = reference::bigrational_to_i128_half_up(ref_usdc_seized_tokens);
+
+    let usdc_diff = (prod_usdc_seized - ref_usdc_seized_i128).abs();
+    let usdc_ref_abs = ref_usdc_seized_i128.abs();
+    let usdc_rel_ok = usdc_ref_abs == 0 || usdc_diff * 200 <= usdc_ref_abs;
+    prop_assert!(usdc_diff <= ULP_BOUND_TOKENS || usdc_rel_ok);
+
+    Ok(())
+}
+
 proptest! {
     #![proptest_config(config(32))]
 
@@ -45,113 +166,43 @@ proptest! {
         debt_ratio_bps in 8_150u16..8_600u16,
         liq_repay_frac_bps in 500u16..10_000u16,
     ) {
-        let mut t = LendingTest::new().standard_two_asset().build();
-        t.supply(ALICE, "USDC", supply_usdc as f64);
+        let t = LendingTest::new().standard_two_asset().build();
+        run_liquidation_differential(
+            t,
+            0.75,
+            supply_usdc,
+            borrow_eth_frac_bps,
+            debt_ratio_bps,
+            liq_repay_frac_bps,
+        )?;
+    }
 
-        let max_eth = (supply_usdc as f64) * 0.75 / 2000.0;
-        let borrow_amt = max_eth * (borrow_eth_frac_bps as f64 / 10_000.0);
-        let borrow_result = t.try_borrow(ALICE, "ETH", borrow_amt);
-        prop_assert!(
-            borrow_result.is_ok(),
-            "generated in-LTV borrow failed: amount={} error={:?}",
-            borrow_amt,
-            borrow_result.err()
-        );
-
-        let collateral_usd_wad = t.total_collateral_raw(ALICE);
-        let debt_tokens = t.borrow_balance_raw(ALICE, "ETH");
-        let eth_decimals = t.resolve_market("ETH").decimals;
-        let new_eth_price = price_for_debt_ratio(
-            collateral_usd_wad,
-            debt_tokens,
-            eth_decimals,
-            debt_ratio_bps as i128,
-        );
-        t.set_price("ETH", new_eth_price);
-        prop_assert!(t.health_factor_raw(ALICE) < WAD, "generated account must be liquidatable");
-
-        let coll_wad = t.total_collateral_raw(ALICE);
-        let debt_wad = t.total_debt_raw(ALICE);
-        prop_assert!(
-            in_differential_scope(coll_wad, debt_wad),
-            "generated account escaped differential scope: collateral={} debt={}",
-            coll_wad,
-            debt_wad
-        );
-
-        let ref_coll = reference::snapshot_collateral(&t, ALICE);
-        let ref_debt = reference::snapshot_debt(&t, ALICE);
-        prop_assert!(!ref_coll.is_empty() && !ref_debt.is_empty());
-
-        let current_debt_eth = t.borrow_balance(ALICE, "ETH");
-        let repay_amt = current_debt_eth * (liq_repay_frac_bps as f64 / 10_000.0);
-
-        let repay_tokens = reference::float_to_bigrational(repay_amt, eth_decimals);
-        let ref_payments = std::vec![(0u32, repay_tokens)];
-        let ref_result = reference::compute_liquidation(
-            &ref_coll,
-            &ref_debt,
-            &ref_payments,
-            target_hf_wad(),
-        );
-        let ref_total_repaid_usd_wad =
-            reference::bigrational_to_i128_wad(&ref_result.total_repaid_usd_wad);
-        let ref_total_seized_usd_wad =
-            reference::bigrational_to_i128_wad(&ref_result.total_seized_usd_wad);
-
-        let debt_before_usd = t.total_debt_raw(ALICE);
-        let coll_before_usd = t.total_collateral_raw(ALICE);
-        let usdc_supply_before_tokens = t.supply_balance_raw(ALICE, "USDC");
-        let liq_res = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay_amt);
-        prop_assert!(
-            liq_res.is_ok(),
-            "in-scope liquidation failed: repay={} reference_repaid={} error={:?}",
-            repay_amt,
-            ref_total_repaid_usd_wad,
-            liq_res.err()
-        );
-
-        let debt_after_usd = if t.find_account_id(ALICE).is_some() {
-            t.total_debt_raw(ALICE)
-        } else {
-            0
-        };
-        let coll_after_usd = if t.find_account_id(ALICE).is_some() {
-            t.total_collateral_raw(ALICE)
-        } else {
-            0
-        };
-
-        let prod_debt_reduction = debt_before_usd - debt_after_usd;
-        let prod_coll_reduction = coll_before_usd - coll_after_usd;
-
-        let debt_diff = (prod_debt_reduction - ref_total_repaid_usd_wad).abs();
-        let debt_ref_abs = ref_total_repaid_usd_wad.abs();
-        let debt_rel_ok = debt_ref_abs == 0 || debt_diff * 1_000 <= debt_ref_abs;
-        prop_assert!(debt_diff <= ULP_BOUND_USD_WAD || debt_rel_ok);
-
-        let coll_diff = (prod_coll_reduction - ref_total_seized_usd_wad).abs();
-        let coll_ref_abs = ref_total_seized_usd_wad.abs();
-        let coll_rel_ok = coll_ref_abs == 0 || coll_diff * 1_000 <= coll_ref_abs;
-        prop_assert!(coll_diff <= ULP_BOUND_USD_WAD || coll_rel_ok);
-
-        let usdc_supply_after_tokens = if t.find_account_id(ALICE).is_some() {
-            t.supply_balance_raw(ALICE, "USDC")
-        } else {
-            0
-        };
-        let prod_usdc_seized = usdc_supply_before_tokens - usdc_supply_after_tokens;
-        let (_aid, ref_usdc_seized_tokens) = ref_result
-            .seized_per_collateral
-            .iter()
-            .find(|(aid, _)| *aid == 0)
-            .expect("reference should seize collateral");
-        let ref_usdc_seized_i128 =
-            reference::bigrational_to_i128_half_up(ref_usdc_seized_tokens);
-
-        let usdc_diff = (prod_usdc_seized - ref_usdc_seized_i128).abs();
-        let usdc_ref_abs = ref_usdc_seized_i128.abs();
-        let usdc_rel_ok = usdc_ref_abs == 0 || usdc_diff * 200 <= usdc_ref_abs;
-        prop_assert!(usdc_diff <= ULP_BOUND_TOKENS || usdc_rel_ok);
+    // A low liquidation threshold (0.45) reaches the band where the account is
+    // solvent (collateral > debt) yet HF < 1: tier selection prefers the healing
+    // base tier and the dust guard escalates sub-floor remainders. Liquidation
+    // must still match the exact-rational reference. `debt_ratio_bps` spans the
+    // whole solvent band above the threshold.
+    #[test]
+    fn prop_liquidation_low_threshold_matches_reference(
+        supply_usdc in 1_000u64..500_000u64,
+        borrow_eth_frac_bps in 5_000u16..9_000u16,
+        debt_ratio_bps in 5_000u16..8_600u16,
+        liq_repay_frac_bps in 500u16..10_000u16,
+    ) {
+        let t = LendingTest::new()
+            .standard_two_asset()
+            .with_market_config("USDC", |c| {
+                c.loan_to_value = 4_000;
+                c.liquidation_threshold = 4_500;
+            })
+            .build();
+        run_liquidation_differential(
+            t,
+            0.40,
+            supply_usdc,
+            borrow_eth_frac_bps,
+            debt_ratio_bps,
+            liq_repay_frac_bps,
+        )?;
     }
 }

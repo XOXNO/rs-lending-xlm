@@ -161,12 +161,10 @@ impl Governance {
             salt,
         };
         let operation_id = schedule_operation(&env, &operation, delay);
-        // A role holder must not be able to veto their own removal (a rogue
-        // canceller could otherwise freeze governance), but every other
-        // canceller must stay able to veto a malicious revocation. Record only
-        // the target account, checked per-canceller in `cancel`.
+        // Record the target and role so `cancel` can enforce the self-veto and
+        // CANCELLER-revocation veto-immunity guards.
         if let crate::op::AdminOperation::RevokeGovRole(args) = &op {
-            storage::mark_role_revocation_target(&env, &operation_id, &args.account);
+            storage::mark_role_revocation_target(&env, &operation_id, &args.account, &args.role);
         }
         operation_id
     }
@@ -282,13 +280,17 @@ impl Governance {
         renew_governance_instance(&env);
         canceller.require_auth();
         access_control::ensure_role(&env, &Symbol::new(&env, CANCELLER_ROLE), &canceller);
-        // A canceller may veto any pending operation except the revocation of
-        // their own role: self-vetoing would let a rogue canceller entrench
-        // itself and freeze governance. Other cancellers keep the veto.
-        if let Some(target) = storage::role_revocation_target(&env, &operation_id) {
+        // A role revocation cannot be vetoed by its own target, and a CANCELLER
+        // revocation cannot be vetoed by any canceller. The latter blocks
+        // colluding cancellers from cross-vetoing each other's removal and
+        // freezing governance; the owner ejects cancellers through the timelock.
+        // Other role revocations keep only the self-veto block, so cancellers
+        // can still veto a malicious revocation of another role.
+        if let Some((target, role)) = storage::role_revocation_target(&env, &operation_id) {
+            let revokes_canceller = role == Symbol::new(&env, CANCELLER_ROLE);
             assert_with_error!(
                 &env,
-                target != canceller,
+                !revokes_canceller && target != canceller,
                 GenericError::OperationNotCancellable
             );
         }

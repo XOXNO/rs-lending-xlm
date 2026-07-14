@@ -5,7 +5,7 @@ use common::constants::{
 };
 use common::errors::GenericError;
 
-use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
+use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env, Symbol};
 
 // ################## STORAGE KEYS ##################
 
@@ -13,9 +13,9 @@ use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
 #[derive(Clone, Debug)]
 enum GovernanceKey {
     Controller,
-    /// Scheduled role-revocation operation id -> the account whose own removal
-    /// it revokes. `cancel` blocks only that account from self-vetoing; every
-    /// other canceller can still veto the operation.
+    /// Scheduled role-revocation operation id -> `(target account, revoked
+    /// role)`. Read by `cancel` to enforce the self-veto and CANCELLER-revocation
+    /// veto-immunity guards.
     RoleRevocationTarget(BytesN<32>),
 }
 
@@ -27,13 +27,20 @@ pub(crate) fn renew_governance_instance(env: &Env) {
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
 }
 
-/// Records the target account of a scheduled role revocation so `cancel` can
-/// stop that account from vetoing its own removal. The 180-day bump outlives
-/// the timelock delay (≤14 days) and execution grace, so the record cannot
-/// archive out from under a still-pending operation.
-pub(crate) fn mark_role_revocation_target(env: &Env, operation_id: &BytesN<32>, account: &Address) {
+/// Records the target account and revoked role of a scheduled role revocation
+/// for the `cancel` guards. The 180-day bump outlives the timelock delay
+/// (≤14 days) and execution grace, so the record cannot archive out from under
+/// a still-pending operation.
+pub(crate) fn mark_role_revocation_target(
+    env: &Env,
+    operation_id: &BytesN<32>,
+    account: &Address,
+    role: &Symbol,
+) {
     let key = GovernanceKey::RoleRevocationTarget(operation_id.clone());
-    env.storage().persistent().set(&key, account);
+    env.storage()
+        .persistent()
+        .set(&key, &(account.clone(), role.clone()));
     env.storage()
         .persistent()
         .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
@@ -41,7 +48,10 @@ pub(crate) fn mark_role_revocation_target(env: &Env, operation_id: &BytesN<32>, 
 
 // ################## QUERY STATE ##################
 
-pub(crate) fn role_revocation_target(env: &Env, operation_id: &BytesN<32>) -> Option<Address> {
+pub(crate) fn role_revocation_target(
+    env: &Env,
+    operation_id: &BytesN<32>,
+) -> Option<(Address, Symbol)> {
     let key = GovernanceKey::RoleRevocationTarget(operation_id.clone());
     env.storage().persistent().get(&key).inspect(|_| {
         env.storage()

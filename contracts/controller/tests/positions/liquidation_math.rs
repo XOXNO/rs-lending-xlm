@@ -883,3 +883,118 @@ fn estimate_prefers_base_when_it_improves_hf_below_one() {
     assert_eq!(d.raw(), 70 * WAD);
     assert_eq!(bonus.raw(), 0);
 }
+
+// Liquidating a solvent low-threshold position must not strand avoidable bad
+// debt. Account: collateral $100 > debt $90, threshold 0.45 -> weighted $45,
+// HF 0.5. Primary and fallback tiers run at the ~122% max bonus and repay only
+// ~$45 while seizing ~100% of collateral, stranding ~$45 of bad debt. A base
+// (5%) full repayment heals within collateral, so the base tier must win.
+#[test]
+fn estimate_prefers_healing_base_tier_over_bad_debt_fallback() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+    let s = snap(90 * WAD, 100 * WAD, 45 * WAD, 45 * WAD / 100, WAD / 2);
+    assert!(
+        s.total_collateral > s.total_debt,
+        "precondition: the account is solvent"
+    );
+
+    // Bounds as the real flow derives them: base = the asset's stamped 5% bonus,
+    // max = max_bonus_for_threshold(0.45).
+    let max = max_bonus_for_threshold(&env, s.proportion_seized);
+    let bounds = BonusBounds {
+        base: Bps::from(500i128),
+        max,
+    };
+
+    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+
+    // Base tier chosen: the full debt repaid at the base (not max) bonus.
+    assert_eq!(d.raw(), s.total_debt.raw(), "must repay the full debt");
+    assert_eq!(
+        bonus.raw(),
+        bounds.base.raw(),
+        "must use the base bonus, not the max"
+    );
+
+    // Fully heals with zero stranded debt, seizing within collateral.
+    let post_hf = calculate_post_liquidation_hf(&env, &s, d, bonus);
+    assert_eq!(post_hf.raw(), i128::MAX, "account is fully healed");
+    let seizure = d.mul(&env, Wad::ONE + bonus.to_wad(&env));
+    assert!(
+        seizure <= s.total_collateral,
+        "base seizure fits within collateral -> no bad debt"
+    );
+}
+
+// A tier whose ideal repayment would strand a sub-floor ($5) debt remainder is
+// escalated to a full close. Underwater account (weighted $30 << debt $100): the
+// base tier cannot heal and is collateral-capped at $100/1.05 ≈ $95.24, leaving
+// ~$4.76 (< $5) of dust debt, so the estimate escalates to the full $100.
+#[test]
+fn estimate_escalates_sub_floor_debt_dust_to_full_close() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+    let s = snap(
+        100 * WAD,
+        100 * WAD,
+        30 * WAD,
+        30 * WAD / 100,
+        30 * WAD / 100,
+    );
+    let bounds = BonusBounds {
+        base: Bps::from(500i128),
+        max: max_bonus_for_threshold(&env, s.proportion_seized),
+    };
+
+    // Pre-guard the base tier would leave ~$4.76 of dust debt.
+    let base_d = s
+        .total_collateral
+        .div(&env, Wad::ONE + bounds.base.to_wad(&env))
+        .min(s.total_debt);
+    let dust = s.total_debt - base_d;
+    assert!(
+        dust.raw() > 0 && dust.raw() < BAD_DEBT_USD_THRESHOLD,
+        "setup: base tier must leave sub-floor dust, got {}",
+        dust.raw()
+    );
+
+    // The guard escalates to a full debt close.
+    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!(
+        d.raw(),
+        s.total_debt.raw(),
+        "dust debt escalated to full close"
+    );
+    assert_eq!(bonus.raw(), bounds.base.raw());
+}
+
+// The dust guard leaves an above-floor remainder untouched: same shape but
+// collateral $94.5 caps the base tier at $90, leaving $10 (> $5) — no escalation.
+#[test]
+fn estimate_leaves_above_floor_debt_remainder_unescalated() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+    let s = snap(
+        100 * WAD,
+        945 * WAD / 10,
+        2_835 * WAD / 100,
+        30 * WAD / 100,
+        2_835 * WAD / 10_000,
+    );
+    let bounds = BonusBounds {
+        base: Bps::from(500i128),
+        max: max_bonus_for_threshold(&env, s.proportion_seized),
+    };
+
+    let (d, _bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!(
+        d.raw(),
+        90 * WAD,
+        "above-floor remainder must not be escalated"
+    );
+    assert!(s.total_debt - d >= Wad::from(BAD_DEBT_USD_THRESHOLD));
+}

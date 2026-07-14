@@ -254,7 +254,7 @@ fn revocation_target_cannot_cancel_own_role_revocation() {
 }
 
 #[test]
-fn independent_canceller_can_cancel_role_revocation() {
+fn independent_canceller_can_cancel_non_canceller_role_revocation() {
     let env = Env::default();
     env.mock_all_auths();
     let delay = 10u32;
@@ -272,7 +272,46 @@ fn independent_canceller_can_cancel_role_revocation() {
     gov.execute_self(&Some(admin.clone()), &grant, &grant_salt);
     assert!(gov.has_role(&honest_canceller, &Symbol::new(&env, CANCELLER_ROLE)));
 
-    // A malicious proposal revoking the admin's CANCELLER role...
+    // A revocation of a NON-canceller role stays vetoable by an independent
+    // canceller: the cross-veto protection is preserved for other roles.
+    let revoke_salt = BytesN::<32>::from_array(&env, &[2u8; 32]);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::RevokeGovRole(RoleArgs {
+            account: admin.clone(),
+            role: Symbol::new(&env, PROPOSER_ROLE),
+        }),
+        &revoke_salt,
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+
+    gov.cancel(&honest_canceller, &id);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+}
+
+// A CANCELLER-role revocation is veto-immune: no canceller may cancel it, so
+// colluding cancellers cannot cross-veto each other's removal and freeze
+// governance. Here a canceller tries (and fails) to shield another from removal.
+#[test]
+#[should_panic(expected = "Error(Contract, #46)")]
+fn canceller_role_revocation_is_veto_immune() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let colluder = Address::generate(&env);
+
+    // Grant a second, colluding CANCELLER.
+    let grant_salt = BytesN::<32>::from_array(&env, &[1u8; 32]);
+    let grant = AdminOperation::GrantGovRole(RoleArgs {
+        account: colluder.clone(),
+        role: Symbol::new(&env, CANCELLER_ROLE),
+    });
+    gov.propose(&admin, &grant, &grant_salt);
+    env.ledger().with_mut(|l| l.sequence_number += delay);
+    gov.execute_self(&Some(admin.clone()), &grant, &grant_salt);
+
+    // The owner moves to revoke the admin's own CANCELLER role...
     let revoke_salt = BytesN::<32>::from_array(&env, &[2u8; 32]);
     let id = gov.propose(
         &admin,
@@ -284,9 +323,8 @@ fn independent_canceller_can_cancel_role_revocation() {
     );
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 
-    // ...is still vetoable by an independent canceller.
-    gov.cancel(&honest_canceller, &id);
-    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+    // ...and the colluding canceller cannot veto it: OperationNotCancellable.
+    gov.cancel(&colluder, &id);
 }
 
 #[test]

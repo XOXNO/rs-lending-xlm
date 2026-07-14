@@ -497,8 +497,30 @@ fn base_tier(env: &Env, snap: &LiquidationSnapshot, bounds: BonusBounds) -> Base
     }
 }
 
-/// Estimates liquidation amount and bonus tier.
+/// Estimates the ideal liquidation repayment and bonus, then applies the
+/// dust-leftover guard.
 pub(crate) fn estimate_liquidation_amount(
+    env: &Env,
+    snap: &LiquidationSnapshot,
+    bounds: BonusBounds,
+    curve: &LiquidationCurve,
+) -> (Wad, Bps) {
+    let (ideal, bonus) = select_liquidation_tier(env, snap, bounds, curve);
+
+    // Escalate a sub-floor debt remainder to a full close: the position keeps
+    // either zero debt or an amount above the socialization floor, never
+    // un-liquidatable dust. Tiers cap `ideal` at `total_debt`, so the remainder
+    // is non-negative.
+    let remaining_debt = snap.total_debt - ideal;
+    if remaining_debt > Wad::ZERO && remaining_debt < Wad::from(BAD_DEBT_USD_THRESHOLD) {
+        return (snap.total_debt, bonus);
+    }
+
+    (ideal, bonus)
+}
+
+/// Selects the liquidation tier (repayment amount + bonus) before the dust guard.
+fn select_liquidation_tier(
     env: &Env,
     snap: &LiquidationSnapshot,
     bounds: BonusBounds,
@@ -508,10 +530,19 @@ pub(crate) fn estimate_liquidation_amount(
         return result;
     }
 
-    // Evaluate fallback first; base can override only through the HF guard below.
+    // Evaluate fallback first; base can override only through the guards below.
     let fallback = fallback_tier(env, snap, bounds, curve);
     let base = base_tier(env, snap, bounds);
 
+    // A base-bonus repayment that restores health to the curve target seizes the
+    // least collateral and strands no bad debt; prefer it over the fallback tier,
+    // which at a low liquidation threshold can seize nearly all collateral for a
+    // partial repayment and strand bad debt on a still-solvent position.
+    if base.new_hf >= curve.target_hf {
+        return base.candidate;
+    }
+
+    // Base tier still wins when it improves an otherwise unrecoverable position.
     if base.new_hf < Wad::ONE && base.new_hf < snap.hf {
         return base.candidate;
     }

@@ -357,9 +357,8 @@ fn calculate_post_liquidation_hf(
     new_weighted * wad_scale() / new_debt
 }
 
-/// Mirror of `estimate_liquidation_amount`.
-/// Returns (ideal_repayment_wad, bonus_bps).
-fn estimate_liquidation_amount(
+/// Mirror of `select_liquidation_tier`: picks the tier before the dust guard.
+fn select_liquidation_tier(
     total_debt_wad: &BigRational,
     weighted_coll_wad: &BigRational,
     hf_wad: &BigRational,
@@ -423,6 +422,14 @@ fn estimate_liquidation_amount(
         proportion_seized,
         base_bonus_bps,
     );
+
+    // Prefer the base tier when a base-bonus repayment heals the account to at
+    // least the primary target HF (zero avoidable bad debt).
+    if base_new_hf >= target_primary {
+        return (d_max, base_bonus_bps.clone());
+    }
+
+    // Base tier still wins when it improves an otherwise unrecoverable position.
     if base_new_hf < wad_scale() && base_new_hf < *hf_wad {
         return (d_max, base_bonus_bps.clone());
     }
@@ -431,6 +438,38 @@ fn estimate_liquidation_amount(
         Some(d) => (d, bonus_fallback),
         None => (d_max, base_bonus_bps.clone()),
     }
+}
+
+/// Mirror of `estimate_liquidation_amount`: tier selection + dust-leftover guard.
+/// Returns (ideal_repayment_wad, bonus_bps).
+fn estimate_liquidation_amount(
+    total_debt_wad: &BigRational,
+    weighted_coll_wad: &BigRational,
+    hf_wad: &BigRational,
+    base_bonus_bps: &BigRational,
+    max_bonus_bps: &BigRational,
+    proportion_seized: &BigRational,
+    total_collateral_wad: &BigRational,
+) -> (BigRational, BigRational) {
+    let (ideal, bonus) = select_liquidation_tier(
+        total_debt_wad,
+        weighted_coll_wad,
+        hf_wad,
+        base_bonus_bps,
+        max_bonus_bps,
+        proportion_seized,
+        total_collateral_wad,
+    );
+
+    // Dust-leftover guard: escalate a sub-floor debt remainder to a full close.
+    // Mirrors BAD_DEBT_USD_THRESHOLD = 5 * WAD.
+    let remaining = total_debt_wad - &ideal;
+    let floor = &wad_scale() * BigRational::from_integer(BigInt::from(5));
+    if remaining > br_zero() && remaining < floor {
+        return (total_debt_wad.clone(), bonus);
+    }
+
+    (ideal, bonus)
 }
 // Public API
 
