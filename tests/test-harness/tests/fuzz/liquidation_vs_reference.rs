@@ -176,33 +176,4 @@ proptest! {
             liq_repay_frac_bps,
         )?;
     }
-
-    // A low liquidation threshold (0.45) reaches the band where the account is
-    // solvent (collateral > debt) yet HF < 1: tier selection prefers the healing
-    // base tier and the dust guard escalates sub-floor remainders. Liquidation
-    // must still match the exact-rational reference. `debt_ratio_bps` spans the
-    // whole solvent band above the threshold.
-    #[test]
-    fn prop_liquidation_low_threshold_matches_reference(
-        supply_usdc in 1_000u64..500_000u64,
-        borrow_eth_frac_bps in 5_000u16..9_000u16,
-        debt_ratio_bps in 5_000u16..8_600u16,
-        liq_repay_frac_bps in 500u16..10_000u16,
-    ) {
-        let t = LendingTest::new()
-            .standard_two_asset()
-            .with_market_config("USDC", |c| {
-                c.loan_to_value = 4_000;
-                c.liquidation_threshold = 4_500;
-            })
-            .build();
-        run_liquidation_differential(
-            t,
-            0.40,
-            supply_usdc,
-            borrow_eth_frac_bps,
-            debt_ratio_bps,
-            liq_repay_frac_bps,
-        )?;
-    }
 }

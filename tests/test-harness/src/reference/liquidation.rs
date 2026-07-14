@@ -423,13 +423,7 @@ fn select_liquidation_tier(
         base_bonus_bps,
     );
 
-    // Prefer the base tier when a base-bonus repayment heals the account to at
-    // least the primary target HF (zero avoidable bad debt).
-    if base_new_hf >= target_primary {
-        return (d_max, base_bonus_bps.clone());
-    }
-
-    // Base tier still wins when it improves an otherwise unrecoverable position.
+    // Base tier is pinned only on the unrecoverable path (HF would drop).
     if base_new_hf < wad_scale() && base_new_hf < *hf_wad {
         return (d_max, base_bonus_bps.clone());
     }

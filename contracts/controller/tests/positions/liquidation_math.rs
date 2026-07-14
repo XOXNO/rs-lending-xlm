@@ -884,24 +884,18 @@ fn estimate_prefers_base_when_it_improves_hf_below_one() {
     assert_eq!(bonus.raw(), 0);
 }
 
-// Liquidating a solvent low-threshold position must not strand avoidable bad
-// debt. Account: collateral $100 > debt $90, threshold 0.45 -> weighted $45,
-// HF 0.5. Primary and fallback tiers run at the ~122% max bonus and repay only
-// ~$45 while seizing ~100% of collateral, stranding ~$45 of bad debt. A base
-// (5%) full repayment heals within collateral, so the base tier must win.
+// A solvent low-threshold position (collateral $100 > debt $90, threshold 0.45 ->
+// weighted $45, HF 0.5) takes the fallback tier at the max bonus: it repays a
+// partial amount and seizes ~all collateral, stranding bad debt that is later
+// socialized. This is an accepted residual (Aave V4 accepts the same). The base
+// tier stays reserved for the HF-decreasing path, so a recovering position never
+// takes it -- which keeps partial liquidations from out-seizing a single one.
 #[test]
-fn estimate_prefers_healing_base_tier_over_bad_debt_fallback() {
+fn estimate_solvent_low_threshold_takes_fallback_tier() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
 
     let s = snap(90 * WAD, 100 * WAD, 45 * WAD, 45 * WAD / 100, WAD / 2);
-    assert!(
-        s.total_collateral > s.total_debt,
-        "precondition: the account is solvent"
-    );
-
-    // Bounds as the real flow derives them: base = the asset's stamped 5% bonus,
-    // max = max_bonus_for_threshold(0.45).
     let max = max_bonus_for_threshold(&env, s.proportion_seized);
     let bounds = BonusBounds {
         base: Bps::from(500i128),
@@ -909,23 +903,8 @@ fn estimate_prefers_healing_base_tier_over_bad_debt_fallback() {
     };
 
     let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-
-    // Base tier chosen: the full debt repaid at the base (not max) bonus.
-    assert_eq!(d.raw(), s.total_debt.raw(), "must repay the full debt");
-    assert_eq!(
-        bonus.raw(),
-        bounds.base.raw(),
-        "must use the base bonus, not the max"
-    );
-
-    // Fully heals with zero stranded debt, seizing within collateral.
-    let post_hf = calculate_post_liquidation_hf(&env, &s, d, bonus);
-    assert_eq!(post_hf.raw(), i128::MAX, "account is fully healed");
-    let seizure = d.mul(&env, Wad::ONE + bonus.to_wad(&env));
-    assert!(
-        seizure <= s.total_collateral,
-        "base seizure fits within collateral -> no bad debt"
-    );
+    assert_eq!(bonus.raw(), max.raw(), "recovering position takes the max bonus");
+    assert!(d < s.total_debt, "partial repayment, not a base-bonus full close");
 }
 
 // A tier whose ideal repayment would strand a sub-floor ($5) debt remainder is

@@ -530,19 +530,14 @@ fn select_liquidation_tier(
         return result;
     }
 
-    // Evaluate fallback first; base can override only through the guards below.
+    // Evaluate fallback first; base can override only through the guard below.
     let fallback = fallback_tier(env, snap, bounds, curve);
     let base = base_tier(env, snap, bounds);
 
-    // A base-bonus repayment that restores health to the curve target seizes the
-    // least collateral and strands no bad debt; prefer it over the fallback tier,
-    // which at a low liquidation threshold can seize nearly all collateral for a
-    // partial repayment and strand bad debt on a still-solvent position.
-    if base.new_hf >= curve.target_hf {
-        return base.candidate;
-    }
-
-    // Base tier still wins when it improves an otherwise unrecoverable position.
+    // The base tier is pinned only on the unrecoverable path, where a base-bonus
+    // seizure would lower HF rather than restore it. Using the minimum bonus
+    // there keeps a chain of partial liquidations from out-seizing a single one;
+    // recovering positions always take the HF-scaled curve bonus above.
     if base.new_hf < Wad::ONE && base.new_hf < snap.hf {
         return base.candidate;
     }
