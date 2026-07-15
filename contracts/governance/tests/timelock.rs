@@ -327,6 +327,59 @@ fn canceller_role_revocation_is_veto_immune() {
     gov.cancel(&colluder, &id);
 }
 
+// Revoking the SOLE PROPOSER reverts (#48): it is the only gate on `propose`, so
+// zeroing it would leave no way to schedule any recovery — a permanent freeze.
+#[test]
+#[should_panic(expected = "Error(Contract, #48)")]
+fn revoking_last_proposer_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+
+    let salt = BytesN::<32>::from_array(&env, &[7u8; 32]);
+    let revoke = AdminOperation::RevokeGovRole(RoleArgs {
+        account: admin.clone(),
+        role: Symbol::new(&env, PROPOSER_ROLE),
+    });
+    gov.propose(&admin, &revoke, &salt);
+    env.ledger().with_mut(|l| l.sequence_number += delay);
+    // Reverts at execute-time in apply_revoke_role (last-holder guard).
+    gov.execute_self(&Some(admin.clone()), &revoke, &salt);
+}
+
+// Revoking a PROPOSER is allowed once a second PROPOSER exists.
+#[test]
+fn revoking_proposer_ok_when_another_remains() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let second = Address::generate(&env);
+    let proposer = Symbol::new(&env, PROPOSER_ROLE);
+
+    let g_salt = BytesN::<32>::from_array(&env, &[1u8; 32]);
+    let grant = AdminOperation::GrantGovRole(RoleArgs {
+        account: second.clone(),
+        role: proposer.clone(),
+    });
+    gov.propose(&admin, &grant, &g_salt);
+    env.ledger().with_mut(|l| l.sequence_number += delay);
+    gov.execute_self(&Some(admin.clone()), &grant, &g_salt);
+    assert!(gov.has_role(&second, &proposer));
+
+    let r_salt = BytesN::<32>::from_array(&env, &[2u8; 32]);
+    let revoke = AdminOperation::RevokeGovRole(RoleArgs {
+        account: admin.clone(),
+        role: proposer.clone(),
+    });
+    gov.propose(&admin, &revoke, &r_salt);
+    env.ledger().with_mut(|l| l.sequence_number += delay);
+    gov.execute_self(&Some(admin.clone()), &revoke, &r_salt);
+    assert!(!gov.has_role(&admin, &proposer));
+    assert!(gov.has_role(&second, &proposer));
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #2000)")]
 fn non_proposer_cannot_propose() {

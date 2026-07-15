@@ -149,6 +149,16 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
         access_control::has_role(env, account, role).is_some(),
         GenericError::InvalidRole
     );
+    // Never remove the last PROPOSER: it is the sole gate on `propose`, and every
+    // recovery path (grant role, upgrade, ownership transfer) must be scheduled
+    // through it, so zeroing it would permanently freeze governance.
+    if *role == Symbol::new(env, PROPOSER_ROLE) {
+        assert_with_error!(
+            env,
+            access_control::get_role_member_count(env, role) > 1,
+            GenericError::CannotRemoveLastProposer
+        );
+    }
     let owner = owner_or_panic(env);
     access_control::revoke_role_no_auth(env, account, role, &owner);
 }

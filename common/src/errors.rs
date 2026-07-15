@@ -89,6 +89,11 @@ pub enum GenericError {
     /// the current borrow index; accepting it would transfer real tokens out
     /// while recording no debt.
     BorrowRoundsToZeroShares = 47,
+    /// Revoking this role would remove the last PROPOSER. PROPOSER is the sole
+    /// gate on `propose`, and every recovery path (grant role, upgrade,
+    /// ownership transfer) must be scheduled through it, so zeroing it would
+    /// permanently freeze governance.
+    CannotRemoveLastProposer = 48,
 }
 
 #[contracterror]
