@@ -823,6 +823,139 @@ fn estimate_leaves_above_floor_debt_remainder_unescalated() {
     );
 }
 
+// A mildly-unhealthy position restores HF to target with a partial repayment
+// bounded by the interpolation, not the collateral cap. Pins the exact ideal
+// against an independent reference so a broken denom guard or numerator sign
+// (which would return `None` -> the collateral fallback, or invert the sign)
+// is caught.
+#[test]
+fn estimate_target_reachable_returns_interpolated_partial() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+    // Zero bonus keeps `1 + bonus == 1`, so `d_max == total_collateral` and the
+    // interpolation is the binding constraint (collateral $200 >> repayment).
+    let s = snap(100 * WAD, 200 * WAD, 95 * WAD, 475 * WAD / 1000, 95 * WAD / 100);
+    let bounds = BonusBounds {
+        base: Bps::from(0i128),
+        max: Bps::from(0i128),
+    };
+
+    let (d, _bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+
+    // Independent reference: with zero bonus the restore-to-target root is
+    // `(target*D - W) / (target - p)`, clamped by collateral and total debt.
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    let target_debt = target.mul(&env, s.total_debt);
+    let numerator = target_debt - s.weighted_coll;
+    let denominator = target - s.proportion_seized;
+    let expected = numerator
+        .div(&env, denominator)
+        .min(s.total_collateral)
+        .min(s.total_debt);
+
+    assert!(d < s.total_debt, "target-reachable partial, not a full close");
+    assert_eq!(d.raw(), expected.raw());
+}
+
+// When collateral already covers the target debt (`target_debt <= weighted`),
+// the estimate returns the collateral-capped maximum, not an interpolation
+// over a non-positive numerator. At the exact `target_debt == weighted`
+// boundary the `<=` admits the collateral-cover branch.
+#[test]
+fn estimate_collateral_covers_target_returns_collateral_cap() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+    // target_hf * D = 1.02 * 100 = 102 == weighted_coll, the branch boundary.
+    let s = snap(100 * WAD, 120 * WAD, 102 * WAD, 85 * WAD / 100, 102 * WAD / 100);
+    let bounds = BonusBounds {
+        base: Bps::from(0i128),
+        max: Bps::from(0i128),
+    };
+
+    let (d, _bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    // d_max = collateral / 1 = 120, capped at total debt 100.
+    assert_eq!(d.raw(), s.total_debt.raw());
+}
+
+// The fallback (target unreachable because the bonus makes the seizure too
+// large) closes `collateral / (1 + bonus)`. A flat 50% bonus with a high
+// collateral-mix proportion forces `proportion*(1+bonus) >= target`, so the
+// closed-form returns `None` and the fallback binds.
+#[test]
+fn estimate_fallback_divides_collateral_by_one_plus_bonus() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+    // base == max pins the bonus at exactly 50% regardless of HF.
+    let s = snap(150 * WAD, 150 * WAD, 50 * WAD, 7 * WAD / 10, WAD / 2);
+    let bounds = BonusBounds {
+        base: Bps::from(5_000i128),
+        max: Bps::from(5_000i128),
+    };
+
+    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!(bonus.raw(), 5_000);
+    // 150 / (1 + 0.5) = 100; a `-` in place of `+` would give 150 / 0.5 = 300,
+    // clamped to the $150 debt.
+    assert_eq!(d.raw(), 100 * WAD);
+}
+
+// The dust guard escalates a sub-floor remainder but leaves an *exactly* $5
+// remainder alone (`remaining < $5`, strict). The collateral cap is set so the
+// natural ideal leaves precisely `BAD_DEBT_USD_THRESHOLD` of debt; a `<=`
+// would wrongly escalate this to a full close.
+#[test]
+fn estimate_leaves_exactly_five_dollar_remainder_unescalated() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+    // Zero bonus -> d_max = collateral = $95, and the interpolation root
+    // (~$100.5) exceeds it, so ideal = $95 and remaining = $100 - $95 = $5.
+    let s = snap(100 * WAD, 95 * WAD, 95 * WAD / 10, WAD / 10, 95 * WAD / 1000);
+    let bounds = BonusBounds {
+        base: Bps::from(0i128),
+        max: Bps::from(0i128),
+    };
+
+    let (d, _bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!(
+        d.raw(),
+        s.total_debt.raw() - BAD_DEBT_USD_THRESHOLD,
+        "an exactly-$5 remainder is left as a partial, not escalated"
+    );
+}
+
+// `get_account_bonus_params` sums each supply leg's USD value into
+// `total_collateral` and weights the per-leg bonus by its share. A single
+// $1000 leg at 500 bps yields base == 500 (weight 1.0); the collateral
+// accumulator must add (not subtract) and the zero-collateral early return
+// must fire on equality only.
+#[test]
+fn account_bonus_params_accumulates_collateral_and_weights_bonus() {
+    let env = Env::default();
+    let (contract, hub_asset, account, config) = seize_fixture(&env, 0);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        // 0.5 collateral-mix proportion -> max bonus 10000 bps, so base is not
+        // clamped below the leg's 500 bps.
+        let bounds = get_account_bonus_params(
+            &env,
+            &mut cache,
+            account.spoke_id,
+            &account.supply_positions,
+            Wad::from(WAD / 2),
+        );
+
+        assert_eq!(bounds.max.raw(), 10_000);
+        assert_eq!(bounds.base.raw(), 500);
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Bonus + seizure invariants
 // ---------------------------------------------------------------------------

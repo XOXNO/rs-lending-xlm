@@ -82,6 +82,18 @@ exclude_re = [
     # therefore cannot change any output.
     "replace > with >= in normalize_repayment_plan",
 
+    # `estimate_liquidation_amount` dust-guard lower bound (`remaining_debt >
+    # ZERO`): `remaining_debt = total_debt - ideal`, and `ideal` is capped at
+    # `total_debt` on every path (`try_liquidation_at_target` returns
+    # `.min(total_debt)`, the fallback closes with `.min(total_debt)`), so
+    # `remaining_debt >= 0` always. At the only differing input
+    # `remaining_debt == 0` we have `ideal == total_debt`, so the escalation
+    # returns `(total_debt, bonus)` — byte-identical to the non-escalated
+    # `(ideal, bonus)`. `>` vs `>=` is therefore unobservable. The sibling
+    # `< $5` upper bound at the same guard IS killable (differs at exactly a
+    # $5 remainder) and stays mutated.
+    "replace > with >= in estimate_liquidation_amount",
+
     # `prefetch_market_indexes` dedup skip (`cached || seen`): weakening the
     # skip only re-requests indexes that are already cached or duplicated in
     # the batch. The pool returns identical values within the same
