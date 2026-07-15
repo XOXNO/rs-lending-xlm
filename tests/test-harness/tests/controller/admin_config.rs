@@ -345,6 +345,49 @@ fn test_set_oracle_tolerance_rejects_unknown_asset() {
     // asset has none, so it reverts PairNotActive in the spoke model.
     assert_contract_error(mapped, errors::PAIR_NOT_ACTIVE);
 }
+
+// A direct setter call with a degenerate/inverted tolerance band is rejected by
+// the controller re-validation (a band that reverts every read can't be stored).
+#[test]
+fn test_set_oracle_tolerance_rejects_degenerate_band() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+
+    // upper below BPS + MIN_TOLERANCE and lower > upper: out of envelope, inverted.
+    let bad = OraclePriceFluctuation {
+        upper_ratio_bps: 9_000,
+        lower_ratio_bps: 11_000,
+    };
+    let result = t.ctrl_client().try_set_oracle_tolerance(&asset, &bad);
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::BAD_LAST_TOLERANCE);
+}
+
+// Reconfiguring an ACTIVE market's oracle to a sanity band that excludes the live
+// price is rejected by the containment probe, so a reconfig can't brick reads
+// (borrow/withdraw/liquidation) for positions in that asset.
+#[test]
+fn test_set_market_oracle_config_reconfig_rejects_out_of_band_price() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+
+    let mut cfg = resolved_reflector_primary_anchor_config(&t.mock_reflector, &asset);
+    // USDC lives at ~$1 (WAD); this band [$2, $3] excludes it.
+    cfg.min_sanity_price_wad = 2 * controller::constants::WAD;
+    cfg.max_sanity_price_wad = 3 * controller::constants::WAD;
+
+    let result = t
+        .ctrl_client()
+        .try_set_market_oracle_config(&hub_asset(asset.clone()), &cfg);
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::SANITY_BOUND_VIOLATED);
+}
 // 10. test_permissionless_keeper_ops
 
 #[test]

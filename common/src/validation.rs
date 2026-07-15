@@ -4,12 +4,13 @@
 //! identical error codes for the same malformed input.
 
 use crate::constants::{
-    BPS, MAX_LIQUIDATION_TARGET_HF_WAD, MAX_REASONABLE_PRICE_WAD, RAY_DECIMALS, WAD,
+    BPS, MAX_LIQUIDATION_TARGET_HF_WAD, MAX_REASONABLE_PRICE_WAD, MAX_TOLERANCE, MIN_TOLERANCE,
+    RAY_DECIMALS, WAD,
 };
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use crate::math::fp_core::mul_div_ceil;
 use crate::oracle::observation::MAX_SINGLE_SOURCE_SANITY_BAND_BPS;
-use crate::types::OracleStrategy;
+use crate::types::{OraclePriceFluctuation, OracleStrategy};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Executable};
 
 /// Requires a strictly positive amount.
@@ -146,6 +147,28 @@ pub fn validate_liquidation_curve(
         env,
         i128::from(bonus_factor_bps) <= BPS,
         CollateralError::InvalidLiquidationCurve
+    );
+}
+
+/// Validates a stored oracle price-fluctuation band. The propose path builds the
+/// band from a tolerance in `[MIN_TOLERANCE, MAX_TOLERANCE]` as
+/// `upper = BPS + tolerance`, `lower = BPS^2 / upper`, so a valid band brackets
+/// par (`lower <= BPS <= upper`) within that envelope. Re-checking it at the
+/// controller setter keeps a direct call from storing a degenerate/inverted band
+/// that would revert every read.
+///
+/// # Errors
+/// * [`OracleError::BadLastTolerance`] - the band is outside the envelope or does
+///   not bracket par.
+pub fn validate_oracle_tolerance(env: &Env, tolerance: &OraclePriceFluctuation) {
+    let bps = BPS as u32;
+    assert_with_error!(
+        env,
+        tolerance.upper_ratio_bps >= bps + MIN_TOLERANCE
+            && tolerance.upper_ratio_bps <= bps + MAX_TOLERANCE
+            && tolerance.lower_ratio_bps > 0
+            && tolerance.lower_ratio_bps <= bps,
+        OracleError::BadLastTolerance
     );
 }
 
