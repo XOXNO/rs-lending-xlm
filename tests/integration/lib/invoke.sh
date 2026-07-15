@@ -17,7 +17,7 @@
 # unconditionally safe: `inv` resolves it against the ledger via `tx_status`
 # before resubmitting so a landed tx is never double-applied.
 # Shared by the inv / xfail / trustline retry loops.
-RPC_TRANSIENT_RE='rejected .?50[0-9]|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq'
+RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transport\(Rejected|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq'
 
 # A just-deployed contract can lag the RPC read replica the next invoke
 # simulates against: the instance entry reads as missing ("Contract not found"
