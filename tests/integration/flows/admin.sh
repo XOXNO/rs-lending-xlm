@@ -157,12 +157,21 @@ inv blend_pool_revoke "$ADMIN" "$CONTROLLER" -- revoke_blend_pool --pool "$blend
 view blend_pool_false "$CONTROLLER" -- is_blend_pool_approved --pool "$blend_pool" >/dev/null
 inv blend_pool_reapprove "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
 if [ "${BLEND_MIGRATION_LIVE:-0}" = "1" ]; then
+# XLM-only live migration: seed ALICE with a real XLM collateral position in
+# Blend (RequestType 2 = SupplyCollateral), then migrate it into the controller.
+# Overridable via BLEND_MIGRATE_*_JSON / BLEND_XLM_AMOUNT for other asset mixes.
+inv blend_seed_xlm_collateral "$ALICE" "$blend_pool" -- submit \
+--from "$ALICE_ADDR" --spender "$ALICE_ADDR" --to "$ALICE_ADDR" \
+--requests "[{\"request_type\":2,\"address\":\"$XLM_SAC\",\"amount\":\"${BLEND_XLM_AMOUNT:-1000000000}\"}]" >/dev/null
+view blend_position_seeded "$blend_pool" -- get_positions --address "$ALICE_ADDR" >/dev/null
 inv migrate_blend_live "$ALICE" "$CONTROLLER" -- migrate_from_blend \
 --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" --hub_id "$PRIMARY_HUB_ID" \
 --blend_pool "$blend_pool" \
---collateral_assets "${BLEND_MIGRATE_COLLATERAL_ASSETS_JSON:-[]}" \
+--collateral_assets "${BLEND_MIGRATE_COLLATERAL_ASSETS_JSON:-[\"$XLM_SAC\"]}" \
 --supply_assets "${BLEND_MIGRATE_SUPPLY_ASSETS_JSON:-[]}" \
 --debt_caps "${BLEND_MIGRATE_DEBT_CAPS_JSON:-[]}" >/dev/null
+# Blend collateral must now be swept empty (moved into the controller).
+view blend_position_swept "$blend_pool" -- get_positions --address "$ALICE_ADDR" >/dev/null
 else
 record migrate_blend_live environment-blocked migrate_from_blend "" "" "" "" "" "set BLEND_MIGRATION_LIVE=1 with real Blend position assets"
 fi
