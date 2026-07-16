@@ -19,8 +19,9 @@ use tracing::info;
 const MARKET_LABELS: &[&str] = &["network", "hub_id", "hub", "asset", "symbol"];
 /// Oracle-scoped labels: identify one asset's price feed.
 const ORACLE_LABELS: &[&str] = &["network", "asset", "symbol"];
-/// Spoke-asset-scoped labels. `spoke` is the display name; `spoke_id` the key.
-const SPOKE_ASSET_LABELS: &[&str] = &["network", "spoke_id", "spoke", "hub_id", "asset", "symbol"];
+/// Spoke-asset-scoped labels. `spoke`/`hub` are display names; the `*_id`s are
+/// the stable numeric keys.
+const SPOKE_ASSET_LABELS: &[&str] = &["network", "spoke_id", "spoke", "hub_id", "hub", "asset", "symbol"];
 
 pub struct Metrics {
     pub registry: Registry,
