@@ -3,7 +3,8 @@
 # ------------------------------------------------------------------------
 # Build stage
 # ------------------------------------------------------------------------
-FROM rust:1.84-bookworm AS builder
+# Latest stable Rust: the Soroban stack (stellar-rpc-client 26) needs >= 1.93.
+FROM rust:1-bookworm AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -12,13 +13,14 @@ RUN apt-get update \
 
 WORKDIR /build
 
-COPY Cargo.toml ./
+# Copy the lockfile so the build uses the pinned, tested dependency versions.
+COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY config ./config
 
 RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
     --mount=type=cache,target=/build/target,sharing=locked \
-    cargo build --release --bin lending-exporter \
+    cargo build --release --locked --bin lending-exporter \
     && cp target/release/lending-exporter /lending-exporter
 
 # ------------------------------------------------------------------------
