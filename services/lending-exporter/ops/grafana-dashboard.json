@@ -991,7 +991,7 @@
           },
           "gridPos": {
             "h": 4,
-            "w": 6,
+            "w": 8,
             "x": 0,
             "y": 45
           },
@@ -1020,7 +1020,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"Stablecoins\"})"
+              "expr": "sum(lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"Stablecoins\"})",
+              "instant": true
             }
           ]
         },
@@ -1034,8 +1035,8 @@
           },
           "gridPos": {
             "h": 4,
-            "w": 6,
-            "x": 6,
+            "w": 8,
+            "x": 8,
             "y": 45
           },
           "options": {
@@ -1063,7 +1064,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"Stablecoins\"})"
+              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"Stablecoins\"})",
+              "instant": true
             }
           ]
         },
@@ -1077,8 +1079,8 @@
           },
           "gridPos": {
             "h": 4,
-            "w": 6,
-            "x": 12,
+            "w": 8,
+            "x": 16,
             "y": 45
           },
           "options": {
@@ -1113,6 +1115,124 @@
         },
         {
           "id": 64,
+          "type": "timeseries",
+          "title": "Borrow cap utilization",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 49
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.9
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.95
+                  }
+                ]
+              },
+              "custom": {
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                },
+                "fillOpacity": 8,
+                "showPoints": "never"
+              }
+            }
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"Stablecoins\"}",
+              "legendFormat": "{{symbol}} · h{{hub_id}}"
+            }
+          ]
+        },
+        {
+          "id": 65,
+          "type": "timeseries",
+          "title": "Supply cap utilization",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 49
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.9
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.95
+                  }
+                ]
+              },
+              "custom": {
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                },
+                "fillOpacity": 8,
+                "showPoints": "never"
+              }
+            }
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"Stablecoins\"}",
+              "legendFormat": "{{symbol}} · h{{hub_id}}"
+            }
+          ]
+        },
+        {
+          "id": 66,
           "type": "table",
           "title": "Listed assets",
           "datasource": {
@@ -1123,7 +1243,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 49
+            "y": 57
           },
           "options": {
             "showHeader": true,
@@ -1356,9 +1476,9 @@
           },
           "gridPos": {
             "h": 4,
-            "w": 6,
+            "w": 8,
             "x": 0,
-            "y": 45
+            "y": 46
           },
           "options": {
             "colorMode": "none",
@@ -1385,7 +1505,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"XLM + USDC\"})"
+              "expr": "sum(lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"XLM + USDC\"})",
+              "instant": true
             }
           ]
         },
@@ -1399,9 +1520,9 @@
           },
           "gridPos": {
             "h": 4,
-            "w": 6,
-            "x": 6,
-            "y": 45
+            "w": 8,
+            "x": 8,
+            "y": 46
           },
           "options": {
             "colorMode": "none",
@@ -1428,7 +1549,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"XLM + USDC\"})"
+              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"XLM + USDC\"})",
+              "instant": true
             }
           ]
         },
@@ -1442,9 +1564,9 @@
           },
           "gridPos": {
             "h": 4,
-            "w": 6,
-            "x": 12,
-            "y": 45
+            "w": 8,
+            "x": 16,
+            "y": 46
           },
           "options": {
             "colorMode": "none",
@@ -1478,6 +1600,124 @@
         },
         {
           "id": 74,
+          "type": "timeseries",
+          "title": "Borrow cap utilization",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 50
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.9
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.95
+                  }
+                ]
+              },
+              "custom": {
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                },
+                "fillOpacity": 8,
+                "showPoints": "never"
+              }
+            }
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "legendFormat": "{{symbol}} · h{{hub_id}}"
+            }
+          ]
+        },
+        {
+          "id": 75,
+          "type": "timeseries",
+          "title": "Supply cap utilization",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 50
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.9
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.95
+                  }
+                ]
+              },
+              "custom": {
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                },
+                "fillOpacity": 8,
+                "showPoints": "never"
+              }
+            }
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "legendFormat": "{{symbol}} · h{{hub_id}}"
+            }
+          ]
+        },
+        {
+          "id": 76,
           "type": "table",
           "title": "Listed assets",
           "datasource": {
@@ -1488,7 +1728,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 49
+            "y": 58
           },
           "options": {
             "showHeader": true,
@@ -1721,9 +1961,9 @@
           },
           "gridPos": {
             "h": 4,
-            "w": 6,
+            "w": 8,
             "x": 0,
-            "y": 45
+            "y": 47
           },
           "options": {
             "colorMode": "none",
@@ -1750,7 +1990,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"BTC + Dual USDC\"})"
+              "expr": "sum(lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"BTC + Dual USDC\"})",
+              "instant": true
             }
           ]
         },
@@ -1764,9 +2005,9 @@
           },
           "gridPos": {
             "h": 4,
-            "w": 6,
-            "x": 6,
-            "y": 45
+            "w": 8,
+            "x": 8,
+            "y": 47
           },
           "options": {
             "colorMode": "none",
@@ -1793,7 +2034,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"BTC + Dual USDC\"})"
+              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"BTC + Dual USDC\"})",
+              "instant": true
             }
           ]
         },
@@ -1807,9 +2049,9 @@
           },
           "gridPos": {
             "h": 4,
-            "w": 6,
-            "x": 12,
-            "y": 45
+            "w": 8,
+            "x": 16,
+            "y": 47
           },
           "options": {
             "colorMode": "none",
@@ -1843,6 +2085,124 @@
         },
         {
           "id": 84,
+          "type": "timeseries",
+          "title": "Borrow cap utilization",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 51
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.9
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.95
+                  }
+                ]
+              },
+              "custom": {
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                },
+                "fillOpacity": 8,
+                "showPoints": "never"
+              }
+            }
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "legendFormat": "{{symbol}} · h{{hub_id}}"
+            }
+          ]
+        },
+        {
+          "id": 85,
+          "type": "timeseries",
+          "title": "Supply cap utilization",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 51
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.9
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.95
+                  }
+                ]
+              },
+              "custom": {
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                },
+                "fillOpacity": 8,
+                "showPoints": "never"
+              }
+            }
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "legendFormat": "{{symbol}} · h{{hub_id}}"
+            }
+          ]
+        },
+        {
+          "id": 86,
           "type": "table",
           "title": "Listed assets",
           "datasource": {
@@ -1853,7 +2213,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 49
+            "y": 59
           },
           "options": {
             "showHeader": true,
