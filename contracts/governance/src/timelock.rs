@@ -327,14 +327,16 @@ impl Governance {
     }
 
     /// Sets a spoke listing's `paused`/`frozen` flags immediately, bypassing
-    /// the timelock. Guardian incident brake for one listing.
+    /// the timelock. Guardian incident brake for one listing: flags may only
+    /// tighten (`false -> true`) or stay put — clearing one is risk-loosening
+    /// and rides the timelocked `EditAssetInSpoke`.
     ///
     /// # Arguments
     /// * `caller` - must hold the `GUARDIAN` role and authorize.
     ///
     /// # Errors
-    /// * The `GUARDIAN` role check is enforced here; `AssetNotInSpoke`
-    ///   propagates from the controller.
+    /// * The `GUARDIAN` role check is enforced here; `AssetNotInSpoke` and
+    ///   `SpokeAssetFlagRelaxation` propagate from the controller.
     ///
     /// # Events
     ///

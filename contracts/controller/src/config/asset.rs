@@ -162,7 +162,10 @@ fn resolve_spoke_oracle_override(
 
 /// Sets only the `paused`/`frozen` flags on an existing listing, preserving
 /// every other field. The guardian incident path: no risk params, caps, or
-/// override travel with it, and it works on deprecated spokes.
+/// override travel with it, and it works on deprecated spokes. Containment
+/// only — each flag may tighten (`false -> true`) or stay put; clearing one
+/// is risk-loosening and must ride the timelocked `EditAssetInSpoke`, which
+/// also works on deprecated spokes.
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     spoke_id: u32,
@@ -172,6 +175,11 @@ pub(crate) fn set_spoke_asset_flags(
 ) {
     let mut config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
         .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
+    assert_with_error!(
+        env,
+        (paused || !config.paused) && (frozen || !config.frozen),
+        SpokeError::SpokeAssetFlagRelaxation
+    );
     config.paused = paused;
     config.frozen = frozen;
     storage::set_spoke_asset(env, spoke_id, &hub_asset, &config);
