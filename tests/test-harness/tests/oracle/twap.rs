@@ -33,6 +33,30 @@ fn configure_accepts_minimum_resolution_equal_to_max_stale() {
     assert_eq!(stored.max_price_stale_seconds, 60);
 }
 
+// The propose-time containment probe must price a TWAP leg with the same mean
+// the controller composes at read time, not the spot lastprice. A config whose
+// spot sits in-band but whose TWAP mean is out-of-band would otherwise pass
+// propose and then brick every later read (`SanityBoundViolated`). Regression
+// for that gap: spot $1 (in band), TWAP mean $3 (out of the ~$1 band) → #223.
+#[test]
+#[should_panic(expected = "Error(Contract, #223)")]
+fn configure_twap_rejects_out_of_band_mean_when_spot_in_band() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let usdc = t.resolve_asset("USDC");
+    t.mock_reflector_client().set_price(&usdc, &usd(1));
+    t.mock_reflector_client().set_twap_price(&usdc, &usd(3));
+
+    let mut cfg = test_harness::reflector_single_spot_config(
+        &t.mock_reflector,
+        &usdc,
+        usd(1),
+        test_harness::DEFAULT_TOLERANCE.tolerance_bps,
+    );
+    cfg.primary = test_harness::reflector_source(&t.mock_reflector, &usdc, OracleReadMode::Twap(3));
+
+    t.configure_market_oracle(&usdc, &cfg);
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #217)")]
 fn configure_rejects_nonpositive_live_reflector_price() {

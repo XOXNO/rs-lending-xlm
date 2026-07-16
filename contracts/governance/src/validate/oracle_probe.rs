@@ -2,7 +2,7 @@
 
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
-    millis_to_seconds, u256_to_i128, validate_positive_price_timestamps,
+    millis_to_seconds, normalize_positive_price, u256_to_i128, validate_positive_price_timestamps,
     MIN_ORACLE_RESOLUTION_SECONDS,
 };
 use common::oracle::providers::redstone::{
@@ -10,9 +10,10 @@ use common::oracle::providers::redstone::{
 };
 use common::oracle::providers::reflector::{
     min_twap_observations, reflector_base_call, reflector_decimals_call, reflector_lastprice_call,
-    reflector_prices_call, reflector_resolution_call, to_reflector_asset, ReflectorAsset,
-    ReflectorPriceData,
+    reflector_prices_call, reflector_resolution_call, to_reflector_asset, twap_mean_price,
+    ReflectorAsset, ReflectorPriceData,
 };
+use soroban_sdk::Vec;
 use common::types::{
     MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation, OracleReadMode,
     OracleSourceConfig, OracleSourceConfigInput, OracleSourceConfigOption, RedStoneSourceConfig,
@@ -122,13 +123,16 @@ fn validate_source(
 
             let pd = reflector_lastprice_call(env, &config.contract, &reflector_asset)
                 .unwrap_or_else(|| panic_with_error!(env, GenericError::InvalidTicker));
-            let price_wad = validate_reflector_feed(env, &pd, max_stale, decimals);
+            let spot_wad = validate_reflector_feed(env, &pd, max_stale, decimals);
 
-            match config.read_mode {
-                OracleReadMode::Spot => {}
+            // The band-check price must match what the controller composes at
+            // read time: the TWAP mean for a Twap source, the spot otherwise.
+            // Both sides derive the mean through the shared `twap_mean_price`.
+            let read_price_wad = match config.read_mode {
+                OracleReadMode::Spot => spot_wad,
                 OracleReadMode::Twap(records) => {
                     validate_twap_records(env, records);
-                    validate_twap_history(
+                    let history = validate_twap_history(
                         env,
                         &config.contract,
                         &reflector_asset,
@@ -136,13 +140,14 @@ fn validate_source(
                         max_stale,
                         decimals,
                     );
+                    normalize_positive_price(env, twap_mean_price(env, &history), decimals)
                 }
-            }
+            };
 
             // Only a USD-based leg carries a USD price here; a quoted leg's price
             // is in its quote asset until the controller resolves the quote hop.
             let usd_price = match base {
-                ReflectorBase::Usd => Some(price_wad),
+                ReflectorBase::Usd => Some(read_price_wad),
                 ReflectorBase::Quoted(_) => None,
             };
 
@@ -212,6 +217,8 @@ fn validate_base(env: &Env, asset: &Address, oracle: &Address) -> ReflectorBase 
     }
 }
 
+/// Validates the TWAP history and returns it, so the caller can price the leg
+/// with the same mean the controller composes at read time.
 fn validate_twap_history(
     env: &Env,
     oracle: &Address,
@@ -219,7 +226,7 @@ fn validate_twap_history(
     records: u32,
     max_stale: u64,
     decimals: u32,
-) {
+) -> Vec<ReflectorPriceData> {
     let history = reflector_prices_call(env, oracle, asset, records)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::ReflectorHistoryEmpty));
     assert_with_error!(env, !history.is_empty(), OracleError::ReflectorHistoryEmpty);
@@ -231,6 +238,7 @@ fn validate_twap_history(
     for pd in history.iter() {
         validate_reflector_feed(env, &pd, max_stale, decimals);
     }
+    history
 }
 
 /// Freshness/positivity check; returns the feed's normalized USD price (WAD).
