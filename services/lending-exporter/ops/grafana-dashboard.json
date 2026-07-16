@@ -16,140 +16,133 @@
   "timezone": "browser",
   "time": { "from": "now-6h", "to": "now" },
   "refresh": "30s",
-  "templating": {
-    "list": [
-      { "name": "datasource", "type": "datasource", "query": "prometheus", "current": {} },
-      {
-        "name": "network",
-        "type": "query",
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "query": "label_values(lending_protocol_markets_count, network)",
-        "refresh": 2,
-        "includeAll": true,
-        "multi": true,
-        "current": { "text": "All", "value": "$__all" }
-      }
-    ]
-  },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
   "panels": [
     { "id": 1, "type": "row", "title": "Health status", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
     {
       "id": 2, "type": "stat", "title": "Oracle health",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
-      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "reduceOptions": { "calc": ["lastNotNull"], "fields": "", "values": false } },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value", "reduceOptions": { "calc": ["lastNotNull"], "fields": "", "values": false } },
       "fieldConfig": { "defaults": {
         "color": { "mode": "thresholds" },
         "mappings": [ { "type": "value", "options": { "1": { "text": "Healthy", "color": "green" }, "0": { "text": "Feed failing", "color": "red" } } } ],
         "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
       } },
-      "targets": [ { "refId": "A", "expr": "min(lending_oracle_healthy{network=~\"$network\"})", "instant": true } ]
+      "targets": [ { "refId": "A", "expr": "min(lending_oracle_healthy{network=\"testnet\"})", "instant": true } ]
     },
     {
       "id": 3, "type": "stat", "title": "Min freshness (time to stale)",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
-      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "reduceOptions": { "calc": ["lastNotNull"], "fields": "", "values": false } },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value", "reduceOptions": { "calc": ["lastNotNull"], "fields": "", "values": false } },
       "fieldConfig": { "defaults": {
         "unit": "s", "color": { "mode": "thresholds" },
         "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 0 }, { "color": "green", "value": 300 } ] }
       } },
-      "targets": [ { "refId": "A", "expr": "min(lending_oracle_seconds_until_stale{network=~\"$network\"})", "instant": true } ]
+      "targets": [ { "refId": "A", "expr": "min(lending_oracle_seconds_until_stale{network=\"testnet\"})", "instant": true } ]
     },
     {
-      "id": 4, "type": "stat", "title": "Max oracle deviation",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "id": 4, "type": "stat", "title": "Max oracle deviation (bps)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
-      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "reduceOptions": { "calc": ["lastNotNull"], "fields": "", "values": false } },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value", "reduceOptions": { "calc": ["lastNotNull"], "fields": "", "values": false } },
       "fieldConfig": { "defaults": {
         "unit": "none", "decimals": 1, "color": { "mode": "thresholds" },
         "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 150 }, { "color": "red", "value": 250 } ] }
       } },
-      "targets": [ { "refId": "A", "expr": "max(lending_oracle_deviation_bps{network=~\"$network\"})", "instant": true } ]
+      "targets": [ { "refId": "A", "expr": "max(lending_oracle_deviation_bps{network=\"testnet\"})", "instant": true } ]
     },
     {
       "id": 5, "type": "stat", "title": "Exporter — last scrape age",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
-      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "reduceOptions": { "calc": ["lastNotNull"], "fields": "", "values": false } },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value", "reduceOptions": { "calc": ["lastNotNull"], "fields": "", "values": false } },
       "fieldConfig": { "defaults": {
         "unit": "s", "color": { "mode": "thresholds" },
         "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 60 }, { "color": "red", "value": 120 } ] }
       } },
-      "targets": [ { "refId": "A", "expr": "time() - max(lending_exporter_last_success_timestamp{network=~\"$network\"})", "instant": true } ]
+      "targets": [ { "refId": "A", "expr": "time() - max(lending_exporter_last_success_timestamp{network=\"testnet\"})", "instant": true } ]
     },
 
     { "id": 9, "type": "row", "title": "Protocol", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 } },
     {
       "id": 10, "type": "stat", "title": "TVL",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 4, "w": 5, "x": 0, "y": 7 },
-      "options": { "colorMode": "none", "graphMode": "area", "reduceOptions": { "calc": ["lastNotNull"] } },
+      "options": { "colorMode": "none", "graphMode": "area", "textMode": "value", "reduceOptions": { "calc": ["lastNotNull"] } },
       "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" } } },
-      "targets": [ { "refId": "A", "expr": "sum(lending_protocol_tvl_usd{network=~\"$network\"})" } ]
+      "targets": [ { "refId": "A", "expr": "sum(lending_protocol_tvl_usd{network=\"testnet\"})" } ]
     },
     {
       "id": 11, "type": "stat", "title": "Total borrowed",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 4, "w": 5, "x": 5, "y": 7 },
-      "options": { "colorMode": "none", "graphMode": "area", "reduceOptions": { "calc": ["lastNotNull"] } },
+      "options": { "colorMode": "none", "graphMode": "area", "textMode": "value", "reduceOptions": { "calc": ["lastNotNull"] } },
       "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "purple" } } },
-      "targets": [ { "refId": "A", "expr": "sum(lending_protocol_total_borrowed_usd{network=~\"$network\"})" } ]
+      "targets": [ { "refId": "A", "expr": "sum(lending_protocol_total_borrowed_usd{network=\"testnet\"})" } ]
     },
     {
       "id": 12, "type": "stat", "title": "Available liquidity",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 4, "w": 5, "x": 10, "y": 7 },
-      "options": { "colorMode": "none", "graphMode": "area", "reduceOptions": { "calc": ["lastNotNull"] } },
+      "options": { "colorMode": "none", "graphMode": "area", "textMode": "value", "reduceOptions": { "calc": ["lastNotNull"] } },
       "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "green" } } },
-      "targets": [ { "refId": "A", "expr": "sum(lending_protocol_total_liquidity_usd{network=~\"$network\"})" } ]
+      "targets": [ { "refId": "A", "expr": "sum(lending_protocol_total_liquidity_usd{network=\"testnet\"})" } ]
     },
     {
       "id": 13, "type": "stat", "title": "Revenue",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 4, "w": 4, "x": 15, "y": 7 },
-      "options": { "colorMode": "none", "graphMode": "area", "reduceOptions": { "calc": ["lastNotNull"] } },
+      "options": { "colorMode": "none", "graphMode": "area", "textMode": "value", "reduceOptions": { "calc": ["lastNotNull"] } },
       "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "text" } } },
-      "targets": [ { "refId": "A", "expr": "sum(lending_protocol_total_revenue_usd{network=~\"$network\"})" } ]
+      "targets": [ { "refId": "A", "expr": "sum(lending_protocol_total_revenue_usd{network=\"testnet\"})" } ]
     },
     {
       "id": 14, "type": "stat", "title": "Min borrow collateral",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 4, "w": 5, "x": 19, "y": 7 },
-      "options": { "colorMode": "none", "graphMode": "none", "reduceOptions": { "calc": ["lastNotNull"] } },
+      "options": { "colorMode": "none", "graphMode": "none", "textMode": "value", "reduceOptions": { "calc": ["lastNotNull"] } },
       "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "text" } } },
-      "targets": [ { "refId": "A", "expr": "max(lending_min_borrow_collateral_usd{network=~\"$network\"})" } ]
+      "targets": [ { "refId": "A", "expr": "max(lending_min_borrow_collateral_usd{network=\"testnet\"})" } ]
     },
 
     { "id": 19, "type": "row", "title": "Markets", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 } },
     {
       "id": 20, "type": "table", "title": "Market grid",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 12 },
-      "options": { "showHeader": true, "cellHeight": "sm" },
+      "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false } },
       "targets": [
-        { "refId": "SUP", "expr": "lending_market_supplied_total_usd{network=~\"$network\"}", "instant": true, "format": "table" },
-        { "refId": "BOR", "expr": "lending_market_borrowed_total_usd{network=~\"$network\"}", "instant": true, "format": "table" },
-        { "refId": "LIQ", "expr": "lending_market_available_liquidity_usd{network=~\"$network\"}", "instant": true, "format": "table" },
-        { "refId": "UTL", "expr": "lending_market_utilization_ratio{network=~\"$network\"}", "instant": true, "format": "table" },
-        { "refId": "SAP", "expr": "lending_market_supply_apy{network=~\"$network\"}", "instant": true, "format": "table" },
-        { "refId": "BAP", "expr": "lending_market_borrow_apy{network=~\"$network\"}", "instant": true, "format": "table" }
+        { "refId": "SUP", "expr": "lending_market_supplied_total_usd{network=\"testnet\"}", "instant": true, "format": "table" },
+        { "refId": "BOR", "expr": "lending_market_borrowed_total_usd{network=\"testnet\"}", "instant": true, "format": "table" },
+        { "refId": "LIQ", "expr": "lending_market_available_liquidity_usd{network=\"testnet\"}", "instant": true, "format": "table" },
+        { "refId": "UTL", "expr": "lending_market_utilization_ratio{network=\"testnet\"}", "instant": true, "format": "table" },
+        { "refId": "SAP", "expr": "lending_market_supply_apy{network=\"testnet\"}", "instant": true, "format": "table" },
+        { "refId": "BAP", "expr": "lending_market_borrow_apy{network=\"testnet\"}", "instant": true, "format": "table" }
       ],
       "transformations": [
-        { "id": "joinByLabels", "options": { "join": ["symbol", "hub_id"] } },
+        { "id": "merge", "options": {} },
         { "id": "organize", "options": {
           "renameByName": {
-            "symbol": "Asset", "hub_id": "Hub",
+            "symbol": "Asset", "hub": "Hub",
             "Value #SUP": "Supplied $", "Value #BOR": "Borrowed $", "Value #LIQ": "Liquidity $",
             "Value #UTL": "Utilization", "Value #SAP": "Supply APY", "Value #BAP": "Borrow APY"
           },
-          "excludeByName": { "network": true }
+          "excludeByName": { "Time": true, "network": true, "hub_id": true, "asset": true },
+          "indexByName": {
+            "symbol": 0, "hub": 1,
+            "Value #SUP": 2, "Value #BOR": 3, "Value #LIQ": 4,
+            "Value #UTL": 5, "Value #SAP": 6, "Value #BAP": 7
+          }
         } }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "align": "right" } },
+        "defaults": { "custom": { "align": "right", "filterable": true } },
         "overrides": [
           { "matcher": { "id": "byName", "options": "Asset" }, "properties": [ { "id": "custom.align", "value": "left" } ] },
+          { "matcher": { "id": "byName", "options": "Hub" }, "properties": [ { "id": "custom.align", "value": "left" } ] },
           { "matcher": { "id": "byRegexp", "options": ".*\\$$" }, "properties": [ { "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 2 } ] },
           { "matcher": { "id": "byName", "options": "Utilization" }, "properties": [
             { "id": "unit", "value": "percentunit" },
@@ -163,94 +156,94 @@
     },
     {
       "id": 21, "type": "timeseries", "title": "Supplied vs borrowed (USD) by market",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
       "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
       "targets": [
-        { "refId": "A", "expr": "lending_market_supplied_total_usd{network=~\"$network\"}", "legendFormat": "supplied {{symbol}} h{{hub_id}}" },
-        { "refId": "B", "expr": "lending_market_borrowed_total_usd{network=~\"$network\"}", "legendFormat": "borrowed {{symbol}} h{{hub_id}}" }
+        { "refId": "A", "expr": "lending_market_supplied_total_usd{network=\"testnet\"}", "legendFormat": "supplied {{symbol}} · {{hub}}" },
+        { "refId": "B", "expr": "lending_market_borrowed_total_usd{network=\"testnet\"}", "legendFormat": "borrowed {{symbol}} · {{hub}}" }
       ]
     },
     {
       "id": 22, "type": "timeseries", "title": "Interest index growth (supply / borrow)",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 6 } },
       "targets": [
-        { "refId": "A", "expr": "lending_market_supply_index_ray{network=~\"$network\"}", "legendFormat": "supply {{symbol}} h{{hub_id}}" },
-        { "refId": "B", "expr": "lending_market_borrow_index_ray{network=~\"$network\"}", "legendFormat": "borrow {{symbol}} h{{hub_id}}" }
+        { "refId": "A", "expr": "lending_market_supply_index_ray{network=\"testnet\"}", "legendFormat": "supply {{symbol}} · {{hub}}" },
+        { "refId": "B", "expr": "lending_market_borrow_index_ray{network=\"testnet\"}", "legendFormat": "borrow {{symbol}} · {{hub}}" }
       ]
     },
 
     { "id": 29, "type": "row", "title": "Oracles", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 } },
     {
       "id": 30, "type": "timeseries", "title": "USD price (final)",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 30 },
       "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
-      "targets": [ { "refId": "A", "expr": "lending_oracle_price_usd{network=~\"$network\"}", "legendFormat": "{{symbol}}" } ]
+      "targets": [ { "refId": "A", "expr": "lending_oracle_price_usd{network=\"testnet\"}", "legendFormat": "{{symbol}}" } ]
     },
     {
       "id": 31, "type": "timeseries", "title": "Primary vs anchor deviation (bps)",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 30 },
       "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 150 }, { "color": "red", "value": 250 } ] }, "custom": { "thresholdsStyle": { "mode": "dashed" } } } },
-      "targets": [ { "refId": "A", "expr": "lending_oracle_deviation_bps{network=~\"$network\"}", "legendFormat": "{{symbol}}" } ]
+      "targets": [ { "refId": "A", "expr": "lending_oracle_deviation_bps{network=\"testnet\"}", "legendFormat": "{{symbol}}" } ]
     },
     {
       "id": 32, "type": "timeseries", "title": "Seconds until stale",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 30 },
       "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 0 }, { "color": "green", "value": 300 } ] }, "custom": { "thresholdsStyle": { "mode": "line" } } } },
-      "targets": [ { "refId": "A", "expr": "lending_oracle_seconds_until_stale{network=~\"$network\"}", "legendFormat": "{{symbol}}" } ]
+      "targets": [ { "refId": "A", "expr": "lending_oracle_seconds_until_stale{network=\"testnet\"}", "legendFormat": "{{symbol}}" } ]
     },
     {
       "id": 33, "type": "state-timeline", "title": "Oracle health (green = healthy)",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 6, "w": 24, "x": 0, "y": 38 },
       "fieldConfig": { "defaults": { "unit": "short", "min": 0, "max": 1,
         "mappings": [ { "type": "value", "options": { "1": { "text": "healthy", "color": "green" }, "0": { "text": "failing", "color": "red" } } } ] } },
       "options": { "showValue": "never" },
-      "targets": [ { "refId": "A", "expr": "lending_oracle_healthy{network=~\"$network\"}", "legendFormat": "{{symbol}}" } ]
+      "targets": [ { "refId": "A", "expr": "lending_oracle_healthy{network=\"testnet\"}", "legendFormat": "{{symbol}}" } ]
     },
 
     { "id": 39, "type": "row", "title": "Spokes", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 44 } },
     {
-      "id": 40, "type": "timeseries", "title": "Borrow cap utilization by spoke-asset",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "id": 40, "type": "timeseries", "title": "Borrow cap utilization by spoke",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 45 },
       "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 0.9 }, { "color": "red", "value": 0.95 } ] }, "custom": { "thresholdsStyle": { "mode": "dashed" } } } },
-      "targets": [ { "refId": "A", "expr": "lending_spoke_borrow_cap_utilization{network=~\"$network\"}", "legendFormat": "s{{spoke_id}} {{symbol}} h{{hub_id}}" } ]
+      "targets": [ { "refId": "A", "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\"}", "legendFormat": "{{spoke}} · {{symbol}} h{{hub_id}}" } ]
     },
     {
-      "id": 41, "type": "timeseries", "title": "Supply cap utilization by spoke-asset",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "id": 41, "type": "timeseries", "title": "Supply cap utilization by spoke",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 45 },
       "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 0.9 }, { "color": "red", "value": 0.95 } ] }, "custom": { "thresholdsStyle": { "mode": "dashed" } } } },
-      "targets": [ { "refId": "A", "expr": "lending_spoke_supply_cap_utilization{network=~\"$network\"}", "legendFormat": "s{{spoke_id}} {{symbol}} h{{hub_id}}" } ]
+      "targets": [ { "refId": "A", "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\"}", "legendFormat": "{{spoke}} · {{symbol}} h{{hub_id}}" } ]
     },
 
     { "id": 49, "type": "row", "title": "Exporter health", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 53 } },
     {
       "id": 50, "type": "timeseries", "title": "Scrape duration",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 6, "w": 8, "x": 0, "y": 54 },
       "fieldConfig": { "defaults": { "unit": "s" } },
-      "targets": [ { "refId": "A", "expr": "lending_exporter_scrape_duration_seconds{network=~\"$network\"}", "legendFormat": "{{network}}" } ]
+      "targets": [ { "refId": "A", "expr": "lending_exporter_scrape_duration_seconds{network=\"testnet\"}", "legendFormat": "scrape" } ]
     },
     {
       "id": 51, "type": "timeseries", "title": "View failures (rate / 5m)",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 6, "w": 8, "x": 8, "y": 54 },
       "fieldConfig": { "defaults": { "unit": "short" } },
-      "targets": [ { "refId": "A", "expr": "sum by (view, code) (rate(lending_exporter_view_failures_total{network=~\"$network\"}[5m]))", "legendFormat": "{{view}} #{{code}}" } ]
+      "targets": [ { "refId": "A", "expr": "sum by (view, code) (rate(lending_exporter_view_failures_total{network=\"testnet\"}[5m]))", "legendFormat": "{{view}} #{{code}}" } ]
     },
     {
       "id": 52, "type": "timeseries", "title": "Ledger skew (ledger - wall clock)",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 6, "w": 8, "x": 16, "y": 54 },
       "fieldConfig": { "defaults": { "unit": "s" } },
-      "targets": [ { "refId": "A", "expr": "lending_exporter_ledger_skew_seconds{network=~\"$network\"}", "legendFormat": "{{network}}" } ]
+      "targets": [ { "refId": "A", "expr": "lending_exporter_ledger_skew_seconds{network=\"testnet\"}", "legendFormat": "skew" } ]
     }
   ]
 }

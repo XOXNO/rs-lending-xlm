@@ -46,18 +46,13 @@ curl -s localhost:9110/metrics | grep lending_
 One YAML per network (`config/testnet.yaml`, `config/mainnet.yaml`). It lists the
 controller address and the `(hub_id, asset, symbol)` markets + `spokes` to scan.
 The central pool address and each asset's oracle sources are resolved on-chain,
-so they are not configured.
+so they are not configured. `symbol` (asset ticker), `hubs` (hub_id → name), and
+`spoke_names` (spoke_id → name) are display labels — mirror them from
+`configs/testnet/{markets,hubs,spokes}.json`.
 
-Two caveats to resolve before production use:
-
-1. **Verify the addresses.** `config/testnet.yaml` mirrors the running
-   `../keeper/config/testnet.yaml`. `configs/networks.json` currently lists
-   *different* testnet controller/oracle addresses — confirm which deployment is
-   live and keep this file in sync. The exporter is per-market resilient: an
-   address that no longer resolves surfaces as a `view_failures` counter, not a
-   crash.
-2. **Fill in real `symbol`s** — the testnet markets ship with `TKN1…TKN5`
-   placeholders.
+Addresses in `config/testnet.yaml` mirror `configs/networks.json`. The exporter
+is per-market resilient: an address that no longer resolves surfaces as a
+`view_failures` counter, not a crash.
 
 Mainnet contracts are not deployed yet; `config/mainnet.yaml` is a stub and the
 exporter refuses to boot until `contracts.controller` is a valid `C…` address.
@@ -69,7 +64,9 @@ Build the image and run one container per network (see
 `ops/prometheus.example.yml` to `/data/coolify/prometheus/prometheus.yml`. Each
 series already carries a `network` label, so one Grafana renders both.
 
-- Dashboard: import `ops/grafana-dashboard.json`.
+- Dashboard: import `ops/grafana-dashboard.json`. It is variable-free (queries
+  are static, network pinned to `testnet`) so it can be **externally shared** —
+  Grafana's public/shared dashboards reject template variables.
 - Alerts: recreate the exprs in `ops/alerts.yml` as Grafana-managed alert rules
   (they stay internal, off the public panels).
 

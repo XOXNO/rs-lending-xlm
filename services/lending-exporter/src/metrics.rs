@@ -14,12 +14,13 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-/// Market-scoped labels: identify one `(hub, asset)` reserve.
-const MARKET_LABELS: &[&str] = &["network", "hub_id", "asset", "symbol"];
+/// Market-scoped labels: identify one `(hub, asset)` reserve. `hub` is the
+/// display name; `hub_id` is the stable numeric key.
+const MARKET_LABELS: &[&str] = &["network", "hub_id", "hub", "asset", "symbol"];
 /// Oracle-scoped labels: identify one asset's price feed.
 const ORACLE_LABELS: &[&str] = &["network", "asset", "symbol"];
-/// Spoke-asset-scoped labels.
-const SPOKE_ASSET_LABELS: &[&str] = &["network", "spoke_id", "hub_id", "asset", "symbol"];
+/// Spoke-asset-scoped labels. `spoke` is the display name; `spoke_id` the key.
+const SPOKE_ASSET_LABELS: &[&str] = &["network", "spoke_id", "spoke", "hub_id", "asset", "symbol"];
 
 pub struct Metrics {
     pub registry: Registry,
@@ -128,7 +129,7 @@ impl Metrics {
             market_supply_index_ray: register_gauge_vec(&registry, "lending_market_supply_index_ray", "Live supply index (RAY as ratio)", MARKET_LABELS)?,
             market_borrow_index_ray: register_gauge_vec(&registry, "lending_market_borrow_index_ray", "Live borrow index (RAY as ratio)", MARKET_LABELS)?,
             market_last_accrual_timestamp: register_gauge_vec(&registry, "lending_market_last_accrual_timestamp", "Unix seconds of last on-chain accrual checkpoint", MARKET_LABELS)?,
-            market_param: register_gauge_vec(&registry, "lending_market_param", "IRM curve params by `param` (rates/util as ratio, fees as ratio, bool as 0/1)", &["network", "hub_id", "asset", "symbol", "param"])?,
+            market_param: register_gauge_vec(&registry, "lending_market_param", "IRM curve params by `param` (rates/util as ratio, fees as ratio, bool as 0/1)", &["network", "hub_id", "hub", "asset", "symbol", "param"])?,
 
             oracle_price_usd: register_gauge_vec(&registry, "lending_oracle_price_usd", "Final blended USD price", ORACLE_LABELS)?,
             oracle_primary_price_usd: register_gauge_vec(&registry, "lending_oracle_primary_price_usd", "Primary source USD price", ORACLE_LABELS)?,

@@ -4,6 +4,7 @@
 //! artifact). The exporter only reads on-chain state, so there is no signer,
 //! key-vault, or fee configuration here.
 
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::Path;
 
@@ -27,6 +28,14 @@ pub struct ExporterConfig {
     /// Spoke ids to scan for per-spoke flags/caps/usage.
     #[serde(default)]
     pub spokes: Vec<u32>,
+    /// Optional display names for hubs (`hub_id` -> name), surfaced as the `hub`
+    /// metric label. Missing ids fall back to `Hub {id}`.
+    #[serde(default)]
+    pub hubs: BTreeMap<u32, String>,
+    /// Optional display names for spokes (`spoke_id` -> name), surfaced as the
+    /// `spoke` metric label. Missing ids fall back to `Spoke {id}`.
+    #[serde(default)]
+    pub spoke_names: BTreeMap<u32, String>,
     #[serde(default = "default_scrape_interval")]
     pub scrape_interval_seconds: u64,
     pub metrics: MetricsConfig,
@@ -105,6 +114,22 @@ impl ExporterConfig {
             .with_context(|| format!("parse config {}", path.display()))?;
         cfg.validate()?;
         Ok(cfg)
+    }
+
+    /// Display name for a hub, falling back to `Hub {id}`.
+    pub fn hub_name(&self, hub_id: u32) -> String {
+        self.hubs
+            .get(&hub_id)
+            .cloned()
+            .unwrap_or_else(|| format!("Hub {hub_id}"))
+    }
+
+    /// Display name for a spoke, falling back to `Spoke {id}`.
+    pub fn spoke_name(&self, spoke_id: u32) -> String {
+        self.spoke_names
+            .get(&spoke_id)
+            .cloned()
+            .unwrap_or_else(|| format!("Spoke {spoke_id}"))
     }
 
     fn validate(&self) -> Result<()> {
