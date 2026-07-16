@@ -456,6 +456,26 @@ fn test_market_initialization_cascade() {
     );
 }
 
+// Reconfiguring an ACTIVE market's oracle to a sanity band that excludes the
+// current live price is rejected at PROPOSE with `SanityBoundViolated` (#223):
+// governance resolves the fresh feed while scheduling, so a band that would
+// brick every later risk read (borrow/withdraw/liquidation) never gets stored.
+#[test]
+#[should_panic(expected = "Error(Contract, #223)")]
+fn test_configure_market_oracle_rejects_out_of_band_live_price() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let usdc = t.resolve_asset("USDC");
+
+    // USDC lives at $1; a single-source band tight around $3 excludes it.
+    let cfg = test_harness::reflector_single_spot_config(
+        &t.mock_reflector,
+        &usdc,
+        test_harness::usd(3),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
+    t.configure_market_oracle(&usdc, &cfg);
+}
+
 // Oracle decimals must match the pool market's registered decimals; a
 // market registered with decimals 0 cannot accept a 7-decimals oracle.
 // (Under the harness `testing` feature the pool value is preserved only

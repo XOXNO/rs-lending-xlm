@@ -51,16 +51,28 @@ pub(crate) fn validate_market_oracle_sources(
     );
 
     let asset_decimals = validate_and_fetch_token_decimals(env, asset);
-    let primary = validate_source(env, asset, &config.primary, config.max_price_stale_seconds);
-    let anchor = match config.anchor.as_ref() {
-        Some(anchor) => OracleSourceConfigOption::Some(validate_source(
-            env,
-            asset,
-            anchor,
-            config.max_price_stale_seconds,
-        )),
-        None => OracleSourceConfigOption::None,
+    let (primary, primary_usd_wad) =
+        validate_source(env, asset, &config.primary, config.max_price_stale_seconds);
+    let (anchor, anchor_usd_wad) = match config.anchor.as_ref() {
+        Some(anchor) => {
+            let (source, price) =
+                validate_source(env, asset, anchor, config.max_price_stale_seconds);
+            (OracleSourceConfigOption::Some(source), price)
+        }
+        None => (OracleSourceConfigOption::None, None),
     };
+
+    // Containment probe at PROPOSE, while the feed is fresh: a sanity band that
+    // excludes the current live price stores fine but bricks every later risk
+    // read (`SanityBoundViolated`) for the asset — borrow, withdraw, liquidation.
+    // Reject it here instead. Each USD-denominated leg must resolve inside the
+    // band; the composed price is a midpoint of the legs, so both-in-band implies
+    // the blend is in-band too. Quoted legs price in their quote asset (USD only
+    // after the controller's quote multiply), so they carry no USD price to check
+    // here and are covered by the read-time gate. This mirrors the containment
+    // that `set_oracle_sanity_bounds` enforces on the immediate band-move path.
+    require_price_in_band(env, primary_usd_wad, config);
+    require_price_in_band(env, anchor_usd_wad, config);
 
     MarketOracleConfig {
         asset_decimals,
@@ -74,12 +86,29 @@ pub(crate) fn validate_market_oracle_sources(
     }
 }
 
+/// Reverts `SanityBoundViolated` when a resolved USD leg price sits outside the
+/// config's sanity band. `None` (a quote-denominated leg) carries no USD price
+/// to check here.
+fn require_price_in_band(env: &Env, price_usd_wad: Option<i128>, config: &MarketOracleConfigInput) {
+    if let Some(price) = price_usd_wad {
+        assert_with_error!(
+            env,
+            price >= config.min_sanity_price_wad && price <= config.max_sanity_price_wad,
+            OracleError::SanityBoundViolated
+        );
+    }
+}
+
+/// Validates a source and returns it alongside its resolved USD price (WAD) when
+/// one is directly available. A quote-denominated Reflector leg returns `None`:
+/// its live price is in the quote asset, USD only after the controller's
+/// quote multiply, so there is no USD price to sanity-check at propose time.
 fn validate_source(
     env: &Env,
     asset: &Address,
     source: &OracleSourceConfigInput,
     max_stale: u64,
-) -> OracleSourceConfig {
+) -> (OracleSourceConfig, Option<i128>) {
     match source {
         OracleSourceConfigInput::Reflector(config) => {
             let base = validate_base(env, asset, &config.contract);
@@ -93,7 +122,7 @@ fn validate_source(
 
             let pd = reflector_lastprice_call(env, &config.contract, &reflector_asset)
                 .unwrap_or_else(|| panic_with_error!(env, GenericError::InvalidTicker));
-            validate_reflector_feed(env, &pd, max_stale, decimals);
+            let price_wad = validate_reflector_feed(env, &pd, max_stale, decimals);
 
             match config.read_mode {
                 OracleReadMode::Spot => {}
@@ -110,48 +139,62 @@ fn validate_source(
                 }
             }
 
-            OracleSourceConfig::Reflector(ReflectorSourceConfig {
-                contract: config.contract.clone(),
-                asset: config.asset.clone(),
-                read_mode: config.read_mode,
-                decimals,
-                resolution_seconds: resolution,
-                base,
-            })
+            // Only a USD-based leg carries a USD price here; a quoted leg's price
+            // is in its quote asset until the controller resolves the quote hop.
+            let usd_price = match base {
+                ReflectorBase::Usd => Some(price_wad),
+                ReflectorBase::Quoted(_) => None,
+            };
+
+            (
+                OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                    contract: config.contract.clone(),
+                    asset: config.asset.clone(),
+                    read_mode: config.read_mode,
+                    decimals,
+                    resolution_seconds: resolution,
+                    base,
+                }),
+                usd_price,
+            )
         }
         OracleSourceConfigInput::RedStone(config) => {
-            // RedStone feeds are 8-decimal; the adapter has no `decimals()`.
-            let redstone = validate_feed_id_source(env, config, REDSTONE_DECIMALS);
-            OracleSourceConfig::RedStone(redstone)
+            // RedStone feeds are 8-decimal USD; the adapter has no `decimals()`.
+            let (redstone, price_wad) = validate_feed_id_source(env, config, REDSTONE_DECIMALS);
+            (OracleSourceConfig::RedStone(redstone), Some(price_wad))
         }
         OracleSourceConfigInput::Xoxno(config) => {
             let decimals = reflector_decimals_call(env, &config.contract);
-            let xoxno = validate_feed_id_source(env, config, decimals);
-            OracleSourceConfig::Xoxno(xoxno)
+            let (xoxno, price_wad) = validate_feed_id_source(env, config, decimals);
+            (OracleSourceConfig::Xoxno(xoxno), Some(price_wad))
         }
     }
 }
 
-/// Validates a RedStone-shaped (feed-id keyed) source with a live feed probe.
+/// Validates a RedStone-shaped (feed-id keyed) source with a live feed probe and
+/// returns it alongside its resolved USD price (WAD).
 fn validate_feed_id_source(
     env: &Env,
     config: &RedStoneSourceConfigInput,
     decimals: u32,
-) -> RedStoneSourceConfig {
+) -> (RedStoneSourceConfig, i128) {
     validate_max_stale(env, config.max_stale_seconds);
     validate_decimals(env, decimals);
 
     let Some(price_data) = read_price_data_uncached(env, &config.contract, &config.feed_id) else {
         panic_with_error!(env, GenericError::InvalidTicker);
     };
-    validate_redstone_feed(env, &price_data, config.max_stale_seconds, decimals);
+    let price_wad = validate_redstone_feed(env, &price_data, config.max_stale_seconds, decimals);
 
-    RedStoneSourceConfig {
-        contract: config.contract.clone(),
-        feed_id: config.feed_id.clone(),
-        decimals,
-        max_stale_seconds: config.max_stale_seconds,
-    }
+    (
+        RedStoneSourceConfig {
+            contract: config.contract.clone(),
+            feed_id: config.feed_id.clone(),
+            decimals,
+            max_stale_seconds: config.max_stale_seconds,
+        },
+        price_wad,
+    )
 }
 
 /// Resolves Reflector base; controller re-checks quote activation.
@@ -190,22 +233,34 @@ fn validate_twap_history(
     }
 }
 
-fn validate_reflector_feed(env: &Env, pd: &ReflectorPriceData, max_stale: u64, decimals: u32) {
+/// Freshness/positivity check; returns the feed's normalized USD price (WAD).
+fn validate_reflector_feed(
+    env: &Env,
+    pd: &ReflectorPriceData,
+    max_stale: u64,
+    decimals: u32,
+) -> i128 {
     let now = env.ledger().timestamp();
-    let _ = validate_positive_price_timestamps(
+    validate_positive_price_timestamps(
         env,
         pd.price,
         decimals,
         now,
         &[pd.timestamp],
         max_stale,
-    );
+    )
 }
 
-fn validate_redstone_feed(env: &Env, pd: &RedStonePriceData, max_stale: u64, decimals: u32) {
+/// Freshness/positivity check; returns the feed's normalized USD price (WAD).
+fn validate_redstone_feed(
+    env: &Env,
+    pd: &RedStonePriceData,
+    max_stale: u64,
+    decimals: u32,
+) -> i128 {
     let raw_price = u256_to_i128(env, &pd.price);
     let now = env.ledger().timestamp();
-    let _ = validate_positive_price_timestamps(
+    validate_positive_price_timestamps(
         env,
         raw_price,
         decimals,
@@ -215,5 +270,5 @@ fn validate_redstone_feed(env: &Env, pd: &RedStonePriceData, max_stale: u64, dec
             millis_to_seconds(pd.write_timestamp),
         ],
         max_stale,
-    );
+    )
 }
