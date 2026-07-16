@@ -1,0 +1,107 @@
+# Alert rules for the lending exporter, as portable Prometheus-style exprs.
+#
+# The dashboard is public; these alerts are NOT. Recreate each `expr` as a
+# Grafana-managed alert rule (Grafana evaluates Prometheus-datasource queries
+# natively — the threshold in each expr maps straight to a Grafana condition),
+# or load this file into a Prometheus that has an Alertmanager wired up.
+#
+# `network`, `asset`, `symbol`, `hub_id`, `spoke_id` labels propagate to the
+# alert so notifications identify the exact market.
+groups:
+  - name: lending-protocol
+    rules:
+      - alert: LendingOracleStaleWarning
+        expr: lending_oracle_seconds_until_stale < 300
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Oracle price for {{ $labels.symbol }} ({{ $labels.network }}) is close to stale"
+          description: "{{ $value }}s of freshness left before the feed is rejected on-chain."
+
+      - alert: LendingOracleStaleCritical
+        expr: lending_oracle_seconds_until_stale <= 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Oracle price for {{ $labels.symbol }} ({{ $labels.network }}) is STALE"
+          description: "Feed age exceeds max_price_stale_seconds; risk-increasing flows will revert."
+
+      - alert: LendingOracleUnhealthy
+        expr: lending_oracle_healthy == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Oracle price view failing for {{ $labels.symbol }} ({{ $labels.network }})"
+          description: "The aggregated price view reverts (NoLastPrice / PriceFeedStale / UnsafePriceNotAllowed)."
+
+      - alert: LendingOracleDeviationHigh
+        expr: lending_oracle_deviation_bps > 0.8 * lending_oracle_tolerance_upper_bps and lending_oracle_tolerance_upper_bps > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Primary/anchor deviation for {{ $labels.symbol }} nearing the band"
+          description: "Deviation {{ $value }}bps is within 20% of the configured tolerance; a breach freezes the price."
+
+      - alert: LendingOracleDeviationBreached
+        expr: increase(lending_exporter_view_failures_total{code="205"}[10m]) > 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "Oracle deviation band breached ({{ $labels.network }})"
+          description: "UnsafePriceNotAllowed (#205) observed — primary/anchor disagree beyond tolerance."
+
+      - alert: LendingExporterStalled
+        expr: time() - lending_exporter_last_success_timestamp > 120
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Lending exporter has not completed a scrape ({{ $labels.network }})"
+          description: "No successful scrape in over 2× the scrape interval; dashboard data is going stale."
+
+      - alert: LendingExporterDown
+        expr: up{job=~"stellar-lending-exporter.*"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Lending exporter target is down ({{ $labels.job }})"
+          description: "Prometheus cannot scrape the exporter."
+
+      - alert: LendingRpcErrors
+        expr: increase(lending_exporter_rpc_errors_total[10m]) > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Sustained RPC errors from the lending exporter ({{ $labels.network }})"
+          description: "op={{ $labels.op }} is failing; some metrics will be missing."
+
+      - alert: LendingHighUtilization
+        expr: lending_market_utilization_ratio > 0.98
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.symbol }} utilization above 98% ({{ $labels.network }})"
+          description: "Near-full utilization: withdrawals may fail and rates spike."
+
+      - alert: LendingCapNearFull
+        expr: lending_spoke_borrow_cap_utilization > 0.95 or lending_spoke_supply_cap_utilization > 0.95
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Spoke {{ $labels.spoke_id }} cap for {{ $labels.symbol }} above 95%"
+          description: "Supply/borrow cap is nearly exhausted for this spoke-asset."
+
+      - alert: LendingAccrualStalled
+        expr: (time() - lending_market_last_accrual_timestamp) > 86400
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.symbol }} interest index not accrued in 24h ({{ $labels.network }})"
+          description: "The keeper/index refresh may be down, or the market is idle."
+
+      - alert: LendingMarketPaused
+        expr: lending_spoke_paused == 1
+        for: 0m
+        labels: { severity: info }
+        annotations:
+          summary: "Spoke {{ $labels.spoke_id }} asset {{ $labels.symbol }} is paused ({{ $labels.network }})"
+          description: "Operational awareness: this spoke-asset is currently paused."

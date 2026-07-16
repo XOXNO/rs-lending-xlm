@@ -1,0 +1,23 @@
+# Mainnet config for the lending metrics exporter.
+#
+# STUB — mainnet contracts are not deployed yet (configs/networks.json has empty
+# controller/pool/oracle addresses). Fill `contracts.controller`, the oracle
+# adapter, and the `markets`/`spokes` lists from configs/networks.json once
+# mainnet is live, then start a second exporter instance + Prometheus job.
+# The exporter refuses to boot while `controller` is not a valid C... address.
+network: mainnet
+rpc:
+  url: https://stellar-gateway.xoxno.com
+  passphrase: "Public Global Stellar Network ; September 2015"
+  timeout_seconds: 30
+contracts:
+  controller: ""
+  xoxno_oracle_adapter: ""
+markets: []
+spokes: []
+scrape_interval_seconds: 30
+metrics:
+  bind: 0.0.0.0:9110
+log:
+  level: info
+  format: json

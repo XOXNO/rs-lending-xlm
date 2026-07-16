@@ -1,0 +1,30 @@
+# One exporter instance per network. Both publish on :9110 inside their own
+# container; Prometheus scrapes them by service name (see ops/prometheus.example.yml).
+services:
+  lending-exporter-testnet:
+    build: .
+    image: xoxno/lending-exporter:latest
+    container_name: lending-exporter-testnet
+    restart: unless-stopped
+    environment:
+      EXPORTER_CONFIG: /etc/lending-exporter/testnet.yaml
+      RUST_LOG: info
+    # Mount an override config if you keep it outside the image:
+    # volumes:
+    #   - ./config/testnet.yaml:/etc/lending-exporter/testnet.yaml:ro
+    networks: [monitoring]
+
+  # Enable once mainnet contracts are deployed and mainnet.yaml is filled in.
+  # lending-exporter-mainnet:
+  #   build: .
+  #   image: xoxno/lending-exporter:latest
+  #   container_name: lending-exporter-mainnet
+  #   restart: unless-stopped
+  #   environment:
+  #     EXPORTER_CONFIG: /etc/lending-exporter/mainnet.yaml
+  #     RUST_LOG: info
+  #   networks: [monitoring]
+
+networks:
+  monitoring:
+    external: true
