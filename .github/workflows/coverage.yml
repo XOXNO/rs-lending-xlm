@@ -20,6 +20,7 @@ on:
       - '**/Cargo.*'
       - 'Makefile'
       - 'scripts/coverage_report.py'
+      - '!services/**'
   pull_request:
     branches: [main]
     paths:
@@ -27,6 +28,7 @@ on:
       - '**/Cargo.*'
       - 'Makefile'
       - 'scripts/coverage_report.py'
+      - '!services/**'
   workflow_dispatch:
 
 permissions:
