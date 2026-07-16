@@ -1196,6 +1196,51 @@ fn reserved_fee_balance_skips_absent_referral_slot() {
     );
 }
 
+// `reserved_fee_balance` must renew the shared-tier TTL of every positive fee
+// bucket it walks — the guarded `extend_ttl` is what keeps fee backing alive
+// between sweeps. Pins the `> 0` guards against a `< 0` swap, which returns
+// the same reserved total but silently drops the renewal.
+#[test]
+fn reserved_fee_balance_renews_positive_fee_bucket_ttls() {
+    use crate::types::DataKey;
+    use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+    use soroban_sdk::testutils::storage::Persistent as _;
+
+    let env = Env::default();
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let token = Address::generate(&env);
+
+    env.as_contract(&router_addr, || {
+        let admin_key = DataKey::AdminFee(token.clone());
+        let referral_key = DataKey::ReferralFee(1, token.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::ReferralCounter, &1u64);
+        env.storage().persistent().set(&admin_key, &10i128);
+        env.storage().persistent().set(&referral_key, &7i128);
+
+        let aged_admin = env.storage().persistent().get_ttl(&admin_key);
+        let aged_referral = env.storage().persistent().get_ttl(&referral_key);
+        assert!(
+            aged_admin < TTL_THRESHOLD_SHARED,
+            "fresh entry must sit below the renewal threshold"
+        );
+
+        assert_eq!(crate::reserved_fee_balance(&env, &token), 17);
+
+        assert_eq!(
+            env.storage().persistent().get_ttl(&admin_key),
+            TTL_BUMP_SHARED,
+            "AdminFee TTL must be re-armed: aged={aged_admin}"
+        );
+        assert_eq!(
+            env.storage().persistent().get_ttl(&referral_key),
+            TTL_BUMP_SHARED,
+            "ReferralFee TTL must be re-armed: aged={aged_referral}"
+        );
+    });
+}
+
 #[test]
 fn sweep_balance_keeps_fee_backing_claimable() {
     let env = Env::default();
