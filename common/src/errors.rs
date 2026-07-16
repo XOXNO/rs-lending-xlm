@@ -241,6 +241,8 @@ pub enum SpokeError {
     SpokeAssetPaused = 315,
     /// Spoke asset is frozen: no new supply/borrow (repay/withdraw allowed).
     SpokeAssetFrozen = 316,
+    /// Immediate guardian flag path may only tighten; relaxing rides the timelock.
+    SpokeAssetFlagRelaxation = 317,
 }
 
 #[contracterror]

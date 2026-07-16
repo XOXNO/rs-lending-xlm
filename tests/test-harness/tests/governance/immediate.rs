@@ -5,10 +5,12 @@
 //! The harness admin holds every operational role (constructor grant), so it
 //! doubles as GUARDIAN/ORACLE here; strangers prove the role gates.
 
+use governance::op::{AdminOperation, SpokeAssetArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Symbol};
 use test_harness::{
-    assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, ALICE, HARNESS_SPOKE,
+    assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, ALICE, HARNESS_HUB,
+    HARNESS_SPOKE,
 };
 
 fn flatten<T, C>(
@@ -55,17 +57,66 @@ fn guardian_sets_spoke_asset_flags_immediately() {
         errors::SPOKE_ASSET_PAUSED,
     );
 
-    // Clearing is equally immediate.
+    // Re-asserting the same tightened state stays allowed (idempotent brake),
+    // and tightening the remaining flag on top works.
     t.gov_iface_client().set_spoke_asset_flags(
+        &admin,
+        &HARNESS_SPOKE,
+        &hub_asset(usdc.clone()),
+        &true,
+        &true,
+    );
+
+    // Clearing a set flag is risk-loosening and must ride the timelock.
+    let relax = t.gov_iface_client().try_set_spoke_asset_flags(
         &admin,
         &HARNESS_SPOKE,
         &hub_asset(usdc.clone()),
         &false,
         &false,
     );
+    assert_contract_error(flatten(relax), errors::SPOKE_ASSET_FLAG_RELAXATION);
+    // Partial relaxation (keep paused, clear frozen) is rejected too.
+    let relax_frozen = t.gov_iface_client().try_set_spoke_asset_flags(
+        &admin,
+        &HARNESS_SPOKE,
+        &hub_asset(usdc.clone()),
+        &true,
+        &false,
+    );
+    assert_contract_error(flatten(relax_frozen), errors::SPOKE_ASSET_FLAG_RELAXATION);
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 10.0),
+        errors::SPOKE_ASSET_PAUSED,
+    );
+
+    // The timelocked `EditAssetInSpoke` path clears the flags and reopens
+    // supply (the harness forwarder stands in for a matured proposal).
+    let cfg = t
+        .ctrl_client()
+        .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(usdc.clone()));
+    t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::EditAssetInSpoke(SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset: usdc.clone(),
+            spoke_id: HARNESS_SPOKE,
+            can_collateral: cfg.is_collateralizable,
+            can_borrow: cfg.is_borrowable,
+            paused: false,
+            frozen: false,
+            ltv: cfg.loan_to_value,
+            threshold: cfg.liquidation_threshold,
+            bonus: cfg.liquidation_bonus,
+            liquidation_fees: cfg.liquidation_fees,
+            supply_cap: cfg.supply_cap,
+            borrow_cap: cfg.borrow_cap,
+            oracle_override: cfg.oracle_override,
+        }),
+    );
     assert!(
         t.try_supply(ALICE, "USDC", 10.0).is_ok(),
-        "unpause must re-open supply"
+        "timelocked edit must re-open supply"
     );
 }
 

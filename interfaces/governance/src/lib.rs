@@ -195,6 +195,7 @@ pub trait GovernanceInterface {
     fn unpause(env: Env);
 
     /// Sets a spoke listing's paused/frozen flags immediately; GUARDIAN-gated.
+    /// Tighten-only: clearing a set flag rides the timelocked edit path.
     fn set_spoke_asset_flags(
         env: Env,
         caller: Address,

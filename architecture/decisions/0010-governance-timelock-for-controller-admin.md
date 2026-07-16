@@ -103,7 +103,12 @@ containment actions that cannot move funds or loosen risk:
 - `GUARDIAN`: per-listing `paused`/`frozen` flags
   (`set_spoke_asset_flags`) and instant hub/spoke registry creation
   (`create_hub`, `add_spoke`) — new registries are inert until assets are
-  listed through the timelocked path;
+  listed through the timelocked path. The flag path is tighten-only
+  (amended 2026-07-16): each flag may go `false -> true` or stay put, and
+  clearing one reverts with `SpokeAssetFlagRelaxation` — a compromised
+  guardian key can brake markets but cannot undo containment; reopening
+  rides the timelocked `EditAssetInSpoke` (which also works on deprecated
+  spokes, so no listing can get stuck paused);
 - `ORACLE`: sanity-band moves (`set_oracle_sanity_bounds`) — the controller
   proves the new band contains the current live price by resolving it
   under the new band, and requires the new band to overlap the old one, so

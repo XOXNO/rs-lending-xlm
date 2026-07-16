@@ -258,10 +258,13 @@ impl Controller {
 
     /// Sets only the `paused`/`frozen` flags on an existing spoke listing,
     /// preserving every other field. Guardian incident path: governance may
-    /// forward it immediately, and it works on deprecated spokes.
+    /// forward it immediately, and it works on deprecated spokes. Flags may
+    /// only tighten (`false -> true`) or stay put; clearing rides the
+    /// timelocked `edit_asset_in_spoke`.
     ///
     /// # Errors
     /// * `AssetNotInSpoke` - the asset is not listed on the spoke.
+    /// * `SpokeAssetFlagRelaxation` - a set flag would be cleared.
     ///
     /// # Events
     /// * `UpdateSpokeAssetEvent` - the listing snapshot with updated flags.
