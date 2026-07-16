@@ -20,7 +20,7 @@ use crate::{
 
 /// Lists a hub-asset on a spoke after validating risk bounds, caps, and any oracle override.
 /// New listings are refused on a deprecated spoke; edits stay allowed.
-pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
+pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
     let spoke = storage::get_spoke(env, args.spoke_id);
     assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
@@ -39,7 +39,7 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
 /// stay manageable while usage drains. Caps may sit below current usage:
 /// enforcement is entry-time only, so a lower cap just blocks new exposure
 /// until exits drain usage under it.
-pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
+pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
     storage::get_spoke(env, args.spoke_id);
     assert_with_error!(
@@ -163,7 +163,7 @@ fn resolve_spoke_oracle_override(
 /// Sets only the `paused`/`frozen` flags on an existing listing, preserving
 /// every other field. The guardian incident path: no risk params, caps, or
 /// override travel with it, and it works on deprecated spokes.
-pub fn set_spoke_asset_flags(
+pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     spoke_id: u32,
     hub_asset: HubAssetKey,
@@ -187,7 +187,7 @@ pub fn set_spoke_asset_flags(
 
 /// Unlists a hub-asset from a spoke. Requires zero usage so a live position's
 /// listing always exists; wind a listing down with `frozen` first.
-pub fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
+pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
     assert_with_error!(
         env,
         storage::get_spoke_asset(env, spoke_id, &hub_asset).is_some(),

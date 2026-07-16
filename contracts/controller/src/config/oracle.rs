@@ -19,7 +19,7 @@ use crate::{
 
 /// Configures the token-rooted oracle for an existing market after revalidating
 /// sanity bands and quote-market activity.
-pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: MarketOracleConfig) {
+pub(crate) fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: MarketOracleConfig) {
     let asset = &hub_asset.asset;
     // Only an existing `(hub, asset)` market can be activated. The pool owns the
     // market record; `fetch_pool_sync_data` reverts `PoolNotInitialized` when the
@@ -123,7 +123,7 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
 /// a stale feed reverts `PriceFeedStale`. The new band must also overlap the
 /// old one: a band can be walked (each step live-price-contained and
 /// evented), never teleported to a disjoint range on one transient print.
-pub fn set_oracle_sanity_bounds(env: &Env, asset: Address, min_wad: i128, max_wad: i128) {
+pub(crate) fn set_oracle_sanity_bounds(env: &Env, asset: Address, min_wad: i128, max_wad: i128) {
     let mut oracle = storage::get_asset_oracle(env, &asset)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PairNotActive));
 
@@ -153,7 +153,7 @@ pub fn set_oracle_sanity_bounds(env: &Env, asset: Address, min_wad: i128, max_wa
 }
 
 /// Updates the price-fluctuation tolerance on an active asset oracle.
-pub fn set_oracle_tolerance(env: &Env, asset: Address, tolerance: OraclePriceFluctuation) {
+pub(crate) fn set_oracle_tolerance(env: &Env, asset: Address, tolerance: OraclePriceFluctuation) {
     let mut oracle = storage::get_asset_oracle(env, &asset)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PairNotActive));
     // Re-validate the band at the controller so a direct owner call can't store a

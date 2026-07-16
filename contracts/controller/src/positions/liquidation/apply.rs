@@ -1,5 +1,9 @@
 //! Applies a built liquidation plan: debt repayments, collateral seizures, and
-//! the post-liquidation bad-debt check.
+//! the post-liquidation residual bad-debt check.
+//!
+//! Reuses `repay::settle_repay_actions` and `withdraw::settle_withdraw_entries`
+//! with `LiqRepay` / `LiqSeize` so usage and position maps stay aligned with
+//! user flows. LiqSeize freezes supply risk-param refresh (see withdraw).
 
 use crate::account;
 use common::errors::SpokeError;
@@ -17,7 +21,7 @@ use crate::positions::liquidation::math::is_socializable_bad_debt;
 use crate::positions::{make_pool_action, repay, withdraw};
 use crate::risk::validation;
 
-/// Transfers each repayment from the liquidator and settles them in one pool call.
+/// Transfer each planned repay leg from the liquidator, then one bulk pool repay.
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
@@ -25,18 +29,15 @@ pub(crate) fn apply_liquidation_repayments(
     repaid: &Vec<RepayEntry>,
     cache: &mut Cache,
 ) {
-    // Transfer each repayment in while building the actions for one bulk pool call.
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
-        // Tainted-debt gate (ADR 0011 addendum): a paused debt listing accepts
-        // no liquidator tokens. Checked on the post-normalization legs that
-        // actually transfer, since the plan normalizer can drop request legs.
+        // Paused debt listing accepts no liquidator tokens (post-normalization legs).
         let debt_paused = cache
             .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
             .is_some_and(|c| c.paused);
         assert_with_error!(env, !debt_paused, SpokeError::SpokeAssetPaused);
-        // Debt lookup uses the full hub coordinate.
+
         sac_transfer_call(
             env,
             &entry.hub_asset.asset,
@@ -62,7 +63,10 @@ pub(crate) fn apply_liquidation_repayments(
     );
 }
 
-/// Builds every seizure entry and settles them in one bulk pool withdraw.
+/// One bulk pool withdraw of planned seizures to the liquidator (with protocol fees).
+///
+/// Does not enforce spoke pause: paused collateral remains seizable. Risk params
+/// stay frozen via `LiqSeize` in withdraw settle.
 pub(crate) fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
@@ -72,7 +76,6 @@ pub(crate) fn apply_liquidation_seizures(
 ) {
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
-        // The supply-position lookup is keyed by the seized position's full hub key.
         let position: AccountPosition = (&validation::expect_invariant(
             env,
             account.supply_positions.get(entry.hub_asset.clone()),
@@ -93,7 +96,7 @@ pub(crate) fn apply_liquidation_seizures(
     );
 }
 
-/// Cleans up an emptied account or socializes residual bad debt after liquidation.
+/// After liquidation: remove an emptied account, or socialize residual bad debt.
 pub(crate) fn check_bad_debt_after_liquidation(
     env: &Env,
     cache: &mut Cache,

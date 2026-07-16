@@ -1,4 +1,9 @@
-//! Pool market-index context methods.
+//! Pool market-index memos.
+//!
+//! Indexes are pool truth only — never simulated on the controller. After a
+//! mutation, `put_market_index` stores the returned index so post-action risk
+//! skips a redundant pool read. Bulk prefetch assumes results align with the
+//! request order.
 
 use common::types::{HubAssetKey, MarketIndex, MarketIndexRaw};
 use soroban_sdk::{vec, Vec};
@@ -7,22 +12,19 @@ use crate::context::Cache;
 use crate::external::pool::fetch_pool_bulk_indexes;
 
 impl Cache {
-    /// Caches an index the pool returned from a mutation (`PoolPositionMutation.
-    /// market_index`). Lets the post-action valuation skip a redundant pool read
-    /// for the touched hub-asset.
-    pub fn put_market_index(&mut self, hub_asset: &HubAssetKey, index: &MarketIndexRaw) {
+    /// Store the index returned on a pool mutation for this hub-asset.
+    pub(crate) fn put_market_index(&mut self, hub_asset: &HubAssetKey, index: &MarketIndexRaw) {
         self.market_indexes.set(hub_asset.clone(), index.clone());
     }
 
-    /// No-op under Certora; the harness supplies market indexes directly.
+    /// No-op under Certora; the harness supplies indexes directly.
     #[cfg(feature = "certora")]
-    pub fn prefetch_market_indexes(&mut self, _hub_assets: &Vec<HubAssetKey>) {}
+    pub(crate) fn prefetch_market_indexes(&mut self, _hub_assets: &Vec<HubAssetKey>) {}
 
-    /// Seeds `market_indexes` for uncached hub-assets.
-    /// Skips duplicates and markets already loaded in this transaction. The pool
-    /// reverts `PoolNotInitialized` for any uncreated (hub, asset) in the batch.
+    /// Bulk-load indexes for uncached hub-assets (deduped). Pool reverts
+    /// `PoolNotInitialized` for any uncreated market in the batch.
     #[cfg(not(feature = "certora"))]
-    pub fn prefetch_market_indexes(&mut self, hub_assets: &Vec<HubAssetKey>) {
+    pub(crate) fn prefetch_market_indexes(&mut self, hub_assets: &Vec<HubAssetKey>) {
         let mut missing: Vec<HubAssetKey> = Vec::new(&self.env);
         for hub_asset in hub_assets.iter() {
             if self.market_indexes.contains_key(hub_asset.clone()) || missing.contains(&hub_asset) {
@@ -41,10 +43,8 @@ impl Cache {
         }
     }
 
-    /// Returns the pool-sourced index for `hub_asset`. On a cache miss the pool is
-    /// asked for it (single-asset `get_bulk_indexes`); the controller never
-    /// simulates accrual itself.
-    pub fn cached_market_index(&mut self, hub_asset: &HubAssetKey) -> MarketIndex {
+    /// Pool-sourced index for `hub_asset` (fetch and memoize on miss).
+    pub(crate) fn cached_market_index(&mut self, hub_asset: &HubAssetKey) -> MarketIndex {
         if let Some(index) = self.market_indexes.get(hub_asset.clone()) {
             return (&index).into();
         }

@@ -12,7 +12,7 @@ use crate::{spoke, storage};
 use crate::views::limits::{account_gates_ok, MarketLimitCtx};
 
 /// Largest executable borrow amount, or zero when blocked.
-pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
+pub(crate) fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
     }

@@ -258,8 +258,15 @@ impl LendingTestBuilder {
                 .address()
                 .clone();
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
+            // Governance requires `params.asset_decimals == token.decimals()`.
+            // SAC v2 always reports 7; market params and amount math use the live
+            // probe. Preset `decimals` is retained for test naming / intent and
+            // must not diverge from the token for production-path validation.
+            let token_decimals = token::Client::new(&env, &asset_address).decimals();
+            let _ = pm.decimals;
+            let market_decimals = token_decimals;
 
-            let mut market_params = pm.params.to_market_params(&asset_address, pm.decimals);
+            let mut market_params = pm.params.to_market_params(&asset_address, market_decimals);
             // Flash-loan eligibility/fee live on the pool `MarketParamsRaw` in the
             // spoke model; thread them from the asset-config preset the test set.
             market_params.is_flashloanable = pm.config.is_flashloanable;
@@ -308,7 +315,7 @@ impl LendingTestBuilder {
                 );
             }
 
-            let liquidity_amount = f64_to_i128(pm.initial_liquidity, pm.decimals);
+            let liquidity_amount = f64_to_i128(pm.initial_liquidity, market_decimals);
             token_admin.mint(&pool_address, &liquidity_amount);
 
             env.as_contract(&pool_address, || {
@@ -325,7 +332,7 @@ impl LendingTestBuilder {
                     asset: asset_address,
                     pool: pool_address,
                     token_admin,
-                    decimals: pm.decimals,
+                    decimals: market_decimals,
                     price_wad: pm.price_wad,
                 },
             );

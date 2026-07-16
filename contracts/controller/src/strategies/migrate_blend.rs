@@ -23,7 +23,7 @@ use crate::strategies::{
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
-pub struct MigrateBlendParams {
+pub(crate) struct MigrateBlendParams {
     pub account_id: u64,
     pub spoke_id: u32,
     /// Hub on which every controller-side position (debt and supply) is opened.
@@ -66,9 +66,12 @@ impl Controller {
     }
 }
 
-/// Clears Blend debt with zero-fee borrows, sweeps Blend collateral/supply into
-/// controller positions, and returns the account id.
-pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendParams) -> u64 {
+/// Migrate Blend V2 → controller: clear Blend debt, sweep assets, open positions.
+///
+/// Checklist: auth → reentrancy → preflight → account → markets → debt leg →
+/// withdraw/deposit leg → finalize → event.
+pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendParams) -> u64 {
+    // 1–2. Auth + reentrancy
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
@@ -82,10 +85,8 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         debt_caps,
     } = params;
 
-    // Debt and deposit legs validate `hub_id` transitively; assert it explicitly
-    // at the migration entry point.
+    // 3. Preflight (hub, non-empty request, approved Blend pool)
     validation::require_hub_active(env, hub_id);
-
     validate_migration_request(
         env,
         &blend_pool,
@@ -94,6 +95,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         &debt_caps,
     );
 
+    // 4–5. Account + oracles (deduped withdraw list)
     let (account_id, mut account, mut cache, withdraw_assets) = prepare_migration_account(
         env,
         caller,
@@ -104,13 +106,10 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         &debt_caps,
     );
 
-    // Every involved asset must be a configured market before we read its
-    // balance (`snapshot_balances`) or hand it to Blend — otherwise an arbitrary
-    // caller-supplied contract address would be invoked. Borrow/supply
-    // eligibility is still enforced downstream (borrow_for_migration /
-    // process_deposit). Asset lists are already deduplicated.
+    // 3b. Markets active before any balance read or Blend call
     require_migration_markets_active(env, &mut cache, hub_id, &withdraw_assets, &debt_caps);
 
+    // 6a. Zero-fee borrow → repay Blend debt → reconcile refunds
     execute_migration_debt_leg(
         env,
         caller,
@@ -121,14 +120,10 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         &mut cache,
     );
 
-    // Sweep Blend collateral and supply, then re-supply controller collateral.
+    // 6b. Sweep Blend collateral/supply → controller deposit
     if !withdraw_assets.is_empty() {
-        // D{asset.decimals}{Token(asset)} snapshots measure received collateral/supply sweeps.
         let before_withdraw = snapshot_balances(env, &withdraw_assets);
         let withdraw_requests = build_withdraw_requests(env, &collateral_assets, &supply_assets);
-        // No controller-authed legs to pre-authorize: Blend's `submit` auth is
-        // implicit (the controller is its direct invoker) and the withdrawals pay
-        // the controller (authorized by Blend, the token spender).
         guarded_submit(env, &blend_pool, caller, &withdraw_requests);
         deposit_withdrawn(
             env,
@@ -140,6 +135,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         );
     }
 
+    // 7. Finalize + migration event
     strategy_finalize(env, account_id, &account, &mut cache);
 
     BlendMigrationEvent {

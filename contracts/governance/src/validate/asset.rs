@@ -50,13 +50,15 @@ pub(crate) fn validate_market_creation(
     env: &Env,
     asset: &Address,
     params: &MarketParamsRaw,
-    _token_decimals: u32,
+    token_decimals: u32,
 ) {
     assert_with_error!(env, params.asset_id == *asset, GenericError::WrongToken);
-    #[cfg(not(feature = "testing"))]
+    // Live SAC decimals must match market params. The harness registers
+    // multi-decimal presets against SAC v2 (always 7 decimals), so those
+    // setups must pass `token_decimals == params.asset_decimals` (see builder).
     assert_with_error!(
         env,
-        params.asset_decimals == _token_decimals,
+        params.asset_decimals == token_decimals,
         GenericError::InvalidAsset
     );
 

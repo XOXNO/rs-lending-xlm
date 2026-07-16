@@ -1,9 +1,19 @@
-//! Liquidation and bad-debt cleanup. Liquidation requires HF < 1.
+//! Liquidation and residual bad-debt cleanup.
+//!
+//! Pipeline: plan (HF gate, price, normalize) → apply (repay then seize) →
+//! optional bad-debt socialization. Requires HF < 1 to liquidate.
+//!
+//! Not gated by `#[when_not_paused]`: keepers can liquidate and clean bad debt
+//! while the contract is paused. Spoke-asset pause blocks inbound debt repay
+//! tokens; seizure of paused collateral remains allowed.
+//!
+//! `result.refunds` from the plan is informational only — the liquidator only
+//! transfers post-normalization repay amounts (never over-pulled).
 
 use crate::risk;
 mod apply;
 mod bad_debt;
-pub mod math;
+pub(crate) mod math;
 mod plan;
 
 pub(crate) use plan::execute_liquidation;
@@ -15,21 +25,25 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, En
 use self::math::is_socializable_bad_debt;
 use crate::context::Cache;
 use crate::events::LiquidationEvent;
-use crate::positions::{persist_account_positions, PositionSides};
-use crate::positions::{AggregatedPayments, HubPayment};
-use crate::{
-    payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
-};
+use crate::payments;
+use crate::positions::{persist_account_positions, AggregatedPayments, HubPayment, PositionSides};
+use crate::risk::validation;
+use crate::storage;
+use crate::{Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
-    /// Liquidates an unhealthy account: repays part of its debt and seizes
-    /// bonused collateral. Requires the target's health factor to be below one.
+    /// Liquidates an unhealthy account: repays selected debt and seizes bonused
+    /// collateral. Requires the target's health factor to be below one.
+    ///
+    /// Not blocked by the global pause flag. Permissionless for any non-owner
+    /// liquidator (a registered delegate may liquidate an account it manages).
     ///
     /// # Arguments
-    /// * `liquidator` - repays debt and receives seized collateral; must
-    ///   authorize. Cannot be the account owner.
-    /// * `debt_payments` - `(hub-asset, amount)` debt legs to repay; amounts must be positive.
+    /// * `liquidator` - pays debt and receives seized collateral; must authorize.
+    ///   Cannot be the account owner.
+    /// * `account_id` - existing undercollateralized account.
+    /// * `debt_payments` - `(hub-asset, amount)` debt legs to repay; positive amounts.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
@@ -39,7 +53,7 @@ impl Controller {
     /// * `SpokeAssetPaused` - a repaid debt leg's listing is paused (paused
     ///   listings accept no inbound tokens; seizure of paused collateral stays
     ///   allowed).
-    /// * `HealthFactorTooHigh` - the account is still at or above a health factor of one.
+    /// * `HealthFactorTooHigh` - the account is still at or above HF of one.
     /// * A non-market debt asset reverts `OracleNotConfigured` / `PoolNotInitialized`
     ///   on the fail-closed pricing path.
     ///
@@ -55,30 +69,36 @@ impl Controller {
         process_liquidation(&env, &liquidator, account_id, &debt_payments);
     }
 
-    /// Socializes an account's small residual bad debt by seizing all remaining
-    /// collateral and debt shares. Permissionless; `caller` is recorded only for
-    /// accountability.
+    /// Socializes small residual bad debt by seizing all remaining supply and
+    /// debt shares into the pool. Permissionless; `caller` auth is for
+    /// accountability only (no proceeds to the caller).
+    ///
+    /// Not blocked by the global pause flag. Same eligibility predicate as the
+    /// post-liquidation automatic cleanup path.
+    ///
+    /// # Arguments
+    /// * `caller` - accountable initiator; must authorize.
+    /// * `account_id` - account with socializable residual bad debt.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
     /// * `DebtPositionNotFound` - the account carries no debt.
-    /// * `CannotCleanBadDebt` - the account is not eligible (its debt is not
-    ///   socializable residual bad debt).
+    /// * `CannotCleanBadDebt` - not eligible (debt not socializable residual).
     ///
     /// # Events
-    /// * A position-batch event for the cleaned account.
+    /// * A `CleanBadDebtEvent` and account removal (no position-batch if gone).
     pub fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
-        // Auth binds the cleanup to an accountable caller; the operation
-        // itself is permissionless.
         caller.require_auth();
         validation::require_not_flash_loaning(&env);
         clean_bad_debt_standalone(&env, account_id);
     }
 }
 
-/// Repays part of an unhealthy account's debt, seizes bonused collateral, and
-/// runs the post-liquidation bad-debt check.
-pub fn process_liquidation(
+/// Auth, plan, transfer repay + seize, persist both sides, then residual bad debt.
+///
+/// Does not use `finalize_position_flow`: persists BOTH maps without
+/// `remove_if_empty`, then may delete the account via bad-debt cleanup.
+pub(crate) fn process_liquidation(
     env: &Env,
     liquidator: &Address,
     account_id: u64,
@@ -88,18 +108,15 @@ pub fn process_liquidation(
     validation::require_not_flash_loaning(env);
 
     let mut account = storage::get_account(env, account_id);
+    let aggregated = payments::aggregate_positive_payments(env, debt_payments);
 
-    let aggregated = utils::aggregate_positive_payments(env, debt_payments);
-
-    // Pricing below uses the same fail-closed staleness/tolerance checks as
-    // every other risk computation; liquidation has no distinct oracle path.
+    // Same fail-closed oracle staleness/tolerance as every other risk path.
     let mut cache = Cache::new(env);
 
     validate_liquidation_inputs(env, &account, liquidator, &aggregated);
 
     let liquidation_plan = plan::build_liquidation_plan(env, &account, &aggregated, &mut cache);
-    // `result.refunds` is informational: the liquidator only ever transfers
-    // the post-normalization repaid amounts, so no refund transfer exists here.
+    // Refunds in the plan are not transferred; only `result.repaid` is pulled.
     let result = liquidation_plan.into_result();
 
     validation::require_non_empty_payments(env, &result.repaid);
@@ -126,7 +143,7 @@ pub fn process_liquidation(
     cache.persist_spoke_usage();
     persist_account_positions(env, account_id, &account, PositionSides::BOTH, false);
 
-    // Reuse the post-liquidation account snapshot for bad-debt cleanup.
+    // Post-liq totals: empty debt → account cleanup; residual bad debt → socialize.
     apply::check_bad_debt_after_liquidation(
         env,
         &mut cache,
@@ -138,7 +155,7 @@ pub fn process_liquidation(
     cache.emit_position_batch(account_id, &account);
 }
 
-/// Rejects empty payments and self-liquidation before pricing the account.
+/// Rejects empty payments and owner self-liquidation before pricing.
 fn validate_liquidation_inputs(
     env: &Env,
     account: &Account,
@@ -147,23 +164,17 @@ fn validate_liquidation_inputs(
 ) {
     validation::require_non_empty_payments(env, aggregated);
 
-    // The guard covers only the owner; a registered delegate liquidating an
-    // account it manages remains allowed (deliberate).
+    // Owner only; a registered delegate may liquidate an account it manages.
     assert_with_error!(
         env,
         account.owner != *liquidator,
         CollateralError::SelfLiquidationNotAllowed
     );
-
-    // Debt assets are priced and repaid downstream; a non-market asset reverts
-    // `OracleNotConfigured`/`PoolNotInitialized` there.
 }
 
-/// Socializes small residual bad debt by seizing all collateral and debt shares.
-pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
-    // Success removes the account; failure reverts atomically, so no keep-alive is needed.
-    // Uses the same risk-totals computation as the post-liquidation path, so the
-    // bad-debt threshold check stays consistent between both entry points.
+/// Socializes residual bad debt when eligible; removes the account on success.
+pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
+    // Same risk-totals + threshold as the post-liquidation cleanup path.
     let mut cache = Cache::new(env);
     let account = storage::get_account(env, account_id);
 

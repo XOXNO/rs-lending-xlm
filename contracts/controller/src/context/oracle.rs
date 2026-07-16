@@ -1,4 +1,8 @@
-//! Oracle price context methods.
+//! Oracle price and config memos.
+//!
+//! Position pricing uses `cached_price_for` (spoke override if listed, else
+//! token-rooted). Cycle detection applies on the token path via
+//! `enter_price_resolution` / `exit_price_resolution`.
 
 use common::errors::OracleError;
 use common::oracle::providers::redstone::RedStonePriceData;
@@ -12,21 +16,20 @@ use crate::oracle::{price_with_config, token_price};
 use crate::storage;
 
 impl Cache {
-    /// Returns the token-rooted USD price for `asset`.
-    pub fn cached_price(&mut self, asset: &Address) -> PriceFeed {
+    /// Token-rooted USD price for `asset` (cycle-guarded resolution).
+    pub(crate) fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         (&token_price(self, asset)).into()
     }
 
-    /// Resolves position price using spoke override, else token-rooted oracle.
-    pub fn cached_price_for(&mut self, spoke_id: u32, hub_asset: &HubAssetKey) -> PriceFeed {
+    /// Position price: spoke oracle override if present, else token-rooted.
+    pub(crate) fn cached_price_for(&mut self, spoke_id: u32, hub_asset: &HubAssetKey) -> PriceFeed {
         match self.spoke_oracle_override(spoke_id, hub_asset) {
             Some(config) => (&self.spoke_price(hub_asset, &config)).into(),
             None => self.cached_price(&hub_asset.asset),
         }
     }
 
-    /// The override `MarketOracleConfig` the spoke lists for `hub_asset`, or
-    /// `None` when the spoke does not list it or leaves it token-rooted.
+    /// Override config from the spoke listing, or `None` if unlisted / token-rooted.
     fn spoke_oracle_override(
         &mut self,
         spoke_id: u32,
@@ -41,7 +44,7 @@ impl Cache {
         }
     }
 
-    /// Memoized override price for `hub_asset`, resolved through `config`.
+    /// Memoized override price for `hub_asset` via `config`.
     fn spoke_price(
         &mut self,
         hub_asset: &HubAssetKey,
@@ -50,19 +53,15 @@ impl Cache {
         if let Some(feed) = self.spoke_prices.get(hub_asset.clone()) {
             return feed;
         }
-        // Deliberately not wrapped in enter/exit_price_resolution: this override
-        // entry is only reached from top-level, non-recursive callers, and internal
-        // resolution (compose/reflector) always reads the base `AssetOracle`, never
-        // this override — so it can't form a cycle back to itself. Any chaining it
-        // triggers still routes through the guarded `token_price`. If overrides are
-        // ever made to participate in nested resolution, guard this call too.
+        // Not wrapped in enter/exit: top-level only; nested reads use token
+        // oracle (guarded). Guard here too if overrides ever nest into each other.
         let feed = price_with_config(self, &hub_asset.asset, config);
         self.spoke_prices.set(hub_asset.clone(), feed.clone());
         feed
     }
 
-    /// Returns the prefetched RedStone payload for `(adapter, feed_id)`, if any.
-    pub fn get_redstone_prefetch(
+    /// Prefetched RedStone payload for `(adapter, feed_id)`, if any.
+    pub(crate) fn get_redstone_prefetch(
         &self,
         adapter: &Address,
         feed_id: &String,
@@ -71,8 +70,8 @@ impl Cache {
             .get((adapter.clone(), feed_id.clone()))
     }
 
-    /// Caches a RedStone payload under `(adapter, feed_id)` for the transaction.
-    pub fn set_redstone_prefetch(
+    /// Store a RedStone payload for the rest of the transaction.
+    pub(crate) fn set_redstone_prefetch(
         &mut self,
         adapter: &Address,
         feed_id: &String,
@@ -82,7 +81,7 @@ impl Cache {
             .set((adapter.clone(), feed_id.clone()), data);
     }
 
-    /// Token-rooted oracle config; missing entries are not cached.
+    /// Token-rooted oracle config if configured (absence not memoized).
     pub(crate) fn cached_asset_oracle_opt(
         &mut self,
         asset: &Address,
@@ -95,19 +94,14 @@ impl Cache {
         Some(config)
     }
 
-    /// Required token-rooted oracle config.
+    /// Required token-rooted oracle config, or `OracleNotConfigured`.
     pub(crate) fn cached_asset_oracle(&mut self, asset: &Address) -> MarketOracleConfig {
         self.cached_asset_oracle_opt(asset)
             .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured))
     }
 
-    /// Token-rooted oracle presence gate.
+    /// Whether a token-rooted oracle config exists.
     pub(crate) fn asset_oracle_exists(&mut self, asset: &Address) -> bool {
         self.cached_asset_oracle_opt(asset).is_some()
-    }
-
-    /// Token-rooted oracle config for bare asset; no spoke context here.
-    pub(crate) fn resolve_oracle_config(&mut self, asset: &Address) -> MarketOracleConfig {
-        self.cached_asset_oracle(asset)
     }
 }

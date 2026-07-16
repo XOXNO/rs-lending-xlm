@@ -83,3 +83,6 @@ outputs
 
 # Certora local prover run reports
 **/emv-*-certora-*/
+
+# codebase-memory-mcp persisted graph artifact
+.codebase-memory/

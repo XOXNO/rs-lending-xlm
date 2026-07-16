@@ -11,7 +11,7 @@ use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 /// Returns the account's total supplied collateral value in USD WAD; `0` for a
 /// missing account or one with no supply.
-pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
+pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let spoke_id = match storage::try_get_account_meta(env, account_id) {
         Some(meta) => meta.spoke_id,
         None => return 0,
@@ -49,7 +49,7 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
 
 /// Returns the account's total debt value in USD WAD; `0` for a missing account
 /// or one with no debt.
-pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
+pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     let spoke_id = match storage::try_get_account_meta(env, account_id) {
         Some(meta) => meta.spoke_id,
         None => return 0,
@@ -87,7 +87,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
 
 /// Returns the account's LTV-weighted collateral value in USD WAD; `0` for a
 /// missing account.
-pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
+pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };

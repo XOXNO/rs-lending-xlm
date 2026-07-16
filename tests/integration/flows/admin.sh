@@ -157,23 +157,78 @@ inv blend_pool_revoke "$ADMIN" "$CONTROLLER" -- revoke_blend_pool --pool "$blend
 view blend_pool_false "$CONTROLLER" -- is_blend_pool_approved --pool "$blend_pool" >/dev/null
 inv blend_pool_reapprove "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
 if [ "${BLEND_MIGRATION_LIVE:-0}" = "1" ]; then
-# XLM-only live migration: seed ALICE with a real XLM collateral position in
-# Blend (RequestType 2 = SupplyCollateral), then migrate it into the controller.
-# Overridable via BLEND_MIGRATE_*_JSON / BLEND_XLM_AMOUNT for other asset mixes.
-inv blend_seed_xlm_collateral "$ALICE" "$blend_pool" -- submit \
---from "$ALICE_ADDR" --spender "$ALICE_ADDR" --to "$ALICE_ADDR" \
---requests "[{\"request_type\":2,\"address\":\"$XLM_SAC\",\"amount\":\"${BLEND_XLM_AMOUNT:-1000000000}\"}]" >/dev/null
-view blend_position_seeded "$blend_pool" -- get_positions --address "$ALICE_ADDR" >/dev/null
-inv migrate_blend_live "$ALICE" "$CONTROLLER" -- migrate_from_blend \
---caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" --hub_id "$PRIMARY_HUB_ID" \
---blend_pool "$blend_pool" \
---collateral_assets "${BLEND_MIGRATE_COLLATERAL_ASSETS_JSON:-[\"$XLM_SAC\"]}" \
---supply_assets "${BLEND_MIGRATE_SUPPLY_ASSETS_JSON:-[]}" \
---debt_caps "${BLEND_MIGRATE_DEBT_CAPS_JSON:-[]}" >/dev/null
-# Blend collateral must now be swept empty (moved into the controller).
-view blend_position_swept "$blend_pool" -- get_positions --address "$ALICE_ADDR" >/dev/null
+# Live XLM migration against real Blend V2.
+# RequestType: 0=Supply, 2=SupplyCollateral, 4=Borrow (see blend-contracts-v2).
+# Default seeds coll + non-collateral supply + debt on XLM, then migrates with a
+# debt_cap buffer so Blend over-repays and the controller refund-reconciles to ~debt.
+#
+#   BLEND_MIGRATION_LIVE=1 PHASES="deploy lifecycle admin" bash tests/integration/scenarios/full_e2e.sh
+#
+# Overrides: BLEND_XLM_COLLATERAL_AMOUNT, BLEND_XLM_SUPPLY_AMOUNT, BLEND_XLM_DEBT_AMOUNT,
+# BLEND_XLM_DEBT_CAP (raw stroops), or full BLEND_SEED_REQUESTS_JSON / BLEND_MIGRATE_*_JSON.
+local coll_amt supply_amt debt_amt debt_cap seed_requests coll_json supply_json debt_json migrate_acct
+coll_amt="${BLEND_XLM_COLLATERAL_AMOUNT:-${BLEND_XLM_AMOUNT:-2000000000}}" # 200 XLM coll
+supply_amt="${BLEND_XLM_SUPPLY_AMOUNT:-500000000}"                          # 50 XLM supply
+debt_amt="${BLEND_XLM_DEBT_AMOUNT:-300000000}"                              # 30 XLM debt
+if [ "${debt_amt:-0}" -gt 0 ]; then
+    debt_cap="${BLEND_XLM_DEBT_CAP:-$((debt_amt + debt_amt / 5))}" # +20% refund buffer
 else
-record migrate_blend_live environment-blocked migrate_from_blend "" "" "" "" "" "set BLEND_MIGRATION_LIVE=1 with real Blend position assets"
+    debt_cap=0
+fi
+
+if [ -n "${BLEND_SEED_REQUESTS_JSON:-}" ]; then
+    seed_requests="$BLEND_SEED_REQUESTS_JSON"
+else
+    # Build coll → supply → borrow in one submit (coll first for Blend health).
+    seed_requests="[{\"request_type\":2,\"address\":\"$XLM_SAC\",\"amount\":\"$coll_amt\"}"
+    [ "${supply_amt:-0}" -gt 0 ] && \
+        seed_requests+=",{\"request_type\":0,\"address\":\"$XLM_SAC\",\"amount\":\"$supply_amt\"}"
+    [ "${debt_amt:-0}" -gt 0 ] && \
+        seed_requests+=",{\"request_type\":4,\"address\":\"$XLM_SAC\",\"amount\":\"$debt_amt\"}"
+    seed_requests+="]"
+fi
+inv blend_seed_xlm_positions "$ALICE" "$blend_pool" -- submit \
+    --from "$ALICE_ADDR" --spender "$ALICE_ADDR" --to "$ALICE_ADDR" \
+    --requests "$seed_requests" >/dev/null
+view blend_position_seeded "$blend_pool" -- get_positions --address "$ALICE_ADDR" >/dev/null
+
+coll_json="${BLEND_MIGRATE_COLLATERAL_ASSETS_JSON:-[\"$XLM_SAC\"]}"
+if [ -n "${BLEND_MIGRATE_SUPPLY_ASSETS_JSON:-}" ]; then
+    supply_json="$BLEND_MIGRATE_SUPPLY_ASSETS_JSON"
+elif [ "${supply_amt:-0}" -gt 0 ]; then
+    supply_json="[\"$XLM_SAC\"]"
+else
+    supply_json="[]"
+fi
+if [ -n "${BLEND_MIGRATE_DEBT_CAPS_JSON:-}" ]; then
+    debt_json="$BLEND_MIGRATE_DEBT_CAPS_JSON"
+elif [ "${debt_amt:-0}" -gt 0 ]; then
+    debt_json="[[\"$XLM_SAC\",\"$debt_cap\"]]"
+else
+    debt_json="[]"
+fi
+
+migrate_acct=$(inv migrate_blend_live "$ALICE" "$CONTROLLER" -- migrate_from_blend \
+    --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" --hub_id "$PRIMARY_HUB_ID" \
+    --blend_pool "$blend_pool" \
+    --collateral_assets "$coll_json" \
+    --supply_assets "$supply_json" \
+    --debt_caps "$debt_json" | tr -d '"')
+
+# Blend-side positions should be swept (coll/supply/liability empty for the user).
+view blend_position_swept "$blend_pool" -- get_positions --address "$ALICE_ADDR" >/dev/null
+
+assert_bool_view migrate_blend_account_exists true account_exists --account_id "$migrate_acct"
+assert_hf_at_least migrate_blend_hf "$migrate_acct" "$WAD"
+if [ "${debt_amt:-0}" -gt 0 ]; then
+    # Controller debt ≈ Blend liability, not the inflated debt_cap (refund path).
+    assert_borrow_at_least migrate_blend_debt_min "$migrate_acct" "$XLM_SAC" $((debt_amt * 95 / 100))
+    assert_borrow_at_most migrate_blend_debt_max "$migrate_acct" "$XLM_SAC" $((debt_amt * 105 / 100))
+    assert_borrow_at_most migrate_blend_debt_below_cap "$migrate_acct" "$XLM_SAC" $((debt_cap - 1))
+fi
+else
+record migrate_blend_live environment-blocked migrate_from_blend "" "" "" "" "" \
+    "set BLEND_MIGRATION_LIVE=1 (seeds XLM coll+supply+debt on Blend, migrates with refund buffer)"
 fi
 fi
 

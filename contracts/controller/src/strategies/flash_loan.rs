@@ -26,10 +26,11 @@ impl Controller {
     }
 }
 
-/// Borrows `amount` of `hub_asset` to `receiver`; the pool requires principal
-/// plus fee to be repaid before this call returns. The flash-loan guard traps
-/// any reentrant `flash_loan` call for the duration of the callback.
-pub fn process_flash_loan(
+/// Pool flash loan to `receiver` with principal+fee repaid before return.
+///
+/// No account positions. Checklist: auth → reentrancy → preflight → fee →
+/// guarded pool callback → event.
+pub(crate) fn process_flash_loan(
     env: &Env,
     caller: &Address,
     hub_asset: &HubAssetKey,
@@ -37,8 +38,10 @@ pub fn process_flash_loan(
     receiver: &Address,
     data: &Bytes,
 ) {
+    // 1. Auth
     caller.require_auth();
 
+    // 2–3. Reentrancy + preflight
     validation::require_not_flash_loaning(env);
     validation::require_positive_amount(env, amount);
     validation::require_hub_active(env, hub_asset.hub_id);
@@ -46,7 +49,6 @@ pub fn process_flash_loan(
     let mut cache = Cache::new(env);
     validation::require_market_active(env, &mut cache, hub_asset);
 
-    // Flash-loan eligibility and fee live on the pool market params.
     let params = cache.cached_pool_sync_data(hub_asset).params;
     assert_with_error!(
         env,
@@ -55,17 +57,18 @@ pub fn process_flash_loan(
     );
     validation::require_wasm_receiver(env, receiver);
 
+    // 4. Fee from pool market params
     let fee = Bps::from(i128::from(params.flashloan_fee)).flash_loan_fee_on(env, amount);
     let pool_addr = cache.cached_pool_address();
 
-    // Sets the flash-loan guard for the callback; `require_not_flash_loaning`
-    // traps any reentrant `flash_loan` call until this scope exits.
+    // 5. Callback under flash guard (blocks nested flash_loan / position entry)
     storage::with_flash_guard(env, || {
         pool_flash_loan_call(
             env, &pool_addr, hub_asset, caller, receiver, amount, fee, data,
         );
     });
 
+    // 6. Event (no strategy_finalize — no account)
     FlashLoanEvent {
         hub_id: hub_asset.hub_id,
         asset: hub_asset.asset.clone(),

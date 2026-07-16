@@ -4,14 +4,14 @@
 use soroban_sdk::{contractclient, contracttype, Address, Env, Map, Vec};
 
 /// Blend `RequestType` discriminants emitted by migration.
-pub const REQ_WITHDRAW: u32 = 1; // sweep non-collateral supply
-pub const REQ_WITHDRAW_COLLATERAL: u32 = 3; // sweep collateral
-pub const REQ_REPAY: u32 = 5; // clear debt
+pub(crate) const REQ_WITHDRAW: u32 = 1; // sweep non-collateral supply
+pub(crate) const REQ_WITHDRAW_COLLATERAL: u32 = 3; // sweep collateral
+pub(crate) const REQ_REPAY: u32 = 5; // clear debt
 
 /// Request against the Blend pool. Mirrors Blend `Request`.
 #[contracttype]
 #[derive(Clone)]
-pub struct BlendRequest {
+pub(crate) struct BlendRequest {
     pub request_type: u32,
     pub address: Address,
     pub amount: i128,
@@ -20,7 +20,7 @@ pub struct BlendRequest {
 /// User position returned by Blend `submit`.
 #[contracttype]
 #[derive(Clone)]
-pub struct BlendPositions {
+pub(crate) struct BlendPositions {
     pub liabilities: Map<u32, i128>,
     pub collateral: Map<u32, i128>,
     pub supply: Map<u32, i128>,

@@ -13,7 +13,7 @@ use crate::views::limits::MarketLimitCtx;
 
 /// Largest suppliable amount of `hub_asset`; `0` while paused, on a
 /// deprecated spoke or paused/frozen listing, or a non-suppliable asset.
-pub fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
+pub(crate) fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
     }

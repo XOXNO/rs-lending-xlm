@@ -53,6 +53,40 @@ fn test_create_liquidity_pool_rejects_unregistered_token() {
     assert_contract_error(result, errors::INVALID_ASSET);
 }
 
+// `validate_market_creation` rejects params.asset_decimals != live SAC decimals (#6).
+#[test]
+fn test_create_liquidity_pool_rejects_asset_decimals_mismatch() {
+    use soroban_sdk::token;
+
+    let t = LendingTest::new().build();
+    let admin = t.admin();
+    let gov = t.gov_client();
+    let asset = t
+        .env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address()
+        .clone();
+    let decimals = token::Client::new(&t.env, &asset).decimals();
+    let mismatched = decimals.saturating_add(1);
+    let params = usdc_preset()
+        .params
+        .to_market_params(&asset, mismatched);
+
+    gov.execute_immediate(&admin, &AdminOperation::ApproveToken(asset.clone()));
+    let result = match gov.try_execute_immediate(
+        &admin,
+        &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
+            hub_id: HARNESS_HUB,
+            asset: asset.clone(),
+            params,
+        }),
+    ) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error")),
+    };
+    assert_contract_error(result, errors::INVALID_ASSET);
+}
+
 // `set_min_borrow_collateral_usd` rejects negative floors (#116).
 #[test]
 #[should_panic(expected = "Error(Contract, #116)")]

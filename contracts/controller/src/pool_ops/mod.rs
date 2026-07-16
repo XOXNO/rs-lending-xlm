@@ -256,7 +256,7 @@ impl Controller {
 }
 
 /// Accrues pool indexes before replacing the market's interest-rate model.
-pub fn upgrade_liquidity_pool_params(
+pub(crate) fn upgrade_liquidity_pool_params(
     env: &Env,
     hub_asset: &HubAssetKey,
     params: &InterestRateModel,
@@ -314,7 +314,7 @@ fn claim_revenue_for_asset_with_cache(
 }
 
 /// Transfers rewards into a pool and increases the supply index for suppliers.
-pub fn add_reward(
+pub(crate) fn add_reward(
     env: &Env,
     caller: &Address,
     hub_asset: &HubAssetKey,
@@ -393,7 +393,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
 
         // amount = 0: parameter change only, no deposit or withdraw.
         let market_index = cache.cached_market_index(&hub_asset);
-        cache.record_position_update(
+        cache.record_supply_position_update(
             events::PositionAction::ParamUpd,
             &hub_asset,
             market_index.supply_index.raw(),

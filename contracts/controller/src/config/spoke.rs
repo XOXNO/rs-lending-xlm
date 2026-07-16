@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// Registers a new spoke stamped with the default liquidation curve and returns its id.
-pub fn add_spoke(env: &Env) -> u32 {
+pub(crate) fn add_spoke(env: &Env) -> u32 {
     let id = storage::increment_spoke_id(env);
     // Liquidation-curve defaults are stamped at creation so storage and events
     // carry the effective values; liquidation reads them verbatim.
@@ -37,7 +37,7 @@ pub fn add_spoke(env: &Env) -> u32 {
 }
 
 /// Deprecates a spoke, gating all subsequent spoke reads.
-pub fn remove_spoke(env: &Env, id: u32) {
+pub(crate) fn remove_spoke(env: &Env, id: u32) {
     let mut spoke = storage::get_spoke(env, id);
     assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
     // Deprecation gates all spoke reads.
@@ -53,7 +53,7 @@ pub fn remove_spoke(env: &Env, id: u32) {
 /// Overrides a spoke's liquidation curve (target HF, HF for max bonus, bonus
 /// factor), replacing the defaults stamped at creation. `storage::get_spoke`
 /// reverts `SpokeNotFound` for an unknown id.
-pub fn set_spoke_liquidation_curve(
+pub(crate) fn set_spoke_liquidation_curve(
     env: &Env,
     id: u32,
     target_hf_wad: i128,

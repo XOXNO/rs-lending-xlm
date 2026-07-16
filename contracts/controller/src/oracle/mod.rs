@@ -19,19 +19,19 @@ use common::types::HubAssetKey;
 
 use crate::context::Cache;
 
-pub use compose::ResolvedOracleComponents;
+pub(crate) use compose::ResolvedOracleComponents;
 
 #[cfg(feature = "certora")]
 pub(crate) use tolerance::calculate_final_price;
 
 pub(crate) use prefetch::prefetch_redstone_feeds;
-pub use price::{price_with_config, token_price};
+pub(crate) use price::{price_with_config, token_price};
 
 /// Resolves the token-rooted oracle components (primary, anchor, final price) for a hub-asset.
-pub fn price_components(cache: &mut Cache, hub_asset: &HubAssetKey) -> ResolvedOracleComponents {
+pub(crate) fn price_components(cache: &mut Cache, hub_asset: &HubAssetKey) -> ResolvedOracleComponents {
     // Pricing is token-rooted (hub-independent), keyed by the bare asset:
-    // `resolve_oracle_config` panics `OracleNotConfigured` for any asset with no
+    // `cached_asset_oracle` panics `OracleNotConfigured` for any asset with no
     // `AssetOracle` entry (unlisted, pending, or disabled).
-    let configs = cache.resolve_oracle_config(&hub_asset.asset);
+    let configs = cache.cached_asset_oracle(&hub_asset.asset);
     compose::resolve_components(cache, &configs)
 }

@@ -8,8 +8,8 @@ use crate::context::Cache;
 use crate::oracle::compose;
 
 /// Returns the cached USD price for `asset`, resolving and caching it under a cycle guard on a miss.
-pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
-    if let Some(feed) = cache.prices_cache.get(asset.clone()) {
+pub(crate) fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
+    if let Some(feed) = cache.token_prices.get(asset.clone()) {
         return feed;
     }
 
@@ -18,17 +18,17 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
     // would recurse without this. Reverts `OracleCycleDetected` on re-entry.
     cache.enter_price_resolution(asset);
 
-    // `resolve_oracle_config` panics `OracleNotConfigured` when `AssetOracle` is
+    // `cached_asset_oracle` panics `OracleNotConfigured` when `AssetOracle` is
     // absent; that absence is the pending/disabled gate (no status read).
-    let config = cache.resolve_oracle_config(asset);
+    let config = cache.cached_asset_oracle(asset);
     let feed = price_with_config(cache, asset, &config);
-    cache.prices_cache.set(asset.clone(), feed.clone());
+    cache.token_prices.set(asset.clone(), feed.clone());
     cache.exit_price_resolution();
     feed
 }
 
 /// Resolves a USD price without writing a cache entry.
-pub fn price_with_config(
+pub(crate) fn price_with_config(
     cache: &mut Cache,
     asset: &Address,
     config: &MarketOracleConfig,

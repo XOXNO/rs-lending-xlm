@@ -13,7 +13,7 @@ use crate::context::Cache;
 use crate::storage;
 
 /// Creates account metadata and an empty in-memory account for an active spoke.
-pub fn create_account(
+pub(crate) fn create_account(
     env: &Env,
     owner: &Address,
     spoke_id: u32,
@@ -45,7 +45,7 @@ pub fn create_account(
 }
 
 /// Existing-account guard for `load_or_create_account`.
-pub enum AccountGuard {
+pub(crate) enum AccountGuard {
     /// Third-party supply; spoke arg must match stored spoke.
     Supply,
     /// Blend migration; caller must be owner or an active delegate, and spoke must match.
@@ -55,7 +55,7 @@ pub enum AccountGuard {
 }
 
 /// Loads existing account or creates a new one when `account_id == 0`.
-pub fn load_or_create_account(
+pub(crate) fn load_or_create_account(
     env: &Env,
     caller: &Address,
     account_id: u64,
@@ -83,7 +83,7 @@ pub fn load_or_create_account(
 }
 
 /// Requires caller to be owner or an active registered delegate.
-pub fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, owner: &Address) {
+pub(crate) fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, owner: &Address) {
     if caller == owner {
         return;
     }
@@ -103,14 +103,14 @@ fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
 }
 
 /// Removes the account entry from storage when it holds no positions.
-pub fn cleanup_account_if_empty(env: &Env, account: &Account, account_id: u64) {
+pub(crate) fn cleanup_account_if_empty(env: &Env, account: &Account, account_id: u64) {
     if account.is_empty() {
         storage::remove_account_entry(env, account_id);
     }
 }
 
 /// Upserts collateral position or removes it when the scaled supply share is zero.
-pub fn update_or_remove_supply_position(
+pub(crate) fn update_or_remove_supply_position(
     account: &mut Account,
     hub_asset: &HubAssetKey,
     position: &AccountPosition,
@@ -127,7 +127,7 @@ pub fn update_or_remove_supply_position(
 }
 
 /// Upserts debt position or removes it when the scaled debt share is zero.
-pub fn update_or_remove_debt_position(
+pub(crate) fn update_or_remove_debt_position(
     account: &mut Account,
     hub_asset: &HubAssetKey,
     position: &DebtPosition,

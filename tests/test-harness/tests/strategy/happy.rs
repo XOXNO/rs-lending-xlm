@@ -559,7 +559,7 @@ fn test_same_token_net_settle_restores_spoke_cap_headroom() {
 }
 
 // The net-settle path must re-stamp risk params from the current effective
-// spoke-asset config, same as a plain withdraw does via `finish_withdrawal`
+// spoke-asset config, same as a plain withdraw does via `finish_withdraw_leg`
 // — otherwise a position that only ever touches this path could keep an
 // old LTV/threshold snapshot indefinitely even after governance tightens it.
 #[test]

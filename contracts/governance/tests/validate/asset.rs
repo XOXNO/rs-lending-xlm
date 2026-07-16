@@ -104,3 +104,13 @@ fn validate_market_creation_rejects_decimals_out_of_range() {
     let params = sample_market_params(&asset, MAX_ASSET_DECIMALS + 1);
     validate_market_creation(&env, &asset, &params, MAX_ASSET_DECIMALS + 1);
 }
+
+// `params.asset_decimals` must equal the live token probe (InvalidAsset #6).
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn validate_market_creation_rejects_decimals_mismatch() {
+    let env = Env::default();
+    let asset = Address::generate(&env);
+    let params = sample_market_params(&asset, 7);
+    validate_market_creation(&env, &asset, &params, 6);
+}

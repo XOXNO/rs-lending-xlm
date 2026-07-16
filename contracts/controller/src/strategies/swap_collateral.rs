@@ -18,7 +18,7 @@ use crate::{
     ControllerClient,
 };
 
-pub struct SwapCollateralParams<'a> {
+pub(crate) struct SwapCollateralParams<'a> {
     pub account_id: u64,
     pub current: &'a HubAssetKey,
     pub from_amount: i128,
@@ -52,8 +52,11 @@ impl Controller {
     }
 }
 
-/// Withdraws collateral, swaps it, and deposits the result as replacement collateral.
-pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollateralParams<'_>) {
+/// Withdraw collateral → swap → deposit replacement (debt-neutral until finalize).
+///
+/// Checklist: auth → reentrancy → preflight → account → oracles → withdraw →
+/// swap → deposit → finalize.
+pub(crate) fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollateralParams<'_>) {
     let SwapCollateralParams {
         account_id,
         current,
@@ -62,32 +65,28 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
         swap,
     } = params;
 
+    // 1–2. Auth + reentrancy
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Full-coordinate compare so the same token may migrate across hubs; only
-    // an identical `(hub, asset)` collateral leg is rejected.
+    // 3. Preflight
     assert_with_error!(env, current != new, GenericError::AssetsAreTheSame);
-
-    // The withdraw leg settles on `current`'s hub; `new`'s hub is gated by the
-    // deposit's `require_hub_active`.
     validation::require_hub_active(env, current.hub_id);
-
-    let mut account = storage::get_account(env, account_id);
-    account::require_owner_or_delegate(env, account_id, caller, &account.owner);
-
-    let mut cache = Cache::new(env);
-
     validation::require_positive_amount(env, from_amount);
 
+    // 4. Account
+    let mut account = storage::get_account(env, account_id);
+    account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    let mut cache = Cache::new(env);
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new);
 
+    // 5. Oracles
     let extra_assets = vec![env, current.asset.clone(), new.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     let current_pos: AccountPosition = get_supply_position_or_panic(env, &account, current);
 
-    // D{current_collateral.decimals}{Token(current_collateral)} withdrawal request to balance delta.
+    // 6a. Withdraw current collateral to controller
     let actual_withdrawn = withdraw_collateral_to_controller(
         env,
         &mut account,
@@ -100,8 +99,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
         },
     );
 
-    // D{current_collateral.decimals}{Token(current_collateral)} -> Token(new_collateral),
-    // unless same asset (cross-hub migration needs no swap).
+    // 6b. Current → new (passthrough if same asset, cross-hub)
     let swapped_amount = swap_tokens_or_passthrough(
         env,
         caller,
@@ -111,7 +109,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
         swap,
     );
 
-    // D{new_collateral.decimals}{Token(new_collateral)} deposited as replacement collateral.
+    // 6c. Deposit replacement collateral
     let deposit_assets = vec![env, (new.clone(), swapped_amount)];
     supply::process_deposit(
         env,
@@ -121,6 +119,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
         &mut cache,
     );
 
+    // 7. Finalize
     strategy_finalize(env, account_id, &account, &mut cache);
 }
 

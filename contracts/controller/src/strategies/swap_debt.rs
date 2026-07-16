@@ -15,7 +15,7 @@ use crate::strategies::{
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
-pub struct SwapDebtParams<'a> {
+pub(crate) struct SwapDebtParams<'a> {
     pub account_id: u64,
     pub existing_debt: &'a HubAssetKey,
     pub new_debt_amount: i128,
@@ -49,8 +49,11 @@ impl Controller {
     }
 }
 
-/// Borrows a new debt, swaps it to the existing debt token, and repays the existing debt.
-pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>) {
+/// Refinance: borrow new debt → swap to existing debt token → repay existing.
+///
+/// Checklist: auth → reentrancy → preflight → account → oracles → borrow →
+/// swap → repay → finalize.
+pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>) {
     let SwapDebtParams {
         account_id,
         existing_debt,
@@ -59,40 +62,34 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
         swap,
     } = params;
 
+    // 1–2. Auth + reentrancy
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Full-coordinate compare so the same token may refinance across hubs; only
-    // an identical `(hub, asset)` debt is rejected.
+    // 3. Preflight — identical (hub, asset) rejected; same token across hubs ok
     assert_with_error!(
         env,
         existing_debt != new_debt,
         GenericError::AssetsAreTheSame
     );
-
-    // The repay leg settles on `existing_debt`'s hub; the borrow leg gates
-    // `new_debt`'s hub through the shared borrow path.
     validation::require_hub_active(env, existing_debt.hub_id);
-
-    let mut account = storage::get_account(env, account_id);
-    account::require_owner_or_delegate(env, account_id, caller, &account.owner);
-
-    let mut cache = Cache::new(env);
-
     validation::require_positive_amount(env, new_debt_amount);
 
+    // 4. Account
+    let mut account = storage::get_account(env, account_id);
+    account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    let mut cache = Cache::new(env);
     let existing_pos = get_debt_position_or_panic(env, &account, existing_debt);
 
+    // 5. Oracles
     let extra_assets = vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
-    // D{new_debt_token.decimals}{Token(new_debt_token)} net borrow received after
-    // protocol fee on `new_debt`'s hub market.
+    // 6a. Borrow new debt (shared gates + flash fee)
     let amount_received =
         borrow_for_strategy(env, &mut account, new_debt, new_debt_amount, &mut cache);
 
-    // Same underlying token (cross-hub refinance) needs no swap; otherwise route
-    // the borrowed token into the existing debt token.
+    // 6b. New debt token → existing debt token (passthrough if same asset)
     let repay_amount = swap_tokens_or_passthrough(
         env,
         caller,
@@ -102,7 +99,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
         swap,
     );
 
-    // D{existing_debt_token.decimals}{Token(existing_debt_token)} repays the existing debt position.
+    // 6c. Repay existing debt from controller balance
     repay_debt_from_controller(
         env,
         &mut account,
@@ -116,5 +113,6 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
         },
     );
 
+    // 7. Finalize
     strategy_finalize(env, account_id, &account, &mut cache);
 }

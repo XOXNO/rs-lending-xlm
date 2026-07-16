@@ -31,7 +31,7 @@ pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) 
 
     for asset in assets.iter() {
         // Feed resolved this tx: nothing left to fetch for it.
-        if cache.prices_cache.contains_key(asset.clone()) {
+        if cache.token_prices.contains_key(asset.clone()) {
             continue;
         }
         // Pending/disabled assets have no `AssetOracle`; prefetch must not add a

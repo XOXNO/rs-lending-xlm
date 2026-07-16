@@ -17,12 +17,12 @@ pub(crate) use crate::config::require_hub_active;
 /// Unwraps a controller-built value or panics with `InternalError`.
 /// Missing values indicate corrupted storage or caller logic bugs after checks.
 #[inline]
-pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
+pub(crate) fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
 /// Requires token-rooted oracle presence; pool and spoke gates follow.
-pub fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetKey) {
+pub(crate) fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetKey) {
     assert_with_error!(
         env,
         cache.asset_oracle_exists(&hub_asset.asset),
@@ -31,7 +31,7 @@ pub fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetK
 }
 
 /// Rejects the call while a flash loan is in progress.
-pub fn require_not_flash_loaning(env: &Env) {
+pub(crate) fn require_not_flash_loaning(env: &Env) {
     assert_with_error!(
         env,
         !storage::is_flash_loan_ongoing(env),
@@ -40,13 +40,13 @@ pub fn require_not_flash_loaning(env: &Env) {
 }
 
 /// Rejects an empty payments vector.
-pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
+pub(crate) fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
     assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
 }
 
 /// Post-pool LTV, health factor, and min-borrow-collateral gates in one
 /// prefetch and one portfolio walk. No-op when the account is debt-free.
-pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Account) {
+pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Account) {
     if account.borrow_positions.is_empty() {
         return;
     }
@@ -83,7 +83,7 @@ pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Acco
 }
 
 /// Rejects a batch that would push supply/borrow position counts past their limits.
-pub fn validate_bulk_position_limits(
+pub(crate) fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,
     position_type: AccountPositionType,

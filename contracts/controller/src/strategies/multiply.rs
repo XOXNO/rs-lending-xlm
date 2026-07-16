@@ -16,7 +16,7 @@ use crate::strategies::{
 };
 use crate::{positions::supply, risk::validation, Controller, ControllerArgs, ControllerClient};
 
-pub struct MultiplyParams<'a> {
+pub(crate) struct MultiplyParams<'a> {
     pub account_id: u64,
     pub spoke_id: u32,
     pub collateral: &'a HubAssetKey,
@@ -62,9 +62,14 @@ impl Controller {
     }
 }
 
-/// Opens a leveraged collateral/debt position via a flash-loan-funded swap and returns the account id.
-pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>) -> u64 {
+/// Opens a leveraged collateral/debt position via flash-loan-funded swap.
+///
+/// Checklist: auth → reentrancy → preflight → account → payment → borrow →
+/// swap → deposit → finalize → optional payment event.
+pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>) -> u64 {
+    // 1. Auth
     caller.require_auth();
+    // 2. Reentrancy
     validation::require_not_flash_loaning(env);
 
     let MultiplyParams {
@@ -79,11 +84,14 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         convert_swap,
     } = params;
 
+    // 3. Preflight (mode, same-asset rules, amount)
     validate_multiply_request(env, collateral, debt, mode, debt_to_flash_loan);
 
+    // 4–5. Account + oracle prefetch
     let (account_id, mut account, mut cache) =
         prepare_multiply_account(env, caller, account_id, spoke_id, mode, collateral, debt);
 
+    // 6a. Optional initial payment (direct collat, debt add-on, or convert-swap)
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
         env,
         caller,
@@ -94,18 +102,15 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         &convert_swap,
     );
 
-    // D{debt_token.decimals}{Token(debt_token)} net borrow received after protocol fee
-    // on `debt`'s hub market.
+    // 6b. Flash-style strategy borrow (shared borrow gates + fee)
     let amount_received =
         borrow_for_strategy(env, &mut account, debt, debt_to_flash_loan, &mut cache);
 
-    // D{debt_token.decimals}{Token(debt_token)} net borrow plus same-token extra payment.
     let swap_amount_in = amount_received
         .checked_add(debt_extra)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    // D{debt_token.decimals}{Token(debt_token)} -> D{collateral_token.decimals}{Token(collateral_token)},
-    // unless same asset (cross-hub carry trade needs no swap).
+    // 6c. Debt token → collateral (or passthrough if same asset)
     let swapped_collateral = swap_tokens_or_passthrough(
         env,
         caller,
@@ -115,13 +120,12 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         swap,
     );
 
-    // D{collateral_token.decimals}{Token(collateral_token)} direct plus swapped collateral.
     let total_collateral = collateral_amount
         .checked_add(swapped_collateral)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
+    // 6d. Deposit total collateral (controller as payer; funds already held)
     let deposit_assets = vec![env, (collateral.clone(), total_collateral)];
-
     supply::process_deposit(
         env,
         &env.current_contract_address(),
@@ -130,6 +134,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         &mut cache,
     );
 
+    // 7. Finalize (HF + both sides + events)
     strategy_finalize(env, account_id, &account, &mut cache);
 
     emit_multiply_initial_payment(

@@ -36,7 +36,7 @@ fn resolve_default_returns_asset_oracle_base() {
         assert_eq!(storage::get_asset_oracle(&env, &asset), Some(base.clone()));
 
         let mut cache = Cache::new_view(&env);
-        assert_eq!(cache.resolve_oracle_config(&asset), base);
+        assert_eq!(cache.cached_asset_oracle(&asset), base);
     });
 }
 
@@ -67,7 +67,7 @@ fn resolve_spoke_without_override_falls_back_to_base() {
 
         let mut cache = Cache::new_view(&env);
         cache.ensure_spoke_context(spoke_id);
-        assert_eq!(cache.resolve_oracle_config(&asset), base);
+        assert_eq!(cache.cached_asset_oracle(&asset), base);
     });
 }
 

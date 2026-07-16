@@ -18,7 +18,7 @@ pub(crate) fn position_assets(env: &Env, keys: &Vec<HubAssetKey>) -> Vec<Address
 }
 
 /// Neutral USD WAD value of a scaled position.
-pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
+pub(crate) fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     // dimensional: Ray<Share> * Ray<Index> -> Ray<Token> -> Wad<Token> -> Wad<USD>.
     let actual = scaled.mul(env, index);
     let actual_wad = actual.to_wad();
@@ -27,7 +27,7 @@ pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
 
 /// `position_value` rounded down at each step for collateral-side gate
 /// valuation. Rounding slack cannot loosen LTV.
-pub fn position_value_floor(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
+pub(crate) fn position_value_floor(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul_floor(env, index);
     let actual_wad = actual.to_wad_floor();
     actual_wad.mul_floor(env, price)
@@ -35,7 +35,7 @@ pub fn position_value_floor(env: &Env, scaled: Ray, index: Ray, price: Wad) -> W
 
 /// `position_value` rounded up at each step for debt-side gate valuation.
 /// Rounding slack cannot understate what is owed.
-pub fn position_value_ceil(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
+pub(crate) fn position_value_ceil(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul_ceil(env, index);
     let actual_wad = actual.to_wad_ceil();
     actual_wad.mul_ceil(env, price)
@@ -43,12 +43,12 @@ pub fn position_value_ceil(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wa
 
 /// Collateral value weighted by liquidation threshold in BPS, rounded down:
 /// the health-factor numerator cannot gain from weighting rounding.
-pub fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
+pub(crate) fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
     threshold.apply_to_wad_floor(env, value)
 }
 
 /// Sums floor-valued, LTV-weighted collateral (USD WAD) across supply positions.
-pub fn calculate_ltv_collateral_wad(
+pub(crate) fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut Cache,
     spoke_id: u32,
@@ -84,7 +84,7 @@ pub(crate) struct AccountRiskTotals {
 }
 
 /// Computes the account's collateral, debt, and health-factor risk totals.
-pub fn calculate_account_risk_totals(
+pub(crate) fn calculate_account_risk_totals(
     env: &Env,
     cache: &mut Cache,
     spoke_id: u32,

@@ -15,9 +15,9 @@ mod borrow;
 mod supply;
 mod withdraw;
 
-pub use borrow::max_borrow;
-pub use supply::max_supply;
-pub use withdraw::max_withdraw;
+pub(crate) use borrow::max_borrow;
+pub(crate) use supply::max_supply;
+pub(crate) use withdraw::max_withdraw;
 
 /// Upper bound on binary-search iterations in the preview limits. A halving
 /// search over an `i128` range empties in at most 127 steps, so the cap never

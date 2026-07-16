@@ -120,7 +120,7 @@ fn price_cache_consistency(e: Env, asset: Address) {
         asset_decimals,
         timestamp,
     };
-    cache.prices_cache.set(asset.clone(), seeded.clone());
+    cache.token_prices.set(asset.clone(), seeded.clone());
 
     let feed = crate::oracle::token_price(&mut cache, &asset);
 

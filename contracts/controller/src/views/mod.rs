@@ -18,7 +18,7 @@ mod aggregates;
 #[path = "../../../../certora/controller/harness/views/aggregates.rs"]
 mod aggregates;
 mod limits;
-pub use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
+pub(crate) use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
 
 use crate::context::Cache;
 use crate::oracle::{price_components, token_price};
@@ -231,7 +231,7 @@ impl Controller {
 
 /// Returns the account health factor in raw WAD; `i128::MAX` when the account
 /// has no debt or does not exist.
-pub fn health_factor(env: &Env, account_id: u64) -> i128 {
+pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     match storage::try_get_account(env, account_id) {
         // A debt-free account has an infinite health factor regardless of collateral,
@@ -254,14 +254,14 @@ pub fn health_factor(env: &Env, account_id: u64) -> i128 {
 }
 
 /// Returns whether the account's health factor is below one.
-pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
+pub(crate) fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
     // dimensional: raw WAD HealthFactor is compared to WAD-scaled 1.0.
     health_factor(env, account_id) < WAD
 }
 
 /// Returns the account's current underlying collateral for one hub-asset; `0`
 /// when no such supply position exists.
-pub fn collateral_amount_for_hub_asset(
+pub(crate) fn collateral_amount_for_hub_asset(
     env: &Env,
     account_id: u64,
     hub_asset: &HubAssetKey,
@@ -282,7 +282,7 @@ pub fn collateral_amount_for_hub_asset(
 
 /// Returns the account's current underlying debt for one hub-asset; `0` when no
 /// such debt position exists.
-pub fn borrow_amount_for_hub_asset(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
+pub(crate) fn borrow_amount_for_hub_asset(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     let Some(position) = storage::try_get_debt_position(env, account_id, hub_asset) else {
         return 0;
     };
@@ -298,12 +298,12 @@ pub fn borrow_amount_for_hub_asset(env: &Env, account_id: u64, hub_asset: &HubAs
 }
 
 /// Returns whether on-chain account metadata still exists for `account_id`.
-pub fn account_exists(env: &Env, account_id: u64) -> bool {
+pub(crate) fn account_exists(env: &Env, account_id: u64) -> bool {
     storage::try_get_account_meta(env, account_id).is_some()
 }
 
 /// Returns raw scaled supply and debt maps for `account_id`.
-pub fn get_account_positions(
+pub(crate) fn get_account_positions(
     env: &Env,
     account_id: u64,
 ) -> (
@@ -321,14 +321,14 @@ pub fn get_account_positions(
 }
 
 /// Returns the account's mode and spoke attributes.
-pub fn get_account_attributes(env: &Env, account_id: u64) -> AccountAttributes {
+pub(crate) fn get_account_attributes(env: &Env, account_id: u64) -> AccountAttributes {
     let meta = storage::get_account_meta(env, account_id);
     AccountAttributes::from(&meta)
 }
 
 /// Returns the account's liquidation-threshold weighted collateral in USD WAD;
 /// `0` for a missing account.
-pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
+pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
@@ -346,12 +346,12 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
 }
 
 /// Returns the central liquidity pool address.
-pub fn get_pool_address(env: &Env) -> Address {
+pub(crate) fn get_pool_address(env: &Env) -> Address {
     storage::get_pool(env)
 }
 
 /// Returns config and token-rooted USD price for each requested hub-asset market.
-pub fn get_all_markets_detailed(
+pub(crate) fn get_all_markets_detailed(
     env: &Env,
     hub_assets: &Vec<HubAssetKey>,
 ) -> Vec<AssetExtendedConfigView> {
@@ -376,7 +376,7 @@ pub fn get_all_markets_detailed(
 }
 
 /// Returns accrued indexes and price components for each requested hub-asset market.
-pub fn get_all_market_indexes_detailed(
+pub(crate) fn get_all_market_indexes_detailed(
     env: &Env,
     hub_assets: &Vec<HubAssetKey>,
 ) -> Vec<MarketIndexView> {
@@ -405,7 +405,7 @@ pub fn get_all_market_indexes_detailed(
 
 /// Simulates liquidating `account_id` with `debt_payments` and returns the seize,
 /// fee, refund, and bonus estimate.
-pub fn liquidation_estimations_detailed(
+pub(crate) fn liquidation_estimations_detailed(
     env: &Env,
     account_id: u64,
     debt_payments: &Vec<HubPayment>,

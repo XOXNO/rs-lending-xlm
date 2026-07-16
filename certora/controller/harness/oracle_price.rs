@@ -14,7 +14,7 @@ use crate::spec::summaries::token_price_summary;
 pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
     // Cache-hit returns the stored feed unchanged (mirrors production
     // `oracle::price::token_price`); only a cache-miss resolves nondet.
-    if let Some(feed) = cache.prices_cache.get(asset.clone()) {
+    if let Some(feed) = cache.token_prices.get(asset.clone()) {
         return feed;
     }
     token_price_summary(cache, asset)

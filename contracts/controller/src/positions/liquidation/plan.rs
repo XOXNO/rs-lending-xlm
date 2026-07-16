@@ -1,5 +1,8 @@
-//! Builds the liquidation plan: priced repay/seize legs and the bonus, gated on
-//! the target account's health factor being below one.
+//! Builds the liquidation plan (priced repay/seize legs and bonus).
+//!
+//! Gates: non-empty debt, debt-leg pause preflight, HF < 1. Then normalizes
+//! repay amounts and pro-rata seizures. Pure relative to pool transfers —
+//! apply owns money movement.
 
 use crate::risk;
 use common::errors::{CollateralError, SpokeError};
@@ -11,7 +14,7 @@ use crate::context::Cache;
 use crate::positions::liquidation::math::*;
 use crate::positions::HubPayment;
 
-/// Builds the liquidation plan and converts it into the executable result.
+/// Builds the plan and converts it to the executable `LiquidationResult`.
 pub(crate) fn execute_liquidation(
     env: &Env,
     account: &Account,
@@ -21,29 +24,27 @@ pub(crate) fn execute_liquidation(
     build_liquidation_plan(env, account, aggregated_debt, cache).into_result()
 }
 
-/// Prices the account's positions, gates on health factor below one, and
-/// returns the full repay/seize plan.
+/// Prices positions, enforces HF < 1, returns the full repay/seize plan.
 pub(crate) fn build_liquidation_plan(
     env: &Env,
     account: &Account,
     aggregated_debt: &Vec<HubPayment>,
     cache: &mut Cache,
 ) -> LiquidationPlan {
-    // One totals pass feeds both the HF gate and the snapshot. A debt-free
-    // account carries a saturated health factor that fails the `hf < ONE` gate,
-    // but the early panic skips pricing it.
+    // Debt-free accounts never liquidate; skip pricing a saturated HF.
     if account.borrow_positions.is_empty() {
         panic_with_error!(env, CollateralError::HealthFactorTooHigh);
     }
 
-    // Fast-fail twin of the per-transfer gate in `apply_liquidation_repayments`,
-    // placed here so the estimate view mirrors executability.
+    // Twin of the per-transfer gate in apply: listed debt must not be paused.
+    // Missing listing is not treated as paused (pricing fails closed later).
     for (hub_asset, _) in aggregated_debt.iter() {
         let debt_paused = cache
             .cached_spoke_asset(account.spoke_id, &hub_asset)
             .is_some_and(|c| c.paused);
         assert_with_error!(env, !debt_paused, SpokeError::SpokeAssetPaused);
     }
+
     let totals = risk::calculate_account_risk_totals(
         env,
         cache,

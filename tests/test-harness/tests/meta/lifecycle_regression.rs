@@ -32,25 +32,3 @@ fn test_create_liquidity_pool_rejects_asset_id_mismatch() {
 
     assert_contract_error(result, errors::GenericError::WrongToken as u32);
 }
-
-#[test]
-#[ignore]
-fn test_create_liquidity_pool_rejects_asset_decimals_mismatch() {
-    let t = LendingTest::new().build();
-    let ctrl = t.ctrl_client();
-
-    let asset = create_asset_contract(&t);
-    let decimals = token::Client::new(&t.env, &asset).decimals();
-    let mismatched_decimals = decimals.saturating_add(1);
-
-    let params = usdc_preset()
-        .params
-        .to_market_params(&asset, mismatched_decimals);
-
-    let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(err) => Err(err.expect("expected contract error")),
-    };
-
-    assert_contract_error(result, errors::INVALID_ASSET);
-}

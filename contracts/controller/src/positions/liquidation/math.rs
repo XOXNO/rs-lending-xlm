@@ -1,4 +1,8 @@
-//! Liquidation accounting.
+//! Liquidation accounting (bonus curve, repay normalization, seizure, excess).
+//!
+//! Pure relative to pool transfers: builds priced plans for plan/apply.
+//! `refunds` are informational for callers — apply never transfers them.
+//! Dimensional notes use Wad/Ray/Bps units on critical formulas.
 
 use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::{CollateralError, GenericError};
@@ -10,13 +14,13 @@ use common::types::{
 use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
 use crate::context::Cache;
-use crate::payments as utils;
+use crate::payments;
 use crate::positions::HubPayment;
 use crate::risk;
 use crate::risk::validation;
 use crate::storage::iter_typed_positions;
 
-/// Aggregate position metrics for liquidation helpers.
+/// Pre-liq account metrics for ideal-repay and bonus math.
 #[derive(Clone, Copy)]
 pub(crate) struct LiquidationSnapshot {
     // dimensional: debt/collateral/weighted_coll are Wad<USD>; proportion/hf are Wad<1>.
@@ -27,14 +31,16 @@ pub(crate) struct LiquidationSnapshot {
     pub hf: Wad,
 }
 
-/// Liquidation bonus interpolation bounds (base and protocol-max).
+/// Value-weighted base bonus and protocol max ceiling for the account mix.
 #[derive(Clone, Copy)]
 pub(crate) struct BonusBounds {
     pub base: Bps,
     pub max: Bps,
 }
 
-/// Repayment legs after close-amount, excess-refund, and dust-residue caps.
+/// Repay legs after close-amount, USD ideal, and dust full-close caps.
+///
+/// `refunds` records overpay relative to those caps; apply does not transfer them.
 pub(crate) struct NormalizedRepaymentPlan {
     pub repaid: Vec<RepayEntry>,
     pub refunds: Vec<PaymentTuple>,
@@ -43,7 +49,7 @@ pub(crate) struct NormalizedRepaymentPlan {
 }
 
 impl NormalizedRepaymentPlan {
-    /// Panics unless the repaid legs sum to the recorded repay total.
+    /// Panics unless sum of leg USD equals `repay_usd`.
     fn validate(&self, env: &Env) {
         if sum_repaid_usd(&self.repaid) != self.repay_usd {
             panic_with_error!(env, GenericError::InternalError);
@@ -51,15 +57,15 @@ impl NormalizedRepaymentPlan {
     }
 }
 
-/// Fully-priced liquidation plan. This is the handoff object from pure
-/// liquidation math to stateful pool execution.
+/// Fully priced plan: handoff from math to stateful pool execution.
 pub(crate) struct LiquidationPlan {
     pub repayment: NormalizedRepaymentPlan,
     pub seized: Vec<SeizeEntry>,
 }
 
 impl LiquidationPlan {
-    /// Panics unless the repayment and every seize leg satisfy plan invariants.
+    /// Panics unless repay sum matches and every seize has amount > 0 and
+    /// `0 <= protocol_fee <= amount`.
     pub(crate) fn validate(&self, env: &Env) {
         self.repayment.validate(env);
 
@@ -70,7 +76,7 @@ impl LiquidationPlan {
         }
     }
 
-    /// Converts the plan into the executable `LiquidationResult`.
+    /// Convert to the ABI/result shape used by apply.
     pub(crate) fn into_result(self) -> LiquidationResult {
         LiquidationResult {
             seized: self.seized,
@@ -82,7 +88,7 @@ impl LiquidationPlan {
     }
 }
 
-/// True when collateral is small enough for bad-debt socialization.
+/// Residual bad debt: underwater and collateral USD at or below the threshold.
 pub(crate) fn is_socializable_bad_debt(total_debt: Wad, total_collateral: Wad) -> bool {
     total_debt > total_collateral && total_collateral <= Wad::from(BAD_DEBT_USD_THRESHOLD)
 }
@@ -113,8 +119,7 @@ pub(crate) fn calculate_seizure_proportions(
     (proportion_seized, bounds)
 }
 
-/// Prices each debt leg, diverting over-repayment into refunds, and returns the
-/// total repaid USD with per-leg entries.
+/// Price each debt leg; cap amount to full-close (ceil); excess → refunds.
 pub(crate) fn calculate_repayment_amounts(
     env: &Env,
     raw_payments: &Vec<HubPayment>,
@@ -125,7 +130,7 @@ pub(crate) fn calculate_repayment_amounts(
     let mut total_repaid_usd = Wad::ZERO;
     let mut repaid_tokens: Vec<RepayEntry> = Vec::new(env);
 
-    let merged = utils::aggregate_positive_payments(env, raw_payments);
+    let merged = payments::aggregate_positive_payments(env, raw_payments);
 
     for (hub_asset, amount) in merged {
         let feed = cache.cached_price_for(account.spoke_id, &hub_asset);
@@ -169,8 +174,7 @@ pub(crate) fn calculate_repayment_amounts(
     (total_repaid_usd, repaid_tokens)
 }
 
-/// Prices repay legs, caps them to the max repayable USD, and returns the
-/// validated repayment plan.
+/// Price legs, cap to ideal USD (bonus curve + dust full-close), validate plan.
 pub(crate) fn normalize_repayment_plan(
     env: &Env,
     account: &Account,
@@ -226,8 +230,7 @@ pub(crate) fn sum_repaid_usd(repaid_tokens: &Vec<RepayEntry>) -> Wad {
     total
 }
 
-/// Distributes the bonused seizure across collateral, applying per-asset caps
-/// and protocol fees.
+/// Pro-rata bonused seizure across supply, per-asset caps, and protocol fees.
 pub(crate) fn calculate_seized_collateral(
     env: &Env,
     account: &Account,
@@ -308,8 +311,7 @@ pub(crate) fn calculate_seized_collateral(
     seized
 }
 
-/// Refunds over-repayment USD from the tail repay legs, floor-splitting the
-/// boundary leg.
+/// Trim over-repayment USD from the tail of repay legs (floor split on boundary).
 pub(crate) fn process_excess_payment(
     env: &Env,
     repaid_tokens: &mut Vec<RepayEntry>,
@@ -372,8 +374,7 @@ pub(crate) fn process_excess_payment(
     }
 }
 
-/// Resolved liquidation curve for an account's spoke. Spoke creation stamps
-/// the default curve values, so storage always carries effective parameters.
+/// Spoke-stamped liquidation curve (target HF, max-bonus HF, bonus factor).
 pub(crate) struct LiquidationCurve {
     target_hf: Wad,
     hf_for_max_bonus: Wad,
@@ -420,7 +421,7 @@ impl LiquidationCurve {
 
 /// Interpolates liquidation bonus from base to max as HF falls below target,
 /// following the account's resolved liquidation curve.
-pub fn calculate_linear_bonus_with_target(
+pub(crate) fn calculate_linear_bonus_with_target(
     env: &Env,
     hf: Wad,
     base: Bps,
@@ -541,7 +542,7 @@ fn try_liquidation_at_target(
     Some(d_ideal.min(d_max).min(snap.total_debt))
 }
 
-/// Largest liquidation bonus that keeps seizure below account collateral.
+/// Max bonus such that effective_threshold × (1 + bonus) stays ≤ 1.
 pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps {
     if proportion_seized <= Wad::ZERO {
         return Bps::from(0);
@@ -559,7 +560,7 @@ pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps 
     Bps::from(numerator / eff_thr_bps)
 }
 
-/// Returns base and max liquidation bonus for the account collateral mix.
+/// Value-weighted base bonus and max ceiling for the account's supply mix.
 pub(crate) fn get_account_bonus_params(
     env: &Env,
     cache: &mut Cache,

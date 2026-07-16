@@ -188,7 +188,7 @@ pub(crate) fn net_settle_collateral_against_debt(
     }
     let mut new_supply_position = supply_position;
     new_supply_position.scaled_amount = new_supply_scaled;
-    // Matches `finish_withdrawal`: re-stamp risk params from the current
+    // Matches `finish_withdraw_leg`: re-stamp risk params from the current
     // effective spoke-asset config (no-op for a deprecated spoke or a
     // removed spoke member) before persisting, so a position that only ever
     // touches this path doesn't drift onto a stale LTV/threshold/bonus/fees
@@ -216,7 +216,7 @@ pub(crate) fn net_settle_collateral_against_debt(
     update_or_remove_debt_position(account, hub_asset, &new_debt_position);
 
     cache.put_market_index(hub_asset, &result.market_index);
-    cache.record_position_update(
+    cache.record_supply_position_update(
         action,
         hub_asset,
         result.market_index.supply_index,

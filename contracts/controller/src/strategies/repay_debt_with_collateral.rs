@@ -16,7 +16,7 @@ use crate::strategies::{
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
 
-pub struct RepayWithCollateralParams<'a> {
+pub(crate) struct RepayWithCollateralParams<'a> {
     pub account_id: u64,
     pub collateral: &'a HubAssetKey,
     pub collateral_amount: i128,
@@ -53,8 +53,11 @@ impl Controller {
     }
 }
 
-/// Withdraws collateral, swaps it to the debt token, and repays the debt position.
-pub fn process_repay_debt_with_collateral(
+/// Withdraw collateral → (swap to debt token) → repay; optional full close.
+///
+/// Checklist: auth → reentrancy → preflight → account → oracles →
+/// net-or-swap-repay → optional close → finalize.
+pub(crate) fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
     params: RepayWithCollateralParams<'_>,
@@ -68,81 +71,120 @@ pub fn process_repay_debt_with_collateral(
         close_position,
     } = params;
 
+    // 1–2. Auth + reentrancy
     caller.require_auth();
     validation::require_not_flash_loaning(env);
-    validation::require_positive_amount(env, collateral_amount);
 
-    // The withdraw and repay legs settle on their own hubs; neither path gates
-    // hub membership, so assert it here.
+    // 3. Preflight
+    validation::require_positive_amount(env, collateral_amount);
     validation::require_hub_active(env, collateral.hub_id);
     validation::require_hub_active(env, debt.hub_id);
 
+    // 4. Account
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
-
     let mut cache = Cache::new(env);
 
+    // 5. Oracles
     let extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
+    // 6. Same hub-asset → pool net settle; else withdraw → swap → repay
     if collateral == debt {
-        // Identical hub-asset: net the two legs in the pool with zero token
-        // transfer instead of withdrawing then immediately repaying the same
-        // real amount back in. Strictly more available than the transfer
-        // path below — it never needs idle pool liquidity, only that both
-        // positions exist.
-        assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
-        net_settle_collateral_against_debt(
+        repay_same_asset_net(
             env,
             &mut account,
             &mut cache,
             collateral,
             collateral_amount,
-            events::PositionAction::RpColNet,
-        );
-    } else {
-        let collateral_pos = get_supply_position_or_panic(env, &account, collateral);
-        let debt_pos = get_debt_position_or_panic(env, &account, debt);
-
-        // D{collateral_token.decimals}{Token(collateral_token)} requested withdrawal to live balance delta.
-        let actual_withdrawn = withdraw_collateral_to_controller(
-            env,
-            &mut account,
-            &mut cache,
-            StrategyWithdraw {
-                hub_asset: collateral,
-                amount: collateral_amount,
-                position: &collateral_pos,
-                action: events::PositionAction::RpColWd,
-            },
-        );
-
-        // D{collateral_token.decimals}{Token(collateral_token)} -> Token(debt_token), unless same asset.
-        let debt_available = swap_tokens_or_passthrough(
-            env,
-            caller,
-            &collateral.asset,
-            actual_withdrawn,
-            &debt.asset,
             swap,
         );
-        repay_debt_from_controller(
+    } else {
+        repay_via_collateral_swap(
             env,
+            caller,
             &mut account,
             &mut cache,
-            caller,
-            StrategyRepay {
-                debt,
-                debt_available,
-                debt_pos: &debt_pos,
-                action: events::PositionAction::RpColR,
-            },
+            collateral,
+            collateral_amount,
+            debt,
+            swap,
         );
     }
 
+    // 6b. Optional full collateral exit (requires zero debt remaining)
     close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
 
+    // 7. Finalize
     strategy_finalize(env, account_id, &account, &mut cache);
+}
+
+/// Same (hub, asset): net collat against debt in-pool (no token round-trip).
+fn repay_same_asset_net(
+    env: &Env,
+    account: &mut Account,
+    cache: &mut Cache,
+    hub_asset: &HubAssetKey,
+    amount: i128,
+    swap: &StrategySwap,
+) {
+    assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
+    net_settle_collateral_against_debt(
+        env,
+        account,
+        cache,
+        hub_asset,
+        amount,
+        events::PositionAction::RpColNet,
+    );
+}
+
+/// Distinct assets: withdraw collat → swap to debt token → repay from controller.
+fn repay_via_collateral_swap(
+    env: &Env,
+    caller: &Address,
+    account: &mut Account,
+    cache: &mut Cache,
+    collateral: &HubAssetKey,
+    collateral_amount: i128,
+    debt: &HubAssetKey,
+    swap: &StrategySwap,
+) {
+    let collateral_pos = get_supply_position_or_panic(env, account, collateral);
+    let debt_pos = get_debt_position_or_panic(env, account, debt);
+
+    let actual_withdrawn = withdraw_collateral_to_controller(
+        env,
+        account,
+        cache,
+        StrategyWithdraw {
+            hub_asset: collateral,
+            amount: collateral_amount,
+            position: &collateral_pos,
+            action: events::PositionAction::RpColWd,
+        },
+    );
+
+    let debt_available = swap_tokens_or_passthrough(
+        env,
+        caller,
+        &collateral.asset,
+        actual_withdrawn,
+        &debt.asset,
+        swap,
+    );
+    repay_debt_from_controller(
+        env,
+        account,
+        cache,
+        caller,
+        StrategyRepay {
+            debt,
+            debt_available,
+            debt_pos: &debt_pos,
+            action: events::PositionAction::RpColR,
+        },
+    );
 }
 
 /// Withdraws all remaining collateral when closing, requiring no debt remains.

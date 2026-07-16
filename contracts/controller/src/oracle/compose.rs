@@ -10,7 +10,7 @@ use crate::oracle::observation::OracleObservation;
 use crate::oracle::providers;
 use crate::oracle::tolerance::calculate_final_price;
 
-pub struct ResolvedOracleComponents {
+pub(crate) struct ResolvedOracleComponents {
     pub primary_price_wad: Option<i128>,
     pub anchor_price_wad: Option<i128>,
     pub final_price_wad: i128,

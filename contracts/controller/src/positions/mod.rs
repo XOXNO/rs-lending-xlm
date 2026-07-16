@@ -1,6 +1,23 @@
-//! Core position lifecycle operations.
+//! Core position lifecycle: shared types and helpers for supply, borrow,
+//! withdraw, repay, and liquidation.
+//!
+//! # Pipeline vocabulary (every money path)
+//!
+//! | Stage | Name pattern | Role |
+//! |-------|----------------|------|
+//! | ABI | `supply` / `borrow` / … | `contractimpl` entry |
+//! | Orchestrate | `process_*` | auth, load account, order stages |
+//! | Build | `build_*` / `transfer_and_build_*` | flags, transfers, pool request rows |
+//! | Cross-contract | `settle_*` / `pool_*_call` | one batch pool mutation |
+//! | Per-leg merge | `finish_*_leg` | scaled amounts, usage, events, maps |
+//! | Tail | `finalize_position_flow` | spoke usage persist, positions, batch emit |
+//!
+//! Liquidation uses plan → apply, then a custom persist (both sides) before
+//! optional bad-debt cleanup instead of `finalize_position_flow`.
+//!
+//! This file owns shared bricks: payment aliases, `PositionSides`, finalize,
+//! entry gates, spoke flags, `make_pool_action`, exact position lookups.
 
-use crate::account;
 use common::errors::{CollateralError, SpokeError};
 use common::types::{
     Account, AccountPosition, AccountPositionType, DebtPosition, HubAssetKey, PoolAction,
@@ -8,24 +25,25 @@ use common::types::{
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
+use crate::account;
 use crate::context::Cache;
 use crate::risk::validation;
 use crate::spoke;
 use crate::storage;
 
-pub mod borrow;
-pub mod liquidation;
-pub mod repay;
-pub mod supply;
-pub mod withdraw;
+pub(crate) mod borrow;
+pub(crate) mod liquidation;
+pub(crate) mod repay;
+pub(crate) mod supply;
+pub(crate) mod withdraw;
 
-/// Hub asset plus amount.
+/// Hub asset plus amount (one payment leg).
 pub(crate) type HubPayment = (HubAssetKey, i128);
 
-/// Deduped payment rows.
+/// Deduped payment rows after aggregation.
 pub(crate) type AggregatedPayments = Vec<HubPayment>;
 
-/// Position maps to persist.
+/// Which account position maps to write on finalize.
 #[derive(Copy, Clone)]
 pub(crate) struct PositionSides {
     pub supply: bool,
@@ -47,7 +65,7 @@ impl PositionSides {
     };
 }
 
-/// Persists selected position maps.
+/// Writes the selected position maps; optionally removes an empty account.
 pub(crate) fn persist_account_positions(
     env: &Env,
     account_id: u64,
@@ -66,7 +84,10 @@ pub(crate) fn persist_account_positions(
     }
 }
 
-/// Standard tail for user position flows: persist then emit.
+/// Standard tail for user position flows: spoke usage, positions, then events.
+///
+/// `remove_if_empty` is true only on full-exit withdraw; supply/borrow/repay
+/// leave the account in place even if one side is empty.
 pub(crate) fn finalize_position_flow(
     env: &Env,
     account_id: u64,
@@ -80,9 +101,10 @@ pub(crate) fn finalize_position_flow(
     cache.emit_position_batch(account_id, account);
 }
 
-/// Shared pre-pool entry gates for deposit and borrow batches: bulk position
-/// limits, hub/market activity, spoke listing, per-spoke flags, and the
-/// side-specific collateral/borrow capability flag.
+/// Shared pre-pool entry gates for deposit and borrow batches.
+///
+/// Checks bulk position limits, hub/market activity, spoke listing, per-spoke
+/// flags (pause and freeze), and the side-specific supply/borrow capability.
 pub(crate) fn validate_position_entry_gates(
     env: &Env,
     account: &Account,
@@ -95,11 +117,10 @@ pub(crate) fn validate_position_entry_gates(
     for (hub_asset, _) in aggregated {
         validation::require_hub_active(env, hub_asset.hub_id);
         validation::require_market_active(env, cache, &hub_asset);
-        // Risk config is read from the account's spoke listing; unlisted
-        // assets revert `AssetNotInSpoke`.
+        // Unlisted assets revert `AssetNotInSpoke`.
         let asset_config =
             spoke::require_listed_active_config(env, cache, account.spoke_id, &hub_asset);
-        // Frozen blocks new entries; paused blocks every verb.
+        // New entries: frozen blocks; paused blocks every verb.
         enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
         match position_type {
             AccountPositionType::Deposit => assert_with_error!(
@@ -116,7 +137,12 @@ pub(crate) fn validate_position_entry_gates(
     }
 }
 
-/// Enforces per-spoke paused/frozen flags.
+/// Enforces per-spoke paused/frozen flags when the asset is still listed.
+///
+/// Always reverts if paused. When `block_when_frozen` is true (new deposit/borrow),
+/// also reverts if frozen. Exit paths (withdraw/repay) pass false so freeze still
+/// allows reducing positions. Missing listing is a no-op here (callers that need
+/// a listing use `require_listed_active_config` first).
 pub(crate) fn enforce_spoke_asset_flags(
     env: &Env,
     cache: &mut Cache,
@@ -132,7 +158,7 @@ pub(crate) fn enforce_spoke_asset_flags(
     }
 }
 
-/// Builds a `PoolAction` from a position, amount, and hub asset.
+/// Builds a `PoolAction` from a scaled position, amount, and hub asset.
 pub(crate) fn make_pool_action(
     position: impl Into<ScaledPositionRaw>,
     amount: i128,
@@ -145,9 +171,10 @@ pub(crate) fn make_pool_action(
     }
 }
 
-/// Exact lookup for the user-facing withdraw path (repay's counterpart is
-/// `get_debt_position_or_panic`). Kept separate from `expect_invariant`'s
-/// liquidation apply-path lookups to preserve missing-position error codes.
+/// Supply position lookup for withdraw and related paths.
+///
+/// Panics with `CollateralPositionNotFound` (distinct from liquidation's
+/// `expect_invariant` path so user errors stay stable).
 pub(crate) fn get_supply_position_or_panic(
     env: &Env,
     account: &Account,
@@ -160,7 +187,9 @@ pub(crate) fn get_supply_position_or_panic(
         .into()
 }
 
-/// Returns the account's debt position for `hub_asset`, panicking if absent.
+/// Debt position lookup for repay and related paths.
+///
+/// Panics with `DebtPositionNotFound`.
 pub(crate) fn get_debt_position_or_panic(
     env: &Env,
     account: &Account,

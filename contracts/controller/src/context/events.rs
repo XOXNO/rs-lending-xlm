@@ -1,4 +1,7 @@
-//! Buffered position event context methods.
+//! Buffered position-batch event methods.
+//!
+//! Supply-side and debt-side deltas accumulate until `emit_position_batch`
+//! publishes one event and clears both buffers.
 
 use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey};
 use soroban_sdk::Vec;
@@ -9,8 +12,8 @@ use crate::events::{
 };
 
 impl Cache {
-    /// Buffers a supply-position delta for the next batch event emission.
-    pub fn record_position_update(
+    /// Buffers a supply-side delta (supply, withdraw, liq seize, …) for the batch.
+    pub(crate) fn record_supply_position_update(
         &mut self,
         action: PositionAction,
         hub_asset: &HubAssetKey,
@@ -18,7 +21,7 @@ impl Cache {
         amount: i128,
         position: &AccountPosition,
     ) {
-        self.deposit_updates.push_back(EventDepositDelta::new(
+        self.supply_updates.push_back(EventDepositDelta::new(
             action,
             hub_asset.hub_id,
             hub_asset.asset.clone(),
@@ -28,8 +31,8 @@ impl Cache {
         ));
     }
 
-    /// Buffers a debt-position delta for the next batch event emission.
-    pub fn record_debt_position_update(
+    /// Buffers a debt-side delta (borrow, repay, liq repay, …) for the batch.
+    pub(crate) fn record_debt_position_update(
         &mut self,
         action: PositionAction,
         hub_asset: &HubAssetKey,
@@ -37,7 +40,7 @@ impl Cache {
         amount: i128,
         position: &DebtPosition,
     ) {
-        self.borrow_updates.push_back(EventBorrowDelta::new(
+        self.debt_updates.push_back(EventBorrowDelta::new(
             action,
             hub_asset.hub_id,
             hub_asset.asset.clone(),
@@ -47,19 +50,20 @@ impl Cache {
         ));
     }
 
-    /// Publishes buffered supply and debt deltas as one position-batch event, then clears the buffers.
-    pub fn emit_position_batch(&mut self, account_id: u64, account: &Account) {
-        if self.deposit_updates.is_empty() && self.borrow_updates.is_empty() {
+    /// Publishes one position-batch event from both buffers, then clears them.
+    /// No-op when both buffers are empty.
+    pub(crate) fn emit_position_batch(&mut self, account_id: u64, account: &Account) {
+        if self.supply_updates.is_empty() && self.debt_updates.is_empty() {
             return;
         }
         UpdatePositionBatchEvent {
             account_id,
             account_attributes: account.into(),
-            deposits: self.deposit_updates.clone(),
-            borrows: self.borrow_updates.clone(),
+            deposits: self.supply_updates.clone(),
+            borrows: self.debt_updates.clone(),
         }
         .publish(&self.env);
-        self.deposit_updates = Vec::new(&self.env);
-        self.borrow_updates = Vec::new(&self.env);
+        self.supply_updates = Vec::new(&self.env);
+        self.debt_updates = Vec::new(&self.env);
     }
 }

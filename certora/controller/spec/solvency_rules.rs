@@ -261,24 +261,24 @@ fn borrow_repay_roundtrip_no_profit(e: Env) {
     cvlr_assert!(debt_owed >= amount - 1);
 }
 
-/// Clearing prices_cache forces a fresh oracle fetch.
+/// Clearing token_prices forces a fresh oracle fetch.
 #[rule]
 fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
     let mut cache = crate::context::Cache::new(&e);
 
     let _feed1 = cache.cached_price(&asset);
 
-    let cached = cache.prices_cache.get(asset.clone());
+    let cached = cache.token_prices.get(asset.clone());
     cvlr_assert!(cached.is_some());
 
-    cache.prices_cache = Map::new(&e);
+    cache.token_prices = Map::new(&e);
 
-    let cached_after = cache.prices_cache.get(asset.clone());
+    let cached_after = cache.token_prices.get(asset.clone());
     cvlr_assert!(cached_after.is_none());
 
     let _feed2 = cache.cached_price(&asset);
 
-    let cached_repopulated = cache.prices_cache.get(asset.clone());
+    let cached_repopulated = cache.token_prices.get(asset.clone());
     cvlr_assert!(cached_repopulated.is_some());
 }
 

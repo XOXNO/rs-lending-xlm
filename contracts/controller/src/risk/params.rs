@@ -13,7 +13,7 @@ use crate::risk::calculate_account_risk_totals;
 pub const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;
 
 /// Applies `effective_config` risk params to an in-flight collateral position.
-pub fn refresh_supply_risk_params(
+pub(crate) fn refresh_supply_risk_params(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
@@ -36,7 +36,7 @@ pub fn refresh_supply_risk_params(
 
 /// Refreshes position risk params while the listing exists (deprecated
 /// spokes included); a removed spoke member keeps its stamped params.
-pub fn refresh_supply_risk_params_for_asset(
+pub(crate) fn refresh_supply_risk_params_for_asset(
     env: &Env,
     cache: &mut Cache,
     account: &Account,

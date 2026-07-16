@@ -20,7 +20,7 @@ const PARTIAL_SETTLE_STEPS: u32 = 24;
 
 /// Largest withdrawable amount of `hub_asset`; `0` when no position exists,
 /// the listing is paused, or every partial fails the pool and account gates.
-pub fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
+pub(crate) fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;
     };

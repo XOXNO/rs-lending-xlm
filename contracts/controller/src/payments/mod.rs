@@ -10,19 +10,19 @@ use crate::positions::HubPayment;
 use crate::risk::validation;
 
 /// Deduplicates by hub asset and sums amounts; panics on zero or negative entries.
-pub fn aggregate_positive_payments(env: &Env, payments: &Vec<HubPayment>) -> Vec<HubPayment> {
+pub(crate) fn aggregate_positive_payments(env: &Env, payments: &Vec<HubPayment>) -> Vec<HubPayment> {
     aggregate_payments(env, payments, false)
 }
 
 /// Appends `addr` to `out` if absent (order-preserving dedup).
-pub fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
+pub(crate) fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
     if !out.contains(&addr) {
         out.push_back(addr);
     }
 }
 
 /// Transfers a positive SAC `amount`, reverting with `non_positive_error` otherwise.
-pub fn transfer_amount(
+pub(crate) fn transfer_amount(
     env: &Env,
     asset: &Address,
     from: &Address,
@@ -36,7 +36,7 @@ pub fn transfer_amount(
 }
 
 /// Deduplicates payments by hub asset and sums amounts; a zero leg means withdraw-all when `zero_is_withdraw_all`.
-pub fn aggregate_payments(
+pub(crate) fn aggregate_payments(
     env: &Env,
     payments: &Vec<HubPayment>,
     zero_is_withdraw_all: bool,

@@ -10,7 +10,7 @@ use soroban_sdk::{panic_with_error, Env};
 use crate::context::Cache;
 
 /// Risk config for the account's spoke.
-pub fn effective_asset_config(
+pub(crate) fn effective_asset_config(
     cache: &mut Cache,
     spoke_id: u32,
     hub_asset: &HubAssetKey,
@@ -20,7 +20,7 @@ pub fn effective_asset_config(
 
 /// Canonical risk-entry gate: the spoke must be active (`SpokeDeprecated`) and
 /// list the asset (`AssetNotInSpoke`); returns the listed risk config.
-pub fn require_listed_active_config(
+pub(crate) fn require_listed_active_config(
     env: &Env,
     cache: &mut Cache,
     spoke_id: u32,

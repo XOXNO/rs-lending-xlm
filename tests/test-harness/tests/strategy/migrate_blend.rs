@@ -425,6 +425,227 @@ fn test_migrate_empty_params_rejected() {
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 
+/// Cap equals actual Blend debt: no over-repay refund. Net controller debt must
+/// still equal the migrated liability (not zero, not inflated).
+#[test]
+fn test_migrate_debt_cap_exact_no_refund() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    let caller = t.get_or_create_user(ALICE);
+    let blend_addr = register_approved_blend(&t);
+    let blend = MockBlendClient::new(&t.env, &blend_addr);
+    seed_position(
+        &t,
+        &blend,
+        &blend_addr,
+        &caller,
+        "USDC",
+        KIND_COLLATERAL,
+        2000.0,
+    );
+    seed_position(&t, &blend, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
+
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let cap = f64_to_i128(0.5, t.resolve_market("ETH").decimals);
+
+    let account_id = t.ctrl_client().migrate_from_blend(
+        &caller,
+        &0u64,
+        &1u32,
+        &HARNESS_HUB,
+        &blend_addr,
+        &SorobanVec::from_array(&t.env, [usdc.clone()]),
+        &empty_assets(&t),
+        &SorobanVec::from_array(&t.env, [(eth.clone(), cap)]),
+    );
+
+    let borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
+    assert!(
+        (0.49..=0.51).contains(&borrow),
+        "exact-cap migrate must leave ~0.5 ETH debt (no refund path), got {borrow}"
+    );
+    assert_eq!(blend.position(&caller, &eth, &KIND_LIABILITY), 0);
+    assert_eq!(
+        t.env.as_contract(&t.controller, || {
+            soroban_sdk::token::Client::new(&t.env, &eth).balance(&t.controller)
+        }),
+        0,
+        "controller must not retain debt-token dust after exact-cap reconcile"
+    );
+}
+
+/// Debt asset listed with a positive cap but zero Blend liability: full amount is
+/// refunded and repaid, so controller net debt on that asset is zero.
+#[test]
+fn test_migrate_zero_blend_liability_cap_nets_zero_debt() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    let caller = t.get_or_create_user(ALICE);
+    let blend_addr = register_approved_blend(&t);
+    let blend = MockBlendClient::new(&t.env, &blend_addr);
+    seed_position(
+        &t,
+        &blend,
+        &blend_addr,
+        &caller,
+        "USDC",
+        KIND_COLLATERAL,
+        2000.0,
+    );
+    // No ETH liability seeded — only a spurious debt_cap.
+
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let cap = f64_to_i128(0.4, t.resolve_market("ETH").decimals);
+
+    let account_id = t.ctrl_client().migrate_from_blend(
+        &caller,
+        &0u64,
+        &1u32,
+        &HARNESS_HUB,
+        &blend_addr,
+        &SorobanVec::from_array(&t.env, [usdc]),
+        &empty_assets(&t),
+        &SorobanVec::from_array(&t.env, [(eth.clone(), cap)]),
+    );
+
+    let borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
+    assert!(
+        borrow == 0.0,
+        "zero Blend liability + full refund must net zero controller debt, got {borrow}"
+    );
+    assert_eq!(blend.position(&caller, &eth, &KIND_LIABILITY), 0);
+    let supply = t.supply_balance_for(ALICE, account_id, "USDC");
+    assert!(
+        (1990.0..=2010.0).contains(&supply),
+        "collateral sweep must still land, got {supply}"
+    );
+}
+
+/// Two debt assets, each with a buffer above true liability: each refund is
+/// reconciled independently so neither debt sticks at its cap.
+#[test]
+fn test_migrate_multi_debt_refund_reconciles_each() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    let caller = t.get_or_create_user(ALICE);
+    let blend_addr = register_approved_blend(&t);
+    let blend = MockBlendClient::new(&t.env, &blend_addr);
+    seed_position(
+        &t,
+        &blend,
+        &blend_addr,
+        &caller,
+        "USDC",
+        KIND_COLLATERAL,
+        5000.0,
+    );
+    seed_position(&t, &blend, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
+    seed_position(
+        &t,
+        &blend,
+        &blend_addr,
+        &caller,
+        "USDC",
+        KIND_LIABILITY,
+        200.0,
+    );
+
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let eth_cap = f64_to_i128(0.7, t.resolve_market("ETH").decimals);
+    let usdc_cap = f64_to_i128(250.0, t.resolve_market("USDC").decimals);
+
+    let account_id = t.ctrl_client().migrate_from_blend(
+        &caller,
+        &0u64,
+        &1u32,
+        &HARNESS_HUB,
+        &blend_addr,
+        &SorobanVec::from_array(&t.env, [usdc.clone()]),
+        &empty_assets(&t),
+        &SorobanVec::from_array(&t.env, [(eth.clone(), eth_cap), (usdc.clone(), usdc_cap)]),
+    );
+
+    let eth_borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
+    let usdc_borrow = t.borrow_balance_for(ALICE, account_id, "USDC");
+    assert!(
+        (0.49..=0.51).contains(&eth_borrow),
+        "ETH debt must reconcile to ~0.5 not 0.7 cap, got {eth_borrow}"
+    );
+    assert!(
+        (195.0..=205.0).contains(&usdc_borrow),
+        "USDC debt must reconcile to ~200 not 250 cap, got {usdc_borrow}"
+    );
+    assert_eq!(blend.position(&caller, &eth, &KIND_LIABILITY), 0);
+    assert_eq!(blend.position(&caller, &usdc, &KIND_LIABILITY), 0);
+    assert!(t.health_factor_for(ALICE, account_id) > 1.0);
+}
+
+/// Pre-existing controller inventory of a debt asset is not swept into refund
+/// math: snapshot is taken before the zero-fee borrow, so only Blend's refund
+/// delta is repaid.
+#[test]
+fn test_migrate_refund_ignores_preexisting_controller_balance() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    let caller = t.get_or_create_user(ALICE);
+    let blend_addr = register_approved_blend(&t);
+    let blend = MockBlendClient::new(&t.env, &blend_addr);
+    seed_position(
+        &t,
+        &blend,
+        &blend_addr,
+        &caller,
+        "USDC",
+        KIND_COLLATERAL,
+        2000.0,
+    );
+    seed_position(&t, &blend, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
+
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let eth_dec = t.resolve_market("ETH").decimals;
+    let stuck = f64_to_i128(0.25, eth_dec);
+    t.resolve_market("ETH")
+        .token_admin
+        .mint(&t.controller, &stuck);
+
+    let cap = f64_to_i128(0.6, eth_dec);
+    let account_id = t.ctrl_client().migrate_from_blend(
+        &caller,
+        &0u64,
+        &1u32,
+        &HARNESS_HUB,
+        &blend_addr,
+        &SorobanVec::from_array(&t.env, [usdc]),
+        &empty_assets(&t),
+        &SorobanVec::from_array(&t.env, [(eth.clone(), cap)]),
+    );
+
+    let borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
+    assert!(
+        (0.49..=0.51).contains(&borrow),
+        "debt must still reconcile to ~0.5, got {borrow}"
+    );
+    let controller_eth = t.env.as_contract(&t.controller, || {
+        soroban_sdk::token::Client::new(&t.env, &eth).balance(&t.controller)
+    });
+    assert_eq!(
+        controller_eth, stuck,
+        "pre-existing controller ETH must remain (not used as refund or swept)"
+    );
+}
+
 /// A debt asset listed twice in `debt_caps` is rejected before Blend calls.
 /// An asset may appear in both a withdraw role and the debt role.
 #[test]

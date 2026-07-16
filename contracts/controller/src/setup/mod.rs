@@ -9,7 +9,7 @@ use crate::external::pool::pool_create_market_call;
 use crate::{risk::validation, storage};
 
 /// Registers a hub asset market on the central pool.
-pub fn create_liquidity_pool(
+pub(crate) fn create_liquidity_pool(
     env: &Env,
     hub_id: u32,
     asset: &Address,
