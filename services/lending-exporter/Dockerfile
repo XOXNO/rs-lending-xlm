@@ -3,8 +3,8 @@
 # ------------------------------------------------------------------------
 # Build stage
 # ------------------------------------------------------------------------
-# Latest stable Rust: the Soroban stack (stellar-rpc-client 26) needs >= 1.93.
-FROM rust:1-bookworm AS builder
+# Pinned to rust-toolchain.toml (channel 1.95); the Soroban stack needs >= 1.93.
+FROM rust:1.95-bookworm AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

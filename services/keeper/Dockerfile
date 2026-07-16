@@ -3,7 +3,8 @@
 # ------------------------------------------------------------------------
 # Build stage
 # ------------------------------------------------------------------------
-FROM rust:1.84-bookworm AS builder
+# Pinned to rust-toolchain.toml (channel 1.95); the Soroban stack needs >= 1.93.
+FROM rust:1.95-bookworm AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -12,15 +13,15 @@ RUN apt-get update \
 
 WORKDIR /build
 
-# Cache dependencies separately from source.
-COPY Cargo.toml ./
+# Copy the lockfile so the build uses the pinned, tested dependency versions.
+COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY config ./config
 
 # Build with BuildKit cache mounts.
 RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
     --mount=type=cache,target=/build/target,sharing=locked \
-    cargo build --release --bin keeper-bot \
+    cargo build --release --locked --bin keeper-bot \
     && cp target/release/keeper-bot /keeper-bot
 
 # ------------------------------------------------------------------------
