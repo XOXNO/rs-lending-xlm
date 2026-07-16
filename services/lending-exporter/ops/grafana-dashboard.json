@@ -123,6 +123,7 @@
         { "refId": "BAP", "expr": "lending_market_borrow_apy{network=\"testnet\"}", "instant": true, "format": "table" }
       ],
       "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "instance": true, "job": true } } },
         { "id": "merge", "options": {} },
         { "id": "organize", "options": {
           "renameByName": {
@@ -130,7 +131,7 @@
             "Value #SUP": "Supplied $", "Value #BOR": "Borrowed $", "Value #LIQ": "Liquidity $",
             "Value #UTL": "Utilization", "Value #SAP": "Supply APY", "Value #BAP": "Borrow APY"
           },
-          "excludeByName": { "Time": true, "network": true, "hub_id": true, "asset": true },
+          "excludeByName": { "network": true, "hub_id": true, "asset": true },
           "indexByName": {
             "symbol": 0, "hub": 1,
             "Value #SUP": 2, "Value #BOR": 3, "Value #LIQ": 4,
