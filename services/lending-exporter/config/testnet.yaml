@@ -3,8 +3,6 @@
 # Addresses mirror configs/networks.json (the canonical deploy artifact / latest
 # testnet deployment). The exporter is per-market resilient: an address that no
 # longer resolves surfaces as a view failure, not a crash.
-#
-# Replace the placeholder `symbol` values with the real token tickers.
 network: testnet
 rpc:
   url: https://stellar-testnet-gateway.xoxno.com
@@ -16,13 +14,22 @@ contracts:
   # staleness reads are resolved from each asset's on-chain oracle config.
   xoxno_oracle_adapter: CB46MOUCOPA5TGDKKCY5OC2FEXGCBQ5KXR53RGOYY7XD7LN6JOE7OPRF
 markets:
-  - { hub_id: 1, asset: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA, symbol: TKN1 }
-  - { hub_id: 1, asset: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, symbol: TKN2 }
-  - { hub_id: 1, asset: CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ, symbol: TKN3 }
-  - { hub_id: 1, asset: CBK3FNAM3C54674OSOCQLDNW4EXMNUY6ZO3C3ZI5S5DGBIIPX4GJ7WHW, symbol: TKN4 }
-  - { hub_id: 1, asset: CBFNIHC2B7WMAH2CKNKQJOB3CWBUXXNNRQXYISJ7VZONM77YBMHCOULJ, symbol: TKN5 }
-  - { hub_id: 2, asset: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA, symbol: TKN1 }
+  - { hub_id: 1, asset: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA, symbol: USDC }
+  - { hub_id: 1, asset: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, symbol: XLM }
+  - { hub_id: 1, asset: CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ, symbol: EURC }
+  - { hub_id: 1, asset: CBK3FNAM3C54674OSOCQLDNW4EXMNUY6ZO3C3ZI5S5DGBIIPX4GJ7WHW, symbol: BTC }
+  - { hub_id: 1, asset: CBFNIHC2B7WMAH2CKNKQJOB3CWBUXXNNRQXYISJ7VZONM77YBMHCOULJ, symbol: ETH }
+  - { hub_id: 2, asset: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA, symbol: USDC }
 spokes: [1, 2, 3]
+# hub_id -> display name (configs/testnet/hubs.json)
+hubs:
+  1: Main
+  2: Secondary
+# spoke_id -> display name (configs/testnet/spokes.json)
+spoke_names:
+  1: Stablecoins
+  2: XLM + USDC
+  3: BTC + Dual USDC
 scrape_interval_seconds: 30
 metrics:
   bind: 0.0.0.0:9110
