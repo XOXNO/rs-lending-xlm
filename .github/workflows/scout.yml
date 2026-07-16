@@ -3,6 +3,18 @@ name: Scout Audit
 on:
   pull_request:
     branches: [master, main, feat/*, rc/*]
+    # Contract-workspace paths only; off-chain services/ have their own build.
+    paths:
+      - 'contracts/**'
+      - 'common/**'
+      - 'interfaces/**'
+      - 'tests/**'
+      - 'certora/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'Makefile'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
