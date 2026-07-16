@@ -199,22 +199,6 @@ exclude_re = [
     # difference.
     "sushi.rs:[0-9]+:43: replace - with \\+ in swap",
 
-    # Aggregator `reserved_fee_balance` presence guards: `if total > 0` (admin,
-    # col 14) and `if amount > 0` (referral, col 19) gate an `extend_ttl` that
-    # is only valid when the entry EXISTS. Stored fees are strictly positive
-    # (`accumulate_fee` runs only under `static_fee > 0` / `referral_fee > 0`),
-    # so `> 0` is an exact presence proxy — the sibling views guard the same
-    # bump with `if v.is_some()`. Only the `<` swap is equivalent: `total` and
-    # `amount` are never negative, so `< 0` is a dead branch that just skips the
-    # bump, matching the absent-entry path. The `>=` / `==` swaps are NOT
-    # excluded — they fire the bump on an absent entry, which panics, and are
-    # killed by the sweep tests (`sweep_balance_recovers_stray_tokens` for
-    # admin, `reserved_fee_balance_skips_absent_referral_slot` for referral).
-    # Column-anchored to the guards; `reserved_fee_balance` is unique to the
-    # aggregator crate.
-    "lib.rs:[0-9]+:14: replace > with < in reserved_fee_balance",
-    "lib.rs:[0-9]+:19: replace > with < in reserved_fee_balance",
-
     # Router-side pre-authorization entries that are never consumable under
     # SEP-41 auth semantics: `authorize_token_approve` precedes a DIRECT
     # `token.approve` call (owner = router = direct invoker, so invoker auth
