@@ -1,14 +1,4 @@
 {
-  "__inputs": [
-    {
-      "name": "DS_PROMETHEUS",
-      "label": "Prometheus",
-      "description": "Prometheus datasource scraping the lending exporter",
-      "type": "datasource",
-      "pluginId": "prometheus",
-      "pluginName": "Prometheus"
-    }
-  ],
   "title": "Stellar Lending Protocol",
   "uid": "stellar-lending",
   "editable": true,
@@ -43,7 +33,7 @@
       "title": "Oracle health",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 5,
@@ -112,7 +102,7 @@
       "title": "Min freshness (time to stale)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 5,
@@ -171,7 +161,7 @@
       "title": "Max oracle deviation (bps)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 5,
@@ -231,7 +221,7 @@
       "title": "Exporter — last scrape age",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 5,
@@ -301,7 +291,7 @@
       "title": "TVL",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 4,
@@ -342,7 +332,7 @@
       "title": "Total borrowed",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 4,
@@ -383,7 +373,7 @@
       "title": "Available liquidity",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 4,
@@ -424,7 +414,7 @@
       "title": "Revenue",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 4,
@@ -465,7 +455,7 @@
       "title": "Min borrow collateral",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 4,
@@ -517,7 +507,7 @@
       "title": "Market grid",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 9,
@@ -737,7 +727,7 @@
       "title": "Supplied vs borrowed (USD) by market",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 8,
@@ -769,7 +759,7 @@
       "title": "Interest index growth (supply / borrow)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 8,
@@ -813,7 +803,7 @@
       "title": "USD price (final)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 8,
@@ -840,7 +830,7 @@
       "title": "Primary vs anchor deviation (bps)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 8,
@@ -889,7 +879,7 @@
       "title": "Seconds until stale",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 8,
@@ -938,7 +928,7 @@
       "title": "Oracle health (green = healthy)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 6,
@@ -997,7 +987,7 @@
           "title": "Supply usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 4,
@@ -1040,7 +1030,7 @@
           "title": "Borrow usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 4,
@@ -1083,7 +1073,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 4,
@@ -1127,7 +1117,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 8,
@@ -1362,7 +1352,7 @@
           "title": "Supply usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 4,
@@ -1405,7 +1395,7 @@
           "title": "Borrow usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 4,
@@ -1448,7 +1438,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 4,
@@ -1492,7 +1482,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 8,
@@ -1727,7 +1717,7 @@
           "title": "Supply usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 4,
@@ -1770,7 +1760,7 @@
           "title": "Borrow usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 4,
@@ -1813,7 +1803,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 4,
@@ -1857,7 +1847,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
             "h": 8,
@@ -2091,7 +2081,7 @@
       "title": "Scrape duration",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 6,
@@ -2118,7 +2108,7 @@
       "title": "View failures (rate / 5m)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 6,
@@ -2145,7 +2135,7 @@
       "title": "Ledger skew (ledger - wall clock)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 6,
