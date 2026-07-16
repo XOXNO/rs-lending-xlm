@@ -1,13 +1,14 @@
 //! Reflector SEP-40 price provider: spot or TWAP read, repricing a quoted base
 //! into USD. A TWAP that cannot be computed reverts; there is no spot fallback.
 
-use common::errors::{GenericError, OracleError};
+use common::errors::OracleError;
 use common::math::fp::Wad;
 use common::oracle::observation::{
     check_not_future_at, is_stale, normalize_positive_price, MAX_TWAP_RECORDS,
 };
 use common::oracle::providers::reflector::{
     min_twap_observations, reflector_lastprice_call, reflector_prices_call, to_reflector_asset,
+    twap_mean_price,
 };
 use common::types::{
     OracleReadMode, OracleSourceConfig, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
@@ -117,16 +118,9 @@ fn read_twap(
         panic_with_error!(env, OracleError::ReflectorHistoryEmpty);
     }
 
-    let mut sum: i128 = 0;
     let mut oldest_ts = u64::MAX;
     for pd in history.iter() {
         check_not_future_at(env, cache.ledger_timestamp_secs(), pd.timestamp);
-        if pd.price <= 0 {
-            panic_with_error!(env, OracleError::InvalidPrice);
-        }
-        sum = sum
-            .checked_add(pd.price)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
         if pd.timestamp < oldest_ts {
             oldest_ts = pd.timestamp;
         }
@@ -139,8 +133,10 @@ fn read_twap(
         panic_with_error!(env, OracleError::PriceFeedStale);
     }
 
-    // Average over returned samples, not the requested count.
-    let raw_price = sum / history.len() as i128;
+    // Average over returned samples, not the requested count. Shared with the
+    // governance propose-time probe so both price the same TWAP; also rejects a
+    // non-positive sample (`InvalidPrice`) and sum overflow (`MathOverflow`).
+    let raw_price = twap_mean_price(env, &history);
     OracleObservation {
         price_wad: normalize_positive_price(env, raw_price, config.decimals),
         observed_at: oldest_ts,
