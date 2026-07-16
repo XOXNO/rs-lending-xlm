@@ -1,0 +1,31 @@
+# Testnet config for the lending metrics exporter.
+#
+# Addresses mirror configs/networks.json (the canonical deploy artifact / latest
+# testnet deployment). The exporter is per-market resilient: an address that no
+# longer resolves surfaces as a view failure, not a crash.
+#
+# Replace the placeholder `symbol` values with the real token tickers.
+network: testnet
+rpc:
+  url: https://stellar-testnet-gateway.xoxno.com
+  passphrase: "Test SDF Network ; September 2015"
+  timeout_seconds: 30
+contracts:
+  controller: CDWNSXENNWYBX4L247ZCI3NCEQBIZOOI2WWWNLYLRMCR5TVNSHC2PMWT
+  # Informational: self-hosted price oracle adapter. Provider contracts for
+  # staleness reads are resolved from each asset's on-chain oracle config.
+  xoxno_oracle_adapter: CB46MOUCOPA5TGDKKCY5OC2FEXGCBQ5KXR53RGOYY7XD7LN6JOE7OPRF
+markets:
+  - { hub_id: 1, asset: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA, symbol: TKN1 }
+  - { hub_id: 1, asset: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, symbol: TKN2 }
+  - { hub_id: 1, asset: CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ, symbol: TKN3 }
+  - { hub_id: 1, asset: CBK3FNAM3C54674OSOCQLDNW4EXMNUY6ZO3C3ZI5S5DGBIIPX4GJ7WHW, symbol: TKN4 }
+  - { hub_id: 1, asset: CBFNIHC2B7WMAH2CKNKQJOB3CWBUXXNNRQXYISJ7VZONM77YBMHCOULJ, symbol: TKN5 }
+  - { hub_id: 2, asset: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA, symbol: TKN1 }
+spokes: [1, 2, 3]
+scrape_interval_seconds: 30
+metrics:
+  bind: 0.0.0.0:9110
+log:
+  level: info
+  format: json
