@@ -461,7 +461,8 @@ async fn publish_spokes(
         let deprecated = read_spoke_deprecated(client, metrics, net, contracts, spoke_id).await;
         for (i, (market, row)) in contracts.markets.iter().zip(index_rows.iter()).enumerate() {
             let dec = decimals.get(i).copied().flatten();
-            publish_spoke_asset(client, metrics, net, contracts, spoke_id, &spoke_name, market, row, dec, deprecated).await;
+            let hub_name = cfg.hub_name(market.hub_id);
+            publish_spoke_asset(client, metrics, net, contracts, spoke_id, &spoke_name, &hub_name, market, row, dec, deprecated).await;
         }
     }
 }
@@ -488,6 +489,7 @@ async fn publish_spoke_asset(
     contracts: &ResolvedContracts,
     spoke_id: u32,
     spoke_name: &str,
+    hub_name: &str,
     market: &ResolvedMarket,
     row: &Option<controller::MarketIndexView>,
     decimals: Option<u32>,
@@ -509,7 +511,7 @@ async fn publish_spoke_asset(
 
     let s = spoke_id.to_string();
     let hub = market.hub_id.to_string();
-    let labels = [net, s.as_str(), spoke_name, hub.as_str(), market.asset_strkey.as_str(), market.symbol.as_str()];
+    let labels = [net, s.as_str(), spoke_name, hub.as_str(), hub_name, market.asset_strkey.as_str(), market.symbol.as_str()];
     let b = |v: bool| if v { 1.0 } else { 0.0 };
     metrics.spoke_paused.with_label_values(&labels).set(b(cfg.paused));
     metrics.spoke_frozen.with_label_values(&labels).set(b(cfg.frozen));

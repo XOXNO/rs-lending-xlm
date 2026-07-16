@@ -1225,7 +1225,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"Stablecoins\"}",
-              "legendFormat": "{{symbol}} · h{{hub_id}}"
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -1286,7 +1286,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"Stablecoins\"}",
-              "legendFormat": "{{symbol}} · h{{hub_id}}"
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -1373,20 +1373,21 @@
               "options": {
                 "renameByName": {
                   "symbol": "Asset",
-                  "hub_id": "Hub",
                   "Value #LTV": "LTV",
                   "Value #THR": "Liq. threshold",
                   "Value #SUP": "Supply $",
                   "Value #BOR": "Borrow $",
                   "Value #SCAP": "Supply cap",
-                  "Value #BCAP": "Borrow cap"
+                  "Value #BCAP": "Borrow cap",
+                  "hub": "Hub"
                 },
                 "excludeByName": {
-                  "asset": true
+                  "asset": true,
+                  "hub_id": true
                 },
                 "indexByName": {
                   "symbol": 0,
-                  "hub_id": 1,
+                  "hub": 1,
                   "Value #LTV": 2,
                   "Value #THR": 3,
                   "Value #SUP": 4,
@@ -1714,7 +1715,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
-              "legendFormat": "{{symbol}} · h{{hub_id}}"
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -1775,7 +1776,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
-              "legendFormat": "{{symbol}} · h{{hub_id}}"
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -1862,20 +1863,21 @@
               "options": {
                 "renameByName": {
                   "symbol": "Asset",
-                  "hub_id": "Hub",
                   "Value #LTV": "LTV",
                   "Value #THR": "Liq. threshold",
                   "Value #SUP": "Supply $",
                   "Value #BOR": "Borrow $",
                   "Value #SCAP": "Supply cap",
-                  "Value #BCAP": "Borrow cap"
+                  "Value #BCAP": "Borrow cap",
+                  "hub": "Hub"
                 },
                 "excludeByName": {
-                  "asset": true
+                  "asset": true,
+                  "hub_id": true
                 },
                 "indexByName": {
                   "symbol": 0,
-                  "hub_id": 1,
+                  "hub": 1,
                   "Value #LTV": 2,
                   "Value #THR": 3,
                   "Value #SUP": 4,
@@ -2203,7 +2205,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
-              "legendFormat": "{{symbol}} · h{{hub_id}}"
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -2264,7 +2266,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
-              "legendFormat": "{{symbol}} · h{{hub_id}}"
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -2351,20 +2353,21 @@
               "options": {
                 "renameByName": {
                   "symbol": "Asset",
-                  "hub_id": "Hub",
                   "Value #LTV": "LTV",
                   "Value #THR": "Liq. threshold",
                   "Value #SUP": "Supply $",
                   "Value #BOR": "Borrow $",
                   "Value #SCAP": "Supply cap",
-                  "Value #BCAP": "Borrow cap"
+                  "Value #BCAP": "Borrow cap",
+                  "hub": "Hub"
                 },
                 "excludeByName": {
-                  "asset": true
+                  "asset": true,
+                  "hub_id": true
                 },
                 "indexByName": {
                   "symbol": 0,
-                  "hub_id": 1,
+                  "hub": 1,
                   "Value #LTV": 2,
                   "Value #THR": 3,
                   "Value #SUP": 4,
