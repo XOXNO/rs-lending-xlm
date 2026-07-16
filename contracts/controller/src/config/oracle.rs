@@ -46,19 +46,6 @@ pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: M
         GenericError::InvalidAsset
     );
 
-    // Containment probe on a RECONFIG of an already-active oracle: an active
-    // market may hold positions, so storing a band that excludes the live price
-    // (a price that drifted out of band during the timelock delay) would brick
-    // every risk read — borrow, withdraw, and liquidation — for those positions.
-    // Resolve the price under the new config so an out-of-band band reverts here
-    // instead of being stored. An initial activation has no positions at risk and
-    // no price to contain yet; the decimals check above already blocks the
-    // decimals fat-finger. Mirrors `set_oracle_sanity_bounds`; read-only.
-    if storage::get_asset_oracle(env, asset).is_some() {
-        let mut cache = Cache::new_view(env);
-        crate::oracle::price_with_config(&mut cache, asset, &config);
-    }
-
     // The oracle is token-rooted (hub-independent), keyed by the bare asset.
     storage::set_asset_oracle(env, asset, &config);
 
