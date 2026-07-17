@@ -145,14 +145,16 @@ fn test_liquidation_collateral_extraction_via_averaging() {
     // Alice supplies ETH (20,000 USD collateral).
     t.supply(ALICE, "ETH", 10.0);
 
-    // Alice borrows heavily: 18,900 USDC against 19,000 max LTV.
-    t.borrow(ALICE, "USDC", 18_900.0);
+    // Alice borrows heavily: 18,175 USDC against 19,000 max LTV. The margin
+    // keeps blended C/D at ~1.051, just above 1 + base bonus, so a partial
+    // liquidation stays HF-safe (the FullCloseRequired gate does not bind).
+    t.borrow(ALICE, "USDC", 18_175.0);
 
     // Give the liquidator USDC to perform the liquidation.
     t.supply(LIQUIDATOR, "USDC", 20_000.0);
 
     // Spot falls to 1820 while the averaged price stays at 1910.
-    // Threshold value = 10 * 1910 * 0.95 = 18,145, below the 18,900 debt.
+    // Threshold value = 10 * 1910 * 0.95 = 18,145, below the 18,175 debt.
 
     t.set_price("ETH", usd(1820));
     t.set_safe_price("ETH", usd(2000), true, true);

@@ -76,7 +76,14 @@ fn set_spoke_liquidation_curve_overrides_defaults() {
     env.as_contract(&contract, || {
         let id = spoke::add_spoke(&env);
         let before = storage::get_spoke(&env, id);
-        assert_eq!(before.liquidation_target_hf_wad, 1_020_000_000_000_000_000);
+        assert_eq!(
+            before.liquidation_target_hf_wad,
+            crate::constants::DEFAULT_LIQUIDATION_TARGET_HF_WAD
+        );
+        assert_eq!(
+            before.hf_for_max_bonus_wad,
+            crate::constants::DEFAULT_HF_FOR_MAX_BONUS_WAD
+        );
 
         spoke::set_spoke_liquidation_curve(
             &env,

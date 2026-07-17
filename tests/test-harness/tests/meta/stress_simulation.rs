@@ -297,8 +297,15 @@ fn test_cascading_liquidations_stability() {
     t.assert_liquidatable(CAROL);
     t.assert_healthy(EVE);
 
-    // Liquidate Carol.
-    t.liquidate(LIQUIDATOR, CAROL, "USDC", 3_000.0);
+    // Carol sits exactly at the solvent-toxic boundary (HF 0.80 = p, C = D):
+    // partials are rejected with FullCloseRequired; a debt-covering payment
+    // closes her account.
+    let carol_partial = t.try_liquidate(LIQUIDATOR, CAROL, "USDC", 3_000.0);
+    assert!(
+        carol_partial.is_err(),
+        "solvent-toxic partial must be rejected"
+    );
+    t.liquidate(LIQUIDATOR, CAROL, "USDC", 10_100.0);
 
     // Eve must remain untouched (no wrongful liquidation).
     let eve_result = t.try_liquidate(LIQUIDATOR, EVE, "USDC", 1_000.0);

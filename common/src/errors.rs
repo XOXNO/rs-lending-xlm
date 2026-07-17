@@ -163,6 +163,9 @@ pub enum CollateralError {
     /// `(WAD, MAX_LIQUIDATION_TARGET_HF_WAD]`, `hf_for_max_bonus_wad` must sit in
     /// `(0, target_hf_wad)`, and `bonus_factor_bps` must not exceed `BPS`.
     InvalidLiquidationCurve = 134,
+    /// The account's collateral still covers its debt but no partial
+    /// liquidation is HF-safe; the liquidation must close the full debt.
+    FullCloseRequired = 135,
 }
 
 #[contracterror]

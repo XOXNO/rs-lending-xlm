@@ -160,22 +160,24 @@ fn test_liquidation_multi_debt_capped() {
     t.borrow(alice, "ETH", 0.15);
     t.borrow(alice, "USDC", 100.0);
 
-    // Drop USDC to $0.50 => collateral $500, weighted $400, debt $400.
-    // Near boundary; drop just a bit more.
-    t.set_price("USDC", usd_cents(40)); // Collateral $400, weighted $320, debt $400, HF = 0.8.
+    // Drop USDC to $0.42. The USDC debt leg reprices with the collateral:
+    // weighted = $336, debt = $300 ETH + $42 USDC = $342, HF = 0.98 --
+    // shallow enough that the target-1.10 ideal (~$204) stays below the
+    // first payment's debt capacity.
+    t.set_price("USDC", usd_cents(42));
 
     t.assert_liquidatable(alice);
 
     // The liquidator pays with two different tokens.
-    // Ideal repayment for $400 debt with $320 weighted is:
-    // (400 - 320) / (1 - 0.1) = 80 / 0.9 = ~$88.
+    // Ideal repayment restoring HF to 1.10: (1.10*342 - 336) / (1.10 - 0.8*1.128)
+    // = 40.2 / ~0.197 = ~$204.
 
-    // 1. Pay with ETH (0.1 ETH = $200). This fulfills the ideal (~$148).
+    // 1. Pay with ETH (0.15 ETH = $300). This fulfills the ideal (~$204).
     // 2. Pay with USDC ($50). The contract must skip this (continue) because remaining_ideal <= 0.
 
-    t.liquidate_multi(LIQUIDATOR, alice, &[("ETH", 0.1), ("USDC", 50.0)]);
+    t.liquidate_multi(LIQUIDATOR, alice, &[("ETH", 0.15), ("USDC", 50.0)]);
 
-    // The ETH debt should have dropped by the capped amount (~$148 worth of ETH).
+    // The ETH debt should have dropped by the capped amount (~$204 worth of ETH).
     let debt_eth = t.borrow_balance(alice, "ETH");
     assert!(debt_eth < 0.15);
 

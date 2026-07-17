@@ -129,14 +129,15 @@ fn test_liquidation_strictly_improves_hf() {
 // Bonus curve monotonicity + boundaries
 
 // Sweeps liquidatable HF levels in the mild-underwater band where the
-// Dutch-auction bonus interpolates between base (5 %) and max (15 %).
-// Realized bonus must be non-decreasing as HF drops within this band.
+// realized bonus follows min(HF-scaled curve, HF-neutral cap hf/p - 1).
+// Asserts the guard invariants at every level: the bonus stays under the
+// HF-neutral cap and a partial liquidation never reduces the account's HF.
 // (At very deep underwater the engine clamps seize to feasible payment,
 // which is its own invariant tested by `test_liquidation_bonus_clamped_at_max`
 // and the bad-debt branch.)
 #[test]
 fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
-    let mut bonuses: std::vec::Vec<(u32, f64)> = std::vec::Vec::new();
+    let mut bonuses: std::vec::Vec<(u32, f64, f64, f64)> = std::vec::Vec::new();
     // USDC threshold = 80 %. $10k supply, $6k debt → HF = 1.0 at
     // cents=75. Band: 73 → 0.97, 71 → 0.95, 69 → 0.92, 67 → 0.89.
     for cents_per_dollar in [73u32, 71, 69, 67] {
@@ -154,41 +155,50 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
         }
 
         t.get_or_create_user(LIQUIDATOR);
+        let hf_before = t.health_factor(ALICE);
         let liq_usdc_before = t.token_balance(LIQUIDATOR, "USDC");
         t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.1); // $200 repay
+        let hf_after = t.health_factor(ALICE);
         let liq_usdc_after = t.token_balance(LIQUIDATOR, "USDC");
 
         let usdc_received = liq_usdc_after - liq_usdc_before;
         let usd_received = usdc_received * (cents_per_dollar as f64) / 100.0;
         let realized_bonus = (usd_received / 200.0) - 1.0;
-        bonuses.push((cents_per_dollar, realized_bonus));
+        bonuses.push((cents_per_dollar, realized_bonus, hf_before, hf_after));
     }
 
     assert!(
         bonuses.len() >= 3,
-        "need at least 3 samples for monotonicity, got {}: {:?}",
+        "need at least 3 samples, got {}: {:?}",
         bonuses.len(),
         bonuses
     );
-    for window in bonuses.windows(2) {
-        let (prev_c, prev_b) = window[0];
-        let (next_c, next_b) = window[1];
+    // The realized bonus follows min(HF-scaled curve, HF-neutral cap
+    // hf/p - 1), so it is single-peaked rather than monotone across the
+    // band. Assert the two guard invariants per sample instead: the bonus
+    // never exceeds the HF-neutral cap, and the partial never leaves the
+    // account less healthy.
+    for (cents, bonus, hf_before, hf_after) in &bonuses {
+        let neutral_cap = hf_before / 0.80 - 1.0;
         assert!(
-            next_b + 1e-4 >= prev_b,
-            "bonus must be non-decreasing across worsening HF: at cents={} bonus={:.6}, at cents={} bonus={:.6}, full={:?}",
-            prev_c, prev_b, next_c, next_b, bonuses
+            *bonus <= neutral_cap + 1e-3,
+            "bonus {bonus:.6} above HF-neutral cap {neutral_cap:.6} at cents={cents}, full={bonuses:?}"
+        );
+        assert!(
+            hf_after + 1e-6 >= *hf_before,
+            "partial reduced HF at cents={cents}: {hf_before:.6} -> {hf_after:.6}, full={bonuses:?}"
         );
     }
     // Also verify the lowest realized bonus is at or above base (5 %)
-    // and the highest is well below max (15 %): we're inside the
-    // interpolation band.
+    // and the highest stays below the seizure cap (25 % at the 80 %
+    // threshold): we're inside the interpolation band.
     let min_bonus = bonuses
         .iter()
-        .map(|(_, b)| *b)
+        .map(|(_, b, _, _)| *b)
         .fold(f64::INFINITY, f64::min);
     let max_bonus = bonuses
         .iter()
-        .map(|(_, b)| *b)
+        .map(|(_, b, _, _)| *b)
         .fold(f64::NEG_INFINITY, f64::max);
     assert!(
         min_bonus >= 0.04,
@@ -196,8 +206,8 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
         min_bonus
     );
     assert!(
-        max_bonus <= 0.16,
-        "max realized bonus should be ≤ cap 15 %, got {:.4}",
+        max_bonus <= 0.25,
+        "max realized bonus should be ≤ seizure cap 25 %, got {:.4}",
         max_bonus
     );
 }

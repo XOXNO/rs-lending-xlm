@@ -55,12 +55,12 @@ fn test_seizure_equals_debt_times_one_plus_bonus() {
     let collateral_received_usd = collateral_received * 0.74; // USDC at $0.74.
     let actual_bonus_rate = (collateral_received_usd / debt_repaid_usd) - 1.0;
 
-    // At HF ~0.987, gap = (1.02 - 0.987) / 1.02 = 0.0324.
-    // scale = min(2 * 0.0324, 1) = 0.0647.
-    // bonus = 500 + (1500 - 500) * 0.0647 = 500 + 64.7 = 564.7 BPS = 5.647%.
+    // At HF ~0.987, scale = (1.10 - 0.987) / (1.10 - 0.80) = 0.378.
+    // max = (1 - 0.80) / 0.80 = 2500 BPS at the 80% threshold.
+    // bonus = 500 + (2500 - 500) * 0.378 = ~1256 BPS = ~12.6%.
     assert!(
-        actual_bonus_rate > 0.04 && actual_bonus_rate < 0.08,
-        "bonus rate at HF ~0.987 should be ~5.6%, got {:.4} ({:.2}%)",
+        actual_bonus_rate > 0.11 && actual_bonus_rate < 0.14,
+        "bonus rate at HF ~0.987 should be ~12.6%, got {:.4} ({:.2}%)",
         actual_bonus_rate,
         actual_bonus_rate * 100.0
     );
@@ -110,10 +110,11 @@ fn test_bonus_formula_at_specific_hf_levels() {
         hf_f64
     );
 
-    // Bonus should hover near base (500 BPS) since HF is near 1.0.
+    // HF in (0.95, 1.0) puts the ramp scale in (1/3, 1/2) of the
+    // (1.10, 0.80) span, so bonus lands in ~1167-1500 BPS.
     assert!(
-        (500..=700).contains(&estimate.bonus_rate_bps),
-        "near-threshold HF should give bonus ~500-700 BPS, got {}",
+        (1100..=1500).contains(&estimate.bonus_rate_bps),
+        "near-threshold HF should give bonus ~1100-1500 BPS, got {}",
         estimate.bonus_rate_bps
     );
 }

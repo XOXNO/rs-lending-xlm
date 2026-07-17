@@ -56,6 +56,9 @@ pub struct RefLiquidationResult {
     pub protocol_fee_per_collateral: Vec<(u32, BigRational)>,
     /// Total debt repaid in USD WAD.
     pub total_repaid_usd_wad: BigRational,
+    /// Mirror of the solvent-toxic full-close gate: payments below the full
+    /// debt are rejected by the production plan when this is set.
+    pub requires_full_close: bool,
     /// Total collateral seized in USD WAD.
     pub total_seized_usd_wad: BigRational,
 }
@@ -271,16 +274,20 @@ fn calculate_linear_bonus_with_target(
     if hf_wad >= target_wad {
         return base_bps.clone();
     }
-    let gap_numer = target_wad - hf_wad;
-    let gap = &gap_numer / target_wad;
-    let double_gap = &gap * BigRational::from_integer(BigInt::from(2));
-    let scale = if double_gap > br_one() {
-        br_one()
-    } else {
-        double_gap
-    };
+    let knee = hf_for_max_bonus_wad();
+    let gap = target_wad - hf_wad;
+    let span = target_wad - &knee;
+    let ratio = &gap / &span;
+    let scale = if ratio > br_one() { br_one() } else { ratio };
     let bonus_range = max_bps - base_bps;
     base_bps + &bonus_range * &scale
+}
+
+/// Default `hf_for_max_bonus` (WAD scale, 0.80), mirroring
+/// `controller::constants::DEFAULT_HF_FOR_MAX_BONUS_WAD`.
+fn hf_for_max_bonus_wad() -> BigRational {
+    &wad_scale() * BigRational::from_integer(BigInt::from(80))
+        / BigRational::from_integer(BigInt::from(100))
 }
 
 /// Returns the ideal debt-to-repay (in WAD USD) for a given bonus/target,
@@ -329,8 +336,25 @@ fn try_liquidation_at_target(
     Some(out)
 }
 
+/// Mirror of `max_hf_preserving_bonus_bps`: largest HF-neutral bonus in BPS
+/// (floored like the production i128 division), `None` when no finite cap
+/// applies (zero seizable proportion or `hf >= 1`).
+fn max_hf_preserving_bonus_bps(
+    hf_wad: &BigRational,
+    proportion_seized: &BigRational,
+) -> Option<BigRational> {
+    if proportion_seized <= &BigRational::from_integer(BigInt::from(0)) || hf_wad >= &wad_scale() {
+        return None;
+    }
+    let floored = (hf_wad * bps_scale() / proportion_seized).floor();
+    Some(floored - bps_scale())
+}
+
 /// Mirror of the single HF-scaled bonus and the target-HF repayment (or the
-/// collateral-capped maximum when the bonus makes the target unreachable).
+/// collateral-capped maximum when the bonus makes the target unreachable),
+/// with the HF-preservation guard: the bonus is capped at the largest
+/// HF-neutral value, and when even the base bonus would shrink HF the
+/// estimate escalates to a full close at the base bonus.
 fn select_liquidation_tier(
     total_debt_wad: &BigRational,
     weighted_coll_wad: &BigRational,
@@ -340,10 +364,18 @@ fn select_liquidation_tier(
     proportion_seized: &BigRational,
     total_collateral_wad: &BigRational,
 ) -> (BigRational, BigRational) {
-    let target = &wad_scale() * BigRational::from_integer(BigInt::from(102))
+    let target = &wad_scale() * BigRational::from_integer(BigInt::from(110))
         / BigRational::from_integer(BigInt::from(100));
 
-    let bonus = calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target);
+    let scaled_bonus =
+        calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target);
+
+    let bonus = match max_hf_preserving_bonus_bps(hf_wad, proportion_seized) {
+        None => scaled_bonus,
+        Some(cap) if scaled_bonus <= cap => scaled_bonus,
+        Some(cap) if &cap >= base_bonus_bps => cap,
+        Some(_) => return (total_debt_wad.clone(), base_bonus_bps.clone()),
+    };
 
     let ideal = match try_liquidation_at_target(
         total_debt_wad,
@@ -525,9 +557,16 @@ pub fn compute_liquidation(
         .map(|(id, tokens, _dec)| (*id, tokens.clone()))
         .collect();
 
+    // Mirror of the production solvent-toxic full-close gate.
+    let requires_full_close = match max_hf_preserving_bonus_bps(&hf_wad, &proportion_seized) {
+        Some(cap) => cap >= BigRational::from_integer(BigInt::from(0)) && cap < base_bonus_bps,
+        None => false,
+    };
+
     RefLiquidationResult {
         health_factor_pre_wad: hf_wad,
         final_bonus_bps: bonus_bps,
+        requires_full_close,
         seized_per_collateral: seized,
         repaid_per_debt,
         protocol_fee_per_collateral: fees,
@@ -632,17 +671,18 @@ mod tests {
 
     #[test]
     fn bonus_formula_baseline() {
-        // HF = 1.0 WAD, target 1.02, base 500, max 1500
+        // HF = 1.0 WAD, target 1.10, knee 0.80, base 500, max 1500
         let hf = br_from_i128(WAD);
-        let target = &wad_scale() * BigRational::from_integer(BigInt::from(102))
+        let target = &wad_scale() * BigRational::from_integer(BigInt::from(110))
             / BigRational::from_integer(BigInt::from(100));
         let base = br_from_i128(500);
         let max = br_from_i128(1500);
         let bonus = calculate_linear_bonus_with_target(&hf, &base, &max, &target);
-        // gap = (1.02 - 1.0) / 1.02 = 0.0196...; 2*gap = 0.0392
-        // bonus = 500 + 1000 * 0.0392 = 539.21...
+        // scale = (1.10 - 1.0) / (1.10 - 0.80) = 1/3
+        // bonus = 500 + 1000 / 3 = 833.33...
         let expected = br_from_i128(500)
-            + (br_from_i128(1000) * (br_from_i128(2) * (&target - &br_from_i128(WAD)) / &target));
+            + (br_from_i128(1000) * (&target - &br_from_i128(WAD))
+                / (&target - &hf_for_max_bonus_wad()));
         assert_eq!(bonus, expected);
     }
 }

@@ -134,7 +134,7 @@
           "tag": "Reflector",
           "values": [
             {
-              "contract": "CBKGPWGKSKZF52CFHMTRR23TBWTPMRDIYZ4O2P5VS65BMHYH4DXMCJZC",
+              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
               "asset": {
                 "tag": "Symbol",
                 "values": [
@@ -158,15 +158,15 @@
               "values": [
                 {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-                  "feed_id": "EUROC/EUR",
+                  "feed_id": "EUROC",
                   "max_stale_seconds": 86400
                 }
               ]
             }
           ]
         },
-        "min_sanity_price_wad": "900000000000000000",
-        "max_sanity_price_wad": "1350000000000000000"
+        "min_sanity_price_wad": "1060000000000000000",
+        "max_sanity_price_wad": "1220000000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -722,8 +722,8 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
-              "feed_id": "USDY",
+              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+              "feed_id": "USDY_FUNDAMENTAL/USD",
               "max_stale_seconds": 86400
             }
           ]

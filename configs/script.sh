@@ -1935,6 +1935,7 @@ setup_all_spokes() {
             ensure_asset_in_spoke "$onchain_id" "$asset_name" "$cat_id"
         done
     done
+    configure_spoke_curves
     echo "=== All Spoke categories configured ==="
 }
 
@@ -2351,6 +2352,65 @@ whitelist_blend_pools() {
         approve_blend_pool "$pool"
     done
     echo "=== Blend pool whitelist complete (${NETWORK}) ===" >&2
+}
+
+# ---------------------------------------------------------------------------
+# Spoke liquidation-curve overrides
+#
+# Spokes are stamped with the contract's default liquidation curve at
+# creation. `configureSpokeCurves` reads the optional `liquidation_curve`
+# block per spoke from configs/${NETWORK}/spokes.json, compares it against the
+# live `get_spoke` view, and schedules a timelocked
+# `set_spoke_liquidation_curve` only where they differ. Curve-less spokes and
+# already-matching spokes are skipped, so re-runs cost no redundant timelock
+# op (important on mainnet's multi-day delay).
+# ---------------------------------------------------------------------------
+
+configure_spoke_curves() {
+    if [ ! -f "$SPOKES_FILE" ]; then
+        echo "ERROR: Spokes config not found: $SPOKES_FILE" >&2
+        exit 1
+    fi
+
+    local config_ids
+    config_ids=$(jq -r 'to_entries[] | select(.value.liquidation_curve != null) | .key' "$SPOKES_FILE")
+    if [ -z "$config_ids" ]; then
+        echo "No liquidation_curve overrides configured for ${NETWORK} in ${SPOKES_FILE}." >&2
+        return 0
+    fi
+
+    echo "=== Configuring spoke liquidation curves for ${NETWORK} ===" >&2
+    local config_id
+    for config_id in $config_ids; do
+        local target knee factor
+        target=$(jq -r --arg id "$config_id" '.[$id].liquidation_curve.target_hf_wad // empty' "$SPOKES_FILE")
+        knee=$(jq -r --arg id "$config_id" '.[$id].liquidation_curve.hf_for_max_bonus_wad // empty' "$SPOKES_FILE")
+        factor=$(jq -r --arg id "$config_id" '.[$id].liquidation_curve.liquidation_bonus_factor_bps // empty' "$SPOKES_FILE")
+        if [ -z "$target" ] || [ -z "$knee" ] || [ -z "$factor" ]; then
+            die "spoke ${config_id}: liquidation_curve needs target_hf_wad, hf_for_max_bonus_wad, liquidation_bonus_factor_bps"
+        fi
+
+        local onchain_id
+        onchain_id=$(get_mapped_spoke_id "$config_id")
+        if [ -z "$onchain_id" ]; then
+            echo "WARN: spoke ${config_id} has no on-chain id in ${NETWORKS_FILE}; run setupAllSpokes first. Skipping." >&2
+            continue
+        fi
+
+        local live live_target live_knee live_factor
+        live=$(fetch_spoke_json "$onchain_id" 2>/dev/null | tail -n1)
+        live_target=$(printf '%s' "$live" | jq -r '.liquidation_target_hf_wad // empty' 2>/dev/null)
+        live_knee=$(printf '%s' "$live" | jq -r '.hf_for_max_bonus_wad // empty' 2>/dev/null)
+        live_factor=$(printf '%s' "$live" | jq -r '.liquidation_bonus_factor_bps // empty' 2>/dev/null)
+
+        if [ "$live_target" = "$target" ] && [ "$live_knee" = "$knee" ] && [ "$live_factor" = "$factor" ]; then
+            echo "Spoke ${config_id} (on-chain ${onchain_id}) curve already matches config; skipping." >&2
+            continue
+        fi
+
+        echo "Spoke ${config_id} (on-chain ${onchain_id}): curve ${live_target:-?}/${live_knee:-?}/${live_factor:-?} -> ${target}/${knee}/${factor}" >&2
+        set_spoke_liquidation_curve_cmd "$onchain_id" "$target" "$knee" "$factor"
+    done
 }
 
 set_aggregator() {
@@ -4427,6 +4487,9 @@ case "$1" in
     "whitelistBlendPools")
         whitelist_blend_pools
         ;;
+    "configureSpokeCurves")
+        configure_spoke_curves
+        ;;
     "approveBlendPools")
         whitelist_blend_pools
         ;;
@@ -4770,6 +4833,7 @@ case "$1" in
         echo "  claimRevenue <name> [...]       Claim revenue one or more markets"
         echo "  claimRevenueAll                 Claim revenue for every configured market"
         echo "  whitelistBlendPools | approveBlendPools   Approve Blend V2 pools from configs/${NETWORK}/blend.json (timelocked)"
+        echo "  configureSpokeCurves            Apply per-spoke liquidation_curve overrides from configs/${NETWORK}/spokes.json (timelocked)"
         echo ""
         echo "Quick views (reads):"
         echo "  info                            Deployment addresses & signer"

@@ -323,28 +323,29 @@ fn curve_snap(hf_raw: i128, weighted_raw: i128) -> LiquidationSnapshot {
     }
 }
 
-// With `hf_for_max_bonus = target / 2` the curve equals `2 * gap / target`.
+// The default curve ramps linearly over the (target, hf_for_max_bonus) span:
+// scale = min((target - hf) / (target - hf_for_max_bonus), 1).
 #[test]
-fn default_curve_bonus_matches_two_gap_scale() {
+fn default_curve_bonus_matches_reference_scale() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
     let base = Bps::from(500i128);
     let max = Bps::from(1_500i128);
-    let target = Wad::from(1_020_000_000_000_000_000i128);
+    let target = Wad::from(crate::constants::DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    let knee = Wad::from(crate::constants::DEFAULT_HF_FOR_MAX_BONUS_WAD);
 
     for hf_raw in [
         100_000_000_000_000_000i128,   // 0.10 -> scale capped at 1
-        450_000_000_000_000_000i128,   // 0.45
-        510_000_000_000_000_000i128,   // 0.51 == target/2 -> scale exactly 1
+        450_000_000_000_000_000i128,   // 0.45 -> scale capped at 1
+        800_000_000_000_000_000i128,   // 0.80 == hf_for_max_bonus -> scale exactly 1
         900_000_000_000_000_000i128,   // 0.90
-        1_010_000_000_000_000_000i128, // 1.01 (just below target)
+        1_050_000_000_000_000_000i128, // 1.05 (below target)
     ] {
         let hf = Wad::from(hf_raw);
         let got = calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target);
 
-        // Independent reference: scale = min(2 * (target - hf) / target, 1).
-        let gap_wad = (target - hf).div(&env, target);
-        let scale = gap_wad.mul(&env, Wad::from(2 * WAD)).min(Wad::ONE);
+        // Independent reference: scale = min((target - hf) / (target - knee), 1).
+        let scale = (target - hf).div(&env, target - knee).min(Wad::ONE);
         let increment = Wad::from((max - base).raw()).mul(&env, scale).raw();
         let want = Bps::from(base.raw() + increment);
 
@@ -711,10 +712,10 @@ fn max_bonus_for_threshold_is_exact_at_half() {
     );
 }
 
-// Payment above the ideal liquidation amount is trimmed: the excess comes
-// back as a refund and the plan's repay total is the ideal, not the payment.
+// When every partial repayment would reduce HF, even a zero-bonus estimate
+// escalates to a full close, so a debt-covering payment leaves no refund.
 #[test]
-fn normalize_repayment_plan_refunds_payment_above_ideal() {
+fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
     let env = Env::default();
     let (contract, hub_asset, account, config) = repayment_fixture(&env);
     env.as_contract(&contract, || {
@@ -722,8 +723,9 @@ fn normalize_repayment_plan_refunds_payment_above_ideal() {
         let mut cache = Cache::new_view(&env);
         cache.put_market_index(&hub_asset, &index_raw());
 
-        // Zero bonus: the repayment is capped at the collateral value C = $100,
-        // so a $500 payment refunds $400.
+        // p = 1, HF = 0.4: even a zero bonus removes weighted collateral
+        // faster than debt, so no partial is HF-safe and the guard escalates
+        // to a full close -- the whole $500 payment is consumed, no refund.
         let s = snap(500 * WAD, 100 * WAD, 40 * WAD, WAD, 400_000_000_000_000_000);
         let bounds = BonusBounds {
             base: Bps::from(0i128),
@@ -731,26 +733,180 @@ fn normalize_repayment_plan_refunds_payment_above_ideal() {
         };
         let curve = LiquidationCurve::from_config(&default_spoke_config());
 
-        // Pay the full $500 debt; ideal is $100 -> $400 refunded.
         let payments = vec![&env, (hub_asset.clone(), 500_0000000i128)];
         let plan =
             normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
 
-        assert_eq!(plan.repay_usd.raw(), 100 * WAD);
+        assert_eq!(plan.repay_usd.raw(), 500 * WAD);
         assert_eq!(plan.bonus.raw(), 0);
-        assert_eq!(plan.refunds.len(), 1);
-        assert_eq!(plan.refunds.get_unchecked(0).amount, 400_0000000);
+        assert_eq!(plan.refunds.len(), 0);
         assert_eq!(plan.repaid.len(), 1);
-        assert_eq!(plan.repaid.get_unchecked(0).amount, 100_0000000);
+        assert_eq!(plan.repaid.get_unchecked(0).amount, 500_0000000);
     });
 }
 
-// A deeply unhealthy low-threshold position (collateral $100, debt $90,
-// threshold 0.45 -> weighted $45, HF 0.5) takes the single max bonus and, since
-// that bonus makes the target unreachable, repays the collateral-capped maximum
-// (a partial). Any residual bad debt is socialized -- an accepted residual.
+// A solvent-toxic account (collateral covers debt, but 0 <= hf/p - 1 < base)
+// rejects partial payments outright: only a full close is accepted.
 #[test]
-fn estimate_low_hf_uses_max_bonus_collateral_capped() {
+#[should_panic(expected = "Error(Contract, #135)")]
+fn normalize_rejects_partial_on_solvent_toxic_account() {
+    let env = Env::default();
+    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        // p = 0.9, HF = 0.93: cap = 333 bps sits in [0, base 500).
+        let s = snap(
+            500 * WAD,
+            520 * WAD,
+            468 * WAD,
+            9 * WAD / 10,
+            93 * WAD / 100,
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        // $100 of the $500 debt: below the full-close ideal -> rejected.
+        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+    });
+}
+
+// The same solvent-toxic account accepts a payment covering the full debt.
+#[test]
+fn normalize_accepts_full_close_on_solvent_toxic_account() {
+    let env = Env::default();
+    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        let s = snap(
+            500 * WAD,
+            520 * WAD,
+            468 * WAD,
+            9 * WAD / 10,
+            93 * WAD / 100,
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        let payments = vec![&env, (hub_asset.clone(), 500_0000000i128)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        assert_eq!(plan.repay_usd.raw(), 500 * WAD);
+        assert_eq!(plan.bonus.raw(), 500, "full close pays the base bonus");
+    });
+}
+
+// Boundary: cap == base exactly (hf/p - 1 == base). A partial at the base
+// bonus is exactly HF-neutral there, so it must be ACCEPTED -- the full-close
+// gate uses a strict `cap < base`. p = 0.8, hf = 0.84 gives
+// cap = 0.84/0.8 - 1 = 500 bps == base, and C/D = 1.05 keeps it solvent.
+#[test]
+fn normalize_accepts_partial_when_cap_equals_base() {
+    let env = Env::default();
+    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        // debt $500, collateral $525, weighted $420: p = 0.8, hf = 0.84.
+        let s = snap(
+            500 * WAD,
+            525 * WAD,
+            420 * WAD,
+            8 * WAD / 10,
+            84 * WAD / 100,
+        );
+        assert_eq!(
+            max_hf_preserving_bonus_bps(&s),
+            Some(500),
+            "cap must equal the base bonus for this boundary"
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        // A $100 partial (below the full-close ideal) is accepted, not rejected.
+        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        assert_eq!(plan.repay_usd.raw(), 100 * WAD, "boundary partial accepted");
+        assert_eq!(plan.bonus.raw(), 500);
+    });
+}
+
+// Insolvent accounts (negative HF-neutral cap: collateral below debt) keep the
+// partial path: forcing a full close would guarantee the liquidator a loss
+// and freeze liquidation.
+#[test]
+fn normalize_allows_partial_on_insolvent_account() {
+    let env = Env::default();
+    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        // p = 1, HF = 0.4: cap is negative, the account is insolvent.
+        let s = snap(500 * WAD, 100 * WAD, 40 * WAD, WAD, 400_000_000_000_000_000);
+        let bounds = BonusBounds {
+            base: Bps::from(0i128),
+            max: Bps::from(0i128),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        assert_eq!(plan.repay_usd.raw(), 100 * WAD, "partial accepted");
+        assert_eq!(plan.bonus.raw(), 0);
+    });
+}
+
+// The HF-preserving cap returns `None` on each of the two independent
+// no-cap conditions (`proportion <= 0` OR `hf >= WAD`) and a finite floored
+// cap in the toxic band. The two `None` cases must hold independently: an
+// account with seizable collateral but hf >= 1 needs no cap, and a
+// zero-proportion account must short-circuit before the `hf/p` division.
+#[test]
+fn max_hf_preserving_bonus_none_on_each_no_cap_condition() {
+    // proportion > 0 but hf >= WAD (healthy): no cap.
+    let healthy = snap(50 * WAD, 200 * WAD, 100 * WAD, WAD / 2, 2 * WAD);
+    assert_eq!(max_hf_preserving_bonus_bps(&healthy), None);
+
+    // hf < WAD but zero seizable proportion: no cap (also guards the
+    // `hf * BPS / proportion` division against a zero divisor).
+    let no_seizable = snap(90 * WAD, 100 * WAD, 0, 0, WAD / 2);
+    assert_eq!(max_hf_preserving_bonus_bps(&no_seizable), None);
+
+    // Toxic band (proportion 0.45, hf 0.5): finite cap hf/p - 1 = 1111 bps.
+    let toxic = snap(90 * WAD, 100 * WAD, 45 * WAD, 45 * WAD / 100, WAD / 2);
+    assert_eq!(max_hf_preserving_bonus_bps(&toxic), Some(1_111));
+}
+
+// A deeply unhealthy low-threshold position (collateral $100, debt $90,
+// threshold 0.45 -> weighted $45, HF 0.5): the curve asks for the max bonus
+// (12222 bps) but that seizure rate would ratchet HF on partials, so the
+// guard caps the bonus at the largest HF-neutral value, hf/p - 1 = 1111 bps.
+// At that bonus the near-full ideal leaves sub-floor dust, so the estimate
+// closes the whole debt -- and the $90 * 1.1111 seizure stays inside the
+// $100 collateral, leaving no socializable residue.
+#[test]
+fn estimate_toxic_band_caps_bonus_to_hf_neutral() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
 
@@ -762,8 +918,102 @@ fn estimate_low_hf_uses_max_bonus_collateral_capped() {
     };
 
     let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-    assert_eq!(bonus.raw(), max.raw(), "deep HF takes the max bonus");
-    assert!(d < s.total_debt, "collateral-capped partial repayment");
+    assert_eq!(bonus.raw(), 1_111, "bonus capped at hf/p - 1, not the max");
+    assert_eq!(d.raw(), s.total_debt.raw(), "dust guard closes the debt");
+    let seizure = d.mul(&env, Wad::ONE + bonus.to_wad(&env));
+    assert!(
+        seizure <= s.total_collateral,
+        "capped seizure fits in collateral"
+    );
+}
+
+// When even the base bonus would shrink HF (hf/p - 1 below base), partials
+// cannot help the account, so the estimate requires a full close at base.
+#[test]
+fn estimate_full_close_when_base_bonus_ratchets() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+    // p = 0.9, HF = 0.9: hf/p - 1 = 0 < base 500.
+    let s = snap(
+        100 * WAD,
+        100 * WAD,
+        90 * WAD,
+        90 * WAD / 100,
+        90 * WAD / 100,
+    );
+    let bounds = BonusBounds {
+        base: Bps::from(500i128),
+        max: max_bonus_for_threshold(&env, s.proportion_seized),
+    };
+
+    let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!(bonus.raw(), 500, "full close pays the base bonus");
+    assert_eq!(d.raw(), s.total_debt.raw(), "unsafe partials force full close");
+}
+
+// Outside the toxic band the guard is inert: the HF-scaled bonus applies
+// unchanged.
+#[test]
+fn estimate_safe_region_keeps_scaled_bonus() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+    // p = 0.5, HF = 0.95: hf/p - 1 = 9000 bps, scaled bonus is
+    // 500 + 9500 * (1.10 - 0.95)/(1.10 - 0.80) = 5250 bps -- under the cap.
+    let s = snap(100 * WAD, 200 * WAD, 95 * WAD, WAD / 2, 95 * WAD / 100);
+    let bounds = BonusBounds {
+        base: Bps::from(500i128),
+        max: max_bonus_for_threshold(&env, s.proportion_seized),
+    };
+
+    let (_d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!(bonus.raw(), 5_250, "scaled bonus kept in the safe region");
+}
+
+// The guard invariant, swept: for any estimated (partial) liquidation, a
+// repayment at or below the ideal never leaves the account less healthy.
+#[test]
+fn partial_liquidations_never_reduce_hf() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let collateral = 100 * WAD;
+
+    for p_pct in [30i128, 45, 60, 80, 92] {
+        for hf_pct in (10..100).step_by(8) {
+            let weighted = collateral * p_pct / 100;
+            // hf = weighted / debt  =>  debt = weighted / hf.
+            let debt = weighted * 100 / hf_pct as i128;
+            let s = snap(
+                debt,
+                collateral,
+                weighted,
+                p_pct * WAD / 100,
+                hf_pct as i128 * WAD / 100,
+            );
+            let bounds = BonusBounds {
+                base: Bps::from(500i128),
+                max: max_bonus_for_threshold(&env, s.proportion_seized),
+            };
+
+            let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+            // A full-close estimate carries no partial to check.
+            if ideal.raw() >= s.total_debt.raw() {
+                continue;
+            }
+            for repay in [Wad::from(ideal.raw() / 2), ideal] {
+                let post = calculate_post_liquidation_hf(&env, &s, repay, bonus);
+                assert!(
+                    // Half-up rounding in the seizure path may cost 1 ulp.
+                    post.raw() + 10 >= s.hf.raw(),
+                    "partial at p={p_pct}% hf={hf_pct}% repay={} reduced HF: {} -> {}",
+                    repay.raw(),
+                    s.hf.raw(),
+                    post.raw()
+                );
+            }
+        }
+    }
 }
 
 // The dust guard escalates a sub-floor debt remainder to a full close. A
@@ -795,20 +1045,20 @@ fn estimate_escalates_sub_floor_debt_dust_to_full_close() {
     );
 }
 
-// An above-floor remainder is left untouched: a moderately unhealthy position
-// (D=$100, C=$75, threshold 0.8 -> weighted $60, HF 0.6) repays a partial toward
-// the target and keeps a >$5 debt remainder.
+// An above-floor remainder is left untouched: a moderately unhealthy
+// low-threshold position (D=$50, C=$100, threshold 0.45 -> weighted $45,
+// HF 0.9) repays a partial toward the target and keeps a >$5 debt remainder.
 #[test]
 fn estimate_leaves_above_floor_debt_remainder_unescalated() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
 
     let s = snap(
+        50 * WAD,
         100 * WAD,
-        75 * WAD,
-        60 * WAD,
-        80 * WAD / 100,
-        60 * WAD / 100,
+        45 * WAD,
+        45 * WAD / 100,
+        90 * WAD / 100,
     );
     let bounds = BonusBounds {
         base: Bps::from(500i128),
@@ -867,8 +1117,8 @@ fn estimate_collateral_covers_target_returns_collateral_cap() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
 
-    // target_hf * D = 1.02 * 100 = 102 == weighted_coll, the branch boundary.
-    let s = snap(100 * WAD, 120 * WAD, 102 * WAD, 85 * WAD / 100, 102 * WAD / 100);
+    // target_hf * D = 1.10 * 100 = 110 == weighted_coll, the branch boundary.
+    let s = snap(100 * WAD, 120 * WAD, 110 * WAD, 85 * WAD / 100, 102 * WAD / 100);
     let bounds = BonusBounds {
         base: Bps::from(0i128),
         max: Bps::from(0i128),
@@ -888,8 +1138,12 @@ fn estimate_fallback_divides_collateral_by_one_plus_bonus() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
 
-    // base == max pins the bonus at exactly 50% regardless of HF.
-    let s = snap(150 * WAD, 150 * WAD, 50 * WAD, 7 * WAD / 10, WAD / 2);
+    // base == max pins the bonus at exactly 50%. Under the HF-preservation
+    // guard the unreachable-target fallback only fires when the guard is
+    // inert (hf >= 1: below 1 the capped bonus keeps the target denominator
+    // positive), so pin hf above the target: p*(1+b) = 0.74*1.5 = 1.11 > 1.10
+    // makes the target unreachable and the fallback divides the collateral.
+    let s = snap(150 * WAD, 150 * WAD, 50 * WAD, 74 * WAD / 100, 12 * WAD / 10);
     let bounds = BonusBounds {
         base: Bps::from(5_000i128),
         max: Bps::from(5_000i128),
@@ -911,9 +1165,10 @@ fn estimate_leaves_exactly_five_dollar_remainder_unescalated() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
 
-    // Zero bonus -> d_max = collateral = $95, and the interpolation root
-    // (~$100.5) exceeds it, so ideal = $95 and remaining = $100 - $95 = $5.
-    let s = snap(100 * WAD, 95 * WAD, 95 * WAD / 10, WAD / 10, 95 * WAD / 1000);
+    // Zero bonus, safe region (p = 0.5 <= HF = 0.53): the target-HF root is
+    // exactly (1.10*100 - 53) / (1.10 - 0.5) = $95, so remaining is exactly
+    // $100 - $95 = $5.
+    let s = snap(100 * WAD, 106 * WAD, 53 * WAD, WAD / 2, 53 * WAD / 100);
     let bounds = BonusBounds {
         base: Bps::from(0i128),
         max: Bps::from(0i128),
