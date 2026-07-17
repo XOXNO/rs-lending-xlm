@@ -305,8 +305,8 @@ impl Governance {
         // their own removal. Every other pending operation, including a
         // revocation of another canceller, stays vetoable, so the independent
         // cancellers remain a real check on a rogue proposer (or owner). A
-        // colluding-canceller deadlock is broken by the owner's immediate
-        // `revoke_role_immediate`, not by suspending the veto here.
+        // colluding-canceller deadlock is broken by the non-vetoable Recovery
+        // tier (`propose_canceller_reset`), not by suspending the veto here.
         if let Some((target, _role)) = storage::role_revocation_target(&env, &operation_id) {
             assert_with_error!(
                 &env,
@@ -410,17 +410,17 @@ impl Governance {
         controller_client(&env).add_spoke()
     }
 
-    /// Revokes `GUARDIAN`, `ORACLE`, or `CANCELLER` immediately, bypassing the
-    /// timelock. Owner-gated emergency de-authorization: stripping a compromised
+    /// Revokes `GUARDIAN` or `ORACLE` immediately, bypassing the timelock.
+    /// Owner-gated emergency de-authorization: stripping a compromised
     /// immediate-role key must be at least as fast as the powers it holds.
-    /// `CANCELLER` is included so the owner can break a colluding-canceller
-    /// deadlock — two cancellers vetoing each other's timelocked removal —
-    /// which the vetoable-revocation model would otherwise leave unresolvable.
-    /// `PROPOSER`/`EXECUTOR` revocations stay timelocked. Grants stay timelocked.
+    /// `PROPOSER`/`EXECUTOR`/`CANCELLER` revocations stay timelocked, so a
+    /// compromised owner cannot instantly strip the independent cancellers. A
+    /// colluding-canceller deadlock is broken by the non-vetoable Recovery tier
+    /// (`propose_canceller_reset`), not by an instant owner path. Grants stay
+    /// timelocked.
     ///
     /// # Errors
-    /// * `InvalidRole` - role is not `GUARDIAN`/`ORACLE`/`CANCELLER`, or
-    ///   `account` does not hold it.
+    /// * `InvalidRole` - role is not `GUARDIAN`/`ORACLE`, or `account` does not hold it.
     /// * `NotAuthorized` - `account` is the owner (its roles are never revocable).
     ///
     /// # Events
@@ -429,9 +429,7 @@ impl Governance {
     pub fn revoke_role_immediate(env: Env, account: Address, role: Symbol) {
         assert_with_error!(
             &env,
-            role == Symbol::new(&env, GUARDIAN_ROLE)
-                || role == Symbol::new(&env, ORACLE_ROLE)
-                || role == Symbol::new(&env, CANCELLER_ROLE),
+            role == Symbol::new(&env, GUARDIAN_ROLE) || role == Symbol::new(&env, ORACLE_ROLE),
             GenericError::InvalidRole
         );
         access::apply_revoke_role(&env, &account, &role);
