@@ -157,6 +157,9 @@ pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &soroban_sdk::Vec
     }
     for account in new_cancellers.iter() {
         if account != owner && access_control::has_role(env, &account, &role).is_none() {
+            // Recovery grants obey the same EXECUTOR/CANCELLER separation the
+            // normal grant path enforces: a non-owner may not hold both.
+            require_executor_canceller_separation(env, &owner, &account, &role);
             access_control::grant_role_no_auth(env, &account, &role, &owner);
         }
     }

@@ -664,3 +664,24 @@ fn recovery_resets_captured_council_after_long_delay() {
     assert!(gov.has_role(&fresh, &role));
     assert!(gov.has_role(&admin, &role)); // owner keeps its CANCELLER (root authority)
 }
+
+// A recovery reset obeys the same EXECUTOR/CANCELLER separation as the normal
+// grant path: it cannot grant CANCELLER to a non-owner that already holds
+// EXECUTOR. The reset reverts at execute with InvalidRole (#41).
+#[test]
+#[should_panic(expected = "Error(Contract, #41)")]
+fn recovery_grant_enforces_executor_canceller_separation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let executor = grant_role_via_timelock(&env, &gov, &admin, delay, EXECUTOR_ROLE, 1);
+
+    let salt = BytesN::<32>::from_array(&env, &[6u8; 32]);
+    let new_set = soroban_sdk::vec![&env, executor.clone()];
+    let _id = gov.propose_canceller_reset(&new_set, &salt);
+
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
+    gov.execute_canceller_reset(&Some(admin.clone()), &new_set, &salt);
+}
