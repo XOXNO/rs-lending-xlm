@@ -93,7 +93,10 @@ Immediate owner operations are limited to:
   fast as the powers it holds. Only those two roles: grants and
   `PROPOSER`/`EXECUTOR`/`CANCELLER` revocations stay timelocked, so a
   compromised owner key cannot instantly strip the independent cancellers
-  and leave a malicious pending proposal without a veto;
+  and leave a malicious pending proposal without a veto. A colluding-canceller
+  deadlock — two cancellers vetoing each other's timelocked removal — is broken
+  by the owner's non-vetoable Recovery-tier `propose_canceller_reset` (~30-day,
+  public), not by an instant path;
 - accept already scheduled governance ownership transfer;
 - read-only views.
 
