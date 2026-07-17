@@ -808,6 +808,47 @@ fn normalize_accepts_full_close_on_solvent_toxic_account() {
     });
 }
 
+// Boundary: cap == base exactly (hf/p - 1 == base). A partial at the base
+// bonus is exactly HF-neutral there, so it must be ACCEPTED -- the full-close
+// gate uses a strict `cap < base`. p = 0.8, hf = 0.84 gives
+// cap = 0.84/0.8 - 1 = 500 bps == base, and C/D = 1.05 keeps it solvent.
+#[test]
+fn normalize_accepts_partial_when_cap_equals_base() {
+    let env = Env::default();
+    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        // debt $500, collateral $525, weighted $420: p = 0.8, hf = 0.84.
+        let s = snap(
+            500 * WAD,
+            525 * WAD,
+            420 * WAD,
+            8 * WAD / 10,
+            84 * WAD / 100,
+        );
+        assert_eq!(
+            max_hf_preserving_bonus_bps(&s),
+            Some(500),
+            "cap must equal the base bonus for this boundary"
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        // A $100 partial (below the full-close ideal) is accepted, not rejected.
+        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        assert_eq!(plan.repay_usd.raw(), 100 * WAD, "boundary partial accepted");
+        assert_eq!(plan.bonus.raw(), 500);
+    });
+}
+
 // Insolvent accounts (negative HF-neutral cap: collateral below debt) keep the
 // partial path: forcing a full close would guarantee the liquidator a loss
 // and freeze liquidation.
