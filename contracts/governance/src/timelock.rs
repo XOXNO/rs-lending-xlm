@@ -293,8 +293,9 @@ impl Governance {
     /// * `canceller` - must hold the `CANCELLER` role and authorize.
     ///
     /// # Errors
-    /// * `OperationNotCancellable` - the operation revokes `canceller`'s own
-    ///   role (a role holder cannot veto their own removal).
+    /// * `OperationNotCancellable` - the operation is a non-vetoable Recovery-tier
+    ///   op, or it revokes `canceller`'s own role (a role holder cannot veto
+    ///   their own removal).
     /// * The `CANCELLER` role check and the not-pending reject are enforced by
     ///   the access-control and OZ timelock libraries.
     ///
