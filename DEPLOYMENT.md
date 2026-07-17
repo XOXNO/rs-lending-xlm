@@ -338,14 +338,15 @@ The long public delay is deliberate: it is slow enough that Recovery cannot
 serve as a quiet theft path even for a compromised owner multisig, while
 still being the only mechanism that can outlast a captured council.
 
-These are dedicated entrypoints, not config-driven `make` verbs — a
-`Vec<Address>` argument doesn't fit the JSON-config action dispatcher (see
-`make help`). Invoke them directly:
+These are dedicated **governance** entrypoints, not config-driven `make` verbs
+— a `Vec<Address>` argument doesn't fit the JSON-config action dispatcher (see
+`make help`). Invoke them directly against the governance contract with
+`invoke-id` (plain `invoke` targets the controller):
 ```bash
-make invoke FN=propose_canceller_reset \
+make invoke-id CONTRACT_ID=<governance-id-or-alias> FN=propose_canceller_reset \
   ARGS='--new_cancellers ["G...","G...","G..."] --salt <64-hex>' NETWORK=<network>
 # ... wait out the ~30-day Recovery delay, then:
-make invoke FN=execute_canceller_reset \
+make invoke-id CONTRACT_ID=<governance-id-or-alias> FN=execute_canceller_reset \
   ARGS='--executor null --new_cancellers ["G...","G...","G..."] --salt <64-hex>' NETWORK=<network>
 ```
 
