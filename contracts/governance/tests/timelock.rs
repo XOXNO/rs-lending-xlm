@@ -369,22 +369,6 @@ fn independent_canceller_can_veto_canceller_revocation() {
     gov.cancel(&independent, &id);
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
-
-// The owner breaks a colluding-canceller deadlock with an immediate revoke,
-// bypassing the veto that the pair would otherwise use to shield each other.
-#[test]
-fn owner_immediately_revokes_colluding_canceller() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let delay = 10u32;
-    let (admin, _controller, gov) = register_with_controller(&env, delay);
-    let colluder = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
-
-    assert!(gov.has_role(&colluder, &Symbol::new(&env, CANCELLER_ROLE)));
-    gov.revoke_role_immediate(&colluder, &Symbol::new(&env, CANCELLER_ROLE));
-    assert!(!gov.has_role(&colluder, &Symbol::new(&env, CANCELLER_ROLE)));
-}
-
 // The owner can no longer instantly strip a canceller; CANCELLER revocation
 // rides the timelock (single-vetoable) instead. Closes the "owner instantly
 // strips canceller vetoes" finding.
