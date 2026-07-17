@@ -141,6 +141,27 @@ pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     access_control::grant_role_no_auth(env, account, role, &owner);
 }
 
+/// Revokes every non-owner CANCELLER holder and grants CANCELLER to each address
+/// in `new_cancellers`. Owner's CANCELLER is preserved (root recovery authority).
+pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &soroban_sdk::Vec<Address>) {
+    storage::renew_governance_instance(env);
+    let owner = owner_or_panic(env);
+    let role = Symbol::new(env, CANCELLER_ROLE);
+    let mut count = access_control::get_role_member_count(env, &role);
+    while count > 0 {
+        count -= 1;
+        let holder = access_control::get_role_member(env, &role, count);
+        if holder != owner {
+            access_control::revoke_role_no_auth(env, &holder, &role, &owner);
+        }
+    }
+    for account in new_cancellers.iter() {
+        if account != owner && access_control::has_role(env, &account, &role).is_none() {
+            access_control::grant_role_no_auth(env, &account, &role, &owner);
+        }
+    }
+}
+
 pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
     storage::renew_governance_instance(env);
     // Reject no-op revokes.

@@ -7,9 +7,9 @@ use common::types::{
 
 use controller_interface::ControllerAdminClient;
 
-#[cfg(any(test, feature = "testing"))]
-use soroban_sdk::IntoVal;
-use soroban_sdk::{assert_with_error, contractimpl, Address, BytesN, Env, Symbol, Val, Vec};
+use soroban_sdk::{
+    assert_with_error, contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val, Vec,
+};
 
 use stellar_access::access_control;
 use stellar_governance::timelock::{
@@ -34,6 +34,8 @@ pub(crate) enum DelayTier {
     /// Contract upgrade (governance, controller, or pool) and ownership
     /// transfer proposals.
     Sensitive,
+    /// Non-vetoable council reset; longest delay.
+    Recovery,
 }
 
 /// Ledger delay used when scheduling an operation at the given tier.
@@ -42,6 +44,7 @@ pub(crate) fn operation_delay(env: &Env, tier: DelayTier) -> u32 {
     match tier {
         DelayTier::Standard => min,
         DelayTier::Sensitive => min.max(constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS),
+        DelayTier::Recovery => min.max(constants::TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS),
     }
 }
 
@@ -496,6 +499,49 @@ impl Governance {
     /// * `MathOverflow` - band computation overflows.
     pub fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OraclePriceFluctuation {
         validate::tolerance::validate_and_calculate_tolerances(&env, tolerance)
+    }
+
+    /// Owner-only, non-vetoable council reset scheduled at the Recovery delay.
+    /// Public and slow so it cannot serve as a quiet theft path; used only to
+    /// recover from a compromised majority of the canceller council.
+    #[only_owner]
+    pub fn propose_canceller_reset(
+        env: Env,
+        new_cancellers: Vec<Address>,
+        salt: BytesN<32>,
+    ) -> BytesN<32> {
+        let gov = env.current_contract_address();
+        let operation = Operation {
+            target: gov,
+            function: Symbol::new(&env, "reset_cancellers"),
+            args: vec![&env, new_cancellers.into_val(&env)],
+            predecessor: BytesN::from_array(&env, &[0u8; 32]),
+            salt,
+        };
+        let delay = operation_delay(&env, DelayTier::Recovery);
+        let id = schedule_operation(&env, &operation, delay);
+        storage::mark_recovery_op(&env, &id);
+        id
+    }
+
+    /// Executes a matured council reset. `executor=None` leaves execution open.
+    pub fn execute_canceller_reset(
+        env: Env,
+        executor: Option<Address>,
+        new_cancellers: Vec<Address>,
+        salt: BytesN<32>,
+    ) {
+        let gov = env.current_contract_address();
+        let operation = Operation {
+            target: gov,
+            function: Symbol::new(&env, "reset_cancellers"),
+            args: vec![&env, new_cancellers.clone().into_val(&env)],
+            predecessor: BytesN::from_array(&env, &[0u8; 32]),
+            salt,
+        };
+        begin_self_execute(&env, executor.as_ref(), &operation);
+        access::apply_canceller_reset(&env, &new_cancellers);
+        storage::clear_recovery_op(&env, &hash_operation(&env, &operation));
     }
 }
 

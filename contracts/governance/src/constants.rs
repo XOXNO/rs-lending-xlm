@@ -18,3 +18,8 @@ pub const TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS: u32 = 120_960;
 /// Expiration window for Ready operations, in ledgers.
 /// Prevents stale Ready operations from remaining executable indefinitely.
 pub const TIMELOCK_OPERATION_GRACE_LEDGERS: u32 = 120_960;
+
+/// Minimum delay for the Recovery tier — non-vetoable council reset: ~30 days
+/// at ~5s per ledger. Long and public so it cannot serve as a quiet theft path
+/// even for a compromised owner multisig.
+pub const TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS: u32 = 518_400;

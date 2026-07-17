@@ -7,7 +7,7 @@ use common::types::{ControllerKey, PositionLimits};
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
 use crate::constants::{
     TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS,
-    TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
+    TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
 };
 use crate::op::{AdminOperation, RoleArgs, TransferOwnershipArgs};
 use crate::timelock::{operation_delay, DelayTier};
@@ -624,4 +624,29 @@ fn validate_delay_update_rejects_above_max_cap() {
     let over_max = TIMELOCK_MAX_DELAY_LEDGERS + 1;
 
     gov.propose(&admin, &AdminOperation::UpdateGovDelay(over_max), &salt);
+}
+
+#[test]
+fn recovery_resets_captured_council_after_long_delay() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let bad1 = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
+    let bad2 = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 2);
+    let fresh = Address::generate(&env);
+
+    let salt = BytesN::<32>::from_array(&env, &[5u8; 32]);
+    let new_set = soroban_sdk::vec![&env, fresh.clone()];
+    let _id = gov.propose_canceller_reset(&new_set, &salt);
+
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
+    gov.execute_canceller_reset(&Some(admin.clone()), &new_set, &salt);
+
+    let role = Symbol::new(&env, CANCELLER_ROLE);
+    assert!(!gov.has_role(&bad1, &role));
+    assert!(!gov.has_role(&bad2, &role));
+    assert!(gov.has_role(&fresh, &role));
+    assert!(gov.has_role(&admin, &role)); // owner keeps its CANCELLER (root authority)
 }
