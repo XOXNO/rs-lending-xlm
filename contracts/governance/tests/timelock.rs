@@ -341,10 +341,10 @@ fn independent_canceller_can_cancel_non_canceller_role_revocation() {
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
 
-// A CANCELLER-role revocation is now vetoable by an INDEPENDENT canceller (only
-// the target itself is barred): the independent-canceller veto stays a real
-// check on a rogue proposer trying to strip cancellers. The colluding-canceller
-// deadlock this opens is broken by the owner's immediate revoke, tested below.
+// An INDEPENDENT canceller (not the target) can veto a CANCELLER-role revocation,
+// ensuring a real check on a rogue proposer trying to strip cancellers. The
+// colluding-canceller deadlock this opens is broken by the non-vetoable Recovery
+// tier (propose_canceller_reset).
 #[test]
 fn independent_canceller_can_veto_canceller_revocation() {
     let env = Env::default();
