@@ -5,8 +5,7 @@ use stellar_xdr::curr::ScVal;
 
 use crate::scval::{field_bool, field_i128, field_u32, field_u64, map_field};
 
-/// Interest-rate-model params for one market (RAY rate/slope/utilization fields,
-/// BPS ratio fields) plus the token decimals used to denominate amounts.
+/// IRM params (RAY rates/slopes/util + BPS fees) and asset decimals.
 #[derive(Debug, Clone)]
 pub struct MarketParams {
     pub asset_decimals: u32,
@@ -23,20 +22,16 @@ pub struct MarketParams {
     pub max_utilization_ray: i128,
 }
 
-/// `PoolSyncData` projected to the params plus the last-accrual timestamp.
 #[derive(Debug, Clone)]
 pub struct MarketSync {
     pub params: MarketParams,
     pub last_timestamp: u64,
 }
 
-/// Decode a bare `i128` return (reserves, supplied, borrowed, revenue,
-/// utilisation, rates, thresholds).
 pub fn decode_i128(value: &ScVal) -> Result<i128> {
     crate::scval::as_i128(value).ok_or_else(|| anyhow!("expected i128, got {value:?}"))
 }
 
-/// Decode `get_sync_data -> PoolSyncData`.
 pub fn decode_sync_data(value: &ScVal) -> Result<MarketSync> {
     let params_val = map_field(value, "params").ok_or_else(|| anyhow!("PoolSyncData.params missing"))?;
     let state_val = map_field(value, "state").ok_or_else(|| anyhow!("PoolSyncData.state missing"))?;

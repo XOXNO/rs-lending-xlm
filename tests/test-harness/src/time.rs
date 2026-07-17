@@ -14,7 +14,6 @@ impl LendingTest {
         let current = self.env.ledger().timestamp();
         let current_seq = self.env.ledger().sequence();
         let new_timestamp = current + duration_secs;
-        // Roughly 5 seconds per ledger
         let new_seq = current_seq + (duration_secs / 5) as u32;
 
         self.env.ledger().set(LedgerInfo {
@@ -28,7 +27,6 @@ impl LendingTest {
             max_entry_ttl: 3_110_400,
         });
 
-        // Refresh oracle prices to prevent staleness
         self.refresh_oracle_prices();
     }
 

@@ -1,5 +1,4 @@
-//! Lending metrics exporter entrypoint: load config, connect RPC, serve
-//! `/metrics`, and scrape the protocol on a timer until shutdown.
+//! Entrypoint: config → RPC → `/metrics` + timed scrapes until shutdown.
 
 use std::path::PathBuf;
 use std::sync::Arc;

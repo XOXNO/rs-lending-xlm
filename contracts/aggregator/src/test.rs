@@ -452,14 +452,9 @@ fn soroswap_single_hop_derives_output_from_live_reserves() {
     sac_out.mint(&pool, &reserve_1);
     sac_in.mint(&sender, &1_000);
 
-    // `amount_out` carries a deliberately STALE quote (375): the pre-fix router
-    // passed this straight to `pool.swap` as the exact output, so any reserve
-    // drift between quote and execution tripped the pair's k-check
-    // (`Error(Contract, #114)`). The fix derives the output from `get_reserves`
-    // on-chain, so this stale value is ignored entirely.
+    // Stale hop.amount_out is ignored; router sizes from live reserves.
     let stale_quoted_out: i128 = 375;
-    // Slippage floor well under the live-reserve output, so the aggregate guard
-    // is not what this test exercises — the output derivation is.
+    // min_out under live output so this test hits sizing, not aggregate slippage.
     let total_min_out: i128 = 900;
 
     let swap_xdr = strategy_xdr(

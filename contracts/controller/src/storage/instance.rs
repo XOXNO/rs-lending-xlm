@@ -10,8 +10,6 @@ use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, By
 use crate::constants;
 use crate::storage::renew_protocol_shared_key;
 
-// ################## CONSTANTS ##################
-
 /// Cap on unconsumed token approvals.
 const MAX_OUTSTANDING_TOKEN_APPROVALS: u32 = 16;
 
@@ -89,12 +87,10 @@ fn set_registry_entry(
     }
 }
 
-/// Returns whether `token` is on the outbound-approval allowlist.
 pub(crate) fn is_token_approved(env: &Env, token: &Address) -> bool {
     registry_contains(env, &LocalKey::ApprovedToken(token.clone()))
 }
 
-/// Adds or removes `token` from the approval allowlist, maintaining the capped count.
 pub(crate) fn set_token_approved(env: &Env, token: &Address, approved: bool) {
     set_registry_entry(
         env,
@@ -105,12 +101,10 @@ pub(crate) fn set_token_approved(env: &Env, token: &Address, approved: bool) {
     );
 }
 
-/// Returns whether `pool` is an approved Blend migration source.
 pub(crate) fn is_blend_pool_approved(env: &Env, pool: &Address) -> bool {
     registry_contains(env, &LocalKey::BlendPoolAllowed(pool.clone()))
 }
 
-/// Adds or removes `pool` from the Blend migration allowlist, maintaining the capped count.
 pub(crate) fn set_blend_pool_approved(env: &Env, pool: &Address, approved: bool) {
     set_registry_entry(
         env,
@@ -121,7 +115,6 @@ pub(crate) fn set_blend_pool_approved(env: &Env, pool: &Address, approved: bool)
     );
 }
 
-/// Returns the pool WASM template hash, panicking if unset.
 pub(crate) fn get_pool_template(env: &Env) -> BytesN<32> {
     env.storage()
         .instance()
@@ -129,29 +122,24 @@ pub(crate) fn get_pool_template(env: &Env) -> BytesN<32> {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::TemplateNotSet))
 }
 
-/// Stores the pool WASM template hash used to deploy new pools.
 pub(crate) fn set_pool_template(env: &Env, hash: &BytesN<32>) {
     env.storage()
         .instance()
         .set(&ControllerKey::PoolTemplate, hash);
 }
 
-/// Returns the pool address, panicking if the pool is not yet initialized.
 pub(crate) fn get_pool(env: &Env) -> Address {
     try_get_pool(env).unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-/// Returns the pool address if set.
 pub(crate) fn try_get_pool(env: &Env) -> Option<Address> {
     env.storage().instance().get(&ControllerKey::Pool)
 }
 
-/// Stores the pool contract address.
 pub(crate) fn set_pool(env: &Env, addr: &Address) {
     env.storage().instance().set(&ControllerKey::Pool, addr);
 }
 
-/// Returns the aggregator address, panicking if unset.
 pub(crate) fn get_aggregator(env: &Env) -> Address {
     env.storage()
         .instance()
@@ -159,19 +147,16 @@ pub(crate) fn get_aggregator(env: &Env) -> Address {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AggregatorNotSet))
 }
 
-/// Stores the aggregator contract address.
 pub(crate) fn set_aggregator(env: &Env, addr: &Address) {
     env.storage()
         .instance()
         .set(&ControllerKey::Aggregator, addr);
 }
 
-/// Returns the fee-accumulator address if set.
 pub(crate) fn try_get_accumulator(env: &Env) -> Option<Address> {
     env.storage().instance().get(&ControllerKey::Accumulator)
 }
 
-/// Stores the fee-accumulator contract address.
 pub(crate) fn set_accumulator(env: &Env, addr: &Address) {
     env.storage()
         .instance()
@@ -199,7 +184,6 @@ pub(crate) fn set_asset_oracle(env: &Env, asset: &Address, config: &MarketOracle
 
 // Persistent, not instance: the nonce changes on every account creation, and
 // an instance write rewrites (and re-rents) the whole instance envelope.
-/// Returns the current account-id nonce, or 0 before any account is created.
 pub(crate) fn get_account_nonce(env: &Env) -> u64 {
     env.storage()
         .persistent()
@@ -219,7 +203,6 @@ pub(crate) fn increment_account_nonce(env: &Env) -> u64 {
     next
 }
 
-/// Returns the configured position limits, panicking if unset.
 pub(crate) fn get_position_limits(env: &Env) -> PositionLimits {
     env.storage()
         .instance()
@@ -227,14 +210,13 @@ pub(crate) fn get_position_limits(env: &Env) -> PositionLimits {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PositionLimitsNotSet))
 }
 
-/// Stores the position limits config.
 pub(crate) fn set_position_limits(env: &Env, limits: &PositionLimits) {
     env.storage()
         .instance()
         .set(&ControllerKey::PositionLimits, limits);
 }
 
-/// Returns the minimum borrow-collateral USD floor, defaulting to the constant when unset.
+/// Min borrow-collateral USD floor; defaults to constant when unset.
 pub(crate) fn get_min_borrow_collateral_usd_wad(env: &Env) -> i128 {
     env.storage()
         .instance()
@@ -272,10 +254,6 @@ fn increment_id(env: &Env, key: &ControllerKey) -> u32 {
     next
 }
 
-/// Reads a hub registry entry. No hub is seeded; hubs are created on demand
-/// (ids from 1). Returns `None` for any uncreated id.
-/// Persistent, not instance: the registry grows with the hub count, and the
-/// instance envelope is read (and rent-extended) on every invocation.
 pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
     let key = ControllerKey::Hub(hub_id);
     let hub: Option<HubConfig> = env.storage().persistent().get(&key);
@@ -286,15 +264,12 @@ pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
     hub
 }
 
-/// Stores a hub registry entry and renews its shared-tier TTL.
 pub(crate) fn set_hub(env: &Env, hub_id: u32, config: &HubConfig) {
     let key = ControllerKey::Hub(hub_id);
     env.storage().persistent().set(&key, config);
     renew_protocol_shared_key(env, &key);
 }
 
-/// Reads a position-manager registry entry. Absence means the address is not a
-/// registered manager; `require_owner_or_delegate` then grants it no access.
 pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<PositionManagerConfig> {
     env.storage()
         .instance()
@@ -325,7 +300,6 @@ pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionM
     }
 }
 
-/// Returns whether a flash loan is currently in progress.
 pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {
     env.storage()
         .temporary()
@@ -333,7 +307,6 @@ pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
-/// Sets or clears the flash-loan reentrancy flag.
 pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
     if ongoing {
         env.storage()
@@ -346,7 +319,6 @@ pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
     }
 }
 
-/// Runs `f` with the flash-loan reentrancy flag set, then restores the saved value.
 pub(crate) fn with_flash_guard<T>(env: &Env, f: impl FnOnce() -> T) -> T {
     let prev = is_flash_loan_ongoing(env);
     set_flash_loan_ongoing(env, true);

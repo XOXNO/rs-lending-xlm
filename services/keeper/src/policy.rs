@@ -1,6 +1,6 @@
-//! Decide what each discovered entry needs this tick.
+//! Per-entry TTL decision for one tick.
 
-/// What the keeper should do with a single entry this tick.
+/// Action for one discovered entry this tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
     /// Live and inside the safety margin.
@@ -11,7 +11,7 @@ pub enum Decision {
     Skip,
 }
 
-/// Classifies one ledger entry for this tick.
+/// Classify one ledger entry for this tick.
 pub fn classify(
     live_until: Option<u32>,
     value_present: bool,
@@ -24,9 +24,8 @@ pub fn classify(
     let Some(live_until) = live_until else {
         return Decision::Skip;
     };
-    // Soroban liveness is inclusive: an entry is live through its `live_until`
-    // ledger, so only `live_until < current` is archived. At equality the entry
-    // is on its last live ledger — extend it (remaining 0 < safety).
+    // Inclusive liveness: live through `live_until`; only `< current` is archived.
+    // At equality (last live ledger) remaining 0 < safety → Extend.
     if live_until < current_ledger {
         return Decision::Restore;
     }
@@ -53,7 +52,7 @@ mod tests {
 
     #[test]
     fn entry_exactly_at_safety_boundary_skips() {
-        // remaining == safety is *not* inside the margin (strict `<`).
+        // remaining == safety is outside the margin (strict `<`).
         assert_eq!(
             classify(Some(NOW + SAFETY), true, NOW, SAFETY),
             Decision::Skip
@@ -70,7 +69,7 @@ mod tests {
 
     #[test]
     fn live_until_equal_to_current_is_still_live_and_extends() {
-        // Inclusive liveness: the entry is on its last live ledger, not archived.
+        // Last live ledger is still live, not archived.
         assert_eq!(classify(Some(NOW), true, NOW, SAFETY), Decision::Extend);
     }
 
@@ -85,8 +84,7 @@ mod tests {
 
     #[test]
     fn absent_entry_skips_even_when_expired_looking() {
-        // RPC omits never-written / evicted entries — nothing to extend or
-        // restore.
+        // RPC omits never-written / evicted entries.
         assert_eq!(classify(Some(0), false, NOW, SAFETY), Decision::Skip);
         assert_eq!(classify(None, false, NOW, SAFETY), Decision::Skip);
     }

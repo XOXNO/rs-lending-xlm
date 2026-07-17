@@ -35,10 +35,6 @@ pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     store_spoke_asset(env, args, &hub_asset, config);
 }
 
-/// Updates a spoke-asset listing. Works on deprecated spokes so live listings
-/// stay manageable while usage drains. Caps may sit below current usage:
-/// enforcement is entry-time only, so a lower cap just blocks new exposure
-/// until exits drain usage under it.
 pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
     storage::get_spoke(env, args.spoke_id);
@@ -53,7 +49,6 @@ pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     store_spoke_asset(env, args, &hub_asset, config);
 }
 
-/// Validates common risk bounds and returns the listing's hub coordinate.
 fn validate_spoke_asset_args(env: &Env, args: &SpokeAssetArgs) -> HubAssetKey {
     common_validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     common_validate_liquidation_fees(env, args.liquidation_fees);
@@ -69,7 +64,6 @@ fn validate_spoke_asset_args(env: &Env, args: &SpokeAssetArgs) -> HubAssetKey {
     }
 }
 
-/// Loads the pool market and validates both caps against its decimal domain.
 fn load_market_and_validate_caps(
     env: &Env,
     args: &SpokeAssetArgs,
@@ -136,7 +130,6 @@ fn store_spoke_asset(
     .publish(env);
 }
 
-/// Validates a per-spoke oracle override.
 fn resolve_spoke_oracle_override(
     env: &Env,
     asset: &Address,

@@ -79,10 +79,6 @@ fn liquidate_measure(
     (coll_usd, debt_usd, coll_usd / debt_usd)
 }
 
-// ---------------------------------------------------------------------------
-// Custom spoke curves
-// ---------------------------------------------------------------------------
-
 // A high target HF (5.0) drives the liquidation to repay far more debt to lift
 // the account well above 1.0; the position must end much healthier or closed.
 #[test]
@@ -154,10 +150,6 @@ fn test_narrow_curve_bonus_bounded_by_max() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Extreme thresholds / bonuses
-// ---------------------------------------------------------------------------
-
 // High LTV, high threshold, tiny 1% bonus (stablecoin-style): a shallow depeg
 // liquidation must pay only ~1% and never over-seize.
 #[test]
@@ -202,10 +194,6 @@ fn test_zero_bonus_liquidation() {
         "zero bonus must seize ~1:1 in value, got {ratio}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Toxic band (solvent but HF < 1) — accepted residual
-// ---------------------------------------------------------------------------
 
 // A solvent low-threshold (0.45) position with HF < 1 is liquidated via the
 // fallback tier (base is reserved for the HF-decreasing path): the max bonus
@@ -260,10 +248,6 @@ fn test_toxic_band_multi_collateral_seizes_both() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Dust guard, end to end
-// ---------------------------------------------------------------------------
-
 // A liquidation sized so the target-HF partial would leave a sub-$5 debt
 // remainder must escalate to a full close: the account ends with zero debt.
 #[test]
@@ -288,10 +272,6 @@ fn test_dust_debt_escalates_to_full_close() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Deep underwater -> socialized bad debt
-// ---------------------------------------------------------------------------
-
 // A collateral crash that leaves debt far above a near-zero collateral produces
 // socializable bad debt: the cleanup succeeds and removes the account.
 #[test]
@@ -311,10 +291,6 @@ fn test_deep_crash_socializes_bad_debt() {
     t.clean_bad_debt_by_id(id);
     assert!(t.find_account_id(ALICE).is_none(), "account cleaned away");
 }
-
-// ---------------------------------------------------------------------------
-// Decimals and prices
-// ---------------------------------------------------------------------------
 
 // A high-value, low-decimal (3) asset (1 milli-unit ~ $60) liquidates cleanly and
 // the liquidator's bonus stays within the expected band.
@@ -361,10 +337,6 @@ fn test_extreme_decimal_spread_3_collateral_18_debt() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Health-factor distance spectrum
-// ---------------------------------------------------------------------------
-
 // Across the HF spectrum (shallow to deep), every liquidation succeeds and moves
 // positive value within the seizure-safety ceiling. A single partial bite may
 // raise or lower HF (bounded across chains by the anti-ratchet invariant), so
@@ -405,10 +377,6 @@ fn test_hf_spectrum_liquidations_bounded() {
         );
     }
 }
-
-// ---------------------------------------------------------------------------
-// Full vs partial liquidations of the same position
-// ---------------------------------------------------------------------------
 
 /// A solvent low-threshold (toxic band) position: $6,000 collateral, $3,900 debt.
 fn seed_toxic() -> LendingTest {
@@ -496,10 +464,6 @@ fn test_overrepay_is_capped_at_ideal() {
     assert!(t.total_debt(ALICE) > 1.0, "a healthy remainder is left");
 }
 
-// ---------------------------------------------------------------------------
-// Curve-parameter sweep
-// ---------------------------------------------------------------------------
-
 // Across a grid of curve parameters, every liquidation of a deep account
 // succeeds, moves positive value, and respects the seizure-safety ceiling.
 #[test]
@@ -528,10 +492,6 @@ fn test_curve_param_sweep_invariants() {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Multi-debt liquidation and paused legs
-// ---------------------------------------------------------------------------
 
 // Liquidating two debt assets in one call reduces both, within the bonus ceiling.
 #[test]

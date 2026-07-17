@@ -44,12 +44,10 @@ const BI_SCALE: i128 = START_BORROW_INDEX_GROWTH / (u64::MAX as i128);
 /// utilization stays inside i128 across the full 10-year accrual.
 const SUPPLY_INDEX_MIN_DIVISOR: i128 = 16;
 
-/// Leading fields drive the rate-model geometry; the tail carries accrual inputs
-/// and the fuzzed starting indices. Appended fields keep the original prefix
-/// offsets so existing seeds still decode.
+/// Rate-model geometry first; accrual tail after. Prefix offsets stable for
+/// existing seeds.
 #[derive(Debug, Arbitrary)]
 struct In {
-    // --- rate-model geometry (mapped into the verified domain) ---
     util_bps: u16,
     base_pct: u8,
     s1_pct: u8,
@@ -60,7 +58,7 @@ struct In {
     max_pct: u16,
     max_util_pct: u8,
     reserve_pct: u8,
-    // --- accrual (original prefix offsets preserved; new fields appended) ---
+    // Accrual tail; prefix offsets stable for existing seeds.
     delta_ms: u64, // total accrual gap (multi-chunk)
     borrowed_units: u64,
     supplied_units: u64,
@@ -69,10 +67,6 @@ struct In {
     supply_index_units: u64, // starting supply index in [borrow_index/16, borrow_index]
 }
 
-/// Builds a `MarketParamsRaw` that satisfies `InterestRateModel::verify` by
-/// construction: monotone `0 ≤ base ≤ s1 ≤ s2 ≤ s3 ≤ max ≤ MAX_BORROW_RATE_RAY`
-/// with `max > base`, breakpoints `0 < mid < optimal < RAY ≤ … `, `optimal ≤
-/// max_util ≤ RAY`, and `reserve_factor < BPS`.
 fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
     let cap = MAX_BORROW_RATE_RAY; // 2 RAY — production ceiling on the borrow rate.
 
@@ -244,7 +238,6 @@ fuzz_target!(|i: In| {
     params_raw.verify(&env);
     let params = MarketParams::from(&params_raw);
 
-    // ---- per-chunk rate curve at an arbitrary utilization point ----
     let util_bps = (i.util_bps % 10_001) as i128;
     let util = Ray::from(RAY * util_bps / 10_000);
     let rate = calculate_borrow_rate(&env, util, &params);
@@ -262,7 +255,6 @@ fuzz_target!(|i: In| {
     let borrowed_raw = (i.borrowed_units as i128 % AMOUNT_CAP_RAW) + 1; // [1, AMOUNT_CAP_RAW]
     assert_interest_split(&env, &params, Ray::from(borrowed_raw), factor, Ray::ONE);
 
-    // ---- calculate_deposit_rate (per chunk) ----
     let deposit_rate = calculate_deposit_rate(&env, util, rate, params.reserve_factor);
     assert!(
         deposit_rate.raw() >= 0,
@@ -289,12 +281,8 @@ fuzz_target!(|i: In| {
         );
     }
 
-    // ---- simulate_update_indexes (real read-path accrual) ----
-    // Fuzz a starting state with supplied > borrowed (util < 1, as production
-    // markets enter below max_utilization). The verified 2-RAY rate cap bounds
-    // every internal chunk's rate, so multi-year accrual compounds without the
-    // index overflow an unbounded max_borrow_rate would cause — no domain
-    // clamp, no util-reproducing supplied derivation, no single-chunk bound.
+    // supplied > borrowed (util < 1). Verified 2-RAY rate cap bounds every
+    // chunk so multi-year accrual stays inside i128 without domain clamps.
     let supplied_raw = borrowed_raw + 1 + (i.supplied_units as i128 % AMOUNT_CAP_RAW);
     let total_delta_ms = i.delta_ms % (MAX_ACCRUAL_MS + 1); // [0, 10 years]
 

@@ -1,7 +1,6 @@
 use super::setup;
 use test_harness::{eth_preset, usdc_preset, LendingTest, HARNESS_HUB};
 
-// 6. Oracle tolerance config update (thin owner setter)
 
 #[test]
 fn test_tolerance_config_valid_update() {
@@ -18,7 +17,6 @@ fn test_tolerance_config_valid_update() {
     let result = ctrl.try_set_oracle_tolerance(&asset, &tolerance);
     assert!(result.is_ok(), "valid tolerance update should succeed");
 }
-// 7. Config gap tests
 
 #[test]
 fn test_set_accumulator() {

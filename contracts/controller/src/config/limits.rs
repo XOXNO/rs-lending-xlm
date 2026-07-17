@@ -7,7 +7,6 @@ use soroban_sdk::{assert_with_error, Env};
 use crate::events::{UpdateMinBorrowCollateralEvent, UpdatePositionLimitsEvent};
 use crate::storage;
 
-/// Stores the supply/borrow position limits and emits the update event.
 pub(crate) fn set_position_limits(env: &Env, limits: PositionLimits) {
     storage::set_position_limits(env, &limits);
     UpdatePositionLimitsEvent {
@@ -27,7 +26,7 @@ pub(crate) fn set_min_borrow_collateral_usd(env: &Env, floor_wad: i128) {
     .publish(env);
 }
 
-/// Returns the stored minimum-borrow-collateral USD WAD floor.
+
 pub(crate) fn get_min_borrow_collateral_usd(env: &Env) -> i128 {
     storage::get_min_borrow_collateral_usd_wad(env)
 }

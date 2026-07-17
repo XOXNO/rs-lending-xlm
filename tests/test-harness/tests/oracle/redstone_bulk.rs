@@ -66,8 +66,7 @@ fn test_borrow_tx_fires_one_bulk_redstone_call() {
 
 #[test]
 fn test_multi_asset_supply_fires_zero_redstone_calls() {
-    // Pure supply no longer runs per-asset dust pricing; even a multi-asset
-    // deposit must not touch RedStone when the account carries no debt.
+    // Debt-free multi-asset supply must not touch RedStone.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -142,7 +141,7 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
     // ALICE supplies USDC collateral (USDC anchor present — succeeds).
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Setup supplies no longer price collateral, so counters stay flat.
+    // Debt-free setup supplies skip pricing; counters stay flat.
     let rs = redstone_counters(&t, &redstone);
     assert_eq!(
         rs.single_calls(),
@@ -286,16 +285,9 @@ fn test_withdraw_with_debt_uses_one_bulk_redstone_call() {
     );
 }
 
-// ── Full repay must not prefetch ─────────────────────────────────────────────
-
+// Full repay: price=Wad::ZERO per asset; dust gate skips closed positions → zero RedStone reads.
 #[test]
 fn test_full_repay_fires_zero_redstone_calls() {
-    // Account with two RedStone-anchored debt assets; repaying BOTH IN FULL in
-    // one tx. The repay path sets price=Wad::ZERO for each asset, so no
-    // pricing happens in the loop. The dust gate prescreens for open positions
-    // and skips fully-closed ones — so zero RedStone reads are needed.
-    //
-    // Invariant: a full repay fires zero bulk and zero single RedStone calls.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -341,13 +333,9 @@ fn test_full_repay_fires_zero_redstone_calls() {
     );
 }
 
-// ── No-debt withdraw skips oracle prefetch ────────────────────────────────────
-
+// Debt-free withdraw skips LTV/HF/prefetch → zero RedStone reads.
 #[test]
 fn test_no_debt_withdraw_fires_zero_redstone_calls() {
-    // Debt-free withdrawals skip LTV/HF/min-collateral gates and the withdraw
-    // prefetch, so no oracle reads run even when the account holds multiple
-    // RedStone-anchored supplies.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -415,16 +403,9 @@ fn test_no_debt_bulk_full_close_fires_zero_redstone_calls() {
     assert_eq!(t.get_active_accounts(ALICE).len(), 0);
 }
 
-// ── Multi-adapter bulk grouping ───────────────────────────────────────────────
-
+// ≥2 feeds per adapter in the position set → one bulk call per adapter, zero singles.
 #[test]
 fn test_two_adapters_bulk_once_each() {
-    // Four markets split across TWO mock adapters (2 feeds each).  Once a
-    // borrow tx has ≥2 feeds from each adapter in the position set, the
-    // prefetch must fire exactly one bulk call per adapter with zero single calls.
-    //
-    // Invariant: each adapter fires exactly one bulk call and zero single calls
-    // when its feed count reaches MIN_BULK_FEEDS.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -491,13 +472,9 @@ fn test_two_adapters_bulk_once_each() {
     );
 }
 
-// ── Unlisted-asset robustness ─────────────────────────────────────────────────
-
+// Unlisted asset in prefetch list is skipped (no panic); listed prices still resolve.
 #[test]
 fn test_prefetch_skips_unlisted_asset_without_panic() {
-    // An asset with no market config in the prefetch list is skipped
-    // silently rather than panicking with AssetNotSupported: the prefetch
-    // completes and the listed asset's price still resolves correctly.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -517,13 +494,11 @@ fn test_prefetch_skips_unlisted_asset_without_panic() {
     t.assert_healthy(ALICE);
 }
 
-// ── Shared-feed invariant ─────────────────────────────────────────────
-
+// Shared (adapter, feed_id) across two markets dedupes below MIN_BULK_FEEDS → one single read.
 #[test]
 fn test_shared_feed_two_assets_single_redstone_call() {
-    // Two markets whose primary oracle is the same (adapter, feed_id),
-    // configured via RedStone Single strategy.  The collector dedupes to a
-    // 1-feed group below MIN_BULK_FEEDS, so no bulk fires; the first lazy
+    // Two markets share primary oracle (adapter, feed_id) via RedStone Single.
+    // Collector dedupes to a 1-feed group below MIN_BULK_FEEDS, so no bulk fires; the first lazy
     // read warms the prefetch map and the second consumer is a cache hit:
     // total RedStone calls == 1.
     let mut t = LendingTest::new()
@@ -571,8 +546,6 @@ fn test_shared_feed_two_assets_single_redstone_call() {
         "lazy-warm fix: first single read fills the cache; second consumer is a hit — exactly 1 call"
     );
 }
-
-// ── Per-flow invariant pins ───────────────────────────────────────────────────
 
 #[test]
 fn test_liquidation_fires_one_bulk_redstone_call() {
@@ -893,8 +866,6 @@ fn test_disabled_market_panics_same_through_prefetch() {
     let result = t.try_borrow(ALICE, "ETH", 0.001);
     assert_contract_error(result, errors::GenericError::PairNotActive as u32);
 }
-
-// ── Strategy bulk-prefetch invariant ─────────────────────────────────────────
 
 #[test]
 fn test_multiply_fires_one_bulk_redstone_call() {

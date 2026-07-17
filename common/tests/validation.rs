@@ -261,8 +261,6 @@ fn require_wasm_receiver_rejects_account() {
     require_wasm_receiver(&env, &account);
 }
 
-// ===== coverage gap-closure tests =====
-// test_validate_liquidation_fees (+6) common/src/validation.rs:83-89
 #[test]
 fn test_validate_liquidation_fees_accepts_full_bps() {
     let env = Env::default();

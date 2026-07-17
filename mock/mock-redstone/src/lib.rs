@@ -37,7 +37,7 @@ pub struct MockRedStonePriceFeed;
 
 #[contractimpl]
 impl MockRedStonePriceFeed {
-    /// Sets feed price at current ledger time.
+    /// Feed price at current ledger time.
     pub fn set_price(env: Env, feed_id: String, price_wad: i128) {
         let now_ms = env
             .ledger()
@@ -49,7 +49,7 @@ impl MockRedStonePriceFeed {
         Self::set_price_data(env, feed_id, price_wad, now_ms, now_ms);
     }
 
-    /// Sets feed price with explicit millisecond timestamps.
+    /// Explicit millisecond timestamps for package/write.
     pub fn set_price_data(
         env: Env,
         feed_id: String,

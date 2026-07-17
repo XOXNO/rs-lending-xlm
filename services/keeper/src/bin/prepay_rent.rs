@@ -1,12 +1,9 @@
 //! One-shot rent prepayment for the full keeper-discovered protocol key set.
 //!
-//! Run once after `make <net> setup`: extends every live protocol entry
-//! (controller/pool/governance instances + wasm code, spoke/hub registries,
-//! oracle configs, pool Params/State rows, role keys, AccountNonce) by the
-//! keeper's standard ~31-day bump, funded by the operator. The daemon keeper
-//! rolls the shared set forward every tick (14-day safety margin), so the
-//! contracts' inline 5-day threshold never fires for users — they only pay
-//! rent on their own account entries.
+//! After `make <net> setup`: extend every live protocol entry by the standard
+//! ~31-day bump (operator-funded). The daemon then rolls the shared set forward
+//! each tick (14-day safety margin), so users only pay rent on their own account
+//! entries (inline 5-day threshold does not fire for protocol keys).
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
@@ -32,13 +29,12 @@ struct Args {
     #[arg(short, long, env = "KEEPER_CONFIG")]
     config: PathBuf,
 
-    /// Env var holding the funding secret key (S...). The KeyVault signer the
-    /// daemon uses is deliberately not consulted here — deploy tooling runs
-    /// this with the local deployer identity.
+    /// Env var with funding secret (S...). Does not use the daemon KeyVault
+    /// signer — deploy tooling funds with the local deployer identity.
     #[arg(long, default_value = "PREPAY_SECRET")]
     secret_env: String,
 
-    /// Plan and print, but do not submit.
+    /// Plan only; do not submit.
     #[arg(long)]
     dry_run: bool,
 }
@@ -64,10 +60,9 @@ async fn main() -> Result<()> {
     println!("current ledger : {}", snap.current_ledger);
     println!("funding signer : {}", signer.public_key_strkey());
 
-    // Safety margin u32::MAX ⇒ every live entry qualifies for an extension;
-    // archived-but-present entries get restored first. Per-key txs keep each
-    // fee (a month of rent, incl. 100KB+ wasm-code entries) under the u32
-    // envelope cap and make one bad entry non-fatal.
+    // safety=u32::MAX ⇒ every live entry extends; archived-present restore first.
+    // One key per tx keeps month-scale rent (incl. large wasm) under the u32 fee
+    // cap and keeps one bad entry non-fatal.
     let restores = plan_restores(&snap, u32::MAX)?;
     let extends = plan_extends_with_chunk(&snap, u32::MAX, 1)?;
     println!(
@@ -106,7 +101,7 @@ async fn main() -> Result<()> {
             SubmitOutcome::Retriable(reason) | SubmitOutcome::Failed(reason) => {
                 failed += 1;
                 println!("FAILED: {reason}");
-                // Keep going — per-key txs make one bad entry non-fatal.
+                // Per-key txs: continue after a single failure.
             }
         }
     }

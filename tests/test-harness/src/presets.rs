@@ -1,7 +1,6 @@
 use controller::constants::RAY;
 
 use crate::helpers::usd;
-// Wallet name constants
 
 pub const ALICE: &str = "alice";
 pub const BOB: &str = "bob";
@@ -10,7 +9,6 @@ pub const DAVE: &str = "dave";
 pub const EVE: &str = "eve";
 pub const LIQUIDATOR: &str = "liquidator";
 pub const KEEPER_USER: &str = "keeper";
-// Market preset structs
 
 pub struct MarketPreset {
     pub name: &'static str,
@@ -58,7 +56,6 @@ pub struct TolerancePreset {
     /// Primary/anchor deviation tolerance in BPS.
     pub tolerance_bps: u32,
 }
-// Default configs
 
 pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
     loan_to_value: 7500,
@@ -86,7 +83,6 @@ pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
     max_utilization: RAY * 95 / 100,
     reserve_factor: 1000,
 };
-// Market presets (functions instead of const due to f64 field)
 
 pub fn usdc_preset() -> MarketPreset {
     MarketPreset {
@@ -147,14 +143,12 @@ pub fn xlm_preset() -> MarketPreset {
         params: DEFAULT_MARKET_PARAMS,
     }
 }
-// Spoke presets
 
 pub const STABLECOIN_SPOKE: SpokePreset = SpokePreset {
     ltv: 9700,
     threshold: 9800,
     bonus: 200,
 };
-// Tolerance presets
 
 pub const TIGHT_TOLERANCE: TolerancePreset = TolerancePreset { tolerance_bps: 300 };
 
@@ -163,7 +157,6 @@ pub const DEFAULT_TOLERANCE: TolerancePreset = TolerancePreset { tolerance_bps: 
 pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
     tolerance_bps: 1000,
 };
-// Conversion helpers (preset -> contract types)
 
 impl AssetConfigPreset {
     /// Build the per-spoke risk-listing arguments for `add_asset_to_spoke` on

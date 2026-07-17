@@ -13,20 +13,10 @@ fn hub0(asset: Address) -> HubAssetKey {
     HubAssetKey { hub_id: 0, asset }
 }
 
-// Rules that read pool quantity views (`get_reserves`, `get_utilisation`,
-// `get_supplied_amount`, `get_borrowed_amount`) or `get_sync_data` and asserted a relation
-// over them were removed: under the certora harness those resolve to independent
-// nondet summaries (shared/summaries/pool.rs), so the asserts either re-stated a
-// summary's own assume (tautology) or compared two unrelated nondet draws (not
-// entailed). The real invariants belong on the pool side where the math runs:
-//   * utilization==0 when supplied==0 — common/spec/rates_rules.rs.
-//   * supply-index floor / monotonicity — pool/spec/integrity_rules.rs and
-//     common/spec/rates_rules.rs.
-//   * supply/borrow caps, claim<=reserves, borrow<=reserves — proved against the
-//     real ops in pool/spec/summary_contract_rules.rs (claim_revenue_satisfies_*,
-//     borrow_within_reserves).
+// Pool quantity views are independent nondet under the harness; real invariants
+// live where the math runs: rates_rules (util), integrity/rates (indexes),
+// summary_contract_rules (caps/reserves).
 
-/// Post-borrow total debt does not exceed LTV-weighted collateral.
 #[rule]
 fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -68,7 +58,6 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
     cvlr_assert!(total_debt.raw() <= ltv_collateral.raw());
 }
 
-/// Supply with amount zero reverts.
 #[rule]
 fn supply_rejects_zero_amount(e: Env, caller: Address, spoke_id: u32) {
     let account_id: u64 = 1;
@@ -83,7 +72,6 @@ fn supply_rejects_zero_amount(e: Env, caller: Address, spoke_id: u32) {
     cvlr_satisfy!(false);
 }
 
-/// Borrow with amount zero reverts.
 #[rule]
 fn borrow_rejects_zero_amount(e: Env, caller: Address) {
     let account_id: u64 = 1;
@@ -98,7 +86,6 @@ fn borrow_rejects_zero_amount(e: Env, caller: Address) {
     cvlr_satisfy!(false);
 }
 
-/// Repay with amount zero reverts.
 #[rule]
 fn repay_rejects_zero_amount(e: Env, caller: Address) {
     let account_id: u64 = 1;
@@ -113,7 +100,6 @@ fn repay_rejects_zero_amount(e: Env, caller: Address) {
     cvlr_satisfy!(false);
 }
 
-/// Supply reverts when adding a new asset at max_supply_positions.
 #[rule]
 fn supply_position_limit_enforced(
     e: Env,
@@ -154,7 +140,6 @@ fn supply_position_limit_enforced(
     cvlr_satisfy!(false);
 }
 
-/// Borrow reverts when adding a new asset at max_borrow_positions.
 #[rule]
 fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -218,7 +203,6 @@ fn solvency_sanity_repay(e: Env, caller: Address, asset: Address, amount: i128) 
     cvlr_satisfy!(true);
 }
 
-/// cached_market_index returns the same snapshot within one transaction.
 #[rule]
 fn index_cache_single_snapshot(e: Env, asset: Address) {
     let mut cache = crate::context::Cache::new(&e);
@@ -231,7 +215,6 @@ fn index_cache_single_snapshot(e: Env, asset: Address) {
     cvlr_assert!(index1.borrow_index.raw() == index2.borrow_index.raw());
 }
 
-/// Supply-then-withdraw roundtrip recovers at most amount + 1.
 #[rule]
 fn supply_withdraw_roundtrip_no_profit(e: Env) {
     let amount: i128 = cvlr::nondet::nondet();
@@ -246,7 +229,6 @@ fn supply_withdraw_roundtrip_no_profit(e: Env) {
     cvlr_assert!(recovered <= amount + 1);
 }
 
-/// Borrow-then-repay roundtrip owes at least amount - 1.
 #[rule]
 fn borrow_repay_roundtrip_no_profit(e: Env) {
     let amount: i128 = cvlr::nondet::nondet();
@@ -261,7 +243,6 @@ fn borrow_repay_roundtrip_no_profit(e: Env) {
     cvlr_assert!(debt_owed >= amount - 1);
 }
 
-/// Clearing token_prices forces a fresh oracle fetch.
 #[rule]
 fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
     let mut cache = crate::context::Cache::new(&e);
@@ -282,7 +263,6 @@ fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
     cvlr_assert!(cached_repopulated.is_some());
 }
 
-/// compound_interest output stays below 100000*RAY for bounded inputs.
 #[rule]
 fn compound_interest_bounded_output(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
@@ -300,7 +280,6 @@ fn compound_interest_bounded_output(e: Env) {
     cvlr_assert!(factor.raw() < upper_bound);
 }
 
-/// compound_interest factor is at least RAY for non-negative rate and time.
 #[rule]
 fn compound_interest_no_wrap(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
@@ -348,7 +327,6 @@ fn compound_no_wrap_sanity(e: Env) {
     cvlr_satisfy!(factor.raw() > RAY);
 }
 
-/// Scaled balances reconstruct to actual balances at the current index.
 #[rule]
 fn scaled_to_actual_reconstruction(e: Env) {
     let scaled: i128 = cvlr::nondet::nondet();

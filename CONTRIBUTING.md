@@ -1,145 +1,114 @@
 # Contributing
 
-Thank you for helping improve XOXNO Lending. This repository contains
-pre-audit Soroban smart contracts, so contributions need to preserve protocol
-invariants and include enough verification evidence for reviewers to evaluate
-the change.
+Thanks for helping improve XOXNO Lending. This repo holds **invariant-critical**
+Soroban contracts. Changes must preserve protocol rules and leave enough
+evidence for reviewers.
 
-## Before You Start
+## Before you start
 
-- Read [README.md](./README.md) for the repository layout and command surface.
-- Read [architecture/INVARIANTS.md](./architecture/INVARIANTS.md) before
-  changing accounting, authorization, oracle, liquidation, flash-loan, or risk
-  logic.
-- Read [SECURITY.md](./SECURITY.md) before reporting any vulnerability. Do not
-  open public issues or pull requests for security problems.
-- For large protocol changes, open an issue first so maintainers can confirm
-  scope, design constraints, and verification expectations.
+- [README.md](./README.md) — layout and commands
+- [architecture/INVARIANTS.md](./architecture/INVARIANTS.md) — before touching accounting, auth, oracle, liquidation, flash loans, or risk
+- [SECURITY.md](./SECURITY.md) — vulnerabilities go to **security@xoxno.com**, never public issues/PRs
+- Large protocol changes: open an issue first for scope and verification expectations
 
-## Development Setup
+## Setup
 
-Install:
-
-- Rust from [rust-toolchain.toml](./rust-toolchain.toml).
-- `wasm32v1-none` for the configured Rust toolchain.
-- Stellar CLI with Soroban contract support.
-
-Build and test locally:
+- Rust from [rust-toolchain.toml](./rust-toolchain.toml)
+- Target `wasm32v1-none`
+- Stellar CLI (Soroban)
 
 ```bash
 cargo test --workspace
 make build
 make test
 make test-pool
+make help
 ```
 
-The `services/keeper` is a separate workspace:
+Separate workspaces:
 
 ```bash
 cargo test --manifest-path services/keeper/Cargo.toml
+# lending-exporter: see services/lending-exporter/README.md
 ```
 
-Use `make help` for the full local command surface (build, optimize, test layers, certora, fuzz, proptest, mutants, miri, coverage, scout, etc.).
+## Change guidelines
 
-## Change Guidelines
+- Keep PRs focused (no drive-by format or unrelated refactors).
+- Preserve INVARIANTS; update architecture notes when behavior changes.
+- Fixed-point: token-native at transfers, WAD for USD/HF, RAY for rates/indexes.
+- Call out auth/role changes in the PR description.
+- Add or update tests / fuzz / Certora / docs when you change a verified surface.
+- Never commit secrets, keys, `.env`, or local deploy state.
 
-- Keep changes focused. Avoid unrelated formatting, refactors, generated
-  artifacts, or dependency movement in the same pull request.
-- Preserve documented invariants and update the relevant architecture notes when
-  behavior changes.
-- Use explicit fixed-point domains: token-native amounts at token boundaries,
-  WAD for USD values and health factor, and RAY for rates and indexes.
-- Keep authorization and role changes visible in the pull request description.
-- Update tests, fuzz targets, Certora specs, or architecture documentation when
-  the change affects a verified behavior surface.
-- Do not commit secrets, private keys, `.env` files, or local deployment state.
+## Verification tiers
 
-## Pull Requests
-
-Before requesting review, run the checks that match your change:
+### Always (every PR)
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-make test
-make test-pool
 ```
 
-For protocol-sensitive changes (accounting, risk, oracle, liquidation, flash loans, strategies, governance, storage), also run the relevant parts of the verification surface (see `SCF_BUILD_ARCHITECTURE.md §14` and `INVARIANTS.md` verification matrix):
+Run the harness layers that match what you touched (`make test`, `make test-pool`).
+
+### If you touch money, risk, oracle, gov, storage, or strategies
+
+Add the relevant deeper checks (pick by surface; see [SCF §14](./SCF_BUILD_ARCHITECTURE.md#14-verification-surface)):
 
 ```bash
-make certora-wasm            # before Certora runs
-./certora/scripts/run_profile.py fast
-make fuzz FUZZ_TIME=30
+make certora-wasm
+# then the Certora profile that covers your domain
+make fuzz FUZZ_TIME=30          # or a single target
 make proptest PROPTEST_CASES=256
-make mutants
-make miri-common
+make miri-common                # pure math changes
 ```
 
-See `make help` and the full test layers in `README.md` and `SCF_BUILD_ARCHITECTURE.md`.
+### Release / protocol-wide
 
-To mirror CI locally, use [nektos/act](https://github.com/nektos/act) (runs
-workflows in Docker, same step order as GitHub):
+Full matrix in SCF §14 (`mutants`, full Certora profiles, coverage, Scout, etc.).
+
+### Mirror CI locally (optional)
 
 ```bash
-brew install act          # once; Docker must be running
+# Docker + act; see .actrc
 .github/scripts/act-local.sh list
-.github/scripts/act-local.sh -n ci       # dry-run
-.github/scripts/act-local.sh ci          # ci.yml build-and-test job
-.github/scripts/act-local.sh ci --full   # + security-scan (slow)
-make act-ci-dryrun                       # Makefile shortcuts
+make act-ci-dryrun
 make act-ci
 ```
 
-Runner image mappings live in `.actrc` at the repo root (`self-hosted` →
-`catthehacker/ubuntu:act-latest`). Certora workflows need
-`.github/act/.secrets` (see `.github/act/.secrets.example`).
+Certora under act needs `.github/act/.secrets` (see `.secrets.example`).
 
-Each pull request should explain:
+## Pull request body
 
-- What changed and why.
-- Which invariants (see `INVARIANTS.md`) or architecture decisions (see `architecture/decisions/`) are affected.
-- Which local checks, fuzzing, Certora profiles, or other verification were run (reference the matrix in `SCF_BUILD_ARCHITECTURE.md §14` when relevant).
-- Any deployment, migration, governance, oracle, or operational follow-up.
+State:
 
-All changes must preserve the rules in `INVARIANTS.md`. The live implementation facts (controller owns accounts/risk/oracle/strategies and is the sole caller of the pool; 3-layer pause/freeze matrix; fail-closed oracle with Xoxno as distinct provider; scaled balances + index monotonicity except bad-debt floor; etc.) are the ground truth.
+1. What changed and why  
+2. Which invariants / ADRs are affected  
+3. Which checks you ran (tier above)  
+4. Any deploy, migration, oracle, or ops follow-up  
 
-## CI/CD Security
+All changes must preserve [INVARIANTS.md](./architecture/INVARIANTS.md). Live facts
+(controller/pool boundary, pause matrix, fail-closed oracle, scaled balances) are
+in the contracts and SCF — not in outdated prose.
 
-### Reviewer-approval gate for self-hosted PR jobs
+## CI security (self-hosted PR jobs)
 
-Several jobs run PR-controlled code (build scripts, tests, Makefile targets, Scout,
-fuzz smoke, Miri) on a persistent self-hosted runner. A malicious pull request
-could otherwise execute arbitrary code on that runner and read caches, tools, or
-runner-local state.
+Some jobs run PR-controlled code on a persistent self-hosted runner. **Required
+repo setting (admin UI, not YAML):**
 
-The gate is GitHub's native fork pull request approval setting, not a deployment
-environment.
+**Settings → Actions → General → Fork pull request workflows from outside
+collaborators** → *Require approval for all outside collaborators* (or first-time
+contributors).
 
-#### Required one-time repo setup (admin, GitHub Settings — cannot be done in YAML)
-
-1. **Settings → Actions → General → Fork pull request workflows from outside
-   collaborators** → set to *Require approval for all outside collaborators* (or
-   *for first-time contributors*, if internal contributors should run without
-   approval).
-
-With this set, a PR from a fork/outside collaborator pauses in the Actions tab
-until a maintainer approves the run.
-
-### Other hardening in place
-
-- Third-party actions are pinned to immutable commit SHAs (e.g. `scout-audit`), not
-  mutable tags.
-- Workflows declare least-privilege `permissions:` (`contents: read` for PR jobs;
-  the release e2e job is scoped to `contents: write` only).
-- `make wasm-size-check` runs `wasm-testing-abi-check`, which fails the build if the
-  deployable `governance.wasm` ever exports the test-only `set_controller` ABI.
+Also in place: third-party actions pinned by SHA, least-privilege
+`permissions:`, and `wasm-testing-abi-check` so deployable governance WASM does
+not export test-only ABIs.
 
 ## Issues
 
-Use public issues for bugs, documentation gaps, feature requests, and
-non-sensitive design discussion. Include reproducible steps, expected behavior,
-actual behavior, environment details, and relevant logs.
+Public issues: bugs, docs gaps, features, non-sensitive design. Include repro
+steps, expected vs actual, environment.
 
-Use **security@xoxno.com** for vulnerabilities.
+Vulnerabilities: **security@xoxno.com** only.

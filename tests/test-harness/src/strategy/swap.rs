@@ -6,7 +6,6 @@ use crate::core::LendingTest;
 /// Default flash-loan fee in BPS for strategy presets.
 pub const DEFAULT_FLASHLOAN_FEE_BPS: i128 = 9;
 
-/// Returns the net strategy input after the default flash-loan fee.
 pub fn apply_flash_fee(requested_raw: i128) -> i128 {
     requested_raw * (10_000 - DEFAULT_FLASHLOAN_FEE_BPS) / 10_000
 }
@@ -33,7 +32,6 @@ pub fn mock_swap_payload_xdr(
     .to_xdr(env)
 }
 
-/// Builds a mock aggregator swap payload.
 pub fn build_aggregator_swap(
     t: &LendingTest,
     token_in_name: &str,

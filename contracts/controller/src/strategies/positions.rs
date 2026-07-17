@@ -34,7 +34,6 @@ pub(crate) struct StrategyWithdraw<'a> {
     pub action: events::PositionAction,
 }
 
-/// Builds an event context with the controller as counterparty for the given action.
 fn controller_event_context(env: &Env, action: events::PositionAction) -> EventContext {
     EventContext {
         counterparty: env.current_contract_address(),
@@ -42,7 +41,6 @@ fn controller_event_context(env: &Env, action: events::PositionAction) -> EventC
     }
 }
 
-/// Repays debt from the controller's balance and refunds any excess to the caller.
 pub(crate) fn repay_debt_from_controller(
     env: &Env,
     account: &mut Account,
@@ -86,7 +84,6 @@ pub(crate) fn repay_debt_from_controller(
     );
 }
 
-/// Withdraws collateral to the controller and returns the received balance delta.
 pub(crate) fn withdraw_collateral_to_controller(
     env: &Env,
     account: &mut Account,
@@ -112,7 +109,6 @@ pub(crate) fn withdraw_collateral_to_controller(
     balance_delta(env, &token, balance_before)
 }
 
-/// Withdraws every supply position in full to `destination`.
 pub(crate) fn execute_withdraw_all(
     env: &Env,
     account: &mut Account,
@@ -188,11 +184,9 @@ pub(crate) fn net_settle_collateral_against_debt(
     }
     let mut new_supply_position = supply_position;
     new_supply_position.scaled_amount = new_supply_scaled;
-    // Matches `finish_withdraw_leg`: re-stamp risk params from the current
-    // effective spoke-asset config (no-op for a deprecated spoke or a
-    // removed spoke member) before persisting, so a position that only ever
-    // touches this path doesn't drift onto a stale LTV/threshold/bonus/fees
-    // snapshot that liquidation math reads directly off the stored position.
+    // Re-stamp risk params from active spoke config before persist (matches
+    // `finish_withdraw_leg`); no-op when delisted so liquidation still reads
+    // a valid stamped snapshot.
     risk::refresh_supply_risk_params_for_asset(
         env,
         cache,

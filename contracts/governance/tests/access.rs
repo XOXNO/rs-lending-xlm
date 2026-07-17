@@ -71,11 +71,7 @@ fn grant_role_allows_separated_executor_and_canceller() {
     });
 }
 
-// The owner is exempt from the EXECUTOR/CANCELLER separation: it holds both
-// from construction, and must be able to re-acquire either through the
-// timelocked grant path (e.g. to restore a CANCELLER accidentally revoked)
-// even while still holding EXECUTOR. Regression for the missing owner check in
-// require_executor_canceller_separation, which previously panicked here.
+// Owner is exempt from EXECUTOR/CANCELLER separation and may hold both roles.
 #[test]
 fn grant_role_allows_owner_to_hold_executor_and_canceller() {
     let env = Env::default();

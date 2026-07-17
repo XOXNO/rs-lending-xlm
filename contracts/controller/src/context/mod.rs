@@ -63,18 +63,16 @@ pub(crate) struct Cache {
 }
 
 impl Cache {
-    /// Creates a cache for mutating flows and renews controller instance TTL.
     pub(crate) fn new(env: &Env) -> Self {
         storage::renew_controller_instance(env);
         Self::build(env)
     }
 
-    /// Creates a read-only cache that does not renew instance TTL.
+    /// Read-only cache (no instance TTL renew).
     pub(crate) fn new_view(env: &Env) -> Self {
         Self::build(env)
     }
 
-    /// Builds a cache with empty per-transaction memos seeded from the current ledger timestamp.
     pub(crate) fn build(env: &Env) -> Self {
         let current_timestamp_ms = env.ledger().timestamp() * MS_PER_SECOND;
 
@@ -95,7 +93,6 @@ impl Cache {
         }
     }
 
-    /// Returns the transaction environment handle.
     pub(crate) fn env(&self) -> &Env {
         &self.env
     }

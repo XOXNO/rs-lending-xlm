@@ -1,34 +1,7 @@
-//! Attributes the per-feed memory cost of HF-checked operations.
-//!
-//! MEASURED CONCLUSION: the dominant consumer is the per-CALL wasm VM frame
-//! (~1.28MB of linear-memory charge per cross-contract invocation), not the
-//! returned struct's payload bytes (~509 B per Reflector PriceData record,
-//! ~0.1% of the per-feed cost). That finding motivated the two bulk levers
-//! now in place — RedStone bulk prefetch and the pool's `bulk_get_indexes`
-//! index prefetch — which together strip the per-feed pool frame out of HF
-//! valuation: the measured 5-feed withdraw dropped from ~1.67MB to ~1.07MB
-//! and the per-feed slope from ~294KB to ~94KB, well under one call frame.
-//! The un-bulked per-asset pool path (`update_indexes`) still pays the full
-//! frame per asset and is kept below as the call-frame reference slope.
-//!
-//! Method — all measurements are WITHIN one transaction, because standalone
-//! client calls are each their own top-level invocation and re-charge ~1.1MB
-//! of VM instantiation, drowning the payload signal (a real tx pays that
-//! once; measured: `reserves() -> i128` and `get_sync_data() -> PoolSyncData`
-//! both cost ~1.4MB standalone). Three within-tx experiments:
-//!
-//! 1. TOTAL per-feed slope: `withdraw` with debt recomputes HF over ALL
-//!    positions in one tx — measure at 2 vs 5 distinct feeds.
-//! 2. POOL-ONLY slope: `update_indexes` makes one pool call per asset
-//!    (fat MarketStateSnapshot return) and reads NO oracles — measure at
-//!    1 vs 5 assets. This isolates the pool-return component.
-//! 3. REFLECTOR-RETURN scaling: switch every market's primary read mode
-//!    Twap(3) -> Twap(12) (the mock returns `records` PriceData entries) and
-//!    re-measure the same 5-feed withdraw. The delta is purely the extra
-//!    records allocated per feed — the oracle-return component.
-//!
-//! Mocks are native, so absolute numbers undercount deployed-wasm oracles;
-//! the slopes and deltas still attribute where the memory goes.
+//! Within-tx HF memory attribution: cost is per-call VM frames, not payload bytes.
+//! Bulk RedStone + `bulk_get_indexes` cut per-feed slope under one frame.
+//! Experiments: total feed slope (withdraw HF), pool-only (`update_indexes`),
+//! Reflector Twap(3) vs Twap(12). Mocks undercount absolute wasm size; slopes hold.
 
 extern crate std;
 
@@ -120,9 +93,7 @@ fn mem_attribution_bulk_prefetch_removes_per_feed_pool_frame() {
         pool_per_asset > 100_000,
         "per-asset update_indexes slope should remain call-frame scale"
     );
-    // 2. HF valuation no longer pays that frame per feed: the bulk index
-    //    prefetch replaced N get_sync_data calls with one, so the per-feed
-    //    slope sits well below a single pool call.
+    // 2. Bulk index prefetch: HF per-feed slope stays below one pool call frame.
     assert!(
         total_per_feed < pool_per_asset,
         "HF per-feed slope must stay below one pool call frame: \

@@ -68,7 +68,6 @@ flow_seed_liquidity() {
 
 flow_lifecycle() {
     phase lifecycle
-    # Create account: single-asset supply (XLM).
     local acct
     acct=$(inv supply_create "$ALICE" "$CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
@@ -76,13 +75,11 @@ flow_lifecycle() {
     save_state ALICE_ACCT "$acct"
     log "alice account = $acct"
 
-    # Bulk supply: two assets in one tx.
     local usdc_half=$(( $(balance "$USDC_SAC" "$ALICE_ADDR") / 2 ))
     inv supply_bulk "$ALICE" "$CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 5000000000 "$USDC_SAC" "$usdc_half")" >/dev/null
 
-    # Views.
     view hf_alice "$CONTROLLER" -- get_health_factor --account_id "$acct" >/dev/null
     view coll_usd_alice "$CONTROLLER" -- get_total_collateral_usd --account_id "$acct" >/dev/null
     view ltv_usd_alice "$CONTROLLER" -- get_ltv_collateral_usd --account_id "$acct" >/dev/null
@@ -93,7 +90,6 @@ view markets_view "$CONTROLLER" -- get_markets_detailed \
 view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
 --hub_assets "$(hub_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$USDC_SAC")" >/dev/null
 
-    # Borrow: single, then bulk (two assets in one tx).
     inv borrow_single "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 200000000)" --to null >/dev/null
@@ -136,7 +132,7 @@ view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0 "$USDC_SAC" 0)" --to null
 
-    # Repay: partial single, then full bulk (overpay refunds; XLM debt small).
+    # Overpay refunds on full bulk repay (XLM debt small).
     local usdc_debt_pre_partial
 usdc_debt_pre_partial=$(_view_int debt_usdc_pre_partial get_borrow_amount \
 --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
@@ -179,7 +175,6 @@ debt_after_borrow=$(view debt_usdc_alice "$CONTROLLER" -- get_borrow_amount \
     }
     retry_leg leg_repay_cross_account
 
-    # Withdraw: partial, then full close (removes the account).
     inv withdraw_partial "$ALICE" "$CONTROLLER" -- withdraw \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 5000000000)" --to null >/dev/null

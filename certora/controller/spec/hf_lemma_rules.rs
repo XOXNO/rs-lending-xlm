@@ -1,15 +1,5 @@
-//! Pure-function lemmas on the Health-Factor computation layer.
-//!
-//! No entry points are traced: each rule feeds bounded symbolic values
-//! straight into the `risk` helpers that the account risk totals are built
-//! from. These are the L2 lemmas that justify treating the HF gate rules
-//! (health_rules.rs) as the protocol's extraction barrier.
-//!
-//! The weighted-collateral bound/monotonicity lemmas live in the *common*
-//! layer (`bps_apply_to_wad_floor_le_value`, `bps_apply_to_wad_floor_monotone`
-//! in common/spec/math_rules.rs): `risk::weighted_collateral` is a one-line
-//! delegation to `Bps::apply_to_wad_floor`, and the bps->wad floor chain is
-//! NIA-hard regardless of module size (parked in common math-hard.conf).
+//! Pure HF-layer lemmas over `risk` helpers (no entry points).
+//! Weighted-collateral bps lemmas live in common/spec/math_rules.rs (math-hard).
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
@@ -18,8 +8,6 @@ use crate::constants::WAD;
 use common::constants::{BPS, RAY};
 use common::math::fp::{Bps, Ray, Wad};
 
-/// position_value is monotone in the scaled amount at a fixed index/price:
-/// more debt shares can never shrink the HF denominator.
 #[rule]
 fn position_value_monotone_in_scaled(e: Env, s1: i128, s2: i128, index: i128, price: i128) {
     cvlr_assume!((0..=100 * RAY).contains(&s1));
@@ -32,8 +20,7 @@ fn position_value_monotone_in_scaled(e: Env, s1: i128, s2: i128, index: i128, pr
     cvlr_assert!(v2.raw() >= v1.raw());
 }
 
-/// Debt-side valuation never understates what is owed relative to the
-/// collateral-side valuation of the same position (ceil >= floor).
+/// Debt ceil valuation >= collateral floor valuation of the same position.
 #[rule]
 fn position_value_ceil_ge_floor(e: Env, scaled: i128, index: i128, price: i128) {
     cvlr_assume!((0..=100 * RAY).contains(&scaled));
@@ -51,8 +38,7 @@ fn position_value_ceil_ge_floor(e: Env, scaled: i128, index: i128, price: i128) 
     cvlr_assert!(ceil.raw() >= floor.raw());
 }
 
-/// HF division rounds down (div_floor): the reported health factor never
-/// overstates safety relative to half-up rounding.
+/// HF uses div_floor: never overstates safety vs half-up rounding.
 #[rule]
 fn hf_division_rounds_against_borrower(e: Env, weighted: i128, debt: i128) {
     cvlr_assume!((0..=1_000_000 * WAD).contains(&weighted));

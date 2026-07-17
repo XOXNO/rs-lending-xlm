@@ -622,8 +622,6 @@ fn test_multiply_same_asset_is_caught() {
     );
     assert_contract_error(result, errors::ASSETS_ARE_THE_SAME);
 }
-// Already tested in strategy_tests.rs; verify the error code here too.
-
 #[test]
 fn test_swap_debt_same_token_error_code() {
     let mut t = LendingTest::new()

@@ -26,10 +26,7 @@ impl Controller {
     }
 }
 
-/// Pool flash loan to `receiver` with principal+fee repaid before return.
-///
-/// No account positions. Checklist: auth → reentrancy → preflight → fee →
-/// guarded pool callback → event.
+/// Pool flash loan to `receiver` with principal+fee repaid before return. No account.
 pub(crate) fn process_flash_loan(
     env: &Env,
     caller: &Address,
@@ -38,10 +35,8 @@ pub(crate) fn process_flash_loan(
     receiver: &Address,
     data: &Bytes,
 ) {
-    // 1. Auth
     caller.require_auth();
 
-    // 2–3. Reentrancy + preflight
     validation::require_not_flash_loaning(env);
     validation::require_positive_amount(env, amount);
     validation::require_hub_active(env, hub_asset.hub_id);
@@ -57,18 +52,16 @@ pub(crate) fn process_flash_loan(
     );
     validation::require_wasm_receiver(env, receiver);
 
-    // 4. Fee from pool market params
     let fee = Bps::from(i128::from(params.flashloan_fee)).flash_loan_fee_on(env, amount);
     let pool_addr = cache.cached_pool_address();
 
-    // 5. Callback under flash guard (blocks nested flash_loan / position entry)
+    // Flash guard blocks nested flash_loan / position entry.
     storage::with_flash_guard(env, || {
         pool_flash_loan_call(
             env, &pool_addr, hub_asset, caller, receiver, amount, fee, data,
         );
     });
 
-    // 6. Event (no strategy_finalize — no account)
     FlashLoanEvent {
         hub_id: hub_asset.hub_id,
         asset: hub_asset.asset.clone(),

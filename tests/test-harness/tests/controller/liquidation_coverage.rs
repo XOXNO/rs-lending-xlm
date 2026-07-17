@@ -215,8 +215,7 @@ fn test_liquidation_rejects_unsupported_payment_asset() {
     let payments = soroban_sdk::vec![&t.env, (hub_asset(unsupported), 1i128)];
     let result = try_liquidate_payments(&mut t, LIQUIDATOR, ALICE, payments);
 
-    // The asset has no created market, so debt-repayment resolution fails the
-    // oracle probe first (there is no separate asset-supported gate anymore).
+    // Unlisted asset fails on the oracle probe (first gate).
     assert_contract_error(result, errors::ORACLE_NOT_CONFIGURED);
 }
 

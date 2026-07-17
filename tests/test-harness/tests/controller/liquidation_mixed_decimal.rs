@@ -3,7 +3,6 @@ use test_harness::presets::{
 };
 use test_harness::{helpers::usd, LendingTest};
 
-/// Builds a market preset with caller-selected token decimals and price.
 fn make_market(name: &'static str, decimals: u32, price: i128, liquidity: f64) -> MarketPreset {
     MarketPreset {
         name,
@@ -58,7 +57,6 @@ fn sol_9() -> MarketPreset {
         params: DEFAULT_MARKET_PARAMS,
     }
 }
-// 1. Two collaterals (6-dec + 18-dec), single debt (8-dec).
 //    Seizure must proportionally convert back to BOTH asset decimals.
 
 #[test]
@@ -129,7 +127,6 @@ fn test_liquidation_two_collaterals_6dec_18dec_debt_8dec() {
         debt_after
     );
 }
-// 2. Asymmetric collateral: 90% in 6-dec, 10% in 18-dec.
 //    Verifies that small proportional seizure on 18-dec stays non-zero.
 
 #[test]
@@ -188,7 +185,6 @@ fn test_liquidation_asymmetric_90pct_6dec_10pct_18dec() {
         ratio
     );
 }
-// 3. Multi-debt: repay both 6-dec and 18-dec debt tokens.
 
 #[test]
 fn test_liquidation_multi_debt_6dec_and_18dec() {
@@ -243,7 +239,6 @@ fn test_liquidation_multi_debt_6dec_and_18dec() {
         sol_after
     );
 }
-// 4. Multi-debt: repay 6-dec + 9-dec debt with 18-dec collateral.
 //    Verifies correct conversion when debt payments span decimal ranges.
 
 #[test]
@@ -284,7 +279,6 @@ fn test_liquidation_multi_debt_different_decimals() {
         "DAI18 collateral seized"
     );
 }
-// 5. Bad-debt cleanup with mixed decimals.
 //    Verifies socialization works when collateral is near zero across
 //    different decimal tokens.
 
@@ -317,7 +311,6 @@ fn test_bad_debt_cleanup_mixed_decimals() {
     // overpayment or capped repayment). Just verify no panic occurred.
     // The bad-debt path seizes all collateral and socializes remaining debt.
 }
-// 6. Liquidation preserves protocol-fee calculation across decimals.
 //    Protocol fee = bonus_portion * liquidation_fees / BPS.
 //    Verifies the fee neither underflows for 6-dec nor overflows for 18-dec.
 
@@ -359,7 +352,6 @@ fn test_liquidation_protocol_fee_cross_decimal() {
         debt_after
     );
 }
-// 7. 4 collaterals x 4 debts -- ALL unique decimals (6,7,8,9,10,12,15,18).
 //    The ultimate cross-decimal liquidation stress test.
 //    If this exceeds Soroban's budget, it reveals the max position complexity.
 
@@ -376,19 +368,16 @@ fn test_liquidation_2x2_four_unique_decimals() {
         .with_market(make_market("D9", 9, usd(150), 100_000.0))
         .build();
 
-    // --- Supply 2 collaterals (50/50 split, $5k each = $10k total) ---
     t.supply(ALICE, "C6", 5_000.0);
     let acct = t.resolve_account_id(ALICE);
     t.supply_to(ALICE, acct, "C18", 5_000.0);
 
-    // --- Borrow 2 debts with different decimals ---
     t.borrow(ALICE, "D8", 0.058); // ~$3,480 at 8 decimals.
     t.borrow(ALICE, "D9", 23.0); // ~$3,450 at 9 decimals.
                                  // Total debt ~$6,930, threshold $8,000 -> healthy.
 
     t.assert_healthy(ALICE);
 
-    // --- 15% collateral drop -> underwater ---
     t.set_price("C6", usd(1) * 85 / 100);
     t.set_price("C18", usd(1) * 85 / 100);
     t.advance_and_sync(1000);
@@ -400,10 +389,7 @@ fn test_liquidation_2x2_four_unique_decimals() {
     let d8_before = t.borrow_balance(ALICE, "D8");
     let d9_before = t.borrow_balance(ALICE, "D9");
 
-    // --- Multi-debt liquidation: repay both 8-dec and 9-dec debts ---
     t.liquidate_multi(LIQUIDATOR, ALICE, &[("D8", 0.01), ("D9", 5.0)]);
-
-    // --- Verify both debts reduced ---
 
     let d8_after = t.borrow_balance(ALICE, "D8");
     let d9_after = t.borrow_balance(ALICE, "D9");
@@ -420,7 +406,6 @@ fn test_liquidation_2x2_four_unique_decimals() {
         d9_after
     );
 
-    // --- Verify BOTH collaterals seized (6-dec AND 18-dec) ---
     let c6_after = t.supply_balance(ALICE, "C6");
     let c18_after = t.supply_balance(ALICE, "C18");
     let c6_seized = c6_before - c6_after;
@@ -437,7 +422,7 @@ fn test_liquidation_2x2_four_unique_decimals() {
         c18_seized
     );
 
-    // --- Proportionality: ~50/50 since equal-value collateral ---
+    // Equal-value collaterals → ~50/50 seize share.
     let c6_usd = c6_seized * 0.85;
     let c18_usd = c18_seized * 0.85;
     let ratio = if c6_usd > c18_usd {
@@ -459,7 +444,6 @@ fn test_liquidation_2x2_four_unique_decimals() {
         d8_before - d8_after, d9_before - d9_after,
     );
 }
-// 8. 4 collaterals x 4 debts -- ALL 8 unique decimals (6,7,8,9,10,12,15,18)
 
 #[test]
 fn test_liquidation_4x4_eight_unique_decimals() {

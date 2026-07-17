@@ -8,7 +8,6 @@ use common::constants::{
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::types::{HubAssetKey, MarketIndexRaw, ScaledPositionRaw};
 
-/// Pool tests use hub 0 as a local fixture id.
 fn hub(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,
@@ -51,7 +50,6 @@ fn count_first_topic(events: &ContractEvents, first: &str) -> usize {
         .count()
 }
 
-/// Reads `hub_id` from the data map of the first `strategy/fee` event, if any.
 fn strategy_fee_hub_id(events: &ContractEvents) -> Option<u32> {
     events.events().iter().find_map(|event| {
         let ContractEventBody::V0(body) = &event.body;

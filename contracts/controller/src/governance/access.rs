@@ -51,7 +51,6 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
     access_control::emit_admin_transfer_completed(env, &previous_admin, new_owner);
 }
 
-/// Returns the current owner or reverts `OwnerNotSet`.
 fn owner_or_panic(env: &Env) -> Address {
     ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
 }
@@ -81,7 +80,7 @@ impl Controller {
             .instance()
             .set(&ControllerKey::AppVersion, &INITIAL_APP_VERSION);
 
-        // New deployments start paused until the owner completes configuration and unpauses.
+        // Starts paused until the owner finishes config and unpauses.
         stellar_contract_utils::pausable::pause(&env);
     }
 
@@ -94,10 +93,7 @@ impl Controller {
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_controller_instance(&env);
-        // `pause()` panics `EnforcedPause` if already paused. The contract
-        // deploys paused (`__constructor`) and incident response pauses it, so
-        // guard the call — otherwise `upgrade()` self-reverts in exactly the
-        // paused state it is most needed in.
+        // Guard: `pause()` panics if already paused; upgrade must work while paused.
         if !stellar_contract_utils::pausable::paused(&env) {
             stellar_contract_utils::pausable::pause(&env);
         }
@@ -130,7 +126,6 @@ impl Controller {
             .set(&ControllerKey::AppVersion, &new_version);
     }
 
-    /// Returns the stored app version.
     pub fn get_app_version(env: Env) -> u32 {
         env.storage()
             .instance()

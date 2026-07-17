@@ -19,7 +19,6 @@ pub(crate) struct ResolvedOracleComponents {
 }
 
 impl ResolvedOracleComponents {
-    /// Returns the (safe, aggregator) ABI price pair, defaulting each leg to the final price.
     pub fn to_abi_prices(&self) -> (i128, i128) {
         let safe_price_wad = self.primary_price_wad.unwrap_or(self.final_price_wad);
         let aggregator_price_wad = self.anchor_price_wad.unwrap_or(self.final_price_wad);
@@ -27,7 +26,6 @@ impl ResolvedOracleComponents {
     }
 }
 
-/// Reads and freshness-checks the required source(s) and blends them into the final price.
 pub(crate) fn resolve_components(
     cache: &mut Cache,
     config: &MarketOracleConfig,
@@ -60,7 +58,7 @@ pub(crate) fn resolve_components(
                 primary.price_wad,
                 &config.tolerance,
             );
-            // The price is always a blend, so it is only as fresh as the older leg.
+            // Blend freshness is the older leg.
             let timestamp = core::cmp::min(primary.timestamp(), anchor.timestamp());
 
             ResolvedOracleComponents {

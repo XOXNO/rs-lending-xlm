@@ -19,11 +19,9 @@ use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 // RedStone ABI — mirrors `RedStoneMultiFeed` exactly.
 #[contractimpl]
 impl XoxnoOracle {
-    /// Returns the cached aggregate for `feed_id`.
-    ///
     /// # Errors
-    /// * `NoDataForFeed` - no aggregate has been computed for `feed_id` yet.
-    /// * `StaleData` - the cached aggregate exceeds `MaxStaleSeconds`.
+    /// * `NoDataForFeed`
+    /// * `StaleData` - exceeds MaxStaleSeconds
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
         let key = DataKey::CurrentAggregate(feed_id.clone());
         let aggregate: RedStonePriceData = env
@@ -47,9 +45,7 @@ impl XoxnoOracle {
         Ok(aggregate)
     }
 
-    /// Bulk read: all-or-nothing. Propagates the first missing/stale feed
-    /// instead of returning partial results, matching the real RedStone
-    /// adapter's bulk semantics.
+    /// All-or-nothing bulk; first missing/stale fails the whole call.
     pub fn read_price_data(
         env: Env,
         feed_ids: Vec<String>,
@@ -61,12 +57,10 @@ impl XoxnoOracle {
         Ok(results)
     }
 
-    /// Returns up to `limit` most-recent aggregates for `feed_id`, newest
-    /// first. Not part of `RedStoneMultiFeed`; backs the SEP-40
-    /// `price()`/`prices()` reads.
+    /// Newest-first history cap for SEP-40 `price`/`prices`.
     ///
     /// # Errors
-    /// * `NoDataForFeed` - no history exists for `feed_id`.
+    /// * `NoDataForFeed`
     pub fn read_price_history(
         env: Env,
         feed_id: String,
@@ -99,13 +93,10 @@ impl XoxnoOracle {
 // SEP-40 / Reflector ABI.
 #[contractimpl]
 impl XoxnoOracle {
-    /// This oracle always quotes in USD.
     pub fn base(env: Env) -> ReflectorAsset {
         ReflectorAsset::Other(Symbol::new(&env, "USD"))
     }
 
-    /// Always `REDSTONE_DECIMALS` (8): every price comes from this contract's
-    /// own aggregation.
     pub fn decimals(_env: Env) -> u32 {
         REDSTONE_DECIMALS
     }
@@ -118,17 +109,14 @@ impl XoxnoOracle {
         load_all_assets(&env)
     }
 
-    /// Latest price for `asset`, or `None` if unmapped or no aggregate
-    /// exists. SEP-40 models "no data" as `None`, so read errors are
-    /// swallowed here rather than propagated.
+    /// `None` when unmapped/missing/stale (SEP-40 soft-fail).
     pub fn lastprice(env: Env, asset: ReflectorAsset) -> Option<ReflectorPriceData> {
         let feed_id = load_feed_id(&env, &asset)?;
         let data = Self::read_price_data_for_feed(env.clone(), feed_id).ok()?;
         Some(to_reflector_price_data(&env, &data))
     }
 
-    /// Sample whose observation time is closest to, at or before,
-    /// `timestamp`.
+    /// Closest observation at or before `timestamp` (package time, not write time).
     pub fn price(env: Env, asset: ReflectorAsset, timestamp: u64) -> Option<ReflectorPriceData> {
         let feed_id = load_feed_id(&env, &asset)?;
         let history = Self::read_price_history(env.clone(), feed_id, MAX_HISTORY_LEN).ok()?;
@@ -152,8 +140,6 @@ impl XoxnoOracle {
         best.map(|entry| to_reflector_price_data(&env, &entry))
     }
 
-    /// Up to `records` price samples for `asset`, newest-first, for the
-    /// caller's TWAP computation.
     pub fn prices(
         env: Env,
         asset: ReflectorAsset,
@@ -172,11 +158,8 @@ impl XoxnoOracle {
     }
 }
 
-/// Converts wire data into the SEP-40 shape. `u256_to_i128` fails closed on
-/// overflow. The single SEP-40 `timestamp` carries the observation time
-/// (`package_timestamp`), not `write_timestamp` (always ~now): exposing the
-/// write time would let this path accept stale aggregates the RedStone path
-/// rejects.
+// SEP-40 timestamp = observation (`package_timestamp`), never write time:
+// write time would accept stale aggregates the RedStone path rejects.
 fn to_reflector_price_data(env: &Env, data: &RedStonePriceData) -> ReflectorPriceData {
     let price = u256_to_i128(env, &data.price);
     let timestamp = millis_to_seconds(data.package_timestamp);

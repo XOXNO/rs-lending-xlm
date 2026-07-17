@@ -6,7 +6,6 @@ use soroban_sdk::{vec, Address, Env, Vec};
 use crate::helpers::hub_asset;
 use crate::helpers::units::f64_to_i128;
 
-/// Converts a token amount to raw units.
 pub fn amount_raw(amount: f64, decimals: u32) -> i128 {
     f64_to_i128(amount, decimals)
 }

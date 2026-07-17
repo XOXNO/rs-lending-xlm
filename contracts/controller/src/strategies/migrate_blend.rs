@@ -67,11 +67,7 @@ impl Controller {
 }
 
 /// Migrate Blend V2 → controller: clear Blend debt, sweep assets, open positions.
-///
-/// Checklist: auth → reentrancy → preflight → account → markets → debt leg →
-/// withdraw/deposit leg → finalize → event.
 pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendParams) -> u64 {
-    // 1–2. Auth + reentrancy
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
@@ -85,7 +81,6 @@ pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: Migrate
         debt_caps,
     } = params;
 
-    // 3. Preflight (hub, non-empty request, approved Blend pool)
     validation::require_hub_active(env, hub_id);
     validate_migration_request(
         env,
@@ -95,7 +90,6 @@ pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: Migrate
         &debt_caps,
     );
 
-    // 4–5. Account + oracles (deduped withdraw list)
     let (account_id, mut account, mut cache, withdraw_assets) = prepare_migration_account(
         env,
         caller,
@@ -106,10 +100,9 @@ pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: Migrate
         &debt_caps,
     );
 
-    // 3b. Markets active before any balance read or Blend call
+    // Markets active before balance() or Blend submit.
     require_migration_markets_active(env, &mut cache, hub_id, &withdraw_assets, &debt_caps);
 
-    // 6a. Zero-fee borrow → repay Blend debt → reconcile refunds
     execute_migration_debt_leg(
         env,
         caller,
@@ -120,7 +113,6 @@ pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: Migrate
         &mut cache,
     );
 
-    // 6b. Sweep Blend collateral/supply → controller deposit
     if !withdraw_assets.is_empty() {
         let before_withdraw = snapshot_balances(env, &withdraw_assets);
         let withdraw_requests = build_withdraw_requests(env, &collateral_assets, &supply_assets);
@@ -135,7 +127,6 @@ pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: Migrate
         );
     }
 
-    // 7. Finalize + migration event
     strategy_finalize(env, account_id, &account, &mut cache);
 
     BlendMigrationEvent {
@@ -163,7 +154,7 @@ fn execute_migration_debt_leg(
     if debt_caps.is_empty() {
         return;
     }
-    // Borrow before submit so post-submit delta only Blend's over-repay refund.
+    // Borrow before submit so post-submit delta is only Blend's over-repay refund.
     let before_debt = snapshot_balances(env, &debt_asset_list(env, debt_caps));
     for (debt_asset, max) in debt_caps.iter() {
         validation::require_positive_amount(env, max);
@@ -179,8 +170,6 @@ fn execute_migration_debt_leg(
     reconcile_debt_refunds(env, account, cache, caller, hub_id, debt_caps, &before_debt);
 }
 
-/// Loads or creates the account under the migration guard, prefetches strategy
-/// oracles, and returns it with the deduped withdraw-asset list.
 fn prepare_migration_account(
     env: &Env,
     caller: &Address,
@@ -207,7 +196,6 @@ fn prepare_migration_account(
     (account_id, account, cache, withdraw_assets)
 }
 
-/// Requires every migration asset (deduped collateral ∪ supply, and each debt
 /// asset) to be a configured market before any `.balance()` read or Blend call.
 /// `require_market_active` checks the token-rooted oracle, so `hub_id` only names
 /// the coordinate the positions open on.
@@ -226,7 +214,6 @@ fn require_migration_markets_active(
     }
 }
 
-/// Rejects empty requests and unapproved Blend pools.
 fn validate_migration_request(
     env: &Env,
     blend_pool: &Address,
@@ -239,7 +226,7 @@ fn validate_migration_request(
         !collateral_assets.is_empty() || !supply_assets.is_empty() || !debt_caps.is_empty(),
         GenericError::InvalidPayments
     );
-    // Only governance-approved Blend pool may be a migration source. This closes arbitrary external calls.
+    // Allowlist: only governance-approved Blend pools.
     assert_with_error!(
         env,
         storage::is_blend_pool_approved(env, blend_pool),
@@ -247,7 +234,6 @@ fn validate_migration_request(
     );
 }
 
-/// Rejects duplicate debt assets and returns the deduped withdraw list plus the full asset set.
 fn prepare_migration_assets(
     env: &Env,
     collateral_assets: &Vec<Address>,
@@ -263,8 +249,6 @@ fn prepare_migration_assets(
     (withdraw_assets, all_assets)
 }
 
-/// Rejects duplicate debt entries (a duplicate would double-borrow and
-/// double-repay the same asset).
 fn require_unique_debt_assets(env: &Env, debt_caps: &Vec<(Address, i128)>) {
     let mut seen: Map<Address, bool> = Map::new(env);
     for (asset, _) in debt_caps.iter() {
@@ -352,7 +336,6 @@ fn build_withdraw_requests(
     requests
 }
 
-/// Runs Blend `submit` under the reentrancy guard. Callers that need Blend to
 /// pull controller-held tokens must set up that authorization immediately
 /// before this call (see `authorize_repay_pulls`); withdraw-only submits need
 /// no such authorization.
@@ -453,7 +436,6 @@ fn reconcile_debt_refunds(
     }
 }
 
-/// Loads the account's debt position for `hub_debt`, trapping if absent.
 fn load_debt_position(env: &Env, account: &Account, hub_debt: &HubAssetKey) -> DebtPosition {
     let raw = account
         .borrow_positions

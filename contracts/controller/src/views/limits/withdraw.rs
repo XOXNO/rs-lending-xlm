@@ -33,8 +33,7 @@ pub(crate) fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) 
     }
 
     let mut cache = Cache::new_view(env);
-    // Paused rejects every withdraw, so the preview reports no capacity;
-    // frozen stays withdraw-permissive.
+    // Paused: zero capacity; frozen still allows withdraw.
     if let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) {
         if spoke_cfg.paused {
             return 0;
@@ -90,7 +89,6 @@ fn wad_div_ceil(env: &Env, num: Wad, den: Wad) -> Wad {
     Wad::from(fp_core::mul_div_ceil(env, num.raw(), WAD, den.raw()))
 }
 
-/// Converts a USD WAD slack into a conservative token upper bound.
 fn usd_wad_to_token_cap(env: &Env, usd: Wad, feed: PriceFeed, decimals: u32) -> i128 {
     if usd == Wad::ZERO || feed.price == Wad::ZERO {
         return 0;

@@ -7,8 +7,7 @@
 //! while the contract is paused. Spoke-asset pause blocks inbound debt repay
 //! tokens; seizure of paused collateral remains allowed.
 //!
-//! `result.refunds` from the plan is informational only — the liquidator only
-//! transfers post-normalization repay amounts (never over-pulled).
+//! Plan `refunds` are informational; only post-normalization repay amounts transfer.
 
 use crate::risk;
 mod apply;
@@ -110,13 +109,12 @@ pub(crate) fn process_liquidation(
     let mut account = storage::get_account(env, account_id);
     let aggregated = payments::aggregate_positive_payments(env, debt_payments);
 
-    // Same fail-closed oracle staleness/tolerance as every other risk path.
     let mut cache = Cache::new(env);
 
     validate_liquidation_inputs(env, &account, liquidator, &aggregated);
 
     let liquidation_plan = plan::build_liquidation_plan(env, &account, &aggregated, &mut cache);
-    // Refunds in the plan are not transferred; only `result.repaid` is pulled.
+    // Only `result.repaid` transfers; refunds are informational.
     let result = liquidation_plan.into_result();
 
     validation::require_non_empty_payments(env, &result.repaid);
@@ -155,7 +153,6 @@ pub(crate) fn process_liquidation(
     cache.emit_position_batch(account_id, &account);
 }
 
-/// Rejects empty payments and owner self-liquidation before pricing.
 fn validate_liquidation_inputs(
     env: &Env,
     account: &Account,

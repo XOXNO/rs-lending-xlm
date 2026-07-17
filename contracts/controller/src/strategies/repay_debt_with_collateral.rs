@@ -54,9 +54,6 @@ impl Controller {
 }
 
 /// Withdraw collateral → (swap to debt token) → repay; optional full close.
-///
-/// Checklist: auth → reentrancy → preflight → account → oracles →
-/// net-or-swap-repay → optional close → finalize.
 pub(crate) fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
@@ -71,25 +68,21 @@ pub(crate) fn process_repay_debt_with_collateral(
         close_position,
     } = params;
 
-    // 1–2. Auth + reentrancy
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // 3. Preflight
     validation::require_positive_amount(env, collateral_amount);
     validation::require_hub_active(env, collateral.hub_id);
     validation::require_hub_active(env, debt.hub_id);
 
-    // 4. Account
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
     let mut cache = Cache::new(env);
 
-    // 5. Oracles
     let extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
-    // 6. Same hub-asset → pool net settle; else withdraw → swap → repay
+    // Same hub-asset: in-pool net; else withdraw → swap → repay.
     if collateral == debt {
         repay_same_asset_net(
             env,
@@ -112,10 +105,9 @@ pub(crate) fn process_repay_debt_with_collateral(
         );
     }
 
-    // 6b. Optional full collateral exit (requires zero debt remaining)
+    // Full collateral exit only if debt is already zero.
     close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
 
-    // 7. Finalize
     strategy_finalize(env, account_id, &account, &mut cache);
 }
 
@@ -187,7 +179,7 @@ fn repay_via_collateral_swap(
     );
 }
 
-/// Withdraws all remaining collateral when closing, requiring no debt remains.
+/// Full collateral exit; requires zero remaining debt.
 fn close_remaining_collateral_if_requested(
     env: &Env,
     account: &mut Account,

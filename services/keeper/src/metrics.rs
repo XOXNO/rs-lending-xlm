@@ -100,7 +100,6 @@ async fn health() -> &'static str {
     "ok\n"
 }
 
-/// Encodes the Prometheus registry.
 async fn scrape(State(metrics): State<Arc<Metrics>>) -> Result<String, StatusCode> {
     let mut buf = Vec::new();
     TextEncoder::new()

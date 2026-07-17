@@ -266,7 +266,7 @@ fn owner_revokes_role_immediately() {
     let result = gov.try_revoke_role_immediate(&admin, &guardian_role);
     assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
 
-    // Revoking a role the account no longer holds is a no-op reject.
+    // Revoking a role the account does not hold is a no-op reject.
     let result = gov.try_revoke_role_immediate(&holder, &guardian_role);
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
@@ -274,8 +274,7 @@ fn owner_revokes_role_immediately() {
     let result = gov.try_revoke_role_immediate(&holder, &Symbol::new(&t.env, "NOPE"));
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
-    // CANCELLER is no longer immediately revocable: it rides the timelock and
-    // the single independent veto. Immediate revoke is limited to GUARDIAN/ORACLE.
+    // CANCELLER revoke is timelock-only; immediate revoke is GUARDIAN/ORACLE only.
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::GrantGovRole(RoleArgs {

@@ -25,7 +25,6 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
 fn setup() -> LendingTest {
     LendingTest::new().standard_two_asset_dust_disabled()
 }
-// 1. Supply index decreases after bad debt socialization
 
 #[test]
 fn test_bad_debt_decreases_supply_index() {
@@ -69,7 +68,6 @@ fn test_bad_debt_decreases_supply_index() {
         decrease_ratio
     );
 }
-// 2. All suppliers lose proportionally from bad debt
 
 #[test]
 fn test_bad_debt_loss_distributed_proportionally() {
@@ -120,7 +118,6 @@ fn test_bad_debt_loss_distributed_proportionally() {
         );
     }
 }
-// 3. Supply index never goes below the configured safety floor
 
 #[test]
 fn test_bad_debt_index_floored_at_safety_floor() {
@@ -149,7 +146,6 @@ fn test_bad_debt_index_floored_at_safety_floor() {
         si_after
     );
 }
-// 4. Supply index recovers after bad debt (grows again with new interest)
 
 #[test]
 fn test_supply_index_recovers_after_bad_debt() {
@@ -185,7 +181,6 @@ fn test_supply_index_recovers_after_bad_debt() {
         si_recovered
     );
 }
-// 5. Bad debt via keeper clean_bad_debt also decreases supply index
 
 #[test]
 fn test_keeper_clean_bad_debt_decreases_supply_index() {
@@ -219,7 +214,6 @@ fn test_keeper_clean_bad_debt_decreases_supply_index() {
     // Alice's positions must be gone.
     t.assert_no_positions(ALICE);
 }
-// 6. Borrow index is NOT affected by bad debt socialization
 
 #[test]
 fn test_bad_debt_does_not_affect_borrow_index() {
@@ -248,7 +242,6 @@ fn test_bad_debt_does_not_affect_borrow_index() {
         bi_after
     );
 }
-// 7. Quantitative: bad debt amount matches supply index reduction
 
 #[test]
 fn test_bad_debt_reduction_matches_formula() {

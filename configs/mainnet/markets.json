@@ -1,5 +1,5 @@
 {
-  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live directly on market_params — MarketParamsRaw is one flat struct on-chain, there is no separate asset-config type. Real per-asset risk config is spoke-scoped only, set via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA documents intent; controller does not enforce single-oracle-only-if-tight-bounds yet.",
+  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live on market_params (flat MarketParamsRaw). Per-asset risk (LTV, caps, pause/freeze) is spoke-scoped via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA: production enforces a ±10% midpoint-relative sanity band (validate_single_source_sanity_band).",
   "network": "mainnet",
   "markets": [
     {

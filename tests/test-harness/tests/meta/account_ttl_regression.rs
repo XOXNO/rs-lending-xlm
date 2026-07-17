@@ -60,8 +60,7 @@ fn test_one_sided_activity_renews_both_side_ttls() {
         initial_borrow_ttl
     );
 
-    // One-sided activity: supply more USDC. Mutates only the supply
-    // side map; without the fix, the borrow side TTL would not renew.
+    // Supply-only mutation must renew both side TTLs.
     t.supply(ALICE, "USDC", 100.0);
 
     let (renewed_supply_ttl, renewed_borrow_ttl) = t.env.as_contract(&t.controller, || {
@@ -72,7 +71,6 @@ fn test_one_sided_activity_renews_both_side_ttls() {
         )
     });
 
-    // Supply side: renewed (expected).
     assert!(
         renewed_supply_ttl > aged_supply_ttl,
         "supply TTL must have been renewed by the supply call: renewed={}, aged={}",
@@ -80,7 +78,7 @@ fn test_one_sided_activity_renews_both_side_ttls() {
         aged_supply_ttl
     );
 
-    // Borrow side: also renewed — this is the regression fix.
+    // Counterpart borrow side renews on supply-only activity.
     assert!(
         renewed_borrow_ttl > aged_borrow_ttl,
         "borrow TTL must have been renewed by the supply call (counterpart-side renewal): renewed={}, aged={}",
@@ -88,8 +86,7 @@ fn test_one_sided_activity_renews_both_side_ttls() {
         aged_borrow_ttl
     );
 
-    // Symmetric direction: a borrow-side mutation (repay) must renew
-    // the supply side as well. Age both keys past the threshold again.
+    // Symmetric: repay (borrow-side) renews supply-side TTL.
     t.advance_time(60 * 60 * 24 * 95);
     let (aged_supply_ttl_2, aged_borrow_ttl_2) = t.env.as_contract(&t.controller, || {
         let p = t.env.storage().persistent();

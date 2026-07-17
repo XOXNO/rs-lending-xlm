@@ -32,22 +32,18 @@ pub struct ContractsConfig {
     pub controller: String,
     pub pool_wasm_hash: String,
     pub flash_loan_receiver: String,
-    /// Hub-asset market coordinates monitored by the keeper.
+    /// Hub-asset markets to monitor.
     #[serde(default)]
     pub markets: Vec<MarketConfig>,
-    /// Legacy asset-only market list. Entries map to `hub_id = 1`.
+    /// Asset-only market list; each entry maps to `hub_id = 1`.
     #[serde(default)]
     pub market_assets: Vec<String>,
-    /// Governance contract that owns the controller. When set, its instance,
-    /// `MinDelay` (instance-tier), and access-control role keys are bumped too.
-    /// An empty/blank YAML value (`governance: ""`) means "unset" (`None`), not
-    /// `Some("")` — otherwise the blank placeholder fails the `C...` check below.
+    /// Governance contract owning the controller. When set, bumps instance
+    /// (incl. instance-tier MinDelay) + role keys. Blank YAML (`""`) → unset.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub governance: Option<String>,
-    /// Self-hosted `xoxno-oracle-adapter` price oracle. When set, its instance
-    /// plus its enumerable persistent index and price state are TTL-bumped each
-    /// tick. Mirrors `networks.json`'s `xoxno_oracle_adapter` field. An
-    /// empty/blank YAML value means "unset" (`None`), like `governance`.
+    /// `xoxno-oracle-adapter` address. When set, bumps instance + enumerable
+    /// persistent index/price state each tick. Blank YAML → unset.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub xoxno_oracle_adapter: Option<String>,
 }
@@ -86,17 +82,15 @@ pub struct ScheduleConfig {
     pub ttl_safety_margin_days: u32,
     pub asset_chunk: usize,
     pub max_txs_per_tick: usize,
-    /// Enables the role-gated `update_indexes(assets)` sweep.
+    /// Run the `update_indexes(assets)` sweep.
     #[serde(default)]
     pub enable_index_refresh: bool,
-    /// Scans + bumps per-user account keys (`AccountMeta` / `SupplyPositions` /
-    /// `BorrowPositions`) for `1..=AccountNonce`. On by
-    /// default: keeping inactive positions alive is the keeper's job.
+    /// Scan + bump per-user keys (`AccountMeta` / positions / delegates) for
+    /// `1..=AccountNonce`. Default on.
     #[serde(default = "default_scan_users")]
     pub scan_users: bool,
-    /// Hard ceiling on the account id range scanned per tick. If `AccountNonce`
-    /// exceeds it the keeper logs a loud `warn!` naming the dropped id range and
-    /// scans only `1..=max_accounts_scan` — it never silently truncates.
+    /// Hard ceiling on account ids scanned per tick. When `AccountNonce` exceeds
+    /// it, warns with the dropped range and scans only `1..=max_accounts_scan`.
     #[serde(default = "default_max_accounts_scan")]
     pub max_accounts_scan: u64,
 }
@@ -142,8 +136,7 @@ fn default_hub_id() -> u32 {
     1
 }
 
-/// Deserialize an optional string, treating an empty or whitespace-only value
-/// as `None`. Lets `governance: ""` in YAML mean "unset" instead of `Some("")`.
+/// Empty / whitespace-only optional string → `None`.
 fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -242,7 +235,7 @@ impl KeeperConfig {
     }
 }
 
-/// Approximate ledgers per day on Stellar.
+/// ~ledgers per day on Stellar.
 pub const LEDGERS_PER_DAY: u32 = 17_280;
 
 #[cfg(test)]
@@ -260,11 +253,9 @@ mod tests {
 
     #[test]
     fn governance_blank_yaml_deserializes_to_none() {
-        // Field omitted, empty string, and whitespace-only all mean "unset".
         assert_eq!(contracts("").governance, None);
         assert_eq!(contracts("governance: \"\"").governance, None);
         assert_eq!(contracts("governance: \"   \"").governance, None);
-        // A real address is preserved.
         assert_eq!(
             contracts("governance: CGOV").governance,
             Some("CGOV".to_string())

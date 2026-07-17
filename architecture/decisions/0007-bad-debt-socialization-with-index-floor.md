@@ -3,132 +3,75 @@
 - Status: Accepted
 - Date: 2026-05-05
 - Deciders: XOXNO Lending contract team
-- Supersedes: none
 
 ## Context
 
-Liquidations cap repayment at actual debt and apply a bonus to the liquidator.
-A stressed account can retain collateral so small that the liquidation bonus
-alone exceeds the residual collateral value. No rational liquidator will close
-out the rest of the debt. The remaining debt is uncollectable.
+Liquidation caps repay at actual debt and pays a liquidator bonus. Residual
+collateral can be too small for a rational liquidator to finish. Stranded debt
+diverges from recoverable liquidity if left forever.
 
-The protocol has to decide what to do with these stranded debts:
-
-1. Leave them on the books and hope they become collectable later.
-2. Pause the affected market.
-3. Socialize them across that market's suppliers by reducing the supply
-   index.
-
-Doing nothing leaves a divergence between scaled debt and recoverable
-liquidity that grows over time and propagates into health-factor math.
-Pausing penalizes all market activity for losses that have already
-crystallized. Socialization distributes the loss across the
-suppliers who underwrote the lending.
-
-A second concern is numerical safety: dropping the supply index toward
-zero would divide by zero in scaled-balance conversions and revenue
-accrual.
+Options: leave it, pause the market, or socialize across suppliers via the
+supply index. Socialization needs a floor so the index never hits zero and
+breaks scaled-balance math.
 
 ## Decision
 
-Socialize uncollectable debt by reducing the pool's `supply_index_ray`,
-floored at `SUPPLY_INDEX_FLOOR_RAW`.
+Socialize uncollectable debt by reducing pool `supply_index_ray`, floored at
+`SUPPLY_INDEX_FLOOR_RAW` (= `WAD`).
 
-**Trigger** (`contracts/controller/src/positions/liquidation/apply.rs::check_bad_debt_after_liquidation`):
-After a liquidation, the account is socializable when
-`is_socializable_bad_debt` holds: `debt > collateral` and
-`collateral_usd_wad <= BAD_DEBT_USD_THRESHOLD` (5 USD WAD)
-(`contracts/controller/src/positions/liquidation/math.rs`). The controller
-then runs `execute_bad_debt_cleanup`, which seizes **both** sides of the
-account: each supply (`Deposit`) position and each debt (`Borrow`) position is
-collected into one batch and passed to the central pool via
-`pool.seize_positions(entries)` in a single cross-contract call. On completion it publishes
-`CleanBadDebtEvent { account_id, total_borrow_usd_wad,
-total_collateral_usd_wad }`
-(`contracts/controller/src/events/debt.rs`) and removes the account.
+### Trigger
 
-**Reduction**: only the `Borrow`-side seizure moves the asset's index. On the pool's
-`seize_positions` (`contracts/pool/src/lib.rs`), a `Deposit` seizure adds the
-scaled amount to pool revenue (no index motion); a `Borrow` seizure unscales
-the debt and calls
-`contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`:
+After liquidation (or via `clean_bad_debt`), socializable when total debt USD
+**and** total collateral USD satisfy `debt > collateral` **and**
+`collateral <= BAD_DEBT_USD_THRESHOLD` (5 WAD). Underwater positions with
+collateral **above** that threshold are not socializable here; further
+liquidation must wind them down.
 
-- `total_supplied_value = supplied * supply_index`.
-- `capped = min(bad_debt, total_supplied_value)`.
-- `reduction_factor = (total_supplied_value - capped) / total_supplied_value`.
-- `new_supply_index = supply_index * reduction_factor`.
-- Final write floors at `SUPPLY_INDEX_FLOOR_RAW` (defined `= WAD`; 10^18 raw
-  Ray = 10^-9 decimal). Revenue accrual paths short-circuit when
-  `index <= floor` so a near-zero index cannot divide-by-zero.
+Then `execute_bad_debt_cleanup` seizes **both** sides in one
+`pool.seize_positions` batch, emits `CleanBadDebtEvent`, and removes the
+account.
 
-A severe single-step reduction is not emitted as a dedicated event; it is
-observable through the controller's emitted market-state snapshot.
+### Index motion
 
-**Standalone path**: `clean_bad_debt(caller, account_id)`
-(`contracts/controller/src/positions/liquidation/mod.rs`) is a **permissionless**
-entrypoint for accounts whose bad-debt state needs to be applied outside a
-liquidation event. It requires only `caller.require_auth()` (to authenticate the
-submitter) plus `require_not_flash_loaning`; it is intentionally **not**
-`#[when_not_paused]`, so stranded bad debt can still be crystallized while a
-market is paused. Permissionlessness is safe because the call reverts with
-`CollateralError::CannotCleanBadDebt` unless `is_socializable_bad_debt` genuinely
-holds — a caller can only apply an already-realized loss, never manufacture one.
-Keepers are the expected callers but hold no privileged role on this entrypoint.
+Only **Borrow**-side seizure drives the index. Deposit seizure adds scaled
+amount to pool revenue. Borrow seizure unscales debt and
+`apply_bad_debt_to_supply_index`:
 
-## Alternatives Considered
+```text
+total_supplied_value = supplied * supply_index
+capped = min(bad_debt, total_supplied_value)
+reduction_factor = (total_supplied_value - capped) / total_supplied_value
+new_supply_index = supply_index * reduction_factor  // floored
+```
 
-- **Auto-pause the market on bad debt.** Rejected: the loss has already
-  occurred. Pausing penalizes future suppliers and borrowers and
-  obscures the financial reality. The cleanup path emits `CleanBadDebtEvent`
-  and updates market state for monitoring; the owner can still pause manually
-  if warranted.
-- **Insurance fund instead of socialization.** Rejected for launch:
-  requires a separate accounting surface and capital provisioning model.
-  The current design uses the supply-side claim to express loss.
-  Future revenue diverted from `claim_revenue` could fund a
-  reserve in a later ADR.
-- **No floor on the supply index.** Rejected: a very large bad-debt
-  event could drive the index to or near zero, breaking
-  `scaled * index / RAY` reconstructions and the revenue-accrual
-  divisor.
-- **Pro-rata socialization via per-account writes.** Rejected: would
-  sweep supply positions at the moment of socialization, which is
-  the work the scaled-balance design (ADR 0002) avoids.
+Revenue accrual short-circuits when `index <= floor`.
+
+### Standalone path
+
+`clean_bad_debt(caller, account_id)` is **permissionless** (caller auth + not
+flash-loaning). Not `#[when_not_paused]`. Reverts unless the socializable
+predicate still holds — callers apply realized loss only.
+
+## Alternatives considered
+
+- Auto-pause market — the loss has already crystallized; obscures accounting.  
+- Insurance fund — separate capital and accounting surface.  
+- No index floor — numerical collapse of scaled balances.  
+- Per-account pro-rata writes — conflicts with scaled-balance design (ADR 0002).  
+
 
 ## Consequences
 
-Positive:
+**Positive:** loss shows as index step-down; event for ops; floor keeps math
+safe; no account sweep.
 
-- Loss attribution is explicit and immediate: suppliers see the index
-  step down.
-- `CleanBadDebtEvent` and the emitted market-state snapshot give operators a
-  high-signal trigger for out-of-band action (pause, communication,
-  root-cause).
-- Floor preserves the numerical health of all downstream math.
-- Per-account work stays at zero; index motion captures the
-  socialization.
-
-Negative / accepted costs:
-
-- User-facing risk disclosure must state that suppliers carry socialized losses.
-- The `BAD_DEBT_USD_THRESHOLD = $5` heuristic for triggering
-  socialization is a tunable; audit and launch review cover threshold
-  sensitivity.
-- A severe single-step index drop has no dedicated on-chain signal and the
-  central pool does not self-pause; operators detect it from the emitted
-  market-state snapshot.
+**Costs:** suppliers bear socialized loss (disclose); 5 WAD threshold is a
+tunable; no dedicated “severe drop” event (use market-state snapshot).
 
 ## References
 
-- `SCF_BUILD_ARCHITECTURE.md` §6 (Controller Responsibilities), §15 (Security
-  Review Focus).
-- `architecture/INVARIANTS.md` §3.3 and §4.4 (bad-debt trigger, supply-index
-  floor, tainted-debt gate on paused debt).
-- `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`
-- `contracts/controller/src/positions/liquidation/apply.rs::check_bad_debt_after_liquidation`
-- `contracts/controller/src/positions/liquidation/bad_debt.rs::execute_bad_debt_cleanup`
-- `common/src/constants/pool.rs` (`SUPPLY_INDEX_FLOOR_RAW` = `WAD`),
-  `contracts/controller/src/constants.rs` (`BAD_DEBT_USD_THRESHOLD` = `5 * WAD`)
-- `contracts/controller/src/events/debt.rs::CleanBadDebtEvent`
-
-Matches central facts: socializable only when debt > collateral && collateral_usd <= 5 WAD; seize both sides; index floor only on seized supply; permissionless clean; liquidation repay on paused debt reverts.
+- `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`  
+- `contracts/controller/src/positions/liquidation/{apply,bad_debt,math}.rs`  
+- `common/src/constants/pool.rs`, `contracts/controller/src/constants.rs`  
+- [INVARIANTS.md](../INVARIANTS.md) §1.5, §3.3, §4.4  
+- [ADR 0011](./0011-pause-and-freeze-matrix.md) (tainted-debt vs clean_bad_debt)  

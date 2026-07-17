@@ -1,4 +1,4 @@
-//! Soroban RPC access: connection wrapper and read-only view simulation.
+//! Soroban RPC: connection wrapper + read-only view simulation.
 
 pub mod client;
 pub mod view;

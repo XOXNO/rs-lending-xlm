@@ -1,10 +1,7 @@
-//! Raw i128 fixed-point primitives: `mul_div` and rescale helpers with I256
-//! intermediates, mapping overflow to a stable error. Typed callers wrap these
-//! in [`crate::math::fp`].
+//! Raw i128 fixed-point `mul_div` / rescale with I256 intermediates.
 
 use soroban_sdk::{panic_with_error, Env, I256};
 
-// Widens the three operands to I256 for an overflow-safe `mul_div`.
 fn to_i256_operands(env: &Env, x: i128, y: i128, d: i128) -> (I256, I256, I256) {
     (
         I256::from_i128(env, x),
@@ -29,7 +26,6 @@ pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &x256.mul(&y256).div(&d256))
 }
 
-/// Computes `(x * y) / d` with ceiling rounding for non-negative inputs.
 pub fn mul_div_ceil(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     let product = x256.mul(&y256);
@@ -44,9 +40,7 @@ pub fn mul_div_ceil(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &result)
 }
 
-/// Computes `(x * y) / d` with floor rounding, saturating to `i128::MAX` when
-/// the quotient exceeds the `i128` range. Non-negative inputs only: the ratio
-/// can only overflow on the high side, so saturation preserves ordering.
+/// Floor `(x * y) / d`; saturates at `i128::MAX` (non-negative inputs).
 pub fn mul_div_floor_saturating(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     x256.mul(&y256).div(&d256).to_i128().unwrap_or(i128::MAX)
@@ -67,8 +61,6 @@ pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &rounded.div(&d256))
 }
 
-// Upscales `a` by `10^diff`, mapping both overflow points to caller-supplied
-// messages via `checked_pow`/`checked_mul` rather than a generic panic.
 fn rescale_upscale(a: i128, diff: u32, factor_msg: &str, value_msg: &str) -> i128 {
     let factor = 10i128.checked_pow(diff).expect(factor_msg);
     // D{from}{U} * D{diff}{1} -> D{to}{U}; U is unchanged.

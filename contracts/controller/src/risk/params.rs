@@ -12,7 +12,6 @@ use crate::risk::calculate_account_risk_totals;
 /// Minimum HF (1.05 WAD) required before lowering a position's liquidation threshold.
 pub const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;
 
-/// Applies `effective_config` risk params to an in-flight collateral position.
 pub(crate) fn refresh_supply_risk_params(
     env: &Env,
     cache: &mut Cache,
@@ -34,8 +33,8 @@ pub(crate) fn refresh_supply_risk_params(
     );
 }
 
-/// Refreshes position risk params while the listing exists (deprecated
-/// spokes included); a removed spoke member keeps its stamped params.
+/// Re-stamps risk params while the listing exists (incl. deprecated spoke);
+/// delisted members keep stamped params.
 pub(crate) fn refresh_supply_risk_params_for_asset(
     env: &Env,
     cache: &mut Cache,
@@ -53,8 +52,6 @@ pub(crate) fn refresh_supply_risk_params_for_asset(
     refresh_supply_risk_params(env, cache, account, hub_asset, position, &config);
 }
 
-/// Applies a new liquidation threshold, gating any decrease on a post-change
-/// health factor at or above the min.
 fn apply_liquidation_threshold(
     env: &Env,
     cache: &mut Cache,
@@ -88,7 +85,6 @@ fn apply_liquidation_threshold(
     }
 }
 
-/// Returns a copy of the account's supply positions with `position` restamped at `new_lt`.
 fn supply_positions_with(
     account: &Account,
     hub_asset: &HubAssetKey,

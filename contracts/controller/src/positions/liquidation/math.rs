@@ -1,8 +1,5 @@
 //! Liquidation accounting (bonus curve, repay normalization, seizure, excess).
-//!
-//! Pure relative to pool transfers: builds priced plans for plan/apply.
-//! `refunds` are informational for callers — apply never transfers them.
-//! Dimensional notes use Wad/Ray/Bps units on critical formulas.
+//! Pure relative to pool transfers. `refunds` are informational (apply never transfers).
 
 use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::{CollateralError, GenericError};
@@ -39,8 +36,7 @@ pub(crate) struct BonusBounds {
 }
 
 /// Repay legs after close-amount, USD ideal, and dust full-close caps.
-///
-/// `refunds` records overpay relative to those caps; apply does not transfer them.
+/// `refunds` are informational; apply never transfers them.
 pub(crate) struct NormalizedRepaymentPlan {
     pub repaid: Vec<RepayEntry>,
     pub refunds: Vec<PaymentTuple>,
@@ -93,7 +89,6 @@ pub(crate) fn is_socializable_bad_debt(total_debt: Wad, total_collateral: Wad) -
     total_debt > total_collateral && total_collateral <= Wad::from(BAD_DEBT_USD_THRESHOLD)
 }
 
-/// Computes the weighted seizure proportion and the account's bonus bounds.
 pub(crate) fn calculate_seizure_proportions(
     env: &Env,
     account: &Account,
@@ -190,13 +185,7 @@ pub(crate) fn normalize_repayment_plan(
 
     let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
 
-    // A solvent-toxic account (0 <= hf/p - 1 < base bonus) must be closed in
-    // full. Its collateral still covers the debt, so a full close pays the
-    // liquidator C - D >= 0 and leaves nothing to socialize, while a partial
-    // at the base bonus would walk HF down and manufacture a socializable
-    // residue. Insolvent accounts (negative cap) keep the partial path: a
-    // full close there guarantees the liquidator a loss, so requiring it
-    // would freeze liquidation instead of winding the position down.
+    // Solvent-toxic (0 <= cap < base): full close only; insolvent keeps partial.
     if total_debt_payment_usd < ideal_repayment_usd {
         if let Some(cap) = max_hf_preserving_bonus_bps(snap) {
             if cap >= 0 && cap < bonus_bounds.base.raw() {
@@ -223,7 +212,6 @@ pub(crate) fn normalize_repayment_plan(
     repayment
 }
 
-/// Returns the token amount that fully closes the debt position, rounding up.
 fn debt_close_amount(
     env: &Env,
     position: &DebtPosition,
@@ -288,15 +276,11 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        // Floor-divide so the base side is the lower bound; the bonus side
-        // absorbs the rounding remainder before the protocol fee applies.
-        // The fee is position-snapshotted (like bonus), so delisted collateral
-        // keeps its last-stamped fee under the same `Frozen` policy as withdraw.
+        // Floor base; bonus absorbs remainder. Fee is position-snapshotted (Frozen-safe).
         let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
         let bonus_ray = capped_ray - base_ray;
         let protocol_fee_ray = position.liquidation_fees.apply_to_ray(env, bonus_ray);
-        // Full seizure uses pool half-up conversion so pool full-close succeeds.
-        // Partial seizures floor and cannot exceed the computed RAY amount.
+        // Full close: half-up (pool). Partial: floor to RAY amount.
         let capped_amount = if capped_ray == actual_ray {
             capped_ray.to_asset(feed.asset_decimals)
         } else {
@@ -306,8 +290,7 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        // Positive protocol fee has a one-unit minimum.
-        // `capped_amount >= 1` here, so `fee <= amount` still holds.
+        // Positive fee floors to at least 1 unit (`fee <= amount` still holds).
         let fee_asset = protocol_fee_ray.to_asset_floor(feed.asset_decimals);
         let protocol_fee = if protocol_fee_ray > Ray::ZERO && fee_asset == 0 {
             1
@@ -350,8 +333,7 @@ pub(crate) fn process_excess_payment(
         }
 
         if usd > remaining_excess_usd {
-            // Floor each step: the refund returned to the payer cannot exceed
-            // the exact pro-rata share; sub-ulp remainder stays as repayment.
+            // Floor pro-rata refund; sub-ulp remainder stays as repayment.
             // dimensional: excess Wad<USD> / entry Wad<USD> -> Wad<1>.
             let ratio = remaining_excess_usd.div_floor(env, usd);
             let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)
@@ -359,8 +341,7 @@ pub(crate) fn process_excess_payment(
                 .to_token_floor(entry.feed.asset_decimals);
 
             let new_amount = entry.amount - refund_amount;
-            // Recompute new_usd from new_amount * price; subtracting the excess
-            // directly drifts the two precision paths and desyncs the RepayEntry pair.
+            // Recompute USD from amount*price so the RepayEntry pair stays synced.
             let new_amount_wad = Wad::from_token(new_amount, entry.feed.asset_decimals);
             let new_usd = new_amount_wad.mul(env, Wad::from(entry.feed.price_wad));
 
@@ -403,7 +384,6 @@ impl LiquidationCurve {
         Self::from_config(&cache.spoke_config(spoke_id))
     }
 
-    /// Builds the curve from the spoke config's stored values.
     pub(crate) fn from_config(cfg: &SpokeConfig) -> Self {
         Self {
             target_hf: Wad::from(cfg.liquidation_target_hf_wad),
@@ -460,19 +440,9 @@ pub(crate) fn calculate_linear_bonus_with_target(
     )
 }
 
-/// Largest bonus (BPS, floored) at which a partial liquidation cannot reduce
-/// the account's health factor, or `None` when no finite cap applies.
-///
-/// A repayment of `d` USD removes `proportion_seized * (1 + bonus) * d` of
-/// weighted collateral, so post-HF >= pre-HF exactly when
-/// `proportion_seized * (1 + bonus) <= hf`. The cap is therefore
-/// `hf / proportion_seized - 1`, floored to BPS so the realized seizure rate
-/// stays at or below the current HF. The value can be negative: then even a
-/// zero bonus shrinks HF and no partial is safe. `None` (no cap needed) covers
-/// zero seizable collateral (seizure rate is zero) and `hf >= 1` (the cap
-/// `1/p - 1` is at or above the seizure-safety ceiling every bonus already
-/// respects, and skipping it keeps `hf * BPS` inside i128 for view calls on
-/// healthy accounts).
+/// Max HF-preserving bonus (BPS, floored), or `None` when no finite cap applies.
+/// Cap is `hf / proportion_seized - 1`; negative means no safe partial.
+/// `None` when proportion ≤ 0 or `hf >= 1`.
 fn max_hf_preserving_bonus_bps(snap: &LiquidationSnapshot) -> Option<i128> {
     let proportion = snap.proportion_seized.raw();
     if proportion <= 0 || snap.hf.raw() >= WAD {
@@ -483,19 +453,7 @@ fn max_hf_preserving_bonus_bps(snap: &LiquidationSnapshot) -> Option<i128> {
     Some(snap.hf.raw() * BPS / proportion - BPS)
 }
 
-/// Estimates the ideal liquidation repayment and its bonus.
-///
-/// The health-factor-scaled bonus (protocol max below the curve's max-bonus
-/// floor, interpolated toward the base above it) is capped at the largest
-/// HF-preserving value: a partial liquidation must never leave the account
-/// less healthy, or repeated partials could ratchet HF down while seizing
-/// collateral at an inflated bonus and enlarge the residual debt that gets
-/// socialized. When even the base bonus would shrink HF, partials cannot help
-/// the account at all, so the estimate escalates to a full close at the base
-/// bonus. Otherwise the repayment restores HF to the curve target; when the
-/// bonus makes the target unreachable it is the largest the collateral
-/// supports, `collateral / (1 + bonus)`. A dust guard escalates a sub-floor
-/// debt remainder to a full close. All are capped at `total_debt`.
+/// Ideal repay + bonus: HF-scaled, HF-preserving cap, target restore, dust full-close.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,
@@ -514,13 +472,9 @@ pub(crate) fn estimate_liquidation_amount(
     let bonus = match max_hf_preserving_bonus_bps(snap) {
         None => scaled_bonus,
         Some(cap) if scaled_bonus.raw() <= cap => scaled_bonus,
-        // The scaled bonus would ratchet; pay the largest HF-neutral bonus
-        // instead so the liquidator incentive degrades smoothly.
+        // HF-neutral cap when scaled bonus would ratchet HF down.
         Some(cap) if cap >= bounds.base.raw() => Bps::from(cap),
-        // Even the base bonus shrinks HF: no partial can leave the account
-        // healthier, so the ideal is a full close at the base bonus. When the
-        // collateral still covers the debt (cap >= 0), `normalize_repayment_plan`
-        // additionally rejects payments below this ideal (`FullCloseRequired`).
+        // Base bonus shrinks HF: full close at base (`FullCloseRequired` if solvent-toxic).
         Some(_) => return (snap.total_debt, bounds.base),
     };
 
@@ -530,10 +484,7 @@ pub(crate) fn estimate_liquidation_amount(
             .min(snap.total_debt)
     });
 
-    // Escalate a sub-floor debt remainder to a full close: the position keeps
-    // either zero debt or an amount above the socialization floor, never
-    // un-liquidatable dust. `ideal` is capped at `total_debt`, so the remainder
-    // is non-negative.
+    // Dust: sub-floor remainder → full close (no un-liquidatable dust).
     let remaining_debt = snap.total_debt - ideal;
     if remaining_debt > Wad::ZERO && remaining_debt < Wad::from(BAD_DEBT_USD_THRESHOLD) {
         return (snap.total_debt, bonus);
@@ -542,7 +493,6 @@ pub(crate) fn estimate_liquidation_amount(
     (ideal, bonus)
 }
 
-/// Returns the account's health factor after repaying `debt_to_repay` at `bonus`.
 #[cfg(test)]
 fn calculate_post_liquidation_hf(
     env: &Env,

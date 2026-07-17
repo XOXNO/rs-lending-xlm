@@ -1,16 +1,9 @@
-//! Pool event definitions and emit helpers. Market state and params
-//! updates are emitted as batches (single-element batches for one market) so
-//! indexers consume one topic per flow; empty state batches and zero-fee
-//! strategy events are suppressed.
-//!
-//! Events are defined with `#[contractevent]` (or `#[contracttype]` for
-//! batch payloads) and always emitted via the `emit_*` helpers in this module.
+//! Pool events: state/params as batches; empty state batches and zero-fee
+//! strategy events suppressed.
 
 use common::types::{MarketParamsRaw, MarketStateSnapshot};
 
 use soroban_sdk::{contractevent, contracttype, vec, Address, Env, Vec};
-
-// ################## EVENTS ##################
 
 /// Pool market accounting snapshot. Field order is wire ABI:
 /// `[hub_id, asset, timestamp, supply_index, borrow_index, cash,
@@ -45,14 +38,12 @@ impl From<&MarketStateSnapshot> for PoolMarketStateEvent {
     }
 }
 
-/// Batch of per-market state snapshots emitted after mutating flows.
 #[contractevent(topics = ["market", "batch_state_update"], data_format = "single-value")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PoolMarketStateBatchEvent {
     pub updates: Vec<PoolMarketStateEvent>,
 }
 
-/// One market's rate-model parameter update.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolMarketParamsEvent {
@@ -61,14 +52,12 @@ pub struct PoolMarketParamsEvent {
     pub params: MarketParamsRaw,
 }
 
-/// Batch of market rate-model parameter updates.
 #[contractevent(topics = ["market", "batch_params_update"], data_format = "single-value")]
 #[derive(Clone, Debug)]
 pub struct PoolMarketParamsBatchEvent {
     pub updates: Vec<PoolMarketParamsEvent>,
 }
 
-/// Protocol fee charged on a strategy borrow.
 #[contractevent(topics = ["strategy", "fee"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StrategyFeeEvent {
@@ -79,10 +68,9 @@ pub struct StrategyFeeEvent {
     pub amount_sent: i128,
 }
 
-/// Emits a batch of market-state snapshots; an empty batch is suppressed.
+/// Empty batch suppressed.
 ///
 /// # Events
-///
 /// * topics - `["market", "batch_state_update"]`
 /// * data - `[updates: Vec<PoolMarketStateEvent>]`
 pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnapshot>) {
@@ -97,20 +85,14 @@ pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnaps
     PoolMarketStateBatchEvent { updates }.publish(env);
 }
 
-/// Emits a single market-state snapshot as a one-element batch.
-///
 /// # Events
-///
 /// * topics - `["market", "batch_state_update"]`
 /// * data - `[updates: Vec<PoolMarketStateEvent>]`
 pub(crate) fn emit_market_state(env: &Env, snapshot: MarketStateSnapshot) {
     emit_market_state_batch(env, vec![env, snapshot]);
 }
 
-/// Emits a single market-params update as a one-element batch.
-///
 /// # Events
-///
 /// * topics - `["market", "batch_params_update"]`
 /// * data - `[updates: Vec<PoolMarketParamsEvent>]`
 pub(crate) fn emit_market_params(env: &Env, hub_id: u32, asset: Address, params: MarketParamsRaw) {
@@ -125,10 +107,9 @@ pub(crate) fn emit_market_params(env: &Env, hub_id: u32, asset: Address, params:
     PoolMarketParamsBatchEvent { updates }.publish(env);
 }
 
-/// Emits a strategy-fee event; zero-fee strategy borrows are suppressed.
+/// Zero-fee suppressed.
 ///
 /// # Events
-///
 /// * topics - `["strategy", "fee"]`
 /// * data - `[hub_id: u32, asset: Address, amount: i128, fee: i128, amount_sent: i128]`
 pub(crate) fn emit_strategy_fee(

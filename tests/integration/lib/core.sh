@@ -66,9 +66,6 @@ is_contract_id() { [[ "$1" =~ ^C[A-Z2-7]{55}$ ]]; }
 #   is_wasm_hash <value>
 is_wasm_hash() { [[ "$1" =~ ^[0-9a-f]{64}$ ]]; }
 
-# --- Quality & guard helpers (added to address CLI fragility, missing guards,
-# portability, and duplication identified in audit) ---
-
 # Check that required external tools exist. Prints missing ones to stderr.
 #   check_tools
 check_tools() {
@@ -147,4 +144,3 @@ run_captured() {
     "$@" >"$out_f" 2>"$err_f"
 }
 
-# --- End quality helpers ---

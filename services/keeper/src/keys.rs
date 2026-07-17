@@ -1,8 +1,7 @@
-//! XDR encoding for protocol storage keys used by the keeper.
+//! XDR encoding for protocol storage keys.
 //!
-//! `#[contracttype]` enum keys serialize as `Vec[Symbol("Variant"), args...]`.
-//! The keeper builds those XDR values directly instead of depending on
-//! `soroban-sdk` in the host binary.
+//! `#[contracttype]` enums wire as `Vec[Symbol("Variant"), args...]` — built
+//! here without `soroban-sdk` in the host binary.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
@@ -10,7 +9,7 @@ use stellar_xdr::curr::{
     ScMapEntry, ScSymbol, ScVal, ScVec, StringM, VecM,
 };
 
-/// Protocol-wide controller persistent keys kept alive by the keeper.
+/// Controller persistent keys the keeper renews.
 #[derive(Debug, Clone)]
 pub enum ControllerPersistentKey {
     AccountNonce,
@@ -38,12 +37,9 @@ impl ControllerPersistentKey {
     }
 }
 
-/// Controller per-user persistent keys, keyed by the `u64` account id.
+/// Per-user persistent keys (`AccountMeta` / positions / `Delegates`).
 ///
-/// The contract splits each account across four persistent entries:
-/// `AccountMeta(id)`, `SupplyPositions(id)`, `BorrowPositions(id)`, and
-/// `Delegates(id)`. `Delegates` exists only for accounts that have set a
-/// delegate; a missing entry is skipped by the batch read.
+/// `Delegates` exists only when set; missing rows are skipped on batch read.
 #[derive(Debug, Clone)]
 pub enum ControllerUserKey {
     AccountMeta(u64),
@@ -71,18 +67,18 @@ impl ControllerUserKey {
     }
 }
 
-/// Persistent role keys managed by `stellar_access`.
+/// Persistent `stellar_access` role keys.
 #[derive(Debug, Clone)]
 pub enum AccessControlPersistentKey {
-    /// `Vec<Symbol>` of every existing role name.
+    /// `Vec<Symbol>` of role names.
     ExistingRoles,
-    /// `role -> u32` count of accounts holding the role.
+    /// `role ->` holder count.
     RoleAccountsCount(String),
-    /// `(role, index) -> Address` of the account at that enumeration slot.
+    /// `(role, index) ->` holder address.
     RoleAccounts(String, u32),
-    /// `(account, role) -> u32` enumeration index; absence means "no role".
+    /// `(account, role) ->` enum index; absence means no role.
     HasRole(ScAddress, String),
-    /// `role -> admin_role`.
+    /// `role ->` admin role.
     RoleAdmin(String),
 }
 
@@ -117,7 +113,7 @@ pub struct HubAssetKey {
     pub asset: [u8; 32],
 }
 
-/// Hub-asset-keyed persistent keys for the central liquidity pool.
+/// Central pool persistent keys, keyed by hub asset.
 #[derive(Debug, Clone)]
 pub enum PoolPersistentKey {
     Params(HubAssetKey),
@@ -141,44 +137,28 @@ impl PoolPersistentKey {
     }
 }
 
-/// Persistent keys for the self-hosted `xoxno-oracle-adapter` price oracle.
+/// Persistent `xoxno-oracle-adapter` keys (`DataKey` persistent variants).
 ///
-/// Mirrors the persistent variants of the contract's `DataKey` (see
-/// `contracts/xoxno-oracle-adapter/src/storage.rs`). The enumerable per-asset
-/// and per-feed variants carry the raw on-chain `ReflectorAsset` / feed-id
-/// `String` `ScVal`, harvested verbatim from the index slot entries
-/// (`AssetAt` / `FeedAt`), so their encoding matches the contract's
-/// `#[contracttype]` exactly without re-modeling `ReflectorAsset` in the keeper.
-///
-/// `Signers`, `Threshold`, `MaxStaleSeconds`, and `Resolution` are omitted:
-/// the contract keeps them in INSTANCE storage, so one adapter instance bump
-/// covers them.
+/// Enumerable args carry raw `ReflectorAsset` / feed-id ScVals from
+/// `AssetAt`/`FeedAt` slots (passed through, not re-modeled). INSTANCE fields
+/// (`Signers`, `Threshold`, `MaxStaleSeconds`, `Resolution`) are covered by the
+/// adapter instance bump, not listed here.
 #[derive(Debug, Clone)]
 pub enum OracleAdapterKey {
-    /// Enumerable asset-index count backing `assets()`.
     AssetCount,
-    /// Enumerable known-feed-index count.
     FeedCount,
-    /// `AssetAt(u32)` slot holding a `ReflectorAsset`.
     AssetAt(u32),
-    /// `FeedAt(u32)` slot holding a feed-id `String`.
     FeedAt(u32),
-    /// `AssetIndex(ReflectorAsset)` reverse lookup; arg is the raw asset ScVal.
+    /// Raw asset ScVal from the index slot.
     AssetIndex(ScVal),
-    /// `FeedMapping(ReflectorAsset)`; arg is the raw asset ScVal.
     FeedMapping(ScVal),
-    /// `FeedIndex(String)`; arg is the raw feed-id ScVal.
+    /// Raw feed-id ScVal.
     FeedIndex(ScVal),
-    /// `CurrentAggregate(String)`; arg is the raw feed-id ScVal.
     CurrentAggregate(ScVal),
-    /// `History(String)`; arg is the raw feed-id ScVal.
     History(ScVal),
-    /// `LatestSubmission(String, Address)`; args are the raw feed-id ScVal then
-    /// the signer address, in that field order.
+    /// `(feed ScVal, signer)` field order.
     LatestSubmission(ScVal, ScAddress),
-    /// `SignerFeeds(Address)`; per-signer index of the feed ids that signer has
-    /// submitted to. Read by `remove_signer` to enumerate a signer's feeds, so
-    /// an idle signer's index must not archive.
+    /// Per-signer feed index; `remove_signer` reads it — idle indexes must not archive.
     SignerFeeds(ScAddress),
 }
 
@@ -215,28 +195,18 @@ impl OracleAdapterKey {
     }
 }
 
-// Governance storage needs no enum here: the contract keeps almost everything
-// in INSTANCE storage, so a single instance bump covers `GovernanceKey::
-// Controller`, ownable `Owner`, access_control `Admin` + per-role `RoleAdmin`,
-// and the timelock `MinDelay`.
+// Governance: almost all state is INSTANCE — one instance bump covers
+// Controller/Owner/Admin/RoleAdmin and timelock MinDelay.
 //
-// `MinDelay` is INSTANCE, not Persistent: `stellar_governance::timelock`
-// reads/writes it via `e.storage().instance()` (verified against
-// stellar-governance 0.7.2 `src/timelock/storage.rs`: `get_min_delay` /
-// `set_min_delay` both use `instance()`). A *persistent* `MinDelay` key would
-// silently resolve to nothing, so the keeper relies on the instance bump.
+// MinDelay is INSTANCE (stellar-governance timelock uses `storage().instance()`).
+// A persistent MinDelay key would silently miss; rely on the instance bump.
 //
-// The access_control role-holder keys (`ExistingRoles`, `RoleAccountsCount`,
-// `RoleAccounts`, `HasRole`) ARE persistent and are discovered by reusing
-// `discover_role_keys` against the governance contract id — the same encoding
-// as the controller's role keys (`AccessControlPersistentKey`).
+// Role-holder keys ARE persistent; reuse `discover_role_keys` on the governance id.
 //
-// The timelock per-operation key `OperationLedger(BytesN<32>)` is persistent
-// but NOT enumerable on-chain (the op id is a keccak256 hash known only from
-// the schedule event). It is transient — resolved within `min_delay` ledgers,
-// far inside any TTL window — so it is documented and intentionally skipped.
+// Timelock `OperationLedger(BytesN<32>)` is persistent but not enumerable
+// (keccak256 op id from schedule events). Transient within `min_delay` ≪ TTL — skipped.
 
-/// Controller instance-storage keys read from `ScContractInstance.storage`.
+/// Controller instance-storage keys.
 #[derive(Debug, Clone, Copy)]
 pub enum ControllerInstanceKey {
     Pool,
@@ -254,7 +224,6 @@ impl ControllerInstanceKey {
     }
 }
 
-/// Contract instance ledger key.
 pub fn contract_instance_key(contract_id: &[u8; 32]) -> LedgerKey {
     contract_data_key(
         contract_id,
@@ -263,14 +232,11 @@ pub fn contract_instance_key(contract_id: &[u8; 32]) -> LedgerKey {
     )
 }
 
-/// Contract code ledger key.
 pub fn contract_code_key(wasm_hash: &[u8; 32]) -> LedgerKey {
     LedgerKey::ContractCode(stellar_xdr::curr::LedgerKeyContractCode {
         hash: Hash(*wasm_hash),
     })
 }
-
-// -- helpers --------------------------------------------------------------
 
 fn contract_data_key(
     contract_id: &[u8; 32],
@@ -305,7 +271,7 @@ fn symbol_val(text: &str) -> Result<ScVal> {
     Ok(ScVal::Symbol(symbol(text)?))
 }
 
-/// Encode `RoleAccountKey { role, index }` with fields sorted by symbol.
+/// `RoleAccountKey { role, index }` with map fields sorted by symbol.
 pub fn hub_asset_key_sc_val(hub_asset: &HubAssetKey) -> Result<ScVal> {
     let entries = vec![
         ScMapEntry {
@@ -459,8 +425,7 @@ mod tests {
         };
         assert_eq!(items.len(), 2);
         assert_eq!(sym_text(&items[0]), "RoleAccounts");
-        // soroban serializes #[contracttype] struct fields as a Map sorted by
-        // field symbol: "index" precedes "role".
+        // #[contracttype] map fields sorted by symbol: "index" before "role".
         let ScVal::Map(Some(map)) = &items[1] else {
             panic!("expected Map arg, got {:?}", items[1]);
         };
@@ -582,7 +547,6 @@ mod tests {
 
     #[test]
     fn oracle_adapter_feed_mapping_wraps_raw_asset_scval() {
-        // The raw `ReflectorAsset` ScVal is passed through verbatim as the arg.
         let asset = ScVal::Vec(Some(ScVec(
             vec![ScVal::Symbol(symbol("Other").unwrap())]
                 .try_into()

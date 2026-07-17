@@ -313,6 +313,5 @@ fn governance_endpoints_reject_unauthed_before_validation() {
         gov.set_auths(&no_auths).try_pause(&random_addr)
     })
     .unwrap();
-    // `unpause` is no longer a direct entrypoint; it rides the timelocked
-    // `AdminOperation::Unpause`, covered by the `propose` auth rejection above.
+    // Unpause is timelocked `AdminOperation::Unpause` (covered by propose auth above).
 }

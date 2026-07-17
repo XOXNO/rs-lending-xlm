@@ -16,7 +16,6 @@ pub struct MockAggregator;
 impl MockAggregator {
     pub fn __constructor(_env: Env, _admin: Address) {}
 
-    /// Returns the total `token_out` delivered to `sender`.
     pub fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
         sender.require_auth();
         let router = env.current_contract_address();

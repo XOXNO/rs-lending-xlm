@@ -7,16 +7,9 @@ use soroban_sdk::{Address, Env};
 use crate::constants::RAY;
 use common::math::fp::Ray;
 
-// Index floor/monotonicity rules that read `get_market_index` were removed: under
-// the certora harness that resolves to `get_sync_data_summary`, an independent
-// nondet per call, so "floor" asserts were tautologies (re-asserting the summary's
-// own assume) and "monotonic across op" asserts compared two unrelated nondet
-// draws (not entailed). Those invariants are proved where the real math runs:
-// the supply-index floor in `pool/spec/integrity_rules.rs`
-// (bad_debt_socialization_keeps_supply_index_above_floor) and index monotonicity
-// in `common/spec/rates_rules.rs` (update_borrow/supply_index_monotonic_*).
+// Index floor/monotonicity via `get_market_index` is vacuous under
+// `get_sync_data_summary` nondet; proved in pool integrity + common rates rules.
 
-/// Zero elapsed time leaves both indexes unchanged.
 #[rule]
 fn indexes_unchanged_when_no_time_elapsed(e: Env) {
     let old_borrow_index: i128 = cvlr::nondet::nondet();

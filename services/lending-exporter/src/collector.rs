@@ -1,9 +1,8 @@
-//! One scrape cycle: read pool/controller/oracle views over RPC and set gauges.
+//! One scrape cycle: RPC views → gauges.
 //!
-//! Every read is isolated — a revert or RPC error on one market/asset/spoke sets
-//! a failure counter and leaves the rest of the board live. The controller's
-//! bulk index view traps the whole batch on any bad key, so on batch failure we
-//! retry each key alone (mirroring api-v2's `simulateMarketIndexesResilient`).
+//! Reads are isolated: one market/spoke failure counts and leaves the rest live.
+//! Bulk `get_market_indexes_detailed` traps the whole batch on any bad key — on
+//! failure retry each key alone.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -19,7 +18,6 @@ use crate::model;
 use crate::scval;
 use crate::stellar::{simulate_view, RpcClient, ViewError};
 
-/// Resolves the central pool contract id via `controller.get_pool_address()`.
 pub async fn resolve_pool_id(client: &RpcClient, controller: &[u8; 32]) -> Result<[u8; 32]> {
     let scv = simulate_view(client, controller, "get_pool_address", vec![])
         .await
@@ -27,8 +25,7 @@ pub async fn resolve_pool_id(client: &RpcClient, controller: &[u8; 32]) -> Resul
     scval::as_contract_id(&scv).ok_or_else(|| anyhow!("get_pool_address did not return a contract address"))
 }
 
-/// Runs one full scrape cycle. Never returns an error: partial failures are
-/// counted and the successful reads are still published.
+/// Full scrape. Never errors: partial failures are counted; successes still publish.
 pub async fn scrape_once(
     client: &RpcClient,
     metrics: &Metrics,
@@ -41,8 +38,7 @@ pub async fn scrape_once(
     let now_secs = read_ledger_now(client, metrics, net).await;
     let index_rows = read_market_indexes(client, metrics, net, contracts).await;
 
-    // The pool getters live on the central pool; resolve it each cycle so a
-    // transient RPC failure self-heals instead of crash-looping the container.
+    // Resolve pool each cycle so a transient RPC miss self-heals (no crash-loop).
     let pool_id = match resolve_pool_id(client, &contracts.controller).await {
         Ok(p) => Some(p),
         Err(e) => {
@@ -53,7 +49,7 @@ pub async fn scrape_once(
     };
 
     let mut agg = Aggregates::default();
-    // Per-market token decimals captured for the spoke pass (cap/usage denomination).
+    // Token decimals for spoke cap/usage denomination.
     let mut decimals: Vec<Option<u32>> = vec![None; contracts.markets.len()];
 
     for (i, (market, row)) in contracts.markets.iter().zip(index_rows.iter()).enumerate() {
@@ -68,7 +64,6 @@ pub async fn scrape_once(
             metrics.market_borrow_index_ray.with_label_values(&lref).set(model::ray_to_f64(r.borrow_index_ray));
         }
 
-        // Pool-side amounts/params need the pool id and the token decimals.
         if let Some(pool) = &pool_id {
             if let Some(sync) = read_sync_data(client, metrics, net, pool, market).await {
                 let dec = sync.params.asset_decimals;
@@ -138,8 +133,7 @@ async fn read_ledger_now(client: &RpcClient, metrics: &Metrics, net: &str) -> i6
     }
 }
 
-/// Reads the bulk index view, retrying per-key on batch failure so one bad feed
-/// cannot zero the whole board. Returns one slot per market (index-aligned).
+/// Bulk indexes; on batch failure retry per key so one bad feed cannot zero the board.
 async fn read_market_indexes(
     client: &RpcClient,
     metrics: &Metrics,
@@ -377,7 +371,7 @@ async fn publish_oracle_staleness(
     metrics.oracle_sanity_max_usd.with_label_values(&olabels).set(model::wad_to_f64(config.max_sanity_price_wad));
     metrics.oracle_strategy.with_label_values(&olabels).set(config.strategy as f64);
 
-    // Poll each source; report the source that goes stale first (min headroom).
+    // Report the source with least headroom (stales first).
     let mut sources = vec![&config.primary];
     if let Some(anchor) = &config.anchor {
         sources.push(anchor);
@@ -499,8 +493,7 @@ async fn publish_spoke_asset(
     let Ok(hub_arg) = hub_asset_key_sc_val(&key) else {
         return;
     };
-    // Most (spoke, market) pairs are not listed; a revert here is expected, so
-    // skip silently rather than counting it as a failure.
+    // Unlisted (spoke, market) reverts are expected — skip, do not count as failure.
     let cfg_scv = match simulate_view(client, &contracts.controller, "get_spoke_asset", vec![ScVal::U32(spoke_id), hub_arg.clone()]).await {
         Ok(s) => s,
         Err(_) => return,
@@ -523,8 +516,7 @@ async fn publish_spoke_asset(
     metrics.spoke_liq_bonus_bps.with_label_values(&labels).set(cfg.liquidation_bonus_bps as f64);
     metrics.spoke_liq_fees_bps.with_label_values(&labels).set(cfg.liquidation_fees_bps as f64);
 
-    // Cap and usage denomination need the token decimals; without them (the
-    // market's sync read failed this cycle) skip the token-space metrics.
+    // Skip token-space metrics when decimals are missing (sync read failed).
     let Some(dec) = decimals else {
         return;
     };
@@ -554,8 +546,7 @@ async fn publish_spoke_asset(
     }
 }
 
-/// Parses a bucketed contract error code out of a revert message, e.g.
-/// `Error(Contract, #210)` -> `210`.
+/// `Error(Contract, #210)` → `"210"`.
 fn bucket_error_code(msg: &str) -> String {
     if let Some(pos) = msg.find('#') {
         let digits: String = msg[pos + 1..].chars().take_while(|c| c.is_ascii_digit()).collect();

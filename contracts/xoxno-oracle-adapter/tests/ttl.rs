@@ -1,9 +1,4 @@
-//! TTL renewal behavior: entrypoints re-arm instance storage, and the write
-//! path arms the shared bump on hot persistent keys.
-//!
-//! `Env::default()` grants fresh entries a TTL (4095 ledgers) far below
-//! `TTL_THRESHOLD_*` (5 days = 86_400 ledgers), so a renewing call must lift
-//! the TTL to exactly `TTL_BUMP_*` and a skipped renewal is directly visible.
+// Env::default TTL (4095) is below TTL_THRESHOLD_*; renew must lift to TTL_BUMP_*.
 
 #![cfg(test)]
 extern crate std;

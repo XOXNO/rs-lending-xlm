@@ -27,7 +27,6 @@ use crate::{Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
-    /// Supplies one or more assets as collateral, opening a new account when
     /// `account_id == 0`. Returns the account id.
     ///
     /// # Arguments
@@ -130,14 +129,11 @@ fn settle_deposit(
     let pool_addr = cache.cached_pool_address();
     let entries =
         transfer_and_build_supply_entries(env, caller, account, aggregated, cache, &pool_addr);
-    // Pool `run_batch` returns mutations in the same order as `entries`.
     let results = pool_supply_call(env, &pool_addr, &entries);
     apply_supply_results(env, account, &entries, &results, cache);
 }
 
 /// Moves each deposit leg to the pool, then builds the matching `PoolSupplyEntry`.
-///
-/// Side effect: all legs transfer before the pool call; a later panic reverts the tx.
 fn transfer_and_build_supply_entries(
     env: &Env,
     caller: &Address,
@@ -157,7 +153,6 @@ fn transfer_and_build_supply_entries(
             amount_in,
             GenericError::AmountMustBePositive,
         );
-        // Snapshot only for the pool action; apply reloads and persists.
         let position = account.get_or_create_supply_position(&hub_asset, &asset_config);
         entries.push_back(PoolSupplyEntry {
             action: make_pool_action(&position, amount_in, hub_asset.clone()),

@@ -13,9 +13,7 @@ use crate::types::{
 
 const MAX_REALISTIC_PRICE: i128 = 1_000_000 * WAD;
 
-/// Active token-rooted `MarketOracleConfig` (Single strategy, Reflector USD
-/// primary). The market "status" is no longer a tri-state enum: an asset is
-/// active iff an `AssetOracle(asset)` entry like this one exists.
+/// Active Single Reflector-USD `MarketOracleConfig` fixture (`AssetOracle` present).
 fn pinned_oracle_config(asset: &Address, oracle: Address) -> MarketOracleConfig {
     MarketOracleConfig {
         asset_decimals: 7,
@@ -39,17 +37,11 @@ fn pinned_oracle_config(asset: &Address, oracle: Address) -> MarketOracleConfig 
     }
 }
 
-// `price_staleness_enforced` removed: it re-asserted the harness summary's own
-// `timestamp <= now + 60` assume (tautology). Real staleness is enforced by the
-// unsummarised compose pipeline, which reverts on any stale required source.
-
-/// Par ratio (100%) in BPS; tolerance bands open symmetrically around it.
+/// Par ratio (100%) in BPS; bands open symmetrically around it.
 const PAR_RATIO_BPS: u32 = 10_000;
 
-/// Single-band blend property: an in-band primary/anchor pair resolves to the
-/// midpoint, which always sits within [min, max] of its inputs. Out-of-band the
-/// harness `calculate_final_price` reverts, so the assertion is vacuous there.
-/// The real band math is proven in `tolerance_math_rules`.
+/// In-band primary/anchor blend is the midpoint, within [min, max] of inputs.
+/// Out-of-band the harness reverts (assertion vacuous). Exact band math: `tolerance_math_rules`.
 fn assert_blend_within_inputs(
     e: &Env,
     aggregator_price: i128,
@@ -70,7 +62,6 @@ fn assert_blend_within_inputs(
     cvlr_assert!(final_price <= max_price);
 }
 
-/// Tightest band (MIN_TOLERANCE): the blended price stays within [min, max].
 #[rule]
 fn first_band_price_within_inputs(e: Env, aggregator_price: i128, safe_price: i128) {
     cvlr_assume!(aggregator_price > 0 && aggregator_price <= MAX_REALISTIC_PRICE);
@@ -79,7 +70,6 @@ fn first_band_price_within_inputs(e: Env, aggregator_price: i128, safe_price: i1
     assert_blend_within_inputs(&e, aggregator_price, safe_price, MIN_TOLERANCE);
 }
 
-/// Arbitrary in-range band: the blended price stays within [min, max].
 #[rule]
 fn second_band_price_within_inputs(
     e: Env,
@@ -94,7 +84,6 @@ fn second_band_price_within_inputs(
     assert_blend_within_inputs(&e, aggregator_price, safe_price, tolerance_bps);
 }
 
-/// Widest band (MAX_TOLERANCE): the blended price stays within [min, max].
 #[rule]
 fn beyond_band_price_within_inputs(e: Env, aggregator_price: i128, safe_price: i128) {
     cvlr_assume!(aggregator_price > 0 && aggregator_price <= MAX_REALISTIC_PRICE);
@@ -103,7 +92,6 @@ fn beyond_band_price_within_inputs(e: Env, aggregator_price: i128, safe_price: i
     assert_blend_within_inputs(&e, aggregator_price, safe_price, MAX_TOLERANCE);
 }
 
-/// On a cache hit, `token_price` returns the stored feed unchanged.
 #[rule]
 fn price_cache_consistency(e: Env, asset: Address) {
     let mut cache = crate::context::Cache::new(&e);
@@ -144,8 +132,6 @@ fn oracle_tolerance_sanity(e: Env) {
     cvlr_satisfy!(final_price > 0);
 }
 
-/// `token_price` can return a positive feed under an active (configured) +
-/// Single oracle. Activeness is now the presence of an `AssetOracle` entry.
 #[rule]
 fn price_cache_sanity(e: Env, asset: Address, oracle: Address) {
     let mut cache = crate::context::Cache::new(&e);

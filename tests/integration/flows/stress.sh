@@ -9,8 +9,6 @@
 # re-probed: per-asset cost rises, frontier drops. Liquidation is probed last
 # (it reads ALL position feeds, then seizes) — the binding op.
 
-# STRESS_N / STRESS_UNIT now centralized in env.sh (override via env if needed).
-
 stress_code() { printf 'ST%02d' "$1"; }
 stress_sac()  { local v="SAC_ST$(printf '%02d' "$1")"; echo "${!v}"; }
 

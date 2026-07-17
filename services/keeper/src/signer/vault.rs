@@ -7,7 +7,6 @@ use tracing::info;
 use super::{signer_from_mnemonic, Ed25519Signer};
 use crate::config::{KeyVaultConfig, SignerConfig};
 
-/// Fetch the keeper mnemonic from KeyVault and derive the Ed25519 signer.
 pub async fn load_signer(
     vault: &KeyVaultConfig,
     signer_cfg: &SignerConfig,

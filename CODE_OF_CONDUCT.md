@@ -1,44 +1,32 @@
 # Code of Conduct
 
-## Our Pledge
+## Our pledge
 
 XOXNO Lending is developed in public so contributors, auditors, integrators,
-and protocol users can review and improve the software. We expect everyone who
-participates in this project to help keep that work professional, focused, and
-respectful.
+and users can review and improve the software. Everyone who participates is
+expected to keep that work professional, focused, and respectful.
 
-## Expected Behavior
+## Expected behavior
 
-- Treat other participants with respect, especially when reviewing technical
-  disagreements or security findings.
-- Keep discussions focused on the protocol, repository, issues, and pull
-  requests.
-- Give constructive feedback that explains the concrete risk, bug, tradeoff, or
-  alternative.
-- Respect coordinated-disclosure rules for vulnerabilities. Use the private
-  reporting process in [SECURITY.md](./SECURITY.md).
+- Treat others with respect, especially in technical disagreement or security findings.
+- Stay focused on the protocol, repo, issues, and pull requests.
+- Give constructive feedback: concrete risk, bug, tradeoff, or alternative.
+- Follow coordinated disclosure for vulnerabilities ([SECURITY.md](./SECURITY.md)).
 
-## Unacceptable Behavior
+## Unacceptable behavior
 
 - Harassment, threats, personal attacks, or discriminatory language.
-- Publishing private information without explicit permission.
-- Repeated off-topic comments, spam, or disruptive behavior in issues, pull
-  requests, discussions, or related project spaces.
-- Publicly disclosing a vulnerability before the coordinated-disclosure process
-  has completed.
+- Publishing private information without permission.
+- Spam, off-topic noise, or disruption in issues, PRs, or related spaces.
+- Publicly disclosing a vulnerability before coordinated disclosure completes.
 
 ## Reporting
 
-Report code-of-conduct concerns to **security@xoxno.com**. Include links,
-screenshots, timestamps, and any other context that helps the maintainers
-understand what happened.
+Code-of-conduct concerns: **security@xoxno.com** (links, screenshots, timestamps help).
 
-Security vulnerabilities are handled under [SECURITY.md](./SECURITY.md), not
-through public issues or pull requests.
+Security vulnerabilities use [SECURITY.md](./SECURITY.md) only — not public issues.
 
 ## Enforcement
 
-Maintainers may remove comments, close issues or pull requests, restrict
-participation, or block accounts when behavior violates this code of conduct.
-Enforcement decisions consider the severity, impact, and recurrence of the
-behavior.
+Maintainers may remove comments, close issues/PRs, restrict participation, or
+block accounts. Decisions weigh severity, impact, and recurrence.

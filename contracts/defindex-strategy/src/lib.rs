@@ -1,11 +1,5 @@
 #![no_std]
-//! DeFindex adapter for one controller market.
-//!
-//! One vault maps to one controller account; harvest emits supply-index PPS as
-//! the price-per-share (D12).
-//!
-//! Structure: single lib.rs (no separate storage for this thin adapter).
-//! Uses controller for actual position; only stores config + per-vault account id.
+//! DeFindex adapter: one vault ↔ one controller account; harvest emits D12 supply-index PPS.
 
 use common::constants::RAY;
 use common::types::pool::HubAssetKey;
@@ -18,9 +12,6 @@ use soroban_sdk::{
     vec, Address, Bytes, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
 
-// ################## EVENTS ##################
-
-/// Harvest event with 12-decimal `price_per_share`.
 #[contractevent(topics = ["strategy", "harvest"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HarvestEvent {
@@ -31,7 +22,6 @@ pub struct HarvestEvent {
     pub price_per_share: i128,
 }
 
-/// Emits the harvest event (funnels the .publish per checklist).
 pub(crate) fn emit_harvest(e: &Env, from: Address, amount: i128, price_per_share: i128) {
     HarvestEvent {
         from,
@@ -41,8 +31,6 @@ pub(crate) fn emit_harvest(e: &Env, from: Address, amount: i128, price_per_share
     .publish(e);
 }
 
-// ################## CONSTANTS ##################
-
 const PPS_SCALAR: i128 = 1_000_000_000_000;
 // dimensional: D27{1} / D12{1} = D15{1} Ray-to-price-per-share divisor.
 const RAY_PER_PPS: i128 = RAY / PPS_SCALAR;
@@ -50,8 +38,6 @@ const RAY_PER_PPS: i128 = RAY / PPS_SCALAR;
 /// Vault-account TTL: extend when below ~30 days, up to ~180 days.
 const VAULT_ACCOUNT_TTL_THRESHOLD: u32 = 17_280 * 30;
 const VAULT_ACCOUNT_TTL_EXTEND_TO: u32 = 17_280 * 180;
-
-// ################## ERRORS ##################
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -72,8 +58,6 @@ pub struct Config {
     pub pool: Address,
 }
 
-// ################## STORAGE KEYS ##################
-
 #[contracttype]
 pub enum DataKey {
     Config,
@@ -82,63 +66,10 @@ pub enum DataKey {
 }
 
 pub trait DeFindexStrategyTrait {
-    /// Returns the configured strategy asset.
-    ///
-    /// # Arguments
-    /// * `env` - environment.
-    ///
-    /// # Errors
-    /// * `NotInitialized` - no config stored.
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError>;
-
-    /// Supplies `amount` of the strategy asset into the vault's controller account.
-    ///
-    /// # Arguments
-    /// * `amount` - positive asset units.
-    /// * `from` - source of funds (must auth).
-    ///
-    /// # Errors
-    /// * `NotInitialized`
-    /// * `AmountNotPositive`
-    /// * `ArithmeticError`
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError>;
-
-    /// Publishes the market's current supply-index price-per-share.
-    ///
-    /// # Arguments
-    /// * `from` - caller for event.
-    /// * `data` - optional passthrough.
-    ///
-    /// # Events
-    ///
-    /// * topics - `["strategy", "harvest"]`
-    /// * data - `[from: Address, amount: i128, price_per_share: i128]`
-    ///
-    /// # Errors
-    /// * `NotInitialized`
     fn harvest(env: Env, from: Address, data: Option<Bytes>) -> Result<(), DeFindexStrategyError>;
-
-    /// Returns the vault's live underlying balance held in the controller.
-    ///
-    /// # Arguments
-    /// * `from` - vault id.
-    ///
-    /// # Errors
-    /// * `NotInitialized`
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError>;
-
-    /// Withdraws `amount` of the strategy asset from the vault account to `to`.
-    ///
-    /// # Arguments
-    /// * `amount` - positive.
-    /// * `from` - vault.
-    /// * `to` - recipient.
-    ///
-    /// # Errors
-    /// * `NotInitialized`
-    /// * `AmountNotPositive`
-    /// * `InsufficientBalance`
-    /// * `ArithmeticError`
     fn withdraw(
         env: Env,
         amount: i128,
@@ -278,10 +209,6 @@ impl Strategy {
 
 #[contractimpl]
 impl DeFindexStrategyTrait for Strategy {
-    /// Returns the configured strategy asset.
-    ///
-    /// # Errors
-    /// * `NotInitialized` - the adapter has no cached `Config`.
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError> {
         Ok(config(&env)?.asset)
     }
@@ -347,17 +274,11 @@ impl DeFindexStrategyTrait for Strategy {
         Ok(())
     }
 
-    /// Returns the vault's live underlying strategy-asset balance held in the
-    /// controller (`0` when no account is open).
-    ///
-    /// # Errors
-    /// * `NotInitialized` - the adapter has no cached `Config`.
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError> {
         // dimensional: strategy balance is live D{AssetDecimals(asset)}{Token(asset)}.
         Ok(Ctx::try_load(&env)?.vault_balance(&from))
     }
 
-    /// Withdraws `amount` of the strategy asset from the vault's controller
     /// account to `to`, closing the account on a full exit; returns the
     /// remaining underlying balance.
     ///
@@ -395,7 +316,7 @@ impl DeFindexStrategyTrait for Strategy {
             return Err(DeFindexStrategyError::InsufficientBalance);
         }
 
-        // Token amount; 0 withdraws the full position.
+        // Full exit maps to controller full-withdraw sentinel 0; public ABI rejects amount ≤ 0.
         let is_full_withdraw = amount == balance;
         let withdraw_amount = if is_full_withdraw { 0 } else { amount };
         ctx.controller.withdraw(
@@ -454,7 +375,6 @@ fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     }
 }
 
-/// Returns the live stored account id; optionally clears stale storage.
 fn resolve_vault_account(
     env: &Env,
     controller: &ControllerClient,

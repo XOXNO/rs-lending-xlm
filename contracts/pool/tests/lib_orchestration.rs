@@ -7,7 +7,6 @@ use common::types::{HubAssetKey, MarketParamsRaw, PoolAction, PoolSupplyEntry, S
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, vec, Address, Env};
 
-/// Pool tests use hub 0 as a local fixture id.
 fn hub(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,

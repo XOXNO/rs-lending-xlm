@@ -11,9 +11,6 @@ use soroban_sdk::{panic_with_error, Env};
 use crate::cache::Cache;
 use crate::utils;
 
-// ################## QUERY STATE ##################
-
-/// Reads persisted market state, without TTL renewal or interest accrual.
 pub fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
     let key = PoolKey::State(hub_asset.clone());
     let v = env
@@ -25,7 +22,6 @@ pub fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
     v
 }
 
-/// Reads persisted market params, without TTL renewal or interest accrual.
 pub fn load_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw {
     let key = PoolKey::Params(hub_asset.clone());
     let v = env
@@ -37,7 +33,6 @@ pub fn load_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw {
     v
 }
 
-/// Loads params and state without TTL renewal or interest accrual.
 pub fn load_sync_data(env: &Env, hub_asset: &HubAssetKey) -> PoolSyncData {
     PoolSyncData {
         params: load_params(env, hub_asset),
@@ -45,18 +40,15 @@ pub fn load_sync_data(env: &Env, hub_asset: &HubAssetKey) -> PoolSyncData {
     }
 }
 
-/// Capital utilization ratio in RAY from the last persisted checkpoint.
-/// No interest accrual.
 pub fn capital_utilisation(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     Cache::load(env, hub_asset).calculate_utilization().raw()
 }
 
-/// Returns persisted `cash`; direct token donations are excluded.
+/// Persisted `cash`; direct token donations excluded.
 pub fn reserves(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     load_state(env, hub_asset).cash
 }
 
-/// Current per-millisecond deposit rate in RAY. Does not trigger interest accrual.
 pub fn deposit_rate(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
     let util = cache.calculate_utilization();
@@ -64,31 +56,26 @@ pub fn deposit_rate(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     calculate_deposit_rate(env, util, borrow, cache.params.reserve_factor).raw()
 }
 
-/// Current per-millisecond borrow rate in RAY. Does not trigger interest accrual.
 pub fn borrow_rate(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
     calculate_borrow_rate(env, cache.calculate_utilization(), &cache.params).raw()
 }
 
-/// Accrued protocol revenue in asset decimals. Does not trigger interest accrual.
 pub fn protocol_revenue(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
     cache.unscale_supply(cache.revenue)
 }
 
-/// Total supplied in asset decimals. Does not trigger interest accrual.
 pub fn supplied_amount(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
     cache.unscale_supply(cache.supplied)
 }
 
-/// Total borrowed in asset decimals. Does not trigger interest accrual.
 pub fn borrowed_amount(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
     cache.unscale_borrow(cache.borrowed)
 }
 
-/// Milliseconds elapsed since last accrual. Does not trigger interest accrual.
 pub fn delta_time(env: &Env, hub_asset: &HubAssetKey) -> u64 {
     let cache = Cache::load(env, hub_asset);
     cache.current_timestamp.saturating_sub(cache.last_timestamp)

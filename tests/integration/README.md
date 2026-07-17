@@ -81,7 +81,7 @@ Each run writes `runs/<RUN_TS>/`:
 
 See `tests/integration/lib/report.sh` for the generator and `scenarios/assert_green.sh` for the exact gate.
 
-## Extending the Harness (post-quality improvements)
+## Extending the Harness
 
 - Use `inv` / `view` / `xfail` / `sim_probe` / `run_deploy` for all contract work (they record + retry + capture hashes via the centralized helpers).
 - For direct `stellar contract deploy/upload` (rare): use `extract_signing_hash "$err_f"` + `sanitize_output "$out_f"` + `is_contract_id`/`is_wasm_hash` + `tail_err_note` + `record` + `save_state`.
@@ -135,7 +135,7 @@ See `tests/integration/lib/report.sh` for the generator and `scenarios/assert_gr
 | `governance.sh` | governance timelock e2e on the governance-owned controller: `deploy_controller` ownership (+#5 redeploy), resolver views, propose→cancel (Waiting→Unset), propose→await→`execute` (open executor) lifecycle (Waiting→Ready→Done), non-PROPOSER guard (#2000), owner-immediate pause/unpause forwarding |
 | `stress.sh` | 20 mock markets; bulk-supply frontier, distinct-feed borrow frontier (single- then dual-source), withdraw probe, repay-1 liquidation seize frontier — all via fee-less simulation probes plus one on-chain proof tx per frontier |
 
-## Encoding gotchas (hard-won)
+## Encoding gotchas
 
 - `i128` inside `Vec<(Address,i128)>` JSON must be a **quoted string**;
   scalar `--amount` flags take bare numbers.

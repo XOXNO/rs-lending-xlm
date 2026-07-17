@@ -12,7 +12,6 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
 use crate::context::Cache;
 use crate::storage;
 
-/// Creates account metadata and an empty in-memory account for an active spoke.
 pub(crate) fn create_account(
     env: &Env,
     owner: &Address,
@@ -54,7 +53,6 @@ pub(crate) enum AccountGuard {
     Multiply,
 }
 
-/// Loads existing account or creates a new one when `account_id == 0`.
 pub(crate) fn load_or_create_account(
     env: &Env,
     caller: &Address,
@@ -82,7 +80,6 @@ pub(crate) fn load_or_create_account(
     (account_id, account)
 }
 
-/// Requires caller to be owner or an active registered delegate.
 pub(crate) fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, owner: &Address) {
     if caller == owner {
         return;
@@ -95,14 +92,12 @@ pub(crate) fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Add
     panic_with_error!(env, GenericError::NotAuthorized);
 }
 
-/// Rejects a spoke arg that does not match the account's stored spoke.
 fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
     if spoke_id != account.spoke_id {
         panic_with_error!(env, SpokeError::SpokeMismatch);
     }
 }
 
-/// Removes the account entry from storage when it holds no positions.
 pub(crate) fn cleanup_account_if_empty(env: &Env, account: &Account, account_id: u64) {
     if account.is_empty() {
         storage::remove_account_entry(env, account_id);

@@ -1,9 +1,5 @@
-//! Spoke constraint rules: listing, deprecation, and parameter resolution.
-//!
-//! The refactor renamed spoke categories to spokes. A category maps to a spoke
-//! id; "asset registered in the category" maps to `SpokeAsset(spoke_id, hub_asset)`
-//! existing. The spec models hub 0, so each asset address resolves to
-//! `HubAssetKey { hub_id: 0, asset }`.
+//! Spoke constraints: listing, deprecation, and effective risk-config resolution.
+//! Spec models hub 0 (`HubAssetKey { hub_id: 0, asset }`).
 
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
@@ -167,7 +163,6 @@ fn deprecated_spoke_blocks_new_borrow(
     cvlr_satisfy!(false);
 }
 
-/// Withdrawals remain allowed on deprecated spokes; scaled deposit decreases or position closes.
 #[rule]
 fn deprecated_spoke_allows_withdraw(
     e: Env,
@@ -207,14 +202,12 @@ fn deprecated_spoke_allows_withdraw(
     }
 }
 
-/// On an active spoke, the effective risk config projects the asset's own
-/// per-spoke `SpokeAssetConfig` (LTV, threshold, bonus, collateral/borrow flags).
 #[rule]
 fn spoke_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(category_id > 0);
 
     let spoke = crate::storage::get_spoke(&e, category_id);
-    // Deprecated spokes are not the active-override case; pin to the active branch.
+    // Active-spoke branch only.
     cvlr_assume!(!spoke.is_deprecated);
 
     let hub_asset = hub0(&asset);
@@ -222,9 +215,7 @@ fn spoke_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(spoke_asset.is_some());
     let cfg = spoke_asset.unwrap();
 
-    // Self-contained per-spoke resolution (no base+overlay): the effective
-    // config is the spoke's `SpokeAssetConfig` projected to `AssetConfig`,
-    // served from the per-tx cache memo (one `SpokeAsset` read per asset).
+    // Effective config = spoke's `SpokeAssetConfig` projected to `AssetConfig`.
     let mut cache = crate::context::Cache::new(&e);
     let asset_config = crate::spoke::effective_asset_config(&mut cache, category_id, &hub_asset);
 
@@ -236,7 +227,6 @@ fn spoke_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assert!(asset_config.is_borrowable == cfg.is_borrowable);
 }
 
-/// Listed spoke assets satisfy LTV < liquidation threshold.
 #[rule]
 fn spoke_asset_has_valid_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(category_id > 0);
@@ -284,7 +274,6 @@ fn add_asset_enforces_valid_bounds(
     cvlr_assert!(cfg.liquidation_threshold > cfg.loan_to_value);
 }
 
-/// `edit_asset_in_spoke` leaves threshold > LTV in storage.
 #[rule]
 fn edit_asset_enforces_valid_bounds(
     e: Env,
@@ -320,19 +309,11 @@ fn edit_asset_enforces_valid_bounds(
     cvlr_assert!(cfg.liquidation_threshold > cfg.loan_to_value);
 }
 
-/// `remove_spoke` deprecates the spoke.
-///
-/// TODO(multi-hub): re-verify that removal severs asset membership. Under the
-/// spoke model the per-asset `SpokeAsset(spoke_id, hub_asset)` keys are not
-/// enumerable, so `remove_spoke` only flips the deprecation flag (member assets
-/// and their backlinks are left in place, kept unreachable by deprecation). The
-/// old "asset map cleared / reverse index updated" coverage no longer applies
-/// and needs a fresh property over the deprecation-gated reads.
 #[rule]
 fn spoke_remove_category(e: Env, category_id: u32) {
     cvlr_assume!(category_id > 0);
 
-    // The spoke must exist and be active so `remove_spoke` reaches its body.
+    // Spoke must exist and be active for `remove_spoke` to run.
     let before = crate::storage::try_get_spoke(&e, category_id);
     cvlr_assume!(matches!(&before, Some(spoke) if !spoke.is_deprecated));
 

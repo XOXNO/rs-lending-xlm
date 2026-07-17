@@ -10,8 +10,6 @@ use stellar_access::{access_control, ownable, role_transfer};
 
 use crate::{storage, timelock, Governance, GovernanceArgs, GovernanceClient};
 
-// ################## CONSTANTS ##################
-
 pub(crate) const ORACLE_ROLE: &str = "ORACLE";
 pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
 pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
@@ -245,7 +243,6 @@ impl Governance {
         sync_owner_access_control(&env, &previous_owner, &new_owner);
     }
 
-    /// Returns whether `account` currently holds `role`.
     pub fn has_role(env: Env, account: Address, role: Symbol) -> bool {
         access_control::has_role(&env, &account, &role).is_some()
     }

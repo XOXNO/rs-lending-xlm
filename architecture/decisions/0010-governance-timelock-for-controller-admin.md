@@ -2,192 +2,129 @@
 
 - Status: Accepted
 - Date: 2026-06-13
-- Revised: 2026-07-02
 - Deciders: XOXNO Lending contract team
 
 ## Context
 
-Protocol-admin actions can change market risk, oracle wiring, contract code,
-central pool configuration, controller ownership, and governance itself.
-Multisig custody alone does not provide an on-chain warning window.
-
-Production ownership chain:
+Protocol-admin actions change market risk, oracles, code, pool config,
+controller ownership, and governance itself. Multisig custody alone does not
+provide an on-chain warning window.
 
 ```text
-governance owner -> governance contract -> controller contract -> central pool
+governance owner → governance → controller → central pool
 ```
 
-Governance owns the controller. The controller owns the central pool. Soroban
-does not allow generic self-reentry, so governance needs separate paths for
-controller-targeted operations and governance-self operations.
+Soroban disallows generic self-reentry, so controller-targeted operations and
+governance-self operations use separate execution paths.
 
 ## Decision
 
-Embed the OpenZeppelin `stellar-governance` timelock state machine in the
-governance contract and expose scheduling only through one typed entrypoint
-backed by a closed `AdminOperation` enum. Do not expose a generic scheduler
-that takes an arbitrary target/function/args triple from the caller.
+Embed OpenZeppelin `stellar-governance` timelock state in the governance
+contract. Schedule only through one typed entrypoint over a closed
+`AdminOperation` enum. Callers cannot submit arbitrary target/function/args
+triples.
 
-## Controller-Targeted Operations
-
-Every controller-targeted admin action is an `AdminOperation` variant
-(`contracts/governance/src/op.rs`), and one entrypoint schedules any of them:
+### Controller-targeted operations
 
 ```text
 Governance::propose(proposer, op: AdminOperation, salt) -> operation_id
 ```
 
-`propose`:
+1. Renew governance TTL; require `PROPOSER` (`begin_proposal`).  
+2. `op::resolve_op` validates typed args and returns
+   `(target, function, args, DelayTier)`.  
+3. Schedule at that tier’s delay.  
 
-1. renews governance instance TTL and requires `PROPOSER` auth
-   (`begin_proposal`);
-2. resolves the operation via `op::resolve_op`, which validates that variant's
-   typed arguments inline (risk bounds, cap bounds, non-zero WASM hash, live
-   oracle probes, and so on) and returns its `(target, function, args, DelayTier)`;
-3. computes the schedule delay for that operation's `DelayTier` (see Delay And
-   Roles) and calls `schedule_operation`.
+`execute(executor, target, function, args, predecessor, salt)` runs ready
+controller operations. `Some(executor)` must authorize and hold `EXECUTOR`;
+`None` leaves execution open once ready.
 
-`execute(executor, target, function, args, predecessor, salt)` executes ready
-controller-targeted operations. If `executor` is `Some(address)`, that address
-must authorize and hold `EXECUTOR`. If `executor` is `None`, execution is open
-once ready.
+Variants cover hubs, spokes, listings, caps, pool deploy/upgrade, controller
+upgrade/ownership, position managers, aggregator, accumulator, oracle config,
+tolerance, and `Unpause` (`contracts/governance/src/op.rs`).
 
-`AdminOperation` covers hub, spoke, spoke-asset, position-limit,
-minimum-borrow-collateral, token and Blend-pool approval, central-pool
-template and deployment, market creation, pool params and caps, pool upgrade,
-controller upgrade/migration/ownership, position manager, aggregator,
-accumulator, oracle configuration, and oracle tolerance
-(`contracts/governance/src/op.rs::AdminOperation`).
-
-## Governance-Self Operations
-
-Governance-self operations are `AdminOperation` variants too, applied inline
-through a second typed entrypoint:
+### Governance-self operations
 
 ```text
 Governance::execute_self(executor, op: AdminOperation, salt)
 ```
 
-`execute_self` resolves the operation the same way as `propose`, asserts the
-resolved target is the governance contract itself, then applies the mutation
-inline via `op::apply_self_op`. It shares `propose`'s operation hash, delay,
-ready-ledger, executor authorization, and expiry check
-(`contracts/governance/src/timelock.rs`, `contracts/governance/src/access.rs`).
+Same resolve, hash, delay, executor, and expiry rules; the target must be
+governance; mutation applies via `apply_self_op`. Covers governance WASM upgrade,
+delay update, role grant/revoke, and ownership-transfer initiation.
 
-Governance-self operations include:
+### Immediate vs timelocked
 
-- governance WASM upgrade;
-- delay update;
-- role grant/revoke;
-- ownership transfer initiation.
+| Path | Who | What |
+|------|-----|------|
+| Immediate | **GUARDIAN** | Global `pause`; tighten-only `set_spoke_asset_flags`; `create_hub` / `add_spoke` (new registries stay inert until assets list through the timelock). Hub/spoke create also exist as timelocked `AdminOperation` variants. |
+| Immediate | **ORACLE** | `set_oracle_sanity_bounds` (new band must contain the live price and overlap the previous band) |
+| Immediate | **Owner** | `deploy_controller`; `revoke_role_immediate` for **GUARDIAN** and **ORACLE** only; accept a scheduled ownership transfer; views |
+| Timelocked | PROPOSER → delay → EXECUTOR | Risk-loosening and structural admin, including `AdminOperation::Unpause`, listings, full oracle config, caps, upgrades, role grants, and clearing spoke flags (`EditAssetInSpoke`) |
 
-## Immediate Operations
+Resume uses `propose(Unpause)` → wait → `execute`. Governance has no immediate
+`unpause` entrypoint. Controller `pause` / `unpause` are owner-only (owner =
+governance after execute).
 
-Immediate owner operations are limited to:
+`revoke_role_immediate` does not strip `PROPOSER`, `EXECUTOR`, or `CANCELLER`.
+Those roles ride the timelock. A colluding-canceller deadlock uses Recovery-tier
+`propose_canceller_reset` (~30 days, non-cancellable).
 
-- deploy controller;
-- pause;
-- unpause;
-- revoke `GUARDIAN`/`ORACLE` (`revoke_role_immediate`) — emergency
-  de-authorization of a compromised immediate-role key must be at least as
-  fast as the powers it holds. Only those two roles: grants and
-  `PROPOSER`/`EXECUTOR`/`CANCELLER` revocations stay timelocked, so a
-  compromised owner key cannot instantly strip the independent cancellers
-  and leave a malicious pending proposal without a veto. A colluding-canceller
-  deadlock — two cancellers vetoing each other's timelocked removal — is broken
-  by the owner's non-vetoable Recovery-tier `propose_canceller_reset` (~30-day,
-  public), not by an instant path;
-- accept already scheduled governance ownership transfer;
-- read-only views.
+GUARDIAN may only tighten spoke flags (`false → true` or stay). Clearing a flag
+reverts `SpokeAssetFlagRelaxation`; reopening uses timelocked
+`EditAssetInSpoke` (including on deprecated spokes).
 
-Role-gated immediate operations (added 2026-07-11) bypass the timelock for
-containment actions that cannot move funds or loosen risk:
+Roles are granted at construction (fresh deploy) or via timelocked
+`GrantGovRole`. Production builds do not ship test-only immediate forwarders
+(`#[cfg(any(test, feature = "testing"))]` only).
 
-- `GUARDIAN`: per-listing `paused`/`frozen` flags
-  (`set_spoke_asset_flags`) and instant hub/spoke registry creation
-  (`create_hub`, `add_spoke`) — new registries are inert until assets are
-  listed through the timelocked path. The flag path is tighten-only
-  (amended 2026-07-16): each flag may go `false -> true` or stay put, and
-  clearing one reverts with `SpokeAssetFlagRelaxation` — a compromised
-  guardian key can brake markets but cannot undo containment; reopening
-  rides the timelocked `EditAssetInSpoke` (which also works on deprecated
-  spokes, so no listing can get stuck paused);
-- `ORACLE`: sanity-band moves (`set_oracle_sanity_bounds`) — the controller
-  proves the new band contains the current live price by resolving it
-  under the new band, and requires the new band to overlap the old one, so
-  a band can be walked (each step live-price-contained and evented) but
-  never teleported to a disjoint range on one transient print. Asset
-  listings, caps, risk params, and full oracle configs remain timelocked.
+### Delay and roles
 
-Roles are granted only by the constructor (fresh deployments) or the
-timelocked `GrantGovRole`. An in-place governance upgrade therefore leaves
-`GUARDIAN`/`ORACLE` unheld until a grant clears the timelock: schedule the
-role grants for the intended incident keys before or alongside the upgrade
-proposal, or the immediate paths are unusable exactly when first needed.
+- Delay unit: ledgers. Constructor accepts any non-zero `min_delay`; production
+  go-live policy uses `TIMELOCK_MIN_DELAY_LEDGERS = 34_560` (~48 h) as the
+  live floor (ADR 0009 / DEPLOYMENT).  
+- `DelayTier::Standard` → `get_min_delay()`.  
+- `DelayTier::Sensitive` →
+  `max(get_min_delay(), TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS = 120_960)` (~7 d)
+  for: `UpgradeGov`, `UpgradeController`, `UpgradePool`,
+  `TransferGovOwnership`, `TransferCtrlOwnership` only.  
+- `DelayTier::Recovery` →
+  `max(get_min_delay(), TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS = 518_400)` (~30 d)
+  for `propose_canceller_reset` only (not an `AdminOperation` variant).  
+- Max delay: `TIMELOCK_MAX_DELAY_LEDGERS = 241_920` (~14 d); updates are
+  non-decreasing.  
+- Ready operations expire after `TIMELOCK_OPERATION_GRACE_LEDGERS = 120_960`.  
+- Roles: `PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, `GUARDIAN`.  
+- Delegated `EXECUTOR` and `CANCELLER` are not the same address. The owner may
+  hold both.  
 
-Testing-only immediate forwarders are behind `#[cfg(any(test, feature =
-"testing"))]` and are not part of the production admin path.
 
-## Delay And Roles
+## Alternatives considered
 
-- Delay unit is ledgers.
-- Every `AdminOperation` resolves to a `DelayTier`
-  (`contracts/governance/src/timelock.rs`): `Standard` schedules at the
-  current `get_min_delay()`; `Sensitive` schedules at
-  `max(get_min_delay(), TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS)`. `Sensitive`
-  gates governance WASM upgrade, controller WASM upgrade, pool WASM upgrade,
-  and governance/controller ownership-transfer initiation
-  (`contracts/governance/src/op.rs::resolve_op`); every other operation is
-  `Standard`.
-- Mainnet minimum delay is `TIMELOCK_MIN_DELAY_LEDGERS = 34_560`.
-- The `Sensitive` floor is `TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS = 120_960`
-  ledgers (~7 days), applied even when `get_min_delay()` is lower.
-- Delay updates are bounded by `TIMELOCK_MAX_DELAY_LEDGERS = 241_920` ledgers
-  (~14 days) and must be non-decreasing (`validate_delay_update`).
-- Ready operations expire after `TIMELOCK_OPERATION_GRACE_LEDGERS = 120_960`.
-- Governance roles are `PROPOSER`, `EXECUTOR`, `CANCELLER`, and `ORACLE`.
-- Delegated `EXECUTOR` and `CANCELLER` roles must be separated. Owner can retain
-  recovery authority, but normal delegated accounts cannot both execute and
-  cancel.
-
-## Alternatives Considered
-
-- **Off-chain notice only.** Rejected because it is process, not enforcement.
-- **Public generic schedule.** Rejected because unvalidated calls could be
-  queued.
-- **Generic self-targeted operations.** Rejected because Soroban disallows the
-  required self-reentry pattern.
-- **One typed `propose_*` function per admin action.** Superseded: this grew
-  the governance ABI surface linearly with every new admin action and
-  duplicated the validate/build-operation/schedule boilerplate per function.
-  A single `propose(op: AdminOperation)` entrypoint keeps per-operation typed
-  arguments (each `AdminOperation` variant carries its own typed struct,
-  validated in `resolve_op`) without a combinatorial entrypoint count.
-- **Timelock emergency pause.** Rejected because pause is an emergency brake.
-- **Delay reductions.** Rejected because shortening delay is itself a governance
-  risk action.
+- Off-chain notice only — not enforceable on-chain.  
+- Public generic schedule — unvalidated calls could queue.  
+- Generic self-targeted operations — conflicts with Soroban self-reentry rules.  
+- One `propose_*` function per admin action — ABI grows with every action;
+  `propose(op)` keeps typed variants without a combinatorial surface.  
+- Timelocked emergency pause — too slow for halt.  
+- Immediate unpause — risk-loosening; requires the delay.  
+- Delay reductions — shortening delay is itself a governance risk.  
 
 ## Consequences
 
-Positive:
+**Positive:** enforced delay on protocol-affecting and self operations; typed
+validation before schedule; longer floor for upgrades and ownership transfer;
+cancel before execute; halt is fast; resume is deliberate.
 
-- Protocol-affecting controller changes have enforced delay.
-- Governance-self changes also have enforced delay.
-- `resolve_op` validates each operation's typed inputs before scheduling.
-- Sensitive operations (code upgrades, ownership transfer) get a longer floor
-  delay than routine configuration changes.
-- Bad proposals can be cancelled before execution.
-
-Accepted costs:
-
-- Governance code owns ABI encoding for each admin operation, centralized in
-  one `resolve_op` match rather than spread across per-operation functions.
-- Routine admin changes are slower.
-- Emergency scope must stay narrow and auditable.
+**Costs:** governance owns ABI encoding in `resolve_op`; routine admin is
+slower; the immediate surface must stay narrow.
 
 ## References
 
-- `contracts/governance/src/op.rs` (`AdminOperation`, `resolve_op`, `apply_self_op`)
-- `contracts/governance/src/timelock.rs` (`propose`, `execute`, `execute_self`, `cancel`, `DelayTier`, `operation_delay`)
-- `contracts/governance/src/access.rs`
-- `contracts/governance/src/constants.rs`
+- `contracts/governance/src/op.rs`  
+- `contracts/governance/src/timelock.rs`  
+- `contracts/governance/src/access.rs`  
+- `contracts/governance/src/constants.rs`  
+- `interfaces/governance/src/lib.rs`  
+- [ADR 0011](./0011-pause-and-freeze-matrix.md)  
+- [DEPLOYMENT.md](../../DEPLOYMENT.md)  

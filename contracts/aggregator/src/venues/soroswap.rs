@@ -1,11 +1,7 @@
-//! Soroswap pair adapter.
-
 use soroban_sdk::{panic_with_error, symbol_short, token, vec, IntoVal, Symbol, Val};
 
 use crate::errors::Error;
 use crate::venues::HopContext;
-
-// ################## LOW-LEVEL HELPERS ##################
 
 /// Soroswap's 0.3% swap fee, ceil-rounded — mirrors the pair's k-invariant
 /// `fee_in = ceil(amount_in * 3 / 1000)`.
@@ -32,9 +28,6 @@ fn soroswap_amount_out(amount_in: i128, reserve_in: i128, reserve_out: i128) -> 
 
 /// Execute a swap through a Soroswap pair contract.
 ///
-/// Returns the computed output the pair is asked to honor (the router is the
-/// `to` address). `dispatch_hop` re-verifies receipt via the router's
-/// `token_out` balance delta, so this value is advisory.
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     // 1. Soroswap pairs hold canonically sorted tokens (`token_0 < token_1`
     //    under the host's address ordering), so orientation comes from the

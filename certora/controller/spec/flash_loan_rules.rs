@@ -6,7 +6,6 @@ use soroban_sdk::{Address, Bytes, Env};
 
 use crate::types::HubAssetKey;
 
-/// Guard panics when a flash loan is already in progress.
 #[rule]
 fn flash_loan_guard_blocks_callers(e: Env) {
     crate::storage::set_flash_loan_ongoing(&e, true);
@@ -16,7 +15,6 @@ fn flash_loan_guard_blocks_callers(e: Env) {
     cvlr_satisfy!(false);
 }
 
-/// Guard returns when no flash loan is in progress.
 #[rule]
 fn flash_loan_guard_allows_when_clear(e: Env) {
     crate::storage::set_flash_loan_ongoing(&e, false);
@@ -26,7 +24,6 @@ fn flash_loan_guard_allows_when_clear(e: Env) {
     cvlr_satisfy!(true);
 }
 
-/// Successful flash loan clears the ongoing guard.
 #[rule]
 fn flash_loan_guard_cleared_after_completion(
     e: Env,
@@ -44,11 +41,9 @@ fn flash_loan_guard_cleared_after_completion(
         asset: asset.clone(),
     };
     let mut cache = crate::context::Cache::new(&e);
-    // Flash-loan eligibility now lives on the pool's `MarketParamsRaw`.
+    // Flash-loanable on pool `MarketParamsRaw`; active = listed + `AssetOracle`.
     let sync = cache.cached_pool_sync_data(&hub_asset);
     cvlr_assume!(sync.params.is_flashloanable);
-    // "Active" market proxy under the token-rooted oracle: the asset is listed on
-    // spoke 0 and has a configured `AssetOracle`.
     cvlr_assume!(crate::storage::get_spoke_asset(&e, 0, &hub_asset).is_some());
     cvlr_assume!(crate::storage::get_asset_oracle(&e, &asset).is_some());
     drop(cache);
@@ -60,7 +55,6 @@ fn flash_loan_guard_cleared_after_completion(
     cvlr_assert!(!crate::storage::is_flash_loan_ongoing(&e));
 }
 
-/// Reachability witness for the flash-loan guard-clear success path.
 #[rule]
 fn flash_loan_guard_cleared_sanity(
     e: Env,

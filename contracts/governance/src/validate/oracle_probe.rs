@@ -23,8 +23,6 @@ use common::validation::validate_single_source_sanity_band;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
-// ################## LOW-LEVEL HELPERS ##################
-
 use crate::validate::asset::validate_and_fetch_token_decimals;
 use crate::validate::oracle_config::{
     validate_decimals, validate_max_stale, validate_oracle_config_shape, validate_sanity_bounds,
@@ -100,7 +98,6 @@ fn require_price_in_band(env: &Env, price_usd_wad: Option<i128>, config: &Market
     }
 }
 
-/// Validates a source and returns it alongside its resolved USD price (WAD) when
 /// one is directly available. A quote-denominated Reflector leg returns `None`:
 /// its live price is in the quote asset, USD only after the controller's
 /// quote multiply, so there is no USD price to sanity-check at propose time.
@@ -176,8 +173,6 @@ fn validate_source(
     }
 }
 
-/// Validates a RedStone-shaped (feed-id keyed) source with a live feed probe and
-/// returns it alongside its resolved USD price (WAD).
 fn validate_feed_id_source(
     env: &Env,
     config: &RedStoneSourceConfigInput,
@@ -217,8 +212,6 @@ fn validate_base(env: &Env, asset: &Address, oracle: &Address) -> ReflectorBase 
     }
 }
 
-/// Validates the TWAP history and returns it, so the caller can price the leg
-/// with the same mean the controller composes at read time.
 fn validate_twap_history(
     env: &Env,
     oracle: &Address,

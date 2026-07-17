@@ -39,7 +39,6 @@ struct MarketLimitCtx {
 }
 
 impl MarketLimitCtx {
-    /// Loads pool state and simulated indexes for `hub_asset` into a limit context.
     fn load(cache: &mut Cache, hub_asset: &HubAssetKey) -> Self {
         let index = cache.cached_market_index(hub_asset);
         let sync = cache.cached_pool_sync_data(hub_asset);

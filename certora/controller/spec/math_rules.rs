@@ -7,7 +7,6 @@ use soroban_sdk::Env;
 use crate::constants::{RAY, WAD};
 use common::math::fp_core::{mul_div_half_up, mul_div_half_up_signed, rescale_half_up};
 
-/// `mul_div_half_up` is commutative in its operands.
 #[rule]
 fn mul_half_up_commutative(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
@@ -24,7 +23,6 @@ fn mul_half_up_commutative(e: Env) {
     cvlr_assert!(ab == ba);
 }
 
-/// Multiplying by zero yields zero.
 #[rule]
 fn mul_half_up_zero(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
@@ -42,7 +40,6 @@ fn mul_half_up_zero(e: Env) {
     cvlr_assert!(a_times_zero == 0);
 }
 
-/// Multiplying by `RAY` and dividing by `RAY` returns the original value.
 #[rule]
 fn mul_half_up_identity(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
@@ -54,7 +51,6 @@ fn mul_half_up_identity(e: Env) {
     cvlr_assert!(result == a);
 }
 
-/// Multiply then divide by the same factor recovers within ±2 rounding units.
 #[rule]
 fn div_half_up_inverse(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
@@ -69,7 +65,6 @@ fn div_half_up_inverse(e: Env) {
     cvlr_assert!(recovered >= a - 2 && recovered <= a + 2);
 }
 
-/// Zero numerator yields zero quotient.
 #[rule]
 fn div_half_up_zero_numerator(e: Env) {
     let b: i128 = cvlr::nondet::nondet();
@@ -110,7 +105,6 @@ fn div_half_up_rounding_direction(e: Env) {
     cvlr_assert!(result * b <= a * WAD + b);
 }
 
-/// Upscaling decimals is an exact multiply by `10^(to-from)`.
 #[rule]
 fn rescale_upscale_lossless() {
     let x: i128 = cvlr::nondet::nondet();
@@ -125,7 +119,6 @@ fn rescale_upscale_lossless() {
     cvlr_assert!(upscaled == x * factor);
 }
 
-/// 7→18→7 decimal rescale roundtrip is exact.
 #[rule]
 fn rescale_roundtrip() {
     let x: i128 = cvlr::nondet::nondet();
@@ -170,7 +163,6 @@ fn i256_no_overflow(e: Env) {
     cvlr_assert!(result <= 100 * RAY + 1);
 }
 
-/// Division by zero panics.
 #[rule]
 fn div_by_zero_sanity(e: Env) {
     let a: i128 = cvlr::nondet::nondet();

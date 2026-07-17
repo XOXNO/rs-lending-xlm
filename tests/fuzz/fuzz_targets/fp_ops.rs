@@ -6,9 +6,8 @@ use common::math::fp::{Bps, Ray, Wad};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::Env;
 
-/// Keeps signed operands in the realistic low-double-digit WAD range. The
-/// previous exclusive 1-WAD cap made the `|a| >= WAD && |b| >= WAD`
-/// multiplication/division property unreachable.
+/// Signed operand cap (~10^19 raw). Domain must reach `|a|,|b| ≥ WAD` so the
+/// mul/div roundtrip property is reachable.
 const MAX_MAG: i128 = 10_000_000_000_000_000_000; // 10^19
 
 #[derive(Debug, Arbitrary)]
@@ -24,7 +23,6 @@ struct In {
     bps: u16,
     // 0..=27, asset-decimal domain.
     decimals: u8,
-    // Amount for token conversion tests.
     token_amount: i64,
 }
 
@@ -63,7 +61,6 @@ fuzz_target!(|i: In| {
         assert_eq!((bps_a + bps_b) - bps_b, bps_a, "Bps add/sub roundtrip");
     }
 
-    // ---- Ray::to_wad ----
     // Ray → Wad divides by 10^9. `Ray::ONE.to_wad() == Wad::ONE`.
     let ray_one_as_wad = Ray::ONE.to_wad();
     assert_eq!(
@@ -80,7 +77,6 @@ fuzz_target!(|i: In| {
         "Ray::to_wad not monotonic"
     );
 
-    // ---- Ray::to_asset / Ray::from_asset roundtrip ----
     // to_asset quantises to token precision; roundtrip can lose precision
     // but must never change sign or move more than 1 token-unit (scaled to RAY).
     if a.abs() <= 10i128.pow(18) && decimals <= 18 {
@@ -106,12 +102,8 @@ fuzz_target!(|i: In| {
         );
     }
 
-    // ---- Wad::mul near-identity ----
-    // `a * 1 ≈ a` within 1 ulp. Not an exact identity for negative `a`
-    // because `Wad::mul` uses `mul_div_half_up` which rounds toward +∞:
-    // for a = -k.5 the result rounds up to -k (drifting by 1 magnitude
-    // toward zero). This matches the documented half-up behavior and the
-    // tolerance used by the protocol.
+    // `a * 1 ≈ a` within 1 ulp. Not exact for negative `a`: half-up rounds
+    // toward +∞ (e.g. -k.5 → -k), matching protocol tolerance.
     let ident = wad_a.mul(&env, Wad::ONE);
     let ident_err = (ident.raw() - wad_a.raw()).abs();
     assert!(
@@ -122,12 +114,8 @@ fuzz_target!(|i: In| {
         ident_err
     );
 
-    // ---- Wad::mul/div roundtrip ----
-    // Domain: the identity `mul(a,b).div(b) == a` holds within 2 ulp
-    // when both |a| ≥ 1.0 Wad (= WAD raw) and |b| ≥ 1.0 Wad. Below 1.0,
-    // the intermediate `a*b/WAD` truncates so aggressively that subsequent
-    // `* WAD / b` cannot recover `a`. Smaller token-unit conversions are
-    // covered by the precision-aware roundtrip below.
+    // `mul(a,b).div(b) == a` within 2 ulp only when |a|,|b| ≥ WAD; below
+    // that, `a*b/WAD` truncates so `* WAD / b` cannot recover `a`.
     if a.abs() >= WAD && b.abs() >= WAD {
         let prod = wad_a.mul(&env, wad_b);
         let roundtrip = prod.div(&env, wad_b);
@@ -141,8 +129,7 @@ fuzz_target!(|i: In| {
             err
         );
 
-        // ---- div_floor ≤ div (floor rounds ≤ half-up) ----
-        // Same domain guard as the roundtrip above.
+        // div_floor ≤ div (floor ≤ half-up); same |a|,|b| ≥ WAD domain.
         if wad_a.raw().signum() * wad_b.raw().signum() > 0 && wad_a.raw().abs() >= wad_b.raw().abs()
         {
             let f = wad_a.div_floor(&env, wad_b);
@@ -158,7 +145,6 @@ fuzz_target!(|i: In| {
         }
     }
 
-    // ---- Wad::min / Wad::max ordering ----
     let mn = wad_a.min(wad_b);
     let max_wad = wad_a.max(wad_b);
     assert!(
@@ -176,9 +162,8 @@ fuzz_target!(|i: In| {
         "max not in {{a, b}}"
     );
 
-    // ---- Wad <-> token conversion ----
-    // At <=18 decimals the conversion roundtrip is exact. Above WAD
-    // precision it quantizes once, within half one WAD-sized token unit.
+    // ≤18 decimals: exact token roundtrip. Above WAD precision: half-up of
+    // one WAD-sized token unit.
     let token_amount = i.token_amount as i128;
     let w = Wad::from_token(token_amount, decimals);
     let back = w.to_token(decimals);
@@ -198,7 +183,6 @@ fuzz_target!(|i: In| {
         );
     }
 
-    // ---- Bps ops ----
     // apply_to(0) = 0.
     assert_eq!(
         bps.apply_to(&env, 0),

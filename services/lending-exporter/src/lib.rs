@@ -1,8 +1,6 @@
-//! Read-only Prometheus exporter for the XOXNO Lending Soroban protocol.
+//! Read-only Prometheus exporter for XOXNO Lending (Soroban).
 //!
-//! Reads pool/controller/oracle view functions over Soroban RPC on a timer and
-//! serves them as Prometheus metrics for a public Grafana dashboard. No signer,
-//! no writes.
+//! Scrapes pool/controller/oracle views on a timer; serves `/metrics`. No signer.
 
 pub mod collector;
 pub mod config;

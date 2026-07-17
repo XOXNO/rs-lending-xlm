@@ -9,7 +9,6 @@ type HmacSha512 = Hmac<Sha512>;
 const HARDENED_OFFSET: u32 = 0x8000_0000;
 const SLIP10_ED25519_KEY: &[u8] = b"ed25519 seed";
 
-/// Derives a 32-byte Ed25519 secret from a hardened path.
 pub fn derive_ed25519(seed: &[u8], path: &str) -> Result<[u8; 32]> {
     let (mut key, mut chain_code) = master_key(seed)?;
 

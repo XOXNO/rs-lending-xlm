@@ -7,8 +7,6 @@ use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::storage;
 
-// ################## INTERNAL ##################
-
 pub(crate) mod aggregator {
     use soroban_sdk::{contractclient, Address, Bytes, Env};
 
@@ -19,7 +17,6 @@ pub(crate) mod aggregator {
     }
 }
 
-/// Rejects non-positive amounts and empty swap payloads.
 pub(crate) fn validate_strategy_swap(env: &Env, swap: &StrategySwap, amount_in: i128) {
     if amount_in <= 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);

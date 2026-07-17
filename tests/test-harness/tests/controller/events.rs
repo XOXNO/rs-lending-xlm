@@ -8,7 +8,6 @@ use test_harness::{
     LendingTest, ALICE, LIQUIDATOR,
 };
 
-/// Returns the data payload of every event matching the 2-symbol topic.
 fn data_for_topic(events: &ContractEvents, first: &str, second: &str) -> std::vec::Vec<ScVal> {
     events
         .events()
@@ -49,16 +48,7 @@ fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
         })
         .count()
 }
-// All event tests verify that operations emit events.
-//
-// Soroban event API note: `events().all().events().len()` returns the count
-// from the last top-level invocation, not a cumulative total. These tests
-// therefore check that:
-//   - Each operation emits > 0 events.
-//   - Complex operations (liquidation) emit multiple events.
-//
-// Full payload verification would require XDR decoding of Soroban event
-// data, which is impractical in integration tests.
+// events().all() counts only the last top-level invocation, not a cumulative total.
 
 #[test]
 fn test_supply_emits_events() {

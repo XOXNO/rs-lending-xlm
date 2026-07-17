@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Thin wrapper around liq20_send_9debt_leeway (folded into lib/liq20_width.sh).
+# Runs liq20_send_9debt_leeway (lib/liq20_width.sh).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../env.sh"

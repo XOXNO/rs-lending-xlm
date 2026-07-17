@@ -17,7 +17,6 @@ pub(crate) fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) ->
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
     }
-    // Inactive: no token-rooted oracle entry.
     if storage::get_asset_oracle(env, &hub_asset.asset).is_none() {
         return 0;
     }
@@ -25,18 +24,14 @@ pub(crate) fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) ->
         return 0;
     };
     let mut cache = Cache::new_view(env);
-    // Mutating supplies pass `require_listed_active_config`: a deprecated
-    // spoke accepts no deposits, so preview zero headroom.
+    // Deprecated spoke: zero headroom.
     if cache.spoke_config(account.spoke_id).is_deprecated {
         return 0;
     }
-    // Asset must be listed on the account's spoke; collateralizability is read
-    // from that listing.
     let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
         return 0;
     };
-    // Mirrors `enforce_spoke_asset_flags`: paused or frozen listings reject
-    // every supply, so the preview reports no capacity.
+    // Paused or frozen listing: zero capacity.
     if spoke_cfg.paused || spoke_cfg.frozen {
         return 0;
     }

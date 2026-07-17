@@ -55,7 +55,6 @@ pub fn reflector_prices_call(
     ReflectorClient::new(env, oracle).prices(asset, &records)
 }
 
-/// Reads provider decimals during market-oracle config validation.
 pub fn reflector_decimals_call(env: &Env, oracle: &Address) -> u32 {
     ReflectorClient::new(env, oracle).decimals()
 }
@@ -72,8 +71,7 @@ pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
     }
 }
 
-/// Minimum observations accepted for a TWAP read. Floor of 2 rejects single-sample
-/// "TWAPs"; larger windows require at least ceil(records/2).
+/// Min TWAP samples: ≥2, and ≥ ceil(records/2) for larger windows.
 pub fn min_twap_observations(records: u32) -> u32 {
     core::cmp::max(2, records.div_ceil(2))
 }

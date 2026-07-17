@@ -23,7 +23,6 @@ pub(crate) struct SpokeUsageContext {
 }
 
 impl SpokeUsageContext {
-    /// Creates an empty usage buffer for `spoke_id`.
     pub fn new(env: &Env, spoke_id: u32) -> Self {
         Self {
             spoke_id,
@@ -33,19 +32,16 @@ impl SpokeUsageContext {
         }
     }
 
-    /// Writes each buffered usage row back to storage.
     pub fn persist(&self, env: &Env) {
         for (hub_asset, usage) in self.usage.iter() {
             storage::set_spoke_usage(env, self.spoke_id, &hub_asset, &usage);
         }
     }
 
-    /// Returns the spoke id this buffer belongs to.
     pub(crate) fn spoke_id(&self) -> u32 {
         self.spoke_id
     }
 
-    /// Returns the spoke config, loading it from storage on first access.
     pub(crate) fn spoke(&mut self, env: &Env) -> SpokeConfig {
         if let Some(spoke) = &self.spoke {
             return spoke.clone();
@@ -55,7 +51,7 @@ impl SpokeUsageContext {
         spoke
     }
 
-    /// Returns the per-asset spoke config for `hub_asset`; unlisted assets are never memoized.
+    /// Spoke asset config; unlisted never memoized.
     pub(crate) fn spoke_asset(
         &mut self,
         env: &Env,
@@ -94,7 +90,6 @@ impl SpokeUsageContext {
         Some(loaded)
     }
 
-    /// Stores the updated usage row in the buffer.
     fn set_usage(&mut self, hub_asset: &HubAssetKey, usage: SpokeUsageRaw) {
         self.usage.set(hub_asset.clone(), usage);
     }
@@ -108,7 +103,6 @@ impl SpokeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        // Entry gates guarantee the listing exists; fail loud on a breach.
         let cfg = self
             .spoke_asset(env, hub_asset)
             .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
@@ -137,7 +131,6 @@ impl SpokeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        // Entry gates guarantee the listing exists; fail loud on a breach.
         let cfg = self
             .spoke_asset(env, hub_asset)
             .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
@@ -174,8 +167,7 @@ impl SpokeUsageContext {
             .supplied_scaled_ray
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-        // `checked_sub` misses sign underflow; negative usage would fake the
-        // zero-usage removal gate.
+        // Sign-underflow guard: negative usage would fake the zero-usage removal gate.
         assert_with_error!(
             env,
             usage.supplied_scaled_ray >= 0,
@@ -210,7 +202,6 @@ impl SpokeUsageContext {
     }
 }
 
-/// Returns the maximum scaled share amount a token-space cap allows at `index`.
 fn max_scaled_for_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
     if !cap_is_enabled(cap) {
         return Ray::from(i128::MAX);

@@ -9,8 +9,6 @@ use crate::context::Cache;
 use crate::oracle;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
-/// Returns the account's total supplied collateral value in USD WAD; `0` for a
-/// missing account or one with no supply.
 pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let spoke_id = match storage::try_get_account_meta(env, account_id) {
         Some(meta) => meta.spoke_id,
@@ -22,7 +20,6 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Cache::new_view(env);
-    // Bulk-prefetch all RedStone feeds before the per-market price reads below.
     let supply_keys = supply.keys();
     let priced_assets = risk::position_assets(env, &supply_keys);
     oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
@@ -47,8 +44,6 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     total_collateral.raw()
 }
 
-/// Returns the account's total debt value in USD WAD; `0` for a missing account
-/// or one with no debt.
 pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     let spoke_id = match storage::try_get_account_meta(env, account_id) {
         Some(meta) => meta.spoke_id,
@@ -60,7 +55,6 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Cache::new_view(env);
-    // Bulk-prefetch all RedStone feeds before the per-market price reads below.
     let borrow_keys = borrow.keys();
     let priced_assets = risk::position_assets(env, &borrow_keys);
     oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
@@ -85,15 +79,11 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     total_borrow.raw()
 }
 
-/// Returns the account's LTV-weighted collateral value in USD WAD; `0` for a
-/// missing account.
 pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
     let mut cache = Cache::new_view(env);
-    // Bulk-prefetch all RedStone feeds before the per-market price reads inside
-    // calculate_ltv_collateral_wad.
     let priced_assets = risk::position_assets(env, &account.supply_positions.keys());
     oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
     risk::calculate_ltv_collateral_wad(env, &mut cache, account.spoke_id, &account.supply_positions)

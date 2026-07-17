@@ -19,10 +19,8 @@ use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
 #[contractimpl]
 impl XoxnoOracle {
-    /// Adds `signer` to the registered signer set.
-    ///
     /// # Errors
-    /// * `SignerAlreadyRegistered` - `signer` is already registered.
+    /// * `SignerAlreadyRegistered`
     #[only_owner]
     pub fn add_signer(env: Env, signer: Address) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -35,13 +33,11 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Removes `signer` from the registered signer set and purges its
-    /// per-feed submissions across every feed it touched.
+    /// Side effects: drops signer's submissions; recomputes each touched feed.
     ///
     /// # Errors
-    /// * `SignerNotRegistered` - `signer` is not registered.
-    /// * `CannotRemoveBelowThreshold` - removing `signer` would drop the
-    ///   signer count below the current threshold.
+    /// * `SignerNotRegistered`
+    /// * `CannotRemoveBelowThreshold`
     #[only_owner]
     pub fn remove_signer(env: Env, signer: Address) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -72,11 +68,10 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Sets the N-of-M aggregation threshold.
+    /// Side effects: recomputes every known feed under the new threshold.
     ///
     /// # Errors
-    /// * `InvalidThreshold` - `threshold == 0` or `threshold` exceeds the
-    ///   current signer count.
+    /// * `InvalidThreshold` - zero or above signer count
     #[only_owner]
     pub fn set_threshold(env: Env, threshold: u32) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -96,12 +91,10 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Sets the cache-TTL ceiling (seconds) applied to cached aggregates in
-    /// `read_price_data_for_feed`. Must stay `>=` the aggregation inclusion
-    /// window (`MaxSubmissionAgeSeconds`).
+    /// Cache-TTL ceiling; must stay `>= MaxSubmissionAgeSeconds`. No recompute.
     ///
     /// # Errors
-    /// * `InvalidSubmissionAge` - `seconds < MaxSubmissionAgeSeconds`.
+    /// * `InvalidSubmissionAge`
     #[only_owner]
     pub fn set_max_stale_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -116,13 +109,11 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Sets the aggregation inclusion window (seconds): a submission older
-    /// than this is excluded from both the median and the reported
-    /// observation time. Keep this `<=` every consumer's `max_stale`.
+    /// Inclusion window for median + observation time. Keep `<=` consumer max_stale.
+    /// Side effects: recomputes all feeds.
     ///
     /// # Errors
-    /// * `InvalidSubmissionAge` - `seconds < MIN_SUBMISSION_AGE_SECONDS` or
-    ///   `seconds > MaxStaleSeconds`.
+    /// * `InvalidSubmissionAge` - below floor or above MaxStaleSeconds
     #[only_owner]
     pub fn set_max_submission_age_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -133,20 +124,15 @@ impl XoxnoOracle {
             .instance()
             .set(&DataKey::MaxSubmissionAgeSeconds, &seconds);
 
-        // Tightening the window can push a previously-included submission out
-        // of range: recompute every known feed so a stale aggregate clears now
-        // instead of serving until the next submission.
+        // Tighter age window may invalidate in-range submissions; recompute all feeds.
         for feed_id in load_all_feeds(&env).iter() {
             recompute_aggregate(&env, &feed_id);
         }
         Ok(())
     }
 
-    /// Maps `asset` to `feed_id` for the SEP-40 reader endpoints and adds it
-    /// to the enumerable asset index.
-    ///
     /// # Errors
-    /// * `FeedAlreadyMapped` - `asset` already has a feed mapping.
+    /// * `FeedAlreadyMapped`
     #[only_owner]
     pub fn add_feed(env: Env, feed_id: String, asset: ReflectorAsset) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -161,12 +147,10 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Removes `asset`'s feed mapping and drops it from the asset index.
-    /// Submission-side storage for the mapped feed id stays; use `purge_feed`
-    /// to reclaim that.
+    /// Drops mapping + asset index only; submissions need `purge_feed`.
     ///
     /// # Errors
-    /// * `FeedNotMapped` - `asset` has no feed mapping.
+    /// * `FeedNotMapped`
     #[only_owner]
     pub fn remove_feed(env: Env, asset: ReflectorAsset) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -180,7 +164,6 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Sets the TWAP resolution reported by `resolution()`.
     #[only_owner]
     pub fn set_resolution(env: Env, resolution: u32) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -190,13 +173,11 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Purges all submission-side storage for a retired `feed_id`: aggregate,
-    /// history, every registered signer's submission and `SignerFeeds` trace,
-    /// and the known-feed index entry. `FeedMapping`/the asset index are
-    /// untouched — use `remove_feed` for those.
+    /// Clears aggregate, history, per-signer submissions, known-feed index.
+    /// Does not touch FeedMapping/asset index (`remove_feed`).
     ///
     /// # Errors
-    /// * `FeedNotKnown` - `feed_id` has never received a submission.
+    /// * `FeedNotKnown`
     #[only_owner]
     pub fn purge_feed(env: Env, feed_id: String) -> Result<(), Error> {
         renew_oracle_instance(&env);

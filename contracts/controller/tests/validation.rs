@@ -76,8 +76,6 @@ fn account_with(env: &Env, supply: Option<&Address>, borrow: Option<&Address>) -
     }
 }
 
-/// Writes the limits and runs `f` inside the controller's storage context;
-/// both the setter and the guard read instance storage.
 fn with_limits(env: &Env, contract: &Address, max_supply: u32, max_borrow: u32, f: impl FnOnce()) {
     env.as_contract(contract, || {
         storage::set_position_limits(

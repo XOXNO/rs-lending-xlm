@@ -22,9 +22,9 @@ pub struct ContractIds {
     pub controller: [u8; 32],
     pub pool_wasm_hash: [u8; 32],
     pub flash_receiver: [u8; 32],
-    /// Governance contract id; `None` when no `governance` address is configured.
+    /// `None` when `governance` is unset.
     pub governance: Option<[u8; 32]>,
-    /// xoxno-oracle-adapter contract id; `None` when unset in config.
+    /// `None` when `xoxno_oracle_adapter` is unset.
     pub xoxno_oracle_adapter: Option<[u8; 32]>,
 }
 
@@ -72,16 +72,13 @@ fn configured_market_assets(contracts: &ContractsConfig) -> Result<Vec<HubAssetK
 pub struct DiscoverySnapshot {
     pub current_ledger: u32,
     pub assets: Vec<HubAssetKey>,
-    /// Persistent protocol entries: per-asset, spoke, role keys, the per-user
-    /// account keys (when `scan_users`), and governance role keys.
+    /// Protocol persistent entries (markets, spokes, roles, users, adapter index).
     pub persistent_entries: Vec<LedgerEntryQuery>,
-    /// Controller, central pool, flash receiver, and (when configured)
-    /// governance instance entries.
+    /// Controller/pool/flash/governance/adapter instance entries.
     pub instance_entries: Vec<LedgerEntryQuery>,
-    /// WASM code entries for controller, pool, flash receiver, and (when
-    /// configured) the xoxno-oracle-adapter.
+    /// WASM code entries (controller, pool, flash, adapter when configured).
     pub wasm_code_entries: Vec<LedgerEntryQuery>,
-    /// Account id ceiling exposed as the `keeper_account_nonce` metric.
+    /// Account id ceiling; feeds `keeper_account_nonce`.
     pub account_nonce: u64,
 }
 
@@ -97,7 +94,6 @@ pub async fn snapshot(
     let current_ledger = client.latest_ledger().await?;
     info!(target: "keeper.discovery", current_ledger, "tick start");
 
-    // -- Controller instance: wasm hash + pool address + AccountNonce + spoke ceiling --
     let instance = client.get_contract_instance(&controller_id).await?;
     let controller_wasm_hash = wasm_hash_from_executable(&instance.executable);
     let pool_id = lookup_scalar(&instance, ControllerInstanceKey::Pool, scval_contract_id)?;
@@ -112,8 +108,7 @@ pub async fn snapshot(
     let last_hub_id =
         lookup_scalar(&instance, ControllerInstanceKey::LastHubId, scval_u32)?.unwrap_or(0);
 
-    // AccountNonce lives in its own persistent entry (moved out of the
-    // instance so account creation does not rewrite the instance envelope).
+    // AccountNonce is persistent so account creation does not rewrite instance storage.
     let nonce_key = ControllerPersistentKey::AccountNonce.to_ledger_key(&controller_id)?;
     let nonce_rows = client.get_ledger_entries(&[nonce_key]).await?;
     let account_nonce = nonce_rows
@@ -132,12 +127,9 @@ pub async fn snapshot(
         "instance read"
     );
 
-    // -- Pool list (persistent) --
     let assets = configured_market_assets(contracts)?;
     let mut persistent_entries = Vec::new();
 
-    // -- Per-market persistent state: controller AssetOracle plus central
-    //    pool HubAssetKey Params + State entries --
     let mut pool_rows_present = 0usize;
     let mut pool_rows_total = 0usize;
     for chunk in assets.chunks(chunk_size) {
@@ -161,9 +153,8 @@ pub async fn snapshot(
             persistent_entries.push(row);
         }
     }
-    // Encoding-drift alarm: every market writes Params/State at creation, so an
-    // all-absent pool key set with listed assets means the keeper is bumping
-    // nothing on the pool (policy skips value-less rows) — alert loudly.
+    // All listed markets write Params/State at creation; zero hits ⇒ encoding drift
+    // (policy skips value-less rows, so pool TTLs would not extend).
     if pool_rows_total > 0 && pool_rows_present == 0 {
         warn!(
             target: "keeper.discovery",
@@ -172,7 +163,6 @@ pub async fn snapshot(
         );
     }
 
-    // -- Spoke category sweep (1..=ceiling) --
     if last_spoke_id > 0 {
         for chunk in (1..=last_spoke_id).collect::<Vec<_>>().chunks(chunk_size) {
             let keys = chunk
@@ -183,7 +173,6 @@ pub async fn snapshot(
         }
     }
 
-    // -- Hub registry sweep (1..=ceiling; persistent, moved out of instance) --
     if last_hub_id > 0 {
         for chunk in (1..=last_hub_id).collect::<Vec<_>>().chunks(chunk_size) {
             let keys = chunk
@@ -194,13 +183,11 @@ pub async fn snapshot(
         }
     }
 
-    // The nonce entry itself is protocol-shared state — keep it alive too.
+    // AccountNonce is protocol-shared; bump it with the rest of the persistent set.
     persistent_entries.extend(nonce_rows);
 
-    // -- Access-control role keys --
     persistent_entries.extend(discover_role_keys(client, &controller_id, chunk_size).await?);
 
-    // -- Per-user account keys (1..=AccountNonce) --
     if schedule.scan_users && account_nonce > 0 {
         persistent_entries.extend(
             discover_user_keys(
@@ -214,9 +201,7 @@ pub async fn snapshot(
         );
     }
 
-    // -- Governance coverage (instance + MinDelay-via-instance + role keys) --
-    // A read failure must not sink the whole tick: warn and carry on with the
-    // controller/pool surface already gathered.
+    // Governance discovery is best-effort: failure must not sink the tick.
     let mut governance_instance: Option<LedgerEntryQuery> = None;
     if let Some(governance_id) = ids.governance {
         match discover_governance(client, &governance_id, chunk_size).await {
@@ -232,9 +217,7 @@ pub async fn snapshot(
         }
     }
 
-    // -- xoxno-oracle-adapter coverage (instance + enumerable index + price
-    //    state). A read failure must not sink the tick: warn and carry on with
-    //    the controller/pool/governance surface already gathered. --
+    // Adapter discovery is best-effort: failure must not sink the tick.
     let mut adapter_instance: Option<LedgerEntryQuery> = None;
     if let Some(adapter_id) = ids.xoxno_oracle_adapter {
         match discover_oracle_adapter(client, &adapter_id, chunk_size).await {
@@ -250,26 +233,22 @@ pub async fn snapshot(
         }
     }
 
-    // -- Instance entries (controller + central pool + flash receiver) --
     let mut instance_keys = Vec::with_capacity(3);
     instance_keys.push(contract_instance_key(&controller_id));
     if let Some(pool) = &pool_id {
         instance_keys.push(contract_instance_key(pool));
     }
-    // Keep the flash receiver LAST: the wasm-hash harvest below relies on it.
+    // Flash receiver must stay LAST: wasm-hash harvest uses `.last()`.
     instance_keys.push(contract_instance_key(&ids.flash_receiver));
     let mut instance_entries = client.get_ledger_entries(&instance_keys).await?;
 
-    // -- Wasm code entries (pool template + controller + live pool + flash receiver) --
     let mut wasm_keys: Vec<LedgerKey> = vec![contract_code_key(&ids.pool_wasm_hash)];
     if let Some(ctrl_hash) = controller_wasm_hash {
         wasm_keys.push(contract_code_key(&ctrl_hash));
     } else {
         warn!(target: "keeper.discovery", "controller wasm hash unresolved — pool template extend only");
     }
-    // The live pool executable can diverge from the configured template hash
-    // after an on-chain `upgrade_pool`; harvest it so the running code entry
-    // stays bumped even when the config lags.
+    // Live pool code can diverge from the config template after `upgrade_pool`.
     if pool_id.is_some() {
         if let Some(live_pool_hash) = instance_entries
             .get(1)
@@ -280,17 +259,13 @@ pub async fn snapshot(
             }
         }
     }
-    // The flash-receiver wasm hash lives in the instance entry we just read.
     if let Some(flash_hash) = instance_entries
         .last()
         .and_then(wasm_hash_from_instance_row)
     {
         wasm_keys.push(contract_code_key(&flash_hash));
     }
-    // The adapter's code entry can archive independently of its bumped
-    // instance/persistent state, which would break the contract; harvest its
-    // wasm hash from the instance row read during adapter discovery. Guarded by
-    // `adapter_instance` being `Some`, i.e. `xoxno_oracle_adapter` configured.
+    // Adapter wasm can archive independently of instance/persistent state.
     if let Some(adapter_hash) = adapter_instance
         .as_ref()
         .and_then(wasm_hash_from_instance_row)
@@ -299,17 +274,12 @@ pub async fn snapshot(
     }
     let wasm_code_entries = client.get_ledger_entries(&wasm_keys).await?;
 
-    // Append the governance instance only now: the flash-receiver wasm harvest
-    // above relies on the flash receiver staying LAST in `instance_entries`.
-    // One governance instance bump covers `Controller`, ownable `Owner`,
-    // access_control `Admin` + `RoleAdmin`, and the timelock `MinDelay`
-    // (instance-tier — see `keys.rs` governance notes).
+    // Append after wasm harvest so flash receiver stays LAST in `instance_entries`.
+    // Governance instance covers Controller/Owner/Admin/RoleAdmin + instance-tier MinDelay.
     if let Some(gov_instance) = governance_instance {
         instance_entries.push(gov_instance);
     }
-    // One adapter instance bump covers its INSTANCE-tier `Signers`, `Threshold`,
-    // `MaxStaleSeconds`, and `Resolution`. Appended after the wasm harvest for
-    // the same flash-receiver-LAST reason as the governance instance above.
+    // Adapter instance covers Signers/Threshold/MaxStaleSeconds/Resolution.
     if let Some(adapter) = adapter_instance {
         instance_entries.push(adapter);
     }
@@ -324,10 +294,10 @@ pub async fn snapshot(
     })
 }
 
-/// Operational roles assumed when `ExistingRoles` itself cannot be read.
+/// Fallback role list when `ExistingRoles` cannot be read (empty by design).
 const DEFAULT_ROLES: [&str; 0] = [];
 
-/// Discover persistent access-control keys, including role-admin links.
+/// Discover persistent access-control keys (holders + role-admin links).
 async fn discover_role_keys(
     client: &RpcClient,
     controller_id: &[u8; 32],
@@ -335,14 +305,12 @@ async fn discover_role_keys(
 ) -> Result<Vec<LedgerEntryQuery>> {
     let mut rows: Vec<LedgerEntryQuery> = Vec::new();
 
-    // ExistingRoles → the set of role names to enumerate.
     let existing_key = AccessControlPersistentKey::ExistingRoles.to_ledger_key(controller_id)?;
     let existing_rows = client.get_ledger_entries(&[existing_key]).await?;
     let roles = extract_existing_roles(&existing_rows)
         .unwrap_or_else(|| DEFAULT_ROLES.iter().map(|s| s.to_string()).collect());
     rows.extend(existing_rows);
 
-    // Per-role RoleAccountsCount and RoleAdmin.
     let mut role_keys = Vec::with_capacity(roles.len() * 2);
     for role in &roles {
         role_keys.push(
@@ -365,7 +333,6 @@ async fn discover_role_keys(
         .collect();
     rows.extend(role_rows);
 
-    // Per-(role, index) RoleAccounts; the value names the holder address.
     let mut ra_keys = Vec::new();
     let mut ra_meta: Vec<String> = Vec::new();
     for (role, count) in &counts {
@@ -382,7 +349,6 @@ async fn discover_role_keys(
         ra_rows.extend(client.get_ledger_entries(chunk).await?);
     }
 
-    // Per-(holder, role) HasRole, built from the holders just read.
     let mut hr_keys = Vec::new();
     for (role, row) in ra_meta.iter().zip(ra_rows.iter()) {
         if let Some(addr) = extract_address(row) {
@@ -406,22 +372,18 @@ async fn discover_role_keys(
     Ok(rows)
 }
 
-/// Governance entries discovered when a governance contract is configured.
 struct GovernanceEntries {
-    /// The governance instance entry (covers `Controller`, `Owner`, `Admin`,
-    /// `RoleAdmin`, and the instance-tier timelock `MinDelay`).
+    /// Instance covers Controller/Owner/Admin/RoleAdmin + instance-tier MinDelay.
     instance: LedgerEntryQuery,
-    /// Persistent access-control role-holder keys.
     role_entries: Vec<LedgerEntryQuery>,
 }
 
-/// Discover the governance instance entry plus its persistent role keys.
+/// Governance instance + persistent role keys.
 ///
-/// `MinDelay` needs no standalone key: it is instance-tier in
-/// stellar-governance, so the instance bump covers it. The timelock
-/// `OperationLedger(BytesN<32>)` per-op keys are persistent but NOT enumerable
-/// on-chain (the id is a keccak256 hash from the schedule event); they are
-/// transient (resolved within `min_delay` ≪ TTL) and intentionally skipped.
+/// `MinDelay` is instance-tier — one instance bump covers it. Timelock
+/// `OperationLedger(BytesN<32>)` keys are persistent but not enumerable
+/// (keccak256 op id from schedule events); they resolve within `min_delay` ≪ TTL
+/// and are intentionally skipped.
 async fn discover_governance(
     client: &RpcClient,
     governance_id: &[u8; 32],
@@ -442,8 +404,7 @@ async fn discover_governance(
         );
     }
 
-    // Reuse the controller role-key discovery against the governance id; the
-    // access-control encoding is identical across contracts.
+    // Same access-control encoding as the controller.
     let role_entries = discover_role_keys(client, governance_id, chunk_size).await?;
 
     debug!(
@@ -457,29 +418,20 @@ async fn discover_governance(
     })
 }
 
-/// Entries discovered for the xoxno-oracle-adapter contract.
 struct OracleAdapterEntries {
-    /// The adapter instance entry (covers the INSTANCE-tier `Signers`,
-    /// `Threshold`, `MaxStaleSeconds`, and `Resolution`).
+    /// Instance covers Signers/Threshold/MaxStaleSeconds/Resolution.
     instance: LedgerEntryQuery,
-    /// Persistent enumerable-index and price-state entries.
     persistent_entries: Vec<LedgerEntryQuery>,
 }
 
-/// Discover the xoxno-oracle-adapter instance plus its enumerable persistent
-/// index and price state.
+/// Adapter instance + enumerable persistent index/price state.
 ///
-/// The adapter keeps its asset/feed index and all price state
-/// (`CurrentAggregate`, `History`, `FeedMapping`, `LatestSubmission`) in
-/// PERSISTENT storage whose TTL only renews on write, so an idle feed set would
-/// archive and trap reads. This walks the on-chain index — `AssetCount` /
-/// `FeedCount`, then each `AssetAt(i)` / `FeedAt(i)` slot — and derives every
-/// dependent key from the raw slot values (`ReflectorAsset` / feed-id `String`
-/// passed through verbatim), so no asset or feed id is hardcoded in the keeper.
+/// Asset/feed index and price state (`CurrentAggregate`, `History`,
+/// `FeedMapping`, `LatestSubmission`) are PERSISTENT — TTL renews only on write,
+/// so idle feeds archive and trap reads. Walks on-chain `AssetCount`/`FeedCount`
+/// + `AssetAt`/`FeedAt` slots; raw slot ScVals are passed through (no hardcodes).
 ///
-/// `LatestSubmission(feed, signer)` and the per-signer `SignerFeeds(signer)`
-/// index are both keyed by the registered signer set, which is read from the
-/// adapter's INSTANCE storage `Signers` entry.
+/// `LatestSubmission` and `SignerFeeds` key off INSTANCE `Signers`.
 async fn discover_oracle_adapter(
     client: &RpcClient,
     adapter_id: &[u8; 32],
@@ -487,8 +439,7 @@ async fn discover_oracle_adapter(
 ) -> Result<OracleAdapterEntries> {
     let chunk = chunk_size.max(1);
 
-    // Instance entry: bump target + source of the signer set that keys
-    // `LatestSubmission(feed, signer)`.
+    // Instance: bump target + Signers for LatestSubmission keys.
     let instance_rows = client
         .get_ledger_entries(&[contract_instance_key(adapter_id)])
         .await?;
@@ -511,7 +462,6 @@ async fn discover_oracle_adapter(
 
     let mut persistent_entries: Vec<LedgerEntryQuery> = Vec::new();
 
-    // -- Enumerable counts --
     let count_keys = vec![
         OracleAdapterKey::AssetCount.to_ledger_key(adapter_id)?,
         OracleAdapterKey::FeedCount.to_ledger_key(adapter_id)?,
@@ -521,11 +471,9 @@ async fn discover_oracle_adapter(
     let feed_count = count_rows.get(1).and_then(extract_u32).unwrap_or(0);
     persistent_entries.extend(count_rows);
 
-    // -- Asset index slots + per-asset derived keys (AssetIndex, FeedMapping) --
     let mut derived_keys: Vec<LedgerKey> = Vec::new();
 
-    // Per-signer feed index: `remove_signer` reads `SignerFeeds(signer)` to
-    // enumerate a signer's feeds, so an idle signer's index must stay alive.
+    // `remove_signer` reads SignerFeeds; idle signer indexes must not archive.
     for signer in &signers {
         derived_keys
             .push(OracleAdapterKey::SignerFeeds(signer.clone()).to_ledger_key(adapter_id)?);
@@ -547,8 +495,6 @@ async fn discover_oracle_adapter(
         }
     }
 
-    // -- Feed index slots + per-feed derived keys (FeedIndex, CurrentAggregate,
-    //    History, and LatestSubmission for every registered signer) --
     for id_chunk in (0..feed_count).collect::<Vec<_>>().chunks(chunk) {
         let keys = id_chunk
             .iter()
@@ -593,7 +539,6 @@ async fn discover_oracle_adapter(
     })
 }
 
-/// Extract the raw `ScVal` payload of a ContractData ledger row.
 fn contract_data_scval(row: &LedgerEntryQuery) -> Option<ScVal> {
     match row.value.as_ref()? {
         LedgerEntryData::ContractData(cd) => Some(cd.val.clone()),
@@ -601,10 +546,7 @@ fn contract_data_scval(row: &LedgerEntryQuery) -> Option<ScVal> {
     }
 }
 
-/// Decode the registered signer set from the adapter instance storage.
-///
-/// `DataKey::Signers` is INSTANCE-tier and holds a `Vec<Address>`; absence
-/// (never initialized) yields an empty set.
+/// INSTANCE `Signers` (`Vec<Address>`); empty if unset.
 fn signers_from_instance(instance: &LedgerEntryQuery) -> Vec<ScAddress> {
     let Some(LedgerEntryData::ContractData(cd)) = instance.value.as_ref() else {
         return Vec::new();
@@ -636,17 +578,14 @@ fn signers_from_instance(instance: &LedgerEntryQuery) -> Vec<ScAddress> {
     Vec::new()
 }
 
-/// Instance-storage lookup key for `DataKey::Signers` (`Vec[Symbol("Signers")]`).
+/// INSTANCE lookup key: `Vec[Symbol("Signers")]`.
 fn signers_needle() -> Option<ScVal> {
     let symbol = ScSymbol(StringM::<32>::try_from("Signers").ok()?);
     let vec = vec![ScVal::Symbol(symbol)].try_into().ok()?;
     Some(ScVal::Vec(Some(stellar_xdr::curr::ScVec(vec))))
 }
 
-/// Discover the per-user controller keys for accounts `1..=account_nonce`.
-///
-/// Builds the three per-account keys (`AccountMeta`, `SupplyPositions`,
-/// `BorrowPositions`) for every id.
+/// Per-user keys for `1..=account_nonce` (meta/supply/borrow/delegates).
 async fn discover_user_keys(
     client: &RpcClient,
     controller_id: &[u8; 32],
@@ -693,7 +632,6 @@ async fn discover_user_keys(
     Ok(rows)
 }
 
-/// Decode `ExistingRoles` (`Vec<Symbol>`) into role-name strings.
 fn extract_existing_roles(rows: &[LedgerEntryQuery]) -> Option<Vec<String>> {
     let LedgerEntryData::ContractData(cd) = rows.first()?.value.as_ref()? else {
         return None;
@@ -732,7 +670,6 @@ fn extract_address(row: &LedgerEntryQuery) -> Option<ScAddress> {
     }
 }
 
-/// True when a row's ledger key targets the given contract id.
 fn row_belongs_to(row: &LedgerEntryQuery, contract_id: Option<&[u8; 32]>) -> bool {
     let Some(id) = contract_id else {
         return false;
@@ -783,7 +720,6 @@ fn scval_contract_id(val: &ScVal) -> Option<[u8; 32]> {
     }
 }
 
-/// Find an instance-storage scalar by key and decode it with `extract`.
 fn lookup_scalar<T>(
     instance: &ScContractInstance,
     key: ControllerInstanceKey,
@@ -816,7 +752,7 @@ pub fn self_check(contracts: &ContractsConfig) -> Result<Vec<HubAssetKey>> {
     configured_market_assets(contracts)
 }
 
-/// Verifies the signer can simulate `update_indexes` (caller auth only).
+/// Boot preflight: signer can simulate `update_indexes` (caller auth only).
 pub async fn assert_update_indexes_simulation(
     client: &RpcClient,
     controller_strkey: &str,
@@ -843,16 +779,13 @@ pub async fn assert_update_indexes_simulation(
     Ok(())
 }
 
-/// Nominal fee for a simulation-only envelope. The value is irrelevant to the
-/// simulator (no tx is submitted), but a sane base keeps the envelope valid.
+/// Nominal fee for sim-only envelopes (not submitted).
 const SIM_FEE_STROOPS: u32 = 100;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The deployed testnet governance address must resolve through the same
-    /// strkey decoder the keeper uses for the controller.
     #[test]
     fn resolve_accepts_testnet_governance_address() {
         let contracts = ContractsConfig {

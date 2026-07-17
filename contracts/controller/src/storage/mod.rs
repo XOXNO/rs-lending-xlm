@@ -16,4 +16,3 @@ pub(crate) use ttl::*;
 pub(crate) use verification_storage::*;
 // Verification storage helpers are not compiled into production contracts.
 
-// ################## STORAGE LAYOUT ##################

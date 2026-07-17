@@ -1,95 +1,81 @@
 # Security Policy
 
-This policy defines the private vulnerability reporting process for
-`rs-lending-xlm`.
+Private vulnerability reporting for `rs-lending-xlm`.
 
-## Reporting a Vulnerability
+## Reporting
 
-Do not open a public issue, pull request, or discussion for security problems.
-Public disclosure can give attackers a window to exploit an issue before users
-can update.
+Do **not** open a public issue, pull request, or discussion for security
+problems.
 
-Send a private report to **security@xoxno.com**.
+Email **security@xoxno.com**.
 
-Encrypt sensitive details when possible. A PGP key is available by request at
-the same address within one business day.
+Encrypt sensitive details when possible. A PGP key is available on request at
+the same address (within one business day).
 
-### What to include
+### Include
 
-- A clear description of the vulnerability and its impact.
-- Step-by-step instructions to reproduce, or a proof-of-concept that
-  demonstrates the issue. Cite specific commit / file / line numbers.
-- The protocol behavior you observed and what you expected.
-- Your environment (Stellar network, controller / pool addresses if relevant,
-  toolchain versions).
-- Whether the issue is already public knowledge.
+- Description and impact  
+- Repro steps or PoC (prefer commit SHA + file:line)  
+- Observed vs expected behavior  
+- Environment (network, contract addresses if relevant, toolchain)  
+- Whether the issue is already public  
 
-## Response Timeline
+Report against a **specific commit SHA** when you can.
+
+## Response targets
 
 | Stage | Target |
-|---|---|
-| Acknowledgement of receipt | within **2 business days** |
-| Initial triage (severity, scope) | within **5 business days** |
-| Status update cadence during fix | every **7 days** until resolved |
-| Coordinated disclosure window | **90 days** from report, negotiable |
+|-------|--------|
+| Ack | 2 business days |
+| Initial triage | 5 business days |
+| Updates while open | every 7 days |
+| Coordinated disclosure | 90 days from report (negotiable) |
 
-The protocol follows a coordinated-disclosure model. Reporters who follow this
-policy are credited, with consent, in the release notes that ship the fix.
+Reporters who follow this policy may be credited in release notes (with consent).
 
 ## Scope
 
-In scope:
+**In scope**
 
-- The on-chain crates: `contracts/controller`, `contracts/pool`,
-  `contracts/governance`, `contracts/aggregator`,
-  `contracts/xoxno-oracle-adapter`, `contracts/defindex-strategy`,
-  `contracts/flash-loan-receiver`, plus shared `common/` and `interfaces/`.
-- `services/keeper` (TTL renewal and archive restoration for critical storage).
-- The Makefile, config files, and operator tooling that deploys, configures,
-  and maintains the protocol on-chain.
+- On-chain crates: `contracts/controller`, `pool`, `governance`, `aggregator`,
+  `xoxno-oracle-adapter`, `defindex-strategy`, plus `common/` and `interfaces/`
+- `services/keeper` (TTL / restore)
+- `services/lending-exporter` (ops metrics service)
+- Makefile / `configs/` operator tooling that deploys or configures the protocol
 
-Not in scope:
+**Out of scope**
 
-- Vulnerabilities in third-party dependencies (Soroban SDK,
-  OpenZeppelin Stellar contracts, Reflector/RedStone oracles, etc.) — report
-  those upstream.
-- Issues that require already-compromised operator keys (governance owner,
-  role holders including GUARDIAN, or keeper operator keys).
-- Theoretical attacks without a reproducible proof of concept.
+- Upstream dependencies (Soroban SDK, OZ Stellar contracts, third-party oracles) —
+  report upstream
+- Issues that require already-compromised operator keys (governance owner, role
+  holders including GUARDIAN, keeper keys)
+- Theoretical issues without a reproducible PoC
+- `contracts/flash-loan-receiver` as a production surface — it is **test-only**
+  unless you are attacking the test harness itself
 
-Technical security properties, invariants, pause/freeze matrix, oracle policy,
-and governance model are documented in `architecture/INVARIANTS.md`,
-`STRIDE.md`, and `SCF_BUILD_ARCHITECTURE.md`. Report concrete deviations from
-those properties.
+Technical properties: [architecture/INVARIANTS.md](./architecture/INVARIANTS.md),
+[STRIDE.md](./STRIDE.md), [SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md).
+Report concrete deviations from those.
 
-## Supported Versions
+## Supported versions
 
-Only the latest tagged release on the `main` branch receives security patches.
-Mainnet deployments track the latest release; testnet deployments can run a
-release candidate.
+Security patches target the **latest tag on `main`**. Mainnet tracks that
+release; testnet may run release candidates.
 
-## Safe Harbor
+## Safe harbor
 
-Good-faith security research that follows this policy is welcome. XOXNO will
-not pursue legal action against researchers who:
+Good-faith research under this policy is welcome. XOXNO will not pursue legal
+action against researchers who:
 
-- Report vulnerabilities through `security@xoxno.com` rather than public
-  channels.
-- Avoid privacy violations, service disruption, and data destruction during
-  testing.
-- Use testnet or local environments for active exploitation testing.
-- Do not exploit a vulnerability beyond what is necessary to demonstrate it.
+- Report via **security@xoxno.com** (not public channels)
+- Avoid privacy violations, disruption, and data destruction
+- Prefer testnet / local environments for active testing
+- Do not exploit beyond what is needed to demonstrate the issue
 
-Researchers are encouraged to consult `STRIDE.md`, `architecture/INVARIANTS.md`,
-and the central implementation facts (controller/pool boundary, 3-layer pause
-matrix, fail-closed oracle policy, scaled accounting, etc.) when scoping
-research.
+## Audit status
 
-## Audit Status
-
-The protocol has undergone significant hardening (see ADR 0009 and subsequent
-decisions on governance timelock, pause/freeze matrix, and operational controls).
-External audit artifacts, when available for a given release, will be published
-with that release or linked from the repository. Current security design is
-captured in `STRIDE.md`, `architecture/INVARIANTS.md`, and the central
-implementation facts in the contracts.
+The design includes hardening ADRs (including 0009–0012: launch controls,
+timelock, pause/freeze matrix, per-spoke liquidation curve). External audit
+artifacts, when published for a release, will ship with that release or be
+linked from the repo. Current design and threat posture: STRIDE, INVARIANTS,
+and the contracts.

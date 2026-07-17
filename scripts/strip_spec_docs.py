@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 """Strip doc strings and informational meta from a deploy WASM.
 
-Rustdoc comments on contract entrypoints and types embed verbatim into the
-on-chain spec and count against the network's contractMaxSizeBytes. Deploy
-artifacts do not need them (reference docs live in the interface crates and
-the published documentation), so this rewrites every `doc` field in the spec
-to an empty string via the stellar CLI's XDR codec and reassembles the WASM.
+Rustdoc on entrypoints/types embeds into the on-chain spec and counts against
+contractMaxSizeBytes. Deploy artifacts omit them (docs live in interface crates
+and published docs): blank every `doc` field via stellar XDR codec, reassemble WASM.
 
-contractmetav0 sections (name/version strings from contractmeta! and the
-toolchain) and error-enum spec entries (code→name maps for client bindgen)
-are likewise informational only — the host requires just contractenvmetav0
-— so they are dropped entirely. Error definitions live in common/src and
-the interface crates.
+Drops contractmetav0 (name/version) and error-enum spec entries too — host needs
+only contractenvmetav0. Error defs live in common/ and interface crates.
 
 Usage: strip_spec_docs.py <in.wasm> <out.wasm>
 """

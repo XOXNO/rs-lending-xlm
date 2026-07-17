@@ -7,14 +7,11 @@ use common::types::OraclePriceFluctuation;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
-// ################## LOW-LEVEL HELPERS ##################
-
 /// Checked i128-to-u32 conversion for tolerance band fields.
 pub(crate) fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
     u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-/// Computes the upper/lower bounds for a single tolerance value in BPS.
 pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128, i128) {
     let tolerance = i128::from(tolerance_bps);
     let upper_bound = BPS
@@ -24,7 +21,6 @@ pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128,
     (upper_bound, lower_bound)
 }
 
-/// Validates the tolerance input and builds the `OraclePriceFluctuation` band.
 pub(crate) fn validate_and_calculate_tolerances(
     env: &Env,
     tolerance: u32,

@@ -17,8 +17,6 @@ use soroban_sdk::{
 use crate::errors::Error;
 use crate::types::{SwapHop, SwapVenue};
 
-// ################## EXECUTION ##################
-
 /// Executes one hop and returns measured output.
 pub(crate) fn dispatch_hop(env: &Env, router: &Address, hop: &SwapHop, amount_in: i128) -> i128 {
     let ctx = HopContext::new(env, router, hop, amount_in);
@@ -108,8 +106,6 @@ impl<'a> HopContext<'a> {
         }
     }
 }
-
-// ################## LOW-LEVEL HELPERS ##################
 
 /// Authorizes one SAC transfer from the router.
 pub(crate) fn authorize_token_transfer(

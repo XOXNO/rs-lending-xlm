@@ -34,7 +34,7 @@ pub(crate) const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 
 /// Supply-risk refresh policy after a withdraw leg.
 pub(crate) enum SpokeRefresh {
-    /// Keep snapshotted collateral risk params (liquidation, removed listing).
+    /// Keep snapshotted collateral risk params (liq / delisted listing).
     Frozen,
     /// Re-stamp risk params from the account's active spoke config.
     Refresh,
@@ -49,7 +49,6 @@ pub(crate) struct WithdrawalRequest<'a> {
 
 #[contractimpl]
 impl Controller {
-    /// Withdraws collateral from an existing account to `to` (default `caller`).
     /// Amount `0` withdraws the full position. Returns the gross amount paid per
     /// asset (pool `actual_amount`).
     ///

@@ -19,7 +19,6 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let idx = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
     (idx.supply_index, idx.borrow_index)
 }
-// 1. Verify seizure = debt_repaid * (1 + bonus_rate)
 
 #[test]
 fn test_seizure_equals_debt_times_one_plus_bonus() {
@@ -77,7 +76,6 @@ fn test_seizure_equals_debt_times_one_plus_bonus() {
         diff_pct
     );
 }
-// 2. Verify Dutch auction bonus formula at specific HF levels
 
 #[test]
 fn test_bonus_formula_at_specific_hf_levels() {
@@ -118,7 +116,6 @@ fn test_bonus_formula_at_specific_hf_levels() {
         estimate.bonus_rate_bps
     );
 }
-// 3. Verify deeper (but still recoverable) underwater gets higher bonus
 //
 // The dynamic bonus interpolates from base to max while the position stays
 // recoverable. These prices keep both cases recoverable so the ramp gets
@@ -170,7 +167,6 @@ fn test_deep_underwater_higher_bonus() {
         light.bonus_rate_bps
     );
 }
-// 4. Verify liquidation does not increase debt
 
 #[test]
 fn test_liquidation_does_not_increase_debt() {
@@ -216,7 +212,6 @@ fn test_liquidation_does_not_increase_debt() {
         );
     }
 }
-// 5. Verify protocol fee is on BONUS portion only
 
 #[test]
 fn test_protocol_fee_on_bonus_only_quantitative() {
@@ -264,7 +259,6 @@ fn test_protocol_fee_on_bonus_only_quantitative() {
         );
     }
 }
-// 6. Bad debt: verify supply index decrease equals bad_debt / total_supply
 
 #[test]
 fn test_bad_debt_index_decrease_exact() {
@@ -323,7 +317,6 @@ fn test_bad_debt_index_decrease_exact() {
         bob_loss
     );
 }
-// 7. Multiple partial liquidations improve HF incrementally
 
 #[test]
 fn test_multiple_partial_liquidations_incremental_hf() {
@@ -383,7 +376,6 @@ fn test_multiple_partial_liquidations_incremental_hf() {
         liquidator_usdc
     );
 }
-// 8. Liquidation cannot extract more collateral than exists
 
 #[test]
 fn test_liquidation_bounded_by_available_collateral() {

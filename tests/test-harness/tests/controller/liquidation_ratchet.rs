@@ -22,7 +22,6 @@ use test_harness::{
     STABLECOIN_SPOKE,
 };
 
-/// Runs one liquidation and returns `(collateral_usd_received, debt_usd_repaid)`.
 /// `coll_price` is the seized collateral's USD price (fixed during the tx).
 /// The liquidator's collateral-token balance delta is clean because
 /// `liquidate` auto-mints only the debt token; collateral is never minted to it.

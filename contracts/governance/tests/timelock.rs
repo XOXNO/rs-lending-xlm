@@ -369,9 +369,7 @@ fn independent_canceller_can_veto_canceller_revocation() {
     gov.cancel(&independent, &id);
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
-// The owner can no longer instantly strip a canceller; CANCELLER revocation
-// rides the timelock (single-vetoable) instead. Closes the "owner instantly
-// strips canceller vetoes" finding.
+// CANCELLER revoke is timelock-only; immediate owner revoke reverts (#41).
 #[test]
 #[should_panic(expected = "Error(Contract, #41)")]
 fn owner_cannot_immediately_revoke_canceller() {

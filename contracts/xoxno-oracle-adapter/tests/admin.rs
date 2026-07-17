@@ -1,5 +1,3 @@
-//! Constructor / admin / signer-set behavior.
-
 #![cfg(test)]
 extern crate std;
 

@@ -565,8 +565,7 @@ fn test_ray_div_floor_vs_div_diverges_on_half_remainder() {
     );
 }
 
-// checked_sub zero-boundary tests for Ray/Wad/Bps.
-// Differentiates `< 0` from `<= 0`/`== 0` on both self and rhs guards.
+// checked_sub: zero−zero is zero; negative rhs with zero self panics.
 
 #[test]
 fn test_ray_checked_sub_zero_zero_returns_zero() {
@@ -586,10 +585,6 @@ fn test_bps_checked_sub_zero_zero_returns_zero() {
     let zero = Bps::from(0i128);
     assert_eq!(zero.checked_sub(&env, zero), zero);
 }
-
-// First `||` disjunct in checked_sub (`self.0 < 0`).
-// Guard operands with self=0, rhs=-1 are (F, T, F). If the first `||`
-// changes to `&&`, the panic is lost; negative-self tests do not cover it.
 
 #[test]
 #[should_panic]
@@ -612,8 +607,7 @@ fn test_bps_checked_sub_negative_rhs_with_zero_self_panics() {
     let _ = Bps::from(0i128).checked_sub(&env, Bps::from(-1i128));
 }
 
-// Sub trait at equality returns zero (Wad / Bps).
-// Differentiates `result < 0` from `result <= 0` / `== 0` in Sub impls.
+// Sub at equality returns zero.
 
 #[test]
 fn test_wad_sub_equal_returns_zero() {
@@ -625,8 +619,7 @@ fn test_bps_sub_equal_returns_zero() {
     assert_eq!(Bps::ONE - Bps::ONE, Bps::from(0i128));
 }
 
-// Assign-op body validation.
-// Assignment updates observable state.
+// Assign-ops update observable state.
 
 #[test]
 fn test_ray_checked_add_assign_mutates() {
@@ -652,8 +645,7 @@ fn test_wad_checked_sub_assign_mutates() {
     assert_eq!(x.raw(), 3 * crate::constants::WAD);
 }
 
-// Ray::to_asset_floor / to_asset_ceil concrete outputs.
-// Differentiates the function body from constant returns (0, 1, -1).
+// to_asset_floor / to_asset_ceil concrete outputs.
 
 #[test]
 fn test_ray_to_asset_floor_pins_concrete_output() {
@@ -674,8 +666,7 @@ fn test_ray_to_asset_ceil_pins_concrete_output() {
     assert_eq!(Ray::ONE.to_asset_ceil(7), 10_000_000);
 }
 
-// Directional gate-valuation primitives.
-// floor < half_up < ceil on any non-exact remainder; equal when exact.
+// Gate rounding: floor ≤ half_up ≤ ceil; equal when exact.
 
 #[test]
 fn test_ray_mul_ceil_vs_floor_brackets_half_up() {
@@ -752,8 +743,6 @@ fn test_bps_apply_to_wad_floor_rounds_down() {
     );
 }
 
-// ===== coverage gap-closure tests =====
-// test_fp_uncovered_ops (+7) common/src/math/fp.rs:117-119,295-297,416
 #[test]
 fn test_ray_from_fraction_builds_ratio() {
     let env = Env::default();

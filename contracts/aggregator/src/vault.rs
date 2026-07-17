@@ -4,8 +4,6 @@ use soroban_sdk::{panic_with_error, Address, Env, Map};
 
 use crate::errors::Error;
 
-// ################## STATE ##################
-
 pub(crate) struct Vault<'a> {
     env: &'a Env,
     balances: Map<Address, i128>,

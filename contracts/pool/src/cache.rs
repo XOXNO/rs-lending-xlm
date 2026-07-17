@@ -15,41 +15,23 @@ use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 use crate::utils;
 
-/// In-memory representation of a market's params + mutable interest state.
-/// Used to batch accrual, accounting mutations, and a single save at the end
-/// of each high-level operation.
+/// In-memory market params + interest state; one load/save per high-level op.
 pub struct Cache {
-    /// Contract environment handle.
     pub env: Env,
-    /// Total scaled supply shares — `Ray<Share(asset, supply)>`.
     pub supplied: Ray,
-    /// Total scaled debt shares — `Ray<Share(asset, debt)>`.
     pub borrowed: Ray,
-    /// Claimable protocol revenue, held as supply shares — `Ray<Share(asset, supply)>`.
     pub revenue: Ray,
-    /// Debt interest index — `Ray<Index(asset, debt)>`.
     pub borrow_index: Ray,
-    /// Supply interest index — `Ray<Index(asset, supply)>`.
     pub supply_index: Ray,
-    /// Last accrual checkpoint, in milliseconds.
     pub last_timestamp: u64,
-    /// Current ledger time, in milliseconds.
     pub current_timestamp: u64,
-    /// Market interest-rate and risk parameters.
     pub params: MarketParams,
-    /// Market key for cache loads and saves.
     pub hub_asset: HubAssetKey,
-    /// Tracked reserves in asset-native units (`Token(asset)`, never Ray).
+    /// Tracked reserves (`Token(asset)`); direct donations never increase this.
     pub cash: i128,
 }
 
 impl Cache {
-    /// Loads market params and mutable interest state.
-    ///
-    /// # Arguments
-    /// * `env` - Soroban environment.
-    /// * `hub_asset` - the market identifier.
-    ///
     /// # Errors
     /// * `PoolNotInitialized` - params or state missing for the market.
     pub fn load(env: &Env, hub_asset: &HubAssetKey) -> Self {
@@ -85,10 +67,6 @@ impl Cache {
         }
     }
 
-    /// Persists accrued market state.
-    ///
-    /// # Notes
-    /// Only state is written; params are immutable after market creation.
     pub fn save(&self) {
         let state = PoolStateRaw {
             supplied: self.supplied.raw(),
@@ -106,9 +84,6 @@ impl Cache {
             .set(&PoolKey::State(self.hub_asset.clone()), &state);
     }
 
-    // ################## QUERY STATE ##################
-
-    /// Utilization is borrowed / supplied; zero supply returns zero.
     pub fn calculate_utilization(&self) -> Ray {
         if self.supplied == Ray::ZERO {
             return Ray::ZERO;
@@ -120,7 +95,6 @@ impl Cache {
         rate_utilization(&self.env, total_borrowed, total_supplied)
     }
 
-    /// Panics with `InsufficientLiquidity` if tracked cash is below `amount`.
     pub fn require_reserves(&self, amount: i128) {
         assert_with_error!(
             self.env,
@@ -129,9 +103,6 @@ impl Cache {
         );
     }
 
-    // ################## CHANGE STATE ##################
-
-    /// Adds Token(asset) to tracked cash, panicking on overflow.
     pub fn credit_cash(&mut self, amount: i128) {
         self.cash = self
             .cash
@@ -139,7 +110,6 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::MathOverflow));
     }
 
-    /// Subtracts Token(asset) from tracked cash, panicking on under/overflow.
     pub fn debit_cash(&mut self, amount: i128) {
         self.cash = self
             .cash
@@ -147,7 +117,6 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::MathOverflow));
     }
 
-    /// Transfers Token(asset) to `recipient`; zero and negative amounts are no-ops.
     pub fn transfer_out(&self, recipient: &Address, amount: i128) {
         if amount <= 0 {
             return;
@@ -156,58 +125,42 @@ impl Cache {
         tok.transfer(&self.env.current_contract_address(), recipient, &amount);
     }
 
-    // ################## LOW-LEVEL HELPERS ##################
-
-    /// Converts an asset amount into scaled supply shares at the current index.
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {
         Ray::from_asset(amount, self.params.asset_decimals).div(&self.env, self.supply_index)
     }
 
-    /// Converts an asset amount into scaled debt shares at the current index.
     pub fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
         Ray::from_asset(amount, self.params.asset_decimals).div(&self.env, self.borrow_index)
     }
 
-    /// Converts scaled supply shares to asset units using half-up rounding.
     pub fn unscale_supply(&self, scaled: Ray) -> i128 {
         scaled_to_original(&self.env, scaled, self.supply_index)
             .to_asset(self.params.asset_decimals)
     }
 
-    /// Converts supply shares to asset units rounded down for user credits.
     pub fn unscale_supply_floor(&self, scaled: Ray) -> i128 {
         scaled
             .mul_floor(&self.env, self.supply_index)
             .to_asset_floor(self.params.asset_decimals)
     }
 
-    /// Converts scaled debt shares to asset units using half-up rounding.
     pub fn unscale_borrow(&self, scaled: Ray) -> i128 {
         scaled_to_original(&self.env, scaled, self.borrow_index)
             .to_asset(self.params.asset_decimals)
     }
 
-    /// Converts debt shares to asset units rounded up for user debits.
     pub fn unscale_borrow_ceil(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.borrow_index)
             .to_asset_ceil(self.params.asset_decimals)
     }
 
-    /// Converts scaled debt shares to underlying debt in RAY.
     pub fn unscale_borrow_exact(&self, scaled: Ray) -> Ray {
         scaled_to_original(&self.env, scaled, self.borrow_index)
     }
 
-    /// Resolves withdrawal into burned supply shares and gross amount.
-    ///
-    /// # Notes
-    /// Full-close quantization is a cross-contract contract: the position closes
-    /// (all `pos_scaled` shares burned, floor-valued gross paid out) whenever the
-    /// request meets or exceeds the half-up-rounded actual balance. The
-    /// controller's dust gate MUST mirror this full-close rule; if it decides
-    /// "dust remains" while the pool full-closes (or vice versa), the position
-    /// map and pool disagree and the withdrawal reverts.
+    /// Full-close when request ≥ half-up actual: burns all shares, pays floor gross.
+    /// Controller dust gate MUST mirror this rule or position map and pool diverge.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         let current_supply_actual = self.unscale_supply(pos_scaled);
         let current_supply_floor = self.unscale_supply_floor(pos_scaled);
@@ -217,7 +170,6 @@ impl Cache {
         (self.calculate_scaled_supply(amount), amount)
     }
 
-    /// Burns claimable revenue up to tracked cash and returns the token amount.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
         let treasury_actual = self.unscale_supply(self.revenue);
         let amount = self.cash.min(treasury_actual);
@@ -235,7 +187,6 @@ impl Cache {
         amount
     }
 
-    /// Resolves debt-share burn and overpayment refund.
     pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         let current_debt_ceil = self.unscale_borrow_ceil(pos_scaled);
         if amount >= current_debt_ceil {
@@ -250,7 +201,6 @@ impl Cache {
         }
     }
 
-    /// Current borrow and supply indexes in event/wire form.
     pub fn market_index(&self) -> MarketIndexRaw {
         MarketIndexRaw {
             borrow_index: self.borrow_index.raw(),
@@ -258,14 +208,13 @@ impl Cache {
         }
     }
 
-    /// Snapshot emitted to indexers after each pool state mutation.
     pub fn market_snapshot(&self) -> MarketStateSnapshot {
         MarketStateSnapshot {
             hub_asset: self.hub_asset.clone(),
             timestamp: self.current_timestamp,
             supply_index: self.supply_index.raw(),
             borrow_index: self.borrow_index.raw(),
-            // Asset-native cash, not a scaled RAY share like the sibling fields.
+            // Asset-native cash, not a scaled RAY share.
             cash: self.cash,
             supplied: self.supplied.raw(),
             borrowed: self.borrowed.raw(),
@@ -273,7 +222,6 @@ impl Cache {
         }
     }
 
-    /// Position mutation snapshot containing only the pool-owned scaled share.
     pub fn position_mutation(&self, scaled: Ray, actual_amount: i128) -> PoolPositionMutation {
         PoolPositionMutation {
             position: ScaledPositionRaw {
@@ -284,7 +232,6 @@ impl Cache {
         }
     }
 
-    /// Strategy borrow mutation snapshot, including net amount sent to caller.
     pub fn strategy_mutation(
         &self,
         scaled: Ray,

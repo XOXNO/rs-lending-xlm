@@ -10,8 +10,6 @@ use common::errors::GenericError;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, Env, Error, Executable, SpecShakingMarker};
 
-// ################## LOW-LEVEL HELPERS ##################
-
 pub(crate) fn require_contract_address(
     env: &Env,
     addr: &Address,

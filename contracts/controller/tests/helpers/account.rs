@@ -31,7 +31,7 @@ fn owner_passes() {
     });
 }
 
-// A non-owner with no delegation is rejected (owner-only behavior preserved).
+// Non-owner without delegation is rejected.
 #[test]
 #[should_panic(expected = "Error(Contract, #44)")]
 fn stranger_rejected() {

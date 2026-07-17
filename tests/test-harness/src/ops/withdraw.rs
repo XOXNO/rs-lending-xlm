@@ -22,7 +22,6 @@ impl LendingTest {
         ctrl.withdraw(&addr, &account_id, &withdrawals, &None);
     }
 
-    /// Withdraws to a third-party recipient and returns the paid amounts.
     pub fn withdraw_to_raw(
         &mut self,
         user: &str,
@@ -40,7 +39,6 @@ impl LendingTest {
         ctrl.withdraw(&addr, &account_id, &withdrawals, &Some(recipient.clone()))
     }
 
-    /// Withdraws and returns the actual paid amounts per asset.
     pub fn withdraw_raw_returning(
         &mut self,
         user: &str,

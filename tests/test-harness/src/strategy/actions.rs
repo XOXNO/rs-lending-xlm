@@ -5,21 +5,18 @@ use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
 use crate::strategy::swap::mock_swap_payload_xdr;
 
 impl LendingTest {
-    /// Pre-fund the swap router with tokens so the mock router can transfer them.
     pub fn fund_router(&self, asset_name: &str, amount: f64) {
         let market = self.resolve_market(asset_name);
         let raw = f64_to_i128(amount, market.decimals);
         market.token_admin.mint(&self.aggregator, &raw);
     }
 
-    /// Pre-fund the swap router with a raw token amount.
     pub fn fund_router_raw(&self, asset_name: &str, amount: i128) {
         let market = self.resolve_market(asset_name);
         market.token_admin.mint(&self.aggregator, &amount);
     }
 
-    /// Builds a minimal `StrategySwap` for error-path tests that panic before
-    /// reaching `swap_tokens`.
+    /// Minimal `StrategySwap` for error paths that panic before `swap_tokens`.
     pub fn mock_swap_steps(
         &self,
         _token_in: &str,
@@ -34,7 +31,6 @@ impl LendingTest {
         )
     }
 
-    /// Execute a multiply strategy.
     pub fn multiply(
         &mut self,
         user: &str,

@@ -39,7 +39,6 @@ pub(crate) struct RepaymentRequest<'a> {
 
 #[contractimpl]
 impl Controller {
-    /// Repays one or more debt assets on an existing account. Permissionless:
     /// any caller may repay any account (debt only decreases). The payer must
     /// authorize the token transfer.
     ///
@@ -73,7 +72,6 @@ pub(crate) fn process_repay(env: &Env, caller: &Address, account_id: u64, paymen
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Non-empty, positive amounts before the account read.
     let aggregated = payments::aggregate_positive_payments(env, payments);
 
     let mut account = storage::get_account_borrow_only(env, account_id);
@@ -111,8 +109,6 @@ fn settle_repay(
 }
 
 /// Per leg: spoke pause check, require debt, transfer to pool, build pool action.
-///
-/// Side effect: all legs transfer before the pool call; a later panic reverts the tx.
 fn transfer_and_build_repay_actions(
     env: &Env,
     caller: &Address,

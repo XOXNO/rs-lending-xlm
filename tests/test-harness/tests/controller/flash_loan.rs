@@ -74,10 +74,7 @@ fn strict_flash_loan(
 fn prefund_receiver_fee(t: &LendingTest, receiver: &Address, asset: &Address, fee: i128) {
     token::StellarAssetClient::new(&t.env, asset).mint(receiver, &fee);
 }
-// 1. test_flash_loan_success_under_non_root_auth
-// Under the harness default auth mock, the receiver approves repayment and the
-// pool pulls exactly amount + fee.
-
+// Harness default auth: receiver approves repayment; pool pulls amount + fee.
 #[test]
 fn test_flash_loan_success_under_non_root_auth() {
     let mut t = LendingTest::new()
@@ -105,8 +102,6 @@ fn test_flash_loan_success_under_non_root_auth() {
         "flash-loan guard must clear after a successful flash loan"
     );
 }
-// 2. test_flash_loan_rejects_bad_repayment
-
 #[test]
 fn test_flash_loan_rejects_bad_repayment() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -122,8 +117,6 @@ fn test_flash_loan_rejects_bad_repayment() {
         "flash loan should fail when receiver doesn't repay"
     );
 }
-// 3. test_flash_loan_rejects_disabled
-
 #[test]
 fn test_flash_loan_rejects_disabled() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -139,8 +132,6 @@ fn test_flash_loan_rejects_disabled() {
     let result = t.try_flash_loan(BOB, "USDC", 10_000.0, &receiver);
     assert_contract_error(result, errors::FLASHLOAN_NOT_ENABLED);
 }
-// 4. test_flash_loan_rejects_zero_amount
-
 #[test]
 fn test_flash_loan_rejects_zero_amount() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -152,8 +143,6 @@ fn test_flash_loan_rejects_zero_amount() {
     // Must reject with the precise AMOUNT_MUST_BE_POSITIVE (14).
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
-// 5. test_flash_loan_reentrancy_blocks_supply
-
 #[test]
 fn test_flash_loan_reentrancy_blocks_supply() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -166,8 +155,6 @@ fn test_flash_loan_reentrancy_blocks_supply() {
 
     t.set_flash_loan_ongoing(false);
 }
-// 6. test_flash_loan_reentrancy_blocks_borrow
-
 #[test]
 fn test_flash_loan_reentrancy_blocks_borrow() {
     let mut t = LendingTest::new()
@@ -183,8 +170,6 @@ fn test_flash_loan_reentrancy_blocks_borrow() {
 
     t.set_flash_loan_ongoing(false);
 }
-// 7. test_flash_loan_reentrancy_blocks_withdraw
-
 #[test]
 fn test_flash_loan_reentrancy_blocks_withdraw() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -197,8 +182,6 @@ fn test_flash_loan_reentrancy_blocks_withdraw() {
 
     t.set_flash_loan_ongoing(false);
 }
-// 8. test_flash_loan_reentrancy_blocks_repay
-
 #[test]
 fn test_flash_loan_reentrancy_blocks_repay() {
     let mut t = LendingTest::new()
@@ -215,8 +198,6 @@ fn test_flash_loan_reentrancy_blocks_repay() {
 
     t.set_flash_loan_ongoing(false);
 }
-// 9. test_flash_loan_reentrancy_blocks_liquidation
-
 #[test]
 fn test_flash_loan_reentrancy_blocks_liquidation() {
     let mut t = LendingTest::new()
@@ -236,8 +217,6 @@ fn test_flash_loan_reentrancy_blocks_liquidation() {
 
     t.set_flash_loan_ongoing(false);
 }
-// 10. test_flash_loan_fee_config_matches_default_preset
-
 #[test]
 fn test_flash_loan_fee_config_matches_default_preset() {
     // Pin the default preset config values so any change to
@@ -256,8 +235,6 @@ fn test_flash_loan_fee_config_matches_default_preset() {
         "USDC preset must have is_flashloanable = true"
     );
 }
-// 11. test_flash_loan_tiny_amount_charges_min_fee_when_bps_positive
-
 #[test]
 fn test_flash_loan_tiny_amount_charges_min_fee_when_bps_positive() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -293,8 +270,6 @@ fn test_flash_loan_tiny_amount_charges_min_fee_when_bps_positive() {
     assert_eq!(fee, 1, "positive flashloan_fee must charge at least 1");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before + fee);
 }
-// 12. test_flash_loan_allows_zero_fee_when_configured_zero
-
 #[test]
 fn test_flash_loan_allows_zero_fee_when_configured_zero() {
     let mut t = LendingTest::new()
@@ -327,8 +302,6 @@ fn test_flash_loan_allows_zero_fee_when_configured_zero() {
     assert_eq!(fee, 0);
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
-// 13. test_flash_loan_strict_receiver_success_with_preauthorized_repayment
-
 #[test]
 fn test_flash_loan_strict_receiver_success_with_preauthorized_repayment() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -364,8 +337,6 @@ fn test_flash_loan_strict_receiver_success_with_preauthorized_repayment() {
     assert!(flash_guard_cleared(&t), "flash-loan guard must clear");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before + fee);
 }
-// 14. test_flash_loan_strict_receiver_rejects_success_without_fee_prefund
-
 #[test]
 fn test_flash_loan_strict_receiver_rejects_success_without_fee_prefund() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -397,8 +368,6 @@ fn test_flash_loan_strict_receiver_rejects_success_without_fee_prefund() {
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
-// 15. test_flash_loan_adversarial_receiver_no_repay_rejects
-
 #[test]
 fn test_flash_loan_adversarial_receiver_no_repay_rejects() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -427,8 +396,6 @@ fn test_flash_loan_adversarial_receiver_no_repay_rejects() {
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
-// 16. test_flash_loan_adversarial_receiver_under_repay_rejects
-
 #[test]
 fn test_flash_loan_adversarial_receiver_under_repay_rejects() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -452,8 +419,6 @@ fn test_flash_loan_adversarial_receiver_under_repay_rejects() {
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
-// 17. test_flash_loan_adversarial_receiver_reenter_pool_flash_loan_rejects
-
 #[test]
 fn test_flash_loan_adversarial_receiver_reenter_pool_flash_loan_rejects() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -485,8 +450,6 @@ fn test_flash_loan_adversarial_receiver_reenter_pool_flash_loan_rejects() {
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
-// 18. test_flash_loan_adversarial_receiver_callback_panic_rolls_back
-
 #[test]
 fn test_flash_loan_adversarial_receiver_callback_panic_rolls_back() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -515,8 +478,6 @@ fn test_flash_loan_adversarial_receiver_callback_panic_rolls_back() {
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
-// 19. test_flash_loan_non_contract_receiver_rejects_and_rolls_back
-
 #[test]
 fn test_flash_loan_non_contract_receiver_rejects_and_rolls_back() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -547,8 +508,6 @@ fn test_flash_loan_non_contract_receiver_rejects_and_rolls_back() {
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
-// 20. test_flash_loan_adversarial_receiver_rejects_invalid_data
-
 #[test]
 fn test_flash_loan_adversarial_receiver_rejects_invalid_data() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -576,12 +535,7 @@ fn test_flash_loan_adversarial_receiver_rejects_invalid_data() {
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
-// 21. test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects
-
-// Exercises `FlashLoanMode::ReenterControllerSupply` — the reference
-// receiver tries to call `controller.supply` from inside the callback. The
-// controller's `require_not_flash_loaning` guard must reject this and roll
-// the loan back.
+// FlashLoanMode::ReenterControllerSupply: require_not_flash_loaning rejects and rolls back.
 #[test]
 fn test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();

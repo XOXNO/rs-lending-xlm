@@ -16,19 +16,12 @@ use crate::access;
 use crate::timelock::{apply_update_delay, validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
-// ################## REEXPORTS ##################
-
 pub use governance_interface::{
     AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EditToleranceArgs,
     RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, SpokeLiquidationCurveArgs,
     TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
-/// Runs, at propose time, the pure oracle checks the controller re-runs at
-/// execute time on a resolved spoke oracle override (final-price sanity bounds
-/// and the single-source sanity band). A malformed `Single`-strategy override is
-/// then rejected before the timelock delay instead of after it. Storage-dependent
-/// quote-market activation stays with the controller, which owns that state.
 fn validate_oracle_override(env: &Env, oracle_override: &MarketOracleConfigOption) {
     if let MarketOracleConfigOption::Some(cfg) = oracle_override {
         validate_sanity_bounds(env, cfg.min_sanity_price_wad, cfg.max_sanity_price_wad);
@@ -72,7 +65,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
     let gov_addr = env.current_contract_address();
 
     match op {
-        // --- Governance target (Self) ---
         AdminOperation::UpgradeGov(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
             (
@@ -128,7 +120,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             DelayTier::Sensitive,
         ),
 
-        // --- Controller target ---
         AdminOperation::SetAggregator(addr) => {
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
             controller_operation(env, "set_aggregator", vec![env, addr.clone().into_val(env)])

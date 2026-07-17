@@ -1,18 +1,8 @@
-//! Seed libFuzzer corpora from existing Soroban test snapshots.
+//! Seed libFuzzer corpora from `*/test_snapshots/**/*.json`.
 //!
-//! Walks `*/test_snapshots/**/*.json`, extracts numeric fields (i128, u32, u64)
-//! from `ledger_entries.contract_data` maps (MarketParams, MarketState,
-//! positions, etc.), then packs them into per-target byte layouts matching
-//! each fuzz target's byte layout.
-//!
-//! Flow seeds are fixed-width op streams. Numeric targets keep compact
-//! structure-aware layouts seeded with realistic magnitudes (RAY indexes, bps
-//! rates, timestamps, position amounts) before mutation.
-//!
-//! Usage:
 //!   cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
 //!
-//! Snapshots that fail to parse are logged and skipped; never abort the run.
+//! Snapshots that fail to parse are logged and skipped.
 
 use common::constants::{BPS, MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY};
 use serde_json::Value;
@@ -20,26 +10,17 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-// Types
 
-/// Numeric entropy extracted from a single snapshot file.
-///
-/// Fields are multi-valued (one snapshot carries many market states, positions,
-/// etc.); packers select a bounded representative subset downstream.
+/// Numeric entropy from one snapshot; packers take a bounded subset.
 #[derive(Debug, Default)]
 struct ExtractedFields {
-    // i128 values found anywhere in ledger_entries (indexes, amounts, rates).
     i128s: Vec<i128>,
-    // u64 timestamps / nonces.
     u64s: Vec<u64>,
-    // u32 values (asset_decimals, etc.).
     u32s: Vec<u32>,
 
-    // Structured per-market fields, keyed when a symbol is identifiable.
-    // These are far more useful for `rates_borrow` than a shapeless i128 heap.
+    // Structured per-market fields beat a shapeless i128 heap for rate seeds.
     market_params: Vec<MarketParamsFields>,
     market_states: Vec<MarketStateFields>,
-    // Position amounts found in account maps (scaled amounts).
     position_amounts: Vec<i128>,
 }
 
@@ -65,7 +46,6 @@ struct MarketStateFields {
     revenue: Option<i128>,
     last_timestamp: Option<u64>,
 }
-// Walking + parsing
 
 fn walk_snapshots(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -327,7 +307,6 @@ fn extract_snapshot(path: &Path) -> Option<ExtractedFields> {
     harvest_structured(ledger_entries, &mut fields);
     Some(fields)
 }
-// Packing (per target)
 
 fn push_i128_le(buf: &mut Vec<u8>, v: i128) {
     buf.extend_from_slice(&v.to_le_bytes());
@@ -364,9 +343,7 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
         out.push(buf);
     };
 
-    // --- MulDiv arm (kind = 0): pair i128s as (a, b); try all 3 divisors.
-    // Index pairs (supply_idx, borrow_idx) exercise the realistic RAY*RAY/RAY
-    // path the protocol actually hits during compounding.
+    // MulDiv (kind=0): pair i128s; all 3 divisors. Index pairs hit RAY*RAY/RAY.
     let mut pairs: Vec<(i128, i128)> = Vec::new();
     for s in &f.market_states {
         if let (Some(a), Some(b)) = (s.supply_index, s.borrow_index) {
@@ -384,7 +361,7 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
         }
     }
 
-    // --- DivByInt arm (kind = 1): i128 pairs with b > 0.
+    // DivByInt (kind=1): i128 pairs with b > 0.
     for chunk in f.i128s.chunks(2).take(128) {
         if chunk.len() < 2 {
             continue;
@@ -396,8 +373,7 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
         push(&mut out, 1, a, b, 0, 0);
     }
 
-    // --- Rescale arm (kind = 2): single i128 × common precision transitions.
-    // 27->18 (RAY->WAD), 18->7 (WAD->asset_decimals=7), 18->6 (USDC), etc.
+    // Rescale (kind=2): common precision transitions (RAY↔WAD, WAD↔asset).
     let transitions: [(u8, u8); 8] = [
         (27, 18),
         (18, 27),
@@ -735,7 +711,6 @@ fn pack_flow_strategy(_f: &ExtractedFields) -> Vec<Vec<u8>> {
         ]),
     ]
 }
-// Output
 
 fn write_corpus(target: &str, inputs: Vec<Vec<u8>>, out_dir: &Path) -> std::io::Result<usize> {
     let target_dir = out_dir.join(target);
@@ -763,7 +738,6 @@ fn write_corpus(target: &str, inputs: Vec<Vec<u8>>, out_dir: &Path) -> std::io::
     }
     Ok(written)
 }
-// Main
 
 fn parse_args() -> PathBuf {
     let mut args = std::env::args().skip(1);

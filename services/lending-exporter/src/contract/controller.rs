@@ -5,8 +5,7 @@ use stellar_xdr::curr::ScVal;
 
 use crate::scval::{field_bool, field_i128, field_u32, map_field, vec_items};
 
-/// One row of `get_market_indexes_detailed`: live indexes (RAY) and the three
-/// USD WAD price components (final / primary / anchor).
+/// One `get_market_indexes_detailed` row: RAY indexes + WAD prices.
 #[derive(Debug, Clone)]
 pub struct MarketIndexView {
     pub supply_index_ray: i128,
@@ -16,7 +15,6 @@ pub struct MarketIndexView {
     pub anchor_price_wad: i128,
 }
 
-/// Spoke-level config and liquidation curve.
 #[derive(Debug, Clone)]
 pub struct SpokeConfig {
     pub is_deprecated: bool,
@@ -25,8 +23,7 @@ pub struct SpokeConfig {
     pub liquidation_bonus_factor_bps: u32,
 }
 
-/// Per-spoke-asset listing config: flags, risk ratios, and caps. The
-/// `oracle_override` field is intentionally not decoded (unused by metrics).
+/// Spoke-asset listing: flags, risk ratios, caps (`oracle_override` unused).
 #[derive(Debug, Clone)]
 pub struct SpokeAssetConfig {
     pub is_collateralizable: bool,
@@ -41,15 +38,13 @@ pub struct SpokeAssetConfig {
     pub borrow_cap: i128,
 }
 
-/// Per-spoke-asset scaled-share usage.
 #[derive(Debug, Clone, Default)]
 pub struct SpokeUsage {
     pub supplied_scaled_ray: i128,
     pub borrowed_scaled_ray: i128,
 }
 
-/// Decode `get_market_indexes_detailed -> Vec<MarketIndexView>`, preserving the
-/// requested key order (the view is index-aligned to its input).
+/// `get_market_indexes_detailed` rows, index-aligned to the request.
 pub fn decode_market_indexes(value: &ScVal) -> Result<Vec<MarketIndexView>> {
     let items = vec_items(value).ok_or_else(|| anyhow!("expected Vec<MarketIndexView>"))?;
     items.iter().map(decode_market_index_row).collect()
@@ -69,7 +64,6 @@ fn decode_market_index_row(value: &ScVal) -> Result<MarketIndexView> {
     })
 }
 
-/// Decode `get_spoke -> SpokeConfig`.
 pub fn decode_spoke(value: &ScVal) -> Result<SpokeConfig> {
     Ok(SpokeConfig {
         is_deprecated: field_bool(value, "is_deprecated").unwrap_or(false),
@@ -79,7 +73,6 @@ pub fn decode_spoke(value: &ScVal) -> Result<SpokeConfig> {
     })
 }
 
-/// Decode `get_spoke_asset -> SpokeAssetConfig`.
 pub fn decode_spoke_asset(value: &ScVal) -> Result<SpokeAssetConfig> {
     Ok(SpokeAssetConfig {
         is_collateralizable: field_bool(value, "is_collateralizable").unwrap_or(false),
@@ -95,10 +88,8 @@ pub fn decode_spoke_asset(value: &ScVal) -> Result<SpokeAssetConfig> {
     })
 }
 
-/// Decode `get_spoke_usage -> SpokeUsageRaw`.
 pub fn decode_spoke_usage(value: &ScVal) -> Result<SpokeUsage> {
-    // Missing map fields default to 0, matching the contract's zero-default when
-    // no usage row exists yet.
+    // Missing fields → 0 (contract zero-default when no usage row).
     if !matches!(value, ScVal::Map(_)) {
         return Err(anyhow!("expected SpokeUsageRaw map"));
     }
@@ -108,7 +99,6 @@ pub fn decode_spoke_usage(value: &ScVal) -> Result<SpokeUsage> {
     })
 }
 
-/// Whether `oracle_override` selects a per-spoke source (`Some`) over the base.
 pub fn spoke_asset_has_oracle_override(value: &ScVal) -> bool {
     match map_field(value, "oracle_override").and_then(crate::scval::enum_variant) {
         Some((tag, _)) => tag == "Some",

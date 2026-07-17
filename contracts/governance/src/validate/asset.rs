@@ -13,8 +13,6 @@ use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 const MIN_ASSET_DECIMALS: u32 = 3;
 const MAX_ASSET_DECIMALS: u32 = 18;
 
-// ################## LOW-LEVEL HELPERS ##################
-
 pub(crate) fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     common_validate_risk_bounds(env, ltv, threshold, bonus);
 }

@@ -1,7 +1,7 @@
 use super::{enable_dual_source, setup};
 use test_harness::{assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, LIQUIDATOR};
 
-// 8. Dual-source pricing: average price used in second tolerance zone
+// Dual-source: average price used in second tolerance zone.
 
 #[test]
 fn test_second_tolerance_uses_average_price() {
@@ -22,7 +22,7 @@ fn test_second_tolerance_uses_average_price() {
     // The average price drives valuation.
     t.assert_healthy(ALICE);
 }
-// 9. Exchange source = 1 (safe price only)
+// Exchange source = 1 (safe price only).
 
 #[test]
 fn test_exchange_source_safe_only() {
@@ -40,7 +40,7 @@ fn test_exchange_source_safe_only() {
 
     t.assert_healthy(ALICE);
 }
-// 10. Multiple assets with different tolerance states
+// Multiple assets with different tolerance states.
 
 #[test]
 fn test_mixed_tolerance_states() {
@@ -60,23 +60,10 @@ fn test_mixed_tolerance_states() {
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
-// 11. Liquidation rejects on out-of-band deviation during a flash crash
 
 #[test]
 fn test_liquidation_blocked_under_flash_crash() {
-    // When the spot price and the slower-moving anchor disagree beyond the
-    // tolerance band (the canonical flash-crash signature), the fail-closed
-    // price read rejects with
-    // `OracleError::UnsafePriceNotAllowed`: the protocol will not seize
-    // collateral at a price only the spot source corroborates.
-    //
-    // Deliberate manipulation-over-availability tradeoff (auditors: this
-    // reverses the §4.5 posture, which resolved the deviation to the aggregator
-    // so liquidations always proceeded). The sources are independent and
-    // out-of-band divergence is transient — the anchor catches up within its
-    // window — so the block is temporary rather than a durable DoS. Underwater
-    // positions become liquidatable again once the sources reconverge within
-    // tolerance.
+    // Spot vs anchor beyond tolerance → fail-closed UnsafePriceNotAllowed (no seize on spot alone).
     let mut t = setup();
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
@@ -115,7 +102,7 @@ fn test_liquidation_blocked_under_flash_crash() {
     // once the anchor catches up and the sources reconverge within tolerance.
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
-// 12. Liquidation collateral extraction via second-tolerance averaging
+// Liquidation collateral extraction via second-tolerance averaging.
 
 #[test]
 fn test_liquidation_collateral_extraction_via_averaging() {
@@ -189,7 +176,7 @@ fn test_liquidation_collateral_extraction_via_averaging() {
         received_collateral
     );
 }
-// 13. Sanity-bound circuit breaker
+// Sanity-bound circuit breaker.
 //
 // Slender M-7 / STELLAR_AUDIT_FINDINGS.md §4.2: a per-market absolute
 // floor/ceiling must reject obviously-wrong oracle outputs (whether from a
@@ -232,12 +219,7 @@ fn test_sanity_bound_blocks_price_below_floor() {
     assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
 }
 
-// Disabled-bounds state is no longer reachable through the normal
-// config flow (`validate_sanity_bounds` rejects `0 < min < max`
-// violations at admin time), but direct storage tampering remains a
-// theoretical attack surface. The runtime read path defends against
-// it by treating `max == 0` as a sanity-violation panic. This pins
-// that behaviour.
+// Runtime treats max_sanity==0 as a violation (storage-tamper defense).
 #[test]
 fn test_sanity_bound_tampered_zero_state_rejected_at_runtime() {
     let mut t = setup();

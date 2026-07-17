@@ -38,7 +38,6 @@ pub trait BlendPool {
     ) -> BlendPositions;
 }
 
-/// Calls Blend `submit` after controller and user authorization.
 pub(crate) fn blend_submit_call(
     env: &Env,
     blend_pool: &Address,

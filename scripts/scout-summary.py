@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Render Scout JSON reports as a Markdown summary (stdout).
 
-Used by CI to write a PR-visible report to $GITHUB_STEP_SUMMARY, and usable
-locally to eyeball results without the SARIF viewer.
+CI writes this to $GITHUB_STEP_SUMMARY; usable locally without SARIF Viewer.
 
 Usage:
     scout-summary.py <dir-with-*.json>        # e.g. target/scout-audit
@@ -27,7 +26,7 @@ def collect(args):
 
 
 def span_line(span):
-    """`a.rs:84:9 - 84:33` -> `84`; '' on failure."""
+    """`a.rs:84:9 - 84:33` → `84`; '' on failure."""
     left = (span or "").split(" - ", 1)[0]
     parts = left.rsplit(":", 2)
     return parts[1] if len(parts) >= 3 else ""

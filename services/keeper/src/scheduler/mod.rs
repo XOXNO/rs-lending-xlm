@@ -35,8 +35,6 @@ pub async fn run(
     cancel: CancellationToken,
     dry_run: bool,
 ) -> Result<SchedulerHandle> {
-    // Parse contract ids once; the loops below run them every tick without
-    // re-parsing or cloning the config strkeys.
     let ids = ContractIds::resolve(&cfg.contracts)?;
 
     let ttl = spawn_ttl_loop(
@@ -73,9 +71,7 @@ fn spawn_ttl_loop(
     tokio::spawn(async move {
         let mut tick = interval(Duration::from_secs(cfg.schedule.ttl_tick_seconds.max(1)));
         tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        // Burn the immediate tick; sleep for the configured cadence before the
-        // first sweep so the rest of the boot sequence (axum, metrics) can
-        // settle.
+        // Skip the immediate tick so boot (metrics surface) can settle first.
         tick.tick().await;
         loop {
             tokio::select! {
@@ -139,25 +135,21 @@ async fn run_ttl_tick(
     let restore_jobs = plan_restores(&snap, safety)?;
     let extend_jobs = plan_extends(&snap, safety)?;
 
-    // Freshly-restored entries come back at the network-minimum TTL, so extend
-    // them to the cap the same tick — but only after the restores land, since an
-    // extend over a still-archived entry is rejected.
+    // Restored entries return at network-min TTL; extend to cap same tick after
+    // restores land (extend on still-archived entries is rejected).
     let restored = restored_keys(&restore_jobs);
     metrics.entries_archived.set(restored.len() as i64);
     let post_restore_extends = plan_extends_for_keys(&restored)?;
 
-    // One budget for the whole tick — restores and extends share the cap so a
-    // tick never submits more than `max_txs_per_tick` transactions in total;
-    // jobs over the cap retry next tick.
+    // Shared tick budget: restores + extends ≤ `max_txs_per_tick`; overflow → next tick.
     let mut budget = TickBudget::new(cfg.schedule.max_txs_per_tick);
     let ctx = tx_context(cfg, client, signer);
 
-    // Restores first (they unblock the protocol), then in-margin extends.
+    // Restores first (unblock protocol), then in-margin extends.
     drive_jobs(&ctx, metrics, restore_jobs, dry_run, "ttl", &mut budget).await?;
     let mut extends = extend_jobs;
     if dry_run {
-        // Post-restore extends would fail simulation while the entry is still
-        // archived, so report them instead of simulating.
+        // Post-restore extends would fail sim while still archived — report only.
         if !post_restore_extends.is_empty() {
             info!(
                 target: "keeper.scheduler",
@@ -196,7 +188,6 @@ async fn run_index_tick(
     drive_jobs(&ctx, metrics, jobs, dry_run, "index", &mut budget).await
 }
 
-/// Build the per-tx submission context from config + connections.
 fn tx_context<'a>(
     cfg: &'a KeeperConfig,
     client: &'a RpcClient,

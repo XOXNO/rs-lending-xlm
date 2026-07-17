@@ -169,7 +169,7 @@ fn test_redstone_runtime_missing_price_panics_with_invalid_ticker() {
         t.env.storage().temporary().remove(&key);
     });
 
-    // Supply no longer prices collateral; borrow does (RiskIncreasing LTV/HF).
+    // Supply skips dust pricing; borrow prices (RiskIncreasing LTV/HF).
     t.supply(BOB, "USDC", 100_000.0);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDC", 100.0);

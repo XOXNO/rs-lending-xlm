@@ -250,12 +250,12 @@ fn min_borrow_floor_defaults_and_blend_wrapper_reflects_storage() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        // Unset floor returns the default constant (limits.rs 31-33).
+        // Unset floor returns the default constant.
         assert_eq!(
             limits::get_min_borrow_collateral_usd(&env),
             crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD
         );
-        // Blend-pool wrapper reflects storage both ways (approvals.rs 43-45,48-51).
+        // Blend-pool wrapper reflects storage both ways.
         let pool = Address::generate(&env);
         assert!(!approvals::is_blend_pool_approved(&env, pool.clone()));
         approvals::set_blend_pool_approval(&env, pool.clone(), true);

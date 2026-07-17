@@ -193,9 +193,7 @@ fn withdraw_satisfies_controller_summary_contract(
     let before = position(scaled);
     let result = withdraw_first(&e, caller, action(before.clone(), amount, asset), false, 0);
 
-    // `resolve_withdrawal` returns `current_supply_floor <= current_supply_actual
-    // <= amount` on a full close and `amount` on a partial, so `actual <= amount`
-    // holds unconditionally — matching the summary's bound.
+    // `resolve_withdrawal`: full close floors to actual supply; partial uses `amount`.
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
     cvlr_assert!(result.position.scaled_amount <= before.scaled_amount);
@@ -283,8 +281,7 @@ fn seize_position_satisfies_controller_summary_contract(
         asset.clone(),
         position(scaled),
     );
-    // The summary models seize as a no-return state mutation: the seized debt
-    // shares leave the market and the indexes stay inside the nondet bounds.
+    // Seize is no-return: debt shares leave market; indexes stay in nondet bounds.
     let after = read_state(&e, &asset);
     cvlr_assert!(after.borrowed == 0);
     cvlr_assert!(after.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
@@ -300,8 +297,7 @@ fn claim_revenue_satisfies_controller_summary_contract(e: Env, admin: Address, a
         state(100 * RAY, 0, RAY, e.ledger().timestamp()),
     );
 
-    // Claimed amount is non-negative and never exceeds pre-call reserves: the
-    // solvency check gates the transfer at `cash`, and `get_reserves() == cash`.
+    // Claimed amount in [0, pre reserves]; solvency gates at `cash` (== reserves).
     let pre_reserves = crate::LiquidityPool::get_reserves(e.clone(), hub(asset.clone()));
     let amount = crate::LiquidityPool::claim_revenue(e, hub(asset)).actual_amount;
     cvlr_assert!(amount >= 0);
@@ -365,7 +361,6 @@ fn view_state(
     }
 }
 
-/// `get_reserves` is non-negative when `cash >= 0`.
 #[rule]
 fn reserves_view_nonneg(e: Env, admin: Address, asset: Address, cash: i128) {
     cvlr_assume!((0..=1_000_000_000_000i128).contains(&cash));
@@ -378,7 +373,6 @@ fn reserves_view_nonneg(e: Env, admin: Address, asset: Address, cash: i128) {
     cvlr_assert!(crate::LiquidityPool::get_reserves(e, hub(asset)) >= 0);
 }
 
-/// `get_supplied_amount` is non-negative under valid state.
 #[rule]
 fn supplied_amount_view_nonneg(
     e: Env,
@@ -406,7 +400,6 @@ fn supplied_amount_view_nonneg(
     cvlr_assert!(crate::LiquidityPool::get_supplied_amount(e, hub(asset)) >= 0);
 }
 
-/// `get_borrowed_amount` is non-negative under valid state.
 #[rule]
 fn borrowed_amount_view_nonneg(
     e: Env,
@@ -434,7 +427,6 @@ fn borrowed_amount_view_nonneg(
     cvlr_assert!(crate::LiquidityPool::get_borrowed_amount(e, hub(asset)) >= 0);
 }
 
-/// `get_revenue` is non-negative under valid state.
 #[rule]
 fn protocol_revenue_view_nonneg(
     e: Env,
@@ -464,7 +456,6 @@ fn protocol_revenue_view_nonneg(
     cvlr_assert!(crate::LiquidityPool::get_revenue(e, hub(asset)) >= 0);
 }
 
-/// `get_revenue <= get_supplied_amount` when `revenue <= supplied`.
 #[rule]
 fn protocol_revenue_le_supplied_view(
     e: Env,
@@ -496,7 +487,6 @@ fn protocol_revenue_le_supplied_view(
     cvlr_assert!(revenue_units <= supplied_units);
 }
 
-/// `get_utilisation` is non-negative (upper bound not asserted).
 #[rule]
 fn capital_utilisation_view_nonneg(
     e: Env,
@@ -528,9 +518,6 @@ fn capital_utilisation_view_nonneg(
     cvlr_assert!(crate::LiquidityPool::get_utilisation(e, hub(asset)) >= 0);
 }
 
-/// A successful borrow never lends beyond reserves: post-borrow cash stays >= 0
-/// (`require_reserves` reverts an over-borrow). `cash` is seeded explicitly and
-/// small so the reserve gate — not utilization or caps — is the binding one.
 #[rule]
 fn borrow_within_reserves(
     e: Env,

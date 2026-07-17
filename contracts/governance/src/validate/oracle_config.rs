@@ -15,9 +15,6 @@ use soroban_sdk::panic_with_error;
 
 use soroban_sdk::{assert_with_error, Env};
 
-// ################## LOW-LEVEL HELPERS ##################
-
-/// Validates oracle shape without live calls.
 pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
     let needs_anchor = config.strategy == OracleStrategy::PrimaryWithAnchor;
     let has_anchor = !config.anchor.is_none();

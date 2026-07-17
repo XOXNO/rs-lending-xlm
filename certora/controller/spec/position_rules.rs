@@ -6,7 +6,6 @@ use soroban_sdk::{Address, Env};
 
 use crate::types::AccountPositionType;
 
-/// Supply increases the account's deposit scaled amount.
 #[rule]
 fn supply_increases_position(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -31,7 +30,6 @@ fn supply_increases_position(e: Env, caller: Address, asset: Address, amount: i1
     cvlr_assert!(pos_after > pos_before);
 }
 
-/// Borrow increases the account's debt scaled amount.
 #[rule]
 fn borrow_increases_debt(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -81,7 +79,6 @@ fn full_repay_clears_debt(e: Env, caller: Address, asset: Address, amount: i128)
     cvlr_assert!(pos_after == 0);
 }
 
-/// Withdraw decreases the deposit scaled amount.
 #[rule]
 fn withdraw_decreases_position(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -107,7 +104,6 @@ fn withdraw_decreases_position(e: Env, caller: Address, asset: Address, amount: 
     cvlr_assert!(pos_after < pos_before);
 }
 
-/// Repay decreases the debt scaled amount.
 #[rule]
 fn repay_decreases_debt(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;

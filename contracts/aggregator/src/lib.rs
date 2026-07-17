@@ -45,8 +45,6 @@ impl Router {
         storage.set(&DataKey::ReferralCounter, &0u64);
     }
 
-    // ################## ADMIN ##################
-
     #[only_owner]
     pub fn set_static_fee(env: Env, fee_bps: u32) {
         if fee_bps > FEE_CAP {
@@ -159,8 +157,6 @@ impl Router {
         }
     }
 
-    // ################## VIEWS ##################
-
     pub fn admin(env: Env) -> Address {
         ownable::get_owner(&env).unwrap_or_else(|| panic_with_error!(&env, Error::NotAdmin))
     }
@@ -220,8 +216,6 @@ impl Router {
         v.unwrap_or(0)
     }
 
-    // ################## EXECUTION ##################
-
     pub fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
         let payload = StrategyPayload::from_xdr(&env, &swap_xdr)
             .unwrap_or_else(|_| panic_with_error!(&env, Error::InvalidRouteXdr));
@@ -250,8 +244,6 @@ impl Ownable for Router {
         ownable::renounce_ownership(e);
     }
 }
-
-// ################## LOW-LEVEL HELPERS ##################
 
 fn load_referral(env: &Env, id: u64) -> ReferralConfig {
     let key = DataKey::Referral(id);

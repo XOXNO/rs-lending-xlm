@@ -62,8 +62,6 @@ pub(crate) struct SignerSubmission {
     pub(crate) package_timestamp: u64,
 }
 
-// ################## QUERY STATE ##################
-
 pub(crate) fn load_signers(env: &Env) -> Vec<Address> {
     env.storage()
         .instance()
@@ -106,9 +104,7 @@ pub(crate) fn load_feed_id(env: &Env, asset: &ReflectorAsset) -> Option<String> 
     })
 }
 
-/// Materializes the asset index into a `Vec` for `assets()`. Read-renews each
-/// enumerated slot so an active index can't archive and later trap a
-/// swap-remove partner read.
+// Read-renews slots so active index can't archive under a later swap-remove.
 pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
     let count = asset_count(env);
     let mut out = Vec::new(env);
@@ -122,8 +118,6 @@ pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
     out
 }
 
-/// Materializes the known-feed index into a `Vec`. Read-renews each
-/// enumerated slot, same as `load_all_assets`.
 pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
     let count = feed_count(env);
     let mut out = Vec::new(env);
@@ -137,12 +131,7 @@ pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
     out
 }
 
-// ################## CHANGE STATE ##################
-
-/// Records `feed_id` in the known-feed index on its first submission. Later
-/// calls renew the feed's index slots (read-renewal on the hot submit path)
-/// so an actively-submitted feed's entries can't archive and later trap
-/// `feed_index_remove`'s swap-remove partner read.
+// Hot-path renew so active feeds can't archive under later swap-remove.
 pub(crate) fn record_known_feed(env: &Env, feed_id: &String) {
     let index_key = DataKey::FeedIndex(feed_id.clone());
     match env.storage().persistent().get::<DataKey, u32>(&index_key) {
@@ -154,8 +143,6 @@ pub(crate) fn record_known_feed(env: &Env, feed_id: &String) {
     }
 }
 
-/// Adds `feed_id` to `signer`'s per-signer feed index on first submission;
-/// idempotent afterwards (renews the entry's TTL).
 pub(crate) fn record_signer_feed(env: &Env, signer: &Address, feed_id: &String) {
     let key = DataKey::SignerFeeds(signer.clone());
     let mut feeds: Vec<String> = env
@@ -179,8 +166,6 @@ pub(crate) fn load_signer_feeds(env: &Env, signer: &Address) -> Vec<String> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
-/// Drops `feed_id` from `signer`'s per-signer feed index, removing the whole
-/// entry when it empties. Inverse of `record_signer_feed`.
 pub(crate) fn remove_signer_feed(env: &Env, signer: &Address, feed_id: &String) {
     let key = DataKey::SignerFeeds(signer.clone());
     let Some(feeds): Option<Vec<String>> = env.storage().persistent().get(&key) else {
@@ -220,10 +205,6 @@ pub(crate) fn feed_index_contains(env: &Env, feed_id: &String) -> bool {
         .has(&DataKey::FeedIndex(feed_id.clone()))
 }
 
-// ################## LOW-LEVEL HELPERS ##################
-
-/// Appends `asset` as the last slot and records its slot in the reverse
-/// index, so membership checks and removal are both O(1).
 pub(crate) fn asset_index_insert(env: &Env, asset: ReflectorAsset) {
     let count = asset_count(env);
     let at_key = DataKey::AssetAt(count);
@@ -239,9 +220,6 @@ pub(crate) fn asset_index_insert(env: &Env, asset: ReflectorAsset) {
     renew_persistent_key(env, &count_key);
 }
 
-/// Swap-removes `asset`: moves the last slot into the removed slot's place
-/// (updating the moved asset's reverse index) and shrinks the count. A no-op
-/// if `asset` is not present.
 pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
     let index_key = DataKey::AssetIndex(asset.clone());
     let Some(removed_at): Option<u32> = env.storage().persistent().get(&index_key) else {
@@ -279,7 +257,6 @@ pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
     renew_persistent_key(env, &count_key);
 }
 
-/// Appends `feed_id` as the last slot; mirrors `asset_index_insert`.
 fn feed_index_insert(env: &Env, feed_id: String) {
     let count = feed_count(env);
     let at_key = DataKey::FeedAt(count);
@@ -295,8 +272,6 @@ fn feed_index_insert(env: &Env, feed_id: String) {
     renew_persistent_key(env, &count_key);
 }
 
-/// Swap-removes `feed_id`; mirrors `asset_index_remove`. A no-op if
-/// `feed_id` is not present.
 pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
     let index_key = DataKey::FeedIndex(feed_id.clone());
     let Some(removed_at): Option<u32> = env.storage().persistent().get(&index_key) else {
@@ -353,14 +328,12 @@ pub(crate) fn has_duplicate(signers: &Vec<Address>) -> bool {
     false
 }
 
-/// Extends this contract's instance-storage TTL.
 pub(crate) fn renew_oracle_instance(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
 }
 
-/// Extends the shared-tier TTL on a persistent key meant to live indefinitely.
 pub(crate) fn renew_persistent_key(env: &Env, key: &DataKey) {
     env.storage()
         .persistent()

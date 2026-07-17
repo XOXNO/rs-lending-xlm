@@ -26,7 +26,6 @@ use crate::{Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
-    /// Borrows one or more assets against an existing account, sending proceeds
     /// to `to` (default `caller`). Re-checks account health on pool-returned
     /// indexes. Does not create accounts — supply first if needed.
     ///
@@ -93,7 +92,6 @@ pub(crate) fn process_borrow(
     );
     settle_borrow(env, &recipient, &mut account, &aggregated, &mut cache);
 
-    // Panic reverts the atomic tx (pool transfer included).
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
 
     finalize_position_flow(
@@ -116,7 +114,6 @@ fn settle_borrow(
 ) {
     let entries = build_borrow_entries(env, account, aggregated);
     let pool_addr = cache.cached_pool_address();
-    // Pool returns mutations in the same order as `entries`.
     let results = pool_borrow_call(env, &pool_addr, recipient, &entries);
     apply_borrow_results(env, account, &entries, &results, cache);
 }
@@ -180,7 +177,6 @@ fn finish_borrow_leg(
     ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
 
     cache.put_market_index(hub_asset, &result.market_index);
-    // Record pool-returned actual amount (may differ from the requested leg).
     cache.record_debt_position_update(
         action,
         hub_asset,
@@ -191,7 +187,6 @@ fn finish_borrow_leg(
     update_or_remove_debt_position(account, hub_asset, &position);
 }
 
-/// Creates strategy debt on `hub_debt`'s market through the shared borrow gates
 /// and returns the asset amount received by the controller.
 ///
 /// Used by multiply and swap-debt. Charges the market's configured flash-loan fee.
@@ -265,7 +260,7 @@ fn borrow_strategy_inner(
         AccountPositionType::Borrow,
     );
 
-    // Flash-loan fee lives on pool market params, not spoke config.
+    // Flash fee from pool market params.
     let flash_fee = fee_override.unwrap_or_else(|| {
         let fee_bps = cache.cached_pool_sync_data(&hub_debt).params.flashloan_fee;
         Bps::from(i128::from(fee_bps)).flash_loan_fee_on(env, amount)

@@ -70,11 +70,10 @@ flow_defindex_strategy() {
     # by public strategy views, so the checks below are balance-based.
     assert_dfx_eq dfx_asset "$SAC_DFX" asset
 
-    # Deposit guard: non-positive amount (#460 AmountNotPositive).
+    # #460 AmountNotPositive.
     xfail dfx_deposit_zero 'Error\(Contract, #460\)' "$DAVE" "$STRATEGY" -- deposit \
         --amount 0 --from "$DAVE_ADDR"
 
-    # Deposit -> controller.supply. Returns the vault's collateral balance.
     local deposit=$((1000 * DFX_UNIT)) reported
     reported=$(inv dfx_deposit "$DAVE" "$STRATEGY" -- deposit \
         --amount "$deposit" --from "$DAVE_ADDR" | tr -d '"') || return 1
@@ -84,30 +83,26 @@ flow_defindex_strategy() {
     # Harvest publishes price_per_share from the supply index (no auth, no debt).
     inv dfx_harvest "$DAVE" "$STRATEGY" -- harvest --from "$DAVE_ADDR" >/dev/null || return 1
 
-    # Withdraw guards (all revert before any transfer; no state mutation).
+    # #460 zero; #461 over-balance / no position.
     xfail dfx_withdraw_zero 'Error\(Contract, #460\)' "$DAVE" "$STRATEGY" -- withdraw \
         --amount 0 --from "$DAVE_ADDR" --to "$DAVE_ADDR"
     xfail dfx_withdraw_over 'Error\(Contract, #461\)' "$DAVE" "$STRATEGY" -- withdraw \
         --amount $((reported * 2 + DFX_UNIT)) --from "$DAVE_ADDR" --to "$DAVE_ADDR"
-    # No mapped account for CAROL (never deposited) -> InsufficientBalance (#461).
     xfail dfx_withdraw_no_pos 'Error\(Contract, #461\)' "$CAROL" "$STRATEGY" -- withdraw \
         --amount "$DFX_UNIT" --from "$CAROL_ADDR" --to "$CAROL_ADDR"
 
-    # Partial withdraw pays the recipient directly; balance drops.
     local part=$((300 * DFX_UNIT))
     inv dfx_withdraw_partial "$DAVE" "$STRATEGY" -- withdraw \
         --amount "$part" --from "$DAVE_ADDR" --to "$DAVE_ADDR" >/dev/null || return 1
     assert_dfx_uint_lt dfx_balance_post_partial "$reported" balance --from "$DAVE_ADDR"
 
-    # Terminal exit: amount == balance maps to controller withdraw-all (0), which
-    # closes + deregisters the account; balance reports 0.
+    # amount == balance → controller withdraw-all (0); closes + deregisters.
     local remaining
     remaining=$(_dfx_view dfx_balance_pre_full balance --from "$DAVE_ADDR")
     inv dfx_withdraw_full "$DAVE" "$STRATEGY" -- withdraw \
         --amount "$remaining" --from "$DAVE_ADDR" --to "$DAVE_ADDR" >/dev/null || return 1
     assert_dfx_eq dfx_balance_closed 0 balance --from "$DAVE_ADDR"
 
-    # Re-deposit after a full exit opens a fresh account; balance is positive again.
     inv dfx_redeposit "$DAVE" "$STRATEGY" -- deposit \
         --amount $((500 * DFX_UNIT)) --from "$DAVE_ADDR" >/dev/null || return 1
     assert_dfx_uint_ge dfx_balance_reopened 1 balance --from "$DAVE_ADDR"

@@ -1,136 +1,161 @@
 # Protocol Invariants
 
-This reference records the lending protocol's runtime safety properties. Use it
-when reviewing changes to accounting, solvency, oracle pricing, storage, or
-governance boundaries.
+Runtime safety properties of XOXNO Lending. Use this when reviewing changes to
+accounting, solvency, oracles, storage, or governance.
 
-An invariant is a condition preserved by every successful operation. A break
-points to an implementation bug, an invalid configuration, or a missing
-validation step.
+An **invariant** is a condition every successful operation must preserve. A
+break means a bug, bad config, or missing validation.
 
-Runtime behavior comes from the Rust contracts. Module paths identify the code
-and verification assets that enforce each property.
+The Rust contracts are the source of truth. Paths below point at the code and
+checks that enforce each property.
 
 ## Scales
 
-| Domain | Scale | Purpose |
-|---|---:|---|
-| Asset-native | token decimals | Token transfers and user-entered amounts |
-| BPS | `10^4` | LTV, liquidation thresholds, fees, reserve factor, tolerances |
-| WAD | `10^18` | USD values, health factor, normalized prices |
-| RAY | `10^27` | Rates, indexes, scaled balances |
+| Domain | Scale | Use |
+|--------|------:|-----|
+| Asset-native | token decimals | Transfers, tracked cash, user amounts |
+| BPS | `10^4` | LTV, thresholds, fees, reserve factor, tolerances |
+| WAD | `10^18` | USD values, health factor, prices |
+| RAY | `10^27` | Rates, indexes, scaled shares, internal token amounts (`Ray::from_asset` / `to_asset*`) |
+
+Defined in `common/src/constants/shared.rs` (`BPS`, `WAD`, `RAY`).
 
 ## Evidence
 
-| Evidence | Location |
-|---|---|
-| Runtime code | `common/src/*`, `contracts/pool/src/*`, `contracts/controller/src/*` |
-| Certora rules | `certora/{common,pool,controller}/spec/*_rules.rs` |
-| Fuzz and property tests | `tests/fuzz/fuzz_targets/*`, `tests/test-harness/tests/*` |
+| Kind | Location |
+|------|----------|
+| Runtime | `common/src/*`, `contracts/pool/src/*`, `contracts/controller/src/*` |
+| Certora | `certora/{common,pool,controller}/spec/*_rules.rs` |
+| Fuzz / harness | `tests/fuzz/fuzz_targets/*`, `tests/test-harness/tests/*` |
 
-## Review Method
+## How to review a change
 
-For each protocol change:
+1. Find the section this change touches.
+2. Check the invariant statements against the modified path.
+3. Use the [verification matrix](#7-verification-matrix) for tests, fuzz, and Certora.
+4. Re-check storage and oracle assumptions when the change crosses contracts.
 
-1. Identify the section touched by the change.
-2. Check the invariant statements against the modified code path.
-3. Use the verification matrix near the end of this file to select tests,
-   fuzz targets, or Certora rules.
-4. Re-check storage and oracle assumptions when a change crosses contract
-   boundaries.
+---
 
-## 1. Numeric Model
+## 1. Numeric model
 
-### 1.1 Scale Boundaries
+### 1.1 Scale boundaries
 
-Convert values into the target scale before comparison, storage, or transfer.
-Token amounts enter protocol math in asset-native decimals. Solvency and prices
-use WAD. Rates, indexes, and scaled balances use RAY.
+Convert into the target scale before compare, store, or transfer.
 
-Scale bugs usually come from comparing asset-native values with WAD values,
-mixing WAD prices with RAY indexes, or truncating before conversion.
+| Boundary | Scale |
+|----------|-------|
+| User transfer / cash | asset-native (token decimals) |
+| Pool internal amounts, shares, indexes, rates | RAY |
+| USD risk (values, HF, oracle prices) | WAD |
+| Ratios (LTV, thresholds, fees, RF, tolerances) | BPS |
 
-### 1.2 Fixed-Point Rounding
+Token amounts enter as asset-native, then usually `Ray::from_asset` before
+index/share math. Views and solvency recompute actuals in RAY, then convert to
+asset-native at transfers or to WAD for USD valuation.
 
-Fixed-point multiplication and division use half-up rounding unless the call
-site explicitly chooses floor or truncation.
+Common failure modes: asset-native compared to WAD, WAD mixed with RAY, or
+floor/ceil applied on the wrong side of a convert.
+
+### 1.2 Fixed-point rounding
+
+Default multiply/divide on `Ray` / `Wad` is half-up via `mul_div_half_up`:
 
 ```text
-mul(a, b, precision) = (a * b + precision / 2) / precision
-div(a, b, precision) = (a * precision + b / 2) / b
+mul_div_half_up(x, y, d) = (x * y + d / 2) / d   // I256 intermediate
+mul(a, b) = mul_div_half_up(a, b, precision)      // precision = RAY or WAD
+div(a, b) = mul_div_half_up(a, precision, b)
 ```
 
-Each operation may differ from the exact value by at most half of one unit in
-the target precision. Review call sites that change operation order, because
-moving a division earlier can change the rounded result.
+Half-up is off by at most half a unit in the result precision. Floor and ceil
+are required at risk and payout boundaries:
 
-### 1.3 Scaled Balances
+- **Floor** — collateral valuation, LTV/threshold weighting, HF numerator/div,
+  supply credit (never overstate safety).
+- **Ceil** — debt valuation, borrow debit to asset (never understate debt).
+- **Half-up** — accrual, indexes, utilization, default rescales.
 
-Positions store scaled balances. Current balances are reconstructed from the
-latest market indexes.
+Changing operation order can change the rounded result. Gate paths fix order
+and direction at every step.
+
+### 1.3 Scaled balances
+
+Positions store scaled shares (RAY). Reconstruction is half-up Ray mul
+(`scaled.mul(index)`):
 
 ```text
-supply_actual = scaled_supply * supply_index / RAY
-borrow_actual = scaled_debt   * borrow_index / RAY
+supply_actual_ray = scaled_supply * supply_index / RAY
+borrow_actual_ray = scaled_debt   * borrow_index / RAY
 ```
 
-For a fixed scaled amount, higher indexes produce higher reconstructed
-balances. Storage writes update scaled shares; views and solvency checks derive
-actual amounts from the current indexes.
+Higher indexes raise actuals for a fixed scaled amount. Storage writes update
+shares; views and solvency recompute actuals. User-facing asset units may
+further rescale with half-up, floor, or ceil depending on the flow.
 
-### 1.4 Borrow Index
+### 1.4 Borrow index
 
-When elapsed time, utilization, and borrow rate are non-negative, borrow
-interest cannot reduce the borrow index.
+For non-negative borrow rate and any elapsed time:
 
 ```text
-interest_factor >= RAY
+interest_factor = compound_interest(rate_per_ms, delta_ms) >= RAY
+new_borrow_index = min(old_borrow_index * interest_factor, MAX_BORROW_INDEX_RAY)
 new_borrow_index >= old_borrow_index
 ```
 
-The rate model is capped by `MAX_BORROW_RATE_RAY`. Pool accrual splits long
-idle intervals into bounded chunks before applying compound interest.
+Accrual rate is `min(model(U), params.max_borrow_rate)`. Config requires
+`params.max_borrow_rate <= MAX_BORROW_RATE_RAY` (`2 * RAY` annual). Rates in
+the compound step are per millisecond.
 
-### 1.5 Supply Index
+Long idle intervals accrue in chunks of at most `MAX_COMPOUND_DELTA_MS`
+(one year of milliseconds).
 
-The supply index cannot decrease during normal interest accrual.
+### 1.5 Supply index
+
+Normal accrual never decreases the supply index:
 
 ```text
 new_supply_index >= old_supply_index
 ```
 
-`apply_bad_debt_to_supply_index` is the only path allowed to reduce it. That
-path floors the result at `SUPPLY_INDEX_FLOOR_RAW = 10^18` raw RAY. Revenue
-accrual stops at or below the floor.
+Only `apply_bad_debt_to_supply_index` may reduce it, floored at
+`SUPPLY_INDEX_FLOOR_RAW = WAD` (`10^18` raw RAY units).
 
-### 1.6 Empty-Market Utilization
+While `supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW`, protocol fee is not
+minted into revenue or supplied scaled shares. Supplier rewards may still raise
+the supply index when borrow interest is positive.
 
-Utilization is borrowed value divided by supplied value.
+### 1.6 Empty-market utilization
 
 ```text
-U = borrowed_actual / supplied_actual
+U = div(borrowed_actual, supplied_actual)   // half-up Ray
 ```
 
-If supplied value is zero, utilization is zero. This avoids undefined rates for
-new or fully emptied markets.
+If `supplied_actual == 0` (or scaled supplied is zero), `U = 0`. Empty markets
+must not produce undefined rates.
 
-## 2. Pool Accounting
+---
 
-### 2.1 Interest Split
+## 2. Pool accounting
 
-Borrow-index accrual creates interest. The reserve factor divides that interest
-between protocol revenue and supplier rewards.
+### 2.1 Interest split
+
+Borrow-index growth on scaled debt creates interest. Reserve factor splits it
+(half-up BPS on the fee; suppliers take the residual):
 
 ```text
 accrued_interest = new_total_debt - old_total_debt
-protocol_fee     = accrued_interest * reserve_factor_bps / BPS
+protocol_fee     = accrued_interest * reserve_factor / BPS   // half-up
 supplier_rewards = accrued_interest - protocol_fee
 
-accrued_interest = supplier_rewards + protocol_fee
+accrued_interest = supplier_rewards + protocol_fee           // exact
 ```
 
-Fee and supplier paths share the same source amount. Any new accrual branch
-needs to preserve the split identity above.
+Supplier rewards raise the supply index. Protocol fee is scaled by
+`/ supply_index` and booked via `add_protocol_revenue` only when the market has
+positive supply and the supply index is above the floor. Otherwise the fee is
+dropped (not minted as revenue).
+
+Any new accrual branch must keep the identity above.
 
 ```mermaid
 flowchart LR
@@ -142,323 +167,441 @@ flowchart LR
     F --> G["supplier rewards"]
     F --> H["protocol fee"]
     G --> I["supply index"]
-    H --> J["revenue_ray"]
+    H --> J["revenue when bookable"]
 ```
 
-### 2.2 Revenue Bound
+### 2.2 Revenue bound
 
-Protocol revenue is stored as a scaled supply claim.
+Protocol revenue is a scaled supply claim:
 
 ```text
 0 <= revenue_ray <= supplied_ray
 ```
 
-Fee accrual increases `revenue_ray` and `supplied_ray` together. Revenue then
-appreciates with the supply index until it is claimed.
+`add_protocol_revenue` mints the same fee-scaled shares into `revenue` and
+`supplied`. Claims burn the same scaled amount from both. Seize of deposit dust
+reattributes existing `supplied` shares into `revenue` without changing
+`supplied`. Revenue then follows the supply index until claimed.
 
-### 2.3 Reserve Availability
+### 2.3 Reserve availability
 
-No operation may transfer more liquidity than the pool currently holds. This
-cap applies to borrow, withdraw, strategy borrow legs, flash-loan starts, and
+No path may pay out more **tracked** liquidity (`cash`) than the pool holds.
+That covers borrow, withdraw, strategy borrow legs, flash-loan principal, and
 revenue claims.
 
-Reserve checks belong before token transfers. A path that mutates accounting
-first and checks liquidity later can leave state inconsistent after a failed
-transfer.
+Gate with `require_reserves` (or `amount = cash.min(...)` on claim) before
+external token transfer. `cash` ignores direct donations. Flash-loan principal
+is balance-checked on the SAC and does not debit `cash`. Only the fee credits
+`cash` after repay.
 
-### 2.4 Revenue Claims
+### 2.4 Revenue claims
 
-A revenue claim cannot exceed current reserves. If reserves are lower than the
-realized treasury claim, the pool transfers the available amount and burns the
-matching share of scaled revenue. The burn keeps `revenue_ray <= supplied_ray`.
+A claim cannot exceed current tracked reserves. If `cash` is short of the
+unscaled treasury claim, the pool pays `min(cash, treasury_actual)` and burns
+the matching fraction of scaled revenue (and the same amount from `supplied`)
+so `revenue_ray <= supplied_ray` holds.
 
-### 2.5 Flash-Loan Repayment
+### 2.5 Flash-loan repayment
 
-Every pool flash loan exits with the original pool balance plus the fee.
-
-```text
-pool_balance_after >= pool_balance_before + fee
-```
-
-`pool.flash_loan` snapshots the pool balance, sends funds to the receiver,
-executes the receiver callback, pulls `amount + fee`, and checks the final
-balance.
-
-## 3. Account Solvency
-
-### 3.1 Health Factor
-
-Health factor is calculated in USD WAD.
+Balances below are the pool SAC balance for the loaned asset
+(`token.balance(pool)`), not tracked `cash`.
 
 ```text
-weighted_collateral = sum(collateral_value * liquidation_threshold_bps / BPS)
-total_borrow        = sum(borrow_value)
-HF                  = weighted_collateral / total_borrow
+sac_after_payout   == sac_before - amount
+sac_after_callback == sac_after_payout
+sac_after_repay    == sac_before + fee
+cash_after         == cash_before + fee    // principal does not touch cash
 ```
 
-Rules:
+`pool.flash_loan` (owner/controller only):
 
-- Debt plus `HF >= 1.0 WAD`: the account is solvent.
-- Debt plus `HF < 1.0 WAD`: liquidation is available.
-- No debt: `HF = i128::MAX`.
-- Debt present but negligible against collateral: the division saturates to
-  `i128::MAX` instead of reverting (`div_floor_saturating`). A tiny-debt,
-  large-collateral position stays a well-defined solvent HF rather than
-  trapping the read.
+1. Require `amount > 0`, `fee >= 0`.
+2. Liquidity gate: `cash >= amount` (`require_reserves`).
+3. Snapshot SAC `pre`; transfer `amount` to receiver; require exact
+   `sac == pre - amount`.
+4. Callback `execute_flash_loan(...)`; require SAC still exactly
+   `pre - amount`.
+5. Require allowance ≥ `amount + fee`, then `transfer_from` that total; require
+   exact `sac == pre + fee`.
+6. Always `cash += fee`. Protocol revenue shares mint only when fee > 0,
+   suppliers exist, and supply index is above the floor.
 
-The health factor uses liquidation thresholds, not LTV. A borrow check that
-uses liquidation thresholds would admit too much debt.
+Exact equality (not ≥). Under-repay or mid-callback SAC moves revert
+`InvalidFlashloanRepay`. Assumes a well-behaved SAC (ADR 0006).
 
-### 3.2 Borrow Admission
+---
 
-LTV-weighted collateral caps new debt.
+## 3. Account solvency
+
+### 3.1 Health factor
+
+USD WAD with directed rounding (floor collateral, ceil debt; HF floor-divides
+and saturates):
 
 ```text
-post_borrow_total_debt <= sum(collateral_value * loan_to_value_bps / BPS)
+gate_collateral_i   = position_value_floor(supply_i, price_i)
+weighted_collateral = sum floor(gate_collateral_i * liquidation_threshold_bps / BPS)
+total_debt          = sum position_value_ceil(debt_j, price_j)
+HF                  = weighted_collateral.div_floor_saturating(total_debt)
 ```
 
-LTV gates new borrowing. The liquidation threshold gates liquidation.
-Configuration requires `liquidation_threshold_bps > loan_to_value_bps`.
+Risk weights are the **stamped** per-position `liquidation_threshold` and
+`loan_to_value`, not necessarily the live spoke row until a refresh path runs.
 
-A borrow whose raw amount floors to zero scaled debt shares is rejected
-(`BorrowRoundsToZeroShares`) rather than admitted. At an extreme borrow index
-a small enough raw amount can round down to zero shares; accepting it would
-still debit reserves and transfer real tokens while recording no debt — a
-free borrow.
+| Condition | Result |
+|-----------|--------|
+| Debt and `HF >= 1.0 WAD` | Solvent (not liquidatable) |
+| Debt and `HF < 1.0 WAD` | Liquidatable |
+| No debt | `HF = i128::MAX` (views may short-circuit before oracle) |
+| Tiny debt vs large collateral | Saturates to `i128::MAX` |
 
-### 3.3 Liquidation Progress
+HF uses **liquidation thresholds**, not LTV. LTV is the tighter borrow-capacity
+weight (`loan_to_value_bps < liquidation_threshold_bps` at config).
 
-Liquidation is allowed only when `HF < 1.0 WAD`. Repayment is sized to restore
-the account to its spoke's liquidation-curve target health factor
-(`DEFAULT_LIQUIDATION_TARGET_HF_WAD = 1.02 WAD` unless the spoke overrides it);
-a requested repayment above that ideal amount is capped. The liquidation bonus
-interpolates linearly between the asset's base bonus and its protocol max: the
-scale is 0 at the target health factor, reaches 1 at or below
-`hf_for_max_bonus_wad`, and the increment is weighted by
-`liquidation_bonus_factor_bps`.
+### 3.2 Borrow admission
 
-Liquidation review needs before-and-after account snapshots: debt repaid,
-collateral seized, protocol fee applied to the bonus, and any bad debt pushed
-through the supply-index floor path.
+After the pool records debt (user `borrow`; strategy paths at finalize), any
+account with debt must satisfy (same floor/ceil valuation as §3.1):
+
+```text
+total_debt     <= ltv_collateral
+                  where ltv_collateral = sum floor(gate_collateral_i * LTV_bps / BPS)
+health_factor  >= 1.0 WAD
+ltv_collateral >= MinBorrowCollateralUsd   // when instance floor ≠ 0
+```
+
+LTV (stamped `position.loan_to_value`) caps new debt capacity. Liquidation
+threshold weights HF and liquidation (§3.1, §3.3). Config requires
+`liquidation_threshold_bps > loan_to_value_bps` (strict).
+
+Positive raw borrow that floors to zero scaled debt shares reverts in the pool
+(`BorrowRoundsToZeroShares`). Otherwise cash would leave with no debt recorded.
+
+### 3.3 Liquidation progress
+
+Only when `HF < 1.0 WAD`. The account spoke supplies a liquidation curve
+(defaults stamped at spoke create unless overridden):
+
+- `liquidation_target_hf_wad` — default `1.10 WAD`
+- `hf_for_max_bonus_wad` — default `0.80 WAD`
+- `liquidation_bonus_factor_bps` — default `10_000` (1.0×)
+
+**Bonus** (base/max from the account supply mix; factor scales only the
+increment above base):
+
+```text
+bonus = base + factor × (max − base) × min(1, (target − hf) / (target − hf_for_max))
+```
+
+Scale is 0 at `target` and 1 at or below `hf_for_max_bonus`. Bonus may then be
+reduced by the HF-preserving cap, or forced to base with full close when no
+safe partial exists.
+
+**Repay sizing:** ideal USD repay restores HF toward `target` for the chosen
+bonus. Liquidator payments above ideal are capped. Dust residual debt below
+`BAD_DEBT_USD_THRESHOLD` (5 USD WAD) expands ideal to full close.
+
+**Seizure:** `repay_usd × (1 + bonus)` pro-rata across supply. Protocol fee is
+listing `liquidation_fees` on the bonus portion. After apply, residual bad debt
+may be socialized (§4.4).
 
 ```mermaid
 flowchart TD
     A["HF < 1.0 WAD?"] -->|no| R["revert"]
-    A -->|yes| B["resolve spoke liquidation curve"]
-    B --> C["size repayment to target HF"]
-    C --> D["interpolate bonus from HF depth"]
-    D --> E["repay debt"]
-    E --> F["seize collateral + bonus (per-asset caps)"]
-    F --> G["protocol fee on bonus"]
-    G --> H{"bad-debt threshold met?"}
-    H -->|yes| I["socialize loss into supply index"]
-    H -->|no| J["persist account state"]
+    A -->|yes| B["resolve spoke curve + base/max bounds"]
+    B --> C["interpolate bonus from HF depth"]
+    C --> D["size ideal repay to target HF"]
+    D --> E["cap paid repay to ideal"]
+    E --> F["seize pro-rata incl. bonus"]
+    F --> G["protocol fee on bonus portion"]
+    G --> H{"debt > coll and coll ≤ 5 WAD USD?"}
+    H -->|yes| I["socialize via supply index"]
+    H -->|no| J["persist / cleanup if empty"]
     I --> J
 ```
 
-## 4. Market and Oracle Configuration
+---
 
-### 4.1 Market Parameters
+## 4. Market and oracle configuration
 
-Market configuration enforces these constraints:
+### 4.1 Market parameters
+
+Spoke listing risk (`validate_risk_bounds` / `validate_liquidation_fees`):
 
 - `liquidation_threshold_bps > loan_to_value_bps`
 - `liquidation_threshold_bps <= BPS`
 - `liquidation_threshold_bps * (BPS + liquidation_bonus_bps) <= BPS * BPS`
 - `liquidation_fees_bps <= BPS`
-- `flashloan_fee_bps <= MAX_FLASHLOAN_FEE_BPS`
-- supply cap and borrow cap are non-negative
-- `reserve_factor_bps < BPS`
-- `0 < mid_utilization_ray < optimal_utilization_ray < RAY`
-- `optimal_utilization_ray <= max_utilization_ray <= RAY`
-- rate slopes are monotonic and bounded by `MAX_BORROW_RATE_RAY`
-- `MinBorrowCollateralUsd` is non-negative
+- `supply_cap, borrow_cap >= 0` (`0` and `i128::MAX` disable; controller also
+  enforces asset-domain ceiling)
 
-When a per-spoke liquidation-curve override is set
-(`validate_liquidation_curve`):
+Pool market params (`MarketParamsRaw::verify` → `InterestRateModel::verify`):
 
-- `WAD < target_hf_wad <= MAX_LIQUIDATION_TARGET_HF_WAD`
+- `flashloan_fee` (bps) `<= MAX_FLASHLOAN_FEE_BPS` (500)
+- `reserve_factor < BPS`
+- `0 < mid_utilization < optimal_utilization < RAY`
+- `optimal_utilization <= max_utilization <= RAY`
+- `base_borrow_rate >= 0`
+- non-decreasing rates: `base <= slope1 <= slope2 <= slope3 <= max_borrow_rate`
+- `max_borrow_rate > base_borrow_rate` and
+  `max_borrow_rate <= MAX_BORROW_RATE_RAY`
+
+Instance floor:
+
+- `MinBorrowCollateralUsd` (`floor_wad`) `>= 0`
+
+Per-spoke liquidation curve (`validate_liquidation_curve`):
+
+- `WAD < target_hf_wad <= MAX_LIQUIDATION_TARGET_HF_WAD` (10 WAD)
 - `0 < hf_for_max_bonus_wad < target_hf_wad`
-- `bonus_factor_bps <= BPS`
+- `bonus_factor_bps <= BPS` (0 allowed)
 
-The liquidation-bonus bound is a per-asset seizure ceiling. There is no flat
-`MAX_LIQUIDATION_BONUS`. `MinBorrowCollateralUsd` gates debt-bearing accounts
-through the post-pool LTV collateral check.
+There is no flat `MAX_LIQUIDATION_BONUS`. The product bound above is the
+per-asset listing seizure ceiling. When `MinBorrowCollateralUsd ≠ 0`,
+debt-bearing accounts need LTV-weighted collateral USD WAD ≥ floor after
+post-pool solvency checks.
 
-### 4.2 Oracle Setup
+### 4.2 Oracle setup
 
 For each active market:
 
-- token decimals come from the token contract
-- per-source decimals come from the configured oracle source
-- Reflector decimals fall in `[1, 18]`
-- RedStone decimals are fixed
-- Xoxno decimals are probed from the adapter's SEP-40 `decimals()` at listing
-- `PrimaryWithAnchor` requires an anchor source
-- `primary != anchor`
-- in production, primary and anchor come from different providers and never
-  share a contract address (the dual-ABI Xoxno adapter cannot back both legs)
-- required feeds resolve during configuration
-- Reflector `Twap` sources require `twap_records <= 12`
-- stale-price windows stay in `[60, 86_400]` seconds
-- sanity bounds use `0 < min_sanity_price_wad < max_sanity_price_wad`
-- tolerance is a single band built from one `tolerance_bps` input within
-  `[MIN_TOLERANCE, MAX_TOLERANCE]` (150..2,500 BPS)
+- Token decimals from the token contract; per-source decimals discovered
+  on-chain (Reflector / Xoxno SEP-40 `decimals()`; RedStone fixed at 8)
+- Reflector source decimals in `[1, 18]`
+- `PrimaryWithAnchor` requires an anchor; primary and anchor must not
+  `reads_same_feed_as` (same Reflector contract/asset/mode, or same
+  RedStone/Xoxno `(contract, feed_id)`)
+- Production (`not(feature = "testing")`): different provider kinds and
+  different contracts; primary must not be spot (`SpotOnlyNotProductionSafe`.
+  Reflector Spot and all RedStone/Xoxno legs count as spot)
+- Live feed probe at configuration time
+- Reflector TWAP: `0 < twap_records <= 12`
+- Stale windows in `[60, 86_400]` seconds
+- Sanity: `0 < min_sanity_price_wad < max_sanity_price_wad` and
+  `max_sanity_price_wad <= MAX_REASONABLE_PRICE_WAD`
+- Tolerance from one `tolerance_bps` in `[MIN_TOLERANCE, MAX_TOLERANCE]`
+  (150..2_500 BPS)
 
-Operators do not supply token or oracle decimals directly; the contracts read
-them on-chain during configuration.
+Operators do not hand-enter token or oracle decimals; contracts read them
+on-chain.
 
-### 4.3 Price Resolution
+### 4.3 Price resolution
 
-Supported `OracleStrategy` values:
+| Strategy | Behavior |
+|----------|----------|
+| `Single` | Primary only. Spot allowed. Sanity band capped at ±10% midpoint-relative. Stored tolerance is unused at compose time. |
+| `PrimaryWithAnchor` | Both legs required. Production rejects a spot primary. Tolerance band applies to the primary/anchor ratio in BPS. |
 
-- `Single`: use the primary source only. A `Single` strategy with Reflector
-  `Spot` is rejected in non-testing builds.
-- `PrimaryWithAnchor`: use primary and anchor sources, then apply tolerance and
-  policy checks.
+Under `PrimaryWithAnchor` (both legs fresh):
 
-When primary and anchor prices are both available:
+1. Ratio inside `[lower_ratio_bps, upper_ratio_bps]` → integer midpoint
+   `(primary + anchor) / 2`
+2. Outside the band → revert `UnsafePriceNotAllowed`
 
-1. Inside the tolerance band, the resolved price is the midpoint of the two.
-2. Outside the band, resolution reverts with `UnsafePriceNotAllowed`.
+Per-source future-skew and staleness run at each provider read. Composed final
+price must be `> 0` and inside the sanity band. Missing or stale either leg
+reverts. No primary-only fallback. A flow that skips pricing does so by not
+calling the oracle at all (ADR 0004), never by relaxing validation of a price
+once read.
 
-Both sources are required and fail closed: a missing, stale, or unreadable
-primary or anchor reverts the read. There is no permissive out-of-band path and
-no degraded primary-only mode. Permissiveness ("by omission") exists only as a
-flow choosing not to read a price at all (ADR 0004: Oracle Policy By Flow) —
-never as relaxed validation of a price once read.
+**Call-site policy:** `repay` never prices. Debt-free `withdraw` skips
+`require_post_pool_risk_gates` (empty borrow map). Fail-closed pricing:
+`borrow`, debt-bearing `withdraw`, `liquidate`, `clean_bad_debt`, debt-leaving
+strategies, and price-resolving views. Full table: ADR 0004.
 
-**Call-site policy**: Repay and pure debt-free withdraw paths skip pricing. All
-risk-affecting flows that need prices (borrow, withdraw-with-debt, liquidation
-sizing/HF, views that drive decisions) use the strict fail-closed path above.
-See ADR 0004 for the full table of which flows read the oracle.
-
-### 4.4 Bad Debt Socialization and Supply Index Floor (ADR 0007)
-
-Bad debt is socializable only when debt exceeds collateral *and* the collateral USD value is at or below the small threshold (5 WAD). `clean_bad_debt` is permissionless (re-validates the predicate on call). Seizure processes both sides; supply index is pulled down (subject to the floor) only on the seized supply positions. A `CleanBadDebtEvent` is emitted. When a debt listing is per-spoke `paused`, the liquidation repay leg reverts (tainted-debt), while collateral seizure and clean_bad_debt remain available.
-
-Oracle samples dated beyond the clock-skew window always revert. Review new
-oracle code for timestamp handling, stale-cache behavior, and WAD
-normalization.
+Oracle timestamps beyond `MAX_FUTURE_SKEW_SECONDS` (60s) always revert.
 
 ```mermaid
 flowchart TD
-    A["token_price(asset)"] --> B{"cache hit?"}
-    B -->|yes| Z["return cached feed"]
-    B -->|no| C{"market usable?"}
-    C -->|no| R1["revert"]
-    C -->|yes| D{"OracleStrategy"}
-    D -->|Single| S["primary source"]
-    D -->|PrimaryWithAnchor| T["primary + anchor"]
-    S --> E["staleness, sanity, future checks"]
-    T --> E
-    E --> F{"strategy"}
-    F -->|Single| G["primary price"]
-    F -->|PrimaryWithAnchor| H{"inside tolerance band?"}
+    A["token_price(asset)"] --> B{"tx cache hit?"}
+    B -->|yes| Z["return cached"]
+    B -->|no| C["cycle guard + load AssetOracle"]
+    C -->|missing / pending| R1["revert"]
+    C -->|ok| D["read primary + future + stale"]
+    D --> E{"OracleStrategy"}
+    E -->|Single| F["final = primary"]
+    E -->|PrimaryWithAnchor| G["read anchor + future + stale"]
+    G --> H{"ratio in band?"}
+    H -->|no| R2["UnsafePriceNotAllowed"]
     H -->|yes| I["midpoint"]
-    H -->|no| R2["revert"]
-    G --> Z
-    I --> Z
+    F --> J{"final > 0 and in sanity band?"}
+    I --> J
+    J -->|no| R3["revert"]
+    J -->|yes| K["cache write"]
+    K --> Z
 ```
 
-## 5. Storage and Boundaries
+### 4.4 Bad debt and supply-index floor (ADR 0007)
 
-### 5.1 Governance, Controller, and Pool Boundary
+Socializable only when total debt USD > total collateral USD **and** total
+collateral USD ≤ 5 WAD (`BAD_DEBT_USD_THRESHOLD`). Runs automatically after
+liquidation when residual still qualifies, or via permissionless
+`clean_bad_debt` (caller auth + not flash-loaning), which re-checks the same
+predicate.
 
-Governance owns the production controller and routes protocol-admin changes
-through typed timelock proposers. The controller depends on the pool ABI, not
-pool internals.
+`execute_bad_debt_cleanup` seizes both sides in one `pool.seize_positions`
+batch:
 
-The central pool is owner-gated. Accounting and maintenance mutations require
-controller ownership, pool WASM upgrades require the owner, and the pool does
-not make protocol-level risk decisions.
+| Seized side | Pool effect |
+|-------------|-------------|
+| **Borrow** | Unscale debt → `apply_bad_debt_to_supply_index` (capped at total supplied value, floored at `SUPPLY_INDEX_FLOOR_RAW`) |
+| **Deposit** | Credit scaled amount to pool **revenue**; does not move the supply index |
 
-### 5.2 Account Storage
+Emits `CleanBadDebtEvent` and removes the account.
 
-Account state is split into three storage families (see ADR 0002):
+If the **debt** listing is spoke-`paused`, liquidation repay reverts
+(tainted-debt). Collateral seizure and `clean_bad_debt` stay available.
+Underwater positions with collateral above 5 WAD USD are not socializable
+here; further liquidation must wind them down.
 
-- `AccountMeta(account_id)`
-- `SupplyPositions(account_id): Map<HubAssetKey, AccountPositionRaw>`
-- `BorrowPositions(account_id): Map<HubAssetKey, DebtPositionRaw>`
+---
 
-The storage family identifies the side (per-side scaled balances). Keys are
-`HubAssetKey` (hub + asset) so markets on different hubs are isolated.
-Collateral positions carry the open-time (or refreshed) risk snapshot from the
-spoke/asset config. Debt positions carry only the scaled share. Position rows
-do not duplicate asset, account id, or side.
+## 5. Storage and boundaries
 
-Side-map writes remove empty maps and extend account metadata TTL when metadata
-exists. Account removal deletes metadata and both side maps. Risk params on
-collateral positions are refreshed via `update_account_threshold` flows.
+### 5.1 Governance, controller, pool
 
-### 5.3 TTL Maintenance
+Production ownership chain: governance → controller → pool.
 
-Persistent account state and shared protocol state require explicit TTL
-extension. Keeper keepalive covers:
+Governance routes structural and risk-loosening admin through a closed
+`AdminOperation` enum and the timelock. Incident paths bypass delay: GUARDIAN
+(`pause`, tighten spoke flags), ORACLE (sanity-band move within rules), and
+owner-only immediate revoke of GUARDIAN/ORACLE. Resume is timelocked
+`AdminOperation::Unpause` only.
 
-- shared market and spoke state
-- account metadata and position maps
-- governance, controller, and pool instance state
-- the central pool's asset-keyed `Params` and `State` rows
+The controller calls the pool only through the pool ABI. Pool mutators are
+`#[only_owner]`. The pool does not evaluate account HF/LTV or liquidation
+eligibility (market cash, util, and fee accounting only).
 
-Storage review should confirm that new persistent keys have a TTL path and that
-position updates do not force unrelated side maps into memory.
+### 5.2 Account storage (ADR 0002)
 
-### 5.4 Halt Controls (Pause, Freeze, and Tainted Debt)
+| Key | Content |
+|-----|---------|
+| `AccountMeta(account_id)` | Owner, spoke, mode |
+| `SupplyPositions(account_id)` | `Map<HubAssetKey, AccountPositionRaw>` |
+| `BorrowPositions(account_id)` | `Map<HubAssetKey, DebtPositionRaw>` |
+| `Delegates(account_id)` | Optional `Vec<Address>` (max 16); absent when empty |
 
-Three independent layers with deliberately different scopes (see ADR 0011):
+Position map keys are `HubAssetKey` (hub + asset). Collateral rows store scaled
+supply shares and a risk snapshot (LTV, LT, bonus, fees). Debt rows store
+scaled share only.
 
-- **Global pause** (`#[when_not_paused]` on controller): blocks risk-increasing and most mutating entrypoints (`supply`, `borrow`, strategy flows that increase exposure, `flash_loan`, `update_indexes`, `claim_revenue`, etc.). `withdraw`, `repay`, `liquidate`, and `clean_bad_debt` remain live. Global pause is immediate (never timelocked) and constructor/upgrade start paused.
-- **Per-spoke-asset `paused`**: blocks `supply`/`borrow`/`withdraw`/`repay` (including strategy equivalents) for that listing. Exits are blocked.
-- **Per-spoke-asset `frozen`**: blocks only new `supply`/`borrow`; `withdraw`/`repay` stay live (orderly wind-down).
+Empty side maps (and empty delegate lists) are pruned on write. Account removal
+deletes meta, both position maps, and `Delegates`.
 
-Liquidations and `clean_bad_debt` are never blocked by global pause or `frozen`. A narrow exception: when the *debt* side of a liquidation is per-asset `paused`, the repay leg reverts (tainted-debt gate); collateral seizure and `clean_bad_debt` are unaffected.
+Risk params re-stamp from spoke listing config via `update_account_threshold`,
+supply, and withdraw (and strategy supply legs). Borrow does not re-stamp
+collateral risk. Solvency uses last-stamped supply params until a refresh path
+runs.
 
-These layers are enforced via `stellar_macros::when_not_paused`, `enforce_spoke_asset_flags` in positions, and spoke config checks in risk/views/limits paths. Previews (`max_*`) correctly report 0 capacity under the relevant halt.
+### 5.3 TTL
 
-## 6. Design Commitments
+Persistent account and protocol-shared keys need explicit TTL extension.
+Instance storage is bumped on controller and pool hot paths.
 
-These choices are intentional. Changing any of them requires protocol review:
+- Account keys on touch: `AccountMeta`, `SupplyPositions`, `BorrowPositions`,
+  and `Delegates` when present.
+- Shared keys (spokes, listings, hubs, oracles, pool `Params`/`State`, and
+  related) renew on read/write and/or keeper.
+- Owner-authenticated `renew_account` re-bumps existing account keys.
 
-- Half-up rounding is the default for fixed-point multiplication and division.
-- Protocol revenue is stored as scaled supply.
-- Token and oracle decimals are discovered on-chain during configuration.
-- Account storage is split by side to avoid loading unrelated positions.
-- Strategy routes are validated against controller commitments, not trusted from
-  an off-chain quote or router response alone.
+Keeper (`services/keeper`) covers instances, oracles, hubs, spokes, per-account
+keys including `Delegates`, and pool `Params`/`State` for configured markets.
+Some keys (for example `SpokeAsset` / `SpokeUsage`) rely on activity and
+contract renew rather than keeper enumeration. Any new persistent key must have
+a renew path.
 
-## 7. Verification Matrix
+Position writes only persist the touched side (`PositionSides`). Unrelated side
+maps must not be rewritten.
+
+### 5.4 Halt controls (ADR 0011)
+
+Three layers:
+
+| Layer | Blocks | Exits / liquidations |
+|-------|--------|----------------------|
+| **Global pause** | All `#[when_not_paused]` entrypoints (list below) | `withdraw`, `repay`, `liquidate`, `clean_bad_debt` stay live |
+| **Spoke-asset `paused`** | supply/borrow/withdraw/repay for that listing (strategy legs share processors) | Exits blocked for that asset; liq debt-repay blocked (tainted-debt); coll seizure + `clean_bad_debt` live |
+| **Spoke-asset `frozen`** | new supply/borrow only | withdraw/repay live |
+
+**`#[when_not_paused]` complete set:** `supply`, `borrow`, `multiply`,
+`swap_debt`, `swap_collateral`, `repay_debt_with_collateral`,
+`migrate_from_blend`, `flash_loan`, `update_indexes`, `claim_revenue`,
+`add_rewards`, `update_account_threshold`.
+
+**Who sets global pause:** governance `pause(caller)` is GUARDIAN-gated and
+immediate. Resume is risk-loosening: only timelocked `AdminOperation::Unpause`
+(no governance immediate `unpause`). Controller `pause`/`unpause` are
+owner-only (owner = governance). Constructor and upgrade start or re-pause.
+
+**Spoke flags:** GUARDIAN `set_spoke_asset_flags` is immediate and tighten-only
+(`false → true` or stay; clear reverts `SpokeAssetFlagRelaxation`). Clearing
+rides timelocked `edit_asset_in_spoke`.
+
+**Previews under halt:**
+
+| Preview | Global pause | Spoke `paused` | Spoke `frozen` |
+|---------|--------------|----------------|----------------|
+| `max_supply` | 0 | 0 | 0 |
+| `max_borrow` | 0 | 0 | 0 |
+| `max_withdraw` | still computed (op live) | 0 | still computed (op live) |
+
+There is no `max_repay`. Debt-bearing `withdraw` and `liquidate` still read
+oracles while globally paused. Global pause is not an oracle killswitch; use
+per-asset `paused` for that market.
+
+---
+
+## 6. Design commitments
+
+Changing any of these needs protocol review:
+
+- Half-up rounding is the default for fixed-point mul/div; floor/ceil at risk
+  and payout boundaries
+- Protocol revenue is scaled supply
+- Token and oracle decimals are discovered on-chain at configuration
+- Account storage is split by side
+- Strategy routes are checked by controller balance delta, not trusted router
+  reports
+
+---
+
+## 7. Verification matrix
 
 | Area | Runtime | Verification |
-|---|---|---|
-| Numeric model | `common::math::fp`, `common::math::fp_core`, `common::rates`, pool cache and views | `math_rules`, `fp_math`, `fp_ops`, `index_rules`, `rates_and_index`, `interest_rules` |
-| Pool accounting | pool interest, reserve checks, revenue claims, flash-loan entrypoints | `solvency_rules`, `boundary_rules`, `flash_loan_rules`, `flow_e2e`, `flow_strategy`, `fuzz_strategy_flashloan` |
-| Account solvency | controller helpers, borrow and liquidation positions, pool seizure logic | `health_rules`, `position_rules`, `liquidation_rules`, `fuzz_liquidation_differential` |
-| Market and oracle configuration | validation modules, governance config, oracle tolerance math, cache reads | `oracle_rules`, `tolerance_math_rules`, oracle tests, config tests |
-| Storage and boundaries | governance contracts, pool ABI, account storage, TTL renewal, keeper `ExtendFootprintTtl` | build graph, governance/controller/pool tests, storage tests, `account_ttl_regression_tests` |
+|------|---------|--------------|
+| Numeric model | `common::math`, rates, pool cache/views | Certora: `math_rules`, `rates_rules`, `index_rules`, `interest_rules`; fuzz: `fp_math`, `fp_ops`, `rates_and_index` |
+| Pool accounting | interest, reserves, revenue, flash loan | Certora: `solvency_rules`, `boundary_rules`, `flash_loan_rules`, `conservation_rules`, `integrity_rules`; fuzz: `flow_e2e`, `flow_strategy`, `pool_native` |
+| Account solvency | HF, LTV, liquidation, seizure | Certora: `health_rules`, `position_rules`, `liquidation_rules`; fuzz/proptest: `flow_e2e`, harness liquidation tests |
+| Market / oracle / strategy | validation, tolerance, routes | Certora: `oracle_rules`, `tolerance_math_rules`, `strategy_rules`, `spoke_rules`; harness oracle/governance tests |
+| Storage / boundaries | governance, pool ABI, account TTL, keeper | contract/harness tests; `tests/test-harness/tests/meta/account_ttl_regression.rs`; Certora: `account_isolation_rules` |
 
-## 8. Re-Verification Checklist
+---
 
-Re-run the relevant tests, fuzz targets, and Certora rules after changes to:
+## 8. Re-verification checklist
 
-- fixed-point arithmetic, rate curves, or index updates
-- pool reserve accounting, `cash`, or protocol revenue accounting
-- liquidation, health-factor, or LTV admission logic
-- oracle configuration or price resolution
-- account storage layout or TTL keepalive paths
-- governance, controller, or pool ABI signatures
+Re-run relevant tests after changes to:
 
-Minimum properties to check:
+- fixed-point math, rate curves, indexes
+- pool reserves, `cash`, revenue
+- liquidation, HF, LTV admission
+- oracle config or price resolution
+- account storage or TTL
+- governance / controller / pool ABIs
 
-- scaled-to-actual reconstruction
+Minimum checks:
+
+- scaled → actual reconstruction
 - `revenue_ray <= supplied_ray`
 - interest split identity
-- health factor around `1.0 WAD`
-- borrow admission against LTV
-- supply-index floor during bad-debt socialization
-- reserve caps for borrow, withdraw, flash loan, and revenue claim
+- HF around `1.0 WAD`
+- borrow admission (LTV + HF + min floor)
+- supply-index floor on **debt** seize (bad debt)
+- reserve caps for borrow, withdraw, flash loan, revenue claim
+- flash-loan SAC equalities and `cash += fee`
 
-## Related Documents
+## Related
 
 - [README.md](../README.md)
+- [SCF_BUILD_ARCHITECTURE.md](../SCF_BUILD_ARCHITECTURE.md)
 - [SECURITY.md](../SECURITY.md)
+- [decisions/](./decisions/README.md)

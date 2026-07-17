@@ -39,7 +39,6 @@ pub(crate) fn build_observation(
     }
 }
 
-/// Rejects future timestamps and normalizes RedStone price.
 pub(crate) fn redstone_observation_from_price_data(
     env: &Env,
     price_data: &RedStonePriceData,
@@ -55,7 +54,6 @@ pub(crate) fn redstone_observation_from_price_data(
     build_observation(env, raw_price, decimals, write_ts, Some(package_ts))
 }
 
-/// Rejects future timestamps and normalizes Reflector price.
 pub(crate) fn reflector_observation_from_price_data(
     env: &Env,
     pd: &ReflectorPriceData,

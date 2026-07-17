@@ -1,8 +1,7 @@
 use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE};
 
 use crate::helpers::build_swap_steps;
-// 1. test_multiply_rejects_non_borrowable_debt -- asserts ASSET_NOT_BORROWABLE
-
+// ASSET_NOT_BORROWABLE
 #[test]
 fn test_multiply_rejects_non_borrowable_debt() {
     let mut t = LendingTest::new()
@@ -26,8 +25,7 @@ fn test_multiply_rejects_non_borrowable_debt() {
     );
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
-// 2. test_multiply_rejects_non_collateralizable -- asserts NOT_COLLATERAL
-
+// NOT_COLLATERAL
 #[test]
 fn test_multiply_rejects_non_collateralizable() {
     let mut t = LendingTest::new()
@@ -49,8 +47,7 @@ fn test_multiply_rejects_non_collateralizable() {
     );
     assert_contract_error(result, errors::NOT_COLLATERAL);
 }
-// 3. test_multiply_rejects_during_flash_loan -- asserts FLASH_LOAN_ONGOING
-
+// FLASH_LOAN_ONGOING
 #[test]
 fn test_multiply_rejects_during_flash_loan() {
     let mut t = LendingTest::new()

@@ -1,8 +1,5 @@
 //! Certora storage accessors for controller rules.
-//!
-//! Provides rule-friendly reads for account state, positions, and spoke data
-//! under the `certora` feature. The spec models hub 0 (single-hub): asset-keyed
-//! reads project onto `HubAssetKey { hub_id: 0, asset }`.
+//! Spec models hub 0: asset-keyed reads use `HubAssetKey { hub_id: 0, asset }`.
 
 #![allow(dead_code)]
 use super::*;
@@ -13,8 +10,7 @@ use crate::types::{
 use pool_interface::LiquidityPoolClient;
 use soroban_sdk::{Address, Env, Vec};
 
-/// Hub-0 coordinate for `asset`. The spec models the single default hub, so
-/// every asset-keyed rule read resolves to `HubAssetKey { hub_id: 0, asset }`.
+/// Hub-0 coordinate for `asset`.
 pub fn hub0(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,
@@ -31,8 +27,7 @@ pub fn get_position(
     let hub_asset = hub0(asset);
     match position_type {
         AccountPositionType::Deposit => get_supply_positions(env, account_id).get(hub_asset),
-        // Debt positions carry only the scaled share; risk params stay
-        // supply-side, so the collateral fields read as zero for debt.
+        // Debt has scaled share only; collateral risk fields are zero.
         AccountPositionType::Borrow => {
             get_debt_positions(env, account_id)
                 .get(hub_asset)
@@ -52,8 +47,7 @@ pub fn get_position_list(
     account_id: u64,
     position_type: AccountPositionType,
 ) -> Vec<Address> {
-    // Position maps key by `HubAssetKey`; the spec models hub 0, so project the
-    // keys back to their `asset` for the asset-keyed rule callers.
+    // Project hub-0 keys back to asset for asset-keyed rule callers.
     let keys: Vec<HubAssetKey> = match position_type {
         AccountPositionType::Deposit => get_supply_positions(env, account_id).keys(),
         AccountPositionType::Borrow => get_debt_positions(env, account_id).keys(),
@@ -77,11 +71,7 @@ pub fn get_account_attrs(env: &Env, account_id: u64) -> AccountAttributes {
 pub mod asset_pool {
     use super::*;
 
-    /// The protocol runs a single central pool resolved from instance storage
-    /// via `storage::get_pool`. The `_asset` param is retained so the
-    /// asset-keyed solvency-rule callers stay unchanged: the rules express
-    /// "after op on `asset`, the pool views for `asset` are consistent", which
-    /// still holds under the shared, asset-keyed-at-the-view-level pool.
+    /// Central pool from instance storage; `_asset` kept for asset-keyed callers.
     pub fn get_asset_pool(env: &Env, _asset: &Address) -> Address {
         crate::storage::get_pool(env)
     }

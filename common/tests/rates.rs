@@ -222,8 +222,7 @@ fn test_deposit_rate_zero_util() {
     );
 }
 
-// `update_borrow_index` boundary: `new_index > MAX` clamps, `== MAX` returns
-// MAX. Differentiates `>` from `==`/`>=` at the ceiling.
+// Borrow index at MAX returns MAX; above MAX clamps (not panic).
 
 #[test]
 fn test_update_borrow_index_at_max_does_not_panic() {
@@ -237,16 +236,13 @@ fn test_update_borrow_index_at_max_does_not_panic() {
 fn test_update_borrow_index_above_max_clamps() {
     let env = Env::default();
     let old_index = Ray::from(MAX_BORROW_INDEX_RAY);
-    // factor = 1 + 1 ulp; product exceeds MAX. Accrual clamps the index at
-    // the ceiling instead of panicking.
+    // factor = 1 + 1 ulp → product > MAX → clamp.
     let factor = Ray::from(RAY + 1);
     let new_index = update_borrow_index(&env, old_index, factor);
     assert_eq!(new_index.raw(), MAX_BORROW_INDEX_RAY);
 }
 
-// `simulate_update_indexes` early-return guard `if delta_ms == 0`: nonzero
-// delta plus live borrows accrues interest. Mutating `==` to `!=` returns
-// the input indexes unchanged; borrow index growth distinguishes the paths.
+// Nonzero delta + live debt must accrue (not a no-op).
 #[test]
 fn test_simulate_update_indexes_nonzero_delta_accrues() {
     use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
@@ -296,9 +292,7 @@ fn test_simulate_update_indexes_nonzero_delta_accrues() {
     );
 }
 
-// Multi-year deltas accrue through the 1-year chunk loop. A single
-// 8-term Taylor evaluation at x = 2 years underestimates e^x because each
-// omitted term is positive; the chunked result is greater.
+// Multi-year deltas use 1y chunks; chunked compound > single long Taylor eval.
 #[test]
 fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
     use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
@@ -363,17 +357,7 @@ fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
     assert!(chunked.borrow_index.raw() > one_year.borrow_index.raw());
 }
 
-// A borrower must not reduce realized debt by choosing when accrual runs.
-// Splitting one interval into two accrual calls can only raise both indexes,
-// so `split >= single` for borrow and supply alike.
-//
-// The upside gap is not rounding dust: above optimal utilization the kinked rate
-// steepens, so finer accrual snapshots the rising utilization sooner and books
-// interest closer to the continuous-time value that a single long chunk
-// under-books. That extra is backed by the matching debt-index rise and bounded
-// by the max borrow rate, so only a loose runaway guard applies here. Chaining
-// via `simulate_update_indexes` omits the per-chunk fee re-mint into scaled
-// supply, which would only push the split higher.
+// Split accrual cannot lower indexes vs a single shot (no borrow-time farming).
 #[test]
 fn test_split_accrual_never_reduces_borrow_index() {
     use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
@@ -423,33 +407,28 @@ fn test_split_accrual_never_reduces_borrow_index() {
         &mk(step1.borrow_index.raw(), step1.supply_index.raw(), split_at),
     );
 
-    // Non-farmability: cadence can only raise realized debt/rewards, never lower.
     assert!(
         split.borrow_index.raw() >= single.borrow_index.raw(),
-        "splitting accrual REDUCED the borrow index — a borrower could farm lower \
-         debt by timing update_indexes: split={} single={}",
+        "split must not lower borrow index: split={} single={}",
         split.borrow_index.raw(),
         single.borrow_index.raw()
     );
     assert!(
         split.supply_index.raw() >= single.supply_index.raw(),
-        "splitting accrual REDUCED the supply index: split={} single={}",
+        "split must not lower supply index: split={} single={}",
         split.supply_index.raw(),
         single.supply_index.raw()
     );
-    // Loose runaway guard: real rate-feedback drift is a few % here, never a
-    // multiple. Doubling the index over the interval from cadence alone = a bug.
+    // Cadence alone must not double the index (loose runaway guard).
     assert!(
         split.borrow_index.raw() <= single.borrow_index.raw() * 2,
-        "split accrual ran away vs single-shot (not rate-feedback): split={} single={}",
+        "split ran away vs single: split={} single={}",
         split.borrow_index.raw(),
         single.borrow_index.raw()
     );
 }
 
-// Compares compound_interest with e^0.5. Tolerance detects a sign flip on
-// any Taylor term (term2..term8). Truncation
-// bound at x = 0.5 is x^9/9! ≈ 5.4e-9 → 5.4e18 in Ray units.
+// compound_interest ≈ e^0.5; tolerance catches Taylor term sign flips.
 #[test]
 fn test_compound_interest_high_x_pins_all_taylor_terms() {
     let env = Env::default();
@@ -474,15 +453,7 @@ fn test_compound_interest_high_x_pins_all_taylor_terms() {
     );
 }
 
-// `calculate_borrow_rate`'s `utilization < mid_utilization` branch boundary:
-// at utilization == mid_utilization the correct (slope2) branch adds zero
-// contribution, while the mutant (`<=`) branch falls into the slope1 branch
-// and round-trips `mid_utilization.mul(slope1).div(mid_utilization)`. That
-// round-trip is not always an exact identity under half-up fixed-point
-// rounding, but the drift is usually too small (~1 raw unit) to survive the
-// final per-millisecond division. This slope1 value was chosen so the
-// drift lands on a rounding boundary of `MILLISECONDS_PER_YEAR` and remains
-// observable in the returned rate.
+// At util == mid: correct path adds 0 slope1; wrong `<=` leaks half-up drift.
 #[test]
 fn test_calculate_borrow_rate_mid_utilization_boundary_exact() {
     let env = Env::default();
@@ -500,12 +471,7 @@ fn test_calculate_borrow_rate_mid_utilization_boundary_exact() {
     );
 }
 
-// `calculate_borrow_rate`'s `utilization < optimal_utilization` branch
-// boundary: at utilization == optimal_utilization the correct (slope3)
-// branch adds zero contribution, while the mutant (`<=`) branch falls into
-// the slope2 branch and round-trips `range.mul(slope2).div(range)`. slope1
-// is zeroed so the region2 sum reduces to `base + slope2`, matching the
-// boundary fixture used above so the same rounding-boundary drift applies.
+// At util == optimal: correct path adds 0 slope2; wrong `<=` leaks drift.
 #[test]
 fn test_calculate_borrow_rate_optimal_utilization_boundary_exact() {
     let env = Env::default();
@@ -524,11 +490,7 @@ fn test_calculate_borrow_rate_optimal_utilization_boundary_exact() {
     );
 }
 
-// Independently replays `simulate_update_indexes_body`'s per-chunk accrual
-// and fee-reinvestment guard using only the public rate primitives. The
-// guard mirrors `add_protocol_revenue`'s early-return checks in
-// `contracts/pool/src/interest.rs`; comparing against this oracle lets each
-// test below assert exact equality on the real (mutation-tested) guard.
+// Public-primitive oracle for per-chunk accrual + fee reinvestment guards.
 fn oracle_accrual(
     env: &Env,
     params: &MarketParams,
@@ -729,8 +691,6 @@ fn test_simulate_guard_skips_reinvestment_when_supplied_zero() {
     assert_eq!(actual.supply_index.raw(), expected_supply_index.raw());
 }
 
-// ===== coverage gap-closure tests =====
-// test_rates_uncovered_guards (+6) common/src/rates.rs:59,128,219-222
 #[test]
 fn test_deposit_rate_reserve_factor_out_of_range_returns_zero() {
     let env = Env::default();

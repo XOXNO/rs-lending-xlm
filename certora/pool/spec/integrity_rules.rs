@@ -300,8 +300,7 @@ fn seize_position_zeroes_scaled_amount(
         asset.clone(),
         position(scaled_before),
     );
-    // Unit-return ABI: the zeroed scaled amount is observed as the seized debt
-    // shares leaving the market total.
+    // Unit-return ABI: seized debt shares leave the market total.
     cvlr_assert!(read_state(&e, &asset).borrowed == 0);
 }
 
@@ -367,7 +366,6 @@ fn pool_integrity_reachability(e: Env, admin: Address, asset: Address) {
     cvlr_satisfy!(state.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
-/// `add_rewards` preserves `revenue <= supplied`.
 #[rule]
 fn revenue_le_supplied_after_add_rewards(
     e: Env,
@@ -395,7 +393,6 @@ fn revenue_le_supplied_after_add_rewards(
     cvlr_assert!(state.revenue >= 0);
 }
 
-/// Flash-loan fees preserve `revenue <= supplied`.
 #[rule]
 fn flash_loan_revenue_supplied_lockstep(
     e: Env,

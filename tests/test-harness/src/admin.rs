@@ -6,18 +6,13 @@ use crate::helpers::{hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::view::AssetConfigView;
 
 impl LendingTest {
-    // Public accessors
-
-    /// Expose admin address for direct controller calls.
     pub fn admin(&self) -> Address {
         self.admin.clone()
     }
 
-    /// Expose controller address.
     pub fn controller_address(&self) -> Address {
         self.controller.clone()
     }
-    // Pause / Unpause
 
     pub fn pause(&self) {
         self.ctrl_client().pause();
@@ -26,17 +21,13 @@ impl LendingTest {
     pub fn unpause(&self) {
         self.ctrl_client().unpause();
     }
-    // Accumulator / Aggregator
 
     pub fn set_accumulator(&self, addr: &Address) {
         self.ctrl_client().set_accumulator(addr);
     }
-    // Asset config editing
 
-    /// Edit asset config at runtime via a closure that mutates the current config.
-    /// Risk parameters and `liquidation_fees` write back to the base harness
-    /// spoke through `edit_asset_in_spoke`; flash-loan eligibility/fee write
-    /// directly to the pool `MarketParamsRaw` (no endpoint toggles them).
+    /// Mutate current config: risk/`liquidation_fees` → base spoke via
+    /// `edit_asset_in_spoke`; flash-loan fields → pool `MarketParamsRaw`.
     pub fn edit_asset_config(&self, asset_name: &str, f: impl FnOnce(&mut AssetConfigView)) {
         let asset = self.resolve_asset(asset_name);
         let mut config = self.get_asset_config(asset_name);
@@ -73,9 +64,8 @@ impl LendingTest {
             self.env.storage().persistent().set(&key, &params);
         });
     }
-    /// Set the per-spoke `paused` flag on an asset, preserving its current risk
-    /// params. Paused blocks every user verb (supply/borrow/withdraw/repay and
-    /// the strategy wrappers) while leaving liquidation reachable.
+
+    /// Set per-spoke `paused` (preserves risk). Blocks user verbs; liquidation stays reachable.
     pub fn set_spoke_asset_paused(&self, asset_name: &str, paused: bool) {
         let asset = self.resolve_asset(asset_name);
         let config = self.get_asset_config(asset_name);
@@ -96,7 +86,6 @@ impl LendingTest {
             oracle_override: controller::types::MarketOracleConfigOption::None,
         });
     }
-    // Position limits
 
     pub fn set_position_limits(&self, max_supply: u32, max_borrow: u32) {
         let limits = controller::types::PositionLimits {
@@ -105,14 +94,12 @@ impl LendingTest {
         };
         self.ctrl_client().set_position_limits(&limits);
     }
-    // Pool params upgrade
 
     pub fn upgrade_pool_params(&self, asset_name: &str, params: InterestRateModel) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client()
             .upgrade_liquidity_pool_params(&hub_asset(asset), &params);
     }
-    // Spoke management
 
     pub fn remove_spoke_category(&self, category_id: u32) {
         self.ctrl_client().remove_spoke(&category_id);
@@ -184,10 +171,7 @@ impl LendingTest {
             .remove_asset_from_spoke(&hub_asset(asset), &category_id);
     }
 
-    /// Edit a spoke asset with explicit spoke supply/borrow caps. Mirrors
-    /// `edit_asset_in_spoke` but forwards real cap values instead of the
-    /// hardcoded `0` (disabled) the other helpers use, so cap-bound preview
-    /// branches become reachable from tests.
+    /// Like `edit_asset_in_spoke` with real supply/borrow caps (other helpers pass `0` = disabled).
     #[allow(clippy::too_many_arguments)]
     pub fn edit_asset_in_spoke_caps(
         &self,

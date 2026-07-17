@@ -8,7 +8,6 @@ use stellar_xdr::curr::{
 
 use crate::stellar::tx::{empty_soroban_data, TxJob, TxKind};
 
-/// Builds a restore op for read-write footprint keys.
 pub fn restore_footprint(read_write_keys: &[LedgerKey]) -> Result<TxJob> {
     if read_write_keys.is_empty() {
         return Err(anyhow!(
@@ -27,7 +26,6 @@ pub fn restore_footprint(read_write_keys: &[LedgerKey]) -> Result<TxJob> {
     })
 }
 
-/// Builds seed Soroban data with read-write footprint keys.
 fn build_restore_soroban_data(read_write_keys: &[LedgerKey]) -> Result<SorobanTransactionData> {
     let read_write: VecM<LedgerKey> = read_write_keys
         .try_into()

@@ -12,14 +12,7 @@ use crate::storage;
 use route::aggregator::AggregatorClient;
 use route::validate_strategy_swap;
 
-/// Swaps `amount_in` of `token_in` for `token_out` through the
-/// governance-configured aggregator router. The router address is read from
-/// storage, never supplied by the caller; `swap` is opaque route XDR that
-/// only the router decodes, and slippage/min-out enforcement lives inside
-/// the router's `execute_strategy`, not here. This function only
-/// pre-authorizes the router to pull exactly `amount_in` of `token_in`, then
-/// verifies by balance delta that the router did not overspend the input and
-/// that some output was received.
+/// Router from storage only; pull exactly amount_in; verify in/out by balance delta.
 pub(crate) fn swap_tokens(
     env: &Env,
     refund_to: &Address,
@@ -54,8 +47,6 @@ pub(crate) fn swap_tokens(
     balances::verify_router_output(env, &token_out_client, balance_before.token_out)
 }
 
-/// Returns `amount_in` unchanged for the same token, rejecting an unused route;
-/// otherwise executes the guarded router swap.
 pub(crate) fn swap_tokens_or_passthrough(
     env: &Env,
     refund_to: &Address,

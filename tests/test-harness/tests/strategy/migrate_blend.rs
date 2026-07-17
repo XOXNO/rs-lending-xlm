@@ -20,8 +20,6 @@ use test_harness::{
     ALICE, HARNESS_HUB,
 };
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
 /// Records `user`'s Blend balance for `kind` and, for collateral/supply (which
 /// the mock pays out from its own balance), mints the underlying to the mock.
 fn seed_position(
@@ -60,8 +58,6 @@ fn register_approved_blend(t: &LendingTest) -> Address {
     addr
 }
 
-/// Normalizes a `try_migrate_from_blend` result to `Result<u64, Error>` for
-/// `assert_contract_error` (covers our typed errors and sub-contract traps).
 macro_rules! revert_result {
     ($call:expr) => {
         match $call {
@@ -71,8 +67,6 @@ macro_rules! revert_result {
         }
     };
 }
-
-// ── happy paths ───────────────────────────────────────────────────────────────
 
 /// Collateral-only migration (no debt): Blend collateral is withdrawn and
 /// re-supplied as collateral here; Blend is emptied.
@@ -401,8 +395,6 @@ fn test_migrate_into_existing_account() {
         "USDC supply should be original 100 + migrated 500 = ~600, got {supply}"
     );
 }
-
-// ── reverts ───────────────────────────────────────────────────────────────────
 
 /// All-empty params are rejected with INVALID_PAYMENTS.
 #[test]

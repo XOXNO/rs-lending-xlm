@@ -2,132 +2,97 @@
 
 - Status: Accepted
 - Date: 2026-05-06
-- Revised: 2026-06-30
 - Deciders: XOXNO Lending contract team
 
 ## Context
 
-Mainnet launch changes the risk profile. Misconfiguration, oracle outages,
-liquidation edge cases, privileged-key mistakes, stale TTL windows, and delayed
-incident response can cause real losses once liquidity arrives.
-
-Current runtime controls:
-
-- controller starts paused;
-- controller upgrade auto-pauses;
-- governance owns controller;
-- governance timelocks non-emergency protocol-admin changes;
-- pause and unpause remain immediate emergency actions;
-- controller owns one central pool;
-- oracle policy is selected per flow;
-- keeper can renew and restore TTL and optionally call `update_indexes`;
-- account owners can renew their own account TTL.
-
-The current controller does not have `KEEPER`, `REVENUE`, or `ORACLE` roles.
-Governance roles are `PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, and `GUARDIAN` (for immediate per-listing incident actions).
+Mainnet changes the loss profile. Protocol controls for pause, timelock, roles,
+and per-spoke caps already exist (ADR 0010, ADR 0011, spoke cap enforcement).
+What remains is **when** to open public liquidity and **how much** exposure to
+allow at first open.
 
 ## Decision
 
-Launch mainnet only through a hardening gate and capped rollout. The protocol is
-not publicly unpaused until launch evidence exists for the target commit and
-target contract addresses.
+Public mainnet unpause only after readiness evidence for a **target commit** and
+**target contract addresses**, and only under a **capped** first exposure.
 
-## Launch Gates
+### Protocol preconditions (enforced on-chain)
 
-Before public mainnet unpause:
+Documented fully in ADR 0010 / 0011 and the contracts:
 
-- External audit findings are closed, accepted with rationale, or deferred with
-  an explicit launch-scope decision.
-- The verification acceptance matrix in `SCF_BUILD_ARCHITECTURE.md` runs against
-  the target commit and the results are recorded.
-- Testnet runs for 14 consecutive days without unresolved P0/P1 incidents,
-  unexplained accounting drift, stale TTL windows, or oracle configuration drift.
-- Governance owns controller and the central pool is deployed.
-- Mainnet timelock delay is set to `TIMELOCK_MIN_DELAY_LEDGERS = 34_560`.
-- Governance `PROPOSER`, `EXECUTOR`, and `CANCELLER` duties are assigned before
-  public unpause. Delegated `EXECUTOR` and `CANCELLER` roles must not be held by
-  the same address.
-- Monitoring and alerting cover market caps, reserves, oracle freshness and
-  deviation, health-factor distribution, liquidatable accounts, bad-debt events,
-  index freshness, TTL windows, timelock operations, privileged calls, and
-  revenue claims.
-- A testnet pause drill verifies pause, rejection of gated user mutations,
-  required views/runbook checks, and unpause.
-- Keeper configuration enumerates every launched `HubAssetKey`.
+- Controller starts paused; upgrades re-pause.
+- Governance owns the controller; non-emergency admin is timelocked.
+- GUARDIAN pauses immediately; resume is `AdminOperation::Unpause` only.
+- Per-spoke `supply_cap` / `borrow_cap` (asset units) bound listing exposure.
+- Governance roles: `PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, `GUARDIAN`.
+  Delegated `EXECUTOR` and `CANCELLER` are not the same address.
 
-## Initial Mainnet Caps
+### Go-live policy (ops)
 
-Initial exposure stays small:
+Before public unpause:
 
-- Total protocol TVL cap: USD 250,000.
-- Total protocol borrow cap: USD 100,000.
-- Per-market supply cap: USD 100,000.
-- Per-market borrow cap: USD 50,000.
-- Flash-loan exposure is bounded by pool `cash` and per-market launch caps.
+1. Audit items for launch scope are closed, accepted with rationale, or deferred
+   in writing.
+2. Verification matrix in [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md)
+   has been run on the target commit; results recorded.
+3. Testnet soak: 14 consecutive days without unresolved P0/P1, unexplained
+   accounting drift, stale TTL, or oracle config drift.
+4. Live governance `min_delay` is at the production floor
+   (`TIMELOCK_MIN_DELAY_LEDGERS = 34_560`). Constructor allows a shorter
+   bootstrap delay; operators raise delay before go-live (see
+   [DEPLOYMENT.md](../../DEPLOYMENT.md)).
+5. Production roles and incident keys (including GUARDIAN) are assigned;
+   deployer no longer holds residual authority.
+6. Monitoring covers caps, reserves, oracle freshness/deviation, health-factor
+   distribution, liquidations, bad debt, indexes, TTL, timelock ops, and revenue.
+7. Pause drill: GUARDIAN pause, gated mutations rejected, then
+   `propose(Unpause)` → await → execute.
+8. Keeper config lists every launched `HubAssetKey`.
 
-USD figures are off-chain launch policy. On-chain, caps are enforced per spoke
-asset (`SpokeAssetConfig` `supply_cap` / `borrow_cap`). Operators set asset-unit
-caps that implement the USD policy.
+### Initial exposure policy
 
-Caps may increase only after at least 7 consecutive days without unresolved
-P0/P1 incidents, unexplained accounting drift, oracle misconfiguration, or missed
-keeper/TTL maintenance.
+USD figures are **off-chain launch policy**. On-chain enforcement is only
+per-spoke `supply_cap` / `borrow_cap` in asset units. Operators must set those
+caps to implement the budget; there is no protocol-wide TVL or total-borrow
+aggregate.
 
-## Authority Policy
+| Budget | USD policy |
+|--------|------------|
+| Total TVL | 250,000 |
+| Total borrow | 100,000 |
+| Per-market supply | 100,000 |
+| Per-market borrow | 50,000 |
 
-- Governance owner must be a multisig or equivalent multi-party custody setup.
-- Deployer keys must not retain launch authority after ownership and roles are
-  assigned.
-- Direct controller owner authority is exercised through governance, not a hot
-  operator key.
-- Non-emergency protocol changes use typed governance proposers and wait the
-  on-chain timelock delay before execution.
-- Emergency pause remains immediate.
+Raise caps only after at least 7 consecutive days without unresolved P0/P1,
+accounting drift, oracle misconfig, or missed keeper/TTL work.
 
-## Launch Completion
+### Launch complete when
 
-Launch is complete only when:
+All go-live items above are satisfied, mainnet is unpaused via timelocked
+`Unpause`, initial spoke caps match the launch budget, and the protocol has run
+7 consecutive days capped without unresolved P0/P1, accounting drift, or missed
+keeper/TTL work.
 
-- all launch gates are satisfied;
-- capped mainnet deployment is unpaused;
-- monitoring and runbooks are live;
-- initial caps are enforced on all listed markets;
-- the protocol completes 7 consecutive days of capped mainnet operation without
-  unresolved P0/P1 incidents, unexplained accounting drift, or missed keeper/TTL
-  maintenance.
+## Alternatives considered
 
-## Alternatives Considered
-
-- **Unpause after smoke tests only.** Rejected because smoke tests do not prove
-  operational readiness.
-- **Launch uncapped after audit.** Rejected because audit does not remove
-  configuration, oracle, integration, or operational risk.
-- **Off-chain notice for admin changes.** Superseded by enforced governance
-  timelock.
-- **Timelock emergency pause.** Rejected because delayed halt can turn an
-  incident into a loss.
-- **Single operator key for all authority.** Rejected because it concentrates
-  upgrade, proposal, execution, cancellation, and emergency power.
+- Unpause after smoke tests only.
+- Launch uncapped after audit.
+- Off-chain notice for admin changes.
+- Timelocked emergency pause.
+- Immediate unpause.
+- Single operator key for all authority.
 
 ## Consequences
 
-Positive:
+**Positive:** go-live is evidence-gated; early exposure is intentionally small;
+resume cannot skip the timelock.
 
-- Launch readiness is evidence-based.
-- Early exposure is capped while operators observe real network behavior.
-- Admin changes have an on-chain warning window.
-
-Accepted costs:
-
-- Launch takes longer.
-- Low initial caps can limit early demand.
-- Routine admin changes are slower.
-- More operational identities need monitoring and rotation.
+**Costs:** launch takes longer; low caps limit early demand; operators must keep
+spoke caps aligned with the USD budget (no aggregate on-chain check).
 
 ## References
 
-- [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md)
 - [ADR 0010](./0010-governance-timelock-for-controller-admin.md)
-- `contracts/governance/src`
-- `contracts/controller/src/governance/access.rs`
-- `contracts/controller/src/storage/ttl.rs`
+- [ADR 0011](./0011-pause-and-freeze-matrix.md)
+- [DEPLOYMENT.md](../../DEPLOYMENT.md)
+- [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md)

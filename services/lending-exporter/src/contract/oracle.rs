@@ -1,7 +1,4 @@
-//! Decoders for the per-asset `MarketOracleConfig` (read from the controller's
-//! `AssetOracle` ledger entry) and the provider price payloads used to age each
-//! feed. Only the fields the staleness/deviation metrics need are decoded; the
-//! nested enum config is otherwise left untouched.
+//! `MarketOracleConfig` + provider price payloads for staleness/deviation metrics.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{ScString, ScVal, StringM};
@@ -11,7 +8,6 @@ use crate::scval::{
     symbol_text, vec_items,
 };
 
-/// Provider family for a resolved oracle source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OracleKind {
     Reflector,
@@ -19,22 +15,18 @@ pub enum OracleKind {
     Xoxno,
 }
 
-/// One resolved oracle source with everything needed to poll it for a price
-/// timestamp.
+/// Resolved source for polling a price timestamp.
 #[derive(Debug, Clone)]
 pub struct OracleSource {
     pub kind: OracleKind,
-    /// Provider contract id (`C...` strkey).
     pub contract: String,
-    /// For Reflector: the raw `OracleAssetRef` ScVal to pass to `lastprice`.
+    /// Reflector: raw `OracleAssetRef` for `lastprice`.
     pub asset_ref: Option<ScVal>,
-    /// For RedStone/Xoxno: the feed id passed to `read_price_data_for_feed`.
+    /// RedStone/Xoxno: feed id for `read_price_data_for_feed`.
     pub feed_id: Option<String>,
-    /// Effective staleness bound for this source in seconds.
     pub max_stale_seconds: u64,
 }
 
-/// The metric-relevant projection of a market's oracle config.
 #[derive(Debug, Clone)]
 pub struct OracleConfig {
     pub max_price_stale_seconds: u64,
@@ -48,13 +40,12 @@ pub struct OracleConfig {
     pub anchor: Option<OracleSource>,
 }
 
-/// A price feed's effective freshness timestamp in Unix seconds.
 #[derive(Debug, Clone, Copy)]
 pub struct PriceObservation {
     pub feed_ts_secs: u64,
 }
 
-/// Decode a `MarketOracleConfig` ScVal (from the `AssetOracle` ledger entry).
+/// Decode `MarketOracleConfig` from the `AssetOracle` ledger entry.
 pub fn decode_oracle_config(value: &ScVal) -> Result<OracleConfig> {
     let max_price_stale_seconds =
         field_u64(value, "max_price_stale_seconds").ok_or_else(|| anyhow!("max_price_stale_seconds missing"))?;
@@ -91,8 +82,7 @@ pub fn decode_oracle_config(value: &ScVal) -> Result<OracleConfig> {
 }
 
 fn decode_strategy(value: Option<&ScVal>) -> u32 {
-    // `OracleStrategy` is a repr(u32) unit enum (encodes as U32), but tolerate a
-    // symbol-tagged encoding too.
+    // Prefer U32; tolerate symbol-tagged encoding.
     match value {
         Some(v) => crate::scval::as_u32(v).unwrap_or_else(|| match symbol_text(v).as_deref() {
             Some("PrimaryWithAnchor") => 1,
@@ -102,7 +92,6 @@ fn decode_strategy(value: Option<&ScVal>) -> u32 {
     }
 }
 
-/// Decode an `OracleSourceConfig` enum (`Reflector|RedStone|Xoxno`) to a source.
 fn decode_source(value: &ScVal, market_default_max_stale: u64) -> Result<OracleSource> {
     let (tag, payload) = enum_variant(value).ok_or_else(|| anyhow!("oracle source not enum-tagged"))?;
     let inner = payload.first().ok_or_else(|| anyhow!("oracle source has no payload"))?;
@@ -129,9 +118,8 @@ fn decode_source(value: &ScVal, market_default_max_stale: u64) -> Result<OracleS
     }
 }
 
-/// Remaps an `OracleAssetRef` ScVal to the `ReflectorAsset` arg shape expected
-/// by a Reflector provider's `lastprice`. `Stellar(Address)` is wire-identical;
-/// `Symbol(sym)` becomes `Other(sym)`; `String(_)` is unsupported.
+/// `OracleAssetRef` → Reflector `lastprice` arg. `Stellar` wire-identical;
+/// `Symbol` → `Other`; `String` unsupported.
 pub fn oracle_asset_ref_to_reflector_arg(asset_ref: &ScVal) -> Result<ScVal> {
     let (tag, payload) = enum_variant(asset_ref).ok_or_else(|| anyhow!("asset ref not enum-tagged"))?;
     match tag.as_str() {
@@ -152,16 +140,13 @@ fn retag_enum(variant: &str, payload: ScVal) -> Result<ScVal> {
     Ok(ScVal::Vec(Some(ScVec(items))))
 }
 
-/// Build a feed-id `ScVal::String` argument.
 pub fn feed_id_arg(feed_id: &str) -> Result<ScVal> {
     let s: StringM = feed_id.try_into().map_err(|_| anyhow!("feed id too long"))?;
     Ok(ScVal::String(ScString(s)))
 }
 
-/// Decode a Reflector `lastprice -> Option<ReflectorPriceData>` return. `None`
-/// (no observation) decodes to `Ok(None)`.
+/// Reflector `lastprice` → `Option`; Void is no observation.
 pub fn decode_reflector_price(value: &ScVal) -> Result<Option<PriceObservation>> {
-    // soroban `Option::None` -> ScVal::Void; `Some(x)` -> x.
     if matches!(value, ScVal::Void) {
         return Ok(None);
     }
@@ -169,9 +154,7 @@ pub fn decode_reflector_price(value: &ScVal) -> Result<Option<PriceObservation>>
     Ok(Some(PriceObservation { feed_ts_secs: ts }))
 }
 
-/// Decode a RedStone/Xoxno `read_price_data_for_feed -> RedStonePriceData`
-/// return. Both timestamps are milliseconds; the effective freshness time is
-/// `min(package, write) / 1000`, matching the on-chain observation rule.
+/// RedStone/Xoxno price payload; freshness = `min(package_ms, write_ms) / 1000`.
 pub fn decode_redstone_price(value: &ScVal) -> Result<PriceObservation> {
     let package_ms = field_u64(value, "package_timestamp")
         .ok_or_else(|| anyhow!("RedStonePriceData.package_timestamp missing"))?;
@@ -182,7 +165,6 @@ pub fn decode_redstone_price(value: &ScVal) -> Result<PriceObservation> {
     })
 }
 
-/// True when the ScVal is a non-empty vector (used to sanity-check enum decode).
 pub fn is_nonempty_vec(value: &ScVal) -> bool {
     vec_items(value).map(|v| !v.is_empty()).unwrap_or(false)
 }

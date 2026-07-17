@@ -228,7 +228,6 @@ fn test_swap_debt_replaces_borrow() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Verify initial state.
     let initial_eth = t.borrow_balance(ALICE, "ETH");
     assert!(initial_eth > 0.9, "should have ~1 ETH borrow");
 

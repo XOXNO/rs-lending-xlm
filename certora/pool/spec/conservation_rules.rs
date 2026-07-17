@@ -1,11 +1,6 @@
-//! Δ-conservation rules: every pool operation moves the market aggregate by
-//! exactly the delta of the returned position, and moves `cash` by exactly
-//! the token amount. Together with the controller-side persistence proofs
-//! (consistency_rules) these give Σ(account scaled) == market total by
-//! induction, without ghost sums.
-//!
-//! Self-contained setup mirrors integrity_rules.rs (kept private there);
-//! staying additive avoids churn in the actively-developed integrity file.
+//! Δ-conservation: each pool op moves market aggregate by the returned position
+//! delta and `cash` by the token amount. With controller persistence
+//! (consistency_rules) ⇒ Σ(account scaled) == market total by induction.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
@@ -120,7 +115,6 @@ fn repay_first(e: &Env, payer: Address, act: PoolAction) -> common::types::PoolP
     crate::LiquidityPool::repay(e.clone(), payer, actions).get_unchecked(0)
 }
 
-/// supply: supplied delta == returned position delta; cash delta == amount.
 #[rule]
 fn supply_delta_conserves_totals(
     e: Env,
@@ -150,8 +144,6 @@ fn supply_delta_conserves_totals(
     cvlr_assert!(post.cash - pre.cash == result.actual_amount);
 }
 
-/// withdraw: supplied delta == position delta; cash decreases by the full
-/// actual amount when no protocol fee is retained.
 #[rule]
 fn withdraw_delta_conserves_totals(
     e: Env,
@@ -188,7 +180,6 @@ fn withdraw_delta_conserves_totals(
     cvlr_assert!(pre.cash - post.cash == result.actual_amount);
 }
 
-/// borrow: borrowed delta == position delta; cash decreases by amount.
 #[rule]
 fn borrow_delta_conserves_totals(
     e: Env,
@@ -219,8 +210,6 @@ fn borrow_delta_conserves_totals(
     cvlr_assert!(pre.cash - post.cash == result.actual_amount);
 }
 
-/// repay: borrowed delta == position delta; cash grows by the amount
-/// actually applied (over-payment is refunded, not retained).
 #[rule]
 fn repay_delta_conserves_totals(
     e: Env,
@@ -251,9 +240,6 @@ fn repay_delta_conserves_totals(
     cvlr_assert!(post.cash - pre.cash == result.actual_amount);
 }
 
-/// Bulk supply with two entries on the same asset conserves the aggregate:
-/// the market total moves by the sum of both position deltas (covers the
-/// bulk-loop accumulation, not just the bulk-of-one body).
 #[rule]
 fn supply_bulk_two_entries_conserves_totals(
     e: Env,
@@ -287,8 +273,7 @@ fn supply_bulk_two_entries_conserves_totals(
     cvlr_assert!(post.supplied - pre.supplied == delta);
 }
 
-/// Re-registering an existing market must revert (would otherwise zero the
-/// live aggregates).
+/// Re-registering an existing market must revert (would zero live aggregates).
 #[rule]
 fn create_market_rejects_existing(e: Env, admin: Address, asset: Address) {
     seed_pool(
@@ -300,10 +285,8 @@ fn create_market_rejects_existing(e: Env, admin: Address, asset: Address) {
 
     crate::LiquidityPool::create_market(e.clone(), 0, valid_params(asset.clone()));
 
-    // Assert-unreachable form: Verified iff the second registration traps on
-    // every path. (satisfy-form rules on this pool WASM die in the OSS
-    // prover's presolver — instant "Violated (unsat)" after a
-    // ConstArrayInitSummary warning — while the assert pipeline works.)
+    // Assert-unreachable: Verified iff second registration traps on every path.
+    // (satisfy-form on this pool WASM dies in the OSS presolver.)
     cvlr_assert!(false);
 }
 

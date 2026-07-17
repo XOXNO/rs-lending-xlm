@@ -1495,10 +1495,11 @@ add_spoke() {
 
     echo "Adding Spoke category ${category_id}: ${name}" >&2
 
-    # add_spoke() — no on-chain args; risk params are per-asset (spoke categories
-    # are now spokes). The salt is seeded with the config category id so that
-    # creating several spokes in one setup run derives distinct timelock op ids
-    # (the call args stay []; a shared salt would collide on the second spoke).
+    # Timelocked AdminOperation::AddSpoke (no on-chain args; risk params are
+    # per-asset). Salt is seeded with the config category id so multi-spoke
+    # setup runs get distinct op ids (args stay []; a shared salt collides).
+    # GUARDIAN-immediate add_spoke also exists on governance; this path is
+    # timelocked.
     local args_json='[]'
     local salt
     salt=$(gen_salt "add_spoke:${category_id}" "$args_json")
@@ -1946,9 +1947,11 @@ setup_all_spokes() {
 # `create_hub` is the only way to mint one and it returns ids 1, 2, … in
 # creation order. Every market (`create_liquidity_pool`) and spoke-asset listing
 # carries an explicit hub_id, so the hubs referenced by the market config must
-# exist on-chain before any market is listed. `create_hub` is a governance-
-# timelocked admin op (AdminOperation::CreateHub, no on-chain args) returning the
-# new u32 id — mirrors add_spoke.
+# exist on-chain before any market is listed.
+# This script schedules AdminOperation::CreateHub through the timelock (no
+# on-chain args) and reads the returned u32 id on execute — same pattern as
+# add_spoke. Governance also exposes GUARDIAN-immediate create_hub / add_spoke
+# for incident registry creation; tooling uses the timelocked path by default.
 # ---------------------------------------------------------------------------
 
 get_mapped_hub_id() {
@@ -1987,8 +1990,8 @@ ensure_hub() {
         return 0
     fi
 
-    # create_hub() — no on-chain args; governance schedules AdminOperation::CreateHub
-    # and the controller returns the new hub id on execute.
+    # Timelocked AdminOperation::CreateHub (no on-chain args); controller
+    # returns the new hub id on execute.
     local args_json='[]'
     local salt
     salt=$(gen_salt "create_hub:${expected}" "$args_json")
@@ -3035,25 +3038,28 @@ schedule_upgrade_pool() {
 
 # ---------------------------------------------------------------------------
 # Pause / unpause
+#
+# Pause: GUARDIAN-gated immediate entrypoint governance.pause(caller).
+# Unpause: risk-loosening — only timelocked AdminOperation::Unpause
+# (propose → await → execute). There is no governance unpause entrypoint.
 # ---------------------------------------------------------------------------
 
 pause_protocol() {
-    local gov
+    local gov caller
     gov=$(get_governance)
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- pause
-    echo "Protocol paused on ${NETWORK}."
+    caller=$(get_signer_address)
+    # Signer must hold GUARDIAN (or be the owner who was granted GUARDIAN at deploy).
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- \
+        pause --caller "$caller"
+    echo "Protocol paused on ${NETWORK} (GUARDIAN immediate)."
 }
 
 unpause_protocol() {
-    local gov
-    gov=$(get_governance)
     # Mainnet safety floor: never take the protocol live while the timelock delay
     # is below the configured production floor. A bootstrap deploy may run its
     # market/spoke config at a short DEPLOY_MIN_DELAY while the controller is
     # still paused; unpausing stays blocked until the delay has been raised to
-    # timelock_min_delay_ledgers (e.g. `make mainnet updateDelay <floor>`). This
-    # closes the window where a live mainnet could be governed by a near-zero
-    # timelock if the operator forgot or automation stopped after setup.
+    # timelock_min_delay_ledgers (e.g. `make mainnet updateDelay <floor>`).
     if [ "$NETWORK" = "mainnet" ]; then
         local floor current
         floor=$(jq -r '.["mainnet"].timelock_min_delay_ledgers // empty' "$NETWORKS_FILE")
@@ -3069,8 +3075,14 @@ unpause_protocol() {
         fi
         echo "Mainnet timelock delay ${current} >= floor ${floor}: unpause permitted."
     fi
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- unpause
-    echo "Protocol unpaused on ${NETWORK}."
+    # Unit-variant AdminOperation::Unpause → controller unpause (empty args).
+    local args_json='[]'
+    local salt op_id
+    salt=$(gen_salt "unpause" "$args_json")
+    op_id=$(schedule_via_proposer \
+        unpause "$(admin_op Unpause)" "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "Protocol unpause scheduled/executed on ${NETWORK} (timelocked AdminOperation::Unpause, op ${op_id})."
 }
 
 # ---------------------------------------------------------------------------
@@ -4810,8 +4822,9 @@ case "$1" in
         echo "  governance-resolved struct; executeOp re-derives it via the resolve_* views"
         echo "  (build-only re-encode), so they are CLI-executable like every other op."
         echo ""
-        echo "Protocol control (writes, all routed through governance):"
-        echo "  pause | unpause                 Pause/unpause protocol (immediate, owner)"
+        echo "Protocol control (writes, routed through governance):"
+        echo "  pause                           GUARDIAN-immediate pause (caller = signer)"
+        echo "  unpause                         Timelocked AdminOperation::Unpause (propose → await → execute)"
         echo "  checkDelay                      Compare live timelock delay vs configured target"
         echo "  approveToken <m|C...>           Timelocked market-token allow-list add"
         echo "  revokeToken <m|C...>            Timelocked market-token allow-list remove"
@@ -4821,7 +4834,7 @@ case "$1" in
         echo "  setPositionManager <addr> <t|f> Timelocked position-manager toggle"
         echo "  transferCtrlOwnership <a> <l>   Timelocked controller ownership handoff"
         echo "  migrateController <version>     Timelocked controller migrate"
-        echo "  grantGovRole <account> <role>   Grant governance role (ORACLE|PROPOSER|EXECUTOR|CANCELLER; timelocked)"
+        echo "  grantGovRole <account> <role>   Grant role (PROPOSER|EXECUTOR|CANCELLER|ORACLE|GUARDIAN; timelocked)"
         echo "  revokeGovRole <account> <role>  Revoke governance role (timelocked)"
         echo "  upgradeGovernanceHash <hash>    Timelocked governance WASM upgrade"
         echo "  updateDelay <ledgers>           Timelocked min-delay increase (cannot shorten)"

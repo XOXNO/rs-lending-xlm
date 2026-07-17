@@ -1,5 +1,4 @@
-//! Oracle configuration and price-feed types: SEP-40 asset references, per-source
-//! and per-market oracle config (ABI-raw and typed), and price-feed encodings.
+//! Oracle config and price-feed types (SEP-40 refs, per-source/market config).
 
 use soroban_sdk::{contracttype, Address, Env, String, Symbol};
 
@@ -10,9 +9,7 @@ pub enum OracleAssetRef {
     Stellar(Address),
     /// SEP-40 lookup by symbol.
     Symbol(Symbol),
-    /// Reserved: Reflector's asset-ref resolution rejects this variant, and
-    /// RedStone identifies feeds via its own `feed_id` field, not this enum.
-    /// No source currently accepts it.
+    /// Unused by Reflector/RedStone (rejected / not mapped).
     String(String),
 }
 
@@ -49,7 +46,6 @@ pub enum OracleReadMode {
 pub enum OracleStrategy {
     /// Use only the primary source.
     Single = 0,
-    /// Use primary plus anchor tolerance checks.
     PrimaryWithAnchor = 1,
 }
 
@@ -231,9 +227,7 @@ pub struct MarketOracleConfig {
     pub max_sanity_price_wad: i128,
 }
 
-/// Optional per-spoke oracle override, mirroring the explicit `None`/`Some`
-/// pattern `OracleSourceConfigOption` uses for `MarketOracleConfig.anchor`
-/// elsewhere in this file, rather than a native `Option<MarketOracleConfig>`.
+/// Explicit None/Some spoke oracle override (Soroban `Option` alternative).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]

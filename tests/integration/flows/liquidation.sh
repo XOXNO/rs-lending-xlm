@@ -11,7 +11,6 @@
 # Scenario ordering matters: price crashes are market-global, so accounts
 # created later are sized against the already-crashed price.
 
-# LIQ_CODES / LIQ_UNIT centralized in env.sh
 : "${LIQ_UNIT:=10000000}"
 : "${LIQ_CODES:=(LIQA LIQB LIQC LIQD LIQE LIQF LIQG)}"
 
@@ -64,7 +63,6 @@ flow_liq_single() {
         --caller "$BOB_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((600 * LIQ_UNIT)))" --to null >/dev/null
 
-    # Healthy-account guards.
     assert_can_liquidated liq1_can_liq_pre "$acct" false
     xfail liq1_liquidate_healthy 'Error\(Contract, #101\)' "$CAROL" "$CONTROLLER" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
@@ -78,7 +76,6 @@ flow_liq_single() {
         --account_id "$acct" --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((100 * LIQ_UNIT)))" >/dev/null
     view liq1_avail "$CONTROLLER" -- get_liquidation_collateral --account_id "$acct" >/dev/null
 
-    # Partial liquidation: repay 100 of 600 debt.
     local liq1_debt_pre_partial=$((600 * LIQ_UNIT))
     inv liq1_liquidate_partial "$CAROL" "$CONTROLLER" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
@@ -178,7 +175,6 @@ flow_liq_spoke() {
 # debt > collateral, then KEEPER clean_bad_debt closes it.
 flow_clean_bad_debt() {
     phase clean_bad_debt
-    # Healthy-account guard first.
     xfail cbd_healthy 'Error\(Contract, #114\)' "$ADMIN" "$CONTROLLER" -- clean_bad_debt \
         --caller "$ADMIN_ADDR" --account_id "${LIQ2_ACCT:-1}"
     local acct

@@ -8,12 +8,7 @@ use crate::math::fp::{Bps, Ray};
 use crate::types::shared::AccountPositionType;
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env};
 
-/// Persistent pool parameter encoding.
-///
-/// Rate, index, and slope fields are RAY-scaled (27 decimals); ratio fields
-/// (reserve factor, flashloan fee) are basis points. The scale convention is
-/// not encoded in the field names. `asset_decimals` is the SAC token decimal
-/// count used for conversions.
+/// Pool params: rates/slopes RAY; reserve_factor/flashloan_fee BPS; `asset_decimals` from SAC.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketParamsRaw {
@@ -214,10 +209,7 @@ impl InterestRateModel {
     }
 }
 
-/// Persistent collateral position encoding.
-///
-/// `scaled_amount` is a supply share, not underlying balance.
-/// Risk fields are snapshotted by the controller for HF/LTV/liquidation math.
+/// Collateral position: scaled supply shares + controller-snapshotted risk fields.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPositionRaw {
@@ -262,10 +254,7 @@ impl From<&AccountPosition> for AccountPositionRaw {
     }
 }
 
-/// Pool ABI position shape containing only scaled shares.
-///
-/// Collateral risk parameters stay on the controller and do not cross the pool
-/// boundary.
+/// Pool ABI position: scaled shares only (risk params stay on controller).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScaledPositionRaw {
@@ -288,9 +277,7 @@ impl From<&DebtPosition> for ScaledPositionRaw {
     }
 }
 
-/// Persistent debt position encoding.
-///
-/// `scaled_amount` is a borrow share, not underlying debt.
+/// Debt position: scaled borrow shares.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DebtPositionRaw {
@@ -399,8 +386,7 @@ pub struct PoolStrategyMutation {
     pub amount_received: i128,
 }
 
-/// Result of `net_settle`: both legs share one market index and one settled
-/// amount, since they always move by the identical real amount.
+/// `net_settle` result: one index, one settled amount for both legs.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolNetSettleResult {
@@ -433,10 +419,7 @@ pub struct PoolSyncData {
     pub state: PoolStateRaw,
 }
 
-/// Coordinate addressing one asset's liquidity within a specific hub.
-///
-/// `hub_id` namespaces isolated liquidity; the same `asset` on two hubs is two
-/// independent markets that never net or cross-socialize.
+/// Hub-scoped asset key; same asset on different hubs is independent liquidity.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubAssetKey {
@@ -452,10 +435,7 @@ pub enum PoolKey {
     State(HubAssetKey),
 }
 
-/// Hub-asset-scoped mutation payload for the central pool ABI.
-///
-/// The funds counterparty (receiver/payer) is carried by endpoint arguments,
-/// shared by each entry in a bulk call.
+/// Hub-asset mutation payload; counterparty is the endpoint arg (shared in bulk).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolAction {
@@ -492,9 +472,7 @@ pub struct PoolSeizeEntry {
     pub position: ScaledPositionRaw,
 }
 
-/// Nets one supply leg against one debt leg on the same hub-asset, with no
-/// token transfer: the settled amount leaves supply and enters repayment in
-/// one step, so `supplied - borrowed` (== cash) never moves.
+/// Net supply against debt on same hub-asset; no transfer (cash invariant).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolNetSettleEntry {
@@ -504,10 +482,7 @@ pub struct PoolNetSettleEntry {
     pub debt_position: ScaledPositionRaw,
 }
 
-/// Persistent pool accounting state.
-///
-/// Supply, borrow, and revenue totals are scaled shares; indexes convert them
-/// to underlying amounts.
+/// Pool state: scaled supply/borrow/revenue shares; indexes convert to underlying.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolStateRaw {

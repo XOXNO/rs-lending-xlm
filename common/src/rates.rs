@@ -1,6 +1,4 @@
-//! Interest-rate curve and index accrual: the kinked utilization borrow-rate
-//! model, the Taylor-series compound-interest factor, and the read-path index
-//! simulation shared with the pool's write path.
+//! Kinked borrow-rate curve, Taylor compound factor, and read-path index simulation.
 
 use soroban_sdk::{panic_with_error, Env, I256};
 
@@ -8,12 +6,9 @@ use crate::constants::{BPS, MAX_BORROW_INDEX_RAY, MILLISECONDS_PER_YEAR, SUPPLY_
 use crate::math::fp::{Bps, Ray};
 use crate::types::{MarketParams, PoolState, PoolSyncData};
 
-/// Maximum compound-interest accrual chunk: one year in ms.
-///
-/// `compound_interest` is evaluated in chunks of at most this size.
+/// Max compound-interest chunk (one year in ms).
 pub const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
-/// Returns the per-millisecond borrow rate from the kinked utilization curve.
 pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
     // dimensional: utilization is Ray<1>; model slopes are Ray<RatePerYear>.
     let annual_rate = if utilization < params.mid_utilization {
@@ -42,7 +37,6 @@ pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams)
     capped.div_by_int(MILLISECONDS_PER_YEAR as i128)
 }
 
-/// Returns supplier rate after reserve factor, in per-millisecond RAY units.
 pub fn calculate_deposit_rate(
     env: &Env,
     utilization: Ray,
@@ -53,8 +47,7 @@ pub fn calculate_deposit_rate(
         return Ray::ZERO;
     }
 
-    // Upstream rejects `reserve_factor >= BPS`; re-clamp to prevent
-    // `BPS - reserve_factor` from going negative and inverting supplier rewards.
+    // Invalid reserve_factor → zero supplier rate (upstream also rejects ≥ BPS).
     if !(0..BPS).contains(&reserve_factor.raw()) {
         return Ray::ZERO;
     }
@@ -64,18 +57,12 @@ pub fn calculate_deposit_rate(
     Ray::from(factor.apply_to(env, rate_x_util.raw()))
 }
 
-/// Approximates `e^(rate_per_ms * delta_ms)` using an 8-term Taylor series.
-///
-/// # Errors
-/// * [`crate::errors::GenericError::MathOverflow`] - `rate * delta_ms` (widened
-///   to I256) does not fit back into the i128 fixed-point domain.
 pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
     if delta_ms == 0 {
         return Ray::ONE;
     }
 
-    // dimensional: Ray<RatePerMs> * TimeMs -> Ray<1> compound factor exponent.
-    // Intermediate promoted to I256 to guard against overflow on extreme products.
+    // dimensional: Ray<RatePerMs> * TimeMs -> Ray<1>; I256 guards extreme products.
     let x = Ray::from({
         let r = I256::from_i128(env, rate.raw());
         let d = I256::from_i128(env, delta_ms as i128);
@@ -114,7 +101,6 @@ pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> R
     new_index
 }
 
-/// Increases the supply index by distributing RAY-denominated rewards.
 pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_increase: Ray) -> Ray {
     if supplied == Ray::ZERO || rewards_increase == Ray::ZERO {
         return old_index;
@@ -122,8 +108,7 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
 
     // dimensional: supplied * old_index and rewards_increase are Ray<Token(asset)>.
     let total_supplied_value = supplied.mul(env, old_index);
-    // Guards the post-bad-debt path where `supplied * old_index` can round
-    // to zero (supply_index at SUPPLY_INDEX_FLOOR with tiny scaled supply).
+    // Bad-debt floor path: supplied * index can round to zero.
     if total_supplied_value == Ray::ZERO {
         return old_index;
     }
@@ -133,7 +118,6 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     old_index.mul(env, factor)
 }
 
-/// Splits newly accrued borrow interest into supplier rewards and protocol fee.
 pub fn calculate_supplier_rewards(
     env: &Env,
     params: &MarketParams,
@@ -153,7 +137,6 @@ pub fn calculate_supplier_rewards(
     (supplier_rewards, protocol_fee)
 }
 
-/// Returns borrowed/supplied utilization, or zero when supplied is zero.
 pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
     if supplied == Ray::ZERO {
         return Ray::ZERO;
@@ -161,7 +144,6 @@ pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
     borrowed.div(env, supplied)
 }
 
-/// Converts scaled shares to underlying amount at `index`.
 pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
     // dimensional: Ray<Share(asset, side)> * Ray<Index(asset, side)> -> Ray<Token(asset)>.
     scaled.mul(env, index)
@@ -186,9 +168,7 @@ fn _simulate_update_indexes_impl(
     simulate_update_indexes_body(env, current_timestamp, sync)
 }
 
-// Read-path accrual uses 8-term Taylor `compound_interest`. Under certora the
-// prover applies a monotone nondet summary; soundness is shown compositionally
-// by the individual monotonicity/noop rules (full expansion is intractable).
+// Certora: monotone nondet summary (full Taylor expansion is intractable).
 #[cfg(feature = "certora")]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::simulate_update_indexes_summary,
@@ -245,8 +225,7 @@ pub(crate) fn simulate_update_indexes_body(
         supply_index = update_supply_index(env, supplied, supply_index, supplier_rewards);
         borrow_index = new_borrow_index;
 
-        // Mirror `add_protocol_revenue`: the fee mints scaled supply, which
-        // feeds the next chunk's utilization.
+        // Protocol fee mints scaled supply (feeds next-chunk utilization).
         if protocol_fee != Ray::ZERO
             && supply_index.raw() > SUPPLY_INDEX_FLOOR_RAW
             && supplied != Ray::ZERO

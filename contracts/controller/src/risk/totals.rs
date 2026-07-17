@@ -83,7 +83,6 @@ pub(crate) struct AccountRiskTotals {
     pub health_factor: Wad,
 }
 
-/// Computes the account's collateral, debt, and health-factor risk totals.
 pub(crate) fn calculate_account_risk_totals(
     env: &Env,
     cache: &mut Cache,

@@ -3,8 +3,6 @@
 use common::validation::validate_liquidation_curve as common_validate_liquidation_curve;
 use soroban_sdk::Env;
 
-// ################## LOW-LEVEL HELPERS ##################
-
 pub(crate) fn validate_liquidation_curve(
     env: &Env,
     target_hf_wad: i128,

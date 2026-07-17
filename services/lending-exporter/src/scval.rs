@@ -1,14 +1,10 @@
-//! Minimal `ScVal` reader helpers.
+//! Minimal ScVal readers.
 //!
-//! Soroban `#[contracttype]` structs encode as an `ScVal::Map` keyed by field
-//! symbols; enums encode as `ScVal::Vec[Symbol("Variant"), payload...]`. These
-//! helpers pluck the fields the exporter needs by name/shape without modelling
-//! every type. All return `Option` so a shape mismatch degrades to "missing"
-//! rather than panicking a scrape.
+//! Structs → `Map` by field symbol; enums → `Vec[Symbol(tag), payload...]`.
+//! Returns `Option` so shape mismatch is "missing", not a panic.
 
 use stellar_xdr::curr::{ScAddress, ScVal};
 
-/// Returns the value of a struct field by symbol name from an `ScVal::Map`.
 pub fn map_field<'a>(value: &'a ScVal, name: &str) -> Option<&'a ScVal> {
     let ScVal::Map(Some(map)) = value else {
         return None;
@@ -19,27 +15,22 @@ pub fn map_field<'a>(value: &'a ScVal, name: &str) -> Option<&'a ScVal> {
         .map(|entry| &entry.val)
 }
 
-/// Convenience: read a named field and decode it as i128.
 pub fn field_i128(value: &ScVal, name: &str) -> Option<i128> {
     map_field(value, name).and_then(as_i128)
 }
 
-/// Convenience: read a named field and decode it as u64.
 pub fn field_u64(value: &ScVal, name: &str) -> Option<u64> {
     map_field(value, name).and_then(as_u64)
 }
 
-/// Convenience: read a named field and decode it as u32.
 pub fn field_u32(value: &ScVal, name: &str) -> Option<u32> {
     map_field(value, name).and_then(as_u32)
 }
 
-/// Convenience: read a named field and decode it as bool.
 pub fn field_bool(value: &ScVal, name: &str) -> Option<bool> {
     map_field(value, name).and_then(as_bool)
 }
 
-/// Decodes an `ScVal::I128` (widening smaller signed/unsigned integers).
 pub fn as_i128(value: &ScVal) -> Option<i128> {
     match value {
         ScVal::I128(parts) => Some((i128::from(parts.hi) << 64) | i128::from(parts.lo)),
@@ -52,7 +43,6 @@ pub fn as_i128(value: &ScVal) -> Option<i128> {
     }
 }
 
-/// Decodes an `ScVal::U64` (widening u32).
 pub fn as_u64(value: &ScVal) -> Option<u64> {
     match value {
         ScVal::U64(v) => Some(*v),
@@ -62,7 +52,6 @@ pub fn as_u64(value: &ScVal) -> Option<u64> {
     }
 }
 
-/// Decodes an `ScVal::U32`.
 pub fn as_u32(value: &ScVal) -> Option<u32> {
     match value {
         ScVal::U32(v) => Some(*v),
@@ -70,7 +59,6 @@ pub fn as_u32(value: &ScVal) -> Option<u32> {
     }
 }
 
-/// Decodes an `ScVal::Bool`.
 pub fn as_bool(value: &ScVal) -> Option<bool> {
     match value {
         ScVal::Bool(v) => Some(*v),
@@ -78,7 +66,6 @@ pub fn as_bool(value: &ScVal) -> Option<bool> {
     }
 }
 
-/// Reads a symbol's text.
 pub fn symbol_text(value: &ScVal) -> Option<String> {
     match value {
         ScVal::Symbol(s) => Some(s.0.to_utf8_string_lossy()),
@@ -86,7 +73,6 @@ pub fn symbol_text(value: &ScVal) -> Option<String> {
     }
 }
 
-/// Reads an `ScVal::String`'s text.
 pub fn string_text(value: &ScVal) -> Option<String> {
     match value {
         ScVal::String(s) => Some(s.0.to_utf8_string_lossy()),
@@ -94,7 +80,6 @@ pub fn string_text(value: &ScVal) -> Option<String> {
     }
 }
 
-/// Clones an `ScVal::Address`.
 pub fn as_address(value: &ScVal) -> Option<ScAddress> {
     match value {
         ScVal::Address(a) => Some(a.clone()),
@@ -102,7 +87,6 @@ pub fn as_address(value: &ScVal) -> Option<ScAddress> {
     }
 }
 
-/// Extracts the raw 32-byte id from an `ScVal::Address(Contract(..))`.
 pub fn as_contract_id(value: &ScVal) -> Option<[u8; 32]> {
     match value {
         ScVal::Address(ScAddress::Contract(c)) => Some(c.0 .0),
@@ -110,11 +94,9 @@ pub fn as_contract_id(value: &ScVal) -> Option<[u8; 32]> {
     }
 }
 
-/// Renders an `ScVal::Address` to its strkey (`C...`/`G...`).
 pub fn address_strkey(value: &ScVal) -> Option<String> {
+    // Display → std::String (inherent to_string is heapless).
     match value {
-        // strkey types expose an inherent `to_string` returning `heapless::String`;
-        // go through `Display` with `format!` to get a `std::String`.
         ScVal::Address(ScAddress::Contract(c)) => Some(format!("{}", stellar_strkey::Contract(c.0 .0))),
         ScVal::Address(ScAddress::Account(a)) => {
             let stellar_xdr::curr::PublicKey::PublicKeyTypeEd25519(k) = &a.0;
@@ -124,7 +106,6 @@ pub fn address_strkey(value: &ScVal) -> Option<String> {
     }
 }
 
-/// Splits an enum `ScVal::Vec[Symbol(tag), payload...]` into `(tag, payload)`.
 pub fn enum_variant(value: &ScVal) -> Option<(String, &[ScVal])> {
     let ScVal::Vec(Some(items)) = value else {
         return None;
@@ -134,7 +115,6 @@ pub fn enum_variant(value: &ScVal) -> Option<(String, &[ScVal])> {
     Some((tag, rest))
 }
 
-/// Returns the items of an `ScVal::Vec`.
 pub fn vec_items(value: &ScVal) -> Option<&[ScVal]> {
     match value {
         ScVal::Vec(Some(items)) => Some(items.0.as_slice()),

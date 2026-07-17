@@ -2,8 +2,6 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, liquidatable_usdc_eth, usd_cents, usdc_preset,
     LendingTest, ALICE, BOB, LIQUIDATOR,
 };
-// 1. test_liquidation_basic_proportional
-
 #[test]
 fn test_liquidation_basic_proportional() {
     let mut t = liquidatable_usdc_eth();
@@ -39,8 +37,6 @@ fn test_liquidation_basic_proportional() {
         "Alice USDC must be seized"
     );
 }
-// 2. test_liquidation_targeted_single_collateral
-
 #[test]
 fn test_liquidation_targeted_single_collateral() {
     let mut t = LendingTest::new()
@@ -69,8 +65,6 @@ fn test_liquidation_targeted_single_collateral() {
     assert!(t.supply_balance(ALICE, "USDC") < 10_000.0);
     assert!(t.health_factor(ALICE) > 0.0);
 }
-// 3. test_liquidation_rejects_healthy_account
-
 #[test]
 fn test_liquidation_rejects_healthy_account() {
     let mut t = LendingTest::new()
@@ -85,8 +79,6 @@ fn test_liquidation_rejects_healthy_account() {
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_HIGH);
 }
-// 4. test_liquidation_allowed_when_paused
-
 #[test]
 fn test_liquidation_allowed_when_paused() {
     let mut t = liquidatable_usdc_eth();
@@ -98,8 +90,6 @@ fn test_liquidation_allowed_when_paused() {
         "liquidation should remain available while paused"
     );
 }
-// 5. test_liquidation_dynamic_bonus_moderate
-
 #[test]
 fn test_liquidation_dynamic_bonus_moderate() {
     let mut t = liquidatable_usdc_eth();
@@ -140,8 +130,6 @@ fn test_liquidation_dynamic_bonus_moderate() {
         "guarded partial must improve HF: {hf_before:.4} -> {hf_after:.4}"
     );
 }
-// 6. test_liquidation_dynamic_bonus_deep_underwater
-
 #[test]
 fn test_liquidation_dynamic_bonus_deep_underwater() {
     let mut t = LendingTest::new()
@@ -166,8 +154,6 @@ fn test_liquidation_dynamic_bonus_deep_underwater() {
     assert!(liq_usdc > 0.0, "liquidator should receive collateral");
     assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
 }
-// 7. test_liquidation_protocol_fee_on_bonus_only
-
 #[test]
 fn test_liquidation_protocol_fee_on_bonus_only() {
     let mut t = LendingTest::new()
@@ -197,8 +183,6 @@ fn test_liquidation_protocol_fee_on_bonus_only() {
     );
     assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
 }
-// 8. test_liquidation_liquidator_profit
-
 #[test]
 fn test_liquidation_liquidator_profit() {
     let mut t = liquidatable_usdc_eth();
@@ -219,8 +203,6 @@ fn test_liquidation_liquidator_profit() {
     assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
     assert!(t.supply_balance(ALICE, "USDC") < 10_000.0);
 }
-// 9. test_liquidation_sequential_partial_liquidations
-
 #[test]
 fn test_liquidation_sequential_partial_liquidations() {
     let mut t = LendingTest::new()
@@ -265,8 +247,6 @@ fn test_liquidation_sequential_partial_liquidations() {
         "Alice USDC collateral must be seized"
     );
 }
-// 10. test_liquidation_caps_at_actual_debt
-
 #[test]
 fn test_liquidation_caps_at_actual_debt() {
     let mut t = liquidatable_usdc_eth();
@@ -299,8 +279,6 @@ fn test_liquidation_caps_at_actual_debt() {
         liq_usdc
     );
 }
-// 11. test_liquidation_improves_health_factor
-
 #[test]
 fn test_liquidation_improves_health_factor() {
     let mut t = LendingTest::new()
@@ -331,8 +309,6 @@ fn test_liquidation_improves_health_factor() {
         hf_after
     );
 }
-// 13. test_liquidation_caps_at_max_bonus
-
 #[test]
 fn test_liquidation_caps_at_max_bonus() {
     let mut t = LendingTest::new()
@@ -371,8 +347,6 @@ fn test_liquidation_caps_at_max_bonus() {
         "borrower debt must have decreased"
     );
 }
-// 14. test_liquidation_bad_debt_cleanup_auto
-
 #[test]
 fn test_liquidation_bad_debt_cleanup_auto() {
     let mut t = LendingTest::new()
@@ -409,8 +383,6 @@ fn test_liquidation_bad_debt_cleanup_auto() {
         "auto-cleanup must remove account when bad debt fires"
     );
 }
-// 15. test_liquidation_bad_debt_socializes_loss
-
 #[test]
 fn test_liquidation_bad_debt_socializes_loss() {
     let mut t = LendingTest::new()
@@ -447,8 +419,6 @@ fn test_liquidation_bad_debt_socializes_loss() {
     // Alice's account is removed during cleanup.
     t.assert_no_positions(ALICE);
 }
-// 16. test_liquidation_rejects_during_flash_loan
-
 #[test]
 fn test_liquidation_rejects_during_flash_loan() {
     let mut t = liquidatable_usdc_eth();
@@ -461,8 +431,6 @@ fn test_liquidation_rejects_during_flash_loan() {
 
     t.set_flash_loan_ongoing(false);
 }
-// 18. test_liquidation_rejects_zero_amount
-
 #[test]
 fn test_liquidation_rejects_zero_amount() {
     let mut t = liquidatable_usdc_eth();
@@ -472,7 +440,6 @@ fn test_liquidation_rejects_zero_amount() {
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 
-// --- audit_p0 ---
 
 // liquidation.rs rejects `account.owner == liquidator` with SelfLiquidationNotAllowed (#133).
 #[test]

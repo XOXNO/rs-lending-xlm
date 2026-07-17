@@ -1,11 +1,8 @@
-//! Sushi V3 pool adapter.
 
 use soroban_sdk::{panic_with_error, vec, Address, Bytes, Env, IntoVal, Symbol, Val, Vec, U256};
 
 use crate::errors::Error;
 use crate::venues::HopContext;
-
-// ################## CONSTANTS ##################
 
 const MIN_SQRT_RATIO_PLUS_ONE: u128 = 4_295_128_740;
 const MAX_SQRT_RATIO_MINUS_ONE: [u8; 32] = [

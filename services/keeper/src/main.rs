@@ -64,7 +64,6 @@ async fn main() -> Result<()> {
     let metrics = Arc::new(Metrics::new()?);
     let cancel = CancellationToken::new();
 
-    // Pre-flight: encoding self-check + optional update_indexes simulation.
     let pools = self_check(&cfg.contracts)?;
     info!(target: "keeper.boot", n_assets = pools.len(), "self-check passed");
 
@@ -91,7 +90,6 @@ async fn main() -> Result<()> {
         info!(target: "keeper.boot", signer = %signer_pk, "update_indexes simulation passed");
     }
 
-    // Spawn metrics surface.
     let metrics_handle = {
         let metrics = metrics.clone();
         let cancel = cancel.clone();
@@ -103,7 +101,6 @@ async fn main() -> Result<()> {
         })
     };
 
-    // Spawn scheduler loops.
     let cfg_arc = Arc::new(cfg);
     let scheduler = run_scheduler(
         cfg_arc.clone(),
@@ -119,7 +116,7 @@ async fn main() -> Result<()> {
     info!(target: "keeper.boot", "shutdown signal received, cancelling loops");
     cancel.cancel();
 
-    // Best-effort shutdown — we don't block forever on stuck loops.
+    // Best-effort join; do not hang forever on stuck loops.
     let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
         let _ = scheduler.ttl_task.await;
         if let Some(index) = scheduler.index_task {

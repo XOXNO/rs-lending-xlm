@@ -14,7 +14,6 @@ use crate::context::Cache;
 use crate::positions::liquidation::math::*;
 use crate::positions::HubPayment;
 
-/// Builds the plan and converts it to the executable `LiquidationResult`.
 pub(crate) fn execute_liquidation(
     env: &Env,
     account: &Account,

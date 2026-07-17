@@ -10,8 +10,6 @@ use crate::events::DeployControllerEvent;
 use crate::validate;
 use crate::{storage, Governance, GovernanceArgs, GovernanceClient};
 
-// ################## CONSTANTS ##################
-
 /// Deterministic salt for the one-time controller deployment; the controller
 /// address derives from (governance address, salt).
 const CONTROLLER_DEPLOY_SALT: [u8; 32] = [0u8; 32];
@@ -62,10 +60,6 @@ impl Governance {
         controller
     }
 
-    /// Returns the deployed controller address.
-    ///
-    /// # Errors
-    /// * `PoolNotInitialized` - no controller has been deployed yet.
     pub fn controller(env: Env) -> Address {
         storage::get_controller(&env)
     }

@@ -1,17 +1,6 @@
-//! Certora harness substitute for `controller::external::pool`.
-//!
-//! Under `--features certora --no-default-features`,
-//! `controller/src/external/mod.rs` path-swaps the production `pool` module to
-//! this file. Each wrapper mirrors the production ABI in
-//! `contracts/controller/src/external/pool.rs` exactly, but instead of issuing a
-//! cross-contract `LiquidityPoolClient` call it returns the bounded nondet model
-//! from `certora/shared/summaries/pool.rs`.
-//!
-//! The central-pool ABI bulks the position verbs into `Vec<entry>` and returns
-//! `Vec<PoolPositionMutation>`. The harness models the batch element-wise:
-//! each entry is summarized independently and pushed input-ordered, so the
-//! returned `Vec` is length-preserving and every per-entry postcondition holds
-//! at its own index (matching the `results.get(i)` reads in production).
+//! Certora harness for `controller::external::pool`.
+//! Production ABI; each entry summarized independently via shared pool summaries.
+//! Bulk returns are length-preserving and input-ordered.
 
 use crate::spec::summaries::bulk_index_summary;
 use crate::spec::summaries::pool::{
@@ -27,9 +16,7 @@ use crate::types::{
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 
-/// Void privileged-config call. No return value to summarize, so the prover
-/// treats it as a no-op. Exists only so the production import in `router.rs`
-/// resolves under the certora feature.
+/// No-op privileged-config call (resolves production import under certora).
 pub(crate) fn pool_create_market_call(
     _env: &Env,
     _pool_addr: &Address,
@@ -200,8 +187,7 @@ pub(crate) fn fetch_pool_sync_data(
     get_sync_data_summary(env, &hub_asset.asset)
 }
 
-// Backs the controller's index cache on a miss (`cache::Cache::cached_market_index`).
-// Each hub-asset gets a nondet index bounded by production floors.
+// Index-cache miss: nondet indexes bounded by production floors.
 pub(crate) fn fetch_pool_bulk_indexes(
     env: &Env,
     _pool_addr: &Address,
@@ -214,9 +200,7 @@ pub(crate) fn fetch_pool_bulk_indexes(
     out
 }
 
-// Void privileged-config calls have no return value to summarize, so the
-// prover treats them as no-ops. They exist only so the production import path
-// in `router.rs` resolves under the certora feature.
+// No-op privileged-config calls (resolve production imports under certora).
 
 pub(crate) fn pool_update_params_call(
     _env: &Env,

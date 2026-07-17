@@ -1,5 +1,4 @@
-//! Pool-specific numeric constants: the supply-index floor and the borrow
-//! rate/index ceilings that bound interest compounding.
+//! Pool supply-index floor and borrow rate/index ceilings.
 
 use crate::constants::{RAY, WAD};
 

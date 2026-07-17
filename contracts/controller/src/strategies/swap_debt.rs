@@ -50,9 +50,6 @@ impl Controller {
 }
 
 /// Refinance: borrow new debt → swap to existing debt token → repay existing.
-///
-/// Checklist: auth → reentrancy → preflight → account → oracles → borrow →
-/// swap → repay → finalize.
 pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>) {
     let SwapDebtParams {
         account_id,
@@ -62,11 +59,10 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
         swap,
     } = params;
 
-    // 1–2. Auth + reentrancy
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // 3. Preflight — identical (hub, asset) rejected; same token across hubs ok
+    // Reject identical (hub, asset); same token across hubs is passthrough.
     assert_with_error!(
         env,
         existing_debt != new_debt,
@@ -75,21 +71,17 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
     validation::require_hub_active(env, existing_debt.hub_id);
     validation::require_positive_amount(env, new_debt_amount);
 
-    // 4. Account
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
     let mut cache = Cache::new(env);
     let existing_pos = get_debt_position_or_panic(env, &account, existing_debt);
 
-    // 5. Oracles
     let extra_assets = vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
-    // 6a. Borrow new debt (shared gates + flash fee)
     let amount_received =
         borrow_for_strategy(env, &mut account, new_debt, new_debt_amount, &mut cache);
 
-    // 6b. New debt token → existing debt token (passthrough if same asset)
     let repay_amount = swap_tokens_or_passthrough(
         env,
         caller,
@@ -99,7 +91,6 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
         swap,
     );
 
-    // 6c. Repay existing debt from controller balance
     repay_debt_from_controller(
         env,
         &mut account,
@@ -113,6 +104,5 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
         },
     );
 
-    // 7. Finalize
     strategy_finalize(env, account_id, &account, &mut cache);
 }

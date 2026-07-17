@@ -1,11 +1,8 @@
-//! Aquarius classic pool adapter.
 
 use soroban_sdk::{panic_with_error, symbol_short, vec, Address, Env, IntoVal, Symbol, Val, Vec};
 
 use crate::errors::Error;
 use crate::venues::HopContext;
-
-// ################## EXECUTION ##################
 
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     let amount_in_u128: u128 = ctx

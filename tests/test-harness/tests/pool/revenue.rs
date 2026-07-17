@@ -10,8 +10,6 @@ fn setup_accumulator(t: &LendingTest) {
         .register(test_harness::mock_reflector::MockReflector, ());
     t.ctrl_client().set_accumulator(&acc);
 }
-// 1. test_claim_revenue_after_interest
-
 #[test]
 fn test_claim_revenue_after_interest() {
     let mut t = LendingTest::new()
@@ -112,8 +110,6 @@ fn test_claim_revenue_routes_through_controller_to_accumulator() {
         "pool must release exactly the claimed amount"
     );
 }
-// 2. test_claim_revenue_after_liquidation
-
 #[test]
 fn test_claim_revenue_after_liquidation() {
     let mut t = LendingTest::new()
@@ -191,8 +187,6 @@ fn test_claim_revenue_after_liquidation() {
         "pool must release exactly the claimed amount"
     );
 }
-// 3. test_claim_revenue_zero_when_no_activity
-
 #[test]
 fn test_claim_revenue_zero_when_no_activity() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -206,8 +200,6 @@ fn test_claim_revenue_zero_when_no_activity() {
     let claimed = t.claim_revenue("USDC");
     assert_eq!(claimed, 0, "claimed revenue should be 0 with no activity");
 }
-// 4. test_add_rewards_increases_supply_index
-
 #[test]
 fn test_add_rewards_increases_supply_index() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -237,8 +229,6 @@ fn test_add_rewards_increases_supply_index() {
         increase
     );
 }
-// 5. test_add_rewards_rejects_zero
-
 #[test]
 fn test_add_rewards_rejects_zero() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -263,8 +253,6 @@ fn test_add_rewards_rejects_zero() {
         _ => panic!("add_rewards with 0 amount should fail"),
     }
 }
-// 6. test_permissionless_revenue_endpoints
-
 #[test]
 fn test_permissionless_revenue_endpoints() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();

@@ -4,8 +4,6 @@ use crate::core::{AccountEntry, LendingTest};
 use crate::helpers::HARNESS_SPOKE;
 
 impl LendingTest {
-    // Account creation
-
     /// Create a normal account on the base harness spoke (mode=Normal).
     pub fn create_account(&mut self, user: &str) -> u64 {
         let _ = self.get_or_create_user(user);
@@ -45,7 +43,7 @@ impl LendingTest {
             .unwrap_or_else(|| panic!("user '{}' not found", user));
 
         self.env.as_contract(&self.controller, || {
-            // Every account binds to a real spoke (id >= 1); there is no spoke 0.
+            // Accounts require spoke id ≥ 1.
             let spoke = self
                 .env
                 .storage()
@@ -115,8 +113,6 @@ impl LendingTest {
         ctrl.set_position_manager(&delegate_addr, &true);
         ctrl.add_delegate(&owner_addr, &account_id, &delegate_addr);
     }
-
-    // Account removal
 
     /// Remove an account (must have no positions).
     pub fn remove_account(&mut self, user: &str) {

@@ -3,8 +3,7 @@ use cvlr::nondet::nondet;
 use cvlr_soroban::nondet_address;
 use soroban_sdk::{vec, Address, Env, Vec};
 
-/// Hub-0 coordinate for `asset`. The spec models the single default hub, so the
-/// HubAssetKey-keyed entrypoints address `(hub_id: 0, asset)`.
+/// Hub-0 coordinate for `asset`.
 fn hub0(asset: Address) -> HubAssetKey {
     HubAssetKey { hub_id: 0, asset }
 }
@@ -26,9 +25,7 @@ pub fn supply_single(
     )
 }
 
-/// Single-asset borrow shim for `Controller::borrow`. Havocs the `to` recipient
-/// so rules cover both borrow-to-self (`None`) and borrow-to-recipient (`Some`)
-/// branches; the account's debt and health math is identical either way.
+/// Single-asset borrow shim. Havocs `to` (self vs recipient); debt/health identical either way.
 pub fn borrow_single(env: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
     let to: Option<Address> = if nondet() {
         Some(nondet_address())
@@ -44,9 +41,7 @@ pub fn borrow_single(env: Env, caller: Address, account_id: u64, asset: Address,
     );
 }
 
-/// Single-asset withdraw shim. Havocs the `to` recipient so rules cover both
-/// withdraw-to-self (`None`) and withdraw-to-recipient (`Some`) branches; the
-/// account's position and health math is identical either way.
+/// Single-asset withdraw shim. Havocs `to` (self vs recipient); position/health identical either way.
 pub fn withdraw_single(env: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
     let to: Option<Address> = if nondet() {
         Some(nondet_address())
@@ -332,8 +327,7 @@ pub fn multiply_with_initial_payment_third_token(
     )
 }
 
-/// Public `Controller::liquidate` entry point shim. Lifts asset-keyed payments
-/// onto hub 0 for the HubAssetKey-keyed entrypoint.
+/// `Controller::liquidate` shim; lifts asset-keyed payments onto hub 0.
 pub fn liquidate(env: Env, liquidator: Address, account_id: u64, debt_payments: Vec<Payment>) {
     let mut hub_payments: Vec<(HubAssetKey, i128)> = Vec::new(&env);
     for (asset, amount) in debt_payments.iter() {

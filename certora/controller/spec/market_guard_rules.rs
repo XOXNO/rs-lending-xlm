@@ -7,7 +7,6 @@ use soroban_sdk::{Address, Env};
 use crate::constants::WAD;
 use crate::types::{AccountPositionType, HubAssetKey};
 
-/// Account with no collateral cannot borrow.
 #[rule]
 fn no_collateral_account_cannot_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -22,9 +21,6 @@ fn no_collateral_account_cannot_borrow(e: Env, caller: Address, asset: Address, 
     cvlr_satisfy!(false);
 }
 
-/// Unlisted market rejects new supply. Under the spoke model an asset is listed
-/// iff `SpokeAsset(0, hub_asset)` exists; an unlisted asset is the equivalent of
-/// the old `Disabled` status, so supply must revert (`AssetNotSupported`).
 #[rule]
 fn disabled_market_blocks_new_supply(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -41,9 +37,6 @@ fn disabled_market_blocks_new_supply(e: Env, caller: Address, asset: Address, am
     cvlr_satisfy!(false);
 }
 
-/// Pending-oracle market rejects new borrow. Under the token-rooted oracle the
-/// pending/disabled gate is the absence of an `AssetOracle(asset)` entry: a
-/// listed asset with no oracle reverts on price resolution, so borrow reverts.
 #[rule]
 fn pending_oracle_market_blocks_new_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;

@@ -17,8 +17,6 @@ use test_harness::{eth_preset, usdc_preset, ALICE, BOB, CAROL, LIQUIDATOR};
 
 const SECONDS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
-/// Reads the account's scaled debt on `(hub_id, asset)`; `0` when the borrow
-/// position is absent (fully repaid positions are pruned from the map).
 fn borrow_scaled_on_hub(t: &LendingTest, account_id: u64, hub_id: u32, asset_name: &str) -> i128 {
     let asset = t.resolve_asset(asset_name);
     let key = HubAssetKey { hub_id, asset };
@@ -35,8 +33,6 @@ fn borrow_scaled_on_hub(t: &LendingTest, account_id: u64, hub_id: u32, asset_nam
     })
 }
 
-/// Reads the account's scaled supply on `(hub_id, asset)`; `0` when the supply
-/// position is absent (fully seized positions are pruned from the map).
 fn supply_scaled_on_hub(t: &LendingTest, account_id: u64, hub_id: u32, asset_name: &str) -> i128 {
     let asset = t.resolve_asset(asset_name);
     let key = HubAssetKey { hub_id, asset };
@@ -66,7 +62,7 @@ fn usdc_no_seed() -> MarketPreset {
     }
 }
 
-// 1. The same asset on two hubs keeps independent indices, totals, and cash.
+// Same asset on two hubs keeps independent indices, totals, and cash.
 #[test]
 fn hubs_keep_independent_state_and_indices() {
     let mut t = LendingTest::new()
@@ -134,7 +130,7 @@ fn hubs_keep_independent_state_and_indices() {
     );
 }
 
-// 2. Bad-debt socialization on hub 1 writes down only hub 1's supply index.
+// Bad-debt socialization on hub 1 writes down only hub 1's supply index.
 #[test]
 fn bad_debt_is_isolated_to_its_hub() {
     let mut t = LendingTest::new()
@@ -177,7 +173,7 @@ fn bad_debt_is_isolated_to_its_hub() {
     );
 }
 
-// 3. A hub-1 borrow cannot draw on hub-2's cash.
+// Hub-1 borrow cannot draw on hub-2's cash.
 #[test]
 fn borrow_cannot_cross_hub_cash() {
     let mut t = LendingTest::new()
@@ -217,9 +213,7 @@ fn borrow_cannot_cross_hub_cash() {
     assert_contract_error(result, errors::INSUFFICIENT_LIQUIDITY);
 }
 
-// 4. swap_debt refinances a USDC debt from hub 1 to hub 2 (cross-hub). The
-// borrow leg settles on hub 2, the repay leg on hub 1; same underlying token so
-// the strategy nets without an aggregator swap.
+// swap_debt refinances USDC debt hub 1 → hub 2; same token nets without aggregator swap.
 #[test]
 fn swap_debt_refinances_debt_across_hubs() {
     let mut t = LendingTest::new()
@@ -293,10 +287,7 @@ fn swap_debt_refinances_debt_across_hubs() {
     );
 }
 
-// 5. A hub-2 account can be liquidated: its debt is repaid and its collateral
-// seized, while a hub-1 market is left untouched. Guards the hub>0 liquidation
-// plan path that previously keyed the repay/seize lookups to `{0, asset}` and so
-// missed the real hub-2 positions, panicking `InternalError`.
+// Liquidation on hub 2 repays/seizes hub-2 positions; hub-1 markets stay untouched.
 #[test]
 fn liquidation_repays_and_seizes_on_hub_one() {
     let mut t = LendingTest::new()
@@ -382,11 +373,8 @@ fn liquidation_repays_and_seizes_on_hub_one() {
     );
 }
 
-// 6. MEDIUM-1: a hub-2 collateral whose hub-1 base listing is absent can still be
-// seized. After delisting USDC from hub 1 (its token-rooted oracle and the hub-2
-// market persist), the seizure must resolve the config under the position's hub.
-// Before the fix the lookup keys `(hub_id: 0, asset)`, which is now absent, so
-// the liquidation DoS-panics `AssetNotSupported`.
+// MEDIUM-1: hub-2 collateral is seizable even when hub-1 listing is absent.
+// Seizure resolves config under the position's hub; token-rooted oracle persists.
 #[test]
 fn liquidation_seizes_hub_one_collateral_without_hub_zero_listing() {
     let mut t = LendingTest::new()
@@ -418,8 +406,7 @@ fn liquidation_seizes_hub_one_collateral_without_hub_zero_listing() {
         "precondition: hub-2 collateral exists"
     );
 
-    // Before the fix the seizure resolves USDC under (hub 1, USDC) -- now absent
-    // -- and DoS-panics `AssetNotSupported`. After the fix it reads hub 2.
+    // Seizure resolves config under the position hub (hub 2), not hub 1.
     t.liquidate_on_hub(hub2, LIQUIDATOR, ALICE, "ETH", 1.0);
 
     let collateral_after = supply_scaled_on_hub(&t, alice, hub2, "USDC");
@@ -435,9 +422,7 @@ fn liquidation_seizes_hub_one_collateral_without_hub_zero_listing() {
     );
 }
 
-// 7. MEDIUM-1: the seizure protocol fee is resolved from the collateral's own
-// hub, not hub 1. Hub-1 USDC charges 0% and hub-2 USDC charges 20%, so the
-// hub-2 seizure accrues a claimable fee only when the right hub config is read.
+// Seizure protocol fee comes from the collateral hub's config, not hub 1.
 #[test]
 fn liquidation_charges_seized_collateral_hub_fee() {
     let mut t = LendingTest::new()
@@ -470,10 +455,7 @@ fn liquidation_charges_seized_collateral_hub_fee() {
     );
 }
 
-// 8. MEDIUM-2: the keeper index-update and revenue-claim verbs serve hub>0
-// markets. Both forced the hub-1 coordinate before the fix, so a hub-2 market's
-// index could never be accrued through the controller and its protocol revenue
-// was unclaimable.
+// Keeper index-update and revenue-claim serve hub>0 markets by real hub id.
 #[test]
 fn keeper_and_revenue_serve_hub_one_markets() {
     let mut t = LendingTest::new()
@@ -529,10 +511,7 @@ fn keeper_and_revenue_serve_hub_one_markets() {
     );
 }
 
-// 9. swap_collateral migrates a USDC collateral position from hub 1 to hub 2
-// (cross-hub). Only an identical `(hub, asset)` leg is rejected — the same
-// underlying token on a different hub nets without an aggregator swap,
-// mirroring test 4's swap_debt refinance.
+// swap_collateral migrates USDC collateral hub 1 → hub 2; same token nets without aggregator swap.
 #[test]
 fn swap_collateral_migrates_collateral_across_hubs() {
     let mut t = LendingTest::new()
@@ -603,10 +582,8 @@ fn swap_collateral_migrates_collateral_across_hubs() {
     );
 }
 
-// 10. Multiply supports a cross-hub same-asset carry trade: flash-borrow USDC
-// on hub 1, net it straight into USDC collateral on hub 2 (no swap, same
-// token). Same-hub-same-asset stays rejected (a single market's own spread
-// is always net-negative); only the cross-hub leg opens.
+// Multiply cross-hub same-asset carry: flash-borrow hub 1, collateral hub 2 (no swap).
+// Same-hub same-asset stays rejected (spread is net-negative).
 #[test]
 fn multiply_opens_cross_hub_same_asset_carry_trade() {
     let mut t = LendingTest::new()

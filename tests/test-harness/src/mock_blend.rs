@@ -1,26 +1,8 @@
-//! Faithful Blend V2 pool stand-in for migration tests.
-//!
-//! Mimics the Blend `submit` surface the migration strategy uses, with REAL
-//! per-user position accounting (underlying amounts, no shares/index — the
-//! migration never reads Blend rates). Field names in `BlendRequest` /
-//! `BlendPositions` match Blend V2 production exactly because `#[contracttype]`
-//! encodes as field-name maps and the controller's `BlendPoolClient` decodes by
-//! name.
-//!
-//! Semantics (Blend `pool/src/pool/{actions,submit}.rs`):
-//!   - `spender.require_auth()` always; `from.require_auth()` iff `from != spender`.
-//!   - REQ_REPAY (5): pull the FULL `amount` from `spender`, reduce `from`'s
-//!     liability by `min(amount, debt)`, refund the excess to `to`.
-//!   - REQ_WITHDRAW_COLLATERAL (3) / REQ_WITHDRAW (1): pay `min(amount, balance)`
-//!     of `from`'s collateral / supply to `to` (so `i128::MAX` == withdraw-all).
-//!   - After the batch, if any collateral was withdrawn while `from` still owes
-//!     ANY liability, revert (Blend's post-action health check). Liability assets
-//!     are tracked per user (`seed` registers them) so the check holds even when
-//!     the withdrawal happens in a separate submit from the repay (the two-phase
-//!     migration path).
-//!
-//! Seed a user's Blend balances with `seed(user, asset, kind, amount)` and mint
-//! the underlying tokens to the mock's address so it can pay withdrawals/refunds.
+//! Blend V2 `submit` mock for migration: real per-user balances (no shares/index).
+//! Field names match production `#[contracttype]` maps. Auth: spender always;
+//! `from` iff `from != spender`. Repay full pull + refund; withdraw min(amt, bal)
+//! (`i128::MAX` = all). Post-batch: any withdraw while liability remains reverts.
+//! Seed via `seed` + mint underlyings to the mock for payouts.
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Map, Vec};
 
@@ -37,7 +19,6 @@ pub const KIND_LIABILITY: u32 = 2;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum MockBlendError {
-    /// Collateral withdrawn while the user still owes a repaid asset.
     HealthCheckFailed = 1,
 }
 
@@ -74,8 +55,6 @@ pub struct MockBlend;
 impl MockBlend {
     pub fn __constructor(_env: Env) {}
 
-    /// Sets `user`'s underlying balance for a position `kind` (0=collateral,
-    /// 1=supply, 2=liability). Test-only.
     pub fn seed(env: Env, user: Address, asset: Address, kind: u32, amount: i128) {
         env.storage()
             .persistent()
@@ -85,7 +64,6 @@ impl MockBlend {
         }
     }
 
-    /// Reads `user`'s underlying balance for a position `kind`.
     pub fn position(env: Env, user: Address, asset: Address, kind: u32) -> i128 {
         env.storage()
             .persistent()

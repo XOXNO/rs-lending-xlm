@@ -39,22 +39,17 @@ LOG_DIR="$RUN_DIR/logs"
 # rejected at the governance constructor (#39). Override for slower/faster runs.
 INTEG_MIN_DELAY="${INTEG_MIN_DELAY:-1}"
 
-# Amounts (7-decimal token units unless noted).
 XLM_FUND_STROOPS=100000000000        # 10,000 XLM friendbot grant
 WAD=1000000000000000000              # 1e18
 RAY=1000000000000000000000000000     # 1e27
 
-# --- Quality / guard constants (centralized for maintainability) ---
-
 # Required external tools for the harness. Checked by preflight targets.
 REQUIRED_TOOLS="jq xxd stellar curl base64 awk grep tr"
 
-# Minimum stellar CLI version (major.minor). Update when new features or output
-# formats are required. Checked in integration-preflight.
+# Minimum stellar CLI version (major.minor). Checked in integration-preflight.
 STELLAR_CLI_MIN_VERSION="22.0"
 
-# Centralized magic constants previously scattered in flows/stress.sh, liq flows,
-# and liq20_width.sh. Override via env if needed for experiments.
+# Stress / liq20 knobs (override via env).
 STRESS_N=20
 STRESS_UNIT=10000000                 # 1.0 token at 7 decimals
 
@@ -67,5 +62,3 @@ LIQ20_DEFAULT_LEEWAY="${LIQ20_DEFAULT_LEEWAY:-8000000}"
 
 # DFX (DeFindex) dedicated market unit for the defindex lane.
 DFX_UNIT=10000000
-
-# --- End quality constants ---

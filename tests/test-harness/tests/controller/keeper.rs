@@ -19,7 +19,6 @@ fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u
     })
 }
 
-/// Returns the stored supply position's stamped protocol fee in BPS.
 fn supply_fee_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u32 {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
@@ -35,7 +34,6 @@ fn supply_fee_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u32 {
     })
 }
 
-/// Returns stored supply risk fields as `(threshold, bonus, ltv)` BPS.
 fn supply_risk_fields(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32, u32) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
@@ -84,8 +82,6 @@ fn test_supply_roundtrip_preserves_risk_fields() {
          merge zeroed risk fields"
     );
 }
-// 1. test_update_indexes_refreshes_rates
-
 #[test]
 fn test_update_indexes_refreshes_rates() {
     let mut t = LendingTest::new()
@@ -111,8 +107,6 @@ fn test_update_indexes_refreshes_rates() {
         borrow_after
     );
 }
-// 2. test_clean_bad_debt_removes_positions
-
 #[test]
 fn test_clean_bad_debt_removes_positions() {
     let mut t = LendingTest::new()
@@ -138,8 +132,6 @@ fn test_clean_bad_debt_removes_positions() {
     // After cleaning bad debt, positions must be removed.
     t.assert_no_positions(ALICE);
 }
-// 3. test_clean_bad_debt_rejects_healthy
-
 #[test]
 fn test_clean_bad_debt_rejects_healthy() {
     let mut t = LendingTest::new()
@@ -157,8 +149,6 @@ fn test_clean_bad_debt_rejects_healthy() {
     let result = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(result, errors::CANNOT_CLEAN_BAD_DEBT);
 }
-// 4. test_clean_bad_debt_rejects_above_threshold
-
 #[test]
 fn test_clean_bad_debt_rejects_above_threshold() {
     let mut t = LendingTest::new()
@@ -221,8 +211,7 @@ fn test_bad_debt_gap_band_resolved_by_liquidation() {
     // seize all of it (post-state <=$5), and socialize the residual in-tx.
     t.liquidate(BOB, ALICE, "ETH", 0.3);
 
-    // (3) Terminal transition reached without clean_bad_debt: the account is
-    // wound down and no longer insolvent.
+    // (3) Terminal transition without clean_bad_debt: account is wound down.
     t.assert_no_positions(ALICE);
     assert!(
         !t.can_be_liquidated_by_id(account_id),
@@ -275,8 +264,6 @@ fn test_clean_bad_debt_rejected_under_oracle_deviation() {
     let result = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
-// 5. test_update_account_threshold_safe
-
 #[test]
 fn test_update_account_threshold_safe() {
     let mut t = LendingTest::new()
@@ -318,8 +305,6 @@ fn test_update_account_threshold_safe() {
         hf_after
     );
 }
-// 6. test_update_account_threshold_risky
-
 #[test]
 fn test_update_account_threshold_risky() {
     let mut t = LendingTest::new()
@@ -349,8 +334,6 @@ fn test_update_account_threshold_risky() {
         hf_after
     );
 }
-// 7. test_update_account_threshold_rejects_low_hf
-
 #[test]
 fn test_update_account_threshold_rejects_low_hf() {
     let mut t = LendingTest::new()
@@ -377,8 +360,6 @@ fn test_update_account_threshold_rejects_low_hf() {
     let result = t.try_update_account_threshold(true, &[account_id]);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_LOW);
 }
-// 8. test_update_account_threshold_deprecated_spoke_retains_spoke_params
-
 #[test]
 fn test_update_account_threshold_deprecated_spoke_retains_spoke_params() {
     let mut t = LendingTest::new()
@@ -439,8 +420,6 @@ fn test_update_account_threshold_syncs_all_supply_assets() {
     assert_eq!(supply_threshold_bps(&t, account_id, "ETH"), 6100);
     t.assert_healthy(ALICE);
 }
-// 9. test_permissionless_keeper_endpoints
-
 #[test]
 fn test_permissionless_keeper_endpoints() {
     let mut t = LendingTest::new()
@@ -457,12 +436,7 @@ fn test_permissionless_keeper_endpoints() {
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may update_indexes");
 }
-// 10. test_update_account_threshold_mixed_spokes_batch
-
-// Regression: one keeper batch spanning accounts on different spokes must not
-// revert `SpokeMismatch`. The shared batch cache memoized the first account's
-// spoke context and rejected the second; the per-account spoke-context reset
-// keeps the token-rooted memos while rebinding the spoke.
+// Mixed-spoke keeper batch: per-account spoke-context reset avoids SpokeMismatch.
 #[test]
 fn test_update_account_threshold_mixed_spokes_batch() {
     let mut t = LendingTest::new()

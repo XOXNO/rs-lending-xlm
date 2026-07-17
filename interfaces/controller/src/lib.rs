@@ -1,12 +1,8 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
-//! Client-only ABI mirror of the controller contract.
-//!
-//! `#[contractclient]` generates `ControllerClient` for typed cross-contract and
-//! off-chain callers. Mirrors the deployed controller's entrypoints 1:1; the
-//! controller matches these by ABI name rather than formally implementing this
-//! trait. Admin entrypoints are mirrored in the `admin` module.
+//! Client-only controller ABI (`ControllerClient`). Matches deploy entrypoints by name.
+//! Admin surface lives in `admin`.
 
 pub mod admin;
 pub use admin::{ControllerAdmin, ControllerAdminClient};
@@ -18,9 +14,8 @@ use common::types::{
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
 #[contractclient(name = "ControllerClient")]
-/// Contract interface for lending accounts, markets, and views.
+/// Lending accounts, markets, and views.
 pub trait ControllerInterface {
-    /// Supplies assets into an existing account or creates one when `account_id == 0`.
     fn supply(
         env: Env,
         caller: Address,
@@ -29,9 +24,8 @@ pub trait ControllerInterface {
         assets: Vec<(HubAssetKey, i128)>,
     ) -> u64;
 
-    /// Borrows assets after collateral, health-factor, cap, and oracle checks.
-    /// Tokens go to `to` when provided, else to `caller`; the debt is recorded
-    /// on `account_id` regardless of destination.
+    /// Collateral, HF, cap, and oracle checks. Tokens go to `to` when set, else
+    /// `caller`; debt is always recorded on `account_id`.
     fn borrow(
         env: Env,
         caller: Address,
@@ -40,10 +34,8 @@ pub trait ControllerInterface {
         to: Option<Address>,
     );
 
-    /// Withdraws collateral and rejects post-state LTV or health-factor
-    /// violations. Tokens go to `to` when provided, else to `caller`; returns
-    /// the actual amount paid per deduped asset (amount `0` closes the
-    /// position and pays its floor-rounded value).
+    /// `caller`. Returns actual amount paid per deduped asset (`0` closes and
+    /// pays the floor-rounded value).
     fn withdraw(
         env: Env,
         caller: Address,
@@ -52,10 +44,10 @@ pub trait ControllerInterface {
         to: Option<Address>,
     ) -> Vec<(HubAssetKey, i128)>;
 
-    /// Repays debt for an account; account ownership is not required.
+    /// Anyone may repay; ownership not required.
     fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>);
 
-    /// Liquidates an underwater account and refunds payments above the close amount.
+    /// Liquidates an underwater account; refunds payments above the close amount.
     fn liquidate(
         env: Env,
         liquidator: Address,
@@ -63,7 +55,7 @@ pub trait ControllerInterface {
         debt_payments: Vec<(HubAssetKey, i128)>,
     );
 
-    /// Opens or adjusts a leveraged position through an opaque aggregator route.
+    /// Leveraged position via opaque aggregator route.
     fn multiply(
         env: Env,
         caller: Address,
@@ -78,9 +70,7 @@ pub trait ControllerInterface {
         convert_swap: Option<Bytes>,
     ) -> u64;
 
-    /// Swaps an existing debt asset into a new debt asset through the aggregator.
-    /// `existing_debt` and `new_debt` may sit on different hubs, refinancing the
-    /// debt from one hub to another.
+    /// Refinances debt via aggregator; hubs may differ for `existing_debt` / `new_debt`.
     fn swap_debt(
         env: Env,
         caller: Address,
@@ -91,7 +81,7 @@ pub trait ControllerInterface {
         swap: Bytes,
     );
 
-    /// Swaps supplied collateral from one asset into another through the aggregator.
+    /// Swaps supplied collateral via aggregator.
     fn swap_collateral(
         env: Env,
         caller: Address,
@@ -102,12 +92,10 @@ pub trait ControllerInterface {
         swap: Bytes,
     );
 
-    /// Migrates a Blend V2 position (collateral, non-collateral supply, and
-    /// debt) into the controller in one transaction at zero flash-loan fee.
-    /// `account_id == 0` creates a fresh account. The controller-side positions
-    /// it opens are all on `hub_id`. Collateral/supply are swept with
-    /// withdraw-all semantics; each `(debt_asset, max)` bounds the zero-fee
-    /// borrow used to clear that Blend debt. Returns the account id.
+    /// Blend V2 → controller in one tx at zero flash-loan fee. `account_id == 0`
+    /// creates a fresh account. Opened positions land on `hub_id`. Collateral/
+    /// supply use withdraw-all; each `(debt_asset, max)` bounds the zero-fee
+    /// borrow that clears that Blend debt. Returns the account id.
     fn migrate_from_blend(
         env: Env,
         caller: Address,
@@ -120,7 +108,7 @@ pub trait ControllerInterface {
         debt_caps: Vec<(Address, i128)>,
     ) -> u64;
 
-    /// Uses collateral proceeds to repay debt through the aggregator.
+    /// Collateral proceeds → debt via aggregator.
     fn repay_debt_with_collateral(
         env: Env,
         caller: Address,
@@ -132,7 +120,7 @@ pub trait ControllerInterface {
         close_position: bool,
     );
 
-    /// Executes a flash loan of `asset` through the central pool and receiver contract.
+    /// Flash loan of `asset` through the central pool and receiver.
     fn flash_loan(
         env: Env,
         caller: Address,
@@ -142,36 +130,35 @@ pub trait ControllerInterface {
         data: Bytes,
     );
 
-    /// Renews TTL for account storage keys after owner authorization.
+    /// Renews TTL for account storage keys after owner auth.
     fn renew_account(env: Env, caller: Address, account_id: u64);
 
-    /// Owner-only: opts `delegate` into acting on `account_id` for owner-gated
-    /// verbs. Effective only while `delegate` is also a registered, active
+    /// Owner-only. Effective only while `delegate` is a registered, active
     /// position manager. Idempotent.
     fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address);
 
-    /// Owner-only: revokes `delegate` from `account_id`.
+    /// Owner-only revoke of `delegate` on `account_id`.
     fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address);
 
-    /// Returns true when health factor is below one.
+    /// True when health factor is below one.
     fn is_liquidatable(env: Env, account_id: u64) -> bool;
 
-    /// Returns account health factor in WAD; debt-free accounts return `i128::MAX`.
+    /// Health factor in WAD; debt-free accounts return `i128::MAX`.
     fn get_health_factor(env: Env, account_id: u64) -> i128;
 
-    /// Returns total collateral value in USD WAD.
+    /// Total collateral value (USD WAD).
     fn get_total_collateral_usd(env: Env, account_id: u64) -> i128;
 
-    /// Returns total borrow value in USD WAD.
+    /// Total borrow value (USD WAD).
     fn get_total_borrow_usd(env: Env, account_id: u64) -> i128;
 
-    /// Returns current underlying collateral amount for one hub-asset.
+    /// Current underlying collateral for one hub-asset.
     fn get_collateral_amount(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
 
-    /// Returns current underlying debt amount for one hub-asset.
+    /// Current underlying debt for one hub-asset.
     fn get_borrow_amount(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
 
-    /// Returns raw scaled supply and debt maps for an account.
+    /// Raw scaled supply and debt maps.
     fn get_account_positions(
         env: Env,
         account_id: u64,
@@ -180,69 +167,61 @@ pub trait ControllerInterface {
         Map<HubAssetKey, DebtPositionRaw>,
     );
 
-    /// Returns whether `account_id` still has controller metadata on-chain.
+    /// Whether `account_id` still has controller metadata on-chain.
     fn account_exists(env: Env, account_id: u64) -> bool;
 
-    /// Returns whether `pool` is on the governance Blend-pool allow-list and may
-    /// be used as a `migrate_from_blend` source.
+    /// Whether `pool` is on the Blend-pool allow-list for `migrate_from_blend`.
     fn is_blend_pool_approved(env: Env, pool: Address) -> bool;
 
     /// Instance-level minimum LTV-weighted collateral USD WAD while debt exists.
     fn get_min_borrow_collateral_usd(env: Env) -> i128;
 
-    /// Returns account mode and spoke attributes.
+    /// Account mode and spoke attributes.
     fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes;
 
-    /// Returns the per-spoke risk listing for `hub_asset` on `spoke_id`. Each
-    /// spoke (id `>= 1`) holds its own config. Panics `AssetNotInSpoke` when
-    /// not listed on the spoke.
+    /// Per-spoke risk listing for `hub_asset` on `spoke_id` (id `>= 1`).
+    /// Panics `AssetNotInSpoke` when not listed.
     fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig;
 
-    /// Returns spoke config by id.
     fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig;
 
-    /// Returns the listing's scaled usage totals; zero when no row exists.
+    /// Scaled usage totals; zero when no row exists.
     fn get_spoke_usage(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeUsageRaw;
 
-    /// Returns the central liquidity pool shared by every listed market.
+    /// Central liquidity pool shared by every listed market.
     fn get_pool_address(env: Env) -> Address;
 
-    /// Returns config and oracle data for each requested hub-asset market.
+    /// Config and oracle data for each requested hub-asset market.
     fn get_markets_detailed(env: Env, hub_assets: Vec<HubAssetKey>)
         -> Vec<AssetExtendedConfigView>;
 
-    /// Returns indexes and price components for each requested hub-asset market.
+    /// Indexes and price components for each requested hub-asset market.
     fn get_market_indexes_detailed(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexView>;
 
-    /// Estimates liquidation seize, repay, refund, and bonus data.
+    /// Seize, repay, refund, and bonus estimate.
     fn get_liquidation_estimate(
         env: Env,
         account_id: u64,
         debt_payments: Vec<(HubAssetKey, i128)>,
     ) -> LiquidationEstimate;
 
-    /// Returns total collateral value available for liquidation, in USD WAD.
+    /// Collateral available for liquidation (USD WAD).
     fn get_liquidation_collateral(env: Env, account_id: u64) -> i128;
 
-    /// Returns collateral value counted toward LTV, in USD WAD.
+    /// Collateral counted toward LTV (USD WAD).
     fn get_ltv_collateral_usd(env: Env, account_id: u64) -> i128;
 
-    /// Returns the largest `withdraw` amount of `hub_asset` currently executable
-    /// for `account_id` (position, pool cash, max-utilization cap, LTV/HF
-    /// gates, dust floor); `0` while paused.
+    /// Largest executable `withdraw` of `hub_asset` (position, pool cash,
+    /// max-util, LTV/HF, dust); `0` while paused.
     fn max_withdraw(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
 
-    /// Returns remaining supply-cap headroom for `account_id` and `hub_asset` in
-    /// asset units; `i128::MAX` when uncapped, `0` while paused or market not active.
+    /// Supply-cap headroom in asset units; `i128::MAX` uncapped, `0` paused or inactive.
     fn max_supply(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
 
-    /// Returns the largest `borrow` amount of `hub_asset` currently executable for
-    /// `account_id` (pool liquidity, max-utilization, borrow cap, LTV/HF
-    /// gates); `0` while paused, on an inactive/non-borrowable
-    /// market, or when the asset is structurally not borrowable for the account.
+    /// Largest executable `borrow` of `hub_asset` (liquidity, max-util, cap,
+    /// LTV/HF); `0` while paused, inactive/non-borrowable, or structurally blocked.
     fn max_borrow(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
 
-    /// Returns supply/borrow indexes accrued to the current ledger timestamp;
-    /// reads no oracle.
+    /// Supply/borrow indexes accrued to current ledger time; no oracle read.
     fn get_market_index(env: Env, hub_asset: HubAssetKey) -> MarketIndexRaw;
 }

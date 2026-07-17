@@ -121,12 +121,8 @@ pub fn repay_summary(
     }
 }
 
-/// Net-settle: nets a supply leg against a debt leg on the same hub-asset,
-/// zero token transfer. `0 <= settled_amount <= amount`, both scaled amounts
-/// non-increasing, and both legs tied to the single shared settled amount:
-/// production `net_settle_one` burns `scaled_withdrawal` from supply and
-/// `scaled_repay` from debt, both derived from ONE `gross_amount` (the returned
-/// `settled_amount`), so the two legs always move by the identical real amount.
+/// Net-settle: `0 <= settled_amount <= amount`, both scaled non-increasing.
+/// Production burns both legs from one shared `gross_amount` (= `settled_amount`).
 pub fn net_settle_summary(
     _env: &Env,
     _asset: &Address,
@@ -134,7 +130,7 @@ pub fn net_settle_summary(
     supply_position: ScaledPositionRaw,
     debt_position: ScaledPositionRaw,
 ) -> PoolNetSettleResult {
-    // One shared gross real amount drives both legs; draw it once.
+    // One shared gross amount drives both legs.
     let settled_amount: i128 = nondet();
     cvlr_assume!(settled_amount >= 0);
     cvlr_assume!(settled_amount <= amount);
@@ -151,14 +147,8 @@ pub fn net_settle_summary(
     cvlr_assume!(new_debt_scaled <= debt_position.scaled_amount);
     new_debt.scaled_amount = new_debt_scaled;
 
-    // Couple both scaled reductions to the shared settled amount: a zero
-    // settlement burns no shares on either leg, so any scaled reduction implies
-    // `settled_amount > 0`. This rules out the contradictory states the prior
-    // three independent draws permitted (a supply or debt burn while
-    // `settled_amount` is zero). It stays a sound over-approximation: a positive
-    // settlement may still leave a leg unchanged when its per-index share
-    // conversion rounds to zero, so movement is never forced and no exact index
-    // math is assumed.
+    // Zero settlement burns no shares; any scaled drop implies `settled_amount > 0`.
+    // Sound over-approx: positive settlement may leave a leg unchanged (share round-to-zero).
     let supply_unchanged = new_supply_scaled == supply_position.scaled_amount;
     let debt_unchanged = new_debt_scaled == debt_position.scaled_amount;
     cvlr_assume!(settled_amount != 0 || (supply_unchanged && debt_unchanged));
@@ -221,9 +211,8 @@ pub fn create_strategy_summary(
     }
 }
 
-/// Seize: no return value; per-entry scaled amounts leave the market totals,
-/// the supply index may drop (floored) and the borrow index stays >= RAY, the
-/// nondet index semantics of `nondet_market_index`.
+/// Seize: scaled amounts leave market totals; supply index may drop (floored);
+/// borrow index >= RAY (`nondet_market_index` bounds).
 pub fn seize_positions_summary(_env: &Env, _entries: &Vec<PoolSeizeEntry>) {}
 
 /// Claim revenue: non-negative transfer amount.
@@ -322,12 +311,9 @@ pub fn protocol_revenue_summary(_env: &Env) -> i128 {
     amount
 }
 
-/// Capital utilisation in RAY, `0 <= util <= RAY`.
+/// Capital utilisation in RAY, `util >= 0` only (may exceed RAY after bad-debt write-down).
 pub fn capital_utilisation_summary(_env: &Env) -> i128 {
-    // Only `>= 0` is sound: production `capital_utilisation` returns
-    // `borrowed/supplied` in RAY, which a bad-debt write-down (borrowed >
-    // supplied) pushes above RAY. An upper bound here would exclude that real
-    // state and be unsound; consumers must not assume `util <= RAY`.
+    // No upper bound: production util can exceed RAY when borrowed > supplied.
     let util_ray: i128 = nondet();
     cvlr_assume!(util_ray >= 0);
     util_ray

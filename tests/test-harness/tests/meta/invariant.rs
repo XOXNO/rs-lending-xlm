@@ -3,8 +3,6 @@ use test_harness::{
     assert_contract_error, days, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
     LendingTest, PositionType, ALICE, BOB, LIQUIDATOR,
 };
-// 1. test_hf_above_one_after_every_borrow
-
 #[test]
 fn test_hf_above_one_after_every_borrow() {
     let mut t = LendingTest::new()
@@ -27,8 +25,6 @@ fn test_hf_above_one_after_every_borrow() {
         );
     }
 }
-// 2. test_hf_above_one_after_every_withdraw
-
 #[test]
 fn test_hf_above_one_after_every_withdraw() {
     let mut t = LendingTest::new()
@@ -51,8 +47,6 @@ fn test_hf_above_one_after_every_withdraw() {
         );
     }
 }
-// 3. test_hf_below_one_required_for_liquidation
-
 #[test]
 fn test_hf_below_one_required_for_liquidation() {
     let mut t = LendingTest::new()
@@ -68,8 +62,6 @@ fn test_hf_below_one_required_for_liquidation() {
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_HIGH);
 }
-// 4. test_ltv_less_than_threshold_always
-
 #[test]
 fn test_ltv_less_than_threshold_always() {
     let t = LendingTest::new()
@@ -89,8 +81,6 @@ fn test_ltv_less_than_threshold_always() {
         );
     }
 }
-// 5. test_supply_index_monotonically_increasing
-
 #[test]
 fn test_supply_index_monotonically_increasing() {
     let mut t = LendingTest::new()
@@ -133,8 +123,6 @@ fn test_supply_index_monotonically_increasing() {
         total_growth
     );
 }
-// 6. test_borrow_index_monotonically_increasing
-
 #[test]
 fn test_borrow_index_monotonically_increasing() {
     let mut t = LendingTest::new()
@@ -170,8 +158,6 @@ fn test_borrow_index_monotonically_increasing() {
         total_growth
     );
 }
-// 7. test_position_limits_enforced
-
 #[test]
 fn test_position_limits_enforced() {
     let mut t = LendingTest::new()
@@ -192,8 +178,6 @@ fn test_position_limits_enforced() {
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// 8. test_total_supply_matches_pool_balance
-
 #[test]
 fn test_total_supply_matches_pool_balance() {
     let mut t = LendingTest::new()
@@ -227,8 +211,6 @@ fn test_total_supply_matches_pool_balance() {
         total_user_supply
     );
 }
-// 10. test_full_lifecycle_supply_borrow_repay_withdraw
-
 #[test]
 fn test_full_lifecycle_supply_borrow_repay_withdraw() {
     let mut t = LendingTest::new()

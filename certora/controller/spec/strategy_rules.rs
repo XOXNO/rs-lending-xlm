@@ -12,7 +12,6 @@ fn hub0(asset: Address) -> HubAssetKey {
     HubAssetKey { hub_id: 0, asset }
 }
 
-/// Successful multiply creates deposit and borrow positions with scaled amount > 0.
 #[rule]
 fn multiply_basic(
     e: Env,
@@ -56,7 +55,6 @@ fn multiply_basic(
     cvlr_assert!(borrow.scaled_amount > 0);
 }
 
-/// Multiply with initial payment in collateral_token creates both positions.
 #[rule]
 fn multiply_with_initial_payment_collateral(
     e: Env,
@@ -101,7 +99,6 @@ fn multiply_with_initial_payment_collateral(
     cvlr_assert!(borrow_pos.unwrap().scaled_amount > 0);
 }
 
-/// Multiply with initial payment in a third token creates both positions.
 #[rule]
 fn multiply_with_initial_payment_third_token(
     e: Env,
@@ -152,7 +149,6 @@ fn multiply_with_initial_payment_third_token(
     cvlr_assert!(borrow_pos.unwrap().scaled_amount > 0);
 }
 
-/// Multiply with collateral_token == debt_token reverts.
 #[rule]
 fn multiply_rejects_same_tokens(
     e: Env,
@@ -180,7 +176,6 @@ fn multiply_rejects_same_tokens(
     cvlr_satisfy!(false);
 }
 
-/// Multiply with non-collateralizable collateral reverts.
 #[rule]
 fn multiply_requires_collateralizable(
     e: Env,
@@ -215,7 +210,6 @@ fn multiply_requires_collateralizable(
     cvlr_satisfy!(false);
 }
 
-/// swap_debt creates target debt and decreases or removes source debt.
 #[rule]
 fn swap_debt_conserves_debt_value(
     e: Env,
@@ -266,7 +260,6 @@ fn swap_debt_conserves_debt_value(
     }
 }
 
-/// swap_debt with existing_debt_token == new_debt_token reverts.
 #[rule]
 fn swap_debt_rejects_same_token(
     e: Env,
@@ -291,7 +284,6 @@ fn swap_debt_rejects_same_token(
     cvlr_satisfy!(false);
 }
 
-/// swap_collateral creates target collateral and decreases or removes source collateral.
 #[rule]
 fn swap_collateral_conserves_collateral(
     e: Env,
@@ -346,7 +338,6 @@ fn swap_collateral_conserves_collateral(
     }
 }
 
-/// swap_collateral with current_collateral == new_collateral reverts.
 #[rule]
 fn swap_collateral_rejects_same_token(
     e: Env,
@@ -371,7 +362,6 @@ fn swap_collateral_rejects_same_token(
     cvlr_satisfy!(false);
 }
 
-/// repay_debt_with_collateral with close_position=false reduces collateral and debt.
 #[rule]
 fn repay_with_collateral_reduces_both_no_close(
     e: Env,
@@ -430,7 +420,6 @@ fn repay_with_collateral_reduces_both_no_close(
     }
 }
 
-/// repay_debt_with_collateral with close_position=true clears both positions.
 #[rule]
 fn repay_with_collateral_full_close_removes_account(
     e: Env,
@@ -481,7 +470,6 @@ fn repay_with_collateral_full_close_removes_account(
     cvlr_assert!(collateral_after.is_none());
 }
 
-/// clean_bad_debt reverts when the account does not qualify for cleanup.
 #[rule]
 fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
     let mut cache = crate::context::Cache::new(&e);
@@ -507,7 +495,6 @@ fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
     cvlr_satisfy!(false);
 }
 
-/// clean_bad_debt on a qualifying account clears all supply and borrow positions.
 #[rule]
 fn clean_bad_debt_zeros_positions(e: Env, account_id: u64) {
     let borrow_list_pre =
@@ -525,7 +512,6 @@ fn clean_bad_debt_zeros_positions(e: Env, account_id: u64) {
     cvlr_assert!(borrow_list.is_empty());
 }
 
-/// claim_revenue returns a non-negative amount.
 #[rule]
 fn claim_revenue_transfers_to_accumulator(e: Env, caller: Address, asset: Address) {
     let amounts =

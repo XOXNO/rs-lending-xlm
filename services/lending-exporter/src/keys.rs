@@ -1,9 +1,7 @@
-//! XDR encoding for protocol view arguments and storage keys.
+//! XDR encoding for view args and storage keys.
 //!
-//! `#[contracttype]` struct values serialize as an `ScMap` whose entries are
-//! sorted by field-name symbol; enum keys serialize as `Vec[Symbol("Variant"),
-//! args...]`. The exporter builds these directly instead of depending on
-//! `soroban-sdk` in a std binary. Mirrors `services/keeper/src/keys.rs`.
+//! Structs → symbol-sorted `ScMap`; enums → `Vec[Symbol(tag), args...]`.
+//! Built without `soroban-sdk` (same layout as keeper keys).
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
@@ -11,15 +9,13 @@ use stellar_xdr::curr::{
     ScMapEntry, ScSymbol, ScVal, ScVec, StringM, VecM,
 };
 
-/// A hub-scoped asset coordinate, using the raw 32-byte asset id.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct HubAssetKey {
     pub hub_id: u32,
     pub asset: [u8; 32],
 }
 
-/// Encodes `HubAssetKey { hub_id, asset }` as an `ScMap` with fields sorted by
-/// symbol (`asset` before `hub_id`) — the soroban `#[contracttype]` layout.
+/// `HubAssetKey` as symbol-sorted ScMap (`asset` before `hub_id`).
 pub fn hub_asset_key_sc_val(hub_asset: &HubAssetKey) -> Result<ScVal> {
     let entries = vec![
         ScMapEntry {
@@ -37,8 +33,7 @@ pub fn hub_asset_key_sc_val(hub_asset: &HubAssetKey) -> Result<ScVal> {
     Ok(ScVal::Map(Some(ScMap(map))))
 }
 
-/// `ScVal::Vec` of hub-asset keys, the argument shape for the controller's
-/// bulk `get_market_indexes_detailed(Vec<HubAssetKey>)` view.
+/// Arg for bulk `get_market_indexes_detailed`.
 pub fn hub_asset_vec_sc_val(keys: &[HubAssetKey]) -> Result<ScVal> {
     let items: Vec<ScVal> = keys
         .iter()
@@ -50,8 +45,7 @@ pub fn hub_asset_vec_sc_val(keys: &[HubAssetKey]) -> Result<ScVal> {
     Ok(ScVal::Vec(Some(ScVec(vec_m))))
 }
 
-/// Persistent `ControllerKey::AssetOracle(asset)` ledger key holding the
-/// resolved `MarketOracleConfig` for one asset.
+/// Persistent `AssetOracle(asset)` key.
 pub fn asset_oracle_ledger_key(controller_id: &[u8; 32], asset_id: &[u8; 32]) -> Result<LedgerKey> {
     let key = sc_enum("AssetOracle", &[sc_address_contract(asset_id)])?;
     Ok(contract_data_key(
@@ -61,16 +55,14 @@ pub fn asset_oracle_ledger_key(controller_id: &[u8; 32], asset_id: &[u8; 32]) ->
     ))
 }
 
-/// Decode a contract strkey (`C...`) into the raw 32-byte contract id.
 pub fn contract_id_from_strkey(c_strkey: &str) -> Result<[u8; 32]> {
     let c = stellar_strkey::Contract::from_string(c_strkey.trim())
         .map_err(|e| anyhow!("invalid C... contract id {c_strkey}: {e}"))?;
     Ok(c.0)
 }
 
-/// Render a raw 32-byte contract id back to its `C...` strkey.
 pub fn contract_strkey(contract_id: &[u8; 32]) -> String {
-    // `Display`, not the inherent `to_string` (which returns `heapless::String`).
+    // Display → std::String (inherent to_string is heapless).
     format!("{}", stellar_strkey::Contract(*contract_id))
 }
 

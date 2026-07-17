@@ -1,38 +1,12 @@
-//! Explicit `MockAuth` tree builders for fuzz harnesses that need to
-//! authorize nested contract-to-contract calls (e.g. the good flash-loan
-//! receiver's nested `token.mint()`), which `env.mock_all_auths()` cannot
-//! reach in recording mode.
+//! `MockAuth` argument builders for nested C2C auth (e.g. receiver `token.mint()`)
+//! that `env.mock_all_auths()` cannot reach in recording mode.
 //!
-//! The helpers return owned `Vec`s of arguments; callers assemble the
-//! `MockAuth` / `MockAuthInvoke` references against these buffers and
-//! then pass `&[MockAuth]` to `ctrl.mock_auths(...)` or `env.mock_auths(...)`.
-//!
-//! Rationale for the shape: `MockAuthInvoke` takes borrowed references
-//! (`&'a Vec<Val>`), so the caller must own the argument vectors. Rather
-//! than returning ready-to-use `MockAuth` trees (which would tangle
-//! lifetimes), these helpers produce the *ingredients* and the tests
-//! wire them together in-place.
+//! Returns owned arg `Vec`s; callers own them, assemble `MockAuthInvoke` refs,
+//! and pass `&[MockAuth]` to `mock_auths`.
 
 use soroban_sdk::{Address, Env, IntoVal, Val, Vec};
 
-/// Arguments needed to authorize a top-level `Controller::flash_loan` call.
-///
-/// The returned `args` vector is the argument list for
-/// `flash_loan(caller, asset, amount, receiver, data)`. Usage:
-///
-/// ```ignore
-/// let args = flash_loan_args(&env, &caller, &asset, amount, &receiver);
-/// let invoke = MockAuthInvoke {
-///     contract: &controller,
-///     fn_name: "flash_loan",
-///     args,
-///     sub_invokes: &[], // token mint happens inside receiver; mock_all_auths
-///                       // at the env level still covers nested mints when
-///                       // the test also calls env.mock_all_auths().
-/// };
-/// let tree = [MockAuth { address: &caller, invoke: &invoke }];
-/// ctrl.mock_auths(&tree).flash_loan(...);
-/// ```
+/// Args for `Controller::flash_loan(caller, asset, amount, receiver, data)`.
 pub fn flash_loan_args(
     env: &Env,
     caller: &Address,
@@ -50,8 +24,7 @@ pub fn flash_loan_args(
         .into_val(env)
 }
 
-/// Arguments for `Controller::multiply(caller, account_id, spoke, collateral,
-/// debt, debt_token, mode, steps, initial_payment, convert_steps)`.
+/// Args for `Controller::multiply` (initial_payment/convert_steps = None).
 #[allow(clippy::too_many_arguments)]
 pub fn multiply_args(
     env: &Env,

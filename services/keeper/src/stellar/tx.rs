@@ -16,12 +16,12 @@ use tracing::{debug, warn};
 use crate::signer::Ed25519Signer;
 use crate::stellar::client::{muxed_account_from_strkey, RpcClient};
 
-/// One concrete unit of work that the submitter can ship as a single tx.
+/// One submitter job (single tx).
 #[derive(Debug, Clone)]
 pub struct TxJob {
     pub kind: TxKind,
     pub op: Operation,
-    /// Optional footprint seed for simulation.
+    /// Footprint seed for simulation (extend/restore).
     pub initial_soroban_data: Option<SorobanTransactionData>,
 }
 
@@ -41,13 +41,12 @@ impl TxKind {
         }
     }
 
-    /// True for permissionless footprint operations.
+    /// Permissionless footprint ops (extend/restore).
     fn is_footprint_op(self) -> bool {
         matches!(self, Self::ExtendFootprintTtl | Self::RestoreFootprint)
     }
 }
 
-/// Submitted transaction outcome.
 #[derive(Debug)]
 pub enum SubmitOutcome {
     Success(Box<GetTransactionResponse>),
@@ -65,7 +64,7 @@ pub struct TxContext<'a> {
     pub poll_timeout_seconds: u32,
 }
 
-/// Builds, simulates, signs, submits, and polls one job.
+/// Simulate, sign, submit, and poll one job.
 pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOutcome> {
     let TxJob {
         kind,
@@ -112,7 +111,7 @@ pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOu
         );
     }
 
-    // Enforce expectation: only source-account auth is acceptable.
+    // Reject non-source-account auth.
     enforce_source_account_auth(&sim, kind).context("auth shape check")?;
 
     let resource_fee = soroban_data.resource_fee;
@@ -140,7 +139,6 @@ pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOu
     submit_polling(ctx.client.inner(), &signed, ctx.poll_timeout_seconds, kind).await
 }
 
-/// Outcome of simulating a job without submitting it.
 #[derive(Debug)]
 pub enum SimReport {
     Ok {
@@ -151,7 +149,6 @@ pub enum SimReport {
     Rejected(String),
 }
 
-/// Builds an envelope and simulates it.
 async fn build_and_simulate(
     ctx: &TxContext<'_>,
     kind: TxKind,
@@ -184,7 +181,7 @@ async fn build_and_simulate(
     Ok((envelope, sim))
 }
 
-/// Simulates a job without submitting it.
+/// Simulate without submitting.
 pub async fn simulate_job(ctx: &TxContext<'_>, job: &TxJob) -> Result<SimReport> {
     let (_envelope, sim) = build_and_simulate(
         ctx,
@@ -216,7 +213,7 @@ fn enforce_source_account_auth(
         .results()
         .map_err(|e| anyhow!("decode sim results: {e}"))?;
 
-    // Footprint ops (extend / restore) carry no host-function result.
+    // Footprint ops have no host-function result.
     if kind.is_footprint_op() {
         if !results.is_empty() {
             warn!(target: "keeper.tx", kind = %kind.as_str(), "footprint op unexpectedly returned host-function results — ignoring");
@@ -355,10 +352,8 @@ async fn submit_polling(
     timeout_s: u32,
     kind: TxKind,
 ) -> Result<SubmitOutcome> {
-    // `send_transaction_polling` runs its own poll loop with no upper bound, so
-    // cap it here: a stuck submission must not pin the tick indefinitely. On
-    // timeout the next tick retries with a refreshed sequence, and TTL extends
-    // are idempotent, so a retry is always safe.
+    // Cap unbounded `send_transaction_polling`: stuck submit must not pin the tick.
+    // Timeout → next tick retries with a fresh sequence; TTL extends are idempotent.
     let poll = match timeout(
         Duration::from_secs(timeout_s.max(1) as u64),
         client.send_transaction_polling(envelope),
@@ -377,8 +372,7 @@ async fn submit_polling(
     let resp = match poll {
         Ok(r) => r,
         Err(e) => {
-            // Network or transport failure — caller should retry with refreshed
-            // sequence.
+            // Transport failure → retry with refreshed sequence.
             warn!(target: "keeper.tx", kind = %kind.as_str(), error = %e, "send_transaction_polling failed");
             return Ok(SubmitOutcome::Retriable(e.to_string()));
         }

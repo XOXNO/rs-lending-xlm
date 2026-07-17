@@ -73,9 +73,7 @@ fn add_delegate_rejects_overflowing_cap() {
     });
 }
 
-// Regression: `Delegates` was missing from `renew_user_account`'s renewed-key
-// set, so a delegate-only account let it archive. Aging past the user TTL
-// threshold and calling the renewal must bump the `Delegates` key.
+// `renew_user_account` bumps TTL on the `Delegates` key.
 #[test]
 fn renew_user_account_renews_delegates_ttl() {
     use common::constants::TTL_BUMP_USER;

@@ -8,7 +8,6 @@ pub use common::errors::{
 pub mod codes {
     use super::*;
 
-    // GenericError
     pub const ASSET_NOT_SUPPORTED: u32 = GenericError::AssetNotSupported as u32;
     pub const ASSET_ALREADY_SUPPORTED: u32 = GenericError::AssetAlreadySupported as u32;
     pub const INVALID_TICKER: u32 = GenericError::InvalidTicker as u32;
@@ -30,7 +29,6 @@ pub mod codes {
     pub const REGISTRY_CAP_REACHED: u32 = GenericError::RegistryCapReached as u32;
     pub const BORROW_ROUNDS_TO_ZERO_SHARES: u32 = GenericError::BorrowRoundsToZeroShares as u32;
 
-    // CollateralError
     pub const INSUFFICIENT_COLLATERAL: u32 = CollateralError::InsufficientCollateral as u32;
     pub const HEALTH_FACTOR_TOO_HIGH: u32 = CollateralError::HealthFactorTooHigh as u32;
     pub const HEALTH_FACTOR_TOO_LOW: u32 = CollateralError::HealthFactorTooLow as u32;
@@ -63,7 +61,6 @@ pub mod codes {
     pub const SELF_LIQUIDATION_NOT_ALLOWED: u32 = CollateralError::SelfLiquidationNotAllowed as u32;
     pub const INVALID_LIQUIDATION_CURVE: u32 = CollateralError::InvalidLiquidationCurve as u32;
 
-    // OracleError
     pub const INVALID_PRICE: u32 = OracleError::InvalidPrice as u32;
     pub const UNSAFE_PRICE: u32 = OracleError::UnsafePriceNotAllowed as u32;
     pub const PRICE_FEED_STALE: u32 = OracleError::PriceFeedStale as u32;
@@ -76,7 +73,6 @@ pub mod codes {
     pub const SANITY_BOUND_VIOLATED: u32 = OracleError::SanityBoundViolated as u32;
     pub const INVALID_SANITY_BOUNDS: u32 = OracleError::InvalidSanityBounds as u32;
 
-    // SpokeError
     pub const SPOKE_NOT_FOUND: u32 = SpokeError::SpokeNotFound as u32;
     pub const SPOKE_DEPRECATED: u32 = SpokeError::SpokeDeprecated as u32;
     pub const ASSET_NOT_IN_SPOKE: u32 = SpokeError::AssetNotInSpoke as u32;
@@ -88,13 +84,11 @@ pub mod codes {
     pub const SPOKE_ASSET_FLAG_RELAXATION: u32 = SpokeError::SpokeAssetFlagRelaxation as u32;
     pub const SPOKE_ASSET_IN_USE: u32 = SpokeError::SpokeAssetInUse as u32;
 
-    // FlashLoanError
     pub const FLASH_LOAN_ONGOING: u32 = FlashLoanError::FlashLoanOngoing as u32;
     pub const FLASHLOAN_NOT_ENABLED: u32 = FlashLoanError::FlashloanNotEnabled as u32;
     pub const INVALID_FLASHLOAN_REPAY: u32 = FlashLoanError::InvalidFlashloanRepay as u32;
     pub const INVALID_FLASHLOAN_RECEIVER: u32 = FlashLoanError::InvalidFlashloanReceiver as u32;
 
-    // StrategyError
     pub const CONVERT_STEPS_REQUIRED: u32 = StrategyError::ConvertStepsRequired as u32;
     pub const ROUTER_OVERSPEND: u32 = StrategyError::RouterOverspend as u32;
     pub const NO_SWAP_OUTPUT: u32 = StrategyError::NoSwapOutput as u32;
@@ -110,7 +104,7 @@ pub mod codes {
     // ownership/admin transfer has no pending candidate to accept.
     pub const NO_PENDING_TRANSFER: u32 = 2200;
 
-    // Aliases retained for existing tests (errors removed/renumbered in common)
+    // Compatibility aliases for renumbered/removed common::errors codes.
     pub const REFLECTOR_NOT_CONFIGURED: u32 = 215;
     pub const SWAP_DEBT_NOT_SUPPORTED: u32 = 406;
     pub const NO_DEBT_PAYMENTS: u32 = 407;

@@ -26,7 +26,6 @@ fn default_curve() -> crate::positions::liquidation::math::LiquidationCurve {
     )
 }
 
-/// Liquidation strictly decreases scaled debt for the repaid asset.
 #[rule]
 fn liquidation_strictly_decreases_debt_for_repaid_asset(
     e: Env,
@@ -64,7 +63,6 @@ fn liquidation_strictly_decreases_debt_for_repaid_asset(
     }
 }
 
-/// Liquidation strictly decreases scaled collateral for the seized asset.
 #[rule]
 fn liquidation_strictly_decreases_collateral_for_seized_asset(
     e: Env,
@@ -116,7 +114,6 @@ fn liquidation_strictly_decreases_collateral_for_seized_asset(
     }
 }
 
-/// Dynamic liquidation bonus stays within [base_bonus, max_bonus] for liquidatable HF.
 #[rule]
 fn bonus_bounded(
     e: Env,
@@ -132,9 +129,7 @@ fn bonus_bounded(
     cvlr_assume!(hf_wad < WAD);
     cvlr_assume!(target_wad > 0 && target_wad <= 2 * WAD);
 
-    // Real production bonus math (NOT the certora summary `calculate_linear_bonus`,
-    // which would assume the very bounds asserted here). Proves the production
-    // function keeps the bonus in [base, max] for any liquidation target.
+    // Production `calculate_linear_bonus_with_target` (not the certora summary).
     let curve = default_curve();
     let bonus = crate::positions::liquidation::math::calculate_linear_bonus_with_target(
         &e,
@@ -149,7 +144,6 @@ fn bonus_bounded(
     cvlr_assert!(bonus.raw() >= base_bonus_bps);
 }
 
-/// Per-account max bonus keeps effective_threshold * (1 + bonus) <= 100%.
 #[rule]
 fn derived_bonus_respects_threshold(e: Env, proportion_seized_wad: i128) {
     cvlr_assume!(proportion_seized_wad > 0);
@@ -165,7 +159,6 @@ fn derived_bonus_respects_threshold(e: Env, proportion_seized_wad: i128) {
     cvlr_assert!(eff_thr_bps * (BPS + max.raw()) <= BPS * BPS);
 }
 
-/// Each asset's seizure is proportional to its share of total collateral value.
 #[rule]
 fn seizure_proportional(
     e: Env,
@@ -196,7 +189,6 @@ fn seizure_proportional(
     }
 }
 
-/// Protocol fee is charged on the bonus portion only, not the full seizure.
 #[rule]
 fn protocol_fee_on_bonus_only(
     e: Env,
@@ -226,7 +218,6 @@ fn protocol_fee_on_bonus_only(
     cvlr_assert!(protocol_fee < seizure_amount);
 }
 
-/// Ideal repayment is positive, bounded by debt, and bounded by collateral / (1 + bonus).
 #[rule]
 fn ideal_repayment_targets_102(
     e: Env,
@@ -274,7 +265,6 @@ fn ideal_repayment_targets_102(
     cvlr_assert!(ideal.raw() <= max_repayable.raw() + 1);
 }
 
-/// Bonus calculation is reachable for liquidatable HF (non-vacuous).
 #[rule]
 fn liquidation_bonus_sanity(e: Env) {
     let hf: i128 = cvlr::nondet::nondet();
@@ -298,10 +288,6 @@ fn liquidation_bonus_sanity(e: Env) {
     cvlr_satisfy!(bonus.raw() > 0);
 }
 
-/// Single-bonus core property: the bonus is monotone non-increasing in HF, so a
-/// lower health factor never earns a smaller liquidation bonus. This is the
-/// defining safety property of the HF-scaled curve (blocks a partial-liquidation
-/// bonus ratchet). Proven over the production `calculate_linear_bonus_with_target`.
 #[rule]
 fn bonus_monotone_in_hf(
     e: Env,
@@ -360,7 +346,6 @@ fn bonus_is_max_below_curve_floor(e: Env, hf: i128, base_bps: i128, max_bps: i12
     cvlr_assert!(bonus.raw() == max_bps);
 }
 
-/// Curve target clamp: at or above the target HF the bonus is exactly `base`.
 #[rule]
 fn bonus_is_base_at_or_above_target(e: Env, hf: i128, base_bps: i128, max_bps: i128) {
     cvlr_assume!(hf >= DEFAULT_LIQUIDATION_TARGET_HF_WAD);
@@ -381,9 +366,7 @@ fn bonus_is_base_at_or_above_target(e: Env, hf: i128, base_bps: i128, max_bps: i
     cvlr_assert!(bonus.raw() == base_bps);
 }
 
-/// Dust guard: after estimation the residual debt is either fully cleared or at
-/// least the bad-debt socialization floor -- never a sub-floor remainder that is
-/// neither profitably liquidatable nor socializable.
+/// After estimation, residual debt is fully cleared or >= bad-debt floor.
 #[rule]
 fn estimate_leaves_no_sub_threshold_dust(
     e: Env,
@@ -424,7 +407,6 @@ fn estimate_leaves_no_sub_threshold_dust(
     cvlr_assert!(remaining == 0 || remaining >= BAD_DEBT_USD_THRESHOLD);
 }
 
-/// Estimate liquidation amount is reachable for liquidatable accounts (non-vacuous).
 #[rule]
 fn estimate_liquidation_sanity(e: Env) {
     let total_debt: i128 = cvlr::nondet::nondet();

@@ -16,7 +16,6 @@ pub(crate) fn create_hub(env: &Env) -> u32 {
     id
 }
 
-/// Requires an active hub registry entry; uncreated or inactive hubs revert.
 pub(crate) fn require_hub_active(env: &Env, hub_id: u32) {
     let active = storage::get_hub(env, hub_id).is_some_and(|hub| hub.is_active);
     assert_with_error!(env, active, GenericError::HubNotActive);

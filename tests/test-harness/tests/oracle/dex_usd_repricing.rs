@@ -130,16 +130,12 @@ fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
         &reflector_single_spot_config(&dex_eth, &usdc, usd(1), DEFAULT_TOLERANCE.tolerance_bps),
     );
 
-    // Reading XLM must revert: USDC is no longer a direct USD market.
+    // Reading XLM must revert: USDC is not a direct USD market.
     index_view(&t, &xlm);
 }
 
-/// Execute-time re-check: governance validates the quote market at propose time,
-/// but the controller stores the config ~48h later. If the quote market is
-/// reconfigured to a non-USD base during the timelock delay, replaying the
-/// stale op (a direct `set_market_oracle_config` of the resolved config)
-/// reverts (#220) instead of landing a config that prices off a quote that no
-/// longer resolves to USD.
+/// Execute-time re-check: if the quote market loses USD base during the
+/// timelock delay, replaying the resolved config reverts (#220).
 #[test]
 #[should_panic(expected = "Error(Contract, #220)")]
 fn test_oracle_config_execute_rejects_quote_reconfigured_during_delay() {
@@ -172,8 +168,7 @@ fn test_oracle_config_execute_rejects_quote_reconfigured_during_delay() {
             .unwrap()
     });
 
-    // During the timelock delay, USDC itself is reconfigured to quote in ETH:
-    // USDC is no longer a direct USD market.
+    // During the delay, reconfigure USDC to quote in ETH (not a direct USD market).
     let dex_eth = register_dex_oracle(&t, &eth);
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_eth)
         .set_price(&usdc, &usd(1));

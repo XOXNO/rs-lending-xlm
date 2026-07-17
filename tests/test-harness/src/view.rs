@@ -6,16 +6,12 @@ use soroban_sdk::token;
 use crate::context::LendingTest;
 use crate::helpers::{hub_asset, i128_to_f64, wad_to_f64, HARNESS_SPOKE};
 
-/// Re-export for use in assertions.
 pub enum PositionType {
     Supply,
     Borrow,
 }
 
-/// Harness-level aggregate of an asset's base configuration. In the spoke model
-/// risk parameters live on the general spoke 0 (`SpokeAssetConfig`) while
-/// flash-loan eligibility/fee and decimals live on the pool `MarketParamsRaw`;
-/// this view stitches both so tests read a single config object.
+/// Risk params from base spoke listing; flash-loan/decimals from pool `MarketParamsRaw`.
 pub struct AssetConfigView {
     pub loan_to_value: u32,
     pub liquidation_threshold: u32,
@@ -29,8 +25,6 @@ pub struct AssetConfigView {
 }
 
 impl LendingTest {
-    // Health factor
-
     pub fn health_factor(&self, user: &str) -> f64 {
         wad_to_f64(self.health_factor_raw(user))
     }
@@ -48,7 +42,6 @@ impl LendingTest {
     pub fn health_factor_for_raw(&self, _user: &str, account_id: u64) -> i128 {
         self.ctrl_client().get_health_factor(&account_id)
     }
-    // Token balances (wallet)
 
     pub fn token_balance(&self, user: &str, asset_name: &str) -> f64 {
         let decimals = self.resolve_market(asset_name).decimals;
@@ -64,7 +57,6 @@ impl LendingTest {
         let tok = token::Client::new(&self.env, &market.asset);
         tok.balance(&user_state.address)
     }
-    // Position balances (protocol)
 
     pub fn supply_balance(&self, user: &str, asset_name: &str) -> f64 {
         let decimals = self.resolve_market(asset_name).decimals;
@@ -146,7 +138,6 @@ impl LendingTest {
 
         0
     }
-    // USD totals
 
     pub fn total_collateral(&self, user: &str) -> f64 {
         wad_to_f64(self.total_collateral_raw(user))
@@ -167,7 +158,6 @@ impl LendingTest {
             .map(|account_id| self.ctrl_client().get_total_borrow_usd(&account_id))
             .unwrap_or(0)
     }
-    // Pool state
 
     pub fn pool_utilization(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
@@ -199,13 +189,11 @@ impl LendingTest {
             .get_deposit_rate(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
-    // Revenue snapshots
 
     pub fn snapshot_revenue(&self, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
         self.pool_client(asset_name).get_revenue(&hub_asset(asset))
     }
-    // Liquidation status
 
     pub fn can_be_liquidated(&self, user: &str) -> bool {
         self.find_account_id(user)
@@ -216,7 +204,6 @@ impl LendingTest {
     pub fn can_be_liquidated_by_id(&self, account_id: u64) -> bool {
         self.ctrl_client().is_liquidatable(&account_id)
     }
-    // Account info
 
     pub fn get_account_attributes(&self, user: &str) -> controller::types::AccountAttributes {
         let account_id = self.resolve_account_id(user);
@@ -261,9 +248,7 @@ impl LendingTest {
         self.ctrl_client().get_pool_address()
     }
 
-    /// True when `asset` is active — i.e. its token-rooted `AssetOracle` entry
-    /// exists. Absence is the pending/disabled signal in the spoke model (the
-    /// former `MarketStatus::{PendingOracle,Disabled}` both map to inactive).
+    /// True when token-rooted `AssetOracle` exists (absence = pending/disabled).
     pub fn market_is_active(&self, asset: &soroban_sdk::Address) -> bool {
         self.env.as_contract(&self.controller, || {
             self.env
@@ -273,7 +258,6 @@ impl LendingTest {
         })
     }
 
-    /// Reads the resolved `MarketOracleConfig` persisted for an active market.
     pub fn market_oracle_config(
         &self,
         asset: &soroban_sdk::Address,

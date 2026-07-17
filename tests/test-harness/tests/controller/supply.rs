@@ -3,8 +3,6 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, usdt_stable_preset,
     wbtc_preset, HubAssetKey, LendingTest, PositionType, ALICE, BOB, STABLECOIN_SPOKE,
 };
-// 1. test_supply_single_asset
-
 #[test]
 fn test_supply_single_asset() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -32,8 +30,6 @@ fn test_supply_single_asset() {
         coll
     );
 }
-// 2. test_supply_to_existing_account
-
 #[test]
 fn test_supply_to_existing_account() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -57,8 +53,6 @@ fn test_supply_to_existing_account() {
         wallet_after_second
     );
 }
-// 3. test_supply_multiple_assets_bulk
-
 #[test]
 fn test_supply_multiple_assets_bulk() {
     let mut t = LendingTest::new()
@@ -107,8 +101,6 @@ fn test_supply_duplicate_asset_bulk_is_allowed() {
     t.assert_supply_count(ALICE, 1);
     t.assert_supply_near(ALICE, "USDC", 5_000.0, 1.0);
 }
-// 4. test_supply_creates_account_on_first_call
-
 #[test]
 fn test_supply_creates_account_on_first_call() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -120,8 +112,6 @@ fn test_supply_creates_account_on_first_call() {
     assert_eq!(accounts.len(), 1, "supply should auto-create an account");
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
 }
-// 5. test_supply_with_spoke_category
-
 #[test]
 fn test_supply_with_spoke_category() {
     let mut t = LendingTest::new()
@@ -144,8 +134,6 @@ fn test_supply_with_spoke_category() {
         "wallet should be ~0 after supply"
     );
 }
-// 6. test_supply_rejects_zero_amount
-
 #[test]
 fn test_supply_rejects_zero_amount() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -204,8 +192,6 @@ fn test_supply_duplicate_raw_amount_overflow_reverts() {
     assert_contract_error(result, errors::GenericError::MathOverflow as u32);
 }
 
-// 7. test_supply_rejects_non_collateralizable
-
 #[test]
 fn test_supply_rejects_non_collateralizable() {
     let mut t = LendingTest::new()
@@ -218,8 +204,6 @@ fn test_supply_rejects_non_collateralizable() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::NOT_COLLATERAL);
 }
-// 8. test_supply_rejects_during_flash_loan
-
 #[test]
 fn test_supply_rejects_during_flash_loan() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -229,8 +213,6 @@ fn test_supply_rejects_during_flash_loan() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-// 9. test_supply_rejects_when_paused
-
 #[test]
 fn test_supply_rejects_when_paused() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -240,8 +222,6 @@ fn test_supply_rejects_when_paused() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-// 11. test_supply_position_limit_exceeded
-
 #[test]
 fn test_supply_position_limit_exceeded() {
     let mut t = LendingTest::new()
@@ -259,8 +239,6 @@ fn test_supply_position_limit_exceeded() {
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// 12. test_supply_spoke_rejects_non_category_asset
-
 #[test]
 fn test_supply_spoke_rejects_non_category_asset() {
     let mut t = LendingTest::new()
@@ -279,8 +257,6 @@ fn test_supply_spoke_rejects_non_category_asset() {
     let result = t.try_supply(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
-// 15. test_supply_raw_precision
-
 #[test]
 fn test_supply_raw_precision() {
     let mut t = LendingTest::new()
@@ -307,8 +283,6 @@ fn test_supply_raw_precision() {
         wallet_raw
     );
 }
-
-// --- audit_p0 ---
 
 // Supply is permissionless w.r.t. account owner; third parties may add collateral.
 #[test]
@@ -388,15 +362,7 @@ fn test_bulk_supply_duplicate_asset_counts_once() {
     t.assert_supply_near(ALICE, "USDC", 75_000.0, 1.0);
 }
 
-// POC (VECTOR.md #5.1): permissionless account-creation spam. `supply` enforces
-// only `require_positive_amount` (> 0) and `can_supply`/position-limit checks —
-// there is NO minimum-deposit / dust-value floor
-// (`validate_position_entry_gates`). Each `supply(account_id = 0)` mints a fresh controller account
-// (`create_account` → monotonic `AccountNonce`), writing AccountMeta +
-// SupplyPositions persistent entries. A single external address can therefore
-// create unbounded accounts with 1-raw-unit deposits, bloating controller state
-// and threatening the keeper's bounded account scan (legit accounts beyond the
-// scan window miss TTL bumps → risk of archival).
+// No min-deposit floor: supply(account_id=0) mints a fresh account per 1-raw-unit deposit.
 #[test]
 fn poc_single_actor_spams_unbounded_dust_accounts() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -433,13 +399,7 @@ fn poc_single_actor_spams_unbounded_dust_accounts() {
     );
 }
 
-// POC (VECTOR.md #12.1): `process_supply` is the ONLY position flow without
-// `require_account_owner_match` (borrow/withdraw/multiply/swap_*/migrate all
-// have it). A non-owner can therefore supply collateral into a *victim's*
-// existing account, consuming the victim's bounded supply-position slots
-// (gifting funds + a slot-exhaustion griefing surface). This proves the missing
-// owner check: BOB supplies ETH into ALICE's account; the position lands on
-// ALICE's account (owner unchanged) with no owner-match revert.
+// process_supply has no owner match: non-owner may supply into a victim account (slot grief).
 #[test]
 fn poc_non_owner_can_supply_into_victims_account() {
     let mut t = LendingTest::new()

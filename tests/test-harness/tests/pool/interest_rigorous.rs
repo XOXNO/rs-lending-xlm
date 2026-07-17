@@ -15,7 +15,6 @@ use test_harness::{
 // Key invariant:
 //   borrower_interest = supplier_interest + protocol_revenue
 
-/// Reads raw supply and borrow indexes from the controller's market view.
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let asset_addr = t.resolve_asset(asset);
     let ctrl = t.ctrl_client();

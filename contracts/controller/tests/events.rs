@@ -346,7 +346,6 @@ fn all_event_helpers_publish_one_event() {
         }
         .publish(&env);
 
-        // Reference vec! to keep it used even if the macro path changes.
         let _ignored: Vec<Address> = vec![&env];
     });
 

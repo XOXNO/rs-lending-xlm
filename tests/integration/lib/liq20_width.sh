@@ -1,7 +1,6 @@
 # 20-feed liquidation width research helpers (requires stress.sh, invoke.sh, core.sh).
 # Intentional frontier misses are recorded as status=research so assert_green ignores them.
 
-# LIQ20_* now primarily from env.sh (with same defaults for backward compat).
 : "${LIQ20_TX_CAP:=400000000}"
 : "${LIQ20_DEFAULT_REPAY_EACH:=$((3000 * ${STRESS_UNIT:-10000000}))}"
 : "${LIQ20_DEFAULT_LEEWAY:=8000000}"

@@ -1,5 +1,3 @@
-//! SEP-40 reader shape (base/decimals/resolution/assets/lastprice/price/prices).
-
 #![cfg(test)]
 extern crate std;
 

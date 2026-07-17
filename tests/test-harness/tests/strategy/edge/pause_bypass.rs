@@ -1,9 +1,4 @@
-//! Per-spoke pause must hold across the strategy wrappers, not just the direct
-//! withdraw/repay paths. Strategy flows reuse `execute_withdrawal` /
-//! `execute_repayment` / `execute_withdraw_all`, which previously skipped the
-//! `enforce_spoke_asset_flags` guard the direct paths run inline. Liquidation
-//! calls the lower-level `settle_*` helpers directly and must stay reachable so
-//! keepers can still clear bad debt on a paused listing.
+//! Strategy wrappers must enforce_spoke_asset_flags; liquidation uses settle_* and stays reachable under pause (ADR 0011).
 
 use super::*;
 use test_harness::{liquidatable_usdc_eth, LIQUIDATOR};
@@ -25,7 +20,7 @@ fn test_swap_collateral_paused_collateral_reverts() {
 
     t.set_spoke_asset_paused("USDC", true);
 
-    // Direct and strategy paths must now agree: both reject the paused asset.
+    // Direct and strategy paths both reject the paused asset.
     assert_contract_error(
         t.try_withdraw(ALICE, "USDC", 100.0),
         errors::SPOKE_ASSET_PAUSED,
@@ -80,11 +75,7 @@ fn test_close_position_paused_residual_collateral_reverts() {
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
-// Regression guard for the fix's placement: the pause check lives in the
-// strategy wrappers, NOT the shared `settle_*` helpers that liquidation's
-// seizure leg reuses. Pausing the seized collateral must leave liquidation
-// reachable, otherwise an incident pause would freeze bad debt in place
-// (ADR 0011).
+// Pause check lives in strategy wrappers, not settle_*; liquidation stays reachable on paused collateral (ADR 0011).
 #[test]
 fn test_liquidation_of_paused_collateral_still_succeeds() {
     let mut t = liquidatable_usdc_eth();

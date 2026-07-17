@@ -485,13 +485,7 @@ fn test_keeper_index_freshness_matters() {
         revenue_b
     );
 
-    // KEY INSIGHT: frequent syncs produce significantly more revenue because
-    // the protocol tracks interest through index updates. Without syncs,
-    // revenue materializes only when indexes update. Daily syncs capture the
-    // full compound-interest curve; a single sync underestimates it.
-    //
-    // Scenario B (daily syncs) must accrue >= Scenario A (single sync) for
-    // both debt and revenue.
+    // Daily syncs accrue ≥ a single end-of-period sync (compound path).
     assert!(
         debt_b >= debt_a,
         "Daily-sync debt should be >= single-sync: A={}, B={}",

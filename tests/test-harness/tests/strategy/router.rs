@@ -705,12 +705,7 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
         alice_wbtc_after
     );
 }
-// Part 3: swap_tokens allowance hygiene under hostile router
-// After an OverPull-triggered transaction rollback, the controller's
-// allowance on the router must remain at zero.
-//
-// Soroban rolls back state on contract panics, so router allowance must remain
-// zero after an over-pull rejection.
+// OverPull reject rolls back: controller router allowance stays zero.
 #[test]
 fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
     let mut t = LendingTest::new()
@@ -790,8 +785,7 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
         allowance
     );
 }
-// Part 4: Bob-not-owner authorization with account created via multiply
-// NotAuthorized for a multiply reuse by the wrong owner.
+// Multiply reuse by non-owner → NotAuthorized.
 #[test]
 fn test_multiply_reusing_account_wrong_owner_rejects() {
     let mut t = LendingTest::new()
@@ -799,8 +793,6 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
         .with_market(eth_preset())
         .build();
 
-    // Alice creates a leveraged position first — needs a real fixture so
-    // her swap completes.
     t.fund_router("USDC", 3_000.0);
     let steps = build_aggregator_swap(
         &t,
@@ -884,7 +876,7 @@ fn test_sanity_bound_floor_exact_accept_then_one_under_reject() {
     let result = t.try_borrow(ALICE, "ETH", 0.1);
     assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
 }
-// 2. Strategy paths respect max-utilization cap
+// Strategy paths respect max-utilization cap.
 
 // Borrow-side gate at the cap (also covered by `max_utilization.rs`).
 #[test]

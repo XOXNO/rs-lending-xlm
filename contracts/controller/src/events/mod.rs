@@ -165,7 +165,6 @@ impl EventOracleProvider {
     }
 }
 
-/// Reads a numeric anchor field, defaulting to zero when no anchor source exists.
 fn anchor_or_zero<T: Default>(
     anchor: Option<&EventOracleSource>,
     pick: impl Fn(&EventOracleSource) -> T,

@@ -10,7 +10,6 @@ use common::types::{
 use pool_interface::LiquidityPoolClient;
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 
-/// Calls the pool to create a market for `hub_id`.
 pub(crate) fn pool_create_market_call(
     env: &Env,
     pool_addr: &Address,
@@ -20,7 +19,6 @@ pub(crate) fn pool_create_market_call(
     LiquidityPoolClient::new(env, pool_addr).create_market(&hub_id, params)
 }
 
-/// Calls the pool to apply supply entries, returning position mutations.
 pub(crate) fn pool_supply_call(
     env: &Env,
     pool_addr: &Address,
@@ -29,7 +27,6 @@ pub(crate) fn pool_supply_call(
     LiquidityPoolClient::new(env, pool_addr).supply(entries)
 }
 
-/// Calls the pool to apply borrow entries for `receiver`, returning position mutations.
 pub(crate) fn pool_borrow_call(
     env: &Env,
     pool_addr: &Address,
@@ -39,7 +36,6 @@ pub(crate) fn pool_borrow_call(
     LiquidityPoolClient::new(env, pool_addr).borrow(receiver, entries)
 }
 
-/// Calls the pool to open a strategy position for `receiver`.
 pub(crate) fn pool_create_strategy_call(
     env: &Env,
     pool_addr: &Address,
@@ -51,7 +47,6 @@ pub(crate) fn pool_create_strategy_call(
         .create_strategy(receiver, &action, &fee)
 }
 
-/// Calls the pool to apply withdraw entries for `receiver`, returning position mutations.
 pub(crate) fn pool_withdraw_call(
     env: &Env,
     pool_addr: &Address,
@@ -66,7 +61,6 @@ pub(crate) fn pool_withdraw_call(
     )
 }
 
-/// Calls the pool to apply repay actions for `payer`, returning position mutations.
 pub(crate) fn pool_repay_call(
     env: &Env,
     pool_addr: &Address,
@@ -76,8 +70,7 @@ pub(crate) fn pool_repay_call(
     LiquidityPoolClient::new(env, pool_addr).repay(payer, actions)
 }
 
-/// Calls the pool to net a supply leg against a debt leg on the same
-/// hub-asset with zero token transfer.
+/// Nets a supply leg against a debt leg on the same hub-asset with zero token transfer.
 pub(crate) fn pool_net_settle_call(
     env: &Env,
     pool_addr: &Address,
@@ -86,7 +79,6 @@ pub(crate) fn pool_net_settle_call(
     LiquidityPoolClient::new(env, pool_addr).net_settle(entry)
 }
 
-/// Calls the pool to seize the given liquidation positions.
 pub(crate) fn pool_seize_positions_call(
     env: &Env,
     pool_addr: &Address,
@@ -95,7 +87,6 @@ pub(crate) fn pool_seize_positions_call(
     LiquidityPoolClient::new(env, pool_addr).seize_positions(entries)
 }
 
-/// Calls the pool to execute a flash loan of `amount` to `receiver`.
 pub(crate) fn pool_flash_loan_call(
     env: &Env,
     pool_addr: &Address,
@@ -110,12 +101,10 @@ pub(crate) fn pool_flash_loan_call(
         .flash_loan(hub_asset, initiator, receiver, &amount, &fee, data)
 }
 
-/// Calls the pool to accrue and update interest indexes for `hub_asset`.
 pub(crate) fn pool_update_indexes_call(env: &Env, pool_addr: &Address, hub_asset: &HubAssetKey) {
     LiquidityPoolClient::new(env, pool_addr).update_indexes(hub_asset)
 }
 
-/// Calls the pool to claim accrued protocol revenue for `hub_asset`.
 pub(crate) fn pool_claim_revenue_call(
     env: &Env,
     pool_addr: &Address,
@@ -124,7 +113,6 @@ pub(crate) fn pool_claim_revenue_call(
     LiquidityPoolClient::new(env, pool_addr).claim_revenue(hub_asset)
 }
 
-/// Calls the pool to add `amount` of rewards to `hub_asset`.
 pub(crate) fn pool_add_rewards_call(
     env: &Env,
     pool_addr: &Address,
@@ -134,7 +122,6 @@ pub(crate) fn pool_add_rewards_call(
     LiquidityPoolClient::new(env, pool_addr).add_rewards(hub_asset, &amount)
 }
 
-/// Returns the pool's current sync data for `hub_asset`.
 pub(crate) fn fetch_pool_sync_data(
     env: &Env,
     pool_addr: &Address,
@@ -143,7 +130,6 @@ pub(crate) fn fetch_pool_sync_data(
     LiquidityPoolClient::new(env, pool_addr).get_sync_data(hub_asset)
 }
 
-/// Returns market indexes for the given hub-assets in one call.
 pub(crate) fn fetch_pool_bulk_indexes(
     env: &Env,
     pool_addr: &Address,
@@ -152,7 +138,6 @@ pub(crate) fn fetch_pool_bulk_indexes(
     LiquidityPoolClient::new(env, pool_addr).get_bulk_indexes(hub_assets)
 }
 
-/// Calls the pool to update the interest-rate model for `hub_asset`.
 pub(crate) fn pool_update_params_call(
     env: &Env,
     pool_addr: &Address,
@@ -162,7 +147,6 @@ pub(crate) fn pool_update_params_call(
     LiquidityPoolClient::new(env, pool_addr).update_params(hub_asset, params)
 }
 
-/// Calls the pool to upgrade to a new WASM hash.
 pub(crate) fn pool_upgrade_call(env: &Env, pool_addr: &Address, new_wasm_hash: &BytesN<32>) {
     LiquidityPoolClient::new(env, pool_addr).upgrade(new_wasm_hash)
 }

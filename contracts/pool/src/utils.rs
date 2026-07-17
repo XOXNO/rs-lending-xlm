@@ -1,6 +1,5 @@
-//! Pool support helpers: TTL renewal, ledger-time conversion, rate-model writes,
-//! post-mutation solvency/utilization guards, liquidation-fee accrual, and the
-//! self-authorized `transfer_from` entry used to pull flash-loan repayments.
+//! Pool helpers: TTL renewal, ledger time, rate-model writes, solvency/
+//! utilization guards, and liquidation-fee accrual.
 
 use common::constants::{
     MS_PER_SECOND, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
@@ -18,16 +17,12 @@ pub(crate) use common::validation::{
     require_nonneg_amount, require_positive_amount, require_wasm_receiver,
 };
 
-// ################## QUERY STATE ##################
-
-/// Renews the pool's instance-storage TTL.
 pub(crate) fn renew_pool_instance(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
 }
 
-/// Current ledger time in milliseconds, panicking on overflow.
 pub(crate) fn now_ms(env: &Env) -> u64 {
     env.ledger()
         .timestamp()
@@ -35,9 +30,6 @@ pub(crate) fn now_ms(env: &Env) -> u64 {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-// ################## CHANGE STATE ##################
-
-/// Renews TTLs for market params/state entries. Both keys must exist.
 pub(crate) fn renew_market_keys(env: &Env, hub_asset: &HubAssetKey) {
     let storage = env.storage().persistent();
     storage.extend_ttl(
@@ -52,7 +44,6 @@ pub(crate) fn renew_market_keys(env: &Env, hub_asset: &HubAssetKey) {
     );
 }
 
-/// Overwrites the market's stored rate-model parameters in place.
 pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestRateModel) {
     let key = PoolKey::Params(hub_asset.clone());
     let mut params: MarketParamsRaw = env
@@ -74,17 +65,13 @@ pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestR
     env.storage().persistent().set(&key, &params);
 }
 
-// ################## LOW-LEVEL HELPERS ##################
-
-/// Rejects post-mutation utilization above the market's max-utilization cap.
 pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     // RAY is the disabled sentinel. Utilization exceeds RAY when
     // `borrowed > supplied`; enabled params are validated below RAY.
     if cache.supplied == Ray::ZERO || cache.params.max_utilization >= Ray::ONE {
         return;
     }
-    // Use index-aware utilization; index drift can push the real ratio above
-    // the cap while scaled totals remain below it.
+    // Index-aware: index drift can exceed the cap while scaled totals do not.
     let utilization = cache.calculate_utilization();
     assert_with_error!(
         env,
@@ -93,16 +80,14 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     );
 }
 
-/// Rejects a post-mutation state that leaves outstanding debt with zero supply.
 pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
     if cache.supplied == Ray::ZERO && cache.borrowed != Ray::ZERO {
         panic_with_error!(env, CollateralError::PoolInsolvent);
     }
 }
 
-/// Adds liquidation protocol fee to revenue and returns net collateral transfer.
-/// The fee stays in the pool as cash and is minted as a protocol-owned scaled
-/// supply position; existing suppliers' shares and supply index are unchanged.
+// Fee stays as cash, minted as protocol-owned supply shares; supplier shares
+// and supply index unchanged.
 pub(crate) fn apply_liquidation_fee(
     env: &Env,
     cache: &mut Cache,

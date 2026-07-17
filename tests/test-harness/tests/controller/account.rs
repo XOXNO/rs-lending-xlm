@@ -2,7 +2,6 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, usdt_stable_preset,
     LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
 };
-// 1. test_create_normal_account
 
 #[test]
 fn test_create_normal_account() {
@@ -15,7 +14,6 @@ fn test_create_normal_account() {
     assert_eq!(attrs.spoke_id, 1);
     assert_eq!(attrs.mode, controller::types::PositionMode::Normal);
 }
-// 2. test_create_spoke_account
 
 #[test]
 fn test_create_spoke_account() {
@@ -33,7 +31,6 @@ fn test_create_spoke_account() {
     let attrs = t.get_account_attributes(ALICE);
     assert_eq!(attrs.spoke_id, 2);
 }
-// 3. test_create_account_full_custom
 
 #[test]
 fn test_create_account_full_custom() {
@@ -47,17 +44,14 @@ fn test_create_account_full_custom() {
     assert_eq!(attrs.mode, controller::types::PositionMode::Multiply);
     assert_eq!(attrs.spoke_id, 1);
 }
-// 4. test_remove_empty_account
 
 #[test]
 fn test_remove_empty_account() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     t.create_account(ALICE);
-    // Remove the account.
     t.remove_account(ALICE);
 
-    // Active accounts must be empty.
     let accounts = t.get_active_accounts(ALICE);
     assert_eq!(
         accounts.len(),
@@ -65,7 +59,6 @@ fn test_remove_empty_account() {
         "account list should be empty after removal"
     );
 }
-// 6. test_remove_rejects_with_positions
 
 #[test]
 fn test_remove_rejects_with_positions() {
@@ -76,7 +69,6 @@ fn test_remove_rejects_with_positions() {
     let result = t.try_remove_account(ALICE);
     assert_contract_error(result, errors::POSITION_NOT_FOUND);
 }
-// 7. test_multiple_accounts_per_user
 
 #[test]
 fn test_multiple_accounts_per_user() {
@@ -89,7 +81,6 @@ fn test_multiple_accounts_per_user() {
     let id2 = t.create_account_full(ALICE, 1, controller::types::PositionMode::Normal);
     assert_ne!(id1, id2, "accounts should have different IDs");
 
-    // Supply to each account.
     t.supply_to(ALICE, id1, "USDC", 1_000.0);
     t.supply_to(ALICE, id2, "ETH", 0.5);
 
@@ -101,7 +92,6 @@ fn test_multiple_accounts_per_user() {
     let accounts = t.get_active_accounts(ALICE);
     assert!(accounts.len() >= 2, "should have at least 2 accounts");
 }
-// 8. test_account_auto_removed_after_full_repay_withdraw
 
 #[test]
 fn test_account_auto_removed_after_full_repay_withdraw() {
@@ -113,13 +103,11 @@ fn test_account_auto_removed_after_full_repay_withdraw() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Repay in full.
     t.repay(ALICE, "ETH", 1.01);
 
-    // Withdraw all; this triggers auto-removal of the account.
+    // Withdraw all; cleanup_account_if_empty auto-removes the empty account.
     t.withdraw_all(ALICE, "USDC");
 
-    // cleanup_account_if_empty auto-removed the account.
     let accounts = t.get_active_accounts(ALICE);
     assert_eq!(
         accounts.len(),
@@ -127,13 +115,11 @@ fn test_account_auto_removed_after_full_repay_withdraw() {
         "account should be auto-removed when all positions empty"
     );
 }
-// 9. test_get_active_accounts
 
 #[test]
 fn test_get_active_accounts() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // No accounts exist yet.
     t.get_or_create_user(ALICE);
     let accounts_before = t.get_active_accounts(ALICE);
     assert_eq!(accounts_before.len(), 0);
@@ -142,7 +128,6 @@ fn test_get_active_accounts() {
     let accounts_after = t.get_active_accounts(ALICE);
     assert_eq!(accounts_after.len(), 1);
 }
-// 10. test_account_owner_verified
 
 #[test]
 fn test_account_owner_verified() {
@@ -150,9 +135,8 @@ fn test_account_owner_verified() {
 
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // BOB must not withdraw from ALICE's account. Because `mock_all_auths`
-    // bypasses signature checks, this test calls the controller directly and
-    // relies on ownership validation.
+    // BOB must not withdraw from ALICE's account. mock_all_auths bypasses
+    // signature checks; ownership validation still rejects the call.
     let alice_account_id = t.resolve_account_id(ALICE);
     let bob_addr = t.get_or_create_user(BOB);
     let usdc_addr = t.resolve_asset("USDC");

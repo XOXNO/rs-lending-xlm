@@ -33,8 +33,6 @@ impl LendingTest {
         ctrl.borrow(&addr, &account_id, &borrows, &None);
     }
 
-    /// Borrows on `account_id` as `caller` (e.g. a delegate), routing the funds
-    /// to `to`'s wallet via the `to` destination instead of the caller.
     pub fn borrow_as_to(
         &mut self,
         caller: &str,

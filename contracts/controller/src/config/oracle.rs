@@ -29,7 +29,7 @@ pub(crate) fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut co
         .params
         .asset_decimals;
 
-    // Revalidates sanity bands and quote-market activity at execution.
+    // Re-validate at execution (not only at propose).
     validate_market_oracle_config(env, asset, &config);
 
     // With `testing` enabled, preserve pool-registered decimals instead of a
@@ -46,7 +46,7 @@ pub(crate) fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut co
         GenericError::InvalidAsset
     );
 
-    // The oracle is token-rooted (hub-independent), keyed by the bare asset.
+    // Token-rooted (hub-independent), keyed by bare asset.
     storage::set_asset_oracle(env, asset, &config);
 
     UpdateAssetOracleEvent {
@@ -56,7 +56,6 @@ pub(crate) fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut co
     .publish(env);
 }
 
-/// Validates market oracle config before storage.
 pub(crate) fn validate_market_oracle_config(
     env: &Env,
     asset: &Address,
@@ -76,8 +75,6 @@ pub(crate) fn validate_market_oracle_config(
     require_quote_markets_active_usd(env, asset, config);
 }
 
-/// Checks that quote sources point at active USD-based markets.
-/// Direct USD and Other sources pass without lookup.
 fn require_quote_markets_active_usd(env: &Env, asset: &Address, config: &MarketOracleConfig) {
     require_source_quote_active_usd(env, asset, &config.primary);
     if let Some(anchor) = config.anchor.as_ref() {
@@ -85,7 +82,6 @@ fn require_quote_markets_active_usd(env: &Env, asset: &Address, config: &MarketO
     }
 }
 
-/// Requires a Reflector source's quoted base to be a distinct, active, one-hop USD asset.
 fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSourceConfig) {
     let OracleSourceConfig::Reflector(reflector) = source else {
         return;
@@ -94,18 +90,15 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
         return;
     };
 
-    // A self-quote would otherwise only surface at read time, as a generic
-    // `OracleCycleDetected` revert from the resolution-stack guard; reject it
-    // here at config time with a more specific error.
+    // Reject self-quotes at config time (not only via the read-time cycle guard).
     assert_with_error!(env, quote != asset, OracleError::InvalidOracleBase);
 
-    // The quote must be active: a token-rooted `AssetOracle` entry must exist.
+    // Quote needs an active token-rooted `AssetOracle`.
     let Some(quote_oracle) = storage::get_asset_oracle(env, quote) else {
         panic_with_error!(env, OracleError::InvalidOracleBase)
     };
 
-    // The quote's primary must itself be USD-based: keeps the conversion exactly
-    // one hop, forbidding a quote chain.
+    // Quote primary must be USD (one hop, no quote chains).
     match &quote_oracle.primary {
         OracleSourceConfig::RedStone(_) | OracleSourceConfig::Xoxno(_) => {}
         OracleSourceConfig::Reflector(quote_primary) => assert_with_error!(
@@ -152,13 +145,10 @@ pub(crate) fn set_oracle_sanity_bounds(env: &Env, asset: Address, min_wad: i128,
     .publish(env);
 }
 
-/// Updates the price-fluctuation tolerance on an active asset oracle.
 pub(crate) fn set_oracle_tolerance(env: &Env, asset: Address, tolerance: OraclePriceFluctuation) {
     let mut oracle = storage::get_asset_oracle(env, &asset)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PairNotActive));
-    // Re-validate the band at the controller so a direct owner call can't store a
-    // degenerate/inverted tolerance that reverts every read (mirrors how the
-    // spoke-liquidation-curve setter re-validates).
+    // Re-validate at execution so a direct owner call cannot store a bad band.
     common::validation::validate_oracle_tolerance(env, &tolerance);
     oracle.tolerance = tolerance;
     storage::set_asset_oracle(env, &asset, &oracle);

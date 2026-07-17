@@ -13,9 +13,6 @@ use soroban_sdk::Env;
 
 use crate::cache::Cache;
 
-// ################## CHANGE STATE ##################
-
-/// Accrues interest from the last pool timestamp to the current ledger timestamp.
 pub fn global_sync(env: &Env, cache: &mut Cache) {
     let total_delta_ms = cache.current_timestamp.saturating_sub(cache.last_timestamp);
 
@@ -33,8 +30,6 @@ pub fn global_sync(env: &Env, cache: &mut Cache) {
     cache.last_timestamp = cache.current_timestamp;
 }
 
-/// Compounds one bounded time chunk: accrues the borrow and supply indexes and
-/// books protocol revenue.
 fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     // dimensional: Token/Token -> Ray<1>; rate * TimeMs -> Ray<1> interest factor.
     let util = cache.calculate_utilization();
@@ -63,9 +58,6 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     add_protocol_revenue(cache, protocol_fee);
 }
 
-// ################## LOW-LEVEL HELPERS ##################
-
-/// Adds a RAY-denominated fee as scaled protocol revenue.
 pub fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
     // Zero fees, fees at/below the index floor, or fees without suppliers have no supply base.
     if fee == Ray::ZERO
@@ -81,7 +73,6 @@ pub fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
     cache.supplied.checked_add_assign(&cache.env, fee_scaled);
 }
 
-/// Socializes uncollectable debt by reducing the supply index.
 pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     // dimensional: bad_debt and supplied * supply_index are Ray<Token(asset)>.
     let total_supplied_value = cache.supplied.mul(&cache.env, cache.supply_index);

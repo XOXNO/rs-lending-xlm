@@ -19,7 +19,6 @@ pub(crate) fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) ->
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
-    // Inactive: no token-rooted oracle entry.
     if storage::get_asset_oracle(env, &hub_asset.asset).is_none() {
         return 0;
     }
@@ -74,16 +73,14 @@ fn account_can_borrow_asset(
     account: &Account,
     hub_asset: &HubAssetKey,
 ) -> bool {
-    // The account's spoke must be active and must list the asset (the spoke
-    // listing is the membership signal).
+    // Deprecated spoke or unlisted asset: not borrowable.
     if cache.spoke_config(account.spoke_id).is_deprecated {
         return false;
     }
     let Some(spoke_cfg) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
         return false;
     };
-    // Mirrors `enforce_spoke_asset_flags`: paused or frozen listings reject
-    // new debt, so the preview reports no capacity.
+    // Paused or frozen listing: zero capacity.
     if spoke_cfg.paused || spoke_cfg.frozen {
         return false;
     }

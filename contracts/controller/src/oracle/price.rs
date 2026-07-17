@@ -7,19 +7,16 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address};
 use crate::context::Cache;
 use crate::oracle::compose;
 
-/// Returns the cached USD price for `asset`, resolving and caching it under a cycle guard on a miss.
+/// Cached USD price; miss resolves under cycle guard.
 pub(crate) fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
     if let Some(feed) = cache.token_prices.get(asset.clone()) {
         return feed;
     }
 
-    // Guard against quote/anchor cycles: the price is cached only after full
-    // resolution below, so a Reflector source quoted (transitively) in itself
-    // would recurse without this. Reverts `OracleCycleDetected` on re-entry.
+    // Cycle guard: re-entry of an in-flight asset reverts `OracleCycleDetected`.
     cache.enter_price_resolution(asset);
 
-    // `cached_asset_oracle` panics `OracleNotConfigured` when `AssetOracle` is
-    // absent; that absence is the pending/disabled gate (no status read).
+    // Missing `AssetOracle` → `OracleNotConfigured` (pending/disabled gate).
     let config = cache.cached_asset_oracle(asset);
     let feed = price_with_config(cache, asset, &config);
     cache.token_prices.set(asset.clone(), feed.clone());

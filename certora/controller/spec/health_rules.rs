@@ -59,7 +59,6 @@ fn inline_weighted_collateral_wad(
     weighted
 }
 
-/// After a successful borrow, weighted collateral covers total debt.
 #[rule]
 fn hf_safe_after_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -78,7 +77,6 @@ fn hf_safe_after_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
     cvlr_assert!(weighted.raw() >= total_debt.raw());
 }
 
-/// After a successful withdraw, weighted collateral still covers total debt.
 #[rule]
 fn hf_safe_after_withdraw(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -97,11 +95,8 @@ fn hf_safe_after_withdraw(e: Env, caller: Address, asset: Address, amount: i128)
     cvlr_assert!(weighted.raw() >= total_debt.raw());
 }
 
-/// A healthy account (weighted collateral >= debt) has HF >= 1 under the gate's
-/// own `div_floor` formula — exactly the value the liquidation gate
-/// (`assert hf < ONE`) rejects, so it cannot be liquidated. Proven on the real
-/// unsummarised valuation; the gate's own HF is summarised, so the link to
-/// `process_liquidation` is by the gate's definition, not executed here.
+/// Weighted collateral >= debt ⇒ HF = floor(weighted/debt) >= 1 (gate rejects HF < 1).
+/// Unsummarised valuation; link to `process_liquidation` is by gate definition.
 #[rule]
 fn liquidation_requires_unhealthy_account(e: Env) {
     let account_id: u64 = 1;
@@ -115,13 +110,11 @@ fn liquidation_requires_unhealthy_account(e: Env) {
     cvlr_assume!(debt.raw() > 0);
     cvlr_assume!(weighted.raw() >= debt.raw());
 
-    // weighted >= debt ⇒ floor(weighted / debt) >= 1; the boundary weighted == debt
-    // gives exactly 1, so the gate never misclassifies a healthy account.
+    // weighted >= debt ⇒ floor(weighted/debt) >= 1 (equality ⇒ HF == 1).
     let hf = weighted.div_floor(&e, debt);
     cvlr_assert!(hf.raw() >= WAD);
 }
 
-/// Supply preserves weighted collateral >= total debt when it held pre-supply.
 #[rule]
 fn supply_cannot_decrease_hf(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -145,7 +138,6 @@ fn supply_cannot_decrease_hf(e: Env, caller: Address, asset: Address, amount: i1
     cvlr_assert!(post_weighted.raw() >= post_debt.raw());
 }
 
-/// Borrow reaches a post-state (non-vacuous).
 #[rule]
 fn hf_borrow_sanity(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -154,7 +146,6 @@ fn hf_borrow_sanity(e: Env, caller: Address, asset: Address, amount: i128) {
     cvlr_satisfy!(true);
 }
 
-/// Withdraw reaches a post-state (non-vacuous).
 #[rule]
 fn hf_withdraw_sanity(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -183,7 +174,6 @@ fn scaled_borrow_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
         .unwrap_or(0)
 }
 
-/// After borrow, for any reserve: debt-free, safe-direction move, or solvency gate ran.
 #[rule]
 fn borrow_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -193,9 +183,7 @@ fn borrow_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount: 
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
-    // The skolem reserve must be one the account actually holds (or the operated
-    // asset). A fresh empty address makes the safe-direction disjunct trivially
-    // true (0 >= 0 && 0 <= 0) and the ghost is never load-bearing.
+    // Skolem reserve must be held or be the operated asset (empty addr trivializes).
     let reserve = cvlr_soroban::nondet_address();
     cvlr_assume!(
         reserve == asset
@@ -220,7 +208,6 @@ fn borrow_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount: 
     );
 }
 
-/// After withdraw, for any reserve: debt-free, safe-direction move, or solvency gate ran.
 #[rule]
 fn withdraw_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -230,9 +217,7 @@ fn withdraw_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
-    // The skolem reserve must be one the account actually holds (or the operated
-    // asset). A fresh empty address makes the safe-direction disjunct trivially
-    // true (0 >= 0 && 0 <= 0) and the ghost is never load-bearing.
+    // Skolem reserve must be held or be the operated asset (empty addr trivializes).
     let reserve = cvlr_soroban::nondet_address();
     cvlr_assume!(
         reserve == asset
@@ -257,7 +242,6 @@ fn withdraw_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount
     );
 }
 
-/// Borrow path sets the solvency gate ghost (non-vacuous).
 #[rule]
 fn borrow_gated_sanity(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -266,9 +250,6 @@ fn borrow_gated_sanity(e: Env, caller: Address, asset: Address, amount: i128) {
     crate::spec::compat::borrow_single(e, caller, account_id, asset, amount);
     cvlr_satisfy!(health_ghost::get_checked());
 }
-
-// Strategy HF gates + unhealthy-only-improves + threshold-downgrade
-// (ported from the pre-hub-refactor certora-hardening branch).
 
 /// A freshly opened leverage position must satisfy the safety inequality.
 #[rule]
@@ -300,7 +281,6 @@ fn hf_safe_after_multiply(
     cvlr_assert!(weighted.raw() >= total_debt.raw());
 }
 
-/// swap_debt lands inside the safety inequality.
 #[rule]
 fn hf_safe_after_swap_debt(
     e: Env,
@@ -334,7 +314,6 @@ fn hf_safe_after_swap_debt(
     cvlr_assert!(weighted.raw() >= total_debt.raw());
 }
 
-/// swap_collateral lands inside the safety inequality.
 #[rule]
 fn hf_safe_after_swap_collateral(
     e: Env,
@@ -392,8 +371,6 @@ fn hf_multiply_sanity(
     cvlr_satisfy!(true);
 }
 
-/// On an unhealthy account, repay must not grow debt and must not shrink
-/// weighted collateral — division-free "HF below 1 can only increase".
 #[rule]
 fn unhealthy_repay_only_improves(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -418,7 +395,6 @@ fn unhealthy_repay_only_improves(e: Env, caller: Address, asset: Address, amount
     cvlr_assert!(post_weighted.raw() >= pre_weighted.raw());
 }
 
-/// Supply leg of the only-improves family.
 #[rule]
 fn unhealthy_supply_only_improves(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -443,9 +419,6 @@ fn unhealthy_supply_only_improves(e: Env, caller: Address, asset: Address, amoun
     cvlr_assert!(post_weighted.raw() >= pre_weighted.raw());
 }
 
-/// `apply_liquidation_threshold` only lowers a stored threshold on an
-/// indebted account when the simulated HF clears the 1.05 buffer: any supply
-/// that actually lowered the stored threshold leaves the account safe.
 #[rule]
 fn threshold_downgrade_implies_account_safe(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -465,7 +438,7 @@ fn threshold_downgrade_implies_account_safe(e: Env, caller: Address, asset: Addr
     cvlr_assume!(post_position.is_some());
     let post_lt = post_position.unwrap().liquidation_threshold;
 
-    // Only audit executions where the stored threshold actually dropped.
+    // Restrict to executions where the stored threshold drops.
     cvlr_assume!(post_lt < pre_lt);
 
     let mut cache = crate::context::Cache::new(&e);

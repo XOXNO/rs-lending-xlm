@@ -1,179 +1,117 @@
 # ADR 0011: Pause And Freeze Matrix
 
-- Status: Accepted (amended 2026-07-11, see Addendum)
+- Status: Accepted
 - Date: 2026-07-02
 - Deciders: XOXNO Lending contract team
 
 ## Context
 
-The protocol has three independent halt controls with different scopes:
+Three halt controls with different scopes:
 
-- a global controller pause (OpenZeppelin `pausable`, enforced by
-  `#[when_not_paused]` on controller entrypoints);
-- a per-spoke-asset `paused` flag on the spoke listing;
-- a per-spoke-asset `frozen` flag on the spoke listing.
+1. Global controller pause (OpenZeppelin pausable + `#[when_not_paused]`)  
+2. Per-spoke-asset `paused`  
+3. Per-spoke-asset `frozen`  
 
-The correct incident response differs by failure mode: a protocol-wide
-solvency scare, an oracle incident, and a single-market incident each need a
-different switch. Operators need an explicit matrix of what each layer blocks
-so the wrong switch is not pulled under pressure.
+A protocol-wide scare, an oracle incident, and a single-market incident need
+different switches. Operators need an explicit matrix of what each layer blocks.
 
 ## Decision
 
-Keep three layers with deliberately different coverage.
+Keep three layers with different coverage.
 
-## Layer 1: Global Pause
+### Layer 1: Global pause
 
-`#[when_not_paused]` gates the risk-increasing and index-mutating
-entrypoints: `supply`, `borrow`, `multiply`, `swap_debt`, `swap_collateral`,
+`#[when_not_paused]` gates risk-increasing and index-mutating entrypoints,
+including: `supply`, `borrow`, `multiply`, `swap_debt`, `swap_collateral`,
 `repay_debt_with_collateral`, `migrate_from_blend`, `flash_loan`,
 `update_indexes`, `claim_revenue`, `add_rewards`, and
 `update_account_threshold`.
 
-It does NOT gate `withdraw`, `repay`, `liquidate`, or `clean_bad_debt`:
-exits and de-risking stay live during a global pause.
+It does not gate `withdraw`, `repay`, `liquidate`, or `clean_bad_debt` — exits
+and de-risking stay live.
 
-- The constructor deploys the controller paused.
-- `upgrade` re-pauses before swapping code.
-- `pause`/`unpause` are immediate governance-owner actions, never timelocked
-  (ADR 0010).
+- The constructor deploys the controller paused.  
+- `upgrade` re-pauses before swapping code.  
+- **Pause:** governance `pause(caller)` — GUARDIAN, immediate.  
+- **Unpause:** timelocked `AdminOperation::Unpause` only. Controller
+  `pause` / `unpause` are owner-only (owner = governance after execute).  
 
-## Layer 2: Per-Spoke-Asset Paused
+### Layer 2: Per-spoke-asset `paused`
 
-The `paused` flag blocks `supply`, `borrow`, `withdraw`, and `repay` for
-that (spoke, hub-asset) — including exits. Strategy flows route through the
-same supply/borrow/withdraw/repay processing, so the flag covers them too.
+Blocks `supply`, `borrow`, `withdraw`, and `repay` for that
+`(spoke, hub-asset)`, including exits. Strategy flows share those processors and
+inherit the flag.
 
-## Layer 3: Per-Spoke-Asset Frozen
+### Layer 3: Per-spoke-asset `frozen`
 
-The `frozen` flag blocks only new `supply` and `borrow`; `withdraw` and
-`repay` stay live. It winds a listing down without trapping users.
+Blocks only new `supply` and `borrow`. `withdraw` and `repay` stay live (orderly
+wind-down).
 
-## Setting The Per-Asset Flags
+### Setting per-asset flags
 
-Both flags travel on `SpokeAssetArgs` and are written by
-`add_asset_to_spoke` / `edit_asset_in_spoke`; every edit states them
-explicitly, so a routine parameter edit cannot silently clear an active
-flag. Two paths set them:
+Flags live on `SpokeAssetArgs` and are written by `add_asset_to_spoke` /
+`edit_asset_in_spoke`. Every edit states them explicitly so a parameter edit
+cannot silently clear a flag.
 
-- the timelocked listing edit (`edit_asset_in_spoke`), for planned
-  wind-down and parameter changes;
-- the `GUARDIAN`-gated immediate `set_spoke_asset_flags` (flags only, no
-  params/caps/override; see ADR 0010), which makes the layer-2 `paused`
-  flag a true per-listing incident brake in both directions. The layer-1
-  global pause remains the protocol-wide brake; an oracle or token
-  incident on one asset is contained instantly per spoke via layer 2.
+| Path | Behavior |
+|------|----------|
+| Timelocked `edit_asset_in_spoke` | Planned wind-down and parameter changes; may clear flags |
+| GUARDIAN `set_spoke_asset_flags` | Immediate, tighten-only (`false → true` or stay). Clearing reverts `SpokeAssetFlagRelaxation`; reopening uses the timelock |
 
-## Liquidations
+Global pause is the protocol-wide brake. Per-listing oracle or token incidents
+use layer 2.
 
-`liquidate` and `clean_bad_debt` are never blocked by the global pause or
-by the `frozen` flag, preserving the solvency defense in every incident
-mode. One narrow exception exists for `paused` (see Addendum): a liquidation
-**repay leg** whose debt listing is paused reverts, because a paused listing
-accepts no inbound tokens from anyone. Seizure of paused **collateral**
-remains fully allowed, and `clean_bad_debt` (which takes no tokens in) is
-never blocked.
+### Liquidations
 
-## Alternatives Considered
+`liquidate` and `clean_bad_debt` are never blocked by global pause or `frozen`.
 
-- **Pause everything globally, including exits.** Rejected because trapping
-  users inside a paused protocol converts an incident into a bank-run
-  incentive and blocks de-risking exactly when it matters.
-- **Gate liquidations behind the pause.** Rejected because a delayed
-  liquidation window mints bad debt; liquidation must outlive every halt
-  control.
-- **A single per-asset flag.** Rejected because "stop everything on this
-  asset" (paused) and "wind this listing down" (frozen) are different
-  operations with different exit semantics.
-
-## Consequences
-
-Positive:
-
-- Exits and liquidations survive a global pause, so a pause cannot trap
-  users or suspend the solvency defense.
-- Per-asset flags isolate a single-market incident without halting the
-  protocol.
-
-Explicit limitation: the global pause is NOT an oracle killswitch.
-`withdraw` with outstanding debt and `liquidate` still read oracles while
-globally paused. In an oracle incident the correct tool is the per-asset
-`paused` flag, which stops the flows that would consume the bad price.
-There is deliberately no admin op that removes an asset's oracle entry
-outright: that would brick every live position referencing the asset
-(repay only) instead of containing exposure via the flag above.
-
-Accepted costs:
-
-- Operators must pick the right layer; the matrix above is the runbook
-  reference.
-- A per-asset `paused` flag blocks exits for that asset, so it is a stronger
-  intervention than the global pause for the affected market.
-
-## Addendum (2026-07-11): Tainted-Debt Gate And Listing Lifecycle
-
-Three amendments after an adversarial review of the pause/liquidation
-interaction. None reverses the core decision that liquidation outlives the
-halt controls; the first closes a token-integrity hole the original
-analysis (which reasoned only about price/HF integrity) did not cover.
-
-### Tainted-debt liquidation gate
-
-The original blanket exemption let liquidators pay a **paused debt asset**
-into the pool while user `repay` of the same asset was blocked. Pausing a
-listing usually means its token or oracle is untrusted; if the token is
-compromised (e.g. infinite mint), the liquidation repay leg was the one
-remaining path accepting it — fake tokens would extinguish real debt,
-become withdrawable pool cash, and seize real collateral at bonus.
-
-Amendment: a liquidation repay leg whose debt listing is `paused` reverts
-`SpokeAssetPaused`. The authoritative check sits in
-`apply_liquidation_repayments`, on the post-normalization legs that
-actually transfer (the plan normalizer can drop request legs, so checking
-the raw request alone is insufficient); a fast-fail twin runs in
-`validate_liquidation_inputs`. Seizure of paused **collateral** stays open:
-the liquidator pays real value and bears the seized asset's risk, so the
-original bad-debt argument still holds on the collateral side. This gate
-does not reintroduce a liquidation-DoS: it binds only accounts whose chosen
-repay asset is paused — exactly the population where accepting payment is
-the exploit.
+If the **debt** listing is spoke-`paused`, the liquidation repay leg reverts
+(`SpokeAssetPaused`): a paused listing does not accept inbound tokens. The check
+runs on post-normalization legs in `apply_liquidation_repayments` (the plan
+normalizer can drop raw request legs). Seizure of paused **collateral** stays
+open. `clean_bad_debt` takes no tokens in and is never blocked by that gate.
 
 ### Listing lifecycle
 
-- `remove_asset_from_spoke` requires **zero usage** (`SpokeAssetInUse`
-  otherwise). Invariant: a live position's listing always exists — flags
-  stay enforceable for the lifetime of every position, the spoke oracle
-  override cannot vanish under a live position (which would instantly
-  reprice it to the base oracle), and no usage row survives into a
-  re-listing. Removal is registry cleanup; `frozen` is the wind-down tool.
-- `edit_asset_in_spoke` now works on **deprecated** spokes. Deprecation
-  blocks new entries at the account gates independently; refusing edits
-  only stranded live listings (a listing paused at deprecation time was
-  permanently locked). Risk-param stewardship therefore follows one rule:
-  **params are live while the listing exists; frozen only when unlisted** —
-  applied uniformly by withdraw refresh, net-settle refresh, and
-  `update_account_threshold` (which skips delisted assets instead of
-  reverting).
-- Caps are **not** validated against usage: a cap below live usage is the
-  ratchet-down tool. Enforcement is entry-time only, so the lower cap
-  soft-closes new exposure until exits drain usage under it; previews
-  report zero headroom meanwhile. Interest accrual alone can push
-  token-space usage over a cap (scaled usage is constant while the index
-  grows) — expected, entries resume once exits catch up.
-- "Unlisted" is not an operational state. Because positions require the
-  listing to open and removal requires zero usage, a listing exists for
-  the full lifetime of every position; the lifecycle is active →
-  frozen/paused → removed-when-empty. The only reachable "unlisted"
-  behavior is the entry rejection (`AssetNotInSpoke`) for never-listed
-  assets. Every unlisted branch on exit/liquidation/refresh paths is
-  invariant-breach insurance chosen to fail safe (exits and the solvency
-  defense stay live), while the entry-side accounting fails loud.
+- `remove_asset_from_spoke` requires zero usage (`SpokeAssetInUse` otherwise).
+  A live position’s listing always exists so flags stay enforceable. Removal is
+  registry cleanup; `frozen` is the wind-down tool.  
+- `edit_asset_in_spoke` works on deprecated spokes so a listing paused at
+  deprecation is not permanently locked.  
+- Caps are not validated against usage: a cap below live usage is the ratchet;
+  enforcement is entry-time only. Interest may push usage over a cap until exits
+  catch up.  
+- Lifecycle: active → frozen/paused → removed when empty. Unlisted on exit paths
+  fails safe; entry fails loud (`AssetNotInSpoke`).  
+
+## Alternatives considered
+
+- Pause everything including exits — traps users; creates a bank-run incentive.  
+- Gate liquidations behind pause — delayed liquidation mints bad debt.  
+- Single per-asset flag — “stop everything” and “wind down” need different exit
+  semantics.  
+- Immediate unpause — risk-loosening; see ADR 0010.  
+
+## Consequences
+
+**Positive:** exits and liquidations survive global pause; per-asset flags
+isolate one market; halt is fast; resume is deliberate.
+
+**Limitation:** global pause is not an oracle killswitch. Debt-bearing
+`withdraw` and `liquidate` still read oracles while globally paused. For an
+oracle incident, use per-asset `paused`. There is no admin operation that deletes
+an oracle entry for a live market; flags contain exposure.
+
+**Costs:** operators must pick the right layer; per-asset `paused` is stronger
+than global pause for that market (blocks exits).
 
 ## References
 
-- `contracts/controller/src/governance/access.rs`
-- `contracts/controller/src/positions/mod.rs` (`enforce_spoke_asset_flags`)
-- `contracts/controller/src/positions/liquidation/apply.rs` (tainted-debt gate)
-- `contracts/controller/src/config/asset.rs` (listing lifecycle)
-- [ADR 0009](./0009-mainnet-launch-hardening-and-operational-control.md)
-- [ADR 0010](./0010-governance-timelock-for-controller-admin.md)
+- `contracts/controller/src/governance/access.rs`  
+- `contracts/controller/src/positions/mod.rs`  
+- `contracts/controller/src/positions/liquidation/apply.rs`  
+- `contracts/controller/src/config/asset.rs`  
+- `contracts/governance/src/timelock.rs`  
+- `contracts/governance/src/op.rs`  
+- [ADR 0010](./0010-governance-timelock-for-controller-admin.md)  
+- [ADR 0009](./0009-mainnet-launch-hardening-and-operational-control.md)  

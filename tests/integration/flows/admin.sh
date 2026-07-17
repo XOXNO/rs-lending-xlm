@@ -29,11 +29,9 @@ flow_admin() {
     # disturb nothing else, and it is disabled at the end of this flow).
     inv update_pool_params "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$EURC_SAC")" --params "$(market_params_json "$EURC_SAC" 7 | jq -c 'del(.asset_id, .asset_decimals, .supply_cap, .borrow_cap, .is_flashloanable, .flashloan_fee) | .reserve_factor=1500')" >/dev/null
-    # edit_asset_in_spoke on the primary spoke is the canonical per-asset risk edit
-    # (replaces the removed edit_asset_config).
+    # edit_asset_in_spoke is the per-asset risk edit path.
     inv edit_asset_config_admin "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$EURC_SAC" "$PRIMARY_SPOKE_ID" true true 6500 7000 900)" >/dev/null
-    # Read-back: the edit must land (LTV / threshold / bonus parsed from storage).
     assert_market_field market_cfg_ltv "$EURC_SAC" loan_to_value 6500
     assert_market_field market_cfg_thr "$EURC_SAC" liquidation_threshold 7000
     assert_market_field market_cfg_bonus "$EURC_SAC" liquidation_bonus 900
@@ -233,9 +231,11 @@ fi
 fi
 
     # Secondary hub smoke: same asset can be listed and used independently by
-    # explicit HubAssetKey, with no hub-0 listing assumption.
+    # explicit HubAssetKey, with no hub-0 listing assumption. Band must contain
+    # the live Reflector XLM price or the propose-time containment probe rejects
+    # the config; kept in step with the primary XLM market in lifecycle.sh.
     create_market XLM_SECONDARY "$SECONDARY_HUB_ID" "$XLM_SAC" 7 \
-        "$(oracle_cfg_reflector XLM 99000000000000000 121000000000000000)" \
+        "$(oracle_cfg_reflector XLM 163000000000000000 199000000000000000)" \
         "$(asset_config_json 7000 7500 1000)"
     view market_index_secondary_xlm "$CONTROLLER" -- get_market_index \
         --hub_asset "$(hub_key "$SECONDARY_HUB_ID" "$XLM_SAC")" >/dev/null

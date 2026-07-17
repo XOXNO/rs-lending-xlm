@@ -1,5 +1,3 @@
-//! `submit_price` / `submit_prices` / aggregation behavior.
-
 #![cfg(test)]
 extern crate std;
 
@@ -187,10 +185,7 @@ fn stale_submission_excluded_from_aggregate() {
 
 #[test]
 fn lagging_signer_does_not_pin_feed_freshness() {
-    // Regression: the aggregate's reported observation time must track the fresh
-    // honest quorum, not the oldest single submission retained within the cache
-    // TTL. One signer that stops submitting cannot drag the whole feed's
-    // freshness below what consumers tolerate.
+    // Observation time tracks fresh quorum; lagging signer cannot pin freshness.
     let env = Env::default();
     env.mock_all_auths();
     let (client, _admin, signers) = setup(&env, 3, 2);
@@ -504,8 +499,7 @@ fn losing_quorum_clears_twap_history() {
     client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
     assert!(client.prices(&asset, &12).is_some());
 
-    // Dropping below quorum clears History too, so the TWAP path can't keep
-    // driving prices off samples that no longer meet the current quorum.
+    // Below quorum clears History so TWAP cannot use non-quorum samples.
     client.remove_signer(&signers[1]);
     assert!(client.prices(&asset, &12).is_none());
 }

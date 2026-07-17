@@ -2,8 +2,6 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, wbtc_preset, HubAssetKey,
     LendingTest, PositionType, ALICE, BOB,
 };
-// 1. test_repay_partial
-
 #[test]
 fn test_repay_partial() {
     let mut t = LendingTest::new()
@@ -25,8 +23,6 @@ fn test_repay_partial() {
     );
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
 }
-// 2. test_repay_full_clears_position
-
 #[test]
 fn test_repay_full_clears_position() {
     let mut t = LendingTest::new()
@@ -62,8 +58,6 @@ fn test_repay_full_clears_position() {
     // The borrow position must be removed.
     t.assert_borrow_count(ALICE, 0);
 }
-// 3. test_repay_overpayment_refunded
-
 #[test]
 fn test_repay_overpayment_refunded() {
     let mut t = LendingTest::new()
@@ -97,8 +91,6 @@ fn test_repay_overpayment_refunded() {
     let borrow = t.borrow_balance(ALICE, "ETH");
     assert!(borrow < 0.01, "borrow should be ~0");
 }
-// 4. test_repay_allowed_when_paused
-
 #[test]
 fn test_repay_allowed_when_paused() {
     let mut t = LendingTest::new()
@@ -113,8 +105,6 @@ fn test_repay_allowed_when_paused() {
     let result = t.try_repay(ALICE, "ETH", 0.5);
     assert!(result.is_ok(), "repay should remain available while paused");
 }
-
-// 5. test_repay_by_third_party
 
 #[test]
 fn test_repay_by_third_party() {
@@ -161,8 +151,6 @@ fn test_repay_by_third_party() {
         "Alice's wallet must be untouched by Bob's repay"
     );
 }
-// 5. test_repay_multiple_assets
-
 #[test]
 fn test_repay_multiple_assets() {
     let mut t = LendingTest::new()
@@ -227,8 +215,6 @@ fn test_repay_multiple_assets() {
         wbtc_after
     );
 }
-// 6. test_repay_rejects_zero_amount
-
 #[test]
 fn test_repay_rejects_zero_amount() {
     let mut t = LendingTest::new()
@@ -327,8 +313,6 @@ fn test_repay_rejects_nonexistent_account_id() {
 
     assert_contract_error(result, errors::ACCOUNT_NOT_IN_MARKET);
 }
-// 7. test_repay_rejects_position_not_found
-
 #[test]
 fn test_repay_rejects_position_not_found() {
     let mut t = LendingTest::new()
@@ -342,8 +326,6 @@ fn test_repay_rejects_position_not_found() {
     let result = t.try_repay(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::DEBT_POSITION_NOT_FOUND);
 }
-// 8. test_repay_rejects_during_flash_loan
-
 #[test]
 fn test_repay_rejects_during_flash_loan() {
     let mut t = LendingTest::new()
@@ -358,8 +340,6 @@ fn test_repay_rejects_during_flash_loan() {
     let result = t.try_repay(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-// 9. test_repay_cleans_up_empty_account
-
 #[test]
 fn test_repay_cleans_up_empty_account() {
     let mut t = LendingTest::new()

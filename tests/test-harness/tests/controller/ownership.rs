@@ -8,7 +8,7 @@ fn fresh() -> LendingTest {
     let _ = t.get_or_create_user(BOB);
     t
 }
-// transfer_ownership / accept_ownership — two-phase ownership transfer
+// transfer_ownership proposes; accept_ownership completes the handoff.
 
 #[test]
 fn test_transfer_and_accept_ownership_completes() {
@@ -16,15 +16,14 @@ fn test_transfer_and_accept_ownership_completes() {
     let ctrl = t.ctrl_client();
     let new_owner = t.users.get(ALICE).unwrap().address.clone();
 
-    // Phase 1: current admin proposes a new owner with a non-zero TTL.
+    // Propose with non-zero TTL, then accept (mirrors admin slot to new owner).
     let ledger_seq = t.env.ledger().sequence();
     ctrl.transfer_ownership(&new_owner, &(ledger_seq + 1000));
 
-    // Phase 2: candidate accepts. The hook mirrors the admin slot to the new owner.
     t.env.mock_all_auths();
     ctrl.accept_ownership();
 
-    // The next owner-only call must require the accepted candidate's auth.
+    // Next owner-only call requires accepted candidate's auth.
     ctrl.pause();
     assert_eq!(t.env.auths()[0].0, new_owner);
 }
@@ -36,10 +35,8 @@ fn test_transfer_ownership_with_zero_ttl_cancels_pending() {
     let candidate = t.users.get(ALICE).unwrap().address.clone();
 
     let ledger_seq = t.env.ledger().sequence();
-    // Propose first…
     ctrl.transfer_ownership(&candidate, &(ledger_seq + 500));
-    // …then cancel by passing 0 — exercises the `live_until_ledger == 0`
-    // branch of `sync_pending_admin_transfer`.
+    // live_until_ledger == 0 cancels the pending transfer.
     ctrl.transfer_ownership(&candidate, &0u32);
 
     let result = match ctrl.try_accept_ownership() {
@@ -69,8 +66,6 @@ fn test_transfer_ownership_to_self_keeps_owner() {
 #[test]
 fn test_pause_unpause_round_trip() {
     let mut t = fresh();
-    // `LendingTest::build` already unpauses after construction. Pause →
-    // unpause exercises both endpoints from a clean state.
     t.pause();
     assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::CONTRACT_PAUSED);
 

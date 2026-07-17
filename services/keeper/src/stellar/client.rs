@@ -33,7 +33,6 @@ impl RpcClient {
         Ok(resp.sequence)
     }
 
-    /// Reads a contract instance entry by contract id.
     pub async fn get_contract_instance(
         &self,
         contract_id: &[u8; 32],
@@ -49,16 +48,14 @@ impl RpcClient {
             })
     }
 
-    /// Looks up ledger keys and preserves request order.
+    /// Look up ledger keys; response order matches the request.
     pub async fn get_ledger_entries(&self, keys: &[LedgerKey]) -> Result<Vec<LedgerEntryQuery>> {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
-        // The RPC rejects requests containing duplicate keys (surfaced as a
-        // cryptic captive-core 404). Dual-hub listings naturally produce them
-        // — `AssetOracle` is keyed by asset alone while markets are keyed by
-        // (hub, asset) — so dedupe the request; the order-preserving
-        // reassembly below still emits one output row per requested key.
+        // RPC rejects duplicate keys (cryptic captive-core 404). Dual-hub listings
+        // repeat AssetOracle (asset-only key) across markets — dedupe request;
+        // reassembly still emits one row per requested key.
         let mut seen = HashSet::with_capacity(keys.len());
         let unique: Vec<LedgerKey> = keys
             .iter()
@@ -71,9 +68,7 @@ impl RpcClient {
             .await
             .context("get_full_ledger_entries")?;
 
-        // The RPC omits absent entries, so index what came back by key and
-        // reassemble in request order. `LedgerKey` is `Hash + Eq`, so it serves
-        // as the map key directly — no XDR re-encoding per key.
+        // RPC omits absent entries; reassemble in request order.
         let mut found = HashMap::with_capacity(resp.entries.len());
         for entry in &resp.entries {
             found.insert(&entry.key, entry);
@@ -94,7 +89,6 @@ impl RpcClient {
         Ok(out)
     }
 
-    /// Resolves an account strkey to its sequence number.
     pub async fn get_account_sequence(&self, account_strkey: &str) -> Result<i64> {
         let entry = self
             .inner
@@ -112,27 +106,23 @@ pub struct LedgerEntryQuery {
     pub live_until_ledger: Option<u32>,
 }
 
-/// Decode an account strkey (`G...`) into the XDR `AccountId` wrapper.
 pub fn account_id_from_strkey(g_strkey: &str) -> Result<AccountId> {
     let pk = stellar_strkey::ed25519::PublicKey::from_string(g_strkey)
         .map_err(|e| anyhow!("invalid G... account id {g_strkey}: {e}"))?;
     Ok(AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(pk.0))))
 }
 
-/// Decode an account strkey (`G...`) into a `MuxedAccount` transaction source.
 pub fn muxed_account_from_strkey(g_strkey: &str) -> Result<MuxedAccount> {
     let AccountId(PublicKey::PublicKeyTypeEd25519(key)) = account_id_from_strkey(g_strkey)?;
     Ok(MuxedAccount::Ed25519(key))
 }
 
-/// Decode a contract strkey (`C...`) into the raw 32-byte contract id.
 pub fn contract_id_from_strkey(c_strkey: &str) -> Result<[u8; 32]> {
     let c = stellar_strkey::Contract::from_string(c_strkey)
         .map_err(|e| anyhow!("invalid C... contract id {c_strkey}: {e}"))?;
     Ok(c.0)
 }
 
-/// Decode a 32-byte hex string into a contract / wasm hash.
 pub fn hash32_from_hex(hex_str: &str) -> Result<[u8; 32]> {
     let bytes =
         hex::decode(hex_str.trim()).map_err(|e| anyhow!("invalid 32-byte hex {hex_str}: {e}"))?;

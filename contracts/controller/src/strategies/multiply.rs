@@ -62,14 +62,8 @@ impl Controller {
     }
 }
 
-/// Opens a leveraged collateral/debt position via flash-loan-funded swap.
-///
-/// Checklist: auth → reentrancy → preflight → account → payment → borrow →
-/// swap → deposit → finalize → optional payment event.
 pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>) -> u64 {
-    // 1. Auth
     caller.require_auth();
-    // 2. Reentrancy
     validation::require_not_flash_loaning(env);
 
     let MultiplyParams {
@@ -84,14 +78,11 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
         convert_swap,
     } = params;
 
-    // 3. Preflight (mode, same-asset rules, amount)
     validate_multiply_request(env, collateral, debt, mode, debt_to_flash_loan);
 
-    // 4–5. Account + oracle prefetch
     let (account_id, mut account, mut cache) =
         prepare_multiply_account(env, caller, account_id, spoke_id, mode, collateral, debt);
 
-    // 6a. Optional initial payment (direct collat, debt add-on, or convert-swap)
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
         env,
         caller,
@@ -102,7 +93,6 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
         &convert_swap,
     );
 
-    // 6b. Flash-style strategy borrow (shared borrow gates + fee)
     let amount_received =
         borrow_for_strategy(env, &mut account, debt, debt_to_flash_loan, &mut cache);
 
@@ -110,7 +100,7 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
         .checked_add(debt_extra)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    // 6c. Debt token → collateral (or passthrough if same asset)
+    // Passthrough if same asset (cross-hub rate arb only).
     let swapped_collateral = swap_tokens_or_passthrough(
         env,
         caller,
@@ -124,7 +114,6 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
         .checked_add(swapped_collateral)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    // 6d. Deposit total collateral (controller as payer; funds already held)
     let deposit_assets = vec![env, (collateral.clone(), total_collateral)];
     supply::process_deposit(
         env,
@@ -134,7 +123,6 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
         &mut cache,
     );
 
-    // 7. Finalize (HF + both sides + events)
     strategy_finalize(env, account_id, &account, &mut cache);
 
     emit_multiply_initial_payment(
@@ -148,7 +136,6 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
     account_id
 }
 
-/// Loads or creates the account, verifies the collateral is suppliable, and prefetches strategy oracles.
 fn prepare_multiply_account(
     env: &Env,
     caller: &Address,
@@ -180,8 +167,6 @@ fn prepare_multiply_account(
     (account_id, account, cache)
 }
 
-/// Rejects same-asset legs (mode-dependent), non-leverage modes, and
-/// non-positive flash-loan amounts.
 fn validate_multiply_request(
     env: &Env,
     collateral: &HubAssetKey,
@@ -190,18 +175,11 @@ fn validate_multiply_request(
     debt_to_flash_loan: i128,
 ) {
     match mode {
-        // Same-hub-same-asset loops a single market's own spread, which is
-        // always net-negative (a market's borrow rate structurally exceeds its
-        // own supply rate) and never economically meaningful; cross-hub
-        // same-asset is a legitimate rate-arbitrage carry trade between two
-        // independently-rated markets, so only the identical `(hub, asset)`
-        // leg is rejected here.
+        // Reject identical (hub, asset); cross-hub same asset is rate arb.
         PositionMode::Multiply => {
             assert_with_error!(env, collateral != debt, GenericError::AssetsAreTheSame);
         }
-        // Long/Short are directional price bets and need two genuinely
-        // distinct assets regardless of hub — the same token has no price
-        // divergence to bet on.
+        // Long/Short need distinct assets.
         PositionMode::Long | PositionMode::Short => {
             assert_with_error!(
                 env,

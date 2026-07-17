@@ -31,7 +31,6 @@ const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 
 #[contractimpl]
 impl Controller {
-    /// Accrues interest to the current ledger for each listed hub-asset market.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
@@ -116,7 +115,6 @@ impl Controller {
         pool
     }
 
-    /// Creates a `(hub_id, asset)` market on the deployed pool with the given
     /// interest-rate and risk params.
     ///
     /// # Arguments
@@ -141,7 +139,6 @@ impl Controller {
         setup::create_liquidity_pool(&env, hub_id, &asset, &params)
     }
 
-    /// Accrues pool indexes, then replaces the market's interest-rate model.
     ///
     /// # Errors
     /// * `PoolNotInitialized` - the target market has not been created.
@@ -176,7 +173,6 @@ impl Controller {
         pool_upgrade_call(&env, &pool_addr, &new_wasm_hash);
     }
 
-    /// Claims protocol revenue for each market and forwards it to the configured
     /// accumulator. Returns the amount claimed per asset.
     ///
     /// # Errors
@@ -219,10 +215,9 @@ impl Controller {
         }
     }
 
-    /// Propagates current spoke risk params onto each account's supply
-    /// positions. Permissionless: a health-factor gate prevents risk increases
-    /// when `has_risks` raises liquidation thresholds. Assets no longer listed
-    /// on the account's spoke keep their stamped params and are skipped.
+    /// Propagates spoke risk params onto supply positions. Permissionless;
+    /// HF gate blocks threshold raises that would drop an account below min HF.
+    /// Delisted spoke members keep stamped params and are skipped.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
@@ -255,7 +250,6 @@ impl Controller {
     }
 }
 
-/// Accrues pool indexes before replacing the market's interest-rate model.
 pub(crate) fn upgrade_liquidity_pool_params(
     env: &Env,
     hub_asset: &HubAssetKey,
@@ -285,7 +279,6 @@ pub(crate) fn upgrade_liquidity_pool_params(
     .publish(env);
 }
 
-/// Claims one market's revenue and forwards it to the accumulator; returns the amount claimed.
 fn claim_revenue_for_asset_with_cache(
     env: &Env,
     hub_asset: &HubAssetKey,

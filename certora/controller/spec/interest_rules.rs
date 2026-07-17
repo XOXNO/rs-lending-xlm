@@ -62,7 +62,6 @@ fn nondet_valid_params(e: &Env) -> MarketParams {
     }
 }
 
-/// At zero utilization the borrow rate equals min(base, max) per millisecond.
 #[rule]
 fn borrow_rate_zero_utilization(e: Env) {
     let params = nondet_valid_params(&e);
@@ -79,7 +78,6 @@ fn borrow_rate_zero_utilization(e: Env) {
     cvlr_assert!(rate.raw() == expected);
 }
 
-/// Borrow rate is non-decreasing in utilization across all three regions.
 #[rule]
 fn borrow_rate_monotonic(e: Env) {
     let params = nondet_valid_params(&e);
@@ -97,7 +95,6 @@ fn borrow_rate_monotonic(e: Env) {
     cvlr_assert!(rate_a <= rate_b);
 }
 
-/// Borrow rate is non-decreasing in region 1 (util < mid).
 #[rule]
 fn borrow_rate_monotonic_in_region1(e: Env) {
     let params = nondet_valid_params(&e);
@@ -115,7 +112,6 @@ fn borrow_rate_monotonic_in_region1(e: Env) {
     cvlr_assert!(rate_a <= rate_b);
 }
 
-/// Borrow rate is non-decreasing in region 2 (mid <= util < optimal).
 #[rule]
 fn borrow_rate_monotonic_in_region2(e: Env) {
     let params = nondet_valid_params(&e);
@@ -133,7 +129,6 @@ fn borrow_rate_monotonic_in_region2(e: Env) {
     cvlr_assert!(rate_a <= rate_b);
 }
 
-/// Borrow rate is non-decreasing in region 3 (optimal <= util <= RAY).
 #[rule]
 fn borrow_rate_monotonic_in_region3(e: Env) {
     let params = nondet_valid_params(&e);
@@ -166,7 +161,6 @@ fn borrow_rate_capped(e: Env) {
     cvlr_assert!(rate.raw() >= 0);
 }
 
-/// Borrow rate is continuous at the mid utilization boundary (diff <= 1).
 #[rule]
 fn borrow_rate_continuity_at_mid(e: Env) {
     let params = nondet_valid_params(&e);
@@ -186,7 +180,6 @@ fn borrow_rate_continuity_at_mid(e: Env) {
     cvlr_assert!(diff <= 1);
 }
 
-/// Borrow rate is continuous at the optimal utilization boundary (diff <= 1).
 #[rule]
 fn borrow_rate_continuity_at_optimal(e: Env) {
     let params = nondet_valid_params(&e);
@@ -206,7 +199,6 @@ fn borrow_rate_continuity_at_optimal(e: Env) {
     cvlr_assert!(diff <= 1);
 }
 
-/// Deposit rate is zero when utilization is zero.
 #[rule]
 fn deposit_rate_zero_when_no_utilization(e: Env) {
     let borrow_rate: i128 = cvlr::nondet::nondet();
@@ -225,7 +217,6 @@ fn deposit_rate_zero_when_no_utilization(e: Env) {
     cvlr_assert!(rate == Ray::ZERO);
 }
 
-/// Deposit rate is at most utilization * borrow_rate (reserve factor takes a cut).
 #[rule]
 fn deposit_rate_less_than_borrow(e: Env) {
     let utilization: i128 = cvlr::nondet::nondet();
@@ -247,7 +238,6 @@ fn deposit_rate_less_than_borrow(e: Env) {
     cvlr_assert!(deposit_rate.raw() <= upper_bound + 1);
 }
 
-/// Zero elapsed time yields compound factor RAY (1.0).
 #[rule]
 fn compound_interest_identity(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
@@ -258,7 +248,6 @@ fn compound_interest_identity(e: Env) {
     cvlr_assert!(factor == Ray::ONE);
 }
 
-/// Compound factor is non-decreasing in elapsed time.
 #[rule]
 fn compound_interest_monotonic_in_time(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
@@ -277,7 +266,6 @@ fn compound_interest_monotonic_in_time(e: Env) {
     cvlr_assert!(factor2 >= factor1);
 }
 
-/// Compound factor is non-decreasing in rate.
 #[rule]
 fn compound_interest_monotonic_in_rate(e: Env) {
     let r1: i128 = cvlr::nondet::nondet();
@@ -295,7 +283,6 @@ fn compound_interest_monotonic_in_rate(e: Env) {
     cvlr_assert!(factor2 >= factor1);
 }
 
-/// Compound interest is at least simple interest (e^x >= 1 + x), within rounding tolerance.
 #[rule]
 fn compound_interest_ge_simple(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
@@ -313,7 +300,6 @@ fn compound_interest_ge_simple(e: Env) {
     cvlr_assert!(factor.raw() >= simple - 2);
 }
 
-/// Supplier rewards plus protocol fee equal accrued interest within rounding tolerance of 1.
 #[rule]
 fn supplier_rewards_conservation(e: Env) {
     let params = nondet_valid_params(&e);
@@ -358,7 +344,6 @@ fn supplier_rewards_conservation(e: Env) {
     cvlr_assert!(fee_diff <= 1);
 }
 
-/// Borrow index does not decrease when interest factor >= RAY.
 #[rule]
 fn update_borrow_index_monotonic(e: Env) {
     let old_index: i128 = cvlr::nondet::nondet();
@@ -374,7 +359,6 @@ fn update_borrow_index_monotonic(e: Env) {
     cvlr_assert!(new_index.raw() >= old_index);
 }
 
-/// Supply index does not decrease when suppliers receive positive rewards.
 #[rule]
 fn update_supply_index_monotonic(e: Env) {
     let supplied: i128 = cvlr::nondet::nondet();

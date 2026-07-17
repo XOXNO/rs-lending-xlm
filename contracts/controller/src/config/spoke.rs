@@ -60,9 +60,7 @@ pub(crate) fn set_spoke_liquidation_curve(
     hf_for_max_bonus_wad: i128,
     liquidation_bonus_factor_bps: u32,
 ) {
-    // Re-validated here (not just at governance propose time) so a direct
-    // owner call can't bypass the bounds that keep the bonus interpolation
-    // safe (see `common::validation::validate_liquidation_curve`).
+    // Re-validate at execution so a direct owner call cannot bypass bounds.
     validate_liquidation_curve(
         env,
         target_hf_wad,

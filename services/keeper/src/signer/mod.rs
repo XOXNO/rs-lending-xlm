@@ -33,24 +33,20 @@ impl Ed25519Signer {
     }
 
     pub fn public_key_strkey(&self) -> String {
-        // `stellar_strkey::ed25519::PublicKey::Display` returns `std::string::String`
-        // (the inherent `to_string` would return a heapless wrapper).
+        // Display → std::String (inherent to_string is heapless).
         format!("{}", StrKeyPublicKey(self.public_key_bytes()))
     }
 
-    /// Signs a 32-byte transaction hash.
     pub fn sign(&self, tx_hash: &[u8; 32]) -> [u8; 64] {
         self.signing.sign(tx_hash).to_bytes()
     }
 
-    /// Returns the trailing 4 bytes of the public key.
     pub fn signature_hint(&self) -> [u8; 4] {
         let pk = self.public_key_bytes();
         [pk[28], pk[29], pk[30], pk[31]]
     }
 }
 
-/// Builds a signer from mnemonic and derivation path.
 pub fn signer_from_mnemonic(mnemonic: &str, derivation_path: &str) -> Result<Ed25519Signer> {
     let mn = bip39::Mnemonic::parse_normalized(mnemonic.trim())
         .map_err(|e| anyhow!("invalid BIP-39 mnemonic: {e}"))?;
@@ -63,7 +59,6 @@ pub fn signer_from_mnemonic(mnemonic: &str, derivation_path: &str) -> Result<Ed2
 mod tests {
     use super::signer_from_mnemonic;
 
-    /// SEP-0005 appendix test vector.
     #[test]
     fn derives_sep5_test_vector() {
         let signer = signer_from_mnemonic(

@@ -1,23 +1,7 @@
-//! Strategy entry points: multiply, collateral/debt swaps, Blend migration, and flash loans.
+//! Strategy entry points: multiply, collateral/debt swaps, Blend migration, flash loans.
 //!
-//! # Strategy façade checklist
-//!
-//! Every account-mutating strategy follows the same assembly order (flash loan
-//! is the exception: no account, pool callback only):
-//!
-//! 1. **Auth** — `caller.require_auth()`
-//! 2. **Reentrancy** — `require_not_flash_loaning` (and flash guard when needed)
-//! 3. **Preflight** — hubs, amounts, mode, same-asset rules, listing eligibility
-//! 4. **Account** — load/create + owner/delegate (migration/multiply may create)
-//! 5. **Oracles** — `prefetch_strategy_oracles` for priced legs
-//! 6. **Actions** — compose position bricks (`borrow_for_*`, withdraw/repay
-//!    helpers, `process_deposit`, swaps)
-//! 7. **Finalize** — `strategy_finalize` = post-pool risk gates + both sides
-//!    persist (`remove_if_empty`) + events
-//!
-//! Debt-opening strategies (multiply, swap_debt, migrate) open debt only through
-//! shared borrow gates. Debt-neutral strategies (swap_collateral,
-//! repay_debt_with_collateral) still re-check HF at finalize.
+//! Account strategies: Auth → Reentrancy → Preflight → Account → Oracles → Actions → Finalize.
+//! Flash loan skips Account/Oracles/Finalize (pool callback only).
 
 pub(crate) mod flash_loan;
 mod migrate_blend;
@@ -59,11 +43,7 @@ pub(crate) fn prefetch_strategy_oracles(
     oracle::prefetch_redstone_feeds(cache, &priced_assets);
 }
 
-/// Strategy tail: solvency on pool-returned state, persist supply+debt (or remove
-/// empty account), emit position batch.
-///
-/// Borrow-cap enforcement stays at debt-opening entrypoints (multiply, swap_debt,
-/// migrate), mirroring `process_borrow`.
+/// Post-pool HF + persist both sides (remove if empty). Caps stay at debt-open entrypoints.
 pub(crate) fn strategy_finalize(env: &Env, account_id: u64, account: &Account, cache: &mut Cache) {
     validation::require_post_pool_risk_gates(env, cache, account);
     finalize_position_flow(env, account_id, account, cache, PositionSides::BOTH, true);

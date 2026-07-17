@@ -180,17 +180,11 @@ fn simulate_indexes_no_time_noop(
     cvlr_assert!(index.supply_index.raw() == supply_index);
 }
 
-// Soundness of `summaries::simulate_update_indexes_summary`'s monotone-from-input
-// bounds is established compositionally by the lemmas above rather than by one
-// end-to-end rule (which would re-run the degree-8 Taylor `compound_interest`
-// with a symbolic delta and is intractable for the SMT solver):
-//   * `update_borrow_index_monotonic_when_factor_gte_one` — borrow index grows
-//     when the interest factor >= RAY (it is, since e^x >= 1 for x >= 0).
-//   * `update_supply_index_monotonic_when_rewards_positive` — supply index grows
-//     for non-negative rewards.
-//   * `simulate_indexes_no_time_noop` — the zero-delta early-return is exact.
-// Together these cover the summary's `borrow_out >= borrow_in`,
-// `supply_out >= supply_in` claims over the real accrual.
+// Summary monotone bounds are compositionally justified by the lemmas above
+// (end-to-end with symbolic `compound_interest` is SMT-intractable):
+//   * borrow grows when factor >= RAY (e^x >= 1 for x >= 0)
+//   * supply grows for non-negative rewards
+//   * zero-delta early-return is exact
 
 #[rule]
 fn rates_reachability(e: Env, asset: Address) {

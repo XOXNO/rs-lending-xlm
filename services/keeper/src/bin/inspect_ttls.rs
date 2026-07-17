@@ -56,8 +56,6 @@ async fn main() -> Result<()> {
     println!("scan users         : {}", cfg.schedule.scan_users);
     println!();
 
-    // Partition the flat persistent set into auditable coverage classes so the
-    // full key surface is visible at a glance.
     let mut classes: BTreeMap<KeyClass, Vec<&LedgerEntryQuery>> = BTreeMap::new();
     for row in &snap.persistent_entries {
         classes
@@ -114,7 +112,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Coverage class for a persistent entry, ordered for stable display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum KeyClass {
     PerAsset,
@@ -138,8 +135,7 @@ impl KeyClass {
     }
 }
 
-/// Bucket a persistent entry into a coverage class by its variant name and the
-/// contract it targets.
+/// Bucket by variant name + target contract.
 fn classify_persistent(
     row: &LedgerEntryQuery,
     controller_id: &[u8; 32],
@@ -215,15 +211,13 @@ fn print_section(title: &str, entries: &[LedgerEntryQuery], current: u32, safety
     bumped
 }
 
-/// Maps an entry to display status and action flag.
 fn status_of(row: &LedgerEntryQuery, current: u32, safety: u32) -> (&'static str, bool) {
     let decision = classify(row.live_until_ledger, row.value.is_some(), current, safety);
     let acted = !matches!(decision, Decision::Skip);
     let label = match decision {
         Decision::Restore => "EXPIRED (restore)",
         Decision::Extend => "IN-MARGIN (extend)",
-        // The RPC omits never-written / evicted entries, so a missing value is
-        // an absent entry; otherwise it has comfortable headroom.
+        // RPC omits never-written / evicted entries.
         Decision::Skip if row.value.is_none() => "ABSENT / ARCHIVED",
         Decision::Skip if row.live_until_ledger.is_none() => "no-ttl",
         Decision::Skip => "OK",
@@ -247,7 +241,6 @@ fn label_ledger_key(key: &LedgerKey) -> String {
     }
 }
 
-/// Decodes a contract-data key into a readable label.
 fn label_scval_key(key: &ScVal) -> String {
     match key {
         ScVal::LedgerKeyContractInstance => "instance".to_string(),

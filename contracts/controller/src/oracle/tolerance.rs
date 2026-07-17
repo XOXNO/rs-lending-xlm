@@ -38,8 +38,7 @@ fn anchor_ratio_bps(env: &Env, anchor: i128, primary: i128) -> Option<i128> {
     if anchor == 0 {
         return None;
     }
-    // A primary/anchor ratio beyond any representable u32 BPS band is
-    // out of band by definition.
+    // Ratio beyond any u32 BPS band is out of band.
     if primary / anchor > i128::from(u32::MAX) {
         return None;
     }

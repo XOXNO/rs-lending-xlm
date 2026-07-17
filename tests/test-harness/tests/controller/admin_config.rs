@@ -42,8 +42,6 @@ fn resolved_reflector_primary_anchor_config(
         max_sanity_price_wad: controller::constants::MAX_REASONABLE_PRICE_WAD,
     }
 }
-// 1. test_edit_asset_config
-
 #[test]
 fn test_edit_asset_config() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -61,8 +59,6 @@ fn test_edit_asset_config() {
         "threshold should remain 8000"
     );
 }
-// 3. test_set_position_limits
-
 #[test]
 fn test_set_position_limits() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -73,8 +69,6 @@ fn test_set_position_limits() {
     assert_eq!(limits.max_supply_positions, 8);
     assert_eq!(limits.max_borrow_positions, 6);
 }
-
-// 4. test_pause_blocks_operations
 
 #[test]
 fn test_pause_blocks_operations() {
@@ -96,8 +90,6 @@ fn test_pause_blocks_operations() {
     let borrow_result = t.try_borrow(ALICE, "ETH", 0.5);
     assert_contract_error(borrow_result, errors::CONTRACT_PAUSED);
 }
-// 5. test_unpause_restores_operations
-
 #[test]
 fn test_unpause_restores_operations() {
     let mut t = LendingTest::new()
@@ -117,8 +109,6 @@ fn test_unpause_restores_operations() {
     let result = t.try_supply(ALICE, "USDC", 1000.0);
     assert!(result.is_ok(), "supply should work after unpause");
 }
-// 6. test_upgrade_pool_params
-
 #[test]
 fn test_upgrade_pool_params() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -221,7 +211,6 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
         "borrow rate must remain readable after boundary upgrade",
     );
 }
-// 7. set_market_oracle_config — thin owner setter
 
 #[test]
 fn test_set_market_oracle_config_activates_pending_market() {
@@ -277,8 +266,6 @@ fn test_set_market_oracle_config_rejects_unknown_asset() {
     // market-existence probe (`fetch_pool_sync_data`) with PoolNotInitialized.
     assert_contract_error(mapped, errors::GenericError::PoolNotInitialized as u32);
 }
-// 8. test_set_aggregator
-
 #[test]
 fn test_set_aggregator() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -301,7 +288,6 @@ fn test_set_aggregator() {
     });
     assert_eq!(stored, new_aggregator, "aggregator must be persisted");
 }
-// 9. set_oracle_tolerance — thin owner setter
 
 /// 600 BPS tolerance band as governance computes it in-path.
 fn bands_300_600() -> OraclePriceFluctuation {
@@ -365,8 +351,6 @@ fn test_set_oracle_tolerance_rejects_degenerate_band() {
     };
     assert_contract_error(mapped, errors::BAD_LAST_TOLERANCE);
 }
-// 10. test_permissionless_keeper_ops
-
 #[test]
 fn test_permissionless_keeper_ops() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -379,8 +363,6 @@ fn test_permissionless_keeper_ops() {
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may update_indexes");
 }
-// 12. test_permissionless_revenue_ops
-
 #[test]
 fn test_permissionless_revenue_ops() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -394,8 +376,6 @@ fn test_permissionless_revenue_ops() {
     let result = ctrl.try_claim_revenue(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may claim_revenue");
 }
-// 14. test_create_liquidity_pool_uniqueness
-
 #[test]
 fn test_create_liquidity_pool_uniqueness() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -412,8 +392,6 @@ fn test_create_liquidity_pool_uniqueness() {
     };
     assert_contract_error(result, errors::GenericError::TokenNotApproved as u32);
 }
-// 16. test_market_initialization_cascade
-
 #[test]
 fn test_market_initialization_cascade() {
     let t = LendingTest::new().build(); // Empty protocol.

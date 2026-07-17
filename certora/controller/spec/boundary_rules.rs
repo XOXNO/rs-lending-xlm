@@ -112,7 +112,6 @@ fn mul_at_max_i128_sanity(e: Env) {
     cvlr_satisfy!(result > 0);
 }
 
-/// 1% APY over 1 year: Taylor compound factor within 0.01% of `1 + rate`.
 #[rule]
 fn compound_taylor_accuracy(e: Env) {
     let annual_rate_ray = RAY / 100;
@@ -133,14 +132,12 @@ fn compound_taylor_accuracy_sanity(e: Env) {
     cvlr_satisfy!(factor.raw() > RAY + RAY / 100);
 }
 
-/// `rescale(RAY, 27, 18) == WAD`.
 #[rule]
 fn rescale_ray_to_wad() {
     let result = rescale_half_up(RAY, 27, 18);
     cvlr_assert!(result == WAD);
 }
 
-/// `rescale(WAD, 18, 7) == 10^7`.
 #[rule]
 fn rescale_wad_to_7_decimals() {
     let result = rescale_half_up(WAD, 18, 7);

@@ -12,7 +12,6 @@ use soroban_sdk::{Env, Vec};
 use crate::context::Cache;
 use crate::oracle::observation::{redstone_observation_from_price_data, OracleObservation};
 
-/// Reads a RedStone feed into an `OracleObservation`, or `None` on provider failure.
 pub(crate) fn read_redstone_source(
     cache: &mut Cache,
     config: &RedStoneSourceConfig,
@@ -26,8 +25,6 @@ pub(crate) fn read_redstone_source(
     ))
 }
 
-/// Reads RedStone price data, returning `None` on provider failure.
-/// Uses and warms the transaction-local RedStone cache.
 fn read_price_data(
     cache: &mut Cache,
     contract: &Address,

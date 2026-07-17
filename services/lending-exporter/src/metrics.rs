@@ -1,8 +1,6 @@
-//! Prometheus registry, metric families, and the `/metrics` + `/health` surface.
+//! Prometheus registry, metric families, `/metrics` + `/health`.
 //!
-//! Every family carries a `network` label so a single Grafana can render both
-//! testnet and mainnet from two scrape jobs. HTTP wiring mirrors
-//! `services/keeper/src/metrics.rs`.
+//! Every family has a `network` label (one Grafana, multiple scrape jobs).
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -14,19 +12,15 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-/// Market-scoped labels: identify one `(hub, asset)` reserve. `hub` is the
-/// display name; `hub_id` is the stable numeric key.
+/// One `(hub, asset)` reserve; `hub` display, `hub_id` stable.
 const MARKET_LABELS: &[&str] = &["network", "hub_id", "hub", "asset", "symbol"];
-/// Oracle-scoped labels: identify one asset's price feed.
 const ORACLE_LABELS: &[&str] = &["network", "asset", "symbol"];
-/// Spoke-asset-scoped labels. `spoke`/`hub` are display names; the `*_id`s are
-/// the stable numeric keys.
+/// Spoke-asset labels; `spoke`/`hub` display, `*_id` stable.
 const SPOKE_ASSET_LABELS: &[&str] = &["network", "spoke_id", "spoke", "hub_id", "hub", "asset", "symbol"];
 
 pub struct Metrics {
     pub registry: Registry,
 
-    // -- per-market liquidity/rates --
     pub market_supplied: GaugeVec,
     pub market_supplied_usd: GaugeVec,
     pub market_borrowed: GaugeVec,
@@ -41,10 +35,9 @@ pub struct Metrics {
     pub market_supply_index_ray: GaugeVec,
     pub market_borrow_index_ray: GaugeVec,
     pub market_last_accrual_timestamp: GaugeVec,
-    /// IRM curve params, one series per `param` label.
+    /// IRM curve params (`param` label).
     pub market_param: GaugeVec,
 
-    // -- per-oracle prices/staleness --
     pub oracle_price_usd: GaugeVec,
     pub oracle_primary_price_usd: GaugeVec,
     pub oracle_anchor_price_usd: GaugeVec,
@@ -59,7 +52,6 @@ pub struct Metrics {
     pub oracle_price_timestamp: GaugeVec,
     pub oracle_seconds_until_stale: GaugeVec,
 
-    // -- per-spoke-asset flags/caps/usage --
     pub spoke_paused: GaugeVec,
     pub spoke_frozen: GaugeVec,
     pub spoke_collateral_enabled: GaugeVec,
@@ -78,7 +70,6 @@ pub struct Metrics {
     pub spoke_supply_cap_utilization: GaugeVec,
     pub spoke_borrow_cap_utilization: GaugeVec,
 
-    // -- protocol aggregate --
     pub protocol_tvl_usd: GaugeVec,
     pub protocol_borrowed_usd: GaugeVec,
     pub protocol_liquidity_usd: GaugeVec,
@@ -87,7 +78,6 @@ pub struct Metrics {
     pub protocol_spokes: GaugeVec,
     pub min_borrow_collateral_usd: GaugeVec,
 
-    // -- exporter / ledger health --
     pub ledger_timestamp: GaugeVec,
     pub ledger_sequence: GaugeVec,
     pub ledger_skew_seconds: GaugeVec,
@@ -112,8 +102,6 @@ fn register_counter_vec(reg: &Registry, name: &str, help: &str, labels: &[&str])
 
 impl Metrics {
     pub fn new() -> Result<Self> {
-        // `registry` is moved into the struct as the last field, after every
-        // `register_*` borrow has ended.
         let registry = Registry::new();
         Ok(Self {
             market_supplied: register_gauge_vec(&registry, "lending_market_supplied_total", "Total supplied underlying (whole tokens)", MARKET_LABELS)?,
@@ -186,7 +174,6 @@ impl Metrics {
     }
 }
 
-/// Serves `/metrics` and `/health` until the token is cancelled.
 pub async fn serve(bind: SocketAddr, metrics: Arc<Metrics>, cancel: CancellationToken) -> Result<()> {
     let app = Router::new()
         .route("/health", get(health))

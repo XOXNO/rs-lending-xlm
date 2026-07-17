@@ -1,8 +1,7 @@
-//! `InvokeHostFunction` op builders for the controller's keeper endpoints.
+//! Controller invoke builders used by the keeper.
 //!
-//! `update_indexes` is the only such endpoint the keeper calls: it advances
-//! pool interest accrual. The caller must sign; no on-chain role is required.
-//! (TTL bumping is permissionless and is built in `ttl.rs`, not here.)
+//! Only `update_indexes` (advances pool accrual). Caller signs; no on-chain role.
+//! TTL bumps are permissionless — see `ttl.rs`.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{

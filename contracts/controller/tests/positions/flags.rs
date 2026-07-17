@@ -24,8 +24,6 @@ fn spoke_asset(paused: bool, frozen: bool) -> SpokeAssetConfig {
     }
 }
 
-/// Stores a spoke-asset entry with the given flags, then runs the gate with
-/// `block_when_frozen` against a fresh cache inside the contract context.
 fn run_gate(paused: bool, frozen: bool, block_when_frozen: bool) {
     let env = Env::default();
     let admin = Address::generate(&env);

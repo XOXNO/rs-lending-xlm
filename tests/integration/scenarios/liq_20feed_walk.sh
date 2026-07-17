@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Legacy alias: event-cap width walk 8..5. Prefer liq20_v2_walk.sh for instruction-cap research.
+# Event-cap width walk 8..5. Prefer liq20_v2_walk.sh for instruction-cap research.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../env.sh"

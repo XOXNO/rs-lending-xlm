@@ -1,8 +1,6 @@
 use test_harness::{
     assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
 };
-// 1. test_validate_healthy_passes
-
 #[test]
 fn test_validate_healthy_passes() {
     let mut t = LendingTest::new()
@@ -18,8 +16,6 @@ fn test_validate_healthy_passes() {
     let hf = t.health_factor(ALICE);
     assert!(hf > 1.0, "HF should be > 1.0, got {}", hf);
 }
-// 2. test_validate_healthy_fails
-
 #[test]
 fn test_validate_healthy_fails() {
     let mut t = LendingTest::new()
@@ -41,8 +37,6 @@ fn test_validate_healthy_fails() {
     let result = t.try_withdraw(ALICE, "USDC", 1.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
-// 3. test_health_factor_no_debt_is_max
-
 #[test]
 fn test_health_factor_no_debt_is_max() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -53,8 +47,6 @@ fn test_health_factor_no_debt_is_max() {
     let hf_raw = t.health_factor_raw(ALICE);
     assert_eq!(hf_raw, i128::MAX, "HF with no debt should be i128::MAX");
 }
-// 4. test_health_factor_changes_with_price
-
 #[test]
 fn test_health_factor_changes_with_price() {
     let mut t = LendingTest::new()
@@ -78,8 +70,6 @@ fn test_health_factor_changes_with_price() {
         hf_after
     );
 }
-// 5. test_pool_borrow_rate_increases_with_borrows
-
 #[test]
 fn test_pool_borrow_rate_increases_with_borrows() {
     let mut t = LendingTest::new()
@@ -102,8 +92,6 @@ fn test_pool_borrow_rate_increases_with_borrows() {
         rate_after
     );
 }
-// 6. test_borrow_exceeds_ltv_fails
-
 #[test]
 fn test_borrow_exceeds_ltv_fails() {
     let mut t = LendingTest::new()
@@ -118,8 +106,6 @@ fn test_borrow_exceeds_ltv_fails() {
     let result = t.try_borrow(ALICE, "ETH", 4.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
-// 7. test_total_debt_zero_after_full_repay
-
 #[test]
 fn test_total_debt_zero_after_full_repay() {
     let mut t = LendingTest::new()

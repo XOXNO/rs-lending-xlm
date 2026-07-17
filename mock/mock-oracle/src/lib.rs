@@ -44,13 +44,12 @@ impl MockReflectorOracle {
         env.storage().instance().set(&MockKey::Resolution, &300u32);
     }
 
-    /// Sets price at current ledger timestamp.
     pub fn set_price(env: Env, asset: ReflectorAsset, price_wad: i128) {
         let now = env.ledger().timestamp();
         Self::set_price_at(env, asset, price_wad, now);
     }
 
-    /// Sets price with explicit timestamp for stale-price tests.
+    /// Explicit timestamp for stale-price tests.
     pub fn set_price_at(env: Env, asset: ReflectorAsset, price_wad: i128, timestamp: u64) {
         let price_14 = price_wad / WAD_TO_14_DECIMALS;
         env.storage()
@@ -61,7 +60,7 @@ impl MockReflectorOracle {
             .set(&MockKey::Ts(asset), &timestamp);
     }
 
-    /// Overrides only the stored timestamp for `asset`.
+    /// Overrides only the stored timestamp.
     pub fn set_ts(env: Env, asset: ReflectorAsset, timestamp: u64) {
         env.storage()
             .persistent()
@@ -89,7 +88,7 @@ impl MockReflectorOracle {
         Some(PriceData { price, timestamp })
     }
 
-    /// Returns repeated samples for deterministic TWAP.
+    /// Repeated samples for deterministic TWAP.
     pub fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<PriceData>> {
         let entry = Self::lastprice(env.clone(), asset)?;
         let mut out = Vec::new(&env);

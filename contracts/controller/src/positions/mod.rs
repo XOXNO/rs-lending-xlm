@@ -1,22 +1,7 @@
-//! Core position lifecycle: shared types and helpers for supply, borrow,
-//! withdraw, repay, and liquidation.
+//! Core position lifecycle: supply, borrow, withdraw, repay, liquidation.
 //!
-//! # Pipeline vocabulary (every money path)
-//!
-//! | Stage | Name pattern | Role |
-//! |-------|----------------|------|
-//! | ABI | `supply` / `borrow` / … | `contractimpl` entry |
-//! | Orchestrate | `process_*` | auth, load account, order stages |
-//! | Build | `build_*` / `transfer_and_build_*` | flags, transfers, pool request rows |
-//! | Cross-contract | `settle_*` / `pool_*_call` | one batch pool mutation |
-//! | Per-leg merge | `finish_*_leg` | scaled amounts, usage, events, maps |
-//! | Tail | `finalize_position_flow` | spoke usage persist, positions, batch emit |
-//!
-//! Liquidation uses plan → apply, then a custom persist (both sides) before
-//! optional bad-debt cleanup instead of `finalize_position_flow`.
-//!
-//! This file owns shared bricks: payment aliases, `PositionSides`, finalize,
-//! entry gates, spoke flags, `make_pool_action`, exact position lookups.
+//! Money path stages: process_* → build_* → settle_*/pool_* → finish_*_leg →
+//! finalize_position_flow. Liquidation uses plan → apply then custom persist.
 
 use common::errors::{CollateralError, SpokeError};
 use common::types::{
@@ -65,7 +50,6 @@ impl PositionSides {
     };
 }
 
-/// Writes the selected position maps; optionally removes an empty account.
 pub(crate) fn persist_account_positions(
     env: &Env,
     account_id: u64,
@@ -103,7 +87,6 @@ pub(crate) fn finalize_position_flow(
 
 /// Shared pre-pool entry gates for deposit and borrow batches.
 ///
-/// Checks bulk position limits, hub/market activity, spoke listing, per-spoke
 /// flags (pause and freeze), and the side-specific supply/borrow capability.
 pub(crate) fn validate_position_entry_gates(
     env: &Env,
@@ -158,7 +141,6 @@ pub(crate) fn enforce_spoke_asset_flags(
     }
 }
 
-/// Builds a `PoolAction` from a scaled position, amount, and hub asset.
 pub(crate) fn make_pool_action(
     position: impl Into<ScaledPositionRaw>,
     amount: i128,

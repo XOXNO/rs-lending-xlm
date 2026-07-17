@@ -18,7 +18,6 @@ use controller::constants::{BPS, RAY, WAD};
 
 use crate::context::LendingTest;
 use crate::helpers::{hub_asset, HARNESS_SPOKE};
-// Public types
 
 #[derive(Clone, Debug)]
 pub struct RefCollateralPosition {
@@ -62,7 +61,6 @@ pub struct RefLiquidationResult {
     /// Total collateral seized in USD WAD.
     pub total_seized_usd_wad: BigRational,
 }
-// Small constant helpers
 
 fn bi_one() -> BigInt {
     BigInt::from(1)
@@ -95,7 +93,6 @@ fn wad_scale() -> BigRational {
 fn bps_scale() -> BigRational {
     br_from_i128(BPS)
 }
-// Rounding helpers
 
 /// Half-up division of two BigInts (rounds .5 away from zero). Returns the
 /// quotient.
@@ -144,7 +141,6 @@ pub fn float_to_bigrational(x: f64, decimals: u32) -> BigRational {
     let raw = (x * 10f64.powi(decimals as i32)) as i128;
     br_from_i128(raw)
 }
-// Internal math helpers (exact rationals, no rounding)
 
 /// `position_value` in exact rationals, output scale = WAD.
 /// Matches `helpers::position_value`: actual = scaled * index / RAY, then
@@ -235,7 +231,6 @@ fn max_bonus_for_threshold(proportion_seized: &BigRational) -> BigRational {
 
 /// Average bonus params: weighted avg of per-asset bonus_bps by value share, and
 /// the per-account max bonus derived from the effective threshold.
-/// Returns (base_bonus_bps, max_bonus_bps), both as rationals in BPS scale.
 fn get_account_bonus_params(
     supplies: &[RefCollateralPosition],
     proportion_seized: &BigRational,
@@ -290,8 +285,6 @@ fn hf_for_max_bonus_wad() -> BigRational {
         / BigRational::from_integer(BigInt::from(100))
 }
 
-/// Returns the ideal debt-to-repay (in WAD USD) for a given bonus/target,
-/// or None if the target isn't reachable (denominator <= 0).
 fn try_liquidation_at_target(
     total_debt_wad: &BigRational,
     weighted_coll_wad: &BigRational,
@@ -402,7 +395,6 @@ fn select_liquidation_tier(
 }
 
 /// Mirror of `estimate_liquidation_amount`: tier selection + dust-leftover guard.
-/// Returns (ideal_repayment_wad, bonus_bps).
 fn estimate_liquidation_amount(
     total_debt_wad: &BigRational,
     weighted_coll_wad: &BigRational,
@@ -432,7 +424,6 @@ fn estimate_liquidation_amount(
 
     (ideal, bonus)
 }
-// Public API
 
 /// Compute liquidation outputs from a snapshot using exact rational math.
 /// Takes the debt payments as *token units* (pre-scaling); the reference
@@ -574,7 +565,6 @@ pub fn compute_liquidation(
         total_seized_usd_wad: total_seizure_usd,
     }
 }
-// Snapshot helpers -- read from LendingTest views
 
 fn account_id_for(t: &LendingTest, user: &str) -> Option<u64> {
     t.find_account_id(user)
@@ -643,7 +633,6 @@ pub fn snapshot_debt(t: &LendingTest, user: &str) -> Vec<RefDebtPosition> {
     }
     out
 }
-// Self-tests
 
 #[cfg(test)]
 mod tests {

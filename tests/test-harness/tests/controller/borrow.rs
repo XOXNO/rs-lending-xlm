@@ -2,8 +2,6 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
     xlm_preset, LendingTest, PositionType, ALICE, BOB, STABLECOIN_SPOKE,
 };
-// 1. test_borrow_basic
-
 #[test]
 fn test_borrow_basic() {
     let mut t = LendingTest::new()
@@ -26,8 +24,6 @@ fn test_borrow_basic() {
         eth_wallet
     );
 }
-// 1b. test_borrow_same_asset_xlm
-
 #[test]
 fn test_borrow_same_asset_xlm() {
     let mut t = LendingTest::new().with_market(xlm_preset()).build();
@@ -49,8 +45,6 @@ fn test_borrow_same_asset_xlm() {
         hf
     );
 }
-// 2. test_borrow_multiple_assets_bulk
-
 #[test]
 fn test_borrow_multiple_assets_bulk() {
     let mut t = LendingTest::new()
@@ -104,8 +98,6 @@ fn test_borrow_duplicate_asset_bulk_accumulates_single_position() {
     );
     t.assert_healthy(ALICE);
 }
-// 3. test_borrow_rejects_exceeding_ltv
-
 #[test]
 fn test_borrow_rejects_exceeding_ltv() {
     let mut t = LendingTest::new()
@@ -121,8 +113,6 @@ fn test_borrow_rejects_exceeding_ltv() {
     let result = t.try_borrow(ALICE, "ETH", 5.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
-// 4. test_borrow_rejects_zero_amount
-
 #[test]
 fn test_borrow_rejects_zero_amount() {
     let mut t = LendingTest::new()
@@ -137,8 +127,6 @@ fn test_borrow_rejects_zero_amount() {
     // validator failure.
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
-// 5. test_borrow_rejects_non_borrowable
-
 #[test]
 fn test_borrow_rejects_non_borrowable() {
     let mut t = LendingTest::new()
@@ -154,8 +142,6 @@ fn test_borrow_rejects_non_borrowable() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
-// 6. test_borrow_rejects_during_flash_loan
-
 #[test]
 fn test_borrow_rejects_during_flash_loan() {
     let mut t = LendingTest::new()
@@ -169,8 +155,6 @@ fn test_borrow_rejects_during_flash_loan() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-// 7. test_borrow_rejects_when_paused
-
 #[test]
 fn test_borrow_rejects_when_paused() {
     let mut t = LendingTest::new()
@@ -184,8 +168,6 @@ fn test_borrow_rejects_when_paused() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-// 9. test_borrow_position_limit_exceeded
-
 #[test]
 fn test_borrow_position_limit_exceeded() {
     let mut t = LendingTest::new()
@@ -202,8 +184,6 @@ fn test_borrow_position_limit_exceeded() {
     let result = t.try_borrow(ALICE, "WBTC", 0.001);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// 10. test_borrow_spoke_enhanced_ltv
-
 #[test]
 fn test_borrow_spoke_enhanced_ltv() {
     let mut t = LendingTest::new()
@@ -233,8 +213,6 @@ fn test_borrow_spoke_enhanced_ltv() {
     let hf = t.health_factor(ALICE);
     assert!(hf >= 1.0, "should be healthy with spoke LTV, HF = {}", hf);
 }
-// 14. test_borrow_at_ltv_limit_stays_healthy
-
 #[test]
 fn test_borrow_at_ltv_limit_stays_healthy() {
     let mut t = LendingTest::new()
@@ -264,8 +242,6 @@ fn test_borrow_at_ltv_limit_stays_healthy() {
         hf
     );
 }
-// 15. test_borrow_bulk_passes_cumulative_hf_check
-
 #[test]
 fn test_borrow_bulk_passes_cumulative_hf_check() {
     let mut t = LendingTest::new()
@@ -294,8 +270,6 @@ fn test_borrow_bulk_passes_cumulative_hf_check() {
     );
     t.assert_healthy(ALICE);
 }
-// 16. test_delegated_borrow_routes_funds_to_owner
-
 #[test]
 fn test_delegated_borrow_routes_funds_to_owner() {
     let mut t = LendingTest::new()
@@ -334,8 +308,6 @@ fn test_delegated_borrow_routes_funds_to_owner() {
     t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
     t.assert_healthy(ALICE);
 }
-// 17. test_delegated_borrow_to_none_routes_to_caller
-
 #[test]
 fn test_delegated_borrow_to_none_routes_to_caller() {
     let mut t = LendingTest::new()

@@ -348,7 +348,6 @@ fn test_market_params_verify_rate_model_delegates() {
     raw.verify_rate_model(&env);
 }
 
-// ===== coverage gap-closure tests =====
 // test_pool_scaled_and_debt_position_conversions (+32) common/src/types/pool.rs:276-288,307-328,414-420
 #[test]
 fn test_scaled_position_raw_from_typed_positions() {

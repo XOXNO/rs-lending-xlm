@@ -46,17 +46,12 @@ fn test_edit_asset_in_spoke_rejects_threshold_lte_ltv() {
     assert_contract_error(mapped, errors::INVALID_LIQ_THRESHOLD);
 }
 
-// Boundary regression for the Slender C-3 / Blend BL-001 resource-limit DoS
-// class (see audit-research/STELLAR_AUDIT_FINDINGS.md §4.4). The hard cap on
-// per-account positions must match the budget bench at
-// `bench_liquidate_max_positions.rs`; raising it without re-running the bench
-// re-introduces the un-liquidatable-position attack surface.
+// Hard cap is 10/10 (matches bench_liquidate_max_positions); above-cap and zero rejected.
 #[test]
 fn test_set_position_limits_rejects_above_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let admin = t.admin();
 
-    // 10/10 is the documented ceiling and must be accepted.
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::SetPositionLimits(controller::types::PositionLimits {
@@ -65,12 +60,10 @@ fn test_set_position_limits_rejects_above_cap() {
         }),
     );
 
-    // 11 on either side exceeds the budget-proven envelope.
     assert_invalid_position_limits(&t, 11, 10);
     assert_invalid_position_limits(&t, 10, 11);
-    // The previous-cap value (32) must also be rejected post-fix.
+    // Former soft ceiling 32 is above hard cap.
     assert_invalid_position_limits(&t, 32, 32);
-    // Zero on either side stays rejected (existing invariant).
     assert_invalid_position_limits(&t, 0, 5);
     assert_invalid_position_limits(&t, 5, 0);
 }

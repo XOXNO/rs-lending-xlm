@@ -53,9 +53,6 @@ impl Controller {
 }
 
 /// Withdraw collateral → swap → deposit replacement (debt-neutral until finalize).
-///
-/// Checklist: auth → reentrancy → preflight → account → oracles → withdraw →
-/// swap → deposit → finalize.
 pub(crate) fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollateralParams<'_>) {
     let SwapCollateralParams {
         account_id,
@@ -65,28 +62,24 @@ pub(crate) fn process_swap_collateral(env: &Env, caller: &Address, params: SwapC
         swap,
     } = params;
 
-    // 1–2. Auth + reentrancy
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // 3. Preflight
+    // Reject identical (hub, asset); same token across hubs is passthrough.
     assert_with_error!(env, current != new, GenericError::AssetsAreTheSame);
     validation::require_hub_active(env, current.hub_id);
     validation::require_positive_amount(env, from_amount);
 
-    // 4. Account
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
     let mut cache = Cache::new(env);
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new);
 
-    // 5. Oracles
     let extra_assets = vec![env, current.asset.clone(), new.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     let current_pos: AccountPosition = get_supply_position_or_panic(env, &account, current);
 
-    // 6a. Withdraw current collateral to controller
     let actual_withdrawn = withdraw_collateral_to_controller(
         env,
         &mut account,
@@ -99,7 +92,7 @@ pub(crate) fn process_swap_collateral(env: &Env, caller: &Address, params: SwapC
         },
     );
 
-    // 6b. Current → new (passthrough if same asset, cross-hub)
+    // Passthrough when same asset (cross-hub).
     let swapped_amount = swap_tokens_or_passthrough(
         env,
         caller,
@@ -109,7 +102,6 @@ pub(crate) fn process_swap_collateral(env: &Env, caller: &Address, params: SwapC
         swap,
     );
 
-    // 6c. Deposit replacement collateral
     let deposit_assets = vec![env, (new.clone(), swapped_amount)];
     supply::process_deposit(
         env,
@@ -119,11 +111,9 @@ pub(crate) fn process_swap_collateral(env: &Env, caller: &Address, params: SwapC
         &mut cache,
     );
 
-    // 7. Finalize
     strategy_finalize(env, account_id, &account, &mut cache);
 }
 
-/// Rejects replacement collateral that cannot be supplied after the swap.
 pub(crate) fn validate_swap_new_collateral_preflight(
     env: &Env,
     cache: &mut Cache,

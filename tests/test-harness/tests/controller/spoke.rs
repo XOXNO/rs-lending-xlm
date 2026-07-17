@@ -4,8 +4,6 @@ use test_harness::{
     usdt_stable_preset, LendingTest, PositionType, ALICE, HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR,
     STABLECOIN_SPOKE,
 };
-// 1. test_spoke_category_creation
-
 #[test]
 fn test_spoke_category_creation() {
     let t = LendingTest::new()
@@ -22,8 +20,6 @@ fn test_spoke_category_creation() {
     let attrs = t.get_account_attributes(ALICE);
     assert_eq!(attrs.spoke_id, 2, "account should be in spoke category 1");
 }
-// 2. test_spoke_enhanced_ltv_and_threshold
-
 #[test]
 fn test_spoke_enhanced_ltv_and_threshold() {
     let mut t = LendingTest::new()
@@ -49,8 +45,6 @@ fn test_spoke_enhanced_ltv_and_threshold() {
         hf
     );
 }
-// 3. test_spoke_supply_with_category_asset
-
 #[test]
 fn test_spoke_supply_with_category_asset() {
     let mut t = LendingTest::new()
@@ -68,8 +62,6 @@ fn test_spoke_supply_with_category_asset() {
         "wallet should be ~0 after supply"
     );
 }
-// 4. test_spoke_borrow_with_category_asset
-
 #[test]
 fn test_spoke_borrow_with_category_asset() {
     let mut t = LendingTest::new()
@@ -94,8 +86,6 @@ fn test_spoke_borrow_with_category_asset() {
     );
     t.assert_healthy(ALICE);
 }
-// 5. test_spoke_rejects_non_category_supply
-
 #[test]
 fn test_spoke_rejects_non_category_supply() {
     let mut t = LendingTest::new()
@@ -111,8 +101,6 @@ fn test_spoke_rejects_non_category_supply() {
     let result = t.try_supply(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
-// 6. test_spoke_rejects_non_category_borrow
-
 #[test]
 fn test_spoke_rejects_non_category_borrow() {
     let mut t = LendingTest::new()
@@ -129,8 +117,6 @@ fn test_spoke_rejects_non_category_borrow() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
-// 7. test_spoke_deprecated_blocks_new_accounts
-
 #[test]
 fn test_spoke_deprecated_blocks_new_accounts() {
     let mut t = LendingTest::new()
@@ -153,8 +139,6 @@ fn test_spoke_deprecated_blocks_new_accounts() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::SPOKE_DEPRECATED);
 }
-// 9. test_spoke_edit_asset_params
-
 #[test]
 fn test_spoke_edit_asset_params() {
     let mut t = LendingTest::new()
@@ -175,8 +159,6 @@ fn test_spoke_edit_asset_params() {
     let result = t.try_borrow(ALICE, "USDT", 9_500.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
-// 10. test_spoke_remove_category_deprecates
-
 #[test]
 fn test_spoke_remove_category_deprecates() {
     let mut t = LendingTest::new()
@@ -218,8 +200,6 @@ fn test_deprecated_spoke_debt_free_account_can_withdraw_all_collateral() {
     );
     assert_eq!(t.supply_balance(ALICE, "USDC"), 0.0);
 }
-// 11. test_spoke_add_asset_to_category
-
 #[test]
 fn test_spoke_add_asset_to_category() {
     let mut t = LendingTest::new()
@@ -239,8 +219,6 @@ fn test_spoke_add_asset_to_category() {
     t.borrow(ALICE, "USDT", 5_000.0);
     t.assert_healthy(ALICE);
 }
-// 12. test_spoke_remove_asset_from_category
-
 #[test]
 fn test_spoke_remove_asset_from_category() {
     let mut t = LendingTest::new()
@@ -261,8 +239,6 @@ fn test_spoke_remove_asset_from_category() {
     let result = t.try_borrow(ALICE, "USDT", 5_000.0);
     assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
-// 13. test_spoke_liquidation_uses_spoke_bonus
-
 #[test]
 fn test_spoke_liquidation_uses_spoke_bonus() {
     let mut t = LendingTest::new()
@@ -313,8 +289,6 @@ fn test_spoke_liquidation_uses_spoke_bonus() {
         );
     }
 }
-// 14. test_spoke_two_assets_same_category
-
 #[test]
 fn test_spoke_two_assets_same_category() {
     let mut t = LendingTest::new()
@@ -342,8 +316,6 @@ fn test_spoke_two_assets_same_category() {
     t.assert_borrow_near(ALICE, "USDC", 2_000.0, 1.0);
     t.assert_healthy(ALICE);
 }
-// 16. test_spoke_deprecated_category_operations
-
 #[test]
 fn test_spoke_deprecated_category_operations() {
     let t = LendingTest::new()
@@ -416,21 +388,14 @@ fn test_spoke_deprecated_category_operations() {
     assert_contract_error(flat_add_asset, errors::SPOKE_DEPRECATED);
 }
 
-// Regression: passing a non-zero `spoke_id` argument to supply on an
-// EXISTING account must panic if it disagrees with the account's stored
-// category. Without this guard the argument was silently ignored — the caller
-// believes they are operating in one mode while the account is in another.
-// Zero remains the "unspecified" sentinel (kept for harness convention) and
-// does not trigger the guard.
+// Non-zero `spoke_id` on supply must match the account's stored spoke; mismatch reverts.
+// Harness `0` does not trigger the guard.
 #[test]
 fn test_supply_rejects_spoke_mismatch_on_existing_account() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Alice opens a normal (non-spoke) account via her first supply.
     t.supply(ALICE, "USDC", 50.0);
 
-    // Now she calls supply on the same account with spoke = 1. The account
-    // is in spoke = 0; the call must reject.
     let result = t.try_supply_with_spoke(ALICE, "USDC", 10.0, 2);
     assert_contract_error(result, errors::SPOKE_MISMATCH);
 }
@@ -443,18 +408,14 @@ fn test_supply_rejects_spoke_mismatch_against_active_category() {
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    // Alice opens an spoke 1 account.
     let _ = t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 50.0);
 
-    // Re-supply with a DIFFERENT non-zero category must reject.
     let result = t.try_supply_with_spoke(ALICE, "USDC", 10.0, 3);
     assert_contract_error(result, errors::SPOKE_MISMATCH);
 }
 
-// The spoke arg must match the account's stored spoke: `0` is no longer an
-// "unspecified" sentinel (there is no spoke 0), so supplying with `0` on an
-// spoke account is rejected like any other mismatch.
+// Spoke arg must match stored spoke; `0` is not a wildcard (no spoke 0).
 #[test]
 fn test_supply_zero_spoke_rejects_mismatch_against_active_category() {
     let mut t = LendingTest::new()
@@ -859,9 +820,8 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
     assert!(cfg.liquidation_threshold > cfg.loan_to_value);
 }
 
-// Per-asset divergence: two assets in the SAME category carry DIFFERENT risk
-// params. Each supplied collateral position inherits its own asset's spoke
-// LTV/threshold, proving params are no longer category-wide.
+// Per-asset divergence: two assets in the same spoke carry distinct risk params;
+// each supply position inherits its own asset's spoke LTV/threshold.
 #[test]
 fn test_spoke_per_asset_divergent_params() {
     let mut t = LendingTest::new()
@@ -1403,10 +1363,8 @@ fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
     );
 }
 
-/// A per-spoke `oracle_override` reprices an asset for accounts on that spoke
-/// without touching the asset's token-rooted base price (Phase 3 wiring): the
-/// override config flows through `edit_asset_in_spoke` into storage, and the
-/// account valuation path consults it.
+/// Per-spoke `oracle_override` reprices that spoke only; token-rooted base price is unchanged.
+/// Override flows through `edit_asset_in_spoke`; account valuation consults it.
 #[test]
 fn test_spoke_oracle_override_reprices_collateral() {
     let mut t = LendingTest::new().with_market(eth_preset()).build();
@@ -1752,9 +1710,8 @@ fn test_update_account_threshold_skips_force_delisted_asset() {
     );
 }
 
-// Deprecation no longer freezes param stewardship: listings on a deprecated
-// spoke stay live-managed (one rule: params refresh while the listing exists),
-// so a permissionless threshold sync propagates a post-deprecation edit.
+// Deprecated-spoke listings stay live-managed: params refresh while the listing exists;
+// permissionless threshold sync propagates post-deprecation edits.
 #[test]
 fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
     let mut t = LendingTest::new()

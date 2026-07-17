@@ -25,20 +25,15 @@ use crate::op::{apply_self_op, resolve_op};
 use crate::storage::renew_governance_instance;
 use crate::{constants, storage, validate, Governance, GovernanceArgs, GovernanceClient};
 
-// ################## TYPES ##################
-
-/// Standard vs elevated schedule delays for governance operations.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DelayTier {
     Standard,
-    /// Contract upgrade (governance, controller, or pool) and ownership
-    /// transfer proposals.
+    /// Upgrades and ownership transfers.
     Sensitive,
     /// Non-vetoable council reset; longest delay.
     Recovery,
 }
 
-/// Ledger delay used when scheduling an operation at the given tier.
 pub(crate) fn operation_delay(env: &Env, tier: DelayTier) -> u32 {
     let min = get_min_delay(env);
     match tier {
@@ -48,12 +43,11 @@ pub(crate) fn operation_delay(env: &Env, tier: DelayTier) -> u32 {
     }
 }
 
-/// Rejects zero timelock delay.
 pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
     assert_with_error!(env, delay != 0, GenericError::InvalidTimelockDelay);
 }
 
-/// Requires non-decreasing delay, capped at 14 days.
+// Non-decreasing, capped at 14 days.
 pub(crate) fn validate_delay_update(env: &Env, new_delay: u32) {
     require_nonzero_delay(env, new_delay);
     let current = get_min_delay(env);
@@ -95,14 +89,13 @@ fn controller_client(env: &Env) -> ControllerAdminClient<'_> {
     ControllerAdminClient::new(env, &storage::get_controller(env))
 }
 
-/// Shared auth for role-gated operations: TTL renewal, caller auth, role check.
 fn begin_immediate(env: &Env, caller: &Address, role: &str) {
     storage::renew_governance_instance(env);
     caller.require_auth();
     access_control::ensure_role(env, &Symbol::new(env, role), caller);
 }
 
-/// Advances self-targeted timelock operation inline; Soroban blocks self-reentry.
+// Self-target execute is inline; Soroban blocks self-reentry.
 fn begin_self_execute(env: &Env, executor: Option<&Address>, operation: &Operation) {
     renew_governance_instance(env);
     authorize_executor(env, executor);
@@ -110,7 +103,6 @@ fn begin_self_execute(env: &Env, executor: Option<&Address>, operation: &Operati
     set_execute_operation(env, operation);
 }
 
-/// Builds controller oracle config from proposed input.
 fn resolve_market_oracle(
     env: &Env,
     asset: &Address,
@@ -122,7 +114,6 @@ fn resolve_market_oracle(
 
 #[contractimpl]
 impl Governance {
-    /// Validates and schedules an `AdminOperation` on the timelock, returning
     /// its operation id. Contract upgrades and ownership transfers schedule at
     /// the elevated Sensitive delay; all other operations use the min delay.
     ///
@@ -400,7 +391,6 @@ impl Governance {
         controller_client(&env).set_oracle_sanity_bounds(&asset, &min_wad, &max_wad);
     }
 
-    /// Creates a hub immediately, bypassing the timelock, and returns its id.
     /// Safe instant: the new registry entry is inert until assets are listed
     /// through the timelocked path.
     ///
@@ -411,7 +401,6 @@ impl Governance {
         controller_client(&env).create_hub()
     }
 
-    /// Creates a spoke immediately, bypassing the timelock, and returns its
     /// id. Safe instant: listings on it still ride the timelock.
     ///
     /// # Arguments

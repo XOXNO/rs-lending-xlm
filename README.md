@@ -2,170 +2,104 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/tests.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/tests.yml) ![Rust](https://img.shields.io/badge/Rust-1.95-orange?style=flat-square) ![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-blue?style=flat-square)
 
-A multi-asset lending protocol on Stellar Soroban, built around a single
-central liquidity pool, hub-and-spoke market configuration, and timelocked
-on-chain governance.
+Smart contracts and deploy tooling for **XOXNO Lending**: a non-custodial, over-collateralized money market on [Stellar](https://stellar.org) (Soroban).
 
-## Table of Contents
+## Protocol overview
 
-- [Documentation](#documentation)
-- [Architecture](#architecture)
-- [Repository Structure](#repository-structure)
-- [Getting Started](#getting-started)
-- [Development](#development)
-- [Testing & Verification](#testing--verification)
-- [Security](#security)
-- [License](#license)
-- [Contributing](#contributing)
+Suppliers deposit Stellar Asset Contracts (SACs) and earn interest. Borrowers take loans against collateral under LTV and health-factor limits. Liquidators close underwater positions. Governance changes markets, oracles, risk parameters, and upgrades through a timelock.
+
+Liquidity sits in one central pool. Markets and risk are configured separately so an asset can be listed in isolation (separate indexes, cash, revenue, and bad debt) without splitting the pool implementation.
+
+| Role | What they do |
+|------|----------------|
+| **Suppliers** | Deposit supported assets; earn interest; withdraw when utilization and account health allow |
+| **Borrowers** | Borrow against collateral within LTV and health-factor limits |
+| **Liquidators** | Close undercollateralized positions |
+| **Governance** | Schedule and execute config for markets, oracles, risk, and upgrades |
+
+Mechanics that enforce that model:
+
+- **Hubs** — market keys that isolate the same underlying into separate markets when required  
+- **Spokes** — risk profiles (LTV, liquidation thresholds, caps, pause/freeze) bound to account groups  
+- **Oracles** — Reflector, RedStone, and the Xoxno adapter; dual-source tolerance; fail closed on bad or stale prices  
+- **Governance** — propose → wait delay → execute; GUARDIAN can halt immediately; resume is timelocked  
+- **Ops** — multisig-compatible owner, canceller roles, recovery path for canceller deadlock; see [DEPLOYMENT.md](./DEPLOYMENT.md)
+
+Rules and accounting: [architecture/INVARIANTS.md](./architecture/INVARIANTS.md). Contract map: [SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md).
 
 ## Documentation
 
-- [Architecture reference](./SCF_BUILD_ARCHITECTURE.md) — topology, storage,
-  and contract boundaries.
-- [Protocol invariants](./architecture/INVARIANTS.md) — solvency, oracle, and
-  accounting rules every change must preserve.
-- [Architecture decisions](./architecture/decisions/README.md) — ADR index for
-  protocol design choices.
-- [Formal verification](./certora/README.md) — Certora proof domains, profiles,
-  and prover commands.
-- [Deep discovery & threat-modeling artifacts](./artifacts/02_discovery/README.md)
-  — automated candidate findings and coverage (complements STRIDE, invariants,
-  and Certora).
-- [Deployment & operations](./DEPLOYMENT.md) — runbook for deploying and
-  operating the protocol.
-- [Integration skills](./skills/README.md) — publishable AI-agent skills for
-  third-party developers integrating or building on the protocol.
+| Document | Audience |
+|----------|----------|
+| [DEPLOYMENT.md](./DEPLOYMENT.md) | Operators (deploy, configure, day-2) |
+| [SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md) | Engineers and auditors (topology, storage) |
+| [architecture/INVARIANTS.md](./architecture/INVARIANTS.md) | Anyone changing accounting, risk, oracle, or auth |
+| [architecture/decisions/](./architecture/decisions/README.md) | Design decisions and trade-offs |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Contributors |
+| [certora/README.md](./certora/README.md) | Formal verification |
+| [STRIDE.md](./STRIDE.md) | Threat model |
+| [SECURITY.md](./SECURITY.md) | Vulnerability disclosure |
 
-## Architecture
+## Security
 
-The protocol separates administration, risk logic, and liquidity into three
-core contracts:
+| Layer | What exists in this repo |
+|-------|--------------------------|
+| **Design** | [INVARIANTS](./architecture/INVARIANTS.md), [ADRs](./architecture/decisions/README.md), [STRIDE](./STRIDE.md) |
+| **Testing** | Crate tests, Soroban harness (`make test`), live testnet scripts, fuzz |
+| **Formal** | [Certora](./certora/README.md) specs on critical properties |
+| **Static** | Clippy, Scout, CI on pull requests |
+| **Report** | **security@xoxno.com** only — [SECURITY.md](./SECURITY.md) |
 
-- **Governance** — owns the controller and timelocks protocol-admin changes
-  (except immediate pause/unpause and certain GUARDIAN actions).
-- **Controller** — the only user-facing contract: accounts, risk checks, oracle
-  validation, liquidations, flash loans, and strategies. It is the sole caller
-  of the pool for all mutations; it defines no `KEEPER`/`REVENUE`/`ORACLE` roles.
-- **Pool** — single central liquidity contract (owned by the controller). All
-  mutating entrypoints are `#[only_owner]`; it performs no risk, solvency, or
-  oracle decisions. The off-chain keeper self-authorizes its calls.
+Do **not** open public issues or PRs for vulnerabilities.
 
-Pause is layered: a global controller pause (immediate) blocks risk-increasing
-and index-mutating flows but keeps `withdraw`, `repay`, `liquidate`, and
-`clean_bad_debt` open. Per-spoke `paused` and `frozen` flags provide finer
-controls. New deployments start paused. See [ADR 0011](./architecture/decisions/0011-pause-and-freeze-matrix.md) and the [protocol invariants](./architecture/INVARIANTS.md).
-
-Markets are keyed by `HubAssetKey { hub_id, asset }`. The same token listed on
-different hubs forms fully isolated markets (separate indexes, cash, revenue,
-debt, and bad-debt socialization). Spokes bind accounts to immutable risk
-configuration (LTVs, liquidation curves, caps, pause/freeze flags). See the
-[architecture reference](./SCF_BUILD_ARCHITECTURE.md) for the full design
-(boundary: [ADR 0001](./architecture/decisions/0001-controller-pool-ownership-boundary.md); timelock: [ADR 0010](./architecture/decisions/0010-governance-timelock-for-controller-admin.md); oracle: [ADR 0003](./architecture/decisions/0003-oracle-dual-source-with-tolerance-bands.md); pause/freeze: [ADR 0011](./architecture/decisions/0011-pause-and-freeze-matrix.md)).
-
-## Repository Structure
+## Repository layout
 
 ```text
-rs-lending-xlm/
-├── common/                  # Shared math, types, events, constants, errors
-├── contracts/
-│   ├── controller/          # Accounts, risk, oracle, liquidation, strategies
-│   ├── governance/          # Timelocked protocol administration
-│   ├── pool/                # Central pool accounting and flash loans
-│   ├── aggregator/          # DEX aggregation router
-│   ├── xoxno-oracle-adapter/# Multi-signer SEP-40 price-feed adapter
-│   ├── defindex-strategy/   # Reference DeFindex vault strategy
-│   └── flash-loan-receiver/ # Reference flash-loan receiver
-├── interfaces/              # External ABI traits and generated clients
-├── services/keeper/         # Off-chain keeper service (separate workspace)
-├── certora/                 # Certora specs and harnesses
-├── tests/                   # Integration harnesses and fuzz targets
-├── architecture/            # Invariants, ADRs, and design material
-└── configs/                 # Market, spoke, network, deployment inputs
+contracts/          Soroban contracts
+  controller/       Accounts, risk, oracle, liquidation, strategies
+  pool/             Liquidity and flash loans (controller-owned)
+  governance/       Timelock and roles
+  aggregator/       DEX routing for strategies
+  xoxno-oracle-adapter/
+  defindex-strategy/
+common/             Shared math, types, errors
+interfaces/         Client ABIs
+configs/            Network and market deploy inputs (`networks.json`)
+tests/              Harness, fuzz, live scenarios
+services/           Keeper (TTL), metrics exporter
+certora/            Formal verification
+architecture/       Invariants and ADRs
 ```
 
-## Getting Started
+Resolve contract addresses from `configs/networks.json`. Do not hardcode them in integrators.
 
-Requirements:
+## Development
 
-- Rust from [rust-toolchain.toml](./rust-toolchain.toml), including the
-  `wasm32v1-none` target.
-- Stellar CLI with Soroban contract support.
+**Needs:** Rust from [rust-toolchain.toml](./rust-toolchain.toml) (`wasm32v1-none`), Stellar CLI with Soroban support.
 
 ```bash
 git clone https://github.com/XOXNO/rs-lending-xlm.git
 cd rs-lending-xlm
 cargo test --workspace
 make build
+make help
 ```
 
-Use `make help` for the full command surface.
+| Task | Command |
+|------|---------|
+| Compile contracts | `make build` |
+| Optimized WASM | `make optimize` |
+| Crate tests | `cargo test --workspace` |
+| Integration harness | `make test` |
+| Lint / format | `make clippy`, `make fmt` |
+| Deploy / ops | `make testnet setup` — [DEPLOYMENT.md](./DEPLOYMENT.md) |
 
-## Development
-
-- **Build WASM artifacts**: `make build`
-- **Build optimized deployment binaries**: `make optimize`
-- **Run workspace tests**: `cargo test --workspace`
-- **Run Soroban integration tests**: `make test` (harness); pool-only via `make test-pool`
-- **Lint and format**: `make clippy` and `make fmt`
-- **Static analysis**: `scripts/scout-local.sh`
-
-`services/keeper` is a separate workspace:
-
-```bash
-cargo test --manifest-path services/keeper/Cargo.toml
-```
-
-Deployment and day-to-day operations are Makefile-driven; see the
-[deployment runbook](./DEPLOYMENT.md).
-
-## Testing & Verification
-
-Protocol correctness is enforced in independent layers:
-
-- **Unit tests** — per-crate tests across all production contracts.
-- **End-to-end integration tests** — full protocol flows against the Soroban
-  test environment (`tests/test-harness`).
-- **Live testnet end-to-end** — release scenarios run against live Stellar
-  testnet, including liquidations and aggregator-routed strategies
-  (`tests/integration`).
-- **Invariant-driven fuzzing** — six `cargo-fuzz` targets covering protocol
-  flows, strategies, pool accounting, rates, and fixed-point math
-  (`tests/fuzz`).
-- **Property-based tests** — randomized proptest suites for accounting
-  conservation, auth gates, strategy safety, and liquidation math against an
-  exact-rational reference (`make proptest`).
-- **Mutation testing** — non-overlapping `cargo-mutants` scopes cover common,
-  pool, governance, and controller production behavior (`make mutants`), with
-  focused math/rates/pool-interest targets for local iteration.
-- **Miri** — undefined-behavior checks on the pure fixed-point math core
-  (`make miri-common`).
-- **Formal verification** — Certora proofs over math, pool accounting,
-  controller risk logic, oracle rules, flash loans, liquidation, and
-  controller–pool consistency ([certora/](./certora/README.md)).
-- **Static analysis** — Scout runs on every pull request and gates on
-  critical findings (`scripts/scout-local.sh`).
-- **Coverage** — merged controller, pool, and harness coverage reports
-  (`make coverage`).
-- **Threat modeling** — [STRIDE analysis](./STRIDE.md) alongside the
-  [protocol invariants](./architecture/INVARIANTS.md).
-
-The full verification surface is defined in
-[SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md#14-verification-surface).
-
-## Security
-
-Do not open public issues or pull requests for vulnerabilities. Report
-security issues to `security@xoxno.com`. Safe-harbor terms and scope are in
-[SECURITY.md](./SECURITY.md).
+Keeper and exporter are separate Cargo workspaces under `services/`.
 
 ## License
 
-This repository is licensed under
-[PolyForm Noncommercial 1.0.0](./LICENSE). Commercial use requires a written
-agreement with XOXNO.
+[PolyForm Noncommercial 1.0.0](./LICENSE). Commercial use needs a written agreement with XOXNO.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md). Protocol changes must preserve the
-invariants in [INVARIANTS.md](./architecture/INVARIANTS.md) and include
-relevant verification output.
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Protocol changes must keep [INVARIANTS.md](./architecture/INVARIANTS.md) and ship verification that matches the risk of the change.

@@ -1,8 +1,4 @@
-//! Read-only Soroban RPC client wrapper.
-//!
-//! Adapted from `services/keeper/src/stellar/client.rs`, trimmed to the
-//! read-only surface the exporter needs (no account-sequence or submit paths)
-//! and extended with a ledger close-time read.
+//! Read-only Soroban RPC client (no sequence/submit paths).
 
 use std::collections::{HashMap, HashSet};
 
@@ -27,7 +23,6 @@ impl RpcClient {
         &self.inner
     }
 
-    /// Latest ledger sequence.
     pub async fn latest_ledger(&self) -> Result<u32> {
         let resp = self
             .inner
@@ -37,10 +32,8 @@ impl RpcClient {
         Ok(resp.sequence)
     }
 
-    /// Latest ledger close time in Unix seconds — the off-chain equivalent of
-    /// `env.ledger().timestamp()`, used to age oracle prices. `getLatestLedger`
-    /// carries no close time, so this pages one ledger via `getLedgers` and
-    /// reads the response-level latest close time.
+    /// Latest close time (Unix s) — ages oracle prices. `getLatestLedger` has no
+    /// close time; pages one ledger via `getLedgers`.
     pub async fn latest_close_time(&self) -> Result<i64> {
         let sequence = self.latest_ledger().await?;
         let resp = self
@@ -51,8 +44,7 @@ impl RpcClient {
         Ok(resp.latest_ledger_close_time)
     }
 
-    /// Looks up ledger keys, preserving request order and deduping (the RPC
-    /// rejects duplicate keys).
+    /// Look up keys in request order; dedupes (RPC rejects duplicates).
     pub async fn get_ledger_entries(&self, keys: &[LedgerKey]) -> Result<Vec<LedgerEntryQuery>> {
         if keys.is_empty() {
             return Ok(Vec::new());
@@ -86,7 +78,7 @@ impl RpcClient {
     }
 }
 
-/// One requested ledger key and its value, or `None` when absent on-chain.
+
 #[derive(Debug, Clone)]
 pub struct LedgerEntryQuery {
     pub key: LedgerKey,

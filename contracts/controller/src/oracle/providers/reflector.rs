@@ -20,7 +20,6 @@ use crate::oracle;
 use crate::oracle::observation::{reflector_observation_from_price_data, OracleObservation};
 use crate::storage;
 
-/// Reads a Reflector spot or TWAP observation and reprices it to USD.
 pub(crate) fn read_reflector_source(
     cache: &mut Cache,
     config: &ReflectorSourceConfig,
@@ -33,7 +32,6 @@ pub(crate) fn read_reflector_source(
     observation.map(|obs| reprice_to_usd(cache, &config.base, obs))
 }
 
-/// Converts a quoted-base observation into USD, bounding freshness by the staler leg.
 fn reprice_to_usd(
     cache: &mut Cache,
     base: &ReflectorBase,
@@ -49,9 +47,7 @@ fn reprice_to_usd(
                 .raw();
             OracleObservation {
                 price_wad: price_usd,
-                // The composite is only as fresh as its staler leg: bound the
-                // token timestamp by the quote's so stale-tolerating policies
-                // see the quote's age too.
+                // Freshness is the staler of token and quote legs.
                 observed_at: obs.observed_at.min(quote_feed.timestamp),
                 published_at: obs.published_at,
             }
@@ -62,16 +58,13 @@ fn reprice_to_usd(
 /// Resolves the USD price of a quote asset for repricing.
 fn resolve_usd_quote(cache: &mut Cache, quote: &Address) -> PriceFeedRaw {
     let env = cache.env().clone();
-    // The quote must be active: a token-rooted `AssetOracle` entry must exist.
-    // Validate against the base config, not the per-spoke override.
+    // Quote needs a token-rooted `AssetOracle` (base config, not spoke override).
     let Some(oracle_config) = storage::get_asset_oracle(&env, quote) else {
         panic_with_error!(&env, OracleError::InvalidOracleBase)
     };
     match &oracle_config.primary {
-        // RedStone-shaped feeds (RedStone, Xoxno) are USD-denominated by construction.
         OracleSourceConfig::RedStone(_) | OracleSourceConfig::Xoxno(_) => {}
-        // A Reflector quote source must itself be USD-based (no chaining).
-        // Use the base cached at config time; do not call live `base()`.
+        // Reflector quote primary must be USD (no chaining).
         OracleSourceConfig::Reflector(r) => match &r.base {
             ReflectorBase::Usd => {}
             _ => panic_with_error!(&env, OracleError::InvalidOracleBase),
@@ -91,9 +84,7 @@ fn read_spot(env: &Env, config: &ReflectorSourceConfig) -> Option<OracleObservat
     ))
 }
 
-/// TWAP read via Reflector price history, averaged over the returned samples.
-/// Reverts when history is missing, insufficient, stale, or contains a
-/// non-positive price; there is no spot fallback.
+/// TWAP over returned samples; reverts if history is missing/stale/invalid (no spot fallback).
 fn read_twap(
     cache: &Cache,
     config: &ReflectorSourceConfig,
@@ -133,9 +124,7 @@ fn read_twap(
         panic_with_error!(env, OracleError::PriceFeedStale);
     }
 
-    // Average over returned samples, not the requested count. Shared with the
-    // governance propose-time probe so both price the same TWAP; also rejects a
-    // non-positive sample (`InvalidPrice`) and sum overflow (`MathOverflow`).
+    // Mean over returned samples (not requested count); shared with governance probe.
     let raw_price = twap_mean_price(env, &history);
     OracleObservation {
         price_wad: normalize_positive_price(env, raw_price, config.decimals),

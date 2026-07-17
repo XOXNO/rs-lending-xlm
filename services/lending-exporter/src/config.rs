@@ -1,8 +1,6 @@
-//! Typed YAML configuration for the lending exporter.
+//! YAML config for the lending exporter (one file per network).
 //!
-//! One file per network. Addresses mirror `configs/networks.json` (the deploy
-//! artifact). The exporter only reads on-chain state, so there is no signer,
-//! key-vault, or fee configuration here.
+//! Addresses mirror `configs/networks.json`. Read-only: no signer/fees.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -13,27 +11,24 @@ use serde::Deserialize;
 
 use crate::keys::contract_id_from_strkey;
 
-/// Minimum scrape interval; tighter than this hammers the RPC for no dashboard
-/// benefit at a 15s Prometheus scrape.
+/// Floor on scrape interval (tighter only burns RPC).
 const MIN_SCRAPE_INTERVAL_SECONDS: u64 = 5;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExporterConfig {
-    /// Informational network tag, surfaced as the `network` metric label.
+    /// `network` metric label.
     pub network: String,
     pub rpc: RpcConfig,
     pub contracts: ContractsConfig,
     #[serde(default)]
     pub markets: Vec<MarketConfig>,
-    /// Spoke ids to scan for per-spoke flags/caps/usage.
+    /// Spoke ids to scrape for flags/caps/usage.
     #[serde(default)]
     pub spokes: Vec<u32>,
-    /// Optional display names for hubs (`hub_id` -> name), surfaced as the `hub`
-    /// metric label. Missing ids fall back to `Hub {id}`.
+    /// Optional hub display names (`hub` label); missing → `Hub {id}`.
     #[serde(default)]
     pub hubs: BTreeMap<u32, String>,
-    /// Optional display names for spokes (`spoke_id` -> name), surfaced as the
-    /// `spoke` metric label. Missing ids fall back to `Spoke {id}`.
+    /// Optional spoke display names (`spoke` label); missing → `Spoke {id}`.
     #[serde(default)]
     pub spoke_names: BTreeMap<u32, String>,
     #[serde(default = "default_scrape_interval")]
@@ -53,10 +48,9 @@ pub struct RpcConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ContractsConfig {
-    /// Multi-hub lending controller (`C...`).
+    /// Lending controller (`C...`).
     pub controller: String,
-    /// Self-hosted price oracle adapter (`C...`); optional — only required for
-    /// staleness reads against Xoxno/RedStone-sourced assets.
+    /// Oracle adapter (`C...`); needed for Xoxno/RedStone staleness reads.
     #[serde(default)]
     pub xoxno_oracle_adapter: Option<String>,
 }
@@ -64,9 +58,9 @@ pub struct ContractsConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct MarketConfig {
     pub hub_id: u32,
-    /// Asset SAC contract id (`C...`).
+    /// Asset SAC (`C...`).
     pub asset: String,
-    /// Human label used as the `symbol` metric label (e.g. `USDC`).
+    /// `symbol` metric label (e.g. `USDC`).
     pub symbol: String,
 }
 
@@ -106,7 +100,6 @@ fn default_log_format() -> String {
 }
 
 impl ExporterConfig {
-    /// Loads and validates a config file.
     pub fn load(path: &Path) -> Result<Self> {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("read config {}", path.display()))?;
@@ -116,7 +109,6 @@ impl ExporterConfig {
         Ok(cfg)
     }
 
-    /// Display name for a hub, falling back to `Hub {id}`.
     pub fn hub_name(&self, hub_id: u32) -> String {
         self.hubs
             .get(&hub_id)
@@ -124,7 +116,6 @@ impl ExporterConfig {
             .unwrap_or_else(|| format!("Hub {hub_id}"))
     }
 
-    /// Display name for a spoke, falling back to `Spoke {id}`.
     pub fn spoke_name(&self, spoke_id: u32) -> String {
         self.spoke_names
             .get(&spoke_id)
@@ -139,7 +130,7 @@ impl ExporterConfig {
         if self.rpc.passphrase.trim().is_empty() {
             bail!("rpc.passphrase is empty");
         }
-        // Parsing the ids here surfaces a bad `C...` at boot rather than mid-scrape.
+        // Fail bad `C...` at boot, not mid-scrape.
         contract_id_from_strkey(&self.contracts.controller)
             .context("contracts.controller is not a valid C... address")?;
         if let Some(adapter) = &self.contracts.xoxno_oracle_adapter {
@@ -165,7 +156,6 @@ impl ExporterConfig {
         Ok(())
     }
 
-    /// Parses contract addresses into raw 32-byte ids once, after validation.
     pub fn resolve(&self) -> Result<ResolvedContracts> {
         let controller = contract_id_from_strkey(&self.contracts.controller)?;
         let oracle_adapter = match &self.contracts.xoxno_oracle_adapter {
@@ -192,7 +182,6 @@ impl ExporterConfig {
     }
 }
 
-/// Parsed contract ids ready for RPC calls.
 #[derive(Debug, Clone)]
 pub struct ResolvedContracts {
     pub controller: [u8; 32],

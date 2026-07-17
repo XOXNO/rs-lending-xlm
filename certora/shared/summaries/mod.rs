@@ -29,8 +29,7 @@ pub fn token_price_summary(cache: &mut Cache, _asset: &Address) -> PriceFeedRaw 
     }
 }
 
-/// Pool market index for one asset: indexes >= production floors. Models the
-/// pool's `bulk_get_indexes` accrual that the controller caches.
+/// Pool market index: indexes >= production floors (models `bulk_get_indexes`).
 pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
     let supply_index: i128 = nondet();
     let borrow_index: i128 = nondet();
@@ -42,9 +41,8 @@ pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
     }
 }
 
-/// Account risk totals: non-negative aggregates, LTV- and threshold-weighted
-/// collateral bounded by neutral collateral, health factor derived from the
-/// abstracted weighted collateral and debt so the gate relation is preserved.
+/// Account risk totals: non-neg aggregates; weighted/LTV coll <= neutral coll;
+/// HF from abstracted weighted coll and debt (gate relation preserved).
 pub(crate) fn calculate_account_risk_totals_summary(
     env: &Env,
     _cache: &mut Cache,

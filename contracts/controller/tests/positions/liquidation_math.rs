@@ -392,11 +392,7 @@ fn bonus_factor_scales_increment() {
     assert_eq!(inc_scaled, inc_default * 2);
 }
 
-// A bonus factor above BPS (100%) can push the realized bonus past `max` —
-// this is why `common::validation::validate_liquidation_curve` (enforced by
-// the `set_spoke_liquidation_curve` governance op) caps the configurable
-// factor at BPS. At the cap itself, the realized bonus never exceeds `max`,
-// for any severity between the curve's target and its max-bonus floor.
+// Factor above BPS can push realized bonus past `max` (governance caps at BPS).
 #[test]
 fn bonus_factor_above_bps_can_exceed_max_uncapped() {
     let env = Env::default();
@@ -420,9 +416,7 @@ fn bonus_factor_above_bps_can_exceed_max_uncapped() {
     );
 }
 
-// At the enforced ceiling (bonus_factor_bps == BPS, i.e. the default and the
-// max the governance op now allows), the realized bonus never exceeds `max`
-// across the full HF range from target down to hf_for_max_bonus.
+// At factor == BPS, realized bonus never exceeds `max` across the HF range.
 #[test]
 fn bonus_factor_at_bps_ceiling_never_exceeds_max() {
     let env = Env::default();
@@ -1211,9 +1205,7 @@ fn account_bonus_params_accumulates_collateral_and_weights_bonus() {
     });
 }
 
-// ---------------------------------------------------------------------------
 // Bonus + seizure invariants
-// ---------------------------------------------------------------------------
 
 // The bonus is monotone in health factor: a lower HF never yields a smaller
 // bonus.

@@ -14,9 +14,6 @@ use crate::core::LendingTest;
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
 
 impl LendingTest {
-    /// Creates a new hub through governance and returns its id. Hub ids start at
-    /// 1; the base setup already owns the harness hub, so the first extra hub
-    /// created here is 2.
     pub fn create_hub(&self) -> u32 {
         let id_val = self
             .gov_client()
@@ -34,7 +31,6 @@ impl LendingTest {
         let pool = market.pool.clone();
         let decimals = market.decimals;
 
-        // Reuse the base hub's params/config so the new hub market is valid.
         let params: MarketParamsRaw = self.env.as_contract(&pool, || {
             self.env
                 .storage()
@@ -42,8 +38,6 @@ impl LendingTest {
                 .get(&PoolKey::Params(hub_asset(asset.clone())))
                 .expect("base hub params must exist")
         });
-        // The base-hub market's risk listing on the base harness spoke; reused so
-        // the new hub's market lists with identical risk params.
         let base_cfg: SpokeAssetConfig = self
             .ctrl_client()
             .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
@@ -60,7 +54,6 @@ impl LendingTest {
         );
         self.list_hub_asset_on_base_spoke(hub_id, &asset, &base_cfg, base_cfg.liquidation_fees);
 
-        // Seed cash directly, mirroring the builder's base hub liquidity seed.
         let liquidity = f64_to_i128(initial_liquidity, decimals);
         token::StellarAssetClient::new(&self.env, &asset).mint(&pool, &liquidity);
         self.env.as_contract(&pool, || {
@@ -116,8 +109,6 @@ impl LendingTest {
                 params,
             }),
         );
-        // Override the base spoke's protocol fee for this hub's listing to prove
-        // seizure resolves the fee from the position's own hub/spoke.
         self.list_hub_asset_on_base_spoke(hub_id, &asset, &base_cfg, liquidation_fees);
 
         let liquidity = f64_to_i128(initial_liquidity, decimals);
@@ -138,8 +129,6 @@ impl LendingTest {
         });
     }
 
-    /// Supplies `amount` of `asset_name` on `hub_id`. Mints to the user, creates
-    /// the account on first call, registers it, and returns the account id.
     pub fn supply_on_hub(&mut self, hub_id: u32, user: &str, asset_name: &str, amount: f64) -> u64 {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
@@ -201,7 +190,6 @@ impl LendingTest {
         );
     }
 
-    /// Borrows `amount` of `asset_name` on `hub_id` for `account_id`.
     pub fn borrow_on_hub(
         &mut self,
         hub_id: u32,
@@ -271,8 +259,6 @@ impl LendingTest {
         }
     }
 
-    /// Accrues a single hub market's indexes by calling the pool's hub-aware
-    /// `update_indexes` directly, bypassing the controller keeper verb.
     pub fn accrue_on_hub(&self, hub_id: u32, asset_name: &str) {
         let market = self.resolve_market(asset_name);
         let pool = market.pool.clone();
@@ -283,8 +269,6 @@ impl LendingTest {
         pool::LiquidityPoolClient::new(&self.env, &pool).update_indexes(&hub_asset);
     }
 
-    /// Accrues each `(hub_id, asset)` market's indexes through the controller's
-    /// hub-aware `update_indexes` keeper verb (the production keeper path).
     pub fn update_indexes_on_hub(&self, hub_id: u32, asset_names: &[&str]) {
         let mut hub_assets = Vec::new(&self.env);
         for name in asset_names {
@@ -296,8 +280,6 @@ impl LendingTest {
         self.ctrl_client().update_indexes(&self.keeper, &hub_assets);
     }
 
-    /// Claims protocol revenue for a single `(hub_id, asset)` market through the
-    /// controller's hub-aware `claim_revenue` verb; returns the claimed amount.
     pub fn claim_revenue_on_hub(&self, hub_id: u32, asset_name: &str) -> i128 {
         let hub_asset = HubAssetKey {
             hub_id,
@@ -310,7 +292,6 @@ impl LendingTest {
             .unwrap()
     }
 
-    /// Reads the raw pool `State` for `(hub_id, asset_name)`.
     pub fn pool_state_on_hub(&self, hub_id: u32, asset_name: &str) -> PoolStateRaw {
         let market = self.resolve_market(asset_name);
         let asset = market.asset.clone();

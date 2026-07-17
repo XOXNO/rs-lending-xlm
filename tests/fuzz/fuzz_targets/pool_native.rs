@@ -258,7 +258,6 @@ fuzz_target!(|i: In| {
 
     let params = make_params(&env, &asset, &i);
 
-    // Register the pool natively at a fresh address; `__constructor` sets the owner.
     let pool_addr = env.register(LiquidityPool, (admin,));
     let pool = LiquidityPoolClient::new(&env, &pool_addr);
     pool.create_market(&1, &params);
@@ -303,7 +302,6 @@ fuzz_target!(|i: In| {
         let before = pool_state(&pool, &market);
         match op_kind % 11 {
             0 => {
-                // Direct supply: pre-fund the pool as the controller would.
                 let amount = amount_from_raw(*price_raw, 1_000_000, 10_000_000_000);
                 mint_to_pool(&env, &asset, &pool_addr, amount);
                 let result = flatten_contract_result(pool.try_supply(&soroban_sdk::vec![

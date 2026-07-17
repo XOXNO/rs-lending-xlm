@@ -3,8 +3,6 @@ use test_harness::{
     eth_preset, hub_asset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest,
     ALICE, STABLECOIN_SPOKE,
 };
-// 1. test_total_collateral_usd_multi_asset
-
 #[test]
 fn test_total_collateral_usd_multi_asset() {
     let mut t = LendingTest::new()
@@ -24,8 +22,6 @@ fn test_total_collateral_usd_multi_asset() {
         total
     );
 }
-// 2. test_total_borrow_usd_multi_asset
-
 #[test]
 fn test_total_borrow_usd_multi_asset() {
     let mut t = LendingTest::new()
@@ -49,8 +45,6 @@ fn test_total_borrow_usd_multi_asset() {
         total
     );
 }
-// 3. test_collateral_amount_for_missing_token
-
 #[test]
 fn test_collateral_amount_for_missing_token() {
     let mut t = LendingTest::new()
@@ -65,8 +59,6 @@ fn test_collateral_amount_for_missing_token() {
     let eth_balance = t.supply_balance_raw(ALICE, "ETH");
     assert_eq!(eth_balance, 0, "missing supply position should return 0");
 }
-// 4. test_borrow_amount_for_missing_token
-
 #[test]
 fn test_borrow_amount_for_missing_token() {
     let mut t = LendingTest::new()
@@ -82,8 +74,6 @@ fn test_borrow_amount_for_missing_token() {
     let usdc_borrow = t.borrow_balance_raw(ALICE, "USDC");
     assert_eq!(usdc_borrow, 0, "missing borrow position should return 0");
 }
-// 5. test_can_be_liquidated_returns_false_for_healthy
-
 #[test]
 fn test_can_be_liquidated_returns_false_for_healthy() {
     let mut t = LendingTest::new()
@@ -103,8 +93,6 @@ fn test_can_be_liquidated_returns_false_for_healthy() {
     );
     t.assert_healthy(ALICE);
 }
-// 6. test_can_be_liquidated_when_unhealthy
-
 #[test]
 fn test_can_be_liquidated_when_unhealthy() {
     let mut t = LendingTest::new()
@@ -127,8 +115,6 @@ fn test_can_be_liquidated_when_unhealthy() {
         "undercollateralized account should be liquidatable"
     );
 }
-// 7. test_get_all_markets_multiple
-
 #[test]
 fn test_get_all_markets_multiple() {
     let t = LendingTest::new()
@@ -154,8 +140,6 @@ fn test_get_all_markets_multiple() {
         markets.len()
     );
 }
-// 8. test_get_all_markets_single
-
 #[test]
 fn test_get_all_markets_single() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -214,8 +198,6 @@ fn test_account_exists_view() {
     );
 }
 
-// 9. test_get_account_owner_correct
-
 #[test]
 fn test_get_account_owner_correct() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -230,8 +212,6 @@ fn test_get_account_owner_correct() {
         "account owner should match Alice's address"
     );
 }
-// 10. test_get_spoke_category_view
-
 #[test]
 fn test_get_spoke_category_view() {
     let t = LendingTest::new()
@@ -254,8 +234,6 @@ fn test_get_spoke_category_view() {
     );
     assert_eq!(cfg.liquidation_bonus, 200, "spoke bonus should be 200");
 }
-// 11. test_get_position_limits_default
-
 #[test]
 fn test_get_position_limits_default() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -270,8 +248,6 @@ fn test_get_position_limits_default() {
         "default max borrow should be 10"
     );
 }
-// 13. test_get_position_limits_custom
-
 #[test]
 fn test_get_position_limits_custom() {
     let t = LendingTest::new()
@@ -289,8 +265,6 @@ fn test_get_position_limits_custom() {
         "custom max borrow should be 3"
     );
 }
-// 14. test_liquidation_estimations_basic
-
 #[test]
 fn test_liquidation_estimations_basic() {
     let mut t = LendingTest::new()
@@ -341,8 +315,6 @@ fn test_liquidation_estimations_basic() {
         "expected non-empty protocol fee estimate"
     );
 }
-// 15. test_get_market_index_view
-
 #[test]
 fn test_get_market_index_view() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -363,8 +335,6 @@ fn test_get_market_index_view() {
         "fresh borrow index should be 1.0 RAY"
     );
 }
-// 16. test_get_active_accounts_multiple
-
 #[test]
 fn test_get_active_accounts_multiple() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -383,8 +353,6 @@ fn test_get_active_accounts_multiple() {
         "should contain both account IDs"
     );
 }
-// 17. test_get_asset_config_view
-
 #[test]
 fn test_get_asset_config_view() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -402,8 +370,6 @@ fn test_get_asset_config_view() {
     );
     assert!(config.is_borrowable, "USDC should be borrowable");
 }
-// 18. test_pool_address_view
-
 #[test]
 fn test_pool_address_view() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -412,8 +378,6 @@ fn test_pool_address_view() {
     let expected = t.resolve_market("USDC").pool.clone();
     assert_eq!(pool_addr, expected, "pool address should match");
 }
-// 19. test_collateral_amount_for_token_happy
-
 #[test]
 fn test_collateral_amount_for_token_happy() {
     // `collateral_amount_for_token` happy path with a non-zero supply position.
@@ -439,8 +403,6 @@ fn test_collateral_amount_for_token_happy() {
         amount
     );
 }
-// 20. test_borrow_amount_for_token_happy
-
 #[test]
 fn test_borrow_amount_for_token_happy() {
     // `borrow_amount_for_token` happy path with an actual debt position.
@@ -467,8 +429,6 @@ fn test_borrow_amount_for_token_happy() {
         amount
     );
 }
-// 21. test_liquidation_collateral_available_happy
-
 #[test]
 fn test_liquidation_collateral_available_happy() {
     // `calculate_account_risk_totals` returns a non-zero weighted collateral total.
@@ -496,8 +456,6 @@ fn test_liquidation_collateral_available_happy() {
         weighted_usd
     );
 }
-// 22. test_ltv_collateral_in_usd_happy
-
 #[test]
 fn test_ltv_collateral_in_usd_happy() {
     // `ltv_collateral_in_usd` returns a non-zero LTV-weighted total.

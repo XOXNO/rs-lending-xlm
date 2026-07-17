@@ -7,8 +7,6 @@ use common::errors::GenericError;
 
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env, Symbol};
 
-// ################## STORAGE KEYS ##################
-
 #[contracttype]
 #[derive(Clone, Debug)]
 enum GovernanceKey {
@@ -20,8 +18,6 @@ enum GovernanceKey {
     /// Marks a scheduled operation id as a Recovery-tier council reset.
     RecoveryOp(BytesN<32>),
 }
-
-// ################## CHANGE STATE ##################
 
 pub(crate) fn renew_governance_instance(env: &Env) {
     env.storage()
@@ -48,7 +44,6 @@ pub(crate) fn mark_role_revocation_target(
         .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
-/// Marks `operation_id` as a scheduled Recovery-tier council reset.
 pub(crate) fn mark_recovery_op(env: &Env, operation_id: &BytesN<32>) {
     let key = GovernanceKey::RecoveryOp(operation_id.clone());
     env.storage().persistent().set(&key, &true);
@@ -57,14 +52,11 @@ pub(crate) fn mark_recovery_op(env: &Env, operation_id: &BytesN<32>) {
         .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
-/// Clears the Recovery-tier marker for `operation_id` once executed.
 pub(crate) fn clear_recovery_op(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()
         .remove(&GovernanceKey::RecoveryOp(operation_id.clone()));
 }
-
-// ################## QUERY STATE ##################
 
 pub(crate) fn role_revocation_target(
     env: &Env,
@@ -78,7 +70,6 @@ pub(crate) fn role_revocation_target(
     })
 }
 
-/// Returns whether `operation_id` is a marked Recovery-tier council reset.
 pub(crate) fn is_recovery_op(env: &Env, operation_id: &BytesN<32>) -> bool {
     env.storage()
         .persistent()
@@ -103,4 +94,3 @@ pub(crate) fn set_controller(env: &Env, addr: &Address) {
         .set(&GovernanceKey::Controller, addr);
 }
 
-// ################## LOW-LEVEL HELPERS ##################

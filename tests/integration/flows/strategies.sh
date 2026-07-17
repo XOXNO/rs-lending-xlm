@@ -50,7 +50,6 @@ flow_flash_loans() {
 # rate ≈ $0.134): HF math uses ORACLE prices while swap legs fill at DEX rates.
 flow_strategies() {
     phase strategies
-    # multiply LONG: flash USDC debt, swap to XLM collateral; alice fronts XLM.
     local flash_usdc=300000000   # 30 USDC
     local swap_hex
     swap_hex=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$flash_usdc") || return 1
@@ -73,10 +72,8 @@ flow_strategies() {
         --caller "$ALICE_ADDR" --account_id "$macct" \
         --existing_debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount "$new_xlm_debt" \
         --new_debt "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --swap "$swap_hex" >/dev/null
-    # The migration created XLM debt (the new debt token) on the account.
     assert_borrow_at_least xlm_debt_post_swap "$macct" "$XLM_SAC" 500000000
 
-    # swap_collateral: move 200 XLM of collateral into USDC.
     leg_swap_collateral() {
         local hex
         hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 2000000000) || return 1
@@ -133,13 +130,7 @@ flow_strategies() {
     # Full close empties + deregisters the account.
     assert_bool_view rdwc_closed false account_exists --account_id "$rdwc_acct"
 
-    # multiply SHORT: flash 200 XLM debt, swap into USDC collateral + 60 USDC
-    # initial payment. The swap is healthy (1-hop, sub-1% impact); the chronic
-    # failure here was Error(Contract,#100): HF is computed on the ORACLE XLM
-    # price (Reflector ~$0.19, volatile) while the position is collateralized by
-    # the DEX-rate USDC fill, so at 300 XLM / 45 USDC the post-state LTV sat right
-    # on the edge and rose above it whenever the XLM oracle ticked up. Smaller
-    # debt + a larger USDC buffer keep post-state LTV ~1.3x even at XLM ~$0.25.
+    # multiply SHORT: size so post-HF holds when oracle XLM > DEX fill (~$0.19 vs ~$0.13).
     local flash_xlm=2000000000 sacct=""
     leg_multiply_short() {
         local hex

@@ -1,7 +1,6 @@
 use super::{enable_dual_source, setup};
 use test_harness::{assert_contract_error, errors, usd, usd_cents, ALICE};
 
-// 5. Edge cases
 
 #[test]
 fn test_tolerance_at_exact_first_boundary() {

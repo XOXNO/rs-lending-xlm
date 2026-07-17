@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Convert Scout JSON reports into a single SARIF 2.1.0 file for the IDE.
+"""Convert Scout JSON reports to one SARIF 2.1.0 file for the IDE.
 
-cargo-scout-audit's native `--output-format sarif` is broken in the pinned
-version (writes a 0-byte file), so scout-local.sh emits JSON and this script
-converts it. Output is consumed by the VS Code "SARIF Viewer" extension
-(ms-sarifvscode.sarif-viewer): inline squiggles + a navigable Results panel.
+Native scout --output-format sarif is broken in the pinned rev (0-byte file);
+scout-local.sh emits JSON and this converts it for SARIF Viewer
+(ms-sarifvscode.sarif-viewer).
 
 Usage:
     scout-sarif.py --root <repo_root> <report.json> [<report.json> ...] > out.sarif
@@ -17,7 +16,7 @@ import os
 import re
 import sys
 
-# Scout severity (parsed from the "[SEVERITY] msg" prefix) -> SARIF level.
+# Scout "[SEVERITY] msg" prefix → SARIF level.
 LEVEL = {
     "CRITICAL": "error",
     "MEDIUM": "warning",
@@ -28,7 +27,7 @@ _PREFIX = re.compile(r"^\s*\[([A-Z]+)\]\s*(.*)$", re.S)
 
 
 def parse_point(token):
-    """`file.rs:LINE:COL` or `LINE:COL` -> (line, col), 1-based; None on failure."""
+    """`file.rs:LINE:COL` or `LINE:COL` → (line, col), 1-based; None on failure."""
     parts = token.strip().split(":")
     if len(parts) < 2:
         return None
@@ -39,7 +38,7 @@ def parse_point(token):
 
 
 def region_from_span(span):
-    """`a.rs:35:5 - 37:54` -> SARIF region dict, or None."""
+    """`a.rs:35:5 - 37:54` → SARIF region dict, or None."""
     if not span or " - " not in span:
         return None
     left, right = span.split(" - ", 1)

@@ -1,7 +1,7 @@
 use super::{enable_dual_source, setup};
 use test_harness::{assert_contract_error, errors, usd, usd_cents, ALICE, LIQUIDATOR};
 
-// 1. Price within first tolerance: all operations succeed
+// Price within first tolerance: all operations succeed.
 
 #[test]
 fn test_safe_price_allows_all_operations() {
@@ -30,7 +30,7 @@ fn test_safe_price_allows_all_operations() {
     t.assert_supply_near(ALICE, "USDC", 99_000.0, 1.0);
     t.assert_healthy(ALICE);
 }
-// 2. Price within second tolerance: operations still succeed
+// Price within second tolerance: operations still succeed.
 
 #[test]
 fn test_second_tolerance_allows_risk_decreasing() {
@@ -81,7 +81,7 @@ fn test_second_tolerance_allows_borrow() {
         eth_wallet
     );
 }
-// 3. Price beyond second tolerance: risk-increasing ops blocked
+// Price beyond second tolerance: risk-increasing ops blocked.
 
 #[test]
 fn test_unsafe_price_allows_supply() {

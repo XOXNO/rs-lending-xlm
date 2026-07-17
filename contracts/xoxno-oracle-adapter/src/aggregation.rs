@@ -23,9 +23,6 @@ pub(crate) const MAX_HISTORY_LEN: u32 = MAX_TWAP_RECORDS;
 /// median's `a + (b - a) / 2` can never overflow.
 pub(crate) const MAX_SUBMITTED_PRICE: i128 = 1_000_000_000_000_000_000_000_000;
 
-/// Rejects a `package_timestamp` (milliseconds) more than
-/// `MAX_FUTURE_SKEW_SECONDS` ahead of the ledger clock, so a signer clock/unit
-/// bug can't cache a far-future timestamp that reverts every downstream read.
 pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     let ts_secs = package_timestamp / MS_PER_SECOND;
     let max_future = env
@@ -38,9 +35,6 @@ pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<()
     Ok(())
 }
 
-/// Rejects a `package_timestamp` (milliseconds) already older than the
-/// `MaxSubmissionAgeSeconds` inclusion window: surfaces a units bug as an
-/// explicit error and blocks backdated submissions.
 pub(crate) fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     let ts_secs = package_timestamp / MS_PER_SECOND;
     let now = env.ledger().timestamp();
@@ -68,13 +62,8 @@ pub(crate) fn store_submission(
     renew_persistent_key(env, &key);
 }
 
-/// Recomputes and caches the aggregate for `feed_id` from every registered
-/// signer's latest submission. Submissions older than the
-/// `MaxSubmissionAgeSeconds` window are excluded from both the median and the
-/// reported observation time, so a lagging/offline signer can neither skew
-/// the price nor pin the feed's freshness. Below `Threshold` fresh
-/// submissions, the cached aggregate and history are removed (fail-safe:
-/// reads return `NoDataForFeed`/`None`); raw submissions stay in place.
+// Lagging signer excluded from median + observation time. Below threshold:
+// clear aggregate and history (raw submissions stay).
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let signers = load_signers(env);
     let max_submission_age = load_max_submission_age(env);

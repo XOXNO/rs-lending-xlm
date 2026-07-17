@@ -231,9 +231,7 @@ impl LendingTestBuilder {
         let mock_reflector_client =
             crate::mock_reflector::MockReflectorClient::new(&env, &mock_reflector_address);
 
-        // There is no hub 0: a fresh controller has zero hubs. Create the base
-        // harness hub (returns id 1) before listing any market so every
-        // `hub_asset(..)` coordinate resolves to a real, registered hub.
+        // Create base hub (id 1) before listing markets.
         let base_hub_val = gov.execute_immediate(&admin, &AdminOperation::CreateHub);
         let base_hub: u32 = u32::try_from_val(&env, &base_hub_val).unwrap();
         assert_eq!(
@@ -241,10 +239,7 @@ impl LendingTestBuilder {
             "the base setup hub must be the harness hub id"
         );
 
-        // There is no spoke 0: a fresh controller has zero spokes. Create the
-        // base harness spoke (returns id 1) before listing any market risk so
-        // every regular account binds to a real spoke. Spoke tests create extra
-        // spokes (ids 2+) on top of this one.
+        // Create base spoke (id 1) before listing market risk.
         let base_spoke_val = gov.execute_immediate(&admin, &AdminOperation::AddSpoke);
         let base_spoke: u32 = u32::try_from_val(&env, &base_spoke_val).unwrap();
         assert_eq!(
@@ -288,9 +283,7 @@ impl LendingTestBuilder {
                 "create_liquidity_pool must return the global pool address"
             );
 
-            // Market creation no longer carries risk config; list the asset on the
-            // base harness spoke with the preset's regular risk params. The pool
-            // already exists (required by `add_asset_to_spoke`).
+            // List risk on base spoke after pool exists (required by `add_asset_to_spoke`).
             gov.execute_immediate(
                 &admin,
                 &AdminOperation::AddAssetToSpoke(pm.config.to_spoke_args(

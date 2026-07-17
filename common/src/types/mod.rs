@@ -1,5 +1,4 @@
-//! Domain types shared across contracts: ABI-raw encodings (`*Raw`) paired with
-//! their typed cores, re-exported flat for `crate::types::*` access.
+//! Domain types: ABI-raw (`*Raw`) and typed cores, re-exported flat.
 
 pub mod aggregator;
 pub mod controller;

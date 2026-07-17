@@ -26,8 +26,6 @@ use soroban_sdk::{contract, contracterror, contractimpl, Address, BytesN, Env, V
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
 
-// ################## ERRORS ##################
-
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]

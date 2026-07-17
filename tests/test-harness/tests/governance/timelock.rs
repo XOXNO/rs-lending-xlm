@@ -119,9 +119,7 @@ fn operation_state_transitions_unset_waiting_ready_done() {
     assert_eq!(stored.max_borrow_positions, 7);
 }
 
-// A cancelled op returns to `Unset` and can no longer be executed: even after the
-// delay elapses, `execute` reverts because the operation is not `Ready`
-// (OZ `InvalidOperationState` #4002).
+// Cancelled op returns to `Unset`; execute reverts even after delay (#4002).
 #[test]
 fn cancelled_operation_cannot_execute() {
     let t = LendingTest::new().build();

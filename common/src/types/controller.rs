@@ -1,5 +1,4 @@
-//! Controller-facing domain types: per-spoke asset-risk projections, account and
-//! position encodings, and their ABI-raw counterparts.
+//! Controller domain types: spoke risk projections, accounts, positions.
 
 use crate::math::fp::{Bps, Ray};
 use crate::types::oracle::{MarketOracleConfigOption, PriceFeedRaw};
@@ -9,12 +8,7 @@ use crate::types::pool::{
 use crate::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
-/// Typed asset risk and collateral/borrow flags, projected from the per-spoke
-/// [`SpokeAssetConfig`] that lists the asset on the account's spoke. Supply
-/// and borrow caps live on [`SpokeAssetConfig`] as the only cap layer;
-/// flash-loan parameters live on the pool
-/// [`crate::types::pool::MarketParamsRaw`]; the SAC decimal count is sourced
-/// from the pool/oracle where a conversion needs it.
+/// Spoke-projected risk flags. Caps on [`SpokeAssetConfig`]; flash fee on pool params.
 #[derive(Clone, Debug)]
 pub struct AssetConfig {
     pub loan_to_value: Bps,
@@ -63,27 +57,21 @@ pub struct AccountMeta {
     pub mode: PositionMode,
 }
 
-/// Isolated-liquidity hub registry entry, created on demand by `create_hub`
-/// (ids from 1 up). Gates the `(hub, asset)` markets and positions keyed under it.
+/// Hub registry entry (ids from 1). Gates `(hub, asset)` markets.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct HubConfig {
     pub is_active: bool,
 }
 
-/// Governance registry entry for a position manager. A manager only gains
-/// owner-gated access to an account while `is_active` holds and the account
-/// owner has listed it among the account's delegates.
+/// Position manager: active + listed on the account's delegates.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PositionManagerConfig {
     pub is_active: bool,
 }
 
-/// Persistent spoke definition. Spoke assets and per-asset usage totals live in
-/// discrete storage keys; this record tracks deprecation and the spoke's
-/// liquidation-curve parameters (target HF, max-bonus HF threshold, bonus
-/// factor) applied when an account bound to this spoke is liquidated.
+/// Spoke record: deprecation flag + liquidation-curve params for bound accounts.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeConfig {
@@ -93,13 +81,8 @@ pub struct SpokeConfig {
     pub liquidation_bonus_factor_bps: u32,
 }
 
-/// Per-asset spoke configuration: collateral/borrow flags plus the risk
-/// parameters applied while the owning spoke is active. The risk-ratio fields
-/// are basis points. `paused` blocks every action (supply, borrow, withdraw,
-/// repay) on this spoke-asset; `frozen` blocks only new entries (supply/borrow)
-/// while still allowing exits (withdraw/repay). `liquidation_fees` is the
-/// protocol fee taken from seized collateral, and `oracle_override` supplies
-/// an optional per-spoke price source over the token-rooted base.
+/// Spoke listing: risk BPS, caps, pause/freeze, optional oracle override.
+/// `paused` blocks all user verbs; `frozen` blocks only new supply/borrow.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetConfig {
@@ -116,18 +99,7 @@ pub struct SpokeAssetConfig {
     pub oracle_override: MarketOracleConfigOption,
 }
 
-/// Input for `add_asset_to_spoke` / `edit_asset_in_spoke`: the target
-/// (`hub_id`, `asset`, `spoke_id`) plus the spoke risk parameters. Bundles what
-/// were positional entrypoint arguments so governance forwards one value.
-/// `liquidation_fees` is the protocol fee taken from seized collateral, and
-/// `oracle_override` optionally points the spoke-asset at a price source other
-/// than the asset's token-rooted base oracle (`MarketOracleConfigOption::None`
-/// keeps the base).
-///
-/// `paused`/`frozen` are per-listing incident flags; edits set them explicitly
-/// so parameter changes cannot silently clear an active pause. Flag changes use
-/// the same timelock as the edit; global controller pause remains the immediate
-/// incident brake.
+/// Args for add/edit spoke asset. Edits set pause/freeze explicitly (no silent clear).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetArgs {

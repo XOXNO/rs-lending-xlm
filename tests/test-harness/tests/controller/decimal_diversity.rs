@@ -58,7 +58,6 @@ fn xlm_7dec() -> MarketPreset {
         params: DEFAULT_MARKET_PARAMS,
     }
 }
-// 1. Supply 6-decimal token, borrow 18-decimal token
 
 #[test]
 fn test_supply_6dec_borrow_18dec() {
@@ -84,7 +83,6 @@ fn test_supply_6dec_borrow_18dec() {
         hf
     );
 }
-// 2. Supply 18-decimal token, borrow 6-decimal token
 
 #[test]
 fn test_supply_18dec_borrow_6dec() {
@@ -98,7 +96,6 @@ fn test_supply_18dec_borrow_6dec() {
     t.assert_borrow_near(ALICE, "USDC6", 5_000.0, 0.01);
     t.assert_healthy(ALICE);
 }
-// 3. Supply 9-decimal token, borrow 8-decimal token
 
 #[test]
 fn test_supply_9dec_borrow_8dec() {
@@ -116,7 +113,6 @@ fn test_supply_9dec_borrow_8dec() {
     t.assert_borrow_near(ALICE, "WBTC8", 0.1, 0.0001);
     t.assert_healthy(ALICE);
 }
-// 4. Four decimal types (6/8/9/18) in one account
 
 #[test]
 fn test_mixed_decimal_types_single_account() {
@@ -157,7 +153,6 @@ fn test_mixed_decimal_types_single_account() {
         total_debt
     );
 }
-// 5. Tiny amounts with 18-decimal token (dust/underflow test)
 
 #[test]
 fn test_tiny_amounts_18dec() {
@@ -177,7 +172,6 @@ fn test_tiny_amounts_18dec() {
         supply
     );
 }
-// 6. Large amounts with 6-decimal token (overflow test)
 
 #[test]
 fn test_large_amounts_6dec() {
@@ -195,7 +189,6 @@ fn test_large_amounts_6dec() {
     t.assert_borrow_near(ALICE, "DAI18", 200_000.0, 1.0);
     t.assert_healthy(ALICE);
 }
-// 7. Interest accrual preserves precision across decimals
 
 #[test]
 fn test_interest_accrual_mixed_decimals() {
@@ -232,7 +225,6 @@ fn test_interest_accrual_mixed_decimals() {
 
     t.assert_healthy(ALICE);
 }
-// 8. Repay with different decimal precision
 
 #[test]
 fn test_repay_cross_decimal() {
@@ -258,7 +250,6 @@ fn test_repay_cross_decimal() {
         remaining
     );
 }
-// 9. Withdraw cross-decimal with HF check
 
 #[test]
 fn test_withdraw_cross_decimal_hf_check() {
@@ -276,7 +267,6 @@ fn test_withdraw_cross_decimal_hf_check() {
     t.assert_healthy(ALICE);
     t.assert_supply_near(ALICE, "USDC6", 7_000.0, 1.0);
 }
-// 10. Liquidation across decimal boundaries (6-dec collateral, 18-dec debt)
 
 #[test]
 fn test_liquidation_6dec_collateral_18dec_debt() {
@@ -285,7 +275,6 @@ fn test_liquidation_6dec_collateral_18dec_debt() {
         .with_market(dai_18dec())
         .build();
 
-    // Alice supplies $10,000 USDC and borrows $7,500 DAI (tight HF).
     t.supply(ALICE, "USDC6", 10_000.0);
     t.borrow(ALICE, "DAI18", 7_500.0);
 
@@ -311,7 +300,6 @@ fn test_liquidation_6dec_collateral_18dec_debt() {
         debt_after
     );
 }
-// 11. Liquidation with 18-dec collateral, 6-dec debt
 
 #[test]
 fn test_liquidation_18dec_collateral_6dec_debt() {
@@ -320,7 +308,6 @@ fn test_liquidation_18dec_collateral_6dec_debt() {
         .with_market(dai_18dec())
         .build();
 
-    // Alice supplies $10,000 DAI and borrows $7,500 USDC.
     t.supply(ALICE, "DAI18", 10_000.0);
     t.borrow(ALICE, "USDC6", 7_500.0);
 
@@ -336,7 +323,6 @@ fn test_liquidation_18dec_collateral_6dec_debt() {
     let debt_after = t.borrow_balance(ALICE, "USDC6");
     assert!(debt_after < 7_500.0, "Debt reduced, got {}", debt_after);
 }
-// 12. Multi-user mixed decimals -- no cross-contamination
 
 #[test]
 fn test_multi_user_mixed_decimals() {
@@ -346,11 +332,9 @@ fn test_multi_user_mixed_decimals() {
         .with_market(sol_9dec())
         .build();
 
-    // Alice supplies USDC6 and borrows DAI18.
     t.supply(ALICE, "USDC6", 10_000.0);
     t.borrow(ALICE, "DAI18", 5_000.0);
 
-    // Bob supplies SOL9 and borrows USDC6.
     t.supply(BOB, "SOL9", 100.0); // $15,000.
     t.borrow(BOB, "USDC6", 5_000.0);
 
@@ -362,7 +346,6 @@ fn test_multi_user_mixed_decimals() {
     t.assert_supply_near(ALICE, "USDC6", 10_000.0, 1.0);
     t.assert_supply_near(BOB, "SOL9", 100.0, 0.1);
 }
-// 13. 7-decimal low-value token (XLM at $0.10) -- many tokens, small USD value
 
 #[test]
 fn test_low_value_high_quantity_7dec() {
@@ -442,23 +425,8 @@ fn test_borrow_1_raw_unit_is_properly_recorded_on_7dec() {
 /// `calculate_scaled_borrow` uses. Confirms a 1-raw-unit borrow never scales to
 /// zero anywhere inside the protocol's own bounds.
 ///
-/// Also proves *why* `pool::accrue_borrow`'s `BorrowRoundsToZeroShares` guard
-/// exists: at 3x the ceiling — a value real accrual can never produce, since
-/// `update_borrow_index` clamps every compounding step back to
-/// `MAX_BORROW_INDEX_RAY` — the same 1-raw-unit borrow WOULD scale to zero.
-/// The guard is unreachable through any live entrypoint today (accrual always
-/// re-clamps before use), kept as defense-in-depth against a future bump to
-/// `MAX_BORROW_INDEX_RAY` or `MAX_ASSET_DECIMALS` that narrows this margin.
-///
-/// NOTE: an on-chain integration test pinning `borrow_index` via storage and
-/// calling `borrow()` directly was attempted here and dropped — a `raw=1`
-/// borrow on an 18-decimal asset hits an unrelated `MathOverflow` during
-/// post-borrow risk-gate pricing, reproducible independent of index/collateral
-/// (borrowing e.g. `1_000_000` raw units instead succeeds fine, as does
-/// `raw=1` on lower-decimal assets — see
-/// `test_borrow_1_raw_unit_is_properly_recorded_on_7dec` above). That is a
-/// separate, real bug worth its own investigation; this pure-math test avoids
-/// it entirely since it never touches the contract call stack.
+/// Within MAX_BORROW_INDEX_RAY, 1-raw-unit borrow never scales to zero (any decimals 6–18).
+/// Beyond the cap, scale hits zero — why BorrowRoundsToZeroShares exists as defense-in-depth.
 #[test]
 fn test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds() {
     let env = soroban_sdk::Env::default();
@@ -510,12 +478,7 @@ fn test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds() {
     );
 }
 
-// 12. Borrowing a single raw unit against large collateral must succeed and
-// leave the account healthy. SAC v2 always reports 7 decimals, so markets are
-// registered at 7 dec (governance requires params.asset_decimals == token).
-// At 7 dec, 1 raw unit is still dust relative to $10k collateral — HF is huge
-// and finite (i128::MAX saturation needs true 18-dec markets / custom tokens).
-
+// SAC v2 is 7-dec; 1 raw unit vs $10k coll is dust — HF huge/finite (true 18-dec needs custom tokens).
 #[test]
 fn test_borrow_1_raw_unit_18dec_saturates_hf() {
     let mut t = LendingTest::new()

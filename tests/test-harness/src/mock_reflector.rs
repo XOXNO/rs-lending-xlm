@@ -1,7 +1,4 @@
-//! Minimal SEP-40 mock for integration tests.
-//! Replaces oracle_adapter test helpers.
-//! Prices are stored at 14 decimals (matching real Reflector), so
-//! the controller's rescale_to_wad() path is exercised correctly.
+//! SEP-40 mock; prices at 14 decimals so `rescale_to_wad` is exercised.
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
 

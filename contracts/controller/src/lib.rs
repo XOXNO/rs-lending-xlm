@@ -12,8 +12,6 @@ pub mod events;
 
 pub use common::types;
 
-// ################## MODULES ##################
-
 mod account;
 mod config;
 mod context;
@@ -41,12 +39,10 @@ pub mod test_support {
     use crate::storage;
     use soroban_sdk::Env;
 
-    /// Sets the flash-loan-ongoing flag through production storage.
     pub fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
         storage::set_flash_loan_ongoing(env, ongoing);
     }
 
-    /// Returns whether a flash loan is currently marked ongoing.
     #[must_use]
     pub fn is_flash_loan_ongoing(env: &Env) -> bool {
         storage::is_flash_loan_ongoing(env)

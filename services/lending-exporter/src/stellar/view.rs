@@ -1,11 +1,7 @@
-//! Read-only contract view reads via `simulateTransaction`.
+//! Read-only contract views via `simulateTransaction`.
 //!
-//! The keeper builds and simulates the mutating `update_indexes` op but only
-//! inspects `sim.error`; it never decodes a view's return value. This assembles
-//! the same op/envelope/simulate pipeline and decodes `sim.results()[0].xdr`
-//! (the return `ScVal`) — the one primitive the exporter adds over the keeper.
-//! No signing or submission: the source is a throwaway all-zero account and the
-//! envelope is never sent.
+//! Builds op/envelope, simulates, decodes `sim.results()[0].xdr` as the return
+//! ScVal. No signing or submit — throwaway all-zero source account.
 
 use anyhow::{anyhow, Context};
 use stellar_xdr::curr::{
@@ -19,25 +15,19 @@ use thiserror::Error;
 
 use crate::stellar::client::RpcClient;
 
-/// A contract view read failure, split so the collector can bucket contract
-/// reverts (which carry an error code) apart from transport failures.
+/// View failure: contract revert (bucketable code) vs transport vs empty result.
 #[derive(Debug, Error)]
 pub enum ViewError {
-    /// The contract panicked during simulation (e.g. `OracleError::NoLastPrice`,
-    /// `PriceFeedStale`, `PoolNotInitialized`). The string is the RPC-reported
-    /// diagnostic, from which a code bucket can be parsed.
+    /// Contract panic during sim; string is RPC diagnostic for code bucketing.
     #[error("contract reverted: {0}")]
     Reverted(String),
-    /// RPC transport / connection failure.
     #[error("rpc error: {0}")]
     Rpc(#[from] anyhow::Error),
-    /// Simulation succeeded but returned no host-function result.
     #[error("simulation returned no result")]
     NoResult,
 }
 
-/// Simulates `contract.function(args)` read-only and returns the decoded return
-/// `ScVal`.
+/// Simulate `contract.function(args)` read-only → return ScVal.
 pub async fn simulate_view(
     client: &RpcClient,
     contract_id: &[u8; 32],
@@ -86,8 +76,7 @@ fn invoke_op(contract_id: &[u8; 32], function: &str, args: Vec<ScVal>) -> Result
     })
 }
 
-/// A single-op v1 envelope sourced from a throwaway all-zero account. Only ever
-/// simulated, never signed or submitted, so the account need not exist.
+/// Single-op envelope from all-zero source; simulated only, never submitted.
 fn read_only_envelope(op: Operation) -> Result<TransactionEnvelope, ViewError> {
     let ops: VecM<Operation, 100> = vec![op]
         .try_into()

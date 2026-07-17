@@ -329,7 +329,7 @@ fn test_rewards_after_interest_proportional() {
     // Let interest accrue for 90 days.
     t.advance_and_sync(days(90));
 
-    // Balances are no longer exactly 75k/25k due to interest.
+    // Interest moves balances off the exact 75k/25k split.
     let a_before_reward = t.supply_balance(ALICE, "USDC");
     let b_before_reward = t.supply_balance(BOB, "USDC");
 

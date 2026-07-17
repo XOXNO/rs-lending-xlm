@@ -30,12 +30,10 @@ pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) 
     let mut by_adapter: Map<Address, Vec<String>> = Map::new(&env);
 
     for asset in assets.iter() {
-        // Feed resolved this tx: nothing left to fetch for it.
         if cache.token_prices.contains_key(asset.clone()) {
             continue;
         }
-        // Pending/disabled assets have no `AssetOracle`; prefetch must not add a
-        // panic site, so skip them. Prefetch uses the token-rooted base config.
+        // Skip assets with no `AssetOracle` (pending/disabled) so prefetch never panics.
         let Some(oracle_config) = cache.cached_asset_oracle_opt(&asset) else {
             continue;
         };
@@ -52,8 +50,6 @@ pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) 
         let Some(data) = read_price_data_bulk(&env, &adapter, &feeds) else {
             continue;
         };
-        // Lengths are equal: read_price_data_bulk returns Some only when
-        // data.len() == feeds.len().
         for (i, feed_id) in feeds.iter().enumerate() {
             cache.set_redstone_prefetch(&adapter, &feed_id, data.get_unchecked(i as u32));
         }
@@ -61,7 +57,6 @@ pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) 
 }
 
 #[cfg(not(feature = "certora"))]
-/// Adds a source's RedStone feed to its adapter bucket, skipping feeds already prefetched or seen.
 fn collect_redstone_feed(
     cache: &Cache,
     env: &soroban_sdk::Env,

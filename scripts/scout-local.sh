@@ -1,33 +1,24 @@
 #!/usr/bin/env bash
-# Local Scout scan -> SARIF for the IDE.
+# Local Scout scan → SARIF for the IDE (SARIF Viewer: ms-sarifvscode.sarif-viewer).
 #
-# Install the "SARIF Viewer" extension (ms-sarifvscode.sarif-viewer); findings
-# then show inline in the editor plus a navigable Results panel.
-#
-# Same analysis as CI: detectors come from the pinned scout-audit rev referenced
-# in .github/workflows/scout.yml (cloned into a local cache and passed via
-# --scout-source, so detectors are never fetched ad-hoc), and the scan runs
-# against a patched copy of the tree exactly like .github/scripts/run_scout.sh
-# (production manifests are never modified).
+# Matches CI: pinned scout-audit rev from .github/workflows/scout.yml (cached via
+# --scout-source); patched tree copy like .github/scripts/run_scout.sh (production
+# manifests untouched).
 #
 # Usage:
-#   scripts/scout-local.sh                       # scan all contracts
-#   scripts/scout-local.sh contracts/controller  # scan one (fast IDE loop)
+#   scripts/scout-local.sh                       # all contracts
+#   scripts/scout-local.sh contracts/controller  # one crate
 #
 # Output: target/scout-audit/<crate>.sarif
 #
-# Notes:
-#   - First run clones the pinned scout rev and builds the detector driver
-#     (slow, minutes); later runs reuse the cache (seconds-ish).
-#   - Bumping the pin in scout.yml makes this re-clone the new tag automatically.
-#   - Override the cache location with SCOUT_CACHE=/path (e.g. point it at a
-#     local scout-audit checkout to test unpushed detector changes).
+# First run clones + builds detectors (minutes); later runs reuse the cache.
+# Bumping the pin in scout.yml re-clones automatically.
+# SCOUT_CACHE=/path overrides cache (e.g. local scout-audit checkout).
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-# --- contracts to scan ---
 if [ "$#" -gt 0 ]; then
   contracts=("$@")
 else
@@ -42,7 +33,6 @@ else
   )
 fi
 
-# --- resolve + cache the pinned scout-audit rev (matches CI) ---
 workflow=".github/workflows/scout.yml"
 pin="$(grep -oE '[A-Za-z0-9._/-]+/scout-audit@[^[:space:]"]+' "$workflow" | head -1)"
 [ -n "$pin" ] || { echo "No scout-audit pin found in $workflow" >&2; exit 1; }
@@ -56,7 +46,6 @@ if [ ! -d "$cache/.git" ]; then
 fi
 echo "Detectors: $scout_repo@$scout_ref"
 
-# --- patched scan copy (production manifests stay untouched) ---
 out_dir="$repo_root/target/scout-audit"
 mkdir -p "$out_dir"
 work_dir="$(mktemp -d)"
@@ -75,9 +64,8 @@ for c in "${contracts[@]}"; do
   name="$(basename "$c")"
   out="$out_dir/$name.json"
   echo "Scout -> $c"
-  # NOTE: scout's native `--output-format sarif` is broken in the pinned version
-  # (0-byte file); emit JSON and convert below. file_path in the JSON is already
-  # repo-relative, so no scan-copy path rewrite is needed.
+  # Native --output-format sarif is broken in the pinned rev (0-byte file);
+  # emit JSON and convert. JSON file_path is already repo-relative.
   if cargo scout-audit \
       --manifest-path "$work_dir/$c/Cargo.toml" \
       --scout-source "$cache" \

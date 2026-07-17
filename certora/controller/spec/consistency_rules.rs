@@ -7,7 +7,6 @@ use soroban_sdk::{Address, Env};
 use crate::constants::WAD;
 use crate::types::AccountPositionType;
 
-/// Supply does not decrease the account's stored deposit scaled amount.
 #[rule]
 fn controller_supply_persists_pool_returned_position(
     e: Env,
@@ -36,7 +35,6 @@ fn controller_supply_persists_pool_returned_position(
     cvlr_assert!(after >= before);
 }
 
-/// Borrow does not decrease the account's stored debt scaled amount.
 #[rule]
 fn controller_borrow_persists_pool_returned_position(
     e: Env,

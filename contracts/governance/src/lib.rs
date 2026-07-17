@@ -1,25 +1,8 @@
 #![no_std]
 
-//! Governance contract for the lending protocol.
-//!
-//! Purpose: Owns the controller address, owns the timelock schedule, and
-//! exposes owner + role gated entrypoints that validate then forward
-//! configuration changes (assets, oracles, spokes, strategies) to the
-//! controller.
-//!
-//! Structure:
-//! - `storage.rs`: controller pointer and role-revocation guard keys.
-//! - `access.rs`: owner/role application helpers + Governance impl for ctor/accept/has_role.
-//! - `timelock.rs`: schedule/execute/cancel plus immediate guardian actions.
-//! - `deploy.rs`: controller deployment helper (emits event).
-//! - `op.rs`: operation applicator + resolver for controller calls.
-//! - `validate/`: input validation submodules for assets, spokes, oracles, tolerances.
-//! - `events.rs`: governance-specific events (deploy).
-//! - `constants.rs`: timelock delay bounds.
-//!
-//! High-level ops are timelocked; guardian role bypasses for incidents.
-//! Uses stellar-access for ownable/access-control and stellar-governance for
-//! the underlying timelock.
+//! Timelocked admin of the lending controller; guardian/oracle incident paths
+//! bypass delay. Ownable + access-control via stellar-access; timelock via
+//! stellar-governance.
 
 mod access;
 mod constants;

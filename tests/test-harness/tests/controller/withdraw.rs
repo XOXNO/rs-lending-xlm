@@ -20,8 +20,6 @@ fn try_withdraw_payments(
     }
 }
 
-// 1. test_withdraw_partial
-
 #[test]
 fn test_withdraw_partial() {
     let mut t = LendingTest::new()
@@ -43,8 +41,6 @@ fn test_withdraw_partial() {
         wallet
     );
 }
-// 2. test_withdraw_full_with_zero_amount
-
 #[test]
 fn test_withdraw_full_with_zero_amount() {
     let mut t = LendingTest::new()
@@ -71,8 +67,6 @@ fn test_withdraw_full_with_zero_amount() {
         wallet
     );
 }
-// 3. test_withdraw_multiple_assets
-
 #[test]
 fn test_withdraw_multiple_assets() {
     let mut t = LendingTest::new()
@@ -93,8 +87,6 @@ fn test_withdraw_multiple_assets() {
     t.assert_balance_eq(ALICE, "USDC", 2_000.0);
     t.assert_balance_eq(ALICE, "ETH", 1.0);
 }
-// 4. test_withdraw_rejects_position_not_found
-
 #[test]
 fn test_withdraw_rejects_position_not_found() {
     let mut t = LendingTest::new()
@@ -109,8 +101,6 @@ fn test_withdraw_rejects_position_not_found() {
     let result = t.try_withdraw(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::COLLATERAL_POSITION_NOT_FOUND);
 }
-// 5. test_withdraw_rejects_exceeding_hf
-
 #[test]
 fn test_withdraw_rejects_exceeding_hf() {
     let mut t = LendingTest::new()
@@ -128,8 +118,6 @@ fn test_withdraw_rejects_exceeding_hf() {
     let result = t.try_withdraw(ALICE, "USDC", 6_000.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
-// 6. test_withdraw_allowed_without_borrows
-
 #[test]
 fn test_withdraw_allowed_without_borrows() {
     let mut t = LendingTest::new()
@@ -146,8 +134,6 @@ fn test_withdraw_allowed_without_borrows() {
     assert!(supply < 0.01, "supply should be ~0");
     t.assert_balance_eq(ALICE, "USDC", 10_000.0);
 }
-// 7. test_withdraw_rejects_during_flash_loan
-
 #[test]
 fn test_withdraw_rejects_during_flash_loan() {
     let mut t = LendingTest::new()
@@ -161,8 +147,6 @@ fn test_withdraw_rejects_during_flash_loan() {
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-// 8. test_withdraw_allowed_when_paused
-
 #[test]
 fn test_withdraw_allowed_when_paused() {
     let mut t = LendingTest::new()
@@ -179,8 +163,6 @@ fn test_withdraw_allowed_when_paused() {
         "withdraw should remain available while paused"
     );
 }
-// 9. test_withdraw_removes_position_when_empty
-
 #[test]
 fn test_withdraw_removes_position_when_empty() {
     let mut t = LendingTest::new()
@@ -199,8 +181,6 @@ fn test_withdraw_removes_position_when_empty() {
     t.assert_supply_count(ALICE, 1);
     t.assert_position_exists(ALICE, "ETH", PositionType::Supply);
 }
-// 10. test_withdraw_cleans_up_empty_account
-
 #[test]
 fn test_withdraw_cleans_up_empty_account() {
     let mut t = LendingTest::new()
@@ -220,8 +200,6 @@ fn test_withdraw_cleans_up_empty_account() {
         "account should be auto-removed when empty"
     );
 }
-// 11. test_withdraw_full_amount_returned
-
 #[test]
 fn test_withdraw_full_amount_returned() {
     let mut t = LendingTest::new()
@@ -244,8 +222,6 @@ fn test_withdraw_full_amount_returned() {
         wallet_after
     );
 }
-// 12. test_withdraw_raw_precision
-
 #[test]
 fn test_withdraw_raw_precision() {
     let mut t = LendingTest::new()
@@ -268,20 +244,9 @@ fn test_withdraw_raw_precision() {
         remaining
     );
 }
-// 13. test_withdraw_rejects_when_above_ltv_but_hf_ok
-//
-// Regression for the Slender C-1 class (see
-// `audit-research/STELLAR_AUDIT_FINDINGS.md` §4.4 and §2.1): borrow gates on
-// the LTV-weighted collateral, but withdraw historically only re-checked the
-// liquidation-threshold health factor. A user can borrow up to the LTV cap and
-// then withdraw a sliver of collateral — HF stays above 1.0 (threshold is
-// strictly above LTV by governance config validation) but the live position is
-// above the configured LTV ceiling, eroding the safety buffer that LTV is
-// supposed to enforce.
-//
-// USDC preset: LTV 75 % / threshold 80 %. Borrow exactly $7,500 of ETH
-// against $10,000 USDC — LTV-binding, HF ≈ 1.067. A 1-USDC withdraw must
-// revert with `InsufficientCollateral` even though HF would still be > 1.
+// Withdraw re-checks LTV-weighted collateral, not only LT health factor.
+// USDC preset LTV 75% / LT 80%: $7500 ETH against $10k USDC is LTV-binding (HF ≈ 1.067);
+// a 1-USDC withdraw must revert InsufficientCollateral even though HF would stay > 1.
 
 #[test]
 fn test_withdraw_rejects_when_above_ltv_but_hf_ok() {
@@ -308,7 +273,6 @@ fn test_withdraw_rejects_when_above_ltv_but_hf_ok() {
     let result = t.try_withdraw(ALICE, "USDC", 1.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
-// 14. test_withdraw_allowed_with_ltv_headroom
 //
 // Positive companion to test 13: when the borrow is below the LTV ceiling, a
 // withdraw inside the headroom must succeed. Confirms the new LTV gate is
@@ -333,8 +297,6 @@ fn test_withdraw_allowed_with_ltv_headroom() {
 
     t.assert_supply_near(ALICE, "USDC", 9_000.0, 1.0);
 }
-// 15. test_withdraw_to_pays_third_party_recipient
-
 #[test]
 fn test_withdraw_to_pays_third_party_recipient() {
     let mut t = LendingTest::new()
@@ -360,8 +322,6 @@ fn test_withdraw_to_pays_third_party_recipient() {
     assert_eq!(t.token_balance_raw(ALICE, "USDC"), alice_wallet_before);
     t.assert_supply_near(ALICE, "USDC", 7_000.0, 1.0);
 }
-// 16. test_withdraw_returns_actual_amounts_on_full_close
-
 #[test]
 fn test_withdraw_returns_actual_amounts_on_full_close() {
     let mut t = LendingTest::new()
@@ -388,12 +348,7 @@ fn test_withdraw_returns_actual_amounts_on_full_close() {
     );
     assert_eq!(t.supply_balance_raw(ALICE, "USDC"), 0);
 }
-// 17. test_withdraw_full_exit_works_with_broken_oracle
-
-/// A debt-free full exit must never touch the oracle: no risk check needs a
-/// price (LTV/HF skip on empty borrows, dust skips closed positions) and event
-/// prices are backfilled only from prices already fetched. Self-rescue holds
-/// even when the feed is bricked.
+/// Debt-free full exit skips oracle (no LTV/HF; dust skips closed; events use cached prices).
 #[test]
 fn test_withdraw_full_exit_works_with_broken_oracle() {
     let mut t = LendingTest::new()
@@ -412,11 +367,7 @@ fn test_withdraw_full_exit_works_with_broken_oracle() {
     let accounts = t.get_active_accounts(ALICE);
     assert_eq!(accounts.len(), 0, "empty account should be auto-removed");
 }
-// 18. test_withdraw_with_debt_still_requires_oracle
-
-/// The oracle-free exit applies only to debt-free accounts: with debt, the
-/// post-withdraw LTV/HF valuation must still resolve prices and revert when
-/// the feed is unusable.
+/// With debt, post-withdraw LTV/HF still requires a live oracle.
 #[test]
 fn test_withdraw_with_debt_still_requires_oracle() {
     let mut t = LendingTest::new()
