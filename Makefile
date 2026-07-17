@@ -1512,7 +1512,7 @@ SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeRea
 	configureOracleFeeds listOracleFeeds configureOracleWindows \
 	validateConfigs checkDelay \
 	setupAll setupAllMarkets setupAllSpokes \
-	whitelistBlendPools approveBlendPools \
+	whitelistBlendPools approveBlendPools configureSpokeCurves \
 	setAggregator setAccumulator pause unpause info \
 	getAllMarkets getAllIndexes getMinBorrowCollateralUsd getBulkIndexes \
 	claimRevenueAll deployPool updateDelay \
@@ -1835,6 +1835,7 @@ help:
 	@echo "    make testnet claimRevenue USDC XLM              Claim revenue one or more markets"
 	@echo "    make testnet claimRevenueAll                    Claim revenue for every configured market"
 	@echo "    make testnet whitelistBlendPools                Approve Blend pools from configs/$(NETWORK)/blend.json"
+	@echo "    make testnet configureSpokeCurves               Apply spoke liquidation_curve overrides from configs/$(NETWORK)/spokes.json"
 	@echo "    make testnet approveBlendPools                  Same as whitelistBlendPools"
 	@echo ""
 	@echo "  Quick views (reads, no signing cost):"

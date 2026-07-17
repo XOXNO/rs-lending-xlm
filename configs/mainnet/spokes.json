@@ -318,6 +318,11 @@
   },
   "5": {
     "name": "Forex",
+    "liquidation_curve": {
+      "target_hf_wad": "1020000000000000000",
+      "hf_for_max_bonus_wad": "800000000000000000",
+      "liquidation_bonus_factor_bps": 10000
+    },
     "assets": {
       "USDC": {
         "hub_id": 1,
