@@ -80,7 +80,7 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
     }
 }
 
-fn owner_or_panic(env: &Env) -> Address {
+pub(crate) fn owner_or_panic(env: &Env) -> Address {
     ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
 }
 
@@ -148,6 +148,15 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
         env,
         access_control::has_role(env, account, role).is_some(),
         GenericError::InvalidRole
+    );
+    // The owner is the root recovery authority; its roles are never revocable.
+    // Enforced here so it holds for both the timelocked `RevokeGovRole` path and
+    // the immediate `revoke_role_immediate` escape hatch. Ownership transfer
+    // migrates roles through `revoke_role_no_auth` directly, bypassing this.
+    assert_with_error!(
+        env,
+        account != &owner_or_panic(env),
+        GenericError::NotAuthorized
     );
     // Never remove the last PROPOSER: it is the sole gate on `propose`, and every
     // recovery path (grant role, upgrade, ownership transfer) must be scheduled

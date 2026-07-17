@@ -4,12 +4,12 @@ use stellar_governance::timelock::OperationState;
 
 use common::types::{ControllerKey, PositionLimits};
 
-use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, PROPOSER_ROLE};
+use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
 use crate::constants::{
     TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS,
     TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
 };
-use crate::op::{AdminOperation, RoleArgs};
+use crate::op::{AdminOperation, RoleArgs, TransferOwnershipArgs};
 use crate::timelock::{operation_delay, DelayTier};
 use crate::{Governance, GovernanceClient};
 
@@ -35,6 +35,28 @@ fn read_position_limits(env: &Env, controller_id: &Address) -> PositionLimits {
             .get(&ControllerKey::PositionLimits)
             .expect("position limits set")
     })
+}
+
+/// Grants `role` to a fresh (non-owner) address through the timelocked
+/// `GrantGovRole` path and returns it. `salt_byte` must be unique per call.
+fn grant_role_via_timelock(
+    env: &Env,
+    gov: &GovernanceClient<'_>,
+    admin: &Address,
+    delay: u32,
+    role: &str,
+    salt_byte: u8,
+) -> Address {
+    let account = Address::generate(env);
+    let salt = BytesN::<32>::from_array(env, &[salt_byte; 32]);
+    let grant = AdminOperation::GrantGovRole(RoleArgs {
+        account: account.clone(),
+        role: Symbol::new(env, role),
+    });
+    gov.propose(admin, &grant, &salt);
+    env.ledger().with_mut(|l| l.sequence_number += delay);
+    gov.execute_self(&Some(admin.clone()), &grant, &salt);
+    account
 }
 
 #[test]
@@ -229,28 +251,31 @@ fn cancel_returns_operation_to_unset() {
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
 
+// A canceller cannot veto the revocation of its own CANCELLER role — no one
+// blocks their own removal. Uses a non-owner canceller (the owner's roles are
+// never revocable).
 #[test]
 #[should_panic(expected = "Error(Contract, #46)")]
 fn revocation_target_cannot_cancel_own_role_revocation() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, _controller, gov) = register_with_controller(&env, 10);
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let canceller = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
 
-    // A pending revocation of the canceller's own role...
     let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
     let id = gov.propose(
         &admin,
         &AdminOperation::RevokeGovRole(RoleArgs {
-            account: admin.clone(),
+            account: canceller.clone(),
             role: Symbol::new(&env, CANCELLER_ROLE),
         }),
         &salt,
     );
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 
-    // ...cannot be vetoed by that same canceller, so a rogue canceller cannot
-    // entrench itself and freeze governance.
-    gov.cancel(&admin, &id);
+    // The target canceller cannot veto its own removal.
+    gov.cancel(&canceller, &id);
 }
 
 #[test]
@@ -259,26 +284,17 @@ fn independent_canceller_can_cancel_non_canceller_role_revocation() {
     env.mock_all_auths();
     let delay = 10u32;
     let (admin, _controller, gov) = register_with_controller(&env, delay);
-    let honest_canceller = Address::generate(&env);
+    let honest_canceller =
+        grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
+    // A second (non-owner) PROPOSER so its revocation clears the last-proposer guard.
+    let extra_proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 2);
 
-    // Grant a second, independent CANCELLER via the timelocked self path.
-    let grant_salt = BytesN::<32>::from_array(&env, &[1u8; 32]);
-    let grant = AdminOperation::GrantGovRole(RoleArgs {
-        account: honest_canceller.clone(),
-        role: Symbol::new(&env, CANCELLER_ROLE),
-    });
-    gov.propose(&admin, &grant, &grant_salt);
-    env.ledger().with_mut(|l| l.sequence_number += delay);
-    gov.execute_self(&Some(admin.clone()), &grant, &grant_salt);
-    assert!(gov.has_role(&honest_canceller, &Symbol::new(&env, CANCELLER_ROLE)));
-
-    // A revocation of a NON-canceller role stays vetoable by an independent
-    // canceller: the cross-veto protection is preserved for other roles.
-    let revoke_salt = BytesN::<32>::from_array(&env, &[2u8; 32]);
+    // A revocation of a NON-canceller role stays vetoable by an independent canceller.
+    let revoke_salt = BytesN::<32>::from_array(&env, &[3u8; 32]);
     let id = gov.propose(
         &admin,
         &AdminOperation::RevokeGovRole(RoleArgs {
-            account: admin.clone(),
+            account: extra_proposer,
             role: Symbol::new(&env, PROPOSER_ROLE),
         }),
         &revoke_salt,
@@ -289,95 +305,165 @@ fn independent_canceller_can_cancel_non_canceller_role_revocation() {
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
 
-// A CANCELLER-role revocation is veto-immune: no canceller may cancel it, so
-// colluding cancellers cannot cross-veto each other's removal and freeze
-// governance. Here a canceller tries (and fails) to shield another from removal.
+// A CANCELLER-role revocation is now vetoable by an INDEPENDENT canceller (only
+// the target itself is barred): the independent-canceller veto stays a real
+// check on a rogue proposer trying to strip cancellers. The colluding-canceller
+// deadlock this opens is broken by the owner's immediate revoke, tested below.
 #[test]
-#[should_panic(expected = "Error(Contract, #46)")]
-fn canceller_role_revocation_is_veto_immune() {
+fn independent_canceller_can_veto_canceller_revocation() {
     let env = Env::default();
     env.mock_all_auths();
     let delay = 10u32;
     let (admin, _controller, gov) = register_with_controller(&env, delay);
-    let colluder = Address::generate(&env);
+    let target = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
+    let independent = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 2);
 
-    // Grant a second, colluding CANCELLER.
-    let grant_salt = BytesN::<32>::from_array(&env, &[1u8; 32]);
-    let grant = AdminOperation::GrantGovRole(RoleArgs {
-        account: colluder.clone(),
-        role: Symbol::new(&env, CANCELLER_ROLE),
-    });
-    gov.propose(&admin, &grant, &grant_salt);
-    env.ledger().with_mut(|l| l.sequence_number += delay);
-    gov.execute_self(&Some(admin.clone()), &grant, &grant_salt);
-
-    // The owner moves to revoke the admin's own CANCELLER role...
-    let revoke_salt = BytesN::<32>::from_array(&env, &[2u8; 32]);
+    let revoke_salt = BytesN::<32>::from_array(&env, &[3u8; 32]);
     let id = gov.propose(
         &admin,
         &AdminOperation::RevokeGovRole(RoleArgs {
-            account: admin.clone(),
+            account: target,
             role: Symbol::new(&env, CANCELLER_ROLE),
         }),
         &revoke_salt,
     );
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 
-    // ...and the colluding canceller cannot veto it: OperationNotCancellable.
-    gov.cancel(&colluder, &id);
+    // The independent canceller (not the target) can veto it.
+    gov.cancel(&independent, &id);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
 
-// Revoking the SOLE PROPOSER reverts (#48): it is the only gate on `propose`, so
-// zeroing it would leave no way to schedule any recovery — a permanent freeze.
+// The owner breaks a colluding-canceller deadlock with an immediate revoke,
+// bypassing the veto that the pair would otherwise use to shield each other.
 #[test]
-#[should_panic(expected = "Error(Contract, #48)")]
-fn revoking_last_proposer_reverts() {
+fn owner_immediately_revokes_colluding_canceller() {
     let env = Env::default();
     env.mock_all_auths();
     let delay = 10u32;
     let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let colluder = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
 
-    let salt = BytesN::<32>::from_array(&env, &[7u8; 32]);
-    let revoke = AdminOperation::RevokeGovRole(RoleArgs {
-        account: admin.clone(),
-        role: Symbol::new(&env, PROPOSER_ROLE),
-    });
-    gov.propose(&admin, &revoke, &salt);
-    env.ledger().with_mut(|l| l.sequence_number += delay);
-    // Reverts at execute-time in apply_revoke_role (last-holder guard).
-    gov.execute_self(&Some(admin.clone()), &revoke, &salt);
+    assert!(gov.has_role(&colluder, &Symbol::new(&env, CANCELLER_ROLE)));
+    gov.revoke_role_immediate(&colluder, &Symbol::new(&env, CANCELLER_ROLE));
+    assert!(!gov.has_role(&colluder, &Symbol::new(&env, CANCELLER_ROLE)));
 }
 
-// Revoking a PROPOSER is allowed once a second PROPOSER exists.
+// A proposer cannot revoke its own role, and the owner's roles are never
+// revocable — both rejected at propose with NotAuthorized (#44).
+#[test]
+#[should_panic(expected = "Error(Contract, #44)")]
+fn proposer_cannot_revoke_itself() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
+
+    let salt = BytesN::<32>::from_array(&env, &[3u8; 32]);
+    gov.propose(
+        &proposer,
+        &AdminOperation::RevokeGovRole(RoleArgs {
+            account: proposer.clone(),
+            role: Symbol::new(&env, PROPOSER_ROLE),
+        }),
+        &salt,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #44)")]
+fn owner_role_cannot_be_revoked() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
+
+    let salt = BytesN::<32>::from_array(&env, &[3u8; 32]);
+    gov.propose(
+        &proposer,
+        &AdminOperation::RevokeGovRole(RoleArgs {
+            account: admin.clone(),
+            role: Symbol::new(&env, GUARDIAN_ROLE),
+        }),
+        &salt,
+    );
+}
+
+// Only the owner may initiate an ownership transfer; a non-owner proposer is
+// rejected at propose (#44). The owner's transfer stays cancellable.
+#[test]
+#[should_panic(expected = "Error(Contract, #44)")]
+fn non_owner_cannot_propose_ownership_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
+    let new_owner = Address::generate(&env);
+
+    let salt = BytesN::<32>::from_array(&env, &[3u8; 32]);
+    gov.propose(
+        &proposer,
+        &AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
+            new_owner,
+            live_until_ledger: env.ledger().sequence() + 100_000,
+        }),
+        &salt,
+    );
+}
+
+#[test]
+fn owner_ownership_transfer_is_cancellable() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let canceller = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
+    let new_owner = Address::generate(&env);
+
+    let salt = BytesN::<32>::from_array(&env, &[3u8; 32]);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
+            new_owner,
+            live_until_ledger: env.ledger().sequence() + 100_000,
+        }),
+        &salt,
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+
+    gov.cancel(&canceller, &id);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+}
+
+// Revoking the SOLE PROPOSER reverts (#48): it is the only gate on `propose`, so
+// zeroing it would leave no way to schedule any recovery — a permanent freeze.
+// (With the owner's roles now unrevocable, the owner always remains a proposer,
+// so this guard is a defense-in-depth backstop; the primary protection against
+// stripping the owner is covered by `owner_role_cannot_be_revoked`.)
+
+// Revoking a non-owner PROPOSER is allowed while the owner (a proposer) remains.
 #[test]
 fn revoking_proposer_ok_when_another_remains() {
     let env = Env::default();
     env.mock_all_auths();
     let delay = 10u32;
     let (admin, _controller, gov) = register_with_controller(&env, delay);
-    let second = Address::generate(&env);
     let proposer = Symbol::new(&env, PROPOSER_ROLE);
-
-    let g_salt = BytesN::<32>::from_array(&env, &[1u8; 32]);
-    let grant = AdminOperation::GrantGovRole(RoleArgs {
-        account: second.clone(),
-        role: proposer.clone(),
-    });
-    gov.propose(&admin, &grant, &g_salt);
-    env.ledger().with_mut(|l| l.sequence_number += delay);
-    gov.execute_self(&Some(admin.clone()), &grant, &g_salt);
-    assert!(gov.has_role(&second, &proposer));
+    let second = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
 
     let r_salt = BytesN::<32>::from_array(&env, &[2u8; 32]);
     let revoke = AdminOperation::RevokeGovRole(RoleArgs {
-        account: admin.clone(),
+        account: second.clone(),
         role: proposer.clone(),
     });
     gov.propose(&admin, &revoke, &r_salt);
     env.ledger().with_mut(|l| l.sequence_number += delay);
     gov.execute_self(&Some(admin.clone()), &revoke, &r_salt);
-    assert!(!gov.has_role(&admin, &proposer));
-    assert!(gov.has_role(&second, &proposer));
+    assert!(!gov.has_role(&second, &proposer));
+    assert!(gov.has_role(&admin, &proposer));
 }
 
 #[test]
