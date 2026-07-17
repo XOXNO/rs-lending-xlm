@@ -296,7 +296,62 @@ make <network> revokeGovRole G...ADDRESS PROPOSER
 
 ---
 
-## 11. Upgrades
+## 11. Governance keys & recovery
+
+**Owner is a native Stellar multisig, not a contract.** Governance's `owner`
+is a single `Address`. Set it to a Stellar account with multiple signers by
+adding signers and weights and raising the `medium`/`high` thresholds via
+that account's `SetOptions` operation (M-of-N). No Safe-style multisig
+*contract* is needed or supported — the governance contract only ever sees
+one owner `Address` and calls `require_auth` on it; the account's
+signature-weight rules decide whether that succeeds.
+
+**Canceller council is independent of the owner.** Grant `CANCELLER` to each
+council member through the timelocked `grantGovRole` (same path as any other
+role):
+```bash
+make <network> grantGovRole G...ADDRESS CANCELLER
+```
+Any single canceller can veto a pending op via `cancelOp` — a 1-of-N veto,
+not a quorum. The one exception: a canceller cannot veto the op that revokes
+its own `CANCELLER` role (no one blocks their own removal); every other
+pending op, including a revocation targeting a *different* canceller, stays
+vetoable.
+
+**The owner's immediate-revoke path cannot touch cancellers.**
+`revoke_role_immediate` — the owner's bypass-the-timelock emergency
+de-authorization path — only accepts `GUARDIAN`/`ORACLE`.
+`PROPOSER`/`EXECUTOR`/`CANCELLER` revocations always ride the timelock and
+the single-veto rule above, so a compromised owner key cannot instantly
+strip the council.
+
+**Recovery tier breaks a colluding-canceller deadlock.** If enough cancellers
+collude to veto every attempt to remove them, the owner-only, non-vetoable
+Recovery tier is the only way out. `propose_canceller_reset(new_cancellers,
+salt)` schedules a full council reset at the Recovery delay
+(`TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS = 518_400` ledgers, ~30 days); once
+matured, `execute_canceller_reset(executor, new_cancellers, salt)` revokes
+every non-owner `CANCELLER` holder and grants `CANCELLER` to each address in
+`new_cancellers` (the owner keeps its own `CANCELLER`). Recovery ops are
+marked non-cancellable, so no canceller — captured or not — can block them.
+The long public delay is deliberate: it is slow enough that Recovery cannot
+serve as a quiet theft path even for a compromised owner multisig, while
+still being the only mechanism that can outlast a captured council.
+
+These are dedicated entrypoints, not config-driven `make` verbs — a
+`Vec<Address>` argument doesn't fit the JSON-config action dispatcher (see
+`make help`). Invoke them directly:
+```bash
+make invoke FN=propose_canceller_reset \
+  ARGS='--new_cancellers ["G...","G...","G..."] --salt <64-hex>' NETWORK=<network>
+# ... wait out the ~30-day Recovery delay, then:
+make invoke FN=execute_canceller_reset \
+  ARGS='--executor null --new_cancellers ["G...","G...","G..."] --salt <64-hex>' NETWORK=<network>
+```
+
+---
+
+## 12. Upgrades
 
 In-place upgrades via governance (each is timelocked):
 ```bash
@@ -309,7 +364,7 @@ make <network> upgradeAll              # pool template + controller + pool, then
 
 ---
 
-## 12. Gotchas
+## 13. Gotchas
 
 - **`NETWORK` env var.** An exported `NETWORK` silently overrides the Makefile
   default (`NETWORK ?= testnet`). The `make <network> ...` form passes it
