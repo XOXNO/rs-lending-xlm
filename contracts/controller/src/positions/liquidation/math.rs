@@ -444,21 +444,49 @@ pub(crate) fn calculate_linear_bonus_with_target(
     )
 }
 
+/// Largest bonus (BPS, floored) at which a partial liquidation cannot reduce
+/// the account's health factor, or `None` when no finite cap applies.
+///
+/// A repayment of `d` USD removes `proportion_seized * (1 + bonus) * d` of
+/// weighted collateral, so post-HF >= pre-HF exactly when
+/// `proportion_seized * (1 + bonus) <= hf`. The cap is therefore
+/// `hf / proportion_seized - 1`, floored to BPS so the realized seizure rate
+/// stays at or below the current HF. The value can be negative: then even a
+/// zero bonus shrinks HF and no partial is safe. `None` (no cap needed) covers
+/// zero seizable collateral (seizure rate is zero) and `hf >= 1` (the cap
+/// `1/p - 1` is at or above the seizure-safety ceiling every bonus already
+/// respects, and skipping it keeps `hf * BPS` inside i128 for view calls on
+/// healthy accounts).
+fn max_hf_preserving_bonus_bps(snap: &LiquidationSnapshot) -> Option<i128> {
+    let proportion = snap.proportion_seized.raw();
+    if proportion <= 0 || snap.hf.raw() >= WAD {
+        return None;
+    }
+    // hf < WAD here, so hf * BPS <= 1e22 cannot overflow. Floor division
+    // rounds the cap down (stricter direction).
+    Some(snap.hf.raw() * BPS / proportion - BPS)
+}
+
 /// Estimates the ideal liquidation repayment and its bonus.
 ///
-/// A single health-factor-scaled bonus is applied: the protocol max below the
-/// curve's max-bonus floor, interpolated toward the base above it, monotone in
-/// HF. The repayment restores HF to the curve target; when the bonus makes the
-/// target unreachable it is the largest the collateral supports,
-/// `collateral / (1 + bonus)`. A dust guard escalates a sub-floor debt remainder
-/// to a full close. Both are capped at `total_debt`.
+/// The health-factor-scaled bonus (protocol max below the curve's max-bonus
+/// floor, interpolated toward the base above it) is capped at the largest
+/// HF-preserving value: a partial liquidation must never leave the account
+/// less healthy, or repeated partials could ratchet HF down while seizing
+/// collateral at an inflated bonus and enlarge the residual debt that gets
+/// socialized. When even the base bonus would shrink HF, partials cannot help
+/// the account at all, so the estimate escalates to a full close at the base
+/// bonus. Otherwise the repayment restores HF to the curve target; when the
+/// bonus makes the target unreachable it is the largest the collateral
+/// supports, `collateral / (1 + bonus)`. A dust guard escalates a sub-floor
+/// debt remainder to a full close. All are capped at `total_debt`.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,
     bounds: BonusBounds,
     curve: &LiquidationCurve,
 ) -> (Wad, Bps) {
-    let bonus = calculate_linear_bonus_with_target(
+    let scaled_bonus = calculate_linear_bonus_with_target(
         env,
         snap.hf,
         bounds.base,
@@ -466,6 +494,17 @@ pub(crate) fn estimate_liquidation_amount(
         curve,
         curve.target_hf,
     );
+
+    let bonus = match max_hf_preserving_bonus_bps(snap) {
+        None => scaled_bonus,
+        Some(cap) if scaled_bonus.raw() <= cap => scaled_bonus,
+        // The scaled bonus would ratchet; pay the largest HF-neutral bonus
+        // instead so the liquidator incentive degrades smoothly.
+        Some(cap) if cap >= bounds.base.raw() => Bps::from(cap),
+        // Even the base bonus shrinks HF: no partial can leave the account
+        // healthier, so require a full close at the base bonus.
+        Some(_) => return (snap.total_debt, bounds.base),
+    };
 
     let ideal = try_liquidation_at_target(env, snap, bonus, curve.target_hf).unwrap_or_else(|| {
         snap.total_collateral

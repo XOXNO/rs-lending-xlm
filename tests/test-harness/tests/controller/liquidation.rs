@@ -104,32 +104,41 @@ fn test_liquidation_allowed_when_paused() {
 fn test_liquidation_dynamic_bonus_moderate() {
     let mut t = liquidatable_usdc_eth();
 
-    // HF ~0.67. Liquidator should profit from bonus.
-    let _debt_before = t.total_debt(ALICE);
-    let _collateral_before = t.total_collateral(ALICE);
+    // Re-price into the guard-safe moderate band: HF ~0.947 keeps the
+    // HF-scaled bonus (~15%) under the HF-neutral cap hf/p - 1 (~18.3%).
+    // (The fixture's HF ~0.67 is toxic-band: there the guard caps to the
+    // base bonus, covered by the deep-underwater test.)
+    t.set_price("USDC", usd_cents(71));
+    t.assert_liquidatable(ALICE);
+    let hf_before = t.health_factor(ALICE);
 
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
     // The liquidator should have received collateral worth more than the debt paid.
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
-    // Collateral value in USD at USDC price $0.50.
-    let collateral_received_usd = liq_usdc * 0.50;
+    // Collateral value in USD at USDC price $0.71.
+    let collateral_received_usd = liq_usdc * 0.71;
     // Debt paid is 1 ETH = $2000.
     assert!(
         collateral_received_usd > 2000.0,
         "liquidator should profit from bonus: received ${} of collateral for $2000 debt",
         collateral_received_usd
     );
-    // The HF-scaled bonus at moderate HF (~0.67) sits between the base and the
-    // 25% per-threshold max for 80%-LT collateral.
+    // The HF-scaled bonus at moderate HF (~0.947) sits between the base and
+    // the 25% per-threshold max for 80%-LT collateral.
     let bonus_rate = collateral_received_usd / 2000.0 - 1.0;
     assert!(
         bonus_rate > 0.10 && bonus_rate < 0.25,
         "moderate-HF bonus must be a mid-range HF-scaled value, got {:.4}",
         bonus_rate
     );
-    // Borrower debt reduced.
+    // Borrower debt reduced and the guarded partial left the account healthier.
     assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
+    let hf_after = t.health_factor(ALICE);
+    assert!(
+        hf_after > hf_before,
+        "guarded partial must improve HF: {hf_before:.4} -> {hf_after:.4}"
+    );
 }
 // 6. test_liquidation_dynamic_bonus_deep_underwater
 
@@ -420,9 +429,11 @@ fn test_liquidation_bad_debt_socializes_loss() {
     t.assert_liquidatable(ALICE);
 
     let bob_before = t.supply_balance(test_harness::BOB, "ETH");
-    // Deeply underwater tiny positions socialize the residual loss during
-    // liquidation.
-    t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.03);
+    // A rational partial (the ~$1 collateral cannot cover the $60 debt at any
+    // bonus) exhausts the collateral and leaves residual debt to socialize.
+    // The guard's full-close ideal caps the estimate, not the payment, so a
+    // small payment still liquidates.
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
     // Socialization invariant: Bob's ETH supply has shrunk because the
     // residual bad debt was applied via apply_bad_debt_to_supply_index.

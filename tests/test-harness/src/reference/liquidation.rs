@@ -333,8 +333,25 @@ fn try_liquidation_at_target(
     Some(out)
 }
 
+/// Mirror of `max_hf_preserving_bonus_bps`: largest HF-neutral bonus in BPS
+/// (floored like the production i128 division), `None` when no finite cap
+/// applies (zero seizable proportion or `hf >= 1`).
+fn max_hf_preserving_bonus_bps(
+    hf_wad: &BigRational,
+    proportion_seized: &BigRational,
+) -> Option<BigRational> {
+    if proportion_seized <= &BigRational::from_integer(BigInt::from(0)) || hf_wad >= &wad_scale() {
+        return None;
+    }
+    let floored = (hf_wad * bps_scale() / proportion_seized).floor();
+    Some(floored - bps_scale())
+}
+
 /// Mirror of the single HF-scaled bonus and the target-HF repayment (or the
-/// collateral-capped maximum when the bonus makes the target unreachable).
+/// collateral-capped maximum when the bonus makes the target unreachable),
+/// with the HF-preservation guard: the bonus is capped at the largest
+/// HF-neutral value, and when even the base bonus would shrink HF the
+/// estimate escalates to a full close at the base bonus.
 fn select_liquidation_tier(
     total_debt_wad: &BigRational,
     weighted_coll_wad: &BigRational,
@@ -347,7 +364,15 @@ fn select_liquidation_tier(
     let target = &wad_scale() * BigRational::from_integer(BigInt::from(110))
         / BigRational::from_integer(BigInt::from(100));
 
-    let bonus = calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target);
+    let scaled_bonus =
+        calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target);
+
+    let bonus = match max_hf_preserving_bonus_bps(hf_wad, proportion_seized) {
+        None => scaled_bonus,
+        Some(cap) if scaled_bonus <= cap => scaled_bonus,
+        Some(cap) if &cap >= base_bonus_bps => cap,
+        Some(_) => return (total_debt_wad.clone(), base_bonus_bps.clone()),
+    };
 
     let ideal = match try_liquidation_at_target(
         total_debt_wad,
