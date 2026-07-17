@@ -309,6 +309,10 @@ fn governance_endpoints_reject_unauthed_before_validation() {
             .try_deploy_controller(&dummy_bytes_n(&env, seed))
     })
     .unwrap();
-    expect_rejected("gov.pause", || gov.set_auths(&no_auths).try_pause()).unwrap();
-    expect_rejected("gov.unpause", || gov.set_auths(&no_auths).try_unpause()).unwrap();
+    expect_rejected("gov.pause", || {
+        gov.set_auths(&no_auths).try_pause(&random_addr)
+    })
+    .unwrap();
+    // `unpause` is no longer a direct entrypoint; it rides the timelocked
+    // `AdminOperation::Unpause`, covered by the `propose` auth rejection above.
 }

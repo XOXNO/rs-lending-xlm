@@ -5,7 +5,7 @@
 //! The harness admin holds every operational role (constructor grant), so it
 //! doubles as GUARDIAN/ORACLE here; strangers prove the role gates.
 
-use governance::op::{AdminOperation, SpokeAssetArgs};
+use governance::op::{AdminOperation, RoleArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Symbol};
 use test_harness::{
@@ -233,8 +233,9 @@ fn guardian_creates_hub_and_spoke_immediately() {
     assert_contract_error(flatten(gov.try_add_spoke(&stranger)), errors::UNAUTHORIZED);
 }
 
-// The owner strips an immediate role instantly; the stripped key loses its
-// powers in the same ledger, and no-op/unknown revokes are rejected.
+// The owner strips an immediate role from a non-owner key instantly; the
+// stripped key loses its powers in the same ledger. The owner's own roles are
+// never revocable, and no-op/unknown revokes are rejected.
 #[test]
 fn owner_revokes_role_immediately() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -242,27 +243,53 @@ fn owner_revokes_role_immediately() {
     let admin = t.admin();
     let usdc = t.resolve_asset("USDC");
     let guardian_role = Symbol::new(&t.env, "GUARDIAN");
+    let canceller_role = Symbol::new(&t.env, "CANCELLER");
+    let holder = Address::generate(&t.env);
 
-    assert!(gov.has_role(&admin, &guardian_role));
-    gov.revoke_role_immediate(&admin, &guardian_role);
-    assert!(!gov.has_role(&admin, &guardian_role));
+    // Grant GUARDIAN to a fresh non-owner key, then the owner strips it instantly.
+    t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: holder.clone(),
+            role: guardian_role.clone(),
+        }),
+    );
+    assert!(gov.has_role(&holder, &guardian_role));
+    gov.revoke_role_immediate(&holder, &guardian_role);
+    assert!(!gov.has_role(&holder, &guardian_role));
 
     let result =
-        gov.try_set_spoke_asset_flags(&admin, &HARNESS_SPOKE, &hub_asset(usdc), &true, &false);
+        gov.try_set_spoke_asset_flags(&holder, &HARNESS_SPOKE, &hub_asset(usdc), &true, &false);
     assert_contract_error(flatten(result), errors::UNAUTHORIZED);
 
-    // Revoking a role the account no longer holds is a no-op reject.
+    // The owner's own roles are never revocable.
     let result = gov.try_revoke_role_immediate(&admin, &guardian_role);
+    assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
+
+    // Revoking a role the account no longer holds is a no-op reject.
+    let result = gov.try_revoke_role_immediate(&holder, &guardian_role);
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
     // Unknown roles are rejected outright.
-    let result = gov.try_revoke_role_immediate(&admin, &Symbol::new(&t.env, "NOPE"));
+    let result = gov.try_revoke_role_immediate(&holder, &Symbol::new(&t.env, "NOPE"));
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
-    // Timelock-governance roles are NOT immediately revocable: a compromised
-    // owner key must not be able to strip the independent cancellers and run
-    // a malicious proposal through the delay window without a veto.
-    for role in ["CANCELLER", "PROPOSER", "EXECUTOR"] {
+    // CANCELLER is immediately revocable so the owner can break a colluding
+    // pair that would otherwise cross-veto each other's timelocked removal.
+    t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: holder.clone(),
+            role: canceller_role.clone(),
+        }),
+    );
+    assert!(gov.has_role(&holder, &canceller_role));
+    gov.revoke_role_immediate(&holder, &canceller_role);
+    assert!(!gov.has_role(&holder, &canceller_role));
+
+    // PROPOSER/EXECUTOR stay timelock-only for revocation (rejected before any
+    // holder/owner check by the immediate-role allow-list).
+    for role in ["PROPOSER", "EXECUTOR"] {
         let result = gov.try_revoke_role_immediate(&admin, &Symbol::new(&t.env, role));
         assert_contract_error(flatten(result), errors::INVALID_ROLE);
     }

@@ -187,20 +187,22 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
 fn pause_and_unpause_forward_to_controller() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_admin, gov_id, gov) = register_governance(&env);
+    let (admin, gov_id, gov) = register_governance(&env);
     let controller_id = register_native_controller(&env, &gov_id, &gov);
 
-    gov.unpause();
+    // Unpause is a timelocked controller op; `execute_immediate` applies it in-test.
+    gov.execute_immediate(&admin, &AdminOperation::Unpause);
     assert!(!env.as_contract(&controller_id, || {
         stellar_contract_utils::pausable::paused(&env)
     }));
 
-    gov.pause();
+    // GUARDIAN halts the controller immediately.
+    gov.pause(&admin);
     assert!(env.as_contract(&controller_id, || {
         stellar_contract_utils::pausable::paused(&env)
     }));
 
-    gov.unpause();
+    gov.execute_immediate(&admin, &AdminOperation::Unpause);
     assert!(!env.as_contract(&controller_id, || {
         stellar_contract_utils::pausable::paused(&env)
     }));
@@ -740,11 +742,11 @@ fn controller_upgrade_pauses_running_contract_before_wasm_swap() {
     env.cost_estimate().budget().reset_unlimited();
     env.cost_estimate().disable_resource_limits();
     env.mock_all_auths();
-    let (_, gov_id, gov) = register_governance(&env);
+    let (admin, gov_id, gov) = register_governance(&env);
     let controller_id = register_native_controller(&env, &gov_id, &gov);
 
     // The controller deploys paused; bring it into the running state.
-    gov.unpause();
+    gov.execute_immediate(&admin, &AdminOperation::Unpause);
     env.as_contract(&controller_id, || {
         assert!(!stellar_contract_utils::pausable::paused(&env));
     });

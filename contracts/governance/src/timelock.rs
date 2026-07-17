@@ -151,6 +151,28 @@ impl Governance {
         salt: BytesN<32>,
     ) -> BytesN<32> {
         begin_immediate(&env, &proposer, PROPOSER_ROLE);
+        match &op {
+            // A proposer may revoke anyone's role except its own; the owner's
+            // roles are never revocable. The owner check is re-enforced at apply.
+            crate::op::AdminOperation::RevokeGovRole(args) => {
+                assert_with_error!(&env, args.account != proposer, GenericError::NotAuthorized);
+                assert_with_error!(
+                    &env,
+                    args.account != access::owner_or_panic(&env),
+                    GenericError::NotAuthorized
+                );
+            }
+            // Only the owner may initiate an ownership transfer; any canceller
+            // can still veto it during the timelock.
+            crate::op::AdminOperation::TransferGovOwnership(_) => {
+                assert_with_error!(
+                    &env,
+                    proposer == access::owner_or_panic(&env),
+                    GenericError::NotAuthorized
+                );
+            }
+            _ => {}
+        }
         let (target, function, args, delay_tier) = resolve_op(&env, &op);
         let delay = operation_delay(&env, delay_tier);
         let operation = Operation {
@@ -161,8 +183,7 @@ impl Governance {
             salt,
         };
         let operation_id = schedule_operation(&env, &operation, delay);
-        // Record the target and role so `cancel` can enforce the self-veto and
-        // CANCELLER-revocation veto-immunity guards.
+        // Record the target and role so `cancel` can enforce the self-veto guard.
         if let crate::op::AdminOperation::RevokeGovRole(args) = &op {
             storage::mark_role_revocation_target(&env, &operation_id, &args.account, &args.role);
         }
@@ -280,17 +301,16 @@ impl Governance {
         renew_governance_instance(&env);
         canceller.require_auth();
         access_control::ensure_role(&env, &Symbol::new(&env, CANCELLER_ROLE), &canceller);
-        // A role revocation cannot be vetoed by its own target, and a CANCELLER
-        // revocation cannot be vetoed by any canceller. The latter blocks
-        // colluding cancellers from cross-vetoing each other's removal and
-        // freezing governance; the owner ejects cancellers through the timelock.
-        // Other role revocations keep only the self-veto block, so cancellers
-        // can still veto a malicious revocation of another role.
-        if let Some((target, role)) = storage::role_revocation_target(&env, &operation_id) {
-            let revokes_canceller = role == Symbol::new(&env, CANCELLER_ROLE);
+        // A role revocation cannot be vetoed by its own target — no one blocks
+        // their own removal. Every other pending operation, including a
+        // revocation of another canceller, stays vetoable, so the independent
+        // cancellers remain a real check on a rogue proposer (or owner). A
+        // colluding-canceller deadlock is broken by the owner's immediate
+        // `revoke_role_immediate`, not by suspending the veto here.
+        if let Some((target, _role)) = storage::role_revocation_target(&env, &operation_id) {
             assert_with_error!(
                 &env,
-                !revokes_canceller && target != canceller,
+                target != canceller,
                 GenericError::OperationNotCancellable
             );
         }
@@ -298,32 +318,22 @@ impl Governance {
     }
 
     /// Emergency brake: halts the controller immediately, bypassing the
-    /// timelock. Owner-gated.
+    /// timelock. `GUARDIAN`-gated — halting is fail-safe, so the fast incident
+    /// key can act without the owner online. Resuming is risk-loosening and
+    /// rides the timelocked `Unpause` proposal instead.
+    ///
+    /// # Arguments
+    /// * `caller` - must hold the `GUARDIAN` role and authorize.
     ///
     /// # Errors
-    /// * Owner authorization is enforced by `#[only_owner]`; the controller's
-    ///   `pause` may revert per its own rules.
+    /// * The `GUARDIAN` role check is enforced here; the controller's `pause`
+    ///   may revert per its own rules.
     ///
     /// # Events
     /// * The controller emits its own pause event.
-    #[only_owner]
-    pub fn pause(env: Env) {
-        storage::renew_governance_instance(&env);
+    pub fn pause(env: Env, caller: Address) {
+        begin_immediate(&env, &caller, GUARDIAN_ROLE);
         controller_client(&env).pause();
-    }
-
-    /// Resumes the controller immediately, bypassing the timelock. Owner-gated.
-    ///
-    /// # Errors
-    /// * Owner authorization is enforced by `#[only_owner]`; the controller's
-    ///   `unpause` may revert per its own rules.
-    ///
-    /// # Events
-    /// * The controller emits its own unpause event.
-    #[only_owner]
-    pub fn unpause(env: Env) {
-        storage::renew_governance_instance(&env);
-        controller_client(&env).unpause();
     }
 
     /// Sets a spoke listing's `paused`/`frozen` flags immediately, bypassing
@@ -400,17 +410,18 @@ impl Governance {
         controller_client(&env).add_spoke()
     }
 
-    /// Revokes `GUARDIAN` or `ORACLE` immediately, bypassing the timelock.
-    /// Owner-gated emergency de-authorization: stripping a compromised
+    /// Revokes `GUARDIAN`, `ORACLE`, or `CANCELLER` immediately, bypassing the
+    /// timelock. Owner-gated emergency de-authorization: stripping a compromised
     /// immediate-role key must be at least as fast as the powers it holds.
-    /// Restricted to the immediate incident roles — `PROPOSER`/`EXECUTOR`/
-    /// `CANCELLER` revocations stay timelocked so a compromised owner key
-    /// cannot instantly strip the independent cancellers and leave a
-    /// malicious pending proposal without a veto. Grants stay timelocked.
+    /// `CANCELLER` is included so the owner can break a colluding-canceller
+    /// deadlock — two cancellers vetoing each other's timelocked removal —
+    /// which the vetoable-revocation model would otherwise leave unresolvable.
+    /// `PROPOSER`/`EXECUTOR` revocations stay timelocked. Grants stay timelocked.
     ///
     /// # Errors
-    /// * `InvalidRole` - role is not `GUARDIAN`/`ORACLE`, or `account` does
-    ///   not hold it.
+    /// * `InvalidRole` - role is not `GUARDIAN`/`ORACLE`/`CANCELLER`, or
+    ///   `account` does not hold it.
+    /// * `NotAuthorized` - `account` is the owner (its roles are never revocable).
     ///
     /// # Events
     /// * A role-revoke event from the access-control library.
@@ -418,7 +429,9 @@ impl Governance {
     pub fn revoke_role_immediate(env: Env, account: Address, role: Symbol) {
         assert_with_error!(
             &env,
-            role == Symbol::new(&env, GUARDIAN_ROLE) || role == Symbol::new(&env, ORACLE_ROLE),
+            role == Symbol::new(&env, GUARDIAN_ROLE)
+                || role == Symbol::new(&env, ORACLE_ROLE)
+                || role == Symbol::new(&env, CANCELLER_ROLE),
             GenericError::InvalidRole
         );
         access::apply_revoke_role(&env, &account, &role);

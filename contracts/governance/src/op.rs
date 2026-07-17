@@ -311,6 +311,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 ],
             )
         }
+        AdminOperation::Unpause => controller_operation(env, "unpause", vec![env]),
         AdminOperation::SetSpokeLiquidationCurve(args) => {
             validate::spoke::validate_liquidation_curve(
                 env,
