@@ -472,6 +472,20 @@ fn owner_ownership_transfer_is_cancellable() {
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
 
+#[test]
+#[should_panic(expected = "Error(Contract, #46)")]
+fn recovery_op_is_not_cancellable_by_canceller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let c1 = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
+    let fresh = Address::generate(&env);
+    let salt = BytesN::<32>::from_array(&env, &[8u8; 32]);
+    let id = gov.propose_canceller_reset(&soroban_sdk::vec![&env, fresh], &salt);
+    gov.cancel(&c1, &id);
+}
+
 // Revoking the SOLE PROPOSER reverts (#48): it is the only gate on `propose`, so
 // zeroing it would leave no way to schedule any recovery — a permanent freeze.
 // (With the owner's roles now unrevocable, the owner always remains a proposer,

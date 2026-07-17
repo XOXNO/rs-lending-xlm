@@ -304,6 +304,13 @@ impl Governance {
         renew_governance_instance(&env);
         canceller.require_auth();
         access_control::ensure_role(&env, &Symbol::new(&env, CANCELLER_ROLE), &canceller);
+        // Recovery-tier operations are non-vetoable — they exist precisely to
+        // override a captured canceller council.
+        assert_with_error!(
+            &env,
+            !storage::is_recovery_op(&env, &operation_id),
+            GenericError::OperationNotCancellable
+        );
         // A role revocation cannot be vetoed by its own target — no one blocks
         // their own removal. Every other pending operation, including a
         // revocation of another canceller, stays vetoable, so the independent
