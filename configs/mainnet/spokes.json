@@ -373,6 +373,72 @@
         "supply_cap": "3750000000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1000
+      },
+      "SPIKOEUTBL": {
+        "hub_id": 2,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 500,
+        "supply_cap": "4100000000000",
+        "borrow_cap": "0",
+        "liquidation_fees": 1000
+      },
+      "SPIKOUSTBL": {
+        "hub_id": 2,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 500,
+        "supply_cap": "430000000000",
+        "borrow_cap": "0",
+        "liquidation_fees": 1000
+      },
+      "SPIKOUKTBL": {
+        "hub_id": 2,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 500,
+        "supply_cap": "134000000000",
+        "borrow_cap": "0",
+        "liquidation_fees": 1000
+      },
+      "SPIKOSAFO": {
+        "hub_id": 2,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 500,
+        "supply_cap": "730000000000",
+        "borrow_cap": "0",
+        "liquidation_fees": 1000
+      },
+      "SPIKOEURSAFO": {
+        "hub_id": 2,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 500,
+        "supply_cap": "5170000000000",
+        "borrow_cap": "0",
+        "liquidation_fees": 1000
+      },
+      "SPIKOGBPSAFO": {
+        "hub_id": 2,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 500,
+        "supply_cap": "199000000000",
+        "borrow_cap": "0",
+        "liquidation_fees": 1000
       }
     }
   }
