@@ -180,8 +180,8 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
         );
     }
     // Also verify the lowest realized bonus is at or above base (5 %)
-    // and the highest is well below max (15 %): we're inside the
-    // interpolation band.
+    // and the highest stays below the seizure cap (25 % at the 80 %
+    // threshold): we're inside the interpolation band.
     let min_bonus = bonuses
         .iter()
         .map(|(_, b)| *b)
@@ -196,8 +196,8 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
         min_bonus
     );
     assert!(
-        max_bonus <= 0.16,
-        "max realized bonus should be ≤ cap 15 %, got {:.4}",
+        max_bonus <= 0.25,
+        "max realized bonus should be ≤ seizure cap 25 %, got {:.4}",
         max_bonus
     );
 }

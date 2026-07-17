@@ -12,7 +12,7 @@ const ULP_BOUND_TOKENS: i128 = 50;
 
 fn target_hf_wad() -> BigRational {
     let wad = BigRational::from_integer(BigInt::from(WAD));
-    wad * BigRational::from_integer(BigInt::from(102))
+    wad * BigRational::from_integer(BigInt::from(110))
         / BigRational::from_integer(BigInt::from(100))
 }
 

@@ -111,7 +111,7 @@ fn test_set_spoke_liquidation_curve_overrides_defaults_end_to_end() {
     let admin = t.admin();
 
     let before = t.ctrl_client().get_spoke(&HARNESS_SPOKE);
-    assert_eq!(before.liquidation_target_hf_wad, 1_020_000_000_000_000_000);
+    assert_eq!(before.liquidation_target_hf_wad, 1_100_000_000_000_000_000);
 
     t.gov_client().execute_immediate(
         &admin,

@@ -271,16 +271,20 @@ fn calculate_linear_bonus_with_target(
     if hf_wad >= target_wad {
         return base_bps.clone();
     }
-    let gap_numer = target_wad - hf_wad;
-    let gap = &gap_numer / target_wad;
-    let double_gap = &gap * BigRational::from_integer(BigInt::from(2));
-    let scale = if double_gap > br_one() {
-        br_one()
-    } else {
-        double_gap
-    };
+    let knee = hf_for_max_bonus_wad();
+    let gap = target_wad - hf_wad;
+    let span = target_wad - &knee;
+    let ratio = &gap / &span;
+    let scale = if ratio > br_one() { br_one() } else { ratio };
     let bonus_range = max_bps - base_bps;
     base_bps + &bonus_range * &scale
+}
+
+/// Default `hf_for_max_bonus` (WAD scale, 0.80), mirroring
+/// `controller::constants::DEFAULT_HF_FOR_MAX_BONUS_WAD`.
+fn hf_for_max_bonus_wad() -> BigRational {
+    &wad_scale() * BigRational::from_integer(BigInt::from(80))
+        / BigRational::from_integer(BigInt::from(100))
 }
 
 /// Returns the ideal debt-to-repay (in WAD USD) for a given bonus/target,
@@ -340,7 +344,7 @@ fn select_liquidation_tier(
     proportion_seized: &BigRational,
     total_collateral_wad: &BigRational,
 ) -> (BigRational, BigRational) {
-    let target = &wad_scale() * BigRational::from_integer(BigInt::from(102))
+    let target = &wad_scale() * BigRational::from_integer(BigInt::from(110))
         / BigRational::from_integer(BigInt::from(100));
 
     let bonus = calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target);
@@ -632,17 +636,18 @@ mod tests {
 
     #[test]
     fn bonus_formula_baseline() {
-        // HF = 1.0 WAD, target 1.02, base 500, max 1500
+        // HF = 1.0 WAD, target 1.10, knee 0.80, base 500, max 1500
         let hf = br_from_i128(WAD);
-        let target = &wad_scale() * BigRational::from_integer(BigInt::from(102))
+        let target = &wad_scale() * BigRational::from_integer(BigInt::from(110))
             / BigRational::from_integer(BigInt::from(100));
         let base = br_from_i128(500);
         let max = br_from_i128(1500);
         let bonus = calculate_linear_bonus_with_target(&hf, &base, &max, &target);
-        // gap = (1.02 - 1.0) / 1.02 = 0.0196...; 2*gap = 0.0392
-        // bonus = 500 + 1000 * 0.0392 = 539.21...
+        // scale = (1.10 - 1.0) / (1.10 - 0.80) = 1/3
+        // bonus = 500 + 1000 / 3 = 833.33...
         let expected = br_from_i128(500)
-            + (br_from_i128(1000) * (br_from_i128(2) * (&target - &br_from_i128(WAD)) / &target));
+            + (br_from_i128(1000) * (&target - &br_from_i128(WAD))
+                / (&target - &hf_for_max_bonus_wad()));
         assert_eq!(bonus, expected);
     }
 }

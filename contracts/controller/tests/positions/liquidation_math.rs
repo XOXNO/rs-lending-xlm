@@ -323,28 +323,29 @@ fn curve_snap(hf_raw: i128, weighted_raw: i128) -> LiquidationSnapshot {
     }
 }
 
-// With `hf_for_max_bonus = target / 2` the curve equals `2 * gap / target`.
+// The default curve ramps linearly over the (target, hf_for_max_bonus) span:
+// scale = min((target - hf) / (target - hf_for_max_bonus), 1).
 #[test]
-fn default_curve_bonus_matches_two_gap_scale() {
+fn default_curve_bonus_matches_reference_scale() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
     let base = Bps::from(500i128);
     let max = Bps::from(1_500i128);
-    let target = Wad::from(1_020_000_000_000_000_000i128);
+    let target = Wad::from(crate::constants::DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    let knee = Wad::from(crate::constants::DEFAULT_HF_FOR_MAX_BONUS_WAD);
 
     for hf_raw in [
         100_000_000_000_000_000i128,   // 0.10 -> scale capped at 1
-        450_000_000_000_000_000i128,   // 0.45
-        510_000_000_000_000_000i128,   // 0.51 == target/2 -> scale exactly 1
+        450_000_000_000_000_000i128,   // 0.45 -> scale capped at 1
+        800_000_000_000_000_000i128,   // 0.80 == hf_for_max_bonus -> scale exactly 1
         900_000_000_000_000_000i128,   // 0.90
-        1_010_000_000_000_000_000i128, // 1.01 (just below target)
+        1_050_000_000_000_000_000i128, // 1.05 (below target)
     ] {
         let hf = Wad::from(hf_raw);
         let got = calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target);
 
-        // Independent reference: scale = min(2 * (target - hf) / target, 1).
-        let gap_wad = (target - hf).div(&env, target);
-        let scale = gap_wad.mul(&env, Wad::from(2 * WAD)).min(Wad::ONE);
+        // Independent reference: scale = min((target - hf) / (target - knee), 1).
+        let scale = (target - hf).div(&env, target - knee).min(Wad::ONE);
         let increment = Wad::from((max - base).raw()).mul(&env, scale).raw();
         let want = Bps::from(base.raw() + increment);
 
@@ -867,8 +868,8 @@ fn estimate_collateral_covers_target_returns_collateral_cap() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
 
-    // target_hf * D = 1.02 * 100 = 102 == weighted_coll, the branch boundary.
-    let s = snap(100 * WAD, 120 * WAD, 102 * WAD, 85 * WAD / 100, 102 * WAD / 100);
+    // target_hf * D = 1.10 * 100 = 110 == weighted_coll, the branch boundary.
+    let s = snap(100 * WAD, 120 * WAD, 110 * WAD, 85 * WAD / 100, 102 * WAD / 100);
     let bounds = BonusBounds {
         base: Bps::from(0i128),
         max: Bps::from(0i128),

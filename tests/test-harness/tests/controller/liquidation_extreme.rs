@@ -467,7 +467,7 @@ fn test_overrepay_is_capped_at_ideal() {
         .build();
     t.supply(ALICE, "VOL", 100.0); // $10,000
     t.borrow(ALICE, "USD", 6_900.0);
-    t.set_price("VOL", usd(78)); // mildly underwater, recoverable
+    t.set_price("VOL", usd(85)); // mildly underwater, recoverable
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
     let debt_before = t.total_debt(ALICE);
