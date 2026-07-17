@@ -836,6 +836,27 @@ fn normalize_allows_partial_on_insolvent_account() {
     });
 }
 
+// The HF-preserving cap returns `None` on each of the two independent
+// no-cap conditions (`proportion <= 0` OR `hf >= WAD`) and a finite floored
+// cap in the toxic band. The two `None` cases must hold independently: an
+// account with seizable collateral but hf >= 1 needs no cap, and a
+// zero-proportion account must short-circuit before the `hf/p` division.
+#[test]
+fn max_hf_preserving_bonus_none_on_each_no_cap_condition() {
+    // proportion > 0 but hf >= WAD (healthy): no cap.
+    let healthy = snap(50 * WAD, 200 * WAD, 100 * WAD, WAD / 2, 2 * WAD);
+    assert_eq!(max_hf_preserving_bonus_bps(&healthy), None);
+
+    // hf < WAD but zero seizable proportion: no cap (also guards the
+    // `hf * BPS / proportion` division against a zero divisor).
+    let no_seizable = snap(90 * WAD, 100 * WAD, 0, 0, WAD / 2);
+    assert_eq!(max_hf_preserving_bonus_bps(&no_seizable), None);
+
+    // Toxic band (proportion 0.45, hf 0.5): finite cap hf/p - 1 = 1111 bps.
+    let toxic = snap(90 * WAD, 100 * WAD, 45 * WAD, 45 * WAD / 100, WAD / 2);
+    assert_eq!(max_hf_preserving_bonus_bps(&toxic), Some(1_111));
+}
+
 // A deeply unhealthy low-threshold position (collateral $100, debt $90,
 // threshold 0.45 -> weighted $45, HF 0.5): the curve asks for the max bonus
 // (12222 bps) but that seizure rate would ratchet HF on partials, so the
