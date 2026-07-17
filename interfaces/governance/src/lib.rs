@@ -114,6 +114,9 @@ pub enum AdminOperation {
     ConfigureMarketOracle(ConfigureOracleArgs),
     EditOracleTolerance(EditToleranceArgs),
     SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs),
+    /// Resumes the globally-paused controller. Risk-loosening, so it rides the
+    /// timelock — the counterpart to the GUARDIAN-immediate `pause`.
+    Unpause,
 
     // Governance target (Self)
     UpgradeGov(BytesN<32>),
@@ -188,11 +191,9 @@ pub trait GovernanceInterface {
     /// Schedules an administrative operation.
     fn propose(env: Env, proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>;
 
-    /// Emergency brake: halts the controller immediately, owner-gated.
-    fn pause(env: Env);
-
-    /// Resumes the controller, owner-gated and immediate.
-    fn unpause(env: Env);
+    /// Emergency brake: halts the controller immediately; GUARDIAN-gated.
+    /// Resuming rides the timelocked `AdminOperation::Unpause`.
+    fn pause(env: Env, caller: Address);
 
     /// Sets a spoke listing's paused/frozen flags immediately; GUARDIAN-gated.
     /// Tighten-only: clearing a set flag rides the timelocked edit path.

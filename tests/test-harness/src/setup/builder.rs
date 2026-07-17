@@ -175,7 +175,9 @@ impl LendingTestBuilder {
         let controller_address = env.register(controller::Controller, (admin.clone(),));
         gov.set_controller(&controller_address);
 
-        gov.unpause();
+        // The controller deploys paused. Resume it directly (owner is `admin`
+        // here); global unpause is otherwise a timelocked `AdminOperation`.
+        controller::ControllerClient::new(&env, &controller_address).unpause();
 
         let pool_wasm_path = std::env::var("POOL_WASM_PATH")
             .unwrap_or_else(|_| "target/wasm32v1-none/release/pool.wasm".to_string());

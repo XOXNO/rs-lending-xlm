@@ -120,6 +120,42 @@ fn propose_upgrade_pool_uses_sensitive_delay() {
     );
 }
 
+// GUARDIAN pauses the controller immediately; a non-guardian is rejected.
+#[test]
+fn guardian_pauses_immediately_stranger_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, controller, gov) = register_with_controller(&env, 10);
+    let stranger = Address::generate(&env);
+
+    // The controller deploys paused; resume it so a fresh pause is observable.
+    gov.execute_immediate(&admin, &AdminOperation::Unpause);
+
+    // A caller without GUARDIAN is rejected by the role gate.
+    assert!(gov.try_pause(&stranger).is_err());
+
+    // The admin holds GUARDIAN (constructor) and can halt without the timelock.
+    gov.pause(&admin);
+    assert!(env.as_contract(&controller, || {
+        stellar_contract_utils::pausable::paused(&env)
+    }));
+}
+
+// Global unpause rides the timelock at the Standard delay (risk-loosening).
+#[test]
+fn unpause_uses_standard_delay() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+
+    let current = env.ledger().sequence();
+    let id = gov.propose(&admin, &AdminOperation::Unpause, &salt);
+    assert_eq!(gov.get_operation_ledger(&id), current + delay);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #4002)")]
 fn execute_before_delay_reverts() {

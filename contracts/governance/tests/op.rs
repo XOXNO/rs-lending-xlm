@@ -30,6 +30,10 @@ fn admin_op_xdr_is_byte_stable() {
         "AAAAEAAAAAEAAAABAAAADwAAAApEZXBsb3lQb29sAAA="
     );
     assert_eq!(
+        b64(&env, AdminOperation::Unpause),
+        "AAAAEAAAAAEAAAABAAAADwAAAAdVbnBhdXNlAA=="
+    );
+    assert_eq!(
         b64(&env, AdminOperation::UpdateGovDelay(34560)),
         "AAAAEAAAAAEAAAACAAAADwAAAA5VcGRhdGVHb3ZEZWxheQAAAAAAAwAAhwA="
     );

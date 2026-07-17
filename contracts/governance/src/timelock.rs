@@ -318,32 +318,22 @@ impl Governance {
     }
 
     /// Emergency brake: halts the controller immediately, bypassing the
-    /// timelock. Owner-gated.
+    /// timelock. `GUARDIAN`-gated — halting is fail-safe, so the fast incident
+    /// key can act without the owner online. Resuming is risk-loosening and
+    /// rides the timelocked `Unpause` proposal instead.
+    ///
+    /// # Arguments
+    /// * `caller` - must hold the `GUARDIAN` role and authorize.
     ///
     /// # Errors
-    /// * Owner authorization is enforced by `#[only_owner]`; the controller's
-    ///   `pause` may revert per its own rules.
+    /// * The `GUARDIAN` role check is enforced here; the controller's `pause`
+    ///   may revert per its own rules.
     ///
     /// # Events
     /// * The controller emits its own pause event.
-    #[only_owner]
-    pub fn pause(env: Env) {
-        storage::renew_governance_instance(&env);
+    pub fn pause(env: Env, caller: Address) {
+        begin_immediate(&env, &caller, GUARDIAN_ROLE);
         controller_client(&env).pause();
-    }
-
-    /// Resumes the controller immediately, bypassing the timelock. Owner-gated.
-    ///
-    /// # Errors
-    /// * Owner authorization is enforced by `#[only_owner]`; the controller's
-    ///   `unpause` may revert per its own rules.
-    ///
-    /// # Events
-    /// * The controller emits its own unpause event.
-    #[only_owner]
-    pub fn unpause(env: Env) {
-        storage::renew_governance_instance(&env);
-        controller_client(&env).unpause();
     }
 
     /// Sets a spoke listing's `paused`/`frozen` flags immediately, bypassing
