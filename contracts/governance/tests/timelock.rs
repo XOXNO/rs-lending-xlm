@@ -7,7 +7,7 @@ use common::types::{ControllerKey, PositionLimits};
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
 use crate::constants::{
     TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS,
-    TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
+    TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
 };
 use crate::op::{AdminOperation, RoleArgs, TransferOwnershipArgs};
 use crate::timelock::{operation_delay, DelayTier};
@@ -341,10 +341,10 @@ fn independent_canceller_can_cancel_non_canceller_role_revocation() {
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
 
-// A CANCELLER-role revocation is now vetoable by an INDEPENDENT canceller (only
-// the target itself is barred): the independent-canceller veto stays a real
-// check on a rogue proposer trying to strip cancellers. The colluding-canceller
-// deadlock this opens is broken by the owner's immediate revoke, tested below.
+// An INDEPENDENT canceller (not the target) can veto a CANCELLER-role revocation,
+// ensuring a real check on a rogue proposer trying to strip cancellers. The
+// colluding-canceller deadlock this opens is broken by the non-vetoable Recovery
+// tier (propose_canceller_reset).
 #[test]
 fn independent_canceller_can_veto_canceller_revocation() {
     let env = Env::default();
@@ -369,20 +369,18 @@ fn independent_canceller_can_veto_canceller_revocation() {
     gov.cancel(&independent, &id);
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
-
-// The owner breaks a colluding-canceller deadlock with an immediate revoke,
-// bypassing the veto that the pair would otherwise use to shield each other.
+// The owner can no longer instantly strip a canceller; CANCELLER revocation
+// rides the timelock (single-vetoable) instead. Closes the "owner instantly
+// strips canceller vetoes" finding.
 #[test]
-fn owner_immediately_revokes_colluding_canceller() {
+#[should_panic(expected = "Error(Contract, #41)")]
+fn owner_cannot_immediately_revoke_canceller() {
     let env = Env::default();
     env.mock_all_auths();
     let delay = 10u32;
     let (admin, _controller, gov) = register_with_controller(&env, delay);
-    let colluder = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
-
-    assert!(gov.has_role(&colluder, &Symbol::new(&env, CANCELLER_ROLE)));
-    gov.revoke_role_immediate(&colluder, &Symbol::new(&env, CANCELLER_ROLE));
-    assert!(!gov.has_role(&colluder, &Symbol::new(&env, CANCELLER_ROLE)));
+    let canceller = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
+    gov.revoke_role_immediate(&canceller, &Symbol::new(&env, CANCELLER_ROLE));
 }
 
 // A proposer cannot revoke its own role, and the owner's roles are never
@@ -472,6 +470,20 @@ fn owner_ownership_transfer_is_cancellable() {
 
     gov.cancel(&canceller, &id);
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #46)")]
+fn recovery_op_is_not_cancellable_by_canceller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let c1 = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
+    let fresh = Address::generate(&env);
+    let salt = BytesN::<32>::from_array(&env, &[8u8; 32]);
+    let id = gov.propose_canceller_reset(&soroban_sdk::vec![&env, fresh], &salt);
+    gov.cancel(&c1, &id);
 }
 
 // Revoking the SOLE PROPOSER reverts (#48): it is the only gate on `propose`, so
@@ -626,4 +638,50 @@ fn validate_delay_update_rejects_above_max_cap() {
     let over_max = TIMELOCK_MAX_DELAY_LEDGERS + 1;
 
     gov.propose(&admin, &AdminOperation::UpdateGovDelay(over_max), &salt);
+}
+
+#[test]
+fn recovery_resets_captured_council_after_long_delay() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let bad1 = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
+    let bad2 = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 2);
+    let fresh = Address::generate(&env);
+
+    let salt = BytesN::<32>::from_array(&env, &[5u8; 32]);
+    let new_set = soroban_sdk::vec![&env, fresh.clone()];
+    let _id = gov.propose_canceller_reset(&new_set, &salt);
+
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
+    gov.execute_canceller_reset(&Some(admin.clone()), &new_set, &salt);
+
+    let role = Symbol::new(&env, CANCELLER_ROLE);
+    assert!(!gov.has_role(&bad1, &role));
+    assert!(!gov.has_role(&bad2, &role));
+    assert!(gov.has_role(&fresh, &role));
+    assert!(gov.has_role(&admin, &role)); // owner keeps its CANCELLER (root authority)
+}
+
+// A recovery reset obeys the same EXECUTOR/CANCELLER separation as the normal
+// grant path: it cannot grant CANCELLER to a non-owner that already holds
+// EXECUTOR. The reset reverts at execute with InvalidRole (#41).
+#[test]
+#[should_panic(expected = "Error(Contract, #41)")]
+fn recovery_grant_enforces_executor_canceller_separation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let executor = grant_role_via_timelock(&env, &gov, &admin, delay, EXECUTOR_ROLE, 1);
+
+    let salt = BytesN::<32>::from_array(&env, &[6u8; 32]);
+    let new_set = soroban_sdk::vec![&env, executor.clone()];
+    let _id = gov.propose_canceller_reset(&new_set, &salt);
+
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
+    gov.execute_canceller_reset(&Some(admin.clone()), &new_set, &salt);
 }

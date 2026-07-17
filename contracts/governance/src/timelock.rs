@@ -7,9 +7,9 @@ use common::types::{
 
 use controller_interface::ControllerAdminClient;
 
-#[cfg(any(test, feature = "testing"))]
-use soroban_sdk::IntoVal;
-use soroban_sdk::{assert_with_error, contractimpl, Address, BytesN, Env, Symbol, Val, Vec};
+use soroban_sdk::{
+    assert_with_error, contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val, Vec,
+};
 
 use stellar_access::access_control;
 use stellar_governance::timelock::{
@@ -34,6 +34,8 @@ pub(crate) enum DelayTier {
     /// Contract upgrade (governance, controller, or pool) and ownership
     /// transfer proposals.
     Sensitive,
+    /// Non-vetoable council reset; longest delay.
+    Recovery,
 }
 
 /// Ledger delay used when scheduling an operation at the given tier.
@@ -42,6 +44,7 @@ pub(crate) fn operation_delay(env: &Env, tier: DelayTier) -> u32 {
     match tier {
         DelayTier::Standard => min,
         DelayTier::Sensitive => min.max(constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS),
+        DelayTier::Recovery => min.max(constants::TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS),
     }
 }
 
@@ -290,8 +293,9 @@ impl Governance {
     /// * `canceller` - must hold the `CANCELLER` role and authorize.
     ///
     /// # Errors
-    /// * `OperationNotCancellable` - the operation revokes `canceller`'s own
-    ///   role (a role holder cannot veto their own removal).
+    /// * `OperationNotCancellable` - the operation is a non-vetoable Recovery-tier
+    ///   op, or it revokes `canceller`'s own role (a role holder cannot veto
+    ///   their own removal).
     /// * The `CANCELLER` role check and the not-pending reject are enforced by
     ///   the access-control and OZ timelock libraries.
     ///
@@ -301,12 +305,19 @@ impl Governance {
         renew_governance_instance(&env);
         canceller.require_auth();
         access_control::ensure_role(&env, &Symbol::new(&env, CANCELLER_ROLE), &canceller);
+        // Recovery-tier operations are non-vetoable — they exist precisely to
+        // override a captured canceller council.
+        assert_with_error!(
+            &env,
+            !storage::is_recovery_op(&env, &operation_id),
+            GenericError::OperationNotCancellable
+        );
         // A role revocation cannot be vetoed by its own target — no one blocks
         // their own removal. Every other pending operation, including a
         // revocation of another canceller, stays vetoable, so the independent
         // cancellers remain a real check on a rogue proposer (or owner). A
-        // colluding-canceller deadlock is broken by the owner's immediate
-        // `revoke_role_immediate`, not by suspending the veto here.
+        // colluding-canceller deadlock is broken by the non-vetoable Recovery
+        // tier (`propose_canceller_reset`), not by suspending the veto here.
         if let Some((target, _role)) = storage::role_revocation_target(&env, &operation_id) {
             assert_with_error!(
                 &env,
@@ -410,17 +421,17 @@ impl Governance {
         controller_client(&env).add_spoke()
     }
 
-    /// Revokes `GUARDIAN`, `ORACLE`, or `CANCELLER` immediately, bypassing the
-    /// timelock. Owner-gated emergency de-authorization: stripping a compromised
+    /// Revokes `GUARDIAN` or `ORACLE` immediately, bypassing the timelock.
+    /// Owner-gated emergency de-authorization: stripping a compromised
     /// immediate-role key must be at least as fast as the powers it holds.
-    /// `CANCELLER` is included so the owner can break a colluding-canceller
-    /// deadlock — two cancellers vetoing each other's timelocked removal —
-    /// which the vetoable-revocation model would otherwise leave unresolvable.
-    /// `PROPOSER`/`EXECUTOR` revocations stay timelocked. Grants stay timelocked.
+    /// `PROPOSER`/`EXECUTOR`/`CANCELLER` revocations stay timelocked, so a
+    /// compromised owner cannot instantly strip the independent cancellers. A
+    /// colluding-canceller deadlock is broken by the non-vetoable Recovery tier
+    /// (`propose_canceller_reset`), not by an instant owner path. Grants stay
+    /// timelocked.
     ///
     /// # Errors
-    /// * `InvalidRole` - role is not `GUARDIAN`/`ORACLE`/`CANCELLER`, or
-    ///   `account` does not hold it.
+    /// * `InvalidRole` - role is not `GUARDIAN`/`ORACLE`, or `account` does not hold it.
     /// * `NotAuthorized` - `account` is the owner (its roles are never revocable).
     ///
     /// # Events
@@ -429,9 +440,7 @@ impl Governance {
     pub fn revoke_role_immediate(env: Env, account: Address, role: Symbol) {
         assert_with_error!(
             &env,
-            role == Symbol::new(&env, GUARDIAN_ROLE)
-                || role == Symbol::new(&env, ORACLE_ROLE)
-                || role == Symbol::new(&env, CANCELLER_ROLE),
+            role == Symbol::new(&env, GUARDIAN_ROLE) || role == Symbol::new(&env, ORACLE_ROLE),
             GenericError::InvalidRole
         );
         access::apply_revoke_role(&env, &account, &role);
@@ -498,6 +507,49 @@ impl Governance {
     /// * `MathOverflow` - band computation overflows.
     pub fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OraclePriceFluctuation {
         validate::tolerance::validate_and_calculate_tolerances(&env, tolerance)
+    }
+
+    /// Owner-only, non-vetoable council reset scheduled at the Recovery delay.
+    /// Public and slow so it cannot serve as a quiet theft path; used only to
+    /// recover from a compromised majority of the canceller council.
+    #[only_owner]
+    pub fn propose_canceller_reset(
+        env: Env,
+        new_cancellers: Vec<Address>,
+        salt: BytesN<32>,
+    ) -> BytesN<32> {
+        let gov = env.current_contract_address();
+        let operation = Operation {
+            target: gov,
+            function: Symbol::new(&env, "reset_cancellers"),
+            args: vec![&env, new_cancellers.into_val(&env)],
+            predecessor: BytesN::from_array(&env, &[0u8; 32]),
+            salt,
+        };
+        let delay = operation_delay(&env, DelayTier::Recovery);
+        let id = schedule_operation(&env, &operation, delay);
+        storage::mark_recovery_op(&env, &id);
+        id
+    }
+
+    /// Executes a matured council reset. `executor=None` leaves execution open.
+    pub fn execute_canceller_reset(
+        env: Env,
+        executor: Option<Address>,
+        new_cancellers: Vec<Address>,
+        salt: BytesN<32>,
+    ) {
+        let gov = env.current_contract_address();
+        let operation = Operation {
+            target: gov,
+            function: Symbol::new(&env, "reset_cancellers"),
+            args: vec![&env, new_cancellers.clone().into_val(&env)],
+            predecessor: BytesN::from_array(&env, &[0u8; 32]),
+            salt,
+        };
+        begin_self_execute(&env, executor.as_ref(), &operation);
+        access::apply_canceller_reset(&env, &new_cancellers);
+        storage::clear_recovery_op(&env, &hash_operation(&env, &operation));
     }
 }
 

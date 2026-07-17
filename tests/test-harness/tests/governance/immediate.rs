@@ -274,8 +274,8 @@ fn owner_revokes_role_immediately() {
     let result = gov.try_revoke_role_immediate(&holder, &Symbol::new(&t.env, "NOPE"));
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
-    // CANCELLER is immediately revocable so the owner can break a colluding
-    // pair that would otherwise cross-veto each other's timelocked removal.
+    // CANCELLER is no longer immediately revocable: it rides the timelock and
+    // the single independent veto. Immediate revoke is limited to GUARDIAN/ORACLE.
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::GrantGovRole(RoleArgs {
@@ -283,9 +283,8 @@ fn owner_revokes_role_immediately() {
             role: canceller_role.clone(),
         }),
     );
-    assert!(gov.has_role(&holder, &canceller_role));
-    gov.revoke_role_immediate(&holder, &canceller_role);
-    assert!(!gov.has_role(&holder, &canceller_role));
+    let result = gov.try_revoke_role_immediate(&holder, &canceller_role);
+    assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
     // PROPOSER/EXECUTOR stay timelock-only for revocation (rejected before any
     // holder/owner check by the immediate-role allow-list).

@@ -17,6 +17,8 @@ enum GovernanceKey {
     /// role)`. Read by `cancel` to enforce the self-veto and CANCELLER-revocation
     /// veto-immunity guards.
     RoleRevocationTarget(BytesN<32>),
+    /// Marks a scheduled operation id as a Recovery-tier council reset.
+    RecoveryOp(BytesN<32>),
 }
 
 // ################## CHANGE STATE ##################
@@ -46,6 +48,22 @@ pub(crate) fn mark_role_revocation_target(
         .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
+/// Marks `operation_id` as a scheduled Recovery-tier council reset.
+pub(crate) fn mark_recovery_op(env: &Env, operation_id: &BytesN<32>) {
+    let key = GovernanceKey::RecoveryOp(operation_id.clone());
+    env.storage().persistent().set(&key, &true);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+}
+
+/// Clears the Recovery-tier marker for `operation_id` once executed.
+pub(crate) fn clear_recovery_op(env: &Env, operation_id: &BytesN<32>) {
+    env.storage()
+        .persistent()
+        .remove(&GovernanceKey::RecoveryOp(operation_id.clone()));
+}
+
 // ################## QUERY STATE ##################
 
 pub(crate) fn role_revocation_target(
@@ -58,6 +76,14 @@ pub(crate) fn role_revocation_target(
             .persistent()
             .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
     })
+}
+
+/// Returns whether `operation_id` is a marked Recovery-tier council reset.
+pub(crate) fn is_recovery_op(env: &Env, operation_id: &BytesN<32>) -> bool {
+    env.storage()
+        .persistent()
+        .get(&GovernanceKey::RecoveryOp(operation_id.clone()))
+        .unwrap_or(false)
 }
 
 pub(crate) fn has_controller(env: &Env) -> bool {

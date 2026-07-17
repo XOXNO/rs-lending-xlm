@@ -233,6 +233,23 @@ pub trait GovernanceInterface {
     /// Executes a scheduled self-operation.
     fn execute_self(env: Env, executor: Option<Address>, op: AdminOperation, salt: BytesN<32>);
 
+    /// Owner-only, non-vetoable council reset scheduled at the Recovery delay.
+    /// Public and slow so it cannot serve as a quiet theft path; used only to
+    /// recover from a compromised majority of the canceller council.
+    fn propose_canceller_reset(
+        env: Env,
+        new_cancellers: Vec<Address>,
+        salt: BytesN<32>,
+    ) -> BytesN<32>;
+
+    /// Executes a matured council reset. `executor=None` leaves execution open.
+    fn execute_canceller_reset(
+        env: Env,
+        executor: Option<Address>,
+        new_cancellers: Vec<Address>,
+        salt: BytesN<32>,
+    );
+
     /// Accepts a pending ownership transfer of the governance contract.
     fn accept_ownership(env: Env);
 
