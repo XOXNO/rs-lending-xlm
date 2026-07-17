@@ -34,6 +34,7 @@ pub mod codes {
     pub const INSUFFICIENT_COLLATERAL: u32 = CollateralError::InsufficientCollateral as u32;
     pub const HEALTH_FACTOR_TOO_HIGH: u32 = CollateralError::HealthFactorTooHigh as u32;
     pub const HEALTH_FACTOR_TOO_LOW: u32 = CollateralError::HealthFactorTooLow as u32;
+    pub const FULL_CLOSE_REQUIRED: u32 = CollateralError::FullCloseRequired as u32;
     pub const NOT_COLLATERAL: u32 = CollateralError::NotCollateral as u32;
     pub const ASSET_NOT_BORROWABLE: u32 = CollateralError::AssetNotBorrowable as u32;
 

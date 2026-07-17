@@ -56,6 +56,9 @@ pub struct RefLiquidationResult {
     pub protocol_fee_per_collateral: Vec<(u32, BigRational)>,
     /// Total debt repaid in USD WAD.
     pub total_repaid_usd_wad: BigRational,
+    /// Mirror of the solvent-toxic full-close gate: payments below the full
+    /// debt are rejected by the production plan when this is set.
+    pub requires_full_close: bool,
     /// Total collateral seized in USD WAD.
     pub total_seized_usd_wad: BigRational,
 }
@@ -554,9 +557,16 @@ pub fn compute_liquidation(
         .map(|(id, tokens, _dec)| (*id, tokens.clone()))
         .collect();
 
+    // Mirror of the production solvent-toxic full-close gate.
+    let requires_full_close = match max_hf_preserving_bonus_bps(&hf_wad, &proportion_seized) {
+        Some(cap) => cap >= BigRational::from_integer(BigInt::from(0)) && cap < base_bonus_bps,
+        None => false,
+    };
+
     RefLiquidationResult {
         health_factor_pre_wad: hf_wad,
         final_bonus_bps: bonus_bps,
+        requires_full_close,
         seized_per_collateral: seized,
         repaid_per_debt,
         protocol_fee_per_collateral: fees,

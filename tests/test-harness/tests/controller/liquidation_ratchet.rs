@@ -213,3 +213,46 @@ fn test_partial_chain_no_ratchet_spoke() {
          chain={chain_multiple:.5}, single={single_multiple:.5}"
     );
 }
+
+// Regime 4: solvent-toxic (high LT). Collateral still covers the debt but no
+// partial repayment is HF-safe (hf/p - 1 sits below the base bonus), so the
+// plan rejects partials with `FullCloseRequired`; a debt-covering payment
+// closes the account with zero socializable residue.
+#[test]
+fn test_solvent_toxic_rejects_partial_and_accepts_full_close() {
+    use test_harness::{assert_contract_error, errors, usd_cents as cents};
+
+    let mut t = LendingTest::new()
+        .with_market(usdt_stable_preset())
+        .with_market(eth_preset())
+        .build();
+    t.get_or_create_user(LIQUIDATOR);
+
+    // USDT: LT 95%, base bonus 2%. $10k supply, 4 ETH ($8k) debt.
+    t.supply(ALICE, "USDT", 10_000.0);
+    t.borrow(ALICE, "ETH", 4.0);
+
+    // Drop USDT to $0.81: C = $8100 >= D = $8000, HF = 0.9619 in
+    // [p, p*(1+base)) = [0.95, 0.969) -> cap = 126 bps < base 200.
+    t.set_price("USDT", cents(81));
+    t.assert_liquidatable(ALICE);
+
+    // Partial repayment is rejected outright.
+    let partial = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
+    assert_contract_error(partial, errors::FULL_CLOSE_REQUIRED);
+
+    // A debt-covering payment closes the account: all $8100 of collateral is
+    // seized (seizure 8000 * 1.02 = $8160 capped at C), debt reaches zero,
+    // nothing is left to socialize, and the account is cleaned up.
+    let liq_usdt_before = t.token_balance(LIQUIDATOR, "USDT");
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 4.1);
+    assert!(
+        t.find_account_id(ALICE).is_none(),
+        "full close must clean up the emptied account"
+    );
+    let seized_usdt = t.token_balance(LIQUIDATOR, "USDT") - liq_usdt_before;
+    assert!(
+        seized_usdt > 9_900.0,
+        "full close seizes ~all 10k USDT collateral, got {seized_usdt}"
+    );
+}

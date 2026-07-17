@@ -745,6 +745,97 @@ fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
     });
 }
 
+// A solvent-toxic account (collateral covers debt, but 0 <= hf/p - 1 < base)
+// rejects partial payments outright: only a full close is accepted.
+#[test]
+#[should_panic(expected = "Error(Contract, #135)")]
+fn normalize_rejects_partial_on_solvent_toxic_account() {
+    let env = Env::default();
+    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        // p = 0.9, HF = 0.93: cap = 333 bps sits in [0, base 500).
+        let s = snap(
+            500 * WAD,
+            520 * WAD,
+            468 * WAD,
+            9 * WAD / 10,
+            93 * WAD / 100,
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        // $100 of the $500 debt: below the full-close ideal -> rejected.
+        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+    });
+}
+
+// The same solvent-toxic account accepts a payment covering the full debt.
+#[test]
+fn normalize_accepts_full_close_on_solvent_toxic_account() {
+    let env = Env::default();
+    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        let s = snap(
+            500 * WAD,
+            520 * WAD,
+            468 * WAD,
+            9 * WAD / 10,
+            93 * WAD / 100,
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        let payments = vec![&env, (hub_asset.clone(), 500_0000000i128)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        assert_eq!(plan.repay_usd.raw(), 500 * WAD);
+        assert_eq!(plan.bonus.raw(), 500, "full close pays the base bonus");
+    });
+}
+
+// Insolvent accounts (negative HF-neutral cap: collateral below debt) keep the
+// partial path: forcing a full close would guarantee the liquidator a loss
+// and freeze liquidation.
+#[test]
+fn normalize_allows_partial_on_insolvent_account() {
+    let env = Env::default();
+    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
+        let mut cache = Cache::new_view(&env);
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        // p = 1, HF = 0.4: cap is negative, the account is insolvent.
+        let s = snap(500 * WAD, 100 * WAD, 40 * WAD, WAD, 400_000_000_000_000_000);
+        let bounds = BonusBounds {
+            base: Bps::from(0i128),
+            max: Bps::from(0i128),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        assert_eq!(plan.repay_usd.raw(), 100 * WAD, "partial accepted");
+        assert_eq!(plan.bonus.raw(), 0);
+    });
+}
+
 // A deeply unhealthy low-threshold position (collateral $100, debt $90,
 // threshold 0.45 -> weighted $45, HF 0.5): the curve asks for the max bonus
 // (12222 bps) but that seizure rate would ratchet HF on partials, so the

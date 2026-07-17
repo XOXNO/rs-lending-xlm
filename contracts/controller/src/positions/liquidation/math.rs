@@ -189,6 +189,22 @@ pub(crate) fn normalize_repayment_plan(
         calculate_repayment_amounts(env, raw_payments, account, &mut refunds, cache);
 
     let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
+
+    // A solvent-toxic account (0 <= hf/p - 1 < base bonus) must be closed in
+    // full. Its collateral still covers the debt, so a full close pays the
+    // liquidator C - D >= 0 and leaves nothing to socialize, while a partial
+    // at the base bonus would walk HF down and manufacture a socializable
+    // residue. Insolvent accounts (negative cap) keep the partial path: a
+    // full close there guarantees the liquidator a loss, so requiring it
+    // would freeze liquidation instead of winding the position down.
+    if total_debt_payment_usd < ideal_repayment_usd {
+        if let Some(cap) = max_hf_preserving_bonus_bps(snap) {
+            if cap >= 0 && cap < bonus_bounds.base.raw() {
+                panic_with_error!(env, CollateralError::FullCloseRequired);
+            }
+        }
+    }
+
     let max_debt_to_repay_usd = total_debt_payment_usd.min(ideal_repayment_usd);
 
     let mut final_repayment_tokens = repaid_tokens;
@@ -502,7 +518,9 @@ pub(crate) fn estimate_liquidation_amount(
         // instead so the liquidator incentive degrades smoothly.
         Some(cap) if cap >= bounds.base.raw() => Bps::from(cap),
         // Even the base bonus shrinks HF: no partial can leave the account
-        // healthier, so require a full close at the base bonus.
+        // healthier, so the ideal is a full close at the base bonus. When the
+        // collateral still covers the debt (cap >= 0), `normalize_repayment_plan`
+        // additionally rejects payments below this ideal (`FullCloseRequired`).
         Some(_) => return (snap.total_debt, bounds.base),
     };
 

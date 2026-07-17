@@ -102,6 +102,21 @@ fn run_liquidation_differential(
     let debt_before_usd = t.total_debt_raw(ALICE);
     let coll_before_usd = t.total_collateral_raw(ALICE);
     let usdc_supply_before_tokens = t.supply_balance_raw(ALICE, "USDC");
+
+    // Solvent-toxic accounts reject partial payments (`FullCloseRequired`);
+    // the reference mirrors the gate, so assert the rejection and stop -- the
+    // differential comparisons only apply to executed liquidations.
+    if ref_result.requires_full_close && ref_total_repaid_usd_wad < debt_before_usd {
+        let liq_res = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay_amt);
+        prop_assert!(
+            liq_res.is_err(),
+            "solvent-toxic partial must be rejected: repay={} debt={}",
+            repay_amt,
+            debt_before_usd
+        );
+        return Ok(());
+    }
+
     let liq_res = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay_amt);
     prop_assert!(
         liq_res.is_ok(),

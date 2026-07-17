@@ -9,7 +9,7 @@ use test_harness::helpers::{usd, usd_cents};
 use test_harness::presets::{
     AssetConfigPreset, MarketPreset, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS,
 };
-use test_harness::{LendingTest, ALICE, HARNESS_SPOKE, LIQUIDATOR};
+use test_harness::{assert_contract_error, errors, LendingTest, ALICE, HARNESS_SPOKE, LIQUIDATOR};
 
 /// Overrides the harness spoke's liquidation curve (target HF, HF for max bonus,
 /// bonus factor) through the governance forwarder.
@@ -371,6 +371,10 @@ fn test_extreme_decimal_spread_3_collateral_18_debt() {
 // only the bonus ceiling is asserted here.
 #[test]
 fn test_hf_spectrum_liquidations_bounded() {
+    // Price 79 is guard-safe (cap above base); 70 is solvent-toxic (C >= D
+    // but hf below p*(1+base): partials are rejected, only a full close
+    // executes); 55 and 45 are insolvent (partials wind the position down at
+    // the base bonus).
     let prices = [usd(79), usd(70), usd(55), usd(45)];
     for &price in &prices {
         let mut t = LendingTest::new()
@@ -384,7 +388,17 @@ fn test_hf_spectrum_liquidations_bounded() {
         t.assert_liquidatable(ALICE);
 
         let coll_price = price as f64 / WAD as f64;
-        let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", 500.0, "VOL", coll_price);
+        let (repay, expect_rejected_partial) = if price == usd(70) {
+            (7_100.0, true)
+        } else {
+            (500.0, false)
+        };
+        if expect_rejected_partial {
+            t.get_or_create_user(LIQUIDATOR);
+            let partial = t.try_liquidate(LIQUIDATOR, ALICE, "USD", 500.0);
+            assert_contract_error(partial, errors::FULL_CLOSE_REQUIRED);
+        }
+        let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", repay, "VOL", coll_price);
         assert!(
             ratio > 1.0 && ratio <= 1.26,
             "bonus within [0, max=25%] at price {coll_price}, got {ratio}"
