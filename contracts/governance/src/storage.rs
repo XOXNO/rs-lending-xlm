@@ -94,3 +94,7 @@ pub(crate) fn set_controller(env: &Env, addr: &Address) {
         .set(&GovernanceKey::Controller, addr);
 }
 
+
+#[cfg(test)]
+#[path = "../tests/storage.rs"]
+mod tests;
