@@ -124,3 +124,26 @@ fn revoke_role_rejects_unheld() {
         apply_revoke_role(&env, &stranger, &Symbol::new(&env, ORACLE_ROLE));
     });
 }
+
+// `apply_canceller_reset` grants CANCELLER to each fresh council member exactly
+// once. A duplicated entry must not double-grant: after the first grant the
+// address already holds the role, and the `&&` guard's `has_role(..).is_none()`
+// arm skips the second. Owner's CANCELLER is preserved throughout.
+#[test]
+fn canceller_reset_grants_each_member_once() {
+    let env = Env::default();
+    let id = fresh_governance(&env);
+    let a = Address::generate(&env);
+    env.as_contract(&id, || {
+        let role = Symbol::new(&env, CANCELLER_ROLE);
+        let owner = owner_or_panic(&env);
+        assert_eq!(access_control::get_role_member_count(&env, &role), 1);
+        let mut new = soroban_sdk::Vec::new(&env);
+        new.push_back(a.clone());
+        new.push_back(a.clone());
+        apply_canceller_reset(&env, &new);
+        assert!(access_control::has_role(&env, &a, &role).is_some());
+        assert!(access_control::has_role(&env, &owner, &role).is_some());
+        assert_eq!(access_control::get_role_member_count(&env, &role), 2);
+    });
+}

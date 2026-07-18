@@ -211,4 +211,27 @@ exclude_re = [
     # trees, which native unit tests cannot model.
     "replace authorize_token_approve with \\(\\)",
     "replace authorize_comet_swap with \\(\\)",
+
+    # `apply_canceller_reset` grant guard `account != owner && has_role(..).is_none()`:
+    # the loop runs only after every non-owner CANCELLER has been revoked, so at
+    # grant time `has_role(non-owner).is_none()` is always true and `account !=
+    # owner` is the sole live discriminant. The `&&`->`||` mutant differs only for
+    # a duplicated non-owner entry (already granted on its first pass), where the
+    # extra `grant_role_no_auth` is a proven no-op — verified by
+    # `canceller_reset_grants_each_member_once`, which asserts a single membership
+    # for a duplicated address and survives the mutation. Branch choice is
+    # therefore unobservable.
+    "replace && with \\|\\| in apply_canceller_reset",
+
+    # `apply_revoke_role` last-PROPOSER guard `if *role == PROPOSER { count > 1 }`:
+    # the owner is a permanent member of all five operational roles (constructor
+    # grants them; the preceding `account != owner` assert, #44, blocks any owner
+    # revoke before this guard). So the PROPOSER count can never reach the guard
+    # boundary through a reachable (non-owner) revoke — the owner always keeps it
+    # >= 1 — and for non-PROPOSER roles the owner likewise keeps the count >= 2
+    # whenever a non-owner revoke is reachable. Applying vs skipping the count
+    # check is thus identical on every reachable state, so `==` vs `!=` is
+    # unobservable. Guard kept as defense-in-depth against a future role model
+    # where the owner might not hold PROPOSER.
+    "replace == with != in apply_revoke_role",
 ]
