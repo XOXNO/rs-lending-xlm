@@ -223,7 +223,7 @@
     },
     {
       "name": "USST",
-      "hub_id": 1,
+      "hub_id": 2,
       "asset_address": "CBZ4DCE7PYMUTOAKKUTRSUPT3FJFVOWCSKWUM5A72D6SAVMUJE5JN2PJ",
       "oracle": {
         "max_price_stale_seconds": 3600,
@@ -243,8 +243,8 @@
           "tag": "None",
           "values": null
         },
-        "min_sanity_price_wad": "950000000000000000",
-        "max_sanity_price_wad": "1050000000000000000"
+        "min_sanity_price_wad": "928300000000000000",
+        "max_sanity_price_wad": "1089700000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -261,66 +261,6 @@
       }
     },
     {
-      "name": "SolvBTC",
-      "hub_id": 1,
-      "asset_address": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
-      "oracle": {
-        "max_price_stale_seconds": 3600,
-        "tolerance_bps": 1000,
-        "strategy": 1,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "SolvBTC",
-              "max_stale_seconds": 86400
-            }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "Reflector",
-              "values": [
-                {
-                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-                  "asset": {
-                    "tag": "Symbol",
-                    "values": [
-                      "BTC"
-                    ]
-                  },
-                  "read_mode": {
-                    "tag": "Twap",
-                    "values": [
-                      3
-                    ]
-                  }
-                }
-              ]
-            }
-          ]
-        },
-        "min_sanity_price_wad": "40000000000000000000000",
-        "max_sanity_price_wad": "150000000000000000000000"
-      },
-      "market_params": {
-        "max_borrow_rate": "1750000000000000000000000000",
-        "base_borrow_rate": "10000000000000000000000000",
-        "slope1": "40000000000000000000000000",
-        "slope2": "100000000000000000000000000",
-        "slope3": "1500000000000000000000000000",
-        "mid_utilization": "500000000000000000000000000",
-        "optimal_utilization": "750000000000000000000000000",
-        "max_utilization": "900000000000000000000000000",
-        "reserve_factor": 2000,
-        "is_flashloanable": true,
-        "flashloan_fee": 9
-      }
-    },
-    {
       "name": "SPIKOEUTBL",
       "hub_id": 2,
       "asset_address": "CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF",
@@ -332,7 +272,7 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOEUTBL",
               "max_stale_seconds": 86400
             }
@@ -371,7 +311,7 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOUSTBL",
               "max_stale_seconds": 86400
             }
@@ -410,7 +350,7 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOUKTBL",
               "max_stale_seconds": 86400
             }
@@ -449,7 +389,7 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOSAFO",
               "max_stale_seconds": 86400
             }
@@ -488,7 +428,7 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOEURSAFO",
               "max_stale_seconds": 86400
             }
@@ -527,7 +467,7 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOGBPSAFO",
               "max_stale_seconds": 86400
             }
@@ -566,7 +506,7 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "DEJTRSY",
               "max_stale_seconds": 86400
             }
@@ -605,7 +545,7 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "TBD_DEPLOY_MAINNET_XOXNO_ORACLE_ADAPTER",
+              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "DEJAAA",
               "max_stale_seconds": 86400
             }
@@ -639,23 +579,44 @@
       "oracle": {
         "max_price_stale_seconds": 7200,
         "tolerance_bps": 500,
-        "strategy": 0,
+        "strategy": 1,
         "primary": {
-          "tag": "RedStone",
+          "tag": "Reflector",
           "values": [
             {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "USTRY",
-              "max_stale_seconds": 86400
+              "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+              "asset": {
+                "tag": "Stellar",
+                "values": [
+                  "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
             }
           ]
         },
         "anchor": {
-          "tag": "None",
-          "values": null
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USTRY",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
         },
-        "min_sanity_price_wad": "962238600000000000",
-        "max_sanity_price_wad": "1176069400000000000"
+        "min_sanity_price_wad": "984400000000000000",
+        "max_sanity_price_wad": "1155600000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -678,23 +639,44 @@
       "oracle": {
         "max_price_stale_seconds": 7200,
         "tolerance_bps": 500,
-        "strategy": 0,
+        "strategy": 1,
         "primary": {
-          "tag": "RedStone",
+          "tag": "Reflector",
           "values": [
             {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "CETES",
-              "max_stale_seconds": 86400
+              "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+              "asset": {
+                "tag": "Stellar",
+                "values": [
+                  "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
             }
           ]
         },
         "anchor": {
-          "tag": "None",
-          "values": null
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "CETES",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
         },
-        "min_sanity_price_wad": "60411600000000000",
-        "max_sanity_price_wad": "73836400000000000"
+        "min_sanity_price_wad": "61548000000000000",
+        "max_sanity_price_wad": "72252000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -732,8 +714,8 @@
           "tag": "None",
           "values": null
         },
-        "min_sanity_price_wad": "1030785020000000000",
-        "max_sanity_price_wad": "1210051980000000000"
+        "min_sanity_price_wad": "1048800000000000000",
+        "max_sanity_price_wad": "1231200000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
