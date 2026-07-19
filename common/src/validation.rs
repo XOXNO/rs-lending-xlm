@@ -118,6 +118,9 @@ pub fn validate_liquidation_curve(
 }
 
 /// Oracle tolerance band brackets par within `[MIN_TOLERANCE, MAX_TOLERANCE]`.
+/// The lower leg carries a symmetric floor (`bps - MAX_TOLERANCE`) so a
+/// manipulated-low primary cannot sit "in band" and drag the blended midpoint
+/// down; the reciprocal band the governance builder emits always clears it.
 ///
 /// # Errors
 /// * [`OracleError::BadLastTolerance`] - inverted/out-of-envelope band.
@@ -127,7 +130,7 @@ pub fn validate_oracle_tolerance(env: &Env, tolerance: &OraclePriceFluctuation) 
         env,
         tolerance.upper_ratio_bps >= bps + MIN_TOLERANCE
             && tolerance.upper_ratio_bps <= bps + MAX_TOLERANCE
-            && tolerance.lower_ratio_bps > 0
+            && tolerance.lower_ratio_bps >= bps - MAX_TOLERANCE
             && tolerance.lower_ratio_bps <= bps,
         OracleError::BadLastTolerance
     );
