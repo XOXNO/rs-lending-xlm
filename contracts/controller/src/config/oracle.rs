@@ -3,10 +3,11 @@
 
 use common::errors::{GenericError, OracleError};
 use common::types::{
-    HubAssetKey, MarketOracleConfig, OraclePriceFluctuation, OracleSourceConfig, ReflectorBase,
+    HubAssetKey, MarketOracleConfig, OraclePriceFluctuation, OracleSourceConfig, OracleStrategy,
+    ReflectorBase,
 };
 use common::validation::{
-    validate_sanity_bounds, validate_single_source_sanity_band,
+    validate_oracle_tolerance, validate_sanity_bounds, validate_single_source_sanity_band,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
@@ -72,6 +73,13 @@ pub(crate) fn validate_market_oracle_config(
         config.min_sanity_price_wad,
         config.max_sanity_price_wad,
     );
+    // The primary/anchor agreement band is consumed only for anchored configs
+    // (oracle::compose). Re-validate it here so neither a direct owner call nor
+    // the spoke oracle-override path can store a degenerate band that disables
+    // the agreement guard.
+    if config.strategy == OracleStrategy::PrimaryWithAnchor {
+        validate_oracle_tolerance(env, &config.tolerance);
+    }
     require_quote_markets_active_usd(env, asset, config);
 }
 

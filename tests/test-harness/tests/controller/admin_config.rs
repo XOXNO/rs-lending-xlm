@@ -1,7 +1,7 @@
 use controller::constants::RAY;
 use controller::types::{
     InterestRateModel, MarketOracleConfig, OracleAssetRef, OraclePriceFluctuation, OracleReadMode,
-    OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, ReflectorBase,
+    OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, PositionLimits, ReflectorBase,
     ReflectorSourceConfig,
 };
 use soroban_sdk::testutils::Address as _;
@@ -68,6 +68,36 @@ fn test_set_position_limits() {
     let limits = t.get_position_limits();
     assert_eq!(limits.max_supply_positions, 8);
     assert_eq!(limits.max_borrow_positions, 6);
+}
+
+// The controller re-validates position limits at execution (`1..=POSITION_LIMIT_MAX`
+// per side): a zero cap (bricks a side) and an over-cap value are both rejected.
+#[test]
+fn test_set_position_limits_rejects_out_of_range() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let ctrl = t.ctrl_client();
+
+    for limits in [
+        PositionLimits {
+            max_supply_positions: 0,
+            max_borrow_positions: 5,
+        },
+        PositionLimits {
+            max_supply_positions: 5,
+            max_borrow_positions: 0,
+        },
+        PositionLimits {
+            max_supply_positions: 11,
+            max_borrow_positions: 5,
+        },
+    ] {
+        let result = ctrl.try_set_position_limits(&limits);
+        let mapped = match result {
+            Ok(res) => res.map_err(|e| e.into()),
+            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        };
+        assert_contract_error(mapped, errors::GenericError::InvalidPositionLimits as u32);
+    }
 }
 
 #[test]
@@ -266,6 +296,38 @@ fn test_set_market_oracle_config_rejects_unknown_asset() {
     // market-existence probe (`fetch_pool_sync_data`) with PoolNotInitialized.
     assert_contract_error(mapped, errors::GenericError::PoolNotInitialized as u32);
 }
+
+// `set_market_oracle_config` re-validates the agreement band for anchored
+// configs, so a degenerate tolerance on the (otherwise valid) pending-market
+// activation path is rejected instead of silently disabling the guard.
+#[test]
+fn test_set_market_oracle_config_rejects_degenerate_tolerance() {
+    let t = LendingTest::new().build();
+    let ctrl = t.ctrl_client();
+    let admin = &t.admin;
+
+    let asset = t
+        .env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let params = usdc_preset().params.to_market_params(&asset, 7);
+    ctrl.approve_token(&asset);
+    ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params);
+
+    let mut oracle_cfg = resolved_reflector_primary_anchor_config(&t.mock_reflector, &asset);
+    // In-envelope upper, loose lower: would let a manipulated-low primary blend in.
+    oracle_cfg.tolerance = OraclePriceFluctuation {
+        upper_ratio_bps: 10_500,
+        lower_ratio_bps: 100,
+    };
+    let result = ctrl.try_set_market_oracle_config(&hub_asset(asset.clone()), &oracle_cfg);
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::BAD_LAST_TOLERANCE);
+    assert!(!t.market_is_active(&asset), "market must stay inactive");
+}
 #[test]
 fn test_set_aggregator() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -345,6 +407,26 @@ fn test_set_oracle_tolerance_rejects_degenerate_band() {
         lower_ratio_bps: 11_000,
     };
     let result = t.ctrl_client().try_set_oracle_tolerance(&asset, &bad);
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::BAD_LAST_TOLERANCE);
+}
+
+// A band whose upper leg is in-envelope but whose lower leg sits below the
+// symmetric floor (`bps - MAX_TOLERANCE`) is rejected: it would let a
+// manipulated-low primary drag the blended midpoint down while still "in band".
+#[test]
+fn test_set_oracle_tolerance_rejects_loose_lower_band() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+
+    let loose = OraclePriceFluctuation {
+        upper_ratio_bps: 10_500,
+        lower_ratio_bps: 100,
+    };
+    let result = t.ctrl_client().try_set_oracle_tolerance(&asset, &loose);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
