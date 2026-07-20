@@ -32,21 +32,25 @@ contract address, whichever variants declare them.
 
 ## Freshness model
 
-Two decoupled staleness windows:
+Three related windows:
 
 - `MaxSubmissionAgeSeconds` bounds which per-signer submissions may enter an
-  aggregate (and contribute to the reported observation time). This prevents a
-  lagging or offline signer from pinning a feed's freshness or skewing the
-  median.
-- `MaxStaleSeconds` bounds how long a cached aggregate may be served on reads.
+  aggregate (absolute age vs ledger clock).
+- `MaxRelativeSkewSeconds` (default **equal** to the inclusion window) drops
+  absolute-fresh submissions that lag the freshest peer by more than the skew.
+  At the default, cluster membership matches the absolute age gate; tighten only
+  when bots submit in a tight synchronized wave.
+- `MaxStaleSeconds` bounds how long a cached aggregate may be served on reads
+  (spot and history).
 
 Keep `MaxSubmissionAgeSeconds <=` every consumer's own staleness bound
-(`max_price_stale_seconds` on the lending market config).
+(`max_stale_seconds` on the Xoxno source config). Governance listing probes this
+against the adapter's live `max_submission_age_seconds()`.
 
-If the number of fresh submissions for a feed drops below the configured
+If the number of clustered submissions for a feed drops below the configured
 threshold, the cached aggregate and history are cleared. Subsequent reads for
-that feed will fail with `NoDataForFeed` (or return `None` on the SEP-40 path)
-until enough signers submit again.
+that feed will fail with `NoDataForFeed` / `StaleData` (or return `None` on the
+SEP-40 path) until enough signers submit again.
 
 The adapter is treated as a distinct provider (`OracleProviderKind::XoxnoPriceFeed`).
 In dual-source (`PrimaryWithAnchor`) markets it can serve as the independent
@@ -71,13 +75,16 @@ feed.
 ## Operational requirements
 
 - Signer threshold should be `>= 2` in production so a single compromised
-  bot cannot move the median alone.
+  bot cannot move the median alone. Median is a single order statistic
+  (lower mid); even-sized clusters do not average.
+- Feeds must be owner-registered (`register_feed` or `add_feed`) before
+  signers can submit. Freeform feed ids are rejected (`FeedNotKnown`).
+- `add_feed` enforces reverse uniqueness (one asset per feed id). `remove_feed`
+  unmaps and wipes price state; `purge_feed` also drops any residual mapping.
 - Markets priced only by this adapter under a `Single` strategy have no
   cross-provider deviation check; the market's sanity band is the remaining
   price defense and must be configured tightly.
-- The owner (via admin entrypoints) manages the signer set, threshold,
-  per-feed mappings, staleness windows, and can purge per-signer submission
-  state for a feed (`purge_feed`).
-- `submit_price` / `submit_prices` are the write paths (signer must be
-  registered and pass `require_auth`). Aggregation runs on every successful
-  submit.
+- The owner manages the signer set, threshold, feed allowlist/mappings,
+  staleness windows, and relative skew.
+- `submit_price` / `submit_prices` require a registered signer + known feed +
+  `require_auth`. Package timestamps must be non-decreasing per signer per feed.

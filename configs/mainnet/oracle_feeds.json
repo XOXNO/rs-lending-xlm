@@ -1,8 +1,9 @@
 {
   "_comment": "Mainnet feeds for xoxno-oracle-adapter (make mainnet configureOracleFeeds). feed_id must match xoxno-lending-functions' mainnet/stellar-bot-config/1.yaml priceJobs[].pairs.",
-  "_windows_comment": "Applied by `make mainnet configureOracleWindows`. max_submission_age_seconds is the tight aggregation inclusion window: keep it > the bot submission cadence and <= every consumer market's max_price_stale_seconds. max_stale_seconds is the cache TTL (>= the inclusion window).",
+  "_windows_comment": "Applied by `make mainnet configureOracleWindows` / `upgradeOracleAdapterFull`. max_submission_age_seconds is the tight aggregation inclusion window: keep it > the bot submission cadence and <= every consumer market's max_price_stale_seconds. max_stale_seconds is the cache TTL (>= the inclusion window). max_relative_skew_seconds defaults to the inclusion window (900) so desynced bots are not dropped beyond absolute age; tighten only with synchronized heartbeats.",
   "max_submission_age_seconds": 900,
   "max_stale_seconds": 86400,
+  "max_relative_skew_seconds": 900,
   "feeds": [
     {
       "_note": "Spiko EUTBL. Chainlink EUTBL NAV (EUR) x EUR/USD.",

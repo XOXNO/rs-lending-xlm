@@ -46,6 +46,7 @@ pub fn register_xoxno_adapter(
         // WAD (18) down to the adapter's 8-decimal submission width.
         let price_raw = price_wad / 10_000_000_000;
         let feed_id = String::from_str(&t.env, feed);
+        client.register_feed(&feed_id);
         for signer in signers.iter() {
             client.submit_price(signer, &feed_id, &price_raw, &package_timestamp_ms);
         }

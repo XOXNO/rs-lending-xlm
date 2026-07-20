@@ -1,0 +1,1 @@
+{"kind":"governance_self","op_id":"dbeccbc11add6eaa5b61cd971b29b9deeebf33f790b442d0b6951d7720c3c038","network":"testnet","execute_label":"grant_gov_role","salt":"bce279be379c50b6fcaf83375fc467c76cf9e469b536b66f9c33ea1d7f4d1143","op":{"GrantGovRole":{"account":"GB6UDJGEBWFPN3OSL5SVXNKP4277ROCGTISGGVL5SORG5ZXT2GWNLIDC","role":"PROPOSER"}},"cli_executable":true}

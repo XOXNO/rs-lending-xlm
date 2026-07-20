@@ -6,7 +6,7 @@ use common::oracle::observation::{
     MIN_ORACLE_RESOLUTION_SECONDS,
 };
 use common::oracle::providers::redstone::{
-    read_price_data_uncached, RedStonePriceData, REDSTONE_DECIMALS,
+    read_price_data_uncached, xoxno_max_submission_age_call, RedStonePriceData, REDSTONE_DECIMALS,
 };
 use common::oracle::providers::reflector::{
     min_twap_observations, reflector_base_call, reflector_decimals_call, reflector_lastprice_call,
@@ -167,6 +167,14 @@ fn validate_source(
         }
         OracleSourceConfigInput::Xoxno(config) => {
             let decimals = reflector_decimals_call(env, &config.contract);
+            // Consumer staleness must not be tighter than the adapter inclusion
+            // window, or one lagging-but-included signer can DoS risk reads.
+            let adapter_max_sub_age = xoxno_max_submission_age_call(env, &config.contract);
+            assert_with_error!(
+                env,
+                config.max_stale_seconds >= adapter_max_sub_age,
+                OracleError::InvalidStalenessConfig
+            );
             let (xoxno, price_wad) = validate_feed_id_source(env, config, decimals);
             (OracleSourceConfig::Xoxno(xoxno), Some(price_wad))
         }

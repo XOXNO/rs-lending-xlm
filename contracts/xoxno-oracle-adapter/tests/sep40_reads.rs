@@ -230,7 +230,7 @@ fn price_selects_closest_when_history_is_non_monotonic() {
     let t_early = env.ledger().timestamp();
     client.submit_price(&signers[0], &feed_id(&env), &100i128, &(t_early * 1000));
     client.submit_price(&signers[1], &feed_id(&env), &200i128, &(t_early * 1000));
-    // median([100,200]) = 150 at package_timestamp t_early.
+    // lower mid of [100,200] = 100 at package_timestamp t_early.
 
     // Recompute 2 (recorded later): C joins with an OLDER observation, so the
     // new sample's package_timestamp is smaller than the earlier sample's.
@@ -240,10 +240,10 @@ fn price_selects_closest_when_history_is_non_monotonic() {
     // median([100,200,160]) = 160 at package_timestamp older_obs (< t_early).
 
     // Query at t_early: both samples qualify (older_obs < t_early <= t_early).
-    // Closest at-or-before is the t_early sample (150), NOT the later-recorded
+    // Closest at-or-before is the t_early sample (100), NOT the later-recorded
     // older_obs sample (160) that a naive first-match scan would return.
     let data = client.price(&asset, &t_early).expect("expected sample");
-    assert_eq!(data.price, 150i128);
+    assert_eq!(data.price, 100i128);
 }
 
 #[test]

@@ -152,6 +152,8 @@ pub enum OracleAdapterKey {
     /// Raw asset ScVal from the index slot.
     AssetIndex(ScVal),
     FeedMapping(ScVal),
+    /// Reverse mapping feed_id → asset; idle reverse keys must not archive.
+    FeedOwner(ScVal),
     /// Raw feed-id ScVal.
     FeedIndex(ScVal),
     CurrentAggregate(ScVal),
@@ -171,6 +173,7 @@ impl OracleAdapterKey {
             Self::FeedAt(index) => sc_enum("FeedAt", &[ScVal::U32(*index)])?,
             Self::AssetIndex(asset) => sc_enum("AssetIndex", std::slice::from_ref(asset))?,
             Self::FeedMapping(asset) => sc_enum("FeedMapping", std::slice::from_ref(asset))?,
+            Self::FeedOwner(feed) => sc_enum("FeedOwner", std::slice::from_ref(feed))?,
             Self::FeedIndex(feed) => sc_enum("FeedIndex", std::slice::from_ref(feed))?,
             Self::CurrentAggregate(feed) => {
                 sc_enum("CurrentAggregate", std::slice::from_ref(feed))?

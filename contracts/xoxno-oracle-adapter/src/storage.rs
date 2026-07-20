@@ -27,6 +27,12 @@ pub(crate) const DEFAULT_MAX_SUBMISSION_AGE_SECONDS: u64 = 900;
 /// that ordinary propagation delay drops the quorum on every recompute.
 pub(crate) const MIN_SUBMISSION_AGE_SECONDS: u64 = 60;
 
+/// Default relative cluster skew equals the absolute inclusion window so a
+/// desynced-but-still-fresh signer is not dropped beyond what
+/// `MaxSubmissionAgeSeconds` already excludes. Tighten via
+/// `set_max_relative_skew_seconds` when bots submit in a tight wave.
+pub(crate) const DEFAULT_MAX_RELATIVE_SKEW_SECONDS: u64 = DEFAULT_MAX_SUBMISSION_AGE_SECONDS;
+
 #[contracttype]
 #[derive(Clone, Debug)]
 pub(crate) enum DataKey {
@@ -34,6 +40,9 @@ pub(crate) enum DataKey {
     Threshold,
     MaxStaleSeconds,
     MaxSubmissionAgeSeconds,
+    /// Max package-time lag behind the freshest absolute-fresh peer that may
+    /// still enter the median cluster.
+    MaxRelativeSkewSeconds,
     Resolution,
     LatestSubmission(String, Address),
     /// Per-signer index of feed ids the signer has submitted to. Lets
@@ -42,12 +51,14 @@ pub(crate) enum DataKey {
     CurrentAggregate(String),
     History(String),
     FeedMapping(ReflectorAsset),
+    /// Reverse of `FeedMapping`: at most one asset may own a feed id.
+    FeedOwner(String),
     /// Enumerable asset index: count, slot, and reverse lookup.
     AssetCount,
     AssetAt(u32),
     AssetIndex(ReflectorAsset),
-    /// Enumerable known-feed index: every feed id that ever received a
-    /// submission. Backs `remove_signer`'s cleanup and `purge_feed`.
+    /// Enumerable known-feed allowlist: only registered feeds accept submits.
+    /// Populated by `register_feed` / `add_feed`, not by raw submissions.
     FeedCount,
     FeedAt(u32),
     FeedIndex(String),
@@ -90,6 +101,16 @@ pub(crate) fn load_max_submission_age(env: &Env) -> u64 {
         .unwrap_or(DEFAULT_MAX_SUBMISSION_AGE_SECONDS)
 }
 
+/// Effective cluster skew, always capped by the absolute inclusion window.
+pub(crate) fn load_max_relative_skew(env: &Env) -> u64 {
+    let configured = env
+        .storage()
+        .instance()
+        .get(&DataKey::MaxRelativeSkewSeconds)
+        .unwrap_or(DEFAULT_MAX_RELATIVE_SKEW_SECONDS);
+    configured.min(load_max_submission_age(env))
+}
+
 pub(crate) fn load_resolution(env: &Env) -> u32 {
     env.storage()
         .instance()
@@ -99,6 +120,13 @@ pub(crate) fn load_resolution(env: &Env) -> u32 {
 
 pub(crate) fn load_feed_id(env: &Env, asset: &ReflectorAsset) -> Option<String> {
     let key = DataKey::FeedMapping(asset.clone());
+    env.storage().persistent().get(&key).inspect(|_| {
+        renew_persistent_key(env, &key);
+    })
+}
+
+pub(crate) fn load_feed_owner(env: &Env, feed_id: &String) -> Option<ReflectorAsset> {
+    let key = DataKey::FeedOwner(feed_id.clone());
     env.storage().persistent().get(&key).inspect(|_| {
         renew_persistent_key(env, &key);
     })
@@ -131,8 +159,8 @@ pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
     out
 }
 
-// Hot-path renew so active feeds can't archive under later swap-remove.
-pub(crate) fn record_known_feed(env: &Env, feed_id: &String) {
+/// Inserts `feed_id` into the known-feed allowlist if absent; renews when present.
+pub(crate) fn ensure_known_feed(env: &Env, feed_id: &String) {
     let index_key = DataKey::FeedIndex(feed_id.clone());
     match env.storage().persistent().get::<DataKey, u32>(&index_key) {
         Some(slot) => {
@@ -231,22 +259,22 @@ pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
     let last_at = count - 1;
     if removed_at != last_at {
         let last_key = DataKey::AssetAt(last_at);
-        // safe: slots 0..count are always populated by the index invariant;
-        // `load_all_assets` read-renews them so an active slot can't archive.
-        let moved: ReflectorAsset = env
+        // Defensive: if the last slot archived, shrink without swap rather than panic.
+        if let Some(moved) = env
             .storage()
             .persistent()
-            .get(&last_key)
-            .expect("invariant: active AssetAt slot within 0..count");
-        let moved_at_key = DataKey::AssetAt(removed_at);
-        env.storage().persistent().set(&moved_at_key, &moved);
-        renew_persistent_key(env, &moved_at_key);
+            .get::<DataKey, ReflectorAsset>(&last_key)
+        {
+            let moved_at_key = DataKey::AssetAt(removed_at);
+            env.storage().persistent().set(&moved_at_key, &moved);
+            renew_persistent_key(env, &moved_at_key);
 
-        let moved_index_key = DataKey::AssetIndex(moved);
-        env.storage()
-            .persistent()
-            .set(&moved_index_key, &removed_at);
-        renew_persistent_key(env, &moved_index_key);
+            let moved_index_key = DataKey::AssetIndex(moved);
+            env.storage()
+                .persistent()
+                .set(&moved_index_key, &removed_at);
+            renew_persistent_key(env, &moved_index_key);
+        }
     }
     env.storage()
         .persistent()
@@ -283,22 +311,18 @@ pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
     let last_at = count - 1;
     if removed_at != last_at {
         let last_key = DataKey::FeedAt(last_at);
-        // safe: slots 0..count are always populated by the index invariant;
-        // `record_known_feed` read-renews an active feed's slots.
-        let moved: String = env
-            .storage()
-            .persistent()
-            .get(&last_key)
-            .expect("invariant: active FeedAt slot within 0..count");
-        let moved_at_key = DataKey::FeedAt(removed_at);
-        env.storage().persistent().set(&moved_at_key, &moved);
-        renew_persistent_key(env, &moved_at_key);
+        // Defensive: if the last slot archived, shrink without swap rather than panic.
+        if let Some(moved) = env.storage().persistent().get::<DataKey, String>(&last_key) {
+            let moved_at_key = DataKey::FeedAt(removed_at);
+            env.storage().persistent().set(&moved_at_key, &moved);
+            renew_persistent_key(env, &moved_at_key);
 
-        let moved_index_key = DataKey::FeedIndex(moved);
-        env.storage()
-            .persistent()
-            .set(&moved_index_key, &removed_at);
-        renew_persistent_key(env, &moved_index_key);
+            let moved_index_key = DataKey::FeedIndex(moved);
+            env.storage()
+                .persistent()
+                .set(&moved_index_key, &removed_at);
+            renew_persistent_key(env, &moved_index_key);
+        }
     }
     env.storage().persistent().remove(&DataKey::FeedAt(last_at));
 
@@ -307,10 +331,39 @@ pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
     renew_persistent_key(env, &count_key);
 }
 
+/// Drops aggregate, history, per-signer submissions, known-feed index entry,
+/// and reverse asset ownership for `feed_id`. Mapping for an asset is left to
+/// the caller (`remove_feed`) so purge can reset data under a live mapping.
+pub(crate) fn clear_feed_state(env: &Env, feed_id: &String) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::CurrentAggregate(feed_id.clone()));
+    env.storage()
+        .persistent()
+        .remove(&DataKey::History(feed_id.clone()));
+    for signer in load_signers(env).iter() {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::LatestSubmission(feed_id.clone(), signer.clone()));
+        remove_signer_feed(env, &signer, feed_id);
+    }
+    env.storage()
+        .persistent()
+        .remove(&DataKey::FeedOwner(feed_id.clone()));
+    feed_index_remove(env, feed_id);
+}
+
 pub(crate) fn require_registered_signer(env: &Env, signer: &Address) -> Result<(), Error> {
     let signers = load_signers(env);
     if !signers.contains(signer) {
         return Err(Error::NotAuthorizedSigner);
+    }
+    Ok(())
+}
+
+pub(crate) fn require_known_feed(env: &Env, feed_id: &String) -> Result<(), Error> {
+    if !feed_index_contains(env, feed_id) {
+        return Err(Error::FeedNotKnown);
     }
     Ok(())
 }

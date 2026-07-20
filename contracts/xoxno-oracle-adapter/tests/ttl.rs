@@ -10,13 +10,23 @@ use ::common::constants::{
     TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
-use soroban_sdk::Env;
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{vec, Address, Env};
+use xoxno_oracle_adapter::{XoxnoOracle, XoxnoOracleClient};
 
 #[test]
 fn entrypoint_renews_oracle_instance_ttl() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _admin, _signers) = setup(&env, 1, 1);
+    // Register without `setup`'s default `register_feed` so the instance TTL
+    // is still the host default (below the renewal threshold).
+    let admin = Address::generate(&env);
+    let signer = Address::generate(&env);
+    let contract_id = env.register(
+        XoxnoOracle,
+        (admin, vec![&env, signer], 1u32, TEST_RESOLUTION),
+    );
+    let client = XoxnoOracleClient::new(&env, &contract_id);
 
     let initial = env.as_contract(&client.address, || env.storage().instance().get_ttl());
     assert!(
