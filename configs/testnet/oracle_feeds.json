@@ -1,8 +1,9 @@
 {
   "_comment": "Testnet feeds for the self-hosted xoxno-oracle-adapter (make testnet configureOracleFeeds). feed_id must match the off-chain bot (xoxno-lending-functions devnet/stellar-bot-config priceJobs[].pairs). RWA assets use tag=Other with plain tickers as placeholders for submit/aggregate/read smoke tests (no known Stellar testnet deployments). Production mappings and sourcing: configs/mainnet/oracle_feeds.json.",
-  "_windows_comment": "Applied by `make testnet configureOracleWindows`. max_submission_age_seconds is the tight aggregation inclusion window: keep it > the bot submission cadence and <= every consumer market's max_price_stale_seconds. max_stale_seconds is the cache TTL (>= the inclusion window).",
+  "_windows_comment": "Applied by `make testnet configureOracleWindows` / `upgradeOracleAdapterFull`. max_submission_age_seconds is the tight aggregation inclusion window. max_stale_seconds is the cache TTL. max_relative_skew_seconds defaults to the inclusion window (900).",
   "max_submission_age_seconds": 900,
   "max_stale_seconds": 86400,
+  "max_relative_skew_seconds": 900,
   "feeds": [
     {
       "feed_id": "SPIKOEUTBL",

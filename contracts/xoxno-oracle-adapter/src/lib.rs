@@ -13,6 +13,8 @@
 //! submissions may enter an aggregate (so one lagging signer cannot pin a
 //! feed's freshness), `MaxStaleSeconds` bounds how long a cached aggregate
 //! keeps serving. Keep the former `<=` every consumer's own `max_stale`.
+//! A third knob, `MaxRelativeSkewSeconds`, drops absolute-fresh submissions
+//! that lag the freshest peer by more than the skew before the median runs.
 #![no_std]
 
 mod admin;
@@ -46,6 +48,8 @@ pub enum Error {
     FeedNotKnown = 14,
     InvalidSubmissionAge = 15,
     StaleSubmission = 16,
+    FeedAlreadyRegistered = 17,
+    InvalidRelativeSkew = 18,
 }
 
 #[contract]
@@ -83,6 +87,10 @@ impl XoxnoOracle {
         store.set(
             &storage::DataKey::MaxSubmissionAgeSeconds,
             &storage::DEFAULT_MAX_SUBMISSION_AGE_SECONDS,
+        );
+        store.set(
+            &storage::DataKey::MaxRelativeSkewSeconds,
+            &storage::DEFAULT_MAX_RELATIVE_SKEW_SECONDS,
         );
         store.set(&storage::DataKey::Resolution, &resolution);
         Ok(())

@@ -10,10 +10,10 @@ use stellar_macros::only_owner;
 
 use crate::aggregation::recompute_aggregate;
 use crate::storage::{
-    asset_index_insert, asset_index_remove, feed_index_contains, feed_index_remove, load_all_feeds,
-    load_max_stale_seconds, load_max_submission_age, load_signer_feeds, load_signers,
-    load_threshold, remove_signer_feed, renew_oracle_instance, renew_persistent_key, DataKey,
-    MIN_SUBMISSION_AGE_SECONDS,
+    asset_index_insert, asset_index_remove, clear_feed_state, ensure_known_feed, feed_index_contains,
+    load_all_feeds, load_feed_owner, load_max_stale_seconds, load_max_submission_age,
+    load_signer_feeds, load_signers, load_threshold, renew_oracle_instance, renew_persistent_key,
+    DataKey, MIN_SUBMISSION_AGE_SECONDS,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -131,8 +131,48 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Max package-time lag behind the freshest absolute-fresh peer that may
+    /// still enter the median cluster. Capped by `MaxSubmissionAgeSeconds`.
+    /// Side effects: recomputes all feeds.
+    ///
     /// # Errors
-    /// * `FeedAlreadyMapped`
+    /// * `InvalidRelativeSkew` - above MaxSubmissionAgeSeconds
+    #[only_owner]
+    pub fn set_max_relative_skew_seconds(env: Env, seconds: u64) -> Result<(), Error> {
+        renew_oracle_instance(&env);
+        if seconds > load_max_submission_age(&env) {
+            return Err(Error::InvalidRelativeSkew);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxRelativeSkewSeconds, &seconds);
+
+        for feed_id in load_all_feeds(&env).iter() {
+            recompute_aggregate(&env, &feed_id);
+        }
+        Ok(())
+    }
+
+    /// Owner allowlist for a RedStone-style `feed_id` without SEP-40 mapping.
+    /// Submissions to unregistered feed ids are rejected.
+    ///
+    /// # Errors
+    /// * `FeedAlreadyRegistered`
+    #[only_owner]
+    pub fn register_feed(env: Env, feed_id: String) -> Result<(), Error> {
+        renew_oracle_instance(&env);
+        if feed_index_contains(&env, &feed_id) {
+            return Err(Error::FeedAlreadyRegistered);
+        }
+        ensure_known_feed(&env, &feed_id);
+        Ok(())
+    }
+
+    /// Maps `asset` → `feed_id` for SEP-40 reads and ensures the feed is on the
+    /// submit allowlist. At most one asset may own a given feed id.
+    ///
+    /// # Errors
+    /// * `FeedAlreadyMapped` - asset already mapped, or feed id already owned
     #[only_owner]
     pub fn add_feed(env: Env, feed_id: String, asset: ReflectorAsset) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -140,14 +180,23 @@ impl XoxnoOracle {
         if env.storage().persistent().has(&key) {
             return Err(Error::FeedAlreadyMapped);
         }
+        if load_feed_owner(&env, &feed_id).is_some() {
+            return Err(Error::FeedAlreadyMapped);
+        }
         env.storage().persistent().set(&key, &feed_id);
         renew_persistent_key(&env, &key);
 
+        let owner_key = DataKey::FeedOwner(feed_id.clone());
+        env.storage().persistent().set(&owner_key, &asset);
+        renew_persistent_key(&env, &owner_key);
+
+        ensure_known_feed(&env, &feed_id);
         asset_index_insert(&env, asset);
         Ok(())
     }
 
-    /// Drops mapping + asset index only; submissions need `purge_feed`.
+    /// Drops SEP-40 mapping and wipes all price state for the mapped feed
+    /// (aggregate, history, submissions, allowlist entry).
     ///
     /// # Errors
     /// * `FeedNotMapped`
@@ -155,12 +204,12 @@ impl XoxnoOracle {
     pub fn remove_feed(env: Env, asset: ReflectorAsset) -> Result<(), Error> {
         renew_oracle_instance(&env);
         let key = DataKey::FeedMapping(asset.clone());
-        if !env.storage().persistent().has(&key) {
+        let Some(feed_id) = env.storage().persistent().get::<DataKey, String>(&key) else {
             return Err(Error::FeedNotMapped);
-        }
+        };
         env.storage().persistent().remove(&key);
-
         asset_index_remove(&env, &asset);
+        clear_feed_state(&env, &feed_id);
         Ok(())
     }
 
@@ -173,8 +222,11 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Clears aggregate, history, per-signer submissions, known-feed index.
-    /// Does not touch FeedMapping/asset index (`remove_feed`).
+    /// Clears aggregate, history, per-signer submissions, known-feed allowlist
+    /// entry, and reverse ownership. Does not touch a residual asset mapping
+    /// if called after `remove_feed` already dropped it; when a mapping still
+    /// exists, the owner should call `remove_feed` instead so indexes stay
+    /// consistent. Prefer `remove_feed` for full teardown.
     ///
     /// # Errors
     /// * `FeedNotKnown`
@@ -186,22 +238,15 @@ impl XoxnoOracle {
             return Err(Error::FeedNotKnown);
         }
 
-        env.storage()
-            .persistent()
-            .remove(&DataKey::CurrentAggregate(feed_id.clone()));
-        env.storage()
-            .persistent()
-            .remove(&DataKey::History(feed_id.clone()));
-        for signer in load_signers(&env).iter() {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::LatestSubmission(feed_id.clone(), signer.clone()));
-            // Keep `SignerFeeds` consistent with the known-feed set, else the
-            // purged feed lingers there across purge/re-add cycles.
-            remove_signer_feed(&env, &signer, &feed_id);
+        // If an asset still owns this feed, drop that mapping + asset index so
+        // SEP-40 and reverse ownership cannot point at a wiped feed.
+        if let Some(asset) = load_feed_owner(&env, &feed_id) {
+            let map_key = DataKey::FeedMapping(asset.clone());
+            env.storage().persistent().remove(&map_key);
+            asset_index_remove(&env, &asset);
         }
 
-        feed_index_remove(&env, &feed_id);
+        clear_feed_state(&env, &feed_id);
         Ok(())
     }
 }

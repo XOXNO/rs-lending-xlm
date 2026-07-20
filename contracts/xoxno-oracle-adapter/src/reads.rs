@@ -11,8 +11,8 @@ use soroban_sdk::{contractimpl, Env, String, Symbol, Vec};
 
 use crate::aggregation::MAX_HISTORY_LEN;
 use crate::storage::{
-    load_all_assets, load_feed_id, load_max_stale_seconds, load_resolution, renew_persistent_key,
-    DataKey,
+    load_all_assets, load_feed_id, load_max_relative_skew, load_max_stale_seconds,
+    load_max_submission_age, load_resolution, renew_persistent_key, DataKey,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -57,15 +57,21 @@ impl XoxnoOracle {
         Ok(results)
     }
 
-    /// Newest-first history cap for SEP-40 `price`/`prices`.
+    /// Newest-first history cap for SEP-40 `price`/`prices`. Fails closed when
+    /// the live aggregate is missing or past `MaxStaleSeconds`, so history
+    /// cannot outlive the spot feed.
     ///
     /// # Errors
     /// * `NoDataForFeed`
+    /// * `StaleData`
     pub fn read_price_history(
         env: Env,
         feed_id: String,
         limit: u32,
     ) -> Result<Vec<RedStonePriceData>, Error> {
+        // Spot TTL / presence gate first.
+        Self::read_price_data_for_feed(env.clone(), feed_id.clone())?;
+
         let key = DataKey::History(feed_id.clone());
         let history: Vec<RedStonePriceData> = env
             .storage()
@@ -87,6 +93,21 @@ impl XoxnoOracle {
             );
         }
         Ok(newest_first)
+    }
+
+    /// Absolute inclusion window used by aggregation and submit gates.
+    pub fn max_submission_age_seconds(env: Env) -> u64 {
+        load_max_submission_age(&env)
+    }
+
+    /// Cache TTL for `read_price_data_for_feed` / history gates.
+    pub fn max_stale_seconds(env: Env) -> u64 {
+        load_max_stale_seconds(&env)
+    }
+
+    /// Effective relative cluster skew (capped by the absolute inclusion window).
+    pub fn max_relative_skew_seconds(env: Env) -> u64 {
+        load_max_relative_skew(&env)
     }
 }
 

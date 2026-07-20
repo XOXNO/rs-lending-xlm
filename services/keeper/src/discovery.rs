@@ -504,6 +504,8 @@ async fn discover_oracle_adapter(
             if let Some(feed) = contract_data_scval(&row) {
                 derived_keys
                     .push(OracleAdapterKey::FeedIndex(feed.clone()).to_ledger_key(adapter_id)?);
+                derived_keys
+                    .push(OracleAdapterKey::FeedOwner(feed.clone()).to_ledger_key(adapter_id)?);
                 derived_keys.push(
                     OracleAdapterKey::CurrentAggregate(feed.clone())
                         .to_ledger_key(adapter_id)?,

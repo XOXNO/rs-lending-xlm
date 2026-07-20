@@ -3508,6 +3508,58 @@ configure_oracle_feeds() {
     echo "=== Oracle feeds configured (${NETWORK}) ===" >&2
 }
 
+# remove_feed then add_feed for every entry in oracle_feeds.json. Rebuilds
+# FeedOwner reverse maps and wipes legacy price state. Expect downtime until
+# bots re-quorum. SIGNER must be the adapter owner (use SIGNER=ledger).
+reconfigure_oracle_feeds() {
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}. Run: make ${NETWORK} deployOracleAdapter"
+    [ -f "$ORACLE_FEEDS_FILE" ] || die "Feeds config file not found: $ORACLE_FEEDS_FILE"
+
+    echo "=== Reconfiguring oracle feeds on ${NETWORK} (adapter ${adapter}) ===" >&2
+    echo "  Each feed: remove_feed (wipe) then add_feed (mapping + allowlist + FeedOwner)" >&2
+    local count i feed_id tag value asset_json errfile rc
+    count=$(jq '.feeds | length' "$ORACLE_FEEDS_FILE")
+    for ((i = 0; i < count; i++)); do
+        feed_id=$(jq -r ".feeds[$i].feed_id" "$ORACLE_FEEDS_FILE")
+        tag=$(jq -r ".feeds[$i].asset.tag" "$ORACLE_FEEDS_FILE")
+        value=$(jq -r ".feeds[$i].asset.value" "$ORACLE_FEEDS_FILE")
+        asset_json=$(_oracle_asset_json "$tag" "$value")
+
+        echo "  remove_feed ${asset_json}" >&2
+        errfile=$(mktemp)
+        stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+            -- remove_feed --asset "$asset_json" 2>"$errfile" && rc=0 || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            # FeedNotMapped = 13 — first-time or already cleaned.
+            if grep -qiE 'FeedNotMapped|Error\(Contract, #13\)' "$errfile"; then
+                echo "    not mapped, skip remove" >&2
+            else
+                cat "$errfile" >&2
+                rm -f "$errfile"
+                die "remove_feed failed for ${feed_id}"
+            fi
+        fi
+        rm -f "$errfile"
+
+        echo "  add_feed ${feed_id} -> ${asset_json}" >&2
+        errfile=$(mktemp)
+        stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+            -- add_feed --feed_id "$feed_id" --asset "$asset_json" 2>"$errfile" && rc=0 || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            if grep -qiE 'FeedAlreadyMapped|Error\(Contract, #12\)' "$errfile"; then
+                echo "    already mapped after remove (unexpected), skipping" >&2
+            else
+                cat "$errfile" >&2
+                rm -f "$errfile"
+                die "add_feed failed for ${feed_id}"
+            fi
+        fi
+        rm -f "$errfile"
+    done
+    echo "=== Oracle feeds reconfigured (${NETWORK}); wait for bot quorum ===" >&2
+}
+
 # Read-only: dumps the adapter's live enumerable asset index.
 list_oracle_feeds() {
     local adapter
@@ -3553,23 +3605,23 @@ _invoke_set_window() {
         -- "$fn" --seconds "$seconds" >/dev/null 2>&1
 }
 
-# Applies the two staleness windows from ${NETWORK}/oracle_feeds.json (top-level
-# `max_submission_age_seconds` / `max_stale_seconds`). The contract enforces
-# 60 <= submission_age <= max_stale; with both set there is no on-chain getter
-# to decide the safe order up front, so try stale-then-age (widening) and fall
-# back to age-then-stale (tightening).
+# Applies staleness / cluster windows from ${NETWORK}/oracle_feeds.json:
+# `max_submission_age_seconds`, `max_stale_seconds`, `max_relative_skew_seconds`.
+# Contract: 60 <= submission_age <= max_stale; relative_skew <= submission_age.
+# Order: widen max_stale first when both age+stale set, then age, then skew.
 configure_oracle_windows() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}. Run: make ${NETWORK} deployOracleAdapter"
     [ -f "$ORACLE_FEEDS_FILE" ] || die "Feeds config file not found: $ORACLE_FEEDS_FILE"
 
-    local max_stale age
+    local max_stale age skew
     max_stale=$(jq -r '.max_stale_seconds // empty' "$ORACLE_FEEDS_FILE")
     age=$(jq -r '.max_submission_age_seconds // empty' "$ORACLE_FEEDS_FILE")
-    [ -n "${max_stale}${age}" ] || die "Set max_stale_seconds and/or max_submission_age_seconds in ${ORACLE_FEEDS_FILE}"
+    skew=$(jq -r '.max_relative_skew_seconds // empty' "$ORACLE_FEEDS_FILE")
+    [ -n "${max_stale}${age}${skew}" ] || die "Set max_stale_seconds, max_submission_age_seconds, and/or max_relative_skew_seconds in ${ORACLE_FEEDS_FILE}"
 
     echo "=== Configuring oracle windows on ${NETWORK} (adapter ${adapter}) ===" >&2
-    echo "  max_stale_seconds=${max_stale:-<unchanged>} max_submission_age_seconds=${age:-<unchanged>}" >&2
+    echo "  max_stale_seconds=${max_stale:-<unchanged>} max_submission_age_seconds=${age:-<unchanged>} max_relative_skew_seconds=${skew:-<unchanged>}" >&2
 
     if [ -n "$max_stale" ] && [ -n "$age" ]; then
         { _invoke_set_window set_max_stale_seconds "$max_stale" "$adapter" \
@@ -3579,8 +3631,15 @@ configure_oracle_windows() {
         || die "Failed to apply windows; ensure 60 <= max_submission_age_seconds (${age}) <= max_stale_seconds (${max_stale})"
     elif [ -n "$max_stale" ]; then
         _invoke_set_window set_max_stale_seconds "$max_stale" "$adapter" || die "set_max_stale_seconds failed"
-    else
+    elif [ -n "$age" ]; then
         _invoke_set_window set_max_submission_age_seconds "$age" "$adapter" || die "set_max_submission_age_seconds failed"
+    fi
+
+    if [ -n "$skew" ]; then
+        # Skew must be set after submission age when both change (skew <= age).
+        stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+            -- set_max_relative_skew_seconds --seconds "$skew" \
+            || die "set_max_relative_skew_seconds failed (must be <= MaxSubmissionAgeSeconds)"
     fi
     echo "=== Oracle windows configured (${NETWORK}) ===" >&2
 }
@@ -3605,6 +3664,44 @@ set_oracle_max_stale() {
     echo "=== set_max_stale_seconds ${seconds} on ${NETWORK} (adapter ${adapter}) ===" >&2
     stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- set_max_stale_seconds --seconds "$seconds"
+}
+
+# One-off setter for relative cluster skew.
+set_oracle_relative_skew() {
+    local seconds=$1
+    [ -n "$seconds" ] || die "Usage: $0 setOracleRelativeSkew <seconds>"
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
+    echo "=== set_max_relative_skew_seconds ${seconds} on ${NETWORK} (adapter ${adapter}) ===" >&2
+    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        -- set_max_relative_skew_seconds --seconds "$seconds"
+}
+
+# Read-only smoke: print live window getters after upgrade.
+verify_oracle_adapter_windows() {
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
+    echo "=== Oracle adapter windows (${NETWORK}, ${adapter}) ===" >&2
+    echo -n "  max_submission_age_seconds: " >&2
+    invoke_view "$adapter" max_submission_age_seconds
+    echo -n "  max_stale_seconds: " >&2
+    invoke_view "$adapter" max_stale_seconds
+    echo -n "  max_relative_skew_seconds: " >&2
+    invoke_view "$adapter" max_relative_skew_seconds
+}
+
+# Post-Wasm steps only (windows + feed remove/re-add + verify). Used by
+# `make <net> upgradeOracleAdapterFull` after upload/upgrade.
+finalize_oracle_adapter_upgrade() {
+    echo "=== Finalizing oracle adapter upgrade on ${NETWORK} (signer=${SIGNER}) ===" >&2
+    configure_oracle_windows
+    reconfigure_oracle_feeds
+    verify_oracle_adapter_windows
+    list_oracle_feeds
+    echo "" >&2
+    echo "Next: wait for stellar bots to re-submit until threshold is met on each feed," >&2
+    echo "then probe: make ${NETWORK} queryRedStone <feed_id>" >&2
+    echo "=== Oracle adapter upgrade finalize complete (${NETWORK}) ===" >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -4280,6 +4377,9 @@ case "$1" in
     "configureOracleFeeds")
         configure_oracle_feeds
         ;;
+    "reconfigureOracleFeeds")
+        reconfigure_oracle_feeds
+        ;;
     "listOracleFeeds")
         list_oracle_feeds
         ;;
@@ -4298,6 +4398,15 @@ case "$1" in
         ;;
     "setOracleMaxStale")
         set_oracle_max_stale "$2"
+        ;;
+    "setOracleRelativeSkew")
+        set_oracle_relative_skew "$2"
+        ;;
+    "verifyOracleAdapterWindows")
+        verify_oracle_adapter_windows
+        ;;
+    "finalizeOracleAdapterUpgrade")
+        finalize_oracle_adapter_upgrade
         ;;
     "setAggregatorFee")
         set_aggregator_fee "$2"
@@ -4852,6 +4961,10 @@ case "$1" in
         echo "  info                            Deployment addresses & signer"
         echo "  listOracles                     Per-market oracle wiring from config"
         echo "  configureOracleFeeds           Call add_feed on xoxno_oracle_adapter for every entry in \${NETWORK}/oracle_feeds.json"
+        echo "  reconfigureOracleFeeds         remove_feed then add_feed for every entry (wipe + rebuild FeedOwner)"
+        echo "  finalizeOracleAdapterUpgrade   windows + reconfigure feeds + verify (post-Wasm)"
+        echo "  verifyOracleAdapterWindows     Print live max_submission_age / max_stale / relative_skew"
+        echo "  setOracleRelativeSkew <secs>   Set max_relative_skew_seconds (<= submission age)"
         echo "  configureOracleWindows         Apply max_submission_age_seconds/max_stale_seconds from \${NETWORK}/oracle_feeds.json"
         echo "  setOracleSubmissionAge <secs>  Set the tight aggregation inclusion window (>=60, <= max_stale)"
         echo "  setOracleMaxStale <secs>       Set the cache TTL (>= submission-age window)"

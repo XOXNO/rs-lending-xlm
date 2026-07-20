@@ -7,7 +7,8 @@ use common::*;
 use xoxno_oracle_adapter::Error;
 
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{vec, Address, Env, String};
+use ::common::oracle::providers::reflector::ReflectorAsset;
+use soroban_sdk::{vec, Address, Env, String, Symbol};
 
 #[test]
 fn submit_price_rejects_non_registered_signer() {
@@ -71,10 +72,10 @@ fn aggregate_not_produced_until_threshold_reached() {
         Error::NoDataForFeed
     );
 
-    // Second submission reaches threshold.
+    // Second submission reaches threshold (lower mid of [100, 102] = 100).
     client.submit_price(&signers[1], &feed, &102i128, &1_000u64);
     let data = client.read_price_data_for_feed(&feed);
-    assert_eq!(data.price.to_u128(), Some(101u128));
+    assert_eq!(data.price.to_u128(), Some(100u128));
 }
 
 #[test]
@@ -107,9 +108,9 @@ fn median_even_count() {
     client.submit_price(&signers[2], &feed, &200i128, &1_000u64);
     client.submit_price(&signers[3], &feed, &400i128, &1_000u64);
 
-    // sorted: 100, 200, 300, 400 -> middle two are 200, 300 -> avg 250
+    // sorted: 100, 200, 300, 400 -> lower mid (len-1)/2 = index 1 -> 200
     let data = client.read_price_data_for_feed(&feed);
-    assert_eq!(data.price.to_u128(), Some(250u128));
+    assert_eq!(data.price.to_u128(), Some(200u128));
 }
 
 #[test]
@@ -141,10 +142,7 @@ fn median_even_count_with_odd_gap_rounds_toward_lower_middle() {
     let (client, _admin, signers) = setup(&env, 2, 2);
     let feed = feed_id(&env);
 
-    // Middle pair (100, 101) differs by an odd amount, so the midpoint
-    // truncates from the LOWER middle element: 100 + (101 - 100)/2 = 100.
-    // This pins the ascending sort order — a reversed comparator would
-    // compute 101 + (100 - 101)/2 = 101.
+    // Lower order-statistic median at (len-1)/2 for [100, 101] is 100.
     client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
     client.submit_price(&signers[1], &feed, &101i128, &1_000u64);
     assert_eq!(
@@ -163,9 +161,9 @@ fn stale_submission_excluded_from_aggregate() {
     // Both submit at ledger time 0 (package_timestamp in ms).
     client.submit_price(&signers[0], &feed, &100i128, &0u64);
     client.submit_price(&signers[1], &feed, &200i128, &0u64);
-    // Threshold met — aggregate exists.
+    // Threshold met — aggregate exists (lower mid of [100, 200] = 100).
     let data = client.read_price_data_for_feed(&feed);
-    assert_eq!(data.price.to_u128(), Some(150u128));
+    assert_eq!(data.price.to_u128(), Some(100u128));
 
     // Advance ledger time well past MaxSubmissionAgeSeconds (default 900s).
     advance_ledger_seconds(&env, 90_000);
@@ -204,7 +202,8 @@ fn lagging_signer_does_not_pin_feed_freshness() {
 
     let data = client.read_price_data_for_feed(&feed);
     // C's stale submission (age 1000 > 900) is excluded from the median...
-    assert_eq!(data.price.to_u128(), Some(101u128));
+    // lower mid of fresh [100, 102] = 100.
+    assert_eq!(data.price.to_u128(), Some(100u128));
     // ...and from the reported observation time, which now tracks the fresh
     // quorum (2_000_000 ms) rather than being pinned to C's t0 (1_000_000 ms).
     assert_eq!(data.package_timestamp, t1_ms);
@@ -236,6 +235,7 @@ fn bulk_read_fails_entirely_if_any_feed_missing() {
 
     let feed_a = String::from_str(&env, "A/USD");
     let feed_b = String::from_str(&env, "B/USD");
+    register_extra_feeds(&client, &env, &["A/USD", "B/USD"]);
     client.submit_price(&signers[0], &feed_a, &100i128, &1_000u64);
     // feed_b never submitted.
 
@@ -336,6 +336,7 @@ fn submit_prices_rejects_price_above_ceiling_upfront() {
 
     let feed_a = String::from_str(&env, "A/USD");
     let feed_b = String::from_str(&env, "B/USD");
+    register_extra_feeds(&client, &env, &["A/USD", "B/USD"]);
     let feeds = vec![&env, feed_a.clone(), feed_b];
     let prices = vec![&env, 100i128, MAX_PRICE + 1];
 
@@ -355,17 +356,15 @@ fn median_even_count_large_prices_no_overflow() {
     let (client, _admin, signers) = setup(&env, 2, 2);
     let feed = feed_id(&env);
 
-    // Two near-ceiling prices whose unchecked `a + b` would abort under
-    // overflow-checks-adjacent large arithmetic; the overflow-safe midpoint
-    // `a + (b - a)/2` returns the exact median without panicking.
+    // Two near-ceiling prices: lower order-statistic is the smaller one.
     let a = MAX_PRICE - 2;
     let b = MAX_PRICE;
     client.submit_price(&signers[0], &feed, &b, &1_000u64);
     client.submit_price(&signers[1], &feed, &a, &1_000u64);
 
-    // median = a + (b - a)/2 = MAX_PRICE - 1
+    // sorted [a, b] -> lower mid = a
     let data = client.read_price_data_for_feed(&feed);
-    assert_eq!(data.price.to_u128(), Some((MAX_PRICE - 1) as u128));
+    assert_eq!(data.price.to_u128(), Some(a as u128));
 }
 
 #[test]
@@ -385,11 +384,11 @@ fn remove_signer_refreshes_aggregate_excluding_removed() {
     );
 
     // Removing the high outlier recomputes immediately over [100, 200] (still
-    // meets threshold 2) -> median 150, without waiting for MaxStaleSeconds.
+    // meets threshold 2) -> lower mid 100, without waiting for MaxStaleSeconds.
     client.remove_signer(&signers[2]);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
-        Some(150u128)
+        Some(100u128)
     );
 }
 
@@ -400,6 +399,7 @@ fn remove_signer_only_recomputes_touched_feeds() {
     let (client, _admin, signers) = setup(&env, 3, 2);
     let feed_a = String::from_str(&env, "A/USD");
     let feed_b = String::from_str(&env, "B/USD");
+    register_extra_feeds(&client, &env, &["A/USD", "B/USD"]);
 
     // feed_a: signers 0,1,2 ; feed_b: signers 1,2 only (signer 0 never touches it).
     client.submit_price(&signers[0], &feed_a, &100i128, &1_000u64);
@@ -414,19 +414,19 @@ fn remove_signer_only_recomputes_touched_feeds() {
     );
     assert_eq!(
         client.read_price_data_for_feed(&feed_b).price.to_u128(),
-        Some(15u128)
+        Some(10u128)
     );
 
     // Only feed_a is in signer 0's SignerFeeds, so only feed_a recomputes
-    // (median of [200, 300] = 250); feed_b is left exactly as-is.
+    // (lower mid of [200, 300] = 200); feed_b is left exactly as-is.
     client.remove_signer(&signers[0]);
     assert_eq!(
         client.read_price_data_for_feed(&feed_a).price.to_u128(),
-        Some(250u128)
+        Some(200u128)
     );
     assert_eq!(
         client.read_price_data_for_feed(&feed_b).price.to_u128(),
-        Some(15u128)
+        Some(10u128)
     );
 }
 
@@ -442,7 +442,7 @@ fn remove_signer_clears_aggregate_when_dropping_below_threshold() {
     client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
-        Some(150u128)
+        Some(100u128)
     );
 
     // Removing signer[1] keeps the signer count (3 -> 2) at threshold, but
@@ -481,7 +481,7 @@ fn raising_threshold_invalidates_below_quorum_aggregate() {
     client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
-        Some(150u128)
+        Some(100u128)
     );
 }
 
@@ -512,6 +512,7 @@ fn submit_prices_stores_multiple_feeds() {
 
     let feed_a = String::from_str(&env, "A/USD");
     let feed_b = String::from_str(&env, "B/USD");
+    register_extra_feeds(&client, &env, &["A/USD", "B/USD"]);
     let feeds = vec![&env, feed_a.clone(), feed_b.clone()];
     let prices = vec![&env, 100i128, 200i128];
 
@@ -531,6 +532,7 @@ fn submit_prices_rejects_length_mismatch() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _admin, signers) = setup(&env, 1, 1);
+    register_extra_feeds(&client, &env, &["A/USD", "B/USD"]);
 
     let feeds = vec![
         &env,
@@ -547,6 +549,7 @@ fn submit_prices_rejects_non_positive_price_upfront() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _admin, signers) = setup(&env, 1, 1);
+    register_extra_feeds(&client, &env, &["A/USD", "B/USD"]);
 
     let feed_a = String::from_str(&env, "A/USD");
     let feeds = vec![&env, feed_a.clone(), String::from_str(&env, "B/USD")];
@@ -568,6 +571,7 @@ fn read_price_data_bulk_succeeds_when_all_present() {
 
     let feed_a = String::from_str(&env, "A/USD");
     let feed_b = String::from_str(&env, "B/USD");
+    register_extra_feeds(&client, &env, &["A/USD", "B/USD"]);
     client.submit_price(&signers[0], &feed_a, &100i128, &1_000u64);
     client.submit_price(&signers[0], &feed_b, &200i128, &1_000u64);
 
@@ -641,7 +645,7 @@ fn purge_feed_clears_submission_state_and_allows_reuse() {
     client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
-        Some(150u128)
+        Some(100u128)
     );
 
     client.purge_feed(&feed);
@@ -650,12 +654,13 @@ fn purge_feed_clears_submission_state_and_allows_reuse() {
         Error::NoDataForFeed
     );
 
-    // The feed id is re-usable after a purge: fresh submissions rebuild it.
+    // Purge drops the allowlist entry; re-register then rebuild the aggregate.
+    client.register_feed(&feed);
     client.submit_price(&signers[0], &feed, &100i128, &2_000u64);
     client.submit_price(&signers[1], &feed, &200i128, &2_000u64);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
-        Some(150u128)
+        Some(100u128)
     );
 }
 
@@ -678,6 +683,7 @@ fn purge_feed_keeps_other_feeds_and_rewrites_indexes() {
     let (client, _admin, signers) = setup(&env, 2, 1);
     let feed_a = String::from_str(&env, "A/USD");
     let feed_b = String::from_str(&env, "B/USD");
+    register_extra_feeds(&client, &env, &["A/USD", "B/USD"]);
 
     client.submit_price(&signers[0], &feed_a, &100i128, &1_000u64);
     client.submit_price(&signers[0], &feed_b, &200i128, &1_000u64);
@@ -702,6 +708,7 @@ fn purge_feed_prunes_only_the_purged_feed_from_signer_indexes() {
     let (client, _admin, signers) = setup(&env, 2, 1);
     let feed_a = String::from_str(&env, "A/USD");
     let feed_b = String::from_str(&env, "B/USD");
+    register_extra_feeds(&client, &env, &["A/USD", "B/USD"]);
 
     // signer 0 touches both feeds; signer 1 only feed_b.
     client.submit_price(&signers[0], &feed_a, &100i128, &1_000u64);
@@ -744,5 +751,114 @@ fn purge_feed_removes_feed_from_known_feed_index() {
     assert_eq!(
         expect_error(client.try_purge_feed(&feed)),
         Error::FeedNotKnown
+    );
+}
+
+
+#[test]
+fn submit_price_rejects_unregistered_feed() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let unknown = String::from_str(&env, "UNKNOWN/USD");
+    assert_eq!(
+        client.try_submit_price(&signers[0], &unknown, &100i128, &1_000u64),
+        Err(Ok(Error::FeedNotKnown))
+    );
+}
+
+#[test]
+fn submit_price_rejects_regression_in_package_timestamp() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    advance_ledger_seconds(&env, 10_000);
+    let now = env.ledger().timestamp();
+    client.submit_price(&signers[0], &feed_id(&env), &100i128, &(now * 1_000));
+    // Older package than the stored observation is rejected (no re-pin).
+    let older = (now - 10) * 1_000;
+    assert_eq!(
+        client.try_submit_price(&signers[0], &feed_id(&env), &200i128, &older),
+        Err(Ok(Error::StaleSubmission))
+    );
+}
+
+#[test]
+fn lagging_in_window_signer_excluded_by_relative_skew() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 3, 2);
+    let feed = feed_id(&env);
+    // Default skew equals MaxSubmissionAge (900): tighten so the test can
+    // exercise the cluster filter without tripping the absolute age gate.
+    client.set_max_relative_skew_seconds(&450u64);
+    advance_ledger_seconds(&env, 10_000);
+    let now = env.ledger().timestamp();
+    // C is 500s behind A/B (still inside the 900s absolute window) but outside
+    // the 450s relative skew — cluster filter must drop C.
+    let fresh_ms = now * 1_000;
+    let lagging_ms = (now - 500) * 1_000;
+    client.submit_price(&signers[0], &feed, &100i128, &fresh_ms);
+    client.submit_price(&signers[1], &feed, &102i128, &fresh_ms);
+    client.submit_price(&signers[2], &feed, &10_000i128, &lagging_ms);
+
+    let data = client.read_price_data_for_feed(&feed);
+    // Median of clustered [100, 102] only (lower mid = 100); C's extreme price out.
+    assert_eq!(data.price.to_u128(), Some(100u128));
+    assert_eq!(data.package_timestamp, fresh_ms);
+}
+
+#[test]
+fn prices_returns_none_when_spot_is_stale() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let asset = xlm_asset(&env);
+    client.add_feed(&feed_id(&env), &asset);
+    client.submit_price(&signers[0], &feed_id(&env), &100i128, &0u64);
+    assert!(client.prices(&asset, &12).is_some());
+
+    advance_ledger_seconds(&env, 86_401);
+    assert_eq!(
+        expect_error(client.try_read_price_data_for_feed(&feed_id(&env))),
+        Error::StaleData
+    );
+    assert!(client.prices(&asset, &12).is_none());
+    assert!(client.price(&asset, &0u64).is_none());
+}
+
+#[test]
+fn add_feed_rejects_duplicate_feed_id_for_second_asset() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _signers) = setup(&env, 1, 1);
+    let asset_a = xlm_asset(&env);
+    let asset_b = ReflectorAsset::Other(Symbol::new(&env, "BTC"));
+    client.add_feed(&feed_id(&env), &asset_a);
+    assert_eq!(
+        client.try_add_feed(&feed_id(&env), &asset_b),
+        Err(Ok(Error::FeedAlreadyMapped))
+    );
+}
+
+#[test]
+fn remove_feed_wipes_price_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let asset = xlm_asset(&env);
+    client.add_feed(&feed_id(&env), &asset);
+    client.submit_price(&signers[0], &feed_id(&env), &100i128, &1_000u64);
+    assert!(client.lastprice(&asset).is_some());
+
+    client.remove_feed(&asset);
+    assert_eq!(
+        expect_error(client.try_read_price_data_for_feed(&feed_id(&env))),
+        Error::NoDataForFeed
+    );
+    // Allowlist entry is gone until re-register / re-map.
+    assert_eq!(
+        client.try_submit_price(&signers[0], &feed_id(&env), &100i128, &1_000u64),
+        Err(Ok(Error::FeedNotKnown))
     );
 }

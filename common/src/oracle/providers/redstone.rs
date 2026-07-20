@@ -35,3 +35,16 @@ pub fn read_price_data_uncached(
         _ => None,
     }
 }
+
+/// Xoxno adapter admin/read surface beyond the shared RedStone wire ABI.
+#[contractclient(name = "XoxnoOracleAdapterClient")]
+#[allow(dead_code)]
+pub trait XoxnoOracleAdapter {
+    fn max_submission_age_seconds(env: Env) -> u64;
+    fn max_stale_seconds(env: Env) -> u64;
+    fn max_relative_skew_seconds(env: Env) -> u64;
+}
+
+pub fn xoxno_max_submission_age_call(env: &Env, contract: &Address) -> u64 {
+    XoxnoOracleAdapterClient::new(env, contract).max_submission_age_seconds()
+}

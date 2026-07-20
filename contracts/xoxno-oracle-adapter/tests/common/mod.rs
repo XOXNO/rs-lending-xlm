@@ -29,6 +29,9 @@ pub fn setup(
     signer_count: u32,
     threshold: u32,
 ) -> (XoxnoOracleClient<'static>, Address, std::vec::Vec<Address>) {
+    // Owner-gated `register_feed` for the default allowlist entry needs auth;
+    // tests that tighten mocks (e.g. only-owner checks) overwrite this after setup.
+    env.mock_all_auths();
     let admin = Address::generate(env);
     let signers: std::vec::Vec<Address> =
         (0..signer_count).map(|_| Address::generate(env)).collect();
@@ -41,6 +44,9 @@ pub fn setup(
         (admin.clone(), signers_vec, threshold, TEST_RESOLUTION),
     );
     let client = XoxnoOracleClient::new(env, &contract_id);
+    // Default allowlist entry so RedStone-path tests can submit without an
+    // extra admin step. Custom feed ids still need `register_feed` / `add_feed`.
+    client.register_feed(&feed_id(env));
     (client, admin, signers)
 }
 
@@ -50,6 +56,12 @@ pub fn feed_id(env: &Env) -> String {
 
 pub fn xlm_asset(env: &Env) -> ReflectorAsset {
     ReflectorAsset::Other(Symbol::new(env, "XLM"))
+}
+
+pub fn register_extra_feeds(client: &XoxnoOracleClient<'static>, env: &Env, feeds: &[&str]) {
+    for feed in feeds {
+        client.register_feed(&String::from_str(env, feed));
+    }
 }
 
 pub fn advance_ledger_seconds(env: &Env, seconds: u64) {

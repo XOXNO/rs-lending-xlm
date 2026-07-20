@@ -9,7 +9,7 @@ use common::oracle::providers::redstone::RedStonePriceData;
 use soroban_sdk::{Address, Env, String, Vec, U256};
 
 use crate::storage::{
-    load_max_submission_age, load_resolution, load_signers, load_threshold, record_known_feed,
+    load_max_relative_skew, load_max_submission_age, load_resolution, load_signers, load_threshold,
     record_signer_feed, renew_persistent_key, DataKey, SignerSubmission,
 };
 use crate::Error;
@@ -19,8 +19,7 @@ use crate::Error;
 pub(crate) const MAX_HISTORY_LEN: u32 = MAX_TWAP_RECORDS;
 
 /// Submit-time ceiling on any single signer price (1e24): far above any
-/// realistic USD-scaled price, far below `i128::MAX`, so the even-count
-/// median's `a + (b - a) / 2` can never overflow.
+/// realistic USD-scaled price, far below `i128::MAX`.
 pub(crate) const MAX_SUBMITTED_PRICE: i128 = 1_000_000_000_000_000_000_000_000;
 
 pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<(), Error> {
@@ -44,6 +43,27 @@ pub(crate) fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Res
     Ok(())
 }
 
+/// Rejects a package timestamp older than this signer's stored observation so
+/// a signer cannot re-pin observation time by overwriting a fresher value.
+pub(crate) fn require_monotonic_package(
+    env: &Env,
+    feed_id: &String,
+    signer: &Address,
+    package_timestamp: u64,
+) -> Result<(), Error> {
+    let key = DataKey::LatestSubmission(feed_id.clone(), signer.clone());
+    if let Some(prev) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, SignerSubmission>(&key)
+    {
+        if package_timestamp < prev.package_timestamp {
+            return Err(Error::StaleSubmission);
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn store_submission(
     env: &Env,
     feed_id: &String,
@@ -51,7 +71,6 @@ pub(crate) fn store_submission(
     price: i128,
     package_timestamp: u64,
 ) {
-    record_known_feed(env, feed_id);
     record_signer_feed(env, signer, feed_id);
     let submission = SignerSubmission {
         price,
@@ -62,17 +81,16 @@ pub(crate) fn store_submission(
     renew_persistent_key(env, &key);
 }
 
-// Lagging signer excluded from median + observation time. Below threshold:
-// clear aggregate and history (raw submissions stay).
+// Absolute age filter, then relative cluster filter against the freshest peer.
+// Below threshold: clear aggregate and history (raw submissions stay).
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let signers = load_signers(env);
     let max_submission_age = load_max_submission_age(env);
+    let max_relative_skew = load_max_relative_skew(env);
     let now = env.ledger().timestamp();
 
     let mut kept_prices: Vec<i128> = Vec::new(env);
-    // An aggregate is only as fresh as its stalest included submission, so
-    // report the oldest contributing observation time.
-    let mut oldest_package_timestamp: u64 = u64::MAX;
+    let mut kept_ts: Vec<u64> = Vec::new(env);
 
     for signer in signers.iter() {
         let key = DataKey::LatestSubmission(feed_id.clone(), signer.clone());
@@ -92,23 +110,51 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
         }
 
         kept_prices.push_back(submission.price);
-        oldest_package_timestamp = oldest_package_timestamp.min(submission.package_timestamp);
+        kept_ts.push_back(submission.package_timestamp);
     }
 
     let threshold = load_threshold(env);
     if kept_prices.len() < threshold {
-        // Below quorum: evict aggregate AND history — `price()`/`prices()`
-        // read history directly and never re-check quorum.
-        env.storage()
-            .persistent()
-            .remove(&DataKey::CurrentAggregate(feed_id.clone()));
-        env.storage()
-            .persistent()
-            .remove(&DataKey::History(feed_id.clone()));
+        clear_aggregate_and_history(env, feed_id);
         return;
     }
 
-    let median = median_of(&kept_prices);
+    // Relative cluster: drop submissions too far behind the freshest peer so a
+    // single lagging-but-in-window signer cannot pin package_timestamp.
+    let mut newest_ts: u64 = 0;
+    for i in 0..kept_ts.len() {
+        let ts = kept_ts
+            .get(i)
+            .expect("invariant: i < kept_ts.len() after paired push");
+        if ts > newest_ts {
+            newest_ts = ts;
+        }
+    }
+    let skew_ms = max_relative_skew.saturating_mul(MS_PER_SECOND);
+
+    let mut clustered_prices: Vec<i128> = Vec::new(env);
+    let mut oldest_package_timestamp: u64 = u64::MAX;
+    for i in 0..kept_ts.len() {
+        let ts = kept_ts
+            .get(i)
+            .expect("invariant: i < kept_ts.len() after paired push");
+        if newest_ts.saturating_sub(ts) > skew_ms {
+            continue;
+        }
+        clustered_prices.push_back(
+            kept_prices
+                .get(i)
+                .expect("invariant: kept_prices.len() == kept_ts.len()"),
+        );
+        oldest_package_timestamp = oldest_package_timestamp.min(ts);
+    }
+
+    if clustered_prices.len() < threshold {
+        clear_aggregate_and_history(env, feed_id);
+        return;
+    }
+
+    let median = median_of(&clustered_prices);
     let write_timestamp = now * MS_PER_SECOND;
     let aggregate = RedStonePriceData {
         price: U256::from_u128(env, median as u128),
@@ -120,6 +166,17 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     env.storage().persistent().set(&aggregate_key, &aggregate);
     renew_persistent_key(env, &aggregate_key);
     push_history(env, feed_id, aggregate);
+}
+
+fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
+    // Below quorum / cluster: evict aggregate AND history — `price()`/`prices()`
+    // read history directly and never re-check quorum on their own.
+    env.storage()
+        .persistent()
+        .remove(&DataKey::CurrentAggregate(feed_id.clone()));
+    env.storage()
+        .persistent()
+        .remove(&DataKey::History(feed_id.clone()));
 }
 
 /// Insertion sort — no_std friendly, fine for the small signer counts
@@ -142,22 +199,14 @@ fn sorted_copy(prices: &Vec<i128>) -> Vec<i128> {
     sorted
 }
 
+/// Single order statistic: lower median index `(len - 1) / 2`. Avoids even-count
+/// averaging so one extreme peer cannot half-pull the reported price.
 fn median_of(prices: &Vec<i128>) -> i128 {
     let sorted = sorted_copy(prices);
     let len = sorted.len();
-    let mid = len / 2;
-    if len % 2 == 1 {
-        sorted
-            .get(mid)
-            .expect("invariant: mid = len/2 < len for odd len >= 1")
-    } else {
-        let a = sorted
-            .get(mid - 1)
-            .expect("invariant: even len >= 2 so mid-1 valid");
-        let b = sorted.get(mid).expect("invariant: mid = len/2 < len");
-        // Overflow-safe midpoint: sorted so b >= a, both > 0.
-        a + (b - a) / 2
-    }
+    sorted
+        .get((len - 1) / 2)
+        .expect("invariant: len >= 1 when median_of is called under threshold")
 }
 
 /// Records `aggregate` in `History(feed_id)` as a `resolution`-spaced sample:

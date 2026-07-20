@@ -57,7 +57,7 @@ SHELL := /bin/bash
         _preflight-configure-controller _preflight-upgrade-pools _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
         build-aggregator deploy-aggregator prepay-rent \
-        build-oracle-adapter deploy-oracle-adapter \
+        build-oracle-adapter deploy-oracle-adapter upgrade-oracle-adapter upgrade-oracle-adapter-full \
         configure-controller setup-testnet setup-mainnet _setup-markets _unpause-after-setup \
         info invoke invoke-id view view-id \
         testnet mainnet \
@@ -1187,6 +1187,9 @@ upgrade-aggregator: build-aggregator
 ## Upgrade the deployed xoxno-oracle-adapter in-place. Standalone contract
 ## (not governance-owned): direct owner-gated call, no timelock — SIGNER
 ## must be the current oracle adapter owner.
+##
+## Wasm only. For a full mainnet cutover (windows + remove/re-add feeds) use
+## `upgradeOracleAdapterFull` (or run finalize after this target).
 upgrade-oracle-adapter: build-oracle-adapter
 	@echo "=== Upgrading xoxno-oracle-adapter on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1197,6 +1200,21 @@ upgrade-oracle-adapter: build-oracle-adapter
 	@HASH=$$(cat target/oracle_adapter_wasm_hash.txt); \
 	echo "New oracle adapter WASM hash: $$HASH"; \
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeOracleAdapterHash $$HASH
+
+## Full oracle-adapter cutover: build + upload + upgrade Wasm, then apply
+## windows (age / stale / relative skew from oracle_feeds.json) and
+## remove_feed+add_feed for every feed. SIGNER must be the adapter owner.
+##
+## Mainnet (Ledger):
+##   SIGNER=ledger make mainnet upgradeOracleAdapterFull
+## Testnet:
+##   SIGNER=ledger make testnet upgradeOracleAdapterFull
+##
+## Expect one Ledger prompt per owner tx (upload, upgrade, up to 3 window
+## setters, 2×N feed remove/add). Feeds have no price until bots re-quorum.
+upgrade-oracle-adapter-full: upgrade-oracle-adapter
+	@echo "=== Finalizing oracle adapter upgrade on $(NETWORK) (signer=$(SIGNER)) ==="
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh finalizeOracleAdapterUpgrade
 
 ## Build the flash-loan receiver test contract for network smoke testing.
 build-flash-loan-receiver:
@@ -1509,7 +1527,8 @@ _setup-markets:
 # Action classification - dispatcher routes action to script.sh,
 # passing positional args verbatim. Adding a new verb means add here + script.sh.
 SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeReady \
-	configureOracleFeeds listOracleFeeds configureOracleWindows \
+	configureOracleFeeds reconfigureOracleFeeds listOracleFeeds configureOracleWindows \
+	verifyOracleAdapterWindows finalizeOracleAdapterUpgrade \
 	validateConfigs checkDelay \
 	setupAll setupAllMarkets setupAllSpokes \
 	whitelistBlendPools approveBlendPools configureSpokeCurves \
@@ -1529,7 +1548,8 @@ POSITIONAL_ID_ACTIONS := addSpoke getSpoke createHub removeSpoke \
 	executeOp cancelOp opState awaitOp transferGovOwnership disableTokenOracle \
 	revokeBlendPool setPositionLimits setMinBorrowCollateralUsd setPositionManager \
 	transferCtrlOwnership migrateController accountExists isBlendPoolApproved \
-	addOracleSigner setOracleSubmissionAge setOracleMaxStale setSpokeLiquidationCurve \
+	addOracleSigner setOracleSubmissionAge setOracleMaxStale setOracleRelativeSkew \
+	setSpokeLiquidationCurve \
 	setAggregatorFee addAggregatorWhitelist removeAggregatorWhitelist \
 	addAggregatorReferral setAggregatorReferralFee setAggregatorReferralActive \
 	setAggregatorReferralOwner upgradeAggregatorHash upgradeOracleAdapterHash \
@@ -1547,7 +1567,7 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidati
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
 MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePoolTemplate upgradePools upgradeAll \
                     deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume \
-                    upgradeAggregator upgradeOracleAdapter
+                    upgradeAggregator upgradeOracleAdapter upgradeOracleAdapterFull
 
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
                $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
@@ -1587,6 +1607,7 @@ define NETWORK_DISPATCH
 				deployOracleAdapter) $(MAKE) --no-print-directory deploy-oracle-adapter NETWORK=$(1) SIGNER=$(SIGNER) ORACLE_ADAPTER_ADMIN=$(ORACLE_ADAPTER_ADMIN) ORACLE_ADAPTER_SIGNERS=$(ORACLE_ADAPTER_SIGNERS) ORACLE_ADAPTER_THRESHOLD=$(ORACLE_ADAPTER_THRESHOLD) ORACLE_ADAPTER_RESOLUTION=$(ORACLE_ADAPTER_RESOLUTION) ;; \
 				upgradeAggregator)  $(MAKE) --no-print-directory upgrade-aggregator NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeOracleAdapter) $(MAKE) --no-print-directory upgrade-oracle-adapter NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				upgradeOracleAdapterFull) $(MAKE) --no-print-directory upgrade-oracle-adapter-full NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				prepayRent)         $(MAKE) --no-print-directory prepay-rent NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				setup)              if [ "$(1)" = "mainnet" ]; then \
 						$(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets prepay-rent _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER); \
@@ -1746,7 +1767,7 @@ help:
 	@echo "    ORACLE_ADAPTER_ADMIN=G...          Constructor admin (default: deploying signer)"
 	@echo "    ORACLE_ADAPTER_SIGNERS='[\"G...\"]' Constructor bot-signer set (default: deploying signer alone)"
 	@echo "    ORACLE_ADAPTER_THRESHOLD=N         N-of-M aggregation threshold (default: 1)"
-	@echo "    Then: make testnet configureOracleFeeds  add_feed for every entry in ${NETWORK}/oracle_feeds.json"
+	@echo "    Then: make testnet configureOracleFeeds  add_feed for every entry in oracle_feeds.json"
 	@echo "  make testnet addOracleSigner <address>   Register a bot wallet's signer address (idempotent)"
 	@echo ""
 	@echo "  Aggregator + oracle adapter are standalone contracts (NOT governance-owned);"
@@ -1759,7 +1780,15 @@ help:
 	@echo "    make testnet claimAggregatorAdminFees <recipient> <token...>"
 	@echo "    make testnet sweepAggregatorBalance <recipient> <token...>"
 	@echo "    make testnet upgradeAggregator                    Build + upload + upgrade in place"
-	@echo "    make testnet upgradeOracleAdapter                 Build + upload + upgrade in place"
+	@echo "    make testnet upgradeOracleAdapter                 Wasm only (build+upload+upgrade)"
+	@echo "    SIGNER=ledger make mainnet upgradeOracleAdapterFull"
+	@echo "      Full cutover: Wasm + configureOracleWindows (age/stale/skew from oracle_feeds.json)"
+	@echo "      + reconfigureOracleFeeds (remove_feed then add_feed per feed) + verify getters"
+	@echo "    make testnet reconfigureOracleFeeds               remove+add feeds only"
+	@echo "    make testnet configureOracleWindows               age + stale + relative skew from JSON"
+	@echo "    make testnet setOracleRelativeSkew <secs>         One-off skew setter"
+	@echo "    make testnet verifyOracleAdapterWindows           Print live window getters"
+	@echo "    make testnet finalizeOracleAdapterUpgrade         Windows + reconfigure (no Wasm)"
 	@echo "  Ownership handoff (both are OZ Ownable, two-step transfer -> accept):"
 	@echo "    make testnet transferAggregatorOwnership <new_owner> <live_until_ledger>"
 	@echo "    SIGNER=ledger make testnet acceptAggregatorOwnership       Run as the NEW owner"
