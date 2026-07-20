@@ -18,9 +18,11 @@ pub enum MockKey {
     BulkCalls,
     TruncateBulk,
     Decimals,
+    MaxSubmissionAge,
 }
 
 const DEFAULT_DECIMALS: u32 = 8;
+const DEFAULT_MAX_SUBMISSION_AGE: u64 = 60;
 
 #[contract]
 pub struct MockRedStonePriceFeed;
@@ -84,6 +86,22 @@ impl MockRedStonePriceFeed {
             .temporary()
             .get(&MockKey::Decimals)
             .unwrap_or(DEFAULT_DECIMALS)
+    }
+
+    /// Overrides the advertised aggregation inclusion window (default 60s).
+    pub fn set_max_submission_age_seconds(env: Env, seconds: u64) {
+        env.storage()
+            .temporary()
+            .set(&MockKey::MaxSubmissionAge, &seconds);
+    }
+
+    /// XOXNO adapter inclusion-window probe; listing asserts the consumer's
+    /// `max_stale_seconds` is not tighter than this.
+    pub fn max_submission_age_seconds(env: Env) -> u64 {
+        env.storage()
+            .temporary()
+            .get(&MockKey::MaxSubmissionAge)
+            .unwrap_or(DEFAULT_MAX_SUBMISSION_AGE)
     }
 
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
