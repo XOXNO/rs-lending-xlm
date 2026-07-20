@@ -193,7 +193,7 @@ fn assert_interest_split(
 
     let old_debt = borrowed.mul(env, old_index);
     let new_debt = borrowed.mul(env, new_index);
-    let accrued = new_debt - old_debt;
+    let accrued = new_debt.checked_sub(env, old_debt);
 
     // Exact conservation: rewards + fee == accrued.
     assert_eq!(

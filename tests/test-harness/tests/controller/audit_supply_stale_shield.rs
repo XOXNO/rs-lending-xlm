@@ -15,7 +15,7 @@ use test_harness::{
 /// attaches a dust WBTC leg through `supply`, which succeeds despite the dead
 /// feed, and thereby blocks liquidation + bad-debt cleanup + withdraw.
 #[test]
-fn audit_supply__setup____blocks_liquidation_via_stale_dust_leg() {
+fn audit_supply_setup_blocks_liquidation_via_stale_dust_leg() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset()) // A: healthy collateral
         .with_market(eth_preset()) // B: borrowable

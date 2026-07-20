@@ -43,7 +43,7 @@ fn alice_xlm_scaled(t: &LendingTest) -> i128 {
 }
 
 #[test]
-fn audit_liquidate__contracts_dust_fee_full_close_dos() {
+fn audit_liquidate_contracts_dust_fee_full_close_dos() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset()) // robust dominant collateral
         .with_market(eth_preset()) // borrowable debt

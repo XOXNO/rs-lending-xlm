@@ -39,7 +39,7 @@ fn xlm_scaled(t: &LendingTest, who: &str) -> i128 {
 }
 
 #[test]
-fn audit_liquidate__contracts_subunit_leg_bricks_full_close() {
+fn audit_liquidate_contracts_subunit_leg_bricks_full_close() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset()) // dominant collateral
         .with_market(eth_preset()) // borrowable debt

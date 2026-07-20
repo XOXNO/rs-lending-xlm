@@ -1763,7 +1763,7 @@ fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
 // price by 10^8; the proposer sets the sanity band around the inflated value,
 // so the read-time gate cannot catch it. Passing assertion = exploit real.
 #[test]
-fn test_audit_borrow___withdraw___spoke_override_wrong_provider_decimals_inflates_collateral() {
+fn test_audit_borrow_withdraw_spoke_override_wrong_provider_decimals_inflates_collateral() {
     let mut t = LendingTest::new().with_market(eth_preset()).build();
 
     // Attacker supplies 1 unit of the collateral asset on the base spoke.

@@ -115,7 +115,7 @@ fn run(anchor_stale: bool) -> Outcome {
 }
 
 #[test]
-fn audit_borrow__withdraw__liquidate_stale_anchor_blends_5pct_skew_into_ltv() {
+fn audit_borrow_withdraw_liquidate_stale_anchor_blends_5pct_skew_into_ltv() {
     let exploit = run(true);
     let control = run(false);
 

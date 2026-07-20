@@ -47,18 +47,30 @@ fuzz_target!(|i: In| {
     let bps = Bps::from(i.bps as i128);
     let decimals = (i.decimals % 28) as u32; // 0..=27
 
-    // Add / Sub roundtrips. Restrict to non-negative operands — Sub panics
-    // on a negative result by design.
+    // checked_add / checked_sub roundtrips. Restrict to non-negative operands —
+    // checked_sub panics on a negative result by design.
     if ray_a.raw() >= 0 && ray_b.raw() >= 0 {
-        assert_eq!((ray_a + ray_b) - ray_b, ray_a, "Ray add/sub roundtrip");
+        assert_eq!(
+            ray_a.checked_add(&env, ray_b).checked_sub(&env, ray_b),
+            ray_a,
+            "Ray add/sub roundtrip"
+        );
     }
     if wad_a.raw() >= 0 && wad_b.raw() >= 0 {
-        assert_eq!((wad_a + wad_b) - wad_b, wad_a, "Wad add/sub roundtrip");
+        assert_eq!(
+            wad_a.checked_add(&env, wad_b).checked_sub(&env, wad_b),
+            wad_a,
+            "Wad add/sub roundtrip"
+        );
     }
     let bps_a = Bps::from(i.bps as i128);
     let bps_b = Bps::from((i.b_raw as i128) % (BPS * 2));
     if bps_a.raw() >= 0 && bps_b.raw() >= 0 {
-        assert_eq!((bps_a + bps_b) - bps_b, bps_a, "Bps add/sub roundtrip");
+        assert_eq!(
+            bps_a.checked_add(&env, bps_b).checked_sub(&env, bps_b),
+            bps_a,
+            "Bps add/sub roundtrip"
+        );
     }
 
     // Ray → Wad divides by 10^9. `Ray::ONE.to_wad() == Wad::ONE`.

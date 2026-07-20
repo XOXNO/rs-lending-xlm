@@ -885,7 +885,7 @@ fn protocol_fee_shares_saturates_and_caps_at_floored_index() {
 /// to the sticky `MAX_SUPPLY_INDEX_RAY` clamp for a modest total reward outlay,
 /// after which ALL supplier yield is permanently discarded.
 #[test]
-fn audit_Controller__add_rewards_iterated_legs_pin_supply_index_and_zero_yield() {
+fn audit_controller_add_rewards_iterated_legs_pin_supply_index_and_zero_yield() {
     let env = Env::default();
 
     // Attacker seeds 1 raw unit of a 7-decimal asset (dust: 1e-7 tokens of value).
