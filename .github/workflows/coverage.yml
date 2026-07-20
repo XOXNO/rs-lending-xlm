@@ -1,0 +1,267 @@
+name: Coverage
+
+# Posts a merged line-coverage summary (controller + pool + common) as a sticky
+# PR comment, with the delta against the latest `main` baseline.
+#
+# Baseline strategy: a push-to-main run records merged.lcov.info into the GitHub
+# Actions cache; PR runs restore the most recent baseline and diff against it.
+# This keeps PRs to a single coverage run. The first PR opened before any main
+# baseline exists shows absolute coverage only (no delta).
+#
+# This workflow is advisory (comment only) and MUST NOT be added to branch
+# protection's required checks: the path filter makes it "skipped" on
+# out-of-scope PRs, which a required check would read as un-mergeable.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.rs'
+      - '**/Cargo.*'
+      - 'Makefile'
+      - 'scripts/coverage_report.py'
+      - '!services/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.rs'
+      - '**/Cargo.*'
+      - 'Makefile'
+      - 'scripts/coverage_report.py'
+      - '!services/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  STELLAR_VERSION: '27.0.0'
+  # Baseline caches are keyed by main commit SHA under this prefix; PR runs
+  # restore the most recent match via restore-keys.
+  COV_CACHE_PREFIX: cov-baseline-main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  baseline:
+    name: Refresh main coverage baseline
+    # push to main refreshes the baseline; workflow_dispatch lets you seed the
+    # first baseline manually (run it once from main before opening PRs).
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    # sccache caches per-crate compilations under $HOME (persistent on the
+    # self-hosted runner) so the heavy dependency tree is not recompiled each
+    # run, and is shared with the other self-hosted jobs. CARGO_INCREMENTAL=0 is
+    # required for sccache to cache (it passes through incremental builds).
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
+      SCCACHE_CACHE_SIZE: 20G
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Persistent self-hosted runner: preserve target/ build cache across
+          # runs (mirrors ci.yml). The next step restores a clean source tree.
+          clean: false
+
+      - name: Reset workspace, preserve target/ build cache
+        run: |
+          git reset --hard
+          git clean -ffdx -e target
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+          components: llvm-tools-preview
+
+      - name: Install stellar-cli
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      - name: Install cargo-llvm-cov (prebuilt)
+        # Was `cargo install cargo-llvm-cov --locked` (source compile). The
+        # install-action fetches a prebuilt binary in seconds.
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Install sccache (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Build WASM fixtures (test-harness loads target/wasm32v1-none/release/pool.wasm)
+        run: make build
+
+      - name: Run merged coverage
+        run: make coverage-merged
+
+      - name: Stage baseline lcov
+        # Copy to a standalone path so a PR restore never collides with the PR
+        # head's own target/coverage/merged.lcov.info.
+        run: |
+          mkdir -p coverage-baseline
+          cp target/coverage/merged.lcov.info coverage-baseline/merged.lcov.info
+
+      - name: Save baseline to cache
+        uses: actions/cache/save@v6
+        with:
+          path: coverage-baseline
+          key: ${{ env.COV_CACHE_PREFIX }}-${{ github.sha }}
+
+  coverage:
+    name: PR coverage delta
+    if: github.event_name == 'pull_request'
+    # Pull requests run untrusted repository content (Cargo build scripts,
+    # tests, Makefile targets, and coverage_report.py). Keep that execution off
+    # persistent self-hosted runners so PR authors cannot access runner-local
+    # state or poison caches for later jobs.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    # The ephemeral ubuntu runner has no persistent cache, so it re-fetched
+    # every crate and recompiled the whole dependency tree each run. sccache
+    # (objects) + the cargo/sccache cache below (registry + sccache dir) make it
+    # incremental across PR runs without sharing the self-hosted runners — which
+    # this job must stay off, since it executes untrusted PR code.
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+          components: llvm-tools-preview
+
+      - name: Install stellar-cli
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      - name: Install cargo-llvm-cov (prebuilt)
+        # Was `cargo install cargo-llvm-cov --locked` (source compile). The
+        # install-action fetches a prebuilt binary in seconds.
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Install sccache (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Cache cargo registry + sccache objects
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/sccache
+          key: cov-pr-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cov-pr-
+
+      - name: Build WASM fixtures (test-harness loads target/wasm32v1-none/release/pool.wasm)
+        run: make build
+
+      - name: Run merged coverage (PR head)
+        run: make coverage-merged
+
+      - name: Restore latest main coverage baseline
+        # Primary key is the PR head SHA, which is never a save key (baselines
+        # are saved under main SHAs), so the restore-keys prefix always governs
+        # and returns the most recently saved main baseline.
+        uses: actions/cache/restore@v6
+        with:
+          path: coverage-baseline
+          key: ${{ env.COV_CACHE_PREFIX }}-${{ github.sha }}
+          restore-keys: |
+            ${{ env.COV_CACHE_PREFIX }}-
+
+      - name: Compute coverage numbers
+        id: cov
+        run: |
+          head_line=$(python3 scripts/coverage_report.py \
+            target/coverage/merged.lcov.info \
+            target/coverage/pr-head-report.md \
+            merged)
+          head_pct=$(printf '%s\n' "$head_line" | awk '{print $3}' | tr -d '%')
+          echo "head_pct=$head_pct" >> "$GITHUB_OUTPUT"
+          if [ -f coverage-baseline/merged.lcov.info ]; then
+            base_line=$(python3 scripts/coverage_report.py \
+              coverage-baseline/merged.lcov.info \
+              /tmp/base-report.md \
+              merged)
+            base_pct=$(printf '%s\n' "$base_line" | awk '{print $3}' | tr -d '%')
+            echo "base_pct=$base_pct" >> "$GITHUB_OUTPUT"
+            echo "has_base=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_base=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post or update PR coverage comment
+        uses: actions/github-script@v9
+        env:
+          HEAD_PCT: ${{ steps.cov.outputs.head_pct }}
+          BASE_PCT: ${{ steps.cov.outputs.base_pct }}
+          HAS_BASE: ${{ steps.cov.outputs.has_base }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- coverage-report -->';
+            const headPct = Number(process.env.HEAD_PCT);
+            const hasBase = process.env.HAS_BASE === 'true';
+            const basePct = hasBase ? Number(process.env.BASE_PCT) : null;
+
+            let headline;
+            if (hasBase) {
+              const delta = headPct - basePct;
+              const eps = 0.005; // below the report's 2-dp resolution
+              const indicator = delta > eps ? '🟢 ▲' : (delta < -eps ? '🔴 ▼' : '⚪ —');
+              const sign = delta >= 0 ? '+' : '';
+              headline = `**${basePct.toFixed(2)}% → ${headPct.toFixed(2)}%**  (${sign}${delta.toFixed(2)} pp) ${indicator}`;
+            } else {
+              headline = `**${headPct.toFixed(2)}%**  _(no \`main\` baseline cached yet — the delta appears once \`main\` has run coverage)_`;
+            }
+
+            let table = '';
+            try {
+              table = fs.readFileSync('target/coverage/pr-head-report.md', 'utf8');
+            } catch (e) {
+              table = '_per-file report unavailable_';
+            }
+
+            const body = [
+              marker,
+              '## 📊 Merged line coverage',
+              '',
+              headline,
+              '',
+              '<details><summary>Per-file breakdown (controller + pool + common)</summary>',
+              '',
+              table,
+              '</details>',
+              '',
+              '<sub>Scope: `make coverage-merged` — excludes test-harness, certora, vendor. Baseline: latest `main` run.</sub>',
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(
+              (c) => c.user.type === 'Bot' && c.body && c.body.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

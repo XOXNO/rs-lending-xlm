@@ -1,0 +1,246 @@
+name: Release Build
+
+# Release builds install the pinned stellar-cli and set the spec-shaking env var
+# required by stellar-access and stellar-contract-utils.
+#
+# The workflow packages deploy artifacts from artifacts/wasm/deploy/ and
+# publishes *.wasm.sha256 hashes for uploaded Soroban modules.
+# Deployable contracts: controller, pool, governance, defindex-strategy.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  id-token: write
+  contents: write
+  attestations: write
+
+env:
+  STELLAR_VERSION: '27.0.0'
+
+# Releases and manual dispatches are not cancelled; the testnet-e2e job
+# additionally serializes itself with its own concurrency group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build release WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned to match rust-toolchain.toml so deployed bytes match the
+      # toolchain used by CI lint/test runs.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      - name: Install stellar-cli
+        # Leverages the top-level STELLAR_VERSION env. Script is idempotent
+        # and handles GITHUB_PATH for subsequent steps.
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      # Same bytes CI gates: optimize, strip spec docs, enforce wasm_size_budget.txt.
+      - name: Build deploy artifacts and WASM size budget
+        run: make wasm-size-check
+
+      # The on-chain WASM hash equals the sha256 of these exact deploy bytes,
+      # so each published checksum is verifiable against the deployed contract.
+      - name: Package release WASM
+        run: |
+          mkdir -p dist
+          for c in controller pool governance defindex_strategy; do
+            cp "artifacts/wasm/deploy/${c}.wasm" "dist/${c}.wasm"
+          done
+          ls -lh dist/*.wasm
+
+      - name: SHA256 checksums
+        run: |
+          cd dist
+          for c in controller pool governance defindex_strategy; do
+            sha256sum "${c}.wasm" > "${c}.wasm.sha256"
+          done
+          cat ./*.wasm.sha256
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/controller.wasm
+            dist/pool.wasm
+            dist/governance.wasm
+            dist/defindex_strategy.wasm
+
+      # Untrusted inputs (release tag_name, workflow_dispatch tag input) are
+      # moved into env to avoid shell-injection via ${{ }} interpolation in
+      # `run:` blocks. See
+      # https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+      - name: Upload to release (on published release)
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            dist/controller.wasm \
+            dist/controller.wasm.sha256 \
+            dist/pool.wasm \
+            dist/pool.wasm.sha256 \
+            dist/governance.wasm \
+            dist/governance.wasm.sha256 \
+            dist/defindex_strategy.wasm \
+            dist/defindex_strategy.wasm.sha256 \
+            --clobber
+
+      - name: Upload to release (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            dist/controller.wasm \
+            dist/controller.wasm.sha256 \
+            dist/pool.wasm \
+            dist/pool.wasm.sha256 \
+            dist/governance.wasm \
+            dist/governance.wasm.sha256 \
+            dist/defindex_strategy.wasm \
+            dist/defindex_strategy.wasm.sha256 \
+            --clobber
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-wasm
+          path: |
+            dist/controller.wasm
+            dist/controller.wasm.sha256
+            dist/pool.wasm
+            dist/pool.wasm.sha256
+            dist/governance.wasm
+            dist/governance.wasm.sha256
+            dist/defindex_strategy.wasm
+            dist/defindex_strategy.wasm.sha256
+          if-no-files-found: error
+
+  # Live testnet end-to-end: fresh wallets via friendbot, fresh deploy,
+  # every endpoint (lifecycle, strategies, flash loans, liquidations, e-mode,
+  # caps, admin, governance timelock, budget-frontier stress) driven by
+  # tests/integration. No secrets required — the run funds itself.
+  # parallel_e2e.sh runs three independent lanes concurrently (agg / liq /
+  # stress, each its own deployed world) and gates each one; the job fails
+  # unless every lane ends with zero unresolved failures. The per-lane +
+  # combined markdown reports (tx hash + resource usage per action) are uploaded
+  # as an artifact and the combined report is attached to the release.
+  testnet-e2e:
+    name: Testnet e2e
+    needs: build
+    # Least-privilege: this self-hosted job only needs contents:write to attach the
+    # e2e report to the release (the "Attach report to release" step). Drop the
+    # workflow-level id-token/attestations:write — those belong to the GitHub-hosted
+    # build job's provenance, and a stale/unintended self-hosted runner should not
+    # hold OIDC/attestation tokens.
+    permissions:
+      contents: write
+    # Self-hosted: only this job hits the XOXNO aggregator API, which is behind
+    # a Cloudflare bot challenge. Our self-hosted runner's IP is allow-listed in
+    # Cloudflare, so the `agg` lane can fetch swap routes (GitHub-hosted runners
+    # get the "Just a moment..." JS challenge). The build job stays GitHub-hosted
+    # for stronger build-provenance attestation. Add labels (e.g.
+    # `[self-hosted, linux, x64]`) if you run multiple runner pools.
+    runs-on: self-hosted
+    timeout-minutes: 120
+    # Serialize whole workflow runs: only the `agg` lane touches the shared
+    # XOXNO aggregator/DEX venue, so concurrent release runs would still race
+    # each other's swaps (within a run, the mock lanes are venue-free).
+    concurrency:
+      group: testnet-e2e
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      - name: Install stellar-cli
+        # Leverages the top-level STELLAR_VERSION env. Script is idempotent
+        # and handles GITHUB_PATH for subsequent steps.
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      - name: Install harness tools
+        # Skip apt when the self-hosted runner is already provisioned with jq/xxd.
+        run: |
+          if command -v jq >/dev/null 2>&1 && command -v xxd >/dev/null 2>&1; then
+            echo "jq + xxd already present"; exit 0
+          fi
+          sudo apt-get update -q && sudo apt-get install -y -q jq xxd
+
+      # Deploy-sized controller/pool/flash receiver + optimized oracle mocks.
+      - name: Build integration WASM
+        run: make integration-wasm
+
+      # parallel_e2e.sh runs the three lanes concurrently and gates each one,
+      # exiting non-zero unless every lane is green — so this single step is the
+      # run AND the gate.
+      - name: Run parallel testnet e2e
+        env:
+          RUN_TS: release-${{ github.run_id }}
+        run: bash tests/integration/scenarios/parallel_e2e.sh
+
+      - name: Upload e2e reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: testnet-e2e-report
+          path: |
+            tests/integration/runs/release-${{ github.run_id }}-combined.md
+            tests/integration/runs/release-${{ github.run_id }}-*/report.md
+            tests/integration/runs/release-${{ github.run_id }}-*/actions.tsv
+            tests/integration/runs/release-${{ github.run_id }}-*.log
+          if-no-files-found: error
+
+      - name: Attach report to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RUN_TS: release-${{ github.run_id }}
+        run: |
+          cp "tests/integration/runs/${RUN_TS}-combined.md" "testnet-e2e-report-${RELEASE_TAG}.md"
+          gh release upload "$RELEASE_TAG" \
+            "testnet-e2e-report-${RELEASE_TAG}.md" \
+            --clobber
