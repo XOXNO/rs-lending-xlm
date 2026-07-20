@@ -58,7 +58,7 @@
         "ltv": 6000,
         "liquidation_threshold": 7000,
         "liquidation_bonus": 600,
-        "supply_cap": "10400000000000",
+        "supply_cap": "2500000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1200
       },
@@ -69,7 +69,7 @@
         "ltv": 6000,
         "liquidation_threshold": 7000,
         "liquidation_bonus": 600,
-        "supply_cap": "49700000000000",
+        "supply_cap": "15000000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1200
       },
@@ -129,7 +129,7 @@
         "ltv": 6000,
         "liquidation_threshold": 7000,
         "liquidation_bonus": 600,
-        "supply_cap": "4100000000000",
+        "supply_cap": "50000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1200
       },
@@ -140,7 +140,7 @@
         "ltv": 6000,
         "liquidation_threshold": 7000,
         "liquidation_bonus": 600,
-        "supply_cap": "430000000000",
+        "supply_cap": "50000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1200
       },
@@ -151,7 +151,7 @@
         "ltv": 6000,
         "liquidation_threshold": 7000,
         "liquidation_bonus": 600,
-        "supply_cap": "134000000000",
+        "supply_cap": "25000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1200
       },
@@ -162,7 +162,7 @@
         "ltv": 6000,
         "liquidation_threshold": 7000,
         "liquidation_bonus": 600,
-        "supply_cap": "730000000000",
+        "supply_cap": "50000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1200
       },
@@ -173,7 +173,7 @@
         "ltv": 6000,
         "liquidation_threshold": 7000,
         "liquidation_bonus": 600,
-        "supply_cap": "5170000000000",
+        "supply_cap": "50000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1200
       },
@@ -184,7 +184,7 @@
         "ltv": 6000,
         "liquidation_threshold": 7000,
         "liquidation_bonus": 600,
-        "supply_cap": "199000000000",
+        "supply_cap": "25000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1200
       },
@@ -244,7 +244,7 @@
         "ltv": 6000,
         "liquidation_threshold": 7000,
         "liquidation_bonus": 600,
-        "supply_cap": "490000000000000000000000",
+        "supply_cap": "100000000000000000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1200
       },
@@ -255,7 +255,7 @@
         "ltv": 6000,
         "liquidation_threshold": 7000,
         "liquidation_bonus": 600,
-        "supply_cap": "487000000000000000000000",
+        "supply_cap": "100000000000000000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1200
       },
@@ -364,7 +364,7 @@
         "ltv": 8000,
         "liquidation_threshold": 8500,
         "liquidation_bonus": 500,
-        "supply_cap": "3750000000000000",
+        "supply_cap": "44000000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1000
       },
@@ -375,7 +375,7 @@
         "ltv": 8000,
         "liquidation_threshold": 8500,
         "liquidation_bonus": 500,
-        "supply_cap": "4100000000000",
+        "supply_cap": "40000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1000
       },
@@ -386,7 +386,7 @@
         "ltv": 8000,
         "liquidation_threshold": 8500,
         "liquidation_bonus": 500,
-        "supply_cap": "430000000000",
+        "supply_cap": "40000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1000
       },
@@ -397,7 +397,7 @@
         "ltv": 8000,
         "liquidation_threshold": 8500,
         "liquidation_bonus": 500,
-        "supply_cap": "134000000000",
+        "supply_cap": "25000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1000
       },
@@ -408,7 +408,7 @@
         "ltv": 8000,
         "liquidation_threshold": 8500,
         "liquidation_bonus": 500,
-        "supply_cap": "730000000000",
+        "supply_cap": "40000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1000
       },
@@ -419,7 +419,7 @@
         "ltv": 8000,
         "liquidation_threshold": 8500,
         "liquidation_bonus": 500,
-        "supply_cap": "5170000000000",
+        "supply_cap": "40000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1000
       },
@@ -430,7 +430,7 @@
         "ltv": 8000,
         "liquidation_threshold": 8500,
         "liquidation_bonus": 500,
-        "supply_cap": "199000000000",
+        "supply_cap": "25000000000",
         "borrow_cap": "0",
         "liquidation_fees": 1000
       }

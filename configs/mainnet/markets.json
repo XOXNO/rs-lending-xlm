@@ -1,5 +1,5 @@
 {
-  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live on market_params (flat MarketParamsRaw). Per-asset risk (LTV, caps, pause/freeze) is spoke-scoped via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA: production enforces a ±10% midpoint-relative sanity band (validate_single_source_sanity_band).",
+  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live on market_params (flat MarketParamsRaw). Per-asset risk (LTV, caps, pause/freeze) is spoke-scoped via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA: production enforces a \u00b110% midpoint-relative sanity band (validate_single_source_sanity_band).",
   "network": "mainnet",
   "markets": [
     {
@@ -39,7 +39,7 @@
                 {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "XLM",
-                  "max_stale_seconds": 86400
+                  "max_stale_seconds": 43200
                 }
               ]
             }
@@ -99,7 +99,7 @@
                 {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "USDC",
-                  "max_stale_seconds": 86400
+                  "max_stale_seconds": 43200
                 }
               ]
             }
@@ -112,12 +112,12 @@
         "max_borrow_rate": "1250000000000000000000000000",
         "base_borrow_rate": "5000000000000000000000000",
         "slope1": "30000000000000000000000000",
-        "slope2": "55000000000000000000000000",
+        "slope2": "95000000000000000000000000",
         "slope3": "1000000000000000000000000000",
         "mid_utilization": "600000000000000000000000000",
         "optimal_utilization": "850000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000,
+        "reserve_factor": 1500,
         "is_flashloanable": true,
         "flashloan_fee": 9
       }
@@ -159,7 +159,7 @@
                 {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "EUROC",
-                  "max_stale_seconds": 86400
+                  "max_stale_seconds": 43200
                 }
               ]
             }
@@ -172,12 +172,12 @@
         "max_borrow_rate": "1250000000000000000000000000",
         "base_borrow_rate": "5000000000000000000000000",
         "slope1": "30000000000000000000000000",
-        "slope2": "55000000000000000000000000",
+        "slope2": "95000000000000000000000000",
         "slope3": "1000000000000000000000000000",
         "mid_utilization": "600000000000000000000000000",
         "optimal_utilization": "850000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000,
+        "reserve_factor": 1500,
         "is_flashloanable": true,
         "flashloan_fee": 9
       }
@@ -187,7 +187,7 @@
       "hub_id": 1,
       "asset_address": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2",
       "oracle": {
-        "max_price_stale_seconds": 3600,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -196,7 +196,7 @@
             {
               "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
               "feed_id": "PYUSD",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
@@ -211,12 +211,12 @@
         "max_borrow_rate": "1250000000000000000000000000",
         "base_borrow_rate": "5000000000000000000000000",
         "slope1": "30000000000000000000000000",
-        "slope2": "55000000000000000000000000",
+        "slope2": "95000000000000000000000000",
         "slope3": "1000000000000000000000000000",
         "mid_utilization": "600000000000000000000000000",
         "optimal_utilization": "850000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000,
+        "reserve_factor": 1500,
         "is_flashloanable": true,
         "flashloan_fee": 9
       }
@@ -226,7 +226,7 @@
       "hub_id": 2,
       "asset_address": "CBZ4DCE7PYMUTOAKKUTRSUPT3FJFVOWCSKWUM5A72D6SAVMUJE5JN2PJ",
       "oracle": {
-        "max_price_stale_seconds": 3600,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -235,7 +235,7 @@
             {
               "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
               "feed_id": "USST_FUNDAMENTAL",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
@@ -255,7 +255,7 @@
         "mid_utilization": "600000000000000000000000000",
         "optimal_utilization": "850000000000000000000000000",
         "max_utilization": "950000000000000000000000000",
-        "reserve_factor": 1000,
+        "reserve_factor": 2500,
         "is_flashloanable": true,
         "flashloan_fee": 9
       }
@@ -265,7 +265,7 @@
       "hub_id": 2,
       "asset_address": "CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF",
       "oracle": {
-        "max_price_stale_seconds": 7200,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -274,7 +274,7 @@
             {
               "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOEUTBL",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
@@ -304,7 +304,7 @@
       "hub_id": 2,
       "asset_address": "CARUUX2FZNPH6DGJOEUFSIUQWYHNL5AVDV7PMVSHWL7OBYIBFC76F4TO",
       "oracle": {
-        "max_price_stale_seconds": 7200,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -313,7 +313,7 @@
             {
               "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOUSTBL",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
@@ -343,7 +343,7 @@
       "hub_id": 2,
       "asset_address": "CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR",
       "oracle": {
-        "max_price_stale_seconds": 7200,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -352,7 +352,7 @@
             {
               "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOUKTBL",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
@@ -382,7 +382,7 @@
       "hub_id": 2,
       "asset_address": "CDGSC6BA4TCAOVSFQCUEHDMOIIHYYVNYBT6YEARS4MX3ITAHUINVGQHX",
       "oracle": {
-        "max_price_stale_seconds": 7200,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -391,7 +391,7 @@
             {
               "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOSAFO",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
@@ -421,7 +421,7 @@
       "hub_id": 2,
       "asset_address": "CBOOCGZSVRSZFRE4U2NWR2B4RXYVJWRCBTGOUD2JPI2TDJPWMTJX7FZP",
       "oracle": {
-        "max_price_stale_seconds": 7200,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -430,7 +430,7 @@
             {
               "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOEURSAFO",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
@@ -460,7 +460,7 @@
       "hub_id": 2,
       "asset_address": "CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP",
       "oracle": {
-        "max_price_stale_seconds": 7200,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -469,7 +469,7 @@
             {
               "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "SPIKOGBPSAFO",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
@@ -499,7 +499,7 @@
       "hub_id": 2,
       "asset_address": "CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV",
       "oracle": {
-        "max_price_stale_seconds": 7200,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -508,7 +508,7 @@
             {
               "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "DEJTRSY",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
@@ -538,7 +538,7 @@
       "hub_id": 2,
       "asset_address": "CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL",
       "oracle": {
-        "max_price_stale_seconds": 7200,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -547,7 +547,7 @@
             {
               "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
               "feed_id": "DEJAAA",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
@@ -609,7 +609,7 @@
                 {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "USTRY",
-                  "max_stale_seconds": 86400
+                  "max_stale_seconds": 43200
                 }
               ]
             }
@@ -669,7 +669,7 @@
                 {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "CETES",
-                  "max_stale_seconds": 86400
+                  "max_stale_seconds": 43200
                 }
               ]
             }
@@ -697,7 +697,7 @@
       "hub_id": 2,
       "asset_address": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP",
       "oracle": {
-        "max_price_stale_seconds": 7200,
+        "max_price_stale_seconds": 43200,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -706,7 +706,7 @@
             {
               "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
               "feed_id": "USDY_FUNDAMENTAL/USD",
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 43200
             }
           ]
         },
