@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Check that every configured Certora rule has a matching #[rule] function."""
+"""Check conf ↔ spec rule alignment in both directions.
+
+- Orphan conf entries: rule listed in a conf with no matching #[rule] in spec.
+- Dead spec rules: #[rule] function not referenced by any conf (never runs).
+"""
 
 import json
 import re
@@ -65,6 +69,7 @@ def main() -> int:
     total_confs = 0
     total_rules = 0
     orphans: list[tuple[str, str]] = []
+    dead_rules: list[tuple[str, str]] = []
     profile_errors: list[str] = []
     conf_source_rules: dict[Path, set[str]] = {}
 
@@ -73,12 +78,17 @@ def main() -> int:
         source_rules = read_rules(confs_dir.parent / "spec")
         total_rules += len(source_rules)
 
+        configured_rules: set[str] = set()
         for conf in sorted(confs_dir.glob("*.conf")):
             total_confs += 1
             conf_source_rules[conf.resolve()] = source_rules
             for rule_name in conf_rules(conf):
+                configured_rules.add(rule_name)
                 if rule_name not in source_rules:
                     orphans.append((f"{layer}/{conf.name}", rule_name))
+
+        for rule_name in sorted(source_rules - configured_rules):
+            dead_rules.append((layer, rule_name))
 
     total_profiles = 0
     if PROFILE_MANIFEST.exists():
@@ -105,13 +115,22 @@ def main() -> int:
             print(f"  {conf}: {rule_name}")
         return 1
 
+    if dead_rules:
+        print("Dead spec rules (#[rule] not referenced by any conf — wire in or delete):")
+        for layer, rule_name in dead_rules:
+            print(f"  {layer}: {rule_name}")
+        return 1
+
     if profile_errors:
         print("Profile errors:")
         for error in profile_errors:
             print(f"  {error}")
         return 1
 
-    print(f"OK: {total_confs} confs, {total_rules} source rules, {total_profiles} profiles, zero orphans")
+    print(
+        f"OK: {total_confs} confs, {total_rules} source rules, "
+        f"{total_profiles} profiles, zero orphans, zero dead rules"
+    )
     return 0
 
 

@@ -69,7 +69,7 @@ pub(crate) fn calculate_ltv_collateral_wad(
             feed.price,
         );
 
-        ltv += position.loan_to_value.apply_to_wad_floor(env, value);
+        ltv.checked_add_assign(env, position.loan_to_value.apply_to_wad_floor(env, value));
     }
     ltv
 }
@@ -156,9 +156,13 @@ fn calculate_account_risk_totals_body(
             feed.price,
         );
 
-        total_collateral += value;
-        ltv_collateral += position.loan_to_value.apply_to_wad_floor(env, gate_value);
-        weighted_coll += weighted_collateral(env, gate_value, position.liquidation_threshold);
+        total_collateral.checked_add_assign(env, value);
+        ltv_collateral
+            .checked_add_assign(env, position.loan_to_value.apply_to_wad_floor(env, gate_value));
+        weighted_coll.checked_add_assign(
+            env,
+            weighted_collateral(env, gate_value, position.liquidation_threshold),
+        );
     }
 
     let mut total_debt = Wad::ZERO;
@@ -167,11 +171,14 @@ fn calculate_account_risk_totals_body(
         let market_index = cache.cached_market_index(&hub_asset);
 
         // Ceil the whole chain: owed value cannot round downward.
-        total_debt += position_value_ceil(
+        total_debt.checked_add_assign(
             env,
-            position.scaled_amount,
-            market_index.borrow_index,
-            feed.price,
+            position_value_ceil(
+                env,
+                position.scaled_amount,
+                market_index.borrow_index,
+                feed.price,
+            ),
         );
     }
 

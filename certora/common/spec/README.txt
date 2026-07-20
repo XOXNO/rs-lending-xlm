@@ -21,6 +21,11 @@ math.conf
   spec/math_rules.rs
   Rules: ray/wad/bps identities, roundtrip bounds, common_math_reachability
 
+math-hard.conf
+  spec/math_rules.rs
+  Rules: bps→wad floor chain (NIA-hard escalation pair for math.conf;
+  runs in the heavy profile)
+
 rates.conf
   spec/rates_rules.rs
   Rules: utilization, borrow/deposit rate caps, index monotonicity, interest

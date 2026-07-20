@@ -175,7 +175,7 @@ pub(crate) fn finish_repay_leg(
         .map_or(Ray::ZERO, |p| Ray::from(p.scaled_amount));
     let position = DebtPosition::from(&result.position);
 
-    let shares_repaid = old_scaled - position.scaled_amount;
+    let shares_repaid = old_scaled.checked_sub(env, position.scaled_amount);
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
     ctx.apply_repay_after_pool(env, hub_asset, shares_repaid);
 

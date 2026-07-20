@@ -20,9 +20,15 @@ fi
 # (unbounded JVMs default to 1/4 of physical RAM *each*).
 heap="${CERTORA_JAVA_HEAP:--Xmx24g}"
 
+# Local prover invocation (see README "Local prover"): CLI script + emv.jar.
+# Override CERTORA_LOCAL with a full command prefix if the install moves.
+install_dir="${CERTORA_INSTALL:-$HOME/certora-install}"
+local_cmd="${CERTORA_LOCAL:-python3 $install_dir/certoraSorobanProver.py}"
+
 run_one() {
   local r="$1"
-  (cd "$dir" && certoraSorobanLocal "$name" --rule "$r" --java_args "$heap" 2>&1 \
+  (cd "$dir" && $local_cmd "$name" --jar "$install_dir/emv.jar" \
+    --rule "$r" --java_args "$heap" 2>&1 \
     | grep -E 'Verified|Violated|Timeout|Error' | head -4 \
     | sed "s|^|[$r] |") || true
 }

@@ -63,5 +63,6 @@ fn spoke_supply_cap_headroom(
     if used_scaled >= cap_scaled {
         return 0;
     }
-    scaled_to_original(env, cap_scaled - used_scaled, market.supply_index).to_asset(market.decimals)
+    scaled_to_original(env, cap_scaled.checked_sub(env, used_scaled), market.supply_index)
+        .to_asset(market.decimals)
 }

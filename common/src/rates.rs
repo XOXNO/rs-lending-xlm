@@ -2,8 +2,12 @@
 
 use soroban_sdk::{panic_with_error, Env, I256};
 
-use crate::constants::{BPS, MAX_BORROW_INDEX_RAY, MILLISECONDS_PER_YEAR, SUPPLY_INDEX_FLOOR_RAW};
+use crate::constants::{
+    BPS, MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR, RAY,
+    SUPPLY_VIRTUAL_VALUE_RAY,
+};
 use crate::math::fp::{Bps, Ray};
+use crate::math::fp_core;
 use crate::types::{MarketParams, PoolState, PoolSyncData};
 
 /// Max compound-interest chunk (one year in ms).
@@ -15,18 +19,23 @@ pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams)
         let contribution = utilization
             .mul(env, params.slope1)
             .div(env, params.mid_utilization);
-        params.base_borrow_rate + contribution
+        params.base_borrow_rate.checked_add(env, contribution)
     } else if utilization < params.optimal_utilization {
-        let excess = utilization - params.mid_utilization;
-        let range = params.optimal_utilization - params.mid_utilization;
+        let excess = utilization.checked_sub(env, params.mid_utilization);
+        let range = params.optimal_utilization.checked_sub(env, params.mid_utilization);
         let contribution = excess.mul(env, params.slope2).div(env, range);
-        params.base_borrow_rate + params.slope1 + contribution
+        params.base_borrow_rate
+            .checked_add(env, params.slope1)
+            .checked_add(env, contribution)
     } else {
-        let base_rate = params.base_borrow_rate + params.slope1 + params.slope2;
-        let excess = utilization - params.optimal_utilization;
-        let range = Ray::ONE - params.optimal_utilization;
+        let base_rate = params
+            .base_borrow_rate
+            .checked_add(env, params.slope1)
+            .checked_add(env, params.slope2);
+        let excess = utilization.checked_sub(env, params.optimal_utilization);
+        let range = Ray::ONE.checked_sub(env, params.optimal_utilization);
         let contribution = excess.mul(env, params.slope3).div(env, range);
-        base_rate + contribution
+        base_rate.checked_add(env, contribution)
     };
 
     let capped = if annual_rate > params.max_borrow_rate {
@@ -89,7 +98,11 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
     let term7 = x_pow7.div_by_int(5_040);
     let term8 = x_pow8.div_by_int(40_320);
 
-    Ray::ONE + x + term2 + term3 + term4 + term5 + term6 + term7 + term8
+    let mut sum = Ray::ONE;
+    for term in [x, term2, term3, term4, term5, term6, term7, term8] {
+        sum.checked_add_assign(env, term);
+    }
+    sum
 }
 
 pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> Ray {
@@ -112,10 +125,33 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     if total_supplied_value == Ray::ZERO {
         return old_index;
     }
-    // dimensional: rewards / total supplied -> Ray<1>; index scales by that factor.
-    let rewards_ratio = rewards_increase.div(env, total_supplied_value);
-    let factor = Ray::ONE + rewards_ratio;
-    old_index.mul(env, factor)
+    // Virtual offset is reward-denominator only; utilization and bad-debt use the real base.
+    let denom = total_supplied_value.checked_add(env, Ray::from(SUPPLY_VIRTUAL_VALUE_RAY));
+    let rewards_ratio = rewards_increase.div(env, denom);
+    let factor = Ray::ONE.checked_add(env, rewards_ratio);
+    // Clamp into the i128-safe band; saturating mul avoids trapping at the edge.
+    let grown = fp_core::mul_div_floor_saturating(env, old_index.raw(), factor.raw(), RAY);
+    Ray::from(grown.min(MAX_SUPPLY_INDEX_RAY))
+}
+
+/// Reward value that a supply-index update leaves UNDISTRIBUTED to suppliers:
+/// the virtual-offset dilution plus any `MAX_SUPPLY_INDEX_RAY` clamp remainder.
+/// `distributed = supplied * (new_index - old_index)`, floored by the index math,
+/// so this is always `>= 0`. Booking it as protocol revenue keeps 100% of the
+/// reward accounted instead of stranding it as non-extractable dead reserve,
+/// while leaving the suppliers' diluted share (the dust-poisoning defense) exactly
+/// as-is.
+pub fn supply_index_reward_shortfall(
+    env: &Env,
+    supplied: Ray,
+    old_index: Ray,
+    new_index: Ray,
+    rewards_increase: Ray,
+) -> Ray {
+    let distributed = supplied
+        .mul(env, new_index)
+        .checked_sub(env, supplied.mul(env, old_index));
+    rewards_increase.checked_sub(env, distributed)
 }
 
 pub fn calculate_supplier_rewards(
@@ -129,12 +165,23 @@ pub fn calculate_supplier_rewards(
     let old_total_debt = borrowed.mul(env, old_borrow_index);
     let new_total_debt = borrowed.mul(env, new_borrow_index);
 
-    let accrued_interest = new_total_debt - old_total_debt;
+    let accrued_interest = new_total_debt.checked_sub(env, old_total_debt);
 
     let protocol_fee = Ray::from(params.reserve_factor.apply_to(env, accrued_interest.raw()));
-    let supplier_rewards = accrued_interest - protocol_fee;
+    let supplier_rewards = accrued_interest.checked_sub(env, protocol_fee);
 
     (supplier_rewards, protocol_fee)
+}
+
+/// Scales a protocol `fee` into supply shares, overflow-safe. Matches the plain
+/// `fee / supply_index` half-up divide for results that fit `i128`; at a floored
+/// supply index (post-wipeout) the raw share count can exceed `i128`, so the
+/// conversion saturates and is capped to the headroom left in `supplied` — accrual
+/// and the simulate view can never trap on a bricked market.
+pub fn protocol_fee_shares(env: &Env, fee: Ray, supply_index: Ray, supplied: Ray) -> Ray {
+    let raw = fp_core::mul_div_half_up_saturating(env, fee.raw(), RAY, supply_index.raw());
+    let headroom = i128::MAX - supplied.raw();
+    Ray::from(raw.min(headroom))
 }
 
 pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
@@ -226,12 +273,10 @@ pub(crate) fn simulate_update_indexes_body(
         borrow_index = new_borrow_index;
 
         // Protocol fee mints scaled supply (feeds next-chunk utilization).
-        if protocol_fee != Ray::ZERO
-            && supply_index.raw() > SUPPLY_INDEX_FLOOR_RAW
-            && supplied != Ray::ZERO
-        {
-            // dimensional: Ray<Token(asset)> / Ray<Index(asset, supply)> -> Ray<Share(asset, supply)>.
-            let fee_scaled = protocol_fee.div(env, supply_index);
+        if protocol_fee != Ray::ZERO {
+            // Overflow-safe: a floored supply index can push the share count past
+            // i128; `protocol_fee_shares` saturates and caps to remaining headroom.
+            let fee_scaled = protocol_fee_shares(env, protocol_fee, supply_index, supplied);
             supplied = supplied.checked_add(env, fee_scaled);
         }
 

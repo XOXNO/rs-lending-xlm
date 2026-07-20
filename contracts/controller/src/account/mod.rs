@@ -80,13 +80,23 @@ pub(crate) fn load_or_create_account(
     (account_id, account)
 }
 
-pub(crate) fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, owner: &Address) {
+/// True when `caller` is the account owner or an active registered delegate.
+pub(crate) fn is_owner_or_delegate(
+    env: &Env,
+    account_id: u64,
+    caller: &Address,
+    owner: &Address,
+) -> bool {
     if caller == owner {
-        return;
+        return true;
     }
     let active_manager =
         storage::get_position_manager(env, caller).is_some_and(|config| config.is_active);
-    if active_manager && storage::get_delegates(env, account_id).contains(caller) {
+    active_manager && storage::get_delegates(env, account_id).contains(caller)
+}
+
+pub(crate) fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, owner: &Address) {
+    if is_owner_or_delegate(env, account_id, caller, owner) {
         return;
     }
     panic_with_error!(env, GenericError::NotAuthorized);

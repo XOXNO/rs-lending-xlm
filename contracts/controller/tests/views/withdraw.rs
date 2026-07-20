@@ -656,12 +656,11 @@ fn settle_returns_zero_for_dust_underwater_account_without_going_negative() {
         let pos_scaled = Ray::from_asset(100 * UNIT, 7);
         let market = ctx(1_000, 0, 1_000 * UNIT);
 
-        // Sanity: the unchanged account fails the gates, a small negative
-        // amount would pass them — exactly the divergence window.
+        // Negative amount would inflate the adjusted position and pass the gates.
         assert!(!partial_ok(
             &env, &mut cache, &account, &hub, &market, pos_scaled, 0
         ));
-        assert!(partial_ok(
+        assert!(!partial_ok(
             &env, &mut cache, &account, &hub, &market, pos_scaled, -1
         ));
 

@@ -246,6 +246,12 @@
     ],
     "heavy": [
       {
+        "conf": "certora/common/confs/math-hard.conf"
+      },
+      {
+        "conf": "certora/controller/confs/math-bv.conf"
+      },
+      {
         "conf": "certora/pool/confs/summary-contract-critical.conf"
       },
       {

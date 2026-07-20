@@ -15,7 +15,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 use crate::utils;
 
-/// In-memory market params + interest state; one load/save per high-level op.
+/// In-memory market params + interest state; one load/save per market leg.
 pub struct Cache {
     pub env: Env,
     pub supplied: Ray,
@@ -28,6 +28,14 @@ pub struct Cache {
     pub params: MarketParams,
     pub hub_asset: HubAssetKey,
     /// Tracked reserves (`Token(asset)`); direct donations never increase this.
+    ///
+    /// Invariant: `cash >= sum(claimable supplier + revenue value)`. The surplus
+    /// is protocol-owned dead reserve that accrues from conservative rounding
+    /// (floor payouts) and the `update_supply_index` virtual-offset dilution
+    /// (rewards on a near-empty market are under-distributed). It is never
+    /// extractable by any user path — every withdrawal is cash-gated by
+    /// `require_reserves` — and would be recovered only by a future governance
+    /// reserve-skim entrypoint. Keeping it conservative preserves solvency.
     pub cash: i128,
 }
 
@@ -170,8 +178,10 @@ impl Cache {
         (self.calculate_scaled_supply(amount), amount)
     }
 
+    /// Floor conversion: a claim never transfers more than the shares it burns
+    /// are worth, so rounding dust stays as supplier backing.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
-        let treasury_actual = self.unscale_supply(self.revenue);
+        let treasury_actual = self.unscale_supply_floor(self.revenue);
         let amount = self.cash.min(treasury_actual);
         if amount <= 0 {
             return 0;

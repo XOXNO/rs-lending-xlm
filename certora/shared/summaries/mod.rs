@@ -15,7 +15,7 @@ pub mod reflector;
 pub mod sac;
 
 /// Token price: positive WAD price, decimals <= 27, timestamp within skew.
-pub fn token_price_summary(cache: &mut Cache, _asset: &Address) -> PriceFeedRaw {
+pub(crate) fn token_price_summary(cache: &mut Cache, _asset: &Address) -> PriceFeedRaw {
     let price_wad: i128 = nondet();
     let asset_decimals: u32 = nondet();
     let timestamp: u64 = nondet();
@@ -29,12 +29,15 @@ pub fn token_price_summary(cache: &mut Cache, _asset: &Address) -> PriceFeedRaw 
     }
 }
 
-/// Pool market index: indexes >= production floors (models `bulk_get_indexes`).
+/// Pool market index inside the production band: floor from bad-debt
+/// write-down, caps from the `update_*_index` clamps (models `bulk_get_indexes`).
 pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
     let supply_index: i128 = nondet();
     let borrow_index: i128 = nondet();
     cvlr_assume!(supply_index >= common::constants::SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assume!(supply_index <= common::constants::MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(borrow_index >= common::constants::RAY);
+    cvlr_assume!(borrow_index <= common::constants::MAX_BORROW_INDEX_RAY);
     MarketIndexRaw {
         supply_index,
         borrow_index,

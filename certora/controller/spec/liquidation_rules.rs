@@ -189,6 +189,10 @@ fn seizure_proportional(
     }
 }
 
+/// Mirrors `calculate_seized_collateral` fee math including the production
+/// dust bump: a fee that is positive in RAY but floors to zero asset units is
+/// bumped to 1 unit, so the realized fee may exceed the bonus by at most one
+/// unit while never exceeding the seizure itself.
 #[rule]
 fn protocol_fee_on_bonus_only(
     e: Env,
@@ -208,18 +212,28 @@ fn protocol_fee_on_bonus_only(
     let bonus_amount = seizure_amount - base_amount;
     let protocol_fee = mul_div_half_up(&e, bonus_amount, liquidation_fees, BPS);
 
+    // Production bump: ray-positive fee that rounds to zero pays 1 unit.
+    let fee_final = if protocol_fee == 0 && bonus_amount > 0 && liquidation_fees > 0 {
+        1
+    } else {
+        protocol_fee
+    };
+
     cvlr_assert!(protocol_fee <= bonus_amount);
-    cvlr_assert!(protocol_fee >= 0);
+    cvlr_assert!(fee_final <= bonus_amount + 1);
+    cvlr_assert!(fee_final >= 0);
 
     if liquidation_fees == 0 {
-        cvlr_assert!(protocol_fee == 0);
+        cvlr_assert!(fee_final == 0);
     }
 
-    cvlr_assert!(protocol_fee < seizure_amount);
+    cvlr_assert!(fee_final <= seizure_amount);
 }
 
+/// Ideal repayment stays positive and inside the collateral/(1+bonus) budget
+/// for the spoke's default curve (target HF = `DEFAULT_LIQUIDATION_TARGET_HF_WAD`).
 #[rule]
-fn ideal_repayment_targets_102(
+fn ideal_repayment_targets_curve_hf(
     e: Env,
     total_debt_wad: i128,
     weighted_collateral_wad: i128,
@@ -260,7 +274,7 @@ fn ideal_repayment_targets_102(
     cvlr_assert!(ideal.raw() <= total_debt_wad);
 
     let bonus_wad = bonus.to_wad(&e);
-    let one_plus_bonus = Wad::ONE + bonus_wad;
+    let one_plus_bonus = Wad::ONE.checked_add(&e, bonus_wad);
     let max_repayable = Wad::from(total_collateral_wad).div(&e, one_plus_bonus);
     cvlr_assert!(ideal.raw() <= max_repayable.raw() + 1);
 }

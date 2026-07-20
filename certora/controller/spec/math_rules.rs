@@ -5,7 +5,7 @@ use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::Env;
 
 use crate::constants::{RAY, WAD};
-use common::math::fp_core::{mul_div_half_up, mul_div_half_up_signed, rescale_half_up};
+use common::math::fp_core::{mul_div_half_up, rescale_half_up};
 
 #[rule]
 fn mul_half_up_commutative(e: Env) {
@@ -131,21 +131,6 @@ fn rescale_roundtrip() {
     let recovered = rescale_half_up(upscaled, high, low);
 
     cvlr_assert!(recovered == x);
-}
-
-/// Signed half-up multiply stays within one divisor of the true product.
-#[rule]
-fn signed_mul_away_from_zero(e: Env) {
-    let a: i128 = cvlr::nondet::nondet();
-    let b: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!((-100_000_000_000_000..0).contains(&a));
-    cvlr_assume!(b > 0 && b <= 100_000_000_000_000);
-
-    let result = mul_div_half_up_signed(&e, a, b, RAY);
-
-    cvlr_assert!(result * RAY >= a * b - RAY);
-    cvlr_assert!(result * RAY <= a * b + RAY);
 }
 
 /// Realistic `RAY`-scale products do not overflow the conversion path.

@@ -2,7 +2,7 @@ use soroban_sdk::testutils::budget::ContractCostType;
 use soroban_sdk::Env;
 use test_harness::{
     build_aggregator_swap, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset, xlm_preset,
-    LendingTest, ALICE,
+    LendingTest, ALICE, BOB,
 };
 
 /// Dump non-zero per-cost-type CPU, sorted by CPU descending, with each type's
@@ -170,6 +170,11 @@ fn budget_borrow_baseline() {
         .with_budget_enabled()
         .build();
 
+    // BOB seeds a real ETH supply base. `eth_preset` seeds only `cash`, not
+    // `supplied`, so without a genuine supplier the first borrow's fee-dust
+    // becomes the entire supply base and utilization = debt / dust exceeds the
+    // cap. A real supply (impossible to skip in production) makes utilization sane.
+    t.supply(BOB, "ETH", 1_000.0);
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.advance_time(86_400);

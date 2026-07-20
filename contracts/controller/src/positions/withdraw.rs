@@ -240,7 +240,7 @@ pub(crate) fn finish_withdraw_leg(
     // Pool owns scaled shares; controller keeps collateral risk params unless refreshing.
     result_position.scaled_amount = Ray::from(result.position.scaled_amount);
 
-    let shares_withdrawn = old_scaled - result_position.scaled_amount;
+    let shares_withdrawn = old_scaled.checked_sub(env, result_position.scaled_amount);
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
     ctx.apply_withdraw_after_pool(env, hub_asset, shares_withdrawn);
 

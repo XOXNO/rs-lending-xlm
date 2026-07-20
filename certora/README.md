@@ -16,7 +16,7 @@ certora/
 │   └── spec/        # README.txt — domain invariant + conf map
 ├── shared/          # cross-contract summaries
 ├── scripts/         # Python entrypoints, wasm helpers, run-all.sh wrapper
-├── profiles.json    # sanity | fast | core | critical | heavy | all
+├── profiles.json    # sanity | fast | core | critical | heavy | manual | all
 └── compile_all.sh
 ```
 
@@ -67,32 +67,35 @@ Runs `cargo check` for all `certora` feature paths, then `check_orphans.py`
 ## Local prover (no cloud)
 
 The open-source [CertoraProver](https://github.com/Certora/CertoraProver) is
-built on this server and runs our Soroban confs fully locally:
+built on this machine and runs our Soroban confs fully locally:
 
 | Piece | Location |
 | --- | --- |
-| Prover source | `~/GitHub/CertoraProver` (+ `.venv` with CLI deps) |
-| Built artifacts (`emv.jar`, `tac_optimizer`, scripts) | `~/certora-build` (`$CERTORA`) |
-| JDK 21 / z3 4.16 / cvc5 1.3.4 / llvm tools / rustfilt | `~/opt/jdk-21*`, `~/.local/bin`, `~/.cargo/bin` |
-| Wrappers | `~/.local/bin/certoraSorobanLocal`, `certoraRunLocal`, `certora-local-env` |
+| Prover source | `~/certora-work/CertoraProver` |
+| Built artifacts (`emv.jar`, `certora_jars`, CLI scripts) | `~/certora-install` |
+| Python CLI deps | any venv with `~/certora-work/CertoraProver/scripts/certora_cli_requirements.txt` installed |
+| JDK 21 (temurin) | `/Library/Java/JavaVirtualMachines/temurin-21.jdk` |
 
 ```bash
-cd verification/certora/common/confs
-certoraSorobanLocal math.conf                     # whole conf
-certoraSorobanLocal math.conf --rule ray_mul_identity
+cd certora/common/confs
+<venv>/bin/python ~/certora-install/certoraSorobanProver.py math.conf \
+    --jar ~/certora-install/emv.jar                      # whole conf
+<venv>/bin/python ~/certora-install/certoraSorobanProver.py math.conf \
+    --jar ~/certora-install/emv.jar --rule ray_mul_identity
 ```
 
-The wrapper appends `--jar $CERTORA/emv.jar`, which forces local execution —
-our confs keep `"server": "prover"` so plain `certoraSorobanProver` still
-submits to the cloud unchanged. Reports land next to the conf in
-`emv-*-certora-*/Reports`. Rebuild the prover after upstream updates with
-`cd ~/GitHub/CertoraProver && CERTORA=~/certora-build ./gradlew assemble`.
+Passing `--jar ~/certora-install/emv.jar` forces local execution — our confs
+keep `"server": "prover"` so plain `certoraSorobanProver` still submits to the
+cloud unchanged. Reports land next to the conf in `emv-*-certora-*/Reports`.
+Rebuild the prover after upstream updates with
+`cd ~/certora-work/CertoraProver && ./gradlew assemble`.
 Local runs still need `make certora-wasm` first, same as cloud.
 
 ## Hosted prover
 
-**CI:** `.github/workflows/certora-verification.yml` runs the `sanity` profile
-(14 reachability rules) when dispatched. Requires `CERTORAKEY` repository secret.
+**CI:** `.github/workflows/certora-verification.yml` runs a reachability matrix
+when dispatched; the full `sanity` profile (17 reachability rules) is the local
+equivalent. Requires `CERTORAKEY` repository secret.
 
 **Manual profiles:**
 
@@ -116,7 +119,7 @@ Local runs still need `make certora-wasm` first, same as cloud.
 Forward extra prover flags after `--`:
 
 ```bash
-./certora/scripts/run_profile.py fast -- --rule borrow_respects_reserves
+./certora/scripts/run_profile.py fast -- --rule borrow_rate_capped
 ```
 
 ## Lemma-before-main
@@ -146,7 +149,7 @@ Not all confs are equally reliable in Certora cloud. Config syntax is valid
 | --- | --- | --- |
 | **A — reliable** | `common/math`, `flash_loan`, `health`, `indexes`, `positions`, `oracle`, `tolerance-math`, `liquidation-light` | Usually complete within 30–60 min |
 | **B — may timeout** | `common/rates`, `math`, `interest`, `spoke`, `liquidation`, `strategy`, `market-guard`, `controller-pool-consistency-light`, `pool/integrity`, `summary-contract`, `additivity` | Run individually; 1–2 h jobs |
-| **C — heavy / often stuck** | `solvency-*` (split bundles), `boundary-*` (split bundles), all 6 `*-heavy.conf` + `no-collateral-no-debt` | Use `--rule <one>` per invocation; expect multi-hour runs |
+| **C — heavy / often stuck** | `solvency-*` (split bundles), `boundary-*` (split bundles), the `heavy` profile confs (`math-hard`, `math-bv`, `summary-contract-critical`, `additivity-heavy`, `no-collateral-no-debt`, `controller-pool-consistency`, `global-solvency-heavy`, `liquidation-integrity-heavy`) | Use `--rule <one>` per invocation; expect multi-hour runs |
 
 **Build requirement:** run `make certora-wasm` locally (or in CI) before
 submitting jobs. Confs use the `files` field pointing at
@@ -163,11 +166,11 @@ is timeout pressure, not a hung portal.
 
 ```bash
 # One rule per submission for Tier B/C
-certoraSorobanProver solvency-borrow.conf --rule borrow_respects_reserves
+certoraSorobanProver solvency-borrow.conf --rule ltv_borrow_bound_enforced
 certoraSorobanProver boundary-math.conf --rule mul_at_max_i128
 ```
 
-Run `sanity` profile rules first (14 reachability checks) before `fast`/`core`.
+Run `sanity` profile rules first (17 reachability checks) before `fast`/`core`.
 
 ## Config policy
 
@@ -180,7 +183,10 @@ Run `sanity` profile rules first (14 reachability checks) before `fast`/`core`.
   order of magnitude faster (common/math: 8/8 in 6 min locally vs 4/8 with
   bit-blasting). Enable it per-rule only when a counterexample is
   bitwise-spurious. Boundary confs that assert exact overflow behavior may
-  still need it — validate locally before removing
+  still need it — validate locally before removing. Dedicated escalation
+  confs: `common/confs/math-hard.conf` (NIA-hard bps→wad floor chain) and
+  `controller/confs/math-bv.conf` (bit-precise sign/rounding semantics);
+  both run in the `heavy` profile
 - EVM-only options (`multi_assert_check`, `solc`, Gambit) are not used
 - `-maxCommandCount` must exceed the rule's expanded command count, or the job
   errors (`expanded to too many commands: N > limit`). Controller state confs

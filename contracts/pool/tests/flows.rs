@@ -2283,3 +2283,251 @@ fn test_cash_conservation_across_supply_borrow_overpaid_repay_withdraw() {
         cash_start + supply_amount - withdraw_amount
     );
 }
+
+// --- POOL-CAN-001: virtual offset bounds dust-reward growth. ---
+
+/// Dust supply + large reward leaves the market usable: index stays below the
+/// cap, the dust position recovers almost none of the reward, and a later
+/// accrual/withdraw still succeeds.
+#[test]
+fn test_dust_supply_plus_reward_no_longer_bricks_a_fresh_market() {
+    let t = TestSetup::new();
+    let asset = t.add_funded_market();
+    let client = t.client();
+
+    let attacker = Address::generate(&t.env);
+    let opened = client.supply(&t.sup_for(&asset, 0, 1));
+    let attacker_scaled = opened.get(0).unwrap().position.scaled_amount;
+
+    let reward = 170_141_183_459i128;
+    client.add_rewards(&hub(&asset), &reward);
+
+    let grown = t.state_of(&asset).supply_index;
+    assert!(grown < common::constants::MAX_SUPPLY_INDEX_RAY);
+    assert!(grown < RAY * 1_000_000);
+
+    let exit = vec![
+        &t.env,
+        PoolWithdrawEntry {
+            action: t.action_for(&asset, attacker_scaled, reward + 1),
+            protocol_fee: 0,
+        },
+    ];
+    let recovered = client.withdraw(&attacker, &false, &exit);
+    assert!(recovered.get(0).unwrap().actual_amount < reward / 1_000);
+
+    let victim = client.supply(&t.sup_for(&asset, 0, 10_000_000_000i128));
+    let victim_scaled = victim.get(0).unwrap().position.scaled_amount;
+    let borrower = Address::generate(&t.env);
+    client.borrow(
+        &borrower,
+        &vec![
+            &t.env,
+            PoolBorrowEntry {
+                action: t.action_for(&asset, 0, 5_000_000_000i128),
+            },
+        ],
+    );
+
+    t.advance_time(86_400);
+
+    client.update_indexes(&hub(&asset));
+    let _ = client.get_bulk_indexes(&vec![&t.env, hub(&asset), hub(&t.asset)]);
+    let rescued = client.withdraw(
+        &attacker,
+        &false,
+        &vec![
+            &t.env,
+            PoolWithdrawEntry {
+                action: t.action_for(&asset, victim_scaled, 10_000_000_000i128),
+                protocol_fee: 0,
+            },
+        ],
+    );
+    assert!(rescued.get(0).unwrap().actual_amount > 0);
+}
+
+// --- POOL-CAN-002: revenue claims never outpay the shares they burn. ---
+
+/// Floor conversion never quotes more than revenue shares are worth; half-up can.
+#[test]
+fn test_revenue_conversion_floor_never_exceeds_entitlement_but_half_up_does() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let borrower = Address::generate(&t.env);
+
+    client.supply(&t.sup(0, 10_000_000_000i128));
+    client.borrow(&borrower, &t.bor(0, 4_000_000_000i128));
+    t.advance_time(1);
+    client.update_indexes(&hub(&t.asset));
+
+    let state = t.state_snapshot();
+    let entitlement_ray =
+        common::math::fp_core::mul_div_floor(&t.env, state.revenue, state.supply_index, RAY);
+
+    let (half_up, floored) = t.env.as_contract(&t.pool, || {
+        let cache = Cache::load(&t.env, &hub(&t.asset));
+        (
+            cache.unscale_supply(cache.revenue),
+            cache.unscale_supply_floor(cache.revenue),
+        )
+    });
+
+    assert!(half_up * WAD_PER_RAW > entitlement_ray);
+    assert!(floored * WAD_PER_RAW <= entitlement_ray);
+    assert!(half_up > floored);
+}
+
+/// Repeated claims near half a raw unit: paid amount never exceeds burned share value.
+#[test]
+fn test_claims_never_outpay_burned_shares_where_half_up_would() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let borrower = Address::generate(&t.env);
+
+    client.supply(&t.sup(0, 10_000_000_000i128));
+    client.borrow(&borrower, &t.bor(0, 4_000_000_000i128));
+
+    let mut total_paid = 0i128;
+    let mut total_half_up_would_pay = 0i128;
+
+    for second in 1..=10u64 {
+        t.advance_time(second);
+        // Accrue before claim so the claim itself adds no new interest.
+        client.update_indexes(&hub(&t.asset));
+
+        let half_up = t.env.as_contract(&t.pool, || {
+            let cache = Cache::load(&t.env, &hub(&t.asset));
+            cache.unscale_supply(cache.revenue)
+        });
+
+        let before = t.state_snapshot();
+        let paid = client.claim_revenue(&hub(&t.asset)).actual_amount;
+        let after = t.state_snapshot();
+
+        let burned_ray = common::math::fp_core::mul_div_floor(
+            &t.env,
+            before.revenue - after.revenue,
+            before.supply_index,
+            RAY,
+        );
+
+        // Invariant: paid raw never exceeds burned share value.
+        assert!(paid * WAD_PER_RAW <= burned_ray);
+
+        total_paid += paid;
+        total_half_up_would_pay += half_up;
+
+        std::println!(
+            "claim {second}: half_up_would_pay={half_up} paid={paid} burned_ray={burned_ray}"
+        );
+    }
+
+    assert!(total_half_up_would_pay > total_paid);
+    std::println!("TOTAL half_up={total_half_up_would_pay} floor={total_paid}");
+}
+
+/// Flooring defers dust; once entitlement clears one raw unit the claim pays out.
+#[test]
+fn test_revenue_claim_pays_out_once_entitlement_clears_one_raw_unit() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let borrower = Address::generate(&t.env);
+
+    client.supply(&t.sup(0, 10_000_000_000i128));
+    client.borrow(&borrower, &t.bor(0, 4_000_000_000i128));
+    t.advance_time(86_400);
+    client.update_indexes(&hub(&t.asset));
+
+    let before = t.state_snapshot();
+    let owed_ray =
+        common::math::fp_core::mul_div_floor(&t.env, before.revenue, before.supply_index, RAY);
+    assert!(owed_ray > WAD_PER_RAW);
+
+    let paid = client.claim_revenue(&hub(&t.asset)).actual_amount;
+    let after = t.state_snapshot();
+
+    assert!(paid > 0);
+    assert_eq!(after.revenue, 0);
+    assert!(paid * WAD_PER_RAW <= owed_ray);
+}
+
+/// Ray-per-raw-unit for the 7-decimal test asset.
+const WAD_PER_RAW: i128 = 100_000_000_000_000_000_000;
+
+// --- POOL-CAN-004: `load_sync_data` pays a redundant TTL renewal. ---
+
+/// `load_sync_data` pays two `renew_market_keys` calls; the second is redundant
+/// (no TTL change, measurable extra CPU).
+#[test]
+fn test_load_sync_data_pays_for_a_redundant_ttl_renewal() {
+    let t = TestSetup::new();
+
+    t.env.cost_estimate().budget().reset_default();
+    t.env.as_contract(&t.pool, || {
+        crate::utils::renew_market_keys(&t.env, &hub(&t.asset));
+    });
+    let one_renewal = t.env.cost_estimate().budget().cpu_instruction_cost();
+
+    t.env.cost_estimate().budget().reset_default();
+    t.env.as_contract(&t.pool, || {
+        crate::utils::renew_market_keys(&t.env, &hub(&t.asset));
+        crate::utils::renew_market_keys(&t.env, &hub(&t.asset));
+    });
+    let two_renewals = t.env.cost_estimate().budget().cpu_instruction_cost();
+
+    let redundant = two_renewals - one_renewal;
+    assert!(redundant > 0);
+
+    const PRODUCTION_CPU_LIMIT: u64 = 100_000_000;
+    assert!(redundant * 20 < PRODUCTION_CPU_LIMIT / 100);
+
+    let ttl_before = t.env.as_contract(&t.pool, || {
+        t.env
+            .storage()
+            .persistent()
+            .get_ttl(&PoolKey::State(hub(&t.asset)))
+    });
+    t.env.as_contract(&t.pool, || {
+        crate::utils::renew_market_keys(&t.env, &hub(&t.asset));
+    });
+    let ttl_after = t.env.as_contract(&t.pool, || {
+        t.env
+            .storage()
+            .persistent()
+            .get_ttl(&PoolKey::State(hub(&t.asset)))
+    });
+    assert_eq!(ttl_before, ttl_after);
+
+    std::println!(
+        "renew_market_keys cpu={} redundant cpu per get_sync_data={}",
+        one_renewal,
+        redundant
+    );
+}
+
+// --- Bad-debt wipeout: floor leaves deposits usable. ---
+
+/// Full wipeout floors `supply_index` at `RAY / 1000`; a large follow-up deposit
+/// still mints shares.
+#[test]
+fn test_bad_debt_wipeout_leaves_market_usable_at_realistic_scale() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    client.supply(&t.sup(0, 10_000_000_000i128));
+
+    t.env.as_contract(&t.pool, || {
+        let mut cache = Cache::load(&t.env, &hub(&t.asset));
+        let total_supplied_value = cache.supplied.mul(&t.env, cache.supply_index);
+        crate::interest::apply_bad_debt_to_supply_index(&mut cache, total_supplied_value);
+        cache.save();
+    });
+
+    let floored = t.state_snapshot().supply_index;
+    assert_eq!(floored, common::constants::SUPPLY_INDEX_FLOOR_RAW);
+    assert_eq!(RAY / floored, 1_000);
+
+    let opened = client.supply(&t.sup(0, 10_000_000_000_000i128));
+    assert!(opened.get(0).unwrap().position.scaled_amount > 0);
+}

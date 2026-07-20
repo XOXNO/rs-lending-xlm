@@ -137,7 +137,8 @@ fn spoke_borrow_cap_headroom(
     if used_scaled >= cap_scaled {
         return 0;
     }
-    scaled_to_original(env, cap_scaled - used_scaled, market.borrow_index).to_asset(market.decimals)
+    scaled_to_original(env, cap_scaled.checked_sub(env, used_scaled), market.borrow_index)
+        .to_asset(market.decimals)
 }
 
 /// Exact feasibility replica for borrowing `amount` of `asset`: pool liquidity,
@@ -159,7 +160,7 @@ fn borrow_ok(
     }
 
     let new_scaled = Ray::from_asset(amount, market.decimals).div(env, market.borrow_index);
-    let post_borrowed = market.borrowed + new_scaled;
+    let post_borrowed = market.borrowed.checked_add(env, new_scaled);
 
     // Pool max-utilization gate (skipped when utilization is uncapped).
     if market.max_utilization < Ray::ONE {
@@ -177,7 +178,7 @@ fn borrow_ok(
     if let Some((cap_scaled, used_scaled)) =
         spoke_borrow_cap_scaled(env, cache, account, hub_asset, market)
     {
-        if used_scaled + new_scaled > cap_scaled {
+        if used_scaled.checked_add(env, new_scaled) > cap_scaled {
             return false;
         }
     }
@@ -191,7 +192,7 @@ fn borrow_ok(
     adjusted.borrow_positions.set(
         hub_asset.clone(),
         DebtPositionRaw {
-            scaled_amount: (existing + new_scaled).raw(),
+            scaled_amount: existing.checked_add(env, new_scaled).raw(),
         },
     );
     account_gates_ok(env, cache, &adjusted)

@@ -12,7 +12,12 @@ fn to_i256_operands(env: &Env, x: i128, y: i128, d: i128) -> (I256, I256, I256) 
 
 // Dimensional anchor: D_a{U_a} * D_b{U_b} / D_d{U_d} -> D_{a+b-d}{U_a*U_b/U_d}.
 /// Computes `(x * y) / d` with half-up rounding and I256 intermediate.
+/// Non-negative inputs only; the `+half` offset rounds toward zero on negatives.
 pub fn mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> i128 {
+    debug_assert!(
+        x >= 0 && y >= 0 && d > 0,
+        "mul_div_half_up: non-negative x, y and positive d"
+    );
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     let half = d256.div(&I256::from_i128(env, 2));
     // Rounding offset: half an output ulp expressed in pre-divide integer space.
@@ -26,6 +31,7 @@ pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &x256.mul(&y256).div(&d256))
 }
 
+/// Computes `(x * y) / d` with ceiling rounding for non-negative inputs.
 pub fn mul_div_ceil(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     let product = x256.mul(&y256);
@@ -46,21 +52,19 @@ pub fn mul_div_floor_saturating(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     x256.mul(&y256).div(&d256).to_i128().unwrap_or(i128::MAX)
 }
 
-/// Computes signed `(x * y) / d` with half-up rounding away from zero.
-pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
+/// Half-up `(x * y) / d`; saturates at `i128::MAX` instead of trapping. Matches
+/// `mul_div_half_up` exactly for results that fit `i128` (non-negative inputs).
+pub fn mul_div_half_up_saturating(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     let half = d256.div(&I256::from_i128(env, 2));
-    let product = x256.mul(&y256);
-
-    // Signed half-up uses the same pre-divide rounding offset away from zero.
-    let rounded = if product < I256::from_i128(env, 0) {
-        product.sub(&half)
-    } else {
-        product.add(&half)
-    };
-    to_i128(env, &rounded.div(&d256))
+    let product = x256.mul(&y256).add(&half);
+    product.div(&d256).to_i128().unwrap_or(i128::MAX)
 }
 
+// Upscale is env-less, so a genuine overflow cannot raise a typed contract
+// error; it reverts via the `expect`s. `diff <= RAY_DECIMALS` keeps the factor
+// in range, and the value mul overflows only past ~1.7e11 whole tokens of a
+// single amount -- an economically unreachable input that reverts correctly.
 fn rescale_upscale(a: i128, diff: u32, factor_msg: &str, value_msg: &str) -> i128 {
     let factor = 10i128.checked_pow(diff).expect(factor_msg);
     // D{from}{U} * D{diff}{1} -> D{to}{U}; U is unchanged.
@@ -86,12 +90,18 @@ pub fn rescale_half_up(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
             .checked_pow(diff)
             .expect("rescale_half_up downscale factor overflow");
         let half = factor / 2;
-        // D{from}{U} / D{diff}{1} -> D{to}{U}; `half` only rounds scale loss.
+        // Half-up via quotient/remainder, not `(a + half) / factor`: the latter
+        // could overflow i128 for a near-`i128::MAX` input, while the result
+        // (always <= a on a downscale) fits. D{from}{U} / D{diff}{1} -> D{to}{U}.
         if a >= 0 {
-            a.checked_add(half)
-                .expect("rescale_half_up rounding overflow")
-                / factor
+            let q = a / factor;
+            if a % factor >= half {
+                q + 1
+            } else {
+                q
+            }
         } else {
+            // Negatives are rejected upstream; keep round-toward-zero semantics.
             (a - half) / factor
         }
     }

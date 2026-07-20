@@ -399,52 +399,32 @@ fn poc_single_actor_spams_unbounded_dust_accounts() {
     );
 }
 
-// process_supply has no owner match: non-owner may supply into a victim account (slot grief).
+// H-USER-03 patch: strangers may top up existing legs but cannot open new
+// supply slots on another account (slot-grief prevention).
 #[test]
-fn poc_non_owner_can_supply_into_victims_account() {
+fn regression_non_owner_cannot_open_new_supply_slot_on_victim() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // ALICE opens her account with a USDC supply.
+    t.supply(ALICE, "USDC", 1_000.0);
+    let alice_id = t.resolve_account_id(ALICE);
     let alice = t.get_or_create_user(ALICE);
-    let usdc = t.resolve_market("USDC").asset.clone();
-    t.resolve_market("USDC")
-        .token_admin
-        .mint(&alice, &100_000_000);
-    let alice_id = t.ctrl_client().supply(
-        &alice,
-        &0u64,
-        &1u32,
-        &vec![&t.env, (hub_asset(usdc), 100_000_000i128)],
-    );
-    assert!(alice_id > 0);
 
-    // BOB — a stranger, not the owner — supplies ETH straight into ALICE's account.
-    let bob = t.get_or_create_user(BOB);
-    let eth = t.resolve_market("ETH").asset.clone();
-    t.resolve_market("ETH").token_admin.mint(&bob, &50_000_000);
-    let returned = t.ctrl_client().supply(
-        &bob,
-        &alice_id,
-        &1u32,
-        &vec![&t.env, (hub_asset(eth), 50_000_000i128)],
-    );
+    // BOB — a stranger — cannot open a new ETH slot on ALICE's account.
+    let new_slot = t.try_supply_to_account(BOB, ALICE, "ETH", 0.5);
+    assert_contract_error(new_slot, errors::NOT_AUTHORIZED);
 
-    // No owner-match revert: the deposit lands on ALICE's account, BOB consumed
-    // one of her supply-position slots, and ALICE still owns the account.
-    assert_eq!(
-        returned, alice_id,
-        "stranger's supply targets the victim account"
-    );
+    // Same-asset top-up remains allowed.
+    let top_up = t.try_supply_to_account(BOB, ALICE, "USDC", 1.0);
     assert!(
-        t.supply_balance_for(ALICE, alice_id, "ETH") > 0.0,
-        "stranger-gifted ETH position now occupies a slot on the victim account"
+        top_up.is_ok(),
+        "same-asset third-party top-up must work: {top_up:?}"
     );
     assert_eq!(
         t.get_account_owner(alice_id),
         alice,
-        "owner is unchanged — BOB gifted collateral he cannot withdraw"
+        "owner is unchanged after third-party top-up"
     );
 }

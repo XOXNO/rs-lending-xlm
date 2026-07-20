@@ -26,6 +26,29 @@ groups:
           summary: "Oracle price for {{ $labels.symbol }} ({{ $labels.network }}) is STALE"
           description: "Feed age exceeds max_price_stale_seconds; risk-increasing flows will revert."
 
+      # Early-warning tiers scaled to each feed's own gate (fraction of the
+      # staleness budget still unspent), so one rule fits every gate size: a 1h
+      # Reflector leg and a 24h RedStone/Xoxno leg trip at the same fraction.
+      # seconds_until_stale is the worst (soonest-to-stale) leg of the market.
+      # RedStone feeds heartbeat ~12h against the 24h gate, so 50% remaining is
+      # one full beat consumed (warn) and 25% remaining is ~6h of runway left
+      # (critical) — hours ahead of the <300s imminent tier above.
+      - alert: LendingOracleFreshnessHalfConsumed
+        expr: lending_oracle_seconds_until_stale / lending_oracle_max_stale_seconds < 0.5 and lending_oracle_seconds_until_stale / lending_oracle_max_stale_seconds >= 0.25 and lending_oracle_max_stale_seconds > 0
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Oracle freshness half-consumed for {{ $labels.symbol }} ({{ $labels.network }})"
+          description: "{{ $value | humanizePercentage }} of the staleness budget remains; a feed heartbeat was likely missed. Check the feeder (Xoxno bots / RedStone push) before it reaches the on-chain gate."
+
+      - alert: LendingOracleFreshnessCritical
+        expr: lending_oracle_seconds_until_stale / lending_oracle_max_stale_seconds < 0.25 and lending_oracle_seconds_until_stale > 0 and lending_oracle_max_stale_seconds > 0
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "Oracle freshness >75% consumed for {{ $labels.symbol }} ({{ $labels.network }})"
+          description: "Only {{ $value | humanizePercentage }} of the staleness budget remains; the feed is approaching PriceFeedStale. Confirm the feeder / RedStone push is live now."
+
       - alert: LendingOracleUnhealthy
         expr: lending_oracle_healthy == 0
         for: 5m

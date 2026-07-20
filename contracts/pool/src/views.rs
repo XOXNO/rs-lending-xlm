@@ -1,6 +1,6 @@
-//! Read-only market accessors backing the pool view ABI. Each reads persisted
-//! state without renewing TTLs or accruing interest, so values reflect the last
-//! checkpoint; live indexes come from `get_bulk_indexes` instead.
+//! Market accessors backing the pool view ABI. Each reads persisted state and
+//! renews the market-key TTLs, but never accrues interest, so values reflect
+//! the last checkpoint; live indexes come from `get_bulk_indexes` instead.
 
 use common::errors::GenericError;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
@@ -61,9 +61,10 @@ pub fn borrow_rate(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     calculate_borrow_rate(env, cache.calculate_utilization(), &cache.params).raw()
 }
 
+/// Floored to match what `claim_revenue` actually pays out.
 pub fn protocol_revenue(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
-    cache.unscale_supply(cache.revenue)
+    cache.unscale_supply_floor(cache.revenue)
 }
 
 pub fn supplied_amount(env: &Env, hub_asset: &HubAssetKey) -> i128 {

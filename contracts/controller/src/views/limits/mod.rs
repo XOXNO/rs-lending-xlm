@@ -72,7 +72,7 @@ impl MarketLimitCtx {
         if self.supplied <= min_supplied {
             return 0;
         }
-        let max_scaled_out = self.supplied - min_supplied;
+        let max_scaled_out = self.supplied.checked_sub(env, min_supplied);
         let util_cap =
             scaled_to_original(env, max_scaled_out, self.supply_index).to_asset(self.decimals);
         cap.min(util_cap)
@@ -83,7 +83,7 @@ impl MarketLimitCtx {
         if transfer_out > self.cash || scaled_out > self.supplied {
             return false;
         }
-        let post_supplied = self.supplied - scaled_out;
+        let post_supplied = self.supplied.checked_sub(env, scaled_out);
         if post_supplied == Ray::ZERO {
             return self.borrowed == Ray::ZERO;
         }

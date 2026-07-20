@@ -29,10 +29,9 @@ struct In {
     extra: u8,
 }
 
-/// `mul_div_half_up` rounds negative values toward zero. In the protocol it is
-/// called with non-negative operands because
-/// Ray/Wad/Bps types are always >= 0. Signed math goes through
-/// `mul_div_half_up_signed`. The fuzzer honours this contract.
+/// `mul_div_half_up` requires non-negative operands (debug-asserted). In the
+/// protocol it is always called with non-negative values because Ray/Wad/Bps
+/// are always >= 0. The fuzzer honours this contract via `clamp_nonneg`.
 fn clamp_nonneg(v: i128) -> i128 {
     let a = v.saturating_abs();
     if a > MAX_OP {

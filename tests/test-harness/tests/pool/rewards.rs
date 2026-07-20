@@ -2,13 +2,13 @@ use controller::constants::RAY;
 use test_harness::{
     days, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB, CAROL, DAVE,
 };
-// Rigorous add_rewards tests: verify the supply index math.
+// add_rewards supply-index math.
 //
-// Formula: new_index = old_index * (1 + rewards / total_supplied_value),
-// where total_supplied_value = supplied_scaled * old_index / RAY.
+// Formula: new_index = old_index * (1 + rewards / (total_supplied_value + offset)),
+// offset = SUPPLY_VIRTUAL_VALUE_RAY (1 token). Exact tests must include it.
 //
 // Key properties:
-// 1. Supply index rises by exactly rewards / total_supplied_value.
+// 1. Supply index rises by rewards / (total_supplied_value + offset).
 // 2. Each supplier's balance rises in proportion to their share.
 // 3. Borrow index stays untouched by add_rewards.
 // 4. Multiple add_rewards calls compound correctly.
@@ -38,14 +38,14 @@ fn test_add_rewards_index_increase_matches_formula() {
 
     let (si_after, _) = get_indexes(&t, "USDC");
 
-    // Expected: new_index = 1.0 * (1 + 1000/100000) = 1.0 * 1.01 = 1.01 RAY.
-    let expected_index = RAY + RAY / 100; // 1.01 * RAY
+    // new_index = 1 + 1000 / (100000 + 1) with the virtual offset.
+    let expected_index = RAY + RAY * 1_000 / 100_001;
     let diff = (si_after - expected_index).abs();
 
     // Allow 1 unit of rounding error (half-up rounding).
     assert!(
         diff <= 1,
-        "supply index should be ~1.01 RAY after 1% rewards: expected={}, actual={}, diff={}",
+        "supply index should be ~1 + 1000/100001 RAY after 1% rewards: expected={}, actual={}, diff={}",
         expected_index,
         si_after,
         diff
@@ -235,20 +235,19 @@ fn test_large_rewards_accounting_stable() {
 
     let balance = t.supply_balance(ALICE, "USDC");
 
-    // Balance: ~101,000 (1,000 supply + 100,000 rewards).
+    // Offset dilutes dust-scale growth: 1 + 100000/1001 ≈ 100.9x, not 101x.
     assert!(
-        (balance - 101_000.0).abs() < 10.0,
-        "balance should be ~101,000 after 100x rewards: got {:.2}",
+        (balance - 100_900.0).abs() < 10.0,
+        "balance should be ~100,900 after 100x rewards (offset-diluted): got {:.2}",
         balance
     );
 
-    // Supply index: 101x.
     let (si, _) = get_indexes(&t, "USDC");
-    let expected_si = RAY * 101; // 101.0 RAY
+    let expected_si = RAY * 101_001 / 1_001;
     let diff_pct = ((si as f64 / expected_si as f64) - 1.0).abs() * 100.0;
     assert!(
         diff_pct < 0.1,
-        "supply index should be ~101 RAY: expected={}, actual={}, diff={:.4}%",
+        "supply index should be ~100.9 RAY: expected={}, actual={}, diff={:.4}%",
         expected_si,
         si,
         diff_pct

@@ -1,12 +1,12 @@
 //! Edge-case and overflow probes at protocol decision boundaries.
 
 use cvlr::macros::rule;
-use cvlr::{cvlr_assert, cvlr_satisfy};
+use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
 
-use crate::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
+use crate::constants::{BAD_DEBT_USD_THRESHOLD, MILLISECONDS_PER_YEAR, RAY, WAD};
 use crate::types::MarketParams;
-use common::math::fp::{Bps, Ray};
+use common::math::fp::{Bps, Ray, Wad};
 use common::math::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
 use common::rates::{calculate_borrow_rate, compound_interest};
 
@@ -64,37 +64,29 @@ fn compound_interest_at_max_rate_max_time_sanity(e: Env) {
     cvlr_satisfy!(factor.raw() > 2 * RAY && factor.raw() < 3 * RAY);
 }
 
+/// Production `is_socializable_bad_debt` boundary: underwater collateral at
+/// exactly the threshold socializes; one unit above never does; accounts that
+/// are not underwater never do.
 #[rule]
-fn liquidation_at_hf_exactly_one_sanity() {
-    let hf = WAD;
-    cvlr_satisfy!(hf >= WAD);
-}
+fn bad_debt_socialization_threshold_boundary(e: Env, debt_wad: i128, collateral_wad: i128) {
+    let _ = e;
+    cvlr_assume!(debt_wad > 0 && debt_wad <= 1_000_000 * WAD);
+    cvlr_assume!(collateral_wad >= 0 && collateral_wad <= 1_000_000 * WAD);
 
-#[rule]
-fn liquidation_at_hf_just_below_one_sanity() {
-    let hf = WAD - 1;
-    cvlr_satisfy!(hf < WAD);
-}
+    let socializable = crate::positions::liquidation::math::is_socializable_bad_debt(
+        Wad::from(debt_wad),
+        Wad::from(collateral_wad),
+    );
 
-#[rule]
-fn bonus_at_hf_exactly_102_sanity() {
-    let hf_wad: i128 = 1_020_000_000_000_000_000;
-    let target_hf: i128 = 1_020_000_000_000_000_000;
-    cvlr_satisfy!(hf_wad >= target_hf);
-}
-
-#[rule]
-fn bad_debt_at_exactly_5_usd_sanity() {
-    let total_collateral_usd = 5 * WAD;
-    let bad_debt_threshold = 5 * WAD;
-    cvlr_satisfy!(total_collateral_usd <= bad_debt_threshold);
-}
-
-#[rule]
-fn bad_debt_at_6_usd_sanity() {
-    let total_collateral_usd = 6 * WAD;
-    let bad_debt_threshold = 5 * WAD;
-    cvlr_satisfy!(total_collateral_usd > bad_debt_threshold);
+    if collateral_wad > BAD_DEBT_USD_THRESHOLD {
+        cvlr_assert!(!socializable);
+    }
+    if debt_wad <= collateral_wad {
+        cvlr_assert!(!socializable);
+    }
+    if debt_wad > collateral_wad && collateral_wad <= BAD_DEBT_USD_THRESHOLD {
+        cvlr_assert!(socializable);
+    }
 }
 
 /// `mul_half_up(i128::MAX / RAY, RAY)` does not overflow via I256 intermediate.
@@ -145,46 +137,7 @@ fn rescale_wad_to_7_decimals() {
 }
 
 #[rule]
-fn tolerance_at_exact_first_bound_sanity() {
-    // Deviation exactly at the single tolerance band edge is in-band.
-    let tolerance: i128 = 200;
-    let deviation: i128 = 200;
-    cvlr_satisfy!(deviation <= tolerance);
-}
-
-#[rule]
-fn tolerance_at_exact_second_bound_sanity() {
-    // Deviation strictly inside the single tolerance band is in-band.
-    let tolerance: i128 = 200;
-    let deviation: i128 = 100;
-    cvlr_satisfy!(deviation <= tolerance);
-}
-
-#[rule]
-fn tolerance_just_beyond_second_sanity() {
-    // Deviation just past the single tolerance band is out-of-band.
-    let tolerance: i128 = 200;
-    let deviation: i128 = 201;
-    cvlr_satisfy!(deviation > tolerance);
-}
-
-#[rule]
 fn supply_dust_amount_sanity(e: Env) {
     let scaled = mul_div_half_up(&e, 1, RAY, RAY);
     cvlr_satisfy!(scaled == 1);
-}
-
-#[rule]
-fn borrow_exact_reserves_sanity() {
-    let reserves: i128 = 1_000_000;
-    let borrow: i128 = 1_000_000;
-    cvlr_satisfy!(borrow <= reserves);
-}
-
-#[rule]
-fn withdraw_more_than_position_sanity() {
-    let position_value: i128 = 100;
-    let requested: i128 = 200;
-    let actual = requested.min(position_value);
-    cvlr_satisfy!(actual == position_value);
 }

@@ -172,7 +172,7 @@ fn finish_borrow_leg(
     let position: DebtPosition = DebtPosition::from(&result.position);
 
     let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
-    let delta = position.scaled_amount - old_scaled;
+    let delta = position.scaled_amount.checked_sub(env, old_scaled);
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
     ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
 

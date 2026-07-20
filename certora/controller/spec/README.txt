@@ -31,16 +31,17 @@ Liquidation
   spec/liquidation_rules.rs
 
 Health / positions
-  health.conf, positions.conf
-  spec/health_rules.rs, position_rules.rs
+  health.conf, health-gated.conf, positions.conf, hf-lemmas.conf
+  spec/health_rules.rs, position_rules.rs, hf_lemma_rules.rs
+  (health_ghost.rs — ghost-state support module, no rules)
 
 Oracle
   oracle.conf, tolerance-math.conf
   spec/oracle_rules.rs, tolerance_math_rules.rs
 
 Rates / indexes / interest / math
-  indexes.conf, interest.conf, math.conf, boundary-math.conf,
-  boundary-rates.conf, boundary-oracle.conf
+  indexes.conf, interest.conf, math.conf, math-bv.conf (bit-precise
+  escalation), boundary-math.conf, boundary-rates.conf, boundary-oracle.conf
   spec/index_rules.rs, interest_rules.rs, math_rules.rs, boundary_rules.rs
 
 Strategy / flash loan / spoke / guards
@@ -51,6 +52,15 @@ Strategy / flash loan / spoke / guards
 Cross-contract consistency
   controller-pool-consistency.conf, controller-pool-consistency-light.conf
   spec/consistency_rules.rs
+
+Account isolation (frame rules)
+  account-isolation.conf
+  spec/account_isolation_rules.rs
+
+Support modules (no rules)
+  spec/compat.rs — single-asset ABI shims for multi-asset entrypoints
+  spec/health_ghost.rs — ghost state for health rules
+  spec/mod.rs — module mount; harness/ — storage/oracle/pool summaries
 
 Lemma-before-main ordering
 --------------------------
