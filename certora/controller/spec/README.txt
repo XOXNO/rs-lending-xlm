@@ -45,7 +45,9 @@ Rates / indexes / interest / math
   spec/index_rules.rs, interest_rules.rs, math_rules.rs, boundary_rules.rs
 
 Strategy / flash loan / spoke / guards
-  strategy.conf, flash_loan.conf, spoke.conf, market-guard.conf
+  strategy.conf, strategy-repay-collateral.conf (heavy: full
+  withdraw+swap+repay path, one rule per invocation), flash_loan.conf,
+  spoke.conf, market-guard.conf
   spec/strategy_rules.rs, flash_loan_rules.rs, spoke_rules.rs,
   market_guard_rules.rs
 

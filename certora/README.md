@@ -149,7 +149,7 @@ Not all confs are equally reliable in Certora cloud. Config syntax is valid
 | --- | --- | --- |
 | **A — reliable** | `common/math`, `flash_loan`, `health`, `indexes`, `positions`, `oracle`, `tolerance-math`, `liquidation-light` | Usually complete within 30–60 min |
 | **B — may timeout** | `common/rates`, `math`, `interest`, `spoke`, `liquidation`, `strategy`, `market-guard`, `controller-pool-consistency-light`, `pool/integrity`, `summary-contract`, `additivity` | Run individually; 1–2 h jobs |
-| **C — heavy / often stuck** | `solvency-*` (split bundles), `boundary-*` (split bundles), the `heavy` profile confs (`math-hard`, `math-bv`, `summary-contract-critical`, `additivity-heavy`, `no-collateral-no-debt`, `controller-pool-consistency`, `global-solvency-heavy`, `liquidation-integrity-heavy`) | Use `--rule <one>` per invocation; expect multi-hour runs |
+| **C — heavy / often stuck** | `solvency-*` (split bundles), `boundary-*` (split bundles), the `heavy` profile confs (`math-hard`, `math-bv`, `summary-contract-critical`, `additivity-heavy`, `no-collateral-no-debt`, `controller-pool-consistency`, `global-solvency-heavy`, `liquidation-integrity-heavy`, `strategy-repay-collateral`) | Use `--rule <one>` per invocation; expect multi-hour runs |
 
 **Build requirement:** run `make certora-wasm` locally (or in CI) before
 submitting jobs. Confs use the `files` field pointing at
