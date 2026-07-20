@@ -47,7 +47,7 @@ pub(crate) struct NormalizedRepaymentPlan {
 impl NormalizedRepaymentPlan {
     /// Panics unless sum of leg USD equals `repay_usd`.
     fn validate(&self, env: &Env) {
-        if sum_repaid_usd(&self.repaid) != self.repay_usd {
+        if sum_repaid_usd(env, &self.repaid) != self.repay_usd {
             panic_with_error!(env, GenericError::InternalError);
         }
     }
@@ -156,7 +156,7 @@ pub(crate) fn calculate_repayment_amounts(
 
         let payment_usd = feed.usd_value_wad(env, payment_amount);
 
-        total_repaid_usd += payment_usd;
+        total_repaid_usd.checked_add_assign(env, payment_usd);
         repaid_tokens.push_back(RepayEntry {
             hub_asset,
             amount: payment_amount,
@@ -198,12 +198,12 @@ pub(crate) fn normalize_repayment_plan(
 
     let mut final_repayment_tokens = repaid_tokens;
     if total_debt_payment_usd > max_debt_to_repay_usd {
-        let excess_usd = total_debt_payment_usd - max_debt_to_repay_usd;
+        let excess_usd = total_debt_payment_usd.checked_sub(env, max_debt_to_repay_usd);
         process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
     }
 
     let repayment = NormalizedRepaymentPlan {
-        repay_usd: sum_repaid_usd(&final_repayment_tokens),
+        repay_usd: sum_repaid_usd(env, &final_repayment_tokens),
         repaid: final_repayment_tokens,
         refunds,
         bonus,
@@ -226,10 +226,10 @@ fn debt_close_amount(
 }
 
 /// Sums the USD value across the repaid legs.
-pub(crate) fn sum_repaid_usd(repaid_tokens: &Vec<RepayEntry>) -> Wad {
+pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
-        total += Wad::from(entry.usd_wad);
+        total.checked_add_assign(env, Wad::from(entry.usd_wad));
     }
     total
 }
@@ -247,7 +247,7 @@ pub(crate) fn calculate_seized_collateral(
         return seized;
     }
 
-    let one_plus_bonus = Wad::ONE + repayment.bonus.to_wad(env);
+    let one_plus_bonus = Wad::ONE.checked_add(env, repayment.bonus.to_wad(env));
     // dimensional: DebtRepaid<Wad<USD>> * (1 + bonus Bps) -> Seize<Wad<USD>>.
     let total_seizure_usd = repayment.repay_usd.mul(env, one_plus_bonus);
 
@@ -278,7 +278,7 @@ pub(crate) fn calculate_seized_collateral(
 
         // Floor base; bonus absorbs remainder. Fee is position-snapshotted (Frozen-safe).
         let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
-        let bonus_ray = capped_ray - base_ray;
+        let bonus_ray = capped_ray.checked_sub(env, base_ray);
         let protocol_fee_ray = position.liquidation_fees.apply_to_ray(env, bonus_ray);
         // Full close: half-up (pool). Partial: floor to RAY amount.
         let capped_amount = if capped_ray == actual_ray {
@@ -290,13 +290,19 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        // Positive fee floors to at least 1 unit (`fee <= amount` still holds).
+        // Fee can never exceed the gross the pool actually pays out. The pool
+        // floors gross on both partial and full close (`resolve_withdrawal`),
+        // whereas a full close forwards a half-up `capped_amount`. Clamp the fee
+        // to that floor gross so a sub-unit full-close leg carries fee 0 instead
+        // of an impossible {amount:1, fee:1} that trips `WithdrawLessThanFee`.
+        let floor_gross = capped_ray.to_asset_floor(feed.asset_decimals);
         let fee_asset = protocol_fee_ray.to_asset_floor(feed.asset_decimals);
-        let protocol_fee = if protocol_fee_ray > Ray::ZERO && fee_asset == 0 {
+        let bumped_fee = if protocol_fee_ray > Ray::ZERO && fee_asset == 0 {
             1
         } else {
             fee_asset
         };
+        let protocol_fee = bumped_fee.min(floor_gross);
 
         seized.push_back(SeizeEntry {
             hub_asset,
@@ -366,7 +372,7 @@ pub(crate) fn process_excess_payment(
                 amount: entry.amount,
             });
             repaid_tokens.remove(current_index);
-            remaining_excess_usd -= usd;
+            remaining_excess_usd.checked_sub_assign(env, usd);
         }
     }
 }
@@ -396,11 +402,12 @@ impl LiquidationCurve {
     /// reaches 1 once `hf <= hf_for_max_bonus`. The caller guarantees
     /// `hf < target`.
     fn bonus_scale(&self, env: &Env, hf: Wad, target: Wad) -> Wad {
-        let gap = target - hf;
+        let gap = target.checked_sub(env, hf);
         if target <= self.hf_for_max_bonus {
             Wad::ONE
         } else {
-            gap.div(env, target - self.hf_for_max_bonus).min(Wad::ONE)
+            gap.div(env, target.checked_sub(env, self.hf_for_max_bonus))
+                .min(Wad::ONE)
         }
     }
 
@@ -430,7 +437,7 @@ pub(crate) fn calculate_linear_bonus_with_target(
     }
     let scale = curve.bonus_scale(env, hf, target);
 
-    let bonus_range = max - base;
+    let bonus_range = max.checked_sub(env, base);
     let bonus_increment = Wad::from(bonus_range.raw()).mul(env, scale).raw();
     let scaled_increment = curve.apply_bonus_factor(env, bonus_increment);
     Bps::from(
@@ -480,12 +487,12 @@ pub(crate) fn estimate_liquidation_amount(
 
     let ideal = try_liquidation_at_target(env, snap, bonus, curve.target_hf).unwrap_or_else(|| {
         snap.total_collateral
-            .div(env, Wad::ONE + bonus.to_wad(env))
+            .div(env, Wad::ONE.checked_add(env, bonus.to_wad(env)))
             .min(snap.total_debt)
     });
 
     // Dust: sub-floor remainder → full close (no un-liquidatable dust).
-    let remaining_debt = snap.total_debt - ideal;
+    let remaining_debt = snap.total_debt.checked_sub(env, ideal);
     if remaining_debt > Wad::ZERO && remaining_debt < Wad::from(BAD_DEBT_USD_THRESHOLD) {
         return (snap.total_debt, bonus);
     }
@@ -501,18 +508,18 @@ fn calculate_post_liquidation_hf(
     bonus: Bps,
 ) -> Wad {
     // dimensional: post HF = weighted collateral Wad<USD> / debt Wad<USD>.
-    let one_plus_bonus = Bps::ONE + bonus;
+    let one_plus_bonus = Bps::ONE.checked_add(env, bonus);
 
     // dimensional: Wad<1> * debt Wad<USD>, then Bps multiplier, stays Wad<USD>.
     let seized_proportion = snap.proportion_seized.mul(env, debt_to_repay);
     let seized_weighted_raw = one_plus_bonus.apply_to(env, seized_proportion.raw());
     let seized_weighted = Wad::from(seized_weighted_raw).min(snap.weighted_coll);
 
-    let new_weighted = snap.weighted_coll - seized_weighted;
+    let new_weighted = snap.weighted_coll.checked_sub(env, seized_weighted);
     let new_debt = if debt_to_repay >= snap.total_debt {
         Wad::ZERO
     } else {
-        snap.total_debt - debt_to_repay
+        snap.total_debt.checked_sub(env, debt_to_repay)
     };
 
     if new_debt == Wad::ZERO {
@@ -528,7 +535,7 @@ fn try_liquidation_at_target(
     target_hf: Wad,
 ) -> Option<Wad> {
     let bonus_wad = bonus.to_wad(env);
-    let one_plus_bonus = Wad::ONE + bonus_wad;
+    let one_plus_bonus = Wad::ONE.checked_add(env, bonus_wad);
 
     let d_max = snap.total_collateral.div(env, one_plus_bonus);
 
@@ -537,13 +544,13 @@ fn try_liquidation_at_target(
     if target_hf <= denom_term {
         return None;
     }
-    let denominator = target_hf - denom_term;
+    let denominator = target_hf.checked_sub(env, denom_term);
 
     let target_debt = target_hf.mul(env, snap.total_debt);
     if target_debt <= snap.weighted_coll {
         return Some(d_max.min(snap.total_debt));
     }
-    let numerator = target_debt - snap.weighted_coll;
+    let numerator = target_debt.checked_sub(env, snap.weighted_coll);
     let d_ideal = numerator.div(env, denominator);
 
     Some(d_ideal.min(d_max).min(snap.total_debt))
@@ -592,7 +599,7 @@ pub(crate) fn get_account_bonus_params(
             feed.price,
         );
 
-        total_collateral += value;
+        total_collateral.checked_add_assign(env, value);
         asset_values.push_back((value.raw(), position.liquidation_bonus.raw()));
     }
 

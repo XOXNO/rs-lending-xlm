@@ -111,18 +111,23 @@ Long idle intervals accrue in chunks of at most `MAX_COMPOUND_DELTA_MS`
 
 ### 1.5 Supply index
 
-Normal accrual never decreases the supply index:
+Normal accrual never decreases the supply index, and the index always stays
+inside the band `[SUPPLY_INDEX_FLOOR_RAW, MAX_SUPPLY_INDEX_RAY]`:
 
 ```text
-new_supply_index >= old_supply_index
+new_supply_index >= old_supply_index                  // accrual
+new_supply_index <= MAX_SUPPLY_INDEX_RAY              // update_supply_index clamp
 ```
 
 Only `apply_bad_debt_to_supply_index` may reduce it, floored at
-`SUPPLY_INDEX_FLOOR_RAW = WAD` (`10^18` raw RAY units).
+`SUPPLY_INDEX_FLOOR_RAW = RAY / 1000` (`10^24` raw RAY units).
 
-While `supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW`, protocol fee is not
-minted into revenue or supplied scaled shares. Supplier rewards may still raise
-the supply index when borrow interest is positive.
+Reward growth uses a virtual offset: `update_supply_index` adds
+`SUPPLY_VIRTUAL_VALUE_RAY` (`= RAY`, one token of phantom value) to the reward
+denominator, so a dust supplier cannot inflate the index by donating rewards —
+per-step growth is bounded by `old_index * rewards / SUPPLY_VIRTUAL_VALUE_RAY`
+regardless of how small the supplied base is. Utilization and bad-debt math use
+the real supplied value (no offset).
 
 ### 1.6 Empty-market utilization
 
@@ -151,9 +156,11 @@ accrued_interest = supplier_rewards + protocol_fee           // exact
 ```
 
 Supplier rewards raise the supply index. Protocol fee is scaled by
-`/ supply_index` and booked via `add_protocol_revenue` only when the market has
-positive supply and the supply index is above the floor. Otherwise the fee is
-dropped (not minted as revenue).
+`/ supply_index` (`protocol_fee_shares`, half-up) and always minted into both
+`revenue` and `supplied` via `add_protocol_revenue`. At a floored index the raw
+share count can exceed `i128`; the conversion saturates and is capped to the
+headroom left in `supplied`, so accrual never traps and `revenue <= supplied`
+is preserved.
 
 Any new accrual branch must keep the identity above.
 
@@ -223,8 +230,9 @@ cash_after         == cash_before + fee    // principal does not touch cash
    `pre - amount`.
 5. Require allowance ≥ `amount + fee`, then `transfer_from` that total; require
    exact `sac == pre + fee`.
-6. Always `cash += fee`. Protocol revenue shares mint only when fee > 0,
-   suppliers exist, and supply index is above the floor.
+6. Always `cash += fee`. When `fee > 0`, revenue shares mint via
+   `add_protocol_revenue` (saturating share conversion, capped to `supplied`
+   headroom); both `revenue` and `supplied` grow by the same share count.
 
 Exact equality (not ≥). Under-repay or mid-callback SAC moves revert
 `InvalidFlashloanRepay`. Assumes a well-behaved SAC (ADR 0006).

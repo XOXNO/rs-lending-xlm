@@ -52,7 +52,7 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
             market_index.borrow_index,
             feed.price,
         );
-        total_debt += value;
+        total_debt.checked_add_assign(&e, value);
     }
 
     cvlr_assert!(total_debt.raw() <= ltv_collateral.raw());

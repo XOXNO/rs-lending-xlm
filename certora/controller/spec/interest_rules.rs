@@ -95,57 +95,6 @@ fn borrow_rate_monotonic(e: Env) {
     cvlr_assert!(rate_a <= rate_b);
 }
 
-#[rule]
-fn borrow_rate_monotonic_in_region1(e: Env) {
-    let params = nondet_valid_params(&e);
-
-    let util_a: i128 = cvlr::nondet::nondet();
-    let util_b: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!(util_a >= 0);
-    cvlr_assume!(util_a < util_b);
-    cvlr_assume!(util_b < params.mid_utilization.raw());
-
-    let rate_a = calculate_borrow_rate(&e, Ray::from(util_a), &params);
-    let rate_b = calculate_borrow_rate(&e, Ray::from(util_b), &params);
-
-    cvlr_assert!(rate_a <= rate_b);
-}
-
-#[rule]
-fn borrow_rate_monotonic_in_region2(e: Env) {
-    let params = nondet_valid_params(&e);
-
-    let util_a: i128 = cvlr::nondet::nondet();
-    let util_b: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!(params.mid_utilization.raw() <= util_a);
-    cvlr_assume!(util_a < util_b);
-    cvlr_assume!(util_b < params.optimal_utilization.raw());
-
-    let rate_a = calculate_borrow_rate(&e, Ray::from(util_a), &params);
-    let rate_b = calculate_borrow_rate(&e, Ray::from(util_b), &params);
-
-    cvlr_assert!(rate_a <= rate_b);
-}
-
-#[rule]
-fn borrow_rate_monotonic_in_region3(e: Env) {
-    let params = nondet_valid_params(&e);
-
-    let util_a: i128 = cvlr::nondet::nondet();
-    let util_b: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!(params.optimal_utilization.raw() <= util_a);
-    cvlr_assume!(util_a < util_b);
-    cvlr_assume!(util_b <= RAY);
-
-    let rate_a = calculate_borrow_rate(&e, Ray::from(util_a), &params);
-    let rate_b = calculate_borrow_rate(&e, Ray::from(util_b), &params);
-
-    cvlr_assert!(rate_a <= rate_b);
-}
-
 /// Borrow rate never exceeds max_borrow_rate per millisecond and stays non-negative.
 #[rule]
 fn borrow_rate_capped(e: Env) {

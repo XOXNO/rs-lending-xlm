@@ -323,12 +323,16 @@ fn partial_ok(
     pos_scaled: Ray,
     amount: i128,
 ) -> bool {
+    // Negative amount would inflate the adjusted position and pass the gates.
+    if amount < 0 {
+        return false;
+    }
     // resolve_withdrawal replica: shares burnt at the half-up conversion.
     let scaled_w = Ray::from_asset(amount, market.decimals).div(env, market.supply_index);
     if scaled_w > pos_scaled {
         return false;
     }
-    let remaining = pos_scaled - scaled_w;
+    let remaining = pos_scaled.checked_sub(env, scaled_w);
     let remaining_actual =
         scaled_to_original(env, remaining, market.supply_index).to_asset(market.decimals);
     if remaining_actual == 0 {

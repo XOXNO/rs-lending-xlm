@@ -60,7 +60,9 @@ fn supply_split_scaled_amount_bounded_by_single(
     seed(&e, admin, asset.clone());
 
     let cache = crate::cache::Cache::load(&e, &hub(asset.clone()));
-    let split = cache.calculate_scaled_supply(x) + cache.calculate_scaled_supply(y);
+    let split = cache
+        .calculate_scaled_supply(x)
+        .checked_add(&e, cache.calculate_scaled_supply(y));
     let single = cache.calculate_scaled_supply(x + y);
 
     cvlr_assert!(split.raw() <= single.raw() + 2);
@@ -79,7 +81,9 @@ fn borrow_split_scaled_amount_bounded_by_single(
     seed(&e, admin, asset.clone());
 
     let cache = crate::cache::Cache::load(&e, &hub(asset.clone()));
-    let split = cache.calculate_scaled_borrow(x) + cache.calculate_scaled_borrow(y);
+    let split = cache
+        .calculate_scaled_borrow(x)
+        .checked_add(&e, cache.calculate_scaled_borrow(y));
     let single = cache.calculate_scaled_borrow(x + y);
 
     cvlr_assert!(split.raw() <= single.raw() + 2);

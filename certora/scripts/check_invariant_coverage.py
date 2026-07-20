@@ -13,23 +13,9 @@ REPO = ROOT.parent
 INVARIANTS = REPO / "architecture" / "INVARIANTS.md"
 RULE_RE = re.compile(r"#\[rule\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?fn\s+(\w+)")
 TABLE_ROW_RE = re.compile(r"\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)\s*\|")
-
-# Satisfied outside Certora (fuzz, integration tests, build graph).
-NON_CERTORA = {
-    "fp_math",
-    "fp_ops",
-    "flow_e2e",
-    "flow_strategy",
-    "fuzz_liquidation_differential",
-    "fuzz_multi_asset_solvency",
-    "fuzz_strategy_flashloan",
-    "oracle tests",
-    "config tests",
-    "build graph",
-    "controller-to-pool tests",
-    "storage tests",
-    "account_ttl_regression_tests",
-}
+# Verification cells mix labelled groups ("Certora: `a`, `b`; fuzz: `c`") with
+# prose; only backtick-quoted names are machine-readable targets.
+TARGET_RE = re.compile(r"`([^`]+)`")
 
 ALIASES = {
     "rates_and_index": "rates_rules",
@@ -42,18 +28,12 @@ def parse_invariants_targets() -> set[str]:
         area = area.strip()
         if area.lower() == "area" or set(area.replace(" ", "")) <= {"-"}:
             continue
-        for chunk in verification.split(","):
-            name = chunk.strip().strip("`").strip()
-            if name:
-                targets.add(name)
+        targets.update(TARGET_RE.findall(verification))
     return targets
 
 
 def certora_module(name: str) -> str | None:
-    if name in NON_CERTORA:
-        return None
-    if name in ALIASES:
-        name = ALIASES[name]
+    name = ALIASES.get(name, name)
     if name.endswith("_rules"):
         return name
     return None
@@ -122,7 +102,9 @@ def main() -> int:
                 print(f"  {module}")
         return 1
 
-    skipped = sorted(target for target in parse_invariants_targets() if target in NON_CERTORA)
+    skipped = sorted(
+        target for target in parse_invariants_targets() if certora_module(target) is None
+    )
     print(
         f"OK: {len(required_modules)} INVARIANTS Certora modules covered "
         f"({len(skipped)} non-Certora targets skipped)"

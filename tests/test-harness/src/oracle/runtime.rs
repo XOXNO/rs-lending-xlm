@@ -216,6 +216,75 @@ impl LendingTest {
         }
     }
 
+    /// Install a per-spoke oracle override whose PROVIDER `decimals`
+    /// (`ReflectorSourceConfig.decimals`) are WRONG while `asset_decimals`
+    /// (the token amount-scaling decimals) stay correct. The mock reflector
+    /// stores prices at 14 decimals; declaring fewer provider decimals rescales
+    /// the raw feed by extra powers of ten at read time. `asset_decimals` is
+    /// pinned to the pool market's decimals, so the existing decimals guard
+    /// passes. The sanity band is centered on the mis-scaled read price so the
+    /// read-time gate cannot catch the inflation. Returns the resulting read
+    /// price (WAD).
+    pub fn set_spoke_oracle_override_with_provider_decimals(
+        &self,
+        asset_name: &str,
+        spoke_id: u32,
+        mock_price_wad: i128,
+        provider_decimals: u32,
+    ) -> i128 {
+        let asset = self.resolve_asset(asset_name);
+        let config = self.get_asset_config(asset_name);
+
+        let override_source = Address::generate(&self.env);
+        let reflector = self.mock_reflector_client();
+        reflector.set_price(&override_source, &mock_price_wad);
+        reflector.set_twap_price(&override_source, &mock_price_wad);
+
+        // Mock stores at 14 decimals: stored = mock / 1e4. Read normalizes with
+        // the provider decimals: read = stored * 10^(18 - D) = mock * 10^(14 - D).
+        let read_price_wad = mock_price_wad * 10i128.pow(14 - provider_decimals);
+
+        let override_cfg = MarketOracleConfig {
+            asset_decimals: config.asset_decimals,
+            max_price_stale_seconds: 900,
+            tolerance: OraclePriceFluctuation {
+                upper_ratio_bps: 500,
+                lower_ratio_bps: 500,
+            },
+            strategy: OracleStrategy::Single,
+            primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                contract: self.mock_reflector.clone(),
+                asset: OracleAssetRef::Stellar(override_source),
+                read_mode: OracleReadMode::Spot,
+                decimals: provider_decimals,
+                resolution_seconds: 300,
+                base: ReflectorBase::Usd,
+            }),
+            anchor: OracleSourceConfigOption::None,
+            min_sanity_price_wad: read_price_wad - read_price_wad / 100,
+            max_sanity_price_wad: read_price_wad + read_price_wad / 100,
+        };
+
+        self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset,
+            spoke_id,
+            can_collateral: config.is_collateralizable,
+            can_borrow: config.is_borrowable,
+            paused: false,
+            frozen: false,
+            ltv: config.loan_to_value,
+            threshold: config.liquidation_threshold,
+            bonus: config.liquidation_bonus,
+            liquidation_fees: config.liquidation_fees,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: MarketOracleConfigOption::Some(override_cfg),
+        });
+
+        read_price_wad
+    }
+
     pub fn set_oracle_single_spot(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
         self.env.as_contract(&self.controller, || {

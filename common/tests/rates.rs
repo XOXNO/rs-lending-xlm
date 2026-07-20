@@ -1,5 +1,5 @@
 use super::*;
-use crate::constants::RAY;
+use crate::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use crate::math::fp_core::div_by_int_half_up;
 use soroban_sdk::Env;
 
@@ -22,6 +22,35 @@ fn make_test_params() -> MarketParams {
         ),
         asset_decimals: 7,
     }
+}
+
+#[test]
+fn test_supply_index_shortfall_accounts_full_reward() {
+    let env = Env::default();
+    // Funded market: 1,000 tokens (7dp) supplied at index RAY, 100-token reward.
+    let supplied = Ray::from_asset(1_000, 7);
+    let old_index = Ray::from(RAY);
+    let reward = Ray::from_asset(100, 7);
+
+    let new_index = update_supply_index(&env, supplied, old_index, reward);
+    let shortfall = supply_index_reward_shortfall(&env, supplied, old_index, new_index, reward);
+    let distributed = supplied
+        .mul(&env, new_index)
+        .checked_sub(&env, supplied.mul(&env, old_index));
+
+    // 100% accounted: suppliers (via index) + protocol (shortfall) == full reward.
+    assert_eq!(
+        distributed.checked_add(&env, shortfall),
+        reward,
+        "distributed + shortfall must equal the full reward (no dead reserve)"
+    );
+    // The virtual offset genuinely under-distributes, so the shortfall is positive
+    // and suppliers keep only their diluted (dust-safe) share.
+    assert!(shortfall.raw() > 0, "offset must leave a positive shortfall");
+    assert!(
+        distributed.raw() > 0 && distributed.raw() < reward.raw(),
+        "suppliers receive the diluted share, strictly less than the full reward"
+    );
 }
 
 #[test]
@@ -132,7 +161,8 @@ fn test_update_supply_index() {
     let old_index = Ray::ONE;
     let rewards = Ray::from(5 * RAY);
     let new_index = update_supply_index(&env, supplied, old_index, rewards);
-    let expected = RAY * 105 / 100;
+    // Growth = rewards / (supplied_value + virtual offset) = 5 / 101.
+    let expected = RAY * 106 / 101;
     assert!((new_index.raw() - expected).abs() <= 1);
 }
 
@@ -460,7 +490,7 @@ fn test_calculate_borrow_rate_mid_utilization_boundary_exact() {
     let mut params = make_test_params();
     params.mid_utilization = Ray::from(RAY / 3);
     params.slope1 = Ray::from(186_742_236_914_318_803_376_138_999_i128);
-    params.optimal_utilization = params.mid_utilization + Ray::from(RAY / 5);
+    params.optimal_utilization = params.mid_utilization.checked_add(&env, Ray::from(RAY / 5));
 
     let rate = calculate_borrow_rate(&env, params.mid_utilization, &params);
 
@@ -479,7 +509,7 @@ fn test_calculate_borrow_rate_optimal_utilization_boundary_exact() {
     params.mid_utilization = Ray::from(RAY / 5);
     params.slope1 = Ray::ZERO;
     params.slope2 = Ray::from(186_742_236_914_318_803_376_138_999_i128);
-    params.optimal_utilization = params.mid_utilization + Ray::from(RAY / 3);
+    params.optimal_utilization = params.mid_utilization.checked_add(&env, Ray::from(RAY / 3));
 
     let rate = calculate_borrow_rate(&env, params.optimal_utilization, &params);
 
@@ -512,10 +542,8 @@ fn oracle_accrual(
         supply_index = update_supply_index(env, supplied, supply_index, supplier_rewards);
         borrow_index = new_borrow_index;
 
-        if protocol_fee != Ray::ZERO
-            && supply_index.raw() > SUPPLY_INDEX_FLOOR_RAW
-            && supplied != Ray::ZERO
-        {
+        // Fee reinvestment mirrors the live path.
+        if protocol_fee != Ray::ZERO {
             let fee_scaled = protocol_fee.div(env, supply_index);
             supplied = supplied.checked_add(env, fee_scaled);
         }
@@ -579,13 +607,12 @@ fn test_simulate_guard_reinvests_fee_when_healthy() {
 }
 
 #[test]
-fn test_simulate_guard_skips_reinvestment_at_supply_index_floor() {
+fn test_simulate_matches_mirror_at_supply_index_floor() {
     use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
 
     let env = Env::default();
-    // reserve_factor = 100% keeps supplier_rewards at exactly zero each
-    // chunk, so `update_supply_index` short-circuits and supply_index stays
-    // pinned at the floor -- isolating the `supply_index > FLOOR` clause.
+    // 100% reserve factor: no supplier rewards, supply_index stays at the floor;
+    // all interest is fee and both paths reinvest it identically.
     let raw_params = MarketParamsRaw {
         max_borrow_rate: RAY,
         base_borrow_rate: RAY / 100,
@@ -637,7 +664,7 @@ fn test_simulate_guard_skips_reinvestment_at_supply_index_floor() {
 }
 
 #[test]
-fn test_simulate_guard_skips_reinvestment_when_supplied_zero() {
+fn test_simulate_matches_mirror_when_supplied_zero() {
     use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
 
     let env = Env::default();
@@ -748,4 +775,162 @@ fn test_simulate_update_indexes_zero_delta_is_noop() {
     let indexes = simulate_update_indexes(&env, 1_000, &sync);
     assert_eq!(indexes.borrow_index, Ray::from(2 * RAY));
     assert_eq!(indexes.supply_index, Ray::from(3 * RAY));
+}
+
+// --- POOL-CAN-001: virtual offset bounds dust-reward growth. ---
+
+/// Dust supply + large reward: index grows but stays below the cap.
+#[test]
+fn test_virtual_offset_bounds_dust_reward_growth() {
+    let env = Env::default();
+
+    let clamped = update_borrow_index(&env, Ray::from(MAX_BORROW_INDEX_RAY), Ray::from(RAY * 2));
+    assert_eq!(clamped.raw(), MAX_BORROW_INDEX_RAY);
+
+    let supplied = Ray::from_asset(1, 7);
+    let reward = Ray::from_asset(170_141_183_459, 7);
+
+    let grown = update_supply_index(&env, supplied, Ray::from(RAY), reward);
+
+    assert!(grown.raw() > RAY, "reward must still grow the index");
+    assert!(
+        grown.raw() < MAX_SUPPLY_INDEX_RAY,
+        "offset must keep growth below the cap"
+    );
+    assert!(grown.raw() < RAY * 1_000_000, "growth is bounded to ~1.7e31");
+}
+
+/// Bounded index still accepts a later ordinary accrual.
+#[test]
+fn test_offset_supply_index_survives_ordinary_accrual() {
+    let env = Env::default();
+
+    let grown = update_supply_index(
+        &env,
+        Ray::from_asset(1, 7),
+        Ray::from(RAY),
+        Ray::from_asset(170_141_183_459, 7),
+    );
+    assert!(grown.raw() < MAX_SUPPLY_INDEX_RAY);
+
+    let next = update_supply_index(&env, Ray::from(1), grown, Ray::from(170_000));
+    assert!(next.raw() >= grown.raw());
+    assert!(next.raw() < MAX_SUPPLY_INDEX_RAY);
+}
+
+/// Extreme reward still clamps at `MAX_SUPPLY_INDEX_RAY`.
+#[test]
+fn test_cap_still_backstops_extreme_reward() {
+    let env = Env::default();
+
+    let supplied = Ray::from_asset(1, 7);
+    let reward = Ray::from(i128::MAX / 2);
+
+    let grown = update_supply_index(&env, supplied, Ray::from(RAY), reward);
+
+    assert_eq!(grown.raw(), MAX_SUPPLY_INDEX_RAY);
+}
+
+/// Funded market: offset dilutes growth by less than 1%.
+#[test]
+fn test_virtual_offset_negligible_for_funded_market() {
+    let env = Env::default();
+    let supplied = Ray::from(1_000 * RAY); // 1000 tokens
+    let rewards = Ray::from(10 * RAY); // 1% reward
+
+    let grown = update_supply_index(&env, supplied, Ray::from(RAY), rewards);
+
+    // 1 + 10/1001 with offset; 1 + 10/1000 without.
+    let with_offset = RAY + RAY * 10 / 1001;
+    let offset_free = RAY + RAY * 10 / 1000;
+    assert!((grown.raw() - with_offset).abs() <= 1);
+
+    let drift = offset_free - grown.raw();
+    assert!(drift * 100 < offset_free - RAY, "dilution < 1% of reward growth");
+}
+
+#[test]
+fn protocol_fee_shares_matches_half_up_divide_in_range() {
+    let env = Env::default();
+    let supply_index = Ray::from(2 * RAY);
+    let fee = Ray::from(500 * RAY);
+    let supplied = Ray::from(1_000_000 * RAY);
+    // In-range results are byte-identical to the plain half-up `fee / supply_index`.
+    assert_eq!(
+        protocol_fee_shares(&env, fee, supply_index, supplied).raw(),
+        fee.div(&env, supply_index).raw(),
+    );
+}
+
+#[test]
+fn protocol_fee_shares_saturates_and_caps_at_floored_index() {
+    let env = Env::default();
+    // Post-wipeout floored index: the plain divide would push the share count past
+    // i128 and trap. The overflow-safe form saturates, then caps to supply headroom.
+    let supply_index = Ray::from(SUPPLY_INDEX_FLOOR_RAW);
+    let fee = Ray::from(i128::MAX / 100);
+    let supplied = Ray::from(1_000 * RAY);
+    let shares = protocol_fee_shares(&env, fee, supply_index, supplied);
+    assert_eq!(shares.raw(), i128::MAX - supplied.raw());
+}
+
+// --- AUDIT: Controller::add_rewards iterated-leg supply-index pinning ---
+
+/// Proof for the surviving hypothesis: the single-shot virtual-offset defense in
+/// `update_supply_index` does NOT bound growth when the SAME dust market is fed
+/// many reward legs in sequence (as `Controller::add_rewards` does, one
+/// load->update->save per non-deduplicated Vec leg). Each leg reloads the
+/// persisted index, so growth COMPOUNDS across legs. With a 1-raw-unit seed on a
+/// 7-decimal asset, ~30 modest legs (each ~doubling the index) drive `supply_index`
+/// to the sticky `MAX_SUPPLY_INDEX_RAY` clamp for a modest total reward outlay,
+/// after which ALL supplier yield is permanently discarded.
+#[test]
+fn audit_controller_add_rewards_iterated_legs_pin_supply_index_and_zero_yield() {
+    let env = Env::default();
+
+    // Attacker seeds 1 raw unit of a 7-decimal asset (dust: 1e-7 tokens of value).
+    let supplied = Ray::from_asset(1, 7);
+    let mut index = Ray::from(RAY);
+
+    // Walk the market by feeding legs that each roughly DOUBLE the index: reward =
+    // (total_supplied_value + virtual_offset), i.e. exactly the reward denominator,
+    // so factor = 1 + denom/denom = 2. This is the small-step regime the offset was
+    // meant to bound; iterated it compounds geometrically.
+    let mut total_reward_raw: i128 = 0;
+    let mut legs = 0u32;
+    while index.raw() < MAX_SUPPLY_INDEX_RAY && legs < 40 {
+        let tsv = supplied.mul(&env, index).raw();
+        let reward_raw = tsv + SUPPLY_VIRTUAL_VALUE_RAY; // == denom -> factor 2
+        total_reward_raw = total_reward_raw.saturating_add(reward_raw);
+        index = update_supply_index(&env, supplied, index, Ray::from(reward_raw));
+        legs += 1;
+    }
+
+    // EXPLOIT ASSERTION 1: iterated legs pin the index at the sticky clamp.
+    assert_eq!(
+        index.raw(),
+        MAX_SUPPLY_INDEX_RAY,
+        "iterated add_rewards legs must pin supply_index at MAX",
+    );
+    assert!(legs <= 31, "cap reached in ~30 modest legs, got {legs}");
+
+    // Total reward outlay stays modest (~hundreds of whole tokens on a 7-dp asset):
+    // final leg cost ~= offset-in-tokens at the cap (~100 tokens), most recoverable
+    // by the sole supplier's own withdraw. Net cost is a small stranded remainder.
+    let total_reward_tokens = total_reward_raw / RAY; // whole tokens
+    assert!(
+        total_reward_tokens < 1_000,
+        "total reward outlay to pin the market is modest ({total_reward_tokens} tokens)",
+    );
+
+    // EXPLOIT ASSERTION 2: with the index pinned, an ordinary later supplier-reward
+    // accrual (real borrow interest, sized as tokens) is silently DISCARDED — the
+    // clamp re-applies and the index does not move. Supplier yield is 0% forever.
+    let ordinary_reward = Ray::from_asset(1_000, 7); // 1000 tokens of real interest
+    let after = update_supply_index(&env, supplied, index, ordinary_reward);
+    assert_eq!(
+        after.raw(),
+        MAX_SUPPLY_INDEX_RAY,
+        "post-pin, real supplier interest is clamped away: index unchanged (0% yield)",
+    );
 }

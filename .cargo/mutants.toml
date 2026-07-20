@@ -135,6 +135,18 @@ exclude_re = [
     # same column stay mutated (killed by the under-seeded settle test).
     "withdraw.rs:[0-9]+:15: replace < with <= in settle_partial_max",
 
+    # `partial_ok`'s negative-amount guard (`amount < 0`, col 15): the documented
+    # purpose is rejecting negatives, which inflate the adjusted position and pass
+    # the gates. The only input where `<` and `<=` diverge is `amount == 0`, a no-op
+    # withdrawal — `scaled_w == 0` and `remaining == pos_scaled`, so the position is
+    # unchanged. `binary_search_partial` never probes 0 (`mid >= lo + 1` while the
+    # loop runs), and on the settle path a downward walk that reaches `amount == 0`
+    # returns `binary_search_partial(0, ceiling)` whether `partial_ok(0)` is true
+    # (break -> expand loop) or false (early return); both converge on the same
+    # max-feasible partial over the monotone `partial_ok` predicate. `<` vs `<=` at
+    # zero is therefore unobservable in the `max_withdraw` output.
+    "withdraw.rs:[0-9]+:15: replace < with <= in partial_ok",
+
     # Preview binary-search break guards (`if lo >= hi break`): the loop
     # maintains `lo <= hi` (mid >= lo + 1, so `hi = mid.saturating_sub(1)`
     # never drops below `lo`), making `>` and `==` coincide with `>=` on

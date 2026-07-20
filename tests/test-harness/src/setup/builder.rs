@@ -42,6 +42,17 @@ impl LendingTestBuilder {
         self
     }
 
+    /// Lists a market backed by a mock freezable token (transfers trap to a
+    /// blocked recipient) instead of a Stellar Asset Contract. Use
+    /// `freezable_token::FreezableTokenClient::new(&env, &asset).set_blocked(..)`
+    /// to model an issuer that withholds authorization from a receiver.
+    pub fn with_freezable_market(mut self, preset: MarketPreset) -> Self {
+        let mut pending = PendingMarket::from_preset(preset);
+        pending.freezable = true;
+        self.pending_markets.push(pending);
+        self
+    }
+
     pub fn with_market_config(
         mut self,
         name: &str,
@@ -250,10 +261,13 @@ impl LendingTestBuilder {
         let mut markets = HashMap::new();
 
         for pm in &self.pending_markets {
-            let asset_address = env
-                .register_stellar_asset_contract_v2(admin.clone())
-                .address()
-                .clone();
+            let asset_address = if pm.freezable {
+                env.register(crate::freezable_token::FreezableToken, ())
+            } else {
+                env.register_stellar_asset_contract_v2(admin.clone())
+                    .address()
+                    .clone()
+            };
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
             // Governance requires `params.asset_decimals == token.decimals()`.
             // SAC v2 always reports 7; market params and amount math use the live

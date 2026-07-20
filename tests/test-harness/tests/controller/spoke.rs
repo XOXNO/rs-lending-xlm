@@ -1753,3 +1753,45 @@ fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
         "threshold sync must work on deprecated spokes: {result:?}"
     );
 }
+
+// AUDIT: a per-spoke oracle override carries a fully-resolved
+// `ReflectorSourceConfig` whose PROVIDER `decimals` is proposer-supplied. The
+// override write path validates only sanity bounds, band width, tolerance
+// shape, quote-active, and `asset_decimals == pool_decimals` (the token
+// amount-scaling decimals). It never probes/bounds the PROVIDER `decimals`.
+// Declaring 6 for a feed that returns 14-decimal integers upscales the read
+// price by 10^8; the proposer sets the sanity band around the inflated value,
+// so the read-time gate cannot catch it. Passing assertion = exploit real.
+#[test]
+fn test_audit_borrow_withdraw_spoke_override_wrong_provider_decimals_inflates_collateral() {
+    let mut t = LendingTest::new().with_market(eth_preset()).build();
+
+    // Attacker supplies 1 unit of the collateral asset on the base spoke.
+    t.supply(ALICE, "ETH", 1.0);
+
+    // Honest override: provider decimals = 14 (matches the mock feed), $1 read.
+    let honest_read =
+        t.set_spoke_oracle_override_with_provider_decimals("ETH", HARNESS_SPOKE, usd(1), 14);
+    assert_eq!(honest_read, usd(1), "honest 14-decimal round-trip is $1");
+    let collateral_honest = t.total_collateral_raw(ALICE);
+    assert!(collateral_honest > 0, "collateral must be valued");
+
+    // Malicious override: SAME honest mock feed, but provider decimals = 6.
+    // `asset_decimals` stays correct, so the only decimals guard passes; the
+    // provider field is consumed verbatim and inflates the read price 10^8x.
+    let inflated_read =
+        t.set_spoke_oracle_override_with_provider_decimals("ETH", HARNESS_SPOKE, usd(1), 6);
+    assert_eq!(
+        inflated_read,
+        usd(1) * 100_000_000,
+        "wrong provider decimals must upscale the same feed by 10^8"
+    );
+    let collateral_inflated = t.total_collateral_raw(ALICE);
+
+    let ratio = collateral_inflated as f64 / collateral_honest as f64;
+    assert!(
+        (ratio - 1e8).abs() / 1e8 < 0.01,
+        "unvalidated provider decimals inflate collateral ~1e8x: \
+         honest={collateral_honest} inflated={collateral_inflated} ratio={ratio}"
+    );
+}

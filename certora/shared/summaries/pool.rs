@@ -4,7 +4,9 @@ use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Bytes, Env, Vec};
 
-use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
+use common::constants::{
+    MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW,
+};
 use common::types::{
     MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolNetSettleResult, PoolPositionMutation,
     PoolSeizeEntry, PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
@@ -13,8 +15,12 @@ use common::types::{
 fn nondet_market_index() -> MarketIndex {
     let supply_index: i128 = nondet();
     let borrow_index: i128 = nondet();
+    // Production band: floor from bad-debt write-down, caps from update_*_index
+    // clamps (proved by update_supply_index_capped / update_borrow_index_capped).
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assume!(supply_index <= MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(borrow_index >= RAY);
+    cvlr_assume!(borrow_index <= MAX_BORROW_INDEX_RAY);
     MarketIndex {
         supply_index: common::math::fp::Ray::from(supply_index),
         borrow_index: common::math::fp::Ray::from(borrow_index),
@@ -239,7 +245,9 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
     cvlr_assume!(revenue >= 0);
     cvlr_assume!(cash >= 0);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assume!(supply_index <= MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(borrow_index >= RAY);
+    cvlr_assume!(borrow_index <= MAX_BORROW_INDEX_RAY);
 
     let max_borrow_rate: i128 = nondet();
     let base_borrow_rate: i128 = nondet();

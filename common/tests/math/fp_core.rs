@@ -50,19 +50,6 @@ fn test_large_values_no_overflow() {
 }
 
 #[test]
-fn test_signed_positive() {
-    let env = Env::default();
-    assert_eq!(mul_div_half_up_signed(&env, 3, WAD / 2, WAD), 2);
-}
-
-#[test]
-fn test_signed_negative() {
-    let env = Env::default();
-    // -3 * 0.5 = -1.5, rounds away from zero to -2.
-    assert_eq!(mul_div_half_up_signed(&env, -3, WAD / 2, WAD), -2);
-}
-
-#[test]
 fn test_rescale_upscale() {
     // 1.0 at 6 decimals -> 18 decimals.
     assert_eq!(rescale_half_up(1_000_000, 6, 18), 1_000_000_000_000_000_000);
@@ -125,17 +112,6 @@ fn test_mul_div_half_up_exact_half_rounds_up() {
     assert_eq!(mul_div_half_up(&env, 7, 1, 2), 4);
 }
 
-// `mul_div_half_up` on negatives uses `+ d/2`, which pulls toward zero.
-// Consumers needing symmetric rounding use `mul_div_half_up_signed`.
-#[test]
-fn test_mul_div_half_up_negative_rounds_toward_zero() {
-    let env = Env::default();
-    // -1 * 1 + 1 = 0; 0 / 2 = 0, so -0.5 rounds to 0 (toward zero).
-    assert_eq!(mul_div_half_up(&env, -1, 1, 2), 0);
-    // -3 * 1 + 1 = -2; -2 / 2 = -1, so -1.5 rounds to -1 (toward zero).
-    assert_eq!(mul_div_half_up(&env, -3, 1, 2), -1);
-}
-
 // I256 holds any i128*i128, but the result fits i128 only if |x*y|/d <= i128::MAX.
 // With x=y=i128::MAX and d=1, `to_i128` panics with `MathOverflow`.
 #[test]
@@ -189,34 +165,6 @@ fn test_mul_div_ceil_overflow_panics() {
     let _ = mul_div_ceil(&env, i128::MAX, i128::MAX, 1);
 }
 
-// Signed variant: exact +/-0.5 rounds away from zero.
-#[test]
-fn test_mul_div_half_up_signed_exact_half() {
-    let env = Env::default();
-    // +0.5 -> 1 (away from zero, upward).
-    assert_eq!(mul_div_half_up_signed(&env, 1, 1, 2), 1);
-    // -0.5 -> -1 (away from zero, downward).
-    assert_eq!(mul_div_half_up_signed(&env, -1, 1, 2), -1);
-    // +2.5 -> 3, -2.5 -> -3.
-    assert_eq!(mul_div_half_up_signed(&env, 5, 1, 2), 3);
-    assert_eq!(mul_div_half_up_signed(&env, -5, 1, 2), -3);
-}
-
-// Signed variant, product zero: takes the `>=` branch (+half), but 0+half then
-// /d = 0, so no rounding offset.
-#[test]
-fn test_mul_div_half_up_signed_zero_input() {
-    let env = Env::default();
-    assert_eq!(mul_div_half_up_signed(&env, 0, 1, 2), 0);
-    assert_eq!(mul_div_half_up_signed(&env, 0, 1_000_000, RAY), 0);
-}
-
-#[test]
-#[should_panic]
-fn test_mul_div_half_up_signed_overflow_panics() {
-    let env = Env::default();
-    let _ = mul_div_half_up_signed(&env, i128::MAX, i128::MAX, 1);
-}
 
 // Rescale downscale at exact half, the rounding tie-breaker.
 // 5 at 1 decimal -> 0 decimals: exact = 0.5 -> rounds to 1.
@@ -253,13 +201,13 @@ fn test_rescale_downscale_factor_overflow_panics() {
     let _ = rescale_half_up(0, 50, 11);
 }
 
-// Rounding-overflow inside downscale: `a` near i128::MAX plus the
-// half-step overflows the `checked_add`.
+// Downscale near i128::MAX no longer overflows: the half-up is computed via
+// quotient/remainder, not `a + half`, and the result fits (downscale shrinks).
 #[test]
-#[should_panic(expected = "rescale_half_up rounding overflow")]
-fn test_rescale_downscale_rounding_overflow_panics() {
-    // factor = 10, half = 5. i128::MAX + 5 overflows.
-    let _ = rescale_half_up(i128::MAX, 1, 0);
+fn test_rescale_downscale_near_max_does_not_overflow() {
+    // i128::MAX at 1 dec -> 0 dec: floor(MAX/10) with half-up on the last digit.
+    let expected = i128::MAX / 10 + if i128::MAX % 10 >= 5 { 1 } else { 0 };
+    assert_eq!(rescale_half_up(i128::MAX, 1, 0), expected);
 }
 
 // `div_by_int_half_up` overflow on the `a + half_b` step.

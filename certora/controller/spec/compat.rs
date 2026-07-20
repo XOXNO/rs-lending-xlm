@@ -117,29 +117,6 @@ pub fn multiply(
     )
 }
 
-/// `Controller::repay_debt_with_collateral` shim; havoced `close_position` covers both branches.
-pub fn repay_debt_with_collateral(
-    env: Env,
-    caller: Address,
-    account_id: u64,
-    collateral_token: Address,
-    collateral_amount: i128,
-    debt_token: Address,
-    steps: StrategySwap,
-) {
-    let close_position: bool = nondet();
-    crate::Controller::repay_debt_with_collateral(
-        env,
-        caller,
-        account_id,
-        hub0(collateral_token),
-        collateral_amount,
-        hub0(debt_token),
-        steps,
-        close_position,
-    );
-}
-
 /// Minimal `multiply` shim for early-exit negative-path rules.
 pub fn multiply_minimal(
     env: Env,
@@ -174,7 +151,7 @@ pub fn multiply_minimal(
     )
 }
 
-/// Minimal `repay_debt_with_collateral` shim with `close_position = false`.
+/// `repay_debt_with_collateral` shim with `close_position = false`.
 pub fn repay_debt_with_collateral_minimal(
     env: Env,
     caller: Address,
@@ -216,115 +193,6 @@ pub fn repay_debt_with_collateral_close(
         steps,
         true,
     );
-}
-
-/// `multiply` shim with new account and no initial payment.
-pub fn multiply_basic(
-    env: Env,
-    caller: Address,
-    spoke_id: u32,
-    collateral_token: Address,
-    debt_to_flash_loan: i128,
-    debt_token: Address,
-    mode: u32,
-    steps: StrategySwap,
-) -> u64 {
-    let mode = match mode {
-        0 => PositionMode::Normal,
-        1 => PositionMode::Multiply,
-        2 => PositionMode::Long,
-        3 => PositionMode::Short,
-        _ => panic!("invalid strategy mode for certora compat"),
-    };
-
-    crate::Controller::multiply(
-        env,
-        caller,
-        0,
-        spoke_id,
-        hub0(collateral_token),
-        debt_to_flash_loan,
-        hub0(debt_token),
-        mode,
-        steps,
-        None,
-        None,
-    )
-}
-
-/// `multiply` shim with initial payment in `collateral_token`.
-pub fn multiply_with_initial_payment_collateral(
-    env: Env,
-    caller: Address,
-    spoke_id: u32,
-    collateral_token: Address,
-    debt_to_flash_loan: i128,
-    debt_token: Address,
-    mode: u32,
-    steps: StrategySwap,
-    initial_amount: i128,
-) -> u64 {
-    let mode = match mode {
-        0 => PositionMode::Normal,
-        1 => PositionMode::Multiply,
-        2 => PositionMode::Long,
-        3 => PositionMode::Short,
-        _ => panic!("invalid strategy mode for certora compat"),
-    };
-
-    let initial_payment: Option<(HubAssetKey, i128)> =
-        Some((hub0(collateral_token.clone()), initial_amount));
-    crate::Controller::multiply(
-        env,
-        caller,
-        0,
-        spoke_id,
-        hub0(collateral_token),
-        debt_to_flash_loan,
-        hub0(debt_token),
-        mode,
-        steps,
-        initial_payment,
-        None,
-    )
-}
-
-/// `multiply` shim with initial payment in a third token and `convert_steps`.
-pub fn multiply_with_initial_payment_third_token(
-    env: Env,
-    caller: Address,
-    spoke_id: u32,
-    collateral_token: Address,
-    debt_to_flash_loan: i128,
-    debt_token: Address,
-    mode: u32,
-    steps: StrategySwap,
-    third_token: Address,
-    initial_amount: i128,
-    convert_steps: StrategySwap,
-) -> u64 {
-    let mode = match mode {
-        0 => PositionMode::Normal,
-        1 => PositionMode::Multiply,
-        2 => PositionMode::Long,
-        3 => PositionMode::Short,
-        _ => panic!("invalid strategy mode for certora compat"),
-    };
-
-    let initial_payment: Option<(HubAssetKey, i128)> = Some((hub0(third_token), initial_amount));
-    crate::Controller::multiply(
-        env,
-        caller,
-        0,
-        spoke_id,
-        hub0(collateral_token),
-        debt_to_flash_loan,
-        hub0(debt_token),
-        mode,
-        steps,
-        initial_payment,
-        Some(convert_steps),
-    )
 }
 
 /// `Controller::liquidate` shim; lifts asset-keyed payments onto hub 0.

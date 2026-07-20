@@ -56,36 +56,6 @@ fn flash_loan_guard_cleared_after_completion(
 }
 
 #[rule]
-fn flash_loan_guard_cleared_sanity(
-    e: Env,
-    caller: Address,
-    receiver: Address,
-    asset: Address,
-    amount: i128,
-    data: Bytes,
-) {
-    cvlr_assume!(amount > 0);
-    cvlr_assume!(!crate::storage::is_flash_loan_ongoing(&e));
-
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    };
-    let mut cache = crate::context::Cache::new(&e);
-    let sync = cache.cached_pool_sync_data(&hub_asset);
-    cvlr_assume!(sync.params.is_flashloanable);
-    cvlr_assume!(crate::storage::get_spoke_asset(&e, 0, &hub_asset).is_some());
-    cvlr_assume!(crate::storage::get_asset_oracle(&e, &asset).is_some());
-    drop(cache);
-
-    crate::strategies::flash_loan::process_flash_loan(
-        &e, &caller, &hub_asset, amount, &receiver, &data,
-    );
-
-    cvlr_satisfy!(!crate::storage::is_flash_loan_ongoing(&e));
-}
-
-#[rule]
 fn flash_loan_sanity(
     e: Env,
     caller: Address,

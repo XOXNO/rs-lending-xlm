@@ -60,7 +60,7 @@ fn zero_anchor_returns_false(e: Env, primary: i128) {
 }
 
 #[rule]
-fn equal_prices_within_symmetric_first_band(e: Env, price: i128) {
+fn equal_prices_within_symmetric_band(e: Env, price: i128) {
     cvlr_assume!(price > 0 && price <= 1_000_000 * WAD);
 
     let within = production_ratio_in_band(&e, price, price, 10_200, 9_800);
@@ -77,7 +77,7 @@ fn par_ratio_is_bps(e: Env, price: i128) {
 }
 
 #[rule]
-fn divergent_prices_outside_tight_first_band(e: Env, anchor: i128, primary: i128) {
+fn divergent_prices_outside_tight_band(e: Env, anchor: i128, primary: i128) {
     cvlr_assume!(anchor > 0 && anchor <= 1_000_000 * WAD);
     cvlr_assume!(primary == 2 * anchor);
 

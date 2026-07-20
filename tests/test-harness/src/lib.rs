@@ -40,6 +40,7 @@ pub use strategy::{
     DEFAULT_FLASHLOAN_FEE_BPS,
 };
 pub use view::PositionType;
+pub mod freezable_token;
 pub mod mock_aggregator;
 pub mod mock_blend;
 pub mod mock_redstone;

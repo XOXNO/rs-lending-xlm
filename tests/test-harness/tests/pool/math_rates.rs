@@ -1,6 +1,6 @@
 use common::math::fp::{Ray, Wad};
 use common::math::fp_core::{
-    div_by_int_half_up, mul_div_half_up, mul_div_half_up_signed, rescale_half_up,
+    div_by_int_half_up, mul_div_half_up, rescale_half_up,
 };
 use common::rates::*;
 use controller::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
@@ -65,29 +65,6 @@ fn test_div_half_up_rounds_up() {
     // 2/3 in WAD: 0.666... rounds up.
     let result = mul_div_half_up(&env, 2 * WAD, WAD, 3 * WAD);
     assert_eq!(result, 666_666_666_666_666_667);
-}
-
-#[test]
-fn test_mul_half_up_signed_negative() {
-    let env = Env::default();
-    // -3 * 0.5 = -1.5, rounds away from zero to -2.
-    let result = mul_div_half_up_signed(&env, -3, WAD / 2, WAD);
-    assert_eq!(result, -2);
-
-    // -1 * 0.5 = -0.5, rounds away from zero to -1.
-    let result = mul_div_half_up_signed(&env, -1, WAD / 2, WAD);
-    assert_eq!(result, -1);
-}
-
-#[test]
-fn test_div_half_up_signed_negative() {
-    let env = Env::default();
-    // -2/3 rounds away from zero via signed half-up.
-    let result = mul_div_half_up_signed(&env, -2 * WAD, WAD, 3 * WAD);
-    assert_eq!(result, -666_666_666_666_666_667);
-
-    let result = mul_div_half_up_signed(&env, -WAD, WAD, 3 * WAD);
-    assert_eq!(result, -333_333_333_333_333_333);
 }
 
 #[test]
@@ -259,7 +236,8 @@ fn test_supply_index_update_zero_rewards() {
 fn test_supply_index_update_with_rewards() {
     let env = Env::default();
     let new_index = update_supply_index(&env, Ray::from(100 * RAY), Ray::ONE, Ray::from(5 * RAY));
-    let expected = RAY * 105 / 100;
+    // Growth = rewards / (supplied_value + virtual offset) = 5 / 101.
+    let expected = RAY * 106 / 101;
     assert!((new_index.raw() - expected).abs() <= 1);
 }
 #[test]

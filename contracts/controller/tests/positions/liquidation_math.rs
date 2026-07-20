@@ -299,9 +299,10 @@ fn repayment_above_debt_refunds_exact_excess() {
 
 #[test]
 fn bad_debt_socialization_requires_debt_exceeding_collateral_under_threshold() {
+    let env = Env::default();
     let collateral = Wad::from(BAD_DEBT_USD_THRESHOLD);
     assert!(is_socializable_bad_debt(
-        collateral + Wad::from(1),
+        collateral.checked_add(&env, Wad::from(1)),
         collateral
     ));
     assert!(!is_socializable_bad_debt(collateral, collateral));
@@ -345,8 +346,13 @@ fn default_curve_bonus_matches_reference_scale() {
         let got = calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target);
 
         // Independent reference: scale = min((target - hf) / (target - knee), 1).
-        let scale = (target - hf).div(&env, target - knee).min(Wad::ONE);
-        let increment = Wad::from((max - base).raw()).mul(&env, scale).raw();
+        let scale = target
+            .checked_sub(&env, hf)
+            .div(&env, target.checked_sub(&env, knee))
+            .min(Wad::ONE);
+        let increment = Wad::from(max.checked_sub(&env, base).raw())
+            .mul(&env, scale)
+            .raw();
         let want = Bps::from(base.raw() + increment);
 
         assert_eq!(got.raw(), want.raw(), "hf={hf_raw}");
@@ -584,6 +590,7 @@ fn whole_unit_protocol_fee_is_exact() {
     assert_eq!(entry.amount, 1_500_000_000);
     assert_eq!(entry.protocol_fee, 50_000_000);
 }
+
 
 fn stroops(tokens: i128) -> i128 {
     tokens * 10_000_000
@@ -914,7 +921,7 @@ fn estimate_toxic_band_caps_bonus_to_hf_neutral() {
     let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
     assert_eq!(bonus.raw(), 1_111, "bonus capped at hf/p - 1, not the max");
     assert_eq!(d.raw(), s.total_debt.raw(), "dust guard closes the debt");
-    let seizure = d.mul(&env, Wad::ONE + bonus.to_wad(&env));
+    let seizure = d.mul(&env, Wad::ONE.checked_add(&env, bonus.to_wad(&env)));
     assert!(
         seizure <= s.total_collateral,
         "capped seizure fits in collateral"
@@ -1062,7 +1069,7 @@ fn estimate_leaves_above_floor_debt_remainder_unescalated() {
     let (d, _bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
     assert!(d < s.total_debt, "partial repayment");
     assert!(
-        s.total_debt - d >= Wad::from(BAD_DEBT_USD_THRESHOLD),
+        s.total_debt.checked_sub(&env, d) >= Wad::from(BAD_DEBT_USD_THRESHOLD),
         "remainder stays above the socialization floor"
     );
 }
@@ -1091,8 +1098,8 @@ fn estimate_target_reachable_returns_interpolated_partial() {
     // `(target*D - W) / (target - p)`, clamped by collateral and total debt.
     let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
     let target_debt = target.mul(&env, s.total_debt);
-    let numerator = target_debt - s.weighted_coll;
-    let denominator = target - s.proportion_seized;
+    let numerator = target_debt.checked_sub(&env, s.weighted_coll);
+    let denominator = target.checked_sub(&env, s.proportion_seized);
     let expected = numerator
         .div(&env, denominator)
         .min(s.total_collateral)
@@ -1278,7 +1285,7 @@ fn seizure_never_exceeds_collateral() {
         if ideal.raw() == s.total_debt.raw() {
             continue;
         }
-        let seizure = ideal.mul(&env, Wad::ONE + bonus.to_wad(&env));
+        let seizure = ideal.mul(&env, Wad::ONE.checked_add(&env, bonus.to_wad(&env)));
         assert!(
             seizure.raw() <= collateral + WAD / 1_000,
             "seizure {} exceeds collateral {} at hf={hf_pct}%",

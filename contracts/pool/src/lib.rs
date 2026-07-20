@@ -20,7 +20,7 @@ pub mod spec;
 use common::constants::RAY;
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::Ray;
-use common::rates::{simulate_update_indexes, update_supply_index};
+use common::rates::{simulate_update_indexes, supply_index_reward_shortfall, update_supply_index};
 use common::types::{
     AccountPositionType, HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw,
     MarketStateSnapshot, PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolKey,
@@ -105,8 +105,8 @@ fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
     cache.require_reserves(amount);
     let scaled_debt = cache.calculate_scaled_borrow(amount);
-    // Free-borrow floor: positive raw amount must mint positive scaled debt.
-    // Extreme borrow_index can floor tiny amounts to zero shares; accepting
+    // Free-borrow guard: positive raw amount must mint positive scaled debt.
+    // Extreme borrow_index rounds tiny amounts to zero shares; accepting
     // that would debit cash and transfer tokens with no debt recorded.
     assert_with_error!(
         env,
@@ -502,12 +502,21 @@ impl LiquidityPoolInterface for LiquidityPool {
             GenericError::NoSuppliersToReward
         );
 
-        cache.supply_index = update_supply_index(
+        let reward = Ray::from_asset(amount, cache.params.asset_decimals);
+        let old_supply_index = cache.supply_index;
+        cache.supply_index = update_supply_index(&env, cache.supplied, old_supply_index, reward);
+        // The virtual-offset shortfall (reward not distributed to suppliers) is
+        // booked as protocol revenue instead of stranded as dead reserve, so the
+        // full donated reward is accounted (suppliers via index + protocol via
+        // revenue) and remains backed by the cash credited below.
+        let offset_shortfall = supply_index_reward_shortfall(
             &env,
             cache.supplied,
+            old_supply_index,
             cache.supply_index,
-            Ray::from_asset(amount, cache.params.asset_decimals),
+            reward,
         );
+        interest::add_protocol_revenue(&mut cache, offset_shortfall);
         // Controller transferred Token(asset) reward `amount` into the pool.
         cache.credit_cash(amount);
 
@@ -619,13 +628,14 @@ impl LiquidityPoolInterface for LiquidityPool {
     ///
     /// # Arguments
     /// * `receiver` - recipient of the net (post-fee) borrowed amount.
-    /// * `action` - the strategy borrow leg; amount must be non-negative.
+    /// * `action` - the strategy borrow leg; amount must be positive.
     /// * `fee` - protocol fee withheld from the transfer; must be non-negative
     ///   and at most `amount`.
     ///
     /// # Errors
     /// * `PoolNotInitialized` - no stored state for the action's market.
-    /// * `AmountMustBePositive` - `amount` or `fee` is negative.
+    /// * `AmountMustBePositive` - `amount` is not strictly positive, or `fee`
+    ///   is negative.
     /// * `StrategyFeeExceeds` - `fee` exceeds the borrowed `amount`.
     /// * `InsufficientLiquidity` - tracked reserves cannot fund the borrow.
     /// * `UtilizationAboveMax` - the borrow pushes utilization past the market cap.

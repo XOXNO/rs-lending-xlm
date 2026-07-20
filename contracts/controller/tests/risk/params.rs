@@ -24,6 +24,14 @@ fn position_with_threshold(lt_bps: i128) -> AccountPosition {
     }
 }
 
+// H-RISK-04: LT cuts on debt-free accounts always apply; the 1.05 HF floor is
+// the gate constant used for debt-bearing accounts (integration PoC covers
+// sticky LT under live risk totals).
+#[test]
+fn threshold_update_min_hf_is_one_point_zero_five_wad() {
+    assert_eq!(THRESHOLD_UPDATE_MIN_HF_RAW, 1_050_000_000_000_000_000);
+}
+
 // Threshold raises are unconditional and debt-free decreases skip the HF
 // gate — both must land on the position.
 #[test]

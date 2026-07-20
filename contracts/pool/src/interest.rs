@@ -5,8 +5,8 @@
 use common::constants::SUPPLY_INDEX_FLOOR_RAW;
 use common::math::fp::Ray;
 use common::rates::{
-    calculate_borrow_rate, calculate_supplier_rewards, compound_interest, update_borrow_index,
-    update_supply_index, MAX_COMPOUND_DELTA_MS,
+    calculate_borrow_rate, calculate_supplier_rewards, compound_interest, protocol_fee_shares,
+    update_borrow_index, update_supply_index, MAX_COMPOUND_DELTA_MS,
 };
 
 use soroban_sdk::Env;
@@ -59,15 +59,14 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
 }
 
 pub fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
-    // Zero fees, fees at/below the index floor, or fees without suppliers have no supply base.
-    if fee == Ray::ZERO
-        || cache.supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW
-        || cache.supplied == Ray::ZERO
-    {
+    // Always mint scaled supply for the fee so `claim_revenue` can pay it out.
+    if fee == Ray::ZERO {
         return;
     }
-    // dimensional: Ray<Token(asset)> / Ray<Index(asset, supply)> -> Ray<Share(asset, supply)>.
-    let fee_scaled = fee.div(&cache.env, cache.supply_index);
+    // Overflow-safe: a floored supply index (post-wipeout) can push the raw share
+    // count past i128; `protocol_fee_shares` saturates and caps to the headroom in
+    // `supplied` so a bricked market never traps here.
+    let fee_scaled = protocol_fee_shares(&cache.env, fee, cache.supply_index, cache.supplied);
     // Protocol revenue also counts toward total scaled supply.
     cache.revenue.checked_add_assign(&cache.env, fee_scaled);
     cache.supplied.checked_add_assign(&cache.env, fee_scaled);
@@ -82,11 +81,13 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     }
 
     let capped = bad_debt.min(total_supplied_value);
-    let remaining = total_supplied_value - capped;
+    let remaining = total_supplied_value.checked_sub(&cache.env, capped);
 
     // dimensional: remaining / total_supplied_value is Ray<1>, scaling Ray<Index(asset, supply)>.
-    let reduction_factor = remaining.div(&cache.env, total_supplied_value);
-    let new_supply_index = cache.supply_index.mul(&cache.env, reduction_factor);
+    // Floor both steps so the writedown socializes at least the full loss (never less):
+    // rounding the residual factor or the new index up would leave a dust deficit unbacked.
+    let reduction_factor = remaining.div_floor(&cache.env, total_supplied_value);
+    let new_supply_index = cache.supply_index.mul_floor(&cache.env, reduction_factor);
 
     cache.supply_index = new_supply_index.max(Ray::from(SUPPLY_INDEX_FLOOR_RAW));
 }

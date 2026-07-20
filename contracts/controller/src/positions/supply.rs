@@ -9,7 +9,7 @@ use common::math::fp::Ray;
 use common::types::{
     Account, AccountPositionType, HubAssetKey, PoolPositionMutation, PoolSupplyEntry, PositionMode,
 };
-use soroban_sdk::{contractimpl, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::account::{self, update_or_remove_supply_position};
@@ -39,6 +39,8 @@ impl Controller {
     /// # Errors
     /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
     /// * `AmountMustBePositive` - a leg amount is not strictly positive.
+    /// * `NotAuthorized` - a non-owner/non-delegate opens a **new** supply asset
+    ///   slot on an existing account (top-up of an existing leg is allowed).
     /// * Entry gates: `HubNotActive`, `PairNotActive`, `AssetNotInSpoke`,
     ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `NotCollateral`, or
     ///   `PositionLimitExceeded`.
@@ -84,6 +86,21 @@ pub(crate) fn process_supply(
         account::AccountGuard::Supply,
         &mut cache,
     );
+
+    // Third parties may top up existing supply legs (gift collateral) but must
+    // not open new asset slots — that would fill `max_supply_positions` and
+    // grief the owner. Owner and active delegates retain full supply rights.
+    if account_id != 0
+        && !account::is_owner_or_delegate(env, acct_id, caller, &account.owner)
+    {
+        for (hub_asset, _) in aggregated.iter() {
+            assert_with_error!(
+                env,
+                account.supply_positions.contains_key(hub_asset.clone()),
+                GenericError::NotAuthorized
+            );
+        }
+    }
 
     process_deposit(env, caller, &mut account, &aggregated, &mut cache);
 
@@ -194,7 +211,7 @@ fn finish_supply_leg(
     position.scaled_amount = Ray::from(result.position.scaled_amount);
 
     let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
-    let delta = position.scaled_amount - old_scaled;
+    let delta = position.scaled_amount.checked_sub(env, old_scaled);
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
     ctx.apply_supply_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
 

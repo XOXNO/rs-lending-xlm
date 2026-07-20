@@ -1,6 +1,5 @@
 //! Fixed-point wrappers for RAY, WAD, and BPS protocol math.
 
-use core::ops::{Add, AddAssign, Sub, SubAssign};
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
@@ -140,36 +139,6 @@ impl Ray {
     }
 }
 
-impl Add for Ray {
-    type Output = Ray;
-    fn add(self, rhs: Ray) -> Ray {
-        Ray(self.0.checked_add(rhs.0).expect("Ray addition overflow"))
-    }
-}
-
-impl AddAssign for Ray {
-    fn add_assign(&mut self, rhs: Ray) {
-        self.0 = self.0.checked_add(rhs.0).expect("Ray addition overflow");
-    }
-}
-
-impl Sub for Ray {
-    type Output = Ray;
-    fn sub(self, rhs: Ray) -> Ray {
-        let result = self.0.checked_sub(rhs.0).expect("Ray subtraction overflow");
-        if result < 0 {
-            panic!("Ray subtraction underflow (would produce negative)");
-        }
-        Ray(result)
-    }
-}
-
-impl SubAssign for Ray {
-    fn sub_assign(&mut self, rhs: Ray) {
-        *self = *self - rhs;
-    }
-}
-
 /// D18{U}: raw 1e18 fixed-point value. U is caller context:
 /// USD, Token, price, or dimensionless.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -286,36 +255,6 @@ impl Wad {
     }
 }
 
-impl Add for Wad {
-    type Output = Wad;
-    fn add(self, rhs: Wad) -> Wad {
-        Wad(self.0.checked_add(rhs.0).expect("Wad addition overflow"))
-    }
-}
-
-impl AddAssign for Wad {
-    fn add_assign(&mut self, rhs: Wad) {
-        self.0 = self.0.checked_add(rhs.0).expect("Wad addition overflow");
-    }
-}
-
-impl Sub for Wad {
-    type Output = Wad;
-    fn sub(self, rhs: Wad) -> Wad {
-        let result = self.0.checked_sub(rhs.0).expect("Wad subtraction overflow");
-        if result < 0 {
-            panic!("Wad subtraction underflow (would produce negative)");
-        }
-        Wad(result)
-    }
-}
-
-impl SubAssign for Wad {
-    fn sub_assign(&mut self, rhs: Wad) {
-        *self = *self - rhs;
-    }
-}
-
 /// D4{1}: basis-point ratio, 10_000 == 100%.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bps(i128);
@@ -381,36 +320,6 @@ impl Bps {
     /// Subtracts two non-negative BPS values and rejects negative results.
     pub fn checked_sub(self, env: &Env, rhs: Bps) -> Bps {
         Bps(checked_sub_nonneg(env, self.0, rhs.0))
-    }
-}
-
-impl Add for Bps {
-    type Output = Bps;
-    fn add(self, rhs: Bps) -> Bps {
-        Bps(self.0.checked_add(rhs.0).expect("Bps addition overflow"))
-    }
-}
-
-impl AddAssign for Bps {
-    fn add_assign(&mut self, rhs: Bps) {
-        self.0 = self.0.checked_add(rhs.0).expect("Bps addition overflow");
-    }
-}
-
-impl Sub for Bps {
-    type Output = Bps;
-    fn sub(self, rhs: Bps) -> Bps {
-        let result = self.0.checked_sub(rhs.0).expect("Bps subtraction overflow");
-        if result < 0 {
-            panic!("Bps subtraction underflow (would produce negative)");
-        }
-        Bps(result)
-    }
-}
-
-impl SubAssign for Bps {
-    fn sub_assign(&mut self, rhs: Bps) {
-        *self = *self - rhs;
     }
 }
 

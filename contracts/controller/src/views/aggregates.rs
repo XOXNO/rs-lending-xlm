@@ -38,7 +38,7 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
             market_index.supply_index,
             feed.price,
         );
-        total_collateral += value;
+        total_collateral.checked_add_assign(env, value);
     }
 
     total_collateral.raw()
@@ -73,7 +73,7 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
             market_index.borrow_index,
             feed.price,
         );
-        total_borrow += value;
+        total_borrow.checked_add_assign(env, value);
     }
 
     total_borrow.raw()

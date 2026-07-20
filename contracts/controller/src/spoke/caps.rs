@@ -223,7 +223,7 @@ fn enforce_spoke_supply_cap(
         return;
     }
     let cap_scaled = max_scaled_for_cap(env, cap, decimals, supply_index);
-    let next_scaled = Ray::from(usage.supplied_scaled_ray) + delta_scaled;
+    let next_scaled = Ray::from(usage.supplied_scaled_ray).checked_add(env, delta_scaled);
     assert_with_error!(
         env,
         next_scaled <= cap_scaled,
@@ -244,7 +244,7 @@ fn enforce_spoke_borrow_cap(
         return;
     }
     let cap_scaled = max_scaled_for_cap(env, cap, decimals, borrow_index);
-    let next_scaled = Ray::from(usage.borrowed_scaled_ray) + delta_scaled;
+    let next_scaled = Ray::from(usage.borrowed_scaled_ray).checked_add(env, delta_scaled);
     assert_with_error!(
         env,
         next_scaled <= cap_scaled,

@@ -15,16 +15,18 @@ fn test_ray_mul_div() {
 
 #[test]
 fn test_ray_add_sub() {
+    let env = Env::default();
     let a = Ray::from(RAY);
     let b = Ray::from(RAY / 2);
-    assert_eq!((a + b).raw(), RAY + RAY / 2);
-    assert_eq!((a - b).raw(), RAY / 2);
+    assert_eq!(a.checked_add(&env, b).raw(), RAY + RAY / 2);
+    assert_eq!(a.checked_sub(&env, b).raw(), RAY / 2);
 }
 
 #[test]
-#[should_panic(expected = "Ray addition overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_ray_add_overflow_panics() {
-    let _ = Ray::from(i128::MAX) + Ray::from(1);
+    let env = Env::default();
+    let _ = Ray::from(i128::MAX).checked_add(&env, Ray::from(1));
 }
 
 #[test]
@@ -130,10 +132,11 @@ fn test_wad_min_max() {
 }
 
 #[test]
-#[should_panic(expected = "Wad addition overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_wad_add_assign_overflow_panics() {
+    let env = Env::default();
     let mut total = Wad::from(i128::MAX);
-    total += Wad::from(1);
+    total.checked_add_assign(&env, Wad::from(1));
 }
 
 #[test]
@@ -184,16 +187,18 @@ fn test_bps_apply_to_ray() {
 }
 
 #[test]
-#[should_panic(expected = "Bps addition overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_bps_add_overflow_panics() {
-    let _ = Bps::from(i128::MAX) + Bps::from(1);
+    let env = Env::default();
+    let _ = Bps::from(i128::MAX).checked_add(&env, Bps::from(1));
 }
 
 #[test]
 fn test_ray_one_plus_compound() {
+    let env = Env::default();
     let x = Ray::from(RAY / 10);
     let term2 = Ray::from(RAY / 200);
-    let result = Ray::ONE + x + term2;
+    let result = Ray::ONE.checked_add(&env, x).checked_add(&env, term2);
     assert_eq!(result.raw(), RAY + RAY / 10 + RAY / 200);
 }
 
@@ -206,15 +211,17 @@ fn test_ordering() {
 
 #[test]
 fn test_ray_add_assign() {
+    let env = Env::default();
     let mut x = Ray::from(RAY);
-    x += Ray::from(RAY / 2);
+    x.checked_add_assign(&env, Ray::from(RAY / 2));
     assert_eq!(x.raw(), RAY + RAY / 2);
 }
 
 #[test]
 fn test_ray_sub_assign() {
+    let env = Env::default();
     let mut x = Ray::from(RAY);
-    x -= Ray::from(RAY / 4);
+    x.checked_sub_assign(&env, Ray::from(RAY / 4));
     assert_eq!(x.raw(), RAY - RAY / 4);
 }
 
@@ -258,15 +265,17 @@ fn test_ray_from_asset_high_decimals() {
 
 #[test]
 fn test_wad_add_assign_ok() {
+    let env = Env::default();
     let mut w = Wad::from(WAD);
-    w += Wad::from(WAD / 2);
+    w.checked_add_assign(&env, Wad::from(WAD / 2));
     assert_eq!(w.raw(), WAD + WAD / 2);
 }
 
 #[test]
 fn test_wad_sub_assign() {
+    let env = Env::default();
     let mut w = Wad::from(WAD);
-    w -= Wad::from(WAD / 3);
+    w.checked_sub_assign(&env, Wad::from(WAD / 3));
     assert_eq!(w.raw(), WAD - WAD / 3);
 }
 
@@ -299,23 +308,26 @@ fn test_wad_div_floor_rounds_down() {
 
 #[test]
 fn test_bps_add_assign() {
+    let env = Env::default();
     let mut b = Bps::from(5000);
-    b += Bps::from(2000);
+    b = b.checked_add(&env, Bps::from(2000));
     assert_eq!(b.raw(), 7000);
 }
 
 #[test]
 fn test_bps_sub_assign() {
+    let env = Env::default();
     let mut b = Bps::from(5000);
-    b -= Bps::from(1500);
+    b = b.checked_sub(&env, Bps::from(1500));
     assert_eq!(b.raw(), 3500);
 }
 
 #[test]
 fn test_bps_sub() {
+    let env = Env::default();
     let a = Bps::from(7500);
     let b = Bps::from(2500);
-    assert_eq!((a - b).raw(), 5000);
+    assert_eq!(a.checked_sub(&env, b).raw(), 5000);
 }
 // Typed wrapper edge cases.
 
@@ -365,11 +377,12 @@ fn test_ray_from_asset_at_ray_decimals_is_identity() {
 }
 
 #[test]
-#[should_panic(expected = "Ray subtraction underflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_ray_sub_panics_on_negative_result() {
+    let env = Env::default();
     let a = Ray::from(RAY);
     let b = Ray::from(2 * RAY);
-    let _ = a - b;
+    let _ = a.checked_sub(&env, b);
 }
 
 // Wad::div by zero uses the same propagation path as Ray.
@@ -389,11 +402,12 @@ fn test_wad_mul_no_rounding_when_exact() {
 }
 
 #[test]
-#[should_panic(expected = "Wad subtraction underflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_wad_sub_panics_on_negative_result() {
+    let env = Env::default();
     let a = Wad::from(WAD);
     let b = Wad::from(3 * WAD);
-    let _ = a - b;
+    let _ = a.checked_sub(&env, b);
 }
 
 // Wad::min / max with equal operands return `other` (the rhs).
@@ -611,12 +625,14 @@ fn test_bps_checked_sub_negative_rhs_with_zero_self_panics() {
 
 #[test]
 fn test_wad_sub_equal_returns_zero() {
-    assert_eq!(Wad::ONE - Wad::ONE, Wad::ZERO);
+    let env = Env::default();
+    assert_eq!(Wad::ONE.checked_sub(&env, Wad::ONE), Wad::ZERO);
 }
 
 #[test]
 fn test_bps_sub_equal_returns_zero() {
-    assert_eq!(Bps::ONE - Bps::ONE, Bps::from(0i128));
+    let env = Env::default();
+    assert_eq!(Bps::ONE.checked_sub(&env, Bps::ONE), Bps::from(0i128));
 }
 
 // Assign-ops update observable state.
@@ -751,13 +767,15 @@ fn test_ray_from_fraction_builds_ratio() {
 }
 
 #[test]
-fn test_wad_add_operator() {
-    let sum = Wad::from(WAD) + Wad::from(WAD / 2);
+fn test_wad_add_checked() {
+    let env = Env::default();
+    let sum = Wad::from(WAD).checked_add(&env, Wad::from(WAD / 2));
     assert_eq!(sum.raw(), WAD + WAD / 2);
 }
 
 #[test]
-#[should_panic(expected = "Bps subtraction underflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_bps_sub_underflow_panics() {
-    let _ = Bps::from(100) - Bps::from(500);
+    let env = Env::default();
+    let _ = Bps::from(100).checked_sub(&env, Bps::from(500));
 }
