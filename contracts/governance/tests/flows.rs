@@ -15,7 +15,7 @@ use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol};
 use stellar_access::ownable;
 
 use crate::access::EXECUTOR_ROLE;
-use crate::test_support::upload_controller_wasm;
+use crate::test_support::{upload_controller_wasm, upload_price_aggregator_wasm};
 use crate::{constants, storage, Governance, GovernanceClient};
 
 fn register_governance(env: &Env) -> (Address, Address, GovernanceClient<'_>) {
@@ -100,6 +100,37 @@ fn deploy_controller_twice_panics() {
     let wasm_hash = upload_controller_wasm(&env);
     gov.deploy_controller(&wasm_hash);
     gov.deploy_controller(&wasm_hash);
+}
+
+#[test]
+fn deploy_price_aggregator_stores_address_and_governance_owns_it() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (_, gov_id, gov) = register_governance(&env);
+
+    let wasm_hash = upload_price_aggregator_wasm(&env);
+    let aggregator_id = gov.deploy_price_aggregator(&wasm_hash);
+
+    assert_eq!(gov.price_aggregator(), aggregator_id);
+    env.as_contract(&aggregator_id, || {
+        assert_eq!(ownable::get_owner(&env), Some(gov_id.clone()));
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn deploy_price_aggregator_twice_panics() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (_, _, gov) = register_governance(&env);
+
+    let wasm_hash = upload_price_aggregator_wasm(&env);
+    gov.deploy_price_aggregator(&wasm_hash);
+    gov.deploy_price_aggregator(&wasm_hash);
 }
 
 #[test]

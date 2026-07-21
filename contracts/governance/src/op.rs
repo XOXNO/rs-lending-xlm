@@ -109,6 +109,14 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
             controller_operation(env, "set_aggregator", vec![env, addr.clone().into_val(env)])
         }
+        AdminOperation::SetPriceAggregator(addr) => {
+            validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
+            controller_operation(
+                env,
+                "set_price_aggregator",
+                vec![env, addr.clone().into_val(env)],
+            )
+        }
         AdminOperation::SetAccumulator(addr) => controller_operation(
             env,
             "set_accumulator",

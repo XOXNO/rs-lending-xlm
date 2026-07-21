@@ -8,3 +8,10 @@ pub struct DeployControllerEvent {
     pub controller: Address,
     pub wasm_hash: BytesN<32>,
 }
+
+#[contractevent(topics = ["governance", "deploy_price_aggregator"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeployPriceAggregatorEvent {
+    pub price_aggregator: Address,
+    pub wasm_hash: BytesN<32>,
+}

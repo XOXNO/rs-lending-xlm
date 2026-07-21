@@ -84,6 +84,7 @@ pub struct RoleArgs {
 pub enum AdminOperation {
     // Controller target
     SetAggregator(Address),
+    SetPriceAggregator(Address),
     SetAccumulator(Address),
     SetLiquidityPoolTemplate(BytesN<32>),
     SetPositionLimits(PositionLimits),
@@ -127,6 +128,11 @@ pub trait GovernanceInterface {
     fn deploy_controller(env: Env, wasm_hash: BytesN<32>) -> Address;
 
     fn controller(env: Env) -> Address;
+
+    /// One-time price-aggregator deploy; returns address.
+    fn deploy_price_aggregator(env: Env, wasm_hash: BytesN<32>) -> Address;
+
+    fn price_aggregator(env: Env) -> Address;
 
     /// Executes a ready operation on the controller. `Some(executor)` gates on
     /// EXECUTOR; `None` leaves execution open.

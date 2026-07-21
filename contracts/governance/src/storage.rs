@@ -11,6 +11,8 @@ use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env, Symbol};
 #[derive(Clone, Debug)]
 enum GovernanceKey {
     Controller,
+    /// Address of the governance-deployed price-aggregator (oracle authority).
+    PriceAggregator,
     /// Scheduled role-revocation operation id -> `(target account, revoked
     /// role)`. Read by `cancel` to enforce the self-veto and CANCELLER-revocation
     /// veto-immunity guards.
@@ -92,6 +94,25 @@ pub(crate) fn set_controller(env: &Env, addr: &Address) {
     env.storage()
         .instance()
         .set(&GovernanceKey::Controller, addr);
+}
+
+pub(crate) fn has_price_aggregator(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .has(&GovernanceKey::PriceAggregator)
+}
+
+pub(crate) fn get_price_aggregator(env: &Env) -> Address {
+    env.storage()
+        .instance()
+        .get(&GovernanceKey::PriceAggregator)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::AggregatorNotSet))
+}
+
+pub(crate) fn set_price_aggregator(env: &Env, addr: &Address) {
+    env.storage()
+        .instance()
+        .set(&GovernanceKey::PriceAggregator, addr);
 }
 
 
