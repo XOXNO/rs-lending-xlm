@@ -68,6 +68,7 @@ pub struct LendingTest {
     pub mock_reflector: Address,
     #[allow(dead_code)]
     pub aggregator: Address,
+    pub price_aggregator: Address,
     pub keeper: Address,
     pub users: HashMap<String, UserState>,
     pub markets: HashMap<String, MarketState>,

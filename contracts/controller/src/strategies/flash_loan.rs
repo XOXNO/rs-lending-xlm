@@ -42,7 +42,7 @@ pub(crate) fn process_flash_loan(
     validation::require_hub_active(env, hub_asset.hub_id);
 
     let mut cache = Cache::new(env);
-    validation::require_market_active(env, &mut cache, hub_asset);
+    validation::require_market_active(env, hub_asset);
 
     let params = cache.cached_pool_sync_data(hub_asset).params;
     assert_with_error!(

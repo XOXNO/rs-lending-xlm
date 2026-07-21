@@ -38,8 +38,8 @@ fn admin_op_xdr_is_byte_stable() {
         "AAAAEAAAAAEAAAACAAAADwAAAA5VcGRhdGVHb3ZEZWxheQAAAAAAAwAAhwA="
     );
     assert_eq!(
-        b64(&env, AdminOperation::SetAggregator(addr.clone())),
-        "AAAAEAAAAAEAAAACAAAADwAAAA1TZXRBZ2dyZWdhdG9yAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ=="
+        b64(&env, AdminOperation::SetSwapAggregator(addr.clone())),
+        "AAAAEAAAAAEAAAACAAAADwAAABFTZXRTd2FwQWdncmVnYXRvcgAAAAAAABIAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE="
     );
     assert_eq!(
         b64(

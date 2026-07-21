@@ -6,6 +6,7 @@ use common::types::{
 };
 
 use controller_interface::ControllerAdminClient;
+use price_aggregator_interface::PriceAggregatorClient;
 
 use soroban_sdk::{
     assert_with_error, contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val, Vec,
@@ -87,6 +88,10 @@ pub(crate) fn require_operation_not_expired(env: &Env, operation: &Operation) {
 
 fn controller_client(env: &Env) -> ControllerAdminClient<'_> {
     ControllerAdminClient::new(env, &storage::get_controller(env))
+}
+
+fn price_aggregator_client(env: &Env) -> PriceAggregatorClient<'_> {
+    PriceAggregatorClient::new(env, &storage::get_price_aggregator(env))
 }
 
 fn begin_immediate(env: &Env, caller: &Address, role: &str) {
@@ -388,7 +393,7 @@ impl Governance {
         max_wad: i128,
     ) {
         begin_immediate(&env, &caller, ORACLE_ROLE);
-        controller_client(&env).set_oracle_sanity_bounds(&asset, &min_wad, &max_wad);
+        price_aggregator_client(&env).set_oracle_sanity_bounds(&asset, &min_wad, &max_wad);
     }
 
     /// Safe instant: the new registry entry is inert until assets are listed

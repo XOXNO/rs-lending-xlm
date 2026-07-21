@@ -10,7 +10,10 @@ use crate::positions::HubPayment;
 use crate::risk::validation;
 
 /// Deduplicates by hub asset and sums amounts; panics on zero or negative entries.
-pub(crate) fn aggregate_positive_payments(env: &Env, payments: &Vec<HubPayment>) -> Vec<HubPayment> {
+pub(crate) fn aggregate_positive_payments(
+    env: &Env,
+    payments: &Vec<HubPayment>,
+) -> Vec<HubPayment> {
     aggregate_payments(env, payments, false)
 }
 

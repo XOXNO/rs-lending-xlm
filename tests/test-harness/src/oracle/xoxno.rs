@@ -3,7 +3,7 @@
 
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, String, Vec};
-use xoxno_oracle_adapter::{XoxnoOracle, XoxnoOracleClient};
+use xoxno_oracle::{XoxnoOracle, XoxnoOracleClient};
 
 use crate::core::types::LendingTest;
 

@@ -220,12 +220,7 @@ fn update_borrow_index_capped(e: Env, old_index: i128, factor: i128) {
 /// is — a dust supplier donating rewards cannot inflate the index faster than
 /// the phantom-base ratio allows.
 #[rule]
-fn update_supply_index_dust_growth_bounded(
-    e: Env,
-    supplied: i128,
-    old_index: i128,
-    rewards: i128,
-) {
+fn update_supply_index_dust_growth_bounded(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!((0..=100 * RAY).contains(&supplied));
     cvlr_assume!((RAY..=10 * RAY).contains(&old_index));
     cvlr_assume!((0..=10 * RAY).contains(&rewards));
@@ -245,12 +240,7 @@ fn update_supply_index_dust_growth_bounded(
 /// `supplied` (a floored index post-wipeout cannot trap accrual), and stays
 /// non-negative.
 #[rule]
-fn protocol_fee_shares_bounded_by_headroom(
-    e: Env,
-    fee: i128,
-    supply_index: i128,
-    supplied: i128,
-) {
+fn protocol_fee_shares_bounded_by_headroom(e: Env, fee: i128, supply_index: i128, supplied: i128) {
     cvlr_assume!(fee >= 0);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW);
     cvlr_assume!(supplied >= 0);

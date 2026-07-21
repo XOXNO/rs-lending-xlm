@@ -53,7 +53,11 @@ impl Controller {
 }
 
 /// Withdraw collateral → swap → deposit replacement (debt-neutral until finalize).
-pub(crate) fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollateralParams<'_>) {
+pub(crate) fn process_swap_collateral(
+    env: &Env,
+    caller: &Address,
+    params: SwapCollateralParams<'_>,
+) {
     let SwapCollateralParams {
         account_id,
         current,

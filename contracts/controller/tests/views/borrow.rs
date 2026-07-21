@@ -1,10 +1,10 @@
 use super::*;
 use common::constants::{RAY, WAD};
 use common::types::{
-    AccountPositionRaw, MarketIndexRaw, MarketOracleConfig,
-    OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
-    OracleSourceConfigOption, OracleStrategy, PositionLimits, PositionMode, ReflectorBase,
-    ReflectorSourceConfig, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
+    AccountPositionRaw, MarketIndexRaw, MarketOracleConfig, OracleAssetRef, OraclePriceFluctuation,
+    OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, PositionLimits,
+    PositionMode, ReflectorBase, ReflectorSourceConfig, SpokeAssetConfig, SpokeConfig,
+    SpokeUsageRaw,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Map};
@@ -108,8 +108,14 @@ fn borrower_fixture(env: &Env) -> (Address, HubAssetKey, Account) {
         min_sanity_price_wad: 0,
         max_sanity_price_wad: i128::MAX,
     };
+
+    // Wire a price-aggregator (oracle authority) seeded with this config; the
+    // controller resolves prices from it.
+    let aggregator = env.register(price_aggregator::PriceAggregator, (Address::generate(env),));
+    price_aggregator::PriceAggregatorClient::new(env, &aggregator)
+        .seed_asset_oracle(&asset, &config);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(env, &asset, &config);
+        crate::storage::set_price_aggregator(env, &aggregator);
     });
 
     (contract, hub, account)
@@ -124,6 +130,10 @@ fn seeded_cache(env: &Env, hub: &HubAssetKey) -> Cache {
             supply_index: RAY,
         },
     );
+    cache.set_prices(crate::external::price_aggregator::fetch_prices(
+        env,
+        &soroban_sdk::vec![env, hub.asset.clone()],
+    ));
     cache
 }
 

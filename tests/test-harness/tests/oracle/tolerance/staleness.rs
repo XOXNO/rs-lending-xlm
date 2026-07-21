@@ -9,7 +9,6 @@ fn age_oracle_observations(t: &LendingTest) {
     t.env.ledger().with_mut(|ledger| ledger.timestamp += 1_000);
 }
 
-
 #[test]
 fn test_stale_price_allows_supply_without_price_read() {
     let mut t = setup();

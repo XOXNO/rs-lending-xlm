@@ -52,11 +52,14 @@ pub trait LiquidityPoolInterface {
         data: Bytes,
     );
 
+    /// `charge_fee`: apply the market's configured flash-loan fee, or borrow
+    /// fee-free (migration). The fee amount is computed pool-side from the
+    /// market's `flashloan_fee` bps.
     fn create_strategy(
         env: Env,
         receiver: Address,
         action: PoolAction,
-        fee: i128,
+        charge_fee: bool,
     ) -> PoolStrategyMutation;
 
     fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>);

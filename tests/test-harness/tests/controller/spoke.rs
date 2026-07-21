@@ -1691,4 +1691,3 @@ fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
         "threshold sync must work on deprecated spokes: {result:?}"
     );
 }
-

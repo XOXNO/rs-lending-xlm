@@ -32,8 +32,6 @@ pub enum GenericError {
     MathOverflow = 33,
     /// Internal invariant failed after prior validation (should be unreachable).
     InternalError = 34,
-    /// Token must be approved before market creation.
-    TokenNotApproved = 35,
     InvalidPositionLimits = 36,
     NoSuppliersToReward = 37,
     SpotOnlyNotProductionSafe = 38,

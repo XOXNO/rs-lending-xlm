@@ -21,7 +21,6 @@ mod limits;
 pub(crate) use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
 
 use crate::context::Cache;
-use crate::oracle::{price_components, token_price};
 use crate::positions::{liquidation::execute_liquidation, HubPayment};
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
@@ -216,7 +215,11 @@ pub(crate) fn collateral_amount_for_hub_asset(
         .to_asset(decimals)
 }
 
-pub(crate) fn borrow_amount_for_hub_asset(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
+pub(crate) fn borrow_amount_for_hub_asset(
+    env: &Env,
+    account_id: u64,
+    hub_asset: &HubAssetKey,
+) -> i128 {
     let Some(position) = storage::try_get_debt_position(env, account_id, hub_asset) else {
         return 0;
     };
@@ -292,7 +295,8 @@ pub(crate) fn get_all_markets_detailed(
         // `token_price` panics `OracleNotConfigured` for an unpriced asset.
         let pool_address = cache.cached_pool_address();
         // Price is token-rooted.
-        let final_price = token_price(&mut cache, &hub_asset.asset).price_wad;
+        let final_price =
+            crate::external::price_aggregator::fetch_price(env, &hub_asset.asset).price_wad;
         result.push_back(AssetExtendedConfigView {
             asset: hub_asset.asset,
             pool_address,
@@ -314,14 +318,14 @@ pub(crate) fn get_all_market_indexes_detailed(
 
     for hub_asset in hub_assets.iter() {
         let index = cache.cached_market_index(&hub_asset);
-        let components = price_components(&mut cache, &hub_asset);
-        let (safe_price_wad, aggregator_price_wad) = components.to_abi_prices();
+        let (final_price_wad, safe_price_wad, aggregator_price_wad) =
+            crate::external::price_aggregator::fetch_price_components(env, &hub_asset.asset);
 
         result.push_back(MarketIndexView {
             asset: hub_asset.asset,
             supply_index: index.supply_index.raw(),
             borrow_index: index.borrow_index.raw(),
-            price_wad: components.final_price_wad,
+            price_wad: final_price_wad,
             safe_price_wad,
             aggregator_price_wad,
         });

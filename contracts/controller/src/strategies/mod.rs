@@ -23,7 +23,6 @@ use common::types::Account;
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::context::Cache;
-use crate::oracle;
 use crate::payments;
 use crate::positions::{finalize_position_flow, PositionSides};
 use crate::risk::{position_assets, validation};
@@ -40,7 +39,7 @@ pub(crate) fn prefetch_strategy_oracles(
     for asset in extra_assets.iter() {
         payments::push_unique_address(&mut priced_assets, asset.clone());
     }
-    oracle::prefetch_redstone_feeds(cache, &priced_assets);
+    cache.ensure_prices(&priced_assets);
 }
 
 /// Post-pool HF + persist both sides (remove if empty). Caps stay at debt-open entrypoints.

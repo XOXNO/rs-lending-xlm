@@ -390,11 +390,11 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     // byte-identical to the scheduled args.
     gov.execute(
         &Some(admin.clone()),
-        &t.controller,
+        &t.price_aggregator,
         &Symbol::new(&t.env, SET_MARKET_ORACLE_CONFIG),
         &soroban_sdk::vec![
             &t.env,
-            hub_asset(asset.clone()).into_val(&t.env),
+            asset.clone().into_val(&t.env),
             resolved.clone().into_val(&t.env),
         ],
         &salt(&t.env, 0),
@@ -446,7 +446,7 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
 
     gov.execute(
         &Some(admin.clone()),
-        &t.controller,
+        &t.price_aggregator,
         &Symbol::new(&t.env, "set_oracle_tolerance"),
         &soroban_sdk::vec![
             &t.env,

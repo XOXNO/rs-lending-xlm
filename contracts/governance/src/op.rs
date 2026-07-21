@@ -46,6 +46,17 @@ fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> 
     )
 }
 
+/// Oracle config ops target the price-aggregator (the oracle authority), not
+/// the controller.
+fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
+    (
+        storage::get_price_aggregator(env),
+        Symbol::new(env, function),
+        args,
+        DelayTier::Standard,
+    )
+}
+
 pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
     let gov_addr = env.current_contract_address();
 
@@ -105,9 +116,13 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             DelayTier::Sensitive,
         ),
 
-        AdminOperation::SetAggregator(addr) => {
+        AdminOperation::SetSwapAggregator(addr) => {
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
-            controller_operation(env, "set_aggregator", vec![env, addr.clone().into_val(env)])
+            controller_operation(
+                env,
+                "set_swap_aggregator",
+                vec![env, addr.clone().into_val(env)],
+            )
         }
         AdminOperation::SetPriceAggregator(addr) => {
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
@@ -176,12 +191,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 args.spoke_id.into_val(env),
             ],
         ),
-        AdminOperation::ApproveToken(token) => {
-            controller_operation(env, "approve_token", vec![env, token.clone().into_val(env)])
-        }
-        AdminOperation::RevokeToken(token) => {
-            controller_operation(env, "revoke_token", vec![env, token.clone().into_val(env)])
-        }
         AdminOperation::ApproveBlendPool(pool) => controller_operation(
             env,
             "approve_blend_pool",
@@ -264,28 +273,26 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
         AdminOperation::ConfigureMarketOracle(args) => {
             let tolerance =
                 validate::tolerance::validate_and_calculate_tolerances(env, args.cfg.tolerance_bps);
-            let controller = storage::get_controller(env);
             let resolved_config = validate::oracle_probe::validate_market_oracle_sources(
                 env,
                 &args.hub_asset.asset,
                 &args.cfg,
                 tolerance,
             );
-            (
-                controller,
-                Symbol::new(env, "set_market_oracle_config"),
+            price_aggregator_operation(
+                env,
+                "set_market_oracle_config",
                 vec![
                     env,
-                    args.hub_asset.clone().into_val(env),
+                    args.hub_asset.asset.clone().into_val(env),
                     resolved_config.into_val(env),
                 ],
-                DelayTier::Standard,
             )
         }
         AdminOperation::EditOracleTolerance(args) => {
             let tolerance =
                 validate::tolerance::validate_and_calculate_tolerances(env, args.tolerance);
-            controller_operation(
+            price_aggregator_operation(
                 env,
                 "set_oracle_tolerance",
                 vec![

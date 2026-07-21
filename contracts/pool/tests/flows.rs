@@ -17,7 +17,9 @@ fn hub(asset: &Address) -> HubAssetKey {
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
 use soroban_sdk::xdr::{ContractEventBody, ScVal, SorobanAuthorizationEntry};
-use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, ConversionError, Env, Error, InvokeError, Vec};
+use soroban_sdk::{
+    contract, contractimpl, vec, Address, Bytes, ConversionError, Env, Error, InvokeError, Vec,
+};
 
 fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
     events
@@ -388,10 +390,7 @@ fn assert_pool_state_eq(left: &PoolStateRaw, right: &PoolStateRaw) {
 }
 
 fn flatten_contract_result<T>(
-    result: Result<
-        Result<T, ConversionError>,
-        Result<Error, InvokeError>,
-    >,
+    result: Result<Result<T, ConversionError>, Result<Error, InvokeError>>,
 ) -> Result<T, Error> {
     match result {
         Ok(Ok(value)) => Ok(value),
@@ -400,10 +399,7 @@ fn flatten_contract_result<T>(
     }
 }
 
-fn assert_contract_error<T: core::fmt::Debug>(
-    result: Result<T, Error>,
-    expected_code: u32,
-) {
+fn assert_contract_error<T: core::fmt::Debug>(result: Result<T, Error>, expected_code: u32) {
     match result {
         Ok(value) => panic!("expected contract error {expected_code}, got Ok({value:?})"),
         Err(err) => assert_eq!(
@@ -534,10 +530,7 @@ fn test_borrow_rejects_zero_amount() {
 
     let borrower = Address::generate(&t.env);
     let result = flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 0i128)));
-    assert_contract_error(
-        result,
-        GenericError::AmountMustBePositive as u32,
-    );
+    assert_contract_error(result, GenericError::AmountMustBePositive as u32);
 }
 
 #[test]
@@ -548,10 +541,7 @@ fn test_borrow_rejects_when_reserves_are_insufficient() {
 
     let result =
         flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 200_000_000_000_000i128)));
-    assert_contract_error(
-        result,
-        CollateralError::InsufficientLiquidity as u32,
-    );
+    assert_contract_error(result, CollateralError::InsufficientLiquidity as u32);
 }
 #[test]
 fn test_withdraw() {
@@ -602,10 +592,7 @@ fn test_withdraw_rejects_fee_greater_than_withdrawn_amount() {
             2_0000000i128,
         ),
     ));
-    assert_contract_error(
-        result,
-        CollateralError::WithdrawLessThanFee as u32,
-    );
+    assert_contract_error(result, CollateralError::WithdrawLessThanFee as u32);
 }
 
 // Post-state utilization gate with a 50% cap.
@@ -629,10 +616,7 @@ fn test_borrow_above_max_utilization_panics() {
     let borrower = Address::generate(&t.env);
     // Borrow above 50% of supplied reverts with UtilizationAboveMax.
     let result = flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 60_000i128)));
-    assert_contract_error(
-        result,
-        CollateralError::UtilizationAboveMax as u32,
-    );
+    assert_contract_error(result, CollateralError::UtilizationAboveMax as u32);
 }
 
 #[test]
@@ -661,10 +645,7 @@ fn test_withdraw_rejects_when_reserves_are_insufficient() {
             0i128,
         ),
     ));
-    assert_contract_error(
-        result,
-        CollateralError::InsufficientLiquidity as u32,
-    );
+    assert_contract_error(result, CollateralError::InsufficientLiquidity as u32);
 }
 
 #[test]
@@ -816,10 +797,7 @@ fn test_flash_loan_rejects_zero_amount_at_pool() {
         &Bytes::new(&t.env),
     ));
 
-    assert_contract_error(
-        result,
-        GenericError::AmountMustBePositive as u32,
-    );
+    assert_contract_error(result, GenericError::AmountMustBePositive as u32);
 }
 
 #[test]
@@ -837,10 +815,7 @@ fn test_flash_loan_rejects_non_contract_receiver_at_pool() {
         &Bytes::new(&t.env),
     ));
 
-    assert_contract_error(
-        result,
-        FlashLoanError::InvalidFlashloanReceiver as u32,
-    );
+    assert_contract_error(result, FlashLoanError::InvalidFlashloanReceiver as u32);
 }
 
 #[test]
@@ -887,10 +862,7 @@ fn test_flash_loan_rejects_under_repay_with_invalid_flashloan_repay() {
         &Bytes::new(&t.env),
     ));
 
-    assert_contract_error(
-        result,
-        FlashLoanError::InvalidFlashloanRepay as u32,
-    );
+    assert_contract_error(result, FlashLoanError::InvalidFlashloanRepay as u32);
 }
 
 #[test]
@@ -913,10 +885,7 @@ fn test_flash_loan_rejects_callback_balance_change() {
         &Bytes::new(&t.env),
     ));
 
-    assert_contract_error(
-        result,
-        FlashLoanError::InvalidFlashloanRepay as u32,
-    );
+    assert_contract_error(result, FlashLoanError::InvalidFlashloanRepay as u32);
 }
 
 #[test]
@@ -959,10 +928,7 @@ fn test_flash_loan_rejects_insufficient_liquidity() {
         &0i128,
         &Bytes::new(&t.env),
     ));
-    assert_contract_error(
-        result,
-        CollateralError::InsufficientLiquidity as u32,
-    );
+    assert_contract_error(result, CollateralError::InsufficientLiquidity as u32);
 }
 
 #[test]
@@ -979,10 +945,7 @@ fn test_flash_loan_rejects_negative_fee() {
         &-1i128,
         &Bytes::new(&t.env),
     ));
-    assert_contract_error(
-        result,
-        GenericError::AmountMustBePositive as u32,
-    );
+    assert_contract_error(result, GenericError::AmountMustBePositive as u32);
 }
 
 #[test]
@@ -992,28 +955,8 @@ fn test_create_strategy_rejects_zero_amount() {
     let caller = Address::generate(&t.env);
 
     let result =
-        flatten_contract_result(client.try_create_strategy(&caller, &t.action(0, 0i128), &0i128));
-    assert_contract_error(
-        result,
-        GenericError::AmountMustBePositive as u32,
-    );
-}
-
-#[test]
-fn test_create_strategy_rejects_fee_greater_than_amount() {
-    let t = TestSetup::new();
-    let client = t.client();
-    let caller = Address::generate(&t.env);
-
-    let result = flatten_contract_result(client.try_create_strategy(
-        &caller,
-        &t.action(0, 1_0000000i128),
-        &2_0000000i128,
-    ));
-    assert_contract_error(
-        result,
-        FlashLoanError::StrategyFeeExceeds as u32,
-    );
+        flatten_contract_result(client.try_create_strategy(&caller, &t.action(0, 0i128), &true));
+    assert_contract_error(result, GenericError::AmountMustBePositive as u32);
 }
 
 #[test]
@@ -1025,12 +968,9 @@ fn test_create_strategy_rejects_insufficient_liquidity() {
     let result = flatten_contract_result(client.try_create_strategy(
         &caller,
         &t.action(0, 200_000_000_000_000i128),
-        &0i128,
+        &true,
     ));
-    assert_contract_error(
-        result,
-        CollateralError::InsufficientLiquidity as u32,
-    );
+    assert_contract_error(result, CollateralError::InsufficientLiquidity as u32);
 }
 #[test]
 fn test_seize_positions_bad_debt() {
@@ -1211,10 +1151,7 @@ fn test_claim_revenue_rejects_utilization_above_max_after_revenue_burn() {
     });
 
     let result = flatten_contract_result(client.try_claim_revenue(&hub(&t.asset)));
-    assert_contract_error(
-        result,
-        CollateralError::UtilizationAboveMax as u32,
-    );
+    assert_contract_error(result, CollateralError::UtilizationAboveMax as u32);
 }
 
 #[test]
@@ -1251,10 +1188,7 @@ fn test_update_params_rejects_invalid_utilization_range() {
         reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
-    assert_contract_error(
-        result,
-        CollateralError::InvalidUtilRange as u32,
-    );
+    assert_contract_error(result, CollateralError::InvalidUtilRange as u32);
 }
 
 #[test]
@@ -1274,10 +1208,7 @@ fn test_update_params_rejects_optimal_utilization_above_one() {
         reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
-    assert_contract_error(
-        result,
-        CollateralError::OptUtilTooHigh as u32,
-    );
+    assert_contract_error(result, CollateralError::OptUtilTooHigh as u32);
 }
 
 #[test]
@@ -1297,10 +1228,7 @@ fn test_update_params_rejects_invalid_reserve_factor() {
         reserve_factor: 10_000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
-    assert_contract_error(
-        result,
-        CollateralError::InvalidReserveFactor as u32,
-    );
+    assert_contract_error(result, CollateralError::InvalidReserveFactor as u32);
 }
 
 #[test]
@@ -1320,10 +1248,7 @@ fn test_update_params_rejects_negative_base_rate() {
         reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
-    assert_contract_error(
-        result,
-        CollateralError::BaseRateNegative as u32,
-    );
+    assert_contract_error(result, CollateralError::BaseRateNegative as u32);
 }
 
 #[test]
@@ -1344,10 +1269,7 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
         reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
-    assert_contract_error(
-        result,
-        CollateralError::MaxRateBelowBase as u32,
-    );
+    assert_contract_error(result, CollateralError::MaxRateBelowBase as u32);
 }
 
 #[test]
@@ -1368,10 +1290,7 @@ fn test_update_params_rejects_max_borrow_rate_above_cap() {
         reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
-    assert_contract_error(
-        result,
-        CollateralError::MaxBorrowRateTooHigh as u32,
-    );
+    assert_contract_error(result, CollateralError::MaxBorrowRateTooHigh as u32);
 }
 
 #[test]
@@ -1626,14 +1545,23 @@ fn test_create_strategy_emits_position_and_transfers_net() {
     // Supply reserves so create_strategy can transfer.
     client.supply(&t.sup(0, 50_000_000_000i128));
 
+    // Configure a 1% flash-loan fee; the pool derives the fee amount from bps.
+    t.env.as_contract(&t.pool, || {
+        let key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+        params.flashloan_fee = 100;
+        t.env.storage().persistent().set(&key, &params);
+    });
+
     let caller = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
     let caller_before = tok.balance(&caller);
     let revenue_before = client.get_revenue(&hub(&t.asset));
 
     let amount = 100_0000000i128;
+    // 1% of amount, matching the configured `flashloan_fee` bps.
     let fee = 1_0000000i128;
-    let result = client.create_strategy(&caller, &t.action(0, amount), &fee);
+    let result = client.create_strategy(&caller, &t.action(0, amount), &true);
     let events = t.env.events().all();
 
     assert_eq!(result.actual_amount, amount);
@@ -1656,6 +1584,46 @@ fn test_create_strategy_emits_position_and_transfers_net() {
     assert!(
         revenue_after > revenue_before,
         "protocol revenue should increase by fee"
+    );
+}
+
+// `charge_fee = false` (migration) borrows fee-free even when the market has a
+// configured flash-loan fee: the caller receives the full amount and no
+// protocol revenue accrues.
+#[test]
+fn test_create_strategy_fee_free_when_charge_fee_false() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    client.supply(&t.sup(0, 50_000_000_000i128));
+
+    // A nonzero market fee that must be ignored when charge_fee is false.
+    t.env.as_contract(&t.pool, || {
+        let key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+        params.flashloan_fee = 100;
+        t.env.storage().persistent().set(&key, &params);
+    });
+
+    let caller = Address::generate(&t.env);
+    let tok = token::Client::new(&t.env, &t.asset);
+    let caller_before = tok.balance(&caller);
+    let revenue_before = client.get_revenue(&hub(&t.asset));
+
+    let amount = 100_0000000i128;
+    let result = client.create_strategy(&caller, &t.action(0, amount), &false);
+
+    assert_eq!(result.actual_amount, amount);
+    assert_eq!(result.amount_received, amount, "fee-free: full amount");
+    assert_eq!(
+        tok.balance(&caller) - caller_before,
+        amount,
+        "caller receives the full amount"
+    );
+    assert_eq!(
+        client.get_revenue(&hub(&t.asset)),
+        revenue_before,
+        "no fee accrues when charge_fee is false"
     );
 }
 
@@ -1743,10 +1711,7 @@ fn test_update_params_rejects_invalid_slope_ordering() {
         reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
-    assert_contract_error(
-        result,
-        CollateralError::SlopeNonMonotonic as u32,
-    );
+    assert_contract_error(result, CollateralError::SlopeNonMonotonic as u32);
 }
 
 // mid_utilization == 0 maps to InvalidUtilRange.
@@ -1767,10 +1732,7 @@ fn test_update_params_rejects_mid_utilization_zero() {
         reserve_factor: 1000,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
-    assert_contract_error(
-        result,
-        CollateralError::InvalidUtilRange as u32,
-    );
+    assert_contract_error(result, CollateralError::InvalidUtilRange as u32);
 }
 
 // reserve_factor == BPS maps to InvalidReserveFactor;
@@ -1792,10 +1754,7 @@ fn test_update_params_rejects_reserve_factor_at_bps() {
         reserve_factor: BPS as u32,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
-    assert_contract_error(
-        result,
-        CollateralError::InvalidReserveFactor as u32,
-    );
+    assert_contract_error(result, CollateralError::InvalidReserveFactor as u32);
 }
 
 // base_borrow_rate < 0 maps to BaseRateNegative (#128) at create_market.
@@ -1813,10 +1772,7 @@ fn test_create_market_rejects_invalid_rate_model() {
     params.base_borrow_rate = -1;
 
     let result = flatten_contract_result(client.try_create_market(&0u32, &params));
-    assert_contract_error(
-        result,
-        CollateralError::BaseRateNegative as u32,
-    );
+    assert_contract_error(result, CollateralError::BaseRateNegative as u32);
 }
 
 // Registering the same asset twice reverts with AssetAlreadySupported (#2).
@@ -1826,10 +1782,7 @@ fn test_create_market_rejects_duplicate_asset() {
     let client = t.client();
 
     let result = flatten_contract_result(client.try_create_market(&0u32, &market_params(&t.asset)));
-    assert_contract_error(
-        result,
-        GenericError::AssetAlreadySupported as u32,
-    );
+    assert_contract_error(result, GenericError::AssetAlreadySupported as u32);
 }
 
 // Unknown market operations revert with PoolNotInitialized (#30).
@@ -1841,10 +1794,7 @@ fn test_supply_rejects_unknown_market() {
     let unknown_asset = Address::generate(&t.env);
     let result =
         flatten_contract_result(client.try_supply(&t.sup_for(&unknown_asset, 0, 1_0000000i128)));
-    assert_contract_error(
-        result,
-        GenericError::PoolNotInitialized as u32,
-    );
+    assert_contract_error(result, GenericError::PoolNotInitialized as u32);
 }
 
 // create_market seeds RAY indexes, zero totals/cash, and last_timestamp from
@@ -2025,10 +1975,7 @@ fn test_bulk_get_indexes_unknown_asset_panics() {
     let unknown = Address::generate(&t.env);
     let assets = vec![&t.env, hub(&unknown)];
     let result = flatten_contract_result(t.client().try_get_bulk_indexes(&assets));
-    assert_contract_error(
-        result,
-        GenericError::PoolNotInitialized as u32,
-    );
+    assert_contract_error(result, GenericError::PoolNotInitialized as u32);
 }
 
 // Bulk supply across two markets returns input-ordered mutations and matches
@@ -2230,10 +2177,7 @@ fn test_withdraw_above_max_utilization_panics_but_within_cap_succeeds() {
         &false,
         &t.wdr(ok.position.scaled_amount, 6_000_000_000i128, 0i128),
     ));
-    assert_contract_error(
-        result,
-        CollateralError::UtilizationAboveMax as u32,
-    );
+    assert_contract_error(result, CollateralError::UtilizationAboveMax as u32);
 }
 
 // `cash` changes by supply minus borrow, applied repay, and withdraw.

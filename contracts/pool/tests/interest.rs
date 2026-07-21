@@ -410,7 +410,10 @@ fn test_audit_pool_new_supply_index_m_floor_clamp_strands_claim_drains_fresh_cas
         // Invariant break: unburned old shares retain a claim while cash == 0.
         let stranded = cache.unscale_supply_floor(old_scaled);
         assert!(stranded > 0, "floor clamp leaves S_old a phantom claim");
-        assert_eq!(cache.cash, 0, "no cash yet: invariant only masked by require_reserves");
+        assert_eq!(
+            cache.cash, 0,
+            "no cash yet: invariant only masked by require_reserves"
+        );
 
         // Fresh supplier deposits real cash equal to the stranded claim.
         let fresh_cash = stranded;
@@ -420,7 +423,10 @@ fn test_audit_pool_new_supply_index_m_floor_clamp_strands_claim_drains_fresh_cas
 
         // Fresh depositor's honest claim equals their deposit.
         let fresh_claim = cache.unscale_supply_floor(fresh_scaled);
-        assert_eq!(fresh_claim, fresh_cash, "fresh supplier's claim equals deposit");
+        assert_eq!(
+            fresh_claim, fresh_cash,
+            "fresh supplier's claim equals deposit"
+        );
 
         // S_old withdraws the full stranded position against the fresh cash.
         let (burn, gross) = cache.resolve_withdrawal(i128::MAX, old_scaled);
@@ -484,7 +490,10 @@ fn test_audit_pool_apply_bad_debt_to_supply_index_seize_then_fresh_deposit_drain
         // unbacked while cash == 0.
         let alice_stranded = cache.unscale_supply_floor(alice_scaled);
         assert!(alice_stranded > 0, "wiped survivor keeps a stranded claim");
-        assert_eq!(cache.cash, 0, "empty market: claim masked by require_reserves");
+        assert_eq!(
+            cache.cash, 0,
+            "empty market: claim masked by require_reserves"
+        );
 
         // supply_one: Bob deposits fresh cash D (choose D so the deficit is exact).
         let deposit = alice_stranded;

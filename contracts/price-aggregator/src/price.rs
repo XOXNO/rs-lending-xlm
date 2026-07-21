@@ -4,8 +4,8 @@ use common::errors::OracleError;
 use common::types::{MarketOracleConfig, OracleSourceConfig, PriceFeedRaw};
 use soroban_sdk::{assert_with_error, panic_with_error, Address};
 
-use crate::context::PriceCache as Cache;
 use crate::compose;
+use crate::context::PriceCache as Cache;
 
 /// Cached USD price; miss resolves under cycle guard.
 pub(crate) fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {

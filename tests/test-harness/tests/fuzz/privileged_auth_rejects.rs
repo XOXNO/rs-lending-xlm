@@ -23,38 +23,6 @@ where
     }
 }
 
-// Auth is rejected before any field is read, so a minimal resolved shape
-// (mock-reflector constants, 100/200 BPS bands) suffices.
-fn sample_oracle_cfg(t: &LendingTest) -> controller::types::MarketOracleConfig {
-    let asset = t.resolve_market("USDC").asset.clone();
-    controller::types::MarketOracleConfig {
-        asset_decimals: 7,
-        max_price_stale_seconds: 900,
-        tolerance: sample_tolerance(),
-        strategy: controller::types::OracleStrategy::Single,
-        primary: controller::types::OracleSourceConfig::Reflector(
-            controller::types::ReflectorSourceConfig {
-                contract: t.mock_reflector.clone(),
-                asset: controller::types::OracleAssetRef::Stellar(asset),
-                read_mode: controller::types::OracleReadMode::Spot,
-                decimals: 14,
-                resolution_seconds: 300,
-                base: controller::types::ReflectorBase::Usd,
-            },
-        ),
-        anchor: controller::types::OracleSourceConfigOption::None,
-        min_sanity_price_wad: 1,
-        max_sanity_price_wad: controller::constants::MAX_REASONABLE_PRICE_WAD,
-    }
-}
-
-fn sample_tolerance() -> controller::types::OraclePriceFluctuation {
-    controller::types::OraclePriceFluctuation {
-        upper_ratio_bps: 10_200,
-        lower_ratio_bps: 9_804,
-    }
-}
-
 fn sample_position_limits() -> controller::types::PositionLimits {
     controller::types::PositionLimits {
         max_supply_positions: 5,
@@ -79,7 +47,6 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
     let env = t.env.clone();
     let ctrl = t.ctrl_client();
     let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
-    let oracle_cfg = sample_oracle_cfg(&t);
     let limits = sample_position_limits();
     let usdc = t.resolve_asset("USDC");
     let random_addr = Address::generate(&env);
@@ -92,7 +59,8 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
     })
     .unwrap();
     expect_rejected("set_aggregator", || {
-        ctrl.set_auths(&no_auths).try_set_aggregator(&random_addr)
+        ctrl.set_auths(&no_auths)
+            .try_set_swap_aggregator(&random_addr)
     })
     .unwrap();
     expect_rejected("set_accumulator", || {
@@ -163,14 +131,6 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
             &(controller::constants::WAD / 2),
             &8_000u32,
         )
-    })
-    .unwrap();
-    expect_rejected("approve_token", || {
-        ctrl.set_auths(&no_auths).try_approve_token(&usdc)
-    })
-    .unwrap();
-    expect_rejected("revoke_token", || {
-        ctrl.set_auths(&no_auths).try_revoke_token(&usdc)
     })
     .unwrap();
     expect_rejected("upgrade", || {
@@ -252,17 +212,6 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
         let rewards: SVec<(HubAssetKey, i128)> = SVec::new(&env);
         ctrl.set_auths(&no_auths)
             .try_add_rewards(&random_addr, &rewards)
-    })
-    .unwrap();
-    expect_rejected("set_market_oracle_config", || {
-        ctrl.set_auths(&no_auths)
-            .try_set_market_oracle_config(&hub_asset(usdc.clone()), &oracle_cfg)
-    })
-    .unwrap();
-    expect_rejected("set_oracle_tolerance", || {
-        let tolerance = sample_tolerance();
-        ctrl.set_auths(&no_auths)
-            .try_set_oracle_tolerance(&usdc, &tolerance)
     })
     .unwrap();
 }

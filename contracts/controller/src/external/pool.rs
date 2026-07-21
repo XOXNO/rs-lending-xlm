@@ -41,10 +41,9 @@ pub(crate) fn pool_create_strategy_call(
     pool_addr: &Address,
     receiver: &Address,
     action: PoolAction,
-    fee: i128,
+    charge_fee: bool,
 ) -> PoolStrategyMutation {
-    LiquidityPoolClient::new(env, pool_addr)
-        .create_strategy(receiver, &action, &fee)
+    LiquidityPoolClient::new(env, pool_addr).create_strategy(receiver, &action, &charge_fee)
 }
 
 pub(crate) fn pool_withdraw_call(
@@ -54,11 +53,7 @@ pub(crate) fn pool_withdraw_call(
     is_liquidation: bool,
     entries: &Vec<PoolWithdrawEntry>,
 ) -> Vec<PoolPositionMutation> {
-    LiquidityPoolClient::new(env, pool_addr).withdraw(
-        receiver,
-        &is_liquidation,
-        entries,
-    )
+    LiquidityPoolClient::new(env, pool_addr).withdraw(receiver, &is_liquidation, entries)
 }
 
 pub(crate) fn pool_repay_call(

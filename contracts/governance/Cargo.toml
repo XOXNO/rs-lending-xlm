@@ -19,6 +19,7 @@ stellar-macros = { workspace = true }
 common = { path = "../../common" }
 controller-interface = { path = "../../interfaces/controller" }
 governance-interface = { path = "../../interfaces/governance" }
+price-aggregator-interface = { path = "../../interfaces/price-aggregator" }
 
 [features]
 testing = []
@@ -26,3 +27,4 @@ testing = []
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 controller = { path = "../controller", features = ["testing"] }
+price-aggregator = { path = "../price-aggregator", features = ["testing"] }

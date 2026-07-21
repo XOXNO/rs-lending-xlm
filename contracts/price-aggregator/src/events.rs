@@ -5,8 +5,8 @@
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol};
 
 use common::types::{
-    MarketOracleConfig, OracleAssetRef, OracleProviderKind, OracleReadMode, OracleSourceConfig,
-    OracleStrategy, OraclePriceFluctuation, ReflectorBase,
+    MarketOracleConfig, OracleAssetRef, OraclePriceFluctuation, OracleProviderKind, OracleReadMode,
+    OracleSourceConfig, OracleStrategy, ReflectorBase,
 };
 
 #[contracttype]

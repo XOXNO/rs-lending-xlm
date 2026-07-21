@@ -179,7 +179,9 @@ pub(crate) fn net_settle_collateral_against_debt(
         ctx.apply_withdraw_after_pool(
             env,
             hub_asset,
-            supply_position.scaled_amount.checked_sub(env, new_supply_scaled),
+            supply_position
+                .scaled_amount
+                .checked_sub(env, new_supply_scaled),
         );
     }
     let mut new_supply_position = supply_position;
@@ -201,7 +203,9 @@ pub(crate) fn net_settle_collateral_against_debt(
         ctx.apply_repay_after_pool(
             env,
             hub_asset,
-            debt_position.scaled_amount.checked_sub(env, new_debt_scaled),
+            debt_position
+                .scaled_amount
+                .checked_sub(env, new_debt_scaled),
         );
     }
     let new_debt_position = DebtPosition {

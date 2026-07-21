@@ -5,7 +5,9 @@ use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
 use common::types::{Account, HubAssetKey, PositionMode, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, token, vec, Address, Bytes, Env};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, token, vec, Address, Bytes, Env,
+};
 use stellar_macros::when_not_paused;
 
 use crate::context::Cache;
@@ -196,7 +198,7 @@ fn validate_multiply_request(
 fn collect_initial_multiply_payment(
     env: &Env,
     caller: &Address,
-    cache: &mut Cache,
+    _cache: &mut Cache,
     collateral: &HubAssetKey,
     debt: &HubAssetKey,
     initial_payment: &Option<(HubAssetKey, i128)>,
@@ -213,7 +215,7 @@ fn collect_initial_multiply_payment(
     // token-rooted `AssetOracle` entry (the payment is priced downstream).
     assert_with_error!(
         env,
-        cache.asset_oracle_exists(&payment.asset),
+        crate::external::price_aggregator::is_asset_priceable(env, &payment.asset),
         GenericError::AssetNotSupported
     );
 
@@ -250,6 +252,10 @@ fn emit_multiply_initial_payment(
     initial_payment: Option<(HubAssetKey, i128)>,
 ) {
     if let Some((payment, payment_amount)) = initial_payment {
+        // A converted third-token payment is never a position asset, so it is
+        // absent from the tx-local price map the position legs populate. Fetch
+        // it so the cached read below resolves the event's USD value.
+        cache.ensure_prices(&vec![env, payment.asset.clone()]);
         let feed = cache.cached_price_for(spoke_id, &payment);
         let usd_value_wad = feed.usd_value_wad(env, payment_amount).raw();
         InitialMultiplyPaymentEvent {

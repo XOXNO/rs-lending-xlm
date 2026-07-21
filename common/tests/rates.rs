@@ -46,7 +46,10 @@ fn test_supply_index_shortfall_accounts_full_reward() {
     );
     // The virtual offset genuinely under-distributes, so the shortfall is positive
     // and suppliers keep only their diluted (dust-safe) share.
-    assert!(shortfall.raw() > 0, "offset must leave a positive shortfall");
+    assert!(
+        shortfall.raw() > 0,
+        "offset must leave a positive shortfall"
+    );
     assert!(
         distributed.raw() > 0 && distributed.raw() < reward.raw(),
         "suppliers receive the diluted share, strictly less than the full reward"
@@ -797,7 +800,10 @@ fn test_virtual_offset_bounds_dust_reward_growth() {
         grown.raw() < MAX_SUPPLY_INDEX_RAY,
         "offset must keep growth below the cap"
     );
-    assert!(grown.raw() < RAY * 1_000_000, "growth is bounded to ~1.7e31");
+    assert!(
+        grown.raw() < RAY * 1_000_000,
+        "growth is bounded to ~1.7e31"
+    );
 }
 
 /// Bounded index still accepts a later ordinary accrual.
@@ -846,7 +852,10 @@ fn test_virtual_offset_negligible_for_funded_market() {
     assert!((grown.raw() - with_offset).abs() <= 1);
 
     let drift = offset_free - grown.raw();
-    assert!(drift * 100 < offset_free - RAY, "dilution < 1% of reward growth");
+    assert!(
+        drift * 100 < offset_free - RAY,
+        "dilution < 1% of reward growth"
+    );
 }
 
 #[test]

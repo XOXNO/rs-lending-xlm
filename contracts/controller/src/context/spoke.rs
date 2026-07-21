@@ -77,7 +77,11 @@ impl Cache {
     }
 
     /// Buffered per-spoke usage for `hub_asset`, lazily loaded from storage.
-    pub(crate) fn cached_spoke_usage(&mut self, spoke_id: u32, hub_asset: &HubAssetKey) -> SpokeUsageRaw {
+    pub(crate) fn cached_spoke_usage(
+        &mut self,
+        spoke_id: u32,
+        hub_asset: &HubAssetKey,
+    ) -> SpokeUsageRaw {
         let env = self.env.clone();
         self.require_spoke_usage_context(spoke_id)
             .spoke_usage(&env, hub_asset)

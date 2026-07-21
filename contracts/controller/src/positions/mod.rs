@@ -99,7 +99,7 @@ pub(crate) fn validate_position_entry_gates(
 
     for (hub_asset, _) in aggregated {
         validation::require_hub_active(env, hub_asset.hub_id);
-        validation::require_market_active(env, cache, &hub_asset);
+        validation::require_market_active(env, &hub_asset);
         // Unlisted assets revert `AssetNotInSpoke`.
         let asset_config =
             spoke::require_listed_active_config(env, cache, account.spoke_id, &hub_asset);

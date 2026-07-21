@@ -1,6 +1,4 @@
-//! Account lifecycle helpers.
-
-pub(crate) mod delegation;
+//! Account lifecycle, owner/delegate auth, and position-map helpers.
 
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
@@ -95,7 +93,12 @@ pub(crate) fn is_owner_or_delegate(
     active_manager && storage::get_delegates(env, account_id).contains(caller)
 }
 
-pub(crate) fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address, owner: &Address) {
+pub(crate) fn require_owner_or_delegate(
+    env: &Env,
+    account_id: u64,
+    caller: &Address,
+    owner: &Address,
+) {
     if is_owner_or_delegate(env, account_id, caller, owner) {
         return;
     }
@@ -145,6 +148,34 @@ pub(crate) fn update_or_remove_debt_position(
             .borrow_positions
             .set(hub_asset.clone(), position.into());
         false
+    }
+}
+
+/// Extends the account's storage TTL. Caller must be the account owner.
+pub(crate) fn renew_account(env: &Env, caller: &Address, account_id: u64) {
+    caller.require_auth();
+    let meta = storage::get_account_meta(env, account_id);
+    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
+
+    storage::renew_user_account(env, account_id);
+}
+
+/// Adds or removes a delegate for `account_id`. Caller must be the owner.
+pub(crate) fn set_account_delegate(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    delegate: &Address,
+    add: bool,
+) {
+    caller.require_auth();
+    let meta = storage::get_account_meta(env, account_id);
+    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
+
+    if add {
+        storage::add_delegate(env, account_id, delegate);
+    } else {
+        storage::remove_delegate(env, account_id, delegate);
     }
 }
 

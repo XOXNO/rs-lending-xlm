@@ -168,7 +168,6 @@ pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     })
 }
 
-
 pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     let meta = get_account_meta(env, account_id);
     let borrow_positions = get_debt_positions(env, account_id);

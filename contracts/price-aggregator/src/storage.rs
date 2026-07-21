@@ -32,3 +32,11 @@ pub(crate) fn set_asset_oracle(env: &Env, asset: &Address, config: &MarketOracle
         .persistent()
         .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
+
+/// Test-only: removes an asset's oracle (disabling pricing for it).
+#[cfg(any(test, feature = "testing"))]
+pub(crate) fn remove_asset_oracle(env: &Env, asset: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&AggregatorKey::AssetOracle(asset.clone()));
+}

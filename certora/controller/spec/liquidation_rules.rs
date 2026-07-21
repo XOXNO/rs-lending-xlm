@@ -303,13 +303,7 @@ fn liquidation_bonus_sanity(e: Env) {
 }
 
 #[rule]
-fn bonus_monotone_in_hf(
-    e: Env,
-    hf_lo: i128,
-    hf_hi: i128,
-    base_bps: i128,
-    max_bps: i128,
-) {
+fn bonus_monotone_in_hf(e: Env, hf_lo: i128, hf_hi: i128, base_bps: i128, max_bps: i128) {
     cvlr_assume!(hf_lo >= 0);
     cvlr_assume!(hf_lo <= hf_hi);
     cvlr_assume!(base_bps >= 0);

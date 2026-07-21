@@ -1,6 +1,7 @@
-//! Outbound pool, SAC token, and Blend migration client wrappers.
+//! Outbound pool, SAC token, price-aggregator, and Blend migration clients.
 
 pub(crate) mod blend;
+pub(crate) mod price_aggregator;
 
 #[cfg(not(feature = "certora"))]
 pub(crate) mod pool;

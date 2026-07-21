@@ -1,8 +1,7 @@
 //! Non-position controller entrypoints.
 
 use crate::account;
-use crate::account::delegation;
-use crate::events::UpdateMarketParamsEvent;
+use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use crate::risk;
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
@@ -15,12 +14,11 @@ use stellar_macros::{only_owner, when_not_paused};
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::{
-    pool_add_rewards_call, pool_claim_revenue_call, pool_update_indexes_call,
-    pool_update_params_call, pool_upgrade_call,
+    pool_add_rewards_call, pool_claim_revenue_call, pool_create_market_call,
+    pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
 };
 use crate::external::sac::sac_transfer_call;
 use crate::risk::THRESHOLD_UPDATE_MIN_HF_RAW;
-use crate::setup;
 use crate::{
     payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
 };
@@ -56,7 +54,7 @@ impl Controller {
     /// * `AccountNotInMarket` - `caller` is not the account owner.
     pub fn renew_account(env: Env, caller: Address, account_id: u64) {
         storage::renew_controller_instance(&env);
-        delegation::renew_account(&env, &caller, account_id);
+        account::renew_account(&env, &caller, account_id);
     }
 
     /// Registers `delegate` as a manager that may act on `account_id`. Effective
@@ -69,7 +67,7 @@ impl Controller {
     /// * `AccountNotInMarket` - `caller` is not the account owner.
     pub fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
-        delegation::set_account_delegate(&env, &caller, account_id, &delegate, true);
+        account::set_account_delegate(&env, &caller, account_id, &delegate, true);
     }
 
     /// Revokes `delegate` from `account_id`.
@@ -81,7 +79,7 @@ impl Controller {
     /// * `AccountNotInMarket` - `caller` is not the account owner.
     pub fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
-        delegation::set_account_delegate(&env, &caller, account_id, &delegate, false);
+        account::set_account_delegate(&env, &caller, account_id, &delegate, false);
     }
 
     /// Deploys the central liquidity pool once, owned by this controller. The
@@ -121,7 +119,6 @@ impl Controller {
     /// * `asset` - must equal `params.asset_id` and be an approved token.
     ///
     /// # Errors
-    /// * `TokenNotApproved` - `asset` has not been approved for market creation.
     /// * `WrongToken` - `asset` does not match `params.asset_id`.
     /// * Param validation and market-exists reverts propagate from the pool's
     ///   `create_market` (rate-model bounds, `AssetAlreadySupported`).
@@ -136,7 +133,32 @@ impl Controller {
         asset: Address,
         params: MarketParamsRaw,
     ) -> Address {
-        setup::create_liquidity_pool(&env, hub_id, &asset, &params)
+        validation::require_hub_active(&env, hub_id);
+
+        assert_with_error!(&env, params.asset_id == asset, GenericError::WrongToken);
+
+        let pool_address = storage::get_pool(&env);
+        pool_create_market_call(&env, &pool_address, hub_id, &params);
+
+        storage::renew_controller_instance(&env);
+
+        CreateMarketEvent {
+            hub_id,
+            base_asset: asset.clone(),
+            max_borrow_rate: params.max_borrow_rate,
+            base_borrow_rate: params.base_borrow_rate,
+            slope1: params.slope1,
+            slope2: params.slope2,
+            slope3: params.slope3,
+            mid_utilization: params.mid_utilization,
+            optimal_utilization: params.optimal_utilization,
+            max_utilization: params.max_utilization,
+            reserve_factor: params.reserve_factor,
+            market_address: pool_address.clone(),
+        }
+        .publish(&env);
+
+        pool_address
     }
 
     ///

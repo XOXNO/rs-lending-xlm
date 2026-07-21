@@ -5,7 +5,6 @@ use common::types::{AccountPositionRaw, DebtPositionRaw, HubAssetKey};
 use soroban_sdk::{Address, Env, Map, Vec};
 
 use crate::context::Cache;
-use crate::oracle;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 /// Token addresses underlying position keys.
@@ -132,7 +131,7 @@ fn calculate_account_risk_totals_body(
     let mut priced_keys = supply_positions.keys();
     priced_keys.append(&borrow_positions.keys());
     let priced_assets = position_assets(env, &priced_keys);
-    oracle::prefetch_redstone_feeds(cache, &priced_assets);
+    cache.ensure_prices(&priced_assets);
     cache.prefetch_market_indexes(&priced_keys);
 
     let mut total_collateral = Wad::ZERO;
@@ -157,8 +156,10 @@ fn calculate_account_risk_totals_body(
         );
 
         total_collateral.checked_add_assign(env, value);
-        ltv_collateral
-            .checked_add_assign(env, position.loan_to_value.apply_to_wad_floor(env, gate_value));
+        ltv_collateral.checked_add_assign(
+            env,
+            position.loan_to_value.apply_to_wad_floor(env, gate_value),
+        );
         weighted_coll.checked_add_assign(
             env,
             weighted_collateral(env, gate_value, position.liquidation_threshold),

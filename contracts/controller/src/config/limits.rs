@@ -36,8 +36,3 @@ pub(crate) fn set_min_borrow_collateral_usd(env: &Env, floor_wad: i128) {
     }
     .publish(env);
 }
-
-
-pub(crate) fn get_min_borrow_collateral_usd(env: &Env) -> i128 {
-    storage::get_min_borrow_collateral_usd_wad(env)
-}

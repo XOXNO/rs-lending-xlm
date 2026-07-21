@@ -239,6 +239,7 @@ impl Cache {
             },
             market_index: self.market_index(),
             actual_amount,
+            asset_decimals: self.params.asset_decimals,
         }
     }
 
@@ -255,6 +256,7 @@ impl Cache {
             market_index: self.market_index(),
             actual_amount,
             amount_received,
+            asset_decimals: self.params.asset_decimals,
         }
     }
 }

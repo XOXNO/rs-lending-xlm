@@ -55,8 +55,8 @@ fn multiply_requires_collateralizable(
     cvlr_assume!((1..=3).contains(&mode));
 
     let mut cache = crate::context::Cache::new(&e);
-    let config =
-        crate::spoke::effective_asset_config(&mut cache, spoke_id, &hub0(collateral_token.clone()));
+    let config: common::types::AssetConfig =
+        (&cache.require_spoke_asset(spoke_id, &hub0(collateral_token.clone()))).into();
     cvlr_assume!(!config.is_collateralizable);
 
     crate::spec::compat::multiply_minimal(

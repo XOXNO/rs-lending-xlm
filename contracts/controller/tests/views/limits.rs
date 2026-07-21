@@ -150,8 +150,11 @@ mod gates {
             min_sanity_price_wad: 0,
             max_sanity_price_wad: i128::MAX,
         };
+        let aggregator = env.register(price_aggregator::PriceAggregator, (Address::generate(env),));
+        price_aggregator::PriceAggregatorClient::new(env, &aggregator)
+            .seed_asset_oracle(&asset, &config);
         env.as_contract(&contract, || {
-            crate::storage::set_asset_oracle(env, &asset, &config);
+            crate::storage::set_price_aggregator(env, &aggregator);
         });
         (contract, hub, account)
     }
@@ -165,6 +168,10 @@ mod gates {
                 supply_index: RAY,
             },
         );
+        cache.set_prices(crate::external::price_aggregator::fetch_prices(
+            env,
+            &soroban_sdk::vec![env, hub.asset.clone()],
+        ));
         cache
     }
 

@@ -115,7 +115,6 @@ pub(crate) fn set_price_aggregator(env: &Env, addr: &Address) {
         .set(&GovernanceKey::PriceAggregator, addr);
 }
 
-
 #[cfg(test)]
 #[path = "../tests/storage.rs"]
 mod tests;

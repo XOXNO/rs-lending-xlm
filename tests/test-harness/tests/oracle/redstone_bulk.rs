@@ -856,10 +856,8 @@ fn test_disabled_market_panics_same_through_prefetch() {
 
     // Disable the ETH market by removing its `AssetOracle` entry, which is the
     // "active" signal price resolution reads.
-    t.env.as_contract(&t.controller, || {
-        let key = controller::types::ControllerKey::AssetOracle(t.resolve_asset("ETH"));
-        t.env.storage().persistent().remove(&key);
-    });
+    t.price_agg_client()
+        .remove_asset_oracle(&t.resolve_asset("ETH"));
 
     // Attempt a withdrawal-with-debt: HF check prices both assets including
     // disabled ETH → token_price panics PairNotActive.

@@ -13,13 +13,13 @@ use common::oracle::providers::reflector::{
     reflector_prices_call, reflector_resolution_call, to_reflector_asset, twap_mean_price,
     ReflectorAsset, ReflectorPriceData,
 };
-use soroban_sdk::Vec;
 use common::types::{
     MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation, OracleReadMode,
     OracleSourceConfig, OracleSourceConfigInput, OracleSourceConfigOption, RedStoneSourceConfig,
     RedStoneSourceConfigInput, ReflectorBase, ReflectorSourceConfig,
 };
 use common::validation::validate_single_source_sanity_band;
+use soroban_sdk::Vec;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
@@ -250,14 +250,7 @@ fn validate_reflector_feed(
     decimals: u32,
 ) -> i128 {
     let now = env.ledger().timestamp();
-    validate_positive_price_timestamps(
-        env,
-        pd.price,
-        decimals,
-        now,
-        &[pd.timestamp],
-        max_stale,
-    )
+    validate_positive_price_timestamps(env, pd.price, decimals, now, &[pd.timestamp], max_stale)
 }
 
 /// Freshness/positivity check; returns the feed's normalized USD price (WAD).

@@ -1,70 +1,64 @@
-//! Oracle price and config memos.
+//! Token-rooted USD price lookups from the aggregator-resolved price map.
 //!
-//! Position pricing is token-rooted via `cached_price`, cycle-guarded through
-//! `enter_price_resolution` / `exit_price_resolution`.
+//! A priced flow calls `ensure_prices` with the asset set it needs; the first
+//! call fetches every asset from the price-aggregator in one bulk request, and
+//! later calls in the same transaction reuse the cached map (prices are
+//! ledger-constant), so a flow with several risk passes still makes a single
+//! aggregator call. Per-position reads are map lookups; a missing entry means
+//! the asset was never requested — a caller bug — and reverts `OracleNotConfigured`.
 
 use common::errors::OracleError;
-use common::oracle::providers::redstone::RedStonePriceData;
-use common::types::{HubAssetKey, MarketOracleConfig, PriceFeed};
-use soroban_sdk::{panic_with_error, Address, String};
+#[cfg(test)]
+use common::types::PriceFeedRaw;
+use common::types::{HubAssetKey, PriceFeed};
+#[cfg(test)]
+use soroban_sdk::Map;
+use soroban_sdk::{panic_with_error, Address, Vec};
 
 use crate::context::Cache;
-use crate::oracle::token_price;
-use crate::storage;
 
 impl Cache {
-    /// Token-rooted USD price for `asset` (cycle-guarded resolution).
+    /// Injects a price map directly (test helper).
+    #[cfg(test)]
+    pub(crate) fn set_prices(&mut self, prices: Map<Address, PriceFeedRaw>) {
+        self.token_prices = prices;
+    }
+
+    /// Resolves any `assets` not yet priced this transaction via one bulk
+    /// aggregator call, merging them into the map. Already-cached assets are
+    /// skipped, so repeated risk passes share a single fetch.
+    pub(crate) fn ensure_prices(&mut self, assets: &Vec<Address>) {
+        let env = self.env.clone();
+        let mut missing = Vec::new(&env);
+        for asset in assets.iter() {
+            if !self.token_prices.contains_key(asset.clone()) {
+                missing.push_back(asset);
+            }
+        }
+        if missing.is_empty() {
+            return;
+        }
+        let fetched = crate::external::price_aggregator::fetch_prices(&env, &missing);
+        for (asset, feed) in fetched.iter() {
+            self.token_prices.set(asset, feed);
+        }
+    }
+
+    /// Token-rooted USD price for `asset` from the injected map.
     pub(crate) fn cached_price(&mut self, asset: &Address) -> PriceFeed {
-        (&token_price(self, asset)).into()
+        let raw = self
+            .token_prices
+            .get(asset.clone())
+            .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured));
+        (&raw).into()
     }
 
     /// Position price: token-rooted.
-    pub(crate) fn cached_price_for(&mut self, _spoke_id: u32, hub_asset: &HubAssetKey) -> PriceFeed {
+    pub(crate) fn cached_price_for(
+        &mut self,
+        _spoke_id: u32,
+        hub_asset: &HubAssetKey,
+    ) -> PriceFeed {
         self.cached_price(&hub_asset.asset)
-    }
-
-    /// Prefetched RedStone payload for `(adapter, feed_id)`, if any.
-    pub(crate) fn get_redstone_prefetch(
-        &self,
-        adapter: &Address,
-        feed_id: &String,
-    ) -> Option<RedStonePriceData> {
-        self.redstone_prefetch
-            .get((adapter.clone(), feed_id.clone()))
-    }
-
-    /// Store a RedStone payload for the rest of the transaction.
-    pub(crate) fn set_redstone_prefetch(
-        &mut self,
-        adapter: &Address,
-        feed_id: &String,
-        data: RedStonePriceData,
-    ) {
-        self.redstone_prefetch
-            .set((adapter.clone(), feed_id.clone()), data);
-    }
-
-    /// Token-rooted oracle config if configured (absence not memoized).
-    pub(crate) fn cached_asset_oracle_opt(
-        &mut self,
-        asset: &Address,
-    ) -> Option<MarketOracleConfig> {
-        if let Some(config) = self.asset_oracle.get(asset.clone()) {
-            return Some(config);
-        }
-        let config = storage::get_asset_oracle(&self.env, asset)?;
-        self.asset_oracle.set(asset.clone(), config.clone());
-        Some(config)
-    }
-
-    /// Required token-rooted oracle config, or `OracleNotConfigured`.
-    pub(crate) fn cached_asset_oracle(&mut self, asset: &Address) -> MarketOracleConfig {
-        self.cached_asset_oracle_opt(asset)
-            .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured))
-    }
-
-    /// Whether a token-rooted oracle config exists.
-    pub(crate) fn asset_oracle_exists(&mut self, asset: &Address) -> bool {
-        self.cached_asset_oracle_opt(asset).is_some()
     }
 }

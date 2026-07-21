@@ -5,9 +5,9 @@ extern crate std;
 use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs};
 use common::constants::MAX_REASONABLE_PRICE_WAD;
 use common::types::{
-    ControllerKey, HubAssetKey, MarketOracleConfigInput,
-    OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
-    OracleSourceConfigInputOption, OracleStrategy, PositionLimits, ReflectorSourceConfigInput,
+    ControllerKey, HubAssetKey, MarketOracleConfigInput, OracleAssetRef, OracleReadMode,
+    OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
+    ReflectorSourceConfigInput,
 };
 use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
@@ -202,7 +202,7 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
             args: vec![
                 &env,
                 admin.clone().into_val(&env),
-                op.clone().into_val(&env)
+                op.clone().into_val(&env),
             ],
             sub_invokes: &[],
         },
@@ -284,7 +284,7 @@ fn set_aggregator_rejects_non_contract_address() {
 
     gov.execute_immediate(
         &admin,
-        &AdminOperation::SetAggregator(Address::generate(&env)),
+        &AdminOperation::SetSwapAggregator(Address::generate(&env)),
     );
 }
 
@@ -298,7 +298,7 @@ fn set_aggregator_rejects_stellar_asset_contract() {
         .register_stellar_asset_contract_v2(admin.clone())
         .address();
 
-    gov.execute_immediate(&admin, &AdminOperation::SetAggregator(stellar_asset));
+    gov.execute_immediate(&admin, &AdminOperation::SetSwapAggregator(stellar_asset));
 }
 
 // The Wasm-executable acceptance leg of `require_contract_address`: a real
@@ -314,13 +314,13 @@ fn set_aggregator_accepts_wasm_contract_address() {
 
     gov.execute_immediate(
         &admin,
-        &AdminOperation::SetAggregator(controller_id.clone()),
+        &AdminOperation::SetSwapAggregator(controller_id.clone()),
     );
 
     let stored: Address = env.as_contract(&controller_id, || {
         env.storage()
             .instance()
-            .get(&ControllerKey::Aggregator)
+            .get(&ControllerKey::SwapAggregator)
             .expect("aggregator stored")
     });
     assert_eq!(stored, controller_id);
@@ -500,7 +500,6 @@ fn propose_resolves_all_controller_and_self_variants() {
         }),
         &salt(),
     );
-    gov.propose(&admin, &AdminOperation::RevokeToken(asset.clone()), &salt());
     gov.propose(
         &admin,
         &AdminOperation::RevokeBlendPool(Address::generate(&env)),
@@ -682,11 +681,13 @@ fn oracle_set_sanity_bounds_reaches_controller_pair_check() {
     env.mock_all_auths();
     let (admin, gov_id, gov) = register_governance(&env);
     register_native_controller(&env, &gov_id, &gov);
+    let aggregator = env.register(price_aggregator::PriceAggregator, (gov_id.clone(),));
+    gov.set_price_aggregator(&aggregator);
     let bot = Address::generate(&env);
     grant_incident_role(&env, &admin, &gov, &bot, ORACLE_ROLE);
 
-    // No oracle configured for the asset: the controller's PairNotActive
-    // proves the forwarding happened.
+    // No oracle configured for the asset: the price-aggregator's PairNotActive
+    // proves the guardian sanity-bounds forwarding reached the oracle authority.
     gov.set_oracle_sanity_bounds(&bot, &Address::generate(&env), &1i128, &2i128);
 }
 

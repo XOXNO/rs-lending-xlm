@@ -681,10 +681,10 @@ mutants-diff: _mutants-harness-prepare
 
 ## Standalone contracts: each has its own native test suite, no harness needed.
 mutants-aggregator: _mutants-check
-	$(call run_mutants,--package aggregator --test-package aggregator)
+	$(call run_mutants,--package swap-aggregator --test-package swap-aggregator)
 
 mutants-oracle-adapter: _mutants-check
-	$(call run_mutants,--package xoxno-oracle-adapter --test-package xoxno-oracle-adapter)
+	$(call run_mutants,--package xoxno-oracle --test-package xoxno-oracle)
 
 mutants-defindex-strategy: _mutants-check
 	$(call run_mutants,--package defindex-strategy --test-package defindex-strategy)
@@ -1095,15 +1095,15 @@ prepay-rent:
 ## Build the swap aggregator (router) contract.
 build-aggregator:
 	@echo "Building aggregator..."
-	@stellar contract build --package aggregator
+	@stellar contract build --package swap-aggregator
 	@mkdir -p $(DEPLOY_DIR)
 	@if command -v stellar &>/dev/null; then \
 		stellar contract optimize \
-			--wasm $(RELEASE_DIR)/aggregator.wasm \
+			--wasm $(RELEASE_DIR)/swap_aggregator.wasm \
 			--wasm-out $(DEPLOY_DIR)/aggregator.wasm 2>/dev/null || \
-		cp $(RELEASE_DIR)/aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
+		cp $(RELEASE_DIR)/swap_aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
 	else \
-		cp $(RELEASE_DIR)/aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
+		cp $(RELEASE_DIR)/swap_aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
 	fi
 	@ls -lh $(DEPLOY_DIR)/aggregator.wasm
 
@@ -1130,15 +1130,15 @@ deploy-aggregator: build-aggregator
 ## Build the self-hosted multi-signer oracle / SEP-40 reader contract.
 build-oracle-adapter:
 	@echo "Building xoxno-oracle-adapter..."
-	@stellar contract build --package xoxno-oracle-adapter
+	@stellar contract build --package xoxno-oracle
 	@mkdir -p $(DEPLOY_DIR)
 	@if command -v stellar &>/dev/null; then \
 		stellar contract optimize \
-			--wasm $(RELEASE_DIR)/xoxno_oracle_adapter.wasm \
+			--wasm $(RELEASE_DIR)/xoxno_oracle.wasm \
 			--wasm-out $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm 2>/dev/null || \
-		cp $(RELEASE_DIR)/xoxno_oracle_adapter.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
+		cp $(RELEASE_DIR)/xoxno_oracle.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
 	else \
-		cp $(RELEASE_DIR)/xoxno_oracle_adapter.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
+		cp $(RELEASE_DIR)/xoxno_oracle.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
 	fi
 	@ls -lh $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm
 
@@ -1539,7 +1539,6 @@ SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeRea
 POSITIONAL_MARKET_ACTIONS := createMarket updateMarketParams \
 	configureMarketOracle \
 	editOracleTolerance \
-	approveToken revokeToken \
 	getPrice getMarket getIndex \
 	getOracle getReflector \
 	getUtilisation getReserves getSupplied getBorrowed getDepositRate getBorrowRate \
@@ -1826,8 +1825,6 @@ help:
 	@echo "    make testnet configureMarketOracle USDC"
 	@echo "    make testnet editOracleTolerance USDC 500"
 	@echo "    make testnet updateIndexes USDC XLM"
-	@echo "    make testnet approveToken USDC     Timelocked allow-list add (also raw C... id)"
-	@echo "    make testnet revokeToken USDC      Timelocked allow-list remove"
 	@echo "    make testnet setupAllMarkets       Configure markets only; does not deploy or unpause"
 	@echo "    make testnet listMarkets"
 	@echo "    make testnet listOracles           Per-market oracle wiring from JSON"

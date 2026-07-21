@@ -169,8 +169,11 @@ fn indebted_fixture(
         min_sanity_price_wad: 0,
         max_sanity_price_wad: i128::MAX,
     };
+    let aggregator = env.register(price_aggregator::PriceAggregator, (Address::generate(env),));
+    price_aggregator::PriceAggregatorClient::new(env, &aggregator)
+        .seed_asset_oracle(&asset, &config);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(env, &asset, &config);
+        crate::storage::set_price_aggregator(env, &aggregator);
     });
 
     (contract, hub, account)
@@ -185,6 +188,10 @@ fn seeded_cache(env: &Env, hub: &HubAssetKey) -> Cache {
             supply_index: RAY,
         },
     );
+    cache.set_prices(crate::external::price_aggregator::fetch_prices(
+        env,
+        &soroban_sdk::vec![env, hub.asset.clone()],
+    ));
     cache
 }
 
@@ -452,10 +459,20 @@ fn risk_partial_cap_zero_ltv_position_caps_at_zero() {
         max_sanity_price_wad: i128::MAX,
     };
 
+    let aggregator = env.register(
+        price_aggregator::PriceAggregator,
+        (Address::generate(&env),),
+    );
+    let agg_client = price_aggregator::PriceAggregatorClient::new(&env, &aggregator);
+    agg_client.seed_asset_oracle(&asset_a, &usd_config(&asset_a));
+    agg_client.seed_asset_oracle(&asset_b, &usd_config(&asset_b));
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(&env, &asset_a, &usd_config(&asset_a));
-        crate::storage::set_asset_oracle(&env, &asset_b, &usd_config(&asset_b));
+        crate::storage::set_price_aggregator(&env, &aggregator);
         let mut cache = Cache::new_view(&env);
+        cache.set_prices(crate::external::price_aggregator::fetch_prices(
+            &env,
+            &soroban_sdk::vec![&env, asset_a.clone(), asset_b.clone()],
+        ));
         cache.put_market_index(
             &hub_a,
             &MarketIndexRaw {
@@ -643,9 +660,19 @@ fn settle_returns_zero_for_dust_underwater_account_without_going_negative() {
         max_sanity_price_wad: i128::MAX,
     };
 
+    let aggregator = env.register(
+        price_aggregator::PriceAggregator,
+        (Address::generate(&env),),
+    );
+    price_aggregator::PriceAggregatorClient::new(&env, &aggregator)
+        .seed_asset_oracle(&asset, &config);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(&env, &asset, &config);
+        crate::storage::set_price_aggregator(&env, &aggregator);
         let mut cache = Cache::new_view(&env);
+        cache.set_prices(crate::external::price_aggregator::fetch_prices(
+            &env,
+            &soroban_sdk::vec![&env, asset.clone()],
+        ));
         cache.put_market_index(
             &hub,
             &MarketIndexRaw {

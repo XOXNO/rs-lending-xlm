@@ -242,10 +242,7 @@ fn poc_flash_loan_ongoing_blocks_risk_increasing_and_exit_paths() {
     t.set_flash_loan_ongoing(true);
 
     assert_contract_error(t.try_borrow(ALICE, "ETH", 0.1), errors::FLASH_LOAN_ONGOING);
-    assert_contract_error(
-        t.try_supply(ALICE, "USDC", 1.0),
-        errors::FLASH_LOAN_ONGOING,
-    );
+    assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::FLASH_LOAN_ONGOING);
     assert_contract_error(
         t.try_withdraw(ALICE, "USDC", 1.0),
         errors::FLASH_LOAN_ONGOING,
@@ -395,7 +392,10 @@ fn poc_third_party_top_up_force_restamps_ltv() {
     t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
         .expect("third-party top-up of existing leg allowed");
     let (ltv, _) = supply_ltv_and_lt(&t, id, "USDC");
-    assert_eq!(ltv, 5_000, "H-RISK-03: third-party top-up force-restamps LTV");
+    assert_eq!(
+        ltv, 5_000,
+        "H-RISK-03: third-party top-up force-restamps LTV"
+    );
 
     // Now new LTV capacity is $5_000; $7_000 debt must fail.
     let blocked = t.try_borrow(ALICE, "ETH", 3.5);

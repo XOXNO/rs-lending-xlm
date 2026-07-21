@@ -2107,21 +2107,6 @@ create_market() {
     # The controller deploys markets in a pending state (base spoke-0 listing
     # not collateralizable/borrowable); activation happens via spoke listings.
 
-    # Post-audit (T1-7): the controller gates `create_liquidity_pool` behind an
-    # admin allow-list. Pre-approve the token first (separate timelocked op,
-    # executed before the create op so the allow-list check passes).
-    # `approve_token` is idempotent on chain.
-    echo "Scheduling token approval for market creation..." >&2
-    local approve_args
-    approve_args=$(jq -nc --arg t "$asset_address" '[{address:$t}]')
-    local approve_salt
-    approve_salt=$(gen_salt "approve_token:${market_name}" "$approve_args")
-    local approve_op
-    approve_op=$(schedule_via_proposer \
-        approve_token "$(admin_op ApproveToken "$(jq -nc --arg a "$asset_address" '$a')")" \
-        "$approve_args" true "$approve_salt")
-    schedule_and_maybe_execute "$approve_op"
-
     # create_liquidity_pool(hub_id, asset, params) — u32 + Address + one field-map
     # struct. The governance handler resolves CreateLiquidityPool to exactly these
     # three call args; per-asset risk config is applied separately via
@@ -2861,18 +2846,6 @@ require_market_address() {
     echo "$asset_address"
 }
 
-# Accept either a configured market name or a raw contract strkey. Admin verbs
-# that gate tokens (revokeToken, ...) take both so an incident response is not
-# blocked on the asset still being in the markets file.
-resolve_asset_arg() {
-    local v=$1
-    if printf '%s' "$v" | grep -qE '^C[A-Z2-7]{55}$'; then
-        echo "$v"
-        return 0
-    fi
-    require_market_address "$v"
-}
-
 all_configured_asset_addresses() {
     jq -c '[.markets[] | select(.asset_address != null and .asset_address != "") | .asset_address]' "$MARKET_CONFIG_FILE"
 }
@@ -3107,14 +3080,6 @@ schedule_address_op() {
         "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "${controller_fn} scheduled for ${addr}."
-}
-
-revoke_token_cmd() {
-    schedule_address_op RevokeToken revoke_token "$(resolve_asset_arg "$1")"
-}
-
-approve_token_cmd() {
-    schedule_address_op ApproveToken approve_token "$(resolve_asset_arg "$1")"
 }
 
 revoke_blend_pool_cmd() {
@@ -3437,7 +3402,7 @@ list_oracles() {
 }
 
 # ---------------------------------------------------------------------------
-# XOXNO self-hosted oracle adapter (contracts/xoxno-oracle-adapter)
+# XOXNO self-hosted oracle adapter (contracts/xoxno-oracle)
 #
 # Not governance-owned: a standalone contract, OZ `Ownable` owner (two-step
 # transfer/accept, see the ownership-handoff section below) plus its own bot
@@ -3705,7 +3670,7 @@ finalize_oracle_adapter_upgrade() {
 }
 
 # ---------------------------------------------------------------------------
-# Swap aggregator (contracts/aggregator)
+# Swap aggregator (contracts/swap-aggregator)
 #
 # Not governance-owned: a standalone contract, OZ `Ownable` owner (two-step
 # transfer/accept) with `#[only_owner]`-gated admin fns. Direct
@@ -4483,20 +4448,6 @@ case "$1" in
         fi
         set_spoke_liquidation_curve_cmd "$2" "$3" "$4" "$5"
         ;;
-    "approveToken")
-        if [ -z "$2" ]; then
-            echo "Usage: $0 approveToken <market_or_contract_id>" >&2
-            exit 1
-        fi
-        approve_token_cmd "$2"
-        ;;
-    "revokeToken")
-        if [ -z "$2" ]; then
-            echo "Usage: $0 revokeToken <market_or_contract_id>" >&2
-            exit 1
-        fi
-        revoke_token_cmd "$2"
-        ;;
     "revokeBlendPool")
         if [ -z "$2" ]; then
             echo "Usage: $0 revokeBlendPool <pool_contract_id>" >&2
@@ -4935,8 +4886,6 @@ case "$1" in
         echo "  pause                           GUARDIAN-immediate pause (caller = signer)"
         echo "  unpause                         Timelocked AdminOperation::Unpause (propose → await → execute)"
         echo "  checkDelay                      Compare live timelock delay vs configured target"
-        echo "  approveToken <m|C...>           Timelocked market-token allow-list add"
-        echo "  revokeToken <m|C...>            Timelocked market-token allow-list remove"
         echo "  revokeBlendPool <C...>          Timelocked Blend-pool allow-list remove"
         echo "  setPositionLimits <s> <b>       Timelocked position limits (max supply/borrow positions)"
         echo "  setMinBorrowCollateralUsd <wad> Timelocked min borrow-collateral floor"

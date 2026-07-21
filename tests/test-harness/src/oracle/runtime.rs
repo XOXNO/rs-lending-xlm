@@ -90,31 +90,23 @@ impl LendingTest {
 
     pub fn set_oracle_single_spot(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
-        self.env.as_contract(&self.controller, || {
-            let key = controller::types::ControllerKey::AssetOracle(asset.clone());
-            let mut oracle: controller::types::MarketOracleConfig =
-                self.env.storage().persistent().get(&key).unwrap();
-            oracle.strategy = OracleStrategy::Single;
-            oracle.primary = source_with_read_mode(&oracle.primary, OracleReadMode::Spot);
-            oracle.anchor = OracleSourceConfigOption::None;
-            self.env.storage().persistent().set(&key, &oracle);
-        });
+        let mut oracle = self.price_agg_client().get_asset_oracle(&asset).unwrap();
+        oracle.strategy = OracleStrategy::Single;
+        oracle.primary = source_with_read_mode(&oracle.primary, OracleReadMode::Spot);
+        oracle.anchor = OracleSourceConfigOption::None;
+        self.price_agg_client().seed_asset_oracle(&asset, &oracle);
     }
 
     pub fn set_oracle_primary_anchor(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
-        self.env.as_contract(&self.controller, || {
-            let key = controller::types::ControllerKey::AssetOracle(asset.clone());
-            let mut oracle: controller::types::MarketOracleConfig =
-                self.env.storage().persistent().get(&key).unwrap();
-            oracle.strategy = OracleStrategy::PrimaryWithAnchor;
-            oracle.primary = source_with_read_mode(&oracle.primary, OracleReadMode::Twap(3));
-            oracle.anchor = OracleSourceConfigOption::Some(source_with_read_mode(
-                &oracle.primary,
-                OracleReadMode::Spot,
-            ));
-            self.env.storage().persistent().set(&key, &oracle);
-        });
+        let mut oracle = self.price_agg_client().get_asset_oracle(&asset).unwrap();
+        oracle.strategy = OracleStrategy::PrimaryWithAnchor;
+        oracle.primary = source_with_read_mode(&oracle.primary, OracleReadMode::Twap(3));
+        oracle.anchor = OracleSourceConfigOption::Some(source_with_read_mode(
+            &oracle.primary,
+            OracleReadMode::Spot,
+        ));
+        self.price_agg_client().seed_asset_oracle(&asset, &oracle);
     }
 
     /// Alias for dual-source tolerance tests: primary TWAP + anchor spot.
@@ -125,30 +117,25 @@ impl LendingTest {
     /// Wire a separate DEX reflector as anchor spot for dual-source repricing tests.
     pub fn set_dual_oracle_dex_anchor(&self, asset_name: &str, dex_oracle: Address) {
         let asset = self.resolve_asset(asset_name);
-        self.env.as_contract(&self.controller, || {
-            let key = controller::types::ControllerKey::AssetOracle(asset.clone());
-            let mut oracle: controller::types::MarketOracleConfig =
-                self.env.storage().persistent().get(&key).unwrap();
-            oracle.strategy = OracleStrategy::PrimaryWithAnchor;
-            oracle.primary = match oracle.primary {
-                OracleSourceConfig::Reflector(mut source) => {
-                    source.read_mode = OracleReadMode::Twap(3);
-                    OracleSourceConfig::Reflector(source)
-                }
-                source => source,
-            };
-            oracle.anchor = OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(
-                ReflectorSourceConfig {
-                    contract: dex_oracle,
-                    asset: OracleAssetRef::Stellar(asset.clone()),
-                    read_mode: OracleReadMode::Spot,
-                    decimals: 14,
-                    resolution_seconds: 300,
-                    base: ReflectorBase::Usd,
-                },
-            ));
-            self.env.storage().persistent().set(&key, &oracle);
-        });
+        let mut oracle = self.price_agg_client().get_asset_oracle(&asset).unwrap();
+        oracle.strategy = OracleStrategy::PrimaryWithAnchor;
+        oracle.primary = match oracle.primary {
+            OracleSourceConfig::Reflector(mut source) => {
+                source.read_mode = OracleReadMode::Twap(3);
+                OracleSourceConfig::Reflector(source)
+            }
+            source => source,
+        };
+        oracle.anchor =
+            OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                contract: dex_oracle,
+                asset: OracleAssetRef::Stellar(asset.clone()),
+                read_mode: OracleReadMode::Spot,
+                decimals: 14,
+                resolution_seconds: 300,
+                base: ReflectorBase::Usd,
+            }));
+        self.price_agg_client().seed_asset_oracle(&asset, &oracle);
     }
 }
 

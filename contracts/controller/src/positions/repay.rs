@@ -23,8 +23,8 @@ use crate::events;
 use crate::external::pool::pool_repay_call;
 use crate::payments::{self, EventContext};
 use crate::positions::{
-    enforce_spoke_asset_flags, finalize_position_flow, get_debt_position_or_panic, make_pool_action,
-    AggregatedPayments, HubPayment, PositionSides,
+    enforce_spoke_asset_flags, finalize_position_flow, get_debt_position_or_panic,
+    make_pool_action, AggregatedPayments, HubPayment, PositionSides,
 };
 use crate::risk::validation;
 use crate::storage;
@@ -68,7 +68,12 @@ impl Controller {
 ///
 /// `remove_if_empty` is false: full debt close does not remove the account here
 /// (supply may still exist; withdraw owns empty-account cleanup).
-pub(crate) fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Vec<HubPayment>) {
+pub(crate) fn process_repay(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    payments: &Vec<HubPayment>,
+) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 

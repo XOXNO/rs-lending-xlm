@@ -19,7 +19,7 @@ pub mod spec;
 
 use common::constants::RAY;
 use common::errors::{FlashLoanError, GenericError};
-use common::math::fp::Ray;
+use common::math::fp::{Bps, Ray};
 use common::rates::{simulate_update_indexes, supply_index_reward_shortfall, update_supply_index};
 use common::types::{
     AccountPositionType, HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw,
@@ -657,7 +657,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         env: Env,
         receiver: Address,
         action: PoolAction,
-        fee: i128,
+        charge_fee: bool,
     ) -> PoolStrategyMutation {
         let PoolAction {
             position,
@@ -665,11 +665,18 @@ impl LiquidityPoolInterface for LiquidityPool {
             hub_asset,
         } = action;
         require_nonneg_amount(&env, amount);
-        require_nonneg_amount(&env, fee);
-
-        assert_with_error!(&env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
 
         let mut cache = load_synced_cache(&env, &hub_asset);
+
+        // Flash-loan fee is derived pool-side from the market's configured
+        // `flashloan_fee` bps; `charge_fee = false` (migration) borrows fee-free.
+        let fee = if charge_fee {
+            Bps::from(i128::from(cache.params.flashloan_fee)).flash_loan_fee_on(&env, amount)
+        } else {
+            0
+        };
+        assert_with_error!(&env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
+
         let mut scaled = Ray::from(position.scaled_amount);
         accrue_borrow(&env, &mut cache, &mut scaled, amount);
 

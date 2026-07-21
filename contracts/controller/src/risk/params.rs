@@ -5,8 +5,6 @@ use common::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig, H
 use soroban_sdk::{Env, Map};
 
 use crate::context::Cache;
-use crate::spoke;
-
 use crate::risk::calculate_account_risk_totals;
 
 /// Minimum HF (1.05 WAD) required before lowering a position's liquidation threshold.
@@ -42,13 +40,10 @@ pub(crate) fn refresh_supply_risk_params_for_asset(
     hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
 ) {
-    if cache
-        .cached_spoke_asset(account.spoke_id, hub_asset)
-        .is_none()
-    {
+    let Some(listed) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
         return;
-    }
-    let config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);
+    };
+    let config: AssetConfig = (&listed).into();
     refresh_supply_risk_params(env, cache, account, hub_asset, position, &config);
 }
 

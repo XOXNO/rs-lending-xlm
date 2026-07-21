@@ -320,8 +320,7 @@ fn independent_canceller_can_cancel_non_canceller_role_revocation() {
     env.mock_all_auths();
     let delay = 10u32;
     let (admin, _controller, gov) = register_with_controller(&env, delay);
-    let honest_canceller =
-        grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
+    let honest_canceller = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
     // A second (non-owner) PROPOSER so its revocation clears the last-proposer guard.
     let extra_proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 2);
 

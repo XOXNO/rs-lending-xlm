@@ -58,12 +58,15 @@ impl PriceAggregator {
         price::token_price(&mut cache, &asset)
     }
 
-    /// Safe/aggregator price pair (primary-or-final, anchor-or-final) for the
-    /// controller's read-only views layer.
-    pub fn price_components(env: Env, asset: Address) -> (i128, i128) {
+    /// `(final, safe, aggregator)` USD-WAD price triple for the controller's
+    /// read-only views layer: the composed final price plus the primary-or-final
+    /// and anchor-or-final legs.
+    pub fn price_components(env: Env, asset: Address) -> (i128, i128, i128) {
         let mut cache = context::PriceCache::new(&env);
         let config = cache.cached_asset_oracle(&asset);
-        compose::resolve_components(&mut cache, &config).to_abi_prices()
+        let components = compose::resolve_components(&mut cache, &config);
+        let (safe_wad, aggregator_wad) = components.to_abi_prices();
+        (components.final_price_wad, safe_wad, aggregator_wad)
     }
 
     /// Token-rooted oracle config for `asset`, if configured.
@@ -87,6 +90,21 @@ impl PriceAggregator {
     #[only_owner]
     pub fn set_oracle_tolerance(env: Env, asset: Address, tolerance: OraclePriceFluctuation) {
         config::set_oracle_tolerance(&env, asset, tolerance);
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+#[contractimpl]
+impl PriceAggregator {
+    /// Test-only: seed a resolved oracle config directly, bypassing owner auth
+    /// and validation, so consumer tests can wire a priceable asset cheaply.
+    pub fn seed_asset_oracle(env: Env, asset: Address, config: MarketOracleConfig) {
+        storage::set_asset_oracle(&env, &asset, &config);
+    }
+
+    /// Test-only: remove an asset's oracle (disables pricing for it).
+    pub fn remove_asset_oracle(env: Env, asset: Address) {
+        storage::remove_asset_oracle(&env, &asset);
     }
 }
 

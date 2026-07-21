@@ -83,7 +83,7 @@ pub struct RoleArgs {
 #[allow(clippy::large_enum_variant)]
 pub enum AdminOperation {
     // Controller target
-    SetAggregator(Address),
+    SetSwapAggregator(Address),
     SetPriceAggregator(Address),
     SetAccumulator(Address),
     SetLiquidityPoolTemplate(BytesN<32>),
@@ -95,8 +95,6 @@ pub enum AdminOperation {
     AddAssetToSpoke(SpokeAssetArgs),
     EditAssetInSpoke(SpokeAssetArgs),
     RemoveAssetFromSpoke(RemoveAssetFromSpokeArgs),
-    ApproveToken(Address),
-    RevokeToken(Address),
     ApproveBlendPool(Address),
     RevokeBlendPool(Address),
     CreateLiquidityPool(CreatePoolArgs),

@@ -4,9 +4,7 @@ use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Bytes, Env, Vec};
 
-use common::constants::{
-    MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW,
-};
+use common::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
     MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolNetSettleResult, PoolPositionMutation,
     PoolSeizeEntry, PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,

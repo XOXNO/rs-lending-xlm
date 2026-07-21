@@ -22,9 +22,12 @@ pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams)
         params.base_borrow_rate.checked_add(env, contribution)
     } else if utilization < params.optimal_utilization {
         let excess = utilization.checked_sub(env, params.mid_utilization);
-        let range = params.optimal_utilization.checked_sub(env, params.mid_utilization);
+        let range = params
+            .optimal_utilization
+            .checked_sub(env, params.mid_utilization);
         let contribution = excess.mul(env, params.slope2).div(env, range);
-        params.base_borrow_rate
+        params
+            .base_borrow_rate
             .checked_add(env, params.slope1)
             .checked_add(env, contribution)
     } else {

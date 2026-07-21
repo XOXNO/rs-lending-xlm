@@ -67,7 +67,11 @@ impl Controller {
 }
 
 /// Migrate Blend V2 → controller: clear Blend debt, sweep assets, open positions.
-pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendParams) -> u64 {
+pub(crate) fn process_migrate_blend(
+    env: &Env,
+    caller: &Address,
+    params: MigrateBlendParams,
+) -> u64 {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
@@ -90,18 +94,25 @@ pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: Migrate
         &debt_caps,
     );
 
-    let (account_id, mut account, mut cache, withdraw_assets) = prepare_migration_account(
-        env,
-        caller,
-        account_id,
-        spoke_id,
-        &collateral_assets,
-        &supply_assets,
-        &debt_caps,
-    );
+    let (account_id, mut account, mut cache, withdraw_assets, all_assets) =
+        prepare_migration_account(
+            env,
+            caller,
+            account_id,
+            spoke_id,
+            &collateral_assets,
+            &supply_assets,
+            &debt_caps,
+        );
 
-    // Markets active before balance() or Blend submit.
-    require_migration_markets_active(env, &mut cache, hub_id, &withdraw_assets, &debt_caps);
+    // Gate every touched asset on a configured market before pricing them: the
+    // bulk oracle read is fail-closed, so an unlisted asset must revert
+    // `PairNotActive` here rather than `OracleNotConfigured` downstream.
+    require_migration_markets_active(env, hub_id, &withdraw_assets, &debt_caps);
+
+    // Debt-opening flow: prices must be risk-increasing. Safe now that every
+    // asset is a configured market.
+    prefetch_strategy_oracles(&mut cache, &account, &all_assets);
 
     execute_migration_debt_leg(
         env,
@@ -178,8 +189,7 @@ fn prepare_migration_account(
     collateral_assets: &Vec<Address>,
     supply_assets: &Vec<Address>,
     debt_caps: &Vec<(Address, i128)>,
-) -> (u64, Account, Cache, Vec<Address>) {
-    // Debt-opening flow: prices must be risk-increasing.
+) -> (u64, Account, Cache, Vec<Address>, Vec<Address>) {
     let mut cache = Cache::new(env);
     let (account_id, account) = account::load_or_create_account(
         env,
@@ -192,8 +202,7 @@ fn prepare_migration_account(
     );
     let (withdraw_assets, all_assets) =
         prepare_migration_assets(env, collateral_assets, supply_assets, debt_caps);
-    prefetch_strategy_oracles(&mut cache, &account, &all_assets);
-    (account_id, account, cache, withdraw_assets)
+    (account_id, account, cache, withdraw_assets, all_assets)
 }
 
 /// asset) to be a configured market before any `.balance()` read or Blend call.
@@ -201,16 +210,15 @@ fn prepare_migration_account(
 /// the coordinate the positions open on.
 fn require_migration_markets_active(
     env: &Env,
-    cache: &mut Cache,
     hub_id: u32,
     withdraw_assets: &Vec<Address>,
     debt_caps: &Vec<(Address, i128)>,
 ) {
     for asset in withdraw_assets.iter() {
-        validation::require_market_active(env, cache, &HubAssetKey { hub_id, asset });
+        validation::require_market_active(env, &HubAssetKey { hub_id, asset });
     }
     for (asset, _) in debt_caps.iter() {
-        validation::require_market_active(env, cache, &HubAssetKey { hub_id, asset });
+        validation::require_market_active(env, &HubAssetKey { hub_id, asset });
     }
 }
 

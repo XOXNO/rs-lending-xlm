@@ -158,15 +158,7 @@ fn test_oracle_config_execute_rejects_quote_reconfigured_during_delay() {
     );
 
     // Capture the resolved config governance scheduled for the controller setter.
-    let stale = t.env.as_contract(&t.controller, || {
-        t.env
-            .storage()
-            .persistent()
-            .get::<_, controller::types::MarketOracleConfig>(
-                &controller::types::ControllerKey::AssetOracle(xlm.clone()),
-            )
-            .unwrap()
-    });
+    let stale = t.price_agg_client().get_asset_oracle(&xlm).unwrap();
 
     // During the delay, reconfigure USDC to quote in ETH (not a direct USD market).
     let dex_eth = register_dex_oracle(&t, &eth);
@@ -178,8 +170,7 @@ fn test_oracle_config_execute_rejects_quote_reconfigured_during_delay() {
     );
 
     // Executing the stale op re-asserts the quote invariant and reverts.
-    t.ctrl_client()
-        .set_market_oracle_config(&hub_asset(xlm.clone()), &stale);
+    t.price_agg_client().set_market_oracle_config(&xlm, &stale);
 }
 
 /// Happy path: re-applying the same resolved config while the quote market is
@@ -202,19 +193,11 @@ fn test_oracle_config_execute_accepts_active_usd_quote_market() {
         &reflector_single_spot_config(&dex, &xlm, usd(2), DEFAULT_TOLERANCE.tolerance_bps),
     );
 
-    let resolved = t.env.as_contract(&t.controller, || {
-        t.env
-            .storage()
-            .persistent()
-            .get::<_, controller::types::MarketOracleConfig>(
-                &controller::types::ControllerKey::AssetOracle(xlm.clone()),
-            )
-            .unwrap()
-    });
+    let resolved = t.price_agg_client().get_asset_oracle(&xlm).unwrap();
 
     // USDC stays Active+USD: replaying the resolved config still applies.
-    t.ctrl_client()
-        .set_market_oracle_config(&hub_asset(xlm.clone()), &resolved);
+    t.price_agg_client()
+        .set_market_oracle_config(&xlm, &resolved);
     assert_eq!(index_view(&t, &xlm).price_wad, usd(2));
 }
 

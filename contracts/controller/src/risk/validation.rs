@@ -22,10 +22,10 @@ pub(crate) fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
 }
 
 /// Requires token-rooted oracle presence; pool and spoke gates follow.
-pub(crate) fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetKey) {
+pub(crate) fn require_market_active(env: &Env, hub_asset: &HubAssetKey) {
     assert_with_error!(
         env,
-        cache.asset_oracle_exists(&hub_asset.asset),
+        crate::external::price_aggregator::is_asset_priceable(env, &hub_asset.asset),
         GenericError::PairNotActive
     );
 }

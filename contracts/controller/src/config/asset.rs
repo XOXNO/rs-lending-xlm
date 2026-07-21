@@ -70,16 +70,8 @@ fn load_market_and_validate_caps(
     // `(hub, asset)` was never created.
     let market = fetch_pool_sync_data(env, &storage::get_pool(env), hub_asset);
     // These caps feed `Ray::from_asset`; reject overflow-prone configs here.
-    require_cap_within_asset_domain(
-        env,
-        args.supply_cap,
-        market.params.asset_decimals,
-    );
-    require_cap_within_asset_domain(
-        env,
-        args.borrow_cap,
-        market.params.asset_decimals,
-    );
+    require_cap_within_asset_domain(env, args.supply_cap, market.params.asset_decimals);
+    require_cap_within_asset_domain(env, args.borrow_cap, market.params.asset_decimals);
     market
 }
 

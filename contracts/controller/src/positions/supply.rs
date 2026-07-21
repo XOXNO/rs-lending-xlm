@@ -7,7 +7,8 @@
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPositionType, HubAssetKey, PoolPositionMutation, PoolSupplyEntry, PositionMode,
+    Account, AccountPositionType, AssetConfig, HubAssetKey, PoolPositionMutation, PoolSupplyEntry,
+    PositionMode,
 };
 use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
@@ -22,7 +23,6 @@ use crate::positions::{
     HubPayment, PositionSides,
 };
 use crate::risk::{refresh_supply_risk_params, validation};
-use crate::spoke;
 use crate::{Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -90,9 +90,7 @@ pub(crate) fn process_supply(
     // Third parties may top up existing supply legs (gift collateral) but must
     // not open new asset slots — that would fill `max_supply_positions` and
     // grief the owner. Owner and active delegates retain full supply rights.
-    if account_id != 0
-        && !account::is_owner_or_delegate(env, acct_id, caller, &account.owner)
-    {
+    if account_id != 0 && !account::is_owner_or_delegate(env, acct_id, caller, &account.owner) {
         for (hub_asset, _) in aggregated.iter() {
             assert_with_error!(
                 env,
@@ -161,7 +159,8 @@ fn transfer_and_build_supply_entries(
 ) -> Vec<PoolSupplyEntry> {
     let mut entries: Vec<PoolSupplyEntry> = Vec::new(env);
     for (hub_asset, amount_in) in aggregated {
-        let asset_config = spoke::effective_asset_config(cache, account.spoke_id, &hub_asset);
+        let asset_config: AssetConfig =
+            (&cache.require_spoke_asset(account.spoke_id, &hub_asset)).into();
         payments::transfer_amount(
             env,
             &hub_asset.asset,
@@ -201,7 +200,8 @@ fn finish_supply_leg(
     cache: &mut Cache,
 ) {
     let hub_asset = &entry.action.hub_asset;
-    let asset_config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);
+    let asset_config: AssetConfig =
+        (&cache.require_spoke_asset(account.spoke_id, hub_asset)).into();
 
     let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
     let old_scaled = position.scaled_amount;
@@ -210,10 +210,15 @@ fn finish_supply_leg(
     // Pool owns scaled shares; controller keeps collateral risk params.
     position.scaled_amount = Ray::from(result.position.scaled_amount);
 
-    let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
     let delta = position.scaled_amount.checked_sub(env, old_scaled);
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
-    ctx.apply_supply_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
+    ctx.apply_supply_after_pool(
+        env,
+        hub_asset,
+        delta,
+        &result.market_index,
+        result.asset_decimals,
+    );
 
     cache.put_market_index(hub_asset, &result.market_index);
     cache.record_supply_position_update(

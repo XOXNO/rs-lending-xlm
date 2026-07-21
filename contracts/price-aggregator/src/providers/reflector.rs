@@ -16,8 +16,8 @@ use common::types::{
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::context::PriceCache as Cache;
-use crate::price;
 use crate::observation::{reflector_observation_from_price_data, OracleObservation};
+use crate::price;
 use crate::storage;
 
 pub(crate) fn read_reflector_source(

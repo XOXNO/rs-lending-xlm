@@ -478,7 +478,10 @@ pub enum ControllerKey {
     PoolTemplate,
     /// Address of the single central liquidity pool deployed by the controller.
     Pool,
-    Aggregator,
+    /// Swap venue (the swap-aggregator contract), used by strategy flows.
+    SwapAggregator,
+    /// Oracle authority (the price-aggregator contract) for bulk price reads.
+    PriceAggregator,
     Accumulator,
     AccountNonce,
     PositionLimits,
@@ -493,6 +496,8 @@ pub enum ControllerKey {
     SpokeAsset(u32, HubAssetKey),
     SpokeUsage(u32, HubAssetKey),
     PositionManager(Address),
+    /// Governance allowlist entry for a Blend migration pool (persistent).
+    BlendPoolAllowed(Address),
     AccountMeta(u64),
     Delegates(u64),
     SupplyPositions(u64),

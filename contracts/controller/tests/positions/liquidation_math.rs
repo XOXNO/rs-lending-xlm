@@ -48,6 +48,14 @@ fn feed_raw() -> PriceFeedRaw {
     }
 }
 
+/// Aggregator-resolved price map for a single asset (the controller reads
+/// prices from this map after the one `prices()` call per flow).
+fn single_price(env: &Env, asset: &Address) -> soroban_sdk::Map<Address, PriceFeedRaw> {
+    let mut prices = soroban_sdk::Map::new(env);
+    prices.set(asset.clone(), feed_raw());
+    prices
+}
+
 fn index_raw() -> MarketIndexRaw {
     MarketIndexRaw {
         borrow_index: RAY,
@@ -254,10 +262,10 @@ fn single_usd_oracle_config(oracle_id: Address, asset: Address) -> MarketOracleC
 #[test]
 fn repayment_at_exact_debt_produces_no_refund() {
     let env = Env::default();
-    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
         let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
         let payments = vec![&env, (hub_asset.clone(), 500_0000000i128)];
@@ -277,10 +285,10 @@ fn repayment_at_exact_debt_produces_no_refund() {
 #[test]
 fn repayment_above_debt_refunds_exact_excess() {
     let env = Env::default();
-    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
         let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
         let payments = vec![&env, (hub_asset.clone(), 500_0000005i128)];
@@ -540,10 +548,10 @@ fn plan_for_seizure(env: &Env, repay_usd_raw: i128, bonus_bps: i128) -> Normaliz
 }
 
 fn run_seizure(env: &Env, fees_bps: u32, repay_usd_raw: i128, bonus_bps: i128) -> Vec<SeizeEntry> {
-    let (contract, hub_asset, account, config) = seize_fixture(env, fees_bps);
+    let (contract, hub_asset, account, _config) = seize_fixture(env, fees_bps);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(env, &hub_asset.asset, &config);
         let mut cache = Cache::new_view(env);
+        cache.set_prices(single_price(env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
         let plan = plan_for_seizure(env, repay_usd_raw, bonus_bps);
         calculate_seized_collateral(env, &account, Wad::from(1_000 * WAD), &plan, &mut cache)
@@ -590,7 +598,6 @@ fn whole_unit_protocol_fee_is_exact() {
     assert_eq!(entry.amount, 1_500_000_000);
     assert_eq!(entry.protocol_fee, 50_000_000);
 }
-
 
 fn stroops(tokens: i128) -> i128 {
     tokens * 10_000_000
@@ -718,10 +725,10 @@ fn max_bonus_for_threshold_is_exact_at_half() {
 #[test]
 fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
     let env = Env::default();
-    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
         let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
         // p = 1, HF = 0.4: even a zero bonus removes weighted collateral
@@ -752,10 +759,10 @@ fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
 #[should_panic(expected = "Error(Contract, #135)")]
 fn normalize_rejects_partial_on_solvent_toxic_account() {
     let env = Env::default();
-    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
         let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
         // p = 0.9, HF = 0.93: cap = 333 bps sits in [0, base 500).
@@ -782,10 +789,10 @@ fn normalize_rejects_partial_on_solvent_toxic_account() {
 #[test]
 fn normalize_accepts_full_close_on_solvent_toxic_account() {
     let env = Env::default();
-    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
         let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
         let s = snap(
@@ -816,10 +823,10 @@ fn normalize_accepts_full_close_on_solvent_toxic_account() {
 #[test]
 fn normalize_accepts_partial_when_cap_equals_base() {
     let env = Env::default();
-    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
         let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
         // debt $500, collateral $525, weighted $420: p = 0.8, hf = 0.84.
@@ -856,10 +863,10 @@ fn normalize_accepts_partial_when_cap_equals_base() {
 #[test]
 fn normalize_allows_partial_on_insolvent_account() {
     let env = Env::default();
-    let (contract, hub_asset, account, config) = repayment_fixture(&env);
+    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
         let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
         // p = 1, HF = 0.4: cap is negative, the account is insolvent.
@@ -950,7 +957,11 @@ fn estimate_full_close_when_base_bonus_ratchets() {
 
     let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
     assert_eq!(bonus.raw(), 500, "full close pays the base bonus");
-    assert_eq!(d.raw(), s.total_debt.raw(), "unsafe partials force full close");
+    assert_eq!(
+        d.raw(),
+        s.total_debt.raw(),
+        "unsafe partials force full close"
+    );
 }
 
 // Outside the toxic band the guard is inert: the HF-scaled bonus applies
@@ -1086,7 +1097,13 @@ fn estimate_target_reachable_returns_interpolated_partial() {
 
     // Zero bonus keeps `1 + bonus == 1`, so `d_max == total_collateral` and the
     // interpolation is the binding constraint (collateral $200 >> repayment).
-    let s = snap(100 * WAD, 200 * WAD, 95 * WAD, 475 * WAD / 1000, 95 * WAD / 100);
+    let s = snap(
+        100 * WAD,
+        200 * WAD,
+        95 * WAD,
+        475 * WAD / 1000,
+        95 * WAD / 100,
+    );
     let bounds = BonusBounds {
         base: Bps::from(0i128),
         max: Bps::from(0i128),
@@ -1105,7 +1122,10 @@ fn estimate_target_reachable_returns_interpolated_partial() {
         .min(s.total_collateral)
         .min(s.total_debt);
 
-    assert!(d < s.total_debt, "target-reachable partial, not a full close");
+    assert!(
+        d < s.total_debt,
+        "target-reachable partial, not a full close"
+    );
     assert_eq!(d.raw(), expected.raw());
 }
 
@@ -1119,7 +1139,13 @@ fn estimate_collateral_covers_target_returns_collateral_cap() {
     let curve = LiquidationCurve::from_config(&default_spoke_config());
 
     // target_hf * D = 1.10 * 100 = 110 == weighted_coll, the branch boundary.
-    let s = snap(100 * WAD, 120 * WAD, 110 * WAD, 85 * WAD / 100, 102 * WAD / 100);
+    let s = snap(
+        100 * WAD,
+        120 * WAD,
+        110 * WAD,
+        85 * WAD / 100,
+        102 * WAD / 100,
+    );
     let bounds = BonusBounds {
         base: Bps::from(0i128),
         max: Bps::from(0i128),
@@ -1144,7 +1170,13 @@ fn estimate_fallback_divides_collateral_by_one_plus_bonus() {
     // inert (hf >= 1: below 1 the capped bonus keeps the target denominator
     // positive), so pin hf above the target: p*(1+b) = 0.74*1.5 = 1.11 > 1.10
     // makes the target unreachable and the fallback divides the collateral.
-    let s = snap(150 * WAD, 150 * WAD, 50 * WAD, 74 * WAD / 100, 12 * WAD / 10);
+    let s = snap(
+        150 * WAD,
+        150 * WAD,
+        50 * WAD,
+        74 * WAD / 100,
+        12 * WAD / 10,
+    );
     let bounds = BonusBounds {
         base: Bps::from(5_000i128),
         max: Bps::from(5_000i128),
@@ -1191,10 +1223,10 @@ fn estimate_leaves_exactly_five_dollar_remainder_unescalated() {
 #[test]
 fn account_bonus_params_accumulates_collateral_and_weights_bonus() {
     let env = Env::default();
-    let (contract, hub_asset, account, config) = seize_fixture(&env, 0);
+    let (contract, hub_asset, account, _config) = seize_fixture(&env, 0);
     env.as_contract(&contract, || {
-        crate::storage::set_asset_oracle(&env, &hub_asset.asset, &config);
         let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
         // 0.5 collateral-mix proportion -> max bonus 10000 bps, so base is not
@@ -1276,7 +1308,13 @@ fn seizure_never_exceeds_collateral() {
     for hf_pct in (10..100).step_by(5) {
         // hf = weighted / debt  =>  debt = weighted / hf
         let debt = weighted * 100 / hf_pct as i128;
-        let s = snap(debt, collateral, weighted, proportion, WAD * hf_pct as i128 / 100);
+        let s = snap(
+            debt,
+            collateral,
+            weighted,
+            proportion,
+            WAD * hf_pct as i128 / 100,
+        );
         let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
         // The dust guard may escalate to a full close whose notional seizure
         // exceeds collateral; the real per-asset seizure is capped downstream in

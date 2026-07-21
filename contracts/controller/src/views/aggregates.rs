@@ -6,7 +6,6 @@ use common::math::fp::Wad;
 use soroban_sdk::Env;
 
 use crate::context::Cache;
-use crate::oracle;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
@@ -22,7 +21,7 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     let supply_keys = supply.keys();
     let priced_assets = risk::position_assets(env, &supply_keys);
-    oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
+    cache.ensure_prices(&priced_assets);
     cache.prefetch_market_indexes(&supply_keys);
 
     let mut total_collateral = Wad::ZERO;
@@ -57,7 +56,7 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     let borrow_keys = borrow.keys();
     let priced_assets = risk::position_assets(env, &borrow_keys);
-    oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
+    cache.ensure_prices(&priced_assets);
     cache.prefetch_market_indexes(&borrow_keys);
 
     let mut total_borrow = Wad::ZERO;
@@ -85,7 +84,7 @@ pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     };
     let mut cache = Cache::new_view(env);
     let priced_assets = risk::position_assets(env, &account.supply_positions.keys());
-    oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
+    cache.ensure_prices(&priced_assets);
     risk::calculate_ltv_collateral_wad(env, &mut cache, account.spoke_id, &account.supply_positions)
         .raw()
 }

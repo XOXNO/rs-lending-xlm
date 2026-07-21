@@ -11,7 +11,7 @@
 
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry,
+    Account, AccountPosition, AssetConfig, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry,
 };
 use soroban_sdk::{contractimpl, vec, Address, Env, Vec};
 
@@ -25,7 +25,6 @@ use crate::positions::{
     make_pool_action, AggregatedPayments, HubPayment, PositionSides,
 };
 use crate::risk::{refresh_supply_risk_params, validation};
-use crate::spoke;
 use crate::storage;
 use crate::{Controller, ControllerArgs, ControllerClient};
 
@@ -245,7 +244,7 @@ pub(crate) fn finish_withdraw_leg(
     ctx.apply_withdraw_after_pool(env, hub_asset, shares_withdrawn);
 
     if matches!(refresh_spoke, SpokeRefresh::Refresh) {
-        let config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);
+        let config: AssetConfig = (&cache.require_spoke_asset(account.spoke_id, hub_asset)).into();
         refresh_supply_risk_params(
             env,
             cache,

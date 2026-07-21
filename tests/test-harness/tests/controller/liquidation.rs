@@ -440,7 +440,6 @@ fn test_liquidation_rejects_zero_amount() {
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 
-
 // liquidation.rs rejects `account.owner == liquidator` with SelfLiquidationNotAllowed (#133).
 #[test]
 fn test_self_liquidation_rejects() {

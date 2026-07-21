@@ -398,11 +398,13 @@ fn test_pool_strategy_mutation_projects_to_position_mutation() {
         },
         actual_amount: 1_000,
         amount_received: 900,
+        asset_decimals: 7,
     };
     let projected = PoolPositionMutation::from(&m);
     assert_eq!(projected.position.scaled_amount, 11 * RAY);
     assert_eq!(projected.actual_amount, 1_000);
     assert_eq!(projected.market_index.borrow_index, RAY);
+    assert_eq!(projected.asset_decimals, 7);
 }
 // test_rate_model_verify_assert_with_error_branches (+14) common/src/types/pool.rs:169-213 (InterestRateModel::verify)
 #[test]

@@ -3,17 +3,15 @@
 //! `#[contractclient]` generates `ControllerAdminClient` for governance
 //! forwarding. Matches deployed controller-admin entrypoints by ABI name.
 
-use common::types::{
-    HubAssetKey, MarketOracleConfig, OraclePriceFluctuation, PositionLimits, SpokeAssetArgs,
-    SpokeAssetConfig,
-};
+use common::types::{HubAssetKey, PositionLimits, SpokeAssetArgs, SpokeAssetConfig};
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, Address, BytesN, Env};
 
 /// Mirrors the controller admin ABI for governance forwarding.
 #[contractclient(name = "ControllerAdminClient")]
 pub trait ControllerAdmin {
-    fn set_aggregator(env: Env, addr: Address);
+    fn set_swap_aggregator(env: Env, addr: Address);
+    fn set_price_aggregator(env: Env, addr: Address);
     fn set_accumulator(env: Env, addr: Address);
     fn set_liquidity_pool_template(env: Env, hash: BytesN<32>);
     fn set_position_limits(env: Env, limits: PositionLimits);
@@ -41,14 +39,8 @@ pub trait ControllerAdmin {
         paused: bool,
         frozen: bool,
     );
-    /// Sanity band only; new band must contain the current live price.
-    fn set_oracle_sanity_bounds(env: Env, asset: Address, min_wad: i128, max_wad: i128);
-    fn approve_token(env: Env, token: Address);
-    fn revoke_token(env: Env, token: Address);
     fn approve_blend_pool(env: Env, pool: Address);
     fn revoke_blend_pool(env: Env, pool: Address);
-    fn set_market_oracle_config(env: Env, hub_asset: HubAssetKey, config: MarketOracleConfig);
-    fn set_oracle_tolerance(env: Env, asset: Address, tolerance: OraclePriceFluctuation);
     fn set_position_manager(env: Env, manager: Address, is_active: bool);
     fn create_liquidity_pool(
         env: Env,

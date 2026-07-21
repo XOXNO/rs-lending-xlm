@@ -4,7 +4,9 @@
 //! sourced from the SAC token by the governance resolver) arrives pre-built.
 
 use common::errors::{GenericError, OracleError};
-use common::types::{MarketOracleConfig, OraclePriceFluctuation, OracleSourceConfig, OracleStrategy, ReflectorBase};
+use common::types::{
+    MarketOracleConfig, OraclePriceFluctuation, OracleSourceConfig, OracleStrategy, ReflectorBase,
+};
 use common::validation::{
     validate_oracle_tolerance, validate_sanity_bounds, validate_single_source_sanity_band,
 };
@@ -33,7 +35,11 @@ pub(crate) fn validate_market_oracle_config(
     asset: &Address,
     config: &MarketOracleConfig,
 ) {
-    validate_sanity_bounds(env, config.min_sanity_price_wad, config.max_sanity_price_wad);
+    validate_sanity_bounds(
+        env,
+        config.min_sanity_price_wad,
+        config.max_sanity_price_wad,
+    );
     validate_single_source_sanity_band(
         env,
         config.strategy,
