@@ -1,7 +1,7 @@
 //! Controller domain types: spoke risk projections, accounts, positions.
 
 use crate::math::fp::{Bps, Ray};
-use crate::types::oracle::{MarketOracleConfigOption, PriceFeedRaw};
+use crate::types::oracle::PriceFeedRaw;
 use crate::types::pool::{
     AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw, HubAssetKey,
 };
@@ -96,7 +96,6 @@ pub struct SpokeAssetConfig {
     pub liquidation_fees: u32,
     pub supply_cap: i128,
     pub borrow_cap: i128,
-    pub oracle_override: MarketOracleConfigOption,
 }
 
 /// Args for add/edit spoke asset. Edits set pause/freeze explicitly (no silent clear).
@@ -116,7 +115,6 @@ pub struct SpokeAssetArgs {
     pub liquidation_fees: u32,
     pub supply_cap: i128,
     pub borrow_cap: i128,
-    pub oracle_override: MarketOracleConfigOption,
 }
 
 /// Running scaled-share totals for one asset within a spoke.
@@ -295,7 +293,6 @@ mod tests {
             liquidation_fees: 100,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: MarketOracleConfigOption::None,
         }
     }
 
@@ -342,7 +339,6 @@ mod tests {
             liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: MarketOracleConfigOption::None,
         }
     }
 
@@ -355,7 +351,6 @@ mod tests {
         assert!(asset.is_collateralizable);
         assert!(asset.is_borrowable);
         assert_eq!(asset.loan_to_value, 9_000);
-        assert!(asset.oracle_override.as_ref().is_none());
     }
 
     fn account_meta(env: &Env, spoke_id: u32) -> AccountMeta {
