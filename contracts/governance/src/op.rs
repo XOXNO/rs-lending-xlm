@@ -5,8 +5,6 @@
 //! executes the governance-self variants inline once their timelock matures.
 
 use common::errors::{CollateralError, GenericError, OracleError};
-use common::types::MarketOracleConfigOption;
-use common::validation::{validate_sanity_bounds, validate_single_source_sanity_band};
 
 use soroban_sdk::{
     assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
@@ -22,23 +20,10 @@ pub use governance_interface::{
     TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
-fn validate_oracle_override(env: &Env, oracle_override: &MarketOracleConfigOption) {
-    if let MarketOracleConfigOption::Some(cfg) = oracle_override {
-        validate_sanity_bounds(env, cfg.min_sanity_price_wad, cfg.max_sanity_price_wad);
-        validate_single_source_sanity_band(
-            env,
-            cfg.strategy,
-            cfg.min_sanity_price_wad,
-            cfg.max_sanity_price_wad,
-        );
-    }
-}
-
 fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
     validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
     validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
-    validate_oracle_override(env, &args.oracle_override);
 }
 
 type ResolvedOperation = (Address, Symbol, Vec<Val>, DelayTier);
