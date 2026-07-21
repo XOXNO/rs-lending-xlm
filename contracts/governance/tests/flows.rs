@@ -5,8 +5,8 @@ extern crate std;
 use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs};
 use common::constants::MAX_REASONABLE_PRICE_WAD;
 use common::types::{
-    ControllerKey, HubAssetKey, MarketOracleConfig, MarketOracleConfigInput,
-    MarketOracleConfigOption, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
+    ControllerKey, HubAssetKey, MarketOracleConfigInput,
+    OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
     OracleSourceConfigInputOption, OracleStrategy, PositionLimits, ReflectorSourceConfigInput,
 };
 use soroban_sdk::testutils::storage::Instance as _;
@@ -390,45 +390,8 @@ fn edit_asset_in_spoke_rejects_bad_risk_bounds_before_any_cross_call() {
         liquidation_fees: 100,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: MarketOracleConfigOption::None,
     };
     gov.execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #226)")]
-fn add_asset_to_spoke_rejects_wide_single_source_override_at_propose_time() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (admin, _, gov) = register_governance(&env);
-    let asset = Address::generate(&env);
-    let salt = BytesN::from_array(&env, &[0u8; 32]);
-
-    // A `Single`-strategy override whose sanity band is far wider than
-    // `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`: (2_000 - 1_000) / (2_000 + 1_000) is
-    // ~3_333 bps. `resolve_op` must reject it before scheduling, not at execute
-    // time after the timelock delay.
-    let mut override_cfg = MarketOracleConfig::pending_for(asset.clone(), 7);
-    override_cfg.min_sanity_price_wad = 1_000;
-    override_cfg.max_sanity_price_wad = 2_000;
-
-    let args = SpokeAssetArgs {
-        hub_id: 1,
-        asset,
-        spoke_id: 1,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        ltv: 7_500,
-        threshold: 8_000,
-        bonus: 500,
-        liquidation_fees: 100,
-        supply_cap: 0,
-        borrow_cap: 0,
-        oracle_override: MarketOracleConfigOption::Some(override_cfg),
-    };
-    gov.propose(&admin, &AdminOperation::AddAssetToSpoke(args), &salt);
 }
 
 // Admin entrypoints renew instance TTL for ownable, role, and controller keys.

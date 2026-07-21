@@ -1,6 +1,6 @@
 use controller::types::{ControllerKey, SpokeAssetArgs};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, f64_to_i128, hub_asset, usd, usd_cents, usdc_preset,
+    assert_contract_error, errors, eth_preset, f64_to_i128, hub_asset, usd_cents, usdc_preset,
     usdt_stable_preset, LendingTest, PositionType, ALICE, HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR,
     STABLECOIN_SPOKE,
 };
@@ -343,7 +343,6 @@ fn test_spoke_deprecated_category_operations() {
     let asset_address = t.resolve_asset("USDC");
     let edit_asset_result = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: asset_address.clone(),
         spoke_id: 2,
@@ -366,7 +365,6 @@ fn test_spoke_deprecated_category_operations() {
     let usdt_address = t.resolve_asset("USDT");
     let add_asset_result = t.ctrl_client().try_add_asset_to_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdt_address,
         spoke_id: 2,
@@ -764,7 +762,6 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
     // ltv >= threshold must reject (the borrow-buffer invariant).
     let inverted = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdc.clone(),
         spoke_id: 2,
@@ -789,7 +786,6 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
     // reject: 9_500 * (10_000 + 600) = 1.007e8 > 1e8.
     let unsafe_bonus = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdc.clone(),
         spoke_id: 2,
@@ -874,7 +870,6 @@ fn test_spoke_supply_cap_enforced() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdc.clone(),
         spoke_id: 2,
@@ -911,7 +906,6 @@ fn test_spoke_borrow_cap_enforced() {
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdt.clone(),
         spoke_id: 2,
@@ -1033,7 +1027,6 @@ fn test_edit_spoke_supply_cap_below_usage_ratchets_down() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdc.clone(),
         spoke_id: 2,
@@ -1056,7 +1049,6 @@ fn test_edit_spoke_supply_cap_below_usage_ratchets_down() {
     // to chase a falling number through timelocked edits.
     t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdc.clone(),
         spoke_id: 2,
@@ -1104,7 +1096,6 @@ fn test_max_supply_respects_spoke_cap_headroom() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdc.clone(),
         spoke_id: 2,
@@ -1155,7 +1146,6 @@ fn test_edit_spoke_borrow_cap_below_usage_ratchets_down() {
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdt.clone(),
         spoke_id: 2,
@@ -1176,7 +1166,6 @@ fn test_edit_spoke_borrow_cap_below_usage_ratchets_down() {
 
     t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdt.clone(),
         spoke_id: 2,
@@ -1221,7 +1210,6 @@ fn test_spoke_spoke_cap_above_from_asset_domain_rejected() {
     let overflowing_cap = 2_000_000_000_000_000_000_000i128;
     let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdc.clone(),
         spoke_id: 2,
@@ -1255,7 +1243,6 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdc.clone(),
         spoke_id: 2,
@@ -1319,7 +1306,6 @@ fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: usdt.clone(),
         spoke_id: 2,
@@ -1363,31 +1349,6 @@ fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
     );
 }
 
-/// Per-spoke `oracle_override` reprices that spoke only; token-rooted base price is unchanged.
-/// Override flows through `edit_asset_in_spoke`; account valuation consults it.
-#[test]
-fn test_spoke_oracle_override_reprices_collateral() {
-    let mut t = LendingTest::new().with_market(eth_preset()).build();
-
-    // eth_preset prices ETH at $2000. Supply 1 ETH on the base spoke.
-    t.supply(ALICE, "ETH", 1.0);
-    let collateral_base = t.total_collateral_raw(ALICE);
-    assert!(collateral_base > 0, "supplied collateral must be valued");
-
-    // Point ETH at a per-spoke override priced at $4000 (2x the base).
-    t.set_spoke_oracle_override("ETH", HARNESS_SPOKE, usd(4000));
-
-    let collateral_override = t.total_collateral_raw(ALICE);
-
-    // The spoke's view of ETH doubled while the token-rooted base is unchanged,
-    // so the account's collateral USD doubles.
-    let ratio = collateral_override as f64 / collateral_base as f64;
-    assert!(
-        (ratio - 2.0).abs() < 0.01,
-        "per-spoke override should reprice ETH ~2x: base={collateral_base} override={collateral_override} ratio={ratio}"
-    );
-}
-
 // Regression: liquidation_fees is a BPS ratio applied to the seized-collateral
 // bonus; values above 100% must be rejected at listing time, not stored to
 // break liquidation planning later.
@@ -1412,7 +1373,6 @@ fn test_add_asset_to_spoke_rejects_liquidation_fees_above_bps() {
         liquidation_fees: 10_001,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
     });
     match res {
         Err(Ok(err)) => assert_eq!(
@@ -1445,7 +1405,6 @@ fn test_edit_asset_in_spoke_rejects_liquidation_fees_above_bps() {
         liquidation_fees: 10_001,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
     });
     match res {
         Err(Ok(err)) => assert_eq!(
@@ -1454,25 +1413,6 @@ fn test_edit_asset_in_spoke_rejects_liquidation_fees_above_bps() {
         ),
         other => panic!("expected InvalidLiqThreshold, got {other:?}"),
     }
-}
-
-// Regression: a per-spoke oracle override whose `asset_decimals` diverge from
-// the pool market's decimals would mis-scale every valuation on the spoke by
-// powers of ten; the listing must reject the mismatch.
-#[test]
-fn test_spoke_oracle_override_rejects_mismatched_decimals() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .build();
-
-    let pool_decimals = t.resolve_market("USDC").decimals;
-    let res = t.try_set_spoke_oracle_override_with_decimals("USDC", 2, usd(1), pool_decimals + 1);
-    assert_contract_error(res, errors::INVALID_ASSET);
-
-    t.try_set_spoke_oracle_override_with_decimals("USDC", 2, usd(1), pool_decimals)
-        .expect("override with matching decimals must be accepted");
 }
 
 // Regression: `max_supply` must preview zero on a deprecated spoke because the
@@ -1530,7 +1470,6 @@ fn set_spoke_asset_flags(
         liquidation_fees: config.liquidation_fees,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
     });
 }
 
@@ -1744,7 +1683,6 @@ fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
         liquidation_fees: listing.liquidation_fees,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
     });
 
     let result = t.try_update_account_threshold(false, &[account_id]);
@@ -1754,44 +1692,3 @@ fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
     );
 }
 
-// AUDIT: a per-spoke oracle override carries a fully-resolved
-// `ReflectorSourceConfig` whose PROVIDER `decimals` is proposer-supplied. The
-// override write path validates only sanity bounds, band width, tolerance
-// shape, quote-active, and `asset_decimals == pool_decimals` (the token
-// amount-scaling decimals). It never probes/bounds the PROVIDER `decimals`.
-// Declaring 6 for a feed that returns 14-decimal integers upscales the read
-// price by 10^8; the proposer sets the sanity band around the inflated value,
-// so the read-time gate cannot catch it. Passing assertion = exploit real.
-#[test]
-fn test_audit_borrow_withdraw_spoke_override_wrong_provider_decimals_inflates_collateral() {
-    let mut t = LendingTest::new().with_market(eth_preset()).build();
-
-    // Attacker supplies 1 unit of the collateral asset on the base spoke.
-    t.supply(ALICE, "ETH", 1.0);
-
-    // Honest override: provider decimals = 14 (matches the mock feed), $1 read.
-    let honest_read =
-        t.set_spoke_oracle_override_with_provider_decimals("ETH", HARNESS_SPOKE, usd(1), 14);
-    assert_eq!(honest_read, usd(1), "honest 14-decimal round-trip is $1");
-    let collateral_honest = t.total_collateral_raw(ALICE);
-    assert!(collateral_honest > 0, "collateral must be valued");
-
-    // Malicious override: SAME honest mock feed, but provider decimals = 6.
-    // `asset_decimals` stays correct, so the only decimals guard passes; the
-    // provider field is consumed verbatim and inflates the read price 10^8x.
-    let inflated_read =
-        t.set_spoke_oracle_override_with_provider_decimals("ETH", HARNESS_SPOKE, usd(1), 6);
-    assert_eq!(
-        inflated_read,
-        usd(1) * 100_000_000,
-        "wrong provider decimals must upscale the same feed by 10^8"
-    );
-    let collateral_inflated = t.total_collateral_raw(ALICE);
-
-    let ratio = collateral_inflated as f64 / collateral_honest as f64;
-    assert!(
-        (ratio - 1e8).abs() / 1e8 < 0.01,
-        "unvalidated provider decimals inflate collateral ~1e8x: \
-         honest={collateral_honest} inflated={collateral_inflated} ratio={ratio}"
-    );
-}

@@ -35,7 +35,6 @@ fn test_edit_asset_in_spoke_rejects_threshold_lte_ltv() {
         liquidation_fees: config.liquidation_fees,
         supply_cap: config.supply_cap,
         borrow_cap: config.borrow_cap,
-        oracle_override: config.oracle_override,
     };
 
     let result = gov.try_execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));

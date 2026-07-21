@@ -134,7 +134,6 @@ fn test_edit_asset_in_spoke_rejects_excessive_liq_bonus() {
         .get_spoke_asset(&1u32, &hub_asset(asset.clone()));
     let args = SpokeAssetArgs {
         liquidation_fees: cfg.liquidation_fees,
-        oracle_override: cfg.oracle_override,
         hub_id: HARNESS_HUB,
         asset,
         spoke_id: HARNESS_SPOKE,
@@ -166,7 +165,6 @@ fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
         .get_spoke_asset(&1u32, &hub_asset(asset.clone()));
     let args = SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: asset.clone(),
         spoke_id: HARNESS_SPOKE,

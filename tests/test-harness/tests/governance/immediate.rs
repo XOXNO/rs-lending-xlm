@@ -111,7 +111,6 @@ fn guardian_sets_spoke_asset_flags_immediately() {
             liquidation_fees: cfg.liquidation_fees,
             supply_cap: cfg.supply_cap,
             borrow_cap: cfg.borrow_cap,
-            oracle_override: cfg.oracle_override,
         }),
     );
     assert!(

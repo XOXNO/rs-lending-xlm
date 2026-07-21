@@ -121,7 +121,6 @@ fn test_edit_asset_in_spoke_rejects_threshold_above_bps() {
         liquidation_fees: cfg.liquidation_fees,
         supply_cap: cfg.supply_cap,
         borrow_cap: cfg.borrow_cap,
-        oracle_override: cfg.oracle_override,
     };
     t.gov_client()
         .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));

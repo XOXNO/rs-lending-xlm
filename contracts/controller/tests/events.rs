@@ -1,6 +1,6 @@
 use super::*;
 use common::types::{
-    MarketOracleConfig, MarketOracleConfigOption, OracleAssetRef, OraclePriceFluctuation,
+    MarketOracleConfig, OracleAssetRef, OraclePriceFluctuation,
     OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, PositionMode,
     ReflectorBase, ReflectorSourceConfig, SpokeAssetConfig,
 };
@@ -311,7 +311,6 @@ fn all_event_helpers_publish_one_event() {
                 liquidation_fees: 0,
                 supply_cap: 0,
                 borrow_cap: 0,
-                oracle_override: MarketOracleConfigOption::None,
             },
             spoke_id: 1,
             hub_id: 1,
@@ -444,7 +443,6 @@ fn spoke_asset_events_carry_hub_id() {
             liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: MarketOracleConfigOption::None,
         },
         spoke_id: 1,
         hub_id: 3,

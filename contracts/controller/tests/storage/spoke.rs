@@ -1,7 +1,6 @@
 use super::*;
 use crate::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use crate::Controller;
-use common::types::MarketOracleConfigOption;
 use soroban_sdk::testutils::storage::Persistent as _;
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{Address, Env};
@@ -27,7 +26,6 @@ fn sample_spoke_asset() -> SpokeAssetConfig {
         liquidation_fees: 0,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: MarketOracleConfigOption::None,
     }
 }
 
@@ -74,7 +72,6 @@ fn test_spoke_asset_discrete_key_roundtrip() {
         set_spoke_asset(&env, 1, &hub_asset, &sample_spoke_asset());
         let stored = get_spoke_asset(&env, 1, &hub_asset).expect("config present after write");
         assert_eq!(stored.loan_to_value, 9_000);
-        assert!(stored.oracle_override.as_ref().is_none());
 
         remove_spoke_asset(&env, 1, &hub_asset);
         assert!(get_spoke_asset(&env, 1, &hub_asset).is_none());

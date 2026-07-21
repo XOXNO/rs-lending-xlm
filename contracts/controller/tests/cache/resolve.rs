@@ -1,10 +1,9 @@
 use super::*;
 use crate::Controller;
-use common::types::MarketOracleConfigOption;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
 
-fn spoke_asset_with_override(oracle_override: MarketOracleConfigOption) -> SpokeAssetConfig {
+fn spoke_asset() -> SpokeAssetConfig {
     SpokeAssetConfig {
         is_collateralizable: true,
         is_borrowable: true,
@@ -16,7 +15,6 @@ fn spoke_asset_with_override(oracle_override: MarketOracleConfigOption) -> Spoke
         liquidation_fees: 0,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override,
     }
 }
 
@@ -60,7 +58,7 @@ fn resolve_spoke_without_override_falls_back_to_base() {
             &env,
             spoke_id,
             &hub_asset,
-            &spoke_asset_with_override(MarketOracleConfigOption::None),
+            &spoke_asset(),
         );
 
         let mut cache = Cache::new_view(&env);

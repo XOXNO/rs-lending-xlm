@@ -389,7 +389,6 @@ impl LendingTestBuilder {
                         liquidation_fees: 0,
                         supply_cap: 0i128,
                         borrow_cap: 0i128,
-                        oracle_override: controller::types::MarketOracleConfigOption::None,
                     }),
                 );
             }

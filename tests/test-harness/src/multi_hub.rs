@@ -185,7 +185,6 @@ impl LendingTest {
                 liquidation_fees,
                 supply_cap: 0,
                 borrow_cap: 0,
-                oracle_override: risk.oracle_override.clone(),
             }),
         );
     }

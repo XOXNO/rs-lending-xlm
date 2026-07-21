@@ -213,7 +213,6 @@ fn poc_frozen_collateral_still_backs_new_borrows() {
             liquidation_fees: config.liquidation_fees,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
         });
     }
 

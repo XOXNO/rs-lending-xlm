@@ -4,7 +4,7 @@ use crate::Controller;
 use common::constants::RAY;
 use common::math::fp::Ray;
 use common::types::{
-    Account, MarketIndexRaw, MarketOracleConfigOption, PositionMode, SpokeAssetConfig,
+    Account, MarketIndexRaw, PositionMode, SpokeAssetConfig,
     SpokeUsageRaw,
 };
 use soroban_sdk::testutils::Address as _;
@@ -22,7 +22,6 @@ fn spoke_asset_config(ltv_bps: u32) -> SpokeAssetConfig {
         liquidation_fees: 0,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: MarketOracleConfigOption::None,
     }
 }
 

@@ -1,7 +1,7 @@
 use super::*;
 use common::constants::{RAY, WAD};
 use common::types::{
-    AccountPositionRaw, MarketIndexRaw, MarketOracleConfig, MarketOracleConfigOption,
+    AccountPositionRaw, MarketIndexRaw, MarketOracleConfig,
     OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
     OracleSourceConfigOption, OracleStrategy, PositionLimits, PositionMode, ReflectorBase,
     ReflectorSourceConfig, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
@@ -49,7 +49,6 @@ fn spoke_listing(borrow_cap: i128) -> SpokeAssetConfig {
         liquidation_fees: 100,
         supply_cap: 0,
         borrow_cap,
-        oracle_override: MarketOracleConfigOption::None,
     }
 }
 
