@@ -40,8 +40,6 @@ pub(crate) struct Cache {
     /// a clear error instead.
     #[cfg_attr(feature = "certora", allow(dead_code))]
     resolving: Vec<Address>,
-    /// Per-spoke override price cache, separate from token-rooted prices.
-    spoke_prices: Map<HubAssetKey, PriceFeedRaw>,
     /// Raw RedStone payloads fetched once per transaction.
     redstone_prefetch: Map<(Address, String), RedStonePriceData>,
     /// Token-rooted oracle configs; missing entries are not cached as absent
@@ -80,7 +78,6 @@ impl Cache {
             env: env.clone(),
             token_prices: Map::new(env),
             resolving: Vec::new(env),
-            spoke_prices: Map::new(env),
             redstone_prefetch: Map::new(env),
             asset_oracle: Map::new(env),
             market_indexes: Map::new(env),

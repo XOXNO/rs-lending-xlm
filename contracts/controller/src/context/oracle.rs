@@ -1,18 +1,15 @@
 //! Oracle price and config memos.
 //!
-//! Position pricing uses `cached_price_for` (spoke override if listed, else
-//! token-rooted). Cycle detection applies on the token path via
+//! Position pricing is token-rooted via `cached_price`, cycle-guarded through
 //! `enter_price_resolution` / `exit_price_resolution`.
 
 use common::errors::OracleError;
 use common::oracle::providers::redstone::RedStonePriceData;
-use common::types::{
-    HubAssetKey, MarketOracleConfig, MarketOracleConfigOption, PriceFeed, PriceFeedRaw,
-};
+use common::types::{HubAssetKey, MarketOracleConfig, PriceFeed};
 use soroban_sdk::{panic_with_error, Address, String};
 
 use crate::context::Cache;
-use crate::oracle::{price_with_config, token_price};
+use crate::oracle::token_price;
 use crate::storage;
 
 impl Cache {
@@ -21,43 +18,9 @@ impl Cache {
         (&token_price(self, asset)).into()
     }
 
-    /// Position price: spoke oracle override if present, else token-rooted.
-    pub(crate) fn cached_price_for(&mut self, spoke_id: u32, hub_asset: &HubAssetKey) -> PriceFeed {
-        match self.spoke_oracle_override(spoke_id, hub_asset) {
-            Some(config) => (&self.spoke_price(hub_asset, &config)).into(),
-            None => self.cached_price(&hub_asset.asset),
-        }
-    }
-
-    /// Override config from the spoke listing, or `None` if unlisted / token-rooted.
-    fn spoke_oracle_override(
-        &mut self,
-        spoke_id: u32,
-        hub_asset: &HubAssetKey,
-    ) -> Option<MarketOracleConfig> {
-        match self
-            .cached_spoke_asset(spoke_id, hub_asset)?
-            .oracle_override
-        {
-            MarketOracleConfigOption::Some(config) => Some(config),
-            MarketOracleConfigOption::None => None,
-        }
-    }
-
-    /// Memoized override price for `hub_asset` via `config`.
-    fn spoke_price(
-        &mut self,
-        hub_asset: &HubAssetKey,
-        config: &MarketOracleConfig,
-    ) -> PriceFeedRaw {
-        if let Some(feed) = self.spoke_prices.get(hub_asset.clone()) {
-            return feed;
-        }
-        // Not wrapped in enter/exit: top-level only; nested reads use token
-        // oracle (guarded). Guard here too if overrides ever nest into each other.
-        let feed = price_with_config(self, &hub_asset.asset, config);
-        self.spoke_prices.set(hub_asset.clone(), feed.clone());
-        feed
+    /// Position price: token-rooted.
+    pub(crate) fn cached_price_for(&mut self, _spoke_id: u32, hub_asset: &HubAssetKey) -> PriceFeed {
+        self.cached_price(&hub_asset.asset)
     }
 
     /// Prefetched RedStone payload for `(adapter, feed_id)`, if any.
