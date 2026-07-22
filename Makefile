@@ -1108,6 +1108,8 @@ prepay-rent:
 	GOV=$$(jq -r '.["$(NETWORK)"].governance' $(CONFIG_DIR)/networks.json); \
 	HASH=$$(jq -r '.["$(NETWORK)"].pool_wasm_hash' $(CONFIG_DIR)/networks.json); \
 	FLR=$$(jq -r '.["$(NETWORK)"].flash_loan_receiver // empty' $(CONFIG_DIR)/networks.json); \
+	PAGG=$$(jq -r '.["$(NETWORK)"].price_aggregator // empty' $(CONFIG_DIR)/networks.json); \
+	OADP=$$(jq -r '.["$(NETWORK)"].xoxno_oracle_adapter // empty' $(CONFIG_DIR)/networks.json); \
 	{ echo "network: $(NETWORK)"; \
 	  echo "rpc:"; \
 	  echo "  url: $$RPC"; \
@@ -1121,6 +1123,8 @@ prepay-rent:
 	  echo "  market_assets: []"; \
 	  echo "  flash_loan_receiver: $$FLR"; \
 	  echo "  governance: $$GOV"; \
+	  echo "  price_aggregator: \"$$PAGG\""; \
+	  echo "  xoxno_oracle_adapter: \"$$OADP\""; \
 	  echo "keyvault:"; \
 	  echo "  url: https://unused.vault.azure.net"; \
 	  echo "  secret_name: unused"; \

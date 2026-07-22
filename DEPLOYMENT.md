@@ -104,19 +104,28 @@ markets via the timelocked `Unpause` path (short testnet delay).
 
 `make <network> setup`:
 
-1. Build + strip WASM (pool / controller / governance).
+1. Build + strip WASM (pool / controller / governance / price-aggregator).
 2. Upload pool & controller WASM → deploy governance → `deploy_controller` →
+   `deploy_price_aggregator` (governance-owned oracle authority) →
    `setPoolTemplate` + `deployPool` via timelock.
-3. `configure-controller`: aggregator + revenue accumulator (must be in
+3. `configure-controller`: swap aggregator + revenue accumulator (must be in
    `networks.json` as `aggregator` / `accumulator`, or
-   `AGGREGATOR_CONTRACT` / `ACCUMULATOR_CONTRACT`).
+   `AGGREGATOR_CONTRACT` / `ACCUMULATOR_CONTRACT`), then the timelocked
+   `SetPriceAggregator` self-op wiring the controller to the deployed
+   price-aggregator.
 4. `setupAll`: every market in `markets.json` (create, oracle, activate) then
    every spoke in `spokes.json`.
 5. Unpause attempt (testnet only in Makefile; mainnet left paused — see §3).
 6. Status: `info`, `listMarkets`, `listSpokeCategories`.
 
+The **price aggregator** (oracle authority) is deployed and wired by `setup`
+itself — no pre-set address needed. The **swap aggregator** (external DEX
+router) and **accumulator** (revenue treasury wallet) are prerequisites: set
+them in `networks.json`, or deploy the bundled swap aggregator first with
+`make <network> deployAggregator` (writes back `networks.json.aggregator`).
+
 Addresses write back to `networks.json` (`governance`, `controller`, `pool`,
-`*_wasm_hash`, `spoke_ids`).
+`price_aggregator`, `*_wasm_hash`, `spoke_ids`).
 
 ```bash
 make testnet setup
@@ -331,7 +340,9 @@ make <network> upgradeAll              # template + controller + pool, then unpa
   `make <network> ...`, or `env -u NETWORK` for one-offs.
 - **Interactive `cp`/`mv`.** Shell `-i` aliases hang scripts; tooling uses temps.
 - **Increase-only delay.** Bootstrap low, raise once.
-- **Aggregator / accumulator required.** `setup` / `resume` preflight fails if
-  missing from `networks.json`.
+- **Swap aggregator / accumulator required.** `configure-controller` fails if
+  the swap `aggregator` / `accumulator` are missing from `networks.json`
+  (override with `ALLOW_MISSING_AGGREGATOR=1` / `ALLOW_MISSING_ACCUMULATOR=1`).
+  The price aggregator is deployed + wired by `setup`, not a prerequisite.
 - **No on-chain `is_paused` view** in current tooling notes — infer from
   behavior / events / off-chain index.
