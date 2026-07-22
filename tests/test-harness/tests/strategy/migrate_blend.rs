@@ -724,6 +724,50 @@ fn test_migrate_debt_cap_too_low_reverts() {
     assert_contract_error(result, MockBlendError::HealthCheckFailed as u32);
 }
 
+/// A withdraw asset that is price-configured but never listed on the
+/// destination spoke is rejected fail-fast (`AssetNotInSpoke`) BEFORE any
+/// Blend interaction — no Blend seeding is needed to hit the gate.
+#[test]
+fn test_migrate_rejects_priced_but_unlisted_withdraw_asset_before_blend() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    let caller = t.get_or_create_user(ALICE);
+    let blend_addr = register_approved_blend(&t);
+
+    // Fresh SAC: give it a working oracle so the bulk price prefetch passes,
+    // but never list it on the spoke.
+    let unlisted = t
+        .env
+        .register_stellar_asset_contract_v2(t.admin())
+        .address();
+    t.mock_reflector_client()
+        .set_price(&unlisted, &test_harness::helpers::usd(1));
+    t.configure_market_oracle(
+        &unlisted,
+        &test_harness::reflector_single_spot_config(
+            &t.mock_reflector,
+            &unlisted,
+            test_harness::helpers::usd(1),
+            test_harness::DEFAULT_TOLERANCE.tolerance_bps,
+        ),
+    );
+
+    let result: Result<u64, soroban_sdk::Error> =
+        revert_result!(t.ctrl_client().try_migrate_from_blend(
+            &caller,
+            &0u64,
+            &1u32,
+            &HARNESS_HUB,
+            &blend_addr,
+            &SorobanVec::from_array(&t.env, [unlisted]),
+            &empty_assets(&t),
+            &empty_debt(&t),
+        ));
+    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
+}
+
 /// A migrated position whose debt exceeds its collateral's borrowing power
 /// reverts at the end-state health gate (INSUFFICIENT_COLLATERAL).
 #[test]

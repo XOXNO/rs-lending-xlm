@@ -109,6 +109,12 @@ pub(crate) fn process_migrate_blend(
     // fail closed on the price-aggregator bulk read (`OracleNotConfigured`).
     prefetch_strategy_prices(&mut cache, &account, &all_assets);
 
+    // Fail fast before any Blend call: a priced-but-unlisted (or non-supplyable)
+    // withdraw asset would otherwise only be rejected by `process_deposit`
+    // AFTER the external `guarded_submit`. Debt assets are gated by the borrow
+    // entry gates inside the debt leg, which also runs before the submit.
+    require_withdraw_assets_supplyable(env, &mut cache, spoke_id, hub_id, &withdraw_assets);
+
     execute_migration_debt_leg(
         env,
         caller,
@@ -198,6 +204,30 @@ fn prepare_migration_account(
     let (withdraw_assets, all_assets) =
         prepare_migration_assets(env, collateral_assets, supply_assets, debt_caps);
     (account_id, account, cache, withdraw_assets, all_assets)
+}
+
+/// Every migrated withdraw asset must be listed, unpaused/unfrozen, and
+/// supply-enabled on the destination spoke — the same gates
+/// `validate_position_entry_gates` applies to the eventual deposit, pulled
+/// forward so unsupported assets are rejected before any Blend interaction.
+fn require_withdraw_assets_supplyable(
+    env: &Env,
+    cache: &mut Cache,
+    spoke_id: u32,
+    hub_id: u32,
+    withdraw_assets: &Vec<Address>,
+) {
+    for asset in withdraw_assets.iter() {
+        let hub_asset = HubAssetKey { hub_id, asset };
+        let asset_config =
+            crate::spoke::require_listed_active_config(env, cache, spoke_id, &hub_asset);
+        crate::positions::enforce_spoke_asset_flags(env, cache, spoke_id, &hub_asset, true);
+        assert_with_error!(
+            env,
+            asset_config.can_supply(),
+            common::errors::CollateralError::NotCollateral
+        );
+    }
 }
 
 fn validate_migration_request(
