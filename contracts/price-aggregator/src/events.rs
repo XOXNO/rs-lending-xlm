@@ -213,3 +213,7 @@ pub(crate) fn emit_oracle_updated(env: &Env, asset: &Address, config: &AssetOrac
     }
     .publish(env);
 }
+
+#[cfg(test)]
+#[path = "../tests/oracle/events.rs"]
+mod tests;

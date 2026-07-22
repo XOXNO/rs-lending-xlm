@@ -51,7 +51,9 @@ exclude_re = [
 
     # Reassigning oldest_ts when the next timestamp is equal stores the same
     # value and cannot affect freshness or the returned observation.
-    "reflector.rs:[0-9]+:25: replace < with <= in read_twap",
+    # Column-anchored (loop var renamed pd -> price_data moved it 25 -> 33) so
+    # the killable min-observation `<` in the same function stays mutated.
+    "reflector.rs:[0-9]+:(25|33): replace < with <= in read_twap",
 
     # A zero revenue claim reaches only `transfer_out(..., 0)`, whose explicit
     # nonpositive guard returns without a token call; the pool owner is set by

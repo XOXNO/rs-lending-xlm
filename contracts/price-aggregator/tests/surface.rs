@@ -7,7 +7,7 @@ use common::types::{
 };
 use mock_redstone::{MockRedStonePriceFeed, MockRedStonePriceFeedClient};
 use price_aggregator::{PriceAggregator, PriceAggregatorClient};
-use soroban_sdk::testutils::{Address as _, Ledger as _};
+use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::{Address, Env, String, Vec};
 
 const WAD: i128 = 1_000_000_000_000_000_000;
@@ -92,7 +92,43 @@ fn set_oracle_config_roundtrips_through_storage() {
     let cfg = redstone_single(&env, &feed, "BTC/USD", 900);
 
     client.set_oracle_config(&asset, &cfg);
+    // Every config write publishes exactly one UpdateAssetOracleEvent.
+    assert_eq!(env.events().all().events().len(), 1);
     assert_eq!(client.oracle_config(&asset), Some(cfg));
+}
+
+// Exactly one stale leg must mark the whole dual read stale (primary written
+// far in the past, anchor fresh).
+#[test]
+fn price_status_dual_one_stale_leg_marks_stale() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let now: u64 = 1_700_000_000;
+    env.ledger().with_mut(|li| {
+        li.timestamp = now;
+    });
+    let (_owner, client) = register_agg(&env);
+    let asset = Address::generate(&env);
+    let (feed, feed_client) = register_feed(&env);
+    let stale_ms = (now - 10_000) * 1_000;
+    feed_client.set_price_data(
+        &String::from_str(&env, "PRIMARY"),
+        &WAD,
+        &stale_ms,
+        &stale_ms,
+    );
+    feed_client.set_price(&String::from_str(&env, "ANCHOR"), &WAD);
+    client.seed_oracle_config(
+        &asset,
+        &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_500),
+    );
+
+    let status = client.price_status(&asset);
+    assert!(status.stale);
+    assert!(!status.valid);
+    assert!(!status.deviation);
+    assert_eq!(status.primary_wad, WAD);
+    assert_eq!(status.secondary_wad, WAD);
 }
 
 #[test]

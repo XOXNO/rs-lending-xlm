@@ -113,3 +113,7 @@ impl ResolutionContext {
             .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured))
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/oracle/context.rs"]
+mod tests;
