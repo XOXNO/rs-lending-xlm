@@ -260,6 +260,32 @@ fn price_status_future_timestamp_is_unusable_without_revert() {
     assert!(client.try_price(&asset).is_err());
 }
 
+// Exactly ONE of the two multi-feed timestamps in the future is enough to
+// mark the read unusable — pins the `package_future || write_future` guard
+// (an `&&` would wrongly accept a payload with one future leg).
+#[test]
+fn price_status_single_future_multi_feed_timestamp_is_unusable() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let now: u64 = 1_700_000_000;
+    env.ledger().with_mut(|li| {
+        li.timestamp = now;
+    });
+    let (_owner, client) = register_agg(&env);
+    let asset = Address::generate(&env);
+    let (feed, feed_client) = register_feed(&env);
+    let feed_id = String::from_str(&env, "BTC/USD");
+    let valid_ms = now * 1_000;
+    let future_ms = (now + 100_000) * 1_000;
+    // package_timestamp future, write_timestamp valid.
+    feed_client.set_price_data(&feed_id, &WAD, &future_ms, &valid_ms);
+    client.seed_oracle_config(&asset, &redstone_single(&env, &feed, "BTC/USD", 900));
+
+    let status = client.price_status(&asset);
+    assert!(!status.valid);
+    assert_eq!(status.final_wad, 0);
+}
+
 #[test]
 fn price_status_missing_primary_feed_is_unusable() {
     let env = Env::default();

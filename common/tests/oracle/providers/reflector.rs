@@ -33,3 +33,36 @@ fn test_min_twap_observations_clamps_and_rounds_up() {
     assert_eq!(min_twap_observations(5), 3);
     assert_eq!(min_twap_observations(12), 6);
 }
+
+fn pd(env: &soroban_sdk::Env, price: i128) -> ReflectorPriceData {
+    let _ = env;
+    ReflectorPriceData { price, timestamp: 0 }
+}
+
+#[test]
+fn try_twap_mean_price_averages_positive_samples() {
+    let env = Env::default();
+    let history = soroban_sdk::vec![&env, pd(&env, 100), pd(&env, 200), pd(&env, 300)];
+    assert_eq!(try_twap_mean_price(&history), Some(200));
+}
+
+#[test]
+fn try_twap_mean_price_rejects_non_positive_sample() {
+    let env = Env::default();
+    // Boundary: a zero sample is rejected (pins the `<= 0` guard, not `< 0`).
+    let zero = soroban_sdk::vec![&env, pd(&env, 100), pd(&env, 0)];
+    assert_eq!(try_twap_mean_price(&zero), None);
+    let negative = soroban_sdk::vec![&env, pd(&env, 100), pd(&env, -1)];
+    assert_eq!(try_twap_mean_price(&negative), None);
+}
+
+#[test]
+fn try_twap_mean_price_softens_overflow_and_empty() {
+    let env = Env::default();
+    // Sum overflow → None (not a panic).
+    let overflow = soroban_sdk::vec![&env, pd(&env, i128::MAX), pd(&env, i128::MAX)];
+    assert_eq!(try_twap_mean_price(&overflow), None);
+    // Empty history → None.
+    let empty: soroban_sdk::Vec<ReflectorPriceData> = soroban_sdk::Vec::new(&env);
+    assert_eq!(try_twap_mean_price(&empty), None);
+}
