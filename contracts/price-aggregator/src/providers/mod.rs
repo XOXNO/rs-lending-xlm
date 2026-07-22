@@ -20,7 +20,7 @@ fn dispatch_required_source(
             reflector::read_reflector_source(cache, config, false)
         }
         OracleSourceConfig::RedStone(config) | OracleSourceConfig::Xoxno(config) => {
-            multi_feed::read_multi_feed_source(cache, config)
+            multi_feed::read_multi_feed_source(cache, config, false)
         }
     };
     observation.unwrap_or_else(|| match source {
@@ -44,7 +44,7 @@ pub(crate) fn try_read_source(
             reflector::read_reflector_source(cache, config, true)
         }
         OracleSourceConfig::RedStone(config) | OracleSourceConfig::Xoxno(config) => {
-            multi_feed::read_multi_feed_source(cache, config)
+            multi_feed::read_multi_feed_source(cache, config, true)
         }
     }
 }

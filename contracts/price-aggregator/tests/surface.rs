@@ -211,6 +211,55 @@ fn price_status_pending_config_is_unusable() {
     assert_eq!(status.final_wad, 0);
 }
 
+// A present-but-invalid payload (non-positive price) must soften to unusable
+// on the status path, not revert. The hard `price` path still reverts.
+#[test]
+fn price_status_non_positive_payload_is_unusable_without_revert() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1_700_000_000;
+    });
+    let (_owner, client) = register_agg(&env);
+    let asset = Address::generate(&env);
+    let (feed, feed_client) = register_feed(&env);
+    let feed_id = String::from_str(&env, "BTC/USD");
+    feed_client.set_price(&feed_id, &0); // present feed, non-positive price
+    client.seed_oracle_config(&asset, &redstone_single(&env, &feed, "BTC/USD", 900));
+
+    let status = client.price_status(&asset);
+    assert!(!status.valid);
+    assert_eq!(status.final_wad, 0);
+
+    // Hard path fails closed on the same payload.
+    assert!(client.try_price(&asset).is_err());
+}
+
+// A future-timestamped payload also softens to unusable rather than reverting.
+#[test]
+fn price_status_future_timestamp_is_unusable_without_revert() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let now: u64 = 1_700_000_000;
+    env.ledger().with_mut(|li| {
+        li.timestamp = now;
+    });
+    let (_owner, client) = register_agg(&env);
+    let asset = Address::generate(&env);
+    let (feed, feed_client) = register_feed(&env);
+    let feed_id = String::from_str(&env, "BTC/USD");
+    // Package/write timestamps far beyond now + skew (ms).
+    let future_ms = (now + 100_000) * 1_000;
+    feed_client.set_price_data(&feed_id, &WAD, &future_ms, &future_ms);
+    client.seed_oracle_config(&asset, &redstone_single(&env, &feed, "BTC/USD", 900));
+
+    let status = client.price_status(&asset);
+    assert!(!status.valid);
+    assert_eq!(status.final_wad, 0);
+
+    assert!(client.try_price(&asset).is_err());
+}
+
 #[test]
 fn price_status_missing_primary_feed_is_unusable() {
     let env = Env::default();

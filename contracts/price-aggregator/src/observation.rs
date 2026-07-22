@@ -1,7 +1,8 @@
 //! Provider observations normalized to WAD with timestamp guards.
 
 use common::oracle::observation::{
-    check_not_future_at, millis_to_seconds, normalize_positive_price, u256_to_i128,
+    check_not_future_at, is_future_at, millis_to_seconds, normalize_positive_price,
+    try_normalize_positive_price, try_u256_to_i128, u256_to_i128,
 };
 use common::oracle::providers::redstone::RedStonePriceData;
 use common::oracle::providers::reflector::ReflectorPriceData;
@@ -59,5 +60,42 @@ impl OracleObservation {
             observed_at: price_data.timestamp,
             published_at: None,
         }
+    }
+
+    /// Non-panicking [`Self::from_multi_feed`] for the soft status path:
+    /// `None` for a future timestamp, non-positive/overflowing price, or a
+    /// WAD upscale overflow, instead of reverting the diagnostic view.
+    pub(crate) fn try_from_multi_feed(
+        now_secs: u64,
+        price_data: &RedStonePriceData,
+        decimals: u32,
+    ) -> Option<Self> {
+        let package_ts = millis_to_seconds(price_data.package_timestamp);
+        let write_ts = millis_to_seconds(price_data.write_timestamp);
+        if is_future_at(now_secs, package_ts) || is_future_at(now_secs, write_ts) {
+            return None;
+        }
+        let raw_price = try_u256_to_i128(&price_data.price)?;
+        Some(OracleObservation {
+            price_wad: try_normalize_positive_price(raw_price, decimals)?,
+            observed_at: write_ts,
+            published_at: Some(package_ts),
+        })
+    }
+
+    /// Non-panicking [`Self::from_reflector`] for the soft status path.
+    pub(crate) fn try_from_reflector(
+        now_secs: u64,
+        price_data: &ReflectorPriceData,
+        decimals: u32,
+    ) -> Option<Self> {
+        if is_future_at(now_secs, price_data.timestamp) {
+            return None;
+        }
+        Some(OracleObservation {
+            price_wad: try_normalize_positive_price(price_data.price, decimals)?,
+            observed_at: price_data.timestamp,
+            published_at: None,
+        })
     }
 }

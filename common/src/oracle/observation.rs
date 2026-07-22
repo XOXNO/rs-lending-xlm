@@ -1,6 +1,6 @@
 //! Oracle price normalization, staleness, and future-timestamp guards.
 
-use crate::constants::MS_PER_SECOND;
+use crate::constants::{MS_PER_SECOND, WAD_DECIMALS};
 use crate::errors::{GenericError, OracleError};
 use crate::math::fp::Wad;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, U256};
@@ -26,6 +26,17 @@ pub fn normalize_positive_price(env: &Env, price: i128, decimals: u32) -> i128 {
     Wad::from_token(price, decimals).raw()
 }
 
+/// Non-panicking [`normalize_positive_price`]: `None` for a non-positive price
+/// or a WAD upscale that would overflow `i128`. Oracle decimals are bounded to
+/// `[1, WAD_DECIMALS]`, so normalization is always a pure upscale here.
+pub fn try_normalize_positive_price(price: i128, decimals: u32) -> Option<i128> {
+    if price <= 0 || decimals > WAD_DECIMALS {
+        return None;
+    }
+    let factor = 10i128.checked_pow(WAD_DECIMALS - decimals)?;
+    price.checked_mul(factor)
+}
+
 pub fn is_stale(now_secs: u64, feed_ts: u64, max_stale: u64) -> bool {
     now_secs > feed_ts && (now_secs - feed_ts) > max_stale
 }
@@ -35,6 +46,15 @@ pub fn check_not_future_at(env: &Env, now_secs: u64, feed_ts: u64) {
         .checked_add(MAX_FUTURE_SKEW_SECONDS)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     assert_with_error!(env, feed_ts <= max_future_ts, OracleError::PriceFeedStale);
+}
+
+/// Non-panicking [`check_not_future_at`]: true when `feed_ts` sits beyond the
+/// ledger clock plus the allowed skew.
+pub fn is_future_at(now_secs: u64, feed_ts: u64) -> bool {
+    match now_secs.checked_add(MAX_FUTURE_SKEW_SECONDS) {
+        Some(max_future_ts) => feed_ts > max_future_ts,
+        None => false,
+    }
 }
 
 fn validate_timestamp(env: &Env, now_secs: u64, feed_ts: u64, max_stale: u64) {
@@ -67,6 +87,12 @@ pub fn u256_to_i128(env: &Env, value: &U256) -> i128 {
     };
     assert_with_error!(env, raw <= i128::MAX as u128, GenericError::MathOverflow);
     raw as i128
+}
+
+/// Non-panicking [`u256_to_i128`]: `None` when the value exceeds `i128::MAX`.
+pub fn try_u256_to_i128(value: &U256) -> Option<i128> {
+    let raw = value.to_u128()?;
+    (raw <= i128::MAX as u128).then_some(raw as i128)
 }
 
 pub fn millis_to_seconds(timestamp_ms: u64) -> u64 {

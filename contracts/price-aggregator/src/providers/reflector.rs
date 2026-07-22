@@ -6,10 +6,10 @@
 
 use common::errors::OracleError;
 use common::math::fp::Wad;
-use common::oracle::observation::{check_not_future_at, normalize_positive_price};
+use common::oracle::observation::is_future_at;
 use common::oracle::providers::reflector::{
     min_twap_observations, reflector_lastprice_call, reflector_prices_call, to_reflector_asset,
-    twap_mean_price,
+    try_twap_mean_price,
 };
 use common::types::{OracleReadMode, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig};
 use common::validation::validate_twap_records;
@@ -30,7 +30,7 @@ pub(crate) fn read_reflector_source(
     soft: bool,
 ) -> Option<OracleObservation> {
     let observation = match config.read_mode {
-        OracleReadMode::Spot => read_spot(cache, config),
+        OracleReadMode::Spot => read_spot(cache, config, soft),
         OracleReadMode::Twap(records) => match read_twap(cache, config, records) {
             Ok(obs) => Some(obs),
             Err(_) if soft => None,
@@ -112,21 +112,28 @@ fn try_resolve_usd_quote_soft(
 fn read_spot(
     cache: &ResolutionContext,
     config: &ReflectorSourceConfig,
+    soft: bool,
 ) -> Option<OracleObservation> {
     let env = cache.env();
+    let now_secs = cache.ledger_timestamp_secs();
     let asset = to_reflector_asset(env, &config.asset);
     let price_data = reflector_lastprice_call(env, &config.contract, &asset)?;
-    Some(OracleObservation::from_reflector(
-        env,
-        cache.ledger_timestamp_secs(),
-        &price_data,
-        config.decimals,
-    ))
+    if soft {
+        OracleObservation::try_from_reflector(now_secs, &price_data, config.decimals)
+    } else {
+        Some(OracleObservation::from_reflector(
+            env,
+            now_secs,
+            &price_data,
+            config.decimals,
+        ))
+    }
 }
 
-/// TWAP over returned samples; missing/short history is an `Err` for the
-/// caller to revert (hard) or soften (status). Config-invariant violations
-/// (record bounds) and future timestamps stay hard in both modes.
+/// TWAP over returned samples. Every present-but-invalid condition (missing or
+/// short history, a future timestamp, a non-positive/overflowing sample) is an
+/// `Err` for the caller to revert (hard path) or soften (status path). Only
+/// config-invariant violations (`validate_twap_records`) stay hard in both.
 fn read_twap(
     cache: &ResolutionContext,
     config: &ReflectorSourceConfig,
@@ -149,7 +156,9 @@ fn read_twap(
 
     let mut oldest_ts = u64::MAX;
     for price_data in history.iter() {
-        check_not_future_at(env, now_secs, price_data.timestamp);
+        if is_future_at(now_secs, price_data.timestamp) {
+            return Err(OracleError::PriceFeedStale);
+        }
         if price_data.timestamp < oldest_ts {
             oldest_ts = price_data.timestamp;
         }
@@ -157,9 +166,14 @@ fn read_twap(
 
     // Mean over returned samples (not requested count); shared with governance
     // probe. Staleness of `oldest_ts` is judged by the caller.
-    let raw_price = twap_mean_price(env, &history);
+    let raw_price = try_twap_mean_price(&history).ok_or(OracleError::InvalidPrice)?;
+    let price_wad = common::oracle::observation::try_normalize_positive_price(
+        raw_price,
+        config.decimals,
+    )
+    .ok_or(OracleError::InvalidPrice)?;
     Ok(OracleObservation {
-        price_wad: normalize_positive_price(env, raw_price, config.decimals),
+        price_wad,
         observed_at: oldest_ts,
         published_at: None,
     })

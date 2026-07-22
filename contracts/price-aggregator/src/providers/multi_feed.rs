@@ -13,19 +13,27 @@ use soroban_sdk::{Env, Vec};
 use crate::context::ResolutionContext;
 use crate::observation::OracleObservation;
 
+/// `soft = false`: present-but-invalid payloads (future timestamp,
+/// non-positive/overflowing price) revert via the panicking normalizers.
+/// `soft = true`: they yield `None` for the status path.
 pub(crate) fn read_multi_feed_source(
     cache: &mut ResolutionContext,
     config: &RedStoneSourceConfig,
+    soft: bool,
 ) -> Option<OracleObservation> {
     let env = cache.env().clone();
     let now_secs = cache.ledger_timestamp_secs();
     let price_data = read_price_data(cache, &config.contract, &config.feed_id)?;
-    Some(OracleObservation::from_multi_feed(
-        &env,
-        now_secs,
-        &price_data,
-        config.decimals,
-    ))
+    if soft {
+        OracleObservation::try_from_multi_feed(now_secs, &price_data, config.decimals)
+    } else {
+        Some(OracleObservation::from_multi_feed(
+            &env,
+            now_secs,
+            &price_data,
+            config.decimals,
+        ))
+    }
 }
 
 fn read_price_data(
