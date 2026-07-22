@@ -52,6 +52,24 @@ pub struct ContractsConfig {
     pub price_aggregator: Option<String>,
 }
 
+impl ContractsConfig {
+    /// The controller price path depends on the aggregator's `AssetOracle`
+    /// rows AND its instance/code staying live. Silently skipping them would
+    /// let oracle storage archive under a keeper that looks healthy, so a
+    /// market-bearing config must name the price aggregator.
+    fn require_aggregator_for_markets(&self) -> Result<()> {
+        if self.price_aggregator.is_none()
+            && (!self.markets.is_empty() || !self.market_assets.is_empty())
+        {
+            return Err(anyhow!(
+                "config.contracts.price_aggregator is required when markets are configured \
+                 (the keeper must renew the price-aggregator's AssetOracle rows and instance)"
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct MarketConfig {
     #[serde(default = "default_hub_id")]
@@ -200,6 +218,7 @@ impl KeeperConfig {
                 ));
             }
         }
+        self.contracts.require_aggregator_for_markets()?;
         if self.contracts.pool_wasm_hash.len() != 64
             || hex::decode(&self.contracts.pool_wasm_hash).is_err()
         {
@@ -260,6 +279,22 @@ mod tests {
             gov_line
         );
         serde_yaml::from_str(&yaml).expect("parse ContractsConfig")
+    }
+
+    #[test]
+    fn markets_without_price_aggregator_fail_validation() {
+        let with_markets = contracts(
+            "markets:\n  - { hub_id: 1, asset: CASSET }\nprice_aggregator: \"\"",
+        );
+        assert!(with_markets.require_aggregator_for_markets().is_err());
+
+        let wired = contracts(
+            "markets:\n  - { hub_id: 1, asset: CASSET }\nprice_aggregator: CAGG",
+        );
+        assert!(wired.require_aggregator_for_markets().is_ok());
+
+        // No markets → the aggregator may stay unset.
+        assert!(contracts("").require_aggregator_for_markets().is_ok());
     }
 
     #[test]
