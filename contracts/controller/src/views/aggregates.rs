@@ -33,10 +33,11 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
 }
 
 pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
-    let Some(account) = storage::try_get_account(env, account_id) else {
+    let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
     let mut cache = Cache::new_view(env);
+    let _ = risk::restamp_listed_supply_safe_params(&mut cache, &mut account);
     risk::calculate_ltv_collateral_wad(env, &mut cache, account.spoke_id, &account.supply_positions)
         .raw()
 }

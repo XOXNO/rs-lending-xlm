@@ -497,9 +497,15 @@ Empty side maps (and empty delegate lists) are pruned on write. Account removal
 deletes meta, both position maps, and `Delegates`.
 
 Risk params re-stamp from spoke listing config via `update_account_threshold`,
-supply, and withdraw (and strategy supply legs). Borrow does not re-stamp
-collateral risk. Solvency uses last-stamped supply params until a refresh path
-runs.
+supply, and withdraw (and strategy supply legs). Debt-increasing paths
+(`borrow` and strategy finalize) re-stamp supply LTV, liquidation bonus, and
+fees from live listing config before LTV/HF gates; liquidation threshold stays
+lazy (supply/withdraw/keeper with HF≥1.05 on cuts). Solvency uses last-stamped
+LT until a threshold refresh path runs.
+
+Removing an asset from a spoke requires zero spoke usage
+(`SpokeAssetInUse` otherwise), so every open position’s asset remains listed;
+there is no supported path where delisted collateral still backs an account.
 
 ### 5.3 TTL
 

@@ -115,7 +115,7 @@ pub(crate) fn process_swap_collateral(
         &mut cache,
     );
 
-    strategy_finalize(env, account_id, &account, &mut cache);
+    strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
 pub(crate) fn validate_swap_new_collateral_preflight(

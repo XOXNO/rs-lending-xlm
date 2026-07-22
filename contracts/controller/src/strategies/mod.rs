@@ -24,7 +24,7 @@ use soroban_sdk::{Address, Env, Vec};
 
 use crate::context::Cache;
 use crate::positions::{finalize_position_flow, PositionSides};
-use crate::risk::{account_price_assets, validation};
+use crate::risk::{self, account_price_assets, validation};
 
 /// Bulk-fetch price-aggregator USD feeds for an account's positions plus strategy legs.
 pub(crate) fn prefetch_strategy_prices(
@@ -36,8 +36,14 @@ pub(crate) fn prefetch_strategy_prices(
     cache.fetch_prices(&account_price_assets(&env, account, extra_assets));
 }
 
-/// Post-pool HF + persist both sides (remove if empty). Caps stay at debt-open entrypoints.
-pub(crate) fn strategy_finalize(env: &Env, account_id: u64, account: &Account, cache: &mut Cache) {
+/// Safe-param restamp, post-pool HF, then persist both sides (remove if empty).
+pub(crate) fn strategy_finalize(
+    env: &Env,
+    account_id: u64,
+    account: &mut Account,
+    cache: &mut Cache,
+) {
+    let _ = risk::restamp_listed_supply_safe_params(cache, account);
     validation::require_post_pool_risk_gates(env, cache, account);
     finalize_position_flow(env, account_id, account, cache, PositionSides::BOTH, true);
 }

@@ -7,6 +7,7 @@ use common::validation::cap_is_enabled;
 use soroban_sdk::Env;
 
 use crate::context::Cache;
+use crate::risk;
 use crate::storage;
 
 use crate::views::limits::{account_gates_ok, MarketLimitCtx};
@@ -184,8 +185,8 @@ fn borrow_ok(
         }
     }
 
-    // Account LTV + health-factor gates with the new debt position applied.
     let mut adjusted = account.clone();
+    let _ = risk::restamp_listed_supply_safe_params(cache, &mut adjusted);
     let existing = adjusted
         .borrow_positions
         .get(hub_asset.clone())

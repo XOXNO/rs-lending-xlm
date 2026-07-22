@@ -187,9 +187,6 @@ pub(crate) fn net_settle_collateral_against_debt(
     }
     let mut new_supply_position = supply_position;
     new_supply_position.scaled_amount = new_supply_scaled;
-    // Re-stamp risk params from active spoke config before persist (matches
-    // `finish_withdraw_leg`); no-op when delisted so liquidation still reads
-    // a valid stamped snapshot.
     risk::refresh_supply_risk_params_for_asset(
         env,
         cache,

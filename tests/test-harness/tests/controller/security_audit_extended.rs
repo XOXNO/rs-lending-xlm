@@ -142,13 +142,14 @@ fn refutation_global_pause_withdraw_still_enforces_hf() {
 }
 
 // ---------------------------------------------------------------------------
-// H-RISK-02 — multi-collateral partial LTV restamp
+// H-RISK-02 — multi-collateral LTV restamp on debt open
 // ---------------------------------------------------------------------------
 
-/// Touching one supply leg restamps only that leg; untouched legs keep stamped LTV
-/// after a governance cut (lazy stamp residual, multi-asset form of H-RISK-01).
+/// Supply-path restamp is still per-leg, but `borrow` re-stamps **all listed**
+/// supply LTV/bonus/fees before gates so multi-coll capacity cannot ride a
+/// stale high LTV on an untouched leg.
 #[test]
-fn poc_multi_collateral_partial_ltv_restamp_on_one_leg() {
+fn regression_borrow_restamps_all_listed_ltv_multi_coll() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -174,24 +175,27 @@ fn poc_multi_collateral_partial_ltv_restamp_on_one_leg() {
         c.liquidation_threshold = 5_500;
     });
 
-    // Touch only USDC via third-party top-up.
+    // Touch only USDC via third-party top-up (supply path is still per-leg).
     t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
         .expect("top-up existing USDC leg");
     let (usdc_ltv1, _) = supply_ltv_and_lt(&t, id, "USDC");
-    let (eth_ltv1, _) = supply_ltv_and_lt(&t, id, "ETH");
-    assert_eq!(usdc_ltv1, 5_000, "H-RISK-02: touched USDC must restamp LTV");
+    let (eth_ltv1, eth_lt1) = supply_ltv_and_lt(&t, id, "ETH");
+    assert_eq!(usdc_ltv1, 5_000, "touched USDC restamps on supply");
     assert_eq!(
         eth_ltv1, 7_500,
-        "H-RISK-02: untouched ETH must keep stamped LTV after listing cut"
+        "untouched ETH keeps LTV until debt-increasing restamp"
     );
 
-    // Capacity still uses high ETH stamp: borrow more than live dual-50% capacity.
-    // Live: USDC ~$5k@50% + ETH ~$4k@50% = $4.5k. Stamped: USDC $5k@50% + ETH $4k@75% = $5.5k.
-    let ok = t.try_borrow(ALICE, "WBTC", 0.08); // ~$4.8k at $60k
-    assert!(
-        ok.is_ok(),
-        "H-RISK-02: borrow between live and stamped multi-coll capacity must pass; got {ok:?}"
-    );
+    // Live dual-50% capacity ≈ $4.5k. Pre-fix multi stamp ≈ $5.5k would allow
+    // ~$4.8k (0.08 WBTC). Debt-path restamp binds both legs → reject.
+    let over = t.try_borrow(ALICE, "WBTC", 0.08);
+    assert_contract_error(over, errors::INSUFFICIENT_COLLATERAL);
+
+    // Small borrow within live capacity succeeds and restamps ETH LTV; LT stays.
+    t.borrow(ALICE, "WBTC", 0.05); // $3k
+    let (eth_ltv2, eth_lt2) = supply_ltv_and_lt(&t, id, "ETH");
+    assert_eq!(eth_ltv2, 5_000, "borrow restamps untouched ETH LTV");
+    assert_eq!(eth_lt2, eth_lt1, "borrow must not restamp ETH LT");
 }
 
 // ---------------------------------------------------------------------------

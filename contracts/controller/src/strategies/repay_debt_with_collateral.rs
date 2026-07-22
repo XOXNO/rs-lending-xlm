@@ -108,7 +108,7 @@ pub(crate) fn process_repay_debt_with_collateral(
     // Full collateral exit only if debt is already zero.
     close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
 
-    strategy_finalize(env, account_id, &account, &mut cache);
+    strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
 /// Same (hub, asset): net collat against debt in-pool (no token round-trip).

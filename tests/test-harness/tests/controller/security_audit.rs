@@ -2,7 +2,7 @@
 //!
 //! These tests drive **shipped** controller entrypoints via the integration
 //! harness. Each case pins a hypothesis from the controller audit:
-//! - H-RISK-01 / F3: borrow after governance LTV cut without collateral touch
+//! - H-RISK-01 / F3: borrow restamps listed LTV before gates (regression)
 //! - H-LIQ-16: stale LT stamp blocks liquidation under tighter listing config
 //! - H-USER-03: permissionless third-party supply can open new position slots
 //! - H-LIQ-12: paused debt blocks liquidation repay
@@ -19,7 +19,11 @@ use test_harness::{
     wbtc_preset, HubAssetKey, LendingTest, PositionType, ALICE, BOB, LIQUIDATOR,
 };
 
-fn supply_ltv_and_lt(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32) {
+fn supply_risk_stamp(
+    t: &LendingTest,
+    account_id: u64,
+    asset_name: &str,
+) -> (u32, u32, u32, u32) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
         let map: soroban_sdk::Map<HubAssetKey, controller::types::AccountPositionRaw> = t
@@ -31,8 +35,18 @@ fn supply_ltv_and_lt(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32
         let p = map
             .get(hub_asset(asset))
             .expect("supply position should exist for asset");
-        (p.loan_to_value, p.liquidation_threshold)
+        (
+            p.loan_to_value,
+            p.liquidation_threshold,
+            p.liquidation_bonus,
+            p.liquidation_fees,
+        )
     })
+}
+
+fn supply_ltv_and_lt(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32) {
+    let (ltv, lt, _, _) = supply_risk_stamp(t, account_id, asset_name);
+    (ltv, lt)
 }
 
 /// Advance wall-clock only so mock temp entries stay live and prices age past
@@ -41,14 +55,14 @@ fn age_oracle_observations(t: &LendingTest) {
     t.env.ledger().with_mut(|ledger| ledger.timestamp += 1_000);
 }
 
-/// H-RISK-01 / deep-audit F3: after an LTV cut, untouched collateral keeps the
-/// stamped LTV and `borrow` allows debt above the **new** listing LTV.
+/// H-RISK-01 regression: debt-increasing `borrow` restamps listed supply LTV
+/// (and bonus/fees) from live listing config before LTV/HF gates. After an LTV
+/// cut, capacity above the **new** listing LTV is rejected without a keeper.
 ///
-/// Mode: **behavior PoC** (proves current shipped gate; design residual, not a
-/// regression against a pre-fix baseline). Mitigation path is
-/// `update_account_threshold(false)` or a future debt-path LTV restamp.
+/// Mode: **regression after patch** — pre-fix, stamped 75% allowed $7k debt
+/// against $10k coll after a 50% cut; post-fix that borrow fails.
 #[test]
-fn poc_borrow_uses_stamped_ltv_after_governance_cut() {
+fn regression_borrow_restamps_ltv_after_governance_cut() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -57,30 +71,124 @@ fn poc_borrow_uses_stamped_ltv_after_governance_cut() {
     // $10_000 USDC @ listing LTV 75% stamps capacity $7_500 on the position.
     t.supply(ALICE, "USDC", 10_000.0);
     t.assert_healthy(ALICE);
+    let id = t.resolve_account_id(ALICE);
+    let (ltv_before, lt_before) = supply_ltv_and_lt(&t, id, "USDC");
+    assert_eq!(ltv_before, 7_500);
+    assert_eq!(lt_before, 8_000, "preset LT must stay until a threshold path");
 
-    // Governance cuts listing LTV to 50% (live capacity $5_000) without restamping.
+    // Governance cuts listing LTV to 50% (live capacity $5_000).
     t.edit_asset_config("USDC", |cfg| {
         cfg.loan_to_value = 5_000;
-        // Keep LT >= LTV.
         cfg.liquidation_threshold = 5_500;
     });
 
-    // Borrow $7_000 of ETH (3.5). Live LTV capacity is only $5_000 → would fail
-    // if the gate read listing config. Stamped 75% still allows up to $7_500.
-    let result = t.try_borrow(ALICE, "ETH", 3.5);
-    assert!(
-        result.is_ok(),
-        "H-RISK-01: borrow after LTV cut without collateral touch must still \
-         pass under stamped LTV; got {:?}",
-        result
-    );
-    t.assert_borrow_near(ALICE, "ETH", 3.5, 0.05);
-
-    // Keeper restamp binds the new LTV; further borrow above capacity fails.
-    let id = t.resolve_account_id(ALICE);
-    t.update_account_threshold(false, &[id]);
-    let blocked = t.try_borrow(ALICE, "ETH", 0.1);
+    // Borrow $7_000 of ETH (3.5) exceeds live $5_000 capacity → rejected.
+    let blocked = t.try_borrow(ALICE, "ETH", 3.5);
     assert_contract_error(blocked, errors::INSUFFICIENT_COLLATERAL);
+
+    // Within new capacity still works; LTV stamp binds, LT stays sticky until
+    // a threshold refresh (HF floor may keep 8_000).
+    t.borrow(ALICE, "ETH", 2.0);
+    let (ltv_after, lt_after) = supply_ltv_and_lt(&t, id, "USDC");
+    assert_eq!(ltv_after, 5_000, "borrow must persist restamped LTV");
+    assert_eq!(
+        lt_after, lt_before,
+        "borrow must not restamp liquidation threshold"
+    );
+    t.assert_healthy(ALICE);
+}
+
+/// Borrow restamps liquidation bonus and fees (not only LTV); LT stays put.
+#[test]
+fn regression_borrow_restamps_bonus_and_fees() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let id = t.resolve_account_id(ALICE);
+    let (ltv0, lt0, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!((ltv0, lt0, bonus0, fees0), (7_500, 8_000, 500, 100));
+
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 7_500;
+        c.liquidation_threshold = 8_000;
+        c.liquidation_bonus = 300;
+        c.liquidation_fees = 50;
+    });
+
+    t.borrow(ALICE, "ETH", 1.0);
+    let (ltv1, lt1, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!(ltv1, 7_500);
+    assert_eq!(lt1, 8_000, "LT must not change on borrow restamp");
+    assert_eq!(bonus1, 300, "borrow must restamp liquidation bonus");
+    assert_eq!(fees1, 50, "borrow must restamp liquidation fees");
+}
+
+/// After a listing LTV cut, `get_ltv_collateral_usd` uses live listing LTV
+/// without requiring a prior restamping mutator.
+#[test]
+fn regression_ltv_collateral_view_uses_live_listing_ltv() {
+    use controller::constants::WAD;
+
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let id = t.resolve_account_id(ALICE);
+    let before = t.ctrl_client().get_ltv_collateral_usd(&id);
+    assert!(
+        (before - 7_500 * WAD).abs() < WAD,
+        "precondition LTV collateral ~$7500 wad, got {before}"
+    );
+
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 5_000;
+        c.liquidation_threshold = 5_500;
+    });
+
+    let (stamped_ltv, _) = supply_ltv_and_lt(&t, id, "USDC");
+    assert_eq!(stamped_ltv, 7_500, "storage stamp stays until a mutator");
+    let after = t.ctrl_client().get_ltv_collateral_usd(&id);
+    assert!(
+        (after - 5_000 * WAD).abs() < WAD,
+        "view LTV collateral must use live 50% listing, got {after}"
+    );
+}
+
+/// Strategy finalize restamps safe params (`swap_collateral`).
+#[test]
+fn regression_strategy_finalize_restamps_safe_params() {
+    use test_harness::build_aggregator_swap;
+
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let id = t.resolve_account_id(ALICE);
+
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 5_000;
+        c.liquidation_threshold = 5_500;
+        c.liquidation_bonus = 250;
+        c.liquidation_fees = 40;
+    });
+    let (ltv0, _, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!((ltv0, bonus0, fees0), (7_500, 500, 100));
+
+    t.fund_router("ETH", 5.0);
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_000_000);
+    t.swap_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps);
+
+    let (ltv1, _, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!(ltv1, 5_000, "strategy finalize must restamp LTV");
+    assert_eq!(bonus1, 250, "strategy finalize must restamp bonus");
+    assert_eq!(fees1, 40, "strategy finalize must restamp fees");
 }
 
 /// H-LIQ-16: lowering listing LT does not restamp; HF stays on the old LT and
@@ -367,9 +475,9 @@ fn poc_lt_cut_stays_sticky_when_hf_below_min() {
 }
 
 /// H-RISK-03 force path: a third-party top-up restamps **LTV** from live listing
-/// config, binding a governance LTV cut that the owner had not touched.
+/// config on the supply path (independent of debt-path restamp).
 ///
-/// Mode: **behavior PoC** — after force restamp, further borrow above new LTV fails.
+/// Mode: **behavior PoC** — top-up still binds LTV; debt open also binds LTV.
 #[test]
 fn poc_third_party_top_up_force_restamps_ltv() {
     let mut t = LendingTest::new()
@@ -387,7 +495,6 @@ fn poc_third_party_top_up_force_restamps_ltv() {
         c.liquidation_threshold = 5_500;
     });
 
-    // Precondition of H-RISK-01: without restamp, $7k borrow would still pass.
     // Bob force-restamps via dust top-up of the existing USDC leg.
     t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
         .expect("third-party top-up of existing leg allowed");
@@ -397,7 +504,7 @@ fn poc_third_party_top_up_force_restamps_ltv() {
         "H-RISK-03: third-party top-up force-restamps LTV"
     );
 
-    // Now new LTV capacity is $5_000; $7_000 debt must fail.
+    // New LTV capacity is ~$5_000; $7_000 debt must fail.
     let blocked = t.try_borrow(ALICE, "ETH", 3.5);
     assert_contract_error(blocked, errors::INSUFFICIENT_COLLATERAL);
 

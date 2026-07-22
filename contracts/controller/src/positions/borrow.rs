@@ -20,7 +20,7 @@ use crate::positions::{
     finalize_position_flow, make_pool_action, validate_position_entry_gates, AggregatedPayments,
     HubPayment, PositionSides,
 };
-use crate::risk::validation;
+use crate::risk::{self, validation};
 use crate::storage;
 use crate::{Controller, ControllerArgs, ControllerClient};
 
@@ -92,16 +92,15 @@ pub(crate) fn process_borrow(
     );
     settle_borrow(env, &recipient, &mut account, &aggregated, &mut cache);
 
+    let restamped = risk::restamp_listed_supply_safe_params(&mut cache, &mut account);
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
 
-    finalize_position_flow(
-        env,
-        account_id,
-        &account,
-        &mut cache,
-        PositionSides::DEBT,
-        false,
-    );
+    let sides = if restamped {
+        PositionSides::BOTH
+    } else {
+        PositionSides::DEBT
+    };
+    finalize_position_flow(env, account_id, &account, &mut cache, sides, false);
 }
 
 /// One batch `pool.borrow` to `recipient`, then merge input-ordered results.

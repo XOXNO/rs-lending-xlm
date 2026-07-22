@@ -125,7 +125,7 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
         &mut cache,
     );
 
-    strategy_finalize(env, account_id, &account, &mut cache);
+    strategy_finalize(env, account_id, &mut account, &mut cache);
 
     emit_multiply_initial_payment(env, &mut cache, account_id, initial_payment);
 
