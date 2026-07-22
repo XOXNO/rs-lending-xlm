@@ -1551,8 +1551,9 @@ configure-controller: _preflight-configure-controller
 	else \
 		NETWORK=$(NETWORK) SIGNER=$(SIGNER) ACCUMULATOR_CONTRACT=$$ACC bash $(CONFIG_DIR)/script.sh setAccumulator; \
 	fi
-	@echo "Wiring price aggregator (oracle authority; timelocked governance self-op)..."
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPriceAggregator
+	@echo "Price aggregator wiring skipped here: governance's deploy_price_aggregator wires the"
+	@echo "controller atomically at deploy. Re-point a live aggregator with 'make $(NETWORK) setPriceAggregator'"
+	@echo "(timelocked SetPriceAggregator self-op, Sensitive tier)."
 	@echo "Controller role grants skipped: controller uses owner-gated admin and caller-auth operational flows."
 	@echo "Controller configured."
 

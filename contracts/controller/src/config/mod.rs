@@ -37,6 +37,13 @@ impl Controller {
         registry::set_price_aggregator(&env, addr);
     }
 
+    /// Currently wired price aggregator (oracle authority). Reverts
+    /// `AggregatorNotSet` if none is set. Lets tooling confirm the bootstrap
+    /// wiring without a re-point.
+    pub fn price_aggregator(env: Env) -> Address {
+        storage::get_price_aggregator(&env)
+    }
+
     /// Revenue accumulator. Owner = governance timelock.
     #[only_owner]
     pub fn set_accumulator(env: Env, addr: Address) {

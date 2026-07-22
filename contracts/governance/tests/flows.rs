@@ -119,6 +119,26 @@ fn deploy_price_aggregator_stores_address_and_governance_owns_it() {
     });
 }
 
+// Bootstrap wiring: deploying the price aggregator after the controller
+// exists must point the controller at it atomically (no timelock), so the
+// oracle authority is usable the moment it is deployed.
+#[test]
+fn deploy_price_aggregator_wires_the_controller() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (_, _gov_id, gov) = register_governance(&env);
+
+    let controller_id = gov.deploy_controller(&upload_controller_wasm(&env));
+    let aggregator_id = gov.deploy_price_aggregator(&upload_price_aggregator_wasm(&env));
+
+    // Governance stored it AND the controller now points at the same address.
+    assert_eq!(gov.price_aggregator(), aggregator_id);
+    let ctrl = controller::ControllerClient::new(&env, &controller_id);
+    assert_eq!(ctrl.price_aggregator(), aggregator_id);
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #5)")]
 fn deploy_price_aggregator_twice_panics() {

@@ -2,7 +2,7 @@
 
 use common::errors::GenericError;
 
-use soroban_sdk::{assert_with_error, contractimpl, Address, BytesN, Env};
+use soroban_sdk::{assert_with_error, contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val};
 
 use stellar_macros::only_owner;
 
@@ -100,6 +100,20 @@ impl Governance {
             .deploy_v2(wasm_hash.clone(), (env.current_contract_address(),));
 
         storage::set_price_aggregator(&env, &price_aggregator);
+
+        // Bootstrap wiring: point the controller at the freshly deployed oracle
+        // authority atomically. Both contracts are governance-owned and the
+        // controller exists by this deploy step, so the one-shot owner call
+        // needs no timelock. Re-pointing a LIVE aggregator still rides the
+        // Sensitive-tier `SetPriceAggregator` self-op; this only covers the
+        // one-time initial set (the controller has no aggregator yet).
+        if storage::has_controller(&env) {
+            env.invoke_contract::<Val>(
+                &storage::get_controller(&env),
+                &Symbol::new(&env, "set_price_aggregator"),
+                vec![&env, price_aggregator.clone().into_val(&env)],
+            );
+        }
 
         DeployPriceAggregatorEvent {
             price_aggregator: price_aggregator.clone(),
