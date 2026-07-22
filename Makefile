@@ -640,8 +640,11 @@ _mutants-check:
 		exit 1; \
 	fi
 
+# WASM fixtures must land in `target/` (the default path every test loader
+# reads) even when the caller isolates the mutants build under
+# CARGO_TARGET_DIR=target-mutants.
 _mutants-harness-prepare: _mutants-check
-	$(MAKE) build
+	CARGO_TARGET_DIR=target $(MAKE) build
 
 ## Run every non-overlapping production mutation scope.
 mutants: mutants-common mutants-pool mutants-governance mutants-governance-oracle-probe \
