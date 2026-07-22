@@ -579,6 +579,9 @@ MUTANTS_SHARD ?=
 MUTANTS_DIFF_FILE ?= pr.diff
 MUTANTS_JOB_ARGS = $(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j $(MUTANTS_JOBS))
 MUTANTS_SHARD_ARGS = $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
+# Alternate test runner (e.g. `nextest`). Empty keeps the default `cargo test`.
+MUTANTS_TEST_TOOL ?=
+MUTANTS_TEST_TOOL_ARGS = $(if $(MUTANTS_TEST_TOOL),--test-tool=$(MUTANTS_TEST_TOOL),)
 MUTANTS_POOL_WASM := $(abspath $(RELEASE_DIR)/pool.wasm)
 MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
 MUTANTS_PRICE_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/price_aggregator.wasm)
@@ -731,7 +734,7 @@ mutants-diff: _mutants-harness-prepare
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --in-diff "$(MUTANTS_DIFF_FILE)" \
 		--test-workspace true \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_EXTRA_ARGS)
+		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_TEST_TOOL_ARGS) $(MUTANTS_EXTRA_ARGS)
 
 ## Standalone contracts: each has its own native test suite, no harness needed.
 mutants-aggregator: _mutants-check
