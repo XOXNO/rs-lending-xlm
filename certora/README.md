@@ -222,8 +222,9 @@ Run the `sanity` profile before `fast`/`core`.
   with a basic-sanity config for the same rule family
 - `independent_satisfy: true` on all configs
 - `optimistic_loop: false` everywhere; unwind failures remain visible
-- `loop_iter`: `1`, `6`, or `8` for bounded pure math; `32` for Soroban
-  host-state jobs. A real pool fixture needs at least 28 iterations because
+- `loop_iter`: `1`, `6`, or `8` for bounded pure math; `28` or `32` for Soroban
+  host-state jobs. Pool-core jobs use the minimum accepted `28`. A real pool
+  fixture needs at least 28 iterations because
   host-value/storage encoding contains fixed loops longer than ten. The static
   checker rejects undersized state configs.
 - `multi_assert_check: true` for universal jobs and `false` for standalone

@@ -34,6 +34,7 @@ mod spoke;
 mod spoke_liquidation_combo;
 
 mod security_audit;
+mod security_audit_extended;
 mod supply;
 mod validation_admin;
 mod views;

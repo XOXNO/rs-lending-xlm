@@ -4,12 +4,13 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
 
-use common::constants::RAY;
+use common::constants::{MAX_SUPPLY_INDEX_RAY, RAY, RAY_DECIMALS};
 use common::math::fp::Ray;
 use common::types::{PoolBorrowEntry, PoolSupplyEntry, PoolWithdrawEntry};
 
 use super::fixture::{
-    action, params, read_state, seed, state, ASSET_DECIMALS, MAX_FLOW_AMOUNT, ONE_TOKEN,
+    action, params, params_with_decimals, read_state, seed, state, ASSET_DECIMALS,
+    MAX_FLOW_AMOUNT, ONE_TOKEN,
 };
 
 /// Supply mints the index-scaled shares to both the account result and aggregate.
@@ -156,6 +157,58 @@ fn partial_withdraw_burns_scaled_supply(
     cvlr_assert!(pre.supplied - post.supplied == expected_burn);
     cvlr_assert!(pre.cash - post.cash == amount);
     cvlr_assert!(post.borrowed == pre.borrowed && post.revenue == pre.revenue);
+}
+
+/// Every successful positive partial withdrawal burns nonzero account and
+/// aggregate shares for every production-valid asset-decimal setting.
+#[rule]
+fn positive_withdrawal_burns_shares_for_all_decimals(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    amount: i128,
+    position_before: i128,
+    supply_index: i128,
+    asset_decimals: u32,
+) {
+    cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
+    cvlr_assume!(position_before > 0 && position_before <= 20 * RAY);
+    cvlr_assume!(supply_index >= RAY && supply_index <= MAX_SUPPLY_INDEX_RAY);
+    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    let current_actual = Ray::from(position_before)
+        .mul(&e, Ray::from(supply_index))
+        .to_asset(asset_decimals);
+    cvlr_assume!(amount < current_actual);
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params_with_decimals(asset.clone(), 0, false, asset_decimals),
+        state(
+            100 * RAY,
+            0,
+            RAY,
+            RAY,
+            supply_index,
+            MAX_FLOW_AMOUNT,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let pre = read_state(&e, &asset);
+    let entry = PoolWithdrawEntry {
+        action: action(asset.clone(), position_before, amount),
+        protocol_fee: 0,
+    };
+    let (_, result, _, net) = crate::withdraw_accounting(&e, false, &entry);
+    let post = read_state(&e, &asset);
+
+    cvlr_assert!(result.actual_amount == amount && net == amount);
+    cvlr_assert!(result.position.scaled_amount < position_before);
+    cvlr_assert!(post.supplied < pre.supplied);
+    cvlr_assert!(
+        position_before - result.position.scaled_amount == pre.supplied - post.supplied
+    );
 }
 
 /// The full-withdraw sentinel burns every share and pays the conservative floor value.

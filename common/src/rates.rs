@@ -130,7 +130,10 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     }
     // Virtual offset is reward-denominator only; utilization and bad-debt use the real base.
     let denom = total_supplied_value.checked_add(env, Ray::from(SUPPLY_VIRTUAL_VALUE_RAY));
-    let rewards_ratio = rewards_increase.div(env, denom);
+    // Floor the reward ratio so index rounding cannot attribute more value to
+    // suppliers than the pool actually received. Any remainder is booked as
+    // protocol revenue by `supply_index_reward_shortfall`.
+    let rewards_ratio = rewards_increase.div_floor(env, denom);
     let factor = Ray::ONE.checked_add(env, rewards_ratio);
     // Clamp into the i128-safe band; saturating mul avoids trapping at the edge.
     let grown = fp_core::mul_div_floor_saturating(env, old_index.raw(), factor.raw(), RAY);

@@ -10,22 +10,10 @@ use crate::observation::OracleObservation;
 use crate::providers;
 use crate::tolerance::midpoint_if_in_band;
 
+/// Hard-path resolution result; per-leg diagnostics live in `status`.
 pub(crate) struct ResolvedPrice {
-    pub primary_price_wad: i128,
-    pub anchor_price_wad: Option<i128>,
     pub final_price_wad: i128,
     pub timestamp: u64,
-}
-
-impl ResolvedPrice {
-    /// `(primary_wad, secondary_wad)` legs for the views ABI.
-    ///
-    /// Secondary is the anchor when present; otherwise it equals final (and
-    /// primary) under PrimaryOnly (`OracleStrategy::Single`).
-    pub fn primary_and_secondary(&self) -> (i128, i128) {
-        let secondary_wad = self.anchor_price_wad.unwrap_or(self.final_price_wad);
-        (self.primary_price_wad, secondary_wad)
-    }
 }
 
 pub(crate) fn resolve_components(
@@ -40,8 +28,6 @@ pub(crate) fn resolve_components(
 
     match config.strategy {
         OracleStrategy::Single => ResolvedPrice {
-            primary_price_wad: primary.price_wad,
-            anchor_price_wad: None,
             final_price_wad: primary.price_wad,
             timestamp: primary.timestamp(),
         },
@@ -66,8 +52,6 @@ pub(crate) fn resolve_components(
             let timestamp = core::cmp::min(primary.timestamp(), anchor.timestamp());
 
             ResolvedPrice {
-                primary_price_wad: primary.price_wad,
-                anchor_price_wad: Some(anchor.price_wad),
                 final_price_wad,
                 timestamp,
             }
@@ -85,7 +69,3 @@ fn require_fresh(cache: &ResolutionContext, observation: &OracleObservation, max
         panic_with_error!(cache.env(), OracleError::PriceFeedStale);
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/oracle/compose.rs"]
-mod tests;

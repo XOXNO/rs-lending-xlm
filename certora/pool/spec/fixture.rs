@@ -16,6 +16,20 @@ pub fn hub(asset: Address) -> HubAssetKey {
 }
 
 pub fn params(asset: Address, flashloan_fee: u32, is_flashloanable: bool) -> MarketParamsRaw {
+    params_with_decimals(
+        asset,
+        flashloan_fee,
+        is_flashloanable,
+        ASSET_DECIMALS,
+    )
+}
+
+pub fn params_with_decimals(
+    asset: Address,
+    flashloan_fee: u32,
+    is_flashloanable: bool,
+    asset_decimals: u32,
+) -> MarketParamsRaw {
     MarketParamsRaw {
         base_borrow_rate: RAY / 100,
         slope1: RAY / 10,
@@ -31,7 +45,7 @@ pub fn params(asset: Address, flashloan_fee: u32, is_flashloanable: bool) -> Mar
         is_flashloanable,
         flashloan_fee,
         asset_id: asset,
-        asset_decimals: ASSET_DECIMALS,
+        asset_decimals,
     }
 }
 

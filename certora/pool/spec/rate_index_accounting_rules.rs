@@ -119,15 +119,19 @@ fn borrow_rate_kinks_match_configured_curve(
     let at_zero = calculate_borrow_rate(&e, Ray::ZERO, &params);
     let at_mid = calculate_borrow_rate(&e, Ray::from(mid), &params);
     let at_optimal = calculate_borrow_rate(&e, Ray::from(optimal), &params);
+    let at_full = calculate_borrow_rate(&e, Ray::ONE, &params);
     let expected_zero = Ray::from(base.min(max_rate)).div_by_int(MILLISECONDS_PER_YEAR as i128);
     let expected_mid =
         Ray::from((base + slope1).min(max_rate)).div_by_int(MILLISECONDS_PER_YEAR as i128);
     let expected_optimal =
         Ray::from((base + slope1 + slope2).min(max_rate)).div_by_int(MILLISECONDS_PER_YEAR as i128);
+    let expected_full = Ray::from((base + slope1 + slope2 + slope3).min(max_rate))
+        .div_by_int(MILLISECONDS_PER_YEAR as i128);
 
     cvlr_assert!(at_zero.raw() == expected_zero.raw());
     cvlr_assert!(at_mid.raw() == expected_mid.raw());
     cvlr_assert!(at_optimal.raw() == expected_optimal.raw());
+    cvlr_assert!(at_full.raw() == expected_full.raw());
 }
 
 /// Supplier rate remains nonnegative and cannot exceed the borrow rate.
@@ -178,9 +182,9 @@ fn borrow_index_grows_and_respects_cap(e: Env, old_index: i128, factor: i128) {
     cvlr_assert!(out.raw() <= MAX_BORROW_INDEX_RAY);
 }
 
-/// Positive rewards never reduce the supply index and cannot exceed its cap.
+/// Zero supplied shares or zero rewards leave the supply index unchanged.
 #[rule]
-fn supply_index_rewards_only_grow_and_respect_cap(
+fn supply_index_zero_inputs_are_noop(
     e: Env,
     supplied: i128,
     old_index: i128,
@@ -190,15 +194,61 @@ fn supply_index_rewards_only_grow_and_respect_cap(
     cvlr_assume!(old_index >= SUPPLY_INDEX_FLOOR_RAW && old_index <= MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(rewards >= 0 && rewards <= 100 * RAY);
 
-    let out = update_supply_index(
+    let no_supply = update_supply_index(
         &e,
-        Ray::from(supplied),
+        Ray::ZERO,
         Ray::from(old_index),
         Ray::from(rewards),
     );
+    let no_rewards = update_supply_index(
+        &e,
+        Ray::from(supplied),
+        Ray::from(old_index),
+        Ray::ZERO,
+    );
+
+    cvlr_assert!(no_supply.raw() == old_index);
+    cvlr_assert!(no_rewards.raw() == old_index);
+}
+
+/// A positive but sub-raw-unit supplied value follows the production no-op branch.
+#[rule]
+fn supply_index_rounded_zero_value_is_noop(
+    e: Env,
+    supplied: i128,
+    old_index: i128,
+    rewards: i128,
+) {
+    cvlr_assume!(supplied > 0 && supplied <= 100 * RAY);
+    cvlr_assume!(old_index >= SUPPLY_INDEX_FLOOR_RAW && old_index <= MAX_SUPPLY_INDEX_RAY);
+    cvlr_assume!(rewards > 0 && rewards <= 100 * RAY);
+    let supplied_ray = Ray::from(supplied);
+    let old_index_ray = Ray::from(old_index);
+    cvlr_assume!(supplied_ray.mul(&e, old_index_ray).raw() == 0);
+
+    let out = update_supply_index(&e, supplied_ray, old_index_ray, Ray::from(rewards));
+    cvlr_assert!(out.raw() == old_index);
+}
+
+/// Positive rewards on a positive supplied value never reduce the index and
+/// cannot exceed the production cap.
+#[rule]
+fn supply_index_positive_rewards_grow_and_respect_cap(
+    e: Env,
+    supplied: i128,
+    old_index: i128,
+    rewards: i128,
+) {
+    cvlr_assume!(supplied > 0 && supplied <= 100 * RAY);
+    cvlr_assume!(old_index >= SUPPLY_INDEX_FLOOR_RAW && old_index <= MAX_SUPPLY_INDEX_RAY);
+    cvlr_assume!(rewards > 0 && rewards <= 100 * RAY);
+    let supplied_ray = Ray::from(supplied);
+    let old_index_ray = Ray::from(old_index);
+    cvlr_assume!(supplied_ray.mul(&e, old_index_ray).raw() > 0);
+
+    let out = update_supply_index(&e, supplied_ray, old_index_ray, Ray::from(rewards));
     cvlr_assert!(out.raw() >= old_index);
     cvlr_assert!(out.raw() <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assert!((supplied != 0 && rewards != 0) || out.raw() == old_index);
 }
 
 /// Debt-index growth is split exactly between suppliers and protocol revenue.

@@ -185,6 +185,11 @@ fn withdraw_accounting(
     let (mut cache, scaled, amount) = load_position(env, &entry.action);
 
     let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(amount, scaled);
+    assert_with_error!(
+        env,
+        gross_amount == 0 || scaled_withdrawal.raw() > 0,
+        GenericError::WithdrawRoundsToZeroShares
+    );
 
     let net_transfer = apply_liquidation_fee(
         env,
@@ -550,6 +555,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// * `PoolNotInitialized` - an entry targets a market with no stored state.
     /// * `AmountMustBePositive` - an entry amount or `protocol_fee` is negative.
     /// * `WithdrawLessThanFee` - the liquidation fee exceeds the gross seized amount.
+    /// * `WithdrawRoundsToZeroShares` - a positive withdrawal is too small to
+    ///   burn one raw unit of scaled supply at the current index.
     /// * `InsufficientLiquidity` - tracked reserves cannot cover the net transfer.
     /// * `UtilizationAboveMax` - a non-liquidation withdrawal breaches the utilization cap.
     /// * `PoolInsolvent` - the projected state leaves debt with zero supply.

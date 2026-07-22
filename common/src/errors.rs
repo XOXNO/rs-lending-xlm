@@ -47,6 +47,9 @@ pub enum GenericError {
     BorrowRoundsToZeroShares = 47,
     /// Would remove the last PROPOSER (permanently freezes governance scheduling).
     CannotRemoveLastProposer = 48,
+    /// Positive withdrawal rounds to zero scaled supply (would transfer tokens
+    /// without reducing the account or aggregate position).
+    WithdrawRoundsToZeroShares = 49,
 }
 
 #[contracterror]

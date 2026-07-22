@@ -574,6 +574,31 @@ fn test_withdraw() {
 }
 
 #[test]
+fn test_withdraw_rejects_positive_transfer_that_rounds_to_zero_shares() {
+    let t = TestSetup::new();
+    t.env.as_contract(&t.pool, || {
+        let params_key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&params_key).unwrap();
+        params.asset_decimals = 27;
+        t.env.storage().persistent().set(&params_key, &params);
+
+        let state_key = PoolKey::State(hub(&t.asset));
+        let mut state: PoolStateRaw = t.env.storage().persistent().get(&state_key).unwrap();
+        state.supplied = 100 * RAY;
+        state.supply_index = 3 * RAY;
+        t.env.storage().persistent().set(&state_key, &state);
+    });
+
+    let user = Address::generate(&t.env);
+    let result = flatten_contract_result(t.client().try_withdraw(
+        &user,
+        &false,
+        &t.wdr(10 * RAY, 1, 0),
+    ));
+    assert_contract_error(result, GenericError::WithdrawRoundsToZeroShares as u32);
+}
+
+#[test]
 fn test_withdraw_rejects_fee_greater_than_withdrawn_amount() {
     let t = TestSetup::new();
     let client = t.client();

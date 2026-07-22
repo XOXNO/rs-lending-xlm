@@ -57,6 +57,23 @@ fn test_supply_index_shortfall_accounts_full_reward() {
 }
 
 #[test]
+fn test_supply_index_shortfall_high_valid_index_stays_conservative() {
+    let env = Env::default();
+    let supplied = Ray::from(100 * RAY);
+    let old_index = Ray::from(145_000_436 * RAY);
+    let reward = Ray::from_asset(1, 7);
+
+    let new_index = update_supply_index(&env, supplied, old_index, reward);
+    let distributed = supplied
+        .mul(&env, new_index)
+        .checked_sub(&env, supplied.mul(&env, old_index));
+    assert!(distributed.raw() <= reward.raw());
+
+    let shortfall = supply_index_reward_shortfall(&env, supplied, old_index, new_index, reward);
+    assert_eq!(distributed.checked_add(&env, shortfall), reward);
+}
+
+#[test]
 fn test_borrow_rate_region1() {
     let env = Env::default();
     let params = make_test_params();

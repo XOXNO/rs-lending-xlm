@@ -674,7 +674,7 @@ fn set_sanity_band_requires_oracle_role() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #12)")]
+#[should_panic(expected = "Error(Contract, #216)")]
 fn oracle_set_sanity_bounds_reaches_aggregator_config_check() {
     use crate::access::ORACLE_ROLE;
     let env = Env::default();
@@ -686,8 +686,9 @@ fn oracle_set_sanity_bounds_reaches_aggregator_config_check() {
     let bot = Address::generate(&env);
     grant_incident_role(&env, &admin, &gov, &bot, ORACLE_ROLE);
 
-    // No oracle configured for the asset: the price-aggregator's PairNotActive
-    // (#12) proves the ORACLE role sanity-band forwarding reached the authority.
+    // No oracle configured for the asset: the price-aggregator's
+    // OracleNotConfigured (#216) proves the ORACLE role sanity-band forwarding
+    // reached the authority.
     gov.set_sanity_band(&bot, &Address::generate(&env), &1i128, &2i128);
 }
 
