@@ -47,3 +47,22 @@ fn pop_resolution_releases_the_cycle_guard() {
     // Released: re-entering the same asset must not trip the cycle guard.
     cache.push_resolution(&asset);
 }
+
+#[test]
+fn is_resolving_reflects_the_resolution_stack() {
+    let env = Env::default();
+    let mut cache = ResolutionContext::new(&env);
+    let asset = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    // Nothing on the stack yet.
+    assert!(!cache.is_resolving(&asset));
+
+    cache.push_resolution(&asset);
+    // The pushed asset is resolving; a different asset is not (pins the `==`).
+    assert!(cache.is_resolving(&asset));
+    assert!(!cache.is_resolving(&other));
+
+    cache.pop_resolution();
+    assert!(!cache.is_resolving(&asset));
+}
