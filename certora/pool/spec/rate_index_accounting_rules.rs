@@ -11,9 +11,11 @@ use common::constants::{
 use common::math::fp::{Bps, Ray};
 use common::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
-    update_borrow_index, update_supply_index, utilization,
+    supply_index_reward_shortfall, update_borrow_index, update_supply_index, utilization,
 };
 use common::types::MarketParams;
+
+const REWARD_REGRESSION_INDEX_MAX: i128 = 200_000_000 * RAY;
 
 #[allow(clippy::too_many_arguments)]
 fn assume_valid_curve(
@@ -169,43 +171,49 @@ fn compound_factor_never_below_one(e: Env, rate_per_ms: i128, delta_ms: u64) {
     let factor = compound_interest(&e, Ray::from(rate_per_ms), delta_ms);
     cvlr_assert!(factor.raw() >= RAY);
     cvlr_assert!(delta_ms != 0 || factor.raw() == RAY);
+    cvlr_assert!(rate_per_ms == 0 || delta_ms == 0 || factor.raw() > RAY);
 }
 
-/// Borrow index is monotone and saturates at its production cap.
+/// A unit interest factor leaves every validated borrow index unchanged.
 #[rule]
-fn borrow_index_grows_and_respects_cap(e: Env, old_index: i128, factor: i128) {
+fn borrow_index_identity_is_noop(e: Env, old_index: i128) {
     cvlr_assume!(old_index >= RAY && old_index <= MAX_BORROW_INDEX_RAY);
-    cvlr_assume!(factor >= RAY && factor <= 10 * RAY);
+
+    let out = update_borrow_index(&e, Ray::from(old_index), Ray::ONE);
+    cvlr_assert!(out.raw() == old_index);
+}
+
+/// A factor strictly above one strictly grows every index below the cap while
+/// remaining bounded by the production cap.
+#[rule]
+fn borrow_index_strictly_grows_below_cap(e: Env, old_index: i128, factor: i128) {
+    cvlr_assume!(old_index >= RAY && old_index < MAX_BORROW_INDEX_RAY);
+    cvlr_assume!(factor > RAY && factor <= 10 * RAY);
 
     let out = update_borrow_index(&e, Ray::from(old_index), Ray::from(factor));
-    cvlr_assert!(out.raw() >= old_index);
+    cvlr_assert!(out.raw() > old_index);
     cvlr_assert!(out.raw() <= MAX_BORROW_INDEX_RAY);
+}
+
+/// Once the borrow index reaches its validated cap, positive interest cannot
+/// move it above or below that cap.
+#[rule]
+fn borrow_index_cap_is_sticky(e: Env, factor: i128) {
+    cvlr_assume!(factor > RAY && factor <= 10 * RAY);
+
+    let out = update_borrow_index(&e, Ray::from(MAX_BORROW_INDEX_RAY), Ray::from(factor));
+    cvlr_assert!(out.raw() == MAX_BORROW_INDEX_RAY);
 }
 
 /// Zero supplied shares or zero rewards leave the supply index unchanged.
 #[rule]
-fn supply_index_zero_inputs_are_noop(
-    e: Env,
-    supplied: i128,
-    old_index: i128,
-    rewards: i128,
-) {
+fn supply_index_zero_inputs_are_noop(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!(supplied >= 0 && supplied <= 100 * RAY);
     cvlr_assume!(old_index >= SUPPLY_INDEX_FLOOR_RAW && old_index <= MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(rewards >= 0 && rewards <= 100 * RAY);
 
-    let no_supply = update_supply_index(
-        &e,
-        Ray::ZERO,
-        Ray::from(old_index),
-        Ray::from(rewards),
-    );
-    let no_rewards = update_supply_index(
-        &e,
-        Ray::from(supplied),
-        Ray::from(old_index),
-        Ray::ZERO,
-    );
+    let no_supply = update_supply_index(&e, Ray::ZERO, Ray::from(old_index), Ray::from(rewards));
+    let no_rewards = update_supply_index(&e, Ray::from(supplied), Ray::from(old_index), Ray::ZERO);
 
     cvlr_assert!(no_supply.raw() == old_index);
     cvlr_assert!(no_rewards.raw() == old_index);
@@ -213,12 +221,7 @@ fn supply_index_zero_inputs_are_noop(
 
 /// A positive but sub-raw-unit supplied value follows the production no-op branch.
 #[rule]
-fn supply_index_rounded_zero_value_is_noop(
-    e: Env,
-    supplied: i128,
-    old_index: i128,
-    rewards: i128,
-) {
+fn supply_index_rounded_zero_value_is_noop(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!(supplied > 0 && supplied <= 100 * RAY);
     cvlr_assume!(old_index >= SUPPLY_INDEX_FLOOR_RAW && old_index <= MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(rewards > 0 && rewards <= 100 * RAY);
@@ -244,11 +247,77 @@ fn supply_index_positive_rewards_grow_and_respect_cap(
     cvlr_assume!(rewards > 0 && rewards <= 100 * RAY);
     let supplied_ray = Ray::from(supplied);
     let old_index_ray = Ray::from(old_index);
-    cvlr_assume!(supplied_ray.mul(&e, old_index_ray).raw() > 0);
+    let supplied_value = supplied_ray.mul(&e, old_index_ray);
+    cvlr_assume!(supplied_value.raw() > 0);
+    let reward = Ray::from(rewards);
 
-    let out = update_supply_index(&e, supplied_ray, old_index_ray, Ray::from(rewards));
+    let out = update_supply_index(&e, supplied_ray, old_index_ray, reward);
     cvlr_assert!(out.raw() >= old_index);
     cvlr_assert!(out.raw() <= MAX_SUPPLY_INDEX_RAY);
+}
+
+/// In the ordinary symbolic state band, supplier value growth never exceeds
+/// the reward; every undistributed raw unit is identified as shortfall.
+#[rule]
+fn supply_index_reward_distribution_is_conservative(
+    e: Env,
+    supplied: i128,
+    old_index: i128,
+    rewards: i128,
+) {
+    cvlr_assume!(supplied > 0 && supplied <= 100 * RAY);
+    cvlr_assume!(old_index >= SUPPLY_INDEX_FLOOR_RAW && old_index <= 10 * RAY);
+    cvlr_assume!(rewards > 0 && rewards <= 100 * RAY);
+    let supplied_ray = Ray::from(supplied);
+    let old_index_ray = Ray::from(old_index);
+    cvlr_assume!(supplied_ray.mul(&e, old_index_ray).raw() > 0);
+
+    let reward_ray = Ray::from(rewards);
+    let out = update_supply_index(&e, supplied_ray, old_index_ray, reward_ray);
+    cvlr_assert!(out.raw() >= old_index && out.raw() <= MAX_SUPPLY_INDEX_RAY);
+    let old_value = supplied_ray.mul(&e, old_index_ray);
+    let new_value = supplied_ray.mul(&e, out);
+    let distributed = new_value.checked_sub(&e, old_value);
+    cvlr_assert!(distributed.raw() <= rewards);
+    let shortfall = supply_index_reward_shortfall(&e, supplied_ray, old_index_ray, out, reward_ray);
+    cvlr_assert!(distributed.raw() + shortfall.raw() == rewards);
+}
+
+/// The extreme-index regression band remains conservative for the production
+/// 100-share fixture, including the previously reverting 145,000,436x case.
+#[rule]
+fn supply_index_high_index_rewards_are_conservative(e: Env, old_index: i128, rewards: i128) {
+    cvlr_assume!(old_index > 10 * RAY && old_index <= REWARD_REGRESSION_INDEX_MAX);
+    cvlr_assume!(rewards > 0 && rewards <= 100 * RAY);
+    let supplied = Ray::from(100 * RAY);
+    let old_index_ray = Ray::from(old_index);
+    let reward_ray = Ray::from(rewards);
+
+    let out = update_supply_index(&e, supplied, old_index_ray, reward_ray);
+    cvlr_assert!(out.raw() >= old_index && out.raw() <= MAX_SUPPLY_INDEX_RAY);
+    let old_value = supplied.mul(&e, old_index_ray);
+    let new_value = supplied.mul(&e, out);
+    let distributed = new_value.checked_sub(&e, old_value);
+    cvlr_assert!(distributed.raw() <= rewards);
+    let shortfall = supply_index_reward_shortfall(&e, supplied, old_index_ray, out, reward_ray);
+
+    cvlr_assert!(distributed.raw() + shortfall.raw() == rewards);
+}
+
+/// Once the validated supply-index cap is reached, rewards cannot increase it;
+/// the entire reward is conservatively classified as protocol shortfall.
+#[rule]
+fn supply_index_cap_is_sticky(e: Env, rewards: i128) {
+    cvlr_assume!(rewards > 0 && rewards <= 100 * RAY);
+    let supplied = Ray::from(RAY / 10);
+    let old_index = Ray::from(MAX_SUPPLY_INDEX_RAY);
+    let reward = Ray::from(rewards);
+
+    let out = update_supply_index(&e, supplied, old_index, reward);
+    cvlr_assert!(out.raw() == MAX_SUPPLY_INDEX_RAY);
+    let shortfall = supply_index_reward_shortfall(&e, supplied, old_index, out, reward);
+
+    cvlr_assert!(shortfall.raw() == rewards);
 }
 
 /// Debt-index growth is split exactly between suppliers and protocol revenue.

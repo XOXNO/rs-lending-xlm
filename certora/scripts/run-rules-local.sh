@@ -19,6 +19,11 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 # Raise this explicitly for a solo heavy rule when the machine has headroom.
 heap="${CERTORA_JAVA_HEAP:--Xmx8g}"
 
+# Cloud keeps per-assert checking for diagnostics. Locally, one rule with many
+# assertions can fan out enough concurrent Z3 workers to exhaust a 48 GiB host.
+# Aggregate assertions by default; opt back in only with measured headroom.
+local_multi_assert="${CERTORA_LOCAL_MULTI_ASSERT:-false}"
+
 # Local prover invocation (see README "Local prover"): CLI script + emv.jar.
 # Override CERTORA_LOCAL with a full command prefix if the install moves.
 install_dir="${CERTORA_INSTALL:-$HOME/certora-install}"
@@ -58,12 +63,12 @@ fi
 # the temporary config independent of its location.
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/certora-local.XXXXXX")
 local_conf="$work_dir/local.conf"
-python3 - "$conf" "$local_conf" "${CERTORA_LOCAL_SPLIT_PARALLEL:-false}" <<'PY'
+python3 - "$conf" "$local_conf" "${CERTORA_LOCAL_SPLIT_PARALLEL:-false}" "$local_multi_assert" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-source, target, keep_split = sys.argv[1:]
+source, target, keep_split, keep_multi_assert = sys.argv[1:]
 source_path = Path(source).resolve()
 with open(source) as handle:
     data = json.load(handle)
@@ -81,6 +86,8 @@ if keep_split != "true":
     data["prover_args"] = [
         arg for arg in data.get("prover_args", []) if arg != "-splitParallel true"
     ]
+if keep_multi_assert != "true":
+    data["multi_assert_check"] = False
 with open(target, "w") as handle:
     json.dump(data, handle, indent=2)
     handle.write("\n")

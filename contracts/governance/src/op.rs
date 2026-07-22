@@ -125,12 +125,16 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             )
         }
         AdminOperation::SetPriceAggregator(addr) => {
-            // Re-pointing the oracle authority is solvency-critical (Sensitive tier).
+            // Re-pointing the oracle authority is solvency-critical (Sensitive
+            // tier). Self-targeted: governance must move its OWN stored
+            // aggregator (the target of every oracle-config op) in the same
+            // execution that re-points the controller, or the two diverge.
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
-            sensitive_controller_operation(
-                env,
-                "set_price_aggregator",
+            (
+                gov_addr,
+                Symbol::new(env, "set_price_aggregator"),
                 vec![env, addr.clone().into_val(env)],
+                DelayTier::Sensitive,
             )
         }
         AdminOperation::SetAccumulator(addr) => controller_operation(
@@ -338,6 +342,18 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         }
         AdminOperation::TransferGovOwnership(args) => {
             access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger)
+        }
+        AdminOperation::SetPriceAggregator(addr) => {
+            // Re-validate at execution so a matured operation cannot install a
+            // non-contract address, then keep governance's own oracle-authority
+            // pointer and the controller's in lockstep.
+            validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
+            storage::set_price_aggregator(env, addr);
+            env.invoke_contract::<Val>(
+                &storage::get_controller(env),
+                &Symbol::new(env, "set_price_aggregator"),
+                vec![env, addr.clone().into_val(env)],
+            );
         }
         // Only self-targeted operations reach `execute_self`.
         _ => panic_with_error!(env, GenericError::InternalError),

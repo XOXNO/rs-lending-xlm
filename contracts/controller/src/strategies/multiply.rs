@@ -192,7 +192,7 @@ fn validate_multiply_request(
 fn collect_initial_multiply_payment(
     env: &Env,
     caller: &Address,
-    _cache: &mut Cache,
+    cache: &mut Cache,
     collateral: &HubAssetKey,
     debt: &HubAssetKey,
     initial_payment: &Option<(HubAssetKey, i128)>,
@@ -203,6 +203,11 @@ fn collect_initial_multiply_payment(
     };
 
     validation::require_positive_amount(env, *payment_amount);
+
+    // Fail fast on an unsupported/unpriceable payment token BEFORE invoking
+    // its transfer — the aggregator reverts `OracleNotConfigured` for assets
+    // outside the protocol. Also warms the price the payment event reads.
+    cache.fetch_prices(&soroban_sdk::vec![env, payment.asset.clone()]);
 
     let payment_tok = token::Client::new(env, &payment.asset);
     payment_tok.transfer(caller, env.current_contract_address(), payment_amount);

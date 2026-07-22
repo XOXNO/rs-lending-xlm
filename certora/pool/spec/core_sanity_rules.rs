@@ -4,7 +4,7 @@ use cvlr::cvlr_satisfy;
 use cvlr::macros::rule;
 use soroban_sdk::{Address, Env};
 
-use common::constants::RAY;
+use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
 use common::rates::{calculate_borrow_rate, compound_interest, update_borrow_index};
 use common::types::{
@@ -125,6 +125,34 @@ fn seize_settle_domain_reachable(e: Env, admin: Address, asset: Address) {
         after.borrowed < before.borrowed
             && after.supply_index < before.supply_index
             && settled.settled_amount == ONE_TOKEN
+    );
+}
+
+/// The production floor boundary is reachable and leaves a positive legacy
+/// claim; `supply_one` must therefore keep its under-backed-market guard.
+#[rule]
+fn seize_floor_residual_reachable(e: Env, admin: Address, asset: Address) {
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(100 * RAY, 100 * RAY, 0, RAY, RAY, 0, e.ledger().timestamp()),
+    );
+    let seized = PoolSeizeEntry {
+        hub_asset: hub(asset.clone()),
+        side: AccountPositionType::Borrow,
+        position: position(100 * RAY),
+    };
+    crate::seize_one(&e, &seized);
+    let post = read_state(&e, &asset);
+    let legacy_claim = Ray::from(post.supplied).mul_floor(&e, Ray::from(post.supply_index));
+
+    cvlr_satisfy!(
+        post.borrowed == 0
+            && post.cash == 0
+            && post.supply_index == SUPPLY_INDEX_FLOOR_RAW
+            && legacy_claim.raw() > 0
     );
 }
 

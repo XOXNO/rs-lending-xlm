@@ -87,3 +87,5 @@ superpowers
 
 # codebase-memory-mcp persisted graph artifact
 .codebase-memory/
+target-mutants/
+target-fixtures/

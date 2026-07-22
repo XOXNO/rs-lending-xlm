@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::ScVal;
 
-use crate::scval::{field_bool, field_i128, field_u32, field_u64, map_field, vec_items};
+use crate::scval::{field_bool, field_i128, field_u32, field_u64, vec_items};
 
 /// One `get_market_indexes_detailed` row: RAY indexes + soft oracle status.
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ pub struct SpokeConfig {
     pub liquidation_bonus_factor_bps: u32,
 }
 
-/// Spoke-asset listing: flags, risk ratios, caps (`oracle_override` unused).
+/// Spoke-asset listing: flags, risk ratios, caps.
 #[derive(Debug, Clone)]
 pub struct SpokeAssetConfig {
     pub is_collateralizable: bool,
@@ -105,13 +105,6 @@ pub fn decode_spoke_usage(value: &ScVal) -> Result<SpokeUsage> {
         supplied_scaled_ray: field_i128(value, "supplied_scaled_ray").unwrap_or(0),
         borrowed_scaled_ray: field_i128(value, "borrowed_scaled_ray").unwrap_or(0),
     })
-}
-
-pub fn spoke_asset_has_oracle_override(value: &ScVal) -> bool {
-    match map_field(value, "oracle_override").and_then(crate::scval::enum_variant) {
-        Some((tag, _)) => tag == "Some",
-        None => false,
-    }
 }
 
 #[cfg(test)]

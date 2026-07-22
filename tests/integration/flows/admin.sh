@@ -245,9 +245,6 @@ fi
         --assets "$(pay_vec "$SECONDARY_HUB_ID" "$XLM_SAC" 1000000000)" | tr -d '"')
     assert_bool_view secondary_account_exists true account_exists --account_id "$secondary_acct"
 
-    # Token approval admin (idle EURC: revoke then re-approve round-trip).
-    inv revoke_token_admin "$ADMIN" "$CONTROLLER" -- revoke_token --token "$EURC_SAC" >/dev/null
-    inv approve_token_again "$ADMIN" "$CONTROLLER" -- approve_token --token "$EURC_SAC" >/dev/null
 }
 
 # Upgrade / migrate / ownership — LAST block of the run.

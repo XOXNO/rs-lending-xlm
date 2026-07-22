@@ -134,10 +134,17 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     // suppliers than the pool actually received. Any remainder is booked as
     // protocol revenue by `supply_index_reward_shortfall`.
     let rewards_ratio = rewards_increase.div_floor(env, denom);
-    let factor = Ray::ONE.checked_add(env, rewards_ratio);
-    // Clamp into the i128-safe band; saturating mul avoids trapping at the edge.
-    let grown = fp_core::mul_div_floor_saturating(env, old_index.raw(), factor.raw(), RAY);
-    Ray::from(grown.min(MAX_SUPPLY_INDEX_RAY))
+    // `floor(old * (1 + ratio)) == old + floor(old * ratio)`. Writing the
+    // equivalent increment form makes monotonicity explicit and keeps both
+    // multiplication and addition saturating at the i128 edge.
+    let increment =
+        fp_core::mul_div_floor_saturating(env, old_index.raw(), rewards_ratio.raw(), RAY);
+    let grown = old_index.raw().saturating_add(increment);
+    // Keep monotonicity structural even if an unexpected arithmetic input ever
+    // reaches this helper. For every validated input this lower bound is a no-op;
+    // the upper bound also preserves the existing behavior for an index above cap.
+    let bounded_old = old_index.raw().min(MAX_SUPPLY_INDEX_RAY);
+    Ray::from(grown.min(MAX_SUPPLY_INDEX_RAY).max(bounded_old))
 }
 
 /// Reward value that a supply-index update leaves UNDISTRIBUTED to suppliers:
@@ -179,13 +186,13 @@ pub fn calculate_supplier_rewards(
     (supplier_rewards, protocol_fee)
 }
 
-/// Scales a protocol `fee` into supply shares, overflow-safe. Matches the plain
-/// `fee / supply_index` half-up divide for results that fit `i128`; at a floored
+/// Scales a protocol `fee` into supply shares without over-crediting revenue.
+/// Floor rounding keeps the minted claim at or below the fee value. At a floored
 /// supply index (post-wipeout) the raw share count can exceed `i128`, so the
 /// conversion saturates and is capped to the headroom left in `supplied` — accrual
 /// and the simulate view can never trap on a bricked market.
 pub fn protocol_fee_shares(env: &Env, fee: Ray, supply_index: Ray, supplied: Ray) -> Ray {
-    let raw = fp_core::mul_div_half_up_saturating(env, fee.raw(), RAY, supply_index.raw());
+    let raw = fp_core::mul_div_floor_saturating(env, fee.raw(), RAY, supply_index.raw());
     let headroom = i128::MAX - supplied.raw();
     Ray::from(raw.min(headroom))
 }
@@ -275,14 +282,24 @@ pub(crate) fn simulate_update_indexes_body(
             borrow_index,
         );
 
-        supply_index = update_supply_index(env, supplied, supply_index, supplier_rewards);
+        let old_supply_index = supply_index;
+        supply_index = update_supply_index(env, supplied, old_supply_index, supplier_rewards);
+        let supplier_shortfall = supply_index_reward_shortfall(
+            env,
+            supplied,
+            old_supply_index,
+            supply_index,
+            supplier_rewards,
+        );
         borrow_index = new_borrow_index;
 
-        // Protocol fee mints scaled supply (feeds next-chunk utilization).
-        if protocol_fee != Ray::ZERO {
+        // Reserve fee plus virtual-offset shortfall mint scaled supply and feed
+        // the next chunk's utilization exactly like mutating pool accrual.
+        let protocol_reward = protocol_fee.checked_add(env, supplier_shortfall);
+        if protocol_reward != Ray::ZERO {
             // Overflow-safe: a floored supply index can push the share count past
             // i128; `protocol_fee_shares` saturates and caps to remaining headroom.
-            let fee_scaled = protocol_fee_shares(env, protocol_fee, supply_index, supplied);
+            let fee_scaled = protocol_fee_shares(env, protocol_reward, supply_index, supplied);
             supplied = supplied.checked_add(env, fee_scaled);
         }
 

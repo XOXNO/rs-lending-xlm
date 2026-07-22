@@ -152,19 +152,22 @@ fn test_twap_stale_history_blocks_strict_borrow() {
     assert_contract_error(result, errors::PRICE_FEED_STALE);
 }
 
-// Fail-closed: there is no degraded fallback and no `twap_degraded` event.
-// Reading market indexes after marking USDC's TWAP history empty reverts
-// `ReflectorHistoryEmpty` (#212) even on the view path.
+// Soft view: empty TWAP history must NOT revert the diagnostic view — the
+// row reports an unusable status (price 0, not valid) while the hard borrow
+// path still reverts `ReflectorHistoryEmpty` (covered above).
 #[test]
-#[should_panic(expected = "Error(Contract, #212)")]
-fn test_twap_degradation_on_view_reverts() {
+fn test_twap_degradation_on_view_reports_unusable() {
     let t = setup();
     let usdc_asset = t.resolve_asset("USDC");
     t.mock_reflector_client()
         .set_twap_history_mode(&usdc_asset, &2);
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(usdc_asset)]);
-    let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(usdc_asset.clone())]);
+    let rows = t.ctrl_client().get_market_indexes_detailed(&assets);
+    let row = rows.get(0).unwrap();
+    assert_eq!(row.asset, usdc_asset);
+    assert!(!row.valid);
+    assert_eq!(row.price_wad, 0);
 }
 
 // `OracleReadMode::Spot` primary + missing `lastprice` → `read_spot` panics

@@ -303,13 +303,10 @@ fn test_apply_bad_debt_exactly_at_total_supplied_hits_cap_and_floor() {
     });
 }
 
-// AUDIT: bad-debt wipeout floor-clamp (RAY/1000) leaves survivor scaled shares
-// with a phantom claim worth ~0.1% of pre-wipeout value. Harmless while the
-// market is empty (every payout is cash-gated), but a fresh supplier's real
-// cash makes those stranded claims extractable — the first survivor to withdraw
-// drains the newcomer's deposit.
+// Low-level regression: bypassing `supply_one` shows why its floor-market
+// backing guard is required. The public-flow regression lives in flows.rs.
 #[test]
-fn test_audit_pool_apply_bad_debt_to_stranded_shares_drain_fresh_supplier() {
+fn test_raw_cache_floor_residual_can_consume_fresh_cash_without_supply_guard() {
     let t = TestSetup::new();
     t.as_contract(|| {
         // userA supplied 1,000,000 tokens at supply_index = RAY.
@@ -374,14 +371,10 @@ fn test_audit_pool_apply_bad_debt_to_stranded_shares_drain_fresh_supplier() {
     });
 }
 
-// AUDIT (new_supply_index floor-clamp): apply_bad_debt_to_supply_index computes
-// new_supply_index == 0 on a full wipeout, then `.max(SUPPLY_INDEX_FLOOR_RAW)`
-// (interest.rs:92) revives it to RAY/1000. Pre-wipeout scaled shares are never
-// burned, so each keeps a phantom claim ~= 0.1% of its original value. That claim
-// is unbacked (cash == 0) but becomes extractable once any fresh supplier funds
-// the market. This test proves a fresh depositor is left short.
+// Same raw-cache boundary at a smaller scale. It intentionally bypasses the
+// production supply guard and pins the underlying floor-clamp arithmetic.
 #[test]
-fn test_audit_pool_new_supply_index_m_floor_clamp_strands_claim_drains_fresh_cash() {
+fn test_raw_cache_floor_clamp_strands_claim_without_supply_guard() {
     let t = TestSetup::new();
     t.as_contract(|| {
         // S_old supplied 1,000 tokens at supply_index = RAY.
@@ -446,15 +439,11 @@ fn test_audit_pool_new_supply_index_m_floor_clamp_strands_claim_drains_fresh_cas
     });
 }
 
-// AUDIT (entrypoint-sequence proof): mirrors the exact production ops the pool
-// runs — `seize_one` (bad-debt side) calls apply_bad_debt_to_supply_index; a
-// later supply_one credits fresh cash; withdraw_one calls resolve_withdrawal +
-// require_reserves + debit_cash. A fully-wiped survivor extracts real tokens
-// from a fresh depositor's cash. Distinct from the two tests above: it drives
-// the write-down through unscale_borrow_exact (the value seize_one feeds in) and
-// tracks the pool-wide solvency gap `supplied*supply_index > cash` after deposit.
+// Drives the exact seizure valuation but deliberately bypasses `supply_one`
+// when injecting fresh cash. This keeps the counterfactual loss mechanism
+// pinned while the public entrypoint test proves the guard rejects it.
 #[test]
-fn test_audit_pool_apply_bad_debt_to_supply_index_seize_then_fresh_deposit_drain() {
+fn test_raw_cache_seizure_residual_would_drain_fresh_cash_without_supply_guard() {
     let t = TestSetup::new();
     t.as_contract(|| {
         // Alice supplied 1,000 tokens at supply_index = RAY; a borrower drew ~all
@@ -475,7 +464,7 @@ fn test_audit_pool_apply_bad_debt_to_supply_index_seize_then_fresh_deposit_drain
 
         // seize_one(Borrow side): value the seized debt exactly as production does,
         // then socialize it into the supply index.
-        let bad_debt = cache.unscale_borrow_exact(borrow_scaled);
+        let bad_debt = cache.unscale_borrow_ceil_ray(borrow_scaled);
         apply_bad_debt_to_supply_index(&mut cache, bad_debt);
         cache.borrowed.checked_sub_assign(&t.env, borrow_scaled);
 
@@ -495,7 +484,7 @@ fn test_audit_pool_apply_bad_debt_to_supply_index_seize_then_fresh_deposit_drain
             "empty market: claim masked by require_reserves"
         );
 
-        // supply_one: Bob deposits fresh cash D (choose D so the deficit is exact).
+        // Counterfactual raw accounting: bypass the guarded supply entrypoint.
         let deposit = alice_stranded;
         let bob_scaled = cache.calculate_scaled_supply(deposit);
         cache.supplied.checked_add_assign(&t.env, bob_scaled);
@@ -553,6 +542,68 @@ fn test_global_sync_step_zero_borrowed_produces_zero_interest() {
     });
 }
 
+#[test]
+fn test_global_sync_books_supplier_shortfall_as_protocol_revenue() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let state = PoolStateRaw {
+            supplied: 100 * RAY,
+            borrowed: 80 * RAY,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
+            last_timestamp: 0,
+            cash: 20_000_000,
+        };
+        let mut cache = t.fresh_cache(state);
+        cache.current_timestamp = MAX_COMPOUND_DELTA_MS;
+
+        let old_borrow_index = cache.borrow_index;
+        let old_supply_index = cache.supply_index;
+        let util = cache.calculate_utilization();
+        let rate = calculate_borrow_rate(&t.env, util, &cache.params);
+        let factor = compound_interest(&t.env, rate, MAX_COMPOUND_DELTA_MS);
+        let new_borrow_index = update_borrow_index(&t.env, old_borrow_index, factor);
+        let (supplier_rewards, reserve_fee) = calculate_supplier_rewards(
+            &t.env,
+            &cache.params,
+            cache.borrowed,
+            new_borrow_index,
+            old_borrow_index,
+        );
+        let new_supply_index =
+            update_supply_index(&t.env, cache.supplied, old_supply_index, supplier_rewards);
+        let shortfall = supply_index_reward_shortfall(
+            &t.env,
+            cache.supplied,
+            old_supply_index,
+            new_supply_index,
+            supplier_rewards,
+        );
+        assert!(
+            shortfall.raw() > 0,
+            "thin market must exercise offset shortfall"
+        );
+        let total_protocol_reward = reserve_fee.checked_add(&t.env, shortfall);
+        let expected_revenue = protocol_fee_shares(
+            &t.env,
+            total_protocol_reward,
+            new_supply_index,
+            cache.supplied,
+        );
+        let fee_only_revenue =
+            protocol_fee_shares(&t.env, reserve_fee, new_supply_index, cache.supplied);
+
+        global_sync(&t.env, &mut cache);
+
+        assert_eq!(cache.borrow_index, new_borrow_index);
+        assert_eq!(cache.supply_index, new_supply_index);
+        assert_eq!(cache.revenue, expected_revenue);
+        assert!(cache.revenue.raw() > fee_only_revenue.raw());
+        assert_eq!(cache.supplied.raw(), 100 * RAY + expected_revenue.raw());
+    });
+}
+
 // --- Year-long daily accrual: virtual offset + rounding dust ---
 
 /// One calendar day in ms (not leap-second aware).
@@ -593,7 +644,8 @@ fn snapshot(env: &Env, cache: &Cache, user_scaled: Ray) -> AccrualSnapshot {
 }
 
 /// Interest paid by borrowers must fund supplier claim growth + revenue claim
-/// growth. The residual is virtual-offset dilution + fixed-point dust:
+/// growth. Virtual-offset dilution is booked into revenue, so the residual is
+/// only fixed-point conversion dust:
 /// `dust = interest - (Δ total_supply_claim)`.
 struct YearDustReport {
     label: &'static str,

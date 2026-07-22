@@ -7,7 +7,7 @@ use crate::constants::{
     RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
 use crate::math::fp::{Bps, Ray};
-use crate::math::fp_core::mul_div_half_up;
+use crate::math::fp_core::{mul_div_floor, mul_div_half_up};
 use crate::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     protocol_fee_shares, simulate_update_indexes_body, update_borrow_index, update_supply_index,
@@ -171,7 +171,7 @@ fn simulate_indexes_no_time_noop(
     cvlr_assume!((0..=100 * RAY).contains(&borrowed));
     cvlr_assume!((0..=100 * RAY).contains(&supplied));
     cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
-    cvlr_assume!((RAY..=10 * RAY).contains(&supply_index));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=MAX_SUPPLY_INDEX_RAY).contains(&supply_index));
 
     let sync = PoolSyncData {
         params: (&valid_params(asset)).into(),
@@ -264,7 +264,8 @@ fn protocol_fee_shares_bounded_by_headroom(e: Env, fee: i128, supply_index: i128
     cvlr_assert!(out.raw() <= i128::MAX - supplied);
 }
 
-/// In-range conversion matches the plain half-up `fee / supply_index` divide.
+/// In-range conversion matches the conservative floor divide and the value of
+/// minted revenue shares never exceeds the fee being booked.
 #[rule]
 fn protocol_fee_shares_matches_divide_in_range(
     e: Env,
@@ -282,8 +283,9 @@ fn protocol_fee_shares_matches_divide_in_range(
         Ray::from(supply_index),
         Ray::from(supplied),
     );
-    let plain = mul_div_half_up(&e, fee, RAY, supply_index);
+    let plain = mul_div_floor(&e, fee, RAY, supply_index);
     cvlr_assert!(out.raw() == plain);
+    cvlr_assert!(mul_div_floor(&e, out.raw(), supply_index, RAY) <= fee);
 }
 
 // Summary bounds are compositionally justified by the lemmas above

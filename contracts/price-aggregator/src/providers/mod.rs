@@ -13,9 +13,17 @@ use crate::observation::OracleObservation;
 fn dispatch_required_source(
     cache: &mut ResolutionContext,
     source: &OracleSourceConfig,
-    max_stale: u64,
+    _max_stale: u64,
 ) -> OracleObservation {
-    try_read_source(cache, source, max_stale).unwrap_or_else(|| match source {
+    let observation = match source {
+        OracleSourceConfig::Reflector(config) => {
+            reflector::read_reflector_source(cache, config, false)
+        }
+        OracleSourceConfig::RedStone(config) | OracleSourceConfig::Xoxno(config) => {
+            multi_feed::read_multi_feed_source(cache, config)
+        }
+    };
+    observation.unwrap_or_else(|| match source {
         OracleSourceConfig::Reflector(_) => {
             panic_with_error!(cache.env(), OracleError::NoLastPrice)
         }
@@ -25,15 +33,15 @@ fn dispatch_required_source(
     })
 }
 
-/// Soft provider read for diagnostic views; `None` when the feed is missing.
+/// Soft provider read for diagnostic views; `None` for any per-asset read
+/// problem (missing feed, missing/short TWAP history, unresolvable quote leg).
 pub(crate) fn try_read_source(
     cache: &mut ResolutionContext,
     source: &OracleSourceConfig,
-    max_stale: u64,
 ) -> Option<OracleObservation> {
     match source {
         OracleSourceConfig::Reflector(config) => {
-            reflector::read_reflector_source(cache, config, max_stale)
+            reflector::read_reflector_source(cache, config, true)
         }
         OracleSourceConfig::RedStone(config) | OracleSourceConfig::Xoxno(config) => {
             multi_feed::read_multi_feed_source(cache, config)

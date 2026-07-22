@@ -43,13 +43,21 @@ pub enum GenericError {
     NotAuthorized = 44,
     RegistryCapReached = 45,
     OperationNotCancellable = 46,
-    /// Positive raw borrow floors to zero scaled debt (would free-borrow tokens).
+    /// Defensive invariant: a positive ceil-scaled borrow produced zero debt.
     BorrowRoundsToZeroShares = 47,
     /// Would remove the last PROPOSER (permanently freezes governance scheduling).
     CannotRemoveLastProposer = 48,
-    /// Positive withdrawal rounds to zero scaled supply (would transfer tokens
-    /// without reducing the account or aggregate position).
+    /// Defensive invariant: a positive ceil-scaled withdrawal produced zero burn.
     WithdrawRoundsToZeroShares = 49,
+    /// A positive zero-cash settlement rounds its debt credit to zero, which
+    /// would make the two accounting legs diverge.
+    NetSettleRoundsToZeroShares = 50,
+    /// Positive supply rounds to zero scaled supply (would accept tokens without
+    /// crediting the account or aggregate position).
+    SupplyRoundsToZeroShares = 51,
+    /// Positive repay rounds to zero scaled debt (would accept tokens without
+    /// reducing the account or aggregate debt position).
+    RepayRoundsToZeroShares = 52,
 }
 
 #[contracterror]

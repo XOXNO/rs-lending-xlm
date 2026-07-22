@@ -574,7 +574,7 @@ fn test_withdraw() {
 }
 
 #[test]
-fn test_withdraw_rejects_positive_transfer_that_rounds_to_zero_shares() {
+fn test_withdraw_rounds_share_burn_up_for_positive_transfer() {
     let t = TestSetup::new();
     t.env.as_contract(&t.pool, || {
         let params_key = PoolKey::Params(hub(&t.asset));
@@ -590,12 +590,117 @@ fn test_withdraw_rejects_positive_transfer_that_rounds_to_zero_shares() {
     });
 
     let user = Address::generate(&t.env);
-    let result = flatten_contract_result(t.client().try_withdraw(
-        &user,
-        &false,
-        &t.wdr(10 * RAY, 1, 0),
-    ));
-    assert_contract_error(result, GenericError::WithdrawRoundsToZeroShares as u32);
+    let result = t.client().withdraw(&user, &false, &t.wdr(10 * RAY, 1, 0));
+    let mutation = result.get_unchecked(0);
+    assert_eq!(mutation.actual_amount, 1);
+    assert_eq!(mutation.position.scaled_amount, 10 * RAY - 1);
+}
+
+#[test]
+fn test_supply_rejects_positive_amount_that_rounds_to_zero_shares() {
+    let t = TestSetup::new();
+    t.env.as_contract(&t.pool, || {
+        let params_key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&params_key).unwrap();
+        params.asset_decimals = 27;
+        t.env.storage().persistent().set(&params_key, &params);
+
+        let state_key = PoolKey::State(hub(&t.asset));
+        let mut state: PoolStateRaw = t.env.storage().persistent().get(&state_key).unwrap();
+        state.supply_index = 3 * RAY;
+        t.env.storage().persistent().set(&state_key, &state);
+    });
+
+    let result = flatten_contract_result(t.client().try_supply(&t.sup(0, 1)));
+    assert_contract_error(result, GenericError::SupplyRoundsToZeroShares as u32);
+}
+
+#[test]
+fn test_supply_rejects_underbacked_market_after_floor_index_lift() {
+    let t = TestSetup::new();
+    t.edit_state(|state| {
+        state.supplied = 1_000 * RAY;
+        state.borrowed = 0;
+        state.revenue = 0;
+        state.supply_index = common::constants::SUPPLY_INDEX_FLOOR_RAW + 1;
+        state.borrow_index = RAY;
+        state.cash = 0;
+    });
+    let before = t.state_snapshot();
+
+    let result = flatten_contract_result(t.client().try_supply(&t.sup(0, 10_000_000)));
+    assert_contract_error(result, CollateralError::PoolInsolvent as u32);
+    let after = t.state_snapshot();
+    assert_pool_state_eq(&after, &before);
+    assert_eq!(after.cash, before.cash);
+}
+
+#[test]
+fn test_repay_rejects_positive_amount_that_rounds_to_zero_shares() {
+    let t = TestSetup::new();
+    t.env.as_contract(&t.pool, || {
+        let params_key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&params_key).unwrap();
+        params.asset_decimals = 27;
+        t.env.storage().persistent().set(&params_key, &params);
+
+        let state_key = PoolKey::State(hub(&t.asset));
+        let mut state: PoolStateRaw = t.env.storage().persistent().get(&state_key).unwrap();
+        state.borrowed = 100 * RAY;
+        state.borrow_index = 3 * RAY;
+        t.env.storage().persistent().set(&state_key, &state);
+    });
+
+    let payer = Address::generate(&t.env);
+    let result = flatten_contract_result(t.client().try_repay(&payer, &t.ract(10 * RAY, 1)));
+    assert_contract_error(result, GenericError::RepayRoundsToZeroShares as u32);
+}
+
+#[test]
+fn test_net_settle_uses_directed_rounding_and_rejects_zero_debt_burn() {
+    let t = TestSetup::new();
+    t.env.as_contract(&t.pool, || {
+        let params_key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&params_key).unwrap();
+        params.asset_decimals = 27;
+        t.env.storage().persistent().set(&params_key, &params);
+
+        let state_key = PoolKey::State(hub(&t.asset));
+        let mut state: PoolStateRaw = t.env.storage().persistent().get(&state_key).unwrap();
+        state.supplied = 100 * RAY;
+        state.borrowed = 100 * RAY;
+        state.supply_index = 3 * RAY;
+        state.borrow_index = RAY;
+        t.env.storage().persistent().set(&state_key, &state);
+    });
+
+    let entry = PoolNetSettleEntry {
+        hub_asset: hub(&t.asset),
+        amount: 1,
+        supply_position: ScaledPositionRaw {
+            scaled_amount: 10 * RAY,
+        },
+        debt_position: ScaledPositionRaw {
+            scaled_amount: 10 * RAY,
+        },
+    };
+    let directed = t.client().net_settle(&entry);
+    assert_eq!(directed.settled_amount, 1);
+    assert_eq!(directed.supply_position.scaled_amount, 10 * RAY - 1);
+    assert_eq!(directed.debt_position.scaled_amount, 10 * RAY - 1);
+
+    t.env.as_contract(&t.pool, || {
+        let state_key = PoolKey::State(hub(&t.asset));
+        let mut state: PoolStateRaw = t.env.storage().persistent().get(&state_key).unwrap();
+        state.supply_index = RAY;
+        state.borrow_index = 3 * RAY;
+        t.env.storage().persistent().set(&state_key, &state);
+    });
+    let debt_leg_zero = flatten_contract_result(t.client().try_net_settle(&entry));
+    assert_contract_error(
+        debt_leg_zero,
+        GenericError::NetSettleRoundsToZeroShares as u32,
+    );
 }
 
 #[test]

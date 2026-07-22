@@ -6,7 +6,7 @@ use common::constants::SUPPLY_INDEX_FLOOR_RAW;
 use common::math::fp::Ray;
 use common::rates::{
     calculate_borrow_rate, calculate_supplier_rewards, compound_interest, protocol_fee_shares,
-    update_borrow_index, update_supply_index, MAX_COMPOUND_DELTA_MS,
+    supply_index_reward_shortfall, update_borrow_index, update_supply_index, MAX_COMPOUND_DELTA_MS,
 };
 
 use soroban_sdk::Env;
@@ -47,15 +47,25 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
         cache.borrow_index,
     );
 
+    let old_supply_index = cache.supply_index;
     let new_supply_index =
-        update_supply_index(env, cache.supplied, cache.supply_index, supplier_rewards);
+        update_supply_index(env, cache.supplied, old_supply_index, supplier_rewards);
+    let supplier_shortfall = supply_index_reward_shortfall(
+        env,
+        cache.supplied,
+        old_supply_index,
+        new_supply_index,
+        supplier_rewards,
+    );
 
     cache.borrow_index = new_borrow_index;
     cache.supply_index = new_supply_index;
 
-    // Protocol fee is added to revenue and scaled supplied; later chunks in the
-    // same accrual use diluted utilization.
-    add_protocol_revenue(cache, protocol_fee);
+    // Both the configured reserve fee and reward value not distributable through
+    // the virtual-offset index belong to protocol revenue. Later chunks include
+    // the minted shares in supplied value and therefore in utilization.
+    let protocol_reward = protocol_fee.checked_add(env, supplier_shortfall);
+    add_protocol_revenue(cache, protocol_reward);
 }
 
 pub fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {

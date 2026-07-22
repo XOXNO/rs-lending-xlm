@@ -75,16 +75,24 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
 
 /// Quote oracles must price straight to USD — one hop, no quote chains.
 /// RedStone/Xoxno primaries are USD by construction; a Reflector primary must
-/// carry a USD base. Shared by config-time validation and the read path.
-pub(crate) fn require_usd_rooted(env: &Env, quote_oracle: &AssetOracleConfig) {
+/// carry a USD base.
+pub(crate) fn is_usd_rooted(quote_oracle: &AssetOracleConfig) -> bool {
     match &quote_oracle.primary {
-        OracleSourceConfig::RedStone(_) | OracleSourceConfig::Xoxno(_) => {}
-        OracleSourceConfig::Reflector(quote_primary) => assert_with_error!(
-            env,
-            matches!(quote_primary.base, ReflectorBase::Usd),
-            OracleError::InvalidOracleBase
-        ),
+        OracleSourceConfig::RedStone(_) | OracleSourceConfig::Xoxno(_) => true,
+        OracleSourceConfig::Reflector(quote_primary) => {
+            matches!(quote_primary.base, ReflectorBase::Usd)
+        }
     }
+}
+
+/// Hard-path form of [`is_usd_rooted`]; shared by config-time validation and
+/// the read path.
+pub(crate) fn require_usd_rooted(env: &Env, quote_oracle: &AssetOracleConfig) {
+    assert_with_error!(
+        env,
+        is_usd_rooted(quote_oracle),
+        OracleError::InvalidOracleBase
+    );
 }
 
 /// Moves only the sanity band on an active oracle, keeping every other field.

@@ -421,7 +421,6 @@ scval_spoke_args() {
             {key:{symbol:"hub_id"},val:{u32:$hub}},
             {key:{symbol:"liquidation_fees"},val:{u32:$lf}},
             {key:{symbol:"ltv"},val:{u32:$ltv}},
-            {key:{symbol:"oracle_override"},val:{vec:[{symbol:"None"}]}},
             {key:{symbol:"paused"},val:{bool:$paused}},
             {key:{symbol:"spoke_id"},val:{u32:$spoke}},
             {key:{symbol:"supply_cap"},val:{i128:$sc}},
@@ -443,7 +442,7 @@ friendly_spoke_args() {
         '{hub_id:$hub, asset:$asset, spoke_id:$spoke, can_collateral:$cc, can_borrow:$cb,
           paused:$paused, frozen:$frozen,
           ltv:$ltv, threshold:$thr, bonus:$bonus, liquidation_fees:$lf,
-          supply_cap:$sc, borrow_cap:$bc, oracle_override:"None"}'
+          supply_cap:$sc, borrow_cap:$bc}'
 }
 
 # Build an AdminOperation enum value in stellar-cli FRIENDLY-JSON form. The
@@ -2413,28 +2412,28 @@ configure_spoke_curves() {
 }
 
 set_aggregator() {
-    echo "Configuring Aggregator for ${NETWORK}..."
+    echo "Configuring Swap Aggregator for ${NETWORK}..."
     local router
     if ! router=$(get_aggregator_address); then
         echo "ERROR: No aggregator address for ${NETWORK}. Set networks.json aggregator or AGGREGATOR_CONTRACT." >&2
         exit 1
     fi
 
-    echo "  Aggregator Address: ${router}" >&2
+    echo "  Swap Aggregator Address: ${router}" >&2
 
-    # set_aggregator(addr) — single Address arg.
+    # set_swap_aggregator(addr) — single Address arg.
     local args_json
     args_json=$(jq -nc --arg a "$router" '[{address:$a}]')
     local salt
-    salt=$(gen_salt "set_aggregator" "$args_json")
+    salt=$(gen_salt "set_swap_aggregator" "$args_json")
 
     local op_id
     op_id=$(schedule_via_proposer \
-        set_aggregator "$(admin_op SetAggregator "$(jq -nc --arg a "$router" '$a')")" \
+        set_swap_aggregator "$(admin_op SetSwapAggregator "$(jq -nc --arg a "$router" '$a')")" \
         "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
 
-    echo "Aggregator scheduled via governance."
+    echo "Swap aggregator scheduled via governance."
 }
 
 set_accumulator() {

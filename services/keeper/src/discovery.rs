@@ -245,6 +245,24 @@ pub async fn snapshot(
         }
     }
 
+    // Price-aggregator instance + code must stay live alongside its persistent
+    // AssetOracle rows, or every controller `prices` cross-call fails once the
+    // instance archives. Best-effort like governance/adapter discovery.
+    let mut aggregator_instance: Option<LedgerEntryQuery> = None;
+    if let Some(aggregator_id) = &ids.price_aggregator {
+        match client
+            .get_ledger_entries(&[contract_instance_key(aggregator_id)])
+            .await
+        {
+            Ok(mut rows) => aggregator_instance = rows.pop(),
+            Err(err) => warn!(
+                target: "keeper.discovery",
+                error = %err,
+                "price-aggregator instance discovery failed — aggregator TTLs skipped this tick"
+            ),
+        }
+    }
+
     let mut instance_keys = Vec::with_capacity(3);
     instance_keys.push(contract_instance_key(&controller_id));
     if let Some(pool) = &pool_id {
@@ -284,6 +302,13 @@ pub async fn snapshot(
     {
         wasm_keys.push(contract_code_key(&adapter_hash));
     }
+    // Same for the price-aggregator code.
+    if let Some(aggregator_hash) = aggregator_instance
+        .as_ref()
+        .and_then(wasm_hash_from_instance_row)
+    {
+        wasm_keys.push(contract_code_key(&aggregator_hash));
+    }
     let wasm_code_entries = client.get_ledger_entries(&wasm_keys).await?;
 
     // Append after wasm harvest so flash receiver stays LAST in `instance_entries`.
@@ -294,6 +319,10 @@ pub async fn snapshot(
     // Adapter instance covers Signers/Threshold/MaxStaleSeconds/Resolution.
     if let Some(adapter) = adapter_instance {
         instance_entries.push(adapter);
+    }
+    // Price-aggregator instance covers its Ownable owner slot.
+    if let Some(aggregator) = aggregator_instance {
+        instance_entries.push(aggregator);
     }
 
     Ok(DiscoverySnapshot {

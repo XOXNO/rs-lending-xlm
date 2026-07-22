@@ -66,10 +66,10 @@ fn test_multiply_with_debt_token_initial_payment() {
     );
 }
 
-// A third-token initial payment without convert steps is rejected after the
-// token pull; oracle config is no longer pre-checked on the payment asset.
+// An UNLISTED initial-payment token is rejected up front (fail-fast price
+// check) BEFORE its token contract is invoked — `OracleNotConfigured`.
 #[test]
-fn test_multiply_rejects_third_token_payment_without_convert() {
+fn test_multiply_rejects_unlisted_third_token_payment_before_transfer() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -93,6 +93,49 @@ fn test_multiply_rejects_third_token_payment_without_convert() {
         &controller::types::PositionMode::Multiply,
         &steps,
         &Some((hub_asset(unlisted), 1_0000000i128)),
+        &None,
+    );
+
+    match result {
+        Err(Ok(err)) => assert_eq!(
+            err,
+            soroban_sdk::Error::from_contract_error(errors::ORACLE_NOT_CONFIGURED),
+            "unlisted payment token must fail OracleNotConfigured before transfer"
+        ),
+        other => panic!("expected OracleNotConfigured, got {:?}", other),
+    }
+}
+
+// A LISTED third-token initial payment without convert steps is rejected with
+// ConvertStepsRequired after the fail-fast price check passes.
+#[test]
+fn test_multiply_rejects_third_token_payment_without_convert() {
+    use test_harness::xlm_preset;
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(xlm_preset())
+        .build();
+
+    let alice = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let xlm = t.resolve_asset("XLM");
+    t.resolve_market("XLM")
+        .token_admin
+        .mint(&alice, &10_0000000i128);
+
+    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let result = t.ctrl_client().try_multiply(
+        &alice,
+        &0u64,
+        &1u32,
+        &hub_asset(usdc.clone()),
+        &1_0000000i128,
+        &hub_asset(eth.clone()),
+        &controller::types::PositionMode::Multiply,
+        &steps,
+        &Some((hub_asset(xlm), 1_0000000i128)),
         &None,
     );
 

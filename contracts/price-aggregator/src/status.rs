@@ -25,8 +25,7 @@ pub(crate) fn resolve_price_status(cache: &mut ResolutionContext, asset: &Addres
     let primary_max_stale = config
         .primary
         .max_stale_seconds(config.max_price_stale_seconds);
-    let Some(primary) = providers::try_read_source(cache, &config.primary, primary_max_stale)
-    else {
+    let Some(primary) = providers::try_read_source(cache, &config.primary) else {
         return PriceStatus::unusable();
     };
 
@@ -78,7 +77,7 @@ fn resolve_anchored_status(
     };
 
     let anchor_max_stale = anchor_cfg.max_stale_seconds(config.max_price_stale_seconds);
-    let Some(anchor) = providers::try_read_source(cache, anchor_cfg, anchor_max_stale) else {
+    let Some(anchor) = providers::try_read_source(cache, anchor_cfg) else {
         return PriceStatus {
             final_wad: 0,
             primary_wad,

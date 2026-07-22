@@ -79,7 +79,7 @@ deploy_protocol() {
         log "price-aggregator = $pa"
     fi
     if [ -z "${WIRED:-}" ]; then
-        inv set_aggregator "$ADMIN" "$CONTROLLER" -- set_aggregator --addr "$AGGREGATOR" >/dev/null
+        inv set_swap_aggregator "$ADMIN" "$CONTROLLER" -- set_swap_aggregator --addr "$AGGREGATOR" >/dev/null
         # Revenue treasury (wallet ok). Not the swap aggregator — claim_revenue
         # forwards SAC balances here and fails with NoAccumulator (#211) if unset.
         inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
@@ -229,8 +229,7 @@ asset_config_json() {
         liquidation_bonus: $bonus,
         liquidation_fees: 100,
         supply_cap: "0",
-        borrow_cap: "0",
-        oracle_override: "None"
+        borrow_cap: "0"
     }' | jq -c "$overrides"
 }
 
@@ -255,8 +254,7 @@ spoke_args() {
         bonus: $bonus,
         liquidation_fees: 100,
         supply_cap: $sc,
-        borrow_cap: $bc,
-        oracle_override: "None"
+        borrow_cap: $bc
     }'
 }
 
@@ -347,7 +345,6 @@ create_market() {
     local params resolved_oracle ltv thr bonus
     params=$(market_params_json "$sac" "$decimals")
 
-    inv "approve_token_$name" "$ADMIN" "$CONTROLLER" -- approve_token --token "$sac" >/dev/null || return 1
     if market_listing_exists "$hub_id" "$sac"; then
         record "create_market_$name" ok create_liquidity_pool "" "" "" "" "" "listing already exists (resume); skipping create"
     else

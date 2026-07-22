@@ -70,6 +70,7 @@ pub mod codes {
     pub const TWAP_INSUFFICIENT_OBSERVATIONS: u32 =
         OracleError::TwapInsufficientObservations as u32;
     pub const ORACLE_NOT_CONFIGURED: u32 = OracleError::OracleNotConfigured as u32;
+    pub const INVALID_ORACLE_BASE: u32 = OracleError::InvalidOracleBase as u32;
     pub const SANITY_BOUND_VIOLATED: u32 = OracleError::SanityBoundViolated as u32;
     pub const INVALID_SANITY_BOUNDS: u32 = OracleError::InvalidSanityBounds as u32;
 

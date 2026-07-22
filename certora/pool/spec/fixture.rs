@@ -2,6 +2,8 @@
 #![allow(dead_code)]
 
 use common::constants::RAY;
+use common::math::fp::Ray;
+use common::math::fp_core;
 use common::types::{
     HubAssetKey, MarketParamsRaw, PoolAction, PoolKey, PoolStateRaw, ScaledPositionRaw,
 };
@@ -16,12 +18,7 @@ pub fn hub(asset: Address) -> HubAssetKey {
 }
 
 pub fn params(asset: Address, flashloan_fee: u32, is_flashloanable: bool) -> MarketParamsRaw {
-    params_with_decimals(
-        asset,
-        flashloan_fee,
-        is_flashloanable,
-        ASSET_DECIMALS,
-    )
+    params_with_decimals(asset, flashloan_fee, is_flashloanable, ASSET_DECIMALS)
 }
 
 pub fn params_with_decimals(
@@ -102,4 +99,10 @@ pub fn action(asset: Address, scaled_amount: i128, amount: i128) -> PoolAction {
         amount,
         hub_asset: hub(asset),
     }
+}
+
+/// Independent expansion of `protocol_fee_shares` for pool-transition oracles.
+pub fn expected_protocol_fee_shares(env: &Env, fee: Ray, supply_index: Ray, supplied: Ray) -> Ray {
+    let raw = fp_core::mul_div_floor_saturating(env, fee.raw(), RAY, supply_index.raw());
+    Ray::from(raw.min(i128::MAX - supplied.raw()))
 }

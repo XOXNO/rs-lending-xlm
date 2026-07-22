@@ -80,6 +80,20 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     );
 }
 
+/// Reject fresh supply whenever existing aggregate claims exceed tracked cash
+/// plus outstanding debt. This remains active after accrual or rewards lift a
+/// floor-clamped index while its legacy deficit persists.
+pub(crate) fn require_backed_market(env: &Env, cache: &Cache) {
+    let supplied_claim = cache.unscale_supply_floor(cache.supplied);
+    let outstanding_debt = cache.unscale_borrow_ceil(cache.borrowed);
+    let backing = cache.cash.saturating_add(outstanding_debt);
+    assert_with_error!(
+        env,
+        supplied_claim <= backing,
+        CollateralError::PoolInsolvent
+    );
+}
+
 pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
     if cache.supplied == Ray::ZERO && cache.borrowed != Ray::ZERO {
         panic_with_error!(env, CollateralError::PoolInsolvent);

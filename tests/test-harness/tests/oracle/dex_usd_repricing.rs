@@ -97,10 +97,10 @@ fn test_dex_quoted_market_priced_within_default_budget() {
 }
 
 /// Read-time one-hop enforcement: if the quote market is reconfigured to a
-/// non-USD base AFTER a dependent market was set up, reading the dependent
-/// market reverts (#220) instead of silently chaining two hops.
+/// non-USD base AFTER a dependent market was set up, the hard read path
+/// reverts (#220) instead of silently chaining two hops, while the soft view
+/// reports the dependent market unusable without reverting.
 #[test]
-#[should_panic(expected = "Error(Contract, #220)")]
 fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
@@ -130,8 +130,20 @@ fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
         &reflector_single_spot_config(&dex_eth, &usdc, usd(1), DEFAULT_TOLERANCE.tolerance_bps),
     );
 
-    // Reading XLM must revert: USDC is not a direct USD market.
-    index_view(&t, &xlm);
+    // Soft view: the XLM row is unusable, never a revert.
+    let row = index_view(&t, &xlm);
+    assert!(!row.valid);
+    assert_eq!(row.price_wad, 0);
+
+    // Hard read path still enforces one hop with InvalidOracleBase (#220).
+    let mapped = match t.price_agg_client().try_price(&xlm) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    test_harness::assert::assert_contract_error(
+        mapped,
+        test_harness::errors::INVALID_ORACLE_BASE,
+    );
 }
 
 /// Execute-time re-check: if the quote market loses USD base during the

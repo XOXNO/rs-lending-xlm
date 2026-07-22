@@ -41,7 +41,7 @@ use stellar_macros::only_owner;
 use crate::cache::Cache;
 use crate::utils::{
     apply_liquidation_fee, apply_rate_model, now_ms, renew_market_keys, renew_pool_instance,
-    require_nonneg_amount, require_positive_amount, require_wasm_receiver,
+    require_backed_market, require_nonneg_amount, require_positive_amount, require_wasm_receiver,
 };
 
 contractmeta!(key = "name", val = "Liquidity Pool");
@@ -105,9 +105,8 @@ fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
     cache.require_reserves(amount);
     let scaled_debt = cache.calculate_scaled_borrow(amount);
-    // Free-borrow guard: positive raw amount must mint positive scaled debt.
-    // Extreme borrow_index rounds tiny amounts to zero shares; accepting
-    // that would debit cash and transfer tokens with no debt recorded.
+    // Defensive free-borrow guard: ceil scaling makes every valid positive
+    // amount positive, and this keeps that invariant explicit at the mutation.
     assert_with_error!(
         env,
         scaled_debt.raw() > 0,
@@ -120,8 +119,14 @@ fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
 
 fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> (PoolPositionMutation, MarketStateSnapshot) {
     let (mut cache, mut scaled, amount) = load_position(env, &entry.action);
+    require_backed_market(env, &cache);
 
     let scaled_amount = cache.calculate_scaled_supply(amount);
+    assert_with_error!(
+        env,
+        amount == 0 || scaled_amount.raw() > 0,
+        GenericError::SupplyRoundsToZeroShares
+    );
     scaled.checked_add_assign(env, scaled_amount);
     cache.supplied.checked_add_assign(env, scaled_amount);
     // Controller transferred Token(asset) `amount` into the pool before this call.
@@ -234,12 +239,17 @@ fn repay_accounting(
     let (mut cache, scaled, amount) = load_position(env, action);
 
     let (scaled_repay, overpayment) = cache.resolve_repay(amount, scaled);
-    let scaled = scaled.checked_sub(env, scaled_repay);
-    cache.borrowed.checked_sub_assign(env, scaled_repay);
-    // Controller moved Token(asset) `amount` in; `overpayment` is refunded below.
     let net_repay = amount
         .checked_sub(overpayment)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    assert_with_error!(
+        env,
+        net_repay == 0 || scaled_repay.raw() > 0,
+        GenericError::RepayRoundsToZeroShares
+    );
+    let scaled = scaled.checked_sub(env, scaled_repay);
+    cache.borrowed.checked_sub_assign(env, scaled_repay);
+    // Controller moved Token(asset) `amount` in; `overpayment` is refunded below.
     cache.credit_cash(net_repay);
 
     cache.save();
@@ -256,7 +266,7 @@ fn seize_one(env: &Env, entry: &PoolSeizeEntry) -> MarketStateSnapshot {
     match entry.side {
         AccountPositionType::Borrow => {
             // dimensional: seized debt becomes Ray<Token(asset)> bad debt, not scaled shares.
-            let current_debt = cache.unscale_borrow_exact(scaled);
+            let current_debt = cache.unscale_borrow_ceil_ray(scaled);
             interest::apply_bad_debt_to_supply_index(&mut cache, current_debt);
             cache.borrowed.checked_sub_assign(env, scaled);
         }
@@ -288,6 +298,11 @@ fn net_settle_one(
     let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(capped_amount, supply_scaled);
     let (scaled_repay, overpayment) = cache.resolve_repay(gross_amount, debt_scaled);
     assert_with_error!(env, overpayment == 0, GenericError::InternalError);
+    assert_with_error!(
+        env,
+        gross_amount == 0 || (scaled_withdrawal.raw() > 0 && scaled_repay.raw() > 0),
+        GenericError::NetSettleRoundsToZeroShares
+    );
 
     cache.supplied.checked_sub_assign(env, scaled_withdrawal);
     cache.borrowed.checked_sub_assign(env, scaled_repay);
@@ -496,6 +511,10 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// # Errors
     /// * `PoolNotInitialized` - an entry targets a market with no stored state.
     /// * `AmountMustBePositive` - an entry amount is negative.
+    /// * `PoolInsolvent` - existing aggregate supply claims exceed tracked cash
+    ///   plus debt; accepting fresh supply would fund a legacy deficit.
+    /// * `SupplyRoundsToZeroShares` - a positive supply is too small to mint one
+    ///   raw unit of scaled supply at the current index.
     /// * `MathOverflow` - scaled-share or cash accounting overflows.
     ///
     /// # Events
@@ -517,8 +536,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// # Errors
     /// * `PoolNotInitialized` - an entry targets a market with no stored state.
     /// * `AmountMustBePositive` - an entry amount is not strictly positive.
-    /// * `BorrowRoundsToZeroShares` - the amount is positive but rounds down
-    ///   to zero scaled debt shares at the current borrow index.
+    /// * `BorrowRoundsToZeroShares` - defensive invariant failure if a positive
+    ///   amount does not mint scaled debt despite ceil rounding.
     /// * `InsufficientLiquidity` - tracked reserves cannot cover the borrow.
     /// * `UtilizationAboveMax` - the borrow pushes utilization past the market cap.
     /// * `MathOverflow` - scaled-share or cash accounting overflows.
@@ -555,8 +574,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// * `PoolNotInitialized` - an entry targets a market with no stored state.
     /// * `AmountMustBePositive` - an entry amount or `protocol_fee` is negative.
     /// * `WithdrawLessThanFee` - the liquidation fee exceeds the gross seized amount.
-    /// * `WithdrawRoundsToZeroShares` - a positive withdrawal is too small to
-    ///   burn one raw unit of scaled supply at the current index.
+    /// * `WithdrawRoundsToZeroShares` - defensive invariant failure if a positive
+    ///   withdrawal does not burn scaled supply despite ceil rounding.
     /// * `InsufficientLiquidity` - tracked reserves cannot cover the net transfer.
     /// * `UtilizationAboveMax` - a non-liquidation withdrawal breaches the utilization cap.
     /// * `PoolInsolvent` - the projected state leaves debt with zero supply.
@@ -592,6 +611,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// # Errors
     /// * `PoolNotInitialized` - an action targets a market with no stored state.
     /// * `AmountMustBePositive` - an action amount is negative.
+    /// * `RepayRoundsToZeroShares` - a positive applied repayment is too small to
+    ///   burn one raw unit of scaled debt at the current index.
     /// * `MathOverflow` - debt-share or cash accounting overflows.
     ///
     /// # Events
@@ -842,6 +863,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// * `InternalError` - the repay leg overpaid, which should be structurally
     ///   impossible given the debt-first capping — surfaces a math bug rather
     ///   than silently mismatching the two legs.
+    /// * `NetSettleRoundsToZeroShares` - a positive settlement is too small to
+    ///   burn a raw scaled unit on either accounting leg.
     /// * `MathOverflow` - scaled-share accounting overflows.
     ///
     /// # Events

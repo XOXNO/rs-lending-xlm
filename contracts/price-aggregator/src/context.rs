@@ -61,6 +61,13 @@ impl ResolutionContext {
         self.token_prices.set(asset.clone(), feed);
     }
 
+    /// True when `asset` is already on the resolution stack (soft-path cycle
+    /// probe; the hard path lets `push_resolution` revert instead).
+    #[cfg_attr(feature = "certora", allow(dead_code))]
+    pub(crate) fn is_resolving(&self, asset: &Address) -> bool {
+        self.resolving.iter().any(|a| a == *asset)
+    }
+
     /// Marks `asset` as being priced; reverts `OracleCycleDetected` if it is
     /// already on the stack. Must pair with `pop_resolution` on success.
     #[cfg_attr(feature = "certora", allow(dead_code))]

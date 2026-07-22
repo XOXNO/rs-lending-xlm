@@ -39,6 +39,8 @@ Production and Certora WASM share one tree under `artifacts/wasm/`:
 ```bash
 make wasm-artifacts          # both deploy + certora
 make certora-wasm            # prover only (rebuild after contract/spec changes)
+# Default: one rustc job to avoid host-memory spikes. Raise only with headroom.
+make certora-wasm CERTORA_BUILD_JOBS=2
 ```
 
 Conf files reference prebuilt focused `certora/*.wasm` files so Certora cloud
@@ -64,6 +66,10 @@ Inconsistent ref stack sizes in preds ... FunctionIndex_294
 ```
 
 Mainnet deploy still uses optimized WASM from `make deploy-artifacts`.
+The focused build overwrites artifacts only after each module succeeds and
+does not erase the previous complete set up front. If a later module fails,
+the manifest/provenance check still rejects the mixed set, but usable prior
+artifacts are not destroyed.
 
 ## Local checks
 
@@ -130,8 +136,12 @@ heavy rule. The heap cap does not include external Z3 workers. To prevent local
 solver fan-out from exhausting RAM, the runner removes `-splitParallel true`
 from a temporary conf copy by default; set `CERTORA_LOCAL_SPLIT_PARALLEL=true`
 only when the host has measured headroom. Do not combine local split-parallel
-with `-j N`. On a 48 GiB host, use `-Xmx12g` only for one rule after closing
-other memory-heavy processes; giving Java all physical RAM starves Z3.
+with `-j N`. It also sets `multi_assert_check: false` only in the temporary
+local config, so one rule uses an aggregate assertion instead of launching a
+solver group per source assertion. Set `CERTORA_LOCAL_MULTI_ASSERT=true` when
+per-assert diagnostics matter and the host has headroom; hosted configs remain
+unchanged. On a 48 GiB host, use `-Xmx12g` only for one rule after closing other
+memory-heavy processes; giving Java all physical RAM starves Z3.
 
 ## Hosted prover
 
