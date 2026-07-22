@@ -648,6 +648,9 @@ _mutants-check:
 _mutants-harness-prepare: _mutants-check
 	rm -rf target/wasm32v1-none
 	CARGO_TARGET_DIR=target $(MAKE) build
+	@shasum -a 256 target/wasm32v1-none/release/controller.wasm 2>/dev/null || sha256sum target/wasm32v1-none/release/controller.wasm
+	@grep -aq set_swap_aggregator target/wasm32v1-none/release/controller.wasm \
+		|| { echo "controller.wasm fixture is stale (missing set_swap_aggregator export)"; exit 1; }
 
 ## Run every non-overlapping production mutation scope.
 mutants: mutants-common mutants-pool mutants-governance mutants-governance-oracle-probe \
