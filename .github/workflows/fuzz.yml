@@ -109,7 +109,7 @@ jobs:
 
   miri:
     if: github.event_name == 'pull_request'
-    name: Miri pass (common + pool::interest + controller::helpers)
+    name: Miri pass (common fp_core)
     runs-on: self-hosted
     # rust-toolchain.toml pins the repo to 1.95, but this job is nightly-only and
     # its isolated RUSTUP_HOME never installs 1.95. Pin the job to nightly so

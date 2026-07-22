@@ -82,6 +82,9 @@ WASM_ARTIFACTS_DIR := artifacts/wasm
 DEPLOY_DIR := $(WASM_ARTIFACTS_DIR)/deploy
 CERTORA_WASM_DIR := $(WASM_ARTIFACTS_DIR)/certora
 CERTORA_BUILD_DIR := target/certora-build
+# Certora modules are large; parallel rustc jobs can starve the local Prover's
+# Java/Z3 processes on developer workstations. Override only with measured RAM.
+CERTORA_BUILD_JOBS ?= 1
 COV_DIR := target/coverage
 TEST_HARNESS_DIR := tests/test-harness
 FUZZ_DIR := tests/fuzz
@@ -202,11 +205,11 @@ certora-wasm:
 	trap '/bin/rm -f -- "$$source_snapshot"' EXIT; \
 	python3 certora/scripts/write_wasm_manifest.py \
 		--write-input-snapshot "$$source_snapshot"; \
-	find $(CERTORA_WASM_DIR) -maxdepth 1 -type f -name '*.wasm' -delete; \
 	python3 certora/scripts/focused_wasm.py | while IFS='|' read -r layer pkg feature artifact build_key; do \
 		echo "Building focused certora $$layer/$$feature (optimize=false)..."; \
 		src="$(CERTORA_BUILD_DIR)/focused/$(WASM_TARGET)/release/$${pkg//-/_}.wasm"; \
 		/bin/rm -f "$$src"; \
+		CARGO_BUILD_JOBS="$(CERTORA_BUILD_JOBS)" \
 		CARGO_TARGET_DIR="$(CERTORA_BUILD_DIR)/focused" \
 			stellar contract build --package $$pkg \
 				--features "certora,certora-focused,$$feature" --optimize=false; \
@@ -356,20 +359,12 @@ miri-common:
 		fp_core::tests::test_rescale \
 		fp_core::tests::test_div_by_int
 
-## Run Miri on pool::interest pure-arithmetic paths.
-miri-pool:
-	@cd contracts/pool && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation" \
-		cargo +nightly miri test --lib -- \
-		interest::
-
-## Run Miri on controller::helpers pure-arithmetic paths.
-miri-controller:
-	@cd contracts/controller && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation" \
-		cargo +nightly miri test --lib -- \
-		helpers::
-
-## Run all Miri checks (common + pool + controller pure paths).
-miri-all: miri-common miri-pool miri-controller
+## Run all Miri checks. Scope is the pure fp_core arithmetic only: the former
+## pool::interest and controller::helpers scopes now run on a full Soroban
+## host (Env + registered contract + storage), which Miri interprets ~1000x
+## slower — a single such test exceeds the 6h CI job timeout. Host-bound
+## tests add no Miri-checkable UB surface beyond the pure math they call.
+miri-all: miri-common
 
 # ---------------------------------------------------------------------------
 # Coverage
