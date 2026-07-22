@@ -642,8 +642,11 @@ _mutants-check:
 
 # WASM fixtures must land in `target/` (the default path every test loader
 # reads) even when the caller isolates the mutants build under
-# CARGO_TARGET_DIR=target-mutants.
+# CARGO_TARGET_DIR=target-mutants. The wasm tree is removed first: restored CI
+# caches can carry artifacts whose mtime-based fingerprints read as fresh,
+# silently serving fixtures from an older commit.
 _mutants-harness-prepare: _mutants-check
+	rm -rf target/wasm32v1-none
 	CARGO_TARGET_DIR=target $(MAKE) build
 
 ## Run every non-overlapping production mutation scope.
