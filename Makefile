@@ -592,11 +592,15 @@ MUTANTS_JOB_ARGS = $(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j $(MUTANTS_J
 MUTANTS_SHARD_ARGS = $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
 MUTANTS_POOL_WASM := $(abspath $(RELEASE_DIR)/pool.wasm)
 MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
+MUTANTS_PRICE_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/price_aggregator.wasm)
 # Keep Proptest deterministic and cheap when cargo-mutants runs the whole
-# test-harness for each mutant.
+# test-harness for each mutant. Every wasm-fixture loader must be pointed at
+# $(RELEASE_DIR) here — a loader left on its default `target/...` path reads
+# nothing when CI isolates the build under CARGO_TARGET_DIR=target-mutants.
 MUTANTS_ENV = PROPTEST_CASES=1 PROPTEST_RNG_SEED=0 \
 	POOL_WASM_PATH="$(MUTANTS_POOL_WASM)" \
-	CONTROLLER_WASM_PATH="$(MUTANTS_CONTROLLER_WASM)"
+	CONTROLLER_WASM_PATH="$(MUTANTS_CONTROLLER_WASM)" \
+	PRICE_AGGREGATOR_WASM_PATH="$(MUTANTS_PRICE_AGGREGATOR_WASM)"
 
 define run_mutants
 	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
@@ -640,16 +644,15 @@ _mutants-check:
 		exit 1; \
 	fi
 
-# WASM fixtures must land in `target/` (the default path every test loader
-# reads) even when the caller isolates the mutants build under
-# CARGO_TARGET_DIR=target-mutants. The wasm tree is removed first: restored CI
-# caches can carry artifacts whose mtime-based fingerprints read as fresh,
-# silently serving fixtures from an older commit.
+# Rebuild the wasm fixtures from source every run, in the same
+# $(CARGO_TARGET_DIR) tree that MUTANTS_ENV points the test loaders at.
+# The tree is removed first: restored CI caches can carry artifacts from an
+# older commit. The grep guard fails loudly on a stale controller fixture
+# instead of surfacing as a cryptic mutants-baseline test failure.
 _mutants-harness-prepare: _mutants-check
-	rm -rf target/wasm32v1-none
-	CARGO_TARGET_DIR=target $(MAKE) build
-	@shasum -a 256 target/wasm32v1-none/release/controller.wasm 2>/dev/null || sha256sum target/wasm32v1-none/release/controller.wasm
-	@grep -aq set_swap_aggregator target/wasm32v1-none/release/controller.wasm \
+	rm -rf $(CARGO_TARGET_DIR)/$(WASM_TARGET)
+	$(MAKE) build
+	@grep -aq set_swap_aggregator "$(MUTANTS_CONTROLLER_WASM)" \
 		|| { echo "controller.wasm fixture is stale (missing set_swap_aggregator export)"; exit 1; }
 
 ## Run every non-overlapping production mutation scope.
