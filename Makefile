@@ -93,7 +93,7 @@ FUZZ_DIR := tests/fuzz
 CONTRACTS := pool controller governance
 
 # WASM artifacts gated by `wasm-size-check` (optimized + spec-doc stripped).
-WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy
+WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy price_aggregator
 
 # Coverage exclusions (no executable code / stubs only).
 # Exclude test scaffolding (tests/test-harness internals, the Certora
@@ -122,6 +122,7 @@ ORACLE_ADAPTER_RESOLUTION ?= 60
 POOL_WASM_HASH_FILE ?= target/pool_wasm_hash.txt
 POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
 CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
+PRICE_AGGREGATOR_WASM_HASH_FILE ?= target/price_aggregator_wasm_hash.txt
 GOVERNANCE_WASM_HASH_FILE ?= target/governance_wasm_hash.txt
 SIGNER_ADDRESS = $$(stellar keys public-key $(SIGNER) 2>/dev/null || stellar keys address $(SIGNER) 2>/dev/null || echo $(SIGNER))
 
@@ -228,24 +229,9 @@ certora-wasm:
 ## WASM for live testnet harness: deploy-sized main contracts + optimized mocks.
 integration-wasm: deploy-artifacts
 	@mkdir -p $(OPTIMIZED_DIR)
-	@for wasm in controller pool governance flash_loan_receiver defindex_strategy; do \
+	@for wasm in controller pool governance flash_loan_receiver defindex_strategy price_aggregator; do \
 		cp "$(DEPLOY_DIR)/$$wasm.wasm" "$(OPTIMIZED_DIR)/$$wasm.wasm"; \
 	done
-	@# price-aggregator (oracle authority) — release crate name uses underscore.
-	@if [ -f "$(DEPLOY_DIR)/price-aggregator.wasm" ]; then \
-		cp "$(DEPLOY_DIR)/price-aggregator.wasm" "$(OPTIMIZED_DIR)/price_aggregator.wasm"; \
-	elif [ -f "$(RELEASE_DIR)/price_aggregator.wasm" ]; then \
-		if command -v stellar &>/dev/null; then \
-			stellar contract optimize \
-				--wasm $(RELEASE_DIR)/price_aggregator.wasm \
-				--wasm-out $(OPTIMIZED_DIR)/price_aggregator.wasm 2>/dev/null || \
-			cp $(RELEASE_DIR)/price_aggregator.wasm $(OPTIMIZED_DIR)/price_aggregator.wasm; \
-		else \
-			cp $(RELEASE_DIR)/price_aggregator.wasm $(OPTIMIZED_DIR)/price_aggregator.wasm; \
-		fi; \
-	else \
-		echo "WARN: price_aggregator.wasm not found for integration-wasm" >&2; \
-	fi
 	@for pkg in mock_oracle mock_redstone; do \
 		echo "Optimizing $$pkg for integration..."; \
 		if command -v stellar &>/dev/null; then \
@@ -521,6 +507,14 @@ wasm-testing-abi-check: deploy-artifacts
 		exit 1; \
 	fi; \
 	echo "OK   governance.wasm exports no test-only ABI"
+	@pa="$(DEPLOY_DIR)/price_aggregator.wasm"; \
+	if [ ! -f "$$pa" ]; then echo "price-aggregator deploy WASM missing: $$pa"; exit 1; fi; \
+	if strings "$$pa" | grep -q "seed_oracle_config"; then \
+		echo "FAIL: price_aggregator.wasm exports test-only ABI 'seed_oracle_config'"; \
+		echo "  The price-aggregator/testing feature leaked into the deployable build."; \
+		exit 1; \
+	fi; \
+	echo "OK   price_aggregator.wasm exports no test-only ABI"
 
 ## Fail if any deploy WASM exceeds the committed budget.
 wasm-size-check: deploy-artifacts wasm-testing-abi-check
@@ -1415,7 +1409,7 @@ _deploy: deploy-artifacts
 	@echo "=== Deploying to $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@echo ""
-	@echo "1/6 Checking Aggregator..."
+	@echo "1/7 Checking Swap Aggregator..."
 	@AGGREGATOR=$$(jq -r ".\"$(NETWORK)\".aggregator // empty" $(CONFIG_DIR)/networks.json 2>/dev/null); \
 	if [ -n "$${AGGREGATOR_CONTRACT:-}" ]; then AGGREGATOR="$$AGGREGATOR_CONTRACT"; fi; \
 	if [ -n "$$AGGREGATOR" ] && [ "$$AGGREGATOR" != "null" ]; then \
@@ -1426,7 +1420,7 @@ _deploy: deploy-artifacts
 	fi
 	@echo ""
 	@# 2. Upload Pool WASM (template, not deployed directly)
-	@echo "2/6 Uploading Pool WASM template..."
+	@echo "2/7 Uploading Pool WASM template..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/pool.wasm \
 		$(SOURCE_FLAG) \
@@ -1438,7 +1432,7 @@ _deploy: deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
 	@# 3. Upload controller WASM so governance deploys a network-installed hash.
-	@echo "3/6 Uploading Controller WASM..."
+	@echo "3/7 Uploading Controller WASM..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/controller.wasm \
 		$(SOURCE_FLAG) \
@@ -1450,7 +1444,7 @@ _deploy: deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
 	@# 4. Deploy Governance with the deployer EOA as admin/owner.
-	@echo "4/6 Deploying Governance..."
+	@echo "4/7 Deploying Governance..."
 	@MIN_DELAY=$$(jq -r '.["$(NETWORK)"].timelock_min_delay_ledgers // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$$DEPLOY_MIN_DELAY" ]; then \
 		MIN_DELAY="$$DEPLOY_MIN_DELAY"; \
@@ -1475,7 +1469,7 @@ _deploy: deploy-artifacts
 	@echo ""
 	@# 5. Deploy Controller through governance — governance becomes its owner.
 	@# The CLI prints the returned address as a quoted strkey on the last line.
-	@echo "5/6 Deploying Controller via governance..."
+	@echo "5/7 Deploying Controller via governance..."
 	@GOV_ID=$$(stellar contract alias show governance --network $(NETWORK) | tail -n1); \
 	CTRL_ID=$$(stellar contract invoke --id $$GOV_ID $(SOURCE_FLAG) --network $(NETWORK) \
 		-- deploy_controller --wasm_hash $$(cat $(CONTROLLER_WASM_HASH_FILE)) | tail -n1 | tr -d '"'); \
@@ -1486,9 +1480,27 @@ _deploy: deploy-artifacts
 	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'" | .["$(NETWORK)"].hub_ids = {} | .["$(NETWORK)"].spoke_ids = {} | .["$(NETWORK)"].pool = ""' \
 	$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@# 6. Set the pool template and deploy the central pool through the timelock
+	@# 6. Upload + deploy the price-aggregator through governance (owner call),
+	@# so the oracle authority exists before markets are configured.
+	@echo "6/7 Deploying Price Aggregator via governance..."
+	@stellar contract upload \
+		--wasm $(DEPLOY_DIR)/price_aggregator.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > $(PRICE_AGGREGATOR_WASM_HASH_FILE)
+	@echo "Price Aggregator WASM hash: $$(cat $(PRICE_AGGREGATOR_WASM_HASH_FILE))"
+	@GOV_ID=$$(stellar contract alias show governance --network $(NETWORK) | tail -n1); \
+	PA_ID=$$(stellar contract invoke --id $$GOV_ID $(SOURCE_FLAG) --network $(NETWORK) \
+		-- deploy_price_aggregator --wasm_hash $$(cat $(PRICE_AGGREGATOR_WASM_HASH_FILE)) | tail -n1 | tr -d '"'); \
+	if [ -z "$$PA_ID" ]; then echo "deploy_price_aggregator returned no address"; exit 1; fi; \
+	echo "Price Aggregator: $$PA_ID"; \
+	stellar contract alias add price_aggregator --id $$PA_ID --network $(NETWORK) --overwrite; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].price_aggregator = "'$$PA_ID'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+	@echo ""
+	@# 7. Set the pool template and deploy the central pool through the timelock
 	@# (schedule -> await min_delay -> execute). Both ops route through governance.
-	@echo "6/6 Setting pool template and deploying central pool via governance timelock..."
+	@echo "7/7 Setting pool template and deploying central pool via governance timelock..."
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPoolTemplate $$(cat $(POOL_WASM_HASH_FILE))
 	@POOL=$$(NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh deployPool | tail -n1 | tr -d '"'); \
 	if [ -z "$$POOL" ]; then echo "deployPool returned no address"; exit 1; fi; \
@@ -1535,6 +1547,8 @@ configure-controller: _preflight-configure-controller
 	else \
 		NETWORK=$(NETWORK) SIGNER=$(SIGNER) ACCUMULATOR_CONTRACT=$$ACC bash $(CONFIG_DIR)/script.sh setAccumulator; \
 	fi
+	@echo "Wiring price aggregator (oracle authority; timelocked governance self-op)..."
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPriceAggregator
 	@echo "Controller role grants skipped: controller uses owner-gated admin and caller-auth operational flows."
 	@echo "Controller configured."
 

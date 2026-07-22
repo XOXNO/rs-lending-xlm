@@ -2436,6 +2436,31 @@ set_aggregator() {
     echo "Swap aggregator scheduled via governance."
 }
 
+# Wire the controller to the governance-deployed price aggregator via the
+# timelocked SetPriceAggregator governance-self op (updates governance's own
+# stored oracle authority AND the controller in one execution).
+set_price_aggregator() {
+    echo "Wiring Price Aggregator (oracle authority) for ${NETWORK}..."
+    local agg
+    if ! agg=$(get_price_aggregator); then
+        echo "ERROR: No price-aggregator address for ${NETWORK}. Run the deploy step (governance deploy_price_aggregator) first." >&2
+        exit 1
+    fi
+
+    echo "  Price Aggregator Address: ${agg}" >&2
+
+    local salt
+    salt=$(gen_salt "set_price_aggregator" "$(jq -nc --arg a "$agg" '{addr:$a}')")
+
+    local op_id
+    op_id=$(schedule_via_gov_self_proposer \
+        set_price_aggregator "$(admin_op SetPriceAggregator "$(jq -nc --arg a "$agg" '$a')")" "$salt" \
+        set_price_aggregator "$(jq -nc --arg a "$agg" '[{address:$a}]')")
+    schedule_and_maybe_execute "$op_id"
+
+    echo "Price aggregator wiring scheduled via governance."
+}
+
 set_accumulator() {
     echo "Configuring Accumulator for ${NETWORK}..."
     local accumulator
@@ -4574,6 +4599,9 @@ case "$1" in
     "setAggregator")
         set_aggregator
         ;;
+    "setPriceAggregator")
+        set_price_aggregator
+        ;;
     "setAccumulator")
         set_accumulator
         ;;
@@ -4903,7 +4931,8 @@ case "$1" in
         echo "  upgradeGovernanceHash <hash>    Timelocked governance WASM upgrade"
         echo "  updateDelay <ledgers>           Timelocked min-delay increase (cannot shorten)"
         echo "  transferGovOwnership <addr> <ledger>  Timelocked governance ownership handoff"
-        echo "  setAggregator                   Set aggregator (networks.json or AGGREGATOR_CONTRACT)"
+        echo "  setAggregator                   Set swap aggregator (networks.json or AGGREGATOR_CONTRACT)"
+        echo "  setPriceAggregator              Wire controller to the governance-deployed price aggregator"
         echo "  setAccumulator                  Set revenue treasury (networks.json accumulator or ACCUMULATOR_CONTRACT)"
         echo "  Env: AGGREGATOR_CONTRACT, ACCUMULATOR_CONTRACT, AWAIT_MAX_WAIT_SECONDS"
         echo "  setupAll                        Markets + Spokes only; no deploy/unpause"
