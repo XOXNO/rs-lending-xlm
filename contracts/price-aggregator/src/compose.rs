@@ -2,34 +2,36 @@
 
 use common::errors::OracleError;
 use common::oracle::observation::is_stale;
-use common::types::{MarketOracleConfig, OracleStrategy};
+use common::types::{AssetOracleConfig, OracleStrategy};
 use soroban_sdk::panic_with_error;
 
-use crate::context::PriceCache as Cache;
+use crate::context::ResolutionContext;
 use crate::observation::OracleObservation;
 use crate::providers;
-use crate::tolerance::calculate_final_price;
+use crate::tolerance::midpoint_if_in_band;
 
-pub(crate) struct ResolvedOracleComponents {
-    pub primary_price_wad: Option<i128>,
+pub(crate) struct ResolvedPrice {
+    pub primary_price_wad: i128,
     pub anchor_price_wad: Option<i128>,
     pub final_price_wad: i128,
-    #[allow(dead_code)]
     pub timestamp: u64,
 }
 
-impl ResolvedOracleComponents {
-    pub fn to_abi_prices(&self) -> (i128, i128) {
-        let safe_price_wad = self.primary_price_wad.unwrap_or(self.final_price_wad);
-        let aggregator_price_wad = self.anchor_price_wad.unwrap_or(self.final_price_wad);
-        (safe_price_wad, aggregator_price_wad)
+impl ResolvedPrice {
+    /// `(primary_wad, secondary_wad)` legs for the views ABI.
+    ///
+    /// Secondary is the anchor when present; otherwise it equals final (and
+    /// primary) under PrimaryOnly (`OracleStrategy::Single`).
+    pub fn primary_and_secondary(&self) -> (i128, i128) {
+        let secondary_wad = self.anchor_price_wad.unwrap_or(self.final_price_wad);
+        (self.primary_price_wad, secondary_wad)
     }
 }
 
 pub(crate) fn resolve_components(
-    cache: &mut Cache,
-    config: &MarketOracleConfig,
-) -> ResolvedOracleComponents {
+    cache: &mut ResolutionContext,
+    config: &AssetOracleConfig,
+) -> ResolvedPrice {
     let primary_max_stale = config
         .primary
         .max_stale_seconds(config.max_price_stale_seconds);
@@ -37,13 +39,15 @@ pub(crate) fn resolve_components(
     require_fresh(cache, &primary, primary_max_stale);
 
     match config.strategy {
-        OracleStrategy::Single => ResolvedOracleComponents {
-            primary_price_wad: Some(primary.price_wad),
+        OracleStrategy::Single => ResolvedPrice {
+            primary_price_wad: primary.price_wad,
             anchor_price_wad: None,
             final_price_wad: primary.price_wad,
             timestamp: primary.timestamp(),
         },
         OracleStrategy::PrimaryWithAnchor => {
+            // Missing anchor on dual strategy fails closed with NoLastPrice (#210),
+            // matching the historical read-time backstop.
             let anchor_config = config
                 .anchor
                 .as_ref()
@@ -52,7 +56,7 @@ pub(crate) fn resolve_components(
             let anchor = providers::read_required_source(cache, anchor_config, anchor_max_stale);
             require_fresh(cache, &anchor, anchor_max_stale);
 
-            let final_price_wad = calculate_final_price(
+            let final_price_wad = midpoint_if_in_band(
                 cache.env(),
                 anchor.price_wad,
                 primary.price_wad,
@@ -61,8 +65,8 @@ pub(crate) fn resolve_components(
             // Blend freshness is the older leg.
             let timestamp = core::cmp::min(primary.timestamp(), anchor.timestamp());
 
-            ResolvedOracleComponents {
-                primary_price_wad: Some(primary.price_wad),
+            ResolvedPrice {
+                primary_price_wad: primary.price_wad,
                 anchor_price_wad: Some(anchor.price_wad),
                 final_price_wad,
                 timestamp,
@@ -72,7 +76,7 @@ pub(crate) fn resolve_components(
 }
 
 /// Reverts `PriceFeedStale` when the observation exceeds `max_stale`.
-fn require_fresh(cache: &Cache, observation: &OracleObservation, max_stale: u64) {
+fn require_fresh(cache: &ResolutionContext, observation: &OracleObservation, max_stale: u64) {
     if is_stale(
         cache.ledger_timestamp_secs(),
         observation.timestamp(),

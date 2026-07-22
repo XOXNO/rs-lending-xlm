@@ -1,7 +1,7 @@
 //! Strategy entry points: multiply, collateral/debt swaps, Blend migration, flash loans.
 //!
-//! Account strategies: Auth → Reentrancy → Preflight → Account → Oracles → Actions → Finalize.
-//! Flash loan skips Account/Oracles/Finalize (pool callback only).
+//! Account strategies: Auth → Reentrancy → Preflight → Account → Prices → Actions → Finalize.
+//! Flash loan skips Account/Prices/Finalize (pool callback only).
 
 pub(crate) mod flash_loan;
 mod migrate_blend;
@@ -23,23 +23,17 @@ use common::types::Account;
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::context::Cache;
-use crate::payments;
 use crate::positions::{finalize_position_flow, PositionSides};
-use crate::risk::{position_assets, validation};
+use crate::risk::{account_price_assets, validation};
 
-/// Bulk-prefetch RedStone feeds for an account's positions plus strategy legs.
-pub(crate) fn prefetch_strategy_oracles(
+/// Bulk-fetch price-aggregator USD feeds for an account's positions plus strategy legs.
+pub(crate) fn prefetch_strategy_prices(
     cache: &mut Cache,
     account: &Account,
     extra_assets: &Vec<Address>,
 ) {
     let env = cache.env().clone();
-    let mut priced_assets = position_assets(&env, &account.supply_positions.keys());
-    priced_assets.append(&position_assets(&env, &account.borrow_positions.keys()));
-    for asset in extra_assets.iter() {
-        payments::push_unique_address(&mut priced_assets, asset.clone());
-    }
-    cache.ensure_prices(&priced_assets);
+    cache.fetch_prices(&account_price_assets(&env, account, extra_assets));
 }
 
 /// Post-pool HF + persist both sides (remove if empty). Caps stay at debt-open entrypoints.

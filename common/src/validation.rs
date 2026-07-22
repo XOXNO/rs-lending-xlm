@@ -9,8 +9,8 @@ use crate::constants::{
 };
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use crate::math::fp_core::mul_div_ceil;
-use crate::oracle::observation::MAX_SINGLE_SOURCE_SANITY_BAND_BPS;
-use crate::types::{OraclePriceFluctuation, OracleStrategy};
+use crate::oracle::observation::{MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MAX_TWAP_RECORDS};
+use crate::types::{OracleStrategy, OracleTolerance};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Executable};
 
 pub fn require_positive_amount(env: &Env, amount: i128) {
@@ -124,7 +124,7 @@ pub fn validate_liquidation_curve(
 ///
 /// # Errors
 /// * [`OracleError::BadLastTolerance`] - inverted/out-of-envelope band.
-pub fn validate_oracle_tolerance(env: &Env, tolerance: &OraclePriceFluctuation) {
+pub fn validate_oracle_tolerance(env: &Env, tolerance: &OracleTolerance) {
     let bps = BPS as u32;
     assert_with_error!(
         env,
@@ -164,6 +164,21 @@ pub fn validate_single_source_sanity_band(
         env,
         band_bps <= MAX_SINGLE_SOURCE_SANITY_BAND_BPS,
         OracleError::SanityBandTooWideForSingleSource
+    );
+}
+
+/// TWAP record count in `[1, MAX_TWAP_RECORDS]`; shared by the governance
+/// input validator and the aggregator read path.
+///
+/// # Errors
+/// * [`OracleError::TwapInsufficientObservations`] - zero records.
+/// * [`OracleError::TwapRecordsOutOfRange`] - above `MAX_TWAP_RECORDS`.
+pub fn validate_twap_records(env: &Env, records: u32) {
+    assert_with_error!(env, records != 0, OracleError::TwapInsufficientObservations);
+    assert_with_error!(
+        env,
+        records <= MAX_TWAP_RECORDS,
+        OracleError::TwapRecordsOutOfRange
     );
 }
 

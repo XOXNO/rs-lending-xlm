@@ -14,8 +14,8 @@ use common::oracle::providers::reflector::{
     ReflectorAsset, ReflectorPriceData,
 };
 use common::types::{
-    MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation, OracleReadMode,
-    OracleSourceConfig, OracleSourceConfigInput, OracleSourceConfigOption, RedStoneSourceConfig,
+    AssetOracleConfig, AssetOracleConfigInput, OracleReadMode, OracleSourceConfig,
+    OracleSourceConfigInput, OracleSourceConfigOption, OracleTolerance, RedStoneSourceConfig,
     RedStoneSourceConfigInput, ReflectorBase, ReflectorSourceConfig,
 };
 use common::validation::validate_single_source_sanity_band;
@@ -32,9 +32,9 @@ use crate::validate::oracle_config::{
 pub(crate) fn validate_market_oracle_sources(
     env: &Env,
     asset: &Address,
-    config: &MarketOracleConfigInput,
-    tolerance: OraclePriceFluctuation,
-) -> MarketOracleConfig {
+    config: &AssetOracleConfigInput,
+    tolerance: OracleTolerance,
+) -> AssetOracleConfig {
     validate_oracle_config_shape(env, config);
     validate_max_stale(env, config.max_price_stale_seconds);
     validate_sanity_bounds(
@@ -69,11 +69,11 @@ pub(crate) fn validate_market_oracle_sources(
     // the blend is in-band too. Quoted legs price in their quote asset (USD only
     // after the controller's quote multiply), so they carry no USD price to check
     // here and are covered by the read-time gate. This mirrors the containment
-    // that `set_oracle_sanity_bounds` enforces on the immediate band-move path.
+    // that `set_sanity_band` enforces on the immediate band-move path.
     require_price_in_band(env, primary_usd_wad, config);
     require_price_in_band(env, anchor_usd_wad, config);
 
-    MarketOracleConfig {
+    AssetOracleConfig {
         asset_decimals,
         max_price_stale_seconds: config.max_price_stale_seconds,
         tolerance,
@@ -88,7 +88,7 @@ pub(crate) fn validate_market_oracle_sources(
 /// Reverts `SanityBoundViolated` when a resolved USD leg price sits outside the
 /// config's sanity band. `None` (a quote-denominated leg) carries no USD price
 /// to check here.
-fn require_price_in_band(env: &Env, price_usd_wad: Option<i128>, config: &MarketOracleConfigInput) {
+fn require_price_in_band(env: &Env, price_usd_wad: Option<i128>, config: &AssetOracleConfigInput) {
     if let Some(price) = price_usd_wad {
         assert_with_error!(
             env,

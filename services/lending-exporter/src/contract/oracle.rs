@@ -1,4 +1,4 @@
-//! `MarketOracleConfig` + provider price payloads for staleness/deviation metrics.
+//! `AssetOracleConfig` + provider price payloads for staleness/deviation metrics.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{ScString, ScVal, StringM};
@@ -45,7 +45,7 @@ pub struct PriceObservation {
     pub feed_ts_secs: u64,
 }
 
-/// Decode `MarketOracleConfig` from the `AssetOracle` ledger entry.
+/// Decode `AssetOracleConfig` from the `AssetOracle` ledger entry.
 pub fn decode_oracle_config(value: &ScVal) -> Result<OracleConfig> {
     let max_price_stale_seconds =
         field_u64(value, "max_price_stale_seconds").ok_or_else(|| anyhow!("max_price_stale_seconds missing"))?;

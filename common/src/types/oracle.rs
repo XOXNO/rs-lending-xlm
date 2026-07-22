@@ -15,7 +15,7 @@ pub enum OracleAssetRef {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct OraclePriceFluctuation {
+pub struct OracleTolerance {
     /// Upper bound for the primary/anchor ratio, in BPS.
     pub upper_ratio_bps: u32,
     /// Lower bound for the primary/anchor ratio, in BPS.
@@ -44,8 +44,11 @@ pub enum OracleReadMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum OracleStrategy {
-    /// Use only the primary source.
+    /// Primary only (no anchor). Discriminant `0` is storage-stable; docs and
+    /// call-site language say "PrimaryOnly" / primary-only — the variant name
+    /// stays `Single` so existing on-chain configs keep decoding.
     Single = 0,
+    /// Dual source: primary + anchor, blended within the tolerance band.
     PrimaryWithAnchor = 1,
 }
 
@@ -176,6 +179,15 @@ impl OracleSourceConfigOption {
 }
 
 impl OracleSourceConfig {
+    pub fn contract(&self) -> &Address {
+        match self {
+            OracleSourceConfig::Reflector(config) => &config.contract,
+            OracleSourceConfig::RedStone(config) | OracleSourceConfig::Xoxno(config) => {
+                &config.contract
+            }
+        }
+    }
+
     pub fn provider_kind(&self) -> OracleProviderKind {
         match self {
             OracleSourceConfig::Reflector(_) => OracleProviderKind::ReflectorSep40,
@@ -212,12 +224,12 @@ impl OracleSourceConfig {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MarketOracleConfig {
+pub struct AssetOracleConfig {
     /// Asset decimals used to convert token amounts before USD pricing.
     pub asset_decimals: u32,
     /// Default staleness limit for sources that do not carry their own limit.
     pub max_price_stale_seconds: u64,
-    pub tolerance: OraclePriceFluctuation,
+    pub tolerance: OracleTolerance,
     pub strategy: OracleStrategy,
     pub primary: OracleSourceConfig,
     pub anchor: OracleSourceConfigOption,
@@ -231,13 +243,13 @@ pub struct MarketOracleConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
-pub enum MarketOracleConfigOption {
+pub enum AssetOracleConfigOption {
     None,
-    Some(MarketOracleConfig),
+    Some(AssetOracleConfig),
 }
 
-impl MarketOracleConfigOption {
-    pub fn as_ref(&self) -> Option<&MarketOracleConfig> {
+impl AssetOracleConfigOption {
+    pub fn as_ref(&self) -> Option<&AssetOracleConfig> {
         match self {
             Self::None => None,
             Self::Some(config) => Some(config),
@@ -245,18 +257,24 @@ impl MarketOracleConfigOption {
     }
 }
 
-impl MarketOracleConfig {
+impl AssetOracleConfig {
+    /// True for the `pending_for` sentinel shape: the primary source contract
+    /// self-points at the asset, which no real oracle config can do.
+    pub fn is_pending(&self, asset: &Address) -> bool {
+        self.primary.contract() == asset
+    }
+
     pub fn pending_for(asset: Address, decimals: u32) -> Self {
         Self {
             asset_decimals: decimals,
             max_price_stale_seconds: 0,
-            tolerance: OraclePriceFluctuation {
+            tolerance: OracleTolerance {
                 upper_ratio_bps: 0,
                 lower_ratio_bps: 0,
             },
             strategy: OracleStrategy::Single,
             primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
-                // Pending sentinel self-points the asset; `price_with_config`
+                // Pending sentinel self-points the asset; `resolve_with_config`
                 // rejects this shape before provider calls.
                 contract: asset.clone(),
                 asset: OracleAssetRef::Stellar(asset),
@@ -274,7 +292,7 @@ impl MarketOracleConfig {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MarketOracleConfigInput {
+pub struct AssetOracleConfigInput {
     pub max_price_stale_seconds: u64,
     pub tolerance_bps: u32,
     pub strategy: OracleStrategy,
@@ -294,6 +312,44 @@ pub struct PriceFeedRaw {
     pub asset_decimals: u32,
     /// Provider timestamp accepted by oracle policy.
     pub timestamp: u64,
+}
+
+/// Soft diagnostic snapshot of a token-rooted USD price for views.
+///
+/// Unlike `prices` / `price`, this does not revert on stale or out-of-band legs.
+/// `valid` is true only when the price would pass the fail-closed solvency path
+/// (fresh, in tolerance when anchored, positive, within sanity).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PriceStatus {
+    /// Final composed USD WAD (midpoint when dual legs exist and can be blended).
+    pub final_wad: i128,
+    pub primary_wad: i128,
+    /// Anchor when dual-source; equals final/primary under PrimaryOnly.
+    pub secondary_wad: i128,
+    /// Freshness timestamp of the final blend (min of legs), seconds.
+    pub price_timestamp: u64,
+    /// True when any required leg is past its max-stale window.
+    pub stale: bool,
+    /// True when dual legs disagree outside the configured tolerance band.
+    pub deviation: bool,
+    /// Usable for solvency-style decisions: `!stale && !deviation` and gates pass.
+    pub valid: bool,
+}
+
+impl PriceStatus {
+    /// Zeroed unusable status (missing config, unreadable feed, …).
+    pub fn unusable() -> Self {
+        Self {
+            final_wad: 0,
+            primary_wad: 0,
+            secondary_wad: 0,
+            price_timestamp: 0,
+            stale: false,
+            deviation: false,
+            valid: false,
+        }
+    }
 }
 
 /// Typed oracle price used by controller math.
@@ -368,12 +424,12 @@ mod tests {
     // The explicit None/Some enum must mirror native `Option` exactly: a
     // `Some` payload is borrowed through `as_ref`, never dropped to `None`.
     #[test]
-    fn test_market_oracle_config_option_as_ref_mirrors_native_option() {
+    fn test_asset_oracle_config_option_as_ref_mirrors_native_option() {
         let env = Env::default();
-        let config = MarketOracleConfig::pending_for(Address::generate(&env), 7);
-        assert_eq!(MarketOracleConfigOption::None.as_ref(), None);
+        let config = AssetOracleConfig::pending_for(Address::generate(&env), 7);
+        assert_eq!(AssetOracleConfigOption::None.as_ref(), None);
         assert_eq!(
-            MarketOracleConfigOption::Some(config.clone()).as_ref(),
+            AssetOracleConfigOption::Some(config.clone()).as_ref(),
             Some(&config)
         );
     }
@@ -413,7 +469,7 @@ mod tests {
     fn test_oracle_type_shapes_roundtrip() {
         let env = Env::default();
         let asset = Address::generate(&env);
-        let _fluctuation = OraclePriceFluctuation {
+        let _fluctuation = OracleTolerance {
             upper_ratio_bps: 200,
             lower_ratio_bps: 200,
         };
@@ -433,7 +489,7 @@ mod tests {
         resolved.base = quoted;
         let _ = OracleSourceConfig::Reflector(resolved);
         let _ = OracleSourceConfig::RedStone(redstone_resolved(&env));
-        let _input = MarketOracleConfigInput {
+        let _input = AssetOracleConfigInput {
             max_price_stale_seconds: 900,
             tolerance_bps: 200,
             strategy: OracleStrategy::PrimaryWithAnchor,
@@ -442,10 +498,10 @@ mod tests {
             min_sanity_price_wad: WAD,
             max_sanity_price_wad: 100 * WAD,
         };
-        let _market = MarketOracleConfig {
+        let _market = AssetOracleConfig {
             asset_decimals: 7,
             max_price_stale_seconds: 900,
-            tolerance: OraclePriceFluctuation {
+            tolerance: OracleTolerance {
                 upper_ratio_bps: 200,
                 lower_ratio_bps: 200,
             },
@@ -622,10 +678,10 @@ mod tests {
     }
 
     #[test]
-    fn test_market_oracle_config_pending_for_shape() {
+    fn test_asset_oracle_config_pending_for_shape() {
         let env = Env::default();
         let asset = Address::generate(&env);
-        let cfg = MarketOracleConfig::pending_for(asset.clone(), 7);
+        let cfg = AssetOracleConfig::pending_for(asset.clone(), 7);
 
         assert_eq!(cfg.asset_decimals, 7);
         assert_eq!(cfg.max_price_stale_seconds, 0);
@@ -634,7 +690,7 @@ mod tests {
         assert_eq!(cfg.max_sanity_price_wad, 0);
         assert!(cfg.anchor.as_ref().is_none());
 
-        // The sentinel `contract` self-points at the asset; `price_with_config`
+        // The sentinel `contract` self-points at the asset; `resolve_with_config`
         // rejects it before source resolution.
         match cfg.primary {
             OracleSourceConfig::Reflector(r) => {

@@ -147,7 +147,7 @@ make <network> getMarket USDC
 make <network> getPrice USDC
 ```
 
-### Oracle rules (else `set_market_oracle_config` reverts)
+### Oracle rules (else `set_oracle_config` reverts)
 
 - **Anchored** markets need a non-spot primary. RedStone and Xoxno adapter are
   always spot → cannot be primary. Production shape: Reflector `Twap` primary +

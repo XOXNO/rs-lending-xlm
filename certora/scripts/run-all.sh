@@ -4,7 +4,7 @@
 # Usage (from repo root):
 #   ./certora/scripts/run-all.sh [profile] [-- extra prover args...]
 #
-# Profiles: sanity | fast | core | critical | heavy | manual | all
+# Profiles: sanity | fast | core | heavy | manual | all
 # Default profile: fast (CI-stable subset).
 #
 # Requires CERTORAKEY for hosted runs. Use --dry-run to print commands only.

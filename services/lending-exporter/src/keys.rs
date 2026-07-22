@@ -45,11 +45,14 @@ pub fn hub_asset_vec_sc_val(keys: &[HubAssetKey]) -> Result<ScVal> {
     Ok(ScVal::Vec(Some(ScVec(vec_m))))
 }
 
-/// Persistent `AssetOracle(asset)` key.
-pub fn asset_oracle_ledger_key(controller_id: &[u8; 32], asset_id: &[u8; 32]) -> Result<LedgerKey> {
+/// Persistent `AssetOracle(asset)` key on the price-aggregator contract.
+pub fn asset_oracle_ledger_key(
+    price_aggregator_id: &[u8; 32],
+    asset_id: &[u8; 32],
+) -> Result<LedgerKey> {
     let key = sc_enum("AssetOracle", &[sc_address_contract(asset_id)])?;
     Ok(contract_data_key(
-        controller_id,
+        price_aggregator_id,
         key,
         ContractDataDurability::Persistent,
     ))

@@ -15,7 +15,7 @@ Each TTL tick discovers:
 - Controller instance entry. This covers instance-tier keys such as pool address,
   pool template, accumulator, account nonce, spoke/hub counters, and position
   limits.
-- Controller persistent `AssetOracle(asset)` rows for configured market assets.
+- Price-aggregator persistent `AssetOracle(asset)` rows when `contracts.price_aggregator` is set.
 - Controller persistent `Spoke(id)` rows for `1..=LastSpokeId`.
 - Controller per-user persistent keys:
   `AccountMeta(id)`, `SupplyPositions(id)`, `BorrowPositions(id)`.
@@ -87,7 +87,7 @@ renew them directly.
 | Class | Tier | Source | Renewed |
 | --- | --- | --- | --- |
 | Controller instance | instance | configured controller | yes |
-| Controller `AssetOracle(asset)` | persistent | `contracts.markets` / legacy `market_assets` | yes |
+| Price-aggregator `AssetOracle(asset)` | persistent | `contracts.price_aggregator` + markets | yes |
 | Controller `Spoke(id)` | persistent | `LastSpokeId` | yes |
 | Account state | persistent | `AccountNonce` scan | yes, bounded by `max_accounts_scan` |
 | Controller access-control keys | persistent | `ExistingRoles` | yes, when present |

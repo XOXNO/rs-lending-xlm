@@ -41,7 +41,7 @@ impl Controller {
     /// * `AmountMustBePositive` - a leg amount is not strictly positive.
     /// * `NotAuthorized` - a non-owner/non-delegate opens a **new** supply asset
     ///   slot on an existing account (top-up of an existing leg is allowed).
-    /// * Entry gates: `HubNotActive`, `PairNotActive`, `AssetNotInSpoke`,
+    /// * Entry gates: `HubNotActive`, `AssetNotInSpoke`,
     ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `NotCollateral`, or
     ///   `PositionLimitExceeded`.
     /// * `SpokeSupplyCapReached` - the deposit would exceed the spoke supply cap.

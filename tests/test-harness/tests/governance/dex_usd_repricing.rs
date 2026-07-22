@@ -20,7 +20,7 @@ fn register_dex_oracle(t: &LendingTest, quote: &Address) -> Address {
     dex
 }
 
-fn configure(t: &LendingTest, asset: &Address, cfg: &controller::types::MarketOracleConfigInput) {
+fn configure(t: &LendingTest, asset: &Address, cfg: &controller::types::AssetOracleConfigInput) {
     t.configure_market_oracle(asset, cfg);
 }
 

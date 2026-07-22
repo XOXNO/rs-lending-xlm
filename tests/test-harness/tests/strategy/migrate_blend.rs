@@ -680,7 +680,7 @@ fn test_migrate_unlisted_withdraw_asset_rejected_before_token_call() {
             &empty_assets(&t),
             &empty_debt(&t),
         ));
-    assert_contract_error(result, errors::PAIR_NOT_ACTIVE);
+    assert_contract_error(result, errors::ORACLE_NOT_CONFIGURED);
 }
 
 /// A debt cap below the actual Blend debt leaves Blend debt after the

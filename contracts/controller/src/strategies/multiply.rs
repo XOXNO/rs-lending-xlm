@@ -13,7 +13,7 @@ use stellar_macros::when_not_paused;
 use crate::context::Cache;
 use crate::spoke;
 use crate::strategies::{
-    borrow_for_strategy, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
+    borrow_for_strategy, prefetch_strategy_prices, strategy_finalize, swap_tokens,
     swap_tokens_or_passthrough,
 };
 use crate::{positions::supply, risk::validation, Controller, ControllerArgs, ControllerClient};
@@ -127,13 +127,7 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
 
     strategy_finalize(env, account_id, &account, &mut cache);
 
-    emit_multiply_initial_payment(
-        env,
-        &mut cache,
-        account.spoke_id,
-        account_id,
-        initial_payment,
-    );
+    emit_multiply_initial_payment(env, &mut cache, account_id, initial_payment);
 
     account_id
 }
@@ -165,7 +159,7 @@ fn prepare_multiply_account(
         CollateralError::NotCollateral
     );
     let extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
-    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
+    prefetch_strategy_prices(&mut cache, &account, &extra_assets);
     (account_id, account, cache)
 }
 
@@ -210,15 +204,6 @@ fn collect_initial_multiply_payment(
 
     validation::require_positive_amount(env, *payment_amount);
 
-    // Only active protocol assets may invoke token contracts; the payment
-    // asset is the user-supplied call target. An active asset has a
-    // token-rooted `AssetOracle` entry (the payment is priced downstream).
-    assert_with_error!(
-        env,
-        crate::external::price_aggregator::is_asset_priceable(env, &payment.asset),
-        GenericError::AssetNotSupported
-    );
-
     let payment_tok = token::Client::new(env, &payment.asset);
     payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
 
@@ -247,7 +232,6 @@ fn collect_initial_multiply_payment(
 fn emit_multiply_initial_payment(
     env: &Env,
     cache: &mut Cache,
-    spoke_id: u32,
     account_id: u64,
     initial_payment: Option<(HubAssetKey, i128)>,
 ) {
@@ -255,8 +239,8 @@ fn emit_multiply_initial_payment(
         // A converted third-token payment is never a position asset, so it is
         // absent from the tx-local price map the position legs populate. Fetch
         // it so the cached read below resolves the event's USD value.
-        cache.ensure_prices(&vec![env, payment.asset.clone()]);
-        let feed = cache.cached_price_for(spoke_id, &payment);
+        cache.fetch_prices(&vec![env, payment.asset.clone()]);
+        let feed = cache.cached_price(&payment.asset);
         let usd_value_wad = feed.usd_value_wad(env, payment_amount).raw();
         InitialMultiplyPaymentEvent {
             token: payment.asset,

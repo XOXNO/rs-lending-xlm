@@ -1,8 +1,8 @@
 use super::*;
 use common::constants::{RAY, WAD};
 use common::types::{
-    AccountPositionRaw, MarketIndexRaw, MarketOracleConfig, OracleAssetRef, OraclePriceFluctuation,
-    OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, PositionLimits,
+    AccountPositionRaw, AssetOracleConfig, MarketIndexRaw, OracleAssetRef, OracleReadMode,
+    OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, OracleTolerance, PositionLimits,
     PositionMode, ReflectorBase, ReflectorSourceConfig, SpokeAssetConfig, SpokeConfig,
     SpokeUsageRaw,
 };
@@ -88,10 +88,10 @@ fn borrower_fixture(env: &Env) -> (Address, HubAssetKey, Account) {
         borrow_positions: Map::new(env),
     };
 
-    let config = MarketOracleConfig {
+    let config = AssetOracleConfig {
         asset_decimals: 7,
         max_price_stale_seconds: 900,
-        tolerance: OraclePriceFluctuation {
+        tolerance: OracleTolerance {
             upper_ratio_bps: 10_500,
             lower_ratio_bps: 9_500,
         },
@@ -113,7 +113,7 @@ fn borrower_fixture(env: &Env) -> (Address, HubAssetKey, Account) {
     // controller resolves prices from it.
     let aggregator = env.register(price_aggregator::PriceAggregator, (Address::generate(env),));
     price_aggregator::PriceAggregatorClient::new(env, &aggregator)
-        .seed_asset_oracle(&asset, &config);
+        .seed_oracle_config(&asset, &config);
     env.as_contract(&contract, || {
         crate::storage::set_price_aggregator(env, &aggregator);
     });

@@ -1,5 +1,5 @@
 //! Certora storage accessors for controller rules.
-//! Spec models hub 0: asset-keyed reads use `HubAssetKey { hub_id: 0, asset }`.
+//! Asset-keyed rule reads use the production-valid primary hub.
 
 #![allow(dead_code)]
 use super::*;
@@ -10,10 +10,10 @@ use crate::types::{
 use pool_interface::LiquidityPoolClient;
 use soroban_sdk::{Address, Env, Vec};
 
-/// Hub-0 coordinate for `asset`.
+/// Primary-hub coordinate for `asset`.
 pub fn hub0(asset: &Address) -> HubAssetKey {
     HubAssetKey {
-        hub_id: 0,
+        hub_id: crate::spec::fixture::HUB_ID,
         asset: asset.clone(),
     }
 }
@@ -47,7 +47,7 @@ pub fn get_position_list(
     account_id: u64,
     position_type: AccountPositionType,
 ) -> Vec<Address> {
-    // Project hub-0 keys back to asset for asset-keyed rule callers.
+    // Project primary-hub keys back to asset for asset-keyed rule callers.
     let keys: Vec<HubAssetKey> = match position_type {
         AccountPositionType::Deposit => get_supply_positions(env, account_id).keys(),
         AccountPositionType::Borrow => get_debt_positions(env, account_id).keys(),
@@ -63,7 +63,7 @@ pub fn get_account_attrs(env: &Env, account_id: u64) -> AccountAttributes {
     try_get_account_meta(env, account_id)
         .map(|meta| AccountAttributes::from(&meta))
         .unwrap_or(AccountAttributes {
-            spoke_id: 0,
+            spoke_id: crate::spec::fixture::SPOKE_ID,
             mode: PositionMode::Normal,
         })
 }

@@ -88,11 +88,10 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
     assert_eq!(view.price_wad, usd(1));
 }
 
-// Fail-closed: a required RedStone anchor that cannot be read reverts
-// `InvalidTicker` (#3); there is no fallback to the primary.
+// Soft view: a required RedStone anchor that cannot be read marks the row
+// invalid (no primary-only fallback). Write-path `prices()` still fail-closed.
 #[test]
-#[should_panic(expected = "Error(Contract, #3)")]
-fn test_redstone_anchor_read_failure_reverts_view() {
+fn test_redstone_anchor_read_failure_marks_view_invalid() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_asset("USDC");
     let feed_id = String::from_str(&t.env, "USDC");
@@ -107,7 +106,7 @@ fn test_redstone_anchor_read_failure_reverts_view() {
     );
     t.configure_market_oracle(&asset, &cfg);
 
-    let mut oracle = t.price_agg_client().get_asset_oracle(&asset).unwrap();
+    let mut oracle = t.price_agg_client().oracle_config(&asset).unwrap();
     oracle.anchor = match oracle.anchor {
         OracleSourceConfigOption::Some(OracleSourceConfig::RedStone(mut config)) => {
             config.feed_id = String::from_str(&t.env, "MISSING");
@@ -115,18 +114,22 @@ fn test_redstone_anchor_read_failure_reverts_view() {
         }
         _ => panic!("expected redstone anchor"),
     };
-    t.price_agg_client().seed_asset_oracle(&asset, &oracle);
+    t.price_agg_client().seed_oracle_config(&asset, &oracle);
 
     let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
-    let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
+    let row = t
+        .ctrl_client()
+        .get_market_indexes_detailed(&assets)
+        .get(0)
+        .unwrap();
+    assert!(!row.valid, "missing anchor must not report valid");
+    assert!(row.deviation, "missing dual-source anchor is deviation");
 }
 
-// Fail-closed: primary $1 and anchor $2 are 100% apart, far outside the
-// tolerance band, so the dual-source read reverts `UnsafePriceNotAllowed`
-// (#205) instead of degrading to a single source.
+// Soft view: primary $1 and anchor $2 are 100% apart → deviation=true,
+// valid=false. Write-path still reverts UnsafePriceNotAllowed (#205).
 #[test]
-#[should_panic(expected = "Error(Contract, #205)")]
-fn test_redstone_anchor_outside_tolerance_reverts_view() {
+fn test_redstone_anchor_outside_tolerance_marks_view_deviation() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_asset("USDC");
     let feed_id = String::from_str(&t.env, "USDC");
@@ -142,12 +145,21 @@ fn test_redstone_anchor_outside_tolerance_reverts_view() {
     t.configure_market_oracle(&asset, &cfg);
 
     let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
-    let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
+    let row = t
+        .ctrl_client()
+        .get_market_indexes_detailed(&assets)
+        .get(0)
+        .unwrap();
+    assert!(!row.valid);
+    assert!(row.deviation);
+    assert!(!row.stale);
+    assert!(row.safe_price_wad > 0);
+    assert!(row.aggregator_price_wad > 0);
 }
 
 // Runtime path: configure-time succeeds (price is set), then the feed is
 // removed before a price read, exercising the `Err` branch in
-// `try_read_price_data_for_feed` at controller/src/oracle/providers/redstone.rs.
+// `try_read_price_data_for_feed` at price-aggregator multi-feed provider.
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
 fn test_redstone_runtime_missing_price_panics_with_invalid_ticker() {

@@ -13,7 +13,6 @@ use stellar_xdr::curr::{
 #[derive(Debug, Clone)]
 pub enum ControllerPersistentKey {
     AccountNonce,
-    AssetOracle([u8; 32]),
     Hub(u32),
     Spoke(u32),
 }
@@ -22,7 +21,6 @@ impl ControllerPersistentKey {
     pub fn to_sc_val(&self) -> Result<ScVal> {
         Ok(match self {
             Self::AccountNonce => sc_enum("AccountNonce", &[])?,
-            Self::AssetOracle(addr) => sc_enum("AssetOracle", &[sc_address_contract(addr)])?,
             Self::Hub(id) => sc_enum("Hub", &[ScVal::U32(*id)])?,
             Self::Spoke(id) => sc_enum("Spoke", &[ScVal::U32(*id)])?,
         })
@@ -31,6 +29,28 @@ impl ControllerPersistentKey {
     pub fn to_ledger_key(&self, controller_id: &[u8; 32]) -> Result<LedgerKey> {
         Ok(contract_data_key(
             controller_id,
+            self.to_sc_val()?,
+            ContractDataDurability::Persistent,
+        ))
+    }
+}
+
+/// Price-aggregator persistent keys (`AggregatorKey` on the oracle authority).
+#[derive(Debug, Clone)]
+pub enum PriceAggregatorPersistentKey {
+    AssetOracle([u8; 32]),
+}
+
+impl PriceAggregatorPersistentKey {
+    pub fn to_sc_val(&self) -> Result<ScVal> {
+        Ok(match self {
+            Self::AssetOracle(addr) => sc_enum("AssetOracle", &[sc_address_contract(addr)])?,
+        })
+    }
+
+    pub fn to_ledger_key(&self, aggregator_id: &[u8; 32]) -> Result<LedgerKey> {
+        Ok(contract_data_key(
+            aggregator_id,
             self.to_sc_val()?,
             ContractDataDurability::Persistent,
         ))

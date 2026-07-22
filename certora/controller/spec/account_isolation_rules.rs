@@ -7,10 +7,10 @@ use crate::constants::WAD;
 use crate::types::HubAssetKey;
 use common::types::Payment;
 
-/// Hub-0 coordinate for `asset`; the spec models the single default hub.
+/// Primary-hub coordinate for `asset`.
 fn hub0(asset: &Address) -> HubAssetKey {
     HubAssetKey {
-        hub_id: 0,
+        hub_id: crate::spec::fixture::HUB_ID,
         asset: asset.clone(),
     }
 }
@@ -43,6 +43,8 @@ fn supply_does_not_change_other_account_positions(
     let target_account: u64 = 1;
     let other_account: u64 = 2;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+    crate::spec::fixture::seed_live_account(&e, target_account, &caller, &asset);
+    crate::spec::fixture::seed_account(&e, other_account, &caller);
 
     let other_supply_before = scaled_supply_at(&e, other_account, &asset);
     let other_borrow_before = scaled_borrow_at(&e, other_account, &asset);
@@ -63,6 +65,8 @@ fn borrow_does_not_change_other_account_positions(
     let target_account: u64 = 1;
     let other_account: u64 = 2;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+    crate::spec::fixture::seed_live_account(&e, target_account, &caller, &asset);
+    crate::spec::fixture::seed_account(&e, other_account, &caller);
 
     let other_supply_before = scaled_supply_at(&e, other_account, &asset);
     let other_borrow_before = scaled_borrow_at(&e, other_account, &asset);
@@ -78,6 +82,8 @@ fn repay_only_changes_target_account_debt(e: Env, caller: Address, asset: Addres
     let target_account: u64 = 1;
     let other_account: u64 = 2;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+    crate::spec::fixture::seed_live_account(&e, target_account, &caller, &asset);
+    crate::spec::fixture::seed_account(&e, other_account, &caller);
 
     let other_supply_before = scaled_supply_at(&e, other_account, &asset);
     let other_borrow_before = scaled_borrow_at(&e, other_account, &asset);
@@ -93,12 +99,16 @@ fn repay_only_changes_target_account_debt(e: Env, caller: Address, asset: Addres
 fn liquidation_does_not_change_other_account_positions(
     e: Env,
     liquidator: Address,
+    owner: Address,
     debt_asset: Address,
     debt_amount: i128,
 ) {
     let target_account: u64 = 1;
     let other_account: u64 = 2;
     cvlr_assume!(debt_amount > 0 && debt_amount <= WAD * 1000);
+    cvlr_assume!(owner != liquidator);
+    crate::spec::fixture::seed_live_account(&e, target_account, &owner, &debt_asset);
+    crate::spec::fixture::seed_account(&e, other_account, &owner);
 
     let other_supply_before = scaled_supply_at(&e, other_account, &debt_asset);
     let other_borrow_before = scaled_borrow_at(&e, other_account, &debt_asset);
@@ -112,8 +122,9 @@ fn liquidation_does_not_change_other_account_positions(
 }
 
 #[rule]
-fn account_isolation_reachability(e: Env, caller: Address, asset: Address, amount: i128) {
-    cvlr_assume!(amount > 0);
+fn account_isolation_reachability(e: Env, caller: Address, asset: Address) {
+    let amount = WAD;
+    crate::spec::fixture::seed_live_account(&e, 1, &caller, &asset);
     crate::spec::compat::supply_single(e, caller, 1, asset, amount);
     cvlr_satisfy!(true);
 }

@@ -89,11 +89,10 @@ pub(crate) fn pool_flash_loan_call(
     initiator: &Address,
     receiver: &Address,
     amount: i128,
-    fee: i128,
     data: &Bytes,
-) {
+) -> i128 {
     LiquidityPoolClient::new(env, pool_addr)
-        .flash_loan(hub_asset, initiator, receiver, &amount, &fee, data)
+        .flash_loan(hub_asset, initiator, receiver, &amount, data)
 }
 
 pub(crate) fn pool_update_indexes_call(env: &Env, pool_addr: &Address, hub_asset: &HubAssetKey) {

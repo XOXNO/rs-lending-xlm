@@ -132,13 +132,20 @@ fn test_get_all_markets_multiple() {
             hub_asset(t.resolve_asset("WBTC")),
         ],
     );
-    let markets = ctrl.get_markets_detailed(&assets);
+    let markets = ctrl.get_market_indexes_detailed(&assets);
     assert_eq!(
         markets.len(),
         3,
         "should have 3 markets, got {}",
         markets.len()
     );
+    for row in markets.iter() {
+        assert!(row.valid, "fresh harness oracles should be valid");
+        assert!(!row.stale);
+        assert!(!row.deviation);
+        assert!(row.price_wad > 0);
+        assert!(row.price_timestamp > 0);
+    }
 }
 #[test]
 fn test_get_all_markets_single() {
@@ -146,17 +153,20 @@ fn test_get_all_markets_single() {
 
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(t.resolve_asset("USDC"))]);
-    let markets = ctrl.get_markets_detailed(&assets);
+    let markets = ctrl.get_market_indexes_detailed(&assets);
     assert_eq!(
         markets.len(),
         1,
         "should have 1 market, got {}",
         markets.len()
     );
+    let row = markets.get(0).unwrap();
+    assert!(row.valid);
+    assert_eq!(row.asset, t.resolve_asset("USDC"));
 }
 
 #[test]
-fn test_get_pool_address_matches_market_view() {
+fn test_get_pool_address_is_global() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -164,17 +174,8 @@ fn test_get_pool_address_matches_market_view() {
 
     let ctrl = t.ctrl_client();
     let pool = ctrl.get_pool_address();
-    let assets = soroban_sdk::Vec::from_array(
-        &t.env,
-        [
-            hub_asset(t.resolve_asset("USDC")),
-            hub_asset(t.resolve_asset("ETH")),
-        ],
-    );
-    for row in ctrl.get_markets_detailed(&assets).iter() {
-        assert_eq!(row.pool_address, pool, "pool address must be global");
-    }
     assert_eq!(t.get_pool_address("USDC"), pool);
+    assert_eq!(t.get_pool_address("ETH"), pool);
 }
 
 #[test]

@@ -46,8 +46,10 @@ def command_line(
 ) -> tuple[Path, list[str]]:
     conf_path = ROOT / str(item["conf"])
     args = [str(arg) for arg in item.get("args", [])]
-    prover = "certoraSorobanLocal" if local else "certoraSorobanProver"
-    return conf_path.parent, [prover, conf_path.name, *args, *extra_args]
+    if local:
+        runner = ROOT / "certora" / "scripts" / "run-rules-local.sh"
+        return ROOT, [str(runner), str(conf_path), *args, *extra_args]
+    return conf_path.parent, ["certoraSorobanProver", conf_path.name, *args, *extra_args]
 
 
 def main() -> int:
@@ -63,7 +65,7 @@ def main() -> int:
     parser.add_argument(
         "--local",
         action="store_true",
-        help="run with the locally built prover (certoraSorobanLocal) instead of the cloud",
+        help="run each rule through run-rules-local.sh and the local Prover JAR",
     )
     parser.add_argument("extra_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -95,13 +97,12 @@ def main() -> int:
     commands = expand_profile(profiles, args.profile)
     if not args.no_key_check and not args.dry_run and not os.environ.get("CERTORAKEY"):
         raise SystemExit("error: CERTORAKEY is not set")
-    binary = "certoraSorobanLocal" if args.local else "certoraSorobanProver"
-    if not args.dry_run and shutil.which(binary) is None:
-        raise SystemExit(f"error: {binary} is not installed or not on PATH")
+    if not args.dry_run and not args.local and shutil.which("certoraSorobanProver") is None:
+        raise SystemExit("error: certoraSorobanProver is not installed or not on PATH")
 
     for item in commands:
         cwd, cmd = command_line(item, extra_args, local=args.local)
-        print(f"=== {cwd.relative_to(ROOT)}/{cmd[1]} {' '.join(cmd[2:])} ===", flush=True)
+        print(f"=== {item['conf']} {' '.join(cmd[2:])} ===", flush=True)
         if args.dry_run:
             print(f"cd {cwd} && {' '.join(cmd)}")
             continue

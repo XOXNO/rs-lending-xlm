@@ -5,8 +5,8 @@ use crate::constants::{
 };
 use common::constants::RAY;
 use common::types::{
-    DebtPositionRaw, MarketIndexRaw, MarketOracleConfig, OracleAssetRef, OraclePriceFluctuation,
-    OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, PositionMode,
+    AssetOracleConfig, DebtPositionRaw, MarketIndexRaw, OracleAssetRef, OracleReadMode,
+    OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, OracleTolerance, PositionMode,
     PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
 };
 use soroban_sdk::testutils::Address as _;
@@ -199,7 +199,7 @@ fn seizure_proportion_divides_weighted_by_total() {
 
 /// One debt position of 500 tokens (7 decimals) at $1 under unit indexes,
 /// priced through a real single-source Reflector config.
-fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account, MarketOracleConfig) {
+fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account, AssetOracleConfig) {
     use mock_oracle::{
         MockReflectorOracle, MockReflectorOracleClient, ReflectorAsset as MockAsset,
     };
@@ -235,11 +235,11 @@ fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account, MarketOracleC
 }
 
 /// Single-source spot Reflector config quoting `asset` in USD.
-fn single_usd_oracle_config(oracle_id: Address, asset: Address) -> MarketOracleConfig {
-    MarketOracleConfig {
+fn single_usd_oracle_config(oracle_id: Address, asset: Address) -> AssetOracleConfig {
+    AssetOracleConfig {
         asset_decimals: 7,
         max_price_stale_seconds: 900,
-        tolerance: OraclePriceFluctuation {
+        tolerance: OracleTolerance {
             upper_ratio_bps: 10_500,
             lower_ratio_bps: 9_500,
         },
@@ -500,7 +500,7 @@ fn post_liquidation_hf_does_not_decrease_for_partial_zero_bonus_repay() {
 
 /// One supply position of 1000 tokens (7 decimals) at $1 under unit indexes,
 /// with the given position-stamped liquidation fee.
-fn seize_fixture(env: &Env, fees_bps: u32) -> (Address, HubAssetKey, Account, MarketOracleConfig) {
+fn seize_fixture(env: &Env, fees_bps: u32) -> (Address, HubAssetKey, Account, AssetOracleConfig) {
     use mock_oracle::{
         MockReflectorOracle, MockReflectorOracleClient, ReflectorAsset as MockAsset,
     };

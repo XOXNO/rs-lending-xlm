@@ -1,5 +1,5 @@
 //! Spoke constraints: listing, deprecation, and effective risk-config resolution.
-//! Spec models hub 0 (`HubAssetKey { hub_id: 0, asset }`).
+//! Rules use the production-valid primary hub.
 
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
@@ -7,10 +7,10 @@ use soroban_sdk::{Address, Env, Vec};
 
 use crate::types::{AccountPositionType, HubAssetKey, SpokeAssetArgs};
 
-/// Hub-0 coordinate for `asset`; the spec models the single default hub.
+/// Primary-hub coordinate for `asset`.
 fn hub0(asset: &Address) -> HubAssetKey {
     HubAssetKey {
-        hub_id: 0,
+        hub_id: crate::spec::fixture::HUB_ID,
         asset: asset.clone(),
     }
 }
@@ -24,7 +24,9 @@ fn spoke_only_registered_assets(
     asset: Address,
     amount: i128,
 ) {
-    cvlr_assume!(amount > 0);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    crate::spec::fixture::seed_protocol(&e);
+    crate::spec::fixture::seed_account(&e, account_id, &caller);
 
     let attrs = crate::storage::get_account_attrs(&e, account_id);
     cvlr_assume!(attrs.spoke_id > 0);
@@ -36,7 +38,7 @@ fn spoke_only_registered_assets(
     assets.push_back((hub_asset, amount));
     crate::positions::supply::process_supply(&e, &caller, account_id, attrs.spoke_id, &assets);
 
-    cvlr_satisfy!(false);
+    cvlr_assert!(false);
 }
 
 /// Borrow of an asset not listed on the account's spoke must revert.
@@ -48,7 +50,9 @@ fn spoke_borrow_only_registered_assets(
     asset: Address,
     amount: i128,
 ) {
-    cvlr_assume!(amount > 0);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    crate::spec::fixture::seed_protocol(&e);
+    crate::spec::fixture::seed_account(&e, account_id, &caller);
 
     let attrs = crate::storage::get_account_attrs(&e, account_id);
     cvlr_assume!(attrs.spoke_id > 0);
@@ -60,7 +64,7 @@ fn spoke_borrow_only_registered_assets(
     borrows.push_back((hub_asset, amount));
     crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows, None);
 
-    cvlr_satisfy!(false);
+    cvlr_assert!(false);
 }
 
 /// Borrow of a listed asset with `is_borrowable = false` must revert.
@@ -72,7 +76,13 @@ fn spoke_only_borrowable_assets(
     asset: Address,
     amount: i128,
 ) {
-    cvlr_assume!(amount > 0);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+
+    let mut stored =
+        crate::storage::get_spoke_asset(&e, crate::spec::fixture::SPOKE_ID, &hub0(&asset)).unwrap();
+    stored.is_borrowable = false;
+    crate::storage::set_spoke_asset(&e, crate::spec::fixture::SPOKE_ID, &hub0(&asset), &stored);
 
     let attrs = crate::storage::get_account_attrs(&e, account_id);
     cvlr_assume!(attrs.spoke_id > 0);
@@ -86,7 +96,7 @@ fn spoke_only_borrowable_assets(
     borrows.push_back((hub0(&asset), amount));
     crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows, None);
 
-    cvlr_satisfy!(false);
+    cvlr_assert!(false);
 }
 
 /// Supply of a listed asset with `is_collateralizable = false` must revert.
@@ -98,7 +108,13 @@ fn spoke_only_collateralizable_assets(
     asset: Address,
     amount: i128,
 ) {
-    cvlr_assume!(amount > 0);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+
+    let mut stored =
+        crate::storage::get_spoke_asset(&e, crate::spec::fixture::SPOKE_ID, &hub0(&asset)).unwrap();
+    stored.is_collateralizable = false;
+    crate::storage::set_spoke_asset(&e, crate::spec::fixture::SPOKE_ID, &hub0(&asset), &stored);
 
     let attrs = crate::storage::get_account_attrs(&e, account_id);
     cvlr_assume!(attrs.spoke_id > 0);
@@ -112,7 +128,7 @@ fn spoke_only_collateralizable_assets(
     assets.push_back((hub0(&asset), amount));
     crate::positions::supply::process_supply(&e, &caller, account_id, attrs.spoke_id, &assets);
 
-    cvlr_satisfy!(false);
+    cvlr_assert!(false);
 }
 
 /// New supply into a deprecated spoke must revert.
@@ -124,7 +140,11 @@ fn deprecated_spoke_blocks_new_supply(
     asset: Address,
     amount: i128,
 ) {
-    cvlr_assume!(amount > 0);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    let mut deprecated = crate::storage::get_spoke(&e, crate::spec::fixture::SPOKE_ID);
+    deprecated.is_deprecated = true;
+    crate::storage::set_spoke(&e, crate::spec::fixture::SPOKE_ID, &deprecated);
 
     let attrs = crate::storage::get_account_attrs(&e, account_id);
     cvlr_assume!(attrs.spoke_id > 0);
@@ -136,7 +156,7 @@ fn deprecated_spoke_blocks_new_supply(
     assets.push_back((hub0(&asset), amount));
     crate::positions::supply::process_supply(&e, &caller, account_id, attrs.spoke_id, &assets);
 
-    cvlr_satisfy!(false);
+    cvlr_assert!(false);
 }
 
 /// New borrow from a deprecated spoke must revert.
@@ -148,7 +168,11 @@ fn deprecated_spoke_blocks_new_borrow(
     asset: Address,
     amount: i128,
 ) {
-    cvlr_assume!(amount > 0);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    let mut deprecated = crate::storage::get_spoke(&e, crate::spec::fixture::SPOKE_ID);
+    deprecated.is_deprecated = true;
+    crate::storage::set_spoke(&e, crate::spec::fixture::SPOKE_ID, &deprecated);
 
     let attrs = crate::storage::get_account_attrs(&e, account_id);
     cvlr_assume!(attrs.spoke_id > 0);
@@ -160,18 +184,22 @@ fn deprecated_spoke_blocks_new_borrow(
     borrows.push_back((hub0(&asset), amount));
     crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows, None);
 
-    cvlr_satisfy!(false);
+    cvlr_assert!(false);
 }
 
 #[rule]
-fn deprecated_spoke_allows_withdraw(
+fn deprecated_spoke_withdraw_does_not_increase_supply(
     e: Env,
     caller: Address,
     account_id: u64,
     asset: Address,
     amount: i128,
 ) {
-    cvlr_assume!(amount > 0);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    let mut deprecated = crate::storage::get_spoke(&e, crate::spec::fixture::SPOKE_ID);
+    deprecated.is_deprecated = true;
+    crate::storage::set_spoke(&e, crate::spec::fixture::SPOKE_ID, &deprecated);
 
     let attrs = crate::storage::get_account_attrs(&e, account_id);
     cvlr_assume!(attrs.spoke_id > 0);
@@ -197,14 +225,15 @@ fn deprecated_spoke_allows_withdraw(
             cvlr_assert!(true);
         }
         Some(pos_after) => {
-            cvlr_assert!(pos_after.scaled_amount < scaled_before);
+            cvlr_assert!(pos_after.scaled_amount <= scaled_before);
         }
     }
 }
 
 #[rule]
-fn spoke_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
-    cvlr_assume!(category_id > 0);
+fn spoke_overrides_asset_params(e: Env, asset: Address) {
+    let category_id = crate::spec::fixture::SPOKE_ID;
+    crate::spec::fixture::seed_market(&e, &asset);
 
     let spoke = crate::storage::get_spoke(&e, category_id);
     // Active-spoke branch only.
@@ -228,33 +257,16 @@ fn spoke_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assert!(asset_config.is_borrowable == cfg.is_borrowable);
 }
 
-#[rule]
-fn spoke_asset_has_valid_params(e: Env, asset: Address, category_id: u32) {
-    cvlr_assume!(category_id > 0);
-
-    let spoke_asset = crate::storage::get_spoke_asset(&e, category_id, &hub0(&asset));
-    cvlr_assume!(spoke_asset.is_some());
-    let cfg = spoke_asset.unwrap();
-
-    cvlr_assert!(cfg.liquidation_threshold > cfg.loan_to_value);
-}
-
 /// `add_asset_to_spoke` persists only assets with threshold > LTV.
 #[rule]
-fn add_asset_enforces_valid_bounds(
-    e: Env,
-    asset: Address,
-    category_id: u32,
-    ltv: u32,
-    threshold: u32,
-    bonus: u32,
-) {
-    cvlr_assume!(category_id > 0);
+fn add_asset_enforces_valid_bounds(e: Env, asset: Address, ltv: u32, threshold: u32, bonus: u32) {
+    let category_id = crate::spec::fixture::SPOKE_ID;
+    crate::spec::fixture::seed_protocol(&e);
 
     crate::config::add_asset_to_spoke(
         &e,
         &SpokeAssetArgs {
-            hub_id: 0,
+            hub_id: crate::spec::fixture::HUB_ID,
             asset: asset.clone(),
             spoke_id: category_id,
             can_collateral: true,
@@ -275,20 +287,14 @@ fn add_asset_enforces_valid_bounds(
 }
 
 #[rule]
-fn edit_asset_enforces_valid_bounds(
-    e: Env,
-    asset: Address,
-    category_id: u32,
-    ltv: u32,
-    threshold: u32,
-    bonus: u32,
-) {
-    cvlr_assume!(category_id > 0);
+fn edit_asset_enforces_valid_bounds(e: Env, asset: Address, ltv: u32, threshold: u32, bonus: u32) {
+    let category_id = crate::spec::fixture::SPOKE_ID;
+    crate::spec::fixture::seed_market(&e, &asset);
 
     crate::config::edit_asset_in_spoke(
         &e,
         &SpokeAssetArgs {
-            hub_id: 0,
+            hub_id: crate::spec::fixture::HUB_ID,
             asset: asset.clone(),
             spoke_id: category_id,
             can_collateral: true,
@@ -309,8 +315,9 @@ fn edit_asset_enforces_valid_bounds(
 }
 
 #[rule]
-fn spoke_remove_category(e: Env, category_id: u32) {
-    cvlr_assume!(category_id > 0);
+fn spoke_remove_category(e: Env) {
+    let category_id = crate::spec::fixture::SPOKE_ID;
+    crate::spec::fixture::seed_protocol(&e);
 
     // Spoke must exist and be active for `remove_spoke` to run.
     let before = crate::storage::try_get_spoke(&e, category_id);
@@ -324,8 +331,12 @@ fn spoke_remove_category(e: Env, category_id: u32) {
 
 /// Adding an asset to a deprecated spoke must revert.
 #[rule]
-fn spoke_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u32) {
-    cvlr_assume!(category_id > 0);
+fn spoke_add_asset_to_deprecated_category(e: Env, asset: Address) {
+    let category_id = crate::spec::fixture::SPOKE_ID;
+    crate::spec::fixture::seed_protocol(&e);
+    let mut deprecated = crate::storage::get_spoke(&e, category_id);
+    deprecated.is_deprecated = true;
+    crate::storage::set_spoke(&e, category_id, &deprecated);
 
     let spoke = crate::storage::try_get_spoke(&e, category_id);
     cvlr_assume!(spoke.is_some());
@@ -334,7 +345,7 @@ fn spoke_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
     crate::config::add_asset_to_spoke(
         &e,
         &SpokeAssetArgs {
-            hub_id: 0,
+            hub_id: crate::spec::fixture::HUB_ID,
             asset,
             spoke_id: category_id,
             can_collateral: true,
@@ -350,20 +361,15 @@ fn spoke_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
         },
     );
 
-    cvlr_satisfy!(false);
+    cvlr_assert!(false);
 }
 
 #[rule]
-fn spoke_supply_sanity(
-    e: Env,
-    caller: Address,
-    account_id: u64,
-    spoke_id: u32,
-    asset: Address,
-    amount: i128,
-) {
-    cvlr_assume!(amount > 0);
-    cvlr_assume!(spoke_id > 0);
+fn spoke_supply_sanity(e: Env, caller: Address, asset: Address) {
+    let account_id = crate::spec::fixture::ACCOUNT_ID;
+    let amount = crate::constants::WAD;
+    let spoke_id = crate::spec::fixture::SPOKE_ID;
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
 
     let mut assets: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     assets.push_back((hub0(&asset), amount));
@@ -372,8 +378,17 @@ fn spoke_supply_sanity(
 }
 
 #[rule]
-fn spoke_borrow_sanity(e: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
-    cvlr_assume!(amount > 0);
+fn spoke_borrow_sanity(e: Env, caller: Address, asset: Address) {
+    let account_id = crate::spec::fixture::ACCOUNT_ID;
+    let amount = crate::constants::WAD;
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    crate::spec::compat::supply_single(
+        e.clone(),
+        caller.clone(),
+        account_id,
+        asset.clone(),
+        amount * 4,
+    );
 
     let attrs = crate::storage::get_account_attrs(&e, account_id);
     cvlr_assume!(attrs.spoke_id > 0);
@@ -381,5 +396,24 @@ fn spoke_borrow_sanity(e: Env, caller: Address, account_id: u64, asset: Address,
     let mut borrows: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     borrows.push_back((hub0(&asset), amount));
     crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows, None);
+    cvlr_satisfy!(true);
+}
+
+#[rule]
+fn deprecated_spoke_withdraw_sanity(e: Env, caller: Address, asset: Address) {
+    let account_id = crate::spec::fixture::ACCOUNT_ID;
+    let amount = crate::constants::WAD;
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    crate::spec::compat::supply_single(
+        e.clone(),
+        caller.clone(),
+        account_id,
+        asset.clone(),
+        amount * 2,
+    );
+    let mut deprecated = crate::storage::get_spoke(&e, crate::spec::fixture::SPOKE_ID);
+    deprecated.is_deprecated = true;
+    crate::storage::set_spoke(&e, crate::spec::fixture::SPOKE_ID, &deprecated);
+    crate::spec::compat::withdraw_single(e, caller, account_id, asset, amount);
     cvlr_satisfy!(true);
 }

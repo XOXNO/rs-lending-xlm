@@ -1,11 +1,11 @@
 //! Market oracle configuration input builders for test setup.
 //!
-//! Builders produce the `MarketOracleConfigInput` shapes consumed by the
+//! Builders produce the `AssetOracleConfigInput` shapes consumed by the
 //! governance `configure_market_oracle` forwarder, which probes the mock
-//! oracles and computes the resolved `MarketOracleConfig` in-path.
+//! oracles and computes the resolved `AssetOracleConfig` in-path.
 
 use controller::types::{
-    MarketOracleConfigInput, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
+    AssetOracleConfigInput, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
     OracleSourceConfigInputOption, OracleStrategy, RedStoneSourceConfigInput,
     ReflectorSourceConfigInput,
 };
@@ -55,8 +55,8 @@ pub fn reflector_primary_anchor_config(
     oracle: &Address,
     asset: &Address,
     tolerance_bps: u32,
-) -> MarketOracleConfigInput {
-    MarketOracleConfigInput {
+) -> AssetOracleConfigInput {
+    AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps,
         min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
@@ -86,9 +86,9 @@ pub fn reflector_single_spot_config(
     asset: &Address,
     price_wad: i128,
     tolerance_bps: u32,
-) -> MarketOracleConfigInput {
+) -> AssetOracleConfigInput {
     let (min_sanity_price_wad, max_sanity_price_wad) = tight_single_source_band(price_wad);
-    MarketOracleConfigInput {
+    AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps,
         min_sanity_price_wad,
@@ -104,9 +104,9 @@ pub fn redstone_single_config(
     feed_id: &String,
     price_wad: i128,
     tolerance_bps: u32,
-) -> MarketOracleConfigInput {
+) -> AssetOracleConfigInput {
     let (min_sanity_price_wad, max_sanity_price_wad) = tight_single_source_band(price_wad);
-    MarketOracleConfigInput {
+    AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps,
         min_sanity_price_wad,
@@ -122,9 +122,9 @@ pub fn xoxno_single_config(
     feed_id: &String,
     price_wad: i128,
     tolerance_bps: u32,
-) -> MarketOracleConfigInput {
+) -> AssetOracleConfigInput {
     let (min_sanity_price_wad, max_sanity_price_wad) = tight_single_source_band(price_wad);
-    MarketOracleConfigInput {
+    AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps,
         min_sanity_price_wad,
@@ -141,8 +141,8 @@ pub fn reflector_primary_xoxno_anchor_config(
     xoxno_contract: &Address,
     feed_id: &String,
     tolerance_bps: u32,
-) -> MarketOracleConfigInput {
-    MarketOracleConfigInput {
+) -> AssetOracleConfigInput {
+    AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps,
         min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
@@ -159,8 +159,8 @@ pub fn reflector_primary_redstone_anchor_config(
     redstone_contract: &Address,
     feed_id: &String,
     tolerance_bps: u32,
-) -> MarketOracleConfigInput {
-    MarketOracleConfigInput {
+) -> AssetOracleConfigInput {
+    AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps,
         min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
@@ -178,8 +178,8 @@ pub fn reflector_primary_redstone_anchor_config_with_anchor_stale(
     feed_id: &String,
     redstone_max_stale_seconds: u64,
     tolerance_bps: u32,
-) -> MarketOracleConfigInput {
-    MarketOracleConfigInput {
+) -> AssetOracleConfigInput {
+    AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps,
         min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,

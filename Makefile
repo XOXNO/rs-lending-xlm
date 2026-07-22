@@ -41,7 +41,7 @@ SHELL := /bin/bash
         certora certora-list \
         test test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
-        coverage coverage-controller coverage-pool coverage-merged \
+        coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
         wasm-size-check wasm-testing-abi-check act-ci act-ci-dryrun clean install-stellar-cli \
         _mutants-check _mutants-harness-prepare \
@@ -196,19 +196,31 @@ deploy-artifacts: optimize
 ## Stellar's post-build optimizer can produce WASM that passes wasm-validate but crashes
 ## Certora's GC stack checker on large controller binaries (FunctionIndex_* ref stack errors).
 certora-wasm:
-	@mkdir -p $(CERTORA_WASM_DIR)
-	@for pkg in common pool controller; do \
-		echo "Building certora $$pkg (optimize=false)..."; \
-		CARGO_TARGET_DIR="$(CERTORA_BUILD_DIR)/$$pkg" \
-			stellar contract build --package $$pkg --features certora --optimize=false; \
-		src="$(CERTORA_BUILD_DIR)/$$pkg/$(WASM_TARGET)/release/$$pkg.wasm"; \
-		dst="$(CERTORA_WASM_DIR)/$$pkg.wasm"; \
+	@set -euo pipefail; \
+	mkdir -p $(CERTORA_WASM_DIR) $(CERTORA_BUILD_DIR); \
+	source_snapshot=$$(mktemp "$(CERTORA_BUILD_DIR)/focused-inputs.XXXXXX"); \
+	trap '/bin/rm -f -- "$$source_snapshot"' EXIT; \
+	python3 certora/scripts/write_wasm_manifest.py \
+		--write-input-snapshot "$$source_snapshot"; \
+	find $(CERTORA_WASM_DIR) -maxdepth 1 -type f -name '*.wasm' -delete; \
+	python3 certora/scripts/focused_wasm.py | while IFS='|' read -r layer pkg feature artifact build_key; do \
+		echo "Building focused certora $$layer/$$feature (optimize=false)..."; \
+		src="$(CERTORA_BUILD_DIR)/focused/$(WASM_TARGET)/release/$${pkg//-/_}.wasm"; \
+		/bin/rm -f "$$src"; \
+		CARGO_TARGET_DIR="$(CERTORA_BUILD_DIR)/focused" \
+			stellar contract build --package $$pkg \
+				--features "certora,certora-focused,$$feature" --optimize=false; \
+		test -s "$$src"; \
+		dst="$(CERTORA_WASM_DIR)/$$artifact"; \
 		/bin/cp -f "$$src" "$$dst"; \
-	done
-	@$(MAKE) --no-print-directory _wasm-manifest CERTORA=1
-	@echo ""
-	@echo "Certora WASM ($(CERTORA_WASM_DIR)):"
-	@ls -lh $(CERTORA_WASM_DIR)/*.wasm 2>/dev/null
+	done; \
+	python3 certora/scripts/write_wasm_manifest.py \
+		--certora --input-snapshot "$$source_snapshot"; \
+	python3 certora/scripts/write_wasm_manifest.py \
+		--check-input-snapshot "$$source_snapshot"; \
+	echo ""; \
+	echo "Certora WASM ($(CERTORA_WASM_DIR)):"; \
+	ls -lh $(CERTORA_WASM_DIR)/*.wasm 2>/dev/null
 
 ## WASM for live testnet harness: deploy-sized main contracts + optimized mocks.
 integration-wasm: deploy-artifacts
@@ -216,6 +228,21 @@ integration-wasm: deploy-artifacts
 	@for wasm in controller pool governance flash_loan_receiver defindex_strategy; do \
 		cp "$(DEPLOY_DIR)/$$wasm.wasm" "$(OPTIMIZED_DIR)/$$wasm.wasm"; \
 	done
+	@# price-aggregator (oracle authority) — release crate name uses underscore.
+	@if [ -f "$(DEPLOY_DIR)/price-aggregator.wasm" ]; then \
+		cp "$(DEPLOY_DIR)/price-aggregator.wasm" "$(OPTIMIZED_DIR)/price_aggregator.wasm"; \
+	elif [ -f "$(RELEASE_DIR)/price_aggregator.wasm" ]; then \
+		if command -v stellar &>/dev/null; then \
+			stellar contract optimize \
+				--wasm $(RELEASE_DIR)/price_aggregator.wasm \
+				--wasm-out $(OPTIMIZED_DIR)/price_aggregator.wasm 2>/dev/null || \
+			cp $(RELEASE_DIR)/price_aggregator.wasm $(OPTIMIZED_DIR)/price_aggregator.wasm; \
+		else \
+			cp $(RELEASE_DIR)/price_aggregator.wasm $(OPTIMIZED_DIR)/price_aggregator.wasm; \
+		fi; \
+	else \
+		echo "WARN: price_aggregator.wasm not found for integration-wasm" >&2; \
+	fi
 	@for pkg in mock_oracle mock_redstone; do \
 		echo "Optimizing $$pkg for integration..."; \
 		if command -v stellar &>/dev/null; then \
@@ -229,7 +256,7 @@ integration-wasm: deploy-artifacts
 	done
 	@echo ""
 	@echo "Integration WASM ($(OPTIMIZED_DIR)):"
-	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,defindex_strategy,mock_oracle,mock_redstone}.wasm 2>/dev/null
+	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,defindex_strategy,price_aggregator,mock_oracle,mock_redstone}.wasm 2>/dev/null
 
 ## Generate fresh appendix.md for the integration harness from test-harness
 ## budget/footprint tests (addresses stale appendix weakness).
@@ -347,74 +374,100 @@ miri-all: miri-common miri-pool miri-controller
 # ---------------------------------------------------------------------------
 # Coverage
 # ---------------------------------------------------------------------------
+# Canonical IDE path (Coverage Gutters, etc.): repo-root `lcov.info` (gitignored).
+# Written after each coverage target so tools that only look for `lcov.info` work.
 
 ## Run coverage and print summary to CLI
 coverage: coverage-merged
+
+# `--no-fail-fast`: one failing harness binary must not skip later ones
+# (e.g. `controller` before `strategy`); otherwise strategy modules report 0%.
+# `set -o pipefail` + tee: preserve cargo exit status when summarizing with tail.
+define COV_RUN_HARNESS
+	backup="$(COV_DIR)/snapshots-backup"; \
+	restore_snapshots() { \
+		rm -rf $(TEST_HARNESS_DIR)/test_snapshots; \
+		mkdir -p $(TEST_HARNESS_DIR)/test_snapshots; \
+		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/ 2>/dev/null || true; \
+	}; \
+	rm -rf "$$backup" && mkdir -p "$$backup" $(TEST_HARNESS_DIR)/test_snapshots; \
+	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
+	trap 'restore_snapshots' EXIT; \
+	set -o pipefail; \
+	cargo llvm-cov test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- --test-threads=1 2>&1 | tee $(COV_DIR)/harness.log | tail -20
+endef
 
 coverage-controller:
 	@echo "Running controller coverage (common + controller unit tests + test-harness)..."
 	@mkdir -p $(COV_DIR)
 	@cargo llvm-cov clean --workspace
-	@cargo llvm-cov test -p common --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
-	@cargo llvm-cov test -p controller --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
-	@backup="$(COV_DIR)/snapshots-backup"; \
-	restore_snapshots() { \
-		rm -rf $(TEST_HARNESS_DIR)/test_snapshots; \
-		mkdir -p $(TEST_HARNESS_DIR)/test_snapshots; \
-		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/ 2>/dev/null || true; \
-	}; \
-	rm -rf "$$backup" && mkdir -p "$$backup" $(TEST_HARNESS_DIR)/test_snapshots; \
-	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
-	trap 'restore_snapshots' EXIT; \
-	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p common --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p controller --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@$(COV_RUN_HARNESS)
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/controller.lcov.info $(COV_IGNORE) >/dev/null
 	@python3 scripts/coverage_report.py \
 		$(COV_DIR)/controller.lcov.info \
 		$(COV_DIR)/controller-report.md \
 		controller
+	@cp -f $(COV_DIR)/controller.lcov.info lcov.info
 	@echo "Reports saved to:"
 	@echo "  $(COV_DIR)/controller.lcov.info"
 	@echo "  $(COV_DIR)/controller-report.md"
+	@echo "  lcov.info  (IDE default; copy of $(COV_DIR)/controller.lcov.info)"
 
 coverage-pool:
 	@echo "Running pool coverage (direct pool unit tests)..."
 	@mkdir -p $(COV_DIR)
 	@cargo llvm-cov clean --workspace
-	@cargo llvm-cov test -p pool --no-report $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p pool --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/pool.lcov.info $(COV_IGNORE) >/dev/null
 	@python3 scripts/coverage_report.py \
 		$(COV_DIR)/pool.lcov.info \
 		$(COV_DIR)/pool-report.md \
 		pool
+	@cp -f $(COV_DIR)/pool.lcov.info lcov.info
 	@echo "Reports saved to:"
 	@echo "  $(COV_DIR)/pool.lcov.info"
 	@echo "  $(COV_DIR)/pool-report.md"
+	@echo "  lcov.info  (IDE default; copy of $(COV_DIR)/pool.lcov.info)"
 
-coverage-merged:
-	@echo "Running merged coverage (common + controller + pool + test-harness)..."
+coverage-price-aggregator:
+	@echo "Running price-aggregator coverage (common + aggregator unit tests)..."
 	@mkdir -p $(COV_DIR)
 	@cargo llvm-cov clean --workspace
-	@cargo llvm-cov test -p common --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
-	@cargo llvm-cov test -p pool --no-report $(COV_IGNORE) 2>&1 | tail -5
-	@cargo llvm-cov test -p controller --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
-	@backup="$(COV_DIR)/snapshots-backup"; \
-	restore_snapshots() { \
-		rm -rf $(TEST_HARNESS_DIR)/test_snapshots; \
-		mkdir -p $(TEST_HARNESS_DIR)/test_snapshots; \
-		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/ 2>/dev/null || true; \
-	}; \
-	rm -rf "$$backup" && mkdir -p "$$backup" $(TEST_HARNESS_DIR)/test_snapshots; \
-	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
-	trap 'restore_snapshots' EXIT; \
-	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
-	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null
+	@set -o pipefail; cargo llvm-cov test -p common --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p price-aggregator --features testing --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/price-aggregator.lcov.info $(COV_IGNORE) >/dev/null
 	@python3 scripts/coverage_report.py \
+		$(COV_DIR)/price-aggregator.lcov.info \
+		$(COV_DIR)/price-aggregator-report.md \
+		price-aggregator
+	@cp -f $(COV_DIR)/price-aggregator.lcov.info lcov.info
+	@echo "Reports saved to:"
+	@echo "  $(COV_DIR)/price-aggregator.lcov.info"
+	@echo "  $(COV_DIR)/price-aggregator-report.md"
+	@echo "  lcov.info  (IDE default; copy of $(COV_DIR)/price-aggregator.lcov.info)"
+
+coverage-merged:
+	@echo "Running merged coverage (common + controller + pool + price-aggregator + test-harness)..."
+	@mkdir -p $(COV_DIR)
+	@cargo llvm-cov clean --workspace
+	@set -o pipefail; cargo llvm-cov test -p common --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p pool --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p price-aggregator --features testing --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p controller --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@-$(COV_RUN_HARNESS); harness_status=$$?; \
+	cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null; \
+	python3 scripts/coverage_report.py \
 		$(COV_DIR)/merged.lcov.info \
 		$(COV_DIR)/merged-report.md \
-		merged
-	@echo "Reports saved to:"
-	@echo "  $(COV_DIR)/merged.lcov.info"
-	@echo "  $(COV_DIR)/merged-report.md"
+		merged; \
+	cp -f $(COV_DIR)/merged.lcov.info lcov.info; \
+	echo "Reports saved to:"; \
+	echo "  $(COV_DIR)/merged.lcov.info"; \
+	echo "  $(COV_DIR)/merged-report.md"; \
+	echo "  lcov.info  (IDE default; copy of $(COV_DIR)/merged.lcov.info)"; \
+	exit $$harness_status
 
 # ---------------------------------------------------------------------------
 # Code quality

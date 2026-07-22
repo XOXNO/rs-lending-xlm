@@ -143,7 +143,7 @@ fn oracle_role_moves_sanity_band_containing_price() {
 
     let before = t.market_oracle_config(&usdc);
     // Live price is $1; the new band contains it.
-    gov.set_oracle_sanity_bounds(&admin, &usdc, &(usd(1) / 2), &(usd(2)));
+    gov.set_sanity_band(&admin, &usdc, &(usd(1) / 2), &(usd(2)));
 
     let after = t.market_oracle_config(&usdc);
     assert_eq!(after.min_sanity_price_wad, usd(1) / 2);
@@ -164,11 +164,11 @@ fn sanity_band_not_containing_price_rejected() {
     let usdc = t.resolve_asset("USDC");
 
     // Entirely above the $1 live price.
-    let result = gov.try_set_oracle_sanity_bounds(&admin, &usdc, &usd(2), &usd(3));
+    let result = gov.try_set_sanity_band(&admin, &usdc, &usd(2), &usd(3));
     assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
 
     // Entirely below the $1 live price.
-    let result = gov.try_set_oracle_sanity_bounds(&admin, &usdc, &(usd(1) / 100), &(usd(1) / 2));
+    let result = gov.try_set_sanity_band(&admin, &usdc, &(usd(1) / 100), &(usd(1) / 2));
     assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
 }
 
@@ -182,15 +182,15 @@ fn sanity_band_disjoint_from_old_band_rejected() {
     let usdc = t.resolve_asset("USDC");
 
     // Narrow the band around the live $1 price first.
-    gov.set_oracle_sanity_bounds(&admin, &usdc, &(usd(1) / 2), &usd(2));
+    gov.set_sanity_band(&admin, &usdc, &(usd(1) / 2), &usd(2));
 
     // A new band disjoint from [0.5, 2.0] is rejected even before pricing
     // (containment would also fail here; the overlap rule fires first).
-    let result = gov.try_set_oracle_sanity_bounds(&admin, &usdc, &usd(3), &usd(4));
+    let result = gov.try_set_sanity_band(&admin, &usdc, &usd(3), &usd(4));
     assert_contract_error(flatten(result), errors::INVALID_SANITY_BOUNDS);
 
     // An overlapping widening that still contains the live price passes.
-    gov.set_oracle_sanity_bounds(&admin, &usdc, &(usd(1) / 4), &usd(3));
+    gov.set_sanity_band(&admin, &usdc, &(usd(1) / 4), &usd(3));
     let after = t.market_oracle_config(&usdc);
     assert_eq!(after.min_sanity_price_wad, usd(1) / 4);
     assert_eq!(after.max_sanity_price_wad, usd(3));
@@ -205,10 +205,10 @@ fn sanity_band_input_and_role_gates() {
     let stranger = Address::generate(&t.env);
     let usdc = t.resolve_asset("USDC");
 
-    let result = gov.try_set_oracle_sanity_bounds(&admin, &usdc, &usd(2), &usd(1));
+    let result = gov.try_set_sanity_band(&admin, &usdc, &usd(2), &usd(1));
     assert_contract_error(flatten(result), errors::INVALID_SANITY_BOUNDS);
 
-    let result = gov.try_set_oracle_sanity_bounds(&stranger, &usdc, &(usd(1) / 2), &usd(2));
+    let result = gov.try_set_sanity_band(&stranger, &usdc, &(usd(1) / 2), &usd(2));
     assert_contract_error(flatten(result), errors::UNAUTHORIZED);
 }
 

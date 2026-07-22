@@ -14,19 +14,24 @@ pub mod pool;
 pub mod reflector;
 pub mod sac;
 
-/// Token price: positive WAD price, decimals <= 27, timestamp within skew.
-pub(crate) fn token_price_summary(cache: &mut Cache, _asset: &Address) -> PriceFeedRaw {
+/// Token price: positive WAD price, decimals <= 27, timestamp not materially
+/// ahead of the current ledger. Shared by cache and external-call summaries.
+pub(crate) fn price_feed_summary(env: &Env, _asset: &Address) -> PriceFeedRaw {
     let price_wad: i128 = nondet();
     let asset_decimals: u32 = nondet();
     let timestamp: u64 = nondet();
     cvlr_assume!(price_wad > 0);
     cvlr_assume!(asset_decimals <= 27);
-    cvlr_assume!(timestamp <= cache.current_timestamp_ms / 1000 + 60);
+    cvlr_assume!(timestamp <= env.ledger().timestamp().saturating_add(60));
     PriceFeedRaw {
         price_wad,
         asset_decimals,
         timestamp,
     }
+}
+
+pub(crate) fn token_price_summary(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
+    price_feed_summary(cache.env(), asset)
 }
 
 /// Pool market index inside the production band: floor from bad-debt
@@ -50,14 +55,11 @@ pub(crate) fn calculate_account_risk_totals_summary(
     env: &Env,
     _cache: &mut Cache,
     _spoke_id: u32,
-    _supply_positions: &soroban_sdk::Map<
+    supply_positions: &soroban_sdk::Map<
         common::types::HubAssetKey,
         common::types::AccountPositionRaw,
     >,
-    _borrow_positions: &soroban_sdk::Map<
-        common::types::HubAssetKey,
-        common::types::DebtPositionRaw,
-    >,
+    borrow_positions: &soroban_sdk::Map<common::types::HubAssetKey, common::types::DebtPositionRaw>,
 ) -> crate::risk::AccountRiskTotals {
     let total_collateral_raw: i128 = nondet();
     let ltv_collateral_raw: i128 = nondet();
@@ -69,6 +71,14 @@ pub(crate) fn calculate_account_risk_totals_summary(
     cvlr_assume!(total_debt_raw >= 0);
     cvlr_assume!(weighted_coll_raw <= total_collateral_raw);
     cvlr_assume!(ltv_collateral_raw <= total_collateral_raw);
+    if supply_positions.is_empty() {
+        cvlr_assume!(total_collateral_raw == 0);
+        cvlr_assume!(ltv_collateral_raw == 0);
+        cvlr_assume!(weighted_coll_raw == 0);
+    }
+    if borrow_positions.is_empty() {
+        cvlr_assume!(total_debt_raw == 0);
+    }
 
     let total_debt = Wad::from(total_debt_raw);
     let weighted_collateral = Wad::from(weighted_coll_raw);

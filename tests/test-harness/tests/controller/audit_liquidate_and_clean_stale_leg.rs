@@ -3,7 +3,7 @@
 //!
 //! `liquidate` and `clean_bad_debt` both open with
 //! `risk::calculate_account_risk_totals`, which prices EVERY supply leg through
-//! the strictly fail-closed `cached_price_for` resolver (no `try_`, no per-asset
+//! the strictly fail-closed `cached_price` resolver (no `try_`, no per-asset
 //! skip, no last-good fallback for a Single-strategy feed). A borrower can plant
 //! a dust supply leg in a fragile single-source collateral through `supply`,
 //! which reads no price and runs no post-pool risk gate, so the leg attaches even

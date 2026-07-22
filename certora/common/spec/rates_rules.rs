@@ -3,8 +3,8 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::{
-    BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, RAY,
-    SUPPLY_INDEX_FLOOR_RAW,
+    BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR,
+    RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
 use crate::math::fp::{Bps, Ray};
 use crate::math::fp_core::mul_div_half_up;
@@ -14,6 +14,9 @@ use crate::rates::{
     utilization,
 };
 use crate::types::{MarketParams, PoolStateRaw, PoolSyncData};
+
+/// Seven-decimal token units per RAY-scaled share at index `RAY`.
+const ASSET_TO_RAY_SCALE_7: i128 = 100_000_000_000_000_000_000;
 
 fn valid_params(asset: Address) -> MarketParams {
     MarketParams {
@@ -53,13 +56,16 @@ fn utilization_bounded_when_borrowed_lte_supplied(e: Env, borrowed: i128, suppli
 }
 
 #[rule]
-fn borrow_rate_is_capped(e: Env, asset: Address, util_raw: i128) {
+fn borrow_rate_per_ms_respects_annual_cap(e: Env, asset: Address, util_raw: i128) {
     cvlr_assume!((0..=RAY).contains(&util_raw));
 
     let params = valid_params(asset);
     let rate = calculate_borrow_rate(&e, Ray::from(util_raw), &params);
+    let per_ms_cap = params
+        .max_borrow_rate
+        .div_by_int(MILLISECONDS_PER_YEAR as i128);
     cvlr_assert!(rate.raw() >= 0);
-    cvlr_assert!(rate.raw() <= params.max_borrow_rate.raw());
+    cvlr_assert!(rate.raw() <= per_ms_cap.raw());
 }
 
 #[rule]
@@ -176,7 +182,10 @@ fn simulate_indexes_no_time_noop(
             borrow_index,
             supply_index,
             last_timestamp: timestamp,
-            cash: supplied.saturating_sub(borrowed),
+            cash: supplied
+                .saturating_sub(borrowed)
+                .checked_div(ASSET_TO_RAY_SCALE_7)
+                .unwrap_or(0),
         },
     };
     let index = simulate_update_indexes_body(&e, timestamp, &sync);

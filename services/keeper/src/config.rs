@@ -46,6 +46,10 @@ pub struct ContractsConfig {
     /// persistent index/price state each tick. Blank YAML → unset.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub xoxno_oracle_adapter: Option<String>,
+    /// Price-aggregator (oracle authority). When set, bumps token-rooted
+    /// `AssetOracle(asset)` rows on that contract. Blank YAML → unset.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub price_aggregator: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -186,6 +190,13 @@ impl KeeperConfig {
             if !adapter.starts_with('C') {
                 return Err(anyhow!(
                     "config.contracts.xoxno_oracle_adapter must be a C... address when set"
+                ));
+            }
+        }
+        if let Some(agg) = &self.contracts.price_aggregator {
+            if !agg.starts_with('C') {
+                return Err(anyhow!(
+                    "config.contracts.price_aggregator must be a C... address when set"
                 ));
             }
         }

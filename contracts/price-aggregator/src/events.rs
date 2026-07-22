@@ -5,8 +5,8 @@
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol};
 
 use common::types::{
-    MarketOracleConfig, OracleAssetRef, OraclePriceFluctuation, OracleProviderKind, OracleReadMode,
-    OracleSourceConfig, OracleStrategy, ReflectorBase,
+    AssetOracleConfig, OracleAssetRef, OracleProviderKind, OracleReadMode, OracleSourceConfig,
+    OracleStrategy, OracleTolerance, ReflectorBase,
 };
 
 #[contracttype]
@@ -42,7 +42,7 @@ impl From<OracleStrategy> for EventPricingMethod {
 pub struct EventOracleProvider {
     pub base_token_id: Address,
     pub quote_token_id: Symbol,
-    pub tolerance: OraclePriceFluctuation,
+    pub tolerance: OracleTolerance,
     pub pricing_method: EventPricingMethod,
     pub oracle_type: EventOracleType,
     pub strategy: u32,
@@ -75,7 +75,7 @@ pub struct EventOracleProvider {
 }
 
 impl EventOracleProvider {
-    pub fn from_oracle(_env: &Env, asset: &Address, oracle: &MarketOracleConfig) -> Self {
+    pub fn from_oracle(_env: &Env, asset: &Address, oracle: &AssetOracleConfig) -> Self {
         let market_max_stale = oracle.max_price_stale_seconds;
         let primary = EventOracleSource::from(&oracle.primary, market_max_stale);
         let anchor = oracle
@@ -204,4 +204,12 @@ fn read_mode_parts(read_mode: &OracleReadMode) -> (u32, u32) {
 pub struct UpdateAssetOracleEvent {
     pub asset: Address,
     pub oracle: EventOracleProvider,
+}
+
+pub(crate) fn emit_oracle_updated(env: &Env, asset: &Address, config: &AssetOracleConfig) {
+    UpdateAssetOracleEvent {
+        asset: asset.clone(),
+        oracle: EventOracleProvider::from_oracle(env, asset, config),
+    }
+    .publish(env);
 }

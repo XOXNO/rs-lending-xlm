@@ -86,10 +86,10 @@ fn flatten<T>(
 
 fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
     let asset = t.resolve_asset(asset_name);
-    let mut oracle = t.price_agg_client().get_asset_oracle(&asset).unwrap();
+    let mut oracle = t.price_agg_client().oracle_config(&asset).unwrap();
     oracle.min_sanity_price_wad = min_wad;
     oracle.max_sanity_price_wad = max_wad;
-    t.price_agg_client().seed_asset_oracle(&asset, &oracle);
+    t.price_agg_client().seed_oracle_config(&asset, &oracle);
 }
 
 // BadMode::Refund -- router returns token_in to the caller, violating the

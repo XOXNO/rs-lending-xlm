@@ -1,16 +1,16 @@
 //! Token-rooted USD price lookups from the aggregator-resolved price map.
 //!
-//! A priced flow calls `ensure_prices` with the asset set it needs; the first
-//! call fetches every asset from the price-aggregator in one bulk request, and
-//! later calls in the same transaction reuse the cached map (prices are
-//! ledger-constant), so a flow with several risk passes still makes a single
-//! aggregator call. Per-position reads are map lookups; a missing entry means
-//! the asset was never requested — a caller bug — and reverts `OracleNotConfigured`.
+//! A priced flow calls [`Cache::fetch_prices`] (or [`Cache::load_markets`] when
+//! hub-asset indexes are needed too). The first call bulk-fetches uncached
+//! assets from the price-aggregator; later calls in the same transaction reuse
+//! the map (prices are ledger-constant). Per-position reads are map lookups; a
+//! missing entry means the asset was never fetched — a caller bug — and reverts
+//! `OracleNotConfigured`.
 
 use common::errors::OracleError;
+use common::types::PriceFeed;
 #[cfg(test)]
 use common::types::PriceFeedRaw;
-use common::types::{HubAssetKey, PriceFeed};
 #[cfg(test)]
 use soroban_sdk::Map;
 use soroban_sdk::{panic_with_error, Address, Vec};
@@ -24,14 +24,16 @@ impl Cache {
         self.token_prices = prices;
     }
 
-    /// Resolves any `assets` not yet priced this transaction via one bulk
-    /// aggregator call, merging them into the map. Already-cached assets are
-    /// skipped, so repeated risk passes share a single fetch.
-    pub(crate) fn ensure_prices(&mut self, assets: &Vec<Address>) {
+    /// Bulk-fetch USD prices for any `assets` not yet in this transaction's map.
+    ///
+    /// Already-cached tokens are skipped, so repeated risk passes share one
+    /// aggregator call. Prefer [`Cache::load_markets`] when you also need pool
+    /// indexes for the same hub-asset set.
+    pub(crate) fn fetch_prices(&mut self, assets: &Vec<Address>) {
         let env = self.env.clone();
         let mut missing = Vec::new(&env);
         for asset in assets.iter() {
-            if !self.token_prices.contains_key(asset.clone()) {
+            if !self.token_prices.contains_key(asset.clone()) && !missing.contains(&asset) {
                 missing.push_back(asset);
             }
         }
@@ -44,21 +46,12 @@ impl Cache {
         }
     }
 
-    /// Token-rooted USD price for `asset` from the injected map.
+    /// Token-rooted USD price for `asset` from the fetched map.
     pub(crate) fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         let raw = self
             .token_prices
             .get(asset.clone())
             .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured));
         (&raw).into()
-    }
-
-    /// Position price: token-rooted.
-    pub(crate) fn cached_price_for(
-        &mut self,
-        _spoke_id: u32,
-        hub_asset: &HubAssetKey,
-    ) -> PriceFeed {
-        self.cached_price(&hub_asset.asset)
     }
 }

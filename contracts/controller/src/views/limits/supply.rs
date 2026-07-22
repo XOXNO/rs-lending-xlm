@@ -17,9 +17,6 @@ pub(crate) fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) ->
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
     }
-    if !crate::external::price_aggregator::is_asset_priceable(env, &hub_asset.asset) {
-        return 0;
-    }
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };

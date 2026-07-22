@@ -50,6 +50,9 @@ pub struct RpcConfig {
 pub struct ContractsConfig {
     /// Lending controller (`C...`).
     pub controller: String,
+    /// Price-aggregator (`C...`); owns token-rooted `AssetOracle` configs.
+    #[serde(default)]
+    pub price_aggregator: Option<String>,
     /// Oracle adapter (`C...`); needed for Xoxno/RedStone staleness reads.
     #[serde(default)]
     pub xoxno_oracle_adapter: Option<String>,
@@ -158,6 +161,10 @@ impl ExporterConfig {
 
     pub fn resolve(&self) -> Result<ResolvedContracts> {
         let controller = contract_id_from_strkey(&self.contracts.controller)?;
+        let price_aggregator = match &self.contracts.price_aggregator {
+            Some(a) if !a.trim().is_empty() => Some(contract_id_from_strkey(a)?),
+            _ => None,
+        };
         let oracle_adapter = match &self.contracts.xoxno_oracle_adapter {
             Some(a) if !a.trim().is_empty() => Some(contract_id_from_strkey(a)?),
             _ => None,
@@ -176,6 +183,7 @@ impl ExporterConfig {
             .collect::<Result<Vec<_>>>()?;
         Ok(ResolvedContracts {
             controller,
+            price_aggregator,
             oracle_adapter,
             markets,
         })
@@ -185,6 +193,7 @@ impl ExporterConfig {
 #[derive(Debug, Clone)]
 pub struct ResolvedContracts {
     pub controller: [u8; 32],
+    pub price_aggregator: Option<[u8; 32]>,
     pub oracle_adapter: Option<[u8; 32]>,
     pub markets: Vec<ResolvedMarket>,
 }

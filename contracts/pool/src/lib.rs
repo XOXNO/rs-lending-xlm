@@ -136,15 +136,27 @@ fn borrow_one(
     receiver: &Address,
     entry: &PoolBorrowEntry,
 ) -> (PoolPositionMutation, MarketStateSnapshot) {
+    let (cache, mutation, snapshot) = borrow_accounting(env, entry);
+
+    // CEI: accounting committed before external transfer.
+    cache.transfer_out(receiver, mutation.actual_amount);
+    (mutation, snapshot)
+}
+
+/// Production borrow accounting, split from the SAC transfer so formal rules
+/// can verify the persisted transition without assuming external token code.
+fn borrow_accounting(
+    env: &Env,
+    entry: &PoolBorrowEntry,
+) -> (Cache, PoolPositionMutation, MarketStateSnapshot) {
     let (mut cache, mut scaled, amount) = load_position(env, &entry.action);
 
     accrue_borrow(env, &mut cache, &mut scaled, amount);
     cache.debit_cash(amount);
 
-    // CEI: snapshot + commit before external call.
     cache.save();
-    cache.transfer_out(receiver, amount);
-    position_result(&cache, scaled, amount)
+    let (mutation, snapshot) = position_result(&cache, scaled, amount);
+    (cache, mutation, snapshot)
 }
 
 fn withdraw_one(
@@ -153,6 +165,21 @@ fn withdraw_one(
     is_liquidation: bool,
     entry: &PoolWithdrawEntry,
 ) -> (PoolPositionMutation, MarketStateSnapshot) {
+    let (cache, mutation, snapshot, net_transfer) = withdraw_accounting(env, is_liquidation, entry);
+
+    // CEI: accounting committed before external transfer.
+    cache.transfer_out(receiver, net_transfer);
+    (mutation, snapshot)
+}
+
+/// Production withdrawal accounting, split from the SAC transfer for direct
+/// transition proofs. `actual_amount` remains the gross withdrawal; the fourth
+/// return value is the net token transfer after any liquidation fee.
+fn withdraw_accounting(
+    env: &Env,
+    is_liquidation: bool,
+    entry: &PoolWithdrawEntry,
+) -> (Cache, PoolPositionMutation, MarketStateSnapshot, i128) {
     require_nonneg_amount(env, entry.protocol_fee);
     // Controller maps user amount `0` to this full-withdraw sentinel.
     let (mut cache, scaled, amount) = load_position(env, &entry.action);
@@ -177,10 +204,9 @@ fn withdraw_one(
     utils::require_solvent_withdraw_state(env, &cache);
     cache.debit_cash(net_transfer);
 
-    // CEI: snapshot + commit before external call.
     cache.save();
-    cache.transfer_out(receiver, net_transfer);
-    position_result(&cache, scaled, gross_amount)
+    let (mutation, snapshot) = position_result(&cache, scaled, gross_amount);
+    (cache, mutation, snapshot, net_transfer)
 }
 
 fn repay_one(
@@ -188,6 +214,18 @@ fn repay_one(
     payer: &Address,
     action: &PoolAction,
 ) -> (PoolPositionMutation, MarketStateSnapshot) {
+    let (cache, mutation, snapshot, overpayment) = repay_accounting(env, action);
+
+    // CEI: accounting committed before external refund.
+    cache.transfer_out(payer, overpayment);
+    (mutation, snapshot)
+}
+
+/// Production repay accounting, split from the SAC refund for direct proofs.
+fn repay_accounting(
+    env: &Env,
+    action: &PoolAction,
+) -> (Cache, PoolPositionMutation, MarketStateSnapshot, i128) {
     let (mut cache, scaled, amount) = load_position(env, action);
 
     let (scaled_repay, overpayment) = cache.resolve_repay(amount, scaled);
@@ -199,10 +237,9 @@ fn repay_one(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     cache.credit_cash(net_repay);
 
-    // CEI: snapshot + commit before external call.
     cache.save();
-    cache.transfer_out(payer, overpayment);
-    position_result(&cache, scaled, net_repay)
+    let (mutation, snapshot) = position_result(&cache, scaled, net_repay);
+    (cache, mutation, snapshot, overpayment)
 }
 
 // Seize: bad borrow → supply-index write-down (floor); deposit dust → revenue.
@@ -294,6 +331,97 @@ fn pull_flash_repayment(
     );
     tok.transfer_from(pool_addr, receiver, pool_addr, &total);
     verify_flash_repay(env, tok, pool_addr, expected_after_repay);
+}
+
+/// Exact balance targets used by the production flash-loan checks.
+///
+/// Returns `(fee, amount_plus_fee, after_payout, after_repayment)`.
+fn flash_repayment_terms(
+    env: &Env,
+    amount: i128,
+    fee_bps: u32,
+    pre_balance: i128,
+) -> (i128, i128, i128, i128) {
+    let fee = Bps::from(i128::from(fee_bps)).flash_loan_fee_on(env, amount);
+    let total = amount
+        .checked_add(fee)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    let expected_after_payout = pre_balance
+        .checked_sub(amount)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    let expected_after_repay = pre_balance
+        .checked_add(fee)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    (fee, total, expected_after_payout, expected_after_repay)
+}
+
+/// Books the successful flash-loan fee into the same production cache fields
+/// whose token balance was checked by `flash_loan`.
+fn book_flash_fee(cache: &mut Cache, fee: i128) {
+    let protocol_fee = Ray::from_asset(fee, cache.params.asset_decimals);
+    interest::add_protocol_revenue(cache, protocol_fee);
+    cache.credit_cash(fee);
+}
+
+/// Production strategy accounting, split from the SAC transfer so the debt,
+/// cash, fee, and revenue transition is directly verifiable.
+fn create_strategy_accounting(
+    env: &Env,
+    action: PoolAction,
+    charge_fee: bool,
+) -> (Cache, PoolStrategyMutation, i128) {
+    let PoolAction {
+        position,
+        amount,
+        hub_asset,
+    } = action;
+    require_nonneg_amount(env, amount);
+
+    let mut cache = load_synced_cache(env, &hub_asset);
+
+    // Flash-loan fee is derived pool-side from the market's configured
+    // `flashloan_fee` bps; `charge_fee = false` (migration) borrows fee-free.
+    let fee = if charge_fee {
+        Bps::from(i128::from(cache.params.flashloan_fee)).flash_loan_fee_on(env, amount)
+    } else {
+        0
+    };
+    assert_with_error!(env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
+
+    let mut scaled = Ray::from(position.scaled_amount);
+    accrue_borrow(env, &mut cache, &mut scaled, amount);
+
+    let protocol_fee = Ray::from_asset(fee, cache.params.asset_decimals);
+    interest::add_protocol_revenue(&mut cache, protocol_fee);
+
+    let amount_to_send = amount
+        .checked_sub(fee)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    cache.debit_cash(amount_to_send);
+
+    cache.save();
+    let mutation = cache.strategy_mutation(scaled, amount, amount_to_send);
+    (cache, mutation, fee)
+}
+
+/// Production protocol-revenue burn and cash accounting, split from the owner
+/// transfer for direct transition proofs.
+fn claim_revenue_accounting(env: &Env, hub_asset: HubAssetKey) -> (Cache, PoolAmountMutation) {
+    let mut cache = load_synced_cache(env, &hub_asset);
+
+    let amount_to_transfer = cache.burn_claimable_revenue();
+
+    utils::require_utilization_below_max(env, &cache);
+    utils::require_solvent_withdraw_state(env, &cache);
+    cache.debit_cash(amount_to_transfer);
+
+    cache.save();
+    (
+        cache,
+        PoolAmountMutation {
+            actual_amount: amount_to_transfer,
+        },
+    )
 }
 
 #[contract]
@@ -558,14 +686,19 @@ impl LiquidityPoolInterface for LiquidityPool {
         initiator: Address,
         receiver: Address,
         amount: i128,
-        fee: i128,
         data: Bytes,
-    ) {
+    ) -> i128 {
         require_positive_amount(&env, amount);
-        require_nonneg_amount(&env, fee);
 
         let mut cache = load_synced_cache(&env, &hub_asset);
 
+        // Flash-loan availability and fee are pool-owned: the market must be
+        // flashloanable and the fee derives from its `flashloan_fee` bps.
+        assert_with_error!(
+            &env,
+            cache.params.is_flashloanable,
+            FlashLoanError::FlashloanNotEnabled
+        );
         cache.require_reserves(amount);
         require_wasm_receiver(&env, &receiver);
 
@@ -573,15 +706,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         let pool_addr = env.current_contract_address();
         let tok = token::Client::new(&env, &cache.params.asset_id);
         let pre_balance = tok.balance(&pool_addr);
-        let expected_after_payout = pre_balance
-            .checked_sub(amount)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        let total = amount
-            .checked_add(fee)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        let expected_after_repay = pre_balance
-            .checked_add(fee)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        let (fee, total, expected_after_payout, expected_after_repay) =
+            flash_repayment_terms(&env, amount, cache.params.flashloan_fee, pre_balance);
 
         // Sends the loan, then confirms the pool balance dropped by exactly `amount`.
         tok.transfer(&pool_addr, &receiver, &amount);
@@ -614,14 +740,13 @@ impl LiquidityPoolInterface for LiquidityPool {
             expected_after_repay,
         );
 
-        let protocol_fee = Ray::from_asset(fee, cache.params.asset_decimals);
-        interest::add_protocol_revenue(&mut cache, protocol_fee);
         // Net token effect: pool sends `amount` and receives `amount + fee`, so
         // `cash` increases by `fee`. Direct transfers are balance-checked above.
-        cache.credit_cash(fee);
+        book_flash_fee(&mut cache, fee);
 
         cache.save();
         events::emit_market_state(&env, cache.market_snapshot());
+        fee
     }
 
     /// revenue, and transfers `amount - fee` to `receiver`.
@@ -659,48 +784,20 @@ impl LiquidityPoolInterface for LiquidityPool {
         action: PoolAction,
         charge_fee: bool,
     ) -> PoolStrategyMutation {
-        let PoolAction {
-            position,
-            amount,
-            hub_asset,
-        } = action;
-        require_nonneg_amount(&env, amount);
+        let (cache, mutation, fee) = create_strategy_accounting(&env, action, charge_fee);
 
-        let mut cache = load_synced_cache(&env, &hub_asset);
-
-        // Flash-loan fee is derived pool-side from the market's configured
-        // `flashloan_fee` bps; `charge_fee = false` (migration) borrows fee-free.
-        let fee = if charge_fee {
-            Bps::from(i128::from(cache.params.flashloan_fee)).flash_loan_fee_on(&env, amount)
-        } else {
-            0
-        };
-        assert_with_error!(&env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
-
-        let mut scaled = Ray::from(position.scaled_amount);
-        accrue_borrow(&env, &mut cache, &mut scaled, amount);
-
-        let protocol_fee = Ray::from_asset(fee, cache.params.asset_decimals);
-        interest::add_protocol_revenue(&mut cache, protocol_fee);
-
-        let amount_to_send = amount
-            .checked_sub(fee)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        cache.debit_cash(amount_to_send);
-
-        // CEI: snapshot + commit before external call.
-        cache.save();
-        cache.transfer_out(&receiver, amount_to_send);
+        // CEI: accounting committed before external transfer.
+        cache.transfer_out(&receiver, mutation.amount_received);
         events::emit_strategy_fee(
             &env,
-            hub_asset.hub_id,
-            hub_asset.asset,
-            amount,
+            cache.hub_asset.hub_id,
+            cache.hub_asset.asset.clone(),
+            mutation.actual_amount,
             fee,
-            amount_to_send,
+            mutation.amount_received,
         );
         events::emit_market_state(&env, cache.market_snapshot());
-        cache.strategy_mutation(scaled, amount, amount_to_send)
+        mutation
     }
 
     /// supply index, deposit legs move dust into revenue. Duplicate hub-assets
@@ -754,27 +851,16 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     #[only_owner]
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
-        let mut cache = load_synced_cache(&env, &hub_asset);
+        let (cache, mutation) = claim_revenue_accounting(&env, hub_asset);
 
-        let amount_to_transfer = cache.burn_claimable_revenue();
-
-        utils::require_utilization_below_max(&env, &cache);
-        utils::require_solvent_withdraw_state(&env, &cache);
-        cache.debit_cash(amount_to_transfer);
-
-        // CEI: commit state before external call.
-        cache.save();
-
-        if amount_to_transfer > 0 {
+        if mutation.actual_amount > 0 {
             let owner = ownable::get_owner(&env)
                 .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
-            cache.transfer_out(&owner, amount_to_transfer);
+            cache.transfer_out(&owner, mutation.actual_amount);
         }
 
         events::emit_market_state(&env, cache.market_snapshot());
-        PoolAmountMutation {
-            actual_amount: amount_to_transfer,
-        }
+        mutation
     }
 
     #[only_owner]

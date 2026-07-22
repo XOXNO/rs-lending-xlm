@@ -39,16 +39,16 @@ flow_admin() {
     xfail asset_cfg_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$EURC_SAC" "$PRIMARY_SPOKE_ID" true true 9000 7000 900)"
 
-    # Oracle tolerance: governance resolves the BPS inputs into the 4 ratio bands
-    # (resolve_oracle_tolerance view), then the owner-only setter stores them.
+    # Oracle tolerance: governance resolves the BPS input into the band
+    # (resolve_oracle_tolerance view), then the price-aggregator owner stores it.
     local tol_bands
     tol_bands=$(view oracle_tol_resolve "$GOVERNANCE" -- resolve_oracle_tolerance \
         --tolerance 300)
-    inv set_oracle_tolerance "$ADMIN" "$CONTROLLER" -- set_oracle_tolerance \
+    inv set_tolerance "$ADMIN" "$PRICE_AGGREGATOR" -- set_tolerance \
         --asset "$EURC_SAC" --tolerance "$tol_bands" >/dev/null
     # Owner-gated: a non-owner caller can't satisfy the owner's require_auth(), so
     # the CLI reports a missing signing key for the owner account.
-    xfail oracle_tol_owner_guard 'Missing signing key' "$ALICE" "$CONTROLLER" -- set_oracle_tolerance \
+    xfail oracle_tol_owner_guard 'Missing signing key' "$ALICE" "$PRICE_AGGREGATOR" -- set_tolerance \
         --asset "$EURC_SAC" --tolerance "$tol_bands"
 
     # Keeper ops (permissionless; caller must sign).

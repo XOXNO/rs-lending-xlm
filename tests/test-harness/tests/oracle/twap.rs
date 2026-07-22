@@ -1,4 +1,4 @@
-use controller::types::{MarketOracleConfig, OracleReadMode, OracleSourceConfig};
+use controller::types::{AssetOracleConfig, OracleReadMode, OracleSourceConfig};
 use soroban_sdk::vec;
 use test_harness::{
     assert_contract_error, errors, hub_asset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
@@ -23,9 +23,9 @@ fn configure_accepts_minimum_resolution_equal_to_max_stale() {
 
     t.configure_market_oracle(&usdc, &cfg);
 
-    let stored: MarketOracleConfig = t
+    let stored: AssetOracleConfig = t
         .price_agg_client()
-        .get_asset_oracle(&usdc)
+        .oracle_config(&usdc)
         .expect("configured oracle");
     assert_eq!(stored.max_price_stale_seconds, 60);
 }
@@ -212,11 +212,11 @@ fn test_reflector_spot_missing_lastprice_panics_under_strict() {
 fn test_twap_zero_records_reverts_on_view() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
-    let mut oracle = t.price_agg_client().get_asset_oracle(&usdc).unwrap();
+    let mut oracle = t.price_agg_client().oracle_config(&usdc).unwrap();
     if let OracleSourceConfig::Reflector(ref mut source) = oracle.primary {
         source.read_mode = OracleReadMode::Twap(0);
     }
-    t.price_agg_client().seed_asset_oracle(&usdc, &oracle);
+    t.price_agg_client().seed_oracle_config(&usdc, &oracle);
 
     let assets = vec![&t.env, hub_asset(usdc)];
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
@@ -224,26 +224,24 @@ fn test_twap_zero_records_reverts_on_view() {
 
 // TWAP requests above the protocol record cap are rejected.
 #[test]
-#[should_panic(expected = "Error(Contract, #204)")]
+#[should_panic(expected = "Error(Contract, #228)")]
 fn test_twap_records_above_max_rejects_on_view() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
-    let mut oracle = t.price_agg_client().get_asset_oracle(&usdc).unwrap();
+    let mut oracle = t.price_agg_client().oracle_config(&usdc).unwrap();
     if let OracleSourceConfig::Reflector(ref mut source) = oracle.primary {
         source.read_mode = OracleReadMode::Twap(13);
     }
-    t.price_agg_client().seed_asset_oracle(&usdc, &oracle);
+    t.price_agg_client().seed_oracle_config(&usdc, &oracle);
 
     let assets = vec![&t.env, hub_asset(usdc)];
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
-// Fail-closed: the anchor is required. A missing anchor spot (`lastprice`)
-// reverts `NoLastPrice` (#210) on the view path; there is no fallback to the
-// primary TWAP.
+// Soft view: missing anchor spot marks invalid/deviation (no primary-only
+// fallback). Write-path still reverts NoLastPrice (#210).
 #[test]
-#[should_panic(expected = "Error(Contract, #210)")]
-fn test_dual_anchor_missing_spot_reverts_on_view() {
+fn test_dual_anchor_missing_spot_marks_view_invalid() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
 
@@ -253,5 +251,11 @@ fn test_dual_anchor_missing_spot_reverts_on_view() {
     });
 
     let assets = vec![&t.env, hub_asset(usdc)];
-    let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
+    let row = t
+        .ctrl_client()
+        .get_market_indexes_detailed(&assets)
+        .get(0)
+        .unwrap();
+    assert!(!row.valid);
+    assert!(row.deviation);
 }

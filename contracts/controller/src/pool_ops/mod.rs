@@ -11,6 +11,7 @@ use common::types::{
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, when_not_paused};
 
+use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::{
@@ -18,7 +19,6 @@ use crate::external::pool::{
     pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
 };
 use crate::external::sac::sac_transfer_call;
-use crate::risk::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::{
     payments as utils, risk::validation, storage, Controller, ControllerArgs, ControllerClient,
 };

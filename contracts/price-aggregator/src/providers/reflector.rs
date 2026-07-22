@@ -3,37 +3,34 @@
 
 use common::errors::OracleError;
 use common::math::fp::Wad;
-use common::oracle::observation::{
-    check_not_future_at, is_stale, normalize_positive_price, MAX_TWAP_RECORDS,
-};
+use common::oracle::observation::{check_not_future_at, is_stale, normalize_positive_price};
 use common::oracle::providers::reflector::{
     min_twap_observations, reflector_lastprice_call, reflector_prices_call, to_reflector_asset,
     twap_mean_price,
 };
-use common::types::{
-    OracleReadMode, OracleSourceConfig, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
-};
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
+use common::types::{OracleReadMode, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig};
+use common::validation::validate_twap_records;
+use soroban_sdk::{panic_with_error, Address};
 
-use crate::context::PriceCache as Cache;
-use crate::observation::{reflector_observation_from_price_data, OracleObservation};
+use crate::config::require_usd_rooted;
+use crate::context::ResolutionContext;
+use crate::observation::OracleObservation;
 use crate::price;
-use crate::storage;
 
 pub(crate) fn read_reflector_source(
-    cache: &mut Cache,
+    cache: &mut ResolutionContext,
     config: &ReflectorSourceConfig,
     max_stale: u64,
 ) -> Option<OracleObservation> {
     let observation = match config.read_mode {
-        OracleReadMode::Spot => read_spot(cache.env(), config),
+        OracleReadMode::Spot => read_spot(cache, config),
         OracleReadMode::Twap(records) => Some(read_twap(cache, config, records, max_stale)),
     };
     observation.map(|obs| reprice_to_usd(cache, &config.base, obs))
 }
 
 fn reprice_to_usd(
-    cache: &mut Cache,
+    cache: &mut ResolutionContext,
     base: &ReflectorBase,
     obs: OracleObservation,
 ) -> OracleObservation {
@@ -55,51 +52,43 @@ fn reprice_to_usd(
     }
 }
 
-/// Resolves the USD price of a quote asset for repricing.
-fn resolve_usd_quote(cache: &mut Cache, quote: &Address) -> PriceFeedRaw {
+/// Resolves the USD price of a quote asset for repricing. Read-time backstop
+/// of the config-time rule: the quote needs its own USD-rooted `AssetOracle`.
+fn resolve_usd_quote(cache: &mut ResolutionContext, quote: &Address) -> PriceFeedRaw {
     let env = cache.env().clone();
-    // Quote needs a token-rooted `AssetOracle` (base config, not spoke override).
-    let Some(oracle_config) = storage::get_asset_oracle(&env, quote) else {
+    let Some(quote_oracle) = cache.cached_asset_oracle_opt(quote) else {
         panic_with_error!(&env, OracleError::InvalidOracleBase)
     };
-    match &oracle_config.primary {
-        OracleSourceConfig::RedStone(_) | OracleSourceConfig::Xoxno(_) => {}
-        // Reflector quote primary must be USD (no chaining).
-        OracleSourceConfig::Reflector(r) => match &r.base {
-            ReflectorBase::Usd => {}
-            _ => panic_with_error!(&env, OracleError::InvalidOracleBase),
-        },
-    }
-    price::token_price(cache, quote)
+    require_usd_rooted(&env, &quote_oracle);
+    price::resolve_usd_price(cache, quote)
 }
 
 /// Spot read via Reflector `lastprice`. `None` when the feed has no price.
-fn read_spot(env: &Env, config: &ReflectorSourceConfig) -> Option<OracleObservation> {
+fn read_spot(
+    cache: &ResolutionContext,
+    config: &ReflectorSourceConfig,
+) -> Option<OracleObservation> {
+    let env = cache.env();
     let asset = to_reflector_asset(env, &config.asset);
-    let pd = reflector_lastprice_call(env, &config.contract, &asset)?;
-    Some(reflector_observation_from_price_data(
+    let price_data = reflector_lastprice_call(env, &config.contract, &asset)?;
+    Some(OracleObservation::from_reflector(
         env,
-        &pd,
+        cache.ledger_timestamp_secs(),
+        &price_data,
         config.decimals,
     ))
 }
 
 /// TWAP over returned samples; reverts if history is missing/stale/invalid (no spot fallback).
 fn read_twap(
-    cache: &Cache,
+    cache: &ResolutionContext,
     config: &ReflectorSourceConfig,
     records: u32,
     max_stale: u64,
 ) -> OracleObservation {
     let env = cache.env();
-    if records == 0 {
-        panic_with_error!(env, OracleError::TwapInsufficientObservations);
-    }
-    assert_with_error!(
-        env,
-        records <= MAX_TWAP_RECORDS,
-        OracleError::InvalidOracleTokenType
-    );
+    let now_secs = cache.ledger_timestamp_secs();
+    validate_twap_records(env, records);
 
     let asset = to_reflector_asset(env, &config.asset);
     let Some(history) = reflector_prices_call(env, &config.contract, &asset, records) else {
@@ -108,19 +97,18 @@ fn read_twap(
     if history.is_empty() {
         panic_with_error!(env, OracleError::ReflectorHistoryEmpty);
     }
-
-    let mut oldest_ts = u64::MAX;
-    for pd in history.iter() {
-        check_not_future_at(env, cache.ledger_timestamp_secs(), pd.timestamp);
-        if pd.timestamp < oldest_ts {
-            oldest_ts = pd.timestamp;
-        }
-    }
-
     if history.len() < min_twap_observations(records) {
         panic_with_error!(env, OracleError::TwapInsufficientObservations);
     }
-    if is_stale(cache.ledger_timestamp_secs(), oldest_ts, max_stale) {
+
+    let mut oldest_ts = u64::MAX;
+    for price_data in history.iter() {
+        check_not_future_at(env, now_secs, price_data.timestamp);
+        if price_data.timestamp < oldest_ts {
+            oldest_ts = price_data.timestamp;
+        }
+    }
+    if is_stale(now_secs, oldest_ts, max_stale) {
         panic_with_error!(env, OracleError::PriceFeedStale);
     }
 

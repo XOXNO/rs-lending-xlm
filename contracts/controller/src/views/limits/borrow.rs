@@ -19,9 +19,6 @@ pub(crate) fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) ->
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
-    if !crate::external::price_aggregator::is_asset_priceable(env, &hub_asset.asset) {
-        return 0;
-    }
 
     let mut cache = Cache::new_view(env);
     if !account_can_borrow_asset(env, &mut cache, &account, hub_asset) {

@@ -5,7 +5,7 @@ extern crate std;
 use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs};
 use common::constants::MAX_REASONABLE_PRICE_WAD;
 use common::types::{
-    ControllerKey, HubAssetKey, MarketOracleConfigInput, OracleAssetRef, OracleReadMode,
+    AssetOracleConfigInput, ControllerKey, HubAssetKey, OracleAssetRef, OracleReadMode,
     OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
     ReflectorSourceConfigInput,
 };
@@ -34,8 +34,8 @@ fn register_native_controller(env: &Env, gov_id: &Address, gov: &GovernanceClien
     controller_id
 }
 
-fn sample_oracle_input(env: &Env) -> MarketOracleConfigInput {
-    MarketOracleConfigInput {
+fn sample_oracle_input(env: &Env) -> AssetOracleConfigInput {
+    AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps: 500,
         strategy: OracleStrategy::Single,
@@ -663,19 +663,19 @@ fn guardian_set_spoke_asset_flags_reaches_controller_listing_check() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #2000)")]
-fn set_oracle_sanity_bounds_requires_oracle_role() {
+fn set_sanity_band_requires_oracle_role() {
     let env = Env::default();
     env.mock_all_auths();
     let (_, gov_id, gov) = register_governance(&env);
     register_native_controller(&env, &gov_id, &gov);
     let stranger = Address::generate(&env);
 
-    gov.set_oracle_sanity_bounds(&stranger, &Address::generate(&env), &1i128, &2i128);
+    gov.set_sanity_band(&stranger, &Address::generate(&env), &1i128, &2i128);
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #12)")]
-fn oracle_set_sanity_bounds_reaches_controller_pair_check() {
+fn oracle_set_sanity_bounds_reaches_aggregator_config_check() {
     use crate::access::ORACLE_ROLE;
     let env = Env::default();
     env.mock_all_auths();
@@ -687,8 +687,8 @@ fn oracle_set_sanity_bounds_reaches_controller_pair_check() {
     grant_incident_role(&env, &admin, &gov, &bot, ORACLE_ROLE);
 
     // No oracle configured for the asset: the price-aggregator's PairNotActive
-    // proves the guardian sanity-bounds forwarding reached the oracle authority.
-    gov.set_oracle_sanity_bounds(&bot, &Address::generate(&env), &1i128, &2i128);
+    // (#12) proves the ORACLE role sanity-band forwarding reached the authority.
+    gov.set_sanity_band(&bot, &Address::generate(&env), &1i128, &2i128);
 }
 
 #[test]

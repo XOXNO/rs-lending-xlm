@@ -2,9 +2,9 @@ use super::*;
 use common::constants::{RAY, WAD};
 use common::types::{Account, PriceFeed};
 use common::types::{
-    AccountPositionRaw, DebtPositionRaw, MarketIndexRaw, MarketOracleConfig, OracleAssetRef,
-    OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
-    OracleStrategy, PositionMode, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
+    AccountPositionRaw, AssetOracleConfig, DebtPositionRaw, MarketIndexRaw, OracleAssetRef,
+    OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, OracleTolerance,
+    PositionMode, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Map};
@@ -149,10 +149,10 @@ fn indebted_fixture(
         borrow_positions,
     };
 
-    let config = MarketOracleConfig {
+    let config = AssetOracleConfig {
         asset_decimals: 7,
         max_price_stale_seconds: 900,
-        tolerance: OraclePriceFluctuation {
+        tolerance: OracleTolerance {
             upper_ratio_bps: 10_500,
             lower_ratio_bps: 9_500,
         },
@@ -171,7 +171,7 @@ fn indebted_fixture(
     };
     let aggregator = env.register(price_aggregator::PriceAggregator, (Address::generate(env),));
     price_aggregator::PriceAggregatorClient::new(env, &aggregator)
-        .seed_asset_oracle(&asset, &config);
+        .seed_oracle_config(&asset, &config);
     env.as_contract(&contract, || {
         crate::storage::set_price_aggregator(env, &aggregator);
     });
@@ -438,10 +438,10 @@ fn risk_partial_cap_zero_ltv_position_caps_at_zero() {
         borrow_positions,
     };
 
-    let usd_config = |asset: &Address| MarketOracleConfig {
+    let usd_config = |asset: &Address| AssetOracleConfig {
         asset_decimals: 7,
         max_price_stale_seconds: 900,
-        tolerance: OraclePriceFluctuation {
+        tolerance: OracleTolerance {
             upper_ratio_bps: 10_500,
             lower_ratio_bps: 9_500,
         },
@@ -464,8 +464,8 @@ fn risk_partial_cap_zero_ltv_position_caps_at_zero() {
         (Address::generate(&env),),
     );
     let agg_client = price_aggregator::PriceAggregatorClient::new(&env, &aggregator);
-    agg_client.seed_asset_oracle(&asset_a, &usd_config(&asset_a));
-    agg_client.seed_asset_oracle(&asset_b, &usd_config(&asset_b));
+    agg_client.seed_oracle_config(&asset_a, &usd_config(&asset_a));
+    agg_client.seed_oracle_config(&asset_b, &usd_config(&asset_b));
     env.as_contract(&contract, || {
         crate::storage::set_price_aggregator(&env, &aggregator);
         let mut cache = Cache::new_view(&env);
@@ -639,10 +639,10 @@ fn settle_returns_zero_for_dust_underwater_account_without_going_negative() {
         borrow_positions,
     };
 
-    let config = MarketOracleConfig {
+    let config = AssetOracleConfig {
         asset_decimals: 7,
         max_price_stale_seconds: 900,
-        tolerance: OraclePriceFluctuation {
+        tolerance: OracleTolerance {
             upper_ratio_bps: 10_500,
             lower_ratio_bps: 9_500,
         },
@@ -665,7 +665,7 @@ fn settle_returns_zero_for_dust_underwater_account_without_going_negative() {
         (Address::generate(&env),),
     );
     price_aggregator::PriceAggregatorClient::new(&env, &aggregator)
-        .seed_asset_oracle(&asset, &config);
+        .seed_oracle_config(&asset, &config);
     env.as_contract(&contract, || {
         crate::storage::set_price_aggregator(&env, &aggregator);
         let mut cache = Cache::new_view(&env);

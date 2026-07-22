@@ -199,7 +199,7 @@ fn publish_oracle_prices(
             if let Some(dev) = model::deviation_bps(r.primary_price_wad, r.anchor_price_wad) {
                 metrics.oracle_deviation_bps.with_label_values(&olabels).set(dev);
             }
-            metrics.oracle_healthy.with_label_values(&olabels).set(1.0);
+            metrics.oracle_healthy.with_label_values(&olabels).set(if r.valid { 1.0 } else { 0.0 });
         }
         None => {
             metrics.oracle_healthy.with_label_values(&olabels).set(0.0);
@@ -398,7 +398,8 @@ async fn read_oracle_config(
     market: &ResolvedMarket,
     contracts: &ResolvedContracts,
 ) -> Option<oracle::OracleConfig> {
-    let key = asset_oracle_ledger_key(&contracts.controller, &market.asset_id).ok()?;
+    let aggregator_id = contracts.price_aggregator.as_ref()?;
+    let key = asset_oracle_ledger_key(aggregator_id, &market.asset_id).ok()?;
     let entries = match client.get_ledger_entries(std::slice::from_ref(&key)).await {
         Ok(e) => e,
         Err(e) => {

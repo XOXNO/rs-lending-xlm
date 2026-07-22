@@ -3,7 +3,7 @@ use common::constants::MAX_REASONABLE_PRICE_WAD;
 #[cfg(not(feature = "testing"))]
 use common::types::RedStoneSourceConfigInput;
 use common::types::{
-    MarketOracleConfigInput, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
+    AssetOracleConfigInput, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
     OracleSourceConfigInputOption, OracleStrategy, ReflectorSourceConfigInput,
 };
 use soroban_sdk::testutils::Address as _;
@@ -14,8 +14,8 @@ use soroban_sdk::{Address, Env};
 fn sample_config(
     strategy: OracleStrategy,
     primary: OracleSourceConfigInput,
-) -> MarketOracleConfigInput {
-    MarketOracleConfigInput {
+) -> AssetOracleConfigInput {
+    AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps: 500,
         min_sanity_price_wad: 1,

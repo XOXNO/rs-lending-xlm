@@ -3,7 +3,7 @@
 
 use controller::constants::{BPS, MAX_REASONABLE_PRICE_WAD, RAY};
 use controller::types::{
-    InterestRateModel, MarketOracleConfigInput, OracleReadMode, OracleSourceConfigInput,
+    AssetOracleConfigInput, InterestRateModel, OracleReadMode, OracleSourceConfigInput,
     OracleSourceConfigInputOption, OracleStrategy,
 };
 use governance::op::{AdminOperation, ConfigureOracleArgs, SpokeAssetArgs, UpgradePoolParamsArgs};
@@ -184,7 +184,7 @@ fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
 
 // `configure_market_oracle` error paths against the live mock reflector.
 
-fn base_oracle_config(t: &LendingTest) -> MarketOracleConfigInput {
+fn base_oracle_config(t: &LendingTest) -> AssetOracleConfigInput {
     let asset = t.resolve_market("USDC").asset.clone();
     test_harness::reflector_primary_anchor_config(
         &t.mock_reflector,
@@ -193,13 +193,13 @@ fn base_oracle_config(t: &LendingTest) -> MarketOracleConfigInput {
     )
 }
 
-fn set_primary_reflector_read_mode(cfg: &mut MarketOracleConfigInput, read_mode: OracleReadMode) {
+fn set_primary_reflector_read_mode(cfg: &mut AssetOracleConfigInput, read_mode: OracleReadMode) {
     if let OracleSourceConfigInput::Reflector(ref mut source) = cfg.primary {
         source.read_mode = read_mode;
     }
 }
 
-fn configure_usdc(t: &LendingTest, cfg: &MarketOracleConfigInput) {
+fn configure_usdc(t: &LendingTest, cfg: &AssetOracleConfigInput) {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     t.gov_client().execute_immediate(
@@ -231,9 +231,9 @@ fn test_configure_market_oracle_rejects_high_staleness() {
     configure_usdc(&t, &cfg);
 }
 
-// twap_records > 12 rejects InvalidOracleTokenType (#204).
+// twap_records > 12 rejects TwapRecordsOutOfRange (#228).
 #[test]
-#[should_panic(expected = "Error(Contract, #204)")]
+#[should_panic(expected = "Error(Contract, #228)")]
 fn test_configure_market_oracle_rejects_excessive_twap_records() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let mut cfg = base_oracle_config(&t);

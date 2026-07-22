@@ -26,8 +26,8 @@ use crate::storage;
 pub(crate) struct Cache {
     env: Env,
 
-    /// Token-rooted USD prices for the current flow, resolved in one
-    /// price-aggregator call (`set_prices`) and then read as map lookups.
+    /// Token-rooted USD prices for the current flow, filled by
+    /// [`Self::fetch_prices`] / [`Self::load_markets`], then read as map lookups.
     pub(crate) token_prices: Map<Address, PriceFeedRaw>,
     /// Pool-sourced borrow/supply indexes; controller never simulates accrual.
     market_indexes: Map<HubAssetKey, MarketIndexRaw>,
@@ -68,5 +68,21 @@ impl Cache {
 
     pub(crate) fn env(&self) -> &Env {
         &self.env
+    }
+
+    /// Bulk-fetch USD prices and pool market indexes for hub-asset markets.
+    ///
+    /// Idempotent within a transaction: already-cached entries are skipped.
+    /// Token addresses are deduped (same asset on multiple hubs or both sides
+    /// of the book). Token-only pricing uses [`Self::fetch_prices`] instead.
+    pub(crate) fn load_markets(&mut self, hub_assets: &Vec<HubAssetKey>) {
+        let mut assets = Vec::new(&self.env);
+        for key in hub_assets.iter() {
+            if !assets.contains(&key.asset) {
+                assets.push_back(key.asset);
+            }
+        }
+        self.fetch_prices(&assets);
+        self.fetch_market_indexes(hub_assets);
     }
 }

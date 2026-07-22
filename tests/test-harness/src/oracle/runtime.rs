@@ -45,7 +45,7 @@ impl LendingTest {
         }
     }
 
-    pub fn set_oracle_tolerance(&self, asset_name: &str, preset: TolerancePreset) {
+    pub fn set_tolerance(&self, asset_name: &str, preset: TolerancePreset) {
         let asset = self.resolve_asset(asset_name);
         use governance::op::{AdminOperation, EditToleranceArgs};
         self.gov_client().execute_immediate(
@@ -63,7 +63,7 @@ impl LendingTest {
     pub fn configure_market_oracle(
         &self,
         asset: &Address,
-        input: &controller::types::MarketOracleConfigInput,
+        input: &controller::types::AssetOracleConfigInput,
     ) {
         use governance::op::{AdminOperation, ConfigureOracleArgs};
         self.gov_client().execute_immediate(
@@ -90,23 +90,23 @@ impl LendingTest {
 
     pub fn set_oracle_single_spot(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
-        let mut oracle = self.price_agg_client().get_asset_oracle(&asset).unwrap();
+        let mut oracle = self.price_agg_client().oracle_config(&asset).unwrap();
         oracle.strategy = OracleStrategy::Single;
         oracle.primary = source_with_read_mode(&oracle.primary, OracleReadMode::Spot);
         oracle.anchor = OracleSourceConfigOption::None;
-        self.price_agg_client().seed_asset_oracle(&asset, &oracle);
+        self.price_agg_client().seed_oracle_config(&asset, &oracle);
     }
 
     pub fn set_oracle_primary_anchor(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
-        let mut oracle = self.price_agg_client().get_asset_oracle(&asset).unwrap();
+        let mut oracle = self.price_agg_client().oracle_config(&asset).unwrap();
         oracle.strategy = OracleStrategy::PrimaryWithAnchor;
         oracle.primary = source_with_read_mode(&oracle.primary, OracleReadMode::Twap(3));
         oracle.anchor = OracleSourceConfigOption::Some(source_with_read_mode(
             &oracle.primary,
             OracleReadMode::Spot,
         ));
-        self.price_agg_client().seed_asset_oracle(&asset, &oracle);
+        self.price_agg_client().seed_oracle_config(&asset, &oracle);
     }
 
     /// Alias for dual-source tolerance tests: primary TWAP + anchor spot.
@@ -117,7 +117,7 @@ impl LendingTest {
     /// Wire a separate DEX reflector as anchor spot for dual-source repricing tests.
     pub fn set_dual_oracle_dex_anchor(&self, asset_name: &str, dex_oracle: Address) {
         let asset = self.resolve_asset(asset_name);
-        let mut oracle = self.price_agg_client().get_asset_oracle(&asset).unwrap();
+        let mut oracle = self.price_agg_client().oracle_config(&asset).unwrap();
         oracle.strategy = OracleStrategy::PrimaryWithAnchor;
         oracle.primary = match oracle.primary {
             OracleSourceConfig::Reflector(mut source) => {
@@ -135,7 +135,7 @@ impl LendingTest {
                 resolution_seconds: 300,
                 base: ReflectorBase::Usd,
             }));
-        self.price_agg_client().seed_asset_oracle(&asset, &oracle);
+        self.price_agg_client().seed_oracle_config(&asset, &oracle);
     }
 }
 

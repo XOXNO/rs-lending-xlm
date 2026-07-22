@@ -4,7 +4,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use crate::constants::RAY;
+use crate::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
 
 // Index floor/monotonicity via `get_market_index` is vacuous under
@@ -17,8 +17,8 @@ fn indexes_unchanged_when_no_time_elapsed(e: Env) {
     let supplied: i128 = cvlr::nondet::nondet();
     let rate: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(old_borrow_index >= RAY);
-    cvlr_assume!(old_supply_index >= RAY);
+    cvlr_assume!((RAY..=MAX_BORROW_INDEX_RAY).contains(&old_borrow_index));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=MAX_SUPPLY_INDEX_RAY).contains(&old_supply_index));
     cvlr_assume!(supplied >= 0);
     cvlr_assume!(rate >= 0);
 

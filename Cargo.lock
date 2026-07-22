@@ -1426,6 +1426,10 @@ name = "price-aggregator"
 version = "0.1.0"
 dependencies = [
  "common",
+ "cvlr",
+ "cvlr-soroban",
+ "cvlr-soroban-derive",
+ "cvlr-soroban-macros",
  "mock-oracle",
  "mock-redstone",
  "soroban-sdk",

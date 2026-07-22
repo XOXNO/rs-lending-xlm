@@ -4,11 +4,9 @@ use common::math::fp::{Bps, Wad};
 use common::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig, HubAssetKey};
 use soroban_sdk::{Env, Map};
 
+use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Cache;
 use crate::risk::calculate_account_risk_totals;
-
-/// Minimum HF (1.05 WAD) required before lowering a position's liquidation threshold.
-pub const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;
 
 pub(crate) fn refresh_supply_risk_params(
     env: &Env,

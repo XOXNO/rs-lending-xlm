@@ -117,6 +117,11 @@ pub enum OracleError {
     /// Quote/anchor cycle: asset re-entered while already being priced.
     OracleCycleDetected = 225,
     SanityBandTooWideForSingleSource = 226,
+    /// Strategy/anchor incoherence: `PrimaryWithAnchor` without an anchor, or
+    /// `Single` with one.
+    AnchorConfigMismatch = 227,
+    /// TWAP record count above `MAX_TWAP_RECORDS`.
+    TwapRecordsOutOfRange = 228,
 }
 
 #[contracterror]

@@ -17,9 +17,7 @@ fn hub(asset: &Address) -> HubAssetKey {
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
 use soroban_sdk::xdr::{ContractEventBody, ScVal, SorobanAuthorizationEntry};
-use soroban_sdk::{
-    contract, contractimpl, vec, Address, Bytes, ConversionError, Env, Error, InvokeError, Vec,
-};
+use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, Env, Error, InvokeError, Vec};
 
 fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
     events
@@ -389,8 +387,8 @@ fn assert_pool_state_eq(left: &PoolStateRaw, right: &PoolStateRaw) {
     assert_eq!(left.last_timestamp, right.last_timestamp);
 }
 
-fn flatten_contract_result<T>(
-    result: Result<Result<T, ConversionError>, Result<Error, InvokeError>>,
+fn flatten_contract_result<T, E: core::fmt::Debug>(
+    result: Result<Result<T, E>, Result<Error, InvokeError>>,
 ) -> Result<T, Error> {
     match result {
         Ok(Ok(value)) => Ok(value),
@@ -749,16 +747,30 @@ fn test_interest_accrual() {
         "supply index should increase over time"
     );
 }
+/// Enables flash loans on hub-0's market with a 1% (100 bps) fee. The pool
+/// gates `is_flashloanable` and derives the fee from `flashloan_fee` bps, so
+/// direct pool tests must configure the market first.
+fn enable_flashloan(t: &TestSetup) {
+    t.env.as_contract(&t.pool, || {
+        let key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+        params.is_flashloanable = true;
+        params.flashloan_fee = 100;
+        t.env.storage().persistent().set(&key, &params);
+    });
+}
+
 #[test]
 fn test_flash_loan() {
     let t = TestSetup::new();
     let client = t.client();
+    enable_flashloan(&t);
 
     client.supply(&t.sup(0, 10_000_000_000i128));
 
     let receiver = t.env.register(PoolFlashLoanReceiver, ());
     let flash_amount = 100_0000000i128;
-    let flash_fee = 1_0000000i128;
+    let flash_fee = 1_0000000i128; // 1% of amount, from the configured 100 bps
 
     // The pool will send `amount`; pre-fund only the fee.
     let token_admin_client = token::StellarAssetClient::new(&t.env, &t.asset);
@@ -767,17 +779,20 @@ fn test_flash_loan() {
     let tok = token::Client::new(&t.env, &t.asset);
     let pool_balance_before = tok.balance(&t.pool);
     let revenue_before = client.get_revenue(&hub(&t.asset));
-    client.flash_loan(
+    let fee = client.flash_loan(
         &hub(&t.asset),
         &t.admin,
         &receiver,
         &flash_amount,
-        &flash_fee,
         &Bytes::new(&t.env),
     );
     let revenue_after = client.get_revenue(&hub(&t.asset));
     let pool_balance_after = tok.balance(&t.pool);
 
+    assert_eq!(
+        fee, flash_fee,
+        "pool derives the fee from flashloan_fee bps"
+    );
     assert_eq!(pool_balance_after, pool_balance_before + flash_fee);
     assert_eq!(revenue_after, revenue_before + flash_fee);
 }
@@ -788,11 +803,11 @@ fn test_flash_loan_rejects_zero_amount_at_pool() {
     let client = t.client();
     let receiver = t.env.register(PoolFlashLoanReceiver, ());
 
+    // `require_positive_amount` reverts before the flashloanable/fee logic.
     let result = flatten_contract_result(client.try_flash_loan(
         &hub(&t.asset),
         &t.admin,
         &receiver,
-        &0i128,
         &0i128,
         &Bytes::new(&t.env),
     ));
@@ -804,6 +819,7 @@ fn test_flash_loan_rejects_zero_amount_at_pool() {
 fn test_flash_loan_rejects_non_contract_receiver_at_pool() {
     let t = TestSetup::new();
     let client = t.client();
+    enable_flashloan(&t);
     let receiver = Address::generate(&t.env);
 
     let result = flatten_contract_result(client.try_flash_loan(
@@ -811,7 +827,6 @@ fn test_flash_loan_rejects_non_contract_receiver_at_pool() {
         &t.admin,
         &receiver,
         &1_0000000i128,
-        &0i128,
         &Bytes::new(&t.env),
     ));
 
@@ -822,6 +837,7 @@ fn test_flash_loan_rejects_non_contract_receiver_at_pool() {
 fn test_flash_loan_rejects_direct_non_owner_pool_call() {
     let t = TestSetup::new();
     let client = t.client();
+    enable_flashloan(&t);
     let receiver = t.env.register(PoolFlashLoanReceiver, ());
     let attacker = Address::generate(&t.env);
     let no_auths: [SorobanAuthorizationEntry; 0] = [];
@@ -831,7 +847,6 @@ fn test_flash_loan_rejects_direct_non_owner_pool_call() {
         &attacker,
         &receiver,
         &1_0000000i128,
-        &0i128,
         &Bytes::new(&t.env),
     );
 
@@ -842,9 +857,28 @@ fn test_flash_loan_rejects_direct_non_owner_pool_call() {
 }
 
 #[test]
+fn test_flash_loan_rejects_market_not_flashloanable() {
+    let t = TestSetup::new();
+    let client = t.client();
+    // Default market leaves `is_flashloanable = false`; the pool gates it.
+    let receiver = t.env.register(PoolFlashLoanReceiver, ());
+
+    let result = flatten_contract_result(client.try_flash_loan(
+        &hub(&t.asset),
+        &t.admin,
+        &receiver,
+        &1_0000000i128,
+        &Bytes::new(&t.env),
+    ));
+
+    assert_contract_error(result, FlashLoanError::FlashloanNotEnabled as u32);
+}
+
+#[test]
 fn test_flash_loan_rejects_under_repay_with_invalid_flashloan_repay() {
     let t = TestSetup::new();
     let client = t.client();
+    enable_flashloan(&t);
     let receiver = t.env.register(PoolUnderRepayReceiver, ());
     let flash_amount = 100_0000000i128;
     let flash_fee = 1_0000000i128;
@@ -858,7 +892,6 @@ fn test_flash_loan_rejects_under_repay_with_invalid_flashloan_repay() {
         &t.admin,
         &receiver,
         &flash_amount,
-        &flash_fee,
         &Bytes::new(&t.env),
     ));
 
@@ -869,6 +902,7 @@ fn test_flash_loan_rejects_under_repay_with_invalid_flashloan_repay() {
 fn test_flash_loan_rejects_callback_balance_change() {
     let t = TestSetup::new();
     let client = t.client();
+    enable_flashloan(&t);
     let receiver = t.env.register(PoolCallbackOverpayReceiver, ());
     let flash_amount = 100_0000000i128;
     let flash_fee = 1_0000000i128;
@@ -881,7 +915,6 @@ fn test_flash_loan_rejects_callback_balance_change() {
         &t.admin,
         &receiver,
         &flash_amount,
-        &flash_fee,
         &Bytes::new(&t.env),
     ));
 
@@ -892,6 +925,7 @@ fn test_flash_loan_rejects_callback_balance_change() {
 fn test_flash_loan_callback_failure_rolls_back_pool_state() {
     let t = TestSetup::new();
     let client = t.client();
+    enable_flashloan(&t);
     let receiver = t.env.register(PoolNoRepayReceiver, ());
     let tok = token::Client::new(&t.env, &t.asset);
 
@@ -904,7 +938,6 @@ fn test_flash_loan_callback_failure_rolls_back_pool_state() {
         &t.admin,
         &receiver,
         &1_0000000i128,
-        &1_000i128,
         &Bytes::new(&t.env),
     );
 
@@ -918,6 +951,7 @@ fn test_flash_loan_callback_failure_rolls_back_pool_state() {
 fn test_flash_loan_rejects_insufficient_liquidity() {
     let t = TestSetup::new();
     let client = t.client();
+    enable_flashloan(&t);
     let receiver = Address::generate(&t.env);
 
     let result = flatten_contract_result(client.try_flash_loan(
@@ -925,27 +959,9 @@ fn test_flash_loan_rejects_insufficient_liquidity() {
         &t.admin,
         &receiver,
         &200_000_000_000_000i128,
-        &0i128,
         &Bytes::new(&t.env),
     ));
     assert_contract_error(result, CollateralError::InsufficientLiquidity as u32);
-}
-
-#[test]
-fn test_flash_loan_rejects_negative_fee() {
-    let t = TestSetup::new();
-    let client = t.client();
-    let receiver = Address::generate(&t.env);
-
-    let result = flatten_contract_result(client.try_flash_loan(
-        &hub(&t.asset),
-        &t.admin,
-        &receiver,
-        &1_0000000i128,
-        &-1i128,
-        &Bytes::new(&t.env),
-    ));
-    assert_contract_error(result, GenericError::AmountMustBePositive as u32);
 }
 
 #[test]

@@ -66,11 +66,10 @@ fn test_multiply_with_debt_token_initial_payment() {
     );
 }
 
-// The initial payment token is the one user-supplied call target in the
-// multiply flow; it must be a listed market asset. The assert fires before
-// the controller invokes the token contract, so no balance is needed.
+// A third-token initial payment without convert steps is rejected after the
+// token pull; oracle config is no longer pre-checked on the payment asset.
 #[test]
-fn test_multiply_rejects_unlisted_initial_payment_token() {
+fn test_multiply_rejects_third_token_payment_without_convert() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -79,11 +78,9 @@ fn test_multiply_rejects_unlisted_initial_payment_token() {
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
-    let unlisted = t
-        .env
-        .register_stellar_asset_contract_v2(t.admin())
-        .address()
-        .clone();
+    let sac = t.env.register_stellar_asset_contract_v2(t.admin());
+    let unlisted = sac.address().clone();
+    token::StellarAssetClient::new(&t.env, &unlisted).mint(&alice, &1_0000000i128);
 
     let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
     let result = t.ctrl_client().try_multiply(
@@ -102,10 +99,10 @@ fn test_multiply_rejects_unlisted_initial_payment_token() {
     match result {
         Err(Ok(err)) => assert_eq!(
             err,
-            soroban_sdk::Error::from_contract_error(errors::ASSET_NOT_SUPPORTED),
-            "unlisted initial payment token must fail AssetNotSupported"
+            soroban_sdk::Error::from_contract_error(errors::CONVERT_STEPS_REQUIRED),
+            "third-token payment without convert steps must fail ConvertStepsRequired"
         ),
-        other => panic!("expected AssetNotSupported, got {:?}", other),
+        other => panic!("expected ConvertStepsRequired, got {:?}", other),
     }
 }
 

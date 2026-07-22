@@ -125,8 +125,9 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             )
         }
         AdminOperation::SetPriceAggregator(addr) => {
+            // Re-pointing the oracle authority is solvency-critical (Sensitive tier).
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
-            controller_operation(
+            sensitive_controller_operation(
                 env,
                 "set_price_aggregator",
                 vec![env, addr.clone().into_val(env)],
@@ -281,7 +282,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             );
             price_aggregator_operation(
                 env,
-                "set_market_oracle_config",
+                "set_oracle_config",
                 vec![
                     env,
                     args.hub_asset.asset.clone().into_val(env),
@@ -294,7 +295,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 validate::tolerance::validate_and_calculate_tolerances(env, args.tolerance);
             price_aggregator_operation(
                 env,
-                "set_oracle_tolerance",
+                "set_tolerance",
                 vec![
                     env,
                     args.asset.clone().into_val(env),

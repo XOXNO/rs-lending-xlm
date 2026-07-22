@@ -25,9 +25,8 @@ impl Cache {
         self.spoke_usage = Some(SpokeUsageContext::new(&self.env, spoke_id));
     }
 
-    /// Drop spoke usage/config memos and spoke-override prices so the next
-    /// account can bind another spoke. Token-rooted caches (prices, oracle
-    /// configs, RedStone prefetch, pool sync, market indexes) survive.
+    /// Drop spoke usage/config memos so the next account can bind another spoke.
+    /// Token-rooted caches (prices, pool sync, market indexes) survive.
     ///
     /// Call only after `persist_spoke_usage` if usage was mutated.
     pub(crate) fn reset_spoke_context(&mut self) {

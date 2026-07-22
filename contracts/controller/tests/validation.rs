@@ -10,7 +10,7 @@ fn new_controller(env: &Env) -> Address {
     env.register(Controller, (admin,))
 }
 
-/// Test-only `HubAssetKey`; `require_market_active` only reads asset oracle state.
+/// Test-only `HubAssetKey` for limit-gate fixtures.
 fn hub(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,

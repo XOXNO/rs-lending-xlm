@@ -251,15 +251,15 @@ impl LendingTest {
     /// True when the price-aggregator holds a token-rooted oracle for `asset`
     /// (absence = pending/disabled).
     pub fn market_is_active(&self, asset: &soroban_sdk::Address) -> bool {
-        self.price_agg_client().get_asset_oracle(asset).is_some()
+        self.price_agg_client().oracle_config(asset).is_some()
     }
 
     pub fn market_oracle_config(
         &self,
         asset: &soroban_sdk::Address,
-    ) -> controller::types::MarketOracleConfig {
+    ) -> controller::types::AssetOracleConfig {
         self.price_agg_client()
-            .get_asset_oracle(asset)
+            .oracle_config(asset)
             .expect("market oracle config must exist")
     }
 

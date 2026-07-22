@@ -2,123 +2,88 @@
   "profiles": {
     "sanity": [
       {
-        "conf": "certora/common/confs/math.conf",
-        "args": [
-          "--rule",
-          "common_math_reachability"
-        ]
+        "conf": "certora/common/confs/math-sanity.conf"
       },
       {
-        "conf": "certora/common/confs/rates.conf",
-        "args": [
-          "--rule",
-          "rates_reachability"
-        ]
+        "conf": "certora/common/confs/rates-sanity.conf"
       },
       {
-        "conf": "certora/pool/confs/integrity.conf",
-        "args": [
-          "--rule",
-          "pool_integrity_reachability"
-        ]
+        "conf": "certora/pool/confs/pool-core-sanity.conf"
       },
       {
-        "conf": "certora/pool/confs/additivity.conf",
-        "args": [
-          "--rule",
-          "pool_additivity_reachability"
-        ]
+        "conf": "certora/controller/confs/account-isolation-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/positions.conf",
-        "args": [
-          "--rule",
-          "supply_sanity"
-        ]
+        "conf": "certora/controller/confs/boundary-rates.conf"
       },
       {
-        "conf": "certora/controller/confs/health.conf",
-        "args": [
-          "--rule",
-          "hf_borrow_sanity"
-        ]
+        "conf": "certora/controller/confs/boundary-compound-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/oracle.conf",
-        "args": [
-          "--rule",
-          "oracle_tolerance_sanity"
-        ]
+        "conf": "certora/controller/confs/boundary-math-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/flash_loan.conf",
-        "args": [
-          "--rule",
-          "flash_loan_sanity"
-        ]
+        "conf": "certora/controller/confs/supply-dust-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/liquidation-light.conf",
-        "args": [
-          "--rule",
-          "estimate_liquidation_sanity"
-        ]
+        "conf": "certora/controller/confs/flash-loan-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/spoke.conf",
-        "args": [
-          "--rule",
-          "spoke_supply_sanity"
-        ]
+        "conf": "certora/controller/confs/health-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/solvency-roundtrip.conf",
-        "args": [
-          "--rule",
-          "solvency_sanity_supply"
-        ]
+        "conf": "certora/controller/confs/health-gated-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/strategy.conf",
-        "args": [
-          "--rule",
-          "multiply_sanity"
-        ]
+        "conf": "certora/controller/confs/health-strategy-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/market-guard.conf",
-        "args": [
-          "--rule",
-          "market_guard_reachability"
-        ]
+        "conf": "certora/controller/confs/hf-lemmas-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/tolerance-math.conf",
-        "args": [
-          "--rule",
-          "tolerance_math_reachability"
-        ]
+        "conf": "certora/controller/confs/indexes-sanity.conf"
       },
       {
-        "conf": "certora/pool/confs/conservation.conf",
-        "args": [
-          "--rule",
-          "pool_conservation_reachability"
-        ]
+        "conf": "certora/controller/confs/liquidation-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/hf-lemmas.conf",
-        "args": [
-          "--rule",
-          "hf_lemmas_reachability"
-        ]
+        "conf": "certora/controller/confs/market-guard-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/account-isolation.conf",
-        "args": [
-          "--rule",
-          "account_isolation_reachability"
-        ]
+        "conf": "certora/controller/confs/positions-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/solvency-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/index-cache-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/roundtrip-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/spoke-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-multiply-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-swap-debt-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-swap-collateral-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-bad-debt-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-revenue-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-repay-collateral-sanity.conf"
+      },
+      {
+        "conf": "certora/price-aggregator/confs/price-sanity.conf"
       }
     ],
     "fast": [
@@ -129,60 +94,96 @@
         "conf": "certora/common/confs/rates.conf"
       },
       {
-        "conf": "certora/pool/confs/integrity.conf"
+        "conf": "certora/common/confs/compound-interest.conf"
       },
       {
-        "conf": "certora/controller/confs/math.conf"
+        "conf": "certora/common/confs/rate-indexes.conf"
       },
       {
-        "conf": "certora/controller/confs/indexes.conf"
+        "conf": "certora/common/confs/rate-accounting.conf"
+      },
+      {
+        "conf": "certora/pool/confs/rate-index-accounting.conf"
+      },
+      {
+        "conf": "certora/controller/confs/boundary-math.conf"
+      },
+      {
+        "conf": "certora/controller/confs/boundary-oracle.conf"
+      },
+      {
+        "conf": "certora/controller/confs/hf-lemmas.conf"
       },
       {
         "conf": "certora/controller/confs/interest.conf"
       },
       {
-        "conf": "certora/controller/confs/positions.conf"
+        "conf": "certora/controller/confs/interest-compound.conf"
       },
       {
-        "conf": "certora/controller/confs/health.conf"
+        "conf": "certora/controller/confs/interest-index.conf"
       },
       {
-        "conf": "certora/controller/confs/oracle.conf"
+        "conf": "certora/controller/confs/liquidation-bonus.conf"
       },
       {
-        "conf": "certora/controller/confs/tolerance-math.conf"
+        "conf": "certora/controller/confs/liquidation-accounting-math.conf"
+      },
+      {
+        "conf": "certora/controller/confs/math.conf"
+      },
+      {
+        "conf": "certora/controller/confs/compound-output.conf"
+      },
+      {
+        "conf": "certora/controller/confs/scaled-reconstruction.conf"
+      },
+      {
+        "conf": "certora/price-aggregator/confs/freshness.conf"
+      },
+      {
+        "conf": "certora/price-aggregator/confs/tolerance-math.conf"
+      }
+    ],
+    "core": [
+      {
+        "conf": "certora/controller/confs/account-isolation.conf"
+      },
+      {
+        "conf": "certora/controller/confs/controller-pool-consistency-light.conf"
       },
       {
         "conf": "certora/controller/confs/flash_loan.conf"
       },
       {
-        "conf": "certora/controller/confs/liquidation-light.conf"
+        "conf": "certora/controller/confs/health-gated.conf"
       },
       {
-        "conf": "certora/controller/confs/spoke.conf"
+        "conf": "certora/controller/confs/health-recovery.conf"
       },
       {
-        "conf": "certora/pool/confs/conservation.conf",
-        "args": []
+        "conf": "certora/controller/confs/health.conf"
       },
       {
-        "conf": "certora/controller/confs/hf-lemmas.conf",
-        "args": []
+        "conf": "certora/controller/confs/indexes.conf"
       },
       {
-        "conf": "certora/controller/confs/account-isolation.conf",
-        "args": []
-      }
-    ],
-    "core": [
-      {
-        "conf": "certora/pool/confs/summary-contract.conf"
+        "conf": "certora/controller/confs/liquidation-estimation.conf"
       },
       {
-        "conf": "certora/pool/confs/additivity.conf"
+        "conf": "certora/controller/confs/liquidation-caller.conf"
       },
       {
-        "conf": "certora/controller/confs/solvency-reserves.conf"
+        "conf": "certora/controller/confs/liquidation.conf"
+      },
+      {
+        "conf": "certora/controller/confs/market-guard.conf"
+      },
+      {
+        "conf": "certora/controller/confs/positions.conf"
+      },
+      {
+        "conf": "certora/controller/confs/repay-gates.conf"
       },
       {
         "conf": "certora/controller/confs/solvency-borrow.conf"
@@ -191,57 +192,52 @@
         "conf": "certora/controller/confs/solvency-index.conf"
       },
       {
+        "conf": "certora/controller/confs/solvency-reserves.conf"
+      },
+      {
         "conf": "certora/controller/confs/solvency-roundtrip.conf"
       },
       {
-        "conf": "certora/controller/confs/liquidation.conf"
+        "conf": "certora/controller/confs/spoke.conf"
       },
       {
-        "conf": "certora/controller/confs/tolerance-math.conf"
+        "conf": "certora/controller/confs/strategy-bad-debt.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-revenue.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-swap-collateral.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-swap-debt.conf"
       },
       {
         "conf": "certora/controller/confs/strategy.conf"
       },
       {
-        "conf": "certora/controller/confs/boundary-math.conf"
+        "conf": "certora/pool/confs/position-accounting.conf"
       },
       {
-        "conf": "certora/controller/confs/boundary-rates.conf"
+        "conf": "certora/pool/confs/seize-settle-accounting.conf"
       },
       {
-        "conf": "certora/controller/confs/boundary-oracle.conf"
+        "conf": "certora/pool/confs/fee-strategy-accounting.conf"
       },
       {
-        "conf": "certora/controller/confs/market-guard.conf"
+        "conf": "certora/pool/confs/flash-loan-accounting.conf"
       },
       {
-        "conf": "certora/controller/confs/controller-pool-consistency-light.conf"
+        "conf": "certora/price-aggregator/confs/config-rejections.conf"
       },
       {
-        "conf": "certora/pool/confs/view-soundness.conf"
+        "conf": "certora/price-aggregator/confs/feed-endpoints.conf"
       },
       {
-        "conf": "certora/controller/confs/health-gated.conf"
+        "conf": "certora/price-aggregator/confs/oracle.conf"
       },
       {
-        "conf": "certora/controller/confs/flash_loan.conf"
-      }
-    ],
-    "critical": [
-      {
-        "conf": "certora/pool/confs/summary-contract-critical.conf"
-      },
-      {
-        "conf": "certora/controller/confs/no-collateral-no-debt.conf"
-      },
-      {
-        "conf": "certora/controller/confs/controller-pool-consistency.conf"
-      },
-      {
-        "conf": "certora/controller/confs/global-solvency-heavy.conf"
-      },
-      {
-        "conf": "certora/controller/confs/liquidation-integrity-heavy.conf"
+        "conf": "certora/price-aggregator/confs/price-cache.conf"
       }
     ],
     "heavy": [
@@ -249,18 +245,6 @@
         "conf": "certora/common/confs/math-hard.conf"
       },
       {
-        "conf": "certora/controller/confs/math-bv.conf"
-      },
-      {
-        "conf": "certora/pool/confs/summary-contract-critical.conf"
-      },
-      {
-        "conf": "certora/pool/confs/additivity-heavy.conf"
-      },
-      {
-        "conf": "certora/controller/confs/no-collateral-no-debt.conf"
-      },
-      {
         "conf": "certora/controller/confs/controller-pool-consistency.conf"
       },
       {
@@ -268,6 +252,12 @@
       },
       {
         "conf": "certora/controller/confs/liquidation-integrity-heavy.conf"
+      },
+      {
+        "conf": "certora/controller/confs/math-bv.conf"
+      },
+      {
+        "conf": "certora/controller/confs/no-collateral-no-debt.conf"
       },
       {
         "conf": "certora/controller/confs/strategy-repay-collateral.conf"
@@ -282,6 +272,9 @@
       }
     ],
     "all": [
+      {
+        "profile": "sanity"
+      },
       {
         "profile": "fast"
       },

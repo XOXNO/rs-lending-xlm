@@ -10,7 +10,7 @@ use crate::context::Cache;
 use crate::events;
 use crate::positions::get_supply_position_or_panic;
 use crate::strategies::{
-    prefetch_strategy_oracles, strategy_finalize, swap_tokens_or_passthrough,
+    prefetch_strategy_prices, strategy_finalize, swap_tokens_or_passthrough,
     withdraw_collateral_to_controller, StrategyWithdraw,
 };
 use crate::{
@@ -80,7 +80,7 @@ pub(crate) fn process_swap_collateral(
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new);
 
     let extra_assets = vec![env, current.asset.clone(), new.asset.clone()];
-    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
+    prefetch_strategy_prices(&mut cache, &account, &extra_assets);
 
     let current_pos: AccountPosition = get_supply_position_or_panic(env, &account, current);
 

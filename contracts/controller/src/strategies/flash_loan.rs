@@ -1,10 +1,8 @@
 //! User flash loans with callback-scoped reentrancy guard.
 
 use crate::events::FlashLoanEvent;
-use common::errors::FlashLoanError;
-use common::math::fp::Bps;
 use common::types::HubAssetKey;
-use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
+use soroban_sdk::{contractimpl, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::context::Cache;
@@ -41,25 +39,17 @@ pub(crate) fn process_flash_loan(
     validation::require_positive_amount(env, amount);
     validation::require_hub_active(env, hub_asset.hub_id);
 
-    let mut cache = Cache::new(env);
-    validation::require_market_active(env, hub_asset);
-
-    let params = cache.cached_pool_sync_data(hub_asset).params;
-    assert_with_error!(
-        env,
-        params.is_flashloanable,
-        FlashLoanError::FlashloanNotEnabled
-    );
     validation::require_wasm_receiver(env, receiver);
 
-    let fee = Bps::from(i128::from(params.flashloan_fee)).flash_loan_fee_on(env, amount);
+    let mut cache = Cache::new(env);
     let pool_addr = cache.cached_pool_address();
 
-    // Flash guard blocks nested flash_loan / position entry.
-    storage::with_flash_guard(env, || {
-        pool_flash_loan_call(
-            env, &pool_addr, hub_asset, caller, receiver, amount, fee, data,
-        );
+    // Availability (`is_flashloanable`) and fee are pool-owned: the pool gates
+    // the market, computes the fee from its `flashloan_fee` bps, and returns it
+    // for the event. A non-market asset reverts pool-side. Flash loans never
+    // price, so no oracle gate is needed. The guard blocks nested entry.
+    let fee = storage::with_flash_guard(env, || {
+        pool_flash_loan_call(env, &pool_addr, hub_asset, caller, receiver, amount, data)
     });
 
     FlashLoanEvent {

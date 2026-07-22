@@ -241,7 +241,7 @@ fn test_clean_bad_debt_rejected_under_oracle_deviation() {
 
     // Tight tolerance so a small primary/anchor gap counts as
     // deviation.
-    t.set_oracle_tolerance("USDC", TIGHT_TOLERANCE);
+    t.set_tolerance("USDC", TIGHT_TOLERANCE);
 
     // Set up the bad-debt position: tiny collateral, much larger
     // debt. Mirror `test_clean_bad_debt_removes_positions`.

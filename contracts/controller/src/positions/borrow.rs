@@ -38,7 +38,7 @@ impl Controller {
     /// # Errors
     /// * `NotAuthorized` - `caller` is neither the account owner nor an active delegate.
     /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * Entry gates: `HubNotActive`, `PairNotActive`, `AssetNotInSpoke`,
+    /// * Entry gates: `HubNotActive`, `AssetNotInSpoke`,
     ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `AssetNotBorrowable`, or
     ///   `PositionLimitExceeded`.
     /// * `SpokeBorrowCapReached` - the borrow would exceed the spoke borrow cap.

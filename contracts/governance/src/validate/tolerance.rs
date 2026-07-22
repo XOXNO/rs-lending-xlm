@@ -3,7 +3,7 @@
 use common::constants::{BPS, MAX_TOLERANCE, MIN_TOLERANCE};
 use common::errors::{GenericError, OracleError};
 use common::math::fp_core;
-use common::types::OraclePriceFluctuation;
+use common::types::OracleTolerance;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
@@ -21,10 +21,7 @@ pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128,
     (upper_bound, lower_bound)
 }
 
-pub(crate) fn validate_and_calculate_tolerances(
-    env: &Env,
-    tolerance: u32,
-) -> OraclePriceFluctuation {
+pub(crate) fn validate_and_calculate_tolerances(env: &Env, tolerance: u32) -> OracleTolerance {
     assert_with_error!(
         env,
         (MIN_TOLERANCE..=MAX_TOLERANCE).contains(&tolerance),
@@ -33,7 +30,7 @@ pub(crate) fn validate_and_calculate_tolerances(
 
     let (upper, lower) = calculate_tolerance_range(env, tolerance);
 
-    OraclePriceFluctuation {
+    OracleTolerance {
         upper_ratio_bps: bps_i128_to_u32(env, upper),
         lower_ratio_bps: bps_i128_to_u32(env, lower),
     }

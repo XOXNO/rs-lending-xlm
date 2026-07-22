@@ -135,6 +135,25 @@ get_governance() {
     stellar contract alias show governance --network "$NETWORK" 2>/dev/null || get_network_value "governance"
 }
 
+# Price-aggregator (oracle authority). Prefer governance view (authoritative
+# after deploy_price_aggregator); fall back to networks.json / alias.
+get_price_aggregator() {
+    local gov addr
+    gov=$(get_governance 2>/dev/null) || gov=""
+    if [ -n "$gov" ] && [ "$gov" != "null" ]; then
+        addr=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+            --send=no -- price_aggregator 2>/dev/null | tr -d '"') || addr=""
+        if [ -n "$addr" ] && [ "$addr" != "null" ]; then
+            echo "$addr"
+            return 0
+        fi
+    fi
+    stellar contract alias show price-aggregator --network "$NETWORK" 2>/dev/null \
+        || stellar contract alias show price_aggregator --network "$NETWORK" 2>/dev/null \
+        || get_network_value "price_aggregator" \
+        || get_network_value "price-aggregator"
+}
+
 # Central liquidity pool: holds the hub-level utilization/reserves/rates views
 # (`get_utilisation`, `get_supplied_amount`, ...). No local alias is set at
 # deploy time, so this reads networks.json directly.
@@ -228,13 +247,14 @@ get_contract_decimals() {
 # reconstruct the Operation without re-deriving anything.
 #
 # Oracle ops (configureMarketOracle / editOracleTolerance) schedule the
-# governance-RESOLVED struct (MarketOracleConfig / OraclePriceFluctuation), not
-# the raw input. The CLI renders a struct view as friendly JSON, which is not the
-# ScVal `Vec<Val>` form `execute` needs, so we cannot capture the resolved args
+# governance-RESOLVED struct (AssetOracleConfig / OracleTolerance) against the
+# price-aggregator (`set_oracle_config` / `set_tolerance`), not the raw input.
+# The CLI renders a struct view as friendly JSON, which is not the ScVal
+# `Vec<Val>` form `execute` needs, so we cannot capture the resolved args
 # directly from the view. Instead each oracle op record stores a `resolve` block
 # (the governance resolve_* view + its friendly inputs); at execute time
 # `resolve_oracle_op_args` runs the view, feeds the friendly result back through
-# the controller's typed setter with `--build-only`, and decodes the
+# the price-aggregator's typed setter with `--build-only`, and decodes the
 # CLI-encoded ScVal args. Those match the proposer's scheduled args byte-for-byte
 # because both encode the same `#[contracttype]` struct (canonical sorted map).
 # Every other op (primitives and the plain field-map structs: PositionLimits /
@@ -504,33 +524,32 @@ write_gov_self_op_record() {
 }
 
 # Persist an oracle op record whose scheduled args are a governance-RESOLVED
-# struct (MarketOracleConfig / OraclePriceFluctuation). The CLI cannot capture
-# that struct as ScVal JSON from the friendly view output, so instead of storing
-# `args` we store a `resolve` block (the governance view + its friendly inputs).
-# At execute time `resolve_oracle_op_args` replays the view through the
-# controller's typed setter (`--build-only`) and decodes the ScVal args the CLI
-# itself encoded — byte-identical to the proposer's scheduled args because both
-# come from the same `#[contracttype]` spec.
+# struct (AssetOracleConfig / OracleTolerance) targeting the price-aggregator.
+# The CLI cannot capture that struct as ScVal JSON from the friendly view
+# output, so instead of storing `args` we store a `resolve` block (the
+# governance view + its friendly inputs). At execute time
+# `resolve_oracle_op_args` replays the view through the aggregator's typed
+# setter (`--build-only`) and decodes the ScVal args the CLI itself encoded.
 write_oracle_op_record() {
     local op_id=$1
-    local controller_fn=$2
+    local aggregator_fn=$2
     local view_fn=$3
     local resolve_args_json=$4
     local salt_hex=$5
-    local ctrl
-    ctrl=$(get_controller)
+    local agg
+    agg=$(get_price_aggregator)
     local path
     path=$(op_record_path "$op_id")
     jq -nc \
         --arg op_id "$op_id" \
         --arg network "$NETWORK" \
-        --arg target "$ctrl" \
-        --arg function "$controller_fn" \
+        --arg target "$agg" \
+        --arg function "$aggregator_fn" \
         --arg predecessor "$ZERO_PREDECESSOR_HEX" \
         --arg salt "$salt_hex" \
         --arg view_fn "$view_fn" \
         --argjson resolve_args "$resolve_args_json" \
-        '{kind:"controller", op_id:$op_id, network:$network, target:$target, function:$function,
+        '{kind:"price_aggregator", op_id:$op_id, network:$network, target:$target, function:$function,
           predecessor:$predecessor, salt:$salt, cli_executable:true,
           resolve:{view_fn:$view_fn, args:$resolve_args}}' > "$path"
     echo "  Recorded oracle op $op_id -> $path" >&2
@@ -540,22 +559,17 @@ write_oracle_op_record() {
 #
 # Reads the record's `resolve` block, invokes the matching governance view under
 # simulation to get the resolved struct (friendly JSON), feeds it back through
-# the controller's typed setter with `--build-only` so the CLI re-encodes it to
-# ScVal exactly as the proposer scheduled, then decodes that transaction and
-# extracts the InvokeContract args. Prints the ScVal `Vec<Val>` JSON array.
-# Core resolver: derive the scheduled ScVal `Vec<Val>` args for an oracle op by
-# running the governance resolve_* view, feeding the friendly result back
-# through the controller's typed setter with `--build-only`, and decoding the
-# CLI-encoded InvokeContract args. Parameterized so the execute-time record
-# path and the pre-propose idempotency check share one implementation.
+# the price-aggregator's typed setter with `--build-only` so the CLI re-encodes
+# it to ScVal exactly as the proposer scheduled, then decodes that transaction
+# and extracts the InvokeContract args. Prints the ScVal `Vec<Val>` JSON array.
 #   $1 view_fn   resolve_market_oracle_config | resolve_oracle_tolerance
-#   $2 ctrl      controller address (op target)
-#   $3 function  controller setter (set_market_oracle_config | set_oracle_tolerance)
+#   $2 target    price-aggregator address (op target)
+#   $3 function  aggregator setter (set_oracle_config | set_tolerance)
 #   $4 asset     asset address
-#   $5 hub_id    hub id (market-oracle only; ignored for tolerance)
+#   $5 hub_id    unused for aggregator ABI (kept for resolve-record compatibility)
 #   $6 payload   cfg JSON (market-oracle) | tolerance bps (tolerance)
 resolve_oracle_args_for() {
-    local view_fn=$1 ctrl=$2 function=$3 asset=$4 hub_id=$5 payload=$6
+    local view_fn=$1 target=$2 function=$3 asset=$4 hub_id=$5 payload=$6
     local gov resolved tx_xdr
     gov=$(get_governance)
     case "$view_fn" in
@@ -569,13 +583,10 @@ resolve_oracle_args_for() {
             local cfg_file2
             cfg_file2=$(mktemp)
             printf '%s' "$resolved" > "$cfg_file2"
-            # set_market_oracle_config takes a HubAssetKey (hub_id + asset), not a
-            # bare asset; rebuild it from the resolve inputs.
-            local oracle_hub_asset
-            oracle_hub_asset=$(jq -nc --argjson h "$hub_id" --arg a "$asset" '{hub_id:$h, asset:$a}')
-            tx_xdr=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+            # set_oracle_config takes a bare asset + AssetOracleConfig.
+            tx_xdr=$(stellar contract invoke --id "$target" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
-                --hub_asset "$oracle_hub_asset" --config-file-path "$cfg_file2")
+                --asset "$asset" --config-file-path "$cfg_file2")
             rm -f "$cfg_file2"
             printf '%s' "$tx_xdr" | stellar tx decode \
                 | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
@@ -586,7 +597,7 @@ resolve_oracle_args_for() {
             local tol_file
             tol_file=$(mktemp)
             printf '%s' "$resolved" > "$tol_file"
-            tx_xdr=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+            tx_xdr=$(stellar contract invoke --id "$target" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
                 --asset "$asset" --tolerance-file-path "$tol_file")
             rm -f "$tol_file"
@@ -602,18 +613,18 @@ resolve_oracle_args_for() {
 
 resolve_oracle_op_args() {
     local path=$1
-    local ctrl function view_fn asset
-    ctrl=$(jq -r '.target' "$path")
+    local target function view_fn asset
+    target=$(jq -r '.target' "$path")
     function=$(jq -r '.function' "$path")
     view_fn=$(jq -r '.resolve.view_fn' "$path")
     asset=$(jq -r '.resolve.args.asset' "$path")
     case "$view_fn" in
         resolve_market_oracle_config)
-            resolve_oracle_args_for "$view_fn" "$ctrl" "$function" "$asset" \
-                "$(jq -r '.resolve.args.hub_id' "$path")" "$(jq -c '.resolve.args.cfg' "$path")"
+            resolve_oracle_args_for "$view_fn" "$target" "$function" "$asset" \
+                "$(jq -r '.resolve.args.hub_id // empty' "$path")" "$(jq -c '.resolve.args.cfg' "$path")"
             ;;
         resolve_oracle_tolerance)
-            resolve_oracle_args_for "$view_fn" "$ctrl" "$function" "$asset" \
+            resolve_oracle_args_for "$view_fn" "$target" "$function" "$asset" \
                 "" "$(jq -r '.resolve.args.tolerance' "$path")"
             ;;
         *)
@@ -2596,8 +2607,8 @@ configure_market_oracle() {
 
     local asset_address
     asset_address=$(require_market_address "$market_name")
-    # set_market_oracle_config keys by HubAssetKey (hub_id + asset) in the
-    # multi-hub ABI; the oracle op carries hub_asset, not a bare asset.
+    # Token-rooted oracle config; hub_id still required for ConfigureMarketOracle
+    # admin-op shape / resolve-record metadata.
     local hub_id
     hub_id=$(get_market_value "$market_name" "hub_id")
     if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
@@ -2626,11 +2637,11 @@ configure_market_oracle() {
     ' "$MARKET_CONFIG_FILE" > "$cfg_file"
 
     # propose(ConfigureMarketOracle{asset, cfg}) validates+probes the INPUT cfg,
-    # then schedules the controller's set_market_oracle_config with the
-    # governance-RESOLVED MarketOracleConfig. The CLI can't capture that struct
+    # then schedules price-aggregator set_oracle_config with the
+    # governance-RESOLVED AssetOracleConfig. The CLI can't capture that struct
     # as ScVal from the friendly view output, so the op record stores a `resolve`
     # block (the resolve_market_oracle_config view + the input cfg); executeOp
-    # replays the view through the controller's typed setter (`--build-only`) to
+    # replays the view through the aggregator's typed setter (`--build-only`) to
     # reconstruct byte-identical args. See resolve_oracle_op_args.
     local gov
     gov=$(get_governance)
@@ -2642,9 +2653,9 @@ configure_market_oracle() {
     rm -f "$cfg_file"
     local salt
     local salt_input
-    salt_input=$(jq -nc --argjson cfg "$cfg_json" --arg asset "$asset_address" --argjson hub_id "$hub_id" \
-        '{hub_asset:{hub_id:$hub_id, asset:$asset}, cfg:$cfg}')
-    salt=$(gen_salt "set_market_oracle_config" "$salt_input")
+    salt_input=$(jq -nc --argjson cfg "$cfg_json" --arg asset "$asset_address" \
+        '{asset:$asset, cfg:$cfg}')
+    salt=$(gen_salt "set_oracle_config" "$salt_input")
     local resolve_args
     resolve_args=$(jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" --argjson hub_id "$hub_id" \
         '{hub_id:$hub_id, asset:$asset, cfg:$cfg}')
@@ -2653,16 +2664,16 @@ configure_market_oracle() {
     # the deterministic op id, and reuse an op that already exists on-chain
     # instead of re-proposing (which the timelock rejects). A resolve failure
     # falls through to propose, whose validation reports the authoritative error.
-    local ctrl resolved_args salt_use known_id state gen
-    ctrl=$(get_controller)
-    resolved_args=$(resolve_oracle_args_for resolve_market_oracle_config "$ctrl" \
-        set_market_oracle_config "$asset_address" "$hub_id" "$cfg_json" 2>/dev/null) || resolved_args=""
+    local agg resolved_args salt_use known_id state gen
+    agg=$(get_price_aggregator)
+    resolved_args=$(resolve_oracle_args_for resolve_market_oracle_config "$agg" \
+        set_oracle_config "$asset_address" "$hub_id" "$cfg_json" 2>/dev/null) || resolved_args=""
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
-        read -r salt_use known_id state gen < <(probe_salt_generations "$ctrl" set_market_oracle_config "$resolved_args" "$salt")
+        read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle_config "$resolved_args" "$salt")
         case "$state" in
             Ready|Waiting)
                 echo "Oracle config op ${known_id} for ${market_name} already ${state}; reusing it instead of re-proposing." >&2
-                write_oracle_op_record "$known_id" "set_market_oracle_config" \
+                write_oracle_op_record "$known_id" "set_oracle_config" \
                     "resolve_market_oracle_config" "$resolve_args" "$salt_use"
                 schedule_and_maybe_execute "$known_id"
                 return 0
@@ -2685,7 +2696,7 @@ configure_market_oracle() {
     fi
 
     # Generic propose takes the typed AdminOperation. ConfigureMarketOracle wraps
-    # ConfigureOracleArgs { asset, cfg: MarketOracleConfigInput }. cfg is the
+    # ConfigureOracleArgs { hub_asset, cfg: AssetOracleConfigInput }. cfg is the
     # nested friendly cli_union JSON (built above); rather than hand-encode that
     # deep union tree to explicit ScVal, pass the AdminOperation in friendly-enum
     # form via --op-file-path (propose's `op` arg is typed, so the CLI's friendly
@@ -2713,7 +2724,7 @@ configure_market_oracle() {
         echo "ERROR: propose ConfigureMarketOracle returned no operation id (output: $out)" >&2
         exit 1
     fi
-    write_oracle_op_record "$op_id" "set_market_oracle_config" \
+    write_oracle_op_record "$op_id" "set_oracle_config" \
         "resolve_market_oracle_config" "$resolve_args" "$salt"
 
     echo "Market oracle scheduled for ${market_name} as op ${op_id}." >&2
@@ -2721,8 +2732,8 @@ configure_market_oracle() {
 }
 
 # Edit only a market's oracle tolerance bands. propose(EditOracleTolerance{...})
-# schedules the controller's set_oracle_tolerance with the governance-RESOLVED
-# OraclePriceFluctuation; executeOp re-derives it via resolve_oracle_tolerance.
+# schedules price-aggregator set_tolerance with the governance-RESOLVED
+# OracleTolerance; executeOp re-derives it via resolve_oracle_tolerance.
 edit_oracle_tolerance() {
     local market_name=$1
     local tolerance=$2
@@ -2742,23 +2753,23 @@ edit_oracle_tolerance() {
     salt_input=$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
         '{asset:$asset, tolerance:$t}')
     local salt
-    salt=$(gen_salt "set_oracle_tolerance" "$salt_input")
+    salt=$(gen_salt "set_tolerance" "$salt_input")
     local resolve_args
     resolve_args=$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
         '{asset:$asset, tolerance:$t}')
 
     # Idempotency pre-check (see configure_market_oracle): reuse an op that is
     # already scheduled or executed instead of re-proposing.
-    local ctrl resolved_args salt_use known_id state gen
-    ctrl=$(get_controller)
-    resolved_args=$(resolve_oracle_args_for resolve_oracle_tolerance "$ctrl" \
-        set_oracle_tolerance "$asset_address" "" "$tolerance" 2>/dev/null) || resolved_args=""
+    local agg resolved_args salt_use known_id state gen
+    agg=$(get_price_aggregator)
+    resolved_args=$(resolve_oracle_args_for resolve_oracle_tolerance "$agg" \
+        set_tolerance "$asset_address" "" "$tolerance" 2>/dev/null) || resolved_args=""
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
-        read -r salt_use known_id state gen < <(probe_salt_generations "$ctrl" set_oracle_tolerance "$resolved_args" "$salt")
+        read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_tolerance "$resolved_args" "$salt")
         case "$state" in
             Ready|Waiting)
                 echo "Oracle tolerance op ${known_id} for ${market_name} already ${state}; reusing it instead of re-proposing." >&2
-                write_oracle_op_record "$known_id" "set_oracle_tolerance" \
+                write_oracle_op_record "$known_id" "set_tolerance" \
                     "resolve_oracle_tolerance" "$resolve_args" "$salt_use"
                 schedule_and_maybe_execute "$known_id"
                 return 0
@@ -2782,8 +2793,8 @@ edit_oracle_tolerance() {
 
     # EditOracleTolerance wraps friendly EditToleranceArgs { asset,
     # tolerance(u32) }. The `--op` payload carries the INPUT tolerance; the
-    # controller's RESOLVED OraclePriceFluctuation is re-derived at execute
-    # time via the resolve_oracle_tolerance block below.
+    # aggregator's RESOLVED OracleTolerance is re-derived at execute time via
+    # the resolve_oracle_tolerance block below.
     local admin_op_json
     admin_op_json=$(admin_op EditOracleTolerance \
         "$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
@@ -2808,7 +2819,7 @@ edit_oracle_tolerance() {
         echo "ERROR: propose EditOracleTolerance returned no operation id (output: $out)" >&2
         exit 1
     fi
-    write_oracle_op_record "$op_id" "set_oracle_tolerance" \
+    write_oracle_op_record "$op_id" "set_tolerance" \
         "resolve_oracle_tolerance" "$resolve_args" "$salt"
 
     echo "Oracle tolerance edit scheduled for ${market_name} as op ${op_id}." >&2
@@ -3891,12 +3902,8 @@ get_spoke_cmd() {
 }
 
 get_all_markets_cmd() {
-    local assets_json
-    assets_json=$(all_configured_hub_assets)
-    local ctrl
-    ctrl=$(get_controller)
-    echo "=== All markets (${NETWORK}) ===" >&2
-    invoke_view "$ctrl" get_markets_detailed --hub_assets "$assets_json"
+    # Alias: markets detailed was removed; indexes include soft oracle status.
+    get_all_indexes_cmd
 }
 
 get_all_indexes_cmd() {
@@ -3904,7 +3911,7 @@ get_all_indexes_cmd() {
     assets_json=$(all_configured_hub_assets)
     local ctrl
     ctrl=$(get_controller)
-    echo "=== All market indexes (${NETWORK}) ===" >&2
+    echo "=== All market indexes + oracle status (${NETWORK}) ===" >&2
     invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$assets_json"
 }
 
@@ -4257,7 +4264,7 @@ describe_oracle_source() {
 }
 
 # Live price components for a market. The raw stored Oracle V2 config is no
-# longer view-exposed (set_market_oracle_config is write-only; get_market_config
+# longer view-exposed (set_oracle_config is write-only on price-aggregator; get_market_config
 # was removed), so this prints the controller's resolved/safe/aggregator prices
 # via get_market_indexes_detailed instead of the provider wiring.
 get_oracle_cmd() {

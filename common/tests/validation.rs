@@ -273,3 +273,24 @@ fn test_validate_liquidation_fees_rejects_above_bps() {
     let env = Env::default();
     validate_liquidation_fees(&env, crate::constants::BPS as u32 + 1);
 }
+
+#[test]
+fn test_validate_twap_records_accepts_bounds() {
+    let env = Env::default();
+    validate_twap_records(&env, 1);
+    validate_twap_records(&env, MAX_TWAP_RECORDS);
+}
+
+#[test]
+#[should_panic(expected = "#219")]
+fn test_validate_twap_records_rejects_zero() {
+    let env = Env::default();
+    validate_twap_records(&env, 0);
+}
+
+#[test]
+#[should_panic(expected = "#228")]
+fn test_validate_twap_records_rejects_above_max() {
+    let env = Env::default();
+    validate_twap_records(&env, MAX_TWAP_RECORDS + 1);
+}

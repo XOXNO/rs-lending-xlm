@@ -125,23 +125,29 @@ pub struct SpokeUsageRaw {
     pub borrowed_scaled_ray: i128,
 }
 
+/// Pool indexes + soft oracle status for one hub-asset market.
+///
+/// Price fields use historical ABI names: `safe_price_wad` = primary leg,
+/// `aggregator_price_wad` = secondary/anchor leg. Status flags describe whether
+/// the price is usable (`valid`) or blocked by staleness / dual-source deviation.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketIndexView {
     pub asset: Address,
     pub supply_index: i128,
     pub borrow_index: i128,
+    /// Final composed USD WAD (0 when unusable / unreadable).
     pub price_wad: i128,
+    /// Primary oracle leg (historical ABI name).
     pub safe_price_wad: i128,
+    /// Secondary/anchor leg (historical ABI name).
     pub aggregator_price_wad: i128,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct AssetExtendedConfigView {
-    pub asset: Address,
-    pub pool_address: Address,
-    pub price_wad: i128,
+    /// Freshness timestamp of the final blend (seconds).
+    pub price_timestamp: u64,
+    pub stale: bool,
+    pub deviation: bool,
+    /// True when price is fresh, in-band, positive, and within sanity.
+    pub valid: bool,
 }
 
 #[contracttype]
@@ -491,7 +497,6 @@ pub enum ControllerKey {
     LastSpokeId,
     LastHubId,
     Hub(u32),
-    AssetOracle(Address),
     Spoke(u32),
     SpokeAsset(u32, HubAssetKey),
     SpokeUsage(u32, HubAssetKey),

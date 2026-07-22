@@ -3,9 +3,9 @@
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::ScVal;
 
-use crate::scval::{field_bool, field_i128, field_u32, map_field, vec_items};
+use crate::scval::{field_bool, field_i128, field_u32, field_u64, map_field, vec_items};
 
-/// One `get_market_indexes_detailed` row: RAY indexes + WAD prices.
+/// One `get_market_indexes_detailed` row: RAY indexes + soft oracle status.
 #[derive(Debug, Clone)]
 pub struct MarketIndexView {
     pub supply_index_ray: i128,
@@ -13,6 +13,10 @@ pub struct MarketIndexView {
     pub final_price_wad: i128,
     pub primary_price_wad: i128,
     pub anchor_price_wad: i128,
+    pub price_timestamp: u64,
+    pub stale: bool,
+    pub deviation: bool,
+    pub valid: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +65,10 @@ fn decode_market_index_row(value: &ScVal) -> Result<MarketIndexView> {
             .ok_or_else(|| anyhow!("safe_price_wad missing"))?,
         anchor_price_wad: field_i128(value, "aggregator_price_wad")
             .ok_or_else(|| anyhow!("aggregator_price_wad missing"))?,
+        price_timestamp: field_u64(value, "price_timestamp").unwrap_or(0),
+        stale: field_bool(value, "stale").unwrap_or(false),
+        deviation: field_bool(value, "deviation").unwrap_or(false),
+        valid: field_bool(value, "valid").unwrap_or(false),
     })
 }
 

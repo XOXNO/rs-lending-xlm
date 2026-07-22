@@ -11,6 +11,7 @@ use crate::config::{ContractsConfig, ScheduleConfig};
 use crate::keys::{
     contract_code_key, contract_instance_key, AccessControlPersistentKey, ControllerInstanceKey,
     ControllerPersistentKey, ControllerUserKey, HubAssetKey, OracleAdapterKey, PoolPersistentKey,
+    PriceAggregatorPersistentKey,
 };
 use crate::stellar::client::{
     contract_id_from_strkey, hash32_from_hex, LedgerEntryQuery, RpcClient,
@@ -26,6 +27,8 @@ pub struct ContractIds {
     pub governance: Option<[u8; 32]>,
     /// `None` when `xoxno_oracle_adapter` is unset.
     pub xoxno_oracle_adapter: Option<[u8; 32]>,
+    /// `None` when `price_aggregator` is unset.
+    pub price_aggregator: Option<[u8; 32]>,
 }
 
 impl ContractIds {
@@ -40,12 +43,18 @@ impl ContractIds {
             .as_deref()
             .map(contract_id_from_strkey)
             .transpose()?;
+        let price_aggregator = contracts
+            .price_aggregator
+            .as_deref()
+            .map(contract_id_from_strkey)
+            .transpose()?;
         Ok(Self {
             controller: contract_id_from_strkey(&contracts.controller)?,
             pool_wasm_hash: hash32_from_hex(&contracts.pool_wasm_hash)?,
             flash_receiver: contract_id_from_strkey(&contracts.flash_loan_receiver)?,
             governance,
             xoxno_oracle_adapter,
+            price_aggregator,
         })
     }
 }
@@ -134,10 +143,13 @@ pub async fn snapshot(
     let mut pool_rows_total = 0usize;
     for chunk in assets.chunks(chunk_size) {
         let mut keys = Vec::with_capacity(chunk.len() * 3);
-        for asset in chunk {
-            keys.push(
-                ControllerPersistentKey::AssetOracle(asset.asset).to_ledger_key(&controller_id)?,
-            );
+        if let Some(aggregator_id) = &ids.price_aggregator {
+            for asset in chunk {
+                keys.push(
+                    PriceAggregatorPersistentKey::AssetOracle(asset.asset)
+                        .to_ledger_key(aggregator_id)?,
+                );
+            }
         }
         if let Some(pool) = &pool_id {
             for asset in chunk {
@@ -799,6 +811,7 @@ mod tests {
             market_assets: Vec::new(),
             governance: Some("CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH".into()),
             xoxno_oracle_adapter: None,
+            price_aggregator: None,
         };
         let ids = ContractIds::resolve(&contracts).unwrap();
         assert!(ids.governance.is_some());
@@ -815,6 +828,7 @@ mod tests {
             market_assets: Vec::new(),
             governance: None,
             xoxno_oracle_adapter: None,
+            price_aggregator: None,
         };
         let ids = ContractIds::resolve(&contracts).unwrap();
         assert!(ids.governance.is_none());

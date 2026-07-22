@@ -18,7 +18,7 @@ fn test_borrow_tx_fires_one_bulk_redstone_call() {
     //   1. contracts/controller/src/positions/borrow.rs entrypoint: explicit
     //      prefetch with [supply_assets + borrow_assets] before the HF check.
     //   2. helpers/math.rs risk-totals body (calculate_account_risk_totals_body):
-    //      a second prefetch_redstone_feeds call for the same feed set.
+    //      a second warm_multi_feed_adapters call for the same feed set.
     //   3. helpers/math.rs min-borrow-collateral body: a third prefetch site.
     // All three deduplicate to exactly one bulk adapter call because the
     // tx-local Cache is populated by site 1 and the subsequent sites find all
@@ -838,9 +838,10 @@ fn test_stale_payload_through_bulk_is_still_rejected() {
 #[test]
 fn test_disabled_market_panics_same_through_prefetch() {
     // One of two RedStone-anchored markets gets disabled.  A borrow that
-    // touches the disabled market must panic PairNotActive (#12) — the same
-    // error as before the bulk-prefetch feature.  This pins that prefetching
-    // a disabled market's feed does NOT bypass the status check in token_price.
+    // touches the disabled market must revert OracleNotConfigured — the
+    // aggregator's single "no oracle for this asset" signal, surfaced by the
+    // priced HF check.  This pins that prefetching a disabled market's feed does
+    // NOT bypass the status check in token_price.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -857,12 +858,12 @@ fn test_disabled_market_panics_same_through_prefetch() {
     // Disable the ETH market by removing its `AssetOracle` entry, which is the
     // "active" signal price resolution reads.
     t.price_agg_client()
-        .remove_asset_oracle(&t.resolve_asset("ETH"));
+        .remove_oracle_config(&t.resolve_asset("ETH"));
 
-    // Attempt a withdrawal-with-debt: HF check prices both assets including
-    // disabled ETH → token_price panics PairNotActive.
+    // Attempt a borrow: the post-pool HF check prices both assets including
+    // disabled ETH → token_price reverts OracleNotConfigured.
     let result = t.try_borrow(ALICE, "ETH", 0.001);
-    assert_contract_error(result, errors::GenericError::PairNotActive as u32);
+    assert_contract_error(result, errors::OracleError::OracleNotConfigured as u32);
 }
 
 #[test]

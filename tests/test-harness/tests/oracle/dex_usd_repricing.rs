@@ -91,7 +91,7 @@ fn test_dex_quoted_market_priced_within_default_budget() {
     t.configure_market_oracle(&xlm, &cfg);
 
     // Hot path under Soroban's default budget: the HF check prices XLM (DEX→USD
-    // recursion through token_price(USDC)) and USDC. Completing == within budget.
+    // recursion through resolve_usd_price(USDC)) and USDC. Completing == within budget.
     t.supply(ALICE, "XLM", 1_000.0);
     t.borrow(ALICE, "USDC", 100.0);
 }
@@ -158,7 +158,7 @@ fn test_oracle_config_execute_rejects_quote_reconfigured_during_delay() {
     );
 
     // Capture the resolved config governance scheduled for the controller setter.
-    let stale = t.price_agg_client().get_asset_oracle(&xlm).unwrap();
+    let stale = t.price_agg_client().oracle_config(&xlm).unwrap();
 
     // During the delay, reconfigure USDC to quote in ETH (not a direct USD market).
     let dex_eth = register_dex_oracle(&t, &eth);
@@ -170,7 +170,7 @@ fn test_oracle_config_execute_rejects_quote_reconfigured_during_delay() {
     );
 
     // Executing the stale op re-asserts the quote invariant and reverts.
-    t.price_agg_client().set_market_oracle_config(&xlm, &stale);
+    t.price_agg_client().set_oracle_config(&xlm, &stale);
 }
 
 /// Happy path: re-applying the same resolved config while the quote market is
@@ -193,21 +193,18 @@ fn test_oracle_config_execute_accepts_active_usd_quote_market() {
         &reflector_single_spot_config(&dex, &xlm, usd(2), DEFAULT_TOLERANCE.tolerance_bps),
     );
 
-    let resolved = t.price_agg_client().get_asset_oracle(&xlm).unwrap();
+    let resolved = t.price_agg_client().oracle_config(&xlm).unwrap();
 
     // USDC stays Active+USD: replaying the resolved config still applies.
-    t.price_agg_client()
-        .set_market_oracle_config(&xlm, &resolved);
+    t.price_agg_client().set_oracle_config(&xlm, &resolved);
     assert_eq!(index_view(&t, &xlm).price_wad, usd(2));
 }
 
 /// Conversion happens per-source BEFORE the tolerance band: a DEX (USDC-quoted)
 /// primary and a RedStone (USD) anchor agree while USDC is pegged, but a USDC
 /// depeg moves the converted primary away from the USD anchor and trips the
-/// band. If conversion happened after composition, the band would compare
-/// USDC-quoted vs USD and the depeg would be invisible.
+/// band. Soft view reports `deviation`; write-path still reverts.
 #[test]
-#[should_panic(expected = "Error(Contract, #205)")]
 fn test_dex_primary_redstone_anchor_tolerance_evaluated_in_usd() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -245,12 +242,14 @@ fn test_dex_primary_redstone_anchor_tolerance_evaluated_in_usd() {
 
     // Pegged: converted primary 2.0*1.0 = 2.0 USD == anchor 2.0 USD → in band,
     // blended to the midpoint $2.
-    assert_eq!(index_view(&t, &xlm).price_wad, usd(2));
+    let ok = index_view(&t, &xlm);
+    assert_eq!(ok.price_wad, usd(2));
+    assert!(ok.valid);
 
     // Depeg USDC to $0.90: converted primary 2.0*0.9 = 1.8 USD vs anchor 2.0
-    // USD = 10% gap, beyond the band → fail-closed revert UnsafePriceNotAllowed
-    // (#205). If conversion happened after composition the gap would be
-    // invisible and the read would not revert.
+    // USD = 10% gap → soft view marks deviation (write path still reverts).
     t.set_price("USDC", usd_frac(90, 100));
-    let _ = index_view(&t, &xlm);
+    let depegged = index_view(&t, &xlm);
+    assert!(!depegged.valid);
+    assert!(depegged.deviation);
 }
