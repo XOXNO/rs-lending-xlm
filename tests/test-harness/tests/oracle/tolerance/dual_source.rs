@@ -127,7 +127,7 @@ fn test_liquidation_collateral_extraction_via_averaging() {
     });
 
     // Use a loose tolerance to allow a wide 10% averaging band.
-    t.set_oracle_tolerance("ETH", test_harness::LOOSE_TOLERANCE);
+    t.set_tolerance("ETH", test_harness::LOOSE_TOLERANCE);
 
     // Alice supplies ETH (20,000 USD collateral).
     t.supply(ALICE, "ETH", 10.0);
@@ -187,14 +187,10 @@ fn test_liquidation_collateral_extraction_via_averaging() {
 
 fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
     let asset = t.resolve_asset(asset_name);
-    t.env.as_contract(&t.controller, || {
-        let key = controller::types::ControllerKey::AssetOracle(asset.clone());
-        let mut oracle: controller::types::MarketOracleConfig =
-            t.env.storage().persistent().get(&key).unwrap();
-        oracle.min_sanity_price_wad = min_wad;
-        oracle.max_sanity_price_wad = max_wad;
-        t.env.storage().persistent().set(&key, &oracle);
-    });
+    let mut oracle = t.price_agg_client().oracle_config(&asset).unwrap();
+    oracle.min_sanity_price_wad = min_wad;
+    oracle.max_sanity_price_wad = max_wad;
+    t.price_agg_client().seed_oracle_config(&asset, &oracle);
 }
 
 #[test]

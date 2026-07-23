@@ -5,11 +5,7 @@
 
 extern crate std;
 
-use controller::types::{ControllerKey, MarketOracleConfig, OracleReadMode, OracleSourceConfig};
-use test_harness::{
-    eth_preset, hub_asset, usdc_preset, usdt_stable_preset, wbtc_preset, xlm_preset, LendingTest,
-    ALICE,
-};
+use test_harness::{hub_asset, usdc_preset, LendingTest, ALICE};
 
 fn mem_of<R>(env: &soroban_sdk::Env, f: impl FnOnce() -> R) -> u64 {
     // reset_tracker (NOT reset_default): zero the meters without restoring
@@ -18,92 +14,6 @@ fn mem_of<R>(env: &soroban_sdk::Env, f: impl FnOnce() -> R) -> u64 {
     env.cost_estimate().budget().reset_tracker();
     f();
     env.cost_estimate().budget().memory_bytes_cost()
-}
-
-fn set_primary_twap(t: &LendingTest, asset_name: &str, records: u32) {
-    let asset = t.markets.get(asset_name).expect("market").asset.clone();
-    t.env.as_contract(&t.controller, || {
-        let key = ControllerKey::AssetOracle(asset.clone());
-        let mut oracle: MarketOracleConfig = t.env.storage().persistent().get(&key).unwrap();
-        if let OracleSourceConfig::Reflector(ref mut src) = oracle.primary {
-            src.read_mode = OracleReadMode::Twap(records);
-        }
-        t.env.storage().persistent().set(&key, &oracle);
-    });
-}
-
-#[test]
-fn mem_attribution_bulk_prefetch_removes_per_feed_pool_frame() {
-    let names = ["USDC", "USDT", "ETH", "WBTC", "XLM"];
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        // No `with_budget_enabled()`: limits stay DISABLED so heavy ops can
-        // complete; the meters still track, which is all measurement needs.
-        .with_market(xlm_preset())
-        .build();
-
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 0.1);
-
-    // 1. TOTAL slope: HF valuation in one withdraw tx, 2 feeds vs 5 feeds.
-    let mem_2_feeds = mem_of(&t.env.clone(), || t.withdraw(ALICE, "USDC", 10.0));
-    t.borrow(ALICE, "USDT", 100.0);
-    t.borrow(ALICE, "WBTC", 0.01);
-    t.borrow(ALICE, "XLM", 100.0);
-    let mem_5_feeds = mem_of(&t.env.clone(), || t.withdraw(ALICE, "USDC", 10.0));
-    let total_per_feed = (mem_5_feeds - mem_2_feeds) / 3;
-
-    // 2. POOL-ONLY slope: per-asset pool call (fat snapshot return), no oracles.
-    t.update_indexes_for(&["USDC"]);
-    let mem_idx_1 = mem_of(&t.env.clone(), || t.update_indexes_for(&["USDC"]));
-    let mem_idx_5 = mem_of(&t.env.clone(), || t.update_indexes_for(&names));
-    let pool_per_asset = (mem_idx_5 - mem_idx_1) / 4;
-
-    // 3. REFLECTOR-RETURN scaling: Twap(3) -> Twap(12) = +9 records per feed.
-    for name in names {
-        set_primary_twap(&t, name, 12);
-    }
-    let mem_5_feeds_twap12 = mem_of(&t.env.clone(), || t.withdraw(ALICE, "USDC", 10.0));
-    let per_record = (mem_5_feeds_twap12 - mem_5_feeds) / (9 * 5);
-    let reflector_twap3_per_feed = per_record * 3;
-
-    let accounted = pool_per_asset + reflector_twap3_per_feed;
-    std::println!("\n========== per-feed memory attribution (within-tx slopes) ==========");
-    std::println!("  withdraw HF valuation:  2 feeds = {mem_2_feeds} B, 5 feeds = {mem_5_feeds} B");
-    std::println!("  TOTAL marginal cost            ~{total_per_feed} B/feed");
-    std::println!(
-        "  pool call (fat snapshot, no oracle) ~{pool_per_asset} B/asset  ({:.0}% of total)",
-        pool_per_asset as f64 * 100.0 / total_per_feed as f64
-    );
-    std::println!("  reflector Vec<PriceData> return:    ~{per_record} B/record -> Twap(3) ~{reflector_twap3_per_feed} B/feed  ({:.0}% of total)",
-        reflector_twap3_per_feed as f64 * 100.0 / total_per_feed as f64);
-    std::println!(
-        "  returns accounted together          ~{accounted} B/feed  ({:.0}% of total)",
-        accounted as f64 * 100.0 / total_per_feed as f64
-    );
-    std::println!("  (Twap(12) 5-feed withdraw = {mem_5_feeds_twap12} B)");
-
-    // The claims under test:
-    // 1. The un-bulked per-asset pool path still pays a call frame per asset —
-    //    the reference slope that makes bulking worthwhile.
-    assert!(
-        pool_per_asset > 100_000,
-        "per-asset update_indexes slope should remain call-frame scale"
-    );
-    // 2. Bulk index prefetch: HF per-feed slope stays below one pool call frame.
-    assert!(
-        total_per_feed < pool_per_asset,
-        "HF per-feed slope must stay below one pool call frame: \
-         total {total_per_feed} vs pool frame {pool_per_asset}"
-    );
-    // 3. Return payloads still scale with record count.
-    assert!(
-        mem_5_feeds_twap12 > mem_5_feeds + 5 * 9 * 32,
-        "memory must scale with returned record count"
-    );
 }
 
 /// Direct measurement for "does `Client::new` itself consume memory":

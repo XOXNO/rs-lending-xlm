@@ -16,6 +16,7 @@ fn controller_supply_persists_pool_returned_position(
 ) {
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
 
     let before = crate::storage::positions::get_scaled_amount(
         &e,
@@ -44,6 +45,7 @@ fn controller_borrow_persists_pool_returned_position(
 ) {
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
 
     let before = crate::storage::positions::get_scaled_amount(
         &e,

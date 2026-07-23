@@ -3,17 +3,20 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::{
-    BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, RAY,
-    SUPPLY_INDEX_FLOOR_RAW,
+    BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR,
+    RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
 use crate::math::fp::{Bps, Ray};
-use crate::math::fp_core::mul_div_half_up;
+use crate::math::fp_core::{mul_div_floor, mul_div_half_up};
 use crate::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     protocol_fee_shares, simulate_update_indexes_body, update_borrow_index, update_supply_index,
     utilization,
 };
 use crate::types::{MarketParams, PoolStateRaw, PoolSyncData};
+
+/// Seven-decimal token units per RAY-scaled share at index `RAY`.
+const ASSET_TO_RAY_SCALE_7: i128 = 100_000_000_000_000_000_000;
 
 fn valid_params(asset: Address) -> MarketParams {
     MarketParams {
@@ -53,13 +56,16 @@ fn utilization_bounded_when_borrowed_lte_supplied(e: Env, borrowed: i128, suppli
 }
 
 #[rule]
-fn borrow_rate_is_capped(e: Env, asset: Address, util_raw: i128) {
+fn borrow_rate_per_ms_respects_annual_cap(e: Env, asset: Address, util_raw: i128) {
     cvlr_assume!((0..=RAY).contains(&util_raw));
 
     let params = valid_params(asset);
     let rate = calculate_borrow_rate(&e, Ray::from(util_raw), &params);
+    let per_ms_cap = params
+        .max_borrow_rate
+        .div_by_int(MILLISECONDS_PER_YEAR as i128);
     cvlr_assert!(rate.raw() >= 0);
-    cvlr_assert!(rate.raw() <= params.max_borrow_rate.raw());
+    cvlr_assert!(rate.raw() <= per_ms_cap.raw());
 }
 
 #[rule]
@@ -165,7 +171,7 @@ fn simulate_indexes_no_time_noop(
     cvlr_assume!((0..=100 * RAY).contains(&borrowed));
     cvlr_assume!((0..=100 * RAY).contains(&supplied));
     cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
-    cvlr_assume!((RAY..=10 * RAY).contains(&supply_index));
+    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=MAX_SUPPLY_INDEX_RAY).contains(&supply_index));
 
     let sync = PoolSyncData {
         params: (&valid_params(asset)).into(),
@@ -176,7 +182,10 @@ fn simulate_indexes_no_time_noop(
             borrow_index,
             supply_index,
             last_timestamp: timestamp,
-            cash: supplied.saturating_sub(borrowed),
+            cash: supplied
+                .saturating_sub(borrowed)
+                .checked_div(ASSET_TO_RAY_SCALE_7)
+                .unwrap_or(0),
         },
     };
     let index = simulate_update_indexes_body(&e, timestamp, &sync);
@@ -220,12 +229,7 @@ fn update_borrow_index_capped(e: Env, old_index: i128, factor: i128) {
 /// is — a dust supplier donating rewards cannot inflate the index faster than
 /// the phantom-base ratio allows.
 #[rule]
-fn update_supply_index_dust_growth_bounded(
-    e: Env,
-    supplied: i128,
-    old_index: i128,
-    rewards: i128,
-) {
+fn update_supply_index_dust_growth_bounded(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!((0..=100 * RAY).contains(&supplied));
     cvlr_assume!((RAY..=10 * RAY).contains(&old_index));
     cvlr_assume!((0..=10 * RAY).contains(&rewards));
@@ -245,12 +249,7 @@ fn update_supply_index_dust_growth_bounded(
 /// `supplied` (a floored index post-wipeout cannot trap accrual), and stays
 /// non-negative.
 #[rule]
-fn protocol_fee_shares_bounded_by_headroom(
-    e: Env,
-    fee: i128,
-    supply_index: i128,
-    supplied: i128,
-) {
+fn protocol_fee_shares_bounded_by_headroom(e: Env, fee: i128, supply_index: i128, supplied: i128) {
     cvlr_assume!(fee >= 0);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW);
     cvlr_assume!(supplied >= 0);
@@ -265,7 +264,8 @@ fn protocol_fee_shares_bounded_by_headroom(
     cvlr_assert!(out.raw() <= i128::MAX - supplied);
 }
 
-/// In-range conversion matches the plain half-up `fee / supply_index` divide.
+/// In-range conversion matches the conservative floor divide and the value of
+/// minted revenue shares never exceeds the fee being booked.
 #[rule]
 fn protocol_fee_shares_matches_divide_in_range(
     e: Env,
@@ -283,8 +283,9 @@ fn protocol_fee_shares_matches_divide_in_range(
         Ray::from(supply_index),
         Ray::from(supplied),
     );
-    let plain = mul_div_half_up(&e, fee, RAY, supply_index);
+    let plain = mul_div_floor(&e, fee, RAY, supply_index);
     cvlr_assert!(out.raw() == plain);
+    cvlr_assert!(mul_div_floor(&e, out.raw(), supply_index, RAY) <= fee);
 }
 
 // Summary bounds are compositionally justified by the lemmas above

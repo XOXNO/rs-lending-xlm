@@ -85,10 +85,8 @@ flow_lifecycle() {
     view ltv_usd_alice "$CONTROLLER" -- get_ltv_collateral_usd --account_id "$acct" >/dev/null
     view attrs_alice "$CONTROLLER" -- get_account_attributes --account_id "$acct" >/dev/null
 view positions_alice "$CONTROLLER" -- get_account_positions --account_id "$acct" >/dev/null
-view markets_view "$CONTROLLER" -- get_markets_detailed \
---hub_assets "$(hub_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$USDC_SAC" "$EURC_SAC")" >/dev/null
 view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
---hub_assets "$(hub_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$USDC_SAC")" >/dev/null
+--hub_assets "$(hub_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$USDC_SAC" "$EURC_SAC")" >/dev/null
 
     inv borrow_single "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \

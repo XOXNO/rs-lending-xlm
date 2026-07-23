@@ -165,7 +165,6 @@ fn test_mul_div_ceil_overflow_panics() {
     let _ = mul_div_ceil(&env, i128::MAX, i128::MAX, 1);
 }
 
-
 // Rescale downscale at exact half, the rounding tie-breaker.
 // 5 at 1 decimal -> 0 decimals: exact = 0.5 -> rounds to 1.
 #[test]

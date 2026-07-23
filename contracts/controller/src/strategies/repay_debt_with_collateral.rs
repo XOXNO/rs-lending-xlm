@@ -10,7 +10,7 @@ use crate::context::Cache;
 use crate::events;
 use crate::positions::{get_debt_position_or_panic, get_supply_position_or_panic};
 use crate::strategies::{
-    execute_withdraw_all, net_settle_collateral_against_debt, prefetch_strategy_oracles,
+    execute_withdraw_all, net_settle_collateral_against_debt, prefetch_strategy_prices,
     repay_debt_from_controller, strategy_finalize, swap_tokens_or_passthrough,
     withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
 };
@@ -80,7 +80,7 @@ pub(crate) fn process_repay_debt_with_collateral(
     let mut cache = Cache::new(env);
 
     let extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
-    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
+    prefetch_strategy_prices(&mut cache, &account, &extra_assets);
 
     // Same hub-asset: in-pool net; else withdraw → swap → repay.
     if collateral == debt {
@@ -108,7 +108,7 @@ pub(crate) fn process_repay_debt_with_collateral(
     // Full collateral exit only if debt is already zero.
     close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
 
-    strategy_finalize(env, account_id, &account, &mut cache);
+    strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
 /// Same (hub, asset): net collat against debt in-pool (no token round-trip).

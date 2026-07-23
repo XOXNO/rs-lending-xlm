@@ -115,11 +115,11 @@ See `tests/integration/lib/report.sh` for the generator and `scenarios/assert_gr
   immediate admin). Production deploy is `make testnet setup` (governance
   timelock). Also deploys a **governance contract + governance-owned controller**
   (short `INTEG_MIN_DELAY`): the resolver views turn input oracle configs into
-  the resolved `MarketOracleConfig` the controller setter stores, and the
+  the resolved `AssetOracleConfig` the controller setter stores, and the
   governance-owned controller is the target of the timelock e2e. Market bring-up
-  sequence: approve_token → create pending → `resolve_market_oracle_config`
-  (governance view) → `set_market_oracle_config` → activate; JSON builders for
-  params / asset config / single + dual oracle configs.
+  sequence: create pending → `resolve_market_oracle_config` (governance view) →
+  `set_oracle_config` → activate; JSON builders for params / asset config /
+  single + dual oracle configs.
 - `lib/report.sh` — markdown report. Resource columns are the declared
   Soroban resources decoded from each signed envelope; the explorer link on
   every row shows the full per-tx resource report (incl. memory).

@@ -9,3 +9,4 @@ flash_loan_receiver.wasm 27000
 defindex_strategy.wasm 45000
 # Governance embeds the OZ timelock + resolve_* oracle helper views.
 governance.wasm 58000
+price_aggregator.wasm 42000

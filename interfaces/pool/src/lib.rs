@@ -14,19 +14,24 @@ use common::types::{
 };
 use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env, Vec};
 
+/// Mirrors the liquidity-pool ABI for controller and tests.
 #[contractclient(name = "LiquidityPoolClient")]
 pub trait LiquidityPoolInterface {
+    // --- markets ---
+
     fn create_market(env: Env, hub_id: u32, params: MarketParamsRaw);
+    fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel);
+    fn update_indexes(env: Env, hub_asset: HubAssetKey);
+
+    // --- liquidity ---
 
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation>;
-
     fn borrow(
         env: Env,
         receiver: Address,
         entries: Vec<PoolBorrowEntry>,
     ) -> Vec<PoolPositionMutation>;
-
-    /// Withdraws each entry to `receiver`. Full position at `i128::MAX` sentinel.
+    /// Withdraws each entry to `receiver`. Full position: `i128::MAX` sentinel.
     /// `is_liquidation` applies to the whole call; input-ordered.
     fn withdraw(
         env: Env,
@@ -34,46 +39,51 @@ pub trait LiquidityPoolInterface {
         is_liquidation: bool,
         entries: Vec<PoolWithdrawEntry>,
     ) -> Vec<PoolPositionMutation>;
-
     /// Tokens pre-transferred by controller; refunds overpayments to `payer`.
     /// Input-ordered.
     fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation>;
-    fn update_indexes(env: Env, hub_asset: HubAssetKey);
-    /// External supply rewards for a hub-asset market.
-    fn add_rewards(env: Env, hub_asset: HubAssetKey, amount: i128);
-    /// Must return `amount + fee`.
+    /// Nets one supply leg against one debt leg on the same hub-asset (no cash
+    /// move). Settled amount is min(request, supply, debt); leftover collateral
+    /// stays as supply. `supplied - borrowed` (== cash) is invariant.
+    fn net_settle(env: Env, entry: PoolNetSettleEntry) -> PoolNetSettleResult;
+    fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>);
+
+    // --- flash / strategy ---
+
+    /// Lends `amount`, pulls `amount + fee` after callback. Fee from market
+    /// `flashloan_fee` bps; market must be flashloanable. Returns the fee.
     fn flash_loan(
         env: Env,
         hub_asset: HubAssetKey,
         initiator: Address,
         receiver: Address,
         amount: i128,
-        fee: i128,
         data: Bytes,
-    );
-
+    ) -> i128;
+    /// Strategy borrow. `charge_fee`: apply market flash-loan fee, or fee-free
+    /// (migration). Fee computed pool-side from `flashloan_fee` bps.
     fn create_strategy(
         env: Env,
         receiver: Address,
         action: PoolAction,
-        fee: i128,
+        charge_fee: bool,
     ) -> PoolStrategyMutation;
 
-    fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>);
+    // --- revenue ---
 
-    /// Nets one supply leg against one debt leg on the same hub-asset with zero
-    /// cash movement. Settled amount is min(request, supply, debt); leftover
-    /// collateral beyond outstanding debt stays as supply. `supplied - borrowed`
-    /// (== cash) is invariant.
-    fn net_settle(env: Env, entry: PoolNetSettleEntry) -> PoolNetSettleResult;
-
+    /// External supply rewards for a hub-asset market.
+    fn add_rewards(env: Env, hub_asset: HubAssetKey, amount: i128);
     /// Protocol revenue capped by reserves and claimable shares.
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation;
-    fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel);
+
+    // --- lifecycle ---
+
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
+
+    // --- views ---
+
     fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128;
-    /// Accounted `cash` (asset decimals), not live token balance — donations
-    /// cannot inflate it.
+    /// Accounted `cash` (asset decimals), not live SAC balance.
     fn get_reserves(env: Env, hub_asset: HubAssetKey) -> i128;
     fn get_deposit_rate(env: Env, hub_asset: HubAssetKey) -> i128;
     fn get_borrow_rate(env: Env, hub_asset: HubAssetKey) -> i128;
@@ -82,9 +92,8 @@ pub trait LiquidityPoolInterface {
     fn get_borrowed_amount(env: Env, hub_asset: HubAssetKey) -> i128;
     /// Seconds since the market last accrued interest.
     fn get_delta_time(env: Env, hub_asset: HubAssetKey) -> u64;
-    /// Raw params and accounting for one market. Index reads use `get_bulk_indexes`.
+    /// Raw params and accounting. Index reads: `get_bulk_indexes`.
     fn get_sync_data(env: Env, hub_asset: HubAssetKey) -> PoolSyncData;
-    /// Borrow/supply indexes accrued to current ledger time, aligned with request.
-    /// One call replaces N per-asset reads when only indexes are needed.
+    /// Borrow/supply indexes accrued to now, request-aligned (bulk).
     fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw>;
 }

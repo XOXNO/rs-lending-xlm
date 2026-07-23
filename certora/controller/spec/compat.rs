@@ -3,12 +3,15 @@ use cvlr::nondet::nondet;
 use cvlr_soroban::nondet_address;
 use soroban_sdk::{vec, Address, Env, Vec};
 
-/// Hub-0 coordinate for `asset`.
-fn hub0(asset: Address) -> HubAssetKey {
-    HubAssetKey { hub_id: 0, asset }
+/// Production-valid primary-hub coordinate for `asset`.
+fn primary_hub(asset: Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: crate::spec::fixture::HUB_ID,
+        asset,
+    }
 }
 
-/// Single-asset supply shim for `Controller::supply` (spoke 0).
+/// Single-asset supply shim for `Controller::supply`.
 pub fn supply_single(
     env: Env,
     caller: Address,
@@ -20,8 +23,8 @@ pub fn supply_single(
         env.clone(),
         caller,
         account_id,
-        0,
-        vec![&env, (hub0(asset), amount)],
+        crate::spec::fixture::SPOKE_ID,
+        vec![&env, (primary_hub(asset), amount)],
     )
 }
 
@@ -36,7 +39,7 @@ pub fn borrow_single(env: Env, caller: Address, account_id: u64, asset: Address,
         env.clone(),
         caller,
         account_id,
-        vec![&env, (hub0(asset), amount)],
+        vec![&env, (primary_hub(asset), amount)],
         to,
     );
 }
@@ -52,7 +55,7 @@ pub fn withdraw_single(env: Env, caller: Address, account_id: u64, asset: Addres
         env.clone(),
         caller,
         account_id,
-        vec![&env, (hub0(asset), amount)],
+        vec![&env, (primary_hub(asset), amount)],
         to,
     );
 }
@@ -63,7 +66,7 @@ pub fn repay_single(env: Env, caller: Address, account_id: u64, asset: Address, 
         env.clone(),
         caller,
         account_id,
-        vec![&env, (hub0(asset), amount)],
+        vec![&env, (primary_hub(asset), amount)],
     );
 }
 
@@ -91,7 +94,7 @@ pub fn multiply(
     let take_initial: bool = nondet();
     let initial_payment: Option<(HubAssetKey, i128)> = if take_initial {
         let initial_amount: i128 = nondet();
-        Some((hub0(nondet_address()), initial_amount))
+        Some((primary_hub(nondet_address()), initial_amount))
     } else {
         None
     };
@@ -107,9 +110,9 @@ pub fn multiply(
         caller,
         account_id,
         spoke_id,
-        hub0(collateral_token),
+        primary_hub(collateral_token),
         debt_to_flash_loan,
-        hub0(debt_token),
+        primary_hub(debt_token),
         mode,
         steps,
         initial_payment,
@@ -141,9 +144,9 @@ pub fn multiply_minimal(
         caller,
         0,
         spoke_id,
-        hub0(collateral_token),
+        primary_hub(collateral_token),
         debt_to_flash_loan,
-        hub0(debt_token),
+        primary_hub(debt_token),
         mode,
         steps,
         None,
@@ -165,9 +168,9 @@ pub fn repay_debt_with_collateral_minimal(
         env,
         caller,
         account_id,
-        hub0(collateral_token),
+        primary_hub(collateral_token),
         collateral_amount,
-        hub0(debt_token),
+        primary_hub(debt_token),
         steps,
         false,
     );
@@ -187,19 +190,19 @@ pub fn repay_debt_with_collateral_close(
         env,
         caller,
         account_id,
-        hub0(collateral_token),
+        primary_hub(collateral_token),
         collateral_amount,
-        hub0(debt_token),
+        primary_hub(debt_token),
         steps,
         true,
     );
 }
 
-/// `Controller::liquidate` shim; lifts asset-keyed payments onto hub 0.
+/// `Controller::liquidate` shim; lifts asset-keyed payments onto the primary hub.
 pub fn liquidate(env: Env, liquidator: Address, account_id: u64, debt_payments: Vec<Payment>) {
     let mut hub_payments: Vec<(HubAssetKey, i128)> = Vec::new(&env);
     for (asset, amount) in debt_payments.iter() {
-        hub_payments.push_back((hub0(asset), amount));
+        hub_payments.push_back((primary_hub(asset), amount));
     }
     crate::Controller::liquidate(env, liquidator, account_id, hub_payments);
 }

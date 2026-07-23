@@ -3,12 +3,13 @@
     "rpc_url": "https://stellar-testnet-gateway.xoxno.com",
     "network_passphrase": "Test SDF Network ; September 2015",
     "timelock_min_delay_ledgers": 12,
-    "governance": "CAOS4AUCHXLJHF6EXSM76WECYXRVQ3JYJFXYOWLOGYYXFE4OYVH5DHWO",
-    "controller": "CDWNSXENNWYBX4L247ZCI3NCEQBIZOOI2WWWNLYLRMCR5TVNSHC2PMWT",
+    "governance": "CDWZN2KM3GGVOCROWK6PHAFJFO7KYPXGQE6GUZNQBR5BZYBRNSHB4THP",
+    "controller": "CCYF2G3XZC3ZRZBHM7AVOFQEKQNQWFSRMXZV6SNH4JBWHNFOT7VW5H5H",
     "aggregator": "CDVGOXSKBQUCYD2MLCJNMJGLQSAPSRMESYRHXQETL7O72NK2H577TH3O",
     "accumulator": "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV",
-    "pool_wasm_hash": "9b7cabb7e59ffcac0f27ef28497b9817b6b6191cc94d188a11b7aa0b0f546748",
-    "controller_wasm_hash": "79f537364450af33f73a0172a4770f8cc25bf0f62125fa0c18dc39395cbe2e91",
+    "pool_wasm_hash": "a01de29b6c58f2d7c1ec623cba0b93e269f88685f006333f62373294f41d0646",
+    "controller_wasm_hash": "cdcdb43df2769ce4bfd7c9d4c5bd29d0152a21d101eebf045fde141eb0d683f4",
+    "governance_wasm_hash": "e454082d36a693b043b33896b74937f108fcbedb8064f9cd8c532ec127736144",
     "ledger_index": 3401320,
     "reflector_cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
     "reflector_dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
@@ -16,8 +17,7 @@
     "redstone_adapter_contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
     "xoxno_oracle_adapter": "CB46MOUCOPA5TGDKKCY5OC2FEXGCBQ5KXR53RGOYY7XD7LN6JOE7OPRF",
     "flash_loan_receiver": "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ",
-    "pool": "CA6MXKAWSYDHJ5MCZE5INWJOSISYDSVU7O7AJMQFC3RMQO5H7XD6T5AR",
-    "governance_wasm_hash": "",
+    "pool": "CDR2CF7G66AJ6LOECTUDEVPWNGTRMFFF3R3NZM6UHEJT42G4MRCXJERK",
     "hub_ids": {
       "1": 1,
       "2": 2
@@ -26,12 +26,13 @@
       "1": 1,
       "2": 2,
       "3": 3
-    }
+    },
+    "price_aggregator": "CBDY4MVGDIMQRQ4AB7WT4PJPMVAYYB6VU6HX2EPBU6XBFYP7G76PYR7S"
   },
   "mainnet": {
     "rpc_url": "https://stellar-gateway.xoxno.com",
     "network_passphrase": "Public Global Stellar Network ; September 2015",
-    "timelock_min_delay_ledgers": 34560,
+    "timelock_min_delay_ledgers": 1,
     "governance": "",
     "controller": "",
     "aggregator": "CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR",

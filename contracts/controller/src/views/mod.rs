@@ -6,9 +6,9 @@ use crate::constants::{MAX_VIEW_INPUTS, WAD};
 use crate::risk;
 use common::errors::{GenericError, SpokeError};
 use common::types::{
-    AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
-    LiquidationEstimate, MarketIndexRaw, MarketIndexView, PaymentTuple, SpokeAssetConfig,
-    SpokeConfig, SpokeUsageRaw,
+    AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, LiquidationEstimate,
+    MarketIndexRaw, MarketIndexView, PaymentTuple, PriceStatus, SpokeAssetConfig, SpokeConfig,
+    SpokeUsageRaw,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec};
 
@@ -21,7 +21,6 @@ mod limits;
 pub(crate) use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
 
 use crate::context::Cache;
-use crate::oracle::{price_components, token_price};
 use crate::positions::{liquidation::execute_liquidation, HubPayment};
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
@@ -101,20 +100,15 @@ impl Controller {
         get_pool_address(&env)
     }
 
-    pub fn get_markets_detailed(
-        env: Env,
-        hub_assets: Vec<HubAssetKey>,
-    ) -> Vec<AssetExtendedConfigView> {
-        get_all_markets_detailed(&env, &hub_assets)
-    }
-
-    /// market.
+    /// Pool indexes + soft oracle status for each requested hub-asset market.
+    ///
+    /// Oracle legs are diagnostic: `stale` / `deviation` set flags instead of
+    /// trapping; `valid` is true only when the price is usable like the
+    /// fail-closed solvency path. Prefer `get_pool_address` for the pool id.
     ///
     /// # Errors
     /// * `InvalidPayments` - `hub_assets` exceeds the view input bound.
     /// * `PoolNotInitialized` - a requested `(hub, asset)` market was never created.
-    /// * Price-component resolution reads oracles and can revert (e.g.
-    ///   `OracleNotConfigured`, `PriceFeedStale`, `UnsafePriceNotAllowed`).
     pub fn get_market_indexes_detailed(
         env: Env,
         hub_assets: Vec<HubAssetKey>,
@@ -216,7 +210,11 @@ pub(crate) fn collateral_amount_for_hub_asset(
         .to_asset(decimals)
 }
 
-pub(crate) fn borrow_amount_for_hub_asset(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
+pub(crate) fn borrow_amount_for_hub_asset(
+    env: &Env,
+    account_id: u64,
+    hub_asset: &HubAssetKey,
+) -> i128 {
     let Some(position) = storage::try_get_debt_position(env, account_id, hub_asset) else {
         return 0;
     };
@@ -278,56 +276,55 @@ pub(crate) fn get_pool_address(env: &Env) -> Address {
     storage::get_pool(env)
 }
 
-/// Bulk market config + token-rooted USD price.
-pub(crate) fn get_all_markets_detailed(
-    env: &Env,
-    hub_assets: &Vec<HubAssetKey>,
-) -> Vec<AssetExtendedConfigView> {
-    require_view_inputs_bound(env, hub_assets);
-    let mut cache = Cache::new_view(env);
-    let mut result = Vec::new(env);
-
-    for hub_asset in hub_assets.iter() {
-        // Pool address is resolved per-row, so the view is safe on empty input.
-        // `token_price` panics `OracleNotConfigured` for an unpriced asset.
-        let pool_address = cache.cached_pool_address();
-        // Price is token-rooted.
-        let final_price = token_price(&mut cache, &hub_asset.asset).price_wad;
-        result.push_back(AssetExtendedConfigView {
-            asset: hub_asset.asset,
-            pool_address,
-            price_wad: final_price,
-        });
-    }
-
-    result
-}
-
+/// Pool indexes + soft oracle status (one `prices_status` call).
 pub(crate) fn get_all_market_indexes_detailed(
     env: &Env,
     hub_assets: &Vec<HubAssetKey>,
 ) -> Vec<MarketIndexView> {
     require_view_inputs_bound(env, hub_assets);
     let mut cache = Cache::new_view(env);
-    cache.prefetch_market_indexes(hub_assets);
+    cache.fetch_market_indexes(hub_assets);
+    let assets = unique_hub_assets(env, hub_assets);
+    let statuses = if assets.is_empty() {
+        Map::new(env)
+    } else {
+        crate::external::price_aggregator::fetch_prices_status(env, &assets)
+    };
     let mut result = Vec::new(env);
 
     for hub_asset in hub_assets.iter() {
         let index = cache.cached_market_index(&hub_asset);
-        let components = price_components(&mut cache, &hub_asset);
-        let (safe_price_wad, aggregator_price_wad) = components.to_abi_prices();
+        let status = statuses
+            .get(hub_asset.asset.clone())
+            .unwrap_or_else(PriceStatus::unusable);
 
         result.push_back(MarketIndexView {
             asset: hub_asset.asset,
             supply_index: index.supply_index.raw(),
             borrow_index: index.borrow_index.raw(),
-            price_wad: components.final_price_wad,
-            safe_price_wad,
-            aggregator_price_wad,
+            price_wad: status.final_wad,
+            // Historical ABI names: primary / secondary legs.
+            safe_price_wad: status.primary_wad,
+            aggregator_price_wad: status.secondary_wad,
+            price_timestamp: status.price_timestamp,
+            stale: status.stale,
+            deviation: status.deviation,
+            valid: status.valid,
         });
     }
 
     result
+}
+
+/// Deduped token addresses from a hub-asset batch (order-preserving).
+fn unique_hub_assets(env: &Env, hub_assets: &Vec<HubAssetKey>) -> Vec<Address> {
+    let mut assets = Vec::new(env);
+    for hub_asset in hub_assets.iter() {
+        if !assets.contains(&hub_asset.asset) {
+            assets.push_back(hub_asset.asset);
+        }
+    }
+    assets
 }
 
 /// Simulates liquidating `account_id` with `debt_payments` and returns the seize,

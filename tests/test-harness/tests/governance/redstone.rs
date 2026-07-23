@@ -9,7 +9,7 @@ use test_harness::{
 
 fn try_configure_usdc(
     t: &LendingTest,
-    cfg: &controller::types::MarketOracleConfigInput,
+    cfg: &controller::types::AssetOracleConfigInput,
 ) -> Result<(), soroban_sdk::Error> {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();

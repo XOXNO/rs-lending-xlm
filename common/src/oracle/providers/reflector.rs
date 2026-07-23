@@ -94,6 +94,23 @@ pub fn twap_mean_price(env: &Env, history: &Vec<ReflectorPriceData>) -> i128 {
     sum / (history.len() as i128)
 }
 
+/// Non-panicking [`twap_mean_price`]: `None` for a non-positive sample or a
+/// sum overflow, for the aggregator's soft status path.
+pub fn try_twap_mean_price(history: &Vec<ReflectorPriceData>) -> Option<i128> {
+    let mut sum: i128 = 0;
+    for pd in history.iter() {
+        if pd.price <= 0 {
+            return None;
+        }
+        sum = sum.checked_add(pd.price)?;
+    }
+    let len = history.len();
+    if len == 0 {
+        return None;
+    }
+    Some(sum / (len as i128))
+}
+
 #[cfg(test)]
 #[path = "../../../tests/oracle/providers/reflector.rs"]
 mod tests;

@@ -29,8 +29,15 @@ def keep(path: str, mode: str) -> bool:
         return "/contracts/controller/" in path or "/common/" in path
     if mode == "pool":
         return "/contracts/pool/" in path
+    if mode == "price-aggregator":
+        return "/contracts/price-aggregator/" in path or "/common/" in path
     if mode == "merged":
-        return "/contracts/controller/" in path or "/common/" in path or "/contracts/pool/" in path
+        return (
+            "/contracts/controller/" in path
+            or "/common/" in path
+            or "/contracts/pool/" in path
+            or "/contracts/price-aggregator/" in path
+        )
     raise ValueError(f"unsupported mode: {mode}")
 
 
@@ -68,7 +75,11 @@ def write_report(lcov_path: Path, report_path: Path, mode: str) -> tuple[int, in
 
 def main() -> int:
     if len(sys.argv) != 4:
-        print("usage: coverage_report.py <lcov_path> <report_path> <controller|pool|merged>", file=sys.stderr)
+        print(
+            "usage: coverage_report.py <lcov_path> <report_path> "
+            "<controller|pool|price-aggregator|merged>",
+            file=sys.stderr,
+        )
         return 1
 
     lcov_path = Path(sys.argv[1])

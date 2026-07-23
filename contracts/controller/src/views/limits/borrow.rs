@@ -2,12 +2,13 @@
 
 use common::math::fp::Ray;
 use common::rates::{scaled_to_original, utilization};
-use common::types::{Account, DebtPositionRaw, HubAssetKey};
+use common::types::{Account, AssetConfig, DebtPositionRaw, HubAssetKey};
 use common::validation::cap_is_enabled;
 use soroban_sdk::Env;
 
 use crate::context::Cache;
-use crate::{spoke, storage};
+use crate::risk;
+use crate::storage;
 
 use crate::views::limits::{account_gates_ok, MarketLimitCtx};
 
@@ -19,9 +20,6 @@ pub(crate) fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) ->
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
-    if storage::get_asset_oracle(env, &hub_asset.asset).is_none() {
-        return 0;
-    }
 
     let mut cache = Cache::new_view(env);
     if !account_can_borrow_asset(env, &mut cache, &account, hub_asset) {
@@ -85,7 +83,7 @@ fn account_can_borrow_asset(
         return false;
     }
 
-    let config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);
+    let config: AssetConfig = (&spoke_cfg).into();
     if !config.can_borrow() {
         return false;
     }
@@ -137,8 +135,12 @@ fn spoke_borrow_cap_headroom(
     if used_scaled >= cap_scaled {
         return 0;
     }
-    scaled_to_original(env, cap_scaled.checked_sub(env, used_scaled), market.borrow_index)
-        .to_asset(market.decimals)
+    scaled_to_original(
+        env,
+        cap_scaled.checked_sub(env, used_scaled),
+        market.borrow_index,
+    )
+    .to_asset(market.decimals)
 }
 
 /// Exact feasibility replica for borrowing `amount` of `asset`: pool liquidity,
@@ -183,8 +185,8 @@ fn borrow_ok(
         }
     }
 
-    // Account LTV + health-factor gates with the new debt position applied.
     let mut adjusted = account.clone();
+    let _ = risk::restamp_listed_supply_safe_params(cache, &mut adjusted);
     let existing = adjusted
         .borrow_positions
         .get(hub_asset.clone())

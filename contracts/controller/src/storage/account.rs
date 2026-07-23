@@ -1,5 +1,6 @@
 //! Account storage layout.
 
+use crate::constants::MAX_DELEGATES;
 use crate::storage::renew_user_key;
 use common::errors::GenericError;
 use common::types::{
@@ -7,10 +8,6 @@ use common::types::{
     DebtPositionRaw, HubAssetKey,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
-
-/// Cap on per-account delegates. The list loads as one persistent entry, so it
-/// stays bounded; mirrors the instance-tier approval caps.
-const MAX_DELEGATES: u32 = 16;
 
 /// Assembles an `Account` from its metadata and position maps.
 pub(crate) fn account_from_parts(
@@ -167,7 +164,6 @@ pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
         )
     })
 }
-
 
 pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     let meta = get_account_meta(env, account_id);

@@ -543,15 +543,19 @@ fuzz_target!(|i: In| {
             }
             9 => {
                 let amount = amount_from_raw(*price_raw, 1_000_000, 10_000_000_000);
-                let fee = amount / 10;
+                // Pool computes the strategy fee itself; fuzz both fee paths.
+                let charge_fee = amount % 2 == 0;
                 let receiver = Address::generate(&env);
                 let action = PoolAction {
                     position: ScaledPositionRaw { scaled_amount: 0 },
                     amount,
                     hub_asset: market.clone(),
                 };
-                let result =
-                    flatten_contract_result(pool.try_create_strategy(&receiver, &action, &fee));
+                let result = flatten_contract_result(pool.try_create_strategy(
+                    &receiver,
+                    &action,
+                    &charge_fee,
+                ));
                 match result {
                     Ok(out) => {
                         assert!(out.position.scaled_amount >= 0);

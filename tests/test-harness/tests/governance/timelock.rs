@@ -12,7 +12,7 @@
 //! The harness constructor arms a short non-zero delay so scheduled ops sit in
 //! `Waiting` until the ledger advances to `Ready`.
 
-use controller::types::{ControllerKey, MarketOracleConfig, PositionLimits};
+use controller::types::{AssetOracleConfig, ControllerKey, PositionLimits};
 use governance_interface::{
     AdminOperation, ConfigureOracleArgs, EditToleranceArgs, TransferOwnershipArgs,
 };
@@ -337,11 +337,11 @@ fn same_params_distinct_salts_schedule_independently() {
     );
 }
 
-const SET_MARKET_ORACLE_CONFIG: &str = "set_market_oracle_config";
+const SET_MARKET_ORACLE_CONFIG: &str = "set_oracle_config";
 
 // The CLI timelock linchpin (TL-5b): the `resolve_market_oracle_config` view runs
 // the SAME validate+probe path as `propose_configure_market_oracle`, so its output
-// is byte-identical to the resolved `MarketOracleConfig` the proposer scheduled.
+// is byte-identical to the resolved `AssetOracleConfig` the proposer scheduled.
 // If the two diverged by even one field the operation-id hash would not match and
 // `execute` would revert (OZ `InvalidOperationState`). This proves: (1) the view
 // output equals what the controller persists, and (2) feeding the view output as
@@ -365,7 +365,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
 
     // Resolve independently through the read-only view (no schedule, no state
     // change): this is exactly what the CLI invokes under `--send=no`.
-    let resolved: MarketOracleConfig = gov.resolve_market_oracle_config(&asset, &cfg);
+    let resolved: AssetOracleConfig = gov.resolve_market_oracle_config(&asset, &cfg);
 
     // Schedule the same op through the proposer; it stores the resolved struct.
     let id = gov.propose(
@@ -390,11 +390,11 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     // byte-identical to the scheduled args.
     gov.execute(
         &Some(admin.clone()),
-        &t.controller,
+        &t.price_aggregator,
         &Symbol::new(&t.env, SET_MARKET_ORACLE_CONFIG),
         &soroban_sdk::vec![
             &t.env,
-            hub_asset(asset.clone()).into_val(&t.env),
+            asset.clone().into_val(&t.env),
             resolved.clone().into_val(&t.env),
         ],
         &salt(&t.env, 0),
@@ -411,7 +411,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
 }
 
 // The tolerance view mirrors the proposer's `validate_and_calculate_tolerances`
-// path, so its `OraclePriceFluctuation` output replays a `set_oracle_tolerance`
+// path, so its `OracleTolerance` output replays a `set_tolerance`
 // op verbatim at execute time.
 #[test]
 fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
@@ -446,8 +446,8 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
 
     gov.execute(
         &Some(admin.clone()),
-        &t.controller,
-        &Symbol::new(&t.env, "set_oracle_tolerance"),
+        &t.price_aggregator,
+        &Symbol::new(&t.env, "set_tolerance"),
         &soroban_sdk::vec![
             &t.env,
             asset.clone().into_val(&t.env),

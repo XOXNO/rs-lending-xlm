@@ -5,9 +5,9 @@ extern crate std;
 use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs};
 use common::constants::MAX_REASONABLE_PRICE_WAD;
 use common::types::{
-    ControllerKey, HubAssetKey, MarketOracleConfig, MarketOracleConfigInput,
-    MarketOracleConfigOption, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
-    OracleSourceConfigInputOption, OracleStrategy, PositionLimits, ReflectorSourceConfigInput,
+    AssetOracleConfigInput, ControllerKey, HubAssetKey, OracleAssetRef, OracleReadMode,
+    OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
+    ReflectorSourceConfigInput,
 };
 use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
@@ -15,7 +15,7 @@ use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol};
 use stellar_access::ownable;
 
 use crate::access::EXECUTOR_ROLE;
-use crate::test_support::upload_controller_wasm;
+use crate::test_support::{upload_controller_wasm, upload_price_aggregator_wasm};
 use crate::{constants, storage, Governance, GovernanceClient};
 
 fn register_governance(env: &Env) -> (Address, Address, GovernanceClient<'_>) {
@@ -34,8 +34,8 @@ fn register_native_controller(env: &Env, gov_id: &Address, gov: &GovernanceClien
     controller_id
 }
 
-fn sample_oracle_input(env: &Env) -> MarketOracleConfigInput {
-    MarketOracleConfigInput {
+fn sample_oracle_input(env: &Env) -> AssetOracleConfigInput {
+    AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps: 500,
         strategy: OracleStrategy::Single,
@@ -100,6 +100,57 @@ fn deploy_controller_twice_panics() {
     let wasm_hash = upload_controller_wasm(&env);
     gov.deploy_controller(&wasm_hash);
     gov.deploy_controller(&wasm_hash);
+}
+
+#[test]
+fn deploy_price_aggregator_stores_address_and_governance_owns_it() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (_, gov_id, gov) = register_governance(&env);
+
+    let wasm_hash = upload_price_aggregator_wasm(&env);
+    let aggregator_id = gov.deploy_price_aggregator(&wasm_hash);
+
+    assert_eq!(gov.price_aggregator(), aggregator_id);
+    env.as_contract(&aggregator_id, || {
+        assert_eq!(ownable::get_owner(&env), Some(gov_id.clone()));
+    });
+}
+
+// Bootstrap wiring: deploying the price aggregator after the controller
+// exists must point the controller at it atomically (no timelock), so the
+// oracle authority is usable the moment it is deployed.
+#[test]
+fn deploy_price_aggregator_wires_the_controller() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (_, _gov_id, gov) = register_governance(&env);
+
+    let controller_id = gov.deploy_controller(&upload_controller_wasm(&env));
+    let aggregator_id = gov.deploy_price_aggregator(&upload_price_aggregator_wasm(&env));
+
+    // Governance stored it AND the controller now points at the same address.
+    assert_eq!(gov.price_aggregator(), aggregator_id);
+    let ctrl = controller::ControllerClient::new(&env, &controller_id);
+    assert_eq!(ctrl.price_aggregator(), aggregator_id);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn deploy_price_aggregator_twice_panics() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (_, _, gov) = register_governance(&env);
+
+    let wasm_hash = upload_price_aggregator_wasm(&env);
+    gov.deploy_price_aggregator(&wasm_hash);
+    gov.deploy_price_aggregator(&wasm_hash);
 }
 
 #[test]
@@ -171,7 +222,7 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
             args: vec![
                 &env,
                 admin.clone().into_val(&env),
-                op.clone().into_val(&env)
+                op.clone().into_val(&env),
             ],
             sub_invokes: &[],
         },
@@ -253,7 +304,7 @@ fn set_aggregator_rejects_non_contract_address() {
 
     gov.execute_immediate(
         &admin,
-        &AdminOperation::SetAggregator(Address::generate(&env)),
+        &AdminOperation::SetSwapAggregator(Address::generate(&env)),
     );
 }
 
@@ -267,7 +318,7 @@ fn set_aggregator_rejects_stellar_asset_contract() {
         .register_stellar_asset_contract_v2(admin.clone())
         .address();
 
-    gov.execute_immediate(&admin, &AdminOperation::SetAggregator(stellar_asset));
+    gov.execute_immediate(&admin, &AdminOperation::SetSwapAggregator(stellar_asset));
 }
 
 // The Wasm-executable acceptance leg of `require_contract_address`: a real
@@ -283,13 +334,13 @@ fn set_aggregator_accepts_wasm_contract_address() {
 
     gov.execute_immediate(
         &admin,
-        &AdminOperation::SetAggregator(controller_id.clone()),
+        &AdminOperation::SetSwapAggregator(controller_id.clone()),
     );
 
     let stored: Address = env.as_contract(&controller_id, || {
         env.storage()
             .instance()
-            .get(&ControllerKey::Aggregator)
+            .get(&ControllerKey::SwapAggregator)
             .expect("aggregator stored")
     });
     assert_eq!(stored, controller_id);
@@ -390,45 +441,8 @@ fn edit_asset_in_spoke_rejects_bad_risk_bounds_before_any_cross_call() {
         liquidation_fees: 100,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: MarketOracleConfigOption::None,
     };
     gov.execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #226)")]
-fn add_asset_to_spoke_rejects_wide_single_source_override_at_propose_time() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (admin, _, gov) = register_governance(&env);
-    let asset = Address::generate(&env);
-    let salt = BytesN::from_array(&env, &[0u8; 32]);
-
-    // A `Single`-strategy override whose sanity band is far wider than
-    // `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`: (2_000 - 1_000) / (2_000 + 1_000) is
-    // ~3_333 bps. `resolve_op` must reject it before scheduling, not at execute
-    // time after the timelock delay.
-    let mut override_cfg = MarketOracleConfig::pending_for(asset.clone(), 7);
-    override_cfg.min_sanity_price_wad = 1_000;
-    override_cfg.max_sanity_price_wad = 2_000;
-
-    let args = SpokeAssetArgs {
-        hub_id: 1,
-        asset,
-        spoke_id: 1,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        ltv: 7_500,
-        threshold: 8_000,
-        bonus: 500,
-        liquidation_fees: 100,
-        supply_cap: 0,
-        borrow_cap: 0,
-        oracle_override: MarketOracleConfigOption::Some(override_cfg),
-    };
-    gov.propose(&admin, &AdminOperation::AddAssetToSpoke(args), &salt);
 }
 
 // Admin entrypoints renew instance TTL for ownable, role, and controller keys.
@@ -506,7 +520,6 @@ fn propose_resolves_all_controller_and_self_variants() {
         }),
         &salt(),
     );
-    gov.propose(&admin, &AdminOperation::RevokeToken(asset.clone()), &salt());
     gov.propose(
         &admin,
         &AdminOperation::RevokeBlendPool(Address::generate(&env)),
@@ -670,30 +683,33 @@ fn guardian_set_spoke_asset_flags_reaches_controller_listing_check() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #2000)")]
-fn set_oracle_sanity_bounds_requires_oracle_role() {
+fn set_sanity_band_requires_oracle_role() {
     let env = Env::default();
     env.mock_all_auths();
     let (_, gov_id, gov) = register_governance(&env);
     register_native_controller(&env, &gov_id, &gov);
     let stranger = Address::generate(&env);
 
-    gov.set_oracle_sanity_bounds(&stranger, &Address::generate(&env), &1i128, &2i128);
+    gov.set_sanity_band(&stranger, &Address::generate(&env), &1i128, &2i128);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #12)")]
-fn oracle_set_sanity_bounds_reaches_controller_pair_check() {
+#[should_panic(expected = "Error(Contract, #216)")]
+fn oracle_set_sanity_bounds_reaches_aggregator_config_check() {
     use crate::access::ORACLE_ROLE;
     let env = Env::default();
     env.mock_all_auths();
     let (admin, gov_id, gov) = register_governance(&env);
     register_native_controller(&env, &gov_id, &gov);
+    let aggregator = env.register(price_aggregator::PriceAggregator, (gov_id.clone(),));
+    gov.set_price_aggregator(&aggregator);
     let bot = Address::generate(&env);
     grant_incident_role(&env, &admin, &gov, &bot, ORACLE_ROLE);
 
-    // No oracle configured for the asset: the controller's PairNotActive
-    // proves the forwarding happened.
-    gov.set_oracle_sanity_bounds(&bot, &Address::generate(&env), &1i128, &2i128);
+    // No oracle configured for the asset: the price-aggregator's
+    // OracleNotConfigured (#216) proves the ORACLE role sanity-band forwarding
+    // reached the authority.
+    gov.set_sanity_band(&bot, &Address::generate(&env), &1i128, &2i128);
 }
 
 #[test]

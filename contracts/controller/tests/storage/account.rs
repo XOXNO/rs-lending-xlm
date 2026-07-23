@@ -1,4 +1,5 @@
 use super::*;
+use crate::constants::MAX_DELEGATES;
 use crate::Controller;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};

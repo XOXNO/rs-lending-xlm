@@ -109,7 +109,7 @@ jobs:
 
   miri:
     if: github.event_name == 'pull_request'
-    name: Miri pass (common + pool::interest + controller::helpers)
+    name: Miri pass (common fp_core)
     runs-on: self-hosted
     # rust-toolchain.toml pins the repo to 1.95, but this job is nightly-only and
     # its isolated RUSTUP_HOME never installs 1.95. Pin the job to nightly so
@@ -139,9 +139,18 @@ jobs:
   # mutation-tested nightly).
   mutants-diff:
     if: github.event_name == 'pull_request'
-    name: Mutants (PR diff)
+    name: Mutants (PR diff) ${{ matrix.shard }}
     runs-on: self-hosted
     timeout-minutes: 360
+    strategy:
+      # Each shard tests a disjoint 1/N slice of the diff's mutants on its own
+      # runner, so wall time drops ~linearly with the shard count. `fail-fast:
+      # false` lets every shard report its own missed mutants instead of one
+      # shard cancelling the rest.
+      fail-fast: false
+      matrix:
+        # 0..N-1; keep in sync with the `/N` denominator in the run step.
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -161,23 +170,55 @@ jobs:
           toolchain: '1.95'
           targets: wasm32v1-none
 
-      - name: Install cargo-mutants
+      # cargo-mutants runs the tests; nextest parallelises the surviving-mutant
+      # test runs; mold slashes the per-mutant native relink (the real
+      # bottleneck), applied to the HOST target only (see RUSTFLAGS below) so
+      # the wasm32v1-none fixture build keeps its own linker.
+      - name: Install cargo-mutants + nextest
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
+          tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }},cargo-nextest
 
+      # mold slashes the per-mutant native relink (the real bottleneck), but it
+      # is a C++ linker (not a cargo tool) and needs gcc >= 12.1 to drive it.
+      # Install it from the official release and enable `-fuse-ld=mold` for the
+      # HOST target ONLY if a real rustc link test succeeds — so a download
+      # failure or an older gcc falls back to the default linker instead of
+      # breaking the shard. Never applied to the wasm32v1-none fixture build.
+      - name: Setup mold (best-effort host linker)
+        run: |
+          set -u
+          MOLD_VER=2.34.1
+          MOLD_DIR="$RUNNER_TEMP/mold-${MOLD_VER}-x86_64-linux"
+          if ! curl -fsSL "https://github.com/rui314/mold/releases/download/v${MOLD_VER}/mold-${MOLD_VER}-x86_64-linux.tar.gz" | tar -xz -C "$RUNNER_TEMP"; then
+            echo "mold download failed; using default linker"
+            exit 0
+          fi
+          echo "$MOLD_DIR/bin" >> "$GITHUB_PATH"
+          echo 'fn main(){}' > "$RUNNER_TEMP/moldcheck.rs"
+          if PATH="$MOLD_DIR/bin:$PATH" rustc -C link-arg=-fuse-ld=mold -o "$RUNNER_TEMP/moldcheck" "$RUNNER_TEMP/moldcheck.rs" 2>/dev/null; then
+            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-C link-arg=-fuse-ld=mold" >> "$GITHUB_ENV"
+            echo "mold enabled for host builds"
+          else
+            echo "toolchain cannot link with mold (gcc < 12.1?); using default linker"
+          fi
+
+      # Per-shard `target-mutants` cache: `--in-place` reuses the warm tree, so
+      # each shard's incremental per-mutant rebuild stays fast. `target/` is
+      # deliberately NOT cached (wasm fixtures are rebuilt from source; a
+      # restored `target/` can resurrect artifacts from an older commit).
       - name: Cache cargo
         uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
             target-mutants
-          key: ${{ runner.os }}-mutants-diff-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
+          key: ${{ runner.os }}-mutants-diff-v3-s${{ matrix.shard }}-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
           restore-keys: |
-            ${{ runner.os }}-mutants-diff-
-            ${{ runner.os }}-mutants-
+            ${{ runner.os }}-mutants-diff-v3-s${{ matrix.shard }}-
+            ${{ runner.os }}-mutants-diff-v3-
+            ${{ runner.os }}-mutants-diff-v2-
 
       - name: Install stellar-cli
         run: bash .github/scripts/install-stellar-cli.sh
@@ -187,18 +228,29 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: git diff "$BASE_SHA"...HEAD > pr.diff
 
-      - name: Mutate changed lines
-        # Same CARGO_TARGET_DIR isolation as the matrix jobs (see above).
+      - name: Mutate changed lines (shard ${{ matrix.shard }}/4)
         env:
-          CARGO_BUILD_JOBS: '4'
+          # `--in-place` keeps this shard's `target-mutants` cache warm (fast
+          # incremental per mutant) and is inherently serial — so parallelism
+          # comes from the shard matrix (across runners), while each serial
+          # mutant build still uses all 8 cores via CARGO_BUILD_JOBS. This
+          # beats `-j` (copy-based, which cold-builds per worker and loses the
+          # cache) for a cache-warm runner.
+          CARGO_BUILD_JOBS: '8'
           CARGO_TARGET_DIR: target-mutants
-        run: make mutants-diff MUTANTS_RUN_MODE=--in-place
+          # mold's host RUSTFLAGS is exported to $GITHUB_ENV by the setup step
+          # above only when a link test proves the toolchain supports it.
+        run: >-
+          make mutants-diff
+          MUTANTS_RUN_MODE=--in-place
+          MUTANTS_SHARD=${{ matrix.shard }}/4
+          MUTANTS_TEST_TOOL=nextest
 
       - name: Upload mutation results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: mutants-artifacts-diff-${{ github.run_id }}-${{ github.run_attempt }}
+          name: mutants-artifacts-diff-s${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: mutants.out/
           if-no-files-found: ignore
           retention-days: 7

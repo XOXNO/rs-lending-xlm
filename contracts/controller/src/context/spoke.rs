@@ -6,7 +6,7 @@
 
 use common::errors::{GenericError, SpokeError};
 use common::types::{HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
-use soroban_sdk::{assert_with_error, panic_with_error, Map};
+use soroban_sdk::{assert_with_error, panic_with_error};
 
 use crate::context::Cache;
 use crate::spoke::SpokeUsageContext;
@@ -25,14 +25,12 @@ impl Cache {
         self.spoke_usage = Some(SpokeUsageContext::new(&self.env, spoke_id));
     }
 
-    /// Drop spoke usage/config memos and spoke-override prices so the next
-    /// account can bind another spoke. Token-rooted caches (prices, oracle
-    /// configs, RedStone prefetch, pool sync, market indexes) survive.
+    /// Drop spoke usage/config memos so the next account can bind another spoke.
+    /// Token-rooted caches (prices, pool sync, market indexes) survive.
     ///
     /// Call only after `persist_spoke_usage` if usage was mutated.
     pub(crate) fn reset_spoke_context(&mut self) {
         self.spoke_usage = None;
-        self.spoke_prices = Map::new(&self.env);
     }
 
     /// Mutable per-spoke usage context, initializing for `spoke_id` when unset.
@@ -78,7 +76,11 @@ impl Cache {
     }
 
     /// Buffered per-spoke usage for `hub_asset`, lazily loaded from storage.
-    pub(crate) fn cached_spoke_usage(&mut self, spoke_id: u32, hub_asset: &HubAssetKey) -> SpokeUsageRaw {
+    pub(crate) fn cached_spoke_usage(
+        &mut self,
+        spoke_id: u32,
+        hub_asset: &HubAssetKey,
+    ) -> SpokeUsageRaw {
         let env = self.env.clone();
         self.require_spoke_usage_context(spoke_id)
             .spoke_usage(&env, hub_asset)

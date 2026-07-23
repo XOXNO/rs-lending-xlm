@@ -183,8 +183,20 @@ impl LendingTestBuilder {
         );
         let gov = governance::GovernanceClient::new(&env, &governance_address);
 
+        // Price-aggregator (oracle authority), owned by governance. Governance
+        // routes oracle-config ops here; the controller reads prices from it.
+        let price_aggregator_address = env.register(
+            price_aggregator::PriceAggregator,
+            (governance_address.clone(),),
+        );
+        gov.set_price_aggregator(&price_aggregator_address);
+
         let controller_address = env.register(controller::Controller, (admin.clone(),));
         gov.set_controller(&controller_address);
+        gov.execute_immediate(
+            &admin,
+            &AdminOperation::SetPriceAggregator(price_aggregator_address.clone()),
+        );
 
         // The controller deploys paused. Resume it directly (owner is `admin`
         // here); global unpause is otherwise a timelocked `AdminOperation`.
@@ -216,7 +228,7 @@ impl LendingTestBuilder {
 
         gov.execute_immediate(
             &admin,
-            &AdminOperation::SetAggregator(aggregator_address.clone()),
+            &AdminOperation::SetSwapAggregator(aggregator_address.clone()),
         );
 
         let treasury = Address::generate(&env);
@@ -282,7 +294,6 @@ impl LendingTestBuilder {
             // spoke model; thread them from the asset-config preset the test set.
             market_params.is_flashloanable = pm.config.is_flashloanable;
             market_params.flashloan_fee = pm.config.flashloan_fee;
-            gov.execute_immediate(&admin, &AdminOperation::ApproveToken(asset_address.clone()));
             let pool_address_val = gov.execute_immediate(
                 &admin,
                 &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
@@ -389,7 +400,6 @@ impl LendingTestBuilder {
                         liquidation_fees: 0,
                         supply_cap: 0i128,
                         borrow_cap: 0i128,
-                        oracle_override: controller::types::MarketOracleConfigOption::None,
                     }),
                 );
             }
@@ -406,6 +416,7 @@ impl LendingTestBuilder {
             controller: controller_address,
             mock_reflector: mock_reflector_address,
             aggregator: aggregator_address,
+            price_aggregator: price_aggregator_address,
             keeper,
             users: HashMap::new(),
             markets,

@@ -61,37 +61,51 @@ fn bench_liquidate_5_supply_5_borrow_within_default_budget() {
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut t = build_ctx();
 
-        // Alice supplies across all 5 markets.
-        t.supply(ALICE, "USDC", 5_000.0);
-        t.supply(ALICE, "USDT", 5_000.0);
-        t.supply(ALICE, "ETH", 2.0); //   ~$4_000
-        t.supply(ALICE, "WBTC", 0.05); // ~$3_000
-        t.supply(ALICE, "XLM", 50_000.0); // ~$5_000
+        // Alice holds a supply *and* a borrow position in every one of the 5
+        // markets (the full 5/5 diagonal), but is net-long the stables and
+        // net-short the volatile assets. A uniform price move preserves the
+        // health factor, so liquidatability is driven by the *relative* crash
+        // of the stable collateral below, not by the absolute price level.
+        t.supply(ALICE, "USDC", 8_000.0); //  $8_000
+        t.supply(ALICE, "USDT", 8_000.0); //  $8_000
+        t.supply(ALICE, "XLM", 80_000.0); // ~$8_000
+        t.supply(ALICE, "ETH", 0.01); //     ~$20
+        t.supply(ALICE, "WBTC", 0.001); //   ~$60
 
-        // Alice borrows from all 5 markets, but at conservative LTV so the
-        // initial borrow succeeds.
-        t.borrow(ALICE, "USDC", 1_000.0);
-        t.borrow(ALICE, "USDT", 1_000.0);
-        t.borrow(ALICE, "ETH", 0.4);
-        t.borrow(ALICE, "WBTC", 0.01);
-        t.borrow(ALICE, "XLM", 10_000.0);
+        // Bootstrap borrowable liquidity in the volatile markets. `with_market`
+        // seeds pool cash but not deposited principal, so a market's utilization
+        // ceiling is measured against real supply; a second supplier lets Alice
+        // borrow ETH/WBTC beyond her own dust supply in those markets.
+        t.supply("BOOT", "ETH", 10.0);
+        t.supply("BOOT", "WBTC", 1.0);
 
-        // Push collateral prices down so HF drops below 1 and Alice becomes
-        // liquidatable. Halve every collateral price; debt prices stay flat.
-        t.set_price("USDC", WAD * 50 / 100);
-        t.set_price("USDT", WAD * 50 / 100);
-        t.set_price("ETH", WAD * 1_000);
-        t.set_price("WBTC", WAD * 30_000);
-        t.set_price("XLM", WAD * 5 / 100); // $0.05
+        // Borrow the volatile assets against the stable collateral at
+        // conservative sizes that stay under each market's utilization ceiling,
+        // plus a dust borrow in each stable to open the borrow position.
+        t.borrow(ALICE, "ETH", 0.4); //   ~$800
+        t.borrow(ALICE, "WBTC", 0.01); // ~$600
+        t.borrow(ALICE, "USDC", 10.0);
+        t.borrow(ALICE, "USDT", 10.0);
+        t.borrow(ALICE, "XLM", 100.0);
+
+        // Crash the stable collateral relative to the volatile debt. The
+        // stables carry ~$24k of Alice's collateral; collapsing them to $0.01
+        // drops weighted collateral (~$844) below the ~$1.4k volatile debt, so
+        // HF < 1.
+        t.set_price("USDC", WAD / 100); // $0.01
+        t.set_price("USDT", WAD / 100); // $0.01
+        t.set_price("XLM", WAD / 100); //  $0.01
+
+        t.assert_liquidatable(ALICE);
 
         // Submit a 5-asset debt payment vector. Use small amounts so the
         // partial-liquidation path doesn't panic on `repay > debt`.
         let payments: &[(&str, f64)] = &[
-            ("USDC", 100.0),
-            ("USDT", 100.0),
+            ("USDC", 1.0),
+            ("USDT", 1.0),
             ("ETH", 0.04),
             ("WBTC", 0.001),
-            ("XLM", 1_000.0),
+            ("XLM", 10.0),
         ];
 
         t.liquidate_multi(LIQUIDATOR, ALICE, payments);

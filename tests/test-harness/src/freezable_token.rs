@@ -98,7 +98,10 @@ fn do_transfer(env: &Env, from: &Address, to: &Address, amount: i128) {
         assert!(*to != blocked, "freezable token: recipient not authorized");
     }
     let from_balance = read_balance(env, from);
-    assert!(from_balance >= amount, "freezable token: insufficient balance");
+    assert!(
+        from_balance >= amount,
+        "freezable token: insufficient balance"
+    );
     write_balance(env, from, from_balance - amount);
     let to_balance = read_balance(env, to);
     write_balance(env, to, to_balance + amount);

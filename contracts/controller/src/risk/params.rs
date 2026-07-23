@@ -4,13 +4,10 @@ use common::math::fp::{Bps, Wad};
 use common::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig, HubAssetKey};
 use soroban_sdk::{Env, Map};
 
+use crate::account::update_or_remove_supply_position;
+use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Cache;
-use crate::spoke;
-
 use crate::risk::calculate_account_risk_totals;
-
-/// Minimum HF (1.05 WAD) required before lowering a position's liquidation threshold.
-pub const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;
 
 pub(crate) fn refresh_supply_risk_params(
     env: &Env,
@@ -33,8 +30,7 @@ pub(crate) fn refresh_supply_risk_params(
     );
 }
 
-/// Re-stamps risk params while the listing exists (incl. deprecated spoke);
-/// delisted members keep stamped params.
+/// Re-stamps LTV, LT, bonus, and fees from the spoke listing when present.
 pub(crate) fn refresh_supply_risk_params_for_asset(
     env: &Env,
     cache: &mut Cache,
@@ -42,14 +38,43 @@ pub(crate) fn refresh_supply_risk_params_for_asset(
     hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
 ) {
-    if cache
-        .cached_spoke_asset(account.spoke_id, hub_asset)
-        .is_none()
-    {
+    let Some(listed) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
         return;
-    }
-    let config = spoke::effective_asset_config(cache, account.spoke_id, hub_asset);
+    };
+    let config: AssetConfig = (&listed).into();
     refresh_supply_risk_params(env, cache, account, hub_asset, position, &config);
+}
+
+/// Sets each supply leg's LTV, liquidation bonus, and fees from the spoke listing.
+/// Does not change liquidation threshold. Returns true if any leg was updated.
+pub(crate) fn restamp_listed_supply_safe_params(
+    cache: &mut Cache,
+    account: &mut Account,
+) -> bool {
+    let mut changed = false;
+    let keys = account.supply_positions.keys();
+    for hub_asset in keys.iter() {
+        let Some(listed) = cache.cached_spoke_asset(account.spoke_id, &hub_asset) else {
+            continue;
+        };
+        let config: AssetConfig = (&listed).into();
+        let Some(raw) = account.supply_positions.get(hub_asset.clone()) else {
+            continue;
+        };
+        let mut position = AccountPosition::from(&raw);
+        if position.loan_to_value.raw() == config.loan_to_value.raw()
+            && position.liquidation_bonus.raw() == config.liquidation_bonus.raw()
+            && position.liquidation_fees.raw() == config.liquidation_fees.raw()
+        {
+            continue;
+        }
+        position.loan_to_value = config.loan_to_value;
+        position.liquidation_bonus = config.liquidation_bonus;
+        position.liquidation_fees = config.liquidation_fees;
+        update_or_remove_supply_position(account, &hub_asset, &position);
+        changed = true;
+    }
+    changed
 }
 
 fn apply_liquidation_threshold(

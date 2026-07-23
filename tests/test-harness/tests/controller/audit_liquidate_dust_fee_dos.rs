@@ -29,7 +29,10 @@ fn xlm_supply_index(t: &LendingTest) -> i128 {
     let asset = t.resolve_asset("XLM");
     let ctrl = t.ctrl_client();
     let assets = Vec::from_array(&t.env, [hub_asset(asset)]);
-    ctrl.get_market_indexes_detailed(&assets).get(0).unwrap().supply_index
+    ctrl.get_market_indexes_detailed(&assets)
+        .get(0)
+        .unwrap()
+        .supply_index
 }
 
 fn alice_xlm_scaled(t: &LendingTest) -> i128 {

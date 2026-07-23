@@ -41,7 +41,7 @@ SHELL := /bin/bash
         certora certora-list \
         test test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
-        coverage coverage-controller coverage-pool coverage-merged \
+        coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
         wasm-size-check wasm-testing-abi-check act-ci act-ci-dryrun clean install-stellar-cli \
         _mutants-check _mutants-harness-prepare \
@@ -82,6 +82,9 @@ WASM_ARTIFACTS_DIR := artifacts/wasm
 DEPLOY_DIR := $(WASM_ARTIFACTS_DIR)/deploy
 CERTORA_WASM_DIR := $(WASM_ARTIFACTS_DIR)/certora
 CERTORA_BUILD_DIR := target/certora-build
+# Certora modules are large; parallel rustc jobs can starve the local Prover's
+# Java/Z3 processes on developer workstations. Override only with measured RAM.
+CERTORA_BUILD_JOBS ?= 1
 COV_DIR := target/coverage
 TEST_HARNESS_DIR := tests/test-harness
 FUZZ_DIR := tests/fuzz
@@ -90,7 +93,7 @@ FUZZ_DIR := tests/fuzz
 CONTRACTS := pool controller governance
 
 # WASM artifacts gated by `wasm-size-check` (optimized + spec-doc stripped).
-WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy
+WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy price_aggregator
 
 # Coverage exclusions (no executable code / stubs only).
 # Exclude test scaffolding (tests/test-harness internals, the Certora
@@ -119,6 +122,7 @@ ORACLE_ADAPTER_RESOLUTION ?= 60
 POOL_WASM_HASH_FILE ?= target/pool_wasm_hash.txt
 POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
 CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
+PRICE_AGGREGATOR_WASM_HASH_FILE ?= target/price_aggregator_wasm_hash.txt
 GOVERNANCE_WASM_HASH_FILE ?= target/governance_wasm_hash.txt
 SIGNER_ADDRESS = $$(stellar keys public-key $(SIGNER) 2>/dev/null || stellar keys address $(SIGNER) 2>/dev/null || echo $(SIGNER))
 
@@ -196,24 +200,36 @@ deploy-artifacts: optimize
 ## Stellar's post-build optimizer can produce WASM that passes wasm-validate but crashes
 ## Certora's GC stack checker on large controller binaries (FunctionIndex_* ref stack errors).
 certora-wasm:
-	@mkdir -p $(CERTORA_WASM_DIR)
-	@for pkg in common pool controller; do \
-		echo "Building certora $$pkg (optimize=false)..."; \
-		CARGO_TARGET_DIR="$(CERTORA_BUILD_DIR)/$$pkg" \
-			stellar contract build --package $$pkg --features certora --optimize=false; \
-		src="$(CERTORA_BUILD_DIR)/$$pkg/$(WASM_TARGET)/release/$$pkg.wasm"; \
-		dst="$(CERTORA_WASM_DIR)/$$pkg.wasm"; \
+	@set -euo pipefail; \
+	mkdir -p $(CERTORA_WASM_DIR) $(CERTORA_BUILD_DIR); \
+	source_snapshot=$$(mktemp "$(CERTORA_BUILD_DIR)/focused-inputs.XXXXXX"); \
+	trap '/bin/rm -f -- "$$source_snapshot"' EXIT; \
+	python3 certora/scripts/write_wasm_manifest.py \
+		--write-input-snapshot "$$source_snapshot"; \
+	python3 certora/scripts/focused_wasm.py | while IFS='|' read -r layer pkg feature artifact build_key; do \
+		echo "Building focused certora $$layer/$$feature (optimize=false)..."; \
+		src="$(CERTORA_BUILD_DIR)/focused/$(WASM_TARGET)/release/$${pkg//-/_}.wasm"; \
+		/bin/rm -f "$$src"; \
+		CARGO_BUILD_JOBS="$(CERTORA_BUILD_JOBS)" \
+		CARGO_TARGET_DIR="$(CERTORA_BUILD_DIR)/focused" \
+			stellar contract build --package $$pkg \
+				--features "certora,certora-focused,$$feature" --optimize=false; \
+		test -s "$$src"; \
+		dst="$(CERTORA_WASM_DIR)/$$artifact"; \
 		/bin/cp -f "$$src" "$$dst"; \
-	done
-	@$(MAKE) --no-print-directory _wasm-manifest CERTORA=1
-	@echo ""
-	@echo "Certora WASM ($(CERTORA_WASM_DIR)):"
-	@ls -lh $(CERTORA_WASM_DIR)/*.wasm 2>/dev/null
+	done; \
+	python3 certora/scripts/write_wasm_manifest.py \
+		--certora --input-snapshot "$$source_snapshot"; \
+	python3 certora/scripts/write_wasm_manifest.py \
+		--check-input-snapshot "$$source_snapshot"; \
+	echo ""; \
+	echo "Certora WASM ($(CERTORA_WASM_DIR)):"; \
+	ls -lh $(CERTORA_WASM_DIR)/*.wasm 2>/dev/null
 
 ## WASM for live testnet harness: deploy-sized main contracts + optimized mocks.
 integration-wasm: deploy-artifacts
 	@mkdir -p $(OPTIMIZED_DIR)
-	@for wasm in controller pool governance flash_loan_receiver defindex_strategy; do \
+	@for wasm in controller pool governance flash_loan_receiver defindex_strategy price_aggregator; do \
 		cp "$(DEPLOY_DIR)/$$wasm.wasm" "$(OPTIMIZED_DIR)/$$wasm.wasm"; \
 	done
 	@for pkg in mock_oracle mock_redstone; do \
@@ -229,7 +245,7 @@ integration-wasm: deploy-artifacts
 	done
 	@echo ""
 	@echo "Integration WASM ($(OPTIMIZED_DIR)):"
-	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,defindex_strategy,mock_oracle,mock_redstone}.wasm 2>/dev/null
+	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,defindex_strategy,price_aggregator,mock_oracle,mock_redstone}.wasm 2>/dev/null
 
 ## Generate fresh appendix.md for the integration harness from test-harness
 ## budget/footprint tests (addresses stale appendix weakness).
@@ -329,92 +345,110 @@ miri-common:
 		fp_core::tests::test_rescale \
 		fp_core::tests::test_div_by_int
 
-## Run Miri on pool::interest pure-arithmetic paths.
-miri-pool:
-	@cd contracts/pool && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation" \
-		cargo +nightly miri test --lib -- \
-		interest::
-
-## Run Miri on controller::helpers pure-arithmetic paths.
-miri-controller:
-	@cd contracts/controller && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation" \
-		cargo +nightly miri test --lib -- \
-		helpers::
-
-## Run all Miri checks (common + pool + controller pure paths).
-miri-all: miri-common miri-pool miri-controller
+## Run all Miri checks. Scope is the pure fp_core arithmetic only: the former
+## pool::interest and controller::helpers scopes now run on a full Soroban
+## host (Env + registered contract + storage), which Miri interprets ~1000x
+## slower — a single such test exceeds the 6h CI job timeout. Host-bound
+## tests add no Miri-checkable UB surface beyond the pure math they call.
+miri-all: miri-common
 
 # ---------------------------------------------------------------------------
 # Coverage
 # ---------------------------------------------------------------------------
+# Canonical IDE path (Coverage Gutters, etc.): repo-root `lcov.info` (gitignored).
+# Written after each coverage target so tools that only look for `lcov.info` work.
 
 ## Run coverage and print summary to CLI
 coverage: coverage-merged
+
+# `--no-fail-fast`: one failing harness binary must not skip later ones
+# (e.g. `controller` before `strategy`); otherwise strategy modules report 0%.
+# `set -o pipefail` + tee: preserve cargo exit status when summarizing with tail.
+define COV_RUN_HARNESS
+	backup="$(COV_DIR)/snapshots-backup"; \
+	restore_snapshots() { \
+		rm -rf $(TEST_HARNESS_DIR)/test_snapshots; \
+		mkdir -p $(TEST_HARNESS_DIR)/test_snapshots; \
+		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/ 2>/dev/null || true; \
+	}; \
+	rm -rf "$$backup" && mkdir -p "$$backup" $(TEST_HARNESS_DIR)/test_snapshots; \
+	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
+	trap 'restore_snapshots' EXIT; \
+	set -o pipefail; \
+	cargo llvm-cov test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- --test-threads=1 2>&1 | tee $(COV_DIR)/harness.log | tail -20
+endef
 
 coverage-controller:
 	@echo "Running controller coverage (common + controller unit tests + test-harness)..."
 	@mkdir -p $(COV_DIR)
 	@cargo llvm-cov clean --workspace
-	@cargo llvm-cov test -p common --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
-	@cargo llvm-cov test -p controller --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
-	@backup="$(COV_DIR)/snapshots-backup"; \
-	restore_snapshots() { \
-		rm -rf $(TEST_HARNESS_DIR)/test_snapshots; \
-		mkdir -p $(TEST_HARNESS_DIR)/test_snapshots; \
-		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/ 2>/dev/null || true; \
-	}; \
-	rm -rf "$$backup" && mkdir -p "$$backup" $(TEST_HARNESS_DIR)/test_snapshots; \
-	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
-	trap 'restore_snapshots' EXIT; \
-	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p common --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p controller --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@$(COV_RUN_HARNESS)
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/controller.lcov.info $(COV_IGNORE) >/dev/null
 	@python3 scripts/coverage_report.py \
 		$(COV_DIR)/controller.lcov.info \
 		$(COV_DIR)/controller-report.md \
 		controller
+	@cp -f $(COV_DIR)/controller.lcov.info lcov.info
 	@echo "Reports saved to:"
 	@echo "  $(COV_DIR)/controller.lcov.info"
 	@echo "  $(COV_DIR)/controller-report.md"
+	@echo "  lcov.info  (IDE default; copy of $(COV_DIR)/controller.lcov.info)"
 
 coverage-pool:
 	@echo "Running pool coverage (direct pool unit tests)..."
 	@mkdir -p $(COV_DIR)
 	@cargo llvm-cov clean --workspace
-	@cargo llvm-cov test -p pool --no-report $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p pool --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/pool.lcov.info $(COV_IGNORE) >/dev/null
 	@python3 scripts/coverage_report.py \
 		$(COV_DIR)/pool.lcov.info \
 		$(COV_DIR)/pool-report.md \
 		pool
+	@cp -f $(COV_DIR)/pool.lcov.info lcov.info
 	@echo "Reports saved to:"
 	@echo "  $(COV_DIR)/pool.lcov.info"
 	@echo "  $(COV_DIR)/pool-report.md"
+	@echo "  lcov.info  (IDE default; copy of $(COV_DIR)/pool.lcov.info)"
 
-coverage-merged:
-	@echo "Running merged coverage (common + controller + pool + test-harness)..."
+coverage-price-aggregator:
+	@echo "Running price-aggregator coverage (common + aggregator unit tests)..."
 	@mkdir -p $(COV_DIR)
 	@cargo llvm-cov clean --workspace
-	@cargo llvm-cov test -p common --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
-	@cargo llvm-cov test -p pool --no-report $(COV_IGNORE) 2>&1 | tail -5
-	@cargo llvm-cov test -p controller --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
-	@backup="$(COV_DIR)/snapshots-backup"; \
-	restore_snapshots() { \
-		rm -rf $(TEST_HARNESS_DIR)/test_snapshots; \
-		mkdir -p $(TEST_HARNESS_DIR)/test_snapshots; \
-		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/ 2>/dev/null || true; \
-	}; \
-	rm -rf "$$backup" && mkdir -p "$$backup" $(TEST_HARNESS_DIR)/test_snapshots; \
-	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
-	trap 'restore_snapshots' EXIT; \
-	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
-	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null
+	@set -o pipefail; cargo llvm-cov test -p common --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p price-aggregator --features testing --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/price-aggregator.lcov.info $(COV_IGNORE) >/dev/null
 	@python3 scripts/coverage_report.py \
+		$(COV_DIR)/price-aggregator.lcov.info \
+		$(COV_DIR)/price-aggregator-report.md \
+		price-aggregator
+	@cp -f $(COV_DIR)/price-aggregator.lcov.info lcov.info
+	@echo "Reports saved to:"
+	@echo "  $(COV_DIR)/price-aggregator.lcov.info"
+	@echo "  $(COV_DIR)/price-aggregator-report.md"
+	@echo "  lcov.info  (IDE default; copy of $(COV_DIR)/price-aggregator.lcov.info)"
+
+coverage-merged:
+	@echo "Running merged coverage (common + controller + pool + price-aggregator + test-harness)..."
+	@mkdir -p $(COV_DIR)
+	@cargo llvm-cov clean --workspace
+	@set -o pipefail; cargo llvm-cov test -p common --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p pool --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p price-aggregator --features testing --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p controller --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@-$(COV_RUN_HARNESS); harness_status=$$?; \
+	cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null; \
+	python3 scripts/coverage_report.py \
 		$(COV_DIR)/merged.lcov.info \
 		$(COV_DIR)/merged-report.md \
-		merged
-	@echo "Reports saved to:"
-	@echo "  $(COV_DIR)/merged.lcov.info"
-	@echo "  $(COV_DIR)/merged-report.md"
+		merged; \
+	cp -f $(COV_DIR)/merged.lcov.info lcov.info; \
+	echo "Reports saved to:"; \
+	echo "  $(COV_DIR)/merged.lcov.info"; \
+	echo "  $(COV_DIR)/merged-report.md"; \
+	echo "  lcov.info  (IDE default; copy of $(COV_DIR)/merged.lcov.info)"; \
+	exit $$harness_status
 
 # ---------------------------------------------------------------------------
 # Code quality
@@ -473,6 +507,14 @@ wasm-testing-abi-check: deploy-artifacts
 		exit 1; \
 	fi; \
 	echo "OK   governance.wasm exports no test-only ABI"
+	@pa="$(DEPLOY_DIR)/price_aggregator.wasm"; \
+	if [ ! -f "$$pa" ]; then echo "price-aggregator deploy WASM missing: $$pa"; exit 1; fi; \
+	if strings "$$pa" | grep -q "seed_oracle_config"; then \
+		echo "FAIL: price_aggregator.wasm exports test-only ABI 'seed_oracle_config'"; \
+		echo "  The price-aggregator/testing feature leaked into the deployable build."; \
+		exit 1; \
+	fi; \
+	echo "OK   price_aggregator.wasm exports no test-only ABI"
 
 ## Fail if any deploy WASM exceeds the committed budget.
 wasm-size-check: deploy-artifacts wasm-testing-abi-check
@@ -537,13 +579,20 @@ MUTANTS_SHARD ?=
 MUTANTS_DIFF_FILE ?= pr.diff
 MUTANTS_JOB_ARGS = $(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j $(MUTANTS_JOBS))
 MUTANTS_SHARD_ARGS = $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
+# Alternate test runner (e.g. `nextest`). Empty keeps the default `cargo test`.
+MUTANTS_TEST_TOOL ?=
+MUTANTS_TEST_TOOL_ARGS = $(if $(MUTANTS_TEST_TOOL),--test-tool=$(MUTANTS_TEST_TOOL),)
 MUTANTS_POOL_WASM := $(abspath $(RELEASE_DIR)/pool.wasm)
 MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
+MUTANTS_PRICE_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/price_aggregator.wasm)
 # Keep Proptest deterministic and cheap when cargo-mutants runs the whole
-# test-harness for each mutant.
+# test-harness for each mutant. Every wasm-fixture loader must be pointed at
+# $(RELEASE_DIR) here — a loader left on its default `target/...` path reads
+# nothing when CI isolates the build under CARGO_TARGET_DIR=target-mutants.
 MUTANTS_ENV = PROPTEST_CASES=1 PROPTEST_RNG_SEED=0 \
 	POOL_WASM_PATH="$(MUTANTS_POOL_WASM)" \
-	CONTROLLER_WASM_PATH="$(MUTANTS_CONTROLLER_WASM)"
+	CONTROLLER_WASM_PATH="$(MUTANTS_CONTROLLER_WASM)" \
+	PRICE_AGGREGATOR_WASM_PATH="$(MUTANTS_PRICE_AGGREGATOR_WASM)"
 
 define run_mutants
 	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
@@ -587,8 +636,16 @@ _mutants-check:
 		exit 1; \
 	fi
 
+# Rebuild the wasm fixtures from source every run, in the same
+# $(CARGO_TARGET_DIR) tree that MUTANTS_ENV points the test loaders at.
+# The tree is removed first: restored CI caches can carry artifacts from an
+# older commit. The grep guard fails loudly on a stale controller fixture
+# instead of surfacing as a cryptic mutants-baseline test failure.
 _mutants-harness-prepare: _mutants-check
+	rm -rf $(CARGO_TARGET_DIR)/$(WASM_TARGET)
 	$(MAKE) build
+	@grep -aq set_swap_aggregator "$(MUTANTS_CONTROLLER_WASM)" \
+		|| { echo "controller.wasm fixture is stale (missing set_swap_aggregator export)"; exit 1; }
 
 ## Run every non-overlapping production mutation scope.
 mutants: mutants-common mutants-pool mutants-governance mutants-governance-oracle-probe \
@@ -677,14 +734,14 @@ mutants-diff: _mutants-harness-prepare
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --in-diff "$(MUTANTS_DIFF_FILE)" \
 		--test-workspace true \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_EXTRA_ARGS)
+		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_TEST_TOOL_ARGS) $(MUTANTS_EXTRA_ARGS)
 
 ## Standalone contracts: each has its own native test suite, no harness needed.
 mutants-aggregator: _mutants-check
-	$(call run_mutants,--package aggregator --test-package aggregator)
+	$(call run_mutants,--package swap-aggregator --test-package swap-aggregator)
 
 mutants-oracle-adapter: _mutants-check
-	$(call run_mutants,--package xoxno-oracle-adapter --test-package xoxno-oracle-adapter)
+	$(call run_mutants,--package xoxno-oracle --test-package xoxno-oracle)
 
 mutants-defindex-strategy: _mutants-check
 	$(call run_mutants,--package defindex-strategy --test-package defindex-strategy)
@@ -1054,6 +1111,8 @@ prepay-rent:
 	GOV=$$(jq -r '.["$(NETWORK)"].governance' $(CONFIG_DIR)/networks.json); \
 	HASH=$$(jq -r '.["$(NETWORK)"].pool_wasm_hash' $(CONFIG_DIR)/networks.json); \
 	FLR=$$(jq -r '.["$(NETWORK)"].flash_loan_receiver // empty' $(CONFIG_DIR)/networks.json); \
+	PAGG=$$(jq -r '.["$(NETWORK)"].price_aggregator // empty' $(CONFIG_DIR)/networks.json); \
+	OADP=$$(jq -r '.["$(NETWORK)"].xoxno_oracle_adapter // empty' $(CONFIG_DIR)/networks.json); \
 	{ echo "network: $(NETWORK)"; \
 	  echo "rpc:"; \
 	  echo "  url: $$RPC"; \
@@ -1067,6 +1126,8 @@ prepay-rent:
 	  echo "  market_assets: []"; \
 	  echo "  flash_loan_receiver: $$FLR"; \
 	  echo "  governance: $$GOV"; \
+	  echo "  price_aggregator: \"$$PAGG\""; \
+	  echo "  xoxno_oracle_adapter: \"$$OADP\""; \
 	  echo "keyvault:"; \
 	  echo "  url: https://unused.vault.azure.net"; \
 	  echo "  secret_name: unused"; \
@@ -1095,15 +1156,15 @@ prepay-rent:
 ## Build the swap aggregator (router) contract.
 build-aggregator:
 	@echo "Building aggregator..."
-	@stellar contract build --package aggregator
+	@stellar contract build --package swap-aggregator
 	@mkdir -p $(DEPLOY_DIR)
 	@if command -v stellar &>/dev/null; then \
 		stellar contract optimize \
-			--wasm $(RELEASE_DIR)/aggregator.wasm \
+			--wasm $(RELEASE_DIR)/swap_aggregator.wasm \
 			--wasm-out $(DEPLOY_DIR)/aggregator.wasm 2>/dev/null || \
-		cp $(RELEASE_DIR)/aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
+		cp $(RELEASE_DIR)/swap_aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
 	else \
-		cp $(RELEASE_DIR)/aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
+		cp $(RELEASE_DIR)/swap_aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
 	fi
 	@ls -lh $(DEPLOY_DIR)/aggregator.wasm
 
@@ -1130,15 +1191,15 @@ deploy-aggregator: build-aggregator
 ## Build the self-hosted multi-signer oracle / SEP-40 reader contract.
 build-oracle-adapter:
 	@echo "Building xoxno-oracle-adapter..."
-	@stellar contract build --package xoxno-oracle-adapter
+	@stellar contract build --package xoxno-oracle
 	@mkdir -p $(DEPLOY_DIR)
 	@if command -v stellar &>/dev/null; then \
 		stellar contract optimize \
-			--wasm $(RELEASE_DIR)/xoxno_oracle_adapter.wasm \
+			--wasm $(RELEASE_DIR)/xoxno_oracle.wasm \
 			--wasm-out $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm 2>/dev/null || \
-		cp $(RELEASE_DIR)/xoxno_oracle_adapter.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
+		cp $(RELEASE_DIR)/xoxno_oracle.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
 	else \
-		cp $(RELEASE_DIR)/xoxno_oracle_adapter.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
+		cp $(RELEASE_DIR)/xoxno_oracle.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
 	fi
 	@ls -lh $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm
 
@@ -1355,7 +1416,7 @@ _deploy: deploy-artifacts
 	@echo "=== Deploying to $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@echo ""
-	@echo "1/6 Checking Aggregator..."
+	@echo "1/7 Checking Swap Aggregator..."
 	@AGGREGATOR=$$(jq -r ".\"$(NETWORK)\".aggregator // empty" $(CONFIG_DIR)/networks.json 2>/dev/null); \
 	if [ -n "$${AGGREGATOR_CONTRACT:-}" ]; then AGGREGATOR="$$AGGREGATOR_CONTRACT"; fi; \
 	if [ -n "$$AGGREGATOR" ] && [ "$$AGGREGATOR" != "null" ]; then \
@@ -1366,7 +1427,7 @@ _deploy: deploy-artifacts
 	fi
 	@echo ""
 	@# 2. Upload Pool WASM (template, not deployed directly)
-	@echo "2/6 Uploading Pool WASM template..."
+	@echo "2/7 Uploading Pool WASM template..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/pool.wasm \
 		$(SOURCE_FLAG) \
@@ -1378,7 +1439,7 @@ _deploy: deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
 	@# 3. Upload controller WASM so governance deploys a network-installed hash.
-	@echo "3/6 Uploading Controller WASM..."
+	@echo "3/7 Uploading Controller WASM..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/controller.wasm \
 		$(SOURCE_FLAG) \
@@ -1390,7 +1451,7 @@ _deploy: deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
 	@# 4. Deploy Governance with the deployer EOA as admin/owner.
-	@echo "4/6 Deploying Governance..."
+	@echo "4/7 Deploying Governance..."
 	@MIN_DELAY=$$(jq -r '.["$(NETWORK)"].timelock_min_delay_ledgers // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$$DEPLOY_MIN_DELAY" ]; then \
 		MIN_DELAY="$$DEPLOY_MIN_DELAY"; \
@@ -1415,7 +1476,7 @@ _deploy: deploy-artifacts
 	@echo ""
 	@# 5. Deploy Controller through governance — governance becomes its owner.
 	@# The CLI prints the returned address as a quoted strkey on the last line.
-	@echo "5/6 Deploying Controller via governance..."
+	@echo "5/7 Deploying Controller via governance..."
 	@GOV_ID=$$(stellar contract alias show governance --network $(NETWORK) | tail -n1); \
 	CTRL_ID=$$(stellar contract invoke --id $$GOV_ID $(SOURCE_FLAG) --network $(NETWORK) \
 		-- deploy_controller --wasm_hash $$(cat $(CONTROLLER_WASM_HASH_FILE)) | tail -n1 | tr -d '"'); \
@@ -1426,9 +1487,27 @@ _deploy: deploy-artifacts
 	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'" | .["$(NETWORK)"].hub_ids = {} | .["$(NETWORK)"].spoke_ids = {} | .["$(NETWORK)"].pool = ""' \
 	$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@# 6. Set the pool template and deploy the central pool through the timelock
+	@# 6. Upload + deploy the price-aggregator through governance (owner call),
+	@# so the oracle authority exists before markets are configured.
+	@echo "6/7 Deploying Price Aggregator via governance..."
+	@stellar contract upload \
+		--wasm $(DEPLOY_DIR)/price_aggregator.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > $(PRICE_AGGREGATOR_WASM_HASH_FILE)
+	@echo "Price Aggregator WASM hash: $$(cat $(PRICE_AGGREGATOR_WASM_HASH_FILE))"
+	@GOV_ID=$$(stellar contract alias show governance --network $(NETWORK) | tail -n1); \
+	PA_ID=$$(stellar contract invoke --id $$GOV_ID $(SOURCE_FLAG) --network $(NETWORK) \
+		-- deploy_price_aggregator --wasm_hash $$(cat $(PRICE_AGGREGATOR_WASM_HASH_FILE)) | tail -n1 | tr -d '"'); \
+	if [ -z "$$PA_ID" ]; then echo "deploy_price_aggregator returned no address"; exit 1; fi; \
+	echo "Price Aggregator: $$PA_ID"; \
+	stellar contract alias add price_aggregator --id $$PA_ID --network $(NETWORK) --overwrite; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].price_aggregator = "'$$PA_ID'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+	@echo ""
+	@# 7. Set the pool template and deploy the central pool through the timelock
 	@# (schedule -> await min_delay -> execute). Both ops route through governance.
-	@echo "6/6 Setting pool template and deploying central pool via governance timelock..."
+	@echo "7/7 Setting pool template and deploying central pool via governance timelock..."
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPoolTemplate $$(cat $(POOL_WASM_HASH_FILE))
 	@POOL=$$(NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh deployPool | tail -n1 | tr -d '"'); \
 	if [ -z "$$POOL" ]; then echo "deployPool returned no address"; exit 1; fi; \
@@ -1475,6 +1554,9 @@ configure-controller: _preflight-configure-controller
 	else \
 		NETWORK=$(NETWORK) SIGNER=$(SIGNER) ACCUMULATOR_CONTRACT=$$ACC bash $(CONFIG_DIR)/script.sh setAccumulator; \
 	fi
+	@echo "Price aggregator wiring skipped here: governance's deploy_price_aggregator wires the"
+	@echo "controller atomically at deploy. Re-point a live aggregator with 'make $(NETWORK) setPriceAggregator'"
+	@echo "(timelocked SetPriceAggregator self-op, Sensitive tier)."
 	@echo "Controller role grants skipped: controller uses owner-gated admin and caller-auth operational flows."
 	@echo "Controller configured."
 
@@ -1539,7 +1621,6 @@ SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeRea
 POSITIONAL_MARKET_ACTIONS := createMarket updateMarketParams \
 	configureMarketOracle \
 	editOracleTolerance \
-	approveToken revokeToken \
 	getPrice getMarket getIndex \
 	getOracle getReflector \
 	getUtilisation getReserves getSupplied getBorrowed getDepositRate getBorrowRate \
@@ -1826,8 +1907,6 @@ help:
 	@echo "    make testnet configureMarketOracle USDC"
 	@echo "    make testnet editOracleTolerance USDC 500"
 	@echo "    make testnet updateIndexes USDC XLM"
-	@echo "    make testnet approveToken USDC     Timelocked allow-list add (also raw C... id)"
-	@echo "    make testnet revokeToken USDC      Timelocked allow-list remove"
 	@echo "    make testnet setupAllMarkets       Configure markets only; does not deploy or unpause"
 	@echo "    make testnet listMarkets"
 	@echo "    make testnet listOracles           Per-market oracle wiring from JSON"

@@ -27,7 +27,10 @@ indexes. Indexes advance via pool market sync, not account sweeps.
 Collateral (supply) positions also store risk params (LTV, liquidation
 threshold/bonus/fees) used by HF/LTV math at open (or refresh). Debt positions
 carry only the scaled share. Risk params refresh via
-`update_account_threshold` (or on supply) when spoke config changes.
+`update_account_threshold`, supply/withdraw, and debt-increasing paths
+(`borrow` / strategy finalize re-stamp LTV, bonus, and fees only —
+liquidation threshold remains lazy with the HF≥1.05 gate on cuts). Delist
+requires zero spoke usage, so open positions always have a listing.
 
 Empty side maps are pruned on write to bound storage/TTL cost.
 
@@ -42,8 +45,9 @@ Empty side maps are pruned on write to bound storage/TTL cost.
 **Positive:** O(1) interest per market row; supply-only / repay-only touch one
 side; TTL bounded (meta + two maps); keys match hub isolation; debt stays lean.
 
-**Costs:** large accounts still pay map costs on the side they touch; risk
-param changes need explicit refresh for existing collateral.
+**Costs:** large accounts still pay map costs on the side they touch; LT cuts
+still need supply/withdraw/keeper refresh (or price moves) for liquidatability;
+LTV/bonus/fees bind on the next borrow or strategy finalize without a keeper.
 
 ## References
 

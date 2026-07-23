@@ -1,9 +1,10 @@
 # Mainnet config for the lending metrics exporter.
 #
 # STUB — mainnet contracts are not deployed yet (configs/networks.json has empty
-# controller/pool/oracle addresses). Fill `contracts.controller`, the oracle
-# adapter, and the `markets`/`spokes` lists from configs/networks.json once
-# mainnet is live, then start a second exporter instance + Prometheus job.
+# controller/pool/oracle addresses). Fill `contracts.controller`, the optional
+# price_aggregator fallback, oracle adapter, and the `markets`/`spokes` lists
+# from configs/networks.json once mainnet is live, then start a second exporter
+# instance + Prometheus job.
 # The exporter refuses to boot while `controller` is not a valid C... address.
 network: mainnet
 rpc:
@@ -12,6 +13,7 @@ rpc:
   timeout_seconds: 30
 contracts:
   controller: ""
+  price_aggregator: ""
   xoxno_oracle_adapter: ""
 markets: []
 spokes: []

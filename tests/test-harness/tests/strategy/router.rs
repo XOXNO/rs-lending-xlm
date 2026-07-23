@@ -51,7 +51,7 @@ fn count_zero_transfers(events: &ContractEvents) -> usize {
 fn install_bad_router(t: &LendingTest, mode: BadMode) -> Address {
     let admin = t.admin.clone();
     let bad = t.env.register(BadAggregator, (admin.clone(), mode));
-    t.ctrl_client().set_aggregator(&bad);
+    t.ctrl_client().set_swap_aggregator(&bad);
     bad
 }
 
@@ -86,14 +86,10 @@ fn flatten<T>(
 
 fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
     let asset = t.resolve_asset(asset_name);
-    t.env.as_contract(&t.controller, || {
-        let key = controller::types::ControllerKey::AssetOracle(asset.clone());
-        let mut oracle: controller::types::MarketOracleConfig =
-            t.env.storage().persistent().get(&key).unwrap();
-        oracle.min_sanity_price_wad = min_wad;
-        oracle.max_sanity_price_wad = max_wad;
-        t.env.storage().persistent().set(&key, &oracle);
-    });
+    let mut oracle = t.price_agg_client().oracle_config(&asset).unwrap();
+    oracle.min_sanity_price_wad = min_wad;
+    oracle.max_sanity_price_wad = max_wad;
+    t.price_agg_client().seed_oracle_config(&asset, &oracle);
 }
 
 // BadMode::Refund -- router returns token_in to the caller, violating the
@@ -715,7 +711,7 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
 
     let admin = t.admin.clone();
     let bad = t.env.register(BadAggregator, (admin, BadMode::OverPull));
-    t.ctrl_client().set_aggregator(&bad);
+    t.ctrl_client().set_swap_aggregator(&bad);
 
     // Pre-seed output so the bad router can transfer (before it attempts to
     // over-pull).

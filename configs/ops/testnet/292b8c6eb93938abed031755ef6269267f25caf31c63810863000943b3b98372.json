@@ -1,0 +1,1 @@
+{"kind":"governance_self","op_id":"292b8c6eb93938abed031755ef6269267f25caf31c63810863000943b3b98372","network":"testnet","execute_label":"set_price_aggregator","salt":"ad4f28f16c8eaf17a8ce69f5d81d1f8e183f714a76834ffed34c3831c3036930","op":{"SetPriceAggregator":"CCSAIOLGR2BQSQGGXWS2TPTW4WICAJYS4FGPLY5KSLFEAFOGYCON4NEO"},"cli_executable":true}

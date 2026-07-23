@@ -18,6 +18,7 @@ stellar-macros = { workspace = true }
 common = { path = "../../common" }
 controller-interface = { path = "../../interfaces/controller" }
 pool-interface = { path = "../../interfaces/pool" }
+price-aggregator-interface = { path = "../../interfaces/price-aggregator" }
 cvlr = { workspace = true, optional = true }
 cvlr-soroban = { workspace = true, optional = true }
 cvlr-soroban-macros = { workspace = true, optional = true }
@@ -25,8 +26,25 @@ cvlr-soroban-derive = { workspace = true, optional = true }
 
 [features]
 certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive"]
+certora-focused = ["common/certora-focused"]
+certora-account-isolation-rules = ["certora", "certora-focused"]
+certora-boundary-rules = ["certora", "certora-focused"]
+certora-consistency-rules = ["certora", "certora-focused"]
+certora-flash-loan-rules = ["certora", "certora-focused"]
+certora-health-rules = ["certora", "certora-focused"]
+certora-hf-lemma-rules = ["certora", "certora-focused"]
+certora-index-rules = ["certora", "certora-focused"]
+certora-interest-rules = ["certora", "certora-focused"]
+certora-liquidation-rules = ["certora", "certora-focused"]
+certora-market-guard-rules = ["certora", "certora-focused"]
+certora-math-rules = ["certora", "certora-focused"]
+certora-position-rules = ["certora", "certora-focused"]
+certora-solvency-rules = ["certora", "certora-focused"]
+certora-spoke-rules = ["certora", "certora-focused"]
+certora-strategy-rules = ["certora", "certora-focused"]
 testing = []
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 mock-oracle = { path = "../../mock/mock-oracle" }
+price-aggregator = { path = "../price-aggregator", features = ["testing"] }

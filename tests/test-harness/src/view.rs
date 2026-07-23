@@ -248,27 +248,19 @@ impl LendingTest {
         self.ctrl_client().get_pool_address()
     }
 
-    /// True when token-rooted `AssetOracle` exists (absence = pending/disabled).
+    /// True when the price-aggregator holds a token-rooted oracle for `asset`
+    /// (absence = pending/disabled).
     pub fn market_is_active(&self, asset: &soroban_sdk::Address) -> bool {
-        self.env.as_contract(&self.controller, || {
-            self.env
-                .storage()
-                .persistent()
-                .has(&ControllerKey::AssetOracle(asset.clone()))
-        })
+        self.price_agg_client().oracle_config(asset).is_some()
     }
 
     pub fn market_oracle_config(
         &self,
         asset: &soroban_sdk::Address,
-    ) -> controller::types::MarketOracleConfig {
-        self.env.as_contract(&self.controller, || {
-            self.env
-                .storage()
-                .persistent()
-                .get(&ControllerKey::AssetOracle(asset.clone()))
-                .expect("market oracle config must exist")
-        })
+    ) -> controller::types::AssetOracleConfig {
+        self.price_agg_client()
+            .oracle_config(asset)
+            .expect("market oracle config must exist")
     }
 
     pub fn get_position_limits(&self) -> controller::types::PositionLimits {

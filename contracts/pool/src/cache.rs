@@ -134,11 +134,23 @@ impl Cache {
     }
 
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {
-        Ray::from_asset(amount, self.params.asset_decimals).div(&self.env, self.supply_index)
+        // Supply is a user credit: round down so minted shares never exceed cash in.
+        Ray::from_asset(amount, self.params.asset_decimals).div_floor(&self.env, self.supply_index)
+    }
+
+    pub fn calculate_scaled_supply_ceil(&self, amount: i128) -> Ray {
+        // Withdrawal is a user debit: round up so cash out never exceeds burned value.
+        Ray::from_asset(amount, self.params.asset_decimals).div_ceil(&self.env, self.supply_index)
     }
 
     pub fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
-        Ray::from_asset(amount, self.params.asset_decimals).div(&self.env, self.borrow_index)
+        // Borrow is a user debit: round up so recorded debt covers cash out.
+        Ray::from_asset(amount, self.params.asset_decimals).div_ceil(&self.env, self.borrow_index)
+    }
+
+    pub fn calculate_scaled_borrow_floor(&self, amount: i128) -> Ray {
+        // Repay is a user credit: round down so debt burned never exceeds cash in.
+        Ray::from_asset(amount, self.params.asset_decimals).div_floor(&self.env, self.borrow_index)
     }
 
     pub fn unscale_supply(&self, scaled: Ray) -> i128 {
@@ -159,12 +171,13 @@ impl Cache {
 
     pub fn unscale_borrow_ceil(&self, scaled: Ray) -> i128 {
         scaled
-            .mul(&self.env, self.borrow_index)
+            .mul_ceil(&self.env, self.borrow_index)
             .to_asset_ceil(self.params.asset_decimals)
     }
 
-    pub fn unscale_borrow_exact(&self, scaled: Ray) -> Ray {
-        scaled_to_original(&self.env, scaled, self.borrow_index)
+    pub fn unscale_borrow_ceil_ray(&self, scaled: Ray) -> Ray {
+        // Bad-debt seizure must not under-socialize the removed debt claim.
+        scaled.mul_ceil(&self.env, self.borrow_index)
     }
 
     /// Full-close when request ≥ half-up actual: burns all shares, pays floor gross.
@@ -175,7 +188,7 @@ impl Cache {
         if amount >= current_supply_actual {
             return (pos_scaled, current_supply_floor);
         }
-        (self.calculate_scaled_supply(amount), amount)
+        (self.calculate_scaled_supply_ceil(amount), amount)
     }
 
     /// Floor conversion: a claim never transfers more than the shares it burns
@@ -207,7 +220,7 @@ impl Cache {
                     .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::MathOverflow)),
             )
         } else {
-            (self.calculate_scaled_borrow(amount), 0)
+            (self.calculate_scaled_borrow_floor(amount), 0)
         }
     }
 
@@ -239,6 +252,7 @@ impl Cache {
             },
             market_index: self.market_index(),
             actual_amount,
+            asset_decimals: self.params.asset_decimals,
         }
     }
 
@@ -255,6 +269,7 @@ impl Cache {
             market_index: self.market_index(),
             actual_amount,
             amount_received,
+            asset_decimals: self.params.asset_decimals,
         }
     }
 }

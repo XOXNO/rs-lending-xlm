@@ -9,14 +9,14 @@
 # Market creation follows the production sequence on an explicit created hub:
 # create_liquidity_pool (pending primary spoke listing: not
 # collateralizable/borrowable) → resolve_market_oracle_config (governance view) →
-# set_market_oracle_config → add_asset_to_spoke on the primary spoke. Oracle
-# configs for mock markets must use Twap (Spot-only primaries reject with
+# set_oracle_config on PRICE_AGGREGATOR → add_asset_to_spoke on the primary spoke.
+# Oracle configs for mock markets must use Twap (Spot-only primaries reject with
 # SpotOnlyNotProductionSafe #38) and market params must include max_utilization.
 
-# Uploads pool wasm, deploys controller + central pool + flash receiver,
-# wires aggregator/accumulator/roles, unpauses. Persists:
-# CONTROLLER, POOL, POOL_HASH, FLASH_RECEIVER, XLM_SAC, PRIMARY_HUB_ID,
-# SECONDARY_HUB_ID.
+# Uploads pool wasm, deploys controller + price-aggregator + central pool + flash
+# receiver, wires aggregator/accumulator/price-aggregator, unpauses. Persists:
+# CONTROLLER, PRICE_AGGREGATOR, POOL, POOL_HASH, FLASH_RECEIVER, XLM_SAC,
+# PRIMARY_HUB_ID, SECONDARY_HUB_ID.
 deploy_protocol() {
     if [ -z "${XLM_SAC:-}" ]; then
         save_state XLM_SAC "$(stellar contract id asset --asset native --network "$NETWORK")"
@@ -59,11 +59,31 @@ deploy_protocol() {
         save_state POOL "$pool"
         log "central pool = $pool"
     fi
+    # Price-aggregator is the oracle authority (owner = EOA admin on this
+    # fast-path harness). Production uses governance-owned deploy instead.
+    if [ -z "${PRICE_AGGREGATOR:-}" ]; then
+        local out_f="$LOG_DIR/deploy_price_agg.out" err_f="$LOG_DIR/deploy_price_agg.err"
+        local pa_wasm=""
+        for cand in "$WASM_DIR/price_aggregator.wasm" "$WASM_DIR/price-aggregator.wasm"; do
+            [ -f "$cand" ] && pa_wasm="$cand" && break
+        done
+        [ -n "$pa_wasm" ] || die deploy_price_aggregator "price_aggregator.wasm missing under $WASM_DIR (run make integration-wasm / deploy-artifacts)"
+        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$pa_wasm" \
+            --source "$ADMIN" --network "$NETWORK" -- --owner "$ADMIN_ADDR"
+        local pa txh
+        pa=$(sanitize_output "$out_f")
+        txh=$(extract_signing_hash "$err_f")
+        is_contract_id "$pa" || die deploy_price_aggregator "price-aggregator deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+        save_state PRICE_AGGREGATOR "$pa"
+        record deploy_price_aggregator ok deploy "$txh" "" "" "" "" "$pa"
+        log "price-aggregator = $pa"
+    fi
     if [ -z "${WIRED:-}" ]; then
-        inv set_aggregator "$ADMIN" "$CONTROLLER" -- set_aggregator --addr "$AGGREGATOR" >/dev/null
+        inv set_swap_aggregator "$ADMIN" "$CONTROLLER" -- set_swap_aggregator --addr "$AGGREGATOR" >/dev/null
         # Revenue treasury (wallet ok). Not the swap aggregator — claim_revenue
         # forwards SAC balances here and fails with NoAccumulator (#211) if unset.
         inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
+        inv set_price_aggregator "$ADMIN" "$CONTROLLER" -- set_price_aggregator --addr "$PRICE_AGGREGATOR" >/dev/null
         save_state WIRED 1
     fi
     if [ -z "${PRIMARY_HUB_ID:-}" ]; then
@@ -94,7 +114,7 @@ deploy_protocol() {
         save_state UNPAUSED 1
     fi
     # Governance contract: drives the timelock e2e (flows/governance.sh) and
-    # resolves oracle configs (input -> resolved MarketOracleConfig) for the
+    # resolves oracle configs (input -> resolved AssetOracleConfig) for the
     # EOA controller's markets via its read-only resolver views. Owner is the
     # EOA admin so propose/execute/cancel/pause run without a separate signer.
     if [ -z "${GOVERNANCE:-}" ]; then
@@ -209,8 +229,7 @@ asset_config_json() {
         liquidation_bonus: $bonus,
         liquidation_fees: 100,
         supply_cap: "0",
-        borrow_cap: "0",
-        oracle_override: "None"
+        borrow_cap: "0"
     }' | jq -c "$overrides"
 }
 
@@ -235,8 +254,7 @@ spoke_args() {
         bonus: $bonus,
         liquidation_fees: 100,
         supply_cap: $sc,
-        borrow_cap: $bc,
-        oracle_override: "None"
+        borrow_cap: $bc
     }'
 }
 
@@ -327,7 +345,6 @@ create_market() {
     local params resolved_oracle ltv thr bonus
     params=$(market_params_json "$sac" "$decimals")
 
-    inv "approve_token_$name" "$ADMIN" "$CONTROLLER" -- approve_token --token "$sac" >/dev/null || return 1
     if market_listing_exists "$hub_id" "$sac"; then
         record "create_market_$name" ok create_liquidity_pool "" "" "" "" "" "listing already exists (resume); skipping create"
     else
@@ -337,8 +354,9 @@ create_market() {
 
     resolved_oracle=$(view "resolve_oracle_$name" "$GOVERNANCE" -- resolve_market_oracle_config \
         --asset "$sac" --cfg "$oracle_json" | jq -c '.') || return 1
-    inv "set_oracle_$name" "$ADMIN" "$CONTROLLER" -- set_market_oracle_config \
-        --hub_asset "$(hub_key "$hub_id" "$sac")" --config "$resolved_oracle" >/dev/null || return 1
+    # Oracle authority is the price-aggregator (token-rooted config, bare asset).
+    inv "set_oracle_$name" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle_config \
+        --asset "$sac" --config "$resolved_oracle" >/dev/null || return 1
 
     ltv=$(jq -r '.loan_to_value' <<<"$active_cfg")
     thr=$(jq -r '.liquidation_threshold' <<<"$active_cfg")

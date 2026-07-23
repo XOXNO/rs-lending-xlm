@@ -1,11 +1,7 @@
 use super::*;
-use common::types::{
-    MarketOracleConfig, MarketOracleConfigOption, OracleAssetRef, OraclePriceFluctuation,
-    OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, PositionMode,
-    ReflectorBase, ReflectorSourceConfig, SpokeAssetConfig,
-};
+use common::types::{PositionMode, SpokeAssetConfig};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{contract, vec, BytesN, Vec};
+use soroban_sdk::{contract, vec, Address, Env, Vec};
 
 #[contract]
 struct TestContract;
@@ -18,40 +14,6 @@ fn setup() -> (Env, Address) {
 
 fn dummy_address(env: &Env) -> Address {
     Address::generate(env)
-}
-
-fn dummy_oracle_config(env: &Env) -> MarketOracleConfig {
-    let asset = dummy_address(env);
-    let oracle = dummy_address(env);
-    MarketOracleConfig {
-        asset_decimals: 7,
-        max_price_stale_seconds: 900,
-        tolerance: OraclePriceFluctuation {
-            upper_ratio_bps: 10_500,
-            lower_ratio_bps: 9_500,
-        },
-        strategy: OracleStrategy::PrimaryWithAnchor,
-        primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
-            contract: oracle.clone(),
-            asset: OracleAssetRef::Stellar(asset.clone()),
-            read_mode: OracleReadMode::Twap(12),
-            decimals: 14,
-            resolution_seconds: 300,
-            base: ReflectorBase::Usd,
-        }),
-        anchor: OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(
-            ReflectorSourceConfig {
-                contract: oracle,
-                asset: OracleAssetRef::Stellar(asset),
-                read_mode: OracleReadMode::Spot,
-                decimals: 7,
-                resolution_seconds: 300,
-                base: ReflectorBase::Usd,
-            },
-        )),
-        min_sanity_price_wad: 0,
-        max_sanity_price_wad: 0,
-    }
 }
 
 #[test]
@@ -77,26 +39,6 @@ fn event_position_mode_eq_and_from() {
 }
 
 #[test]
-fn event_oracle_type_eq_and_from() {
-    assert_eq!(EventOracleType::None, EventOracleType::None);
-    assert_ne!(EventOracleType::None, EventOracleType::Normal);
-}
-
-#[test]
-fn event_pricing_method_eq_and_from() {
-    assert_eq!(EventPricingMethod::None, EventPricingMethod::None);
-    assert_ne!(EventPricingMethod::Safe, EventPricingMethod::Instant);
-    assert_eq!(
-        EventPricingMethod::from(OracleStrategy::Single),
-        EventPricingMethod::Instant
-    );
-    assert_eq!(
-        EventPricingMethod::from(OracleStrategy::PrimaryWithAnchor),
-        EventPricingMethod::Mix
-    );
-}
-
-#[test]
 fn event_account_attributes_from_account_meta_spoke() {
     let env = Env::default();
     let owner = dummy_address(&env);
@@ -112,97 +54,6 @@ fn event_account_attributes_from_account_meta_spoke() {
 }
 
 #[test]
-fn event_oracle_provider_from_oracle_builds_struct() {
-    let env = Env::default();
-    let oracle = dummy_oracle_config(&env);
-    let asset = dummy_address(&env);
-    let provider = EventOracleProvider::from_oracle(&env, &asset, &oracle);
-    assert_eq!(
-        provider.primary_provider,
-        OracleProviderKind::ReflectorSep40 as u32
-    );
-    assert_eq!(provider.primary_decimals, 14);
-    assert_eq!(provider.primary_twap_records, 12);
-    assert_eq!(provider.primary_max_stale_seconds, 900);
-    assert!(provider.primary_asset.is_some());
-    assert_eq!(provider.anchor_decimals, 7);
-    assert_eq!(provider.anchor_twap_records, 0);
-    assert_eq!(provider.anchor_max_stale_seconds, 900);
-    assert!(provider.anchor_contract.is_some());
-}
-
-#[test]
-fn update_asset_oracle_event_nests_oracle_fields_under_oracle_key() {
-    extern crate std;
-    use soroban_sdk::testutils::Events;
-    use soroban_sdk::xdr::{ContractEventBody, ScVal};
-    use std::string::{String, ToString};
-    use std::vec::Vec as StdVec;
-
-    fn map_keys(v: &ScVal) -> StdVec<String> {
-        match v {
-            ScVal::Map(Some(m)) => m
-                .iter()
-                .filter_map(|e| match &e.key {
-                    ScVal::Symbol(s) => Some(s.to_string()),
-                    _ => None,
-                })
-                .collect(),
-            _ => StdVec::new(),
-        }
-    }
-    fn nested<'a>(v: &'a ScVal, key: &str) -> &'a ScVal {
-        match v {
-            ScVal::Map(Some(m)) => m
-                .iter()
-                .find(|e| matches!(&e.key, ScVal::Symbol(s) if s.to_string() == key))
-                .map(|e| &e.val)
-                .expect("nested key present"),
-            _ => panic!("not a map"),
-        }
-    }
-
-    let (env, contract) = setup();
-    env.as_contract(&contract, || {
-        let asset = dummy_address(&env);
-        let oracle = dummy_oracle_config(&env);
-        UpdateAssetOracleEvent {
-            asset: asset.clone(),
-            oracle: EventOracleProvider::from_oracle(&env, &asset, &oracle),
-        }
-        .publish(&env);
-    });
-
-    let all = env.events().all();
-    let xdr_events = all.events();
-    let last = xdr_events.last().expect("event published");
-    let ContractEventBody::V0(body) = &last.body;
-    let data = &body.data;
-
-    // Event data exposes only `asset` and `oracle` at the top level.
-    // Sanity bounds and quote tokens are nested under `oracle`.
-    let top = map_keys(data);
-    assert!(top.iter().any(|k| k == "oracle"), "top keys: {:?}", top);
-    assert!(top.iter().any(|k| k == "asset"));
-    assert!(!top.iter().any(|k| k == "min_sanity_price_wad"));
-    assert!(!top.iter().any(|k| k == "primary_quote_token"));
-
-    // Sanity bounds and per-source quote tokens live inside `oracle`.
-    let oracle_keys = map_keys(nested(data, "oracle"));
-    for expected in [
-        "min_sanity_price_wad",
-        "max_sanity_price_wad",
-        "primary_quote_token",
-        "anchor_quote_token",
-    ] {
-        assert!(
-            oracle_keys.iter().any(|k| k == expected),
-            "missing {expected} in oracle keys: {oracle_keys:?}"
-        );
-    }
-}
-
-#[test]
 fn all_event_helpers_publish_one_event() {
     use soroban_sdk::testutils::Events as _;
 
@@ -210,7 +61,6 @@ fn all_event_helpers_publish_one_event() {
     env.as_contract(&contract, || {
         let asset = dummy_address(&env);
         let caller = dummy_address(&env);
-        let oracle = dummy_oracle_config(&env);
 
         CreateMarketEvent {
             hub_id: 1,
@@ -281,12 +131,6 @@ fn all_event_helpers_publish_one_event() {
         }
         .publish(&env);
 
-        UpdateAssetOracleEvent {
-            asset: asset.clone(),
-            oracle: EventOracleProvider::from_oracle(&env, &asset, &oracle),
-        }
-        .publish(&env);
-
         UpdateSpokeEvent {
             spoke: EventSpoke {
                 spoke_id: 1,
@@ -311,7 +155,6 @@ fn all_event_helpers_publish_one_event() {
                 liquidation_fees: 0,
                 supply_cap: 0,
                 borrow_cap: 0,
-                oracle_override: MarketOracleConfigOption::None,
             },
             spoke_id: 1,
             hub_id: 1,
@@ -340,16 +183,10 @@ fn all_event_helpers_publish_one_event() {
         }
         .publish(&env);
 
-        ApproveTokenEvent {
-            wasm_hash: BytesN::from_array(&env, &[0u8; 32]),
-            approved: true,
-        }
-        .publish(&env);
-
         let _ignored: Vec<Address> = vec![&env];
     });
 
-    assert_eq!(env.events().all().events().len(), 12);
+    assert_eq!(env.events().all().events().len(), 10);
 }
 
 #[test]
@@ -444,7 +281,6 @@ fn spoke_asset_events_carry_hub_id() {
             liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: MarketOracleConfigOption::None,
         },
         spoke_id: 1,
         hub_id: 3,

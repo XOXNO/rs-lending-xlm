@@ -43,7 +43,6 @@ impl LendingTest {
             .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
 
         let gov = self.gov_client();
-        gov.execute_immediate(&self.admin, &AdminOperation::ApproveToken(asset.clone()));
         gov.execute_immediate(
             &self.admin,
             &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
@@ -100,7 +99,6 @@ impl LendingTest {
             .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
 
         let gov = self.gov_client();
-        gov.execute_immediate(&self.admin, &AdminOperation::ApproveToken(asset.clone()));
         gov.execute_immediate(
             &self.admin,
             &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
@@ -185,7 +183,6 @@ impl LendingTest {
                 liquidation_fees,
                 supply_cap: 0,
                 borrow_cap: 0,
-                oracle_override: risk.oracle_override.clone(),
             }),
         );
     }

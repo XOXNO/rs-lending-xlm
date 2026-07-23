@@ -1,20 +1,18 @@
 use super::setup;
 use test_harness::{eth_preset, usdc_preset, LendingTest, HARNESS_HUB};
 
-
 #[test]
 fn test_tolerance_config_valid_update() {
     let t = setup();
-    let ctrl = t.ctrl_client();
 
     let asset = t.resolve_market("USDC").asset.clone();
 
     // 600 BPS band as governance computes it in-path.
-    let tolerance = controller::types::OraclePriceFluctuation {
+    let tolerance = controller::types::OracleTolerance {
         upper_ratio_bps: 10_600,
         lower_ratio_bps: 9_434,
     };
-    let result = ctrl.try_set_oracle_tolerance(&asset, &tolerance);
+    let result = t.price_agg_client().try_set_tolerance(&asset, &tolerance);
     assert!(result.is_ok(), "valid tolerance update should succeed");
 }
 

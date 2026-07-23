@@ -52,7 +52,7 @@ fn mul_half_up_identity(e: Env) {
 }
 
 #[rule]
-fn div_half_up_inverse(e: Env) {
+fn div_half_up_roundtrip_error_bounded(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     let b: i128 = cvlr::nondet::nondet();
 
@@ -62,7 +62,10 @@ fn div_half_up_inverse(e: Env) {
     let product = mul_div_half_up(&e, a, b, RAY);
     let recovered = mul_div_half_up(&e, product, RAY, b);
 
-    cvlr_assert!(recovered >= a - 2 && recovered <= a + 2);
+    // The first half-up error is magnified by at most RAY / b <= 1000;
+    // the second half-up contributes at most one additional raw unit.
+    cvlr_assert!(recovered >= a.saturating_sub(501));
+    cvlr_assert!(recovered <= a + 501);
 }
 
 #[rule]

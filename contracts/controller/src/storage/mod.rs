@@ -1,7 +1,9 @@
 //! Controller storage accessors and TTL renewal.
 
 mod account;
-mod instance;
+mod hub;
+mod protocol;
+mod session;
 mod spoke;
 mod ttl;
 #[cfg(feature = "certora")]
@@ -9,10 +11,11 @@ mod ttl;
 mod verification_storage;
 
 pub(crate) use account::*;
-pub(crate) use instance::*;
+pub(crate) use hub::*;
+pub(crate) use protocol::*;
+pub(crate) use session::*;
 pub(crate) use spoke::*;
 pub(crate) use ttl::*;
 #[cfg(feature = "certora")]
 pub(crate) use verification_storage::*;
 // Verification storage helpers are not compiled into production contracts.
-

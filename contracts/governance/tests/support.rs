@@ -15,3 +15,15 @@ pub fn upload_controller_wasm(env: &Env) -> BytesN<32> {
     env.deployer()
         .upload_contract_wasm(Bytes::from_slice(env, &bytes))
 }
+
+pub fn upload_price_aggregator_wasm(env: &Env) -> BytesN<32> {
+    let path = std::env::var("PRICE_AGGREGATOR_WASM_PATH").unwrap_or_else(|_| {
+        std::string::String::from("target/wasm32v1-none/release/price_aggregator.wasm")
+    });
+    let bytes = std::fs::read(&path)
+        .or_else(|_| std::fs::read(std::format!("../{path}")))
+        .or_else(|_| std::fs::read(std::format!("../../{path}")))
+        .unwrap_or_else(|_| panic!("Price aggregator WASM not found. Run 'make build' first."));
+    env.deployer()
+        .upload_contract_wasm(Bytes::from_slice(env, &bytes))
+}

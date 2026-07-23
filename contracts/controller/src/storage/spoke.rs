@@ -1,9 +1,20 @@
-//! Spoke config, per-asset config, and per-asset usage storage.
+//! Spoke config, per-asset config, per-asset usage, and spoke-id allocation.
 
 use crate::storage::renew_protocol_shared_key;
-use common::errors::SpokeError;
+use common::errors::{GenericError, SpokeError};
 use common::types::{ControllerKey, HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
 use soroban_sdk::{panic_with_error, Env};
+
+/// Allocates and returns the next spoke id, panicking on overflow.
+pub(crate) fn increment_spoke_id(env: &Env) -> u32 {
+    let key = ControllerKey::LastSpokeId;
+    let current: u32 = env.storage().instance().get(&key).unwrap_or(0);
+    let next = current
+        .checked_add(1)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    env.storage().instance().set(&key, &next);
+    next
+}
 
 pub(crate) fn get_spoke(env: &Env, id: u32) -> SpokeConfig {
     try_get_spoke(env, id).unwrap_or_else(|| panic_with_error!(env, SpokeError::SpokeNotFound))

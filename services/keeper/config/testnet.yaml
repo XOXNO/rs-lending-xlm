@@ -18,6 +18,10 @@ contracts:
   governance: CAOS4AUCHXLJHF6EXSM76WECYXRVQ3JYJFXYOWLOGYYXFE4OYVH5DHWO
   # Self-hosted price oracle (networks.json: xoxno_oracle_adapter).
   xoxno_oracle_adapter: CB46MOUCOPA5TGDKKCY5OC2FEXGCBQ5KXR53RGOYY7XD7LN6JOE7OPRF
+  # Price aggregator (oracle authority; networks.json: price_aggregator).
+  # REQUIRED when markets are configured: the keeper renews its AssetOracle
+  # rows and instance/code. Fill after the price-aggregator deploy.
+  price_aggregator: ""
 keyvault:
   url: https://unused.vault.azure.net
   secret_name: unused

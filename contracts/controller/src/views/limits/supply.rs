@@ -17,9 +17,6 @@ pub(crate) fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) ->
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
     }
-    if storage::get_asset_oracle(env, &hub_asset.asset).is_none() {
-        return 0;
-    }
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
@@ -63,6 +60,10 @@ fn spoke_supply_cap_headroom(
     if used_scaled >= cap_scaled {
         return 0;
     }
-    scaled_to_original(env, cap_scaled.checked_sub(env, used_scaled), market.supply_index)
-        .to_asset(market.decimals)
+    scaled_to_original(
+        env,
+        cap_scaled.checked_sub(env, used_scaled),
+        market.supply_index,
+    )
+    .to_asset(market.decimals)
 }

@@ -1,45 +1,16 @@
 use super::*;
 use crate::Controller;
 use common::types::pool::{AccountPositionRaw, DebtPositionRaw, HubAssetKey};
-use common::types::{
-    Account, AccountPositionType, MarketOracleConfig, PositionLimits, PositionMode,
-};
+use common::types::{Account, AccountPositionType, PositionLimits, PositionMode};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, Vec};
-
-// An asset with a token-rooted `AssetOracle` entry is active.
-#[test]
-fn require_market_active_passes_with_oracle() {
-    let env = Env::default();
-    let contract = new_controller(&env);
-    let asset = Address::generate(&env);
-    env.as_contract(&contract, || {
-        let oracle: MarketOracleConfig = MarketOracleConfig::pending_for(asset.clone(), 7);
-        storage::set_asset_oracle(&env, &asset, &oracle);
-        let mut cache = Cache::new_view(&env);
-        require_market_active(&env, &mut cache, &hub(&asset));
-    });
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #12)")]
-fn require_market_active_panics_without_oracle() {
-    let env = Env::default();
-    let contract = new_controller(&env);
-    let asset = Address::generate(&env);
-    env.as_contract(&contract, || {
-        // No `AssetOracle` entry: pending/disabled -> PairNotActive.
-        let mut cache = Cache::new_view(&env);
-        require_market_active(&env, &mut cache, &hub(&asset));
-    });
-}
 
 fn new_controller(env: &Env) -> Address {
     let admin = Address::generate(env);
     env.register(Controller, (admin,))
 }
 
-/// Test-only `HubAssetKey`; `require_market_active` only reads asset oracle state.
+/// Test-only `HubAssetKey` for limit-gate fixtures.
 fn hub(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,

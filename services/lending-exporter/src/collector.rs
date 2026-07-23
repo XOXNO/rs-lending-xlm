@@ -25,6 +25,26 @@ pub async fn resolve_pool_id(client: &RpcClient, controller: &[u8; 32]) -> Resul
     scval::as_contract_id(&scv).ok_or_else(|| anyhow!("get_pool_address did not return a contract address"))
 }
 
+/// Live controller `price_aggregator()` view; falls back to YAML override.
+pub async fn resolve_price_aggregator(
+    client: &RpcClient,
+    controller: &[u8; 32],
+    config_fallback: Option<&[u8; 32]>,
+) -> Option<[u8; 32]> {
+    match simulate_view(client, controller, "price_aggregator", vec![]).await {
+        Ok(scv) => {
+            if let Some(id) = scval::as_contract_id(&scv) {
+                return Some(id);
+            }
+            debug!(target: "exporter.collector", "price_aggregator view returned non-contract");
+        }
+        Err(e) => {
+            debug!(target: "exporter.collector", error = %e, "price_aggregator view failed; trying config fallback");
+        }
+    }
+    config_fallback.copied()
+}
+
 /// Full scrape. Never errors: partial failures are counted; successes still publish.
 pub async fn scrape_once(
     client: &RpcClient,
@@ -38,7 +58,7 @@ pub async fn scrape_once(
     let now_secs = read_ledger_now(client, metrics, net).await;
     let index_rows = read_market_indexes(client, metrics, net, contracts).await;
 
-    // Resolve pool each cycle so a transient RPC miss self-heals (no crash-loop).
+    // Resolve pool / aggregator each cycle so a re-point or transient RPC miss self-heals.
     let pool_id = match resolve_pool_id(client, &contracts.controller).await {
         Ok(p) => Some(p),
         Err(e) => {
@@ -47,6 +67,18 @@ pub async fn scrape_once(
             None
         }
     };
+    let aggregator_id = resolve_price_aggregator(
+        client,
+        &contracts.controller,
+        contracts.price_aggregator.as_ref(),
+    )
+    .await;
+    if aggregator_id.is_none() {
+        debug!(
+            target: "exporter.collector",
+            "price-aggregator unresolved; oracle config/staleness gauges skipped this cycle"
+        );
+    }
 
     let mut agg = Aggregates::default();
     // Token decimals for spoke cap/usage denomination.
@@ -58,23 +90,27 @@ pub async fn scrape_once(
         let lref: Vec<&str> = labels.iter().map(String::as_str).collect();
         let price_wad = row.as_ref().map(|r| r.final_price_wad).unwrap_or(0);
 
-        publish_oracle_prices(metrics, net, market, row);
-        if let Some(r) = row {
-            metrics.market_supply_index_ray.with_label_values(&lref).set(model::ray_to_f64(r.supply_index_ray));
-            metrics.market_borrow_index_ray.with_label_values(&lref).set(model::ray_to_f64(r.borrow_index_ray));
-        }
-
+        publish_market_index_view(metrics, net, market, &lref, row);
         if let Some(pool) = &pool_id {
             if let Some(sync) = read_sync_data(client, metrics, net, pool, market).await {
                 let dec = sync.params.asset_decimals;
                 decimals[i] = Some(dec);
                 publish_market_params(metrics, &lref, &sync);
-                metrics.market_last_accrual_timestamp.with_label_values(&lref).set(sync.last_timestamp as f64);
+                // Pool `last_timestamp` / `get_delta_time` are milliseconds.
+                metrics
+                    .market_last_accrual_timestamp
+                    .with_label_values(&lref)
+                    .set(sync.last_timestamp as f64 / 1000.0);
                 publish_market_amounts(client, metrics, net, pool, market, &lref, dec, price_wad, &mut agg).await;
+                if let Some(delta_ms) = read_market_scalar_u64(client, metrics, net, pool, market, "get_delta_time").await {
+                    metrics.market_delta_time_seconds.with_label_values(&lref).set(delta_ms as f64 / 1000.0);
+                }
             }
         }
 
-        publish_oracle_staleness(client, metrics, net, market, now_secs, contracts).await;
+        if let Some(agg_id) = &aggregator_id {
+            publish_oracle_config_and_freshness(client, metrics, net, market, now_secs, agg_id).await;
+        }
     }
 
     if let Some(v) = read_view_i128(client, metrics, net, "get_min_borrow_collateral_usd", "*", &contracts.controller, "get_min_borrow_collateral_usd", vec![]).await {
@@ -184,25 +220,35 @@ async fn try_index_batch(
     }
 }
 
-fn publish_oracle_prices(
+/// Full `MarketIndexView`: indexes + soft oracle status flags/prices.
+fn publish_market_index_view(
     metrics: &Metrics,
     net: &str,
     market: &ResolvedMarket,
+    lref: &[&str],
     row: &Option<controller::MarketIndexView>,
 ) {
     let olabels = [net, market.asset_strkey.as_str(), market.symbol.as_str()];
+    let b = |v: bool| if v { 1.0 } else { 0.0 };
     match row {
         Some(r) => {
+            metrics.market_supply_index_ray.with_label_values(lref).set(model::ray_to_f64(r.supply_index_ray));
+            metrics.market_borrow_index_ray.with_label_values(lref).set(model::ray_to_f64(r.borrow_index_ray));
             metrics.oracle_price_usd.with_label_values(&olabels).set(model::wad_to_f64(r.final_price_wad));
             metrics.oracle_primary_price_usd.with_label_values(&olabels).set(model::wad_to_f64(r.primary_price_wad));
             metrics.oracle_anchor_price_usd.with_label_values(&olabels).set(model::wad_to_f64(r.anchor_price_wad));
             if let Some(dev) = model::deviation_bps(r.primary_price_wad, r.anchor_price_wad) {
                 metrics.oracle_deviation_bps.with_label_values(&olabels).set(dev);
             }
-            metrics.oracle_healthy.with_label_values(&olabels).set(1.0);
+            metrics.oracle_status_timestamp.with_label_values(&olabels).set(r.price_timestamp as f64);
+            metrics.oracle_stale.with_label_values(&olabels).set(b(r.stale));
+            metrics.oracle_deviation_flag.with_label_values(&olabels).set(b(r.deviation));
+            metrics.oracle_healthy.with_label_values(&olabels).set(b(r.valid));
         }
         None => {
             metrics.oracle_healthy.with_label_values(&olabels).set(0.0);
+            metrics.oracle_stale.with_label_values(&olabels).set(0.0);
+            metrics.oracle_deviation_flag.with_label_values(&olabels).set(0.0);
         }
     }
 }
@@ -302,6 +348,20 @@ async fn read_market_scalar(
     read_view_i128(client, metrics, net, function, &market.asset_strkey, pool_id, function, vec![arg]).await
 }
 
+async fn read_market_scalar_u64(
+    client: &RpcClient,
+    metrics: &Metrics,
+    net: &str,
+    pool_id: &[u8; 32],
+    market: &ResolvedMarket,
+    function: &str,
+) -> Option<u64> {
+    let key = HubAssetKey { hub_id: market.hub_id, asset: market.asset_id };
+    let arg = hub_asset_key_sc_val(&key).ok()?;
+    let scv = read_view(client, metrics, net, function, &market.asset_strkey, pool_id, function, vec![arg], true).await?;
+    scval::as_u64(&scv)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn read_view_i128(
     client: &RpcClient,
@@ -351,16 +411,17 @@ async fn read_view(
     }
 }
 
-async fn publish_oracle_staleness(
+/// Price-aggregator `AssetOracle` config + provider-probe freshness (ops early-warning).
+async fn publish_oracle_config_and_freshness(
     client: &RpcClient,
     metrics: &Metrics,
     net: &str,
     market: &ResolvedMarket,
     now_secs: i64,
-    contracts: &ResolvedContracts,
+    aggregator_id: &[u8; 32],
 ) {
     let olabels = [net, market.asset_strkey.as_str(), market.symbol.as_str()];
-    let Some(config) = read_oracle_config(client, metrics, net, market, contracts).await else {
+    let Some(config) = read_oracle_config(client, metrics, net, market, aggregator_id).await else {
         return;
     };
 
@@ -371,23 +432,24 @@ async fn publish_oracle_staleness(
     metrics.oracle_sanity_max_usd.with_label_values(&olabels).set(model::wad_to_f64(config.max_sanity_price_wad));
     metrics.oracle_strategy.with_label_values(&olabels).set(config.strategy as f64);
 
-    // Report the source with least headroom (stales first).
+    // Report the source with least headroom (stales first); publish that leg's max_stale.
     let mut sources = vec![&config.primary];
     if let Some(anchor) = &config.anchor {
         sources.push(anchor);
     }
-    let mut worst: Option<(f64, u64)> = None;
+    let mut worst: Option<(f64, u64, u64)> = None;
     for source in sources {
         if let Some(feed_ts) = read_feed_timestamp(client, metrics, net, market, source).await {
             let sut = model::seconds_until_stale(now_secs, feed_ts, source.max_stale_seconds);
-            if worst.map(|(w, _)| sut < w).unwrap_or(true) {
-                worst = Some((sut, feed_ts));
+            if worst.map(|(w, _, _)| sut < w).unwrap_or(true) {
+                worst = Some((sut, feed_ts, source.max_stale_seconds));
             }
         }
     }
-    if let Some((sut, feed_ts)) = worst {
+    if let Some((sut, feed_ts, effective_max)) = worst {
         metrics.oracle_price_timestamp.with_label_values(&olabels).set(feed_ts as f64);
         metrics.oracle_seconds_until_stale.with_label_values(&olabels).set(sut);
+        metrics.oracle_effective_max_stale_seconds.with_label_values(&olabels).set(effective_max as f64);
     }
 }
 
@@ -396,9 +458,9 @@ async fn read_oracle_config(
     metrics: &Metrics,
     net: &str,
     market: &ResolvedMarket,
-    contracts: &ResolvedContracts,
+    aggregator_id: &[u8; 32],
 ) -> Option<oracle::OracleConfig> {
-    let key = asset_oracle_ledger_key(&contracts.controller, &market.asset_id).ok()?;
+    let key = asset_oracle_ledger_key(aggregator_id, &market.asset_id).ok()?;
     let entries = match client.get_ledger_entries(std::slice::from_ref(&key)).await {
         Ok(e) => e,
         Err(e) => {
@@ -452,7 +514,15 @@ async fn publish_spokes(
 ) {
     for &spoke_id in &cfg.spokes {
         let spoke_name = cfg.spoke_name(spoke_id);
-        let deprecated = read_spoke_deprecated(client, metrics, net, contracts, spoke_id).await;
+        let spoke_cfg = read_spoke_config(client, metrics, net, contracts, spoke_id).await;
+        let deprecated = spoke_cfg.as_ref().map(|c| c.is_deprecated).unwrap_or(false);
+        if let Some(c) = &spoke_cfg {
+            let s = spoke_id.to_string();
+            let slabels = [net, s.as_str(), spoke_name.as_str()];
+            metrics.spoke_liquidation_target_hf.with_label_values(&slabels).set(model::wad_to_f64(c.liquidation_target_hf_wad));
+            metrics.spoke_hf_for_max_bonus.with_label_values(&slabels).set(model::wad_to_f64(c.hf_for_max_bonus_wad));
+            metrics.spoke_liquidation_bonus_factor_bps.with_label_values(&slabels).set(c.liquidation_bonus_factor_bps as f64);
+        }
         for (i, (market, row)) in contracts.markets.iter().zip(index_rows.iter()).enumerate() {
             let dec = decimals.get(i).copied().flatten();
             let hub_name = cfg.hub_name(market.hub_id);
@@ -461,18 +531,16 @@ async fn publish_spokes(
     }
 }
 
-async fn read_spoke_deprecated(
+async fn read_spoke_config(
     client: &RpcClient,
     metrics: &Metrics,
     net: &str,
     contracts: &ResolvedContracts,
     spoke_id: u32,
-) -> bool {
+) -> Option<controller::SpokeConfig> {
     read_view(client, metrics, net, "get_spoke", "*", &contracts.controller, "get_spoke", vec![ScVal::U32(spoke_id)], true)
         .await
         .and_then(|s| controller::decode_spoke(&s).ok())
-        .map(|c| c.is_deprecated)
-        .unwrap_or(false)
 }
 
 #[allow(clippy::too_many_arguments)]

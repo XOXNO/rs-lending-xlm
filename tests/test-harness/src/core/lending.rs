@@ -76,6 +76,12 @@ impl LendingTest {
         governance::GovernanceClient::new(&self.env, &self.governance)
     }
 
+    /// Oracle-authority client (owner-gated setters; `mock_all_auths` covers the
+    /// governance-owner check in tests).
+    pub fn price_agg_client(&self) -> price_aggregator::PriceAggregatorClient<'_> {
+        price_aggregator::PriceAggregatorClient::new(&self.env, &self.price_aggregator)
+    }
+
     /// Drives governance through the published `governance-interface` ABI. Only
     /// covers the production entrypoints; the testing-only immediate forwarders
     /// stay on `gov_client`. Used by the timelock suite to prove the generated

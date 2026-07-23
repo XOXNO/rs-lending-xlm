@@ -49,9 +49,20 @@ fn hf_division_rounds_against_borrower(e: Env, weighted: i128, debt: i128) {
     cvlr_assert!(floor.raw() <= half_up.raw());
 }
 
+/// Weighted collateral covering debt implies the production floor-HF is at
+/// least one. This is an arithmetic lemma, not a liquidation transition rule.
 #[rule]
-fn hf_lemmas_reachability(e: Env, value: i128) {
-    cvlr_assume!(value > 0 && value <= WAD);
+fn hf_floor_at_least_one_when_collateral_covers_debt(e: Env, weighted: i128, debt: i128) {
+    cvlr_assume!((1..=1_000_000 * WAD).contains(&debt));
+    cvlr_assume!((debt..=1_000_000 * WAD).contains(&weighted));
+
+    let hf = Wad::from(weighted).div_floor(&e, Wad::from(debt));
+    cvlr_assert!(hf.raw() >= WAD);
+}
+
+#[rule]
+fn hf_lemmas_reachability(e: Env) {
+    let value = WAD;
     let w = crate::risk::weighted_collateral(&e, Wad::from(value), Bps::from(BPS));
     cvlr_satisfy!(w.raw() > 0);
 }

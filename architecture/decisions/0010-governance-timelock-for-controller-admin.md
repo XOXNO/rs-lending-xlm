@@ -58,7 +58,7 @@ delay update, role grant/revoke, and ownership-transfer initiation.
 | Path | Who | What |
 |------|-----|------|
 | Immediate | **GUARDIAN** | Global `pause`; tighten-only `set_spoke_asset_flags`; `create_hub` / `add_spoke` (new registries stay inert until assets list through the timelock). Hub/spoke create also exist as timelocked `AdminOperation` variants. |
-| Immediate | **ORACLE** | `set_oracle_sanity_bounds` (new band must contain the live price and overlap the previous band) |
+| Immediate | **ORACLE** | `set_sanity_band` (new band must contain the live price and overlap the previous band) |
 | Immediate | **Owner** | `deploy_controller`; `revoke_role_immediate` for **GUARDIAN** and **ORACLE** only; accept a scheduled ownership transfer; views |
 | Timelocked | PROPOSER → delay → EXECUTOR | Risk-loosening and structural admin, including `AdminOperation::Unpause`, listings, full oracle config, caps, upgrades, role grants, and clearing spoke flags (`EditAssetInSpoke`) |
 
@@ -87,7 +87,7 @@ Roles are granted at construction (fresh deploy) or via timelocked
 - `DelayTier::Sensitive` →
   `max(get_min_delay(), TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS = 120_960)` (~7 d)
   for: `UpgradeGov`, `UpgradeController`, `UpgradePool`,
-  `TransferGovOwnership`, `TransferCtrlOwnership` only.  
+  `TransferGovOwnership`, `TransferCtrlOwnership`, `SetPriceAggregator` only.  
 - `DelayTier::Recovery` →
   `max(get_min_delay(), TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS = 518_400)` (~30 d)
   for `propose_canceller_reset` only (not an `AdminOperation` variant).  

@@ -2,11 +2,11 @@
 
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
-    MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS, MIN_ORACLE_DECIMALS,
-    MIN_PRICE_STALE_SECONDS,
+    MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
 };
-use common::types::{MarketOracleConfigInput, OracleStrategy};
+use common::types::{AssetOracleConfigInput, OracleStrategy};
 use common::validation::validate_sanity_bounds as common_validate_sanity_bounds;
+pub(crate) use common::validation::validate_twap_records;
 
 #[cfg(not(feature = "testing"))]
 use common::types::{OracleReadMode, OracleSourceConfigInput};
@@ -15,7 +15,7 @@ use soroban_sdk::panic_with_error;
 
 use soroban_sdk::{assert_with_error, Env};
 
-pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
+pub(crate) fn validate_oracle_config_shape(env: &Env, config: &AssetOracleConfigInput) {
     let needs_anchor = config.strategy == OracleStrategy::PrimaryWithAnchor;
     let has_anchor = !config.anchor.is_none();
     assert_with_error!(
@@ -94,15 +94,6 @@ pub(crate) fn validate_decimals(env: &Env, decimals: u32) {
         env,
         (MIN_ORACLE_DECIMALS..=MAX_ORACLE_DECIMALS).contains(&decimals),
         OracleError::InvalidOracleDecimals
-    );
-}
-
-pub(crate) fn validate_twap_records(env: &Env, records: u32) {
-    assert_with_error!(env, records != 0, OracleError::TwapInsufficientObservations);
-    assert_with_error!(
-        env,
-        records <= MAX_TWAP_RECORDS,
-        OracleError::InvalidOracleTokenType
     );
 }
 

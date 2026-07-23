@@ -21,15 +21,6 @@ pub(crate) fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-/// Requires token-rooted oracle presence; pool and spoke gates follow.
-pub(crate) fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetKey) {
-    assert_with_error!(
-        env,
-        cache.asset_oracle_exists(&hub_asset.asset),
-        GenericError::PairNotActive
-    );
-}
-
 pub(crate) fn require_not_flash_loaning(env: &Env) {
     assert_with_error!(
         env,

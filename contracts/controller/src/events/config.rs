@@ -1,17 +1,9 @@
-//! Configuration-change events: asset-oracle, spoke, and spoke-asset updates.
+//! Configuration-change events: hub/spoke registry, spoke-asset listings,
+//! allowlists, protocol dependencies, and instance risk floors.
 
 use soroban_sdk::{contractevent, contracttype, Address, BytesN};
 
 use common::types::{SpokeAssetConfig, SpokeConfig};
-
-use crate::events::EventOracleProvider;
-
-#[contractevent(topics = ["config", "oracle"])]
-#[derive(Clone, Debug)]
-pub struct UpdateAssetOracleEvent {
-    pub asset: Address,
-    pub oracle: EventOracleProvider,
-}
 
 /// Spoke snapshot emitted after spoke changes.
 #[contracttype]
@@ -59,13 +51,6 @@ pub struct RemoveSpokeAssetEvent {
     pub hub_id: u32,
 }
 
-#[contractevent(topics = ["config", "approve_token"])]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ApproveTokenEvent {
-    pub wasm_hash: BytesN<32>,
-    pub approved: bool,
-}
-
 #[contractevent(topics = ["config", "approve_blend_pool"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApproveBlendPoolEvent {
@@ -73,10 +58,16 @@ pub struct ApproveBlendPoolEvent {
     pub approved: bool,
 }
 
-#[contractevent(topics = ["config", "aggregator"])]
+#[contractevent(topics = ["config", "swap_aggregator"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UpdateAggregatorEvent {
-    pub aggregator: Address,
+pub struct UpdateSwapAggregatorEvent {
+    pub swap_aggregator: Address,
+}
+
+#[contractevent(topics = ["config", "price_aggregator"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpdatePriceAggregatorEvent {
+    pub price_aggregator: Address,
 }
 
 #[contractevent(topics = ["config", "accumulator"])]

@@ -55,6 +55,16 @@ fn test_ray_div_floor() {
 }
 
 #[test]
+fn test_ray_div_ceil() {
+    let env = Env::default();
+    let amount = Ray::from(2);
+    let index = Ray::from(3 * RAY);
+
+    assert_eq!(amount.div_floor(&env, index).raw(), 0);
+    assert_eq!(amount.div_ceil(&env, index).raw(), 1);
+}
+
+#[test]
 fn test_ray_from_asset() {
     let r = Ray::from_asset(10_000_000, 7);
     assert_eq!(r.raw(), RAY);

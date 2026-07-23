@@ -4,7 +4,7 @@
 //! helpers share entry gates and merge logic but defer post-pool risk gates to
 //! `strategy_finalize`. The pool pays proceeds out; there is no pre-transfer.
 
-use common::math::fp::{Bps, Ray};
+use common::math::fp::Ray;
 use common::types::{
     Account, AccountPositionType, DebtPosition, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
 };
@@ -20,7 +20,7 @@ use crate::positions::{
     finalize_position_flow, make_pool_action, validate_position_entry_gates, AggregatedPayments,
     HubPayment, PositionSides,
 };
-use crate::risk::validation;
+use crate::risk::{self, validation};
 use crate::storage;
 use crate::{Controller, ControllerArgs, ControllerClient};
 
@@ -38,7 +38,7 @@ impl Controller {
     /// # Errors
     /// * `NotAuthorized` - `caller` is neither the account owner nor an active delegate.
     /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * Entry gates: `HubNotActive`, `PairNotActive`, `AssetNotInSpoke`,
+    /// * Entry gates: `HubNotActive`, `AssetNotInSpoke`,
     ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `AssetNotBorrowable`, or
     ///   `PositionLimitExceeded`.
     /// * `SpokeBorrowCapReached` - the borrow would exceed the spoke borrow cap.
@@ -92,16 +92,15 @@ pub(crate) fn process_borrow(
     );
     settle_borrow(env, &recipient, &mut account, &aggregated, &mut cache);
 
+    let restamped = risk::restamp_listed_supply_safe_params(&mut cache, &mut account);
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
 
-    finalize_position_flow(
-        env,
-        account_id,
-        &account,
-        &mut cache,
-        PositionSides::DEBT,
-        false,
-    );
+    let sides = if restamped {
+        PositionSides::BOTH
+    } else {
+        PositionSides::DEBT
+    };
+    finalize_position_flow(env, account_id, &account, &mut cache, sides, false);
 }
 
 /// One batch `pool.borrow` to `recipient`, then merge input-ordered results.
@@ -171,10 +170,15 @@ fn finish_borrow_leg(
     // Debt position is fully pool-owned (scaled shares); no controller risk params.
     let position: DebtPosition = DebtPosition::from(&result.position);
 
-    let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
     let delta = position.scaled_amount.checked_sub(env, old_scaled);
     let ctx = cache.require_spoke_usage_context(account.spoke_id);
-    ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
+    ctx.apply_borrow_after_pool(
+        env,
+        hub_asset,
+        delta,
+        &result.market_index,
+        result.asset_decimals,
+    );
 
     cache.put_market_index(hub_asset, &result.market_index);
     cache.record_debt_position_update(
@@ -208,7 +212,7 @@ pub(crate) fn borrow_for_strategy(
         hub_debt,
         amount,
         cache,
-        None,
+        true,
         events::PositionAction::Multiply,
     )
 }
@@ -231,22 +235,23 @@ pub(crate) fn borrow_for_migration(
         hub_debt,
         amount,
         cache,
-        Some(0),
+        false,
         events::PositionAction::Migrate,
     )
 }
 
 /// Shared strategy-borrow body.
 ///
-/// `fee_override`: `None` uses the market flash-loan fee; `Some(fee)` sets it
-/// explicitly (migration uses `Some(0)`). Entry gates run; post-pool HF does not.
+/// `charge_fee`: `true` applies the market flash-loan fee (multiply); `false`
+/// borrows fee-free (migration). The fee amount is computed pool-side from the
+/// market's `flashloan_fee` bps. Entry gates run; post-pool HF does not.
 fn borrow_strategy_inner(
     env: &Env,
     account: &mut Account,
     hub_debt: &HubAssetKey,
     amount: i128,
     cache: &mut Cache,
-    fee_override: Option<i128>,
+    charge_fee: bool,
     event_action: events::PositionAction,
 ) -> i128 {
     let hub_debt = hub_debt.clone();
@@ -260,11 +265,6 @@ fn borrow_strategy_inner(
         AccountPositionType::Borrow,
     );
 
-    // Flash fee from pool market params.
-    let flash_fee = fee_override.unwrap_or_else(|| {
-        let fee_bps = cache.cached_pool_sync_data(&hub_debt).params.flashloan_fee;
-        Bps::from(i128::from(fee_bps)).flash_loan_fee_on(env, amount)
-    });
     let borrow_position = account.get_or_create_debt_position(&hub_debt);
 
     let pool_addr = cache.cached_pool_address();
@@ -274,7 +274,7 @@ fn borrow_strategy_inner(
         &pool_addr,
         &env.current_contract_address(),
         pool_action,
-        flash_fee,
+        charge_fee,
     );
     let mutation: PoolPositionMutation = PoolPositionMutation::from(&result);
     finish_borrow_leg(env, account, &hub_debt, event_action, &mutation, cache);

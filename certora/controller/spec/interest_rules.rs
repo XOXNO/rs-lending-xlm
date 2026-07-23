@@ -111,7 +111,7 @@ fn borrow_rate_capped(e: Env) {
 }
 
 #[rule]
-fn borrow_rate_continuity_at_mid(e: Env) {
+fn borrow_rate_non_decreasing_at_mid_boundary(e: Env) {
     let params = nondet_valid_params(&e);
 
     cvlr_assume!(params.mid_utilization.raw() >= 2);
@@ -120,17 +120,14 @@ fn borrow_rate_continuity_at_mid(e: Env) {
         calculate_borrow_rate(&e, Ray::from(params.mid_utilization.raw() - 1), &params);
     let rate_at = calculate_borrow_rate(&e, params.mid_utilization, &params);
 
-    let diff = if rate_at >= rate_below {
-        rate_at.raw() - rate_below.raw()
-    } else {
-        rate_below.raw() - rate_at.raw()
-    };
-
-    cvlr_assert!(diff <= 1);
+    // A one-raw-unit utilization step can produce a larger rate step when the
+    // configured kink interval is tiny. The sound boundary property is
+    // monotonicity, not a one-raw-unit Lipschitz bound.
+    cvlr_assert!(rate_below <= rate_at);
 }
 
 #[rule]
-fn borrow_rate_continuity_at_optimal(e: Env) {
+fn borrow_rate_non_decreasing_at_optimal_boundary(e: Env) {
     let params = nondet_valid_params(&e);
 
     cvlr_assume!(params.optimal_utilization.raw() >= 2);
@@ -139,13 +136,7 @@ fn borrow_rate_continuity_at_optimal(e: Env) {
         calculate_borrow_rate(&e, Ray::from(params.optimal_utilization.raw() - 1), &params);
     let rate_at = calculate_borrow_rate(&e, params.optimal_utilization, &params);
 
-    let diff = if rate_at >= rate_below {
-        rate_at.raw() - rate_below.raw()
-    } else {
-        rate_below.raw() - rate_at.raw()
-    };
-
-    cvlr_assert!(diff <= 1);
+    cvlr_assert!(rate_below <= rate_at);
 }
 
 #[rule]

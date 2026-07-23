@@ -1,12 +1,14 @@
-//! LiquidityPool summaries: nondet postconditions within production bounds.
+//! Trusted LiquidityPool abstractions for controller-only jobs.
+//!
+//! These summaries do not constitute a composed pool proof. Several erase
+//! pool storage, token-transfer, batch-order, or callback effects, so rules
+//! using them must stay scoped to controller-local output/control-flow claims.
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Bytes, Env, Vec};
 
-use common::constants::{
-    MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW,
-};
+use common::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
     MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolNetSettleResult, PoolPositionMutation,
     PoolSeizeEntry, PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
@@ -25,6 +27,14 @@ fn nondet_market_index() -> MarketIndex {
         supply_index: common::math::fp::Ray::from(supply_index),
         borrow_index: common::math::fp::Ray::from(borrow_index),
     }
+}
+
+/// Immutable market decimals carried by every pool mutation.
+/// Production validates this field against the RAY decimal domain.
+fn nondet_asset_decimals() -> u32 {
+    let asset_decimals: u32 = nondet();
+    cvlr_assume!(asset_decimals <= 27);
+    asset_decimals
 }
 
 /// Nondet index with supply and borrow indexes >= prior (except seize_positions supply drop).
@@ -52,6 +62,7 @@ pub fn supply_summary(
         position: new_position,
         market_index: (&market_index).into(),
         actual_amount: amount,
+        asset_decimals: nondet_asset_decimals(),
     }
 }
 
@@ -72,6 +83,7 @@ pub fn borrow_summary(
         position: new_position,
         market_index: (&market_index).into(),
         actual_amount: amount,
+        asset_decimals: nondet_asset_decimals(),
     }
 }
 
@@ -99,6 +111,7 @@ pub fn withdraw_summary(
         position: new_position,
         market_index: (&market_index).into(),
         actual_amount,
+        asset_decimals: nondet_asset_decimals(),
     }
 }
 
@@ -124,6 +137,7 @@ pub fn repay_summary(
         position: new_position,
         market_index: (&market_index).into(),
         actual_amount,
+        asset_decimals: nondet_asset_decimals(),
     }
 }
 
@@ -153,11 +167,8 @@ pub fn net_settle_summary(
     cvlr_assume!(new_debt_scaled <= debt_position.scaled_amount);
     new_debt.scaled_amount = new_debt_scaled;
 
-    // Zero settlement burns no shares; any scaled drop implies `settled_amount > 0`.
-    // Sound over-approx: positive settlement may leave a leg unchanged (share round-to-zero).
-    let supply_unchanged = new_supply_scaled == supply_position.scaled_amount;
-    let debt_unchanged = new_debt_scaled == debt_position.scaled_amount;
-    cvlr_assume!(settled_amount != 0 || (supply_unchanged && debt_unchanged));
+    // Do not relate a zero token settlement to unchanged shares. Production
+    // may burn a dust position whose floored token amount is zero.
 
     let market_index = nondet_market_index();
     PoolNetSettleResult {
@@ -175,37 +186,40 @@ pub fn update_indexes_summary(_env: &Env, _asset: &Address) {}
 /// nothing (production emits an event).
 pub fn add_rewards_summary(_env: &Env, _asset: &Address, _amount: i128) {}
 
-/// Flash loan: `amount > 0`, `fee >= 0`, `amount + fee` in range. Returns
-/// nothing (production emits an event).
+/// Flash-loan return abstraction for controller lock cleanup only. It omits
+/// liquidity checks, transfers, receiver callback, repayment, and pool state.
 pub fn flash_loan_summary(
     _env: &Env,
     _asset: &Address,
     _initiator: &Address,
     _receiver: &Address,
     amount: i128,
-    fee: i128,
     _data: &Bytes,
-) {
+) -> i128 {
+    let fee: i128 = nondet();
     cvlr_assume!(amount > 0);
     cvlr_assume!(fee >= 0);
     cvlr_assume!(fee <= i128::MAX - amount);
+    fee
 }
 
-/// Create strategy: `actual_amount == amount`, `amount_received == amount - fee`, debt non-decreasing.
+/// Create strategy: debt non-decreasing; fee-free migrations receive the full
+/// amount, while fee-charging calls admit every valid configured fee.
 pub fn create_strategy_summary(
     _env: &Env,
     _asset: &Address,
     position: ScaledPositionRaw,
     amount: i128,
-    fee: i128,
+    charge_fee: bool,
 ) -> PoolStrategyMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
     cvlr_assume!(new_scaled >= position.scaled_amount);
     new_position.scaled_amount = new_scaled;
 
-    cvlr_assume!(fee >= 0);
     cvlr_assume!(amount >= 0);
+    let fee: i128 = if charge_fee { nondet() } else { 0 };
+    cvlr_assume!(fee >= 0);
     cvlr_assume!(fee <= amount);
 
     let market_index = nondet_market_index();
@@ -214,6 +228,7 @@ pub fn create_strategy_summary(
         market_index: (&market_index).into(),
         actual_amount: amount,
         amount_received: amount - fee,
+        asset_decimals: nondet_asset_decimals(),
     }
 }
 
@@ -261,6 +276,9 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
     cvlr_assume!(i128::from(reserve_factor) < common::constants::BPS);
     let asset_decimals: u32 = nondet();
     cvlr_assume!(asset_decimals <= 27);
+    let is_flashloanable: bool = nondet();
+    let flashloan_fee: u32 = nondet();
+    cvlr_assume!(i128::from(flashloan_fee) <= common::constants::BPS);
     let asset_id: Address = asset.clone();
 
     PoolSyncData {
@@ -274,8 +292,8 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
             optimal_utilization,
             max_utilization,
             reserve_factor,
-            is_flashloanable: false,
-            flashloan_fee: 0,
+            is_flashloanable,
+            flashloan_fee,
             asset_id,
             asset_decimals,
         },

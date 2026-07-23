@@ -1,0 +1,36 @@
+[package]
+name = "price-aggregator"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellar-access = { workspace = true }
+stellar-macros = { workspace = true }
+common = { path = "../../common" }
+cvlr = { workspace = true, optional = true }
+cvlr-soroban = { workspace = true, optional = true }
+cvlr-soroban-macros = { workspace = true, optional = true }
+cvlr-soroban-derive = { workspace = true, optional = true }
+
+[features]
+testing = []
+certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive"]
+certora-focused = ["common/certora-focused"]
+certora-freshness-rules = ["certora", "certora-focused"]
+certora-oracle-rules = ["certora", "certora-focused"]
+certora-tolerance-math-rules = ["certora", "certora-focused"]
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+mock-oracle = { path = "../../mock/mock-oracle" }
+mock-redstone = { path = "../../mock/mock-redstone" }
+
+# Integration tests exercise seed_oracle_config / remove_oracle_config.
+[[test]]
+name = "surface"
+path = "tests/surface.rs"
+required-features = ["testing"]

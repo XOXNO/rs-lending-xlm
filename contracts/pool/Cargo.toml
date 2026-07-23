@@ -24,6 +24,13 @@ cvlr-soroban-derive = { workspace = true, optional = true }
 
 [features]
 certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive", "common/certora"]
+certora-focused = ["common/certora-focused"]
+certora-rate-index-accounting-rules = ["certora", "certora-focused"]
+certora-position-accounting-rules = ["certora", "certora-focused"]
+certora-seize-settle-accounting-rules = ["certora", "certora-focused"]
+certora-fee-strategy-accounting-rules = ["certora", "certora-focused"]
+certora-flash-loan-accounting-rules = ["certora", "certora-focused"]
+certora-core-sanity-rules = ["certora", "certora-focused"]
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

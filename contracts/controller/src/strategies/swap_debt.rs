@@ -10,7 +10,7 @@ use crate::context::Cache;
 use crate::events;
 use crate::positions::get_debt_position_or_panic;
 use crate::strategies::{
-    borrow_for_strategy, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
+    borrow_for_strategy, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
     swap_tokens_or_passthrough, StrategyRepay,
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
@@ -77,7 +77,7 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
     let existing_pos = get_debt_position_or_panic(env, &account, existing_debt);
 
     let extra_assets = vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
-    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
+    prefetch_strategy_prices(&mut cache, &account, &extra_assets);
 
     let amount_received =
         borrow_for_strategy(env, &mut account, new_debt, new_debt_amount, &mut cache);
@@ -104,5 +104,5 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
         },
     );
 
-    strategy_finalize(env, account_id, &account, &mut cache);
+    strategy_finalize(env, account_id, &mut account, &mut cache);
 }

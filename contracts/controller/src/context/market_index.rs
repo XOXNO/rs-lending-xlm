@@ -2,7 +2,7 @@
 //!
 //! Indexes are pool truth only — never simulated on the controller. After a
 //! mutation, `put_market_index` stores the returned index so post-action risk
-//! skips a redundant pool read. Bulk prefetch assumes results align with the
+//! skips a redundant pool read. Bulk fetch assumes results align with the
 //! request order.
 
 use common::types::{HubAssetKey, MarketIndex, MarketIndexRaw};
@@ -19,12 +19,13 @@ impl Cache {
 
     /// No-op under Certora; the harness supplies indexes directly.
     #[cfg(feature = "certora")]
-    pub(crate) fn prefetch_market_indexes(&mut self, _hub_assets: &Vec<HubAssetKey>) {}
+    pub(crate) fn fetch_market_indexes(&mut self, _hub_assets: &Vec<HubAssetKey>) {}
 
-    /// Bulk-load indexes for uncached hub-assets (deduped). Pool reverts
-    /// `PoolNotInitialized` for any uncreated market in the batch.
+    /// Bulk-fetch pool indexes for any `hub_assets` not yet in this transaction's
+    /// map (deduped). Pool reverts `PoolNotInitialized` for any uncreated market
+    /// in the batch. Prefer [`Cache::load_markets`] when USD prices are needed too.
     #[cfg(not(feature = "certora"))]
-    pub(crate) fn prefetch_market_indexes(&mut self, hub_assets: &Vec<HubAssetKey>) {
+    pub(crate) fn fetch_market_indexes(&mut self, hub_assets: &Vec<HubAssetKey>) {
         let mut missing: Vec<HubAssetKey> = Vec::new(&self.env);
         for hub_asset in hub_assets.iter() {
             if self.market_indexes.contains_key(hub_asset.clone()) || missing.contains(&hub_asset) {

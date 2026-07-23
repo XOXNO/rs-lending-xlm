@@ -3,9 +3,14 @@
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::ScVal;
 
-use crate::scval::{field_bool, field_i128, field_u32, map_field, vec_items};
+use crate::scval::{field_bool, field_i128, field_u32, field_u64, vec_items};
 
-/// One `get_market_indexes_detailed` row: RAY indexes + WAD prices.
+/// One `get_market_indexes_detailed` row: RAY indexes + soft oracle status.
+///
+/// Price field names keep historical on-chain ABI mapping:
+/// - `final_price_wad` ← `price_wad`
+/// - `primary_price_wad` ← `safe_price_wad`
+/// - `anchor_price_wad` ← `aggregator_price_wad` (secondary leg, not the contract)
 #[derive(Debug, Clone)]
 pub struct MarketIndexView {
     pub supply_index_ray: i128,
@@ -13,6 +18,12 @@ pub struct MarketIndexView {
     pub final_price_wad: i128,
     pub primary_price_wad: i128,
     pub anchor_price_wad: i128,
+    /// Soft-status blend freshness (seconds).
+    pub price_timestamp: u64,
+    pub stale: bool,
+    pub deviation: bool,
+    /// True when price is fresh, in-band, positive, and within sanity.
+    pub valid: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -23,7 +34,7 @@ pub struct SpokeConfig {
     pub liquidation_bonus_factor_bps: u32,
 }
 
-/// Spoke-asset listing: flags, risk ratios, caps (`oracle_override` unused).
+/// Spoke-asset listing: flags, risk ratios, caps.
 #[derive(Debug, Clone)]
 pub struct SpokeAssetConfig {
     pub is_collateralizable: bool,
@@ -61,6 +72,10 @@ fn decode_market_index_row(value: &ScVal) -> Result<MarketIndexView> {
             .ok_or_else(|| anyhow!("safe_price_wad missing"))?,
         anchor_price_wad: field_i128(value, "aggregator_price_wad")
             .ok_or_else(|| anyhow!("aggregator_price_wad missing"))?,
+        price_timestamp: field_u64(value, "price_timestamp").unwrap_or(0),
+        stale: field_bool(value, "stale").unwrap_or(false),
+        deviation: field_bool(value, "deviation").unwrap_or(false),
+        valid: field_bool(value, "valid").unwrap_or(false),
     })
 }
 
@@ -99,13 +114,6 @@ pub fn decode_spoke_usage(value: &ScVal) -> Result<SpokeUsage> {
     })
 }
 
-pub fn spoke_asset_has_oracle_override(value: &ScVal) -> bool {
-    match map_field(value, "oracle_override").and_then(crate::scval::enum_variant) {
-        Some((tag, _)) => tag == "Some",
-        None => false,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,12 +145,36 @@ mod tests {
             ("price_wad", i128v(100)),
             ("safe_price_wad", i128v(101)),
             ("aggregator_price_wad", i128v(99)),
+            ("price_timestamp", ScVal::U64(1_700_000_000)),
+            ("stale", ScVal::Bool(false)),
+            ("deviation", ScVal::Bool(true)),
+            ("valid", ScVal::Bool(false)),
         ]);
         let vec = ScVal::Vec(Some(ScVec(vec![row].try_into().unwrap())));
         let decoded = decode_market_indexes(&vec).unwrap();
         assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].final_price_wad, 100);
         assert_eq!(decoded[0].primary_price_wad, 101);
         assert_eq!(decoded[0].anchor_price_wad, 99);
+        assert_eq!(decoded[0].price_timestamp, 1_700_000_000);
+        assert!(!decoded[0].stale);
+        assert!(decoded[0].deviation);
+        assert!(!decoded[0].valid);
+    }
+
+    #[test]
+    fn decodes_spoke_liquidation_curve() {
+        let m = map(vec![
+            ("is_deprecated", ScVal::Bool(false)),
+            ("liquidation_target_hf_wad", i128v(1_050_000_000_000_000_000)),
+            ("hf_for_max_bonus_wad", i128v(950_000_000_000_000_000)),
+            ("liquidation_bonus_factor_bps", ScVal::U32(5000)),
+        ]);
+        let cfg = decode_spoke(&m).unwrap();
+        assert!(!cfg.is_deprecated);
+        assert_eq!(cfg.liquidation_target_hf_wad, 1_050_000_000_000_000_000);
+        assert_eq!(cfg.hf_for_max_bonus_wad, 950_000_000_000_000_000);
+        assert_eq!(cfg.liquidation_bonus_factor_bps, 5000);
     }
 
     #[test]

@@ -65,14 +65,14 @@ pub(crate) fn pool_create_strategy_call(
     _pool_addr: &Address,
     _receiver: &Address,
     action: PoolAction,
-    fee: i128,
+    charge_fee: bool,
 ) -> PoolStrategyMutation {
     create_strategy_summary(
         env,
         &action.hub_asset.asset,
         action.position,
         action.amount,
-        fee,
+        charge_fee,
     )
 }
 
@@ -144,18 +144,9 @@ pub(crate) fn pool_flash_loan_call(
     initiator: &Address,
     receiver: &Address,
     amount: i128,
-    fee: i128,
     data: &Bytes,
-) {
-    flash_loan_summary(
-        env,
-        &hub_asset.asset,
-        initiator,
-        receiver,
-        amount,
-        fee,
-        data,
-    )
+) -> i128 {
+    flash_loan_summary(env, &hub_asset.asset, initiator, receiver, amount, data)
 }
 
 pub(crate) fn pool_update_indexes_call(env: &Env, _pool_addr: &Address, hub_asset: &HubAssetKey) {

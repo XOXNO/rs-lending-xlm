@@ -1,0 +1,2 @@
+# Certora CLI version used by hosted workflows and local setup.
+certora-cli==8.17.1

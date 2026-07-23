@@ -1,7 +1,7 @@
 //! Blend V2 migration into controller positions.
 
 use crate::account;
-use common::errors::GenericError;
+use common::errors::{CollateralError, GenericError};
 use common::types::{Account, DebtPosition, HubAssetKey, PositionMode};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
@@ -15,10 +15,11 @@ use crate::events::{self, BlendMigrationEvent};
 use crate::external::blend::{
     blend_submit_call, BlendRequest, REQ_REPAY, REQ_WITHDRAW, REQ_WITHDRAW_COLLATERAL,
 };
-use crate::positions::supply;
+use crate::positions::{enforce_spoke_asset_flags, supply};
+use crate::spoke::require_listed_active_config;
 use crate::strategies::swap::balance_delta;
 use crate::strategies::{
-    borrow_for_migration, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
+    borrow_for_migration, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
     StrategyRepay,
 };
 use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
@@ -67,7 +68,11 @@ impl Controller {
 }
 
 /// Migrate Blend V2 → controller: clear Blend debt, sweep assets, open positions.
-pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendParams) -> u64 {
+pub(crate) fn process_migrate_blend(
+    env: &Env,
+    caller: &Address,
+    params: MigrateBlendParams,
+) -> u64 {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
@@ -90,18 +95,26 @@ pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: Migrate
         &debt_caps,
     );
 
-    let (account_id, mut account, mut cache, withdraw_assets) = prepare_migration_account(
-        env,
-        caller,
-        account_id,
-        spoke_id,
-        &collateral_assets,
-        &supply_assets,
-        &debt_caps,
-    );
+    let (account_id, mut account, mut cache, withdraw_assets, all_assets) =
+        prepare_migration_account(
+            env,
+            caller,
+            account_id,
+            spoke_id,
+            &collateral_assets,
+            &supply_assets,
+            &debt_caps,
+        );
 
-    // Markets active before balance() or Blend submit.
-    require_migration_markets_active(env, &mut cache, hub_id, &withdraw_assets, &debt_caps);
+    // Debt-opening flow: prices must be risk-increasing. Unconfigured assets
+    // fail closed on the price-aggregator bulk read (`OracleNotConfigured`).
+    prefetch_strategy_prices(&mut cache, &account, &all_assets);
+
+    // Fail fast before any Blend call: a priced-but-unlisted (or non-supplyable)
+    // withdraw asset would otherwise only be rejected by `process_deposit`
+    // AFTER the external `guarded_submit`. Debt assets are gated by the borrow
+    // entry gates inside the debt leg, which also runs before the submit.
+    require_withdraw_assets_supplyable(env, &mut cache, spoke_id, hub_id, &withdraw_assets);
 
     execute_migration_debt_leg(
         env,
@@ -127,7 +140,7 @@ pub(crate) fn process_migrate_blend(env: &Env, caller: &Address, params: Migrate
         );
     }
 
-    strategy_finalize(env, account_id, &account, &mut cache);
+    strategy_finalize(env, account_id, &mut account, &mut cache);
 
     BlendMigrationEvent {
         account_id,
@@ -178,8 +191,7 @@ fn prepare_migration_account(
     collateral_assets: &Vec<Address>,
     supply_assets: &Vec<Address>,
     debt_caps: &Vec<(Address, i128)>,
-) -> (u64, Account, Cache, Vec<Address>) {
-    // Debt-opening flow: prices must be risk-increasing.
+) -> (u64, Account, Cache, Vec<Address>, Vec<Address>) {
     let mut cache = Cache::new(env);
     let (account_id, account) = account::load_or_create_account(
         env,
@@ -192,25 +204,25 @@ fn prepare_migration_account(
     );
     let (withdraw_assets, all_assets) =
         prepare_migration_assets(env, collateral_assets, supply_assets, debt_caps);
-    prefetch_strategy_oracles(&mut cache, &account, &all_assets);
-    (account_id, account, cache, withdraw_assets)
+    (account_id, account, cache, withdraw_assets, all_assets)
 }
 
-/// asset) to be a configured market before any `.balance()` read or Blend call.
-/// `require_market_active` checks the token-rooted oracle, so `hub_id` only names
-/// the coordinate the positions open on.
-fn require_migration_markets_active(
+/// Every migrated withdraw asset must be listed, unpaused/unfrozen, and
+/// supply-enabled on the destination spoke — the same gates
+/// `validate_position_entry_gates` applies to the eventual deposit, pulled
+/// forward so unsupported assets are rejected before any Blend interaction.
+fn require_withdraw_assets_supplyable(
     env: &Env,
     cache: &mut Cache,
+    spoke_id: u32,
     hub_id: u32,
     withdraw_assets: &Vec<Address>,
-    debt_caps: &Vec<(Address, i128)>,
 ) {
     for asset in withdraw_assets.iter() {
-        validation::require_market_active(env, cache, &HubAssetKey { hub_id, asset });
-    }
-    for (asset, _) in debt_caps.iter() {
-        validation::require_market_active(env, cache, &HubAssetKey { hub_id, asset });
+        let hub_asset = HubAssetKey { hub_id, asset };
+        let asset_config = require_listed_active_config(env, cache, spoke_id, &hub_asset);
+        enforce_spoke_asset_flags(env, cache, spoke_id, &hub_asset, true);
+        assert_with_error!(env, asset_config.can_supply(), CollateralError::NotCollateral);
     }
 }
 

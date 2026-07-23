@@ -28,7 +28,6 @@ fn try_add_asset(
     let admin = t.admin();
     let args = SpokeAssetArgs {
         liquidation_fees: 0,
-        oracle_override: controller::types::MarketOracleConfigOption::None,
         hub_id: HARNESS_HUB,
         asset: asset.clone(),
         spoke_id: category_id,
@@ -90,7 +89,6 @@ fn test_spoke_add_asset_via_gov_forwarder() {
         &admin,
         &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
             liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: id,
@@ -129,7 +127,6 @@ fn test_spoke_accepts_spoke_caps_without_hub_coupling() {
         &admin,
         &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
             liquidation_fees: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
             hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: id,

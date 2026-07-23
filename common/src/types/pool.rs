@@ -375,6 +375,9 @@ pub struct PoolPositionMutation {
     pub position: ScaledPositionRaw,
     pub market_index: MarketIndexRaw,
     pub actual_amount: i128,
+    /// Immutable market decimals, returned so the controller enforces supply/
+    /// borrow caps without a separate `get_sync_data` round-trip.
+    pub asset_decimals: u32,
 }
 
 #[contracttype]
@@ -384,6 +387,8 @@ pub struct PoolStrategyMutation {
     pub market_index: MarketIndexRaw,
     pub actual_amount: i128,
     pub amount_received: i128,
+    /// Immutable market decimals (see `PoolPositionMutation::asset_decimals`).
+    pub asset_decimals: u32,
 }
 
 /// `net_settle` result: one index, one settled amount for both legs.
@@ -402,6 +407,7 @@ impl From<&PoolStrategyMutation> for PoolPositionMutation {
             position: m.position.clone(),
             market_index: m.market_index.clone(),
             actual_amount: m.actual_amount,
+            asset_decimals: m.asset_decimals,
         }
     }
 }

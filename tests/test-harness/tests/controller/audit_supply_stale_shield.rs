@@ -6,7 +6,7 @@
 //! before reaching the HF gate — vetoing loss mitigation on the whole account.
 
 use test_harness::{
-    errors, eth_preset, usd, usd_cents, wbtc_preset, usdc_preset, LendingTest, PositionType, ALICE,
+    errors, eth_preset, usd, usd_cents, usdc_preset, wbtc_preset, LendingTest, PositionType, ALICE,
     BOB, LIQUIDATOR,
 };
 

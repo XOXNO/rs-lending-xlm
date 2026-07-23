@@ -73,9 +73,9 @@ fn pool_state_ok_boundaries() {
 mod gates {
     use super::*;
     use common::types::{
-        AccountPositionRaw, DebtPositionRaw, MarketIndexRaw, MarketOracleConfig, OracleAssetRef,
-        OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
-        OracleStrategy, PositionMode, ReflectorBase, ReflectorSourceConfig,
+        AccountPositionRaw, AssetOracleConfig, DebtPositionRaw, MarketIndexRaw, OracleAssetRef,
+        OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy,
+        OracleTolerance, PositionMode, ReflectorBase, ReflectorSourceConfig,
     };
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Map};
@@ -130,10 +130,10 @@ mod gates {
             borrow_positions,
         };
 
-        let config = MarketOracleConfig {
+        let config = AssetOracleConfig {
             asset_decimals: 7,
             max_price_stale_seconds: 900,
-            tolerance: OraclePriceFluctuation {
+            tolerance: OracleTolerance {
                 upper_ratio_bps: 10_500,
                 lower_ratio_bps: 9_500,
             },
@@ -150,8 +150,11 @@ mod gates {
             min_sanity_price_wad: 0,
             max_sanity_price_wad: i128::MAX,
         };
+        let aggregator = env.register(price_aggregator::PriceAggregator, (Address::generate(env),));
+        price_aggregator::PriceAggregatorClient::new(env, &aggregator)
+            .seed_oracle_config(&asset, &config);
         env.as_contract(&contract, || {
-            crate::storage::set_asset_oracle(env, &asset, &config);
+            crate::storage::set_price_aggregator(env, &aggregator);
         });
         (contract, hub, account)
     }
@@ -165,6 +168,10 @@ mod gates {
                 supply_index: RAY,
             },
         );
+        cache.set_prices(crate::external::price_aggregator::fetch_prices(
+            env,
+            &soroban_sdk::vec![env, hub.asset.clone()],
+        ));
         cache
     }
 

@@ -21,9 +21,10 @@ common = { path = "../../common" }
 controller = { path = "../../contracts/controller", features = ["testing"] }
 governance = { path = "../../contracts/governance", features = ["testing"] }
 governance-interface = { path = "../../interfaces/governance" }
+price-aggregator = { path = "../../contracts/price-aggregator", features = ["testing"] }
 pool = { path = "../../contracts/pool" }
 flash-loan-receiver = { path = "../../contracts/flash-loan-receiver" }
-xoxno-oracle-adapter = { path = "../../contracts/xoxno-oracle-adapter" }
+xoxno-oracle = { path = "../../contracts/xoxno-oracle" }
 # Exact rational arithmetic for the reference implementation used by the
 # liquidation differential fuzz harness (Phase B). Pulled in as a regular
 # dependency because `src/reference/` is part of the library, not a test-only

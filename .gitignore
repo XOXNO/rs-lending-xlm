@@ -80,9 +80,12 @@ Thumbs.db
 __pycache__/
 
 outputs
+superpowers
 
 # Certora local prover run reports
 **/emv-*-certora-*/
 
 # codebase-memory-mcp persisted graph artifact
 .codebase-memory/
+target-mutants/
+target-fixtures/

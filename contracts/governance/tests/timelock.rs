@@ -120,6 +120,28 @@ fn propose_upgrade_pool_uses_sensitive_delay() {
     );
 }
 
+#[test]
+fn propose_set_price_aggregator_uses_sensitive_delay() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _controller, gov) = register_with_controller(&env, 10);
+    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    // Any deployed contract address satisfies `require_contract_address`.
+    let aggregator = env.register(controller::Controller, (admin.clone(),));
+
+    let current = env.ledger().sequence();
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::SetPriceAggregator(aggregator),
+        &salt,
+    );
+
+    assert_eq!(
+        gov.get_operation_ledger(&id),
+        current + TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS
+    );
+}
+
 // GUARDIAN pauses the controller immediately; a non-guardian is rejected.
 #[test]
 fn guardian_pauses_immediately_stranger_rejected() {
@@ -320,8 +342,7 @@ fn independent_canceller_can_cancel_non_canceller_role_revocation() {
     env.mock_all_auths();
     let delay = 10u32;
     let (admin, _controller, gov) = register_with_controller(&env, delay);
-    let honest_canceller =
-        grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
+    let honest_canceller = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
     // A second (non-owner) PROPOSER so its revocation clears the last-proposer guard.
     let extra_proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 2);
 

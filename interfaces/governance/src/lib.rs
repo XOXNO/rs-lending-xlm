@@ -4,8 +4,7 @@
 //! Client-only governance ABI (`GovernanceClient`). Matches deploy entrypoints by name.
 
 use common::types::{
-    HubAssetKey, MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
-    PositionLimits,
+    AssetOracleConfig, AssetOracleConfigInput, HubAssetKey, OracleTolerance, PositionLimits,
 };
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
@@ -49,7 +48,7 @@ pub struct TransferOwnershipArgs {
 #[derive(Clone, Debug)]
 pub struct ConfigureOracleArgs {
     pub hub_asset: HubAssetKey,
-    pub cfg: MarketOracleConfigInput,
+    pub cfg: AssetOracleConfigInput,
 }
 
 #[contracttype]
@@ -79,11 +78,12 @@ pub struct RoleArgs {
 #[derive(Clone, Debug)]
 // `#[contracttype]` enums cannot box variants (Soroban has no `Box` codec);
 // `CreateLiquidityPool` embeds large `MarketParamsRaw`. Mirrors allow on
-// `MarketOracleConfigOption`.
+// `AssetOracleConfigOption`.
 #[allow(clippy::large_enum_variant)]
 pub enum AdminOperation {
     // Controller target
-    SetAggregator(Address),
+    SetSwapAggregator(Address),
+    SetPriceAggregator(Address),
     SetAccumulator(Address),
     SetLiquidityPoolTemplate(BytesN<32>),
     SetPositionLimits(PositionLimits),
@@ -94,8 +94,6 @@ pub enum AdminOperation {
     AddAssetToSpoke(SpokeAssetArgs),
     EditAssetInSpoke(SpokeAssetArgs),
     RemoveAssetFromSpoke(RemoveAssetFromSpokeArgs),
-    ApproveToken(Address),
-    RevokeToken(Address),
     ApproveBlendPool(Address),
     RevokeBlendPool(Address),
     CreateLiquidityPool(CreatePoolArgs),
@@ -127,6 +125,11 @@ pub trait GovernanceInterface {
     fn deploy_controller(env: Env, wasm_hash: BytesN<32>) -> Address;
 
     fn controller(env: Env) -> Address;
+
+    /// One-time price-aggregator deploy; returns address.
+    fn deploy_price_aggregator(env: Env, wasm_hash: BytesN<32>) -> Address;
+
+    fn price_aggregator(env: Env) -> Address;
 
     /// Executes a ready operation on the controller. `Some(executor)` gates on
     /// EXECUTOR; `None` leaves execution open.
@@ -161,15 +164,15 @@ pub trait GovernanceInterface {
         salt: BytesN<32>,
     ) -> BytesN<32>;
 
-    /// Read-only: resolves oracle input to the `MarketOracleConfig` proposers schedule.
+    /// Read-only: resolves oracle input to the `AssetOracleConfig` proposers schedule.
     fn resolve_market_oracle_config(
         env: Env,
         asset: Address,
-        cfg: MarketOracleConfigInput,
-    ) -> MarketOracleConfig;
+        cfg: AssetOracleConfigInput,
+    ) -> AssetOracleConfig;
 
-    /// Read-only: resolves tolerance BPS to the `OraclePriceFluctuation` proposers schedule.
-    fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OraclePriceFluctuation;
+    /// Read-only: resolves tolerance BPS to the `OracleTolerance` proposers schedule.
+    fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OracleTolerance;
 
     fn propose(env: Env, proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>;
 
@@ -190,13 +193,7 @@ pub trait GovernanceInterface {
 
     /// Moves oracle sanity band immediately; ORACLE-gated.
     /// New band must contain the current live price.
-    fn set_oracle_sanity_bounds(
-        env: Env,
-        caller: Address,
-        asset: Address,
-        min_wad: i128,
-        max_wad: i128,
-    );
+    fn set_sanity_band(env: Env, caller: Address, asset: Address, min_wad: i128, max_wad: i128);
 
     /// Immediate hub create; GUARDIAN-gated. Returns new hub id.
     fn create_hub(env: Env, caller: Address) -> u32;

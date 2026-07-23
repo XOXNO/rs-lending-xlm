@@ -3,7 +3,10 @@
 use common::constants::POSITION_LIMIT_MAX;
 use common::errors::{CollateralError, GenericError};
 use common::types::{MarketParamsRaw, PositionLimits};
-use common::validation::{validate_liquidation_fees as common_validate_liquidation_fees, validate_risk_bounds as common_validate_risk_bounds};
+use common::validation::{
+    validate_liquidation_fees as common_validate_liquidation_fees,
+    validate_risk_bounds as common_validate_risk_bounds,
+};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 // SAC decimal range for RAY/WAD conversions. Assets below 6 decimals can

@@ -7,9 +7,8 @@
 pub mod admin;
 pub use admin::{ControllerAdmin, ControllerAdminClient};
 use common::types::{
-    AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
-    LiquidationEstimate, MarketIndexRaw, MarketIndexView, PositionMode, SpokeAssetConfig,
-    SpokeConfig, SpokeUsageRaw,
+    AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, LiquidationEstimate,
+    MarketIndexRaw, MarketIndexView, PositionMode, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
 };
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
@@ -191,11 +190,7 @@ pub trait ControllerInterface {
     /// Central liquidity pool shared by every listed market.
     fn get_pool_address(env: Env) -> Address;
 
-    /// Config and oracle data for each requested hub-asset market.
-    fn get_markets_detailed(env: Env, hub_assets: Vec<HubAssetKey>)
-        -> Vec<AssetExtendedConfigView>;
-
-    /// Indexes and price components for each requested hub-asset market.
+    /// Indexes + soft oracle status for each requested hub-asset market.
     fn get_market_indexes_detailed(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexView>;
 
     /// Seize, repay, refund, and bonus estimate.

@@ -198,24 +198,6 @@ fn blend_pool_approval_entrypoints_round_trip() {
     assert!(!client.is_blend_pool_approved(&pool));
 }
 
-#[test]
-fn token_approval_entrypoints_round_trip() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract = new_controller(&env);
-    let client = crate::ControllerClient::new(&env, &contract);
-    let token = Address::generate(&env);
-
-    client.approve_token(&token);
-    env.as_contract(&contract, || {
-        assert!(storage::is_token_approved(&env, &token));
-    });
-    client.revoke_token(&token);
-    env.as_contract(&contract, || {
-        assert!(!storage::is_token_approved(&env, &token));
-    });
-}
-
 // `upgrade_pool` must reach the pool lookup: with no pool deployed the
 // entrypoint reverts instead of silently returning.
 #[test]
@@ -252,7 +234,7 @@ fn min_borrow_floor_defaults_and_blend_wrapper_reflects_storage() {
     env.as_contract(&contract, || {
         // Unset floor returns the default constant.
         assert_eq!(
-            limits::get_min_borrow_collateral_usd(&env),
+            storage::get_min_borrow_collateral_usd_wad(&env),
             crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD
         );
         // Blend-pool wrapper reflects storage both ways.

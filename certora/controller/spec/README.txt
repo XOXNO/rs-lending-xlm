@@ -1,17 +1,19 @@
 Controller safety — Certora proof domain
 ========================================
 
-Core invariant
---------------
-Accounts remain solvent under configured risk parameters: health factor gates
-borrow and liquidation, oracle prices respect staleness/tolerance policy, and
-controller-pool interactions preserve scaled-amount conservation and reserve
-availability.
+Proof focus
+-----------
+Controller rules cover entrypoint gates, position-direction properties, and
+selected accounting bounds. Health component comparisons reuse one frozen
+valuation snapshot. Cross-contract claims remain conditional on the trusted
+pool and price summaries described below.
 
 Assumptions
 -----------
 - Pool responses may be summarized via shared/summaries/ for tractability.
-- Pool summary soundness is proved in pool/spec/summary_contract_rules.rs first.
+- Pool calls are trusted summaries. pool/spec/summary_contract_rules.rs checks
+  selected seeded output shapes, not universal refinement; controller verdicts
+  that use those summaries are conditional evidence.
 - Oracle price resolution may be harness-summarised; the strict fail-closed
   band behaviour is proved in oracle_rules, ratio math in tolerance_math_rules
   (lemma layer).
@@ -27,7 +29,8 @@ Solvency / caps (split from monolithic solvency.conf)
   spec/solvency_rules.rs
 
 Liquidation
-  liquidation.conf, liquidation-light.conf, liquidation-integrity-heavy.conf
+  liquidation.conf, liquidation-accounting-math.conf, liquidation-bonus.conf,
+  liquidation-estimation.conf, liquidation-integrity-heavy.conf
   spec/liquidation_rules.rs
 
 Health / positions
@@ -36,8 +39,8 @@ Health / positions
   (health_ghost.rs — ghost-state support module, no rules)
 
 Oracle
-  oracle.conf, tolerance-math.conf
-  spec/oracle_rules.rs, tolerance_math_rules.rs
+  Owned by price-aggregator/confs and price-aggregator/spec. Controller rules
+  consume the shared fail-closed price-feed summary.
 
 Rates / indexes / interest / math
   indexes.conf, interest.conf, math.conf, math-bv.conf (bit-precise
@@ -64,10 +67,10 @@ Support modules (no rules)
   spec/health_ghost.rs — ghost state for health rules
   spec/mod.rs — module mount; harness/ — storage/oracle/pool summaries
 
-Lemma-before-main ordering
---------------------------
-1. pool/confs/summary-contract.conf
-2. controller/confs/tolerance-math.conf
+Proof ordering
+--------------
+1. pool/confs/summary-contract.conf (seeded summary-shape smoke only)
+2. price-aggregator/confs/tolerance-math.conf
 3. controller/confs/solvency-*.conf + liquidation.conf
 4. *-heavy.conf audit configs
 

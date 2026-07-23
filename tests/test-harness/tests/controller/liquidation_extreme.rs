@@ -135,7 +135,12 @@ fn test_narrow_curve_bonus_bounded_by_max() {
         .with_market(stable("USD"))
         .build();
     // target 1.05, max-bonus at 1.049: a 0.001 band.
-    set_curve(&t, 1_050_000_000_000_000_000, 1_049_000_000_000_000_000, 10_000);
+    set_curve(
+        &t,
+        1_050_000_000_000_000_000,
+        1_049_000_000_000_000_000,
+        10_000,
+    );
 
     t.supply(ALICE, "VOL", 100.0); // $10,000
     t.borrow(ALICE, "USD", 6_900.0); // at the 0.70 LTV cap
@@ -415,7 +420,10 @@ fn test_toxic_band_full_and_partial_bounded() {
             break;
         }
         let (_cc, _cd, r) = liquidate_measure(&mut chain, "USD", 500.0, "VOL", 60.0);
-        assert!(r > 1.0 && r <= 2.23, "each bite bounded by the max bonus, got {r}");
+        assert!(
+            r > 1.0 && r <= 2.23,
+            "each bite bounded by the max bonus, got {r}"
+        );
     }
 }
 
@@ -425,7 +433,10 @@ fn test_toxic_band_full_and_partial_bounded() {
 fn test_partial_chain_converges_no_bad_debt() {
     let mut t = seed_toxic();
     for _ in 0..8 {
-        match (t.find_account_id(ALICE), t.find_account_id(ALICE).map(|_| t.health_factor(ALICE))) {
+        match (
+            t.find_account_id(ALICE),
+            t.find_account_id(ALICE).map(|_| t.health_factor(ALICE)),
+        ) {
             (None, _) => break,
             (Some(_), Some(hf)) if hf >= 1.0 => break,
             _ => {}

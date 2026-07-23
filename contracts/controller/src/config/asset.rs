@@ -1,17 +1,14 @@
 //! Spoke-asset listing setters: add, edit, and remove a hub-asset on a spoke,
 //! with risk-bound, cap-domain, and oracle-override validation.
 
-use common::errors::{CollateralError, GenericError, SpokeError};
-use common::types::{
-    HubAssetKey, MarketOracleConfigOption, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig,
-};
+use common::errors::{CollateralError, SpokeError};
+use common::types::{HubAssetKey, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig};
 use common::validation::{
     require_cap_within_asset_domain, validate_liquidation_fees as common_validate_liquidation_fees,
     validate_risk_bounds as common_validate_risk_bounds,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
-use crate::config::oracle::validate_market_oracle_config;
 use crate::external::pool::fetch_pool_sync_data;
 use crate::{
     events::{RemoveSpokeAssetEvent, UpdateSpokeAssetEvent},
@@ -30,8 +27,8 @@ pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
         SpokeError::AssetAlreadyInSpoke
     );
 
-    let market = load_market_and_validate_caps(env, args, &hub_asset);
-    let config = build_spoke_asset_config(env, args, market.params.asset_decimals);
+    load_market_and_validate_caps(env, args, &hub_asset);
+    let config = build_spoke_asset_config(args);
     store_spoke_asset(env, args, &hub_asset, config);
 }
 
@@ -44,8 +41,8 @@ pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
         SpokeError::AssetNotInSpoke
     );
 
-    let market = load_market_and_validate_caps(env, args, &hub_asset);
-    let config = build_spoke_asset_config(env, args, market.params.asset_decimals);
+    load_market_and_validate_caps(env, args, &hub_asset);
+    let config = build_spoke_asset_config(args);
     store_spoke_asset(env, args, &hub_asset, config);
 }
 
@@ -73,25 +70,13 @@ fn load_market_and_validate_caps(
     // `(hub, asset)` was never created.
     let market = fetch_pool_sync_data(env, &storage::get_pool(env), hub_asset);
     // These caps feed `Ray::from_asset`; reject overflow-prone configs here.
-    require_cap_within_asset_domain(
-        env,
-        args.supply_cap,
-        market.params.asset_decimals,
-    );
-    require_cap_within_asset_domain(
-        env,
-        args.borrow_cap,
-        market.params.asset_decimals,
-    );
+    require_cap_within_asset_domain(env, args.supply_cap, market.params.asset_decimals);
+    require_cap_within_asset_domain(env, args.borrow_cap, market.params.asset_decimals);
     market
 }
 
-/// Resolves the stored listing from validated arguments and pool decimals.
-fn build_spoke_asset_config(
-    env: &Env,
-    args: &SpokeAssetArgs,
-    pool_decimals: u32,
-) -> SpokeAssetConfig {
+/// Resolves the stored listing from validated arguments.
+fn build_spoke_asset_config(args: &SpokeAssetArgs) -> SpokeAssetConfig {
     SpokeAssetConfig {
         is_collateralizable: args.can_collateral,
         is_borrowable: args.can_borrow,
@@ -103,12 +88,6 @@ fn build_spoke_asset_config(
         liquidation_fees: args.liquidation_fees,
         supply_cap: args.supply_cap,
         borrow_cap: args.borrow_cap,
-        oracle_override: resolve_spoke_oracle_override(
-            env,
-            &args.asset,
-            pool_decimals,
-            &args.oracle_override,
-        ),
     }
 }
 
@@ -128,29 +107,6 @@ fn store_spoke_asset(
         hub_id: args.hub_id,
     }
     .publish(env);
-}
-
-fn resolve_spoke_oracle_override(
-    env: &Env,
-    asset: &Address,
-    pool_decimals: u32,
-    input: &MarketOracleConfigOption,
-) -> MarketOracleConfigOption {
-    match input {
-        MarketOracleConfigOption::None => MarketOracleConfigOption::None,
-        MarketOracleConfigOption::Some(cfg) => {
-            validate_market_oracle_config(env, asset, cfg);
-            // Override decimals feed `usd_value_wad` for every position on the
-            // spoke; a mismatch against the pool market's decimals mis-scales
-            // valuations by powers of ten.
-            assert_with_error!(
-                env,
-                cfg.asset_decimals == pool_decimals,
-                GenericError::InvalidAsset
-            );
-            MarketOracleConfigOption::Some(cfg.clone())
-        }
-    }
 }
 
 /// Sets only the `paused`/`frozen` flags on an existing listing, preserving

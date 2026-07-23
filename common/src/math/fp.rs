@@ -56,6 +56,12 @@ impl Ray {
         Ray(fp_core::mul_div_floor(env, self.0, RAY, other.0))
     }
 
+    /// Divides two RAY values with ceiling rounding for non-negative inputs.
+    pub fn div_ceil(self, env: &Env, other: Ray) -> Ray {
+        // D27{A} * D27{1} / D27{B} -> D27{A/B}.
+        Ray(fp_core::mul_div_ceil(env, self.0, RAY, other.0))
+    }
+
     /// Divides by an integer with half-up rounding.
     pub fn div_by_int(self, n: i128) -> Ray {
         // D27{U} / {n} -> D27{U/n}; e.g. annual rate to per-period rate.

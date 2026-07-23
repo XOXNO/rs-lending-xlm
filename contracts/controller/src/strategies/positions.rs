@@ -8,12 +8,13 @@ use common::types::{
 use soroban_sdk::{token, Address, Env, Vec};
 
 use crate::account::{update_or_remove_debt_position, update_or_remove_supply_position};
+use crate::constants::WITHDRAW_ALL_SENTINEL;
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::pool_net_settle_call;
 use crate::payments::{self as utils, EventContext};
 use crate::positions::repay::{self, RepaymentRequest};
-use crate::positions::withdraw::{self, WithdrawalRequest, WITHDRAW_ALL_SENTINEL};
+use crate::positions::withdraw::{self, WithdrawalRequest};
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
 };
@@ -179,14 +180,13 @@ pub(crate) fn net_settle_collateral_against_debt(
         ctx.apply_withdraw_after_pool(
             env,
             hub_asset,
-            supply_position.scaled_amount.checked_sub(env, new_supply_scaled),
+            supply_position
+                .scaled_amount
+                .checked_sub(env, new_supply_scaled),
         );
     }
     let mut new_supply_position = supply_position;
     new_supply_position.scaled_amount = new_supply_scaled;
-    // Re-stamp risk params from active spoke config before persist (matches
-    // `finish_withdraw_leg`); no-op when delisted so liquidation still reads
-    // a valid stamped snapshot.
     risk::refresh_supply_risk_params_for_asset(
         env,
         cache,
@@ -201,7 +201,9 @@ pub(crate) fn net_settle_collateral_against_debt(
         ctx.apply_repay_after_pool(
             env,
             hub_asset,
-            debt_position.scaled_amount.checked_sub(env, new_debt_scaled),
+            debt_position
+                .scaled_amount
+                .checked_sub(env, new_debt_scaled),
         );
     }
     let new_debt_position = DebtPosition {

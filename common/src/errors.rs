@@ -32,8 +32,6 @@ pub enum GenericError {
     MathOverflow = 33,
     /// Internal invariant failed after prior validation (should be unreachable).
     InternalError = 34,
-    /// Token must be approved before market creation.
-    TokenNotApproved = 35,
     InvalidPositionLimits = 36,
     NoSuppliersToReward = 37,
     SpotOnlyNotProductionSafe = 38,
@@ -45,10 +43,21 @@ pub enum GenericError {
     NotAuthorized = 44,
     RegistryCapReached = 45,
     OperationNotCancellable = 46,
-    /// Positive raw borrow floors to zero scaled debt (would free-borrow tokens).
+    /// Defensive invariant: a positive ceil-scaled borrow produced zero debt.
     BorrowRoundsToZeroShares = 47,
     /// Would remove the last PROPOSER (permanently freezes governance scheduling).
     CannotRemoveLastProposer = 48,
+    /// Defensive invariant: a positive ceil-scaled withdrawal produced zero burn.
+    WithdrawRoundsToZeroShares = 49,
+    /// A positive zero-cash settlement rounds its debt credit to zero, which
+    /// would make the two accounting legs diverge.
+    NetSettleRoundsToZeroShares = 50,
+    /// Positive supply rounds to zero scaled supply (would accept tokens without
+    /// crediting the account or aggregate position).
+    SupplyRoundsToZeroShares = 51,
+    /// Positive repay rounds to zero scaled debt (would accept tokens without
+    /// reducing the account or aggregate debt position).
+    RepayRoundsToZeroShares = 52,
 }
 
 #[contracterror]
@@ -119,6 +128,11 @@ pub enum OracleError {
     /// Quote/anchor cycle: asset re-entered while already being priced.
     OracleCycleDetected = 225,
     SanityBandTooWideForSingleSource = 226,
+    /// Strategy/anchor incoherence: `PrimaryWithAnchor` without an anchor, or
+    /// `Single` with one.
+    AnchorConfigMismatch = 227,
+    /// TWAP record count above `MAX_TWAP_RECORDS`.
+    TwapRecordsOutOfRange = 228,
 }
 
 #[contracterror]

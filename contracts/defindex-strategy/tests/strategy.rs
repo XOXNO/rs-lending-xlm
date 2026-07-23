@@ -24,10 +24,7 @@ fn pps_from_supply_index(supply_index: i128) -> i128 {
 }
 
 fn flatten_strategy_result<T>(
-    result: Result<
-        Result<T, Error>,
-        Result<DeFindexStrategyError, InvokeError>,
-    >,
+    result: Result<Result<T, Error>, Result<DeFindexStrategyError, InvokeError>>,
 ) -> Result<T, Error> {
     match result {
         Ok(Ok(value)) => Ok(value),

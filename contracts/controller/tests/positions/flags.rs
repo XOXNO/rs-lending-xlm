@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::Controller;
-use common::types::{MarketOracleConfigOption, SpokeAssetConfig};
+use common::types::SpokeAssetConfig;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
 
@@ -20,7 +20,6 @@ fn spoke_asset(paused: bool, frozen: bool) -> SpokeAssetConfig {
         liquidation_fees: 0,
         supply_cap: 0,
         borrow_cap: 0,
-        oracle_override: MarketOracleConfigOption::None,
     }
 }
 

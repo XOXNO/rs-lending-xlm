@@ -421,21 +421,21 @@ Oracle timestamps beyond `MAX_FUTURE_SKEW_SECONDS` (60s) always revert.
 
 ```mermaid
 flowchart TD
-    A["token_price(asset)"] --> B{"tx cache hit?"}
+    A["resolve_usd_price(asset)"] --> B{"tx ResolutionContext hit?"}
     B -->|yes| Z["return cached"]
-    B -->|no| C["cycle guard + load AssetOracle"]
+    B -->|no| C["push_resolution + load AssetOracle"]
     C -->|missing / pending| R1["revert"]
     C -->|ok| D["read primary + future + stale"]
     D --> E{"OracleStrategy"}
-    E -->|Single| F["final = primary"]
+    E -->|Single PrimaryOnly| F["final = primary"]
     E -->|PrimaryWithAnchor| G["read anchor + future + stale"]
     G --> H{"ratio in band?"}
     H -->|no| R2["UnsafePriceNotAllowed"]
-    H -->|yes| I["midpoint"]
+    H -->|yes| I["midpoint_if_in_band"]
     F --> J{"final > 0 and in sanity band?"}
     I --> J
     J -->|no| R3["revert"]
-    J -->|yes| K["cache write"]
+    J -->|yes| K["cache write + pop_resolution"]
     K --> Z
 ```
 
@@ -497,9 +497,15 @@ Empty side maps (and empty delegate lists) are pruned on write. Account removal
 deletes meta, both position maps, and `Delegates`.
 
 Risk params re-stamp from spoke listing config via `update_account_threshold`,
-supply, and withdraw (and strategy supply legs). Borrow does not re-stamp
-collateral risk. Solvency uses last-stamped supply params until a refresh path
-runs.
+supply, and withdraw (and strategy supply legs). Debt-increasing paths
+(`borrow` and strategy finalize) re-stamp supply LTV, liquidation bonus, and
+fees from live listing config before LTV/HF gates; liquidation threshold stays
+lazy (supply/withdraw/keeper with HF≥1.05 on cuts). Solvency uses last-stamped
+LT until a threshold refresh path runs.
+
+Removing an asset from a spoke requires zero spoke usage
+(`SpokeAssetInUse` otherwise), so every open position’s asset remains listed;
+there is no supported path where delisted collateral still backs an account.
 
 ### 5.3 TTL
 
@@ -578,7 +584,7 @@ Changing any of these needs protocol review:
 | Area | Runtime | Verification |
 |------|---------|--------------|
 | Numeric model | `common::math`, rates, pool cache/views | Certora: `math_rules`, `rates_rules`, `index_rules`, `interest_rules`; fuzz: `fp_math`, `fp_ops`, `rates_and_index` |
-| Pool accounting | interest, reserves, revenue, flash loan | Certora: `solvency_rules`, `boundary_rules`, `flash_loan_rules`, `conservation_rules`, `integrity_rules`; fuzz: `flow_e2e`, `flow_strategy`, `pool_native` |
+| Pool accounting | interest, reserves, revenue, flash loan | Certora: `solvency_rules`, `boundary_rules`, `flash_loan_rules`, `rate_index_accounting_rules`, `position_accounting_rules`, `seize_settle_accounting_rules`, `fee_strategy_accounting_rules`, `flash_loan_accounting_rules`; fuzz: `flow_e2e`, `flow_strategy`, `pool_native` |
 | Account solvency | HF, LTV, liquidation, seizure | Certora: `health_rules`, `position_rules`, `liquidation_rules`; fuzz/proptest: `flow_e2e`, harness liquidation tests |
 | Market / oracle / strategy | validation, tolerance, routes | Certora: `oracle_rules`, `tolerance_math_rules`, `strategy_rules`, `spoke_rules`; harness oracle/governance tests |
 | Storage / boundaries | governance, pool ABI, account TTL, keeper | contract/harness tests; `tests/test-harness/tests/meta/account_ttl_regression.rs`; Certora: `account_isolation_rules` |

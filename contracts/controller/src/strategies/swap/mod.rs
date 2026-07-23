@@ -22,7 +22,7 @@ pub(crate) fn swap_tokens(
     swap: &StrategySwap,
 ) -> i128 {
     // D{token_in.decimals}{Token(token_in)} -> D{token_out.decimals}{Token(token_out)}.
-    let router_addr = storage::get_aggregator(env);
+    let router_addr = storage::get_swap_aggregator(env);
     let router = AggregatorClient::new(env, &router_addr);
     let token_out_client = token::Client::new(env, token_out);
     let token_in_client = token::Client::new(env, token_in);
@@ -66,11 +66,7 @@ pub(crate) fn swap_tokens_or_passthrough(
 /// Token balance the controller gained since `balance_before`; may be
 /// negative if the balance decreased. Panics only on i128 overflow, not on
 /// an ordinary negative result — every caller checks the sign itself.
-pub(crate) fn balance_delta(
-    env: &Env,
-    token: &token::Client,
-    balance_before: i128,
-) -> i128 {
+pub(crate) fn balance_delta(env: &Env, token: &token::Client, balance_before: i128) -> i128 {
     token
         .balance(&env.current_contract_address())
         .checked_sub(balance_before)

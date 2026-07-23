@@ -141,27 +141,32 @@ fn test_calculate_utilization_returns_ratio_at_normal_state() {
     });
 }
 
-// At MIN_ASSET_DECIMALS (3) a single raw unit can be worth material USD, so any
-// user-favorable rounding on a roundtrip is a value leak. Drives the Cache paths
-// across the 3..=5 decimals the `decimal_diversity` sweep (6..=18) skips: supply
-// mints half-up shares and withdraws via `resolve_withdrawal`; borrow mints
-// half-up debt and closes via `unscale_borrow_ceil`. A supplier never withdraws
-// more than deposited, and a borrower never owes less than borrowed.
+// Across the pool's complete 0..=27 decimal domain, directed share rounding must
+// keep both roundtrips conservative: supply credits floor shares and withdrawals
+// pay at most their value; borrow debits ceil shares and full repayment charges at
+// least the amount borrowed.
 #[test]
-fn test_low_decimal_roundtrip_never_favors_user() {
+fn test_all_decimal_roundtrips_never_favor_user() {
     let t = TestSetup::new();
-    // Realistic accrued indexes, incl. non-terminating ratios that maximize drift.
-    let indexes = [RAY, RAY * 3 / 2, RAY * 2, RAY * 7 / 3];
+    t.env.cost_estimate().budget().reset_unlimited();
+    let indexes = [
+        RAY,
+        RAY * 3 / 2,
+        RAY * 7 / 3,
+        666_666_666 * RAY,
+        714_285_714 * RAY,
+        common::constants::MAX_SUPPLY_INDEX_RAY,
+    ];
     let amounts = [1i128, 2, 3, 7, 99, 1_000, 123_457];
     t.as_contract(|| {
-        for decimals in 3u32..=5 {
+        for decimals in 0u32..=27 {
             let mut params = t.params.clone();
             params.asset_decimals = decimals;
             for &index in &indexes {
                 for &a in &amounts {
                     let cache = cache_with(&t.env, &params, 0, 0, 0, index, index);
 
-                    // Supplier: supply `a` (mint shares half-up), withdraw all.
+                    // Supplier: supply `a` (mint shares down), withdraw all.
                     let shares = cache.calculate_scaled_supply(a);
                     let (_burned, paid) = cache.resolve_withdrawal(a, shares);
                     assert!(
@@ -170,7 +175,7 @@ fn test_low_decimal_roundtrip_never_favors_user() {
                          index={index} deposited={a} withdrew={paid}"
                     );
 
-                    // Borrower: borrow `a` (mint debt half-up), owe rounded up.
+                    // Borrower: borrow `a` (mint debt up), owe rounded up.
                     let debt = cache.calculate_scaled_borrow(a);
                     let owed = cache.unscale_borrow_ceil(debt);
                     assert!(
@@ -181,6 +186,29 @@ fn test_low_decimal_roundtrip_never_favors_user() {
                 }
             }
         }
+    });
+}
+
+#[test]
+fn test_directed_partial_rounding_blocks_high_decimal_value_creation() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut params = t.params.clone();
+        params.asset_decimals = 27;
+        let cache = cache_with(&t.env, &params, 100 * RAY, 100 * RAY, 0, 3 * RAY, 3 * RAY);
+
+        // A two-raw-unit supply previously rounded 2/3 share up to one share
+        // worth three raw units. Floor credit now rejects it through the caller.
+        assert_eq!(cache.calculate_scaled_supply(2), Ray::ZERO);
+
+        // Borrowing four raw units records two shares, covering six raw units.
+        assert_eq!(cache.calculate_scaled_borrow(4).raw(), 2);
+
+        // Withdrawing four burns two shares; repaying two burns no share. The
+        // public callers respectively accept the conservative debit and reject
+        // the zero credit through their existing guards.
+        assert_eq!(cache.calculate_scaled_supply_ceil(4).raw(), 2);
+        assert_eq!(cache.calculate_scaled_borrow_floor(2), Ray::ZERO);
     });
 }
 

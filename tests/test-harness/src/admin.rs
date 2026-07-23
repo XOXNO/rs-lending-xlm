@@ -47,7 +47,6 @@ impl LendingTest {
             liquidation_fees: config.liquidation_fees,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
         });
 
         let pool = self.get_pool_address(asset_name);
@@ -83,7 +82,6 @@ impl LendingTest {
             liquidation_fees: config.liquidation_fees,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
         });
     }
 
@@ -131,7 +129,6 @@ impl LendingTest {
             liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
         });
     }
 
@@ -161,7 +158,6 @@ impl LendingTest {
             liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
         });
     }
 
@@ -200,7 +196,6 @@ impl LendingTest {
             liquidation_fees: 0,
             supply_cap,
             borrow_cap,
-            oracle_override: controller::types::MarketOracleConfigOption::None,
         });
     }
 }

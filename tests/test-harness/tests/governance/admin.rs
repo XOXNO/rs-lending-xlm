@@ -15,7 +15,6 @@ fn test_create_liquidity_pool_rejects_token_without_symbol() {
     let gov = t.gov_client();
     let sac = t.env.register(test_harness::mock_sac::MockSacNoSymbol, ());
     let params = usdc_preset().params.to_market_params(&sac, 7);
-    gov.execute_immediate(&admin, &AdminOperation::ApproveToken(sac.clone()));
     let result = match gov.try_execute_immediate(
         &admin,
         &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
@@ -38,7 +37,6 @@ fn test_create_liquidity_pool_rejects_unregistered_token() {
     let gov = t.gov_client();
     let asset = Address::generate(&t.env);
     let params = usdc_preset().params.to_market_params(&asset, 7);
-    gov.execute_immediate(&admin, &AdminOperation::ApproveToken(asset.clone()));
     let result = match gov.try_execute_immediate(
         &admin,
         &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
@@ -68,11 +66,8 @@ fn test_create_liquidity_pool_rejects_asset_decimals_mismatch() {
         .clone();
     let decimals = token::Client::new(&t.env, &asset).decimals();
     let mismatched = decimals.saturating_add(1);
-    let params = usdc_preset()
-        .params
-        .to_market_params(&asset, mismatched);
+    let params = usdc_preset().params.to_market_params(&asset, mismatched);
 
-    gov.execute_immediate(&admin, &AdminOperation::ApproveToken(asset.clone()));
     let result = match gov.try_execute_immediate(
         &admin,
         &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
@@ -121,7 +116,6 @@ fn test_edit_asset_in_spoke_rejects_threshold_above_bps() {
         liquidation_fees: cfg.liquidation_fees,
         supply_cap: cfg.supply_cap,
         borrow_cap: cfg.borrow_cap,
-        oracle_override: cfg.oracle_override,
     };
     t.gov_client()
         .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));

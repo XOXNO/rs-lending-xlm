@@ -46,11 +46,31 @@ fn test_supply_index_shortfall_accounts_full_reward() {
     );
     // The virtual offset genuinely under-distributes, so the shortfall is positive
     // and suppliers keep only their diluted (dust-safe) share.
-    assert!(shortfall.raw() > 0, "offset must leave a positive shortfall");
+    assert!(
+        shortfall.raw() > 0,
+        "offset must leave a positive shortfall"
+    );
     assert!(
         distributed.raw() > 0 && distributed.raw() < reward.raw(),
         "suppliers receive the diluted share, strictly less than the full reward"
     );
+}
+
+#[test]
+fn test_supply_index_shortfall_high_valid_index_stays_conservative() {
+    let env = Env::default();
+    let supplied = Ray::from(100 * RAY);
+    let old_index = Ray::from(145_000_436 * RAY);
+    let reward = Ray::from_asset(1, 7);
+
+    let new_index = update_supply_index(&env, supplied, old_index, reward);
+    let distributed = supplied
+        .mul(&env, new_index)
+        .checked_sub(&env, supplied.mul(&env, old_index));
+    assert!(distributed.raw() <= reward.raw());
+
+    let shortfall = supply_index_reward_shortfall(&env, supplied, old_index, new_index, reward);
+    assert_eq!(distributed.checked_add(&env, shortfall), reward);
 }
 
 #[test]
@@ -539,12 +559,21 @@ fn oracle_accrual(
         let new_borrow_index = update_borrow_index(env, borrow_index, factor);
         let (supplier_rewards, protocol_fee) =
             calculate_supplier_rewards(env, params, borrowed, new_borrow_index, borrow_index);
-        supply_index = update_supply_index(env, supplied, supply_index, supplier_rewards);
+        let old_supply_index = supply_index;
+        supply_index = update_supply_index(env, supplied, old_supply_index, supplier_rewards);
+        let supplier_shortfall = supply_index_reward_shortfall(
+            env,
+            supplied,
+            old_supply_index,
+            supply_index,
+            supplier_rewards,
+        );
         borrow_index = new_borrow_index;
 
-        // Fee reinvestment mirrors the live path.
-        if protocol_fee != Ray::ZERO {
-            let fee_scaled = protocol_fee.div(env, supply_index);
+        // Reserve fee and virtual-offset shortfall reinvestment mirror the live path.
+        let protocol_reward = protocol_fee.checked_add(env, supplier_shortfall);
+        if protocol_reward != Ray::ZERO {
+            let fee_scaled = protocol_fee_shares(env, protocol_reward, supply_index, supplied);
             supplied = supplied.checked_add(env, fee_scaled);
         }
     }
@@ -797,7 +826,10 @@ fn test_virtual_offset_bounds_dust_reward_growth() {
         grown.raw() < MAX_SUPPLY_INDEX_RAY,
         "offset must keep growth below the cap"
     );
-    assert!(grown.raw() < RAY * 1_000_000, "growth is bounded to ~1.7e31");
+    assert!(
+        grown.raw() < RAY * 1_000_000,
+        "growth is bounded to ~1.7e31"
+    );
 }
 
 /// Bounded index still accepts a later ordinary accrual.
@@ -846,20 +878,35 @@ fn test_virtual_offset_negligible_for_funded_market() {
     assert!((grown.raw() - with_offset).abs() <= 1);
 
     let drift = offset_free - grown.raw();
-    assert!(drift * 100 < offset_free - RAY, "dilution < 1% of reward growth");
+    assert!(
+        drift * 100 < offset_free - RAY,
+        "dilution < 1% of reward growth"
+    );
 }
 
 #[test]
-fn protocol_fee_shares_matches_half_up_divide_in_range() {
+fn protocol_fee_shares_matches_floor_divide_in_range() {
     let env = Env::default();
     let supply_index = Ray::from(2 * RAY);
     let fee = Ray::from(500 * RAY);
     let supplied = Ray::from(1_000_000 * RAY);
-    // In-range results are byte-identical to the plain half-up `fee / supply_index`.
+    // In-range results are byte-identical to the conservative floor divide.
     assert_eq!(
         protocol_fee_shares(&env, fee, supply_index, supplied).raw(),
-        fee.div(&env, supply_index).raw(),
+        fee.div_floor(&env, supply_index).raw(),
     );
+}
+
+#[test]
+fn protocol_fee_shares_never_overcredits_high_decimal_fee() {
+    let env = Env::default();
+    let supply_index = Ray::from(2 * RAY);
+    let fee = Ray::from(1);
+    let supplied = Ray::from(100 * RAY);
+
+    let shares = protocol_fee_shares(&env, fee, supply_index, supplied);
+    assert_eq!(shares, Ray::ZERO);
+    assert!(shares.mul_floor(&env, supply_index) <= fee);
 }
 
 #[test]

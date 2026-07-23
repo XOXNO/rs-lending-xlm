@@ -45,7 +45,7 @@ decodes.
 | `strategy:initial_payment` / `strategy:fee` | strategy verb legs |
 | `market:create` / `market:params_update` | market lifecycle |
 | `market:batch_state_update` / `market:batch_params_update` | market snapshots |
-| `config:spoke` / `config:oracle` / `config:aggregator` / `config:accumulator` / `config:approve_token` / `config:pool_template` / `config:position_limits` | governance config changes |
+| `config:spoke` / `config:oracle` / `config:swap_aggregator` / `config:price_aggregator` / `config:accumulator` / `config:pool_template` / `config:position_limits` | governance config changes |
 
 ## Position actions
 

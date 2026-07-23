@@ -1,11 +1,10 @@
 //! Timelocked governance operations and immediate pause controls.
 
 use common::errors::GenericError;
-use common::types::{
-    HubAssetKey, MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
-};
+use common::types::{AssetOracleConfig, AssetOracleConfigInput, HubAssetKey, OracleTolerance};
 
 use controller_interface::ControllerAdminClient;
+use price_aggregator_interface::PriceAggregatorClient;
 
 use soroban_sdk::{
     assert_with_error, contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val, Vec,
@@ -28,7 +27,7 @@ use crate::{constants, storage, validate, Governance, GovernanceArgs, Governance
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DelayTier {
     Standard,
-    /// Upgrades and ownership transfers.
+    /// Upgrades, ownership transfers, and price-aggregator re-point.
     Sensitive,
     /// Non-vetoable council reset; longest delay.
     Recovery,
@@ -89,6 +88,10 @@ fn controller_client(env: &Env) -> ControllerAdminClient<'_> {
     ControllerAdminClient::new(env, &storage::get_controller(env))
 }
 
+fn price_aggregator_client(env: &Env) -> PriceAggregatorClient<'_> {
+    PriceAggregatorClient::new(env, &storage::get_price_aggregator(env))
+}
+
 fn begin_immediate(env: &Env, caller: &Address, role: &str) {
     storage::renew_governance_instance(env);
     caller.require_auth();
@@ -106,16 +109,17 @@ fn begin_self_execute(env: &Env, executor: Option<&Address>, operation: &Operati
 fn resolve_market_oracle(
     env: &Env,
     asset: &Address,
-    cfg: &MarketOracleConfigInput,
-) -> MarketOracleConfig {
+    cfg: &AssetOracleConfigInput,
+) -> AssetOracleConfig {
     let tolerance = validate::tolerance::validate_and_calculate_tolerances(env, cfg.tolerance_bps);
     validate::oracle_probe::validate_market_oracle_sources(env, asset, cfg, tolerance)
 }
 
 #[contractimpl]
 impl Governance {
-    /// its operation id. Contract upgrades and ownership transfers schedule at
-    /// the elevated Sensitive delay; all other operations use the min delay.
+    /// its operation id. Contract upgrades, ownership transfers, and
+    /// `SetPriceAggregator` schedule at the elevated Sensitive delay; all other
+    /// operations use the min delay.
     ///
     /// # Arguments
     /// * `proposer` - must hold the `PROPOSER` role and authorize.
@@ -376,11 +380,11 @@ impl Governance {
     /// * The `ORACLE` role check is enforced here; `PairNotActive`,
     ///   `InvalidSanityBounds`, `SanityBandTooWideForSingleSource`,
     ///   `SanityBoundViolated`, and feed-resolution errors propagate from the
-    ///   controller.
+    ///   price aggregator.
     ///
     /// # Events
-    /// * The controller emits `UpdateAssetOracleEvent`.
-    pub fn set_oracle_sanity_bounds(
+    /// * The price aggregator emits `UpdateAssetOracleEvent`.
+    pub fn set_sanity_band(
         env: Env,
         caller: Address,
         asset: Address,
@@ -388,7 +392,7 @@ impl Governance {
         max_wad: i128,
     ) {
         begin_immediate(&env, &caller, ORACLE_ROLE);
-        controller_client(&env).set_oracle_sanity_bounds(&asset, &min_wad, &max_wad);
+        price_aggregator_client(&env).set_sanity_band(&asset, &min_wad, &max_wad);
     }
 
     /// Safe instant: the new registry entry is inert until assets are listed
@@ -469,7 +473,7 @@ impl Governance {
         hash_operation(&env, &operation)
     }
 
-    /// Resolves a market oracle input to the `MarketOracleConfig` the matching
+    /// Resolves a market oracle input to the `AssetOracleConfig` the matching
     /// proposer would schedule, running the same live oracle probes; read-only.
     ///
     /// # Errors
@@ -483,18 +487,18 @@ impl Governance {
     pub fn resolve_market_oracle_config(
         env: Env,
         asset: Address,
-        cfg: MarketOracleConfigInput,
-    ) -> MarketOracleConfig {
+        cfg: AssetOracleConfigInput,
+    ) -> AssetOracleConfig {
         resolve_market_oracle(&env, &asset, &cfg)
     }
 
-    /// Resolves a tolerance-BPS input to the `OraclePriceFluctuation` band the
+    /// Resolves a tolerance-BPS input to the `OracleTolerance` band the
     /// matching proposer would schedule; read-only.
     ///
     /// # Errors
     /// * `BadLastTolerance` - `tolerance` is outside the allowed BPS range.
     /// * `MathOverflow` - band computation overflows.
-    pub fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OraclePriceFluctuation {
+    pub fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OracleTolerance {
         validate::tolerance::validate_and_calculate_tolerances(&env, tolerance)
     }
 

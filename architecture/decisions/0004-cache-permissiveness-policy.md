@@ -34,8 +34,10 @@ value on the transaction cache.
 No flow relaxes validation once a price is read. “Permissiveness by omission”
 means not reading a price.
 
-The transaction `Cache` holds resolution memos (`token_prices`, cycle
-`resolving` stack) only.
+The controller transaction `Cache` holds only returned `PriceFeedRaw` map
+entries after a bulk `prices()` call. Resolution memos (`resolved_prices` /
+cycle `resolving` stack / multi-feed bulk cache) live inside the
+price-aggregator `ResolutionContext`.
 
 ### Flow assignment
 
@@ -64,13 +66,15 @@ The transaction `Cache` holds resolution memos (`token_prices`, cycle
 
 **Positive:** risk paths fail closed by construction; repay and debt-free exits
 remain available during an oracle outage without a weaker price path; new
-entrypoints are reviewed by whether they call `token_price` or risk totals.
+entrypoints are reviewed by whether they call the price-aggregator
+(`prices` / `price` / soft `prices_status` for views) or risk totals.
 
 **Costs:** every new entrypoint needs that review; views stay conservative.
 
 ## References
 
-- `contracts/controller/src/oracle`  
+- `contracts/price-aggregator/src/{price,compose,prefetch,context}.rs`  
+- `contracts/controller/src/external/price_aggregator.rs`  
 - `contracts/controller/src/risk/{validation,totals}.rs`  
 - `contracts/controller/src/positions/repay.rs`  
 - `contracts/controller/src/context/mod.rs`  

@@ -23,9 +23,10 @@ which flows call the oracle (ADR 0004), not weaker price validation.
 
 ## Decision
 
-Resolve prices through `oracle::token_price` to USD WAD. Each market stores a
-`MarketOracleConfig`: strategy, primary source, optional anchor, tolerance,
-sanity band, and staleness bounds.
+Resolve prices through the price-aggregator (`resolve_usd_price` /
+`prices` / soft `prices_status` for views) to USD WAD. Each asset stores an `AssetOracleConfig`
+(storage key `AssetOracle(asset)`): strategy, primary source, optional anchor,
+tolerance, sanity band, and staleness bounds.
 
 ### Sources and diversity
 
@@ -44,13 +45,13 @@ Operators also choose economically independent feeds, not only distinct provider
 | Strategy | Rules |
 |----------|--------|
 | **PrimaryWithAnchor** | Anchor required. Production: non-spot primary (typically Reflector TWAP) and a different provider/contract as anchor. Spot primary reverts with `SpotOnlyNotProductionSafe`. |
-| **Single** | Primary only. Spot is allowed. Sanity band capped at ±10% midpoint-relative (`MAX_SINGLE_SOURCE_SANITY_BAND_BPS`). Wider bands require the anchored strategy. |
+| **Single** (PrimaryOnly; storage discriminant kept as `Single`) | Primary only. Spot is allowed. Sanity band capped at ±10% midpoint-relative (`MAX_SINGLE_SOURCE_SANITY_BAND_BPS`). Wider bands require the anchored strategy. |
 
 ### Tolerance
 
-One `OraclePriceFluctuation` from `tolerance_bps` in
+One `OracleTolerance` from `tolerance_bps` in
 `[MIN_TOLERANCE, MAX_TOLERANCE]` (150..2_500 BPS). Under `PrimaryWithAnchor`,
-both legs are read and freshness-checked, then `calculate_final_price` compares
+both legs are read and freshness-checked, then `midpoint_if_in_band` compares
 the **primary/anchor ratio in BPS** to `[lower_ratio_bps, upper_ratio_bps]`:
 
 1. Inside the band → integer midpoint `(primary + anchor) / 2`  
@@ -74,10 +75,11 @@ RedStone/Xoxno use per-source `max_stale_seconds`; both are clamped to
 ### Listing path
 
 Governance schedules `ConfigureMarketOracle` and `EditOracleTolerance` after
-validation and a live probe. The controller re-checks quote-market invariants at
-execute and persists `AssetOracle(asset)`. `EditOracleTolerance` re-validates
-the band only. Controller `set_oracle_tolerance` runs `validate_oracle_tolerance`
-so a direct owner call cannot store a degenerate band.
+validation and a live probe. Execute invokes price-aggregator
+`set_oracle_config` and persists `AssetOracle(asset)`. `EditOracleTolerance`
+re-validates the band only. Aggregator `set_tolerance` runs
+`validate_oracle_tolerance` so a direct owner call cannot store a degenerate
+band.
 
 ## Alternatives considered
 
@@ -103,7 +105,8 @@ correlated upstream moves can pass the band if both legs move together.
 
 - [INVARIANTS.md](../INVARIANTS.md) §4.2–4.3  
 - [ADR 0004](./0004-cache-permissiveness-policy.md)  
-- `contracts/controller/src/oracle/{price,compose,tolerance,observation,providers}`  
+- `contracts/price-aggregator/src/{price,compose,tolerance,observation,providers,prefetch}`  
+- `interfaces/price-aggregator`  
 - `contracts/governance/src/validate/{oracle_config,oracle_probe,tolerance}.rs`  
 - `contracts/governance/src/op.rs`  
 - `common/src/types/oracle.rs`, `common/src/constants/shared.rs`  

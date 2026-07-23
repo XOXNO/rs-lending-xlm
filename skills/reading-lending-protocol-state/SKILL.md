@@ -48,7 +48,9 @@ fn max_supply(account_id: u64, hub_asset: HubAssetKey) -> i128;
 ## Market and config views (controller)
 
 ```rust
-fn get_markets_detailed(hub_assets: Vec<HubAssetKey>) -> Vec<AssetExtendedConfigView>;
+// Pool indexes + soft oracle status (does not trap on stale/deviation):
+// price_wad / safe_price_wad (primary) / aggregator_price_wad (secondary),
+// price_timestamp, stale, deviation, valid.
 fn get_market_indexes_detailed(hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexView>;
 fn get_market_index(hub_asset: HubAssetKey) -> MarketIndexRaw; // accrued to now, reads NO oracle
 fn get_spoke(spoke_id: u32) -> SpokeConfig;
@@ -56,10 +58,14 @@ fn get_spoke_asset(spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig; /
 fn get_pool_address() -> Address;
 ```
 
+`valid` is true only when the price is fresh, in-band (if dual-source),
+positive, and within sanity — usable for solvency-style decisions. `stale` /
+`deviation` are diagnostic flags when `valid` is false.
+
 `SpokeAssetConfig`: `loan_to_value`, `liquidation_threshold`,
 `liquidation_bonus`, `liquidation_fees` (bps), `supply_cap`, `borrow_cap`
 (asset units), `is_collateralizable`, `is_borrowable`, `paused`, `frozen`
-(frozen = no new entries, exits still allowed), optional `oracle_override`.
+(frozen = no new entries, exits still allowed).
 
 ## Pool views (per market)
 

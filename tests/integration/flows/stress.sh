@@ -134,8 +134,8 @@ flow_stress_dualify() {
         local resolved_dual
         resolved_dual=$(view "dualify_resolve_$code" "$GOVERNANCE" -- resolve_market_oracle_config \
             --asset "$sac" --cfg "$(oracle_cfg_mock_dual "$sac" "$code")") || continue
-inv "dualify_$code" "$ADMIN" "$CONTROLLER" -- set_market_oracle_config \
---hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$sac")" --config "$resolved_dual" >/dev/null
+        inv "dualify_$code" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle_config \
+            --asset "$sac" --config "$resolved_dual" >/dev/null
     done
     save_state STRESS_DUAL_DONE 1
 }

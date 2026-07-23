@@ -5,8 +5,6 @@
 //! executes the governance-self variants inline once their timelock matures.
 
 use common::errors::{CollateralError, GenericError, OracleError};
-use common::types::MarketOracleConfigOption;
-use common::validation::{validate_sanity_bounds, validate_single_source_sanity_band};
 
 use soroban_sdk::{
     assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
@@ -22,23 +20,10 @@ pub use governance_interface::{
     TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
-fn validate_oracle_override(env: &Env, oracle_override: &MarketOracleConfigOption) {
-    if let MarketOracleConfigOption::Some(cfg) = oracle_override {
-        validate_sanity_bounds(env, cfg.min_sanity_price_wad, cfg.max_sanity_price_wad);
-        validate_single_source_sanity_band(
-            env,
-            cfg.strategy,
-            cfg.min_sanity_price_wad,
-            cfg.max_sanity_price_wad,
-        );
-    }
-}
-
 fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
     validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
     validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
-    validate_oracle_override(env, &args.oracle_override);
 }
 
 type ResolvedOperation = (Address, Symbol, Vec<Val>, DelayTier);
@@ -58,6 +43,17 @@ fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> 
         Symbol::new(env, function),
         args,
         DelayTier::Sensitive,
+    )
+}
+
+/// Oracle config ops target the price-aggregator (the oracle authority), not
+/// the controller.
+fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
+    (
+        storage::get_price_aggregator(env),
+        Symbol::new(env, function),
+        args,
+        DelayTier::Standard,
     )
 }
 
@@ -120,9 +116,26 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             DelayTier::Sensitive,
         ),
 
-        AdminOperation::SetAggregator(addr) => {
+        AdminOperation::SetSwapAggregator(addr) => {
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
-            controller_operation(env, "set_aggregator", vec![env, addr.clone().into_val(env)])
+            controller_operation(
+                env,
+                "set_swap_aggregator",
+                vec![env, addr.clone().into_val(env)],
+            )
+        }
+        AdminOperation::SetPriceAggregator(addr) => {
+            // Re-pointing the oracle authority is solvency-critical (Sensitive
+            // tier). Self-targeted: governance must move its OWN stored
+            // aggregator (the target of every oracle-config op) in the same
+            // execution that re-points the controller, or the two diverge.
+            validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
+            (
+                gov_addr,
+                Symbol::new(env, "set_price_aggregator"),
+                vec![env, addr.clone().into_val(env)],
+                DelayTier::Sensitive,
+            )
         }
         AdminOperation::SetAccumulator(addr) => controller_operation(
             env,
@@ -183,12 +196,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 args.spoke_id.into_val(env),
             ],
         ),
-        AdminOperation::ApproveToken(token) => {
-            controller_operation(env, "approve_token", vec![env, token.clone().into_val(env)])
-        }
-        AdminOperation::RevokeToken(token) => {
-            controller_operation(env, "revoke_token", vec![env, token.clone().into_val(env)])
-        }
         AdminOperation::ApproveBlendPool(pool) => controller_operation(
             env,
             "approve_blend_pool",
@@ -271,30 +278,28 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
         AdminOperation::ConfigureMarketOracle(args) => {
             let tolerance =
                 validate::tolerance::validate_and_calculate_tolerances(env, args.cfg.tolerance_bps);
-            let controller = storage::get_controller(env);
             let resolved_config = validate::oracle_probe::validate_market_oracle_sources(
                 env,
                 &args.hub_asset.asset,
                 &args.cfg,
                 tolerance,
             );
-            (
-                controller,
-                Symbol::new(env, "set_market_oracle_config"),
+            price_aggregator_operation(
+                env,
+                "set_oracle_config",
                 vec![
                     env,
-                    args.hub_asset.clone().into_val(env),
+                    args.hub_asset.asset.clone().into_val(env),
                     resolved_config.into_val(env),
                 ],
-                DelayTier::Standard,
             )
         }
         AdminOperation::EditOracleTolerance(args) => {
             let tolerance =
                 validate::tolerance::validate_and_calculate_tolerances(env, args.tolerance);
-            controller_operation(
+            price_aggregator_operation(
                 env,
-                "set_oracle_tolerance",
+                "set_tolerance",
                 vec![
                     env,
                     args.asset.clone().into_val(env),
@@ -337,6 +342,18 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         }
         AdminOperation::TransferGovOwnership(args) => {
             access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger)
+        }
+        AdminOperation::SetPriceAggregator(addr) => {
+            // Re-validate at execution so a matured operation cannot install a
+            // non-contract address, then keep governance's own oracle-authority
+            // pointer and the controller's in lockstep.
+            validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
+            storage::set_price_aggregator(env, addr);
+            env.invoke_contract::<Val>(
+                &storage::get_controller(env),
+                &Symbol::new(env, "set_price_aggregator"),
+                vec![env, addr.clone().into_val(env)],
+            );
         }
         // Only self-targeted operations reach `execute_self`.
         _ => panic_with_error!(env, GenericError::InternalError),

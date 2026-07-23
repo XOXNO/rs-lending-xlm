@@ -40,6 +40,22 @@ jobs:
           git reset --hard
           git clean -ffdx -e target
 
+      # Scout builds its own `detector-helper` (scout-driver) on first use. On the
+      # persistent runner that first build is flaky and fails the earliest
+      # contracts in the gated run while later ones pass once the driver is cached.
+      # Warm the driver here (non-gating) so the gated run below reuses it.
+      - name: Warm Scout detector build
+        continue-on-error: true
+        uses: mihaieremia/scout-audit@26779da2e72880ba77ab796ee7f71a785ba315f3 # v1.3.0
+        with:
+          contracts: contracts/defindex-strategy
+          exclude: dos-unexpected-revert-with-storage
+          output-format: json
+          output-dir: target/scout-audit-warm
+          fail-on-severity: critical
+          extra-args: "-- --locked"
+          upload-reports: false
+
       - name: Run Scout
         # Pinned to an immutable commit SHA (not the mutable v1.3.0 tag): a
         # retargeted tag or compromised action repo would otherwise run

@@ -5,6 +5,10 @@
 # natively — the threshold in each expr maps straight to a Grafana condition),
 # or load this file into a Prometheus that has an Alertmanager wired up.
 #
+# Soft oracle status (MarketIndexView via controller → price-aggregator
+# prices_status) does not revert: use healthy / stale / deviation_flag gauges.
+# Fail-closed #205 only appears if some other view hits the hard price path.
+#
 # `network`, `asset`, `symbol`, `hub_id`, `spoke_id` labels propagate to the
 # alert so notifications identify the exact market.
 groups:
@@ -16,25 +20,21 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: "Oracle price for {{ $labels.symbol }} ({{ $labels.network }}) is close to stale"
-          description: "{{ $value }}s of freshness left before the feed is rejected on-chain."
+          description: "{{ $value }}s of provider-probe freshness left before the worst feed leg is rejected on-chain."
 
       - alert: LendingOracleStaleCritical
         expr: lending_oracle_seconds_until_stale <= 0
         for: 1m
         labels: { severity: critical }
         annotations:
-          summary: "Oracle price for {{ $labels.symbol }} ({{ $labels.network }}) is STALE"
-          description: "Feed age exceeds max_price_stale_seconds; risk-increasing flows will revert."
+          summary: "Oracle price for {{ $labels.symbol }} ({{ $labels.network }}) is STALE (provider probe)"
+          description: "Feed age exceeds the leg max_stale; soft status will mark stale and risk-increasing flows will fail closed."
 
       # Early-warning tiers scaled to each feed's own gate (fraction of the
-      # staleness budget still unspent), so one rule fits every gate size: a 1h
-      # Reflector leg and a 24h RedStone/Xoxno leg trip at the same fraction.
-      # seconds_until_stale is the worst (soonest-to-stale) leg of the market.
-      # RedStone feeds heartbeat ~12h against the 24h gate, so 50% remaining is
-      # one full beat consumed (warn) and 25% remaining is ~6h of runway left
-      # (critical) — hours ahead of the <300s imminent tier above.
+      # staleness budget still unspent). Denominator is the effective max-stale
+      # of the soonest-to-stale leg (not only the market default).
       - alert: LendingOracleFreshnessHalfConsumed
-        expr: lending_oracle_seconds_until_stale / lending_oracle_max_stale_seconds < 0.5 and lending_oracle_seconds_until_stale / lending_oracle_max_stale_seconds >= 0.25 and lending_oracle_max_stale_seconds > 0
+        expr: lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds < 0.5 and lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds >= 0.25 and lending_oracle_effective_max_stale_seconds > 0
         for: 15m
         labels: { severity: warning }
         annotations:
@@ -42,7 +42,7 @@ groups:
           description: "{{ $value | humanizePercentage }} of the staleness budget remains; a feed heartbeat was likely missed. Check the feeder (Xoxno bots / RedStone push) before it reaches the on-chain gate."
 
       - alert: LendingOracleFreshnessCritical
-        expr: lending_oracle_seconds_until_stale / lending_oracle_max_stale_seconds < 0.25 and lending_oracle_seconds_until_stale > 0 and lending_oracle_max_stale_seconds > 0
+        expr: lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds < 0.25 and lending_oracle_seconds_until_stale > 0 and lending_oracle_effective_max_stale_seconds > 0
         for: 10m
         labels: { severity: critical }
         annotations:
@@ -54,8 +54,24 @@ groups:
         for: 5m
         labels: { severity: critical }
         annotations:
-          summary: "Oracle price view failing for {{ $labels.symbol }} ({{ $labels.network }})"
-          description: "The aggregated price view reverts (NoLastPrice / PriceFeedStale / UnsafePriceNotAllowed)."
+          summary: "Oracle soft status invalid for {{ $labels.symbol }} ({{ $labels.network }})"
+          description: "MarketIndexView.valid=0 — price is stale, out of dual-source band, outside sanity, unreadable, or the index view failed. Soft path does not revert; solvency-style use is blocked."
+
+      - alert: LendingOracleStaleFlag
+        expr: lending_oracle_stale == 1
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Oracle soft stale flag for {{ $labels.symbol }} ({{ $labels.network }})"
+          description: "MarketIndexView.stale=1 from price-aggregator prices_status."
+
+      - alert: LendingOracleDeviationFlag
+        expr: lending_oracle_deviation_flag == 1
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Oracle soft deviation flag for {{ $labels.symbol }} ({{ $labels.network }})"
+          description: "MarketIndexView.deviation=1 — primary and anchor disagree beyond tolerance (or anchor missing under dual strategy)."
 
       - alert: LendingOracleDeviationHigh
         expr: lending_oracle_deviation_bps > 0.8 * lending_oracle_tolerance_upper_bps and lending_oracle_tolerance_upper_bps > 0
@@ -63,15 +79,7 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: "Primary/anchor deviation for {{ $labels.symbol }} nearing the band"
-          description: "Deviation {{ $value }}bps is within 20% of the configured tolerance; a breach freezes the price."
-
-      - alert: LendingOracleDeviationBreached
-        expr: increase(lending_exporter_view_failures_total{code="205"}[10m]) > 0
-        for: 0m
-        labels: { severity: critical }
-        annotations:
-          summary: "Oracle deviation band breached ({{ $labels.network }})"
-          description: "UnsafePriceNotAllowed (#205) observed — primary/anchor disagree beyond tolerance."
+          description: "Deviation {{ $value }}bps is within 20% of the configured tolerance; a breach freezes the soft-valid price."
 
       - alert: LendingExporterStalled
         expr: time() - lending_exporter_last_success_timestamp > 120

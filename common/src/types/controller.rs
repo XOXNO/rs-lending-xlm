@@ -1,7 +1,7 @@
 //! Controller domain types: spoke risk projections, accounts, positions.
 
 use crate::math::fp::{Bps, Ray};
-use crate::types::oracle::{MarketOracleConfigOption, PriceFeedRaw};
+use crate::types::oracle::PriceFeedRaw;
 use crate::types::pool::{
     AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw, HubAssetKey,
 };
@@ -96,7 +96,6 @@ pub struct SpokeAssetConfig {
     pub liquidation_fees: u32,
     pub supply_cap: i128,
     pub borrow_cap: i128,
-    pub oracle_override: MarketOracleConfigOption,
 }
 
 /// Args for add/edit spoke asset. Edits set pause/freeze explicitly (no silent clear).
@@ -116,7 +115,6 @@ pub struct SpokeAssetArgs {
     pub liquidation_fees: u32,
     pub supply_cap: i128,
     pub borrow_cap: i128,
-    pub oracle_override: MarketOracleConfigOption,
 }
 
 /// Running scaled-share totals for one asset within a spoke.
@@ -127,23 +125,29 @@ pub struct SpokeUsageRaw {
     pub borrowed_scaled_ray: i128,
 }
 
+/// Pool indexes + soft oracle status for one hub-asset market.
+///
+/// Price fields use historical ABI names: `safe_price_wad` = primary leg,
+/// `aggregator_price_wad` = secondary/anchor leg. Status flags describe whether
+/// the price is usable (`valid`) or blocked by staleness / dual-source deviation.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketIndexView {
     pub asset: Address,
     pub supply_index: i128,
     pub borrow_index: i128,
+    /// Final composed USD WAD (0 when unusable / unreadable).
     pub price_wad: i128,
+    /// Primary oracle leg (historical ABI name).
     pub safe_price_wad: i128,
+    /// Secondary/anchor leg (historical ABI name).
     pub aggregator_price_wad: i128,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct AssetExtendedConfigView {
-    pub asset: Address,
-    pub pool_address: Address,
-    pub price_wad: i128,
+    /// Freshness timestamp of the final blend (seconds).
+    pub price_timestamp: u64,
+    pub stale: bool,
+    pub deviation: bool,
+    /// True when price is fresh, in-band, positive, and within sanity.
+    pub valid: bool,
 }
 
 #[contracttype]
@@ -295,7 +299,6 @@ mod tests {
             liquidation_fees: 100,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: MarketOracleConfigOption::None,
         }
     }
 
@@ -342,7 +345,6 @@ mod tests {
             liquidation_fees: 0,
             supply_cap: 0,
             borrow_cap: 0,
-            oracle_override: MarketOracleConfigOption::None,
         }
     }
 
@@ -355,7 +357,6 @@ mod tests {
         assert!(asset.is_collateralizable);
         assert!(asset.is_borrowable);
         assert_eq!(asset.loan_to_value, 9_000);
-        assert!(asset.oracle_override.as_ref().is_none());
     }
 
     fn account_meta(env: &Env, spoke_id: u32) -> AccountMeta {
@@ -483,7 +484,10 @@ pub enum ControllerKey {
     PoolTemplate,
     /// Address of the single central liquidity pool deployed by the controller.
     Pool,
-    Aggregator,
+    /// Swap venue (the swap-aggregator contract), used by strategy flows.
+    SwapAggregator,
+    /// Oracle authority (the price-aggregator contract) for bulk price reads.
+    PriceAggregator,
     Accumulator,
     AccountNonce,
     PositionLimits,
@@ -493,11 +497,12 @@ pub enum ControllerKey {
     LastSpokeId,
     LastHubId,
     Hub(u32),
-    AssetOracle(Address),
     Spoke(u32),
     SpokeAsset(u32, HubAssetKey),
     SpokeUsage(u32, HubAssetKey),
     PositionManager(Address),
+    /// Governance allowlist entry for a Blend migration pool (persistent).
+    BlendPoolAllowed(Address),
     AccountMeta(u64),
     Delegates(u64),
     SupplyPositions(u64),
