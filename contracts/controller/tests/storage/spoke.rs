@@ -31,7 +31,7 @@ fn sample_spoke_asset() -> SpokeAssetConfig {
 
 // Spoke reads renew shared-tier TTL once it falls below threshold.
 #[test]
-fn test_try_get_spoke_renews_shared_ttl_on_read() {
+fn try_get_spoke_renews_shared_ttl_on_read() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
@@ -57,7 +57,7 @@ fn test_try_get_spoke_renews_shared_ttl_on_read() {
 
 // Discrete spoke-asset keys round-trip and remove independently of the spoke.
 #[test]
-fn test_spoke_asset_discrete_key_roundtrip() {
+fn spoke_asset_discrete_key_roundtrip() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
@@ -80,7 +80,7 @@ fn test_spoke_asset_discrete_key_roundtrip() {
 
 // Usage writes round-trip and a fully-zero write prunes the key.
 #[test]
-fn test_spoke_usage_prunes_zero_entry() {
+fn spoke_usage_prunes_zero_entry() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));

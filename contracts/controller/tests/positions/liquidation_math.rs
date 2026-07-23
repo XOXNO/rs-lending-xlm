@@ -4,11 +4,7 @@ use crate::constants::{
     DEFAULT_LIQUIDATION_TARGET_HF_WAD,
 };
 use common::constants::RAY;
-use common::types::{
-    AssetOracleConfig, DebtPositionRaw, MarketIndexRaw, OracleAssetRef, OracleReadMode,
-    OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, OracleTolerance, PositionMode,
-    PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
-};
+use common::types::{DebtPositionRaw, MarketIndexRaw, PositionMode, PriceFeedRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{vec, Address};
 
@@ -197,18 +193,11 @@ fn seizure_proportion_divides_weighted_by_total() {
     });
 }
 
-/// One debt position of 500 tokens (7 decimals) at $1 under unit indexes,
-/// priced through a real single-source Reflector config.
-fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account, AssetOracleConfig) {
-    use mock_oracle::{
-        MockReflectorOracle, MockReflectorOracleClient, ReflectorAsset as MockAsset,
-    };
-
+/// One debt position of 500 tokens (7 decimals) at $1 under unit indexes.
+/// Callers seed `Cache` prices via `single_price` (no live oracle).
+fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account) {
     let contract = env.register(crate::Controller, (Address::generate(env),));
-    let oracle_id = env.register(MockReflectorOracle, ());
     let asset = Address::generate(env);
-    MockReflectorOracleClient::new(env, &oracle_id)
-        .set_price(&MockAsset::Stellar(asset.clone()), &WAD);
 
     let hub_asset = HubAssetKey {
         hub_id: 0,
@@ -229,40 +218,14 @@ fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account, AssetOracleCo
         borrow_positions,
     };
 
-    let config = single_usd_oracle_config(oracle_id, asset);
-
-    (contract, hub_asset, account, config)
-}
-
-/// Single-source spot Reflector config quoting `asset` in USD.
-fn single_usd_oracle_config(oracle_id: Address, asset: Address) -> AssetOracleConfig {
-    AssetOracleConfig {
-        asset_decimals: 7,
-        max_price_stale_seconds: 900,
-        tolerance: OracleTolerance {
-            upper_ratio_bps: 10_500,
-            lower_ratio_bps: 9_500,
-        },
-        strategy: OracleStrategy::Single,
-        primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
-            contract: oracle_id,
-            asset: OracleAssetRef::Stellar(asset),
-            read_mode: OracleReadMode::Spot,
-            decimals: 14,
-            resolution_seconds: 300,
-            base: ReflectorBase::Usd,
-        }),
-        anchor: OracleSourceConfigOption::None,
-        min_sanity_price_wad: 0,
-        max_sanity_price_wad: i128::MAX,
-    }
+    (contract, hub_asset, account)
 }
 
 // A payment exactly equal to the closable debt produces no refund entry.
 #[test]
 fn repayment_at_exact_debt_produces_no_refund() {
     let env = Env::default();
-    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
+    let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
         let mut cache = Cache::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
@@ -285,7 +248,7 @@ fn repayment_at_exact_debt_produces_no_refund() {
 #[test]
 fn repayment_above_debt_refunds_exact_excess() {
     let env = Env::default();
-    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
+    let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
         let mut cache = Cache::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
@@ -320,35 +283,25 @@ fn bad_debt_socialization_requires_debt_exceeding_collateral_under_threshold() {
     ));
 }
 
-/// Snapshot for curve tests: 100 USD debt and collateral, a 0.5 collateral-mix
-/// proportion, and caller-supplied health factor / weighted collateral.
-fn curve_snap(hf_raw: i128, weighted_raw: i128) -> LiquidationSnapshot {
-    LiquidationSnapshot {
-        total_debt: Wad::from(100 * WAD),
-        total_collateral: Wad::from(100 * WAD),
-        weighted_coll: Wad::from(weighted_raw),
-        proportion_seized: Wad::from(WAD / 2),
-        hf: Wad::from(hf_raw),
-    }
-}
-
 // The default curve ramps linearly over the (target, hf_for_max_bonus) span:
 // scale = min((target - hf) / (target - hf_for_max_bonus), 1).
+// Defaults: target 1.10 (`DEFAULT_LIQUIDATION_TARGET_HF_WAD`), knee 0.80
+// (`DEFAULT_HF_FOR_MAX_BONUS_WAD`).
 #[test]
 fn default_curve_bonus_matches_reference_scale() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
     let base = Bps::from(500i128);
     let max = Bps::from(1_500i128);
-    let target = Wad::from(crate::constants::DEFAULT_LIQUIDATION_TARGET_HF_WAD);
-    let knee = Wad::from(crate::constants::DEFAULT_HF_FOR_MAX_BONUS_WAD);
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    let knee = Wad::from(DEFAULT_HF_FOR_MAX_BONUS_WAD);
 
     for hf_raw in [
         100_000_000_000_000_000i128,   // 0.10 -> scale capped at 1
         450_000_000_000_000_000i128,   // 0.45 -> scale capped at 1
-        800_000_000_000_000_000i128,   // 0.80 == hf_for_max_bonus -> scale exactly 1
+        DEFAULT_HF_FOR_MAX_BONUS_WAD,  // 0.80 == knee -> scale exactly 1
         900_000_000_000_000_000i128,   // 0.90
-        1_050_000_000_000_000_000i128, // 1.05 (below target)
+        1_050_000_000_000_000_000i128, // 1.05 (below target 1.10)
     ] {
         let hf = Wad::from(hf_raw);
         let got = calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target);
@@ -374,7 +327,7 @@ fn bonus_at_or_above_target_is_base() {
     let curve = LiquidationCurve::from_config(&default_spoke_config());
     let base = Bps::from(400i128);
     let max = Bps::from(1_000i128);
-    let target = Wad::from(1_020_000_000_000_000_000i128);
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
 
     let got = calculate_linear_bonus_with_target(&env, target, base, max, &curve, target);
     assert_eq!(got.raw(), base.raw());
@@ -386,7 +339,7 @@ fn bonus_factor_scales_increment() {
     let env = Env::default();
     let base = Bps::from(500i128);
     let max = Bps::from(1_500i128);
-    let target = Wad::from(1_020_000_000_000_000_000i128);
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
     let hf = Wad::from(900_000_000_000_000_000i128);
 
     let default_curve = LiquidationCurve::from_config(&default_spoke_config());
@@ -412,8 +365,9 @@ fn bonus_factor_above_bps_can_exceed_max_uncapped() {
     let env = Env::default();
     let base = Bps::from(500i128);
     let max = Bps::from(1_500i128);
-    let target = Wad::from(1_020_000_000_000_000_000i128);
-    let hf = Wad::from(510_000_000_000_000_000i128); // == hf_for_max_bonus -> scale 1
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    // At the knee (0.80) scale saturates at 1.
+    let hf = Wad::from(DEFAULT_HF_FOR_MAX_BONUS_WAD);
 
     let over_cap = SpokeConfig {
         liquidation_bonus_factor_bps: 20_000, // 200%, above the enforced BPS ceiling
@@ -436,15 +390,15 @@ fn bonus_factor_at_bps_ceiling_never_exceeds_max() {
     let env = Env::default();
     let base = Bps::from(500i128);
     let max = Bps::from(1_500i128);
-    let target = Wad::from(1_020_000_000_000_000_000i128);
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
     let curve = LiquidationCurve::from_config(&default_spoke_config()); // factor == BPS
 
     for hf_raw in [
-        1_019_000_000_000_000_000i128, // just below target
+        DEFAULT_LIQUIDATION_TARGET_HF_WAD - WAD / 100, // just below target 1.10
         900_000_000_000_000_000i128,
         700_000_000_000_000_000i128,
-        510_000_000_000_000_000i128, // == hf_for_max_bonus -> scale saturates at 1
-        100_000_000_000_000_000i128, // below hf_for_max_bonus -> scale still 1
+        DEFAULT_HF_FOR_MAX_BONUS_WAD, // 0.80 == knee -> scale saturates at 1
+        100_000_000_000_000_000i128,  // below knee -> scale still 1
     ] {
         let hf = Wad::from(hf_raw);
         let got = calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target);
@@ -457,18 +411,19 @@ fn bonus_factor_at_bps_ceiling_never_exceeds_max() {
     }
 }
 
-// A custom target HF changes the estimated close amount vs the 1.02 default.
+// A custom target HF changes the estimated close amount vs the 1.10 default.
 #[test]
 fn custom_target_changes_estimate() {
     let env = Env::default();
-    let snap = curve_snap(950_000_000_000_000_000, 95 * WAD); // hf = 0.95, weighted = 95
+    // 100 USD debt/collateral, 0.5 mix proportion.
+    let s = snap(100 * WAD, 100 * WAD, 95 * WAD, WAD / 2, 950_000_000_000_000_000);
     let bounds = BonusBounds {
         base: Bps::from(200i128),
         max: Bps::from(1_000i128),
     };
 
     let default_curve = LiquidationCurve::from_config(&default_spoke_config());
-    let (ideal_default, _) = estimate_liquidation_amount(&env, &snap, bounds, &default_curve);
+    let (ideal_default, _) = estimate_liquidation_amount(&env, &s, bounds, &default_curve);
 
     let custom = SpokeConfig {
         liquidation_target_hf_wad: 1_300_000_000_000_000_000, // 1.30 target
@@ -476,7 +431,7 @@ fn custom_target_changes_estimate() {
         ..default_spoke_config()
     };
     let custom_curve = LiquidationCurve::from_config(&custom);
-    let (ideal_custom, _) = estimate_liquidation_amount(&env, &snap, bounds, &custom_curve);
+    let (ideal_custom, _) = estimate_liquidation_amount(&env, &s, bounds, &custom_curve);
 
     assert!(ideal_default.raw() > 0);
     assert_ne!(ideal_default.raw(), ideal_custom.raw());
@@ -485,31 +440,25 @@ fn custom_target_changes_estimate() {
 #[test]
 fn post_liquidation_hf_saturates_when_debt_fully_repaid() {
     let env = Env::default();
-    let snap = curve_snap(900_000_000_000_000_000, 90 * WAD);
-    let hf = calculate_post_liquidation_hf(&env, &snap, snap.total_debt, Bps::from(0i128));
+    let s = snap(100 * WAD, 100 * WAD, 90 * WAD, WAD / 2, 900_000_000_000_000_000);
+    let hf = calculate_post_liquidation_hf(&env, &s, s.total_debt, Bps::from(0i128));
     assert_eq!(hf.raw(), i128::MAX);
 }
 
 #[test]
 fn post_liquidation_hf_does_not_decrease_for_partial_zero_bonus_repay() {
     let env = Env::default();
-    let snap = curve_snap(900_000_000_000_000_000, 90 * WAD);
-    let hf = calculate_post_liquidation_hf(&env, &snap, Wad::from(10 * WAD), Bps::from(0i128));
-    assert!(hf >= snap.hf);
+    let s = snap(100 * WAD, 100 * WAD, 90 * WAD, WAD / 2, 900_000_000_000_000_000);
+    let hf = calculate_post_liquidation_hf(&env, &s, Wad::from(10 * WAD), Bps::from(0i128));
+    assert!(hf >= s.hf);
 }
 
 /// One supply position of 1000 tokens (7 decimals) at $1 under unit indexes,
 /// with the given position-stamped liquidation fee.
-fn seize_fixture(env: &Env, fees_bps: u32) -> (Address, HubAssetKey, Account, AssetOracleConfig) {
-    use mock_oracle::{
-        MockReflectorOracle, MockReflectorOracleClient, ReflectorAsset as MockAsset,
-    };
-
+/// Callers seed `Cache` prices via `single_price` (no live oracle).
+fn seize_fixture(env: &Env, fees_bps: u32) -> (Address, HubAssetKey, Account) {
     let contract = env.register(crate::Controller, (Address::generate(env),));
-    let oracle_id = env.register(MockReflectorOracle, ());
     let asset = Address::generate(env);
-    MockReflectorOracleClient::new(env, &oracle_id)
-        .set_price(&MockAsset::Stellar(asset.clone()), &WAD);
 
     let hub_asset = HubAssetKey {
         hub_id: 0,
@@ -534,8 +483,7 @@ fn seize_fixture(env: &Env, fees_bps: u32) -> (Address, HubAssetKey, Account, As
         borrow_positions: Map::new(env),
     };
 
-    let config = single_usd_oracle_config(oracle_id, asset);
-    (contract, hub_asset, account, config)
+    (contract, hub_asset, account)
 }
 
 fn plan_for_seizure(env: &Env, repay_usd_raw: i128, bonus_bps: i128) -> NormalizedRepaymentPlan {
@@ -548,7 +496,7 @@ fn plan_for_seizure(env: &Env, repay_usd_raw: i128, bonus_bps: i128) -> Normaliz
 }
 
 fn run_seizure(env: &Env, fees_bps: u32, repay_usd_raw: i128, bonus_bps: i128) -> Vec<SeizeEntry> {
-    let (contract, hub_asset, account, _config) = seize_fixture(env, fees_bps);
+    let (contract, hub_asset, account) = seize_fixture(env, fees_bps);
     env.as_contract(&contract, || {
         let mut cache = Cache::new_view(env);
         cache.set_prices(single_price(env, &hub_asset.asset));
@@ -725,7 +673,7 @@ fn max_bonus_for_threshold_is_exact_at_half() {
 #[test]
 fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
     let env = Env::default();
-    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
+    let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
         let mut cache = Cache::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
@@ -759,7 +707,7 @@ fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
 #[should_panic(expected = "Error(Contract, #135)")]
 fn normalize_rejects_partial_on_solvent_toxic_account() {
     let env = Env::default();
-    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
+    let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
         let mut cache = Cache::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
@@ -789,7 +737,7 @@ fn normalize_rejects_partial_on_solvent_toxic_account() {
 #[test]
 fn normalize_accepts_full_close_on_solvent_toxic_account() {
     let env = Env::default();
-    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
+    let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
         let mut cache = Cache::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
@@ -823,7 +771,7 @@ fn normalize_accepts_full_close_on_solvent_toxic_account() {
 #[test]
 fn normalize_accepts_partial_when_cap_equals_base() {
     let env = Env::default();
-    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
+    let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
         let mut cache = Cache::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
@@ -863,7 +811,7 @@ fn normalize_accepts_partial_when_cap_equals_base() {
 #[test]
 fn normalize_allows_partial_on_insolvent_account() {
     let env = Env::default();
-    let (contract, hub_asset, account, _config) = repayment_fixture(&env);
+    let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
         let mut cache = Cache::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
@@ -1223,7 +1171,7 @@ fn estimate_leaves_exactly_five_dollar_remainder_unescalated() {
 #[test]
 fn account_bonus_params_accumulates_collateral_and_weights_bonus() {
     let env = Env::default();
-    let (contract, hub_asset, account, _config) = seize_fixture(&env, 0);
+    let (contract, hub_asset, account) = seize_fixture(&env, 0);
     env.as_contract(&contract, || {
         let mut cache = Cache::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
