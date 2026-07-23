@@ -1,10 +1,9 @@
 # Mainnet config for the lending metrics exporter.
 #
-# STUB — mainnet contracts are not deployed yet (configs/networks.json has empty
-# controller/pool/oracle addresses). Fill `contracts.controller`, the optional
-# price_aggregator fallback, oracle adapter, and the `markets`/`spokes` lists
-# from configs/networks.json once mainnet is live, then start a second exporter
-# instance + Prometheus job.
+# Rollout stub — mainnet lending contracts are not deployed yet. Controller and
+# price_aggregator below mirror the latest testnet deploy (configs/networks.json)
+# so IDs are ready during rollout. Fill markets/spokes and confirm RPC once
+# mainnet is live, then start a second exporter instance + Prometheus job.
 # The exporter refuses to boot while `controller` is not a valid C... address.
 network: mainnet
 rpc:
@@ -12,8 +11,8 @@ rpc:
   passphrase: "Public Global Stellar Network ; September 2015"
   timeout_seconds: 30
 contracts:
-  controller: ""
-  price_aggregator: ""
+  controller: CDBAQ67PCS7XXMBGIRCQ2EPRYKV7QKYPIYZBW7IAAWEE5NKMYNYQ4UYU
+  price_aggregator: CCQXGZSQWK2ZBA6L5UPZHGSGBE6AZEKAU65I7RWAQGVOMUGICZE4MK4F
   xoxno_oracle_adapter: ""
 markets: []
 spokes: []

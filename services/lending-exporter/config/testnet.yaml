@@ -12,9 +12,9 @@ rpc:
   passphrase: "Test SDF Network ; September 2015"
   timeout_seconds: 30
 contracts:
-  controller: CCYF2G3XZC3ZRZBHM7AVOFQEKQNQWFSRMXZV6SNH4JBWHNFOT7VW5H5H
+  controller: CDBAQ67PCS7XXMBGIRCQ2EPRYKV7QKYPIYZBW7IAAWEE5NKMYNYQ4UYU
   # Fallback if the controller view is unavailable this cycle.
-  price_aggregator: CBDY4MVGDIMQRQ4AB7WT4PJPMVAYYB6VU6HX2EPBU6XBFYP7G76PYR7S
+  price_aggregator: CCQXGZSQWK2ZBA6L5UPZHGSGBE6AZEKAU65I7RWAQGVOMUGICZE4MK4F
   # Informational: self-hosted price oracle adapter. Provider contracts for
   # staleness reads are resolved from each asset's on-chain oracle config.
   xoxno_oracle_adapter: CB46MOUCOPA5TGDKKCY5OC2FEXGCBQ5KXR53RGOYY7XD7LN6JOE7OPRF
