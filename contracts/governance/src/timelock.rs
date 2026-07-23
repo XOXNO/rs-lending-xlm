@@ -25,7 +25,6 @@ use crate::access::{
     self, CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, ORACLE_ROLE, PROPOSER_ROLE,
 };
 use crate::op::{apply_self_op, resolve_op};
-use crate::storage::renew_governance_instance;
 use crate::{constants, storage, validate, Governance, GovernanceArgs, GovernanceClient};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -104,7 +103,7 @@ fn begin_immediate(env: &Env, caller: &Address, role: &str) {
 
 // Self-target execute is inline; Soroban blocks self-reentry.
 fn begin_self_execute(env: &Env, executor: Option<&Address>, operation: &Operation) {
-    renew_governance_instance(env);
+    storage::renew_governance_instance(env);
     authorize_executor(env, executor);
     require_operation_not_expired(env, operation);
     set_execute_operation(env, operation);
@@ -120,15 +119,6 @@ fn finish_execute(env: &Env, operation: &Operation) {
         .remove(&TimelockStorageKey::OperationLedger(operation_id.clone()));
     storage::clear_role_revocation_target(env, &operation_id);
     storage::clear_recovery_op(env, &operation_id);
-}
-
-fn resolve_market_oracle(
-    env: &Env,
-    asset: &Address,
-    cfg: &AssetOracleConfigInput,
-) -> AssetOracleConfig {
-    let tolerance = validate::tolerance::validate_and_calculate_tolerances(env, cfg.tolerance_bps);
-    validate::oracle_probe::validate_market_oracle_sources(env, asset, cfg, tolerance)
 }
 
 #[contractimpl]
@@ -218,7 +208,7 @@ impl Governance {
         predecessor: BytesN<32>,
         salt: BytesN<32>,
     ) -> Val {
-        renew_governance_instance(&env);
+        storage::renew_governance_instance(&env);
         authorize_executor(&env, executor.as_ref());
         assert_with_error!(
             &env,
@@ -287,7 +277,7 @@ impl Governance {
     /// # Events
     /// * OZ timelock cancel event.
     pub fn cancel(env: Env, canceller: Address, operation_id: BytesN<32>) {
-        renew_governance_instance(&env);
+        storage::renew_governance_instance(&env);
         canceller.require_auth();
         access_control::ensure_role(&env, &Symbol::new(&env, CANCELLER_ROLE), &canceller);
         // Recovery-tier operations are non-vetoable — they exist precisely to
@@ -459,7 +449,9 @@ impl Governance {
         asset: Address,
         cfg: AssetOracleConfigInput,
     ) -> AssetOracleConfig {
-        resolve_market_oracle(&env, &asset, &cfg)
+        let tolerance =
+            validate::tolerance::validate_and_calculate_tolerances(&env, cfg.tolerance_bps);
+        validate::oracle_probe::validate_market_oracle_sources(&env, &asset, &cfg, tolerance)
     }
 
     /// Resolves tolerance BPS to the `OracleTolerance` band `propose` would

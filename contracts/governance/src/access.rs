@@ -172,15 +172,12 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
         access_control::has_role(env, account, role).is_some(),
         GenericError::InvalidRole
     );
+    let owner = owner_or_panic(env);
     // The owner is the root recovery authority; its roles are never revocable.
     // Enforced here so it holds for both the timelocked `RevokeGovRole` path and
     // the immediate `revoke_role_immediate` escape hatch. Ownership transfer
     // migrates roles through `revoke_role_no_auth` directly, bypassing this.
-    assert_with_error!(
-        env,
-        account != &owner_or_panic(env),
-        GenericError::NotAuthorized
-    );
+    assert_with_error!(env, account != &owner, GenericError::NotAuthorized);
     // Never remove the last PROPOSER: it is the sole gate on `propose`, and every
     // recovery path (grant role, upgrade, ownership transfer) must be scheduled
     // through it, so zeroing it would permanently freeze governance.
@@ -191,7 +188,6 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
             GenericError::CannotRemoveLastProposer
         );
     }
-    let owner = owner_or_panic(env);
     access_control::revoke_role_no_auth(env, account, role, &owner);
 }
 
