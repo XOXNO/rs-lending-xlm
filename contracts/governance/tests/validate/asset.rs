@@ -1,5 +1,6 @@
 use super::*;
 use common::constants::{BPS, RAY};
+use common::validation::{validate_liquidation_fees, validate_risk_bounds};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Env;
 

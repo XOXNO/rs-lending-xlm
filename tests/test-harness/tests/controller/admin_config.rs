@@ -484,6 +484,7 @@ fn test_market_initialization_cascade() {
     let reflector_cfg = test_harness::reflector_primary_anchor_config(
         &t.mock_reflector,
         &asset,
+        1_0000000i128,
         DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);

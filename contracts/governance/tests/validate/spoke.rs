@@ -1,4 +1,7 @@
-use super::*;
+//! Spoke liquidation-curve bounds. No external calls.
+
+use common::validation::validate_liquidation_curve;
+use soroban_sdk::Env;
 
 const DEFAULT_TARGET_HF_WAD: i128 = 1_020_000_000_000_000_000;
 const DEFAULT_HF_FOR_MAX_BONUS_WAD: i128 = DEFAULT_TARGET_HF_WAD / 2;

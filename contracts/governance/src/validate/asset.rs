@@ -3,10 +3,6 @@
 use common::constants::POSITION_LIMIT_MAX;
 use common::errors::{CollateralError, GenericError};
 use common::types::{MarketParamsRaw, PositionLimits};
-use common::validation::{
-    validate_liquidation_fees as common_validate_liquidation_fees,
-    validate_risk_bounds as common_validate_risk_bounds,
-};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 // SAC decimal range for RAY/WAD conversions. Assets below 6 decimals can
@@ -15,14 +11,6 @@ use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 // market funds) at the cost of coarser dust-level precision for those assets.
 const MIN_ASSET_DECIMALS: u32 = 3;
 const MAX_ASSET_DECIMALS: u32 = 18;
-
-pub(crate) fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
-    common_validate_risk_bounds(env, ltv, threshold, bonus);
-}
-
-pub(crate) fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
-    common_validate_liquidation_fees(env, fees_bps);
-}
 
 pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u32 {
     let token_client = token::Client::new(env, token);
@@ -54,9 +42,7 @@ pub(crate) fn validate_market_creation(
     token_decimals: u32,
 ) {
     assert_with_error!(env, params.asset_id == *asset, GenericError::WrongToken);
-    // Live SAC decimals must match market params. The harness registers
-    // multi-decimal presets against SAC v2 (always 7 decimals), so those
-    // setups must pass `token_decimals == params.asset_decimals` (see builder).
+    // Live SAC decimals must match market params.
     assert_with_error!(
         env,
         params.asset_decimals == token_decimals,

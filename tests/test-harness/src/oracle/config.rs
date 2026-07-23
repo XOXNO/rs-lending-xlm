@@ -54,20 +54,20 @@ pub fn xoxno_source(contract: &Address, feed_id: &String) -> OracleSourceConfigI
 pub fn reflector_primary_anchor_config(
     oracle: &Address,
     asset: &Address,
+    price_wad: i128,
     tolerance_bps: u32,
 ) -> AssetOracleConfigInput {
+    // Production rejects same-provider PrimaryWithAnchor; harness defaults to a
+    // Single TWAP primary with a tight sanity band around the seeded price.
+    let (min_sanity_price_wad, max_sanity_price_wad) = tight_single_source_band(price_wad);
     AssetOracleConfigInput {
         max_price_stale_seconds: 900,
         tolerance_bps,
-        min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
-        max_sanity_price_wad: DEFAULT_MAX_SANITY_PRICE_WAD,
-        strategy: OracleStrategy::PrimaryWithAnchor,
+        min_sanity_price_wad,
+        max_sanity_price_wad,
+        strategy: OracleStrategy::Single,
         primary: reflector_source(oracle, asset, OracleReadMode::Twap(3)),
-        anchor: OracleSourceConfigInputOption::Some(reflector_source(
-            oracle,
-            asset,
-            OracleReadMode::Spot,
-        )),
+        anchor: OracleSourceConfigInputOption::None,
     }
 }
 

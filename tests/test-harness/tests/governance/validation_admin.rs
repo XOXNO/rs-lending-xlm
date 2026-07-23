@@ -187,10 +187,11 @@ fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
 // `configure_market_oracle` error paths against the live mock reflector.
 
 fn base_oracle_config(t: &LendingTest) -> AssetOracleConfigInput {
-    let asset = t.resolve_market("USDC").asset.clone();
+    let market = t.resolve_market("USDC");
     test_harness::reflector_primary_anchor_config(
         &t.mock_reflector,
-        &asset,
+        &market.asset,
+        market.price_wad,
         DEFAULT_TOLERANCE.tolerance_bps,
     )
 }

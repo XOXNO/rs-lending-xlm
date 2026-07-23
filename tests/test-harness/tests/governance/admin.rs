@@ -126,13 +126,18 @@ fn test_edit_asset_in_spoke_rejects_threshold_above_bps() {
 #[should_panic(expected = "Error(Contract, #208)")]
 fn test_configure_market_oracle_rejects_tolerance_below_min() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
+    let market = t.resolve_market("USDC");
     let admin = t.admin();
-    let cfg = test_harness::reflector_primary_anchor_config(&t.mock_reflector, &asset, 10);
+    let cfg = test_harness::reflector_primary_anchor_config(
+        &t.mock_reflector,
+        &market.asset,
+        market.price_wad,
+        10,
+    );
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            hub_asset: hub_asset(asset),
+            hub_asset: hub_asset(market.asset.clone()),
             cfg,
         }),
     );

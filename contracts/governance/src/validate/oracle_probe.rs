@@ -18,15 +18,14 @@ use common::types::{
     OracleSourceConfigInput, OracleSourceConfigOption, OracleTolerance, RedStoneSourceConfig,
     RedStoneSourceConfigInput, ReflectorBase, ReflectorSourceConfig,
 };
-use common::validation::validate_single_source_sanity_band;
+use common::validation::{validate_sanity_bounds, validate_single_source_sanity_band};
 use soroban_sdk::Vec;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::validate::asset::validate_and_fetch_token_decimals;
 use crate::validate::oracle_config::{
-    validate_decimals, validate_max_stale, validate_oracle_config_shape, validate_sanity_bounds,
-    validate_twap_records,
+    validate_decimals, validate_max_stale, validate_oracle_config_shape, validate_twap_records,
 };
 
 pub(crate) fn validate_market_oracle_sources(
@@ -118,15 +117,15 @@ fn validate_source(
                 panic_with_error!(env, OracleError::InvalidOracleResolution);
             }
 
-            let pd = reflector_lastprice_call(env, &config.contract, &reflector_asset)
-                .unwrap_or_else(|| panic_with_error!(env, GenericError::InvalidTicker));
-            let spot_wad = validate_reflector_feed(env, &pd, max_stale, decimals);
-
             // The band-check price must match what the controller composes at
             // read time: the TWAP mean for a Twap source, the spot otherwise.
-            // Both sides derive the mean through the shared `twap_mean_price`.
+            // Branch before fetch so TWAP never pays for a discarded lastprice.
             let read_price_wad = match config.read_mode {
-                OracleReadMode::Spot => spot_wad,
+                OracleReadMode::Spot => {
+                    let pd = reflector_lastprice_call(env, &config.contract, &reflector_asset)
+                        .unwrap_or_else(|| panic_with_error!(env, GenericError::InvalidTicker));
+                    validate_reflector_feed(env, &pd, max_stale, decimals)
+                }
                 OracleReadMode::Twap(records) => {
                     validate_twap_records(env, records);
                     let history = validate_twap_history(

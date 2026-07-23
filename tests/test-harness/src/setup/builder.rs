@@ -319,6 +319,7 @@ impl LendingTestBuilder {
                 let oracle_input = crate::oracle::config::reflector_primary_anchor_config(
                     &mock_reflector_address,
                     &asset_address,
+                    pm.price_wad,
                     DEFAULT_TOLERANCE.tolerance_bps,
                 );
                 gov.execute_immediate(

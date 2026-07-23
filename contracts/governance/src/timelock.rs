@@ -72,9 +72,8 @@ pub(crate) fn authorize_executor(env: &Env, executor: Option<&Address>) {
     }
 }
 
-pub(crate) fn require_operation_not_expired(env: &Env, operation: &Operation) {
-    let operation_id = hash_operation(env, operation);
-    let ready_ledger = get_operation_ledger(env, &operation_id);
+pub(crate) fn require_operation_not_expired(env: &Env, operation_id: &BytesN<32>) {
+    let ready_ledger = get_operation_ledger(env, operation_id);
     if ready_ledger <= 1 {
         return;
     }
@@ -85,6 +84,35 @@ pub(crate) fn require_operation_not_expired(env: &Env, operation: &Operation) {
         env.ledger().sequence() <= expires_at,
         GenericError::TimelockOperationExpired
     );
+}
+
+/// Builds the timelock `Operation` for an `AdminOperation` with predecessor `0`.
+fn operation_for_admin_op(
+    env: &Env,
+    op: &crate::op::AdminOperation,
+    salt: BytesN<32>,
+) -> (Operation, DelayTier) {
+    let resolved = resolve_op(env, op);
+    (
+        Operation {
+            target: resolved.target,
+            function: resolved.function,
+            args: resolved.args,
+            predecessor: BytesN::from_array(env, &[0u8; 32]),
+            salt,
+        },
+        resolved.delay_tier,
+    )
+}
+
+fn canceller_reset_operation(env: &Env, new_cancellers: &Vec<Address>, salt: BytesN<32>) -> Operation {
+    Operation {
+        target: env.current_contract_address(),
+        function: Symbol::new(env, "reset_cancellers"),
+        args: vec![env, new_cancellers.clone().into_val(env)],
+        predecessor: BytesN::from_array(env, &[0u8; 32]),
+        salt,
+    }
 }
 
 fn controller_client(env: &Env) -> ControllerAdminClient<'_> {
@@ -101,24 +129,28 @@ fn begin_immediate(env: &Env, caller: &Address, role: &str) {
     access_control::ensure_role(env, &Symbol::new(env, role), caller);
 }
 
-// Self-target execute is inline; Soroban blocks self-reentry.
-fn begin_self_execute(env: &Env, executor: Option<&Address>, operation: &Operation) {
+/// Shared execute prep: renew → executor auth → expiry. Returns the operation id
+/// so callers reuse it through execute / finish without re-hashing.
+fn prepare_execute(
+    env: &Env,
+    executor: Option<&Address>,
+    operation: &Operation,
+) -> BytesN<32> {
     storage::renew_governance_instance(env);
     authorize_executor(env, executor);
-    require_operation_not_expired(env, operation);
-    set_execute_operation(env, operation);
+    let operation_id = hash_operation(env, operation);
+    require_operation_not_expired(env, &operation_id);
+    operation_id
 }
 
 /// Removes the OZ `OperationLedger` entry and local sidecars after a successful
-/// execute. Pending ops only occupy storage; `salt` uniquifies re-proposes.
+/// execute or cancel. Pending ops only occupy storage; `salt` uniquifies re-proposes.
 /// Predecessor chaining is unsupported (`propose` always uses predecessor `0`).
-fn finish_execute(env: &Env, operation: &Operation) {
-    let operation_id = hash_operation(env, operation);
+fn finish_execute(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()
         .remove(&TimelockStorageKey::OperationLedger(operation_id.clone()));
-    storage::clear_role_revocation_target(env, &operation_id);
-    storage::clear_recovery_op(env, &operation_id);
+    storage::clear_operation_sidecars(env, operation_id);
 }
 
 #[contractimpl]
@@ -168,19 +200,12 @@ impl Governance {
             }
             _ => {}
         }
-        let (target, function, args, delay_tier) = resolve_op(&env, &op);
+        let (operation, delay_tier) = operation_for_admin_op(&env, &op, salt);
         let delay = operation_delay(&env, delay_tier);
-        let operation = Operation {
-            target,
-            function,
-            args,
-            predecessor: BytesN::from_array(&env, &[0u8; 32]),
-            salt,
-        };
         let operation_id = schedule_operation(&env, &operation, delay);
-        // Record the target and role so `cancel` can enforce the self-veto guard.
+        // Record the target so `cancel` can enforce the self-veto guard.
         if let crate::op::AdminOperation::RevokeGovRole(args) = &op {
-            storage::mark_role_revocation_target(&env, &operation_id, &args.account, &args.role);
+            storage::mark_role_revocation_target(&env, &operation_id, &args.account);
         }
         operation_id
     }
@@ -208,8 +233,6 @@ impl Governance {
         predecessor: BytesN<32>,
         salt: BytesN<32>,
     ) -> Val {
-        storage::renew_governance_instance(&env);
-        authorize_executor(&env, executor.as_ref());
         assert_with_error!(
             &env,
             target != env.current_contract_address(),
@@ -222,9 +245,9 @@ impl Governance {
             predecessor,
             salt,
         };
-        require_operation_not_expired(&env, &operation);
+        let operation_id = prepare_execute(&env, executor.as_ref(), &operation);
         let result = execute_operation(&env, &operation);
-        finish_execute(&env, &operation);
+        finish_execute(&env, &operation_id);
         result
     }
 
@@ -249,22 +272,17 @@ impl Governance {
         op: crate::op::AdminOperation,
         salt: BytesN<32>,
     ) {
-        let (target, function, args, _) = resolve_op(&env, &op);
+        let (operation, _) = operation_for_admin_op(&env, &op, salt);
         assert_with_error!(
             env,
-            target == env.current_contract_address(),
+            operation.target == env.current_contract_address(),
             GenericError::InternalError
         );
-        let operation = Operation {
-            target,
-            function,
-            args,
-            predecessor: BytesN::from_array(&env, &[0u8; 32]),
-            salt,
-        };
-        begin_self_execute(&env, executor.as_ref(), &operation);
+        // Self-target execute is inline; Soroban blocks self-reentry.
+        let operation_id = prepare_execute(&env, executor.as_ref(), &operation);
+        set_execute_operation(&env, &operation);
         apply_self_op(&env, &op);
-        finish_execute(&env, &operation);
+        finish_execute(&env, &operation_id);
     }
 
     /// Cancels a pending timelock operation. `CANCELLER`-gated.
@@ -293,7 +311,7 @@ impl Governance {
         // cancellers remain a real check on a rogue proposer (or owner). A
         // colluding-canceller deadlock is broken by the non-vetoable Recovery
         // tier (`propose_canceller_reset`), not by suspending the veto here.
-        if let Some((target, _role)) = storage::role_revocation_target(&env, &operation_id) {
+        if let Some(target) = storage::role_revocation_target(&env, &operation_id) {
             assert_with_error!(
                 &env,
                 target != canceller,
@@ -301,7 +319,7 @@ impl Governance {
             );
         }
         cancel_operation(&env, &operation_id);
-        storage::clear_role_revocation_target(&env, &operation_id);
+        storage::clear_operation_sidecars(&env, &operation_id);
     }
 
     /// Halts the controller immediately. `GUARDIAN`-gated. Resume is timelocked
@@ -478,14 +496,7 @@ impl Governance {
         new_cancellers: Vec<Address>,
         salt: BytesN<32>,
     ) -> BytesN<32> {
-        let gov = env.current_contract_address();
-        let operation = Operation {
-            target: gov,
-            function: Symbol::new(&env, "reset_cancellers"),
-            args: vec![&env, new_cancellers.into_val(&env)],
-            predecessor: BytesN::from_array(&env, &[0u8; 32]),
-            salt,
-        };
+        let operation = canceller_reset_operation(&env, &new_cancellers, salt);
         let delay = operation_delay(&env, DelayTier::Recovery);
         let id = schedule_operation(&env, &operation, delay);
         storage::mark_recovery_op(&env, &id);
@@ -511,17 +522,11 @@ impl Governance {
         new_cancellers: Vec<Address>,
         salt: BytesN<32>,
     ) {
-        let gov = env.current_contract_address();
-        let operation = Operation {
-            target: gov,
-            function: Symbol::new(&env, "reset_cancellers"),
-            args: vec![&env, new_cancellers.clone().into_val(&env)],
-            predecessor: BytesN::from_array(&env, &[0u8; 32]),
-            salt,
-        };
-        begin_self_execute(&env, executor.as_ref(), &operation);
+        let operation = canceller_reset_operation(&env, &new_cancellers, salt);
+        let operation_id = prepare_execute(&env, executor.as_ref(), &operation);
+        set_execute_operation(&env, &operation);
         access::apply_canceller_reset(&env, &new_cancellers);
-        finish_execute(&env, &operation);
+        finish_execute(&env, &operation_id);
     }
 }
 
@@ -547,12 +552,12 @@ impl Governance {
                 assert_eq!(caller, owner, "not owner");
             }
         }
-        let (target, function, args, _) = resolve_op(&env, &op);
-        if target == env.current_contract_address() {
+        let (operation, _) = operation_for_admin_op(&env, &op, BytesN::from_array(&env, &[0u8; 32]));
+        if operation.target == env.current_contract_address() {
             apply_self_op(&env, &op);
             ().into_val(&env)
         } else {
-            env.invoke_contract(&target, &function, args)
+            env.invoke_contract(&operation.target, &operation.function, operation.args)
         }
     }
 }

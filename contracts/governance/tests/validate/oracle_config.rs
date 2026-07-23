@@ -1,15 +1,13 @@
 use super::*;
 use common::constants::MAX_REASONABLE_PRICE_WAD;
-#[cfg(not(feature = "testing"))]
-use common::types::RedStoneSourceConfigInput;
 use common::types::{
     AssetOracleConfigInput, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
-    OracleSourceConfigInputOption, OracleStrategy, ReflectorSourceConfigInput,
+    OracleSourceConfigInputOption, OracleStrategy, RedStoneSourceConfigInput,
+    ReflectorSourceConfigInput,
 };
+use common::validation::validate_sanity_bounds;
 use soroban_sdk::testutils::Address as _;
-#[cfg(not(feature = "testing"))]
-use soroban_sdk::String;
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, String};
 
 fn sample_config(
     strategy: OracleStrategy,
@@ -51,7 +49,6 @@ fn single_twap_primary_passes_production_shape() {
 }
 
 #[test]
-#[cfg(not(feature = "testing"))]
 fn single_spot_primary_passes_production_shape() {
     let env = Env::default();
     let contract = Address::generate(&env);
@@ -64,7 +61,6 @@ fn single_spot_primary_passes_production_shape() {
 }
 
 #[test]
-#[cfg(not(feature = "testing"))]
 fn single_redstone_primary_passes_production_shape() {
     let env = Env::default();
     let primary = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
@@ -77,7 +73,6 @@ fn single_redstone_primary_passes_production_shape() {
 }
 
 #[test]
-#[cfg(not(feature = "testing"))]
 #[should_panic(expected = "Error(Contract, #11)")]
 fn dual_same_reflector_provider_rejects() {
     let env = Env::default();
@@ -96,7 +91,6 @@ fn dual_same_reflector_provider_rejects() {
 }
 
 #[test]
-#[cfg(not(feature = "testing"))]
 #[should_panic(expected = "Error(Contract, #38)")]
 fn dual_redstone_primary_rejects_spot_only_mode() {
     let env = Env::default();
@@ -120,7 +114,6 @@ fn dual_redstone_primary_rejects_spot_only_mode() {
 }
 
 #[test]
-#[cfg(not(feature = "testing"))]
 fn single_xoxno_primary_passes_production_shape() {
     let env = Env::default();
     let primary = OracleSourceConfigInput::Xoxno(RedStoneSourceConfigInput {
@@ -133,7 +126,6 @@ fn single_xoxno_primary_passes_production_shape() {
 }
 
 #[test]
-#[cfg(not(feature = "testing"))]
 fn dual_reflector_twap_primary_with_xoxno_anchor_passes() {
     let env = Env::default();
     let contract = Address::generate(&env);
@@ -153,7 +145,6 @@ fn dual_reflector_twap_primary_with_xoxno_anchor_passes() {
 }
 
 #[test]
-#[cfg(not(feature = "testing"))]
 #[should_panic(expected = "Error(Contract, #38)")]
 fn dual_xoxno_primary_rejects_spot_only_mode() {
     let env = Env::default();
@@ -174,7 +165,6 @@ fn dual_xoxno_primary_rejects_spot_only_mode() {
 }
 
 #[test]
-#[cfg(not(feature = "testing"))]
 #[should_panic(expected = "Error(Contract, #11)")]
 fn dual_shared_contract_across_variants_rejects() {
     // The dual-ABI adapter listed once as SEP-40 primary and once as a
@@ -203,15 +193,15 @@ fn dual_redstone_and_xoxno_same_feed_rejects() {
     // same feed; `reads_same_feed_as` blocks it in every build.
     let env = Env::default();
     let contract = Address::generate(&env);
-    let feed_id = soroban_sdk::String::from_str(&env, "BTC/USD");
-    let primary = OracleSourceConfigInput::RedStone(common::types::RedStoneSourceConfigInput {
+    let feed_id = String::from_str(&env, "BTC/USD");
+    let primary = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
         contract: contract.clone(),
         feed_id: feed_id.clone(),
         max_stale_seconds: 600,
     });
     let mut cfg = sample_config(OracleStrategy::PrimaryWithAnchor, primary);
     cfg.anchor = OracleSourceConfigInputOption::Some(OracleSourceConfigInput::Xoxno(
-        common::types::RedStoneSourceConfigInput {
+        RedStoneSourceConfigInput {
             contract,
             feed_id,
             max_stale_seconds: 900,

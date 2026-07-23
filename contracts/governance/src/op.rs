@@ -1,8 +1,11 @@
 //! `AdminOperation` resolution and self-op application. `resolve_op` validates
-//! inputs and lowers to `(target, function, args, delay-tier)`; `apply_self_op`
-//! runs governance-self variants once the timelock matures.
+//! inputs and lowers to a named `ResolvedOperation`; `apply_self_op` runs
+//! governance-self variants once the timelock matures.
 
 use common::errors::{CollateralError, GenericError, OracleError};
+use common::validation::{
+    validate_liquidation_curve, validate_liquidation_fees, validate_risk_bounds,
+};
 
 use soroban_sdk::{
     assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
@@ -19,69 +22,87 @@ pub use governance_interface::{
 };
 
 fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
-    validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
-    validate::asset::validate_liquidation_fees(env, args.liquidation_fees);
+    validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
+    validate_liquidation_fees(env, args.liquidation_fees);
     validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
 }
 
-type ResolvedOperation = (Address, Symbol, Vec<Val>, DelayTier);
+/// Resolved call target for a proposed `AdminOperation`.
+pub(crate) struct ResolvedOperation {
+    pub target: Address,
+    pub function: Symbol,
+    pub args: Vec<Val>,
+    pub delay_tier: DelayTier,
+}
 
 fn controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
-    (
-        storage::get_controller(env),
-        Symbol::new(env, function),
+    ResolvedOperation {
+        target: storage::get_controller(env),
+        function: Symbol::new(env, function),
         args,
-        DelayTier::Standard,
-    )
+        delay_tier: DelayTier::Standard,
+    }
 }
 
 fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
-    (
-        storage::get_controller(env),
-        Symbol::new(env, function),
+    ResolvedOperation {
+        target: storage::get_controller(env),
+        function: Symbol::new(env, function),
         args,
-        DelayTier::Sensitive,
-    )
+        delay_tier: DelayTier::Sensitive,
+    }
 }
 
 /// Oracle config ops target the price-aggregator (the oracle authority), not
 /// the controller.
 fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
-    (
-        storage::get_price_aggregator(env),
-        Symbol::new(env, function),
+    ResolvedOperation {
+        target: storage::get_price_aggregator(env),
+        function: Symbol::new(env, function),
         args,
-        DelayTier::Standard,
-    )
+        delay_tier: DelayTier::Standard,
+    }
+}
+
+fn self_operation(
+    env: &Env,
+    function: &str,
+    args: Vec<Val>,
+    delay_tier: DelayTier,
+) -> ResolvedOperation {
+    ResolvedOperation {
+        target: env.current_contract_address(),
+        function: Symbol::new(env, function),
+        args,
+        delay_tier,
+    }
 }
 
 pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
-    let gov_addr = env.current_contract_address();
-
     match op {
         AdminOperation::UpgradeGov(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
-            (
-                gov_addr,
-                Symbol::new(env, "upgrade"),
+            self_operation(
+                env,
+                "upgrade",
                 vec![env, hash.clone().into_val(env)],
                 DelayTier::Sensitive,
             )
         }
         AdminOperation::UpdateGovDelay(new_delay) => {
             validate_delay_update(env, *new_delay);
-            (
-                gov_addr,
-                Symbol::new(env, "update_delay"),
+            self_operation(
+                env,
+                "update_delay",
                 vec![env, new_delay.into_val(env)],
                 DelayTier::Standard,
             )
         }
         AdminOperation::GrantGovRole(args) => {
             access::require_known_governance_role(env, &args.role);
-            (
-                gov_addr,
-                Symbol::new(env, "grant_role"),
+            self_operation(
+                env,
+                "grant_role",
                 vec![
                     env,
                     args.account.clone().into_val(env),
@@ -92,9 +113,9 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
         }
         AdminOperation::RevokeGovRole(args) => {
             access::require_known_governance_role(env, &args.role);
-            (
-                gov_addr,
-                Symbol::new(env, "revoke_role"),
+            self_operation(
+                env,
+                "revoke_role",
                 vec![
                     env,
                     args.account.clone().into_val(env),
@@ -103,9 +124,9 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 DelayTier::Standard,
             )
         }
-        AdminOperation::TransferGovOwnership(args) => (
-            gov_addr,
-            Symbol::new(env, "transfer_ownership"),
+        AdminOperation::TransferGovOwnership(args) => self_operation(
+            env,
+            "transfer_ownership",
             vec![
                 env,
                 args.new_owner.clone().into_val(env),
@@ -128,9 +149,9 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             // aggregator (the target of every oracle-config op) in the same
             // execution that re-points the controller, or the two diverge.
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
-            (
-                gov_addr,
-                Symbol::new(env, "set_price_aggregator"),
+            self_operation(
+                env,
+                "set_price_aggregator",
                 vec![env, addr.clone().into_val(env)],
                 DelayTier::Sensitive,
             )
@@ -306,7 +327,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
         }
         AdminOperation::Unpause => controller_operation(env, "unpause", vec![env]),
         AdminOperation::SetSpokeLiquidationCurve(args) => {
-            validate::spoke::validate_liquidation_curve(
+            validate_liquidation_curve(
                 env,
                 args.target_hf_wad,
                 args.hf_for_max_bonus_wad,
@@ -352,8 +373,31 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
                 vec![env, addr.clone().into_val(env)],
             );
         }
-        // Only self-targeted operations reach `execute_self`.
-        _ => panic_with_error!(env, GenericError::InternalError),
+        // External-target ops never reach `execute_self`.
+        AdminOperation::SetSwapAggregator(_)
+        | AdminOperation::SetAccumulator(_)
+        | AdminOperation::SetPositionLimits(_)
+        | AdminOperation::SetMinBorrowCollateralUsd(_)
+        | AdminOperation::CreateHub
+        | AdminOperation::AddSpoke
+        | AdminOperation::RemoveSpoke(_)
+        | AdminOperation::AddAssetToSpoke(_)
+        | AdminOperation::EditAssetInSpoke(_)
+        | AdminOperation::RemoveAssetFromSpoke(_)
+        | AdminOperation::ApproveBlendPool(_)
+        | AdminOperation::RevokeBlendPool(_)
+        | AdminOperation::CreateLiquidityPool(_)
+        | AdminOperation::UpgradeLiquidityPoolParams(_)
+        | AdminOperation::DeployPool(_)
+        | AdminOperation::UpgradePool(_)
+        | AdminOperation::SetPositionManager(_, _)
+        | AdminOperation::UpgradeController(_)
+        | AdminOperation::MigrateController(_)
+        | AdminOperation::TransferCtrlOwnership(_)
+        | AdminOperation::ConfigureMarketOracle(_)
+        | AdminOperation::EditOracleTolerance(_)
+        | AdminOperation::SetSpokeLiquidationCurve(_)
+        | AdminOperation::Unpause => panic_with_error!(env, GenericError::InternalError),
     }
 }
 
