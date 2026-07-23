@@ -8,24 +8,34 @@ use crate::math::fp::{Bps, Ray};
 use crate::types::shared::AccountPositionType;
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env};
 
-/// Pool params: rates/slopes RAY; reserve_factor/flashloan_fee BPS; `asset_decimals` from SAC.
+/// Pool params ABI: rates/slopes/utilization in RAY; `reserve_factor`/`flashloan_fee` in BPS.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketParamsRaw {
+    /// Cap on annual borrow rate, RAY.
     pub max_borrow_rate: i128,
+    /// Base annual borrow rate, RAY.
     pub base_borrow_rate: i128,
+    /// Slope below mid utilization, RAY (rate-per-year).
     pub slope1: i128,
+    /// Slope between mid and optimal utilization, RAY.
     pub slope2: i128,
+    /// Slope above optimal utilization, RAY.
     pub slope3: i128,
+    /// First kink utilization, RAY (`0..RAY`).
     pub mid_utilization: i128,
+    /// Second kink utilization, RAY (`mid..RAY`).
     pub optimal_utilization: i128,
+    /// Hard utilization ceiling, RAY.
     pub max_utilization: i128,
+    /// Protocol share of accrued interest, BPS.
     pub reserve_factor: u32,
     /// Flash-loan eligibility for controller flash-loan entrypoints.
     pub is_flashloanable: bool,
-    /// Flash-loan fee in bps used by flash loans and strategy borrows.
+    /// Flash-loan fee, BPS (also used by strategy borrows).
     pub flashloan_fee: u32,
     pub asset_id: Address,
+    /// SAC token decimals (domain for `Ray::from_asset`).
     pub asset_decimals: u32,
 }
 
@@ -72,7 +82,7 @@ impl MarketParamsRaw {
     }
 }
 
-/// Typed pool parameters used by interest and cap math.
+/// Typed pool parameters used by interest and cap math (RAY rates; BPS fees).
 #[derive(Clone, Debug)]
 pub struct MarketParams {
     pub max_borrow_rate: Ray,
@@ -85,6 +95,7 @@ pub struct MarketParams {
     pub max_utilization: Ray,
     pub reserve_factor: Bps,
     pub is_flashloanable: bool,
+    /// Flash-loan fee, BPS (raw u32; not wrapped as `Bps`).
     pub flashloan_fee: u32,
     pub asset_id: Address,
     pub asset_decimals: u32,
@@ -130,17 +141,24 @@ impl From<&MarketParams> for MarketParamsRaw {
     }
 }
 
+/// Interest-curve slice of market params: rates/slopes/utilization RAY; reserve factor BPS.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct InterestRateModel {
+    /// Cap on annual borrow rate, RAY.
     pub max_borrow_rate: i128,
+    /// Base annual borrow rate, RAY.
     pub base_borrow_rate: i128,
     pub slope1: i128,
     pub slope2: i128,
     pub slope3: i128,
+    /// First kink utilization, RAY.
     pub mid_utilization: i128,
+    /// Second kink utilization, RAY.
     pub optimal_utilization: i128,
+    /// Hard utilization ceiling, RAY.
     pub max_utilization: i128,
+    /// Protocol share of accrued interest, BPS.
     pub reserve_factor: u32,
 }
 
@@ -209,18 +227,23 @@ impl InterestRateModel {
     }
 }
 
-/// Collateral position: scaled supply shares + controller-snapshotted risk fields.
+/// Collateral position: scaled supply shares (RAY) + controller-snapshotted risk BPS.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPositionRaw {
+    /// Scaled supply shares, RAY (not underlying).
     pub scaled_amount: i128,
+    /// Liquidation threshold, BPS.
     pub liquidation_threshold: u32,
+    /// Liquidation bonus, BPS.
     pub liquidation_bonus: u32,
+    /// Loan-to-value, BPS.
     pub loan_to_value: u32,
+    /// Protocol fee on seized collateral, BPS.
     pub liquidation_fees: u32,
 }
 
-/// Typed collateral position used by controller risk math.
+/// Typed collateral position used by controller risk math (RAY shares; BPS risk).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AccountPosition {
     pub scaled_amount: Ray,
@@ -254,10 +277,11 @@ impl From<&AccountPosition> for AccountPositionRaw {
     }
 }
 
-/// Pool ABI position: scaled shares only (risk params stay on controller).
+/// Pool ABI position: scaled shares only (RAY); risk params stay on controller.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScaledPositionRaw {
+    /// Scaled supply or debt shares, RAY.
     pub scaled_amount: i128,
 }
 
@@ -277,14 +301,15 @@ impl From<&DebtPosition> for ScaledPositionRaw {
     }
 }
 
-/// Debt position: scaled borrow shares.
+/// Debt position: scaled borrow shares (RAY), not underlying debt.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DebtPositionRaw {
+    /// Scaled borrow shares, RAY.
     pub scaled_amount: i128,
 }
 
-/// Typed debt position used by borrow-index accounting.
+/// Typed debt position used by borrow-index accounting (RAY shares).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DebtPosition {
     pub scaled_amount: Ray,
@@ -319,10 +344,13 @@ impl From<&DebtPosition> for DebtPositionRaw {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarketIndexRaw {
+    /// Borrow index, RAY.
     pub borrow_index: i128,
+    /// Supply index, RAY.
     pub supply_index: i128,
 }
 
+/// Typed market indexes (RAY).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MarketIndex {
     pub borrow_index: Ray,
@@ -361,31 +389,36 @@ pub struct MarketStateSnapshot {
     /// Liquid token reserves the pool holds (tracked internally, not a live
     /// token-balance read), in asset-native units.
     pub cash: i128,
-    /// Total scaled supply shares.
+    /// Total scaled supply shares, RAY.
     pub supplied: i128,
-    /// Total scaled borrow shares.
+    /// Total scaled borrow shares, RAY.
     pub borrowed: i128,
-    /// Scaled protocol revenue shares.
+    /// Scaled protocol revenue shares, RAY.
     pub revenue: i128,
 }
 
+/// Pool mutation receipt: post-state position, indexes, and transferred amount.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolPositionMutation {
     pub position: ScaledPositionRaw,
     pub market_index: MarketIndexRaw,
+    /// Amount moved in asset-native units.
     pub actual_amount: i128,
     /// Immutable market decimals, returned so the controller enforces supply/
     /// borrow caps without a separate `get_sync_data` round-trip.
     pub asset_decimals: u32,
 }
 
+/// Strategy mutation receipt: position, indexes, and dual native amounts.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolStrategyMutation {
     pub position: ScaledPositionRaw,
     pub market_index: MarketIndexRaw,
+    /// Primary leg amount in asset-native units.
     pub actual_amount: i128,
+    /// Counterparty leg amount in asset-native units.
     pub amount_received: i128,
     /// Immutable market decimals (see `PoolPositionMutation::asset_decimals`).
     pub asset_decimals: u32,
@@ -398,6 +431,7 @@ pub struct PoolNetSettleResult {
     pub supply_position: ScaledPositionRaw,
     pub debt_position: ScaledPositionRaw,
     pub market_index: MarketIndexRaw,
+    /// Settled amount in asset-native units (same for supply burn and debt repay).
     pub settled_amount: i128,
 }
 
@@ -412,9 +446,11 @@ impl From<&PoolStrategyMutation> for PoolPositionMutation {
     }
 }
 
+/// Amount-only mutation receipt (asset-native units).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolAmountMutation {
+    /// Amount in asset-native units.
     pub actual_amount: i128,
 }
 
@@ -446,6 +482,7 @@ pub enum PoolKey {
 #[derive(Clone, Debug)]
 pub struct PoolAction {
     pub position: ScaledPositionRaw,
+    /// Requested amount in asset-native units.
     pub amount: i128,
     pub hub_asset: HubAssetKey,
 }
@@ -467,6 +504,7 @@ pub struct PoolBorrowEntry {
 #[derive(Clone, Debug)]
 pub struct PoolWithdrawEntry {
     pub action: PoolAction,
+    /// Protocol fee in asset-native units (retained as cash / revenue shares).
     pub protocol_fee: i128,
 }
 
@@ -483,27 +521,34 @@ pub struct PoolSeizeEntry {
 #[derive(Clone, Debug)]
 pub struct PoolNetSettleEntry {
     pub hub_asset: HubAssetKey,
+    /// Settle amount in asset-native units.
     pub amount: i128,
     pub supply_position: ScaledPositionRaw,
     pub debt_position: ScaledPositionRaw,
 }
 
-/// Pool state: scaled supply/borrow/revenue shares; indexes convert to underlying.
+/// Pool state: scaled supply/borrow/revenue shares (RAY); indexes convert to underlying.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolStateRaw {
+    /// Aggregate scaled supply shares, RAY.
     pub supplied: i128,
+    /// Aggregate scaled borrow shares, RAY.
     pub borrowed: i128,
+    /// Aggregate scaled protocol revenue shares, RAY.
     pub revenue: i128,
+    /// Borrow index, RAY.
     pub borrow_index: i128,
+    /// Supply index, RAY.
     pub supply_index: i128,
     pub last_timestamp: u64,
     /// Liquid token units the pool holds (available reserves), tracked internally
     /// on each in/out flow instead of reading the token balance. Direct donations
-    /// cannot inflate borrowable liquidity.
+    /// cannot inflate borrowable liquidity. Asset-native units.
     pub cash: i128,
 }
 
+/// Typed pool state (RAY shares/indexes; cash asset-native).
 #[derive(Clone, Debug)]
 pub struct PoolState {
     pub supplied: Ray,
@@ -512,7 +557,7 @@ pub struct PoolState {
     pub borrow_index: Ray,
     pub supply_index: Ray,
     pub last_timestamp: u64,
-    /// Liquid token units held by the pool (available reserves).
+    /// Liquid token units held by the pool (available reserves), asset-native.
     pub cash: i128,
 }
 

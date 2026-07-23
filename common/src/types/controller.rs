@@ -9,11 +9,16 @@ use crate::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
 /// Spoke-projected risk flags. Caps on [`SpokeAssetConfig`]; flash fee on pool params.
+/// Risk ratios are BPS.
 #[derive(Clone, Debug)]
 pub struct AssetConfig {
+    /// Loan-to-value, BPS.
     pub loan_to_value: Bps,
+    /// Liquidation threshold, BPS.
     pub liquidation_threshold: Bps,
+    /// Liquidation bonus, BPS.
     pub liquidation_bonus: Bps,
+    /// Protocol fee on seized collateral, BPS.
     pub liquidation_fees: Bps,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
@@ -76,12 +81,15 @@ pub struct PositionManagerConfig {
 #[derive(Clone, Debug)]
 pub struct SpokeConfig {
     pub is_deprecated: bool,
+    /// Target health factor after liquidation, WAD.
     pub liquidation_target_hf_wad: i128,
+    /// HF at which max bonus applies, WAD.
     pub hf_for_max_bonus_wad: i128,
+    /// Bonus factor along the curve, BPS.
     pub liquidation_bonus_factor_bps: u32,
 }
 
-/// Spoke listing: risk BPS, caps, pause/freeze, optional oracle override.
+/// Spoke listing: risk BPS, caps (asset-native), pause/freeze, optional oracle override.
 /// `paused` blocks all user verbs; `frozen` blocks only new supply/borrow.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -90,15 +98,22 @@ pub struct SpokeAssetConfig {
     pub is_borrowable: bool,
     pub paused: bool,
     pub frozen: bool,
+    /// Loan-to-value, BPS.
     pub loan_to_value: u32,
+    /// Liquidation threshold, BPS.
     pub liquidation_threshold: u32,
+    /// Liquidation bonus, BPS.
     pub liquidation_bonus: u32,
+    /// Protocol fee on seized collateral, BPS.
     pub liquidation_fees: u32,
+    /// Supply cap in asset-native units (`0` / `i128::MAX` disable).
     pub supply_cap: i128,
+    /// Borrow cap in asset-native units (`0` / `i128::MAX` disable).
     pub borrow_cap: i128,
 }
 
 /// Args for add/edit spoke asset. Edits set pause/freeze explicitly (no silent clear).
+/// Risk fields BPS; caps asset-native.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetArgs {
@@ -109,19 +124,27 @@ pub struct SpokeAssetArgs {
     pub can_borrow: bool,
     pub paused: bool,
     pub frozen: bool,
+    /// Loan-to-value, BPS.
     pub ltv: u32,
+    /// Liquidation threshold, BPS.
     pub threshold: u32,
+    /// Liquidation bonus, BPS.
     pub bonus: u32,
+    /// Protocol fee on seized collateral, BPS.
     pub liquidation_fees: u32,
+    /// Supply cap in asset-native units.
     pub supply_cap: i128,
+    /// Borrow cap in asset-native units.
     pub borrow_cap: i128,
 }
 
-/// Running scaled-share totals for one asset within a spoke.
+/// Running scaled-share totals for one asset within a spoke (RAY).
 #[contracttype]
 #[derive(Clone, Debug, Default)]
 pub struct SpokeUsageRaw {
+    /// Aggregate scaled supply shares on this spoke-asset, RAY.
     pub supplied_scaled_ray: i128,
+    /// Aggregate scaled borrow shares on this spoke-asset, RAY.
     pub borrowed_scaled_ray: i128,
 }
 
@@ -134,13 +157,15 @@ pub struct SpokeUsageRaw {
 #[derive(Clone, Debug)]
 pub struct MarketIndexView {
     pub asset: Address,
+    /// Supply index, RAY.
     pub supply_index: i128,
+    /// Borrow index, RAY.
     pub borrow_index: i128,
     /// Final composed USD WAD (0 when unusable / unreadable).
     pub price_wad: i128,
-    /// Primary oracle leg (historical ABI name).
+    /// Primary oracle leg (historical ABI name; not a safety flag).
     pub safe_price_wad: i128,
-    /// Secondary/anchor leg (historical ABI name).
+    /// Secondary/anchor leg (historical ABI name; not the swap aggregator).
     pub aggregator_price_wad: i128,
     /// Freshness timestamp of the final blend (seconds).
     pub price_timestamp: u64,
@@ -161,6 +186,7 @@ pub struct PositionLimits {
 #[derive(Clone, Debug)]
 pub struct PaymentTuple {
     pub asset: Address,
+    /// Amount in asset-native units.
     pub amount: i128,
 }
 
@@ -183,7 +209,9 @@ pub struct LiquidationEstimate {
 #[derive(Clone, Debug)]
 pub struct SeizeEntry {
     pub hub_asset: HubAssetKey,
+    /// Seized collateral in asset-native units.
     pub amount: i128,
+    /// Protocol fee in asset-native units.
     pub protocol_fee: i128,
     pub feed: PriceFeedRaw,
     pub market_index: crate::types::pool::MarketIndexRaw,
@@ -193,7 +221,9 @@ pub struct SeizeEntry {
 #[derive(Clone, Debug)]
 pub struct RepayEntry {
     pub hub_asset: HubAssetKey,
+    /// Debt repaid in asset-native units.
     pub amount: i128,
+    /// USD value of the repayment, WAD.
     pub usd_wad: i128,
     pub feed: PriceFeedRaw,
     pub market_index: crate::types::pool::MarketIndexRaw,
@@ -205,7 +235,9 @@ pub struct LiquidationResult {
     pub seized: Vec<SeizeEntry>,
     pub repaid: Vec<RepayEntry>,
     pub refunds: Vec<PaymentTuple>,
+    /// Maximum debt payment accepted, USD WAD.
     pub max_debt_usd: i128,
+    /// Liquidation bonus applied, BPS.
     pub bonus_bps: i128,
 }
 

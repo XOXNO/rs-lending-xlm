@@ -319,13 +319,17 @@ pub struct PriceFeedRaw {
 /// Unlike `prices` / `price`, this does not revert on stale or out-of-band legs.
 /// `valid` is true only when the price would pass the fail-closed solvency path
 /// (fresh, in tolerance when anchored, positive, within sanity).
+///
+/// ABI note: `secondary_wad` is the anchor leg (equals final/primary under
+/// PrimaryOnly); it is not a swap-aggregator price.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PriceStatus {
     /// Final composed USD WAD (midpoint when dual legs exist and can be blended).
     pub final_wad: i128,
+    /// Primary oracle leg, USD WAD.
     pub primary_wad: i128,
-    /// Anchor when dual-source; equals final/primary under PrimaryOnly.
+    /// Anchor when dual-source; equals final/primary under PrimaryOnly (USD WAD).
     pub secondary_wad: i128,
     /// Freshness timestamp of the final blend (min of legs), seconds.
     pub price_timestamp: u64,
@@ -352,9 +356,10 @@ impl PriceStatus {
     }
 }
 
-/// Typed oracle price used by controller math.
+/// Typed oracle price used by controller math (USD WAD).
 #[derive(Clone, Copy, Debug)]
 pub struct PriceFeed {
+    /// USD price, WAD.
     pub price: crate::math::fp::Wad,
     pub asset_decimals: u32,
     pub timestamp: u64,
