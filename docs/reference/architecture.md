@@ -85,12 +85,12 @@ from `contracts/controller/src/storage/`. Oracle configs are **not**
 ### Controller — instance
 
 - `Pool`, `SwapAggregator`, `PriceAggregator`, `Accumulator`
-  (`PoolTemplate` is a reserved unused variant kept for discriminant stability;
-  never read/written by current code)
 - `PositionLimits`, `MinBorrowCollateralUsd`, `AppVersion`
 - `LastSpokeId`, `LastHubId` (id allocators)
 
-No approved-token registry, no token/Blend count registries on the controller.
+Former `PoolTemplate` instance key was deleted (fresh redeploy only; not
+upgrade-safe). No approved-token registry, no token/Blend count registries on
+the controller.
 
 ### Controller — persistent
 
