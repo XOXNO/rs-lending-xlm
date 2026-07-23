@@ -89,6 +89,8 @@ pub enum GenericError {
     /// Positive repay rounds to zero scaled debt (would accept tokens without
     /// reducing the account or aggregate debt position).
     RepayRoundsToZeroShares = 52,
+    /// A reward would lift `supply_index` past `SUPPLY_INDEX_REWARD_CEILING_RAY`.
+    SupplyIndexRewardCeiling = 53,
 }
 
 #[contracterror]

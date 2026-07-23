@@ -17,6 +17,10 @@ pub const MAX_BORROW_INDEX_RAY: i128 = 1_000_000_000_000_000_000_000_000_000_000
 /// growth cannot leave the range where share conversions stay inside `i128`.
 pub const MAX_SUPPLY_INDEX_RAY: i128 = MAX_BORROW_INDEX_RAY;
 
+/// Caps reward-driven `supply_index` growth (`add_rewards` only) so repeated
+/// reward legs cannot pin the index at `MAX_SUPPLY_INDEX_RAY`.
+pub const SUPPLY_INDEX_REWARD_CEILING_RAY: i128 = 100_000 * RAY;
+
 /// Phantom supply value added to the reward denominator in `update_supply_index`,
 /// so a dust supplier can neither inflate the index nor recover the reward.
 /// Value-scaled (1 token = `RAY`), decimal-independent.

@@ -18,7 +18,7 @@ mod test_support;
 #[path = "../../../certora/pool/spec/mod.rs"]
 pub mod spec;
 
-use common::constants::RAY;
+use common::constants::{RAY, SUPPLY_INDEX_REWARD_CEILING_RAY};
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::{Bps, Ray};
 use common::rates::{simulate_update_indexes, supply_index_reward_shortfall, update_supply_index};
@@ -683,6 +683,12 @@ impl LiquidityPoolInterface for LiquidityPool {
         let reward = Ray::from_asset(amount, cache.params.asset_decimals);
         let old_supply_index = cache.supply_index;
         cache.supply_index = update_supply_index(&env, cache.supplied, old_supply_index, reward);
+        // Cap reward growth so repeated legs cannot pin the index at MAX.
+        assert_with_error!(
+            &env,
+            cache.supply_index.raw() <= SUPPLY_INDEX_REWARD_CEILING_RAY,
+            GenericError::SupplyIndexRewardCeiling
+        );
         // The virtual-offset shortfall (reward not distributed to suppliers) is
         // booked as protocol revenue instead of stranded as dead reserve, so the
         // full donated reward is accounted (suppliers via index + protocol via

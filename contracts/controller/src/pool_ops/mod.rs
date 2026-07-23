@@ -215,18 +215,27 @@ impl Controller {
     ///
     /// # Arguments
     /// * `rewards` — `(hub-asset, amount)` legs; amounts must be positive.
+    ///   Legs targeting the same market are summed into one distribution.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `InvalidPayments` — the `rewards` batch is empty.
     /// * `AmountMustBePositive` — a leg amount is not strictly positive.
     /// * `PoolNotInitialized` — a target market has not been created.
     /// * `NoSuppliersToReward` — a target market has no suppliers.
+    /// * `SupplyIndexRewardCeiling` — a reward would lift a market's supply index
+    ///   past its reward-growth ceiling.
     #[when_not_paused]
     pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(HubAssetKey, i128)>) {
         caller.require_auth();
         validation::require_not_flash_loaning(&env);
+
+        // Sum per-market legs so one batch can't compound a market's index
+        // across sequential pool updates.
+        let aggregated = utils::aggregate_positive_payments(&env, &rewards);
+
         let mut cache = Cache::new(&env);
-        for (hub_asset, amount) in rewards {
+        for (hub_asset, amount) in aggregated {
             add_reward(&env, &caller, &hub_asset, amount, &mut cache);
         }
     }

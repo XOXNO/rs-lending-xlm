@@ -3,8 +3,8 @@ extern crate std;
 use super::*;
 use crate::test_support::hub;
 use common::constants::{
-    BPS, MS_PER_SECOND, RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE,
-    TTL_THRESHOLD_SHARED,
+    BPS, MS_PER_SECOND, RAY, SUPPLY_INDEX_REWARD_CEILING_RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED,
+    TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::types::{MarketIndexRaw, ScaledPositionRaw};
@@ -2516,6 +2516,54 @@ fn test_dust_supply_plus_reward_no_longer_bricks_a_fresh_market() {
         ],
     );
     assert!(rescued.get(0).unwrap().actual_amount > 0);
+}
+
+// A reward exceeding the ceiling is rejected; index unchanged.
+#[test]
+fn test_add_rewards_rejects_reward_above_supply_index_ceiling() {
+    let t = TestSetup::new();
+    let asset = t.add_funded_market();
+    let client = t.client();
+
+    client.supply(&t.sup_for(&asset, 0, 1));
+
+    let huge = 1_000_000_000_000_000i128;
+    let result = flatten_contract_result(client.try_add_rewards(&hub(&asset), &huge));
+    assert_contract_error(result, GenericError::SupplyIndexRewardCeiling as u32);
+    assert_eq!(t.state_of(&asset).supply_index, RAY);
+}
+
+// Doubling reward legs hit the ceiling guard before the index reaches MAX.
+#[test]
+fn test_iterated_add_rewards_cannot_pin_supply_index_at_max() {
+    let t = TestSetup::new();
+    let asset = t.add_funded_market();
+    let client = t.client();
+
+    client.supply(&t.sup_for(&asset, 0, 1));
+
+    let mut legs_applied = 0u32;
+    let mut reverted = false;
+    for _ in 0..80 {
+        // Size each leg to the reward denominator so the index roughly doubles.
+        let reward = client.get_supplied_amount(&hub(&asset)) + 10_000_000i128;
+        let result = flatten_contract_result(client.try_add_rewards(&hub(&asset), &reward));
+        if result.is_err() {
+            assert_contract_error(result, GenericError::SupplyIndexRewardCeiling as u32);
+            reverted = true;
+            break;
+        }
+        legs_applied += 1;
+    }
+
+    assert!(reverted, "ceiling guard must reject a pinning reward leg");
+    assert!(legs_applied >= 1, "earlier legs still grow the index");
+    let index = t.state_of(&asset).supply_index;
+    assert!(
+        index <= SUPPLY_INDEX_REWARD_CEILING_RAY,
+        "index stays at or below the reward ceiling"
+    );
+    assert!(index < common::constants::MAX_SUPPLY_INDEX_RAY);
 }
 
 // --- POOL-CAN-002: revenue claims never outpay the shares they burn. ---
