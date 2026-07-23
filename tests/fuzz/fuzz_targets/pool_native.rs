@@ -228,6 +228,8 @@ fn rate_model_from_input(i: &In, salt: u32) -> InterestRateModel {
         max_utilization: RAY,
         reserve_factor: (((i.reserve_pct as i128 + salt as i128) % 51) * 100).clamp(0, BPS - 1)
             as u32,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
 
     if salt & 1 == 0 {
