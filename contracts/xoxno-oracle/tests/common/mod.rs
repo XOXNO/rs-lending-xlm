@@ -1,10 +1,5 @@
-<<<<<<< HEAD
-//! Shared black-box test helpers for the `xoxno-oracle` integration
-//! tests. Every test binary under `tests/` pulls this in via `mod common;`.
-=======
 //! Shared black-box test helpers for the `xoxno-oracle` integration tests.
 //! Every test binary under `tests/` pulls this in via `mod common;`.
->>>>>>> origin/main
 
 extern crate std;
 
