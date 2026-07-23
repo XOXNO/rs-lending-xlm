@@ -31,7 +31,7 @@ PY
 done < <(find "$ROOT/interfaces" -name '*.rs' -print0)
 
 if [[ "$fail" -ne 0 ]]; then
-  echo "Interface rustdoc check failed. See architecture/DOC_STYLE.md" >&2
+  echo "Interface rustdoc check failed. See docs/reference/doc-style.md" >&2
   exit 1
 fi
 echo "OK: interface trait methods have preceding ///"

@@ -2,7 +2,7 @@
 
 //! Owner-gated liquidity pool: interest, scaled shares, cash. Controller owns
 //! solvency and risk; storage keys live in `common::types::PoolKey`.
-//! See `architecture/INVARIANTS.md`.
+//! See `docs/reference/invariants.md`.
 
 mod cache;
 mod events;

@@ -16,15 +16,15 @@ position manager). Admin is `#[only_owner]` (governance after deploy).
 
 Full semantics: rustdoc on the controller `contractimpl` and
 [`interfaces/controller`](../../interfaces/controller).
-Protocol properties: [`architecture/INVARIANTS.md`](../../architecture/INVARIANTS.md).
-Doc style: [`architecture/DOC_STYLE.md`](../../architecture/DOC_STYLE.md).
+Protocol properties: [`docs/reference/invariants.md`](../../docs/reference/invariants.md).
+Doc style: [`docs/reference/doc-style.md`](../../docs/reference/doc-style.md).
 
 ## Related
 
 | Doc | Topic |
 | --- | --- |
-| [ADR 0001](../../architecture/decisions/0001-controller-pool-ownership-boundary.md) | Gov / controller / pool boundary |
-| [ADR 0005](../../architecture/decisions/0005-strategy-aggregator-output-validated-by-balance-delta.md) | Strategy swap trust |
-| [ADR 0011](../../architecture/decisions/0011-pause-and-freeze-matrix.md) | Pause / freeze |
-| [ADR 0012](../../architecture/decisions/0012-per-spoke-liquidation-curve.md) | Liquidation curve |
-| [DOC_STYLE](../../architecture/DOC_STYLE.md) | Public ABI comment style |
+| [ADR 0001](../../docs/explanation/decisions/0001-controller-pool-ownership-boundary.md) | Gov / controller / pool boundary |
+| [ADR 0005](../../docs/explanation/decisions/0005-strategy-aggregator-output-validated-by-balance-delta.md) | Strategy swap trust |
+| [ADR 0011](../../docs/explanation/decisions/0011-pause-and-freeze-matrix.md) | Pause / freeze |
+| [ADR 0012](../../docs/explanation/decisions/0012-per-spoke-liquidation-curve.md) | Liquidation curve |
+| [DOC_STYLE](../../docs/reference/doc-style.md) | Public ABI comment style |

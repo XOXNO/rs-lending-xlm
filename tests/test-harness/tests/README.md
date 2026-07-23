@@ -149,4 +149,7 @@ seed_liquidatable_usdc_eth(&mut t);
 
 Crate root: [`../README.md`](../README.md). Public API surface: `test_harness::prelude::*` or granular imports from `test_harness::{LendingTest, …}`.
 
-This harness is the primary vehicle for exercising the live contracts facts (governance→controller→pool ownership, new deploys start paused, 3-layer pause/freeze + GUARDIAN, keeper self-auth, multi-hub isolation, per-spoke curves, bad-debt socialization at 5 WAD with index floor, oracle call-site policy, etc.). See `architecture/INVARIANTS.md`, `SCF_BUILD_ARCHITECTURE.md`, and the ADRs.
+Harness coverage for live contract facts (ownership chain, pause matrix, hubs,
+spokes, bad-debt floor, oracle call-site policy). See
+`docs/reference/invariants.md`, `docs/reference/architecture.md`, and
+`docs/explanation/decisions/`.

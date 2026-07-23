@@ -64,5 +64,5 @@ pool pull. `contracts/flash-loan-receiver` is test harness only.
 - `contracts/pool/src/lib.rs::flash_loan`  
 - `contracts/controller/src/strategies/flash_loan.rs`  
 - `common/src/constants/shared.rs` (`MAX_FLASHLOAN_FEE_BPS`)  
-- [INVARIANTS.md](../INVARIANTS.md) §2.5  
+- [invariants.md](../../reference/invariants.md) §2.5  
 - [ADR 0005](./0005-strategy-aggregator-output-validated-by-balance-delta.md)  

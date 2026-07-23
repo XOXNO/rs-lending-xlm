@@ -14,17 +14,16 @@ Shared model every integration layer builds on. The layer-specific skills
 
 Three core contracts (strict ownership chain: Governance owns Controller owns Pool):
 
-- **Governance** — owns the controller; timelocks all admin changes (except
-  immediate pause/unpause and certain GUARDIAN actions).
+- **Governance** — owns the controller; timelocks admin changes. GUARDIAN can
+  **pause** immediately; **unpause is timelocked** (`AdminOperation::Unpause`).
 - **Controller** — the only user-facing contract: accounts, risk checks,
   oracle validation, liquidations, flash loans, and strategies. It is the
   sole caller of the pool for all mutations.
-- **Pool** — single central liquidity contract. Its mutating entrypoints are
-  `#[only_owner]` (Controller only); read-only views are public. The pool
-  performs no risk, solvency, or oracle logic.
+- **Pool** — single central liquidity contract. Mutating entrypoints are
+  `#[only_owner]` (controller only); views are public. No risk, solvency, or
+  oracle logic in the pool.
 
-Fresh deployments start with the controller paused; it must be explicitly
-unpaused after configuration.
+Fresh deployments start paused; resume after configuration via the timelock.
 
 ## Markets: HubAssetKey
 
@@ -111,6 +110,7 @@ as `GenericError`, `CollateralError`, `OracleError`, `SpokeError`,
 `FlashLoanError`, `StrategyError`. Off-chain, map raw Soroban error codes to
 these names with the SDK's `mapSorobanError`.
 
-See the layer-specific skills for cross-contract auth patterns, flash-loan
-receivers, liquidation bots, indexing, and SDK usage. Always treat network and
-contract addresses as configuration (never hardcode).
+Normative rules: `docs/reference/invariants.md`. Topology:
+`docs/reference/architecture.md`. Layer skills cover auth, flash-loan
+receivers, liquidation bots, indexing, and the SDK. Treat network and contract
+addresses as configuration — never hardcode.

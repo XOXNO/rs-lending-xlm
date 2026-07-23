@@ -81,6 +81,9 @@ fn get_bulk_indexes(hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw>; // bat
 fn get_sync_data(hub_asset: HubAssetKey) -> PoolSyncData; // raw params + accounting
 ```
 
+`PoolSyncData` / market params include the rate curve plus flash-loan config:
+`is_flashloanable` (bool) and `flashloan_fee` (bps, ≤ 500).
+
 Rates are per-millisecond RAY values. Annualize with
 `MILLISECONDS_PER_YEAR = 31_556_926_000` (simple APR = rate × ms-per-year;
 compound for APY).

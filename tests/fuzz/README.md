@@ -1,19 +1,13 @@
 # Fuzzing
 
-A fuzzer hammers the code with huge numbers of random and adversarial inputs,
-looking for any that make it crash, panic, or break an accounting rule — the
-edge cases a human writing example tests would never think to try.
+`cargo-fuzz` targets for this protocol. Lives under `tests/` as assurance
+infrastructure, not production contract code.
 
-This directory contains the protocol's `cargo-fuzz` package. It lives under
-`tests/` because it is audit and assurance infrastructure, not production
-contract code.
+Exercise inputs unit tests miss: fixed-point rounding, index accrual,
+liquidation edges, multi-step flows, strategy routing, auth boundaries, TTL,
+and accounting conservation.
 
-Fuzzing is used to exercise inputs that unit tests do not enumerate: fixed
-point rounding, index accrual, liquidation edge cases, multi-step account
-flows, strategy routing, authorization boundaries, TTL behavior, and accounting
-conservation.
-
-## What To Run
+## What to run
 
 Use the Makefile from the repository root for normal workflows:
 

@@ -1,9 +1,8 @@
 # Architecture Decision Records
 
 Architecturally significant decisions for XOXNO Lending on Soroban. Each ADR
-states context, the decision, alternatives, and consequences. References point
-at the implementing code. Runtime properties that all changes must preserve live
-in [INVARIANTS.md](../INVARIANTS.md).
+states context, decision, alternatives, and consequences. Runtime properties
+that must hold live in [invariants.md](../../reference/invariants.md).
 
 ## Index
 
@@ -23,6 +22,6 @@ in [INVARIANTS.md](../INVARIANTS.md).
 
 ## Related
 
-- [INVARIANTS.md](../INVARIANTS.md)  
-- [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md)  
-- [SECURITY.md](../../SECURITY.md)  
+- [invariants.md](../../reference/invariants.md)
+- [architecture.md](../../reference/architecture.md)
+- [SECURITY.md](../../../SECURITY.md)

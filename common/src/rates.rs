@@ -1,7 +1,7 @@
 //! Kinked borrow-rate curve, Taylor compound factor, and read-path index simulation.
 //!
 //! Rates and indexes are RAY (`1e27`); reserve factor is BPS. Accrual chunks at
-//! most one year (`MAX_COMPOUND_DELTA_MS`). See `architecture/INVARIANTS.md`.
+//! most one year (`MAX_COMPOUND_DELTA_MS`). See `docs/reference/invariants.md`.
 
 use soroban_sdk::{panic_with_error, Env, I256};
 

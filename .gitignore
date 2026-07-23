@@ -24,9 +24,8 @@ mutants.out/
 mutants.out.old/
 **/mutants.out/
 **/mutants.out.old/
-docs/*
-# Keep brainstorming specs tracked even though the rest of docs/ is generated.
-!docs/superpowers/
+# Agent brainstorm scratch (Diátaxis docs under docs/ are tracked)
+docs/superpowers/
 .zed
 # Claude Code runtime
 .claude/

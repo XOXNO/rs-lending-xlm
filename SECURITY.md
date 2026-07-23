@@ -54,8 +54,9 @@ Reporters who follow this policy may be credited in release notes (with consent)
 - `contracts/flash-loan-receiver` as a production surface — it is **test-only**
   unless you are attacking the test harness itself
 
-Technical properties: [architecture/INVARIANTS.md](./architecture/INVARIANTS.md),
-[STRIDE.md](./STRIDE.md), [SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md).
+Technical properties: [docs/reference/invariants.md](./docs/reference/invariants.md),
+[docs/explanation/threat-model.md](./docs/explanation/threat-model.md),
+[docs/reference/architecture.md](./docs/reference/architecture.md).
 Report concrete deviations from those.
 
 ## Supported versions

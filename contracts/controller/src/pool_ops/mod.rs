@@ -1,8 +1,8 @@
 //! Pool deploy/params/upgrade admin plus permissionless keepers (indexes,
 //! revenue, rewards, threshold sync) and account-owner TTL/delegate helpers.
 //! Owner-gated ops ride the governance timelock. See
-//! [ADR 0010](../../../architecture/decisions/0010-governance-timelock-for-controller-admin.md)
-//! and [INVARIANTS](../../../architecture/INVARIANTS.md) §5.1.
+//! [ADR 0010](../../../docs/explanation/decisions/0010-governance-timelock-for-controller-admin.md)
+//! and [INVARIANTS](../../../docs/reference/invariants.md) §5.1.
 
 use crate::account;
 use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};

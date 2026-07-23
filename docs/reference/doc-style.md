@@ -7,13 +7,13 @@ behavior. Do not change runtime logic to match prose in a docs-only PR.
 
 | Surface | Shape |
 |---------|--------|
-| **Crate / module `//!`** | 2–6 lines: what it owns, trust/auth boundary, pointer to [INVARIANTS](./INVARIANTS.md) or an ADR. No file inventories. |
+| **Crate / module `//!`** | 2–6 lines: what it owns, trust/auth boundary, pointer to [invariants](./invariants.md) or an ADR. No file inventories. |
 | **Public endpoint `///`** | (1) one-line effect + who may call, (2) `# Arguments` only if non-obvious, (3) `# Errors` with **named** variants, (4) `# Events` if emitted, (5) `# Security Warning` only when the caller must enforce solvency/auth this contract does not. |
 | **Interface traits** | Same semantics as the matching `contractimpl`. Money-path: full docs on **both** trait and impl. Admin/view: full docs on the trait; impl may use a matching one-line effect. |
 | **Types (`common`)** | Type: purpose + units. Fields: native / BPS / WAD / RAY, raw vs typed, ABI-stable misnomers called out. |
 | **Errors** | One sentence: observable failure meaning. |
 | **Internal helpers** | Doc only when non-obvious (rounding, CEI, index floors, trust). Delete restatements of the code. |
-| **Contract README** | Index only: entrypoint name + one-phrase role + link to rustdoc / INVARIANTS. No duplicated full semantics. |
+| **Contract README** | Index only: entrypoint name + one-phrase role + link to rustdoc / invariants. No duplicated full semantics. |
 
 ## Voice
 
@@ -48,5 +48,5 @@ behavior. Do not change runtime logic to match prose in a docs-only PR.
 
 ## When behavior changes
 
-Update rustdoc **and** any cited INVARIANTS / ADR section in the same PR.
-See [CONTRIBUTING.md](../CONTRIBUTING.md).
+Update rustdoc **and** any cited invariants / ADR section in the same PR.
+See [CONTRIBUTING.md](../../CONTRIBUTING.md).

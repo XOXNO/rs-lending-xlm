@@ -17,5 +17,5 @@ its own math.
 | Views | Checkpoint util, cash, rates, amounts; `get_bulk_indexes` simulates live |
 
 Full semantics: rustdoc on the `LiquidityPoolInterface` impl in `src/lib.rs`.
-Protocol properties: [`architecture/INVARIANTS.md`](../../architecture/INVARIANTS.md).
-Ownership boundary: [ADR 0001](../../architecture/decisions/0001-controller-pool-ownership-boundary.md).
+Protocol properties: [`docs/reference/invariants.md`](../../docs/reference/invariants.md).
+Ownership boundary: [ADR 0001](../../docs/explanation/decisions/0001-controller-pool-ownership-boundary.md).

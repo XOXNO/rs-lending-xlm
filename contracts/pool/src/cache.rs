@@ -1,5 +1,5 @@
 //! In-memory market cache: load/save, cash, scale/unscale, withdraw/repay resolve.
-//! Rounding is conservative for solvency. See `architecture/INVARIANTS.md`.
+//! Rounding is conservative for solvency. See `docs/reference/invariants.md`.
 
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;

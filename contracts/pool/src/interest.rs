@@ -1,5 +1,5 @@
 //! Chunked index accrual, protocol revenue, and bad-debt supply-index write-down
-//! (floored). See `architecture/INVARIANTS.md` and ADR 0007.
+//! (floored). See `docs/reference/invariants.md` and ADR 0007.
 
 use common::constants::SUPPLY_INDEX_FLOOR_RAW;
 use common::math::fp::Ray;

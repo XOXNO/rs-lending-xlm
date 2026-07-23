@@ -20,9 +20,10 @@ fn flash_loan(caller: Address, asset: HubAssetKey, amount: i128,
               receiver: Address, data: Bytes);
 ```
 
-The fee is per-market governance config (`flashloan_fee`, basis points,
-protocol-capped at 500 bps) and is booked as protocol revenue in the pool.
-The exact fee is passed into your callback — never hardcode it.
+Markets must have `is_flashloanable = true` or the call reverts
+(`FlashloanNotEnabled`). The fee is per-market `flashloan_fee` (bps,
+capped at 500) and is booked as protocol revenue. The exact fee is passed into
+your callback — never hardcode it.
 
 ## Receiver callback contract
 
@@ -74,6 +75,7 @@ A reference implementation exercising all success/failure modes lives at
 
 | Error | Cause |
 |---|---|
+| `FlashloanNotEnabled` | market `is_flashloanable` is false |
 | `InvalidFlashloanReceiver` | `receiver` is not a deployed Wasm contract |
 | `InsufficientLiquidity` | pool's tracked reserves can't fund `amount` |
 | `InvalidFlashloanRepay` | allowance short, balance drifted, or callback pushed tokens directly |

@@ -7,8 +7,9 @@ evidence for reviewers.
 ## Before you start
 
 - [README.md](./README.md) — layout and commands
-- [architecture/INVARIANTS.md](./architecture/INVARIANTS.md) — before touching accounting, auth, oracle, liquidation, flash loans, or risk
-- [architecture/DOC_STYLE.md](./architecture/DOC_STYLE.md) — how to write rustdoc / public endpoint docs (code is source of truth)
+- [docs/README.md](./docs/README.md) — documentation map
+- [docs/reference/invariants.md](./docs/reference/invariants.md) — before touching accounting, auth, oracle, liquidation, flash loans, or risk
+- [docs/reference/doc-style.md](./docs/reference/doc-style.md) — rustdoc / public endpoint docs (code is source of truth)
 - [SECURITY.md](./SECURITY.md) — vulnerabilities go to **security@xoxno.com**, never public issues/PRs
 - Large protocol changes: open an issue first for scope and verification expectations
 
@@ -36,7 +37,7 @@ cargo test --manifest-path services/keeper/Cargo.toml
 ## Change guidelines
 
 - Keep PRs focused (no drive-by format or unrelated refactors).
-- Preserve INVARIANTS; update architecture notes when behavior changes.
+- Preserve invariants; update docs when behavior changes.
 - Fixed-point: token-native at transfers, WAD for USD/HF, RAY for rates/indexes.
 - Call out auth/role changes in the PR description.
 - Add or update tests / fuzz / Certora / docs when you change a verified surface.
@@ -56,7 +57,7 @@ Run the harness layers that match what you touched (`make test`, `make test-pool
 
 ### If you touch money, risk, oracle, gov, storage, or strategies
 
-Add the relevant deeper checks (pick by surface; see [SCF §14](./SCF_BUILD_ARCHITECTURE.md#14-verification-surface)):
+Add the relevant deeper checks (pick by surface; see [architecture §14](./docs/reference/architecture.md#14-verification-surface)):
 
 ```bash
 make certora-wasm
@@ -68,7 +69,7 @@ make miri-common                # pure math changes
 
 ### Release / protocol-wide
 
-Full matrix in SCF §14 (`mutants`, full Certora profiles, coverage, Scout, etc.).
+Full matrix in architecture §14 (`mutants`, full Certora profiles, coverage, Scout, etc.).
 
 ### Mirror CI locally (optional)
 
@@ -90,9 +91,10 @@ State:
 3. Which checks you ran (tier above)  
 4. Any deploy, migration, oracle, or ops follow-up  
 
-All changes must preserve [INVARIANTS.md](./architecture/INVARIANTS.md). Live facts
+All changes must preserve [invariants](./docs/reference/invariants.md). Live facts
 (controller/pool boundary, pause matrix, fail-closed oracle, scaled balances) are
-in the contracts and SCF — not in outdated prose.
+in the contracts and [architecture reference](./docs/reference/architecture.md) —
+not in outdated prose.
 
 ## CI security (self-hosted PR jobs)
 
@@ -110,7 +112,7 @@ not export test-only ABIs.
 ## Documentation style
 
 Public ABI and type comments follow
-[architecture/DOC_STYLE.md](./architecture/DOC_STYLE.md). Code is the source of
+[docs/reference/doc-style.md](./docs/reference/doc-style.md). Code is the source of
 truth; update rustdoc when behavior changes. Optional local check:
 
 ```bash

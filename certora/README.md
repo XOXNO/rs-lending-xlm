@@ -23,9 +23,11 @@ certora/
 Partitioning starts at the crate boundary (`common` / `pool` / `controller` /
 `price-aggregator`) and then narrows each prover artifact to one rule-source
 module. Domain docs live in each layer's `spec/README.txt`.
-Cross-reference: [`architecture/INVARIANTS.md`](../architecture/INVARIANTS.md) (the enforceable properties these rules protect, including numeric model, pool accounting, account solvency, oracle, storage/boundaries, pause/freeze, and bad-debt socialization) and the verification surface in `SCF_BUILD_ARCHITECTURE.md §14`.
-
-See also the central implementation facts: controller owns risk/oracle/strategies and is sole caller of the pool; governance owns controller; new deployments start paused; 3-layer pause/freeze; GUARDIAN for immediate per-listing actions; keeper self-authorizes.
+Cross-reference: [`docs/reference/invariants.md`](../docs/reference/invariants.md)
+and the verification surface in [`docs/reference/architecture.md`](../docs/reference/architecture.md)
+§14. Ownership: governance → controller → pool. New deploys start paused.
+Pause/freeze is three-layer; GUARDIAN can pause immediately; unpause is
+timelocked. Keeper self-authorizes where the contract allows.
 
 ## WASM artifacts (deploy + prover)
 

@@ -34,4 +34,4 @@ rates.conf
 Lemma-before-main
 -----------------
 Run math.conf and rates.conf (basic sanity) before controller confs that depend
-on the same primitives. See architecture/INVARIANTS.md sections 1.1–1.6.
+on the same primitives. See docs/reference/invariants.md sections 1.1–1.6.

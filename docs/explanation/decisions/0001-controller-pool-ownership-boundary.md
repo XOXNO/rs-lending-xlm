@@ -67,7 +67,7 @@ forwards to the configured accumulator.
 
 ## References
 
-- [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md)  
+- [docs/reference/architecture.md](../../reference/architecture.md)  
 - [ADR 0010](./0010-governance-timelock-for-controller-admin.md), [ADR 0011](./0011-pause-and-freeze-matrix.md), [ADR 0009](./0009-mainnet-launch-hardening-and-operational-control.md)  
 - `common/src/types/{pool,controller}.rs`  
 - `contracts/governance/src/{deploy,timelock,op,access}.rs`  

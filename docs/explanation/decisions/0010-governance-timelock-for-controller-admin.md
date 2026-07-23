@@ -127,4 +127,4 @@ slower; the immediate surface must stay narrow.
 - `contracts/governance/src/constants.rs`  
 - `interfaces/governance/src/lib.rs`  
 - [ADR 0011](./0011-pause-and-freeze-matrix.md)  
-- [DEPLOYMENT.md](../../DEPLOYMENT.md)  
+- [DEPLOYMENT.md](../../how-to/deploy-and-operate.md)  

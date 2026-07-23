@@ -623,7 +623,7 @@ Minimum checks:
 
 ## Related
 
-- [README.md](../README.md)
-- [SCF_BUILD_ARCHITECTURE.md](../SCF_BUILD_ARCHITECTURE.md)
-- [SECURITY.md](../SECURITY.md)
-- [decisions/](./decisions/README.md)
+- [README.md](../../README.md)
+- [architecture.md](./architecture.md)
+- [SECURITY.md](../../SECURITY.md)
+- [decisions/](../explanation/decisions/README.md)

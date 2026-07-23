@@ -36,7 +36,7 @@ pub fn read_price_data_uncached(
     }
 }
 
-/// Xoxno adapter admin/read surface beyond the shared RedStone wire ABI.
+/// `xoxno-oracle` admin/read surface beyond the shared RedStone wire ABI.
 #[contractclient(name = "XoxnoOracleAdapterClient")]
 #[allow(dead_code)]
 pub trait XoxnoOracleAdapter {

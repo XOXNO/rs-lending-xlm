@@ -3,7 +3,7 @@
 //! Amount `0` maps to full-position withdraw. Debt-bearing accounts re-check
 //! LTV/HF after pool indexes return. Not gated by `#[when_not_paused]` (spoke
 //! pause still blocks; freeze does not). Liquidation skips spoke pause via the
-//! bulk settle path. See `architecture/INVARIANTS.md` §3.
+//! bulk settle path. See `docs/reference/invariants.md` §3.
 
 use common::math::fp::Ray;
 use common::types::{

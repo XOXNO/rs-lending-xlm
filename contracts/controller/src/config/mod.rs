@@ -1,8 +1,8 @@
 //! Owner-gated protocol configuration: registries, hub/spoke listings, limits,
 //! and allowlists. Auth is `#[only_owner]` (governance after execute; GUARDIAN
 //! immediate for hub/spoke create and tighten-only flags). See
-//! [ADR 0010](../../../architecture/decisions/0010-governance-timelock-for-controller-admin.md)
-//! and [INVARIANTS](../../../architecture/INVARIANTS.md) §5.1.
+//! [ADR 0010](../../../docs/explanation/decisions/0010-governance-timelock-for-controller-admin.md)
+//! and [INVARIANTS](../../../docs/reference/invariants.md) §5.1.
 
 mod approvals;
 mod asset;

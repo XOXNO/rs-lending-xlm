@@ -73,5 +73,5 @@ tunable; no dedicated “severe drop” event (use market-state snapshot).
 - `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`  
 - `contracts/controller/src/positions/liquidation/{apply,bad_debt,math}.rs`  
 - `common/src/constants/pool.rs`, `contracts/controller/src/constants.rs`  
-- [INVARIANTS.md](../INVARIANTS.md) §1.5, §3.3, §4.4  
+- [invariants.md](../../reference/invariants.md) §1.5, §3.3, §4.4  
 - [ADR 0011](./0011-pause-and-freeze-matrix.md) (tainted-debt vs clean_bad_debt)  

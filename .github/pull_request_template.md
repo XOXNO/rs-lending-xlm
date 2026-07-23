@@ -20,7 +20,7 @@ One paragraph: what changed and why. Reference specific INVARIANTS sections or A
 - Affected invariants or ADRs (cite file:section):
 - Specific impact (solvency, oracle, liquidation, flash-loan, storage, etc.):
 
-See `architecture/INVARIANTS.md`, `SCF_BUILD_ARCHITECTURE.md` §14–15, and `architecture/decisions/README.md`.
+See `docs/reference/invariants.md`, `docs/reference/architecture.md` §14–15, and `docs/explanation/decisions/README.md`.
 
 ## Verification
 
@@ -36,7 +36,7 @@ See `architecture/INVARIANTS.md`, `SCF_BUILD_ARCHITECTURE.md` §14–15, and `ar
 - Fuzz target(s) + duration (`make fuzz` / `make fuzz-contract`):
 - Proptest / mutants / other (Scout, miri, specific harness tests):
 
-Re-run against the exact tree in this PR. See SCF_BUILD_ARCHITECTURE.md §14 and CONTRIBUTING.md.
+Re-run against the exact tree in this PR. See docs/reference/architecture.md §14 and CONTRIBUTING.md.
 
 ## Operations & Downstream
 

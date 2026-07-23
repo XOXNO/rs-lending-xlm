@@ -103,7 +103,7 @@ correlated upstream moves can pass the band if both legs move together.
 
 ## References
 
-- [INVARIANTS.md](../INVARIANTS.md) §4.2–4.3  
+- [invariants.md](../../reference/invariants.md) §4.2–4.3  
 - [ADR 0004](./0004-cache-permissiveness-policy.md)  
 - `contracts/price-aggregator/src/{price,compose,tolerance,observation,providers,prefetch}`  
 - `interfaces/price-aggregator`  

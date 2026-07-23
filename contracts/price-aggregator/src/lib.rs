@@ -4,7 +4,7 @@
 //! (source reads, composition, primary/anchor tolerance, staleness, sanity
 //! bounds, recursive quote resolution). Risk paths use `price`/`prices`
 //! (fail-closed). Views use `price_status`/`prices_status` (soft flags).
-//! See `architecture/INVARIANTS.md` §4.3 and ADR 0003.
+//! See `docs/reference/invariants.md` §4.3 and ADR 0003.
 
 #![no_std]
 

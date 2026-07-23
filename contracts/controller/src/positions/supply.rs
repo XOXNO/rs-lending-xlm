@@ -3,7 +3,7 @@
 //!
 //! Deposits never re-run post-pool solvency (unlike debt-bearing borrow/withdraw).
 //! Auth and entry gates live on the public `supply` path; strategy callers reuse
-//! `process_deposit` after their own auth. See `architecture/INVARIANTS.md` §3.
+//! `process_deposit` after their own auth. See `docs/reference/invariants.md` §3.
 
 use common::errors::GenericError;
 use common::math::fp::Ray;

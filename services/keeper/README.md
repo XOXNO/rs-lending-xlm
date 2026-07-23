@@ -13,8 +13,8 @@ it discovers.
 Each TTL tick discovers:
 
 - Controller instance entry. This covers instance-tier keys such as pool address,
-  pool template, accumulator, account nonce, spoke/hub counters, and position
-  limits.
+  pool template, accumulator, spoke/hub counters, and position limits.
+  `AccountNonce` is **persistent** (discovered via the account scan below).
 - Price-aggregator persistent `AssetOracle(asset)` rows when `contracts.price_aggregator` is set.
 - Controller persistent `Spoke(id)` rows for `1..=LastSpokeId`.
 - Controller per-user persistent keys:
@@ -32,7 +32,7 @@ The current protocol does not have controller `KEEPER`, `REVENUE`, or `ORACLE`
 roles (see central implementation facts and governance access control). Governance
 role keys are discovered from `ExistingRoles`; expected governance roles are
 `PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, and `GUARDIAN`. See
-`architecture/INVARIANTS.md` and `SCF_BUILD_ARCHITECTURE.md` for the full
+`docs/reference/invariants.md` and `docs/reference/architecture.md` for the full
 controller/pool/governance boundary and role model.
 
 ## Market Configuration

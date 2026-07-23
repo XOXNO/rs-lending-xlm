@@ -74,4 +74,4 @@ Proof ordering
 3. controller/confs/solvency-*.conf + liquidation.conf
 4. *-heavy.conf audit configs
 
-See architecture/INVARIANTS.md sections 2–5 for runtime cross-references.
+See docs/reference/invariants.md sections 2–5 for runtime cross-references.

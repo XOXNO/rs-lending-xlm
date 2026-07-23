@@ -1,7 +1,7 @@
 //! Self-hosted multi-signer price oracle. Signers submit under `require_auth`;
 //! write-time N-of-M median keeps reads O(1). RedStone-style reads fail closed;
 //! SEP-40 reads soft-fail with `None`. Primary/anchor source for the
-//! price-aggregator. See `architecture/INVARIANTS.md` §4.2.
+//! price-aggregator. See `docs/reference/invariants.md` §4.2.
 #![no_std]
 
 mod admin;

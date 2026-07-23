@@ -2,7 +2,7 @@
 //!
 //! Account strategies: Auth → Reentrancy → Preflight → Account → Prices →
 //! Actions → Finalize (post-pool LTV/HF). Flash loan skips Account/Prices/Finalize
-//! (pool callback repayment only). See `architecture/INVARIANTS.md` §2.5 and §3.2.
+//! (pool callback repayment only). See `docs/reference/invariants.md` §2.5 and §3.2.
 
 pub(crate) mod flash_loan;
 mod migrate_blend;

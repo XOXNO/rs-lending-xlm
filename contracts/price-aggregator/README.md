@@ -25,6 +25,6 @@ reverting.
 | Doc | Topic |
 | --- | --- |
 | Crate rustdoc (`//!`) | Semantics |
-| [`architecture/INVARIANTS.md`](../../architecture/INVARIANTS.md) §4.3 | Price resolution |
-| [ADR 0003](../../architecture/decisions/0003-oracle-dual-source-with-tolerance-bands.md) | Dual-source + bands |
+| [`docs/reference/invariants.md`](../../docs/reference/invariants.md) §4.3 | Price resolution |
+| [ADR 0003](../../docs/explanation/decisions/0003-oracle-dual-source-with-tolerance-bands.md) | Dual-source + bands |
 | `contracts/xoxno-oracle` | Self-hosted multi-signer feed |

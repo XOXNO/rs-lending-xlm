@@ -2,7 +2,7 @@
 //!
 //! Auth and risk gates live on public entrypoints; pool settles shares/cash.
 //! Stages: process_* → build_* → settle_* → finish_*_leg → finalize_position_flow.
-//! See `architecture/INVARIANTS.md` §3.
+//! See `docs/reference/invariants.md` §3.
 
 use common::errors::{CollateralError, SpokeError};
 use common::types::{

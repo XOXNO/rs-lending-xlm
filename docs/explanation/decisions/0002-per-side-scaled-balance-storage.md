@@ -56,4 +56,4 @@ LTV/bonus/fees bind on the next borrow or strategy finalize without a keeper.
 - `contracts/controller/src/positions`  
 - `contracts/controller/src/risk/params.rs`, `pool_ops/mod.rs`  
 - `contracts/pool/src/interest.rs`  
-- [INVARIANTS.md](../INVARIANTS.md) §1.3, §5.2  
+- [invariants.md](../../reference/invariants.md) §1.3, §5.2  

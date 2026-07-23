@@ -63,4 +63,4 @@ spoke curve.
 - `contracts/controller/src/constants.rs`  
 - `contracts/controller/src/positions/liquidation/math.rs`  
 - `contracts/governance/src/op.rs`  
-- [INVARIANTS.md](../INVARIANTS.md) §3.3, §4.1  
+- [invariants.md](../../reference/invariants.md) §3.3, §4.1  

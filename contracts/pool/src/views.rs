@@ -1,5 +1,5 @@
 //! Checkpoint market reads for the view ABI. No accrual; live indexes via
-//! `get_bulk_indexes`. See `architecture/INVARIANTS.md`.
+//! `get_bulk_indexes`. See `docs/reference/invariants.md`.
 
 use common::errors::GenericError;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};

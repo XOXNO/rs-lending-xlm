@@ -26,7 +26,7 @@ execute_strategy(sender, total_in, swap_xdr) -> i128
 5. Send `token_out` to `sender`.
 
 Nothing from venues or payload amount fields is truth — only real balance
-changes count ([ADR 0005](../../architecture/decisions/0005-strategy-aggregator-output-validated-by-balance-delta.md)).
+changes count ([ADR 0005](../../docs/explanation/decisions/0005-strategy-aggregator-output-validated-by-balance-delta.md)).
 
 ## Admin
 

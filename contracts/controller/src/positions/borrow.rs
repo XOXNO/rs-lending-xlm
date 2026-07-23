@@ -2,7 +2,7 @@
 //!
 //! User path re-checks LTV/HF after pool indexes return. Strategy helpers share
 //! entry gates and merge logic but defer post-pool risk gates to
-//! `strategy_finalize`. See `architecture/INVARIANTS.md` §3.2.
+//! `strategy_finalize`. See `docs/reference/invariants.md` §3.2.
 
 use common::math::fp::Ray;
 use common::types::{

@@ -79,4 +79,4 @@ entrypoints are reviewed by whether they call the price-aggregator
 - `contracts/controller/src/positions/repay.rs`  
 - `contracts/controller/src/context/mod.rs`  
 - [ADR 0003](./0003-oracle-dual-source-with-tolerance-bands.md)  
-- [INVARIANTS.md](../INVARIANTS.md) §4.3  
+- [invariants.md](../../reference/invariants.md) §4.3  

@@ -33,14 +33,14 @@ Before public unpause:
 
 1. Audit items for launch scope are closed, accepted with rationale, or deferred
    in writing.
-2. Verification matrix in [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md)
+2. Verification matrix in [docs/reference/architecture.md](../../reference/architecture.md)
    has been run on the target commit; results recorded.
 3. Testnet soak: 14 consecutive days without unresolved P0/P1, unexplained
    accounting drift, stale TTL, or oracle config drift.
 4. Live governance `min_delay` is at the production floor
    (`TIMELOCK_MIN_DELAY_LEDGERS = 34_560`). Constructor allows a shorter
    bootstrap delay; operators raise delay before go-live (see
-   [DEPLOYMENT.md](../../DEPLOYMENT.md)).
+   [DEPLOYMENT.md](../../how-to/deploy-and-operate.md)).
 5. Production roles and incident keys (including GUARDIAN) are assigned;
    deployer no longer holds residual authority.
 6. Monitoring covers caps, reserves, oracle freshness/deviation, health-factor
@@ -94,5 +94,5 @@ spoke caps aligned with the USD budget (no aggregate on-chain check).
 
 - [ADR 0010](./0010-governance-timelock-for-controller-admin.md)
 - [ADR 0011](./0011-pause-and-freeze-matrix.md)
-- [DEPLOYMENT.md](../../DEPLOYMENT.md)
-- [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md)
+- [DEPLOYMENT.md](../../how-to/deploy-and-operate.md)
+- [docs/reference/architecture.md](../../reference/architecture.md)
