@@ -1,14 +1,7 @@
 use super::*;
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Env};
+use soroban_sdk::Env;
 
-fn fresh_governance(env: &Env) -> Address {
-    let admin = Address::generate(env);
-    env.register(
-        crate::Governance,
-        (admin, crate::constants::TIMELOCK_MIN_DELAY_LEDGERS),
-    )
-}
+use crate::test_support::fresh_governance;
 
 // `clear_recovery_op` must actually remove the Recovery-tier marker: after it
 // runs, `is_recovery_op` reads false again so the operation id can no longer be

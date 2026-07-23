@@ -15,18 +15,10 @@ use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol};
 use stellar_access::ownable;
 
 use crate::access::EXECUTOR_ROLE;
-use crate::test_support::{upload_controller_wasm, upload_price_aggregator_wasm};
-use crate::{constants, storage, Governance, GovernanceClient};
-
-fn register_governance(env: &Env) -> (Address, Address, GovernanceClient<'_>) {
-    let admin = Address::generate(env);
-    let gov_id = env.register(
-        Governance,
-        (admin.clone(), constants::TIMELOCK_MIN_DELAY_LEDGERS),
-    );
-    let gov = GovernanceClient::new(env, &gov_id);
-    (admin, gov_id, gov)
-}
+use crate::test_support::{
+    register_governance, upload_controller_wasm, upload_price_aggregator_wasm,
+};
+use crate::{constants, storage, GovernanceClient};
 
 fn register_native_controller(env: &Env, gov_id: &Address, gov: &GovernanceClient<'_>) -> Address {
     let controller_id = env.register(controller::Controller, (gov_id.clone(),));
