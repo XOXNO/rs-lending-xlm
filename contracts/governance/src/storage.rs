@@ -61,6 +61,12 @@ pub(crate) fn clear_recovery_op(env: &Env, operation_id: &BytesN<32>) {
         .remove(&GovernanceKey::RecoveryOp(operation_id.clone()));
 }
 
+pub(crate) fn clear_role_revocation_target(env: &Env, operation_id: &BytesN<32>) {
+    env.storage()
+        .persistent()
+        .remove(&GovernanceKey::RoleRevocationTarget(operation_id.clone()));
+}
+
 pub(crate) fn role_revocation_target(
     env: &Env,
     operation_id: &BytesN<32>,

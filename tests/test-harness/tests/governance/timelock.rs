@@ -55,9 +55,10 @@ fn assert_harness_delay(t: &LendingTest) {
 
 // The full state machine in one flow: an unknown id is `Unset`; after a proposer
 // schedules, the op is `Waiting`; after the delay elapses it is `Ready`; after
-// an executor runs it, it is `Done` and the controller reflects the change.
+// an executor runs it, storage is cleared back to `Unset` and the controller
+// reflects the change.
 #[test]
-fn operation_state_transitions_unset_waiting_ready_done() {
+fn operation_state_transitions_unset_waiting_ready_unset() {
     let t = LendingTest::new().build();
     let gov = t.gov_iface_client();
     let admin = t.admin();
@@ -100,7 +101,7 @@ fn operation_state_transitions_unset_waiting_ready_done() {
         governance_interface::OperationState::Ready
     );
 
-    // Done: executed, and the controller now holds the new limits.
+    // Unset after execute: ledger entry removed; controller holds the new limits.
     gov.execute(
         &Some(admin.clone()),
         &t.controller,
@@ -111,7 +112,7 @@ fn operation_state_transitions_unset_waiting_ready_done() {
     );
     assert_eq!(
         gov.get_operation_state(&id),
-        governance_interface::OperationState::Done
+        governance_interface::OperationState::Unset
     );
 
     let stored = read_controller_position_limits(&t);
@@ -298,11 +299,10 @@ fn propose_update_delay_requires_proposer() {
 // schedule independently — the salt is the only uniqueness lever the proposers
 // expose (predecessor is always zero; see the module note).
 //
-// Predecessor ordering: the OZ module supports a non-zero predecessor
-// (`set_execute_operation` checks the predecessor is `Done`), but the v1 typed
-// proposers always schedule with a zero predecessor (`forward.rs`
-// `schedule_controller_op`). There is no client surface to set a predecessor, so
-// predecessor-chained execution is out of scope for this suite and is not faked.
+// Predecessor ordering: the OZ module can check a non-zero predecessor, but
+// typed proposers always schedule with predecessor `0`. Predecessor chaining is
+// unsupported; executed ops clear storage (no `Done` marker), so chaining could
+// not work even if a caller passed a non-zero predecessor on `execute`.
 #[test]
 fn same_params_distinct_salts_schedule_independently() {
     let t = LendingTest::new().build();
@@ -402,7 +402,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     );
     assert_eq!(
         gov.get_operation_state(&id),
-        governance_interface::OperationState::Done
+        governance_interface::OperationState::Unset
     );
 
     // The controller now stores exactly the view's resolved config.
@@ -458,7 +458,7 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
     );
     assert_eq!(
         gov.get_operation_state(&id),
-        governance_interface::OperationState::Done
+        governance_interface::OperationState::Unset
     );
 
     let stored = t.market_oracle_config(&asset).tolerance;

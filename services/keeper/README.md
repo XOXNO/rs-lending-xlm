@@ -78,7 +78,8 @@ Governance stores `Controller`, ownable `Owner`, access-control `Admin` /
 instance bump covers them.
 
 Timelock `OperationLedger(BytesN<32>)` keys are persistent but not enumerable
-from contract storage. They are intentionally skipped; operations resolve within
+from contract storage. Only pending ops keep an entry (execute/cancel remove
+it). They are intentionally skipped; pending operations resolve within
 `min_delay`, far inside normal TTL windows. Event tracking would be needed to
 renew them directly.
 

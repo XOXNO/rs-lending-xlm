@@ -424,6 +424,7 @@ struct GovernanceEntries {
 ///
 /// `MinDelay` is instance-tier — one instance bump covers it. Timelock
 /// `OperationLedger(BytesN<32>)` keys are persistent but not enumerable
+/// (pending ops only; execute/cancel remove the entry).
 /// (keccak256 op id from schedule events); they resolve within `min_delay` ≪ TTL
 /// and are intentionally skipped.
 async fn discover_governance(

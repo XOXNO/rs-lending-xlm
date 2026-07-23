@@ -1,6 +1,7 @@
 //! Timelock lifecycle (`propose` / `execute` / `cancel`), immediate incident
 //! brakes, and Recovery-tier canceller reset. Role gates and delay tiers match
-//! ADR 0010.
+//! ADR 0010. Executed and cancelled ops free their `OperationLedger` entry;
+//! only pending ops occupy that storage.
 
 use common::errors::GenericError;
 use common::types::{AssetOracleConfig, AssetOracleConfigInput, HubAssetKey, OracleTolerance};
@@ -16,6 +17,7 @@ use stellar_access::access_control;
 use stellar_governance::timelock::{
     cancel_operation, execute_operation, get_min_delay, get_operation_ledger, get_operation_state,
     hash_operation, schedule_operation, set_execute_operation, Operation, OperationState,
+    TimelockStorageKey,
 };
 use stellar_macros::only_owner;
 
@@ -106,6 +108,18 @@ fn begin_self_execute(env: &Env, executor: Option<&Address>, operation: &Operati
     authorize_executor(env, executor);
     require_operation_not_expired(env, operation);
     set_execute_operation(env, operation);
+}
+
+/// Removes the OZ `OperationLedger` entry and local sidecars after a successful
+/// execute. Pending ops only occupy storage; `salt` uniquifies re-proposes.
+/// Predecessor chaining is unsupported (`propose` always uses predecessor `0`).
+fn finish_execute(env: &Env, operation: &Operation) {
+    let operation_id = hash_operation(env, operation);
+    env.storage()
+        .persistent()
+        .remove(&TimelockStorageKey::OperationLedger(operation_id.clone()));
+    storage::clear_role_revocation_target(env, &operation_id);
+    storage::clear_recovery_op(env, &operation_id);
 }
 
 fn resolve_market_oracle(
@@ -219,7 +233,9 @@ impl Governance {
             salt,
         };
         require_operation_not_expired(&env, &operation);
-        execute_operation(&env, &operation)
+        let result = execute_operation(&env, &operation);
+        finish_execute(&env, &operation);
+        result
     }
 
     /// Applies a ready governance-self op inline (upgrade, delay, roles,
@@ -258,6 +274,7 @@ impl Governance {
         };
         begin_self_execute(&env, executor.as_ref(), &operation);
         apply_self_op(&env, &op);
+        finish_execute(&env, &operation);
     }
 
     /// Cancels a pending timelock operation. `CANCELLER`-gated.
@@ -294,6 +311,7 @@ impl Governance {
             );
         }
         cancel_operation(&env, &operation_id);
+        storage::clear_role_revocation_target(&env, &operation_id);
     }
 
     /// Halts the controller immediately. `GUARDIAN`-gated. Resume is timelocked
@@ -402,7 +420,7 @@ impl Governance {
         get_operation_state(&env, &operation_id)
     }
 
-    /// Ledger when an operation becomes ready (`0` unset, `1` done).
+    /// Ledger when an operation becomes ready (`0` when unset / not pending).
     pub fn get_operation_ledger(env: Env, operation_id: BytesN<32>) -> u32 {
         get_operation_ledger(&env, &operation_id)
     }
@@ -511,7 +529,7 @@ impl Governance {
         };
         begin_self_execute(&env, executor.as_ref(), &operation);
         access::apply_canceller_reset(&env, &new_cancellers);
-        storage::clear_recovery_op(&env, &hash_operation(&env, &operation));
+        finish_execute(&env, &operation);
     }
 }
 

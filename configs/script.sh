@@ -290,9 +290,11 @@ op_record_path() {
 # to 32 bytes (64 hex). Same op + same args ⇒ same salt ⇒ same op-id (idempotent
 # re-schedule); different args ⇒ different salt.
 #
-# The timelock permanently marks an executed op id Done, so re-applying a
-# PREVIOUSLY-EXECUTED setting (toggle A → B → back to A) would resolve to the
-# Done id and be skipped. SALT_NONCE mints a fresh generation for that case:
+# The timelock keeps only pending ops on-chain. After execute the ledger entry
+# is removed (`Unset`). Local op records under configs/ops/ mark `executed:true`
+# so re-runs can treat that id as applied (synthetic Done for salt probing /
+# converge mode). SALT_NONCE mints a fresh generation when re-applying a
+# previously executed setting:
 #   SALT_NONCE=2 make <net> editAssetInSpoke 1 USDC
 # Unset/empty SALT_NONCE keeps salts byte-identical to historical ops.
 gen_salt() {
@@ -486,6 +488,10 @@ write_op_record() {
     ctrl=$(get_controller)
     local path
     path=$(op_record_path "$op_id")
+    local executed=false
+    if [ -f "$path" ]; then
+        executed=$(jq -r '.executed // false' "$path")
+    fi
     jq -nc \
         --arg op_id "$op_id" \
         --arg network "$NETWORK" \
@@ -495,9 +501,10 @@ write_op_record() {
         --arg predecessor "$ZERO_PREDECESSOR_HEX" \
         --arg salt "$salt_hex" \
         --argjson cli_executable "$cli_executable" \
+        --argjson executed "$executed" \
         '{kind:"controller", op_id:$op_id, network:$network, target:$target, function:$function,
           args:$args, predecessor:$predecessor, salt:$salt,
-          cli_executable:$cli_executable}' > "$path"
+          cli_executable:$cli_executable, executed:$executed}' > "$path"
     echo "  Recorded op $op_id -> $path" >&2
 }
 
@@ -513,6 +520,10 @@ write_gov_self_op_record() {
     local cli_executable=$5
     local path
     path=$(op_record_path "$op_id")
+    local executed=false
+    if [ -f "$path" ]; then
+        executed=$(jq -r '.executed // false' "$path")
+    fi
     jq -nc \
         --arg op_id "$op_id" \
         --arg network "$NETWORK" \
@@ -520,8 +531,9 @@ write_gov_self_op_record() {
         --arg salt "$salt_hex" \
         --argjson op "$admin_op_json" \
         --argjson cli_executable "$cli_executable" \
+        --argjson executed "$executed" \
         '{kind:"governance_self", op_id:$op_id, network:$network, execute_label:$execute_label,
-          salt:$salt, op:$op, cli_executable:$cli_executable}' > "$path"
+          salt:$salt, op:$op, cli_executable:$cli_executable, executed:$executed}' > "$path"
     echo "  Recorded governance-self op $op_id -> $path" >&2
 }
 
@@ -542,6 +554,10 @@ write_oracle_op_record() {
     agg=$(get_price_aggregator)
     local path
     path=$(op_record_path "$op_id")
+    local executed=false
+    if [ -f "$path" ]; then
+        executed=$(jq -r '.executed // false' "$path")
+    fi
     jq -nc \
         --arg op_id "$op_id" \
         --arg network "$NETWORK" \
@@ -551,10 +567,25 @@ write_oracle_op_record() {
         --arg salt "$salt_hex" \
         --arg view_fn "$view_fn" \
         --argjson resolve_args "$resolve_args_json" \
+        --argjson executed "$executed" \
         '{kind:"price_aggregator", op_id:$op_id, network:$network, target:$target, function:$function,
-          predecessor:$predecessor, salt:$salt, cli_executable:true,
+          predecessor:$predecessor, salt:$salt, cli_executable:true, executed:$executed,
           resolve:{view_fn:$view_fn, args:$resolve_args}}' > "$path"
     echo "  Recorded oracle op $op_id -> $path" >&2
+}
+
+# Mark a local op record as executed. On-chain ledger is cleared after execute;
+# this flag is the CLI's synthetic Done for salt probing and converge skips.
+mark_op_executed() {
+    local op_id=$1
+    local path
+    path=$(op_record_path "$op_id")
+    if [ ! -f "$path" ]; then
+        return 0
+    fi
+    local tmp
+    tmp=$(mktemp)
+    jq '.executed = true' "$path" > "$tmp" && mv "$tmp" "$path"
 }
 
 # Resolve an oracle op's scheduled ScVal `Vec<Val>` args at execute time.
@@ -691,8 +722,9 @@ retry_tx() {
 # Pre-compute the deterministic operation id for (target, function, args, salt)
 # via the governance `hash_operation` view. Salts are deterministic, so an op's
 # id is knowable BEFORE proposing — this is what makes every schedule path
-# idempotent: a re-run (e.g. `make <net> resume`) skips Done ops and reuses
-# Waiting/Ready ones instead of tripping the timelock's already-scheduled error.
+# idempotent: a re-run (e.g. `make <net> resume`) skips already-executed ops
+# (local `executed:true`) and reuses Waiting/Ready ones instead of tripping the
+# timelock's already-scheduled error.
 precomputed_op_id() {
     local target=$1
     local function=$2
@@ -714,9 +746,9 @@ precomputed_op_id() {
 }
 
 # Derive the generation-n salt from a base salt (hash chain; generation 0 = the
-# base itself). Executed timelock ids are Done forever, so re-applying a
-# previously-executed setting needs a fresh salt: generations provide that
-# deterministically without changing historical (generation-0) ids.
+# base itself). After execute the on-chain id is Unset again; local records with
+# `executed:true` act as synthetic Done so re-applying a previous setting needs
+# a fresh salt generation (or SALT_NONCE) without colliding with pending ops.
 salt_generation() {
     local base=$1
     local n=$2
@@ -766,8 +798,9 @@ probe_salt_generations() {
 # and record the controller op for replay through the generic `execute`.
 #
 # Idempotent AND re-apply-aware: the op id is pre-computed per salt generation
-# (probe_salt_generations). An op already Waiting/Ready is reused; when the
-# current generation is Done, behavior depends on the re-apply policy:
+# (probe_salt_generations). An op already Waiting/Ready is reused; when an
+# earlier generation is already executed (local `executed:true` / synthetic
+# Done), behavior depends on the re-apply policy:
 #   - policy "never" ($6): skip — id-returning creators (add_spoke, create_hub,
 #     deploy_pool) must never re-execute, that would mint a duplicate entity.
 #   - REAPPLY_ON_DONE=0 (converge mode, set by setupAll*): skip — the setting
@@ -814,6 +847,7 @@ schedule_via_proposer() {
                     done_id=$(precomputed_op_id "$ctrl" "$controller_fn" "$args_json" "$salt_hex")
                     echo "Op ${done_id} (${controller_fn}) already executed with these exact args; skipping propose (converge mode)." >&2
                     write_op_record "$done_id" "$controller_fn" "$args_json" "$salt_hex" "$cli_executable"
+                    mark_op_executed "$done_id"
                     echo "$done_id"
                     return 0
                 fi
@@ -891,6 +925,7 @@ schedule_via_gov_self_proposer() {
                         done_id=$(precomputed_op_id "$gov" "$gov_fn" "$gov_args" "$salt_hex")
                         echo "Governance-self op ${done_id} (${execute_label}) already executed with these exact args; skipping propose (converge mode)." >&2
                         write_gov_self_op_record "$done_id" "$execute_label" "$admin_op_json" "$salt_hex" true
+                        mark_op_executed "$done_id"
                         echo "$done_id"
                         return 0
                     fi
@@ -962,12 +997,23 @@ op_ready_ledger() {
 }
 
 # Read an operation's lifecycle state as a bare string (Unset|Waiting|Ready|Done).
+# On-chain Unset plus a local record with `executed:true` reports Done so salt
+# probing / converge mode stay idempotent after ledger erase on execute.
 op_state() {
     local op_id=$1
-    local gov
+    local gov state
     gov=$(get_governance)
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
-        -- get_operation_state --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]'
+    state=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- get_operation_state --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]')
+    if [ "$state" = "Unset" ]; then
+        local path
+        path=$(op_record_path "$op_id")
+        if [ -f "$path" ] && [ "$(jq -r '.executed // false' "$path")" = "true" ]; then
+            echo "Done"
+            return 0
+        fi
+    fi
+    echo "$state"
 }
 
 # Poll until the op is Ready (Done short-circuits as already executed). Uses
@@ -1053,6 +1099,7 @@ execute_gov_self_op() {
         --op-file-path "$op_file" \
         --salt "$salt"
     rm -f "$op_file"
+    mark_op_executed "$op_id"
     echo "Executed governance-self op ${op_id}." >&2
 }
 
@@ -1116,6 +1163,7 @@ execute_op() {
         --predecessor "$predecessor" \
         --salt "$salt"
     rm -f "$args_file"
+    mark_op_executed "$op_id"
     echo "Executed op ${op_id}." >&2
 }
 
@@ -1135,7 +1183,8 @@ cancel_op() {
 }
 
 # List every recorded governance op with its live on-chain state. Pending ops
-# (Waiting/Ready) are what still needs an executeOp; Done ops already landed.
+# (Waiting/Ready) still need executeOp; Done is synthetic from local
+# `executed:true` after ledger erase (or rare on-chain Done).
 list_ops() {
     local dir="$OPS_DIR"
     if [ ! -d "$dir" ] || ! ls "$dir"/*.json >/dev/null 2>&1; then
@@ -1189,7 +1238,7 @@ execute_ready_ops() {
 
 # Schedule, await the delay, then execute — the one-shot setup path. Honors
 # AUTO_EXECUTE=0 to schedule-only (record op-id for a later executeOp). An op
-# that is already Done (idempotent re-run) is skipped, not re-executed.
+# already executed (synthetic Done via local record) is skipped, not re-executed.
 schedule_and_maybe_execute() {
     local op_id=$1
     if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
@@ -1921,7 +1970,7 @@ ensure_asset_in_spoke() {
         else
             # Drift proven by the on-chain compare: force re-apply even in
             # converge mode, else a toggle back to an earlier setting would hit
-            # its Done op and be skipped forever.
+            # its executed local record and be skipped forever.
             REAPPLY_ON_DONE=1 edit_asset_in_spoke "$category_id" "$asset_name" "$config_category_id"
         fi
     else
@@ -2723,7 +2772,12 @@ configure_market_oracle() {
             Unset)
                 if [ "$gen" -gt 0 ]; then
                     if [ "${REAPPLY_ON_DONE:-1}" != "1" ]; then
+                        local done_id
+                        done_id=$(precomputed_op_id "$agg" set_oracle_config "$resolved_args" "$salt")
                         echo "Oracle config for ${market_name} already executed with this exact config; skipping propose (converge mode)." >&2
+                        write_oracle_op_record "$done_id" "set_oracle_config" \
+                            "resolve_market_oracle_config" "$resolve_args" "$salt"
+                        mark_op_executed "$done_id"
                         return 0
                     fi
                     echo "Oracle config for ${market_name} already executed with this exact config; RE-APPLYING as generation ${gen}." >&2
@@ -2819,7 +2873,12 @@ edit_oracle_tolerance() {
             Unset)
                 if [ "$gen" -gt 0 ]; then
                     if [ "${REAPPLY_ON_DONE:-1}" != "1" ]; then
+                        local done_id
+                        done_id=$(precomputed_op_id "$agg" set_tolerance "$resolved_args" "$salt")
                         echo "Oracle tolerance for ${market_name} already executed with this exact value; skipping propose (converge mode)." >&2
+                        write_oracle_op_record "$done_id" "set_tolerance" \
+                            "resolve_oracle_tolerance" "$resolve_args" "$salt"
+                        mark_op_executed "$done_id"
                         return 0
                     fi
                     echo "Oracle tolerance for ${market_name} already executed with this exact value; RE-APPLYING as generation ${gen}." >&2
@@ -4904,8 +4963,9 @@ case "$1" in
         echo "  Scheduling is idempotent AND re-apply-aware: an op already Waiting/Ready"
         echo "  is reused; toggling back to a previously-executed setting automatically"
         echo "  re-applies at a fresh salt generation (direct verbs). Bulk setupAll* runs"
-        echo "  in converge mode (REAPPLY_ON_DONE=0): Done ops are treated as applied"
-        echo "  unless an on-chain probe proves drift. SALT_NONCE=<n> = manual override."
+        echo "  in converge mode (REAPPLY_ON_DONE=0): executed ops (local record) are"
+        echo "  treated as applied unless an on-chain probe proves drift. SALT_NONCE=<n>"
+        echo "  = manual override. On-chain storage keeps pending ops only."
         echo "  listOps                         All recorded ops with live state"
         echo "  executeReady                    Execute every recorded op that is Ready"
         echo "  executeOp <op-id>               Execute a locally-scheduled, ready op"

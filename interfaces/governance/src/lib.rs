@@ -206,7 +206,7 @@ pub trait GovernanceInterface {
     /// Lifecycle state of a scheduled operation.
     fn get_operation_state(env: Env, operation_id: BytesN<32>) -> OperationState;
 
-    /// Ledger when an operation becomes ready (`0` unset, `1` done).
+    /// Ledger when an operation becomes ready (`0` when unset / not pending).
     fn get_operation_ledger(env: Env, operation_id: BytesN<32>) -> u32;
 
     /// Deterministic operation id for the given fields.

@@ -10,6 +10,9 @@ delays, and Recovery reset are documented on the rustdoc entrypoints.
 | Interface | `interfaces/governance` |
 | Design | [ADR 0010](../../docs/explanation/decisions/0010-governance-timelock-for-controller-admin.md) |
 
+Pending ops only keep `OperationLedger` storage; execute and cancel remove it.
+`salt` uniquifies re-proposes; `predecessor` is always `0`.
+
 ## Entrypoints
 
 | Call | Role |

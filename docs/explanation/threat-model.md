@@ -40,7 +40,9 @@ Three contracts: **governance → owns → controller → owns → pool.**
 - **Governance** — OZ-style timelock; every privileged change is an
   `AdminOperation` after a ledger delay. Roles: PROPOSER, EXECUTOR, CANCELLER,
   plus GUARDIAN / ORACLE for limited **immediate** incident actions. Unpause is
-  **not** immediate: `AdminOperation::Unpause` only.
+  **not** immediate: `AdminOperation::Unpause` only. Only pending ops keep
+  `OperationLedger` storage; execute/cancel erase the entry. `salt` uniquifies
+  re-proposes; `predecessor` is always `0`.
 - **Controller** — only user-facing surface: accounts, risk, pricing via
   price-aggregator cross-call, liquidation, strategies, flash loans, admin
   config. Owns the pool. Does **not** call Reflector / RedStone / xoxno-oracle

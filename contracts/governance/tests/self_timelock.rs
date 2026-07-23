@@ -109,7 +109,7 @@ fn execute_update_delay_applies_after_delay() {
         &salt,
     );
     assert_eq!(gov.get_min_delay(), 15u32);
-    assert_eq!(gov.get_operation_state(&id), OperationState::Done);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
 
 #[test]

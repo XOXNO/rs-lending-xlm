@@ -98,6 +98,13 @@ Roles are granted at construction (fresh deploy) or via timelocked
 - Delegated `EXECUTOR` and `CANCELLER` are not the same address. The owner may
   hold both.  
 
+### Operation storage
+
+Only pending operations (`Waiting` / `Ready`) keep an `OperationLedger` entry.
+Execute and cancel both remove that entry (and local sidecars such as
+`RoleRevocationTarget` / `RecoveryOp`). Re-proposing the same payload uses a
+fresh `salt` for a new operation id. Typed `propose` paths always set
+`predecessor = 0`; predecessor chaining is unsupported.
 
 ## Alternatives considered
 

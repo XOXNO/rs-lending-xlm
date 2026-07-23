@@ -224,7 +224,7 @@ fn execute_after_delay_applies_to_controller() {
         &salt,
     );
 
-    assert_eq!(gov.get_operation_state(&id), OperationState::Done);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
     let stored = read_position_limits(&env, &controller);
     assert_eq!(stored.max_supply_positions, 6);
     assert_eq!(stored.max_borrow_positions, 3);

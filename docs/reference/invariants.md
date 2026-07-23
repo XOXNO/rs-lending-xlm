@@ -491,7 +491,9 @@ Governance routes structural and risk-loosening admin through a closed
 `AdminOperation` enum and the timelock. Incident paths bypass delay: GUARDIAN
 (`pause`, tighten spoke flags), ORACLE (sanity-band move within rules), and
 owner-only immediate revoke of GUARDIAN/ORACLE. Resume is timelocked
-`AdminOperation::Unpause` only.
+`AdminOperation::Unpause` only. Timelock storage holds pending ops only;
+execute and cancel remove `OperationLedger` (and related sidecars). Re-proposes
+use a distinct `salt`; predecessor chaining is unsupported (`predecessor = 0`).
 
 The controller calls the pool only through the pool ABI. Pool mutators are
 `#[only_owner]`. The pool does not evaluate account HF/LTV or liquidation

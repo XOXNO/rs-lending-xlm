@@ -129,6 +129,10 @@ executes when ready.
 caps, upgrades, role grants, **`AdminOperation::Unpause`**, ownership transfer
 initiation, delay increases, etc.
 
+Only pending ops (`Waiting` / `Ready`) occupy `OperationLedger` storage.
+Execute and cancel remove the ledger entry; `salt` uniquifies re-proposes;
+`predecessor` is always `0` (chaining unsupported).
+
 See [ADR 0010](../explanation/decisions/0010-governance-timelock-for-controller-admin.md)
 and [ADR 0011](../explanation/decisions/0011-pause-and-freeze-matrix.md).
 

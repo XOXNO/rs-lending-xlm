@@ -129,8 +129,8 @@ view gov_op_ledger_exec "$GOVERNANCE" -- get_operation_ledger \
 inv gov_execute "$ADMIN" "$GOVERNANCE" -- execute \
 --executor null --target "$GOV_CONTROLLER" --function set_position_limits \
 --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC" >/dev/null
-    gov_assert_state gov_state_done "$op_exec" Done
-    # A post-execution replay of the same op reverts (already Done, #4002 pre-ready).
+    gov_assert_state gov_state_unset_after_exec "$op_exec" Unset
+    # A post-execution replay of the same op reverts (no longer pending, #4002).
     xfail gov_execute_replay 'Error\(' "$ADMIN" "$GOVERNANCE" -- execute \
         --executor null --target "$GOV_CONTROLLER" --function set_position_limits \
         --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC"

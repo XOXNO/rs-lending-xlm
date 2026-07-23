@@ -227,6 +227,7 @@ impl OracleAdapterKey {
 // Role-holder keys ARE persistent; reuse `discover_role_keys` on the governance id.
 //
 // Timelock `OperationLedger(BytesN<32>)` is persistent but not enumerable
+// (pending ops only; execute/cancel remove the entry).
 // (keccak256 op id from schedule events). Transient within `min_delay` ≪ TTL — skipped.
 
 /// Controller instance-storage keys.
