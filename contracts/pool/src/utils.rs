@@ -61,6 +61,8 @@ pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestR
     params.optimal_utilization = m.optimal_utilization;
     params.max_utilization = m.max_utilization;
     params.reserve_factor = m.reserve_factor;
+    params.is_flashloanable = m.is_flashloanable;
+    params.flashloan_fee = m.flashloan_fee;
 
     env.storage().persistent().set(&key, &params);
 }

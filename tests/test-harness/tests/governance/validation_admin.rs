@@ -26,6 +26,8 @@ fn baseline_irm() -> InterestRateModel {
         optimal_utilization: RAY * 80 / 100,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     }
 }
 

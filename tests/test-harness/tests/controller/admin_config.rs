@@ -161,6 +161,8 @@ fn test_upgrade_pool_params() {
             optimal_utilization: RAY * 80 / 100,
             max_utilization: controller::constants::RAY * 95 / 100,
             reserve_factor: 1000,
+            is_flashloanable: false,
+            flashloan_fee: 0,
         },
     );
 
@@ -196,6 +198,8 @@ fn test_upgrade_liquidity_pool_params_alias() {
             optimal_utilization: RAY * 80 / 100,
             max_utilization: controller::constants::RAY * 95 / 100,
             reserve_factor: 1000,
+            is_flashloanable: false,
+            flashloan_fee: 0,
         },
     );
 
@@ -231,6 +235,8 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
             optimal_utilization: RAY * 80 / 100,
             max_utilization: controller::constants::RAY * 95 / 100,
             reserve_factor: 1000,
+            is_flashloanable: false,
+            flashloan_fee: 0,
         },
     );
     // The IRM was rewritten — confirm the borrow rate remains readable

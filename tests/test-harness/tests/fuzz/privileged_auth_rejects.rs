@@ -157,6 +157,8 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
         optimal_utilization: 0,
         max_utilization: controller::constants::RAY * 95 / 100,
         reserve_factor: 0,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     expect_rejected("upgrade_liquidity_pool_params", || {
         ctrl.set_auths(&no_auths)

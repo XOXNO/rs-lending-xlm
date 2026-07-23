@@ -187,6 +187,8 @@ fn valid_rate_model() -> InterestRateModel {
         optimal_utilization: RAY * 8 / 10,
         max_utilization: RAY * 9 / 10,
         reserve_factor: 1_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     }
 }
 

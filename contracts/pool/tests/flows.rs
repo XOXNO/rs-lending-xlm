@@ -1332,9 +1332,61 @@ fn test_update_params_rejects_invalid_utilization_range() {
         optimal_utilization: RAY * 8 / 10,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(result, CollateralError::InvalidUtilRange as u32);
+}
+
+#[test]
+fn test_update_params_mutates_flash_config() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    let before = client.get_sync_data(&hub(&t.asset)).params;
+    assert!(!before.is_flashloanable);
+
+    let model = InterestRateModel {
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
+        is_flashloanable: true,
+        flashloan_fee: 300,
+    };
+    client.update_params(&hub(&t.asset), &model);
+
+    let after = client.get_sync_data(&hub(&t.asset)).params;
+    assert!(after.is_flashloanable);
+    assert_eq!(after.flashloan_fee, 300);
+}
+
+#[test]
+fn test_update_params_rejects_flashloan_fee_above_cap() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    let model = InterestRateModel {
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: RAY / 100,
+        slope1: RAY / 10,
+        slope2: RAY / 5,
+        slope3: RAY,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
+        is_flashloanable: true,
+        flashloan_fee: 501,
+    };
+    let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
+    assert_contract_error(result, CollateralError::InvalidBorrowParams as u32);
 }
 
 #[test]
@@ -1352,6 +1404,8 @@ fn test_update_params_rejects_optimal_utilization_above_one() {
         optimal_utilization: RAY,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(result, CollateralError::OptUtilTooHigh as u32);
@@ -1372,6 +1426,8 @@ fn test_update_params_rejects_invalid_reserve_factor() {
         optimal_utilization: RAY * 8 / 10,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 10_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(result, CollateralError::InvalidReserveFactor as u32);
@@ -1392,6 +1448,8 @@ fn test_update_params_rejects_negative_base_rate() {
         optimal_utilization: RAY * 8 / 10,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(result, CollateralError::BaseRateNegative as u32);
@@ -1413,6 +1471,8 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
         optimal_utilization: RAY * 8 / 10,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(result, CollateralError::MaxRateBelowBase as u32);
@@ -1434,6 +1494,8 @@ fn test_update_params_rejects_max_borrow_rate_above_cap() {
         optimal_utilization: RAY * 8 / 10,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(result, CollateralError::MaxBorrowRateTooHigh as u32);
@@ -1815,6 +1877,8 @@ fn test_update_params_happy_path() {
         optimal_utilization: new_opt,
         max_utilization: RAY * 95 / 100,
         reserve_factor: new_reserve,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     client.update_params(&hub(&t.asset), &model);
 
@@ -1855,6 +1919,8 @@ fn test_update_params_rejects_invalid_slope_ordering() {
         optimal_utilization: RAY * 8 / 10,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(result, CollateralError::SlopeNonMonotonic as u32);
@@ -1876,6 +1942,8 @@ fn test_update_params_rejects_mid_utilization_zero() {
         optimal_utilization: RAY * 8 / 10,
         max_utilization: RAY * 95 / 100,
         reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(result, CollateralError::InvalidUtilRange as u32);
@@ -1898,6 +1966,8 @@ fn test_update_params_rejects_reserve_factor_at_bps() {
         optimal_utilization: RAY * 8 / 10,
         max_utilization: RAY * 95 / 100,
         reserve_factor: BPS as u32,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let result = flatten_contract_result(client.try_update_params(&hub(&t.asset), &model));
     assert_contract_error(result, CollateralError::InvalidReserveFactor as u32);

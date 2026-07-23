@@ -170,6 +170,8 @@ fn test_update_params_rejects_max_below_optimal() {
         // max < optimal — invalid.
         max_utilization: RAY * 70 / 100,
         reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let asset = t.resolve_asset("USDC");
     let result = t
@@ -195,6 +197,8 @@ fn test_update_params_rejects_max_above_one() {
         optimal_utilization: RAY * 80 / 100,
         max_utilization: RAY + 1, // > 100 % — invalid.
         reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
     };
     let asset = t.resolve_asset("USDC");
     let result = t
