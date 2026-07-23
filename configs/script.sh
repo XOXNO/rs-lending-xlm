@@ -341,13 +341,16 @@ scval_position_limits() {
 }
 
 # Build an InterestRateModel ScVal map from a friendly params object carrying the
-# 9 rate fields (the RAY fields are i128 decimal strings, reserve_factor is u32).
+# 11 ABI fields (RAY rates as i128 decimal strings; reserve_factor/flashloan_fee
+# as u32; is_flashloanable as bool). Keys sorted (canonical ScMap order).
 scval_interest_rate_model() {
     local j=$1
     jq -nc --argjson p "$j" '
         def i(k): {key:{symbol:k}, val:{i128:($p[k] | tostring)}};
         {map: [
             i("base_borrow_rate"),
+            {key:{symbol:"flashloan_fee"}, val:{u32:($p.flashloan_fee)}},
+            {key:{symbol:"is_flashloanable"}, val:{bool:($p.is_flashloanable)}},
             i("max_borrow_rate"),
             i("max_utilization"),
             i("mid_utilization"),
@@ -1292,8 +1295,13 @@ validate_configs() {
         # bonus/collateralizable/borrowable) is spoke-scoped only
         # (spokes.json, effective_asset_config on-chain) — not validated
         # here, since create_market() never reads it off this file.
-        if ! printf '%s' "$mj" | jq -e '(.market_params.flashloan_fee // 0) <= 10000' >/dev/null; then
-            vc_err "market ${m}: flashloan_fee > 10000 bps"
+        # On-chain bound is MAX_FLASHLOAN_FEE_BPS (500), not full BPS range.
+        if ! printf '%s' "$mj" | jq -e '(.market_params.flashloan_fee // 0) <= 500' >/dev/null; then
+            vc_err "market ${m}: flashloan_fee > 500 bps (MAX_FLASHLOAN_FEE_BPS)"
+        fi
+        if ! printf '%s' "$mj" | jq -e '
+            (.market_params.is_flashloanable | type) == "boolean"' >/dev/null; then
+            vc_err "market ${m}: market_params.is_flashloanable must be a boolean"
         fi
 
         # Oracle config
@@ -2148,10 +2156,10 @@ create_market() {
     echo "Market ${market_name} scheduled/created."
 }
 
-# Push the JSON's `market_params` (rate model + max_utilization +
-# reserve_factor) onto the pool via the controller's
-# `upgrade_liquidity_pool_params` route. Use after changing any
-# rate / utilization-ceiling field in the markets JSON.
+# Push the JSON's `market_params` InterestRateModel slice (rates +
+# max_utilization + reserve_factor + is_flashloanable/flashloan_fee) onto the
+# pool via the controller's `upgrade_liquidity_pool_params` route. Use after
+# changing any rate / utilization-ceiling / flash-loan field in markets JSON.
 update_market_params() {
     local market_name=$1
 
@@ -2159,12 +2167,17 @@ update_market_params() {
 
     local asset_address
     asset_address=$(get_market_value "$market_name" "asset_address")
-    # Strip `asset_id` / `asset_decimals` — those are controller-resolved
-    # and the InterestRateModel struct does not carry them.
+    # `asset_id` / `asset_decimals` may appear on market_params for create_market
+    # but InterestRateModel does not carry them — helpers select IRM keys only.
     local params
     params=$(jq -c \
         ".markets[] | select(.name == \"$market_name\") | .market_params" \
         "$MARKET_CONFIG_FILE")
+    if ! printf '%s' "$params" | jq -e '
+        (.is_flashloanable | type) == "boolean" and
+        (.flashloan_fee | type) == "number"' >/dev/null; then
+        die "market ${market_name}: market_params must include is_flashloanable (bool) and flashloan_fee (u32)"
+    fi
 
     local hub_id
     hub_id=$(get_market_value "$market_name" "hub_id")
@@ -2183,10 +2196,12 @@ update_market_params() {
     salt=$(gen_salt "upgrade_liquidity_pool_params" "$args_json")
 
     # The propose `--op` payload wraps hub_asset + the friendly InterestRateModel
-    # (the 9 IRM fields only) in UpgradePoolParamsArgs.
+    # (all 11 IRM fields) in UpgradePoolParamsArgs.
     local irm_friendly
     irm_friendly=$(jq -nc --argjson p "$params" '{
         base_borrow_rate: ($p.base_borrow_rate|tostring),
+        flashloan_fee: $p.flashloan_fee,
+        is_flashloanable: $p.is_flashloanable,
         max_borrow_rate: ($p.max_borrow_rate|tostring),
         max_utilization: ($p.max_utilization|tostring),
         mid_utilization: ($p.mid_utilization|tostring),
