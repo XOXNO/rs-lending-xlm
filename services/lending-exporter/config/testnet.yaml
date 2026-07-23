@@ -3,13 +3,18 @@
 # Addresses mirror configs/networks.json (the canonical deploy artifact / latest
 # testnet deployment). The exporter is per-market resilient: an address that no
 # longer resolves surfaces as a view failure, not a crash.
+#
+# Pool and price-aggregator are also resolved each scrape from controller views
+# (`get_pool_address`, `price_aggregator`); YAML overrides are fallbacks.
 network: testnet
 rpc:
   url: https://stellar-testnet-gateway.xoxno.com
   passphrase: "Test SDF Network ; September 2015"
   timeout_seconds: 30
 contracts:
-  controller: CDWNSXENNWYBX4L247ZCI3NCEQBIZOOI2WWWNLYLRMCR5TVNSHC2PMWT
+  controller: CCYF2G3XZC3ZRZBHM7AVOFQEKQNQWFSRMXZV6SNH4JBWHNFOT7VW5H5H
+  # Fallback if the controller view is unavailable this cycle.
+  price_aggregator: CBDY4MVGDIMQRQ4AB7WT4PJPMVAYYB6VU6HX2EPBU6XBFYP7G76PYR7S
   # Informational: self-hosted price oracle adapter. Provider contracts for
   # staleness reads are resolved from each asset's on-chain oracle config.
   xoxno_oracle_adapter: CB46MOUCOPA5TGDKKCY5OC2FEXGCBQ5KXR53RGOYY7XD7LN6JOE7OPRF

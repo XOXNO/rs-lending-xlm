@@ -21,14 +21,14 @@
       "type": "text",
       "title": "Legend",
       "gridPos": {
-        "h": 6,
+        "h": 8,
         "w": 24,
         "x": 0,
         "y": 0
       },
       "options": {
         "mode": "markdown",
-        "content": "#### Colour key — what the panel thresholds mean\n\n🟢 good  ·  🟠 warning  ·  🔴 critical\n\n| Signal | 🟢 Green | 🟠 Orange | 🔴 Red |\n|---|---|---|---|\n| **Oracle health** | Healthy — asset is priceable | — | Feed failing — on-chain price view reverts |\n| **Freshness (time to stale)** | ≥ 5 min of runway | < 5 min left | Stale — older than max-stale (≤ 0) |\n| **Oracle deviation** | < 150 bps | 150–250 bps | > 250 bps — primary/anchor band breach |\n| **Market / cap utilization** | < 90% | 90–95% (market 98%) | over cap — nearly full |\n| **Exporter — last scrape age** | < 60 s | 60–120 s | > 120 s — exporter stalled |\n\n_\"Now\" for staleness is the **ledger close time**; testnet max-stale = 3600 s (1 h). Bar/line thresholds use the same colours._"
+        "content": "#### Colour key \u2014 what the panel thresholds mean\n\n\ud83d\udfe2 good  \u00b7  \ud83d\udfe0 warning  \u00b7  \ud83d\udd34 critical\n\n| Signal | \ud83d\udfe2 Green | \ud83d\udfe0 Orange | \ud83d\udd34 Red |\n|---|---|---|---|\n| **Oracle healthy** (`valid`) | Soft status usable for solvency | \u2014 | `valid=0` (stale, deviation, sanity, or unreadable) |\n| **Oracle stale / deviation flags** | Flag clear (0) | \u2014 | Soft-status diagnostic flag set (1) |\n| **Freshness (time to stale)** | \u2265 5 min of runway | < 5 min left | Stale \u2014 older than max-stale (\u2264 0) |\n| **Oracle deviation (bps)** | < 80% of tolerance band | Near band | Soft deviation flag / above band |\n| **Market / cap utilization** | < 90% | 90\u201395% (market 98%) | over cap \u2014 nearly full |\n| **Exporter \u2014 last scrape age** | < 60 s | 60\u2013120 s | > 120 s \u2014 exporter stalled |\n\n**How to read this board**\n\n1. **Health strip** \u2014 anything red right now?\n2. **MarketIndexView table** \u2014 snapshot: final/primary/anchor prices + soft flags (`valid` / `stale` / `deviation`) + blend status timestamp.\n3. **Oracles row** \u2014 trends (prices, deviation vs band, provider freshness) + **oracle config** (strategy, max-stale, sanity band). Soft flags live in MIV; Oracles does not repeat the flag timeline.\n4. **Markets** \u2014 size / util / rates / accrual age.\n5. **Spokes** \u2014 liq curve, LTV/threshold, pause/freeze, usage & caps.\n6. **Exporter health** \u2014 scrape trust.\n\n**ABI names:** primary = `safe_price_wad`, anchor = secondary/`aggregator_price_wad`. Soft status is authority; provider-probe freshness is early-warning only.\n\n_\"Now\" for staleness is the **ledger close time**._\n"
       }
     },
     {
@@ -39,7 +39,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 6
+        "y": 8
       }
     },
     {
@@ -52,9 +52,9 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
+        "w": 4,
         "x": 0,
-        "y": 7
+        "y": 9
       },
       "options": {
         "colorMode": "background",
@@ -121,9 +121,9 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 6,
-        "y": 7
+        "w": 4,
+        "x": 4,
+        "y": 9
       },
       "options": {
         "colorMode": "background",
@@ -180,9 +180,9 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 7
+        "w": 4,
+        "x": 8,
+        "y": 9
       },
       "options": {
         "colorMode": "background",
@@ -231,18 +231,156 @@
       ]
     },
     {
-      "id": 5,
+      "id": 105,
       "type": "stat",
-      "title": "Exporter — last scrape age",
+      "title": "Any stale flag",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 18,
-        "y": 7
+        "w": 4,
+        "x": 12,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(lending_oracle_stale{network=\"testnet\"})",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "clear",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "STALE",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 106,
+      "type": "stat",
+      "title": "Any deviation flag",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(lending_oracle_deviation_flag{network=\"testnet\"})",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "clear",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "DEVIATION",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Exporter \u2014 last scrape age",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 9
       },
       "options": {
         "colorMode": "background",
@@ -297,7 +435,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 12
+        "y": 14
       }
     },
     {
@@ -312,7 +450,7 @@
         "h": 4,
         "w": 5,
         "x": 0,
-        "y": 13
+        "y": 15
       },
       "options": {
         "colorMode": "none",
@@ -353,7 +491,7 @@
         "h": 4,
         "w": 5,
         "x": 5,
-        "y": 13
+        "y": 15
       },
       "options": {
         "colorMode": "none",
@@ -394,7 +532,7 @@
         "h": 4,
         "w": 5,
         "x": 10,
-        "y": 13
+        "y": 15
       },
       "options": {
         "colorMode": "none",
@@ -435,7 +573,7 @@
         "h": 4,
         "w": 4,
         "x": 15,
-        "y": 13
+        "y": 15
       },
       "options": {
         "colorMode": "none",
@@ -476,7 +614,7 @@
         "h": 4,
         "w": 5,
         "x": 19,
-        "y": 13
+        "y": 15
       },
       "options": {
         "colorMode": "none",
@@ -513,7 +651,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 19
       }
     },
     {
@@ -528,7 +666,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 20
       },
       "options": {
         "showHeader": true,
@@ -573,6 +711,36 @@
           "expr": "lending_market_borrow_apy{network=\"testnet\"}",
           "instant": true,
           "format": "table"
+        },
+        {
+          "refId": "ACC",
+          "expr": "time() - lending_market_last_accrual_timestamp{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "DTM",
+          "expr": "lending_market_delta_time_seconds{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "REV",
+          "expr": "lending_market_revenue_usd{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
         }
       ],
       "transformations": [
@@ -602,7 +770,10 @@
               "Value #LIQ": "Liquidity $",
               "Value #UTL": "Utilization",
               "Value #SAP": "Supply APY",
-              "Value #BAP": "Borrow APY"
+              "Value #BAP": "Borrow APY",
+              "Value #ACC": "Accrual age s",
+              "Value #DTM": "Delta time s",
+              "Value #REV": "Revenue $"
             },
             "excludeByName": {
               "network": true,
@@ -617,7 +788,10 @@
               "Value #LIQ": 4,
               "Value #UTL": 5,
               "Value #SAP": 6,
-              "Value #BAP": 7
+              "Value #BAP": 7,
+              "Value #ACC": 8,
+              "Value #DTM": 9,
+              "Value #REV": 10
             }
           }
         }
@@ -748,7 +922,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 27
+        "y": 29
       },
       "fieldConfig": {
         "defaults": {
@@ -759,12 +933,12 @@
         {
           "refId": "A",
           "expr": "lending_market_supplied_total_usd{network=\"testnet\"}",
-          "legendFormat": "supplied {{symbol}} · {{hub}}"
+          "legendFormat": "supplied {{symbol}} \u00b7 {{hub}}"
         },
         {
           "refId": "B",
           "expr": "lending_market_borrowed_total_usd{network=\"testnet\"}",
-          "legendFormat": "borrowed {{symbol}} · {{hub}}"
+          "legendFormat": "borrowed {{symbol}} \u00b7 {{hub}}"
         }
       ],
       "options": {
@@ -788,7 +962,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 27
+        "y": 29
       },
       "fieldConfig": {
         "defaults": {
@@ -800,12 +974,12 @@
         {
           "refId": "A",
           "expr": "lending_market_supply_index_ray{network=\"testnet\"}",
-          "legendFormat": "supply {{symbol}} · {{hub}}"
+          "legendFormat": "supply {{symbol}} \u00b7 {{hub}}"
         },
         {
           "refId": "B",
           "expr": "lending_market_borrow_index_ray{network=\"testnet\"}",
-          "legendFormat": "borrow {{symbol}} · {{hub}}"
+          "legendFormat": "borrow {{symbol}} \u00b7 {{hub}}"
         }
       ],
       "options": {
@@ -815,6 +989,540 @@
           "placement": "bottom",
           "calcs": []
         }
+      }
+    },
+    {
+      "id": 103,
+      "type": "timeseries",
+      "title": "Available liquidity (USD) by market",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 37
+      },
+      "targets": [
+        {
+          "refId": "L",
+          "expr": "lending_market_available_liquidity_usd{network=\"testnet\"}",
+          "legendFormat": "{{symbol}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      }
+    },
+    {
+      "id": 104,
+      "type": "timeseries",
+      "title": "Utilization by market",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 37
+      },
+      "targets": [
+        {
+          "refId": "U",
+          "expr": "lending_market_utilization_ratio{network=\"testnet\"}",
+          "legendFormat": "{{symbol}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      }
+    },
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Market indexes (MarketIndexView)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      }
+    },
+    {
+      "id": 101,
+      "type": "table",
+      "title": "MarketIndexView \u2014 indexes + soft oracle status",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "SI",
+          "expr": "lending_market_supply_index_ray{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "BI",
+          "expr": "lending_market_borrow_index_ray{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "FP",
+          "expr": "lending_oracle_price_usd{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "PP",
+          "expr": "lending_oracle_primary_price_usd{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "AP",
+          "expr": "lending_oracle_anchor_price_usd{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "DV",
+          "expr": "lending_oracle_deviation_bps{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "ST",
+          "expr": "lending_oracle_stale{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "DF",
+          "expr": "lending_oracle_deviation_flag{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "HL",
+          "expr": "lending_oracle_healthy{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "TS",
+          "expr": "lending_oracle_status_timestamp_seconds{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "LQ",
+          "expr": "lending_market_available_liquidity_usd{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "UT",
+          "expr": "lending_market_utilization_ratio{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            }
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "symbol": "Asset",
+              "hub": "Hub",
+              "Value #SI": "Supply idx",
+              "Value #BI": "Borrow idx",
+              "Value #FP": "Final $",
+              "Value #PP": "Primary $",
+              "Value #AP": "Anchor $",
+              "Value #DV": "Dev bps",
+              "Value #ST": "Stale",
+              "Value #DF": "Deviation",
+              "Value #HL": "Healthy",
+              "Value #TS": "Status ts",
+              "Value #LQ": "Liquidity $",
+              "Value #UT": "Util"
+            },
+            "excludeByName": {
+              "network": true,
+              "hub_id": true,
+              "asset": true
+            },
+            "indexByName": {
+              "symbol": 0,
+              "hub": 1,
+              "Value #SI": 2,
+              "Value #BI": 3,
+              "Value #FP": 4,
+              "Value #PP": 5,
+              "Value #AP": 6,
+              "Value #DV": 7,
+              "Value #ST": 8,
+              "Value #DF": 9,
+              "Value #HL": 10,
+              "Value #TS": 11,
+              "Value #LQ": 12,
+              "Value #UT": 13
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "right",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Asset"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hub"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*\\$$"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 4
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Util"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status ts"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Healthy"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "NO",
+                        "color": "red"
+                      },
+                      "1": {
+                        "text": "YES",
+                        "color": "green"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Stale|Deviation"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "ok",
+                        "color": "green"
+                      },
+                      "1": {
+                        "text": "FLAG",
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 102,
+      "type": "state-timeline",
+      "title": "Soft status flags (healthy / stale / deviation)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "lending_oracle_healthy{network=\"testnet\"}",
+          "legendFormat": "{{symbol}} healthy",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "lending_oracle_stale{network=\"testnet\"}",
+          "legendFormat": "{{symbol}} stale",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "lending_oracle_deviation_flag{network=\"testnet\"}",
+          "legendFormat": "{{symbol}} deviation",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        }
+      ],
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "alignValue": "center",
+        "rowHeight": 0.9,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 70,
+            "lineWidth": 0
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "0",
+                  "color": "green"
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "1",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
       }
     },
     {
@@ -825,13 +1533,13 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 64
       }
     },
     {
       "id": 30,
       "type": "timeseries",
-      "title": "USD price (final)",
+      "title": "USD price (final / primary / anchor)",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -840,33 +1548,60 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 36
+        "y": 65
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD"
+          "unit": "currencyUSD",
+          "custom": {}
         }
       },
       "targets": [
         {
-          "refId": "A",
+          "refId": "F",
           "expr": "lending_oracle_price_usd{network=\"testnet\"}",
-          "legendFormat": "{{symbol}}"
+          "legendFormat": "{{symbol}} final",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "P",
+          "expr": "lending_oracle_primary_price_usd{network=\"testnet\"}",
+          "legendFormat": "{{symbol}} primary",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "A",
+          "expr": "lending_oracle_anchor_price_usd{network=\"testnet\"}",
+          "legendFormat": "{{symbol}} anchor",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
         }
       ],
       "options": {
         "legend": {
-          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
+          "showLegend": true,
           "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
         }
       }
     },
     {
       "id": 31,
       "type": "timeseries",
-      "title": "Primary vs anchor deviation (bps)",
+      "title": "Deviation vs tolerance band (bps)",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -875,11 +1610,11 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 36
+        "y": 65
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "none",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -902,28 +1637,93 @@
               "mode": "dashed"
             }
           }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*upper|.*lower"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    4,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*deviation"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
       },
       "targets": [
         {
-          "refId": "A",
+          "refId": "D",
           "expr": "lending_oracle_deviation_bps{network=\"testnet\"}",
-          "legendFormat": "{{symbol}}"
+          "legendFormat": "{{symbol}} deviation",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "U",
+          "expr": "lending_oracle_tolerance_upper_bps{network=\"testnet\"}",
+          "legendFormat": "{{symbol}} upper",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "L",
+          "expr": "lending_oracle_tolerance_lower_bps{network=\"testnet\"}",
+          "legendFormat": "{{symbol}} lower",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
         }
       ],
       "options": {
         "legend": {
-          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "calcs": []
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
         }
       }
     },
     {
       "id": 32,
       "type": "timeseries",
-      "title": "Seconds until stale",
+      "title": "Freshness (seconds until stale + budget left)",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -932,7 +1732,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 36
+        "y": 65
       },
       "fieldConfig": {
         "defaults": {
@@ -959,83 +1759,640 @@
               "mode": "line"
             }
           }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*fraction.*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*s left"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
       },
       "targets": [
         {
-          "refId": "A",
+          "refId": "S",
           "expr": "lending_oracle_seconds_until_stale{network=\"testnet\"}",
-          "legendFormat": "{{symbol}}"
+          "legendFormat": "{{symbol}} s left",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "F",
+          "expr": "lending_oracle_seconds_until_stale{network=\"testnet\"} / lending_oracle_effective_max_stale_seconds{network=\"testnet\"}",
+          "legendFormat": "{{symbol}} fraction left",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
         }
       ],
       "options": {
         "legend": {
-          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "calcs": []
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
         }
       }
     },
     {
-      "id": 33,
-      "type": "state-timeline",
-      "title": "Oracle health (green = healthy)",
+      "id": 110,
+      "type": "table",
+      "title": "Oracle config (price-aggregator AssetOracle)",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
       },
       "gridPos": {
-        "h": 6,
+        "h": 9,
         "w": 24,
         "x": 0,
-        "y": 44
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0,
-          "max": 1,
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "failing",
-                  "color": "red"
-                },
-                "1": {
-                  "text": "healthy",
-                  "color": "green"
-                }
-              }
-            }
-          ]
-        }
+        "y": 73
       },
       "options": {
-        "showValue": "never"
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
       },
       "targets": [
         {
-          "refId": "A",
+          "refId": "ST",
+          "expr": "lending_oracle_strategy{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "MS",
+          "expr": "lending_oracle_max_stale_seconds{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "EM",
+          "expr": "lending_oracle_effective_max_stale_seconds{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "TU",
+          "expr": "lending_oracle_tolerance_upper_bps{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "TL",
+          "expr": "lending_oracle_tolerance_lower_bps{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "SN",
+          "expr": "lending_oracle_sanity_min_usd{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "SX",
+          "expr": "lending_oracle_sanity_max_usd{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "PT",
+          "expr": "lending_oracle_price_timestamp_seconds{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "BT",
+          "expr": "lending_oracle_status_timestamp_seconds{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "SU",
+          "expr": "lending_oracle_seconds_until_stale{network=\"testnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "HL",
           "expr": "lending_oracle_healthy{network=\"testnet\"}",
-          "legendFormat": "{{symbol}}"
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
         }
-      ]
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            }
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "symbol": "Asset",
+              "Value #ST": "Strategy",
+              "Value #MS": "Max stale s",
+              "Value #EM": "Effective max s",
+              "Value #TU": "Tol upper",
+              "Value #TL": "Tol lower",
+              "Value #SN": "Sanity min $",
+              "Value #SX": "Sanity max $",
+              "Value #PT": "Probe ts",
+              "Value #BT": "Blend ts",
+              "Value #SU": "s until stale",
+              "Value #HL": "Healthy"
+            },
+            "excludeByName": {
+              "network": true,
+              "asset": true
+            },
+            "indexByName": {
+              "symbol": 0,
+              "Value #ST": 1,
+              "Value #MS": 2,
+              "Value #EM": 3,
+              "Value #TU": 4,
+              "Value #TL": 5,
+              "Value #SN": 6,
+              "Value #SX": 7,
+              "Value #PT": 8,
+              "Value #BT": 9,
+              "Value #SU": 10,
+              "Value #HL": 11
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "right",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Asset"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Strategy"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "Single",
+                        "color": "blue"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "Primary+Anchor",
+                        "color": "purple"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Sanity.*|.*\\$"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 4
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Probe ts|Blend ts"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Healthy"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "NO",
+                        "color": "red"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "YES",
+                        "color": "green"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "s until stale"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0
+                    },
+                    {
+                      "color": "green",
+                      "value": 300
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 111,
+      "type": "timeseries",
+      "title": "Timestamps (provider probe vs soft-status blend)",
+      "description": "Probe = worst-leg provider feed ts. Blend = MarketIndexView.price_timestamp from soft status.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 82
+      },
+      "targets": [
+        {
+          "refId": "P",
+          "expr": "lending_oracle_price_timestamp_seconds{network=\"testnet\"}",
+          "legendFormat": "{{symbol}} probe",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "lending_oracle_status_timestamp_seconds{network=\"testnet\"}",
+          "legendFormat": "{{symbol}} blend",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*probe"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "id": 60,
       "type": "row",
-      "title": "Spoke · Stablecoins",
+      "title": "Spoke \u00b7 Stablecoins",
       "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 89
       },
       "panels": [
+        {
+          "id": 210,
+          "type": "stat",
+          "title": "Liq target HF",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_liquidation_target_hf{network=\"testnet\",spoke_id=\"1\"}",
+              "instant": true,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 4
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 211,
+          "type": "stat",
+          "title": "HF for max bonus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_hf_for_max_bonus{network=\"testnet\",spoke_id=\"1\"}",
+              "instant": true,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 4
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 212,
+          "type": "stat",
+          "title": "Bonus factor bps",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"testnet\",spoke_id=\"1\"}",
+              "instant": true,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
         {
           "id": 61,
           "type": "stat",
@@ -1048,7 +2405,7 @@
             "h": 4,
             "w": 8,
             "x": 0,
-            "y": 51
+            "y": 4
           },
           "options": {
             "colorMode": "none",
@@ -1092,7 +2449,7 @@
             "h": 4,
             "w": 8,
             "x": 8,
-            "y": 51
+            "y": 4
           },
           "options": {
             "colorMode": "none",
@@ -1136,7 +2493,7 @@
             "h": 4,
             "w": 8,
             "x": 16,
-            "y": 51
+            "y": 4
           },
           "options": {
             "colorMode": "none",
@@ -1180,7 +2537,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 55
+            "y": 8
           },
           "fieldConfig": {
             "defaults": {
@@ -1225,7 +2582,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"Stablecoins\"}",
-              "legendFormat": "{{symbol}} · {{hub}}"
+              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
             }
           ]
         },
@@ -1241,7 +2598,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 55
+            "y": 8
           },
           "fieldConfig": {
             "defaults": {
@@ -1286,7 +2643,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"Stablecoins\"}",
-              "legendFormat": "{{symbol}} · {{hub}}"
+              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
             }
           ]
         },
@@ -1299,10 +2656,10 @@
             "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
-            "h": 8,
+            "h": 10,
             "w": 24,
             "x": 0,
-            "y": 63
+            "y": 16
           },
           "options": {
             "showHeader": true,
@@ -1316,37 +2673,131 @@
               "refId": "LTV",
               "expr": "lending_spoke_ltv_bps{network=\"testnet\",spoke=\"Stablecoins\"}/10000",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
               "refId": "THR",
               "expr": "lending_spoke_liquidation_threshold_bps{network=\"testnet\",spoke=\"Stablecoins\"}/10000",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "SUP",
+              "refId": "BON",
+              "expr": "lending_spoke_liquidation_bonus_bps{network=\"testnet\",spoke=\"Stablecoins\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "FEE",
+              "expr": "lending_spoke_liquidation_fees_bps{network=\"testnet\",spoke=\"Stablecoins\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "PAU",
+              "expr": "lending_spoke_paused{network=\"testnet\",spoke=\"Stablecoins\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "FRZ",
+              "expr": "lending_spoke_frozen{network=\"testnet\",spoke=\"Stablecoins\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "COL",
+              "expr": "lending_spoke_collateral_enabled{network=\"testnet\",spoke=\"Stablecoins\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "BRW",
+              "expr": "lending_spoke_borrow_enabled{network=\"testnet\",spoke=\"Stablecoins\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "DEP",
+              "expr": "lending_spoke_deprecated{network=\"testnet\",spoke=\"Stablecoins\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "SU",
               "expr": "lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"Stablecoins\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "BOR",
+              "refId": "BU",
               "expr": "lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"Stablecoins\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "SCAP",
+              "refId": "SCU",
               "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"Stablecoins\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "BCAP",
+              "refId": "BCU",
               "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"Stablecoins\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             }
           ],
           "transformations": [
@@ -1357,10 +2808,7 @@
                   "Time": true,
                   "__name__": true,
                   "instance": true,
-                  "job": true,
-                  "network": true,
-                  "spoke_id": true,
-                  "spoke": true
+                  "job": true
                 }
               }
             },
@@ -1373,27 +2821,44 @@
               "options": {
                 "renameByName": {
                   "symbol": "Asset",
+                  "hub": "Hub",
                   "Value #LTV": "LTV",
-                  "Value #THR": "Liq. threshold",
-                  "Value #SUP": "Supply $",
-                  "Value #BOR": "Borrow $",
-                  "Value #SCAP": "Supply cap",
-                  "Value #BCAP": "Borrow cap",
-                  "hub": "Hub"
+                  "Value #THR": "Liq thr",
+                  "Value #BON": "Bonus bps",
+                  "Value #FEE": "Fee bps",
+                  "Value #PAU": "Paused",
+                  "Value #FRZ": "Frozen",
+                  "Value #COL": "Collateral",
+                  "Value #BRW": "Borrow",
+                  "Value #DEP": "Deprecated",
+                  "Value #SU": "Supply $",
+                  "Value #BU": "Borrow $",
+                  "Value #SCU": "Sup cap util",
+                  "Value #BCU": "Bor cap util"
                 },
                 "excludeByName": {
-                  "asset": true,
-                  "hub_id": true
+                  "network": true,
+                  "spoke_id": true,
+                  "spoke": true,
+                  "hub_id": true,
+                  "asset": true
                 },
                 "indexByName": {
                   "symbol": 0,
                   "hub": 1,
                   "Value #LTV": 2,
                   "Value #THR": 3,
-                  "Value #SUP": 4,
-                  "Value #BOR": 5,
-                  "Value #SCAP": 6,
-                  "Value #BCAP": 7
+                  "Value #BON": 4,
+                  "Value #FEE": 5,
+                  "Value #PAU": 6,
+                  "Value #FRZ": 7,
+                  "Value #COL": 8,
+                  "Value #BRW": 9,
+                  "Value #DEP": 10,
+                  "Value #SU": 11,
+                  "Value #BU": 12,
+                  "Value #SCU": 13,
+                  "Value #BCU": 14
                 }
               }
             }
@@ -1402,7 +2867,7 @@
             "defaults": {
               "custom": {
                 "align": "right",
-                "filterable": false
+                "filterable": true
               }
             },
             "overrides": [
@@ -1426,14 +2891,14 @@
                 "properties": [
                   {
                     "id": "custom.align",
-                    "value": "center"
+                    "value": "left"
                   }
                 ]
               },
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": "LTV|threshold"
+                  "options": "LTV|Liq thr|Sup cap util|Bor cap util"
                 },
                 "properties": [
                   {
@@ -1449,7 +2914,7 @@
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": ".*\\$$"
+                  "options": "Supply \\$|Borrow \\$"
                 },
                 "properties": [
                   {
@@ -1465,46 +2930,63 @@
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": ".*cap$"
+                  "options": "Paused|Frozen|Deprecated"
                 },
                 "properties": [
                   {
-                    "id": "unit",
-                    "value": "percentunit"
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "no",
+                            "color": "green"
+                          },
+                          "1": {
+                            "text": "YES",
+                            "color": "red"
+                          }
+                        }
+                      }
+                    ]
                   },
                   {
                     "id": "custom.cellOptions",
                     "value": {
-                      "type": "gauge",
-                      "mode": "gradient"
+                      "type": "color-text"
                     }
-                  },
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^(Collateral|Borrow)$"
+                },
+                "properties": [
                   {
-                    "id": "max",
-                    "value": 1
-                  },
-                  {
-                    "id": "min",
-                    "value": 0
-                  },
-                  {
-                    "id": "thresholds",
-                    "value": {
-                      "mode": "absolute",
-                      "steps": [
-                        {
-                          "color": "green",
-                          "value": null
-                        },
-                        {
-                          "color": "orange",
-                          "value": 0.9
-                        },
-                        {
-                          "color": "red",
-                          "value": 0.95
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "off",
+                            "color": "orange"
+                          },
+                          "1": {
+                            "text": "on",
+                            "color": "green"
+                          }
                         }
-                      ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
                     }
                   }
                 ]
@@ -1517,15 +2999,144 @@
     {
       "id": 70,
       "type": "row",
-      "title": "Spoke · XLM + USDC",
+      "title": "Spoke \u00b7 XLM + USDC",
       "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 51
+        "y": 90
       },
       "panels": [
+        {
+          "id": 220,
+          "type": "stat",
+          "title": "Liq target HF",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_liquidation_target_hf{network=\"testnet\",spoke_id=\"2\"}",
+              "instant": true,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 4
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 221,
+          "type": "stat",
+          "title": "HF for max bonus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_hf_for_max_bonus{network=\"testnet\",spoke_id=\"2\"}",
+              "instant": true,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 4
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 222,
+          "type": "stat",
+          "title": "Bonus factor bps",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"testnet\",spoke_id=\"2\"}",
+              "instant": true,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
         {
           "id": 71,
           "type": "stat",
@@ -1538,7 +3149,7 @@
             "h": 4,
             "w": 8,
             "x": 0,
-            "y": 52
+            "y": 4
           },
           "options": {
             "colorMode": "none",
@@ -1582,7 +3193,7 @@
             "h": 4,
             "w": 8,
             "x": 8,
-            "y": 52
+            "y": 4
           },
           "options": {
             "colorMode": "none",
@@ -1626,7 +3237,7 @@
             "h": 4,
             "w": 8,
             "x": 16,
-            "y": 52
+            "y": 4
           },
           "options": {
             "colorMode": "none",
@@ -1670,7 +3281,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 56
+            "y": 8
           },
           "fieldConfig": {
             "defaults": {
@@ -1715,7 +3326,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
-              "legendFormat": "{{symbol}} · {{hub}}"
+              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
             }
           ]
         },
@@ -1731,7 +3342,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 56
+            "y": 8
           },
           "fieldConfig": {
             "defaults": {
@@ -1776,7 +3387,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
-              "legendFormat": "{{symbol}} · {{hub}}"
+              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
             }
           ]
         },
@@ -1789,10 +3400,10 @@
             "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
-            "h": 8,
+            "h": 10,
             "w": 24,
             "x": 0,
-            "y": 64
+            "y": 16
           },
           "options": {
             "showHeader": true,
@@ -1806,37 +3417,131 @@
               "refId": "LTV",
               "expr": "lending_spoke_ltv_bps{network=\"testnet\",spoke=\"XLM + USDC\"}/10000",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
               "refId": "THR",
               "expr": "lending_spoke_liquidation_threshold_bps{network=\"testnet\",spoke=\"XLM + USDC\"}/10000",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "SUP",
+              "refId": "BON",
+              "expr": "lending_spoke_liquidation_bonus_bps{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "FEE",
+              "expr": "lending_spoke_liquidation_fees_bps{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "PAU",
+              "expr": "lending_spoke_paused{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "FRZ",
+              "expr": "lending_spoke_frozen{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "COL",
+              "expr": "lending_spoke_collateral_enabled{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "BRW",
+              "expr": "lending_spoke_borrow_enabled{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "DEP",
+              "expr": "lending_spoke_deprecated{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "SU",
               "expr": "lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"XLM + USDC\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "BOR",
+              "refId": "BU",
               "expr": "lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"XLM + USDC\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "SCAP",
+              "refId": "SCU",
               "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "BCAP",
+              "refId": "BCU",
               "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             }
           ],
           "transformations": [
@@ -1847,10 +3552,7 @@
                   "Time": true,
                   "__name__": true,
                   "instance": true,
-                  "job": true,
-                  "network": true,
-                  "spoke_id": true,
-                  "spoke": true
+                  "job": true
                 }
               }
             },
@@ -1863,27 +3565,44 @@
               "options": {
                 "renameByName": {
                   "symbol": "Asset",
+                  "hub": "Hub",
                   "Value #LTV": "LTV",
-                  "Value #THR": "Liq. threshold",
-                  "Value #SUP": "Supply $",
-                  "Value #BOR": "Borrow $",
-                  "Value #SCAP": "Supply cap",
-                  "Value #BCAP": "Borrow cap",
-                  "hub": "Hub"
+                  "Value #THR": "Liq thr",
+                  "Value #BON": "Bonus bps",
+                  "Value #FEE": "Fee bps",
+                  "Value #PAU": "Paused",
+                  "Value #FRZ": "Frozen",
+                  "Value #COL": "Collateral",
+                  "Value #BRW": "Borrow",
+                  "Value #DEP": "Deprecated",
+                  "Value #SU": "Supply $",
+                  "Value #BU": "Borrow $",
+                  "Value #SCU": "Sup cap util",
+                  "Value #BCU": "Bor cap util"
                 },
                 "excludeByName": {
-                  "asset": true,
-                  "hub_id": true
+                  "network": true,
+                  "spoke_id": true,
+                  "spoke": true,
+                  "hub_id": true,
+                  "asset": true
                 },
                 "indexByName": {
                   "symbol": 0,
                   "hub": 1,
                   "Value #LTV": 2,
                   "Value #THR": 3,
-                  "Value #SUP": 4,
-                  "Value #BOR": 5,
-                  "Value #SCAP": 6,
-                  "Value #BCAP": 7
+                  "Value #BON": 4,
+                  "Value #FEE": 5,
+                  "Value #PAU": 6,
+                  "Value #FRZ": 7,
+                  "Value #COL": 8,
+                  "Value #BRW": 9,
+                  "Value #DEP": 10,
+                  "Value #SU": 11,
+                  "Value #BU": 12,
+                  "Value #SCU": 13,
+                  "Value #BCU": 14
                 }
               }
             }
@@ -1892,7 +3611,7 @@
             "defaults": {
               "custom": {
                 "align": "right",
-                "filterable": false
+                "filterable": true
               }
             },
             "overrides": [
@@ -1916,14 +3635,14 @@
                 "properties": [
                   {
                     "id": "custom.align",
-                    "value": "center"
+                    "value": "left"
                   }
                 ]
               },
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": "LTV|threshold"
+                  "options": "LTV|Liq thr|Sup cap util|Bor cap util"
                 },
                 "properties": [
                   {
@@ -1939,7 +3658,7 @@
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": ".*\\$$"
+                  "options": "Supply \\$|Borrow \\$"
                 },
                 "properties": [
                   {
@@ -1955,46 +3674,63 @@
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": ".*cap$"
+                  "options": "Paused|Frozen|Deprecated"
                 },
                 "properties": [
                   {
-                    "id": "unit",
-                    "value": "percentunit"
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "no",
+                            "color": "green"
+                          },
+                          "1": {
+                            "text": "YES",
+                            "color": "red"
+                          }
+                        }
+                      }
+                    ]
                   },
                   {
                     "id": "custom.cellOptions",
                     "value": {
-                      "type": "gauge",
-                      "mode": "gradient"
+                      "type": "color-text"
                     }
-                  },
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^(Collateral|Borrow)$"
+                },
+                "properties": [
                   {
-                    "id": "max",
-                    "value": 1
-                  },
-                  {
-                    "id": "min",
-                    "value": 0
-                  },
-                  {
-                    "id": "thresholds",
-                    "value": {
-                      "mode": "absolute",
-                      "steps": [
-                        {
-                          "color": "green",
-                          "value": null
-                        },
-                        {
-                          "color": "orange",
-                          "value": 0.9
-                        },
-                        {
-                          "color": "red",
-                          "value": 0.95
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "off",
+                            "color": "orange"
+                          },
+                          "1": {
+                            "text": "on",
+                            "color": "green"
+                          }
                         }
-                      ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
                     }
                   }
                 ]
@@ -2007,15 +3743,144 @@
     {
       "id": 80,
       "type": "row",
-      "title": "Spoke · BTC + Dual USDC",
+      "title": "Spoke \u00b7 BTC + Dual USDC",
       "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 91
       },
       "panels": [
+        {
+          "id": 230,
+          "type": "stat",
+          "title": "Liq target HF",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_liquidation_target_hf{network=\"testnet\",spoke_id=\"3\"}",
+              "instant": true,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 4
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 231,
+          "type": "stat",
+          "title": "HF for max bonus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_hf_for_max_bonus{network=\"testnet\",spoke_id=\"3\"}",
+              "instant": true,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 4
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 232,
+          "type": "stat",
+          "title": "Bonus factor bps",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"testnet\",spoke_id=\"3\"}",
+              "instant": true,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
         {
           "id": 81,
           "type": "stat",
@@ -2028,7 +3893,7 @@
             "h": 4,
             "w": 8,
             "x": 0,
-            "y": 53
+            "y": 4
           },
           "options": {
             "colorMode": "none",
@@ -2072,7 +3937,7 @@
             "h": 4,
             "w": 8,
             "x": 8,
-            "y": 53
+            "y": 4
           },
           "options": {
             "colorMode": "none",
@@ -2116,7 +3981,7 @@
             "h": 4,
             "w": 8,
             "x": 16,
-            "y": 53
+            "y": 4
           },
           "options": {
             "colorMode": "none",
@@ -2160,7 +4025,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 57
+            "y": 8
           },
           "fieldConfig": {
             "defaults": {
@@ -2205,7 +4070,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
-              "legendFormat": "{{symbol}} · {{hub}}"
+              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
             }
           ]
         },
@@ -2221,7 +4086,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 57
+            "y": 8
           },
           "fieldConfig": {
             "defaults": {
@@ -2266,7 +4131,7 @@
             {
               "refId": "A",
               "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
-              "legendFormat": "{{symbol}} · {{hub}}"
+              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
             }
           ]
         },
@@ -2279,10 +4144,10 @@
             "uid": "cfgw0aa7mups0d"
           },
           "gridPos": {
-            "h": 8,
+            "h": 10,
             "w": 24,
             "x": 0,
-            "y": 65
+            "y": 16
           },
           "options": {
             "showHeader": true,
@@ -2296,37 +4161,131 @@
               "refId": "LTV",
               "expr": "lending_spoke_ltv_bps{network=\"testnet\",spoke=\"BTC + Dual USDC\"}/10000",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
               "refId": "THR",
               "expr": "lending_spoke_liquidation_threshold_bps{network=\"testnet\",spoke=\"BTC + Dual USDC\"}/10000",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "SUP",
+              "refId": "BON",
+              "expr": "lending_spoke_liquidation_bonus_bps{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "FEE",
+              "expr": "lending_spoke_liquidation_fees_bps{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "PAU",
+              "expr": "lending_spoke_paused{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "FRZ",
+              "expr": "lending_spoke_frozen{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "COL",
+              "expr": "lending_spoke_collateral_enabled{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "BRW",
+              "expr": "lending_spoke_borrow_enabled{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "DEP",
+              "expr": "lending_spoke_deprecated{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "instant": true,
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
+            },
+            {
+              "refId": "SU",
               "expr": "lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "BOR",
+              "refId": "BU",
               "expr": "lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "SCAP",
+              "refId": "SCU",
               "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             },
             {
-              "refId": "BCAP",
+              "refId": "BCU",
               "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
-              "format": "table"
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cfgw0aa7mups0d"
+              }
             }
           ],
           "transformations": [
@@ -2337,10 +4296,7 @@
                   "Time": true,
                   "__name__": true,
                   "instance": true,
-                  "job": true,
-                  "network": true,
-                  "spoke_id": true,
-                  "spoke": true
+                  "job": true
                 }
               }
             },
@@ -2353,27 +4309,44 @@
               "options": {
                 "renameByName": {
                   "symbol": "Asset",
+                  "hub": "Hub",
                   "Value #LTV": "LTV",
-                  "Value #THR": "Liq. threshold",
-                  "Value #SUP": "Supply $",
-                  "Value #BOR": "Borrow $",
-                  "Value #SCAP": "Supply cap",
-                  "Value #BCAP": "Borrow cap",
-                  "hub": "Hub"
+                  "Value #THR": "Liq thr",
+                  "Value #BON": "Bonus bps",
+                  "Value #FEE": "Fee bps",
+                  "Value #PAU": "Paused",
+                  "Value #FRZ": "Frozen",
+                  "Value #COL": "Collateral",
+                  "Value #BRW": "Borrow",
+                  "Value #DEP": "Deprecated",
+                  "Value #SU": "Supply $",
+                  "Value #BU": "Borrow $",
+                  "Value #SCU": "Sup cap util",
+                  "Value #BCU": "Bor cap util"
                 },
                 "excludeByName": {
-                  "asset": true,
-                  "hub_id": true
+                  "network": true,
+                  "spoke_id": true,
+                  "spoke": true,
+                  "hub_id": true,
+                  "asset": true
                 },
                 "indexByName": {
                   "symbol": 0,
                   "hub": 1,
                   "Value #LTV": 2,
                   "Value #THR": 3,
-                  "Value #SUP": 4,
-                  "Value #BOR": 5,
-                  "Value #SCAP": 6,
-                  "Value #BCAP": 7
+                  "Value #BON": 4,
+                  "Value #FEE": 5,
+                  "Value #PAU": 6,
+                  "Value #FRZ": 7,
+                  "Value #COL": 8,
+                  "Value #BRW": 9,
+                  "Value #DEP": 10,
+                  "Value #SU": 11,
+                  "Value #BU": 12,
+                  "Value #SCU": 13,
+                  "Value #BCU": 14
                 }
               }
             }
@@ -2382,7 +4355,7 @@
             "defaults": {
               "custom": {
                 "align": "right",
-                "filterable": false
+                "filterable": true
               }
             },
             "overrides": [
@@ -2406,14 +4379,14 @@
                 "properties": [
                   {
                     "id": "custom.align",
-                    "value": "center"
+                    "value": "left"
                   }
                 ]
               },
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": "LTV|threshold"
+                  "options": "LTV|Liq thr|Sup cap util|Bor cap util"
                 },
                 "properties": [
                   {
@@ -2429,7 +4402,7 @@
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": ".*\\$$"
+                  "options": "Supply \\$|Borrow \\$"
                 },
                 "properties": [
                   {
@@ -2445,46 +4418,63 @@
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": ".*cap$"
+                  "options": "Paused|Frozen|Deprecated"
                 },
                 "properties": [
                   {
-                    "id": "unit",
-                    "value": "percentunit"
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "no",
+                            "color": "green"
+                          },
+                          "1": {
+                            "text": "YES",
+                            "color": "red"
+                          }
+                        }
+                      }
+                    ]
                   },
                   {
                     "id": "custom.cellOptions",
                     "value": {
-                      "type": "gauge",
-                      "mode": "gradient"
+                      "type": "color-text"
                     }
-                  },
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^(Collateral|Borrow)$"
+                },
+                "properties": [
                   {
-                    "id": "max",
-                    "value": 1
-                  },
-                  {
-                    "id": "min",
-                    "value": 0
-                  },
-                  {
-                    "id": "thresholds",
-                    "value": {
-                      "mode": "absolute",
-                      "steps": [
-                        {
-                          "color": "green",
-                          "value": null
-                        },
-                        {
-                          "color": "orange",
-                          "value": 0.9
-                        },
-                        {
-                          "color": "red",
-                          "value": 0.95
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "off",
+                            "color": "orange"
+                          },
+                          "1": {
+                            "text": "on",
+                            "color": "green"
+                          }
                         }
-                      ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
                     }
                   }
                 ]
@@ -2502,7 +4492,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 53
+        "y": 92
       }
     },
     {
@@ -2517,7 +4507,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 54
+        "y": 93
       },
       "fieldConfig": {
         "defaults": {
@@ -2552,7 +4542,7 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 54
+        "y": 93
       },
       "fieldConfig": {
         "defaults": {
@@ -2587,7 +4577,7 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 54
+        "y": 93
       },
       "fieldConfig": {
         "defaults": {

@@ -136,6 +136,12 @@ impl ExporterConfig {
         // Fail bad `C...` at boot, not mid-scrape.
         contract_id_from_strkey(&self.contracts.controller)
             .context("contracts.controller is not a valid C... address")?;
+        if let Some(agg) = &self.contracts.price_aggregator {
+            if !agg.trim().is_empty() {
+                contract_id_from_strkey(agg)
+                    .context("contracts.price_aggregator is not a valid C... address")?;
+            }
+        }
         if let Some(adapter) = &self.contracts.xoxno_oracle_adapter {
             if !adapter.trim().is_empty() {
                 contract_id_from_strkey(adapter)
