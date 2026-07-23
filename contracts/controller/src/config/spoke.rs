@@ -1,5 +1,4 @@
-//! Spoke registry: creation stamps liquidation-curve defaults; removal
-//! deprecates the spoke, which gates all subsequent spoke reads.
+//! Spoke registry helpers: create (default liq curve), deprecate, curve update.
 
 use common::errors::SpokeError;
 use common::types::SpokeConfig;

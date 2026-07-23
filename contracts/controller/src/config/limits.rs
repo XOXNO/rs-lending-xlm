@@ -1,4 +1,4 @@
-//! Instance-level position-limit and minimum-borrow-collateral floor setters.
+//! Instance position-limit and min-borrow-collateral floor setters.
 
 use common::constants::POSITION_LIMIT_MAX;
 use common::errors::{CollateralError, GenericError};

@@ -1,4 +1,4 @@
-//! Hub registry: creation and the active-hub gate.
+//! Hub registry helpers: create and active-hub gate.
 
 use common::errors::GenericError;
 use common::types::HubConfig;

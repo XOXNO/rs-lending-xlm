@@ -1,4 +1,4 @@
-//! Blend-pool approval allowlist for migration.
+//! Blend migration allowlist helpers.
 
 use soroban_sdk::{Address, Env};
 
