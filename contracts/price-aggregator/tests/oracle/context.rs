@@ -27,6 +27,9 @@ fn price_cache_stores_and_reports_entries() {
     assert_eq!(cached.timestamp, 1);
 }
 
+// `push_resolution` is panic-based (no `Result`); `#225` ==
+// `OracleError::OracleCycleDetected`.
+
 #[test]
 #[should_panic(expected = "Error(Contract, #225)")]
 fn push_resolution_traps_reentry() {

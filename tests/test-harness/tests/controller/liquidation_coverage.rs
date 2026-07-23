@@ -177,9 +177,8 @@ fn test_liquidation_multi_debt_capped() {
 
     t.liquidate_multi(LIQUIDATOR, alice, &[("ETH", 0.15), ("USDC", 50.0)]);
 
-    // The ETH debt should have dropped by the capped amount (~$204 worth of ETH).
-    let debt_eth = t.borrow_balance(alice, "ETH");
-    assert!(debt_eth < 0.15);
+    // The ETH debt should drop by the capped ideal (~$204 / $2000 ≈ 0.102 ETH).
+    t.assert_borrow_near(alice, "ETH", 0.15 - 0.102, 0.01);
 
     // The USDC debt must remain UNCHANGED because the contract skipped it.
     let debt_usdc = t.borrow_balance(alice, "USDC");

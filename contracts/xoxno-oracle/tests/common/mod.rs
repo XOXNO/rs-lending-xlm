@@ -1,7 +1,11 @@
+<<<<<<< HEAD
 //! Shared black-box test helpers for the `xoxno-oracle` integration
 //! tests. Every test binary under `tests/` pulls this in via `mod common;`.
+=======
+//! Shared black-box test helpers for the `xoxno-oracle` integration tests.
+//! Every test binary under `tests/` pulls this in via `mod common;`.
+>>>>>>> origin/main
 
-#![allow(dead_code)]
 extern crate std;
 
 use xoxno_oracle::{Error, XoxnoOracle, XoxnoOracleClient};
@@ -15,6 +19,9 @@ use soroban_sdk::{contracttype, Address, ConversionError, Env, InvokeError, Stri
 /// serialize as `[variant-name, payload...]`, so a variant with the same name
 /// and payload produces the identical storage key regardless of the enum's
 /// Rust-side name.
+///
+/// Shared across integration binaries; not every binary uses every variant.
+#[allow(dead_code)]
 #[contracttype]
 pub enum MirrorKey {
     LatestSubmission(String, Address),
@@ -56,16 +63,22 @@ pub fn feed_id(env: &Env) -> String {
     String::from_str(env, FEED)
 }
 
+/// Used by SEP-40 / admin feed-mapping tests; unused in narrower binaries.
+#[allow(dead_code)]
 pub fn xlm_asset(env: &Env) -> ReflectorAsset {
     ReflectorAsset::Other(Symbol::new(env, "XLM"))
 }
 
+/// Used by multi-feed submit/aggregate tests; unused in narrower binaries.
+#[allow(dead_code)]
 pub fn register_extra_feeds(client: &XoxnoOracleClient<'static>, env: &Env, feeds: &[&str]) {
     for feed in feeds {
         client.register_feed(&String::from_str(env, feed));
     }
 }
 
+/// Used by staleness / SEP-40 time-travel tests; unused in narrower binaries.
+#[allow(dead_code)]
 pub fn advance_ledger_seconds(env: &Env, seconds: u64) {
     let current = env.ledger().timestamp();
     let sequence_number = env.ledger().sequence();
@@ -83,6 +96,7 @@ pub fn advance_ledger_seconds(env: &Env, seconds: u64) {
 
 /// Advances the ledger sequence so persistent-entry TTLs decay by `ledgers`,
 /// letting a test observe a later renewal re-arm a partially-aged key.
+#[allow(dead_code)]
 pub fn advance_ledger_sequence(env: &Env, ledgers: u32) {
     let timestamp = env.ledger().timestamp();
     let sequence_number = env.ledger().sequence() + ledgers;
@@ -102,6 +116,7 @@ pub fn advance_ledger_sequence(env: &Env, ledgers: u32) {
 /// `PartialEq`, so `try_read_price_data_for_feed`/`try_read_price_data`
 /// results can't be compared with `assert_eq!` directly. This extracts just
 /// the contract error variant for assertions.
+#[allow(dead_code)]
 pub fn expect_error<T>(
     result: Result<Result<T, ConversionError>, Result<Error, InvokeError>>,
 ) -> Error {

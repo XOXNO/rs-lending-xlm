@@ -60,10 +60,15 @@ fn test_liquidation_targeted_single_collateral() {
         liq_usdc > 0.0,
         "liquidator should have received USDC collateral"
     );
-    // Borrower post-state: ETH debt and USDC collateral both reduced.
+    // Borrower post-state: ETH debt and USDC collateral both reduced; account
+    // stays open (this is not a bad-debt cleanup path). Toxic-band partials
+    // may lower HF, so we do not assert HF improvement here.
     assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
     assert!(t.supply_balance(ALICE, "USDC") < 10_000.0);
-    assert!(t.health_factor(ALICE) > 0.0);
+    assert!(
+        t.find_account_id(ALICE).is_some(),
+        "partial liquidation must leave the account open"
+    );
 }
 #[test]
 fn test_liquidation_rejects_healthy_account() {
@@ -84,10 +89,24 @@ fn test_liquidation_allowed_when_paused() {
     let mut t = liquidatable_usdc_eth();
     t.pause();
 
+    let debt_before = t.borrow_balance(ALICE, "ETH");
+    let coll_before = t.supply_balance(ALICE, "USDC");
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
     assert!(
         result.is_ok(),
         "liquidation should remain available while paused"
+    );
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < debt_before,
+        "paused liquidation must still reduce debt"
+    );
+    assert!(
+        t.supply_balance(ALICE, "USDC") < coll_before,
+        "paused liquidation must still seize collateral"
+    );
+    assert!(
+        t.token_balance(LIQUIDATOR, "USDC") > 0.0,
+        "liquidator must receive seized USDC while paused"
     );
 }
 #[test]
@@ -147,12 +166,21 @@ fn test_liquidation_dynamic_bonus_deep_underwater() {
     let hf = t.health_factor(ALICE);
     assert!(hf < 0.5, "HF should be deeply underwater, got {}", hf);
 
-    // Liquidation must still work.
+    // Liquidation must still work. Toxic/deep band pays the base bonus (500 BPS),
+    // not the HF-scaled mid-range of the moderate sibling.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
     assert!(liq_usdc > 0.0, "liquidator should receive collateral");
     assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
+    // Collateral value in USD at USDC price $0.25; debt paid is 1 ETH = $2000.
+    let collateral_received_usd = liq_usdc * 0.25;
+    let bonus_rate = collateral_received_usd / 2000.0 - 1.0;
+    assert!(
+        bonus_rate > 0.0 && bonus_rate < 0.10,
+        "deep-underwater bonus must sit near the 5% base (fee-adjusted), got {:.4}",
+        bonus_rate
+    );
 }
 #[test]
 fn test_liquidation_protocol_fee_on_bonus_only() {
@@ -326,22 +354,19 @@ fn test_liquidation_caps_at_max_bonus() {
     // Liquidate a small amount.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
 
-    // The collateral received must not imply a bonus > 15%.
+    // Toxic-band insolvent partials pay at most the base bonus (500 BPS). At this
+    // crash depth collateral is nearly exhausted, so the realized ratio may sit
+    // at ~1.0 (fee-adjusted); the invariant is the upper cap, not a profit floor.
     let usdc_received = t.token_balance(LIQUIDATOR, "USDC");
     let usdc_value = usdc_received * 0.10; // USDC at $0.10.
     let debt_paid = 0.5 * 2000.0; // 0.5 ETH at $2000.
-
-    // Max bonus = 15% (1500 BPS), so max value ratio = 1.15.
-    // Add 1% tolerance for protocol-fee effects on the seized amount.
     assert!(usdc_received > 0.0, "liquidator should receive collateral");
-    if debt_paid > 0.0 && usdc_value > 0.0 {
-        let ratio = usdc_value / debt_paid;
-        assert!(
-            ratio <= 1.16,
-            "bonus ratio should be capped at 15% + 1% tolerance: got {:.4} (max 1.16)",
-            ratio,
-        );
-    }
+    let ratio = usdc_value / debt_paid;
+    assert!(
+        ratio <= 1.10,
+        "toxic-band bonus must stay at/under the 5% base (+ tol): got {:.4}",
+        ratio,
+    );
     assert!(
         t.borrow_balance(ALICE, "ETH") < 3.0,
         "borrower debt must have decreased"

@@ -2031,46 +2031,53 @@ fn comet_zero_report_rejected() {
     );
 }
 
-#[test]
-fn vault_accounting_unit() {
-    let env = Env::default();
-    let token = Address::generate(&env);
-    let mut v = crate::vault::Vault::new(&env);
-    assert_eq!(v.balance_of(&token), 0);
-    v.deposit(&token, 0);
-    assert_eq!(v.balance_of(&token), 0);
-    v.deposit(&token, 100);
-    assert_eq!(v.balance_of(&token), 100);
-    v.withdraw(&token, 0);
-    assert_eq!(v.balance_of(&token), 100);
-    v.withdraw(&token, 40);
-    assert_eq!(v.balance_of(&token), 60);
-}
+mod vault_tests {
+    use super::*;
 
-#[test]
-#[should_panic(expected = "Error(Contract, #3)")]
-fn vault_deposit_negative_panics() {
-    let env = Env::default();
-    let token = Address::generate(&env);
-    crate::vault::Vault::new(&env).deposit(&token, -1);
-}
+    #[test]
+    fn vault_accounting_unit() {
+        let env = Env::default();
+        let token = Address::generate(&env);
+        let mut v = crate::vault::Vault::new(&env);
+        assert_eq!(v.balance_of(&token), 0);
+        v.deposit(&token, 0);
+        assert_eq!(v.balance_of(&token), 0);
+        v.deposit(&token, 100);
+        assert_eq!(v.balance_of(&token), 100);
+        v.withdraw(&token, 0);
+        assert_eq!(v.balance_of(&token), 100);
+        v.withdraw(&token, 40);
+        assert_eq!(v.balance_of(&token), 60);
+    }
 
-#[test]
-#[should_panic(expected = "Error(Contract, #3)")]
-fn vault_withdraw_negative_panics() {
-    let env = Env::default();
-    let token = Address::generate(&env);
-    crate::vault::Vault::new(&env).withdraw(&token, -1);
-}
+    #[test]
+    fn vault_deposit_negative_returns_invalid_amount() {
+        let env = Env::default();
+        let token = Address::generate(&env);
+        assert_eq!(
+            crate::vault::Vault::new(&env).try_deposit(&token, -1),
+            Err(Error::InvalidAmount)
+        );
+    }
 
-#[test]
-#[should_panic(expected = "Error(Contract, #3)")]
-fn vault_withdraw_overdraw_panics() {
-    let env = Env::default();
-    let token = Address::generate(&env);
-    let mut v = crate::vault::Vault::new(&env);
-    v.deposit(&token, 10);
-    v.withdraw(&token, 20);
+    #[test]
+    fn vault_withdraw_negative_returns_invalid_amount() {
+        let env = Env::default();
+        let token = Address::generate(&env);
+        assert_eq!(
+            crate::vault::Vault::new(&env).try_withdraw(&token, -1),
+            Err(Error::InvalidAmount)
+        );
+    }
+
+    #[test]
+    fn vault_withdraw_overdraw_returns_invalid_amount() {
+        let env = Env::default();
+        let token = Address::generate(&env);
+        let mut v = crate::vault::Vault::new(&env);
+        v.deposit(&token, 10);
+        assert_eq!(v.try_withdraw(&token, 20), Err(Error::InvalidAmount));
+    }
 }
 
 // FEE_CAP is inclusive: setters accept exactly the cap and reject cap + 1

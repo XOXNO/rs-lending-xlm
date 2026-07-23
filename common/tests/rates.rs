@@ -1,26 +1,37 @@
 use super::*;
 use crate::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use crate::math::fp_core::div_by_int_half_up;
-use soroban_sdk::Env;
+use crate::types::{MarketParamsRaw, PoolStateRaw};
+use soroban_sdk::{Address, Env};
 
-fn make_test_params() -> MarketParams {
-    MarketParams {
-        base_borrow_rate: Ray::from(RAY / 100),         // 1%
-        slope1: Ray::from(RAY * 4 / 100),               // 4%
-        slope2: Ray::from(RAY * 10 / 100),              // 10%
-        slope3: Ray::from(RAY * 300 / 100),             // 300%
-        mid_utilization: Ray::from(RAY * 50 / 100),     // 50%
-        optimal_utilization: Ray::from(RAY * 80 / 100), // 80%
-        max_utilization: Ray::from(RAY * 95 / 100),     // 95%
-        max_borrow_rate: Ray::from(RAY),                // 100%
-        reserve_factor: Bps::from(1000),                // 10%
+const TEST_ASSET: &str = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+
+fn make_test_params_raw(env: &Env) -> MarketParamsRaw {
+    MarketParamsRaw {
+        base_borrow_rate: RAY / 100,         // 1%
+        slope1: RAY * 4 / 100,               // 4%
+        slope2: RAY * 10 / 100,              // 10%
+        slope3: RAY * 300 / 100,             // 300%
+        mid_utilization: RAY * 50 / 100,     // 50%
+        optimal_utilization: RAY * 80 / 100, // 80%
+        max_utilization: RAY * 95 / 100,     // 95%
+        max_borrow_rate: RAY,                // 100%
+        reserve_factor: 1_000,               // 10%
         is_flashloanable: false,
         flashloan_fee: 0,
-        asset_id: soroban_sdk::Address::from_str(
-            &Env::default(),
-            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        ),
+        asset_id: Address::from_str(env, TEST_ASSET),
         asset_decimals: 7,
+    }
+}
+
+fn make_test_params() -> MarketParams {
+    MarketParams::from(&make_test_params_raw(&Env::default()))
+}
+
+fn sample_sync(env: &Env, state: PoolStateRaw) -> PoolSyncData {
+    PoolSyncData {
+        params: make_test_params_raw(env),
+        state,
     }
 }
 
@@ -295,37 +306,19 @@ fn test_update_borrow_index_above_max_clamps() {
 // Nonzero delta + live debt must accrue (not a no-op).
 #[test]
 fn test_simulate_update_indexes_nonzero_delta_accrues() {
-    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
-
     let env = Env::default();
-    let params = MarketParamsRaw {
-        max_borrow_rate: RAY,
-        base_borrow_rate: RAY / 100,
-        slope1: RAY * 4 / 100,
-        slope2: RAY * 10 / 100,
-        slope3: RAY * 300 / 100,
-        mid_utilization: RAY * 50 / 100,
-        optimal_utilization: RAY * 80 / 100,
-        max_utilization: RAY * 95 / 100,
-        reserve_factor: 1_000,
-        is_flashloanable: false,
-        flashloan_fee: 0,
-        asset_id: soroban_sdk::Address::from_str(
-            &env,
-            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        ),
-        asset_decimals: 7,
-    };
-    let state = PoolStateRaw {
-        supplied: 100 * RAY,
-        borrowed: 60 * RAY,
-        revenue: 0,
-        borrow_index: RAY,
-        supply_index: RAY,
-        last_timestamp: 0,
-        cash: 40_000_000,
-    };
-    let sync = PoolSyncData { params, state };
+    let sync = sample_sync(
+        &env,
+        PoolStateRaw {
+            supplied: 100 * RAY,
+            borrowed: 60 * RAY,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
+            last_timestamp: 0,
+            cash: 40_000_000,
+        },
+    );
 
     // delta_ms > 0 accrues interest.
     let one_year = MILLISECONDS_PER_YEAR;
@@ -345,39 +338,21 @@ fn test_simulate_update_indexes_nonzero_delta_accrues() {
 // Multi-year deltas use 1y chunks; chunked compound > single long Taylor eval.
 #[test]
 fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
-    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
-
     let env = Env::default();
-    let params = MarketParamsRaw {
-        max_borrow_rate: RAY,
-        base_borrow_rate: RAY / 100,
-        slope1: RAY * 4 / 100,
-        slope2: RAY * 10 / 100,
-        slope3: RAY * 300 / 100,
-        mid_utilization: RAY * 50 / 100,
-        optimal_utilization: RAY * 80 / 100,
-        max_utilization: RAY * 95 / 100,
-        reserve_factor: 1_000,
-        is_flashloanable: false,
-        flashloan_fee: 0,
-        asset_id: soroban_sdk::Address::from_str(
-            &env,
-            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        ),
-        asset_decimals: 7,
-    };
-    let state = PoolStateRaw {
-        supplied: 100 * RAY,
-        borrowed: 90 * RAY,
-        revenue: 0,
-        borrow_index: RAY,
-        supply_index: RAY,
-        last_timestamp: 0,
-        cash: 10_000_000,
-    };
-    let p = MarketParams::from(&params);
-    let s = PoolState::from(&state);
-    let sync = PoolSyncData { params, state };
+    let sync = sample_sync(
+        &env,
+        PoolStateRaw {
+            supplied: 100 * RAY,
+            borrowed: 90 * RAY,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
+            last_timestamp: 0,
+            cash: 10_000_000,
+        },
+    );
+    let p = MarketParams::from(&sync.params);
+    let s = PoolState::from(&sync.state);
 
     let two_years = 2 * MILLISECONDS_PER_YEAR;
     let chunked = simulate_update_indexes(&env, two_years, &sync);
@@ -410,29 +385,10 @@ fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
 // Split accrual cannot lower indexes vs a single shot (no borrow-time farming).
 #[test]
 fn test_split_accrual_never_reduces_borrow_index() {
-    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
-
     let env = Env::default();
-    let asset = soroban_sdk::Address::from_str(
-        &env,
-        "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-    );
+    let params = make_test_params_raw(&env);
     let mk = |borrow_index: i128, supply_index: i128, last_timestamp: u64| PoolSyncData {
-        params: MarketParamsRaw {
-            max_borrow_rate: RAY,
-            base_borrow_rate: RAY / 100,
-            slope1: RAY * 4 / 100,
-            slope2: RAY * 10 / 100,
-            slope3: RAY * 300 / 100,
-            mid_utilization: RAY * 50 / 100,
-            optimal_utilization: RAY * 80 / 100,
-            max_utilization: RAY * 95 / 100,
-            reserve_factor: 1_000,
-            is_flashloanable: false,
-            flashloan_fee: 0,
-            asset_id: asset.clone(),
-            asset_decimals: 7,
-        },
+        params: params.clone(),
         state: PoolStateRaw {
             supplied: 100 * RAY,
             borrowed: 80 * RAY,
@@ -582,41 +538,21 @@ fn oracle_accrual(
 
 #[test]
 fn test_simulate_guard_reinvests_fee_when_healthy() {
-    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
-
     let env = Env::default();
-    let raw_params = MarketParamsRaw {
-        max_borrow_rate: RAY,
-        base_borrow_rate: RAY / 100,
-        slope1: RAY * 4 / 100,
-        slope2: RAY * 10 / 100,
-        slope3: RAY * 300 / 100,
-        mid_utilization: RAY * 50 / 100,
-        optimal_utilization: RAY * 80 / 100,
-        max_utilization: RAY * 95 / 100,
-        reserve_factor: 1_000,
-        is_flashloanable: false,
-        flashloan_fee: 0,
-        asset_id: soroban_sdk::Address::from_str(
-            &env,
-            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        ),
-        asset_decimals: 7,
-    };
-    let raw_state = PoolStateRaw {
-        supplied: 100 * RAY,
-        borrowed: 60 * RAY,
-        revenue: 0,
-        borrow_index: RAY,
-        supply_index: RAY,
-        last_timestamp: 0,
-        cash: 40_000_000,
-    };
+    let raw_params = make_test_params_raw(&env);
+    let sync = sample_sync(
+        &env,
+        PoolStateRaw {
+            supplied: 100 * RAY,
+            borrowed: 60 * RAY,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
+            last_timestamp: 0,
+            cash: 40_000_000,
+        },
+    );
     let params = MarketParams::from(&raw_params);
-    let sync = PoolSyncData {
-        params: raw_params,
-        state: raw_state,
-    };
 
     let two_years = 2 * MILLISECONDS_PER_YEAR;
     let actual = simulate_update_indexes(&env, two_years, &sync);
@@ -637,29 +573,11 @@ fn test_simulate_guard_reinvests_fee_when_healthy() {
 
 #[test]
 fn test_simulate_matches_mirror_at_supply_index_floor() {
-    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
-
     let env = Env::default();
     // 100% reserve factor: no supplier rewards, supply_index stays at the floor;
     // all interest is fee and both paths reinvest it identically.
-    let raw_params = MarketParamsRaw {
-        max_borrow_rate: RAY,
-        base_borrow_rate: RAY / 100,
-        slope1: RAY * 4 / 100,
-        slope2: RAY * 10 / 100,
-        slope3: RAY * 300 / 100,
-        mid_utilization: RAY * 50 / 100,
-        optimal_utilization: RAY * 80 / 100,
-        max_utilization: RAY * 95 / 100,
-        reserve_factor: 10_000,
-        is_flashloanable: false,
-        flashloan_fee: 0,
-        asset_id: soroban_sdk::Address::from_str(
-            &env,
-            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        ),
-        asset_decimals: 7,
-    };
+    let mut raw_params = make_test_params_raw(&env);
+    raw_params.reserve_factor = 10_000;
     let raw_state = PoolStateRaw {
         supplied: 100 * RAY,
         borrowed: 60 * RAY,
@@ -694,41 +612,21 @@ fn test_simulate_matches_mirror_at_supply_index_floor() {
 
 #[test]
 fn test_simulate_matches_mirror_when_supplied_zero() {
-    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
-
     let env = Env::default();
-    let raw_params = MarketParamsRaw {
-        max_borrow_rate: RAY,
-        base_borrow_rate: RAY / 100,
-        slope1: RAY * 4 / 100,
-        slope2: RAY * 10 / 100,
-        slope3: RAY * 300 / 100,
-        mid_utilization: RAY * 50 / 100,
-        optimal_utilization: RAY * 80 / 100,
-        max_utilization: RAY * 95 / 100,
-        reserve_factor: 1_000,
-        is_flashloanable: false,
-        flashloan_fee: 0,
-        asset_id: soroban_sdk::Address::from_str(
-            &env,
-            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        ),
-        asset_decimals: 7,
-    };
-    let raw_state = PoolStateRaw {
-        supplied: 0,
-        borrowed: 60 * RAY,
-        revenue: 0,
-        borrow_index: RAY,
-        supply_index: RAY,
-        last_timestamp: 0,
-        cash: 40_000_000,
-    };
+    let raw_params = make_test_params_raw(&env);
+    let sync = sample_sync(
+        &env,
+        PoolStateRaw {
+            supplied: 0,
+            borrowed: 60 * RAY,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
+            last_timestamp: 0,
+            cash: 40_000_000,
+        },
+    );
     let params = MarketParams::from(&raw_params);
-    let sync = PoolSyncData {
-        params: raw_params,
-        state: raw_state,
-    };
 
     let two_years = 2 * MILLISECONDS_PER_YEAR;
     let actual = simulate_update_indexes(&env, two_years, &sync);
@@ -770,36 +668,19 @@ fn test_update_supply_index_rounds_supplied_value_to_zero_returns_old_index() {
 
 #[test]
 fn test_simulate_update_indexes_zero_delta_is_noop() {
-    use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
     let env = Env::default();
-    let params = MarketParamsRaw {
-        max_borrow_rate: RAY,
-        base_borrow_rate: RAY / 100,
-        slope1: RAY * 4 / 100,
-        slope2: RAY * 10 / 100,
-        slope3: RAY * 300 / 100,
-        mid_utilization: RAY * 50 / 100,
-        optimal_utilization: RAY * 80 / 100,
-        max_utilization: RAY * 95 / 100,
-        reserve_factor: 1_000,
-        is_flashloanable: false,
-        flashloan_fee: 0,
-        asset_id: soroban_sdk::Address::from_str(
-            &env,
-            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        ),
-        asset_decimals: 7,
-    };
-    let state = PoolStateRaw {
-        supplied: 100 * RAY,
-        borrowed: 60 * RAY,
-        revenue: 0,
-        borrow_index: 2 * RAY,
-        supply_index: 3 * RAY,
-        last_timestamp: 1_000,
-        cash: 40_000_000,
-    };
-    let sync = PoolSyncData { params, state };
+    let sync = sample_sync(
+        &env,
+        PoolStateRaw {
+            supplied: 100 * RAY,
+            borrowed: 60 * RAY,
+            revenue: 0,
+            borrow_index: 2 * RAY,
+            supply_index: 3 * RAY,
+            last_timestamp: 1_000,
+            cash: 40_000_000,
+        },
+    );
     // Query at the checkpoint timestamp: delta == 0 returns the stored indexes verbatim.
     let indexes = simulate_update_indexes(&env, 1_000, &sync);
     assert_eq!(indexes.borrow_index, Ray::from(2 * RAY));
@@ -812,9 +693,6 @@ fn test_simulate_update_indexes_zero_delta_is_noop() {
 #[test]
 fn test_virtual_offset_bounds_dust_reward_growth() {
     let env = Env::default();
-
-    let clamped = update_borrow_index(&env, Ray::from(MAX_BORROW_INDEX_RAY), Ray::from(RAY * 2));
-    assert_eq!(clamped.raw(), MAX_BORROW_INDEX_RAY);
 
     let supplied = Ray::from_asset(1, 7);
     let reward = Ray::from_asset(170_141_183_459, 7);

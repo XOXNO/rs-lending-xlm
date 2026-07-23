@@ -81,7 +81,6 @@ fn validate_positive_price_timestamps_returns_wad() {
     assert_eq!(out, 1_000_000_000_000);
 }
 
-// test_u256_to_i128_rejects_above_u128 (+1) common/src/oracle/observation.rs:97
 #[test]
 #[should_panic(expected = "#33")]
 fn test_u256_to_i128_rejects_above_u128() {

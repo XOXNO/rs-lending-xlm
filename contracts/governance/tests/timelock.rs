@@ -10,23 +10,9 @@ use crate::constants::{
     TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
 };
 use crate::op::{AdminOperation, RoleArgs, TransferOwnershipArgs};
-use crate::timelock::{operation_delay, DelayTier};
+use crate::test_support::{register, register_with_controller, zero_salt};
+use crate::timelock::{operation_delay, validate_delay_update, DelayTier};
 use crate::{Governance, GovernanceClient};
-
-const ZERO_SALT: [u8; 32] = [0u8; 32];
-
-fn register(env: &Env, min_delay: u32) -> (Address, GovernanceClient<'_>) {
-    let admin = Address::generate(env);
-    let gov_id = env.register(Governance, (admin.clone(), min_delay));
-    (admin, GovernanceClient::new(env, &gov_id))
-}
-
-fn register_with_controller(env: &Env, min_delay: u32) -> (Address, Address, GovernanceClient<'_>) {
-    let (admin, gov) = register(env, min_delay);
-    let controller_id = env.register(controller::Controller, (gov.address.clone(),));
-    gov.set_controller(&controller_id);
-    (admin, controller_id, gov)
-}
 
 fn read_position_limits(env: &Env, controller_id: &Address) -> PositionLimits {
     env.as_contract(controller_id, || {
@@ -62,7 +48,7 @@ fn grant_role_via_timelock(
 #[test]
 fn constructor_grants_timelock_roles_to_admin() {
     let env = Env::default();
-    let (admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
+    let (admin, _gov_id, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
 
     assert!(gov.has_role(&admin, &Symbol::new(&env, PROPOSER_ROLE)));
     assert!(gov.has_role(&admin, &Symbol::new(&env, EXECUTOR_ROLE)));
@@ -72,7 +58,7 @@ fn constructor_grants_timelock_roles_to_admin() {
 #[test]
 fn constructor_sets_min_delay() {
     let env = Env::default();
-    let (_admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
+    let (_admin, _gov_id, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
 
     assert_eq!(gov.get_min_delay(), TIMELOCK_MIN_DELAY_LEDGERS);
 }
@@ -80,7 +66,7 @@ fn constructor_sets_min_delay() {
 #[test]
 fn get_operation_state_unknown_is_unset() {
     let env = Env::default();
-    let (_admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
+    let (_admin, _gov_id, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
 
     let unknown = BytesN::<32>::from_array(&env, &[7u8; 32]);
     assert_eq!(gov.get_operation_state(&unknown), OperationState::Unset);
@@ -97,7 +83,7 @@ fn propose_schedules_waiting_operation() {
         max_supply_positions: 5,
         max_borrow_positions: 4,
     };
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits), &salt);
 
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
@@ -108,7 +94,7 @@ fn propose_upgrade_pool_uses_sensitive_delay() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, _controller, gov) = register_with_controller(&env, 10);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let hash = BytesN::from_array(&env, &[8u8; 32]);
 
     let current = env.ledger().sequence();
@@ -125,7 +111,7 @@ fn propose_set_price_aggregator_uses_sensitive_delay() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, _controller, gov) = register_with_controller(&env, 10);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     // Any deployed contract address satisfies `require_contract_address`.
     let aggregator = env.register(controller::Controller, (admin.clone(),));
 
@@ -170,7 +156,7 @@ fn unpause_uses_standard_delay() {
     env.mock_all_auths();
     let delay = 10u32;
     let (admin, _controller, gov) = register_with_controller(&env, delay);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
 
     let current = env.ledger().sequence();
     let id = gov.propose(&admin, &AdminOperation::Unpause, &salt);
@@ -190,7 +176,7 @@ fn execute_before_delay_reverts() {
         max_supply_positions: 5,
         max_borrow_positions: 4,
     };
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let _ = gov.propose(
         &admin,
         &AdminOperation::SetPositionLimits(limits.clone()),
@@ -202,7 +188,7 @@ fn execute_before_delay_reverts() {
         &controller,
         &Symbol::new(&env, "set_position_limits"),
         &vec![&env, limits.into_val(&env)],
-        &BytesN::<32>::from_array(&env, &ZERO_SALT),
+        &zero_salt(&env),
         &salt,
     );
 }
@@ -218,7 +204,7 @@ fn execute_after_delay_applies_to_controller() {
         max_supply_positions: 6,
         max_borrow_positions: 3,
     };
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let id = gov.propose(
         &admin,
         &AdminOperation::SetPositionLimits(limits.clone()),
@@ -234,7 +220,7 @@ fn execute_after_delay_applies_to_controller() {
         &controller,
         &Symbol::new(&env, "set_position_limits"),
         &vec![&env, limits.into_val(&env)],
-        &BytesN::<32>::from_array(&env, &ZERO_SALT),
+        &zero_salt(&env),
         &salt,
     );
 
@@ -256,7 +242,7 @@ fn execute_after_grace_period_reverts() {
         max_supply_positions: 6,
         max_borrow_positions: 3,
     };
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let _id = gov.propose(
         &admin,
         &AdminOperation::SetPositionLimits(limits.clone()),
@@ -271,7 +257,7 @@ fn execute_after_grace_period_reverts() {
         &controller,
         &Symbol::new(&env, "set_position_limits"),
         &vec![&env, limits.into_val(&env)],
-        &BytesN::<32>::from_array(&env, &ZERO_SALT),
+        &zero_salt(&env),
         &salt,
     );
 }
@@ -287,7 +273,7 @@ fn propose_rejects_bad_input_at_schedule_time() {
         max_supply_positions: 0,
         max_borrow_positions: 4,
     };
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     gov.propose(&admin, &AdminOperation::SetPositionLimits(limits), &salt);
 }
 
@@ -301,7 +287,7 @@ fn cancel_returns_operation_to_unset() {
         max_supply_positions: 5,
         max_borrow_positions: 4,
     };
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits), &salt);
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 
@@ -321,7 +307,7 @@ fn revocation_target_cannot_cancel_own_role_revocation() {
     let (admin, _controller, gov) = register_with_controller(&env, delay);
     let canceller = grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 1);
 
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let id = gov.propose(
         &admin,
         &AdminOperation::RevokeGovRole(RoleArgs {
@@ -545,7 +531,7 @@ fn non_proposer_cannot_propose() {
         max_supply_positions: 5,
         max_borrow_positions: 4,
     };
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     gov.propose(&stranger, &AdminOperation::SetPositionLimits(limits), &salt);
 }
 
@@ -562,7 +548,7 @@ fn non_executor_cannot_execute() {
         max_supply_positions: 5,
         max_borrow_positions: 4,
     };
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     gov.propose(
         &admin,
         &AdminOperation::SetPositionLimits(limits.clone()),
@@ -575,7 +561,7 @@ fn non_executor_cannot_execute() {
         &controller,
         &Symbol::new(&env, "set_position_limits"),
         &vec![&env, limits.into_val(&env)],
-        &BytesN::<32>::from_array(&env, &ZERO_SALT),
+        &zero_salt(&env),
         &salt,
     );
 }
@@ -592,7 +578,7 @@ fn non_canceller_cannot_cancel() {
         max_supply_positions: 5,
         max_borrow_positions: 4,
     };
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits), &salt);
 
     gov.cancel(&stranger, &id);
@@ -610,7 +596,7 @@ fn constructor_rejects_zero_delay() {
 fn operation_delay_sensitive_uses_seven_day_floor() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_admin, gov) = register(&env, 10);
+    let (_admin, _gov_id, gov) = register(&env, 10);
 
     env.as_contract(&gov.address, || {
         assert_eq!(
@@ -625,26 +611,23 @@ fn operation_delay_sensitive_respects_higher_global_min() {
     let env = Env::default();
     env.mock_all_auths();
     let higher_min = TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS + 1_000;
-    let (_admin, gov) = register(&env, higher_min);
+    let (_admin, _gov_id, gov) = register(&env, higher_min);
 
     env.as_contract(&gov.address, || {
         assert_eq!(operation_delay(&env, DelayTier::Sensitive), higher_min);
     });
 }
 
+// Direct `validate_delay_update` layer. Propose-path max-cap coverage lives in
+// `self_timelock` (`propose_update_delay_rejects_above_max_cap`).
 #[test]
 fn validate_delay_update_accepts_max_cap() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-
-    let id = gov.propose(
-        &admin,
-        &AdminOperation::UpdateGovDelay(TIMELOCK_MAX_DELAY_LEDGERS),
-        &salt,
-    );
-    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+    let (_admin, _gov_id, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
+    env.as_contract(&gov.address, || {
+        validate_delay_update(&env, TIMELOCK_MAX_DELAY_LEDGERS);
+    });
 }
 
 #[test]
@@ -652,11 +635,10 @@ fn validate_delay_update_accepts_max_cap() {
 fn validate_delay_update_rejects_above_max_cap() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-    let over_max = TIMELOCK_MAX_DELAY_LEDGERS + 1;
-
-    gov.propose(&admin, &AdminOperation::UpdateGovDelay(over_max), &salt);
+    let (_admin, _gov_id, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
+    env.as_contract(&gov.address, || {
+        validate_delay_update(&env, TIMELOCK_MAX_DELAY_LEDGERS + 1);
+    });
 }
 
 #[test]

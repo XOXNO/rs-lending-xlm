@@ -1,19 +1,11 @@
 extern crate std;
 
 use super::*;
-use crate::test_support::init_ledger;
+use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
-use common::types::HubAssetKey;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
-
-fn hub(asset: &Address) -> HubAssetKey {
-    HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    }
-}
 
 struct TestSetup {
     env: Env,

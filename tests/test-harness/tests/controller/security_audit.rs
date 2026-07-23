@@ -443,10 +443,8 @@ fn poc_permissionless_repay_any_caller() {
     let payments = vec![&t.env, (hub_asset(market.asset.clone()), raw)];
     t.ctrl_client().repay(&bob, &alice_id, &payments);
 
-    assert!(
-        t.borrow_balance(ALICE, "USDT") < before,
-        "permissionless third-party repay must reduce target debt"
-    );
+    // Bob repaid exactly 100 USDT; Alice's debt must drop by that amount.
+    t.assert_borrow_near(ALICE, "USDT", before - 100.0, 0.01);
 }
 
 /// H-ORC-04: liquidate uses the same fail-closed price stack as borrow/HF.
@@ -611,7 +609,12 @@ fn poc_untransferable_collateral_leg_bricks_whole_liquidation() {
 
     // Forced pro-rata seizure always includes a WBTC leg, so the entire
     // liquidation reverts — even a minimal repayment cannot route around it.
+    // FreezableToken traps with a host assert (not a controller error code).
+    let debt_before = t.borrow_balance(ALICE, "ETH");
+    let usdc_before = t.supply_balance(ALICE, "USDC");
+    let wbtc_before = t.supply_balance(ALICE, "WBTC");
     let bricked = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
+    // Host/token trap from FreezableToken — no controller error code to pin.
     assert!(
         bricked.is_err(),
         "H-LIQ-DOS: one untransferable collateral leg must brick the whole \
@@ -619,10 +622,27 @@ fn poc_untransferable_collateral_leg_bricks_whole_liquidation() {
         bricked
     );
     let bricked_small = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.1);
+    // Host/token trap from FreezableToken — no controller error code to pin.
     assert!(
         bricked_small.is_err(),
         "even a minimal repayment still seizes a WBTC slice and reverts; got {:?}",
         bricked_small
+    );
+    // Brick must be atomic: no debt repaid and no collateral moved.
+    assert_eq!(
+        t.borrow_balance(ALICE, "ETH"),
+        debt_before,
+        "H-LIQ-DOS brick must leave ETH debt unchanged"
+    );
+    assert_eq!(
+        t.supply_balance(ALICE, "USDC"),
+        usdc_before,
+        "H-LIQ-DOS brick must leave USDC collateral unchanged"
+    );
+    assert_eq!(
+        t.supply_balance(ALICE, "WBTC"),
+        wbtc_before,
+        "H-LIQ-DOS brick must leave WBTC collateral unchanged"
     );
 
     // Control: the account is otherwise fully liquidatable. Lift the block and
