@@ -1,4 +1,6 @@
-//! Swaps collateral between hub markets.
+//! Collateral refinance: withdraw → aggregator swap → deposit replacement.
+//!
+//! Owner/delegate auth. Debt-neutral until `strategy_finalize` re-checks LTV/HF.
 
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, AccountPosition, AccountPositionType, HubAssetKey, StrategySwap};
@@ -28,6 +30,22 @@ pub(crate) struct SwapCollateralParams<'a> {
 
 #[contractimpl]
 impl Controller {
+    /// Swaps `amount` of supplied `current` into `new` via aggregator route.
+    /// Owner or active delegate. Finalizes with post-pool LTV/HF gates.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `AssetsAreTheSame` — identical `(hub, asset)` pair.
+    /// * `AmountMustBePositive` / `HubNotActive` — preflight.
+    /// * `NotAuthorized` — caller is neither owner nor active delegate.
+    /// * `NotCollateral` / `PositionLimitExceeded` — destination preflight.
+    /// * `CollateralPositionNotFound` — no supply position for `current`.
+    /// * Swap/deposit errors (`NoSwapOutput`, `RouterOverspend`, entry gates).
+    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — finalize risk gates.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * topics — `["position", "batch_update"]`
     #[when_not_paused]
     pub fn swap_collateral(
         env: Env,

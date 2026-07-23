@@ -1,5 +1,7 @@
-//! Leveraged multiply strategy: opens a collateral/debt position via a
-//! flash-loan-funded swap, for `Multiply`, `Long`, or `Short` modes.
+//! Leveraged multiply: flash-loan debt, swap to collateral, deposit.
+//!
+//! Owner/delegate auth (or create account). Modes `Multiply` / `Long` / `Short`.
+//! Intermediate borrow skips HF; `strategy_finalize` re-checks LTV/HF.
 
 use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;
@@ -32,6 +34,22 @@ pub(crate) struct MultiplyParams<'a> {
 
 #[contractimpl]
 impl Controller {
+    /// Opens or boosts a leveraged position via flash-loan debt → swap → supply.
+    /// Owner or active delegate; `account_id == 0` creates on `spoke_id`.
+    /// Returns the account id. Finalizes with post-pool LTV/HF gates.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` — flash-loan amount is not strictly positive.
+    /// * `AssetsAreTheSame` / `InvalidPositionMode` — mode/asset preflight.
+    /// * `NotCollateral` — destination collateral is not supply-enabled.
+    /// * Entry/borrow/swap/deposit errors from the nested legs.
+    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — finalize risk gates.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * topics — `["position", "batch_update"]`
+    /// * topics — `["strategy", "initial_payment"]` when `initial_payment` is set
     #[when_not_paused]
     pub fn multiply(
         env: Env,

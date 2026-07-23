@@ -1,9 +1,6 @@
-//! Applies a built liquidation plan: debt repayments, collateral seizures, and
-//! the post-liquidation residual bad-debt check.
-//!
-//! Reuses `repay::settle_repay_actions` and `withdraw::settle_withdraw_entries`
-//! with `LiqRepay` / `LiqSeize` so usage and position maps stay aligned with
-//! user flows. LiqSeize freezes supply risk-param refresh (see withdraw).
+//! Applies a liquidation plan: debt repayments, collateral seizures, then
+//! residual bad-debt check. Reuses repay/withdraw settle with `LiqRepay` /
+//! `LiqSeize` so usage maps stay aligned with user flows.
 
 use crate::account;
 use common::errors::SpokeError;

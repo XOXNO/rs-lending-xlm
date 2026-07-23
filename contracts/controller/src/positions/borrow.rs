@@ -1,8 +1,8 @@
-//! Borrow flows.
+//! User and strategy borrow: pool pays proceeds out; no pre-transfer.
 //!
-//! User borrows re-check solvency after the pool returns indexes. Strategy
-//! helpers share entry gates and merge logic but defer post-pool risk gates to
-//! `strategy_finalize`. The pool pays proceeds out; there is no pre-transfer.
+//! User path re-checks LTV/HF after pool indexes return. Strategy helpers share
+//! entry gates and merge logic but defer post-pool risk gates to
+//! `strategy_finalize`. See `architecture/INVARIANTS.md` §3.2.
 
 use common::math::fp::Ray;
 use common::types::{
@@ -26,30 +26,21 @@ use crate::{Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
-    /// to `to` (default `caller`). Re-checks account health on pool-returned
-    /// indexes. Does not create accounts — supply first if needed.
-    ///
-    /// # Arguments
-    /// * `caller` - the account owner or an active delegate; must authorize.
-    /// * `account_id` - existing account that will hold the debt.
-    /// * `borrows` - `(hub-asset, amount)` legs; amounts must be positive.
-    /// * `to` - proceeds recipient; defaults to `caller`.
+    /// Borrows `borrows` to `to` (default `caller`) on an existing account.
+    /// Owner or active delegate. Re-checks LTV/HF on pool-returned indexes.
     ///
     /// # Errors
-    /// * `NotAuthorized` - `caller` is neither the account owner nor an active delegate.
-    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * Entry gates: `HubNotActive`, `AssetNotInSpoke`,
-    ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `AssetNotBorrowable`, or
-    ///   `PositionLimitExceeded`.
-    /// * `SpokeBorrowCapReached` - the borrow would exceed the spoke borrow cap.
-    /// * `BorrowRoundsToZeroShares` - the amount rounds down to zero scaled
-    ///   debt shares at the current borrow index (pool-raised).
-    /// * Post-pool risk gates: `InsufficientCollateral` (LTV / health factor) or
-    ///   `MinBorrowCollateralNotMet`.
+    /// * `NotAuthorized` — `caller` is neither owner nor active delegate.
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `HubNotActive` / `AssetNotInSpoke` / `SpokeAssetPaused` / `SpokeAssetFrozen` /
+    ///   `AssetNotBorrowable` / `PositionLimitExceeded` — entry gates.
+    /// * `SpokeBorrowCapReached` — borrow would exceed the spoke borrow cap.
+    /// * `BorrowRoundsToZeroShares` — amount rounds to zero scaled debt (pool).
+    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — post-pool risk gates.
     /// * The `#[when_not_paused]` guard reverts while the contract is paused.
     ///
     /// # Events
-    /// * A position-batch event summarizing the account's updated debt legs.
+    /// * topics — `["position", "batch_update"]`
     #[when_not_paused]
     pub fn borrow(
         env: Env,

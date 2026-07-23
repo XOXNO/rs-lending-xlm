@@ -1,4 +1,7 @@
-//! User flash loans with callback-scoped reentrancy guard.
+//! User flash loans: pool pays `receiver`, exact principal+fee repaid in-callback.
+//!
+//! Caller auth; no account/HF. Reentrancy guard blocks nested controller entry
+//! for the callback. See `architecture/INVARIANTS.md` §2.5.
 
 use crate::events::FlashLoanEvent;
 use common::types::HubAssetKey;
@@ -11,6 +14,19 @@ use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerCli
 
 #[contractimpl]
 impl Controller {
+    /// Flash-loans `amount` of `asset` to `receiver` with opaque `data`.
+    /// Caller auth. Pool enforces exact principal+fee repayment before return.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` — `amount` is not strictly positive.
+    /// * `HubNotActive` — hub is inactive.
+    /// * `InvalidFlashloanReceiver` — `receiver` is not a WASM contract.
+    /// * Pool-side flash errors (`FlashloanNotEnabled`, `InvalidFlashloanRepay`, etc.).
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * topics — `["position", "flash_loan"]`
     #[when_not_paused]
     pub fn flash_loan(
         env: Env,

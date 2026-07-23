@@ -1,4 +1,6 @@
-//! Strategy wrappers for borrow, withdraw, and repay primitives.
+//! Strategy wrappers over borrow/withdraw/repay settle primitives.
+//!
+//! No public auth or post-pool HF: calling strategy entrypoints own both.
 
 use common::errors::GenericError;
 use common::math::fp::Ray;

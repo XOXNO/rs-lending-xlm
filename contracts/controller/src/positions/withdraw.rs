@@ -1,13 +1,9 @@
-//! Withdraw flows.
+//! User and strategy withdraw: reduce supply shares and pay tokens out.
 //!
-//! Debt-bearing accounts re-check solvency after the pool returns indexes.
-//! Amount `0` means full position withdraw (mapped to `WITHDRAW_ALL_SENTINEL`).
-//! Not gated by `#[when_not_paused]`: users can still exit collateral while the
-//! contract is paused. Spoke-asset pause blocks withdraw; freeze does not.
-//!
-//! Liquidation and strategies share `settle_withdraw_entries` / `finish_withdraw_leg`
-//! (see `positions` pipeline vocabulary).
-//! Liquidation calls the bulk path directly and skips spoke pause enforcement.
+//! Amount `0` maps to full-position withdraw. Debt-bearing accounts re-check
+//! LTV/HF after pool indexes return. Not gated by `#[when_not_paused]` (spoke
+//! pause still blocks; freeze does not). Liquidation skips spoke pause via the
+//! bulk settle path. See `architecture/INVARIANTS.md` §3.
 
 use common::math::fp::Ray;
 use common::types::{
@@ -46,29 +42,21 @@ pub(crate) struct WithdrawalRequest<'a> {
 
 #[contractimpl]
 impl Controller {
-    /// Amount `0` withdraws the full position. Returns the gross amount paid per
-    /// asset (pool `actual_amount`).
-    ///
-    /// Not blocked by the global pause flag; spoke-asset pause still blocks the
-    /// leg. Frozen assets remain withdrawable.
-    ///
-    /// # Arguments
-    /// * `caller` - the account owner or an active delegate; must authorize.
-    /// * `account_id` - existing account to withdraw from.
-    /// * `withdrawals` - `(hub-asset, amount)` legs; `0` means withdraw all.
-    /// * `to` - recipient of the withdrawn tokens; defaults to `caller`.
+    /// Withdraws collateral to `to` (default `caller`). Owner or active delegate.
+    /// Amount `0` closes the leg. Returns gross pool `actual_amount` per asset.
+    /// Re-checks LTV/HF when the account still has debt. Global pause does not block.
     ///
     /// # Errors
-    /// * `NotAuthorized` - `caller` is neither the account owner nor an active delegate.
-    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * `SpokeAssetPaused` - the spoke asset is paused (frozen may still withdraw).
-    /// * `CollateralPositionNotFound` - no supply position for an asset.
-    /// * `InsufficientLiquidity` - the pool cannot cover the withdrawal.
-    /// * Post-pool risk gates (debt-bearing accounts): `InsufficientCollateral` or
-    ///   `MinBorrowCollateralNotMet`.
+    /// * `NotAuthorized` — `caller` is neither owner nor active delegate.
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `SpokeAssetPaused` — spoke asset is paused (frozen may still withdraw).
+    /// * `CollateralPositionNotFound` — no supply position for an asset.
+    /// * `InsufficientLiquidity` — pool cannot cover the withdrawal.
+    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — post-pool risk
+    ///   gates on debt-bearing accounts.
     ///
     /// # Events
-    /// * A position-batch event summarizing the account's updated supply legs.
+    /// * topics — `["position", "batch_update"]`
     pub fn withdraw(
         env: Env,
         caller: Address,

@@ -1,7 +1,8 @@
-//! Core position lifecycle: supply, borrow, withdraw, repay, liquidation.
+//! Core position money path: supply, borrow, withdraw, repay, liquidation.
 //!
-//! Money path stages: process_* → build_* → settle_*/pool_* → finish_*_leg →
-//! finalize_position_flow. Liquidation uses plan → apply then custom persist.
+//! Auth and risk gates live on public entrypoints; pool settles shares/cash.
+//! Stages: process_* → build_* → settle_* → finish_*_leg → finalize_position_flow.
+//! See `architecture/INVARIANTS.md` §3.
 
 use common::errors::{CollateralError, SpokeError};
 use common::types::{
@@ -85,9 +86,8 @@ pub(crate) fn finalize_position_flow(
     cache.emit_position_batch(account_id, account);
 }
 
-/// Shared pre-pool entry gates for deposit and borrow batches.
-///
-/// flags (pause and freeze), and the side-specific supply/borrow capability.
+/// Shared pre-pool entry gates for deposit and borrow batches: hub active,
+/// listing, pause/freeze flags, and side-specific supply/borrow capability.
 pub(crate) fn validate_position_entry_gates(
     env: &Env,
     account: &Account,
