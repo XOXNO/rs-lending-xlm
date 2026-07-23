@@ -37,8 +37,9 @@ Reporters who follow this policy may be credited in release notes (with consent)
 
 **In scope**
 
-- On-chain crates: `contracts/controller`, `pool`, `governance`, `aggregator`,
-  `xoxno-oracle-adapter`, `defindex-strategy`, plus `common/` and `interfaces/`
+- On-chain crates: `contracts/controller`, `pool`, `governance`,
+  `swap-aggregator`, `price-aggregator`, `xoxno-oracle`, `defindex-strategy`,
+  plus `common/` and `interfaces/`
 - `services/keeper` (TTL / restore)
 - `services/lending-exporter` (ops metrics service)
 - Makefile / `configs/` operator tooling that deploys or configures the protocol

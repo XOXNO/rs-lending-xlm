@@ -16,7 +16,7 @@ Providers on Soroban:
 |----------|-------|--------|
 | **Reflector** (SEP-40) | Spot or TWAP | CEX/DEX feeds |
 | **RedStone** | Spot feed by `feed_id` | Pull-based; fixed decimals |
-| **Xoxno** (`xoxno-oracle-adapter`) | RedStone wire ABI | Protocol N-of-M signers; decimals via SEP-40 at listing |
+| **Xoxno** (`xoxno-oracle`) | RedStone wire ABI | Protocol N-of-M signers; decimals via SEP-40 at listing |
 
 Risks: short-lived spot manipulation, and source outage. Outage handling is
 which flows call the oracle (ADR 0004), not weaker price validation.
@@ -111,4 +111,4 @@ correlated upstream moves can pass the band if both legs move together.
 - `contracts/governance/src/op.rs`  
 - `common/src/types/oracle.rs`, `common/src/constants/shared.rs`  
 - `common/src/validation.rs`  
-- `contracts/xoxno-oracle-adapter`  
+- `contracts/xoxno-oracle`  

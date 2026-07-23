@@ -15,9 +15,9 @@ Three core Soroban contracts:
 | **controller** | User-facing: accounts, risk, oracle, liquidation, flash loans, strategies. Sole mutator of the pool. |
 | **pool** | Central liquidity. All mutations `#[only_owner]` (controller only). No risk/oracle decisions. |
 
-Supporting in-repo contracts: `aggregator` (DEX router), `xoxno-oracle-adapter`
-(multi-signer feed), `defindex-strategy` (vault adapter), `flash-loan-receiver`
-(**test-only** receiver for smoke tests).
+Supporting in-repo contracts: `swap-aggregator` (DEX router), `price-aggregator`
+(oracle authority), `xoxno-oracle` (multi-signer feed), `defindex-strategy`
+(vault adapter), `flash-loan-receiver` (**test-only** receiver for smoke tests).
 
 Shared library: `common/`. Published ABIs: `interfaces/`.
 
