@@ -1,19 +1,15 @@
 extern crate std;
 
 use super::*;
-use crate::test_support::init_ledger;
+use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
-use common::types::{HubAssetKey, MarketParamsRaw, PoolKey, PoolStateRaw};
+use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
 
-fn hub(asset: &Address) -> HubAssetKey {
-    HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    }
-}
+/// Opt-in year-accrual dust report printing (`true` to print).
+const VERBOSE_YEAR_ACCRUAL: bool = false;
 
 struct TestSetup {
     env: Env,
@@ -700,6 +696,9 @@ fn run_daily_year(
 }
 
 fn print_year_report(label: &str, util_bps: i128, r: &YearDustReport, end: &AccrualSnapshot) {
+    if !VERBOSE_YEAR_ACCRUAL {
+        return;
+    }
     let dust_bps = if r.interest > 0 {
         r.dust.saturating_mul(10_000) / r.interest
     } else {
@@ -875,7 +874,9 @@ fn test_year_daily_accrual_thin_market_higher_relative_dust() {
         assert!(r.revenue_claim > 0);
 
         let dust_bps = r.dust.saturating_mul(10_000) / r.interest;
-        std::println!("  thin-market dust_bps={dust_bps}");
+        if VERBOSE_YEAR_ACCRUAL {
+            std::println!("  thin-market dust_bps={dust_bps}");
+        }
 
         // Relative dust larger than deep market but still a small fraction of interest.
         assert!(
@@ -920,19 +921,21 @@ fn test_year_daily_accrual_usdc_millions_scale() {
                 let rem = v % RAY;
                 rem * 1_000_000 / RAY
             };
-            std::println!(
-                "  [USDC whole.micro] debt {} → {}  interest={}.{:06}  user_growth={}.{:06}  revenue={}.{:06}  DUST={}.{:06} USDC",
-                whole(r.debt_start),
-                whole(r.debt_end),
-                whole(r.interest),
-                micro(r.interest),
-                whole(r.user_growth),
-                micro(r.user_growth),
-                whole(r.revenue_claim),
-                micro(r.revenue_claim),
-                whole(r.dust),
-                micro(r.dust.abs())
-            );
+            if VERBOSE_YEAR_ACCRUAL {
+                std::println!(
+                    "  [USDC whole.micro] debt {} → {}  interest={}.{:06}  user_growth={}.{:06}  revenue={}.{:06}  DUST={}.{:06} USDC",
+                    whole(r.debt_start),
+                    whole(r.debt_end),
+                    whole(r.interest),
+                    micro(r.interest),
+                    whole(r.user_growth),
+                    micro(r.user_growth),
+                    whole(r.revenue_claim),
+                    micro(r.revenue_claim),
+                    whole(r.dust),
+                    micro(r.dust.abs())
+                );
+            }
 
             assert!(r.interest > 0);
             assert!(r.user_growth > 0);
@@ -989,33 +992,35 @@ fn test_year_daily_vs_single_sync_dust_comparison() {
         let claims_o = end_o.total_supply_claim - start_o.total_supply_claim;
         let dust_o = interest_o - claims_o;
 
-        std::println!("=== daily vs single-shot (100k @ 60%, 365d) ===");
-        std::println!(
-            "  daily:  interest={} claims_growth={} dust={} debt_end={}",
-            interest_d,
-            claims_d,
-            dust_d,
-            end_d.debt
-        );
-        std::println!(
-            "  once:   interest={} claims_growth={} dust={} debt_end={}",
-            interest_o,
-            claims_o,
-            dust_o,
-            end_o.debt
-        );
-        std::println!(
-            "  user daily {} → {} | once {} → {}",
-            start_d.user_claim,
-            end_d.user_claim,
-            start_o.user_claim,
-            end_o.user_claim
-        );
-        std::println!(
-            "  revenue daily={} once={}",
-            end_d.revenue_claim,
-            end_o.revenue_claim
-        );
+        if VERBOSE_YEAR_ACCRUAL {
+            std::println!("=== daily vs single-shot (100k @ 60%, 365d) ===");
+            std::println!(
+                "  daily:  interest={} claims_growth={} dust={} debt_end={}",
+                interest_d,
+                claims_d,
+                dust_d,
+                end_d.debt
+            );
+            std::println!(
+                "  once:   interest={} claims_growth={} dust={} debt_end={}",
+                interest_o,
+                claims_o,
+                dust_o,
+                end_o.debt
+            );
+            std::println!(
+                "  user daily {} → {} | once {} → {}",
+                start_d.user_claim,
+                end_d.user_claim,
+                start_o.user_claim,
+                end_o.user_claim
+            );
+            std::println!(
+                "  revenue daily={} once={}",
+                end_d.revenue_claim,
+                end_o.revenue_claim
+            );
+        }
 
         assert!(interest_d > 0 && interest_o > 0);
         // Daily compounding of util path (fee mint each day) usually differs

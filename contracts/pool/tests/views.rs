@@ -1,7 +1,7 @@
 extern crate std;
 
 use super::*;
-use crate::test_support::init_ledger;
+use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
 use common::math::fp::Ray;
@@ -9,13 +9,6 @@ use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
 use common::types::MarketParams;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, Address};
-
-fn hub(asset: &Address) -> HubAssetKey {
-    HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    }
-}
 
 struct TestSetup {
     env: Env,
@@ -193,7 +186,7 @@ fn test_delta_time_matches_state_difference() {
     let t = TestSetup::new();
     t.as_contract(|| {
         // Fixture state sets last_timestamp 50k before current time.
-        assert!(delta_time(&t.env, &hub(&t.asset)) > 0);
+        assert_eq!(delta_time(&t.env, &hub(&t.asset)), 50_000);
     });
 }
 

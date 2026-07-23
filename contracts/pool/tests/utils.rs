@@ -2,20 +2,13 @@ extern crate std;
 
 use super::*;
 use crate::cache::Cache;
-use crate::test_support::init_ledger;
+use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
 use common::math::fp::Ray;
-use common::types::{HubAssetKey, MarketParamsRaw};
+use common::types::MarketParamsRaw;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
-
-fn hub(asset: &Address) -> HubAssetKey {
-    HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    }
-}
 
 struct TestSetup {
     env: Env,
@@ -149,10 +142,12 @@ fn test_apply_liquidation_fee_accrues_to_revenue_and_reduces_net() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = cache_with(&t.env, &t.params, 100 * RAY, 0, 50_000_000);
-        let rev_before = cache.revenue;
-        let net = apply_liquidation_fee(&t.env, &mut cache, 10_000_000, true, 2_000_000);
+        let fee_raw = 2_000_000i128;
+        // At supply_index = RAY, protocol_fee_shares is identity on the fee Ray.
+        let expected_revenue = Ray::from_asset(fee_raw, t.params.asset_decimals);
+        let net = apply_liquidation_fee(&t.env, &mut cache, 10_000_000, true, fee_raw);
         assert_eq!(net, 8_000_000);
-        assert!(cache.revenue > rev_before);
+        assert_eq!(cache.revenue, expected_revenue);
     });
 }
 

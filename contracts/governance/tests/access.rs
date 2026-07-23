@@ -2,6 +2,7 @@ use super::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Env;
 
+use crate::test_support::fresh_governance;
 use crate::{constants, GovernanceClient};
 
 #[test]
@@ -19,11 +20,6 @@ fn constructor_grants_oracle_role_to_admin() {
         assert_eq!(ownable::get_owner(&env), Some(admin.clone()));
         assert_eq!(access_control::get_admin(&env), Some(admin));
     });
-}
-
-fn fresh_governance(env: &Env) -> Address {
-    let admin = Address::generate(env);
-    env.register(Governance, (admin, constants::TIMELOCK_MIN_DELAY_LEDGERS))
 }
 
 // Delegates cannot hold both EXECUTOR and CANCELLER.

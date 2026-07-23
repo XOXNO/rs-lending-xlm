@@ -70,6 +70,8 @@ fn test_market_params_raw_typed_roundtrip() {
     assert_eq!(back.reserve_factor, raw.reserve_factor);
     assert_eq!(back.asset_id, raw.asset_id);
     assert_eq!(back.asset_decimals, raw.asset_decimals);
+    assert_eq!(back.is_flashloanable, raw.is_flashloanable);
+    assert_eq!(back.flashloan_fee, raw.flashloan_fee);
 }
 
 #[test]
@@ -348,7 +350,6 @@ fn test_market_params_verify_rate_model_delegates() {
     raw.verify_rate_model(&env);
 }
 
-// test_pool_scaled_and_debt_position_conversions (+32) common/src/types/pool.rs:276-288,307-328,414-420
 #[test]
 fn test_scaled_position_raw_from_typed_positions() {
     let raw_pos = AccountPositionRaw {
@@ -406,7 +407,6 @@ fn test_pool_strategy_mutation_projects_to_position_mutation() {
     assert_eq!(projected.market_index.borrow_index, RAY);
     assert_eq!(projected.asset_decimals, 7);
 }
-// test_rate_model_verify_assert_with_error_branches (+14) common/src/types/pool.rs:169-213 (InterestRateModel::verify)
 #[test]
 #[should_panic(expected = "#128")]
 fn test_rate_model_verify_rejects_negative_base_rate() {

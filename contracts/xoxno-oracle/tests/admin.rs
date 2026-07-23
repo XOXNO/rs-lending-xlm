@@ -9,6 +9,9 @@ use xoxno_oracle::{Error, XoxnoOracle, XoxnoOracleClient};
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{vec, Address, BytesN, Env, IntoVal};
 
+// Constructor failures surface via `env.register` panic (no `try_*` path).
+// `#3` == `Error::InvalidThreshold` (threshold 0 / too high / duplicate signers).
+
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
 fn constructor_rejects_threshold_of_zero() {

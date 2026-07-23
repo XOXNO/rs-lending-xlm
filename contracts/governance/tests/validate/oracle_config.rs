@@ -39,7 +39,7 @@ fn reflector_source(
 }
 
 #[test]
-fn test_single_twap_primary_passes_production_shape() {
+fn single_twap_primary_passes_production_shape() {
     let env = Env::default();
     let contract = Address::generate(&env);
     let asset = OracleAssetRef::Stellar(Address::generate(&env));
@@ -52,7 +52,7 @@ fn test_single_twap_primary_passes_production_shape() {
 
 #[test]
 #[cfg(not(feature = "testing"))]
-fn test_single_spot_primary_passes_production_shape() {
+fn single_spot_primary_passes_production_shape() {
     let env = Env::default();
     let contract = Address::generate(&env);
     let asset = OracleAssetRef::Stellar(Address::generate(&env));
@@ -65,7 +65,7 @@ fn test_single_spot_primary_passes_production_shape() {
 
 #[test]
 #[cfg(not(feature = "testing"))]
-fn test_single_redstone_primary_passes_production_shape() {
+fn single_redstone_primary_passes_production_shape() {
     let env = Env::default();
     let primary = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
         contract: Address::generate(&env),
@@ -79,7 +79,7 @@ fn test_single_redstone_primary_passes_production_shape() {
 #[test]
 #[cfg(not(feature = "testing"))]
 #[should_panic(expected = "Error(Contract, #11)")]
-fn test_dual_same_reflector_provider_rejects() {
+fn dual_same_reflector_provider_rejects() {
     let env = Env::default();
     let contract = Address::generate(&env);
     let asset = OracleAssetRef::Stellar(Address::generate(&env));
@@ -98,7 +98,7 @@ fn test_dual_same_reflector_provider_rejects() {
 #[test]
 #[cfg(not(feature = "testing"))]
 #[should_panic(expected = "Error(Contract, #38)")]
-fn test_dual_redstone_primary_rejects_spot_only_mode() {
+fn dual_redstone_primary_rejects_spot_only_mode() {
     let env = Env::default();
     let contract = Address::generate(&env);
     let feed_a = String::from_str(&env, "BTC/USD");
@@ -121,7 +121,7 @@ fn test_dual_redstone_primary_rejects_spot_only_mode() {
 
 #[test]
 #[cfg(not(feature = "testing"))]
-fn test_single_xoxno_primary_passes_production_shape() {
+fn single_xoxno_primary_passes_production_shape() {
     let env = Env::default();
     let primary = OracleSourceConfigInput::Xoxno(RedStoneSourceConfigInput {
         contract: Address::generate(&env),
@@ -134,7 +134,7 @@ fn test_single_xoxno_primary_passes_production_shape() {
 
 #[test]
 #[cfg(not(feature = "testing"))]
-fn test_dual_reflector_twap_primary_with_xoxno_anchor_passes() {
+fn dual_reflector_twap_primary_with_xoxno_anchor_passes() {
     let env = Env::default();
     let contract = Address::generate(&env);
     let asset = OracleAssetRef::Stellar(Address::generate(&env));
@@ -155,7 +155,7 @@ fn test_dual_reflector_twap_primary_with_xoxno_anchor_passes() {
 #[test]
 #[cfg(not(feature = "testing"))]
 #[should_panic(expected = "Error(Contract, #38)")]
-fn test_dual_xoxno_primary_rejects_spot_only_mode() {
+fn dual_xoxno_primary_rejects_spot_only_mode() {
     let env = Env::default();
     let primary = OracleSourceConfigInput::Xoxno(RedStoneSourceConfigInput {
         contract: Address::generate(&env),
@@ -176,7 +176,7 @@ fn test_dual_xoxno_primary_rejects_spot_only_mode() {
 #[test]
 #[cfg(not(feature = "testing"))]
 #[should_panic(expected = "Error(Contract, #11)")]
-fn test_dual_shared_contract_across_variants_rejects() {
+fn dual_shared_contract_across_variants_rejects() {
     // The dual-ABI adapter listed once as SEP-40 primary and once as a
     // Xoxno anchor is one aggregation state, not two opinions.
     let env = Env::default();
@@ -198,7 +198,7 @@ fn test_dual_shared_contract_across_variants_rejects() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #11)")]
-fn test_dual_redstone_and_xoxno_same_feed_rejects() {
+fn dual_redstone_and_xoxno_same_feed_rejects() {
     // Same (contract, feed_id) wire feed under two variant names is still the
     // same feed; `reads_same_feed_as` blocks it in every build.
     let env = Env::default();
@@ -222,42 +222,42 @@ fn test_dual_redstone_and_xoxno_same_feed_rejects() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #224)")]
-fn test_validate_sanity_bounds_rejects_non_positive() {
+fn validate_sanity_bounds_rejects_non_positive() {
     let env = Env::default();
     validate_sanity_bounds(&env, 0, MAX_REASONABLE_PRICE_WAD);
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #224)")]
-fn test_validate_sanity_bounds_rejects_min_ge_max() {
+fn validate_sanity_bounds_rejects_min_ge_max() {
     let env = Env::default();
     validate_sanity_bounds(&env, 100, 100);
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #224)")]
-fn test_validate_sanity_bounds_rejects_max_above_cap() {
+fn validate_sanity_bounds_rejects_max_above_cap() {
     let env = Env::default();
     validate_sanity_bounds(&env, 1, MAX_REASONABLE_PRICE_WAD + 1);
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #218)")]
-fn test_validate_max_stale_rejects_below_floor() {
+fn validate_max_stale_rejects_below_floor() {
     let env = Env::default();
     validate_max_stale(&env, MIN_PRICE_STALE_SECONDS - 1);
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #221)")]
-fn test_validate_decimals_rejects_out_of_range() {
+fn validate_decimals_rejects_out_of_range() {
     let env = Env::default();
     validate_decimals(&env, MIN_ORACLE_DECIMALS - 1);
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #219)")]
-fn test_validate_twap_records_rejects_zero() {
+fn validate_twap_records_rejects_zero() {
     let env = Env::default();
     validate_twap_records(&env, 0);
 }

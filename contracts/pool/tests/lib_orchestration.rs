@@ -1,18 +1,11 @@
 extern crate std;
 
-use crate::test_support::init_ledger;
+use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
-use common::types::{HubAssetKey, MarketParamsRaw, PoolAction, PoolSupplyEntry, ScaledPositionRaw};
+use common::types::{MarketParamsRaw, PoolAction, PoolSupplyEntry, ScaledPositionRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, vec, Address, Env};
-
-fn hub(asset: &Address) -> HubAssetKey {
-    HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    }
-}
 
 struct TestSetup {
     env: Env,
@@ -92,7 +85,7 @@ fn test_bulk_supply_returns_input_ordered_mutations() {
 }
 
 #[test]
-fn test_add_rewards_emits_snapshot_and_increases_supply_index() {
+fn test_add_rewards_increases_supply_index() {
     let t = TestSetup::new();
     let client = t.client();
     // Supply first so there are suppliers to reward.

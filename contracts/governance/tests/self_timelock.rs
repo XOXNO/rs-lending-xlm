@@ -5,25 +5,16 @@ use stellar_governance::timelock::OperationState;
 use crate::access::EXECUTOR_ROLE;
 use crate::constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS;
 use crate::op::{AdminOperation, RoleArgs};
-use crate::test_support::upload_controller_wasm;
-use crate::{Governance, GovernanceClient};
-
-const ZERO_SALT: [u8; 32] = [0u8; 32];
-
-fn register(env: &Env, min_delay: u32) -> (Address, GovernanceClient<'_>) {
-    let admin = Address::generate(env);
-    let gov_id = env.register(Governance, (admin.clone(), min_delay));
-    (admin, GovernanceClient::new(env, &gov_id))
-}
+use crate::test_support::{register, upload_controller_wasm, zero_salt, ZERO_SALT};
 
 #[test]
 fn propose_update_delay_schedules_waiting_operation() {
     let env = Env::default();
     env.mock_all_auths();
     let delay = 10u32;
-    let (admin, gov) = register(&env, delay);
+    let (admin, _gov_id, gov) = register(&env, delay);
 
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let id = gov.propose(&admin, &AdminOperation::UpdateGovDelay(15u32), &salt);
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 }
@@ -33,9 +24,9 @@ fn propose_update_delay_schedules_waiting_operation() {
 fn propose_update_delay_rejects_shortening() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, gov) = register(&env, 10);
+    let (admin, _gov_id, gov) = register(&env, 10);
 
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     gov.propose(&admin, &AdminOperation::UpdateGovDelay(5u32), &salt);
 }
 
@@ -44,20 +35,21 @@ fn propose_update_delay_rejects_shortening() {
 fn propose_update_delay_rejects_zero() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, gov) = register(&env, 10);
+    let (admin, _gov_id, gov) = register(&env, 10);
 
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     gov.propose(&admin, &AdminOperation::UpdateGovDelay(0u32), &salt);
 }
 
+// Propose path; direct `validate_delay_update` max-cap coverage is in timelock tests.
 #[test]
 #[should_panic(expected = "Error(Contract, #39)")]
 fn propose_update_delay_rejects_above_max_cap() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, gov) = register(&env, 10);
+    let (admin, _gov_id, gov) = register(&env, 10);
 
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let over_max = crate::constants::TIMELOCK_MAX_DELAY_LEDGERS + 1;
     gov.propose(&admin, &AdminOperation::UpdateGovDelay(over_max), &salt);
 }
@@ -66,8 +58,8 @@ fn propose_update_delay_rejects_above_max_cap() {
 fn propose_governance_upgrade_uses_sensitive_delay() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, gov) = register(&env, 10);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let (admin, _gov_id, gov) = register(&env, 10);
+    let salt = zero_salt(&env);
     let hash = BytesN::from_array(&env, &[9u8; 32]);
 
     let current = env.ledger().sequence();
@@ -85,8 +77,8 @@ fn execute_governance_upgrade_replaces_contract_code() {
     env.cost_estimate().budget().reset_unlimited();
     env.cost_estimate().disable_resource_limits();
     env.mock_all_auths();
-    let (admin, gov) = register(&env, 10);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let (admin, _gov_id, gov) = register(&env, 10);
+    let salt = zero_salt(&env);
     let hash = upload_controller_wasm(&env);
     let op = AdminOperation::UpgradeGov(hash);
 
@@ -104,9 +96,9 @@ fn execute_update_delay_applies_after_delay() {
     let env = Env::default();
     env.mock_all_auths();
     let delay = 10u32;
-    let (admin, gov) = register(&env, delay);
+    let (admin, _gov_id, gov) = register(&env, delay);
 
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     let id = gov.propose(&admin, &AdminOperation::UpdateGovDelay(15u32), &salt);
     env.ledger().with_mut(|l| l.sequence_number += delay);
     assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
@@ -125,8 +117,8 @@ fn execute_update_delay_applies_after_delay() {
 fn propose_grant_governance_role_rejects_unknown_role() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, gov) = register(&env, 10);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let (admin, _gov_id, gov) = register(&env, 10);
+    let salt = zero_salt(&env);
     gov.propose(
         &admin,
         &AdminOperation::GrantGovRole(RoleArgs {
@@ -142,9 +134,9 @@ fn propose_grant_governance_role_rejects_unknown_role() {
 fn non_proposer_cannot_propose_governance_upgrade() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_admin, gov) = register(&env, 10);
+    let (_admin, _gov_id, gov) = register(&env, 10);
     let stranger = Address::generate(&env);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
     gov.propose(
         &stranger,
         &AdminOperation::UpgradeGov(BytesN::from_array(&env, &ZERO_SALT)),
@@ -157,8 +149,8 @@ fn non_proposer_cannot_propose_governance_upgrade() {
 fn propose_governance_upgrade_rejects_zero_hash() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, gov) = register(&env, 10);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let (admin, _gov_id, gov) = register(&env, 10);
+    let salt = zero_salt(&env);
     gov.propose(
         &admin,
         &AdminOperation::UpgradeGov(BytesN::from_array(&env, &[0u8; 32])),
@@ -171,10 +163,10 @@ fn execute_grant_governance_role_after_delay() {
     let env = Env::default();
     env.mock_all_auths();
     let delay = 10u32;
-    let (admin, gov) = register(&env, delay);
+    let (admin, _gov_id, gov) = register(&env, delay);
     let grantee = Address::generate(&env);
     let role = Symbol::new(&env, EXECUTOR_ROLE);
-    let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+    let salt = zero_salt(&env);
 
     gov.propose(
         &admin,

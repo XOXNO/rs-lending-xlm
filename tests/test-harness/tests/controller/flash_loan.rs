@@ -365,6 +365,8 @@ fn test_flash_loan_strict_receiver_rejects_success_without_fee_prefund() {
         result.is_err(),
         "receiver cannot repay fee it was not prefunded with"
     );
+    // Host/token trap: transfer_from fails on insufficient receiver balance — not a
+    // controller/pool contract error code.
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
@@ -378,21 +380,11 @@ fn test_flash_loan_adversarial_receiver_no_repay_rejects() {
     let data = receiver_data(&t, FlashLoanMode::NoRepay);
 
     let amount = raw_units(&t, "USDC", 10_000);
-    let asset = t.resolve_asset("USDC");
     let reserves_before = pool_reserves(&t, "USDC");
-    let caller = t.get_or_create_user(BOB);
 
-    t.env.set_auths(&[]);
-    let result = strict_flash_loan(
-        &t,
-        &caller,
-        &hub_asset(asset.clone()),
-        amount,
-        &receiver,
-        &data,
-    );
-
-    assert!(result.is_err(), "no-repay receiver must fail");
+    // No approve → pool allowance gate returns InvalidFlashloanRepay (#402).
+    let result = t.try_flash_loan_with_data(BOB, "USDC", amount, &receiver, &data);
+    assert_contract_error(result, errors::INVALID_FLASHLOAN_REPAY);
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
@@ -447,6 +439,8 @@ fn test_flash_loan_adversarial_receiver_reenter_pool_flash_loan_rejects() {
     );
 
     assert!(result.is_err(), "receiver pool reentry must fail");
+    // Host/auth trap: nested pool.flash_loan is only_owner and fails under the
+    // empty-auth strict path — not a stable controller error code.
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
@@ -475,6 +469,8 @@ fn test_flash_loan_adversarial_receiver_callback_panic_rolls_back() {
     );
 
     assert!(result.is_err(), "callback panic must fail");
+    // Host trap: receiver deliberately panic_with_error(CallbackPanic) — not a
+    // pool/controller error code.
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
@@ -485,26 +481,13 @@ fn test_flash_loan_non_contract_receiver_rejects_and_rolls_back() {
     t.supply(ALICE, "USDC", 100_000.0);
 
     let amount = raw_units(&t, "USDC", 10_000);
-    let asset = t.resolve_asset("USDC");
     let non_contract_receiver = Address::generate(&t.env);
     let reserves_before = pool_reserves(&t, "USDC");
-    let caller = t.get_or_create_user(BOB);
     let data = receiver_data(&t, FlashLoanMode::Success);
 
-    t.env.set_auths(&[]);
-    let result = strict_flash_loan(
-        &t,
-        &caller,
-        &hub_asset(asset.clone()),
-        amount,
-        &non_contract_receiver,
-        &data,
-    );
-
-    assert!(
-        result.is_err(),
-        "non-contract receiver cannot handle execute_flash_loan"
-    );
+    let result =
+        t.try_flash_loan_with_data(BOB, "USDC", amount, &non_contract_receiver, &data);
+    assert_contract_error(result, errors::INVALID_FLASHLOAN_RECEIVER);
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
@@ -532,6 +515,7 @@ fn test_flash_loan_adversarial_receiver_rejects_invalid_data() {
     );
 
     assert!(result.is_err(), "malformed receiver data must fail");
+    // Host trap: receiver decode panics with InvalidData — not a pool error code.
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
@@ -567,6 +551,8 @@ fn test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects() {
         result.is_err(),
         "receiver controller-reentry must fail under flash-loan guard"
     );
+    // Host trap: test receiver targets a hardcoded testnet controller address that
+    // is not deployed here — not FLASH_LOAN_ONGOING on this harness.
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }

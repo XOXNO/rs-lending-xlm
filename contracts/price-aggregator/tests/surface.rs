@@ -6,7 +6,7 @@ use common::types::{
     OracleTolerance, RedStoneSourceConfig,
 };
 use mock_redstone::{MockRedStonePriceFeed, MockRedStonePriceFeedClient};
-use price_aggregator::{PriceAggregator, PriceAggregatorClient};
+use price_aggregator::{Error, PriceAggregator, PriceAggregatorClient};
 use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::{Address, Env, String, Vec};
 
@@ -132,12 +132,16 @@ fn price_status_dual_one_stale_leg_marks_stale() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #216)")]
 fn prices_reverts_for_unconfigured_asset() {
     let env = Env::default();
     let (_owner, client) = register_agg(&env);
     let asset = Address::generate(&env);
-    client.prices(&Vec::from_array(&env, [asset]));
+    assert_eq!(
+        client.try_prices(&Vec::from_array(&env, [asset])),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            Error::OracleNotConfigured as u32,
+        )))
+    );
 }
 
 #[test]
@@ -477,27 +481,35 @@ fn set_sanity_band_and_tolerance_update_live_config() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #216)")]
 fn set_tolerance_unknown_asset_reverts_oracle_not_configured() {
     let env = Env::default();
     env.mock_all_auths();
     let (_owner, client) = register_agg(&env);
-    client.set_tolerance(
-        &Address::generate(&env),
-        &OracleTolerance {
-            upper_ratio_bps: 10_200,
-            lower_ratio_bps: 9_800,
-        },
+    assert_eq!(
+        client.try_set_tolerance(
+            &Address::generate(&env),
+            &OracleTolerance {
+                upper_ratio_bps: 10_200,
+                lower_ratio_bps: 9_800,
+            },
+        ),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            Error::OracleNotConfigured as u32,
+        )))
     );
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #216)")]
 fn set_sanity_band_unknown_asset_reverts_oracle_not_configured() {
     let env = Env::default();
     env.mock_all_auths();
     let (_owner, client) = register_agg(&env);
-    client.set_sanity_band(&Address::generate(&env), &(WAD / 2), &(WAD * 2));
+    assert_eq!(
+        client.try_set_sanity_band(&Address::generate(&env), &(WAD / 2), &(WAD * 2)),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            Error::OracleNotConfigured as u32,
+        )))
+    );
 }
 
 #[test]
