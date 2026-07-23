@@ -1,6 +1,6 @@
 # STRIDE Threat Model — XOXNO Lending (Soroban)
 
-**Status:** accepted residual risks only (fixed / mitigated / open items removed).  
+**Status:** accepted residual risks only.  
 **Last refresh:** 2026-07-24.
 
 **Scope:** core contracts `contracts/governance`, `controller`, `pool`, plus

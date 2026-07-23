@@ -88,9 +88,7 @@ from `contracts/controller/src/storage/`. Oracle configs are **not**
 - `PositionLimits`, `MinBorrowCollateralUsd`, `AppVersion`
 - `LastSpokeId`, `LastHubId` (id allocators)
 
-Former `PoolTemplate` instance key was deleted (fresh redeploy only; not
-upgrade-safe). No approved-token registry, no token/Blend count registries on
-the controller.
+No approved-token registry, no token/Blend count registries on the controller.
 
 ### Controller — persistent
 

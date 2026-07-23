@@ -444,7 +444,7 @@ flowchart TD
     C -->|missing / pending| R1["revert"]
     C -->|ok| D["read primary + future + stale"]
     D --> E{"OracleStrategy"}
-    E -->|Single PrimaryOnly| F["final = primary"]
+    E -->|Single| F["final = primary"]
     E -->|PrimaryWithAnchor| G["read anchor + future + stale"]
     G --> H{"ratio in band?"}
     H -->|no| R2["UnsafePriceNotAllowed"]

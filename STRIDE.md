@@ -1,5 +1,5 @@
 # Threat model
 
-Moved to the explanation guide:
+See the explanation guide:
 
 **[docs/explanation/threat-model.md](./docs/explanation/threat-model.md)**

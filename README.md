@@ -33,7 +33,7 @@ Start at **[docs/README.md](./docs/README.md)** (Diátaxis map).
 | [certora/](./certora/README.md) | Formal verification |
 | [SECURITY.md](./SECURITY.md) | Vulnerability disclosure |
 
-Root stubs for old paths: [DEPLOYMENT.md](./DEPLOYMENT.md),
+Root redirects: [DEPLOYMENT.md](./DEPLOYMENT.md),
 [SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md),
 [STRIDE.md](./STRIDE.md).
 

@@ -42,7 +42,7 @@ Before public unpause:
    bootstrap delay; operators raise delay before go-live (see
    [DEPLOYMENT.md](../../how-to/deploy-and-operate.md)).
 5. Production roles and incident keys (including GUARDIAN) are assigned;
-   deployer no longer holds residual authority.
+   deployer holds no residual authority.
 6. Monitoring covers caps, reserves, oracle freshness/deviation, health-factor
    distribution, liquidations, bad debt, indexes, TTL, timelock ops, and revenue.
 7. Pause drill: GUARDIAN pause, gated mutations rejected, then

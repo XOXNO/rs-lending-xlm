@@ -135,8 +135,9 @@ make mainnet updateDelay 34560
 # unpause via AdminOperation::Unpause when ready
 ```
 
-A fresh deploy creates **new** addresses; the old stack is dead (no position
-migration). Point UI / API / indexer at the new ids.
+A new deploy writes **new** addresses into `networks.json`. There is no
+in-place position migration across controller deployments. Point UI / API /
+indexer at the new ids.
 
 ---
 

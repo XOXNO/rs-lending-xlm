@@ -47,7 +47,7 @@ Operators also choose economically independent feeds, not only distinct provider
 | Strategy | Rules |
 |----------|--------|
 | **PrimaryWithAnchor** | Anchor required. Production: non-spot primary (typically Reflector TWAP) and a different provider/contract as anchor. Spot primary reverts with `SpotOnlyNotProductionSafe`. |
-| **Single** (PrimaryOnly; storage discriminant kept as `Single`) | Primary only. Spot is allowed. Sanity band capped at ±10% midpoint-relative (`MAX_SINGLE_SOURCE_SANITY_BAND_BPS`). Wider bands require the anchored strategy. |
+| **Single** (`OracleStrategy::Single`; call sites often say PrimaryOnly) | Primary only. Spot is allowed. Sanity band capped at ±10% midpoint-relative (`MAX_SINGLE_SOURCE_SANITY_BAND_BPS`). Wider bands require the anchored strategy. |
 
 ### Tolerance
 
