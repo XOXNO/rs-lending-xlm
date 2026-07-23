@@ -190,7 +190,7 @@ fn test_max_withdraw_pool_bounds_partial_when_full_close_blocked() {
         Ok(Err(err)) => Err(err.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert!(res.is_err(), "max + 3 must not be withdrawable");
+    assert_contract_error(res, errors::POOL_INSOLVENT);
 
     t.withdraw_raw(ALICE, "USDC", max);
     let residue = t

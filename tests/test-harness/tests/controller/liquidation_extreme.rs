@@ -312,12 +312,17 @@ fn test_high_value_low_decimal_collateral() {
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
+    let hf_before = t.health_factor(ALICE);
     let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", 5_000.0, "K3", 50_000.0);
     assert!(
         ratio > 1.0 && ratio < 1.30,
         "low-decimal high-value liquidation stays within bonus bounds, got {ratio}"
     );
-    assert!(t.health_factor(ALICE) > 0.0);
+    let hf_after = t.health_factor(ALICE);
+    assert!(
+        hf_after >= hf_before,
+        "solvent partial must not worsen HF: {hf_before:.4} -> {hf_after:.4}"
+    );
 }
 
 // Extreme decimal spread in one account: 3-decimal collateral, 18-decimal debt.
