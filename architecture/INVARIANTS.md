@@ -208,6 +208,14 @@ unscaled treasury claim, the pool pays `min(cash, treasury_actual)` and burns
 the matching fraction of scaled revenue (and the same amount from `supplied`)
 so `revenue_ray <= supplied_ray` holds.
 
+### 2.6 No orphan debt after withdraw / claim
+
+After `withdraw` and `claim_revenue`, the pool rejects
+`supplied == 0 && borrowed != 0` (`require_solvent_withdraw_state` →
+`PoolInsolvent`). That gate does **not** run on `net_settle` (cash-neutral
+share burns only); callers must not leave an empty-supply residual debt via
+settle.
+
 ### 2.5 Flash-loan repayment
 
 Balances below are the pool SAC balance for the loaned asset
