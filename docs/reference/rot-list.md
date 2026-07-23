@@ -10,5 +10,6 @@ Erase mismatches when code or the tree changes. Code is truth.
 | Missing `is_flashloanable` / `flashloan_fee` | Deploy configs, reading/flash skills | Fields live on `MarketParams` / `InterestRateModel` |
 | Stale HF `1.02` / knee `0.51` in product docs | Prefer `DEFAULT_*` in controller | Align or delete |
 | Interface methods with only inherited blurbs | `interfaces/*` | Per-method docs per doc-style |
+| `AssetOracle` / oracle config implied on controller | architecture, invariants, ADRs, skills, keeper notes | Config is `AggregatorKey::AssetOracle(asset)` on **price-aggregator**; controller only stores `PriceAggregator` addr + cross-calls |
 
 Inventory: [endpoint-inventory.md](./endpoint-inventory.md).

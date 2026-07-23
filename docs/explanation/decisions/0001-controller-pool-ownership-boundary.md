@@ -22,7 +22,7 @@ Three-contract production topology:
 | Contract | Role |
 |----------|------|
 | **Governance** | Owns the controller. Typed `AdminOperation` + timelock (ADR 0010). Roles (`PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, `GUARDIAN`) live here, not on the controller. |
-| **Controller** | Sole user-facing surface: accounts, spokes, oracle, risk, liquidation, strategies, flash loans, pause state, pool ownership. Admin surface is `#[only_owner]` (owner = governance after deploy). |
+| **Controller** | Sole user-facing surface: accounts, spokes, risk, liquidation, strategies, flash loans, pause state, pool ownership. Holds instance `PriceAggregator` address and cross-calls for prices (does **not** store `AssetOracle`). Admin surface is `#[only_owner]` (owner = governance after deploy). |
 | **Pool** | Owned by the controller. Custody + `Params`/`State` per `HubAssetKey`. All mutators `#[only_owner]`. No `transfer_ownership` in the pool ABI. |
 
 Wiring:
@@ -33,7 +33,8 @@ Wiring:
   reached via timelocked admin — hash is an argument, not stored state).
   Day-2 pool WASM changes use the same shape: timelocked `UpgradePool(hash)`.  
 - Market creation creates pool rows for the `HubAssetKey` on that single pool.
-  Price activation is separate: token-rooted `AssetOracle(asset)` must exist.
+  Price activation is separate: token-rooted `AggregatorKey::AssetOracle(asset)`
+  must exist on **price-aggregator** (persistent), not on the controller.
 
 New controllers start **paused**. Resume is timelocked
 `AdminOperation::Unpause` (GUARDIAN can pause immediately; see ADR 0010 / 0011).
@@ -55,7 +56,8 @@ forwards to the configured accumulator.
 **Positive**
 
 - User flows cross one pool boundary.  
-- Risk and oracle policy stay in the controller.  
+- Risk stays in the controller; oracle config/policy lives on price-aggregator
+  (`AggregatorKey::AssetOracle`). Controller only stores the aggregator address.
 - Markets stay isolated by `HubAssetKey`.  
 - Internal pool `cash` means direct token donations do not raise borrowable liquidity.  
 - Admin is primarily timelocked; incident paths are narrow and named.  
@@ -73,5 +75,6 @@ forwards to the configured accumulator.
 - `common/src/types/{pool,controller}.rs`  
 - `contracts/governance/src/{deploy,timelock,op,access}.rs`  
 - `contracts/controller/src/{governance/access,pool_ops,config,setup,external/pool,storage}.rs`  
+- `contracts/price-aggregator/src/storage.rs` (`AggregatorKey::AssetOracle`)  
 - `contracts/pool/src/lib.rs`  
-- `interfaces/{pool,controller_admin}`  
+- `interfaces/{pool,controller_admin,price-aggregator}`  

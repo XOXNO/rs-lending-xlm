@@ -35,8 +35,11 @@ resume after configuration.
   owner-only (owner = governance).
 - Global pause keeps `repay`, `withdraw`, `liquidate`, `clean_bad_debt` open;
   spoke `paused`/`frozen` per [ADR 0011](../explanation/decisions/0011-pause-and-freeze-matrix.md).
-- Oracle: token-rooted `AssetOracle(asset)`; Reflector / RedStone / xoxno-oracle;
-  dual-source tolerance; fail-closed.
+- Oracle: controller stores `PriceAggregator` address (instance) and
+  cross-calls it. Token-rooted config is
+  `AggregatorKey::AssetOracle(asset)` on **price-aggregator** (persistent).
+  Providers: Reflector / RedStone / xoxno-oracle; dual-source tolerance;
+  fail-closed.
 
 ## 2. Topology
 
@@ -48,9 +51,10 @@ flowchart TB
     Keeper["Keeper off-chain"] -->|"TTL / update_indexes"| Controller
 
     Controller ==>|"only_owner"| Pool["Pool"]
-    Controller --> Reflector["Reflector"]
-    Controller --> RedStone["RedStone"]
-    Controller --> Xoxno["xoxno-oracle"]
+    Controller -->|"instance addr + cross-call"| PriceAgg["price-aggregator"]
+    PriceAgg --> Reflector["Reflector"]
+    PriceAgg --> RedStone["RedStone"]
+    PriceAgg --> Xoxno["xoxno-oracle"]
     Controller --> Router["swap-aggregator"]
     Controller --> Accumulator["Accumulator"]
     Pool --> Tokens["SAC tokens"]
@@ -65,36 +69,46 @@ signed caller (permissionless paths where the contract allows).
 - **Hubs** isolate markets: same token on hub 1 vs hub 2 → separate indexes,
   cash, revenue, debt, bad-debt socialization.
 - **Spokes** (ids ≥ 1): each account binds one spoke; listings are
-  `SpokeAsset(spoke_id, HubAssetKey)` with risk, caps, pause/freeze, optional
-  oracle override.
-- No market-status enum: price-active when token-rooted `AssetOracle(asset)`
-  exists and source validation passes.
+  `SpokeAsset(spoke_id, HubAssetKey)` with risk, caps, and pause/freeze.
+  There is **no** per-spoke oracle override on the listing row.
+- No market-status enum: price-active when token-rooted
+  `AggregatorKey::AssetOracle(asset)` exists on price-aggregator and source
+  validation passes.
 
 ## 4. Storage shape
 
-Keys: `ControllerKey` in `common/src/types/controller.rs`. Tiers from
-`contracts/controller/src/storage/`.
+Controller keys: `ControllerKey` in `common/src/types/controller.rs`. Tiers
+from `contracts/controller/src/storage/`. Oracle configs are **not**
+`ControllerKey` entries — they live on price-aggregator
+(`contracts/price-aggregator/src/storage.rs`).
 
 ### Controller — instance
 
 - `Pool`, `SwapAggregator`, `PriceAggregator`, `Accumulator`
-  (`PoolTemplate` is a reserved unused key kept for storage discriminant stability)
+  (`PoolTemplate` is a reserved unused variant kept for discriminant stability;
+  never read/written by current code)
 - `PositionLimits`, `MinBorrowCollateralUsd`, `AppVersion`
 - `LastSpokeId`, `LastHubId` (id allocators)
-- `PositionManager(Address)` (active managers; absence = inactive)
-- Local registries: approved tokens, approved Blend pools, counts
+
+No approved-token registry, no token/Blend count registries on the controller.
 
 ### Controller — persistent
 
 - `AccountNonce` (not instance: avoids re-renting the whole instance envelope)
 - `Hub(u32)`
-- `AssetOracle(Address)` — token-rooted oracle config
 - `Spoke(u32)`, `SpokeAsset(u32, HubAssetKey)`, `SpokeUsage(u32, HubAssetKey)`
+- `PositionManager(Address)` — active managers; absence = inactive
+- `BlendPoolAllowed(Address)` — governance allowlist for Blend migration;
+  absence = not approved
 - `AccountMeta(u64)`, `Delegates(u64)`, `SupplyPositions(u64)`, `BorrowPositions(u64)`
 
 ### Controller — temporary
 
-- Flash-loan ongoing flag (reentrancy session)
+- `SessionKey::FlashLoanOngoing` (reentrancy session; not a `ControllerKey`)
+
+### Price-aggregator — persistent
+
+- `AggregatorKey::AssetOracle(Address)` — token-rooted `AssetOracleConfig`
 
 ### Pool — persistent
 
@@ -149,15 +163,17 @@ Controller-owned:
 ## 8. Spokes and risk
 
 Spoke asset row: collateral/borrow flags, paused/frozen, LTV, threshold, bonus,
-liquidation fee, supply/borrow caps, optional oracle override.
+liquidation fee, supply/borrow caps. Pricing is token-rooted on the
+price-aggregator — not overridden per spoke listing.
 
 Borrow and indebted-withdraw load risk from the account’s spoke; unlisted assets
 revert before risk math.
 
 ## 9. Oracle
 
-1. Load token-rooted `AssetOracle(asset)`.
-2. Optional spoke oracle override.
+1. Controller loads instance `PriceAggregator` and cross-calls it
+   (`contracts/controller/src/external/price_aggregator.rs`).
+2. Aggregator loads persistent `AggregatorKey::AssetOracle(asset)`.
 3. Read Reflector, RedStone, and/or `xoxno-oracle`.
 4. Staleness, future skew, decimals, sanity, dual-source tolerance.
 5. Normalize to USD WAD.
@@ -174,7 +190,8 @@ RAY for rates/indexes; WAD for USD risk; token-native at transfer boundaries.
 ## 11. Flash loans
 
 Controller-routed, pool-settled: validate → pool loan + callback → pull
-principal+fee → fee to revenue. Controller flash guard blocks reentrant mutators.
+principal+fee → fee to revenue. Temporary `SessionKey::FlashLoanOngoing`
+blocks reentrant mutators.
 
 ## 12. Strategies
 
@@ -213,10 +230,11 @@ A check counts only if it ran on the current tree and output was reviewed.
 ## 15. Security review focus
 
 - `HubAssetKey` isolation (controller, pool, keeper, docs)
-- Oracle reconfigure via `AssetOracle(asset)` + tolerance re-validation
+- Oracle reconfigure via price-aggregator `AggregatorKey::AssetOracle(asset)`
+  + tolerance re-validation (controller only holds aggregator address)
 - Spoke listing, caps, pause/freeze / tainted debt
-- Auth: owner, delegates, position managers
-- Flash-loan and strategy reentrancy
+- Auth: owner, delegates, persistent `PositionManager` / `BlendPoolAllowed`
+- Flash-loan and strategy reentrancy (`SessionKey::FlashLoanOngoing`)
 - Pool `cash` and bad-debt floor
 - Governance timelock, role separation, non-cancellable role revoke, Unpause path
 - Keeper TTL coverage and config drift

@@ -24,9 +24,11 @@ which flows call the oracle (ADR 0004), not weaker price validation.
 ## Decision
 
 Resolve prices through the price-aggregator (`resolve_usd_price` /
-`prices` / soft `prices_status` for views) to USD WAD. Each asset stores an `AssetOracleConfig`
-(storage key `AssetOracle(asset)`): strategy, primary source, optional anchor,
-tolerance, sanity band, and staleness bounds.
+`prices` / soft `prices_status` for views) to USD WAD. The controller stores
+only the price-aggregator address (`ControllerKey::PriceAggregator`, instance).
+Token-rooted config lives on the price-aggregator as persistent
+`AggregatorKey::AssetOracle(asset)` → `AssetOracleConfig`: strategy, primary
+source, optional anchor, tolerance, sanity band, and staleness bounds.
 
 ### Sources and diversity
 
@@ -76,10 +78,11 @@ RedStone/Xoxno use per-source `max_stale_seconds`; both are clamped to
 
 Governance schedules `ConfigureMarketOracle` and `EditOracleTolerance` after
 validation and a live probe. Execute invokes price-aggregator
-`set_oracle_config` and persists `AssetOracle(asset)`. `EditOracleTolerance`
-re-validates the band only. Aggregator `set_tolerance` runs
-`validate_oracle_tolerance` so a direct owner call cannot store a degenerate
-band.
+`set_oracle_config`, which writes persistent `AggregatorKey::AssetOracle(asset)`
+on the aggregator (not on the controller). `EditOracleTolerance` re-validates
+the band only and calls aggregator `set_tolerance`. Aggregator `set_tolerance`
+runs `validate_oracle_tolerance` so a direct owner call cannot store a
+degenerate band.
 
 ## Alternatives considered
 
@@ -105,8 +108,9 @@ correlated upstream moves can pass the band if both legs move together.
 
 - [invariants.md](../../reference/invariants.md) §4.2–4.3  
 - [ADR 0004](./0004-cache-permissiveness-policy.md)  
-- `contracts/price-aggregator/src/{price,compose,tolerance,observation,providers,prefetch}`  
+- `contracts/price-aggregator/src/{storage,price,compose,tolerance,observation,providers,prefetch}`  
 - `interfaces/price-aggregator`  
+- `contracts/controller/src/storage/protocol.rs` (`ControllerKey::PriceAggregator`)  
 - `contracts/governance/src/validate/{oracle_config,oracle_probe,tolerance}.rs`  
 - `contracts/governance/src/op.rs`  
 - `common/src/types/oracle.rs`, `common/src/constants/shared.rs`  

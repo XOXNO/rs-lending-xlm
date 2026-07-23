@@ -206,9 +206,11 @@ Live system: governance owns controller, markets active, protocol **unpaused**,
 `getPrice` resolves for each market.
 
 **Keeper (TTL):** separate workspace `services/keeper` (see its README). Extends
-TTL for controller instance/persistent keys (oracles, spokes, accounts, etc.),
-pool, governance, WASM. Self-authorizes `update_indexes` (no controller
-`KEEPER` role). Without it, storage can archive. Uses the same `networks.json`.
+TTL for controller instance (incl. `PriceAggregator` addr) and persistent keys
+(spokes, accounts, etc.), price-aggregator persistent
+`AggregatorKey::AssetOracle(asset)`, pool, governance, WASM. Self-authorizes
+`update_indexes` (no controller `KEEPER` role). Without it, storage can
+archive. Uses the same `networks.json`.
 
 ---
 

@@ -24,7 +24,7 @@ Defined in `common/src/constants/shared.rs` (`BPS`, `WAD`, `RAY`).
 
 | Kind | Location |
 |------|----------|
-| Runtime | `common/src/*`, `contracts/pool/src/*`, `contracts/controller/src/*` |
+| Runtime | `common/src/*`, `contracts/pool/src/*`, `contracts/controller/src/*`, `contracts/price-aggregator/src/*` |
 | Certora | `certora/{common,pool,controller}/spec/*_rules.rs` |
 | Fuzz / harness | `tests/fuzz/fuzz_targets/*`, `tests/test-harness/tests/*` |
 
@@ -379,6 +379,11 @@ post-pool solvency checks.
 
 ### 4.2 Oracle setup
 
+Token-rooted config is `AggregatorKey::AssetOracle(asset)` on
+**price-aggregator** (persistent). Controller stores only the instance
+`PriceAggregator` address and cross-calls; it does **not** hold `AssetOracle`
+keys.
+
 For each active market:
 
 - Token decimals from the token contract; per-source decimals discovered
@@ -427,11 +432,15 @@ strategies, and price-resolving views. Full table: ADR 0004.
 
 Oracle timestamps beyond `MAX_FUTURE_SKEW_SECONDS` (60s) always revert.
 
+Resolution below runs on **price-aggregator** after the controller cross-call
+(`prices` / `price`). `load AssetOracle` means persistent
+`AggregatorKey::AssetOracle(asset)` on that contract — not a controller key.
+
 ```mermaid
 flowchart TD
-    A["resolve_usd_price(asset)"] --> B{"tx ResolutionContext hit?"}
+    A["price-aggregator resolve_usd_price(asset)"] --> B{"tx ResolutionContext hit?"}
     B -->|yes| Z["return cached"]
-    B -->|no| C["push_resolution + load AssetOracle"]
+    B -->|no| C["push_resolution + load AggregatorKey::AssetOracle"]
     C -->|missing / pending| R1["revert"]
     C -->|ok| D["read primary + future + stale"]
     D --> E{"OracleStrategy"}
@@ -522,15 +531,20 @@ Instance storage is bumped on controller and pool hot paths.
 
 - Account keys on touch: `AccountMeta`, `SupplyPositions`, `BorrowPositions`,
   and `Delegates` when present.
-- Shared keys (spokes, listings, hubs, oracles, pool `Params`/`State`, and
-  related) renew on read/write and/or keeper.
+- Controller shared keys (spokes, listings, hubs, and related) renew on
+  read/write and/or keeper. Pool `Params`/`State` renew on pool read/write
+  and/or keeper. Oracle configs renew on price-aggregator read/write of
+  `AggregatorKey::AssetOracle(asset)` (not controller-owned) and/or keeper
+  when `contracts.price_aggregator` is set.
 - Owner-authenticated `renew_account` re-bumps existing account keys.
 
-Keeper (`services/keeper`) covers instances, oracles, hubs, spokes, per-account
-keys including `Delegates`, and pool `Params`/`State` for configured markets.
-Some keys (for example `SpokeAsset` / `SpokeUsage`) rely on activity and
-contract renew rather than keeper enumeration. Any new persistent key must have
-a renew path.
+Keeper (`services/keeper`) covers controller/pool/governance/price-aggregator
+instances (and configured WASM), controller hubs/spokes/per-account keys
+including `Delegates`, pool `Params`/`State` for configured markets, and
+price-aggregator persistent `AggregatorKey::AssetOracle(asset)` rows — not
+controller-owned oracle config keys. Some keys (for example `SpokeAsset` /
+`SpokeUsage`) rely on activity and contract renew rather than keeper
+enumeration. Any new persistent key must have a renew path.
 
 Position writes only persist the touched side (`PositionSides`). Unrelated side
 maps must not be rewritten.
