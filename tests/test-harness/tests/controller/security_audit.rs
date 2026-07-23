@@ -126,6 +126,60 @@ fn regression_borrow_restamps_bonus_and_fees() {
     assert_eq!(fees1, 50, "borrow must restamp liquidation fees");
 }
 
+/// Restamp triggers when only the liquidation bonus diverges (LTV and fees held
+/// equal), so the bonus term of the skip guard is load-bearing on its own.
+#[test]
+fn regression_borrow_restamps_bonus_only() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let id = t.resolve_account_id(ALICE);
+    let (ltv0, _, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!((ltv0, bonus0, fees0), (7_500, 500, 100));
+
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 7_500;
+        c.liquidation_bonus = 300;
+        c.liquidation_fees = 100;
+    });
+
+    t.borrow(ALICE, "ETH", 1.0);
+    let (ltv1, _, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!(ltv1, 7_500, "LTV unchanged");
+    assert_eq!(fees1, 100, "fees unchanged");
+    assert_eq!(bonus1, 300, "bonus-only divergence must restamp");
+}
+
+/// Restamp triggers when only the liquidation fees diverge (LTV and bonus held
+/// equal), so the fees term of the skip guard is load-bearing on its own.
+#[test]
+fn regression_borrow_restamps_fees_only() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let id = t.resolve_account_id(ALICE);
+    let (ltv0, _, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!((ltv0, bonus0, fees0), (7_500, 500, 100));
+
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 7_500;
+        c.liquidation_bonus = 500;
+        c.liquidation_fees = 50;
+    });
+
+    t.borrow(ALICE, "ETH", 1.0);
+    let (ltv1, _, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!(ltv1, 7_500, "LTV unchanged");
+    assert_eq!(bonus1, 500, "bonus unchanged");
+    assert_eq!(fees1, 50, "fees-only divergence must restamp");
+}
+
 /// After a listing LTV cut, `get_ltv_collateral_usd` uses live listing LTV
 /// without requiring a prior restamping mutator.
 #[test]
