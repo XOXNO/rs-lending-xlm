@@ -77,7 +77,8 @@ Keys: `ControllerKey` in `common/src/types/controller.rs`. Tiers from
 
 ### Controller — instance
 
-- `Pool`, `PoolTemplate`, `Aggregator`, `Accumulator`
+- `Pool`, `SwapAggregator`, `PriceAggregator`, `Accumulator`
+  (`PoolTemplate` is a reserved unused key kept for storage discriminant stability)
 - `PositionLimits`, `MinBorrowCollateralUsd`, `AppVersion`
 - `LastSpokeId`, `LastHubId` (id allocators)
 - `PositionManager(Address)` (active managers; absence = inactive)

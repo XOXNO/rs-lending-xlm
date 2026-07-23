@@ -49,7 +49,6 @@
 | controller | `repay_debt_with_collateral` | interfaces/controller/src/lib.rs:111 | True | False | iface |
 | controller | `revoke_blend_pool` | interfaces/controller/src/admin.rs:55 | True | False | iface |
 | controller | `set_accumulator` | interfaces/controller/src/admin.rs:19 | True | False | iface |
-| controller | `set_liquidity_pool_template` | interfaces/controller/src/admin.rs:20 | True | False | iface |
 | controller | `set_min_borrow_collateral_usd` | interfaces/controller/src/admin.rs:23 | True | False | iface |
 | controller | `set_position_limits` | interfaces/controller/src/admin.rs:21 | True | False | iface |
 | controller | `set_position_manager` | interfaces/controller/src/admin.rs:56 | True | False | iface |

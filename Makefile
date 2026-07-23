@@ -15,7 +15,8 @@
 #   make mainnet deploy             Deploy all contracts to mainnet
 #   make testnet upgradeController  Upgrade controller in-place on testnet
 #   make testnet upgradeGovernance  Upgrade governance in-place on testnet
-#   make testnet upgradeAll         Upgrade pool template, controller, pools, then unpause
+#   make testnet upgradePool        Upload + upgrade central pool
+#   make testnet upgradeAll         upgradePool + upgradeController, then unpause
 #   make testnet setup              Deploy + configure markets/spokes, then unpause
 #   make mainnet setup              Deploy + configure markets/spokes (LEFT PAUSED)
 #   make testnet resume             Re-run configure/markets/spokes/unpause (skips deploy)
@@ -52,9 +53,9 @@ SHELL := /bin/bash
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
-        keygen deploy-testnet deploy-mainnet upgrade-pool-template upgrade-controller upgrade-governance upgrade-pools upgrade-all _deploy \
+        keygen deploy-testnet deploy-mainnet upgrade-controller upgrade-governance upgrade-pool upgrade-all _deploy \
         _preflight-tools _preflight-network-config _preflight-validate-configs _preflight-setup _preflight-controller _preflight-governance _preflight-pool-hash \
-        _preflight-configure-controller _preflight-upgrade-pools _post-setup-status \
+        _preflight-configure-controller _preflight-upgrade-pool _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
         build-aggregator deploy-aggregator prepay-rent \
         build-oracle-adapter deploy-oracle-adapter upgrade-oracle-adapter upgrade-oracle-adapter-full \
@@ -960,7 +961,7 @@ _preflight-governance: _preflight-network-config
 _preflight-pool-hash: _preflight-network-config
 	@HASH=$$(if [ -s $(POOL_WASM_HASH_FILE) ]; then cat $(POOL_WASM_HASH_FILE); else jq -r '.["$(NETWORK)"].pool_wasm_hash // empty' $(CONFIG_DIR)/networks.json; fi); \
 	if [ -z "$$HASH" ] || [ "$$HASH" = "null" ]; then \
-		echo "Pool WASM hash not found. Run deploy/upgrade-pool-template first or set configs/networks.json."; \
+		echo "Pool WASM hash not found. Run deploy first or set configs/networks.json."; \
 		exit 1; \
 	fi
 
@@ -971,7 +972,7 @@ _preflight-validate-configs: _preflight-network-config
 
 _preflight-configure-controller: _preflight-setup _preflight-controller _preflight-governance
 
-_preflight-upgrade-pools: _preflight-controller _preflight-governance _preflight-pool-hash
+_preflight-upgrade-pool: _preflight-controller _preflight-governance _preflight-pool-hash
 
 _post-setup-status:
 	@echo ""
@@ -1044,9 +1045,10 @@ upgrade-governance: _preflight-governance deploy-artifacts
 	jq '.["$(NETWORK)"].governance_wasm_hash = "'$$HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
-## Upload the latest pool WASM and set it as the pool template via governance.
-upgrade-pool-template: _preflight-controller _preflight-governance deploy-artifacts
-	@echo "=== Upgrading pool template on $(NETWORK) ==="
+## Upload pool WASM and upgrade the central pool in one timelocked op.
+## Same shape as upgrade-controller.
+upgrade-pool: _preflight-controller _preflight-governance deploy-artifacts
+	@echo "=== Upgrading central pool on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@GOV=$$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null | tail -n1); \
 	if [ -z "$$GOV" ]; then \
@@ -1062,39 +1064,17 @@ upgrade-pool-template: _preflight-controller _preflight-governance deploy-artifa
 		--network $(NETWORK) > $(POOL_UPGRADE_WASM_HASH_FILE); \
 	HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
 	echo "Governance: $$GOV"; \
-	echo "New pool template WASM hash: $$HASH"
+	echo "New pool WASM hash: $$HASH"
 	@HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
-	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPoolTemplate $$HASH
-	@# Record the hash only after the timelocked template set landed, so
-	@# networks.json never claims a template that is not live.
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePoolHash $$HASH
+	@# Record the hash only after the timelocked upgrade landed.
 	@HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].pool_wasm_hash = "'$$HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
-## Upgrade the central liquidity pool to the latest pool template hash via governance.
-upgrade-pools: _preflight-upgrade-pools
-	@echo "=== Upgrading central pool on $(NETWORK) ==="
-	@echo "Signer: $(SIGNER)"
-	@GOV=$$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null | tail -n1); \
-	if [ -z "$$GOV" ]; then \
-		GOV=$$(jq -r ".\"$(NETWORK)\".governance // empty" $(CONFIG_DIR)/networks.json); \
-	fi; \
-	if [ -z "$$GOV" ] || [ "$$GOV" = "null" ]; then \
-		echo "Governance not found for $(NETWORK)"; \
-		exit 1; \
-	fi; \
-	HASH=$$(if [ -s $(POOL_UPGRADE_WASM_HASH_FILE) ]; then cat $(POOL_UPGRADE_WASM_HASH_FILE); else jq -r ".\"$(NETWORK)\".pool_wasm_hash // empty" $(CONFIG_DIR)/networks.json; fi); \
-	if [ -z "$$HASH" ] || [ "$$HASH" = "null" ]; then \
-		echo "Pool WASM hash not found. Run upgrade-pool-template first."; \
-		exit 1; \
-	fi; \
-	echo "Governance: $$GOV"; \
-	echo "Pool WASM hash: $$HASH"; \
-	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePoolHash $$HASH
-
-## Upload pool template, upgrade controller, upgrade the central pool, then unpause.
-upgrade-all: upgrade-pool-template upgrade-controller upgrade-pools _unpause-after-setup _post-setup-status
+## Upgrade pool + controller, then unpause.
+upgrade-all: upgrade-pool upgrade-controller _unpause-after-setup _post-setup-status
 
 ## Prepay protocol storage rent: extend every keeper-discovered entry
 ## (instances, wasm code, spoke/hub registries, oracle configs, pool rows)
@@ -1427,7 +1407,7 @@ _deploy: deploy-artifacts
 	fi
 	@echo ""
 	@# 2. Upload Pool WASM (template, not deployed directly)
-	@echo "2/7 Uploading Pool WASM template..."
+	@echo "2/7 Uploading pool WASM..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/pool.wasm \
 		$(SOURCE_FLAG) \
@@ -1505,11 +1485,10 @@ _deploy: deploy-artifacts
 	jq '.["$(NETWORK)"].price_aggregator = "'$$PA_ID'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@# 7. Set the pool template and deploy the central pool through the timelock
-	@# (schedule -> await min_delay -> execute). Both ops route through governance.
-	@echo "7/7 Setting pool template and deploying central pool via governance timelock..."
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPoolTemplate $$(cat $(POOL_WASM_HASH_FILE))
-	@POOL=$$(NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh deployPool | tail -n1 | tr -d '"'); \
+	@# 7. Deploy the central pool through the timelock (upload hash already
+	@# recorded; schedule -> await min_delay -> execute).
+	@echo "7/7 Deploying central pool via governance timelock..."
+	@POOL=$$(NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh deployPool $$(cat $(POOL_WASM_HASH_FILE)) | tail -n1 | tr -d '"'); \
 	if [ -z "$$POOL" ]; then echo "deployPool returned no address"; exit 1; fi; \
 	echo "Central pool: $$POOL"; \
 	TMP_JSON=$$(mktemp); \
@@ -1646,7 +1625,7 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidati
 
 # Makefile-internal actions — handled directly by make targets, not forwarded
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
-MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePoolTemplate upgradePools upgradeAll \
+MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradeAll \
                     deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume \
                     upgradeAggregator upgradeOracleAdapter upgradeOracleAdapterFull
 
@@ -1678,8 +1657,7 @@ define NETWORK_DISPATCH
 				deploy)             $(MAKE) --no-print-directory _deploy NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeController)  $(MAKE) --no-print-directory upgrade-controller NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeGovernance)  $(MAKE) --no-print-directory upgrade-governance NETWORK=$(1) SIGNER=$(SIGNER) ;; \
-				upgradePoolTemplate) $(MAKE) --no-print-directory upgrade-pool-template NETWORK=$(1) SIGNER=$(SIGNER) ;; \
-				upgradePools)       $(MAKE) --no-print-directory upgrade-pools NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				upgradePool)       $(MAKE) --no-print-directory upgrade-pool NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeAll)         $(MAKE) --no-print-directory upgrade-all NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				deployFlashReceiver) $(MAKE) --no-print-directory deploy-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \
@@ -1829,9 +1807,8 @@ help:
 	@echo "  make testnet deploy                 Deploy all contracts (no market config)"
 	@echo "  make testnet upgradeController      Upgrade controller WASM in-place (timelocked)"
 	@echo "  make testnet upgradeGovernance      Upgrade governance WASM in-place (timelocked)"
-	@echo "  make testnet upgradePoolTemplate    Upload pool WASM + set as template (timelocked)"
-	@echo "  make testnet upgradePools           Upgrade the central pool to the template hash (timelocked)"
-	@echo "  make testnet upgradeAll             Pool template + controller + pools, then unpause"
+	@echo "  make testnet upgradePool            Upload + upgrade central pool WASM (timelocked)"
+	@echo "  make testnet upgradeAll             upgradePool + upgradeController + unpause path"
 	@echo "  AGGREGATOR_CONTRACT=C... ACCUMULATOR_CONTRACT=G... make mainnet setup"
 	@echo "    Aggregator = swap router (contract). Accumulator = revenue treasury (wallet or contract)."
 	@echo "    ALLOW_MISSING_AGGREGATOR=1 / ALLOW_MISSING_ACCUMULATOR=1 to bootstrap without them (deliberate)."

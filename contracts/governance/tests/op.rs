@@ -2,7 +2,7 @@ extern crate std;
 use super::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::xdr::{Limits, ScVal, WriteXdr};
-use soroban_sdk::{IntoVal, TryFromVal, Val};
+use soroban_sdk::{BytesN, IntoVal, TryFromVal, Val};
 
 fn b64(env: &Env, op: AdminOperation) -> std::string::String {
     let val: Val = op.into_val(env);
@@ -26,8 +26,8 @@ fn admin_op_xdr_is_byte_stable() {
     );
 
     assert_eq!(
-        b64(&env, AdminOperation::DeployPool),
-        "AAAAEAAAAAEAAAABAAAADwAAAApEZXBsb3lQb29sAAA="
+        b64(&env, AdminOperation::DeployPool(BytesN::from_array(&env, &[0xab; 32]))),
+        "AAAAEAAAAAEAAAACAAAADwAAAApEZXBsb3lQb29sAAAAAAANAAAAIKurq6urq6urq6urq6urq6urq6urq6urq6urq6urq6ur"
     );
     assert_eq!(
         b64(&env, AdminOperation::Unpause),

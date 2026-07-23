@@ -13,7 +13,7 @@ it discovers.
 Each TTL tick discovers:
 
 - Controller instance entry. This covers instance-tier keys such as pool address,
-  pool template, accumulator, spoke/hub counters, and position limits.
+  aggregators, accumulator, spoke/hub counters, and position limits.
   `AccountNonce` is **persistent** (discovered via the account scan below).
 - Price-aggregator persistent `AssetOracle(asset)` rows when `contracts.price_aggregator` is set.
 - Controller persistent `Spoke(id)` rows for `1..=LastSpokeId`.
@@ -23,8 +23,8 @@ Each TTL tick discovers:
   `ExistingRoles`, `RoleAccountsCount`, `RoleAccounts`, `HasRole`, `RoleAdmin`.
 - Governance instance and governance role-holder keys when `contracts.governance`
   is configured.
-- Pool instance, flash-loan receiver instance, controller WASM, pool template
-  WASM, live pool WASM, and flash-loan receiver WASM.
+- Pool instance, flash-loan receiver instance, controller WASM, configured
+  `pool_wasm_hash`, live pool WASM, and flash-loan receiver WASM.
 - Pool persistent `Params(HubAssetKey)` and `State(HubAssetKey)` rows for
   configured markets.
 

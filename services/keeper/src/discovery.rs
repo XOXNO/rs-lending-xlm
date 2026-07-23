@@ -276,9 +276,10 @@ pub async fn snapshot(
     if let Some(ctrl_hash) = controller_wasm_hash {
         wasm_keys.push(contract_code_key(&ctrl_hash));
     } else {
-        warn!(target: "keeper.discovery", "controller wasm hash unresolved — pool template extend only");
+        warn!(target: "keeper.discovery", "controller wasm hash unresolved — extending pool wasm only");
     }
-    // Live pool code can diverge from the config template after `upgrade_pool`.
+    // Live pool code should match networks.json after upgrade_pool.
+    // Keep a fallback extend if they diverge.
     if pool_id.is_some() {
         if let Some(live_pool_hash) = instance_entries
             .get(1)

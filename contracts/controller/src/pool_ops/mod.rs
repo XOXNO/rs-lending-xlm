@@ -82,14 +82,13 @@ impl Controller {
         account::set_account_delegate(&env, &caller, account_id, &delegate, false);
     }
 
-    /// Deploys the central liquidity pool once (address from controller + salt).
-    /// Owner only (gov timelock).
+    /// Deploys the central liquidity pool once from `wasm_hash` (address from
+    /// controller + salt). Owner only (gov timelock).
     ///
     /// # Errors
     /// * `PoolAlreadyDeployed` — pool already deployed.
-    /// * `TemplateNotSet` — no pool Wasm template configured.
     #[only_owner]
-    pub fn deploy_pool(env: Env) -> Address {
+    pub fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address {
         storage::renew_controller_instance(&env);
 
         assert_with_error!(
@@ -98,7 +97,6 @@ impl Controller {
             GenericError::PoolAlreadyDeployed
         );
 
-        let wasm_hash = storage::get_pool_template(&env);
         let salt = BytesN::from_array(&env, &POOL_DEPLOY_SALT);
         let pool = env
             .deployer()
@@ -178,8 +176,8 @@ impl Controller {
         upgrade_liquidity_pool_params(&env, &hub_asset, &params);
     }
 
-    /// Upgrades the deployed pool Wasm to `new_wasm_hash`. Owner only (gov
-    /// timelock).
+    /// Upgrades the deployed central pool Wasm to `new_wasm_hash`. Owner only
+    /// (gov timelock).
     ///
     /// # Errors
     /// * `PoolNotInitialized` — pool not deployed.

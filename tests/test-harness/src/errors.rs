@@ -64,7 +64,6 @@ pub mod codes {
     pub const INVALID_PRICE: u32 = OracleError::InvalidPrice as u32;
     pub const UNSAFE_PRICE: u32 = OracleError::UnsafePriceNotAllowed as u32;
     pub const PRICE_FEED_STALE: u32 = OracleError::PriceFeedStale as u32;
-    pub const BAD_FIRST_TOLERANCE: u32 = OracleError::BadFirstTolerance as u32;
     pub const BAD_LAST_TOLERANCE: u32 = OracleError::BadLastTolerance as u32;
     pub const REFLECTOR_HISTORY_EMPTY: u32 = OracleError::ReflectorHistoryEmpty as u32;
     pub const TWAP_INSUFFICIENT_OBSERVATIONS: u32 =

@@ -20,7 +20,7 @@ pub(crate) use spoke::remove_spoke;
 #[cfg(test)]
 use common::types::HubConfig;
 use common::types::{HubAssetKey, PositionLimits, PositionManagerConfig, SpokeAssetArgs};
-use soroban_sdk::{contractimpl, Address, BytesN, Env};
+use soroban_sdk::{contractimpl, Address, Env};
 use stellar_macros::only_owner;
 
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
@@ -63,16 +63,6 @@ impl Controller {
     pub fn set_accumulator(env: Env, addr: Address) {
         storage::renew_controller_instance(&env);
         registry::set_accumulator(&env, addr);
-    }
-
-    /// Sets the pool Wasm template hash for `deploy_pool`. Owner only (gov timelock).
-    ///
-    /// # Events
-    /// * `UpdatePoolTemplateEvent` — new template hash.
-    #[only_owner]
-    pub fn set_liquidity_pool_template(env: Env, hash: BytesN<32>) {
-        storage::renew_controller_instance(&env);
-        registry::set_liquidity_pool_template(&env, hash);
     }
 
     /// Sets per-account max supply/borrow position counts. Owner only (gov timelock).

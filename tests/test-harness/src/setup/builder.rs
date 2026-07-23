@@ -218,12 +218,7 @@ impl LendingTestBuilder {
                 .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, &b)),
             Err(_) => panic!("Liquidity pool WASM not found. Run 'make build' first."),
         };
-        gov.execute_immediate(
-            &admin,
-            &AdminOperation::SetLiquidityPoolTemplate(pool_hash.clone()),
-        );
-
-        let global_pool_val = gov.execute_immediate(&admin, &AdminOperation::DeployPool);
+        let global_pool_val = gov.execute_immediate(&admin, &AdminOperation::DeployPool(pool_hash));
         let global_pool: Address = Address::try_from_val(&env, &global_pool_val).unwrap();
 
         gov.execute_immediate(

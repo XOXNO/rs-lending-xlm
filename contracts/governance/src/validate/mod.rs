@@ -27,6 +27,6 @@ pub(crate) fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
     assert_with_error!(
         env,
         hash.to_array() != [0; 32],
-        GenericError::InvalidPoolTemplate
+        GenericError::InvalidWasmHash
     );
 }

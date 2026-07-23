@@ -1,7 +1,7 @@
 //! Configuration-change events: hub/spoke registry, spoke-asset listings,
 //! allowlists, protocol dependencies, and instance risk floors.
 
-use soroban_sdk::{contractevent, contracttype, Address, BytesN};
+use soroban_sdk::{contractevent, contracttype, Address};
 
 use common::types::{SpokeAssetConfig, SpokeConfig};
 
@@ -74,12 +74,6 @@ pub struct UpdatePriceAggregatorEvent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateAccumulatorEvent {
     pub accumulator: Address,
-}
-
-#[contractevent(topics = ["config", "pool_template"])]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UpdatePoolTemplateEvent {
-    pub wasm_hash: BytesN<32>,
 }
 
 #[contractevent(topics = ["config", "position_limits"])]

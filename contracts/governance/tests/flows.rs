@@ -359,14 +359,14 @@ fn set_accumulator_accepts_wallet_address() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #10)")]
-fn set_liquidity_pool_template_rejects_zero_hash() {
+fn deploy_pool_rejects_zero_hash() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, _, gov) = register_governance(&env);
 
     gov.execute_immediate(
         &admin,
-        &AdminOperation::SetLiquidityPoolTemplate(BytesN::from_array(&env, &[0u8; 32])),
+        &AdminOperation::DeployPool(BytesN::from_array(&env, &[0u8; 32])),
     );
 }
 

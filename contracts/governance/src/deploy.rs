@@ -24,7 +24,7 @@ impl Governance {
     /// Governance is the controller constructor admin.
     ///
     /// # Errors
-    /// * `InvalidPoolTemplate` — `wasm_hash` is all-zero.
+    /// * `InvalidWasmHash` — `wasm_hash` is all-zero.
     /// * `PoolAlreadyDeployed` — controller address already stored.
     ///
     /// # Events
@@ -72,7 +72,7 @@ impl Governance {
     /// wires it immediately (Sensitive re-point still uses `SetPriceAggregator`).
     ///
     /// # Errors
-    /// * `InvalidPoolTemplate` — `wasm_hash` is all-zero.
+    /// * `InvalidWasmHash` — `wasm_hash` is all-zero.
     /// * `PoolAlreadyDeployed` — aggregator address already stored.
     ///
     /// # Events

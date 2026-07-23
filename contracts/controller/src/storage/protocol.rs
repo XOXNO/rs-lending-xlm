@@ -4,7 +4,7 @@
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits, PositionManagerConfig};
 
-use soroban_sdk::{panic_with_error, Address, BytesN, Env};
+use soroban_sdk::{panic_with_error, Address, Env};
 
 use crate::constants;
 use crate::storage::renew_protocol_shared_key;
@@ -28,19 +28,6 @@ pub(crate) fn set_blend_pool_approved(env: &Env, pool: &Address, approved: bool)
     } else {
         env.storage().persistent().remove(&key);
     }
-}
-
-pub(crate) fn get_pool_template(env: &Env) -> BytesN<32> {
-    env.storage()
-        .instance()
-        .get(&ControllerKey::PoolTemplate)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::TemplateNotSet))
-}
-
-pub(crate) fn set_pool_template(env: &Env, hash: &BytesN<32>) {
-    env.storage()
-        .instance()
-        .set(&ControllerKey::PoolTemplate, hash);
 }
 
 pub(crate) fn get_pool(env: &Env) -> Address {

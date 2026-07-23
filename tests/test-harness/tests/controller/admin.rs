@@ -7,61 +7,32 @@ use test_harness::{
     STABLECOIN_SPOKE,
 };
 
-// 1. upgrade_pool -- admin path. Reuses the pool template hash so the Soroban
-//    host accepts a no-op upgrade without a second wasm blob.
+fn upload_pool_wasm(env: &soroban_sdk::Env) -> BytesN<32> {
+    let mut bytes = std::fs::read("target/wasm32v1-none/release/pool.wasm");
+    if bytes.is_err() {
+        bytes = std::fs::read("../../target/wasm32v1-none/release/pool.wasm");
+    }
+    let bytes = bytes.expect("Liquidity pool WASM not found. Run 'make build' first.");
+    env.deployer()
+        .upload_contract_wasm(soroban_sdk::Bytes::from_slice(env, &bytes))
+}
+
+// 1. upgrade_pool -- admin path. Re-uploads the pool wasm so the Soroban host
+//    accepts a no-op upgrade without altering pool behavior.
 
 #[test]
 fn test_upgrade_pool_admin_path() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let reserves_before = t.pool_reserves("USDC");
 
-    // Read the template hash that build() set on the controller.
-    let template_hash: BytesN<32> = t.env.as_contract(&t.controller_address(), || {
-        t.env
-            .storage()
-            .instance()
-            .get(&ControllerKey::PoolTemplate)
-            .expect("pool template must be set after build()")
-    });
-
-    // Drive the admin-gated upgrade entry point with the controller's own
-    // template hash, producing a no-op upgrade without altering pool behavior.
-    t.ctrl_client().upgrade_pool(&template_hash);
+    let live_hash = upload_pool_wasm(&t.env);
+    t.ctrl_client().upgrade_pool(&live_hash);
     assert_eq!(t.pool_reserves("USDC"), reserves_before);
 }
 
-// 2. TemplateNotSet -- deploy_pool must panic with
-//    GenericError::TemplateNotSet (#26) when no pool template is set.
-//
-//    A fresh controller registered outside the LendingTest builder gives us
-//    a state where the pool template is absent, so `deploy_pool` hits the
-//    template check before any deployment happens.
-
-#[test]
-fn test_deploy_pool_panics_when_template_unset() {
-    let env = soroban_sdk::Env::default();
-    env.mock_all_auths();
-    env.cost_estimate().budget().reset_unlimited();
-    env.cost_estimate().disable_resource_limits();
-
-    let admin = Address::generate(&env);
-    let controller = env.register(controller::Controller, (admin.clone(),));
-    let ctrl = controller::ControllerClient::new(&env, &controller);
-
-    // Apply the post-deploy operator state so the test reaches the template
-    // check rather than pause or role gates.
-    ctrl.unpause();
-
-    let result = match ctrl.try_deploy_pool() {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(result, GenericError::TemplateNotSet as u32);
-}
-
-// 2b. PoolNotInitialized -- create_liquidity_pool must panic with
+// 2. PoolNotInitialized -- create_liquidity_pool must panic with
 //     GenericError::PoolNotInitialized (#30) when the global pool has not been
-//     deployed yet, even with a template set and the token approved.
+//     deployed yet.
 
 #[test]
 fn test_create_liquidity_pool_panics_before_deploy_pool() {
@@ -97,15 +68,16 @@ fn test_create_liquidity_pool_panics_before_deploy_pool() {
     assert_contract_error(result, GenericError::PoolNotInitialized as u32);
 }
 
-// 2c. PoolAlreadyDeployed -- a second deploy_pool must panic with
+// 2b. PoolAlreadyDeployed -- a second deploy_pool must panic with
 //     GenericError::PoolAlreadyDeployed (#5); the builder already ran the
 //     first deployment.
 
 #[test]
 fn test_deploy_pool_panics_on_second_call() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
+    let hash = upload_pool_wasm(&t.env);
 
-    let result = match t.ctrl_client().try_deploy_pool() {
+    let result = match t.ctrl_client().try_deploy_pool(&hash) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };

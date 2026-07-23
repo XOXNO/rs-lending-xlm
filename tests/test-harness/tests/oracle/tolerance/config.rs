@@ -40,26 +40,6 @@ fn test_set_accumulator() {
 }
 
 #[test]
-fn test_set_liquidity_pool_template() {
-    let t = setup();
-    let ctrl = t.ctrl_client();
-
-    let hash = soroban_sdk::BytesN::from_array(&t.env, &[42u8; 32]);
-
-    ctrl.set_liquidity_pool_template(&hash);
-
-    // Verify storage by reading directly.
-    let stored: soroban_sdk::BytesN<32> = t.env.as_contract(&t.controller, || {
-        t.env
-            .storage()
-            .instance()
-            .get(&controller::types::ControllerKey::PoolTemplate)
-            .unwrap()
-    });
-    assert_eq!(stored, hash, "pool template hash should be stored");
-}
-
-#[test]
 fn test_edit_asset_in_spoke_category() {
     let t = LendingTest::new()
         .with_market(usdc_preset())

@@ -34,12 +34,6 @@ pub trait ControllerAdmin {
     /// * `UpdateAccumulatorEvent` — new accumulator address.
     fn set_accumulator(env: Env, addr: Address);
 
-    /// Sets the pool Wasm template hash for `deploy_pool`. Owner only (gov timelock).
-    ///
-    /// # Events
-    /// * `UpdatePoolTemplateEvent` — new template hash.
-    fn set_liquidity_pool_template(env: Env, hash: BytesN<32>);
-
     /// Sets per-account max supply/borrow position counts. Owner only (gov timelock).
     ///
     /// # Errors
@@ -220,16 +214,15 @@ pub trait ControllerAdmin {
     /// * `UpdateMarketParamsEvent` — new rate-model parameters.
     fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel);
 
-    /// Deploys the central liquidity pool once (address from controller + salt).
-    /// Owner only (gov timelock).
+    /// Deploys the central liquidity pool once from `wasm_hash` (address from
+    /// controller + salt). Owner only (gov timelock).
     ///
     /// # Errors
     /// * `PoolAlreadyDeployed` — pool already deployed.
-    /// * `TemplateNotSet` — no pool Wasm template configured.
-    fn deploy_pool(env: Env) -> Address;
+    fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address;
 
-    /// Upgrades the deployed pool Wasm to `new_wasm_hash`. Owner only (gov
-    /// timelock).
+    /// Upgrades the deployed central pool Wasm to `new_wasm_hash`. Owner only
+    /// (gov timelock).
     ///
     /// # Errors
     /// * `PoolNotInitialized` — pool not deployed.

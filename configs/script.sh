@@ -2905,33 +2905,13 @@ all_configured_hub_assets() {
 }
 
 # ---------------------------------------------------------------------------
-# Upgrade / template ops (WASM hash inputs) — scheduled through governance.
+# Upgrade / deploy ops (WASM hash inputs) — scheduled through governance.
 #
 # The Makefile uploads the WASM and passes the resulting hash here; we schedule
 # the matching proposer then await+execute (AUTO_EXECUTE=1) so the upgrade lands
 # after the delay. Hashes are BytesN<32>; their scheduled args are fully
 # CLI-replayable.
 # ---------------------------------------------------------------------------
-
-schedule_set_pool_template() {
-    local hash=$1
-    if [ -z "$hash" ]; then
-        echo "Usage: $0 setPoolTemplate <wasm_hash_hex>" >&2
-        exit 1
-    fi
-    # set_liquidity_pool_template(hash) — single BytesN<32> arg.
-    local args_json
-    args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
-    local salt
-    salt=$(gen_salt "set_liquidity_pool_template" "$args_json")
-    local op_id
-    op_id=$(schedule_via_proposer \
-        set_liquidity_pool_template \
-        "$(admin_op SetLiquidityPoolTemplate "$(jq -nc --arg h "$hash" '$h')")" \
-        "$args_json" true "$salt")
-    schedule_and_maybe_execute "$op_id"
-    echo "Pool template set scheduled (hash ${hash})."
-}
 
 schedule_upgrade_controller() {
     local hash=$1
@@ -3004,16 +2984,23 @@ schedule_transfer_gov_ownership() {
     echo "Governance ownership transfer scheduled to ${new_owner}."
 }
 
-# Schedule deploy_pool (no controller args), await, execute, and print the
-# deployed pool Address parsed from the execute result's last line.
+# Schedule deploy_pool(hash), await, execute, and print the deployed pool
+# Address parsed from the execute result's last line.
 schedule_deploy_pool() {
-    local args_json="[]"
+    local hash=$1
+    if [ -z "$hash" ]; then
+        echo "Usage: $0 deployPool <wasm_hash_hex>" >&2
+        exit 1
+    fi
+    local args_json
+    args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
     local salt
     salt=$(gen_salt "deploy_pool" "$args_json")
     # "never": re-executing deploy_pool would deploy a second central pool.
     local op_id
     op_id=$(schedule_via_proposer \
-        deploy_pool "$(admin_op DeployPool)" "$args_json" true "$salt" never)
+        deploy_pool "$(admin_op DeployPool "$(jq -nc --arg h "$hash" '$h')")" \
+        "$args_json" true "$salt" never)
     if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
         echo "Scheduled deploy_pool as op ${op_id} (AUTO_EXECUTE=0)." >&2
         echo "$op_id"
@@ -3046,7 +3033,8 @@ schedule_upgrade_pool() {
         echo "Usage: $0 upgradePoolHash <wasm_hash_hex>" >&2
         exit 1
     fi
-    # upgrade_pool(new_wasm_hash) — single BytesN<32> arg.
+    # Single Sensitive op: controller upgrade_pool(hash) upgrades the live
+    # central pool Wasm.
     local args_json
     args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
     local salt
@@ -4677,9 +4665,6 @@ case "$1" in
         fi
         await_op_ready "$2"
         ;;
-    "setPoolTemplate")
-        schedule_set_pool_template "$2"
-        ;;
     "upgradeControllerHash")
         schedule_upgrade_controller "$2"
         ;;
@@ -4696,7 +4681,7 @@ case "$1" in
         schedule_upgrade_pool "$2"
         ;;
     "deployPool")
-        schedule_deploy_pool
+        schedule_deploy_pool "$2"
         ;;
 "grantGovRole")
         if [ -z "$2" ] || [ -z "$3" ]; then

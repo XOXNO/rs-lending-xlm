@@ -127,7 +127,7 @@ impl Governance {
     /// # Errors
     /// * `NotAuthorized` — revoke self/owner, or non-owner proposes ownership transfer.
     /// * `PoolNotInitialized` / `AggregatorNotSet` — target not wired yet.
-    /// * Via `resolve_op`: `InvalidPoolTemplate`, `InvalidTimelockDelay`, `InvalidRole`,
+    /// * Via `resolve_op`: `InvalidWasmHash`, `InvalidTimelockDelay`, `InvalidRole`,
     ///   `InvalidAggregator`, `NotSmartContract`, `InvalidPositionLimits`,
     ///   `InvalidBorrowParams`, `WrongToken`, `InvalidAsset`, `BadLastTolerance`,
     ///   `InvalidExchangeSrc`, and live oracle-probe reverts.

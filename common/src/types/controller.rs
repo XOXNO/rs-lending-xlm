@@ -513,6 +513,8 @@ mod tests {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {
+    /// Reserved: former pool Wasm template slot. Kept so instance-key
+    /// discriminants stay stable across upgrades; unused by current code.
     PoolTemplate,
     /// Address of the single central liquidity pool deployed by the controller.
     Pool,

@@ -67,11 +67,6 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
         ctrl.set_auths(&no_auths).try_set_accumulator(&random_addr)
     })
     .unwrap();
-    expect_rejected("set_liquidity_pool_template", || {
-        ctrl.set_auths(&no_auths)
-            .try_set_liquidity_pool_template(&dummy_bytes_n(&env, seed))
-    })
-    .unwrap();
     expect_rejected("set_position_limits", || {
         ctrl.set_auths(&no_auths).try_set_position_limits(&limits)
     })
@@ -144,7 +139,8 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
     })
     .unwrap();
     expect_rejected("deploy_pool", || {
-        ctrl.set_auths(&no_auths).try_deploy_pool()
+        ctrl.set_auths(&no_auths)
+            .try_deploy_pool(&dummy_bytes_n(&env, seed))
     })
     .unwrap();
     let zero_model = InterestRateModel {

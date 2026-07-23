@@ -20,8 +20,8 @@ pub enum GenericError {
     AssetsAreTheSame = 7,
     /// Token address does not match the expected market asset.
     WrongToken = 8,
-    /// Pool template hash is empty or invalid.
-    InvalidPoolTemplate = 10,
+    /// Wasm hash is empty (all-zero) or otherwise invalid.
+    InvalidWasmHash = 10,
     /// Oracle primary/anchor source configuration is invalid.
     InvalidExchangeSrc = 11,
     /// Asset has no active oracle configuration for this operation.
@@ -38,8 +38,6 @@ pub enum GenericError {
     AccountNotFound = 24,
     /// Account mode does not match the requested strategy or position mode.
     AccountModeMismatch = 25,
-    /// Pool template WASM hash has not been configured.
-    TemplateNotSet = 26,
     /// Swap or price aggregator contract has not been configured.
     AggregatorNotSet = 27,
     /// Position limits have not been configured.
@@ -171,12 +169,8 @@ pub enum OracleError {
     UnsafePriceNotAllowed = 205,
     /// Price timestamp is older than the configured staleness window.
     PriceFeedStale = 206,
-    /// First tolerance is outside the allowed range.
-    BadFirstTolerance = 207,
     /// Last tolerance band is inverted or outside the allowed envelope.
     BadLastTolerance = 208,
-    /// Anchor tolerance bounds are inconsistent.
-    BadAnchorTolerances = 209,
     /// Oracle source has no last price (or required anchor leg is missing).
     NoLastPrice = 210,
     /// Revenue accumulator is not configured.

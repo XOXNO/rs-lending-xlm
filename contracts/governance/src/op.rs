@@ -140,14 +140,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             "set_accumulator",
             vec![env, addr.clone().into_val(env)],
         ),
-        AdminOperation::SetLiquidityPoolTemplate(hash) => {
-            validate::require_nonzero_wasm_hash(env, hash);
-            controller_operation(
-                env,
-                "set_liquidity_pool_template",
-                vec![env, hash.clone().into_val(env)],
-            )
-        }
         AdminOperation::SetPositionLimits(limits) => {
             validate::asset::validate_position_limits(env, limits);
             controller_operation(
@@ -236,7 +228,14 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 ],
             )
         }
-        AdminOperation::DeployPool => controller_operation(env, "deploy_pool", vec![env]),
+        AdminOperation::DeployPool(hash) => {
+            validate::require_nonzero_wasm_hash(env, hash);
+            controller_operation(
+                env,
+                "deploy_pool",
+                vec![env, hash.clone().into_val(env)],
+            )
+        }
         AdminOperation::UpgradePool(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
             sensitive_controller_operation(

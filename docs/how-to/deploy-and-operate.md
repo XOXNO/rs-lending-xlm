@@ -107,7 +107,7 @@ markets via the timelocked `Unpause` path (short testnet delay).
 1. Build + strip WASM (pool / controller / governance / price-aggregator).
 2. Upload pool & controller WASM → deploy governance → `deploy_controller` →
    `deploy_price_aggregator` (governance-owned oracle authority) →
-   `setPoolTemplate` + `deployPool` via timelock.
+   `deployPool(hash)` via timelock (single op; no template step).
 3. `configure-controller`: swap aggregator + revenue accumulator (must be in
    `networks.json` as `aggregator` / `accumulator`, or
    `AGGREGATOR_CONTRACT` / `ACCUMULATOR_CONTRACT`), then the timelocked
@@ -323,15 +323,21 @@ make invoke-id CONTRACT_ID=<governance> FN=execute_canceller_reset \
 
 ## 12. Upgrades
 
-All timelocked:
+All timelocked. Pool bootstrap and day-2 upgrades both pass the Wasm hash in
+the op — nothing is stored on the controller as a template.
 
 ```bash
-make <network> upgradeController
-make <network> upgradeGovernance
-make <network> upgradePoolTemplate
-make <network> upgradePools
-make <network> upgradeAll              # template + controller + pool, then unpause path
+make <network> upgradeController       # upload + UpgradeController
+make <network> upgradeGovernance       # upload + UpgradeGov
+make <network> upgradePool             # upload + UpgradePool
+make <network> upgradeAll              # upgradePool + upgradeController + unpause path
+
+# Fresh deploy path (also used by setup): upload pool wasm, then
+# DeployPool(hash) via the timelock — single op, no separate template step.
 ```
+
+Price-aggregator has no in-place WASM upgrade: deploy a new instance owned by
+governance, then timelocked `SetPriceAggregator` (Sensitive).
 
 ---
 

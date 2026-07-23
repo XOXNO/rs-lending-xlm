@@ -1,10 +1,9 @@
-//! Protocol dependency setters: aggregators, accumulator, pool Wasm template.
+//! Protocol dependency setters: aggregators and accumulator.
 
-use soroban_sdk::{Address, BytesN, Env};
+use soroban_sdk::{Address, Env};
 
 use crate::events::{
-    UpdateAccumulatorEvent, UpdatePoolTemplateEvent, UpdatePriceAggregatorEvent,
-    UpdateSwapAggregatorEvent,
+    UpdateAccumulatorEvent, UpdatePriceAggregatorEvent, UpdateSwapAggregatorEvent,
 };
 use crate::storage;
 
@@ -27,9 +26,4 @@ pub(crate) fn set_price_aggregator(env: &Env, addr: Address) {
 pub(crate) fn set_accumulator(env: &Env, addr: Address) {
     storage::set_accumulator(env, &addr);
     UpdateAccumulatorEvent { accumulator: addr }.publish(env);
-}
-
-pub(crate) fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
-    storage::set_pool_template(env, &hash);
-    UpdatePoolTemplateEvent { wasm_hash: hash }.publish(env);
 }

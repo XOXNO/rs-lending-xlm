@@ -89,7 +89,6 @@ pub enum AdminOperation {
     SetSwapAggregator(Address),
     SetPriceAggregator(Address),
     SetAccumulator(Address),
-    SetLiquidityPoolTemplate(BytesN<32>),
     SetPositionLimits(PositionLimits),
     SetMinBorrowCollateralUsd(i128),
     CreateHub,
@@ -102,7 +101,7 @@ pub enum AdminOperation {
     RevokeBlendPool(Address),
     CreateLiquidityPool(CreatePoolArgs),
     UpgradeLiquidityPoolParams(UpgradePoolParamsArgs),
-    DeployPool,
+    DeployPool(BytesN<32>),
     UpgradePool(BytesN<32>),
     SetPositionManager(Address, bool),
     UpgradeController(BytesN<32>),
@@ -129,7 +128,7 @@ pub trait GovernanceInterface {
     /// Governance is the controller constructor admin.
     ///
     /// # Errors
-    /// * `InvalidPoolTemplate` — `wasm_hash` is all-zero.
+    /// * `InvalidWasmHash` — `wasm_hash` is all-zero.
     /// * `PoolAlreadyDeployed` — controller address already stored.
     ///
     /// # Events
@@ -150,7 +149,7 @@ pub trait GovernanceInterface {
     /// wires it immediately (Sensitive re-point still uses `SetPriceAggregator`).
     ///
     /// # Errors
-    /// * `InvalidPoolTemplate` — `wasm_hash` is all-zero.
+    /// * `InvalidWasmHash` — `wasm_hash` is all-zero.
     /// * `PoolAlreadyDeployed` — aggregator address already stored.
     ///
     /// # Events
@@ -252,7 +251,7 @@ pub trait GovernanceInterface {
     /// # Errors
     /// * `NotAuthorized` — revoke self/owner, or non-owner proposes ownership transfer.
     /// * `PoolNotInitialized` / `AggregatorNotSet` — target not wired yet.
-    /// * Via `resolve_op`: `InvalidPoolTemplate`, `InvalidTimelockDelay`, `InvalidRole`,
+    /// * Via `resolve_op`: `InvalidWasmHash`, `InvalidTimelockDelay`, `InvalidRole`,
     ///   `InvalidAggregator`, `NotSmartContract`, `InvalidPositionLimits`,
     ///   `InvalidBorrowParams`, `WrongToken`, `InvalidAsset`, `BadLastTolerance`,
     ///   `InvalidExchangeSrc`, and live oracle-probe reverts.

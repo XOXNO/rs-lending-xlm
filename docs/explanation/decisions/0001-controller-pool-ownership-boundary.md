@@ -29,8 +29,9 @@ Wiring:
 
 - Governance owner deploys the controller with the governance contract as owner
   (`deploy_controller`, owner-gated one-shot).  
-- Controller deploys the pool from the template with itself as owner
-  (`deploy_pool`, reached via timelocked admin after the template is set).  
+- Controller deploys the pool with itself as owner (`deploy_pool(wasm_hash)`,
+  reached via timelocked admin — hash is an argument, not stored state).
+  Day-2 pool WASM changes use the same shape: timelocked `UpgradePool(hash)`.  
 - Market creation creates pool rows for the `HubAssetKey` on that single pool.
   Price activation is separate: token-rooted `AssetOracle(asset)` must exist.
 
