@@ -473,7 +473,7 @@ fn test_harvest_price_per_share_independent_of_vault_balance() {
 
 // Harvest requires `from` auth.
 #[test]
-fn harvest_requires_from_auth() {
+fn test_harvest_requires_from_auth() {
     let s = StrategyTest::new();
     // Seed valid state before auth check.
     s.client().deposit(&(1_000 * UNIT), &s.vault);
@@ -488,7 +488,7 @@ fn harvest_requires_from_auth() {
     let blocked_harvest = s.client().try_harvest(&attacker_chosen_from, &None);
     assert!(
         blocked_harvest.is_err(),
-        "harvest must require `from` auth (VECTOR #1.2 fix)"
+        "harvest must require `from` auth"
     );
 
     // Deposit also fails without auth.
@@ -498,7 +498,7 @@ fn harvest_requires_from_auth() {
 
 // Direct controller supply increases vault NAV without `Strategy::deposit`.
 #[test]
-fn poc_third_party_inflates_strategy_balance_via_controller_supply() {
+fn test_donation_via_controller_supply_inflates_nav() {
     let s = StrategyTest::new();
     let client = s.client();
 
