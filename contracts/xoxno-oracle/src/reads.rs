@@ -1,5 +1,5 @@
-//! Read entrypoints: the RedStone `RedStoneMultiFeed` ABI and the SEP-40
-//! `PriceFeedTrait` shape. SEP-40 reads delegate to the RedStone reads via
+//! Read entrypoints: RedStone `RedStoneMultiFeed` (fail-closed) and SEP-40
+//! `PriceFeedTrait` (soft `Option`). SEP-40 delegates to RedStone helpers via
 //! plain function calls (same contract, no cross-contract overhead).
 
 use common::constants::MS_PER_SECOND;
@@ -19,9 +19,13 @@ use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 // RedStone ABI — mirrors `RedStoneMultiFeed` exactly.
 #[contractimpl]
 impl XoxnoOracle {
+    /// Returns the cached aggregate for `feed_id`. Fail-closed: missing or
+    /// past `MaxStaleSeconds` returns `Err` (price-aggregator hard path relies
+    /// on this).
+    ///
     /// # Errors
-    /// * `NoDataForFeed`
-    /// * `StaleData` - exceeds MaxStaleSeconds
+    /// * `NoDataForFeed` — no `CurrentAggregate` for `feed_id`.
+    /// * `StaleData` — aggregate age exceeds `MaxStaleSeconds`.
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
         let key = DataKey::CurrentAggregate(feed_id.clone());
         let aggregate: RedStonePriceData = env
@@ -45,7 +49,10 @@ impl XoxnoOracle {
         Ok(aggregate)
     }
 
-    /// All-or-nothing bulk; first missing/stale fails the whole call.
+    /// All-or-nothing bulk RedStone read; first missing/stale fails the whole call.
+    ///
+    /// # Errors
+    /// Same named variants as [`Self::read_price_data_for_feed`].
     pub fn read_price_data(
         env: Env,
         feed_ids: Vec<String>,
@@ -57,13 +64,12 @@ impl XoxnoOracle {
         Ok(results)
     }
 
-    /// Newest-first history cap for SEP-40 `price`/`prices`. Fails closed when
-    /// the live aggregate is missing or past `MaxStaleSeconds`, so history
-    /// cannot outlive the spot feed.
+    /// Newest-first history capped by `limit`. Fail-closed: live aggregate must
+    /// be present and within `MaxStaleSeconds`, so history cannot outlive spot.
     ///
     /// # Errors
-    /// * `NoDataForFeed`
-    /// * `StaleData`
+    /// * `NoDataForFeed` — missing aggregate or empty history.
+    /// * `StaleData` — live aggregate past `MaxStaleSeconds`.
     pub fn read_price_history(
         env: Env,
         feed_id: String,
@@ -114,30 +120,36 @@ impl XoxnoOracle {
 // SEP-40 / Reflector ABI.
 #[contractimpl]
 impl XoxnoOracle {
+    /// SEP-40 quote base: always USD.
     pub fn base(env: Env) -> ReflectorAsset {
         ReflectorAsset::Other(Symbol::new(&env, "USD"))
     }
 
+    /// SEP-40 decimals: fixed RedStone wire decimals (`REDSTONE_DECIMALS`).
     pub fn decimals(_env: Env) -> u32 {
         REDSTONE_DECIMALS
     }
 
+    /// SEP-40 resolution (seconds between history buckets).
     pub fn resolution(env: Env) -> u32 {
         load_resolution(&env)
     }
 
+    /// Enumerates SEP-40 assets that have a feed mapping.
     pub fn assets(env: Env) -> Vec<ReflectorAsset> {
         load_all_assets(&env)
     }
 
-    /// `None` when unmapped/missing/stale (SEP-40 soft-fail).
+    /// Latest spot for `asset`. Soft-fail: `None` when unmapped, missing, or
+    /// stale (maps RedStone `Err` to `None`).
     pub fn lastprice(env: Env, asset: ReflectorAsset) -> Option<ReflectorPriceData> {
         let feed_id = load_feed_id(&env, &asset)?;
         let data = Self::read_price_data_for_feed(env.clone(), feed_id).ok()?;
         Some(to_reflector_price_data(&env, &data))
     }
 
-    /// Closest observation at or before `timestamp` (package time, not write time).
+    /// Closest history sample at or before `timestamp` (package time). Soft-fail:
+    /// `None` when unmapped, spot gate fails, or no qualifying sample.
     pub fn price(env: Env, asset: ReflectorAsset, timestamp: u64) -> Option<ReflectorPriceData> {
         let feed_id = load_feed_id(&env, &asset)?;
         let history = Self::read_price_history(env.clone(), feed_id, MAX_HISTORY_LEN).ok()?;
@@ -161,6 +173,8 @@ impl XoxnoOracle {
         best.map(|entry| to_reflector_price_data(&env, &entry))
     }
 
+    /// Newest-first history as SEP-40 samples. Soft-fail: `None` when unmapped,
+    /// spot gate fails, or history is empty.
     pub fn prices(
         env: Env,
         asset: ReflectorAsset,

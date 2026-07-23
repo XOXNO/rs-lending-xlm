@@ -122,6 +122,7 @@ pub(crate) fn set_sanity_band(env: &Env, asset: Address, min_wad: i128, max_wad:
     emit_oracle_updated(env, &asset, &oracle);
 }
 
+/// Replaces tolerance on an active oracle after envelope validation.
 pub(crate) fn set_tolerance(env: &Env, asset: Address, tolerance: OracleTolerance) {
     let mut oracle = storage::get_oracle_config(env, &asset)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));

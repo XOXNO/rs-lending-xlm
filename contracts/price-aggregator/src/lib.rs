@@ -2,10 +2,9 @@
 //!
 //! Owns token-rooted `AssetOracle` configs and every oracle interaction
 //! (source reads, composition, primary/anchor tolerance, staleness, sanity
-//! bounds, recursive quote resolution). Consumers make one `prices(assets)`
-//! call per transaction and use the returned map. Fail-closed: any unsafe,
-//! stale, or unconfigured asset reverts, so the whole transaction dies rather
-//! than a bad price being returned.
+//! bounds, recursive quote resolution). Risk paths use `price`/`prices`
+//! (fail-closed). Views use `price_status`/`prices_status` (soft flags).
+//! See `architecture/INVARIANTS.md` §4.3 and ADR 0003.
 
 #![no_std]
 
@@ -43,9 +42,22 @@ impl PriceAggregator {
         ownable::set_owner(&env, &owner);
     }
 
-    /// Bulk token-rooted USD prices for `assets`. Fail-closed: reverts on any
-    /// unsafe, stale, or unconfigured asset, so the caller never receives a bad
-    /// price. One call resolves every asset a transaction needs.
+    /// Bulk token-rooted USD prices for `assets`. Fail-closed: any unsafe,
+    /// stale, or unconfigured asset reverts the whole call. Public; risk-path
+    /// consumers (controller) rely on the revert.
+    ///
+    /// # Errors
+    /// * `OracleNotConfigured` — missing or pending `AssetOracle`.
+    /// * `OracleCycleDetected` — quote/anchor cycle while resolving.
+    /// * `PriceFeedStale` — observation past max stale or beyond future skew.
+    /// * `NoLastPrice` — Reflector spot missing, or dual strategy without anchor.
+    /// * `InvalidTicker` — RedStone/Xoxno feed missing.
+    /// * `UnsafePriceNotAllowed` — primary/anchor outside tolerance band.
+    /// * `SanityBoundViolated` — final price outside sanity band.
+    /// * `InvalidPrice` — non-positive final or invalid provider payload.
+    /// * `ReflectorHistoryEmpty` / `TwapInsufficientObservations` — TWAP gaps.
+    /// * `InvalidOracleBase` — quoted base not USD-rooted.
+    /// * `MathOverflow` — midpoint or normalize overflow.
     pub fn prices(env: Env, assets: Vec<Address>) -> Map<Address, PriceFeedRaw> {
         let mut cache = context::ResolutionContext::new(&env);
         prefetch::warm_multi_feed_adapters(&mut cache, &assets);
@@ -57,22 +69,26 @@ impl PriceAggregator {
         out
     }
 
-    /// Single token-rooted USD price (fail-closed).
+    /// Single token-rooted USD price. Fail-closed (same checks as `prices`).
+    ///
+    /// # Errors
+    /// Same named variants as [`Self::prices`].
     pub fn price(env: Env, asset: Address) -> PriceFeedRaw {
         let mut cache = context::ResolutionContext::new(&env);
         price::resolve_usd_price(&mut cache, &asset)
     }
 
-    /// Soft diagnostic status for one asset (does not revert on stale/deviation).
+    /// Soft diagnostic status for one asset. Public; never reverts on stale,
+    /// dual-source deviation, or unreadable feeds — those set flags / yield
+    /// [`PriceStatus::unusable`].
     pub fn price_status(env: Env, asset: Address) -> PriceStatus {
         let mut cache = context::ResolutionContext::new(&env);
         status::resolve_price_status(&mut cache, &asset)
     }
 
-    /// Bulk soft diagnostic statuses for views (one context + multi-feed prefetch).
-    ///
-    /// Never reverts for stale feeds or dual-source deviation; those set flags on
-    /// each [`PriceStatus`]. Unreadable feeds yield [`PriceStatus::unusable`].
+    /// Bulk soft diagnostic statuses (one context + multi-feed prefetch).
+    /// Never reverts for stale feeds or dual-source deviation; those set flags
+    /// on each [`PriceStatus`]. Unreadable feeds yield [`PriceStatus::unusable`].
     pub fn prices_status(env: Env, assets: Vec<Address>) -> Map<Address, PriceStatus> {
         let mut cache = context::ResolutionContext::new(&env);
         prefetch::warm_multi_feed_adapters(&mut cache, &assets);
@@ -86,24 +102,50 @@ impl PriceAggregator {
         out
     }
 
-    /// Token-rooted oracle config for `asset`, if configured.
+    /// Token-rooted oracle config for `asset`, if configured. Public view.
     pub fn oracle_config(env: Env, asset: Address) -> Option<AssetOracleConfig> {
         storage::get_oracle_config(&env, &asset)
     }
 
     /// Registers or replaces the token-rooted oracle config for `asset`.
+    /// Owner (governance) only. Does not require a live feed at write time.
+    ///
+    /// # Errors
+    /// * `InvalidSanityBounds` — non-positive or inverted band, or above cap.
+    /// * `SanityBandTooWideForSingleSource` — Single band exceeds midpoint width.
+    /// * `BadLastTolerance` — anchored tolerance outside envelope.
+    /// * `InvalidOracleBase` — Reflector quote not USD-rooted or self-quote.
+    ///
+    /// # Events
+    /// * topics — `["config", "oracle"]`
     #[only_owner]
     pub fn set_oracle_config(env: Env, asset: Address, config: AssetOracleConfig) {
         config::set_oracle_config(&env, asset, config);
     }
 
-    /// Walks the sanity band on an active oracle (live-price-contained).
+    /// Walks the sanity band on an active oracle. Owner only. New band must
+    /// overlap the old one and contain the current live hard-path price.
+    ///
+    /// # Errors
+    /// * `OracleNotConfigured` — no stored config for `asset`.
+    /// * `InvalidSanityBounds` / `SanityBandTooWideForSingleSource` — band checks.
+    /// * Plus every fail-closed variant from [`Self::price`] on the containment probe.
+    ///
+    /// # Events
+    /// * topics — `["config", "oracle"]`
     #[only_owner]
     pub fn set_sanity_band(env: Env, asset: Address, min_wad: i128, max_wad: i128) {
         config::set_sanity_band(&env, asset, min_wad, max_wad);
     }
 
-    /// Updates the primary/anchor tolerance band on an active oracle.
+    /// Updates the primary/anchor tolerance band on an active oracle. Owner only.
+    ///
+    /// # Errors
+    /// * `OracleNotConfigured` — no stored config for `asset`.
+    /// * `BadLastTolerance` — tolerance outside envelope.
+    ///
+    /// # Events
+    /// * topics — `["config", "oracle"]`
     #[only_owner]
     pub fn set_tolerance(env: Env, asset: Address, tolerance: OracleTolerance) {
         config::set_tolerance(&env, asset, tolerance);

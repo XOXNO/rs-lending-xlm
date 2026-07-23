@@ -1,53 +1,32 @@
 # XOXNO Oracle
 
-Self-hosted multi-signer price oracle for assets without a native
-Reflector/RedStone feed (e.g. RWA). Registered signers push submissions; the
-contract stores the latest per signer per feed and recomputes a median aggregate
-at write time. N-of-M threshold keeps reads O(1).
+Self-hosted multi-signer feed (`contracts/xoxno-oracle`). Signers submit;
+contract stores per-signer latest and recomputes an N-of-M median at write
+time. RedStone-style reads fail closed; SEP-40 reads soft-fail with `None`.
 
 | | |
 | --- | --- |
 | Owner | OZ `Ownable` |
-| Reads | RedStone-style + SEP-40 / Reflector-style |
 | Provider kind | `OracleProviderKind::XoxnoPriceFeed` |
-
-## Role
-
-Listed as `OracleSourceConfig::Xoxno` on the price-aggregator. Independent
-second opinion next to Reflector/RedStone; primary and anchor must never share
-this contract address.
-
-## Freshness
-
-| Knob | Purpose |
-| --- | --- |
-| `MaxSubmissionAgeSeconds` | Absolute age for inclusion in the median |
-| `MaxRelativeSkewSeconds` | Drop lagging peers vs freshest (default = age window) |
-| `MaxStaleSeconds` | How long a cached aggregate may be served |
-
-Keep submission age ≤ consumer `max_stale_seconds`. Below threshold: aggregate
-cleared; reads fail closed (`NoDataForFeed` / `StaleData` / SEP-40 `None`).
+| Consumer | price-aggregator (`OracleSourceConfig::Xoxno`) |
 
 ## Surface
 
-| Area | Notes |
+| Call | Role |
 | --- | --- |
-| Submit | `submit_price` / `submit_prices` — signer auth, known feed, non-decreasing timestamps |
-| Reads | `read_price_data*`; SEP-40 `lastprice` / `price` / `prices` / TWAP |
-| Admin | Signers, threshold, feeds, windows, skew, upgrade |
-| Hygiene | `purge_feed` clears stale per-signer state |
+| `submit_price` / `submit_prices` | Signer auth; known feed; non-decreasing timestamps |
+| `read_price_data` / `read_price_data_for_feed` / `read_price_history` | Fail-closed RedStone ABI |
+| `lastprice` / `price` / `prices` | Soft SEP-40 (`None` when unmapped/missing/stale) |
+| `base` / `decimals` / `resolution` / `assets` | SEP-40 metadata |
+| `add_signer` / `remove_signer` / `set_threshold` | Owner signer set |
+| `set_max_stale_seconds` / `set_max_submission_age_seconds` / `set_max_relative_skew_seconds` | Owner freshness knobs |
+| `register_feed` / `add_feed` / `remove_feed` / `purge_feed` | Owner feed hygiene |
+| `set_resolution` / `upgrade` | Owner admin |
 
-Production: threshold ≥ 2; register feeds before submit; tight sanity band when
-used as sole `Single` source.
+## Related
 
-## Layout
-
-```text
-src/
-  lib.rs          Entrypoints + constructor
-  submit.rs       Signer submissions + threshold
-  reads.rs        RedStone + SEP-40 surfaces
-  admin.rs        Owner admin
-  aggregation.rs  Median + freshness windows
-  storage.rs      Feed / signer / aggregate keys
-```
+| Doc | Topic |
+| --- | --- |
+| Crate rustdoc (`//!`) | Semantics |
+| [`architecture/INVARIANTS.md`](../../architecture/INVARIANTS.md) §4.2 | Oracle setup |
+| `contracts/price-aggregator` | Fail-closed compose + soft status |

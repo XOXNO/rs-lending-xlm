@@ -1,4 +1,4 @@
-//! Public price entry point (`resolve_usd_price`).
+//! Hard-path USD price resolution (`resolve_usd_price`). Fail-closed.
 
 use common::errors::OracleError;
 use common::types::{AssetOracleConfig, PriceFeedRaw};
