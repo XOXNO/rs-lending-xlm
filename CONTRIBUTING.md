@@ -107,6 +107,16 @@ Also in place: third-party actions pinned by SHA, least-privilege
 `permissions:`, and `wasm-testing-abi-check` so deployable governance WASM does
 not export test-only ABIs.
 
+## Documentation style
+
+Public ABI and type comments follow
+[architecture/DOC_STYLE.md](./architecture/DOC_STYLE.md). Code is the source of
+truth; update rustdoc when behavior changes. Optional local check:
+
+```bash
+scripts/check-interface-docs.sh
+```
+
 ## Issues
 
 Public issues: bugs, docs gaps, features, non-sensitive design. Include repro
