@@ -9,6 +9,7 @@
     "accumulator": "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV",
     "pool_wasm_hash": "a01de29b6c58f2d7c1ec623cba0b93e269f88685f006333f62373294f41d0646",
     "controller_wasm_hash": "cdcdb43df2769ce4bfd7c9d4c5bd29d0152a21d101eebf045fde141eb0d683f4",
+    "governance_wasm_hash": "e454082d36a693b043b33896b74937f108fcbedb8064f9cd8c532ec127736144",
     "ledger_index": 3401320,
     "reflector_cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
     "reflector_dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
@@ -17,7 +18,6 @@
     "xoxno_oracle_adapter": "CB46MOUCOPA5TGDKKCY5OC2FEXGCBQ5KXR53RGOYY7XD7LN6JOE7OPRF",
     "flash_loan_receiver": "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ",
     "pool": "CDR2CF7G66AJ6LOECTUDEVPWNGTRMFFF3R3NZM6UHEJT42G4MRCXJERK",
-    "governance_wasm_hash": "",
     "hub_ids": {
       "1": 1,
       "2": 2
@@ -32,7 +32,7 @@
   "mainnet": {
     "rpc_url": "https://stellar-gateway.xoxno.com",
     "network_passphrase": "Public Global Stellar Network ; September 2015",
-    "timelock_min_delay_ledgers": 34560,
+    "timelock_min_delay_ledgers": 1,
     "governance": "",
     "controller": "",
     "aggregator": "CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR",
