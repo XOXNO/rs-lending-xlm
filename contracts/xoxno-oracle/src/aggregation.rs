@@ -22,6 +22,7 @@ pub(crate) const MAX_HISTORY_LEN: u32 = MAX_TWAP_RECORDS;
 /// realistic USD-scaled price, far below `i128::MAX`.
 pub(crate) const MAX_SUBMITTED_PRICE: i128 = 1_000_000_000_000_000_000_000_000;
 
+/// Rejects package timestamps more than `MAX_FUTURE_SKEW_SECONDS` ahead of ledger time.
 pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     let ts_secs = package_timestamp / MS_PER_SECOND;
     let max_future = env
@@ -34,6 +35,7 @@ pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<()
     Ok(())
 }
 
+/// Rejects package timestamps already older than `MaxSubmissionAgeSeconds`.
 pub(crate) fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     let ts_secs = package_timestamp / MS_PER_SECOND;
     let now = env.ledger().timestamp();
@@ -64,6 +66,7 @@ pub(crate) fn require_monotonic_package(
     Ok(())
 }
 
+/// Persists the signer's latest observation and renews allowlist TTL for the feed.
 pub(crate) fn store_submission(
     env: &Env,
     feed_id: &String,
@@ -84,8 +87,8 @@ pub(crate) fn store_submission(
     renew_persistent_key(env, &key);
 }
 
-// Absolute age filter, then relative cluster filter against the freshest peer.
-// Below threshold: clear aggregate and history (raw submissions stay).
+/// Absolute age filter, then relative cluster filter against the freshest peer.
+/// Below threshold: clear aggregate and history (raw submissions stay).
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let signers = load_signers(env);
     let max_submission_age = load_max_submission_age(env);

@@ -1,4 +1,7 @@
-//! Fixed-point wrappers for RAY, WAD, and BPS protocol math.
+//! Fixed-point wrappers for protocol scales: RAY (`1e27`), WAD (`1e18`), BPS (`1e4`).
+//!
+//! Typed cores for rates/indexes/shares (RAY), USD/HF/prices (WAD), and ratios
+//! (BPS). Overflow maps to `GenericError::MathOverflow`.
 
 use soroban_sdk::{panic_with_error, Env};
 

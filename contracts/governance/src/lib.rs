@@ -1,8 +1,8 @@
 #![no_std]
 
-//! Timelocked admin of the lending controller; guardian/oracle incident paths
-//! bypass delay. Ownable + access-control via stellar-access; timelock via
-//! stellar-governance.
+//! Timelocked admin of the lending controller and price-aggregator. Ownable +
+//! access-control roles; delay via stellar-governance. Guardian/oracle incident
+//! paths bypass delay. See ADR 0010 and architecture/INVARIANTS.md (governance).
 
 mod access;
 mod constants;

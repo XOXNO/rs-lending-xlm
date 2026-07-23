@@ -1,4 +1,7 @@
-//! Repays debt by withdrawing and swapping collateral.
+//! Repay debt from collateral: withdraw → (swap) → repay; optional full close.
+//!
+//! Owner/delegate auth. Same hub-asset nets in-pool; distinct assets swap via
+//! aggregator. `strategy_finalize` re-checks LTV/HF.
 
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, HubAssetKey, StrategySwap};
@@ -27,6 +30,23 @@ pub(crate) struct RepayWithCollateralParams<'a> {
 
 #[contractimpl]
 impl Controller {
+    /// Repays `debt` using `collateral_amount` of `collateral` (swap when distinct).
+    /// Owner or active delegate. `close_position` fully exits remaining collateral
+    /// only when debt is already zero. Finalizes with post-pool LTV/HF gates.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` / `HubNotActive` — preflight.
+    /// * `NotAuthorized` — caller is neither owner nor active delegate.
+    /// * `CollateralPositionNotFound` / `DebtPositionNotFound` — missing legs.
+    /// * `CannotCloseWithRemainingDebt` — `close_position` while debt remains.
+    /// * `InvalidPayments` — non-empty swap on same-asset net path.
+    /// * Swap/withdraw/repay errors from the nested legs.
+    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — finalize risk gates.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * topics — `["position", "batch_update"]`
     #[when_not_paused]
     pub fn repay_debt_with_collateral(
         env: Env,

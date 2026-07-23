@@ -1,13 +1,9 @@
-//! Liquidation and residual bad-debt cleanup.
+//! Liquidation and residual bad-debt socialization.
 //!
-//! Pipeline: plan (HF gate, price, normalize) → apply (repay then seize) →
-//! optional bad-debt socialization. Requires HF < 1 to liquidate.
-//!
-//! Not gated by `#[when_not_paused]`: keepers can liquidate and clean bad debt
-//! while the contract is paused. Spoke-asset pause blocks inbound debt repay
-//! tokens; seizure of paused collateral remains allowed.
-//!
-//! Plan `refunds` are informational; only post-normalization repay amounts transfer.
+//! Pipeline: plan (HF < 1, price, normalize) → apply (repay then seize) →
+//! optional bad-debt cleanup. Permissionless keepers; not gated by global pause.
+//! Spoke pause blocks inbound repay tokens; paused collateral remains seizable.
+//! See `architecture/INVARIANTS.md` §3.3.
 
 use crate::risk;
 mod apply;
@@ -32,33 +28,22 @@ use crate::{Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
-    /// Liquidates an unhealthy account: repays selected debt and seizes bonused
-    /// collateral. Requires the target's health factor to be below one.
-    ///
-    /// Not blocked by the global pause flag. Permissionless for any non-owner
-    /// liquidator (a registered delegate may liquidate an account it manages).
-    ///
-    /// # Arguments
-    /// * `liquidator` - pays debt and receives seized collateral; must authorize.
-    ///   Cannot be the account owner.
-    /// * `account_id` - existing undercollateralized account.
-    /// * `debt_payments` - `(hub-asset, amount)` debt legs to repay; positive amounts.
+    /// Liquidates an underwater account: liquidator pays selected debt and
+    /// receives bonused collateral. Permissionless; liquidator auth; not the
+    /// owner. Requires HF < 1. Global pause does not block.
     ///
     /// # Errors
-    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * `InvalidPayments` - the debt payment list (or the resulting repayment set) is empty.
-    /// * `AmountMustBePositive` - a leg amount is not strictly positive.
-    /// * `SelfLiquidationNotAllowed` - `liquidator` is the account owner.
-    /// * `SpokeAssetPaused` - a repaid debt leg's listing is paused (paused
-    ///   listings accept no inbound tokens; seizure of paused collateral stays
-    ///   allowed).
-    /// * `HealthFactorTooHigh` - the account is still at or above HF of one.
-    /// * A non-market debt asset reverts `OracleNotConfigured` / `PoolNotInitialized`
-    ///   on the fail-closed pricing path.
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `InvalidPayments` — empty debt payment list or empty post-normalization set.
+    /// * `AmountMustBePositive` — a leg amount is not strictly positive.
+    /// * `SelfLiquidationNotAllowed` — `liquidator` is the account owner.
+    /// * `SpokeAssetPaused` — a repaid debt leg's listing is paused.
+    /// * `HealthFactorTooHigh` — account HF is still at or above one.
+    /// * `OracleNotConfigured` / `PoolNotInitialized` — fail-closed pricing path.
     ///
     /// # Events
-    /// * A `LiquidationEvent` (liquidator, account, repaid USD, bonus bps) and a
-    ///   position-batch event for the account's updated legs.
+    /// * topics — `["position", "liquidation"]`
+    /// * topics — `["position", "batch_update"]`
     pub fn liquidate(
         env: Env,
         liquidator: Address,
@@ -68,24 +53,16 @@ impl Controller {
         process_liquidation(&env, &liquidator, account_id, &debt_payments);
     }
 
-    /// Socializes small residual bad debt by seizing all remaining supply and
-    /// debt shares into the pool. Permissionless; `caller` auth is for
-    /// accountability only (no proceeds to the caller).
-    ///
-    /// Not blocked by the global pause flag. Same eligibility predicate as the
-    /// post-liquidation automatic cleanup path.
-    ///
-    /// # Arguments
-    /// * `caller` - accountable initiator; must authorize.
-    /// * `account_id` - account with socializable residual bad debt.
+    /// Socializes residual bad debt into the pool (no liquidator proceeds).
+    /// Permissionless; caller auth for accountability. Global pause does not block.
     ///
     /// # Errors
-    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * `DebtPositionNotFound` - the account carries no debt.
-    /// * `CannotCleanBadDebt` - not eligible (debt not socializable residual).
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `DebtPositionNotFound` — the account carries no debt.
+    /// * `CannotCleanBadDebt` — not eligible socializable residual.
     ///
     /// # Events
-    /// * A `CleanBadDebtEvent` and account removal (no position-batch if gone).
+    /// * topics — `["debt", "bad_debt"]`
     pub fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
         caller.require_auth();
         validation::require_not_flash_loaning(&env);

@@ -1,4 +1,4 @@
-//! Router token-pull preauthorization.
+//! Caps the aggregator's token pull to exactly one `transfer` of `amount_in`.
 
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{symbol_short, vec, Address, Env, IntoVal, Vec};

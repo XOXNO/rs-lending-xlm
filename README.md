@@ -36,6 +36,7 @@ Rules and accounting: [architecture/INVARIANTS.md](./architecture/INVARIANTS.md)
 | [architecture/INVARIANTS.md](./architecture/INVARIANTS.md) | Anyone changing accounting, risk, oracle, or auth |
 | [architecture/decisions/](./architecture/decisions/README.md) | Design decisions and trade-offs |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Contributors |
+| [architecture/DOC_STYLE.md](./architecture/DOC_STYLE.md) | Rustdoc / public ABI comment style |
 | [certora/README.md](./certora/README.md) | Formal verification |
 | [STRIDE.md](./STRIDE.md) | Threat model |
 | [SECURITY.md](./SECURITY.md) | Vulnerability disclosure |
@@ -59,8 +60,9 @@ contracts/          Soroban contracts
   controller/       Accounts, risk, oracle, liquidation, strategies
   pool/             Liquidity and flash loans (controller-owned)
   governance/       Timelock and roles
-  aggregator/       DEX routing for strategies
-  xoxno-oracle-adapter/
+  swap-aggregator/  DEX routing for strategies
+  price-aggregator/ Oracle authority (hard/soft reads)
+  xoxno-oracle/     Multi-signer RedStone / SEP-40 feed
   defindex-strategy/
 common/             Shared math, types, errors
 interfaces/         Client ABIs
@@ -68,7 +70,7 @@ configs/            Network and market deploy inputs (`networks.json`)
 tests/              Harness, fuzz, live scenarios
 services/           Keeper (TTL), metrics exporter
 certora/            Formal verification
-architecture/       Invariants and ADRs
+architecture/       Invariants, ADRs, DOC_STYLE
 ```
 
 Resolve contract addresses from `configs/networks.json`. Do not hardcode them in integrators.

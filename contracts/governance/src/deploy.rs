@@ -1,4 +1,5 @@
-//! One-time controller deployment and address lookup.
+//! One-shot owner-gated deploy of controller and price-aggregator. Stores
+//! addresses and wires the aggregator into the controller when both exist.
 
 use common::errors::GenericError;
 
@@ -19,23 +20,18 @@ const PRICE_AGGREGATOR_DEPLOY_SALT: [u8; 32] = [1u8; 32];
 
 #[contractimpl]
 impl Governance {
-    /// Deploys the lending controller once and records its address, with the
-    /// governance contract as the controller's constructor admin.
-    ///
-    /// # Arguments
-    /// * `wasm_hash` - compiled controller Wasm (already installed).
+    /// Deploys the lending controller once and records its address. Owner only.
+    /// Governance is the controller constructor admin.
     ///
     /// # Errors
-    /// * `InvalidPoolTemplate` - `wasm_hash` is all-zero.
-    /// * `PoolAlreadyDeployed` - a controller address is already stored.
+    /// * `InvalidPoolTemplate` — `wasm_hash` is all-zero.
+    /// * `PoolAlreadyDeployed` — controller address already stored.
     ///
     /// # Events
-    /// * `DeployControllerEvent` - the deployed controller address and wasm hash.
+    /// * `DeployControllerEvent` — address and wasm hash.
     ///
     /// # Security Warning
-    /// * Governance becomes the controller's admin, so it holds every
-    ///   controller admin power. Owner-gated and one-shot; deployment tooling
-    ///   must set the intended owner before calling.
+    /// * Governance holds every controller admin power after deploy.
     #[only_owner]
     pub fn deploy_controller(env: Env, wasm_hash: BytesN<32>) -> Address {
         storage::renew_governance_instance(&env);
@@ -63,26 +59,27 @@ impl Governance {
         controller
     }
 
+    /// Stored controller address.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — controller not deployed.
     pub fn controller(env: Env) -> Address {
         storage::get_controller(&env)
     }
 
-    /// Deploys the price-aggregator once and records its address, with the
-    /// governance contract as the aggregator's constructor owner.
-    ///
-    /// # Arguments
-    /// * `wasm_hash` - compiled price-aggregator Wasm (already installed).
+    /// Deploys the price-aggregator once and records its address. Owner only.
+    /// Governance is the aggregator constructor owner; if a controller exists,
+    /// wires it immediately (Sensitive re-point still uses `SetPriceAggregator`).
     ///
     /// # Errors
-    /// * `InvalidPoolTemplate` - `wasm_hash` is all-zero.
-    /// * `PoolAlreadyDeployed` - a price-aggregator address is already stored.
+    /// * `InvalidPoolTemplate` — `wasm_hash` is all-zero.
+    /// * `PoolAlreadyDeployed` — aggregator address already stored.
     ///
     /// # Events
-    /// * `DeployPriceAggregatorEvent` - the deployed address and wasm hash.
+    /// * `DeployPriceAggregatorEvent` — address and wasm hash.
     ///
     /// # Security Warning
-    /// * Governance becomes the aggregator's owner, holding every oracle admin
-    ///   power. Owner-gated and one-shot.
+    /// * Governance holds every oracle admin power after deploy.
     #[only_owner]
     pub fn deploy_price_aggregator(env: Env, wasm_hash: BytesN<32>) -> Address {
         storage::renew_governance_instance(&env);
@@ -124,6 +121,10 @@ impl Governance {
         price_aggregator
     }
 
+    /// Stored price-aggregator address.
+    ///
+    /// # Errors
+    /// * `AggregatorNotSet` — aggregator not deployed.
     pub fn price_aggregator(env: Env) -> Address {
         storage::get_price_aggregator(&env)
     }

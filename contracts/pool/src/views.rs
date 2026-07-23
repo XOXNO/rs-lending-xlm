@@ -1,6 +1,5 @@
-//! Market accessors backing the pool view ABI. Each reads persisted state and
-//! renews the market-key TTLs, but never accrues interest, so values reflect
-//! the last checkpoint; live indexes come from `get_bulk_indexes` instead.
+//! Checkpoint market reads for the view ABI. No accrual; live indexes via
+//! `get_bulk_indexes`. See `architecture/INVARIANTS.md`.
 
 use common::errors::GenericError;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};

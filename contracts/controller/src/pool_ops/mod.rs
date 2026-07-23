@@ -1,4 +1,8 @@
-//! Non-position controller entrypoints.
+//! Pool deploy/params/upgrade admin plus permissionless keepers (indexes,
+//! revenue, rewards, threshold sync) and account-owner TTL/delegate helpers.
+//! Owner-gated ops ride the governance timelock. See
+//! [ADR 0010](../../../architecture/decisions/0010-governance-timelock-for-controller-admin.md)
+//! and [INVARIANTS](../../../architecture/INVARIANTS.md) §5.1.
 
 use crate::account;
 use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
@@ -29,11 +33,12 @@ const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 
 #[contractimpl]
 impl Controller {
+    /// Accrues interest for each listed hub-asset market. Permissionless
+    /// (caller auth); blocked while paused.
     ///
     /// # Errors
-    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * `PoolNotInitialized` - a listed market has not been created.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `PoolNotInitialized` — a listed market has not been created.
     #[when_not_paused]
     pub fn update_indexes(env: Env, caller: Address, assets: Vec<HubAssetKey>) {
         caller.require_auth();
@@ -48,50 +53,41 @@ impl Controller {
         }
     }
 
-    /// Extends the account's storage TTL. Callable by the account owner.
+    /// Extends the account's storage TTL. Account owner only.
     ///
     /// # Errors
-    /// * `AccountNotInMarket` - `caller` is not the account owner.
+    /// * `AccountNotInMarket` — missing account or `caller` is not the owner.
     pub fn renew_account(env: Env, caller: Address, account_id: u64) {
         storage::renew_controller_instance(&env);
         account::renew_account(&env, &caller, account_id);
     }
 
-    /// Registers `delegate` as a manager that may act on `account_id`. Effective
-    /// only while `delegate` is also a registered, active position manager.
-    ///
-    /// # Arguments
-    /// * `caller` - must be the account owner.
+    /// Registers `delegate` on `account_id` (effective only while `delegate` is
+    /// also an active position manager). Account owner only.
     ///
     /// # Errors
-    /// * `AccountNotInMarket` - `caller` is not the account owner.
+    /// * `AccountNotInMarket` — missing account or `caller` is not the owner.
+    /// * `RegistryCapReached` — delegate list is at capacity.
     pub fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
         account::set_account_delegate(&env, &caller, account_id, &delegate, true);
     }
 
-    /// Revokes `delegate` from `account_id`.
-    ///
-    /// # Arguments
-    /// * `caller` - must be the account owner.
+    /// Revokes `delegate` from `account_id`. Account owner only.
     ///
     /// # Errors
-    /// * `AccountNotInMarket` - `caller` is not the account owner.
+    /// * `AccountNotInMarket` — missing account or `caller` is not the owner.
     pub fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         storage::renew_controller_instance(&env);
         account::set_account_delegate(&env, &caller, account_id, &delegate, false);
     }
 
-    /// Deploys the central liquidity pool once, owned by this controller. The
-    /// pool address derives from `(controller address, salt)`.
+    /// Deploys the central liquidity pool once (address from controller + salt).
+    /// Owner only (gov timelock).
     ///
     /// # Errors
-    /// * `PoolAlreadyDeployed` - the pool has already been deployed.
-    /// * `TemplateNotSet` - no pool Wasm template has been configured.
-    ///
-    /// # Security Warning
-    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
-    ///   so this executes only after the configured delay.
+    /// * `PoolAlreadyDeployed` — pool already deployed.
+    /// * `TemplateNotSet` — no pool Wasm template configured.
     #[only_owner]
     pub fn deploy_pool(env: Env) -> Address {
         storage::renew_controller_instance(&env);
@@ -113,19 +109,22 @@ impl Controller {
         pool
     }
 
-    /// interest-rate and risk params.
+    /// Creates a `(hub_id, asset)` market on the deployed pool. Owner only
+    /// (gov timelock).
     ///
     /// # Arguments
-    /// * `asset` - must equal `params.asset_id` and be an approved token.
+    /// * `asset` — must equal `params.asset_id`.
     ///
     /// # Errors
-    /// * `WrongToken` - `asset` does not match `params.asset_id`.
-    /// * Param validation and market-exists reverts propagate from the pool's
-    ///   `create_market` (rate-model bounds, `AssetAlreadySupported`).
+    /// * `HubNotActive` — hub missing or inactive.
+    /// * `WrongToken` — `asset` ≠ `params.asset_id`.
+    /// * `PoolNotInitialized` — central pool not deployed.
+    /// * `AssetAlreadySupported` — market already exists.
+    /// * `AssetDecimalsTooHigh` / `InvalidBorrowParams` / rate-model variants —
+    ///   from pool `create_market` / `MarketParamsRaw::verify`.
     ///
-    /// # Security Warning
-    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
-    ///   so this executes only after the configured delay.
+    /// # Events
+    /// * `CreateMarketEvent` — new market params snapshot.
     #[only_owner]
     pub fn create_liquidity_pool(
         env: Env,
@@ -161,16 +160,15 @@ impl Controller {
         pool_address
     }
 
+    /// Accrues indexes, then replaces the market interest-rate model. Owner
+    /// only (gov timelock).
     ///
     /// # Errors
-    /// * `PoolNotInitialized` - the target market has not been created.
+    /// * `PoolNotInitialized` — market or pool missing.
+    /// * Rate-model variants from `InterestRateModel::verify`.
     ///
     /// # Events
-    /// * `UpdateMarketParamsEvent` - the new rate-model parameters.
-    ///
-    /// # Security Warning
-    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
-    ///   so this executes only after the configured delay.
+    /// * `UpdateMarketParamsEvent` — new rate-model parameters.
     #[only_owner]
     pub fn upgrade_liquidity_pool_params(
         env: Env,
@@ -180,14 +178,11 @@ impl Controller {
         upgrade_liquidity_pool_params(&env, &hub_asset, &params);
     }
 
-    /// Upgrades the deployed pool contract to `new_wasm_hash`.
+    /// Upgrades the deployed pool Wasm to `new_wasm_hash`. Owner only (gov
+    /// timelock).
     ///
     /// # Errors
-    /// * `PoolNotInitialized` - the pool has not been deployed.
-    ///
-    /// # Security Warning
-    /// * Owner-only via `#[only_owner]`; the owner is the governance timelock,
-    ///   so this executes only after the configured delay.
+    /// * `PoolNotInitialized` — pool not deployed.
     #[only_owner]
     pub fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_controller_instance(&env);
@@ -195,13 +190,13 @@ impl Controller {
         pool_upgrade_call(&env, &pool_addr, &new_wasm_hash);
     }
 
-    /// accumulator. Returns the amount claimed per asset.
+    /// Claims protocol revenue per market and forwards it to the accumulator.
+    /// Permissionless (caller auth); blocked while paused.
     ///
     /// # Errors
-    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * `NoAccumulator` - no revenue accumulator has been configured.
-    /// * `PoolNotInitialized` - a listed market has not been created.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `NoAccumulator` — no revenue accumulator configured.
+    /// * `PoolNotInitialized` — a listed market has not been created.
     #[when_not_paused]
     pub fn claim_revenue(env: Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
         caller.require_auth();
@@ -215,18 +210,17 @@ impl Controller {
         results
     }
 
-    /// Transfers external supply rewards into one or more markets, raising each
-    /// market's supply index for its suppliers.
+    /// Transfers external supply rewards into markets, raising each supply
+    /// index. Permissionless (caller auth + token transfer); blocked while paused.
     ///
     /// # Arguments
-    /// * `rewards` - `(hub-asset, amount)` legs; amounts must be positive.
+    /// * `rewards` — `(hub-asset, amount)` legs; amounts must be positive.
     ///
     /// # Errors
-    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * `AmountMustBePositive` - a leg amount is not strictly positive.
-    /// * `PoolNotInitialized` - a target market has not been created.
-    /// * `NoSuppliersToReward` - a target market has no suppliers to receive the reward.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` — a leg amount is not strictly positive.
+    /// * `PoolNotInitialized` — a target market has not been created.
+    /// * `NoSuppliersToReward` — a target market has no suppliers.
     #[when_not_paused]
     pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(HubAssetKey, i128)>) {
         caller.require_auth();
@@ -237,18 +231,16 @@ impl Controller {
         }
     }
 
-    /// Propagates spoke risk params onto supply positions. Permissionless;
-    /// HF gate blocks threshold raises that would drop an account below min HF.
-    /// Delisted spoke members keep stamped params and are skipped.
+    /// Propagates spoke risk params onto supply positions. Permissionless
+    /// (caller auth); HF gate blocks threshold raises below min HF. Delisted
+    /// spoke members keep stamped params and are skipped. Blocked while paused.
     ///
     /// # Errors
-    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * `HealthFactorTooLow` - a threshold raise would push an account below the
-    ///   minimum safe health factor.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `HealthFactorTooLow` — a threshold raise would drop an account below min HF.
     ///
     /// # Events
-    /// * A position-batch event per updated account.
+    /// * Position-batch event per updated account.
     #[when_not_paused]
     pub fn update_account_threshold(
         env: Env,
@@ -328,7 +320,7 @@ fn claim_revenue_for_asset_with_cache(
     amount
 }
 
-/// Transfers rewards into a pool and increases the supply index for suppliers.
+/// Pulls `amount` from `caller` into the pool and raises the supply index.
 pub(crate) fn add_reward(
     env: &Env,
     caller: &Address,
@@ -353,8 +345,7 @@ pub(crate) fn add_reward(
     pool_add_rewards_call(env, &pool_addr, hub_asset, amount);
 }
 
-/// Syncs risk params on each supply position for one account, then runs a
-/// single HF gate when `has_risks` propagates liquidation thresholds.
+/// Copies live spoke risk fields onto supply rows; HF-gates when `has_risks`.
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
     // No-op when the account is gone (bad-debt cleanup, full exit).
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {

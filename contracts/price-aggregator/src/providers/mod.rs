@@ -1,4 +1,5 @@
-//! Provider dispatch for required oracle sources.
+//! Provider dispatch: hard `read_required_source` (reverts) vs soft
+//! `try_read_source` (`None` for per-asset read problems).
 
 pub(crate) mod multi_feed;
 pub(crate) mod reflector;
@@ -49,6 +50,8 @@ pub(crate) fn try_read_source(
     }
 }
 
+/// Hard provider read for compose; reverts when the feed is missing or the
+/// provider rejects the payload. Staleness is checked by the caller.
 #[cfg(not(feature = "certora"))]
 pub(crate) fn read_required_source(
     cache: &mut ResolutionContext,

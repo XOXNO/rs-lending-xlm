@@ -1,8 +1,7 @@
-//! Builds the liquidation plan (priced repay/seize legs and bonus).
+//! Builds the liquidation plan: priced repay/seize legs and bonus.
 //!
-//! Gates: non-empty debt, debt-leg pause preflight, HF < 1. Then normalizes
-//! repay amounts and pro-rata seizures. Pure relative to pool transfers —
-//! apply owns money movement.
+//! Gates: non-empty debt, debt-leg pause preflight, HF < 1. Pure relative to
+//! pool transfers — apply owns money movement.
 
 use crate::risk;
 use common::errors::{CollateralError, SpokeError};

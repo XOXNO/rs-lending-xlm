@@ -1,10 +1,7 @@
-//! Residual bad-debt socialization.
+//! Residual bad-debt socialization into the pool (no liquidator proceeds).
 //!
-//! Zeroes spoke usage for all supply and debt shares, seizes them into the pool
-//! in one call, emits `CleanBadDebtEvent`, and removes the account. No tokens
-//! go to a liquidator — loss is socialized via pool indexes.
-//!
-//! Callers must already enforce eligibility (`is_socializable_bad_debt`) and auth.
+//! Zeroes spoke usage, seizes remaining supply and debt shares, emits cleanup,
+//! and removes the account. Callers must already enforce eligibility and auth.
 
 use common::types::{Account, AccountPositionType, PoolSeizeEntry};
 use soroban_sdk::{Env, Vec};

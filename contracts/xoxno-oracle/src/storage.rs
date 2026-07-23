@@ -364,6 +364,7 @@ pub(crate) fn clear_feed_state(env: &Env, feed_id: &String) {
     feed_index_remove(env, feed_id);
 }
 
+/// Reverts `NotAuthorizedSigner` when `signer` is not registered.
 pub(crate) fn require_registered_signer(env: &Env, signer: &Address) -> Result<(), Error> {
     let signers = load_signers(env);
     if !signers.contains(signer) {
@@ -372,6 +373,7 @@ pub(crate) fn require_registered_signer(env: &Env, signer: &Address) -> Result<(
     Ok(())
 }
 
+/// Reverts `FeedNotKnown` when `feed_id` is absent from the allowlist.
 pub(crate) fn require_known_feed(env: &Env, feed_id: &String) -> Result<(), Error> {
     if !feed_index_contains(env, feed_id) {
         return Err(Error::FeedNotKnown);

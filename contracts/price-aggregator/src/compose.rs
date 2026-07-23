@@ -1,4 +1,6 @@
-//! Composes required oracle sources into a final price.
+//! Hard-path composition: required sources into a final USD price.
+//! Reverts on missing, stale, or out-of-band legs; soft diagnostics live in
+//! `status`.
 
 use common::errors::OracleError;
 use common::oracle::observation::is_stale;

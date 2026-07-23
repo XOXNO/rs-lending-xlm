@@ -57,7 +57,7 @@ fn test_xoxno_listing_probes_adapter_decimals() {
 
 #[test]
 fn test_real_adapter_single_source_market_end_to_end() {
-    // Full path against the real `xoxno-oracle-adapter` contract, no mock:
+    // Full path against the real `xoxno-oracle` contract, no mock:
     // 2-of-3 signer submissions, listing-time SEP-40 `decimals()` probe, and
     // a priced supply through the controller.
     let mut t = LendingTest::new().with_market(usdc_preset()).build();

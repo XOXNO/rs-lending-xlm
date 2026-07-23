@@ -1,4 +1,5 @@
-//! Admin-input validation before controller forwarding.
+//! Admin-input validation before scheduling or forwarding to the controller /
+//! price-aggregator. Pure shape checks plus live oracle probes.
 
 pub(crate) mod asset;
 pub(crate) mod oracle_config;

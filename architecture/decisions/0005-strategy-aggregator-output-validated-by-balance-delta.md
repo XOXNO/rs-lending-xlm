@@ -62,5 +62,5 @@ aggregator-valid route bytes; only non-zero output is enforced on-controller.
 - `contracts/controller/src/storage/instance.rs`  
 - `contracts/controller/src/risk/validation.rs`  
 - `common/src/errors.rs`, `common/src/types/aggregator.rs`  
-- `contracts/aggregator/src/vault.rs`  
+- `contracts/swap-aggregator/src/vault.rs`  
 - [SCF_BUILD_ARCHITECTURE.md](../../SCF_BUILD_ARCHITECTURE.md) §12  

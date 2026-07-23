@@ -1,4 +1,4 @@
-//! Test helpers for the real `xoxno-oracle-adapter` contract (registered
+//! Test helpers for the real `xoxno-oracle` contract (registered
 //! natively, no mock): signer setup, submissions, and market wiring.
 
 use soroban_sdk::testutils::Address as _;

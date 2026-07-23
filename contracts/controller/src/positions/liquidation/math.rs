@@ -1,5 +1,5 @@
-//! Liquidation accounting (bonus curve, repay normalization, seizure, excess).
-//! Pure relative to pool transfers. `refunds` are informational (apply never transfers).
+//! Liquidation math: bonus curve, repay normalization, seizure, excess.
+//! Pure relative to pool transfers; `refunds` are informational only.
 
 use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::{CollateralError, GenericError};

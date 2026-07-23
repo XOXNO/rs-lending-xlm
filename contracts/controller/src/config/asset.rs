@@ -1,5 +1,4 @@
-//! Spoke-asset listing setters: add, edit, and remove a hub-asset on a spoke,
-//! with risk-bound, cap-domain, and oracle-override validation.
+//! Spoke-asset listing helpers: add, edit, remove, and tighten-only flags.
 
 use common::errors::{CollateralError, SpokeError};
 use common::types::{HubAssetKey, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig};
@@ -109,12 +108,9 @@ fn store_spoke_asset(
     .publish(env);
 }
 
-/// Sets only the `paused`/`frozen` flags on an existing listing, preserving
-/// every other field. The guardian incident path: no risk params, caps, or
-/// override travel with it, and it works on deprecated spokes. Containment
-/// only — each flag may tighten (`false -> true`) or stay put; clearing one
-/// is risk-loosening and must ride the timelocked `EditAssetInSpoke`, which
-/// also works on deprecated spokes.
+/// Tightens only `paused`/`frozen` on an existing listing (works on deprecated
+/// spokes). Clearing a flag reverts `SpokeAssetFlagRelaxation`; reopen via
+/// timelocked `edit_asset_in_spoke`.
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     spoke_id: u32,

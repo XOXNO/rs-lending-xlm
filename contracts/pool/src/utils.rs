@@ -1,5 +1,5 @@
-//! Pool helpers: TTL renewal, ledger time, rate-model writes, solvency/
-//! utilization guards, and liquidation-fee accrual.
+//! TTL, ledger time, IRM writes, utilization/solvency guards, liquidation fee.
+//! Guards enforce cash and utilization caps the controller does not re-check here.
 
 use common::constants::{
     MS_PER_SECOND, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,

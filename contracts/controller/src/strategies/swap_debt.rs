@@ -1,4 +1,7 @@
-//! Swaps debt between hub markets.
+//! Debt refinance: borrow new debt → aggregator swap → repay existing.
+//!
+//! Owner/delegate auth. Intermediate borrow skips HF; `strategy_finalize`
+//! re-checks LTV/HF.
 
 use common::errors::GenericError;
 use common::types::{HubAssetKey, StrategySwap};
@@ -25,6 +28,21 @@ pub(crate) struct SwapDebtParams<'a> {
 
 #[contractimpl]
 impl Controller {
+    /// Refinances `amount` of `existing_debt` into `new_debt` via aggregator route.
+    /// Owner or active delegate. Finalizes with post-pool LTV/HF gates.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `AssetsAreTheSame` — identical `(hub, asset)` pair.
+    /// * `AmountMustBePositive` / `HubNotActive` — preflight.
+    /// * `NotAuthorized` — caller is neither owner nor active delegate.
+    /// * `DebtPositionNotFound` — no debt position for `existing_debt`.
+    /// * Borrow/swap/repay errors from the nested legs.
+    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — finalize risk gates.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * topics — `["position", "batch_update"]`
     #[when_not_paused]
     pub fn swap_debt(
         env: Env,

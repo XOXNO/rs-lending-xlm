@@ -1,4 +1,4 @@
-//! Router balance-delta verification.
+//! Verifies router spend/output by controller SAC balance deltas.
 
 use common::errors::{GenericError, StrategyError};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};

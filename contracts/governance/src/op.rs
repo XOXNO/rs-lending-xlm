@@ -1,8 +1,6 @@
-//! `AdminOperation` resolution and self-operation application.
-//!
-//! `resolve_op` validates each operation's inputs and lowers it to a
-//! `(target, function, args, delay-tier)` timelock call; `apply_self_op`
-//! executes the governance-self variants inline once their timelock matures.
+//! `AdminOperation` resolution and self-op application. `resolve_op` validates
+//! inputs and lowers to `(target, function, args, delay-tier)`; `apply_self_op`
+//! runs governance-self variants once the timelock matures.
 
 use common::errors::{CollateralError, GenericError, OracleError};
 

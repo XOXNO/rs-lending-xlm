@@ -1,4 +1,4 @@
-//! Live oracle validation for market configuration.
+//! Live oracle probes for market config proposals (Reflector / RedStone / XOXNO).
 
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{

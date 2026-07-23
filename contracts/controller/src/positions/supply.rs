@@ -1,8 +1,9 @@
-//! Supply flow.
+//! User and strategy supply: transfer into the pool, mint scaled shares, stamp
+//! controller-owned collateral risk params.
 //!
-//! Deposits never re-run post-pool solvency gates (unlike borrow/withdraw with debt).
-//! Tokens are transferred into the pool before `pool.supply`; the pool returns
-//! input-ordered scaled positions only — collateral risk params stay controller-owned.
+//! Deposits never re-run post-pool solvency (unlike debt-bearing borrow/withdraw).
+//! Auth and entry gates live on the public `supply` path; strategy callers reuse
+//! `process_deposit` after their own auth. See `architecture/INVARIANTS.md` §3.
 
 use common::errors::GenericError;
 use common::math::fp::Ray;
@@ -27,28 +28,21 @@ use crate::{Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
-    /// `account_id == 0`. Returns the account id.
-    ///
-    /// # Arguments
-    /// * `caller` - the account owner (or an active delegate for an existing
-    ///   account); must authorize the call.
-    /// * `account_id` - an existing account, or `0` to open a new one.
-    /// * `spoke_id` - spoke for a new account; ignored when `account_id != 0`.
-    /// * `assets` - `(hub-asset, amount)` deposit legs; amounts must be positive.
+    /// Deposits `assets` as collateral and returns the account id. Caller auth.
+    /// `account_id == 0` opens a new account on `spoke_id`; otherwise `spoke_id`
+    /// is ignored. Owner/delegate for new slots; anyone may top up an existing leg.
     ///
     /// # Errors
-    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * `AmountMustBePositive` - a leg amount is not strictly positive.
-    /// * `NotAuthorized` - a non-owner/non-delegate opens a **new** supply asset
-    ///   slot on an existing account (top-up of an existing leg is allowed).
-    /// * Entry gates: `HubNotActive`, `AssetNotInSpoke`,
-    ///   `SpokeAssetPaused`, `SpokeAssetFrozen`, `NotCollateral`, or
-    ///   `PositionLimitExceeded`.
-    /// * `SpokeSupplyCapReached` - the deposit would exceed the spoke supply cap.
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` — a leg amount is not strictly positive.
+    /// * `NotAuthorized` — a non-owner/non-delegate opens a new supply asset slot.
+    /// * `HubNotActive` / `AssetNotInSpoke` / `SpokeAssetPaused` / `SpokeAssetFrozen` /
+    ///   `NotCollateral` / `PositionLimitExceeded` — entry gates.
+    /// * `SpokeSupplyCapReached` — deposit would exceed the spoke supply cap.
     /// * The `#[when_not_paused]` guard reverts while the contract is paused.
     ///
     /// # Events
-    /// * A position-batch event summarizing the account's updated supply legs.
+    /// * topics — `["position", "batch_update"]`
     #[when_not_paused]
     pub fn supply(
         env: Env,

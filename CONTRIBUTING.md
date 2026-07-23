@@ -8,6 +8,7 @@ evidence for reviewers.
 
 - [README.md](./README.md) — layout and commands
 - [architecture/INVARIANTS.md](./architecture/INVARIANTS.md) — before touching accounting, auth, oracle, liquidation, flash loans, or risk
+- [architecture/DOC_STYLE.md](./architecture/DOC_STYLE.md) — how to write rustdoc / public endpoint docs (code is source of truth)
 - [SECURITY.md](./SECURITY.md) — vulnerabilities go to **security@xoxno.com**, never public issues/PRs
 - Large protocol changes: open an issue first for scope and verification expectations
 
@@ -105,6 +106,16 @@ contributors).
 Also in place: third-party actions pinned by SHA, least-privilege
 `permissions:`, and `wasm-testing-abi-check` so deployable governance WASM does
 not export test-only ABIs.
+
+## Documentation style
+
+Public ABI and type comments follow
+[architecture/DOC_STYLE.md](./architecture/DOC_STYLE.md). Code is the source of
+truth; update rustdoc when behavior changes. Optional local check:
+
+```bash
+scripts/check-interface-docs.sh
+```
 
 ## Issues
 

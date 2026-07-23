@@ -1,16 +1,9 @@
-//! Repay flows.
+//! User and strategy repay: reduce debt shares; permissionless for any payer.
 //!
-//! Permissionless: any caller may repay any account's debt (only the payer
-//! authorizes the token transfer). Debt only decreases, so there is no owner
-//! check, no post-pool solvency gate, and no oracle read.
-//!
-//! Not gated by `#[when_not_paused]`: repay remains available while the contract
-//! is paused. Spoke-asset pause blocks repay; freeze does not.
-//!
-//! Liquidation and strategies share `settle_repay_actions` / `finish_repay_leg`
-//! (see `positions` pipeline vocabulary).
-//! Liquidation calls the bulk path directly and skips spoke pause enforcement.
-//! Strategy `execute_repayment` does not transfer — the caller must pre-fund.
+//! Payer auth only (no owner check). Debt decreases, so no post-pool HF gate and
+//! no oracle read. Not gated by `#[when_not_paused]` (spoke pause still blocks;
+//! freeze does not). Liquidation skips spoke pause via bulk settle; strategy
+//! `execute_repayment` requires the caller to pre-fund the pool.
 
 use common::errors::GenericError;
 use common::math::fp::Ray;
@@ -39,26 +32,17 @@ pub(crate) struct RepaymentRequest<'a> {
 
 #[contractimpl]
 impl Controller {
-    /// any caller may repay any account (debt only decreases). The payer must
-    /// authorize the token transfer.
-    ///
-    /// Not blocked by the global pause flag; spoke-asset pause still blocks the
-    /// leg. Frozen assets remain repayable. No oracle reads and no post-pool
-    /// solvency check.
-    ///
-    /// # Arguments
-    /// * `caller` - the payer; must authorize the token transfer.
-    /// * `account_id` - existing account whose debt is reduced.
-    /// * `payments` - `(hub-asset, amount)` legs; amounts must be positive.
+    /// Repays `payments` against `account_id`. Any caller may repay any account;
+    /// payer auth covers the token transfer. Global pause does not block.
     ///
     /// # Errors
-    /// * `FlashLoanOngoing` - a flash loan or strategy is mid-execution.
-    /// * `AmountMustBePositive` - a leg amount is not strictly positive.
-    /// * `SpokeAssetPaused` - the spoke asset is paused (frozen may still repay).
-    /// * `DebtPositionNotFound` - no debt position for an asset.
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` — a leg amount is not strictly positive.
+    /// * `SpokeAssetPaused` — spoke asset is paused (frozen may still repay).
+    /// * `DebtPositionNotFound` — no debt position for an asset.
     ///
     /// # Events
-    /// * A position-batch event summarizing the account's reduced debt legs.
+    /// * topics — `["position", "batch_update"]`
     pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>) {
         process_repay(&env, &caller, account_id, &payments);
     }

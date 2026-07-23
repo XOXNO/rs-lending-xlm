@@ -1,4 +1,4 @@
-//! Aggregator route execution and route-level validation.
+//! Executes opaque aggregator routes under the flash-loan reentrancy guard.
 
 use common::errors::GenericError;
 use common::types::StrategySwap;

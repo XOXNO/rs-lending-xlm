@@ -1,7 +1,8 @@
-//! Strategy entry points: multiply, collateral/debt swaps, Blend migration, flash loans.
+//! Account strategies and user flash loans.
 //!
-//! Account strategies: Auth → Reentrancy → Preflight → Account → Prices → Actions → Finalize.
-//! Flash loan skips Account/Prices/Finalize (pool callback only).
+//! Account strategies: Auth → Reentrancy → Preflight → Account → Prices →
+//! Actions → Finalize (post-pool LTV/HF). Flash loan skips Account/Prices/Finalize
+//! (pool callback repayment only). See `architecture/INVARIANTS.md` §2.5 and §3.2.
 
 pub(crate) mod flash_loan;
 mod migrate_blend;

@@ -1,5 +1,5 @@
-//! Pool events: state/params as batches; empty state batches and zero-fee
-//! strategy events suppressed.
+//! Market-state and params batch events; empty batches and zero-fee strategy
+//! events are suppressed.
 
 use common::types::{MarketParamsRaw, MarketStateSnapshot};
 

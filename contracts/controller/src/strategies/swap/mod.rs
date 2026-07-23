@@ -1,4 +1,7 @@
-//! Aggregator swaps verified by token balance deltas.
+//! Aggregator swaps verified by controller token balance deltas.
+//!
+//! Router address comes from storage; pull is capped at `amount_in`;
+//! underspend refunds to the caller. Reentrancy guard wraps the route call.
 
 use common::errors::GenericError;
 use common::types::StrategySwap;

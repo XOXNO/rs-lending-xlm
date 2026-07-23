@@ -1,4 +1,7 @@
-//! Blend V2 migration into controller positions.
+//! Blend V2 → controller migration in one transaction.
+//!
+//! Caller auth; approved Blend pool only. Zero-fee strategy borrow clears Blend
+//! debt; swept assets deposit as controller collateral. Finalizes with LTV/HF.
 
 use crate::account;
 use common::errors::{CollateralError, GenericError};
@@ -37,8 +40,22 @@ pub(crate) struct MigrateBlendParams {
 
 #[contractimpl]
 impl Controller {
-    /// Migrates a Blend V2 position into the controller.
-    /// Debt caps bound the zero-fee borrow used to clear Blend debt.
+    /// Migrates Blend V2 positions into the controller on `hub_id`.
+    /// Caller auth; `account_id == 0` creates on `spoke_id`. Each debt cap
+    /// bounds the zero-fee borrow that clears that Blend debt. Returns account id.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `HubNotActive` / `InvalidPayments` / `BlendPoolNotApproved` — preflight.
+    /// * `AssetsAreTheSame` — duplicate debt asset in `debt_caps`.
+    /// * `NotCollateral` / spoke pause-freeze — destination withdraw assets.
+    /// * Borrow/repay/deposit errors from nested legs; Blend submit failures.
+    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — finalize risk gates.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
+    ///
+    /// # Events
+    /// * topics — `["position", "batch_update"]`
+    /// * topics — `["strategy", "blend_migration"]`
     #[when_not_paused]
     pub fn migrate_from_blend(
         env: Env,

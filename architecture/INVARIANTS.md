@@ -237,6 +237,14 @@ cash_after         == cash_before + fee    // principal does not touch cash
 Exact equality (not ≥). Under-repay or mid-callback SAC moves revert
 `InvalidFlashloanRepay`. Assumes a well-behaved SAC (ADR 0006).
 
+### 2.6 No orphan debt after withdraw / claim
+
+After `withdraw` and `claim_revenue`, the pool rejects
+`supplied == 0 && borrowed != 0` (`require_solvent_withdraw_state` →
+`PoolInsolvent`). That gate does **not** run on `net_settle` (cash-neutral
+share burns only); callers must not leave an empty-supply residual debt via
+settle.
+
 ---
 
 ## 3. Account solvency

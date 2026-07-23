@@ -1,4 +1,4 @@
-//! Pure oracle config validation. No external oracle calls.
+//! Oracle config shape, staleness, and sanity-band bounds. No live reads.
 
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{

@@ -1,5 +1,4 @@
-//! Protocol registry setters: swap aggregator, price aggregator, accumulator,
-//! and the liquidity-pool WASM template.
+//! Protocol dependency setters: aggregators, accumulator, pool Wasm template.
 
 use soroban_sdk::{Address, BytesN, Env};
 
