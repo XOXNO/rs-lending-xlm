@@ -1,23 +1,23 @@
 extern crate std;
 
 use super::*;
+use crate::test_support::hub;
 use common::constants::{
     BPS, MS_PER_SECOND, RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE,
     TTL_THRESHOLD_SHARED,
 };
 use common::errors::{CollateralError, FlashLoanError, GenericError};
-use common::types::{HubAssetKey, MarketIndexRaw, ScaledPositionRaw};
-
-fn hub(asset: &Address) -> HubAssetKey {
-    HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    }
-}
+use common::types::{MarketIndexRaw, ScaledPositionRaw};
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
 use soroban_sdk::xdr::{ContractEventBody, ScVal, SorobanAuthorizationEntry};
 use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, Env, Error, InvokeError, Vec};
+
+/// Ray-per-raw-unit for the 7-decimal test asset.
+const WAD_PER_RAW: i128 = 100_000_000_000_000_000_000;
+
+/// Opt-in diagnostics for claim-dust / TTL cost report tests (`true` to print).
+const VERBOSE_CLAIM_DUST: bool = false;
 
 fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
     events
@@ -428,6 +428,7 @@ fn test_supply() {
     );
 }
 
+// `events().all()` retains only the last top-level invocation, not a cumulative total.
 #[test]
 fn test_market_mutations_emit_indexer_events() {
     let t = TestSetup::new();
@@ -438,21 +439,21 @@ fn test_market_mutations_emit_indexer_events() {
     assert_eq!(
         count_topic(&t.env.events().all(), "market", "batch_params_update"),
         1,
-        "market creation should publish its parameters"
+        "last invocation (create_market) should retain one params batch event"
     );
 
     client.supply(&t.sup(0, 10_000_000_000));
     assert_eq!(
         count_topic(&t.env.events().all(), "market", "batch_state_update"),
         1,
-        "batched position mutations should publish one state event"
+        "last invocation (supply) should retain one state batch event"
     );
 
     client.update_indexes(&hub(&t.asset));
     assert_eq!(
         count_topic(&t.env.events().all(), "market", "batch_state_update"),
         1,
-        "a single-market mutation should publish a one-element state batch"
+        "last invocation (update_indexes) should retain one state batch event"
     );
 }
 
@@ -820,9 +821,9 @@ fn test_repay() {
         .get_unchecked(0);
 
     assert_eq!(final_pos.actual_amount, repay_amount);
-    assert!(
-        final_pos.position.scaled_amount == 0 || final_pos.position.scaled_amount <= 1,
-        "position should be cleared after full repay"
+    assert_eq!(
+        final_pos.position.scaled_amount, 0,
+        "exact repay with no accrual should clear scaled debt"
     );
 }
 
@@ -1236,19 +1237,22 @@ fn test_claim_revenue() {
     client.update_indexes(&hub(&t.asset));
 
     let revenue = client.get_revenue(&hub(&t.asset));
-    if revenue > 0 {
-        let tok = token::Client::new(&t.env, &t.asset);
-        let admin_balance_before = tok.balance(&t.admin);
-        let claimed = client.claim_revenue(&hub(&t.asset)).actual_amount;
-        let admin_balance_after = tok.balance(&t.admin);
+    assert!(
+        revenue > 0,
+        "year-long accrual at positive utilization must mint claimable revenue"
+    );
 
-        if claimed > 0 {
-            assert!(
-                admin_balance_after > admin_balance_before,
-                "admin should receive revenue tokens"
-            );
-        }
-    }
+    let tok = token::Client::new(&t.env, &t.asset);
+    let admin_balance_before = tok.balance(&t.admin);
+    let claimed = client.claim_revenue(&hub(&t.asset)).actual_amount;
+    let admin_balance_after = tok.balance(&t.admin);
+
+    assert!(claimed > 0, "claim_revenue must transfer a positive amount");
+    assert_eq!(
+        admin_balance_after - admin_balance_before,
+        claimed,
+        "admin balance delta must match claimed amount"
+    );
 }
 
 #[test]
@@ -1832,10 +1836,17 @@ fn test_update_params_happy_path() {
     );
     assert_eq!(sync.params.reserve_factor, new_reserve, "reserve_factor");
 
-    // With base rate still 1% and higher slopes, 50% utilization uses updated slope1.
+    // Updated params remain usable for supply/borrow after the round-trip.
     client.supply(&t.sup(0, 10_000_000_000i128));
     let borrower = Address::generate(&t.env);
-    let _ = client.borrow(&borrower, &t.bor(0, 100_0000000i128));
+    let borrowed = client
+        .borrow(&borrower, &t.bor(0, 100_0000000i128))
+        .get_unchecked(0);
+    assert_eq!(borrowed.actual_amount, 100_0000000i128);
+    assert!(
+        borrowed.position.scaled_amount > 0,
+        "borrow under updated params must mint debt shares"
+    );
 }
 
 // slope3 < slope2 maps to SlopeNonMonotonic.
@@ -1954,15 +1965,13 @@ fn test_create_market_initializes_state() {
     client.create_market(&0u32, &market_params(&asset_b));
 
     let sync = client.get_sync_data(&hub(&asset_b));
-    if sync.state.supply_index != RAY {
-        panic!("supply index must start at RAY");
-    }
-    if sync.state.borrow_index != RAY {
-        panic!("borrow index must start at RAY");
-    }
-    if sync.state.last_timestamp != t.env.ledger().timestamp() * MS_PER_SECOND {
-        panic!("last_timestamp must be ledger time in milliseconds");
-    }
+    assert_eq!(sync.state.supply_index, RAY, "supply index must start at RAY");
+    assert_eq!(sync.state.borrow_index, RAY, "borrow index must start at RAY");
+    assert_eq!(
+        sync.state.last_timestamp,
+        t.env.ledger().timestamp() * MS_PER_SECOND,
+        "last_timestamp must be ledger time in milliseconds"
+    );
     assert_eq!(sync.state.supplied, 0);
     assert_eq!(sync.state.borrowed, 0);
     assert_eq!(sync.state.revenue, 0);
@@ -1985,9 +1994,10 @@ fn test_two_market_isolation() {
     client.supply(&t.sup(0, supply_amount));
 
     let a_after_supply = t.state_snapshot();
-    if a_after_supply.supplied <= a_before.supplied {
-        panic!("market A supplied must increase after supply");
-    }
+    assert!(
+        a_after_supply.supplied > a_before.supplied,
+        "market A supplied must increase after supply"
+    );
     assert_eq!(a_after_supply.cash, a_before.cash + supply_amount);
 
     let b_after_supply = t.state_of(&asset_b);
@@ -1999,9 +2009,10 @@ fn test_two_market_isolation() {
     client.borrow(&borrower, &t.bor(0, borrow_amount));
 
     let a_after_borrow = t.state_snapshot();
-    if a_after_borrow.borrowed <= a_after_supply.borrowed {
-        panic!("market A borrowed must increase after borrow");
-    }
+    assert!(
+        a_after_borrow.borrowed > a_after_supply.borrowed,
+        "market A borrowed must increase after borrow"
+    );
     assert_eq!(a_after_borrow.cash, a_after_supply.cash - borrow_amount);
 
     let b_after_borrow = t.state_of(&asset_b);
@@ -2508,13 +2519,17 @@ fn test_claims_never_outpay_burned_shares_where_half_up_would() {
         total_paid += paid;
         total_half_up_would_pay += half_up;
 
-        std::println!(
-            "claim {second}: half_up_would_pay={half_up} paid={paid} burned_ray={burned_ray}"
-        );
+        if VERBOSE_CLAIM_DUST {
+            std::println!(
+                "claim {second}: half_up_would_pay={half_up} paid={paid} burned_ray={burned_ray}"
+            );
+        }
     }
 
     assert!(total_half_up_would_pay > total_paid);
-    std::println!("TOTAL half_up={total_half_up_would_pay} floor={total_paid}");
+    if VERBOSE_CLAIM_DUST {
+        std::println!("TOTAL half_up={total_half_up_would_pay} floor={total_paid}");
+    }
 }
 
 /// Flooring defers dust; once entitlement clears one raw unit the claim pays out.
@@ -2541,9 +2556,6 @@ fn test_revenue_claim_pays_out_once_entitlement_clears_one_raw_unit() {
     assert_eq!(after.revenue, 0);
     assert!(paid * WAD_PER_RAW <= owed_ray);
 }
-
-/// Ray-per-raw-unit for the 7-decimal test asset.
-const WAD_PER_RAW: i128 = 100_000_000_000_000_000_000;
 
 // --- POOL-CAN-004: `load_sync_data` pays a redundant TTL renewal. ---
 
@@ -2589,11 +2601,13 @@ fn test_load_sync_data_pays_for_a_redundant_ttl_renewal() {
     });
     assert_eq!(ttl_before, ttl_after);
 
-    std::println!(
-        "renew_market_keys cpu={} redundant cpu per get_sync_data={}",
-        one_renewal,
-        redundant
-    );
+    if VERBOSE_CLAIM_DUST {
+        std::println!(
+            "renew_market_keys cpu={} redundant cpu per get_sync_data={}",
+            one_renewal,
+            redundant
+        );
+    }
 }
 
 // --- Bad-debt wipeout: floor leaves deposits usable. ---
