@@ -317,7 +317,7 @@ fn test_wad_div_floor_rounds_down() {
 }
 
 #[test]
-fn test_bps_add_assign() {
+fn test_bps_checked_add_rebinding() {
     let env = Env::default();
     let mut b = Bps::from(5000);
     b = b.checked_add(&env, Bps::from(2000));
@@ -325,7 +325,7 @@ fn test_bps_add_assign() {
 }
 
 #[test]
-fn test_bps_sub_assign() {
+fn test_bps_checked_sub_rebinding() {
     let env = Env::default();
     let mut b = Bps::from(5000);
     b = b.checked_sub(&env, Bps::from(1500));
@@ -343,7 +343,7 @@ fn test_bps_sub() {
 
 // Ray::mul on exact products (0.5*1, 0.5*0.5); no half-up tie-breaker.
 #[test]
-fn test_ray_mul_rounds_half_up() {
+fn test_ray_mul_exact_products() {
     let env = Env::default();
     // 0.5 RAY * 0.5 RAY = 0.25 RAY; remainder is below the half
     // tie-breaker. Use 0.5 RAY * 1 RAY = 0.5 RAY exactly.
@@ -513,7 +513,7 @@ fn test_bps_checked_sub_ok() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_bps_checked_sub_underflow_panics() {
     let env = Env::default();
     let _ = Bps::from(100).checked_sub(&env, Bps::from(500));
@@ -783,9 +783,3 @@ fn test_wad_add_checked() {
     assert_eq!(sum.raw(), WAD + WAD / 2);
 }
 
-#[test]
-#[should_panic(expected = "Error(Contract, #33)")]
-fn test_bps_sub_underflow_panics() {
-    let env = Env::default();
-    let _ = Bps::from(100).checked_sub(&env, Bps::from(500));
-}

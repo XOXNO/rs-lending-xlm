@@ -67,11 +67,6 @@ fn test_rescale_downscale_rounding() {
 }
 
 #[test]
-fn test_rescale_same() {
-    assert_eq!(rescale_half_up(42, 18, 18), 42);
-}
-
-#[test]
 fn test_rescale_downscale_negative_rounds_away_from_zero() {
     // -0.0000015 at 18 dec -> 6 dec: rounds to -2 (away from zero).
     assert_eq!(rescale_half_up(-1_500_000_000_000, 18, 6), -2);
@@ -186,6 +181,7 @@ fn test_rescale_downscale_negative_exact_half() {
 // Identity branch: same decimals returns the input as-is.
 #[test]
 fn test_rescale_same_decimals_returns_input() {
+    assert_eq!(rescale_half_up(42, 18, 18), 42);
     assert_eq!(rescale_half_up(i128::MAX, 18, 18), i128::MAX);
     assert_eq!(rescale_half_up(i128::MIN, 7, 7), i128::MIN);
     assert_eq!(rescale_half_up(0, 0, 0), 0);

@@ -1,5 +1,6 @@
 use super::*;
-use soroban_sdk::Env;
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{contract, contractimpl, Address, Env};
 
 #[test]
 fn risk_bounds_accepts_valid_triple() {
@@ -9,21 +10,21 @@ fn risk_bounds_accepts_valid_triple() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#113")]
 fn risk_bounds_rejects_ltv_at_or_above_threshold() {
     let env = Env::default();
     validate_risk_bounds(&env, 8_000, 8_000, 500);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#113")]
 fn risk_bounds_rejects_threshold_above_bps() {
     let env = Env::default();
     validate_risk_bounds(&env, 5_000, 10_001, 0);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#113")]
 fn risk_bounds_rejects_bonus_breaching_seizure_ceiling() {
     let env = Env::default();
     // 9500 * (10000 + 600) = 1.007e8 > 1e8: bonus exceeds collateral backing.
@@ -37,21 +38,21 @@ fn sanity_bounds_accepts_valid_band() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#224")]
 fn sanity_bounds_rejects_unset_max() {
     let env = Env::default();
     validate_sanity_bounds(&env, 1, 0);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#224")]
 fn sanity_bounds_rejects_min_ge_max() {
     let env = Env::default();
     validate_sanity_bounds(&env, 100, 100);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#224")]
 fn sanity_bounds_rejects_max_above_cap() {
     let env = Env::default();
     validate_sanity_bounds(&env, 1, MAX_REASONABLE_PRICE_WAD + 1);
@@ -73,7 +74,7 @@ fn single_source_band_accepts_at_exact_threshold() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#226")]
 fn single_source_band_rejects_above_threshold() {
     let env = Env::default();
     // ±11% symmetric band: (11_100 - 8_900) / (11_100 + 8_900) = 1_100 bps >
@@ -102,14 +103,14 @@ fn liquidation_curve_accepts_defaults() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#134")]
 fn liquidation_curve_rejects_target_hf_at_one() {
     let env = Env::default();
     validate_liquidation_curve(&env, WAD, WAD / 2, 10_000);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#134")]
 fn liquidation_curve_rejects_target_hf_below_one() {
     let env = Env::default();
     validate_liquidation_curve(&env, WAD - 1, WAD / 2, 10_000);
@@ -123,7 +124,7 @@ fn liquidation_curve_accepts_target_hf_at_ceiling() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#134")]
 fn liquidation_curve_rejects_target_hf_above_ceiling() {
     let env = Env::default();
     // An oversized target (e.g. a decimal-scale typo) is rejected before it can
@@ -132,21 +133,21 @@ fn liquidation_curve_rejects_target_hf_above_ceiling() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#134")]
 fn liquidation_curve_rejects_hf_for_max_bonus_at_or_above_target() {
     let env = Env::default();
     validate_liquidation_curve(&env, WAD + 100, WAD + 100, 10_000);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#134")]
 fn liquidation_curve_rejects_hf_for_max_bonus_zero() {
     let env = Env::default();
     validate_liquidation_curve(&env, WAD + 100, 0, 10_000);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#134")]
 fn liquidation_curve_rejects_hf_for_max_bonus_negative() {
     let env = Env::default();
     validate_liquidation_curve(&env, WAD + 100, -1, 10_000);
@@ -159,7 +160,7 @@ fn liquidation_curve_accepts_bonus_factor_at_bps_ceiling() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#134")]
 fn liquidation_curve_rejects_bonus_factor_above_bps() {
     let env = Env::default();
     validate_liquidation_curve(&env, WAD + 100, WAD / 2, BPS as u32 + 1);
@@ -185,7 +186,7 @@ fn cap_domain_accepts_disabled_and_reasonable() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#116")]
 fn cap_domain_rejects_overflowing_cap() {
     let env = Env::default();
     // At 7 decimals the ceiling is i128::MAX / 10^20 (~1.7e18); a cap above it
@@ -194,16 +195,13 @@ fn cap_domain_rejects_overflowing_cap() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#132")]
 fn cap_domain_rejects_decimals_above_ray() {
     let env = Env::default();
     // asset_decimals > RAY_DECIMALS underflows the exponent; the guard fails
     // closed with AssetDecimalsTooHigh rather than panicking on subtraction.
     require_cap_within_asset_domain(&env, 100, RAY_DECIMALS + 1);
 }
-
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{contract, contractimpl, Address};
 
 #[contract]
 struct WasmReceiver;
@@ -218,7 +216,7 @@ fn require_positive_accepts_one() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#14")]
 fn require_positive_rejects_zero() {
     let env = Env::default();
     require_positive_amount(&env, 0);
@@ -231,7 +229,7 @@ fn require_nonneg_accepts_zero() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#14")]
 fn require_nonneg_rejects_negative() {
     let env = Env::default();
     require_nonneg_amount(&env, -1);
@@ -254,7 +252,7 @@ fn require_wasm_receiver_accepts_contract() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#412")]
 fn require_wasm_receiver_rejects_account() {
     let env = Env::default();
     let account = Address::generate(&env);
