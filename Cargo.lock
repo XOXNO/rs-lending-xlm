@@ -1430,7 +1430,6 @@ dependencies = [
  "cvlr-soroban",
  "cvlr-soroban-derive",
  "cvlr-soroban-macros",
- "mock-oracle",
  "mock-redstone",
  "soroban-sdk",
  "stellar-access",

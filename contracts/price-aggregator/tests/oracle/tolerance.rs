@@ -25,6 +25,9 @@ fn equal_feeds_return_that_price() {
     assert_eq!(midpoint_if_in_band(&env, p, p, &sample_tolerance()), p);
 }
 
+// `midpoint_if_in_band` is panic-based (no `Result`); `#205` ==
+// `OracleError::UnsafePriceNotAllowed`.
+
 #[test]
 #[should_panic(expected = "Error(Contract, #205)")]
 fn beyond_band_panics() {
