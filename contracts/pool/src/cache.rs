@@ -1,7 +1,5 @@
-//! In-memory market cache: loads params and interest state for one hub-asset,
-//! runs scaled-share/reserve accounting and rounding conversions, and persists
-//! the result. Rounding direction (half-up, floor, ceil) is chosen per flow to
-//! keep protocol solvency conservative.
+//! In-memory market cache: load/save, cash, scale/unscale, withdraw/repay resolve.
+//! Rounding is conservative for solvency. See `architecture/INVARIANTS.md`.
 
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
