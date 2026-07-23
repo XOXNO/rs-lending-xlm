@@ -64,3 +64,52 @@ fn submit_price_arms_shared_ttl_on_submission_key() {
         "write path must arm the shared bump on the submission key"
     );
 }
+
+#[test]
+fn submit_price_renews_known_feed_allowlist_ttl() {
+    // A feed actively receiving submissions must keep its allowlist gate
+    // (`FeedIndex` + paired `FeedAt`) alive on-chain, not only its submission
+    // and aggregate keys. Otherwise the gate can archive under a live feed and
+    // `require_known_feed` starts rejecting valid signer updates with
+    // `FeedNotKnown`.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let feed = feed_id(&env);
+
+    // Age the allowlist keys set by `register_feed` below the renewal threshold
+    // (`extend_ttl` is a no-op while a key still sits above it) so a re-arm on
+    // the submit path is observable.
+    let decay: u32 = TTL_BUMP_SHARED - 20_000;
+    advance_ledger_sequence(&env, decay);
+
+    let index_key = MirrorKey::FeedIndex(feed.clone());
+    let slot_key = MirrorKey::FeedAt(0);
+    let (index_before, slot_before) = env.as_contract(&client.address, || {
+        (
+            env.storage().persistent().get_ttl(&index_key),
+            env.storage().persistent().get_ttl(&slot_key),
+        )
+    });
+    assert!(
+        index_before < TTL_THRESHOLD_SHARED && slot_before < TTL_THRESHOLD_SHARED,
+        "precondition: aged allowlist TTLs ({index_before}, {slot_before}) must sit below the renewal threshold"
+    );
+
+    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
+
+    let (index_after, slot_after) = env.as_contract(&client.address, || {
+        (
+            env.storage().persistent().get_ttl(&index_key),
+            env.storage().persistent().get_ttl(&slot_key),
+        )
+    });
+    assert_eq!(
+        index_after, TTL_BUMP_SHARED,
+        "submit must re-arm the FeedIndex allowlist gate"
+    );
+    assert_eq!(
+        slot_after, TTL_BUMP_SHARED,
+        "submit must re-arm the paired FeedAt slot"
+    );
+}

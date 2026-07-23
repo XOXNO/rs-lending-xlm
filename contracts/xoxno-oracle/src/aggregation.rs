@@ -10,7 +10,7 @@ use soroban_sdk::{Address, Env, String, Vec, U256};
 
 use crate::storage::{
     load_max_relative_skew, load_max_submission_age, load_resolution, load_signers, load_threshold,
-    record_signer_feed, renew_persistent_key, DataKey, SignerSubmission,
+    record_signer_feed, renew_known_feed, renew_persistent_key, DataKey, SignerSubmission,
 };
 use crate::Error;
 
@@ -72,6 +72,9 @@ pub(crate) fn store_submission(
     package_timestamp: u64,
 ) {
     record_signer_feed(env, signer, feed_id);
+    // Keep the allowlist gate alive under an active feed: submit renews the
+    // submission/aggregate keys, so the gate that admits it must renew too.
+    renew_known_feed(env, feed_id);
     let submission = SignerSubmission {
         price,
         package_timestamp,

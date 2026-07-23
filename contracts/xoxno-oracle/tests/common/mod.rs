@@ -19,6 +19,8 @@ use soroban_sdk::{contracttype, Address, ConversionError, Env, InvokeError, Stri
 pub enum MirrorKey {
     LatestSubmission(String, Address),
     SignerFeeds(Address),
+    FeedIndex(String),
+    FeedAt(u32),
 }
 
 pub const FEED: &str = "XLM/USD";
@@ -69,6 +71,23 @@ pub fn advance_ledger_seconds(env: &Env, seconds: u64) {
     let sequence_number = env.ledger().sequence();
     env.ledger().set(LedgerInfo {
         timestamp: current + seconds,
+        protocol_version: 26,
+        sequence_number,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 16,
+        max_entry_ttl: 6_312_000,
+    });
+}
+
+/// Advances the ledger sequence so persistent-entry TTLs decay by `ledgers`,
+/// letting a test observe a later renewal re-arm a partially-aged key.
+pub fn advance_ledger_sequence(env: &Env, ledgers: u32) {
+    let timestamp = env.ledger().timestamp();
+    let sequence_number = env.ledger().sequence() + ledgers;
+    env.ledger().set(LedgerInfo {
+        timestamp,
         protocol_version: 26,
         sequence_number,
         network_id: Default::default(),

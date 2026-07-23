@@ -161,13 +161,24 @@ pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
 
 /// Inserts `feed_id` into the known-feed allowlist if absent; renews when present.
 pub(crate) fn ensure_known_feed(env: &Env, feed_id: &String) {
+    if !renew_known_feed(env, feed_id) {
+        feed_index_insert(env, feed_id.clone());
+    }
+}
+
+/// Renews the allowlist gate (`FeedIndex` + its paired `FeedAt` slot) for an
+/// already-registered feed. Returns `false` when the entry is absent, without
+/// inserting. Called on the submit hot path so an actively-submitted feed keeps
+/// its gate alive on-chain rather than relying solely on the off-chain keeper.
+pub(crate) fn renew_known_feed(env: &Env, feed_id: &String) -> bool {
     let index_key = DataKey::FeedIndex(feed_id.clone());
     match env.storage().persistent().get::<DataKey, u32>(&index_key) {
         Some(slot) => {
             renew_persistent_key(env, &index_key);
             renew_persistent_key(env, &DataKey::FeedAt(slot));
+            true
         }
-        None => feed_index_insert(env, feed_id.clone()),
+        None => false,
     }
 }
 
