@@ -8,6 +8,7 @@ evidence for reviewers.
 
 - [README.md](./README.md) — layout and commands
 - [architecture/INVARIANTS.md](./architecture/INVARIANTS.md) — before touching accounting, auth, oracle, liquidation, flash loans, or risk
+- [architecture/DOC_STYLE.md](./architecture/DOC_STYLE.md) — how to write rustdoc / public endpoint docs (code is source of truth)
 - [SECURITY.md](./SECURITY.md) — vulnerabilities go to **security@xoxno.com**, never public issues/PRs
 - Large protocol changes: open an issue first for scope and verification expectations
 
