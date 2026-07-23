@@ -51,6 +51,8 @@ impl MarketParamsRaw {
             optimal_utilization: self.optimal_utilization,
             max_utilization: self.max_utilization,
             reserve_factor: self.reserve_factor,
+            is_flashloanable: self.is_flashloanable,
+            flashloan_fee: self.flashloan_fee,
         }
     }
 
@@ -73,11 +75,8 @@ impl MarketParamsRaw {
             self.asset_decimals <= RAY_DECIMALS,
             CollateralError::AssetDecimalsTooHigh
         );
-        assert_with_error!(
-            env,
-            i128::from(self.flashloan_fee) <= MAX_FLASHLOAN_FEE_BPS,
-            CollateralError::InvalidBorrowParams
-        );
+        // `flashloan_fee` bound is checked by `verify_rate_model` (the rate-model
+        // view now carries the flash config that `update_params` can mutate).
         self.verify_rate_model(env);
     }
 }
@@ -160,6 +159,10 @@ pub struct InterestRateModel {
     pub max_utilization: i128,
     /// Protocol share of accrued interest, BPS.
     pub reserve_factor: u32,
+    /// Flash-loan eligibility for controller flash-loan entrypoints.
+    pub is_flashloanable: bool,
+    /// Flash-loan fee in bps used by flash loans and strategy borrows.
+    pub flashloan_fee: u32,
 }
 
 impl InterestRateModel {
@@ -223,6 +226,11 @@ impl InterestRateModel {
             env,
             i128::from(self.reserve_factor) < BPS,
             CollateralError::InvalidReserveFactor
+        );
+        assert_with_error!(
+            env,
+            i128::from(self.flashloan_fee) <= MAX_FLASHLOAN_FEE_BPS,
+            CollateralError::InvalidBorrowParams
         );
     }
 }
