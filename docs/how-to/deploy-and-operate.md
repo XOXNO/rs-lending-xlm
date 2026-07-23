@@ -242,11 +242,14 @@ make <network> cancelOp <op-id>
 `AUTO_EXECUTE=0` schedules only. Scheduling is idempotent via deterministic
 `hash_operation` ids.
 
-**Re-apply after A→B→A:** executed op ids stay Done forever. Tooling uses salt
-generations (hash chain off base salt):
+**Re-apply after A→B→A:** After execute, on-chain `OperationLedger` is erased
+(`Unset`). CLI idempotency keeps local ops JSON `executed:true`, which
+`op_state` reports as synthetic Done. Re-propose the same payload with a fresh
+salt (`SALT_NONCE=<n>`) or carefully wipe the local ops record. Tooling probes
+salt generations (hash chain off base salt):
 
 - Direct verbs (`editAssetInSpoke`, `configureMarketOracle`, role grants, …)
-  bump generation when Done. `REAPPLY_ON_DONE=0` skips instead.
+  bump generation when synthetic Done. `REAPPLY_ON_DONE=0` skips instead.
 - Bulk (`setupAll*`, `resume`): converge mode; re-apply only when on-chain
   probe shows drift (e.g. spoke assets).
 - Creators (`addSpoke`, `createHub`, `deployPool`) never auto-re-apply.
