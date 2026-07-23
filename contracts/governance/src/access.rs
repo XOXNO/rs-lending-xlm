@@ -1,4 +1,5 @@
-//! Governance ownership, roles, and self-admin helpers.
+//! Ownership, operational roles, and self-admin apply helpers. Owner is root
+//! recovery authority; non-owners may not hold both `EXECUTOR` and `CANCELLER`.
 
 use common::errors::GenericError;
 
@@ -197,19 +198,14 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
 #[contractimpl]
 impl Governance {
     /// Initializes governance: sets `admin` as owner and access-control admin,
-    /// grants it the five operational roles, and sets the timelock min delay.
-    ///
-    /// # Arguments
-    /// * `min_delay` - initial timelock delay in ledgers; must be non-zero.
+    /// grants the five operational roles, and sets the timelock min delay.
     ///
     /// # Errors
-    /// * `InvalidTimelockDelay` - `min_delay` is zero.
+    /// * `InvalidTimelockDelay` — `min_delay` is zero.
     ///
     /// # Security Warning
     /// * Runs once at deploy with no authorization; `admin` becomes owner and
-    ///   holds `ORACLE`, `PROPOSER`, `EXECUTOR`, `CANCELLER`, and `GUARDIAN`
-    ///   (the latter two grant timelock-bypassing incident powers). Deployment
-    ///   tooling must pass the intended admin address.
+    ///   holds `ORACLE`, `PROPOSER`, `EXECUTOR`, `CANCELLER`, and `GUARDIAN`.
     pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
         ownable::set_owner(&env, &admin);
         access_control::set_admin(&env, &admin);
@@ -222,19 +218,15 @@ impl Governance {
         stellar_governance::timelock::set_min_delay(&env, min_delay);
     }
 
-    /// Completes a pending ownership transfer; the pending owner must
-    /// authorize. Migrates the access-control admin and operational roles from
-    /// the previous owner to the new owner.
+    /// Accepts pending ownership transfer; pending owner must authorize.
+    /// Migrates access-control admin and the five operational roles.
     ///
     /// # Errors
-    /// * `OwnerNotSet` - the ownable storage has no current owner.
-    /// * The pending-owner authorization and no-pending-transfer checks are
-    ///   enforced by the OZ ownable library.
+    /// * `OwnerNotSet` — no current owner.
+    /// * OZ ownable rejects unauthorized or missing pending transfer.
     ///
     /// # Events
-    /// * An ownership-transfer-completed event and an admin-transfer-completed
-    ///   event, plus role grant/revoke events as the five operational roles
-    ///   move to the new owner.
+    /// * Ownership- and admin-transfer-completed; role grant/revoke events.
     pub fn accept_ownership(env: Env) {
         storage::renew_governance_instance(&env);
         let previous_owner = owner_or_panic(&env);
@@ -243,6 +235,7 @@ impl Governance {
         sync_owner_access_control(&env, &previous_owner, &new_owner);
     }
 
+    /// Whether `account` holds `role`.
     pub fn has_role(env: Env, account: Address, role: Symbol) -> bool {
         access_control::has_role(&env, &account, &role).is_some()
     }

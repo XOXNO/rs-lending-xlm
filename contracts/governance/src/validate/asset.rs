@@ -1,4 +1,4 @@
-//! Asset, risk, limit, and token-shape validation.
+//! Asset, risk, limit, and SAC token-shape checks for admin proposals.
 
 use common::constants::POSITION_LIMIT_MAX;
 use common::errors::{CollateralError, GenericError};

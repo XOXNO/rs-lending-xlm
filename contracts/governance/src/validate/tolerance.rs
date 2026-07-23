@@ -1,4 +1,4 @@
-//! Tolerance-band construction for oracle config.
+//! Tolerance-BPS → `OracleTolerance` band for oracle config proposals.
 
 use common::constants::{BPS, MAX_TOLERANCE, MIN_TOLERANCE};
 use common::errors::{GenericError, OracleError};

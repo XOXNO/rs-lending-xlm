@@ -1,4 +1,4 @@
-//! Controller deployment event only; config events come from the controller.
+//! One-shot deploy events for controller and price-aggregator.
 
 use soroban_sdk::{contractevent, Address, BytesN};
 

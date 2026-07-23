@@ -1,4 +1,6 @@
-//! Timelocked governance operations and immediate pause controls.
+//! Timelock lifecycle (`propose` / `execute` / `cancel`), immediate incident
+//! brakes, and Recovery-tier canceller reset. Role gates and delay tiers match
+//! ADR 0010.
 
 use common::errors::GenericError;
 use common::types::{AssetOracleConfig, AssetOracleConfigInput, HubAssetKey, OracleTolerance};
@@ -117,31 +119,22 @@ fn resolve_market_oracle(
 
 #[contractimpl]
 impl Governance {
-    /// its operation id. Contract upgrades, ownership transfers, and
-    /// `SetPriceAggregator` schedule at the elevated Sensitive delay; all other
-    /// operations use the min delay.
-    ///
-    /// # Arguments
-    /// * `proposer` - must hold the `PROPOSER` role and authorize.
-    /// * `op` - the operation; its inputs are validated per variant before
-    ///   scheduling.
-    /// * `salt` - disambiguates otherwise-identical operations.
+    /// Schedules an `AdminOperation` and returns its operation id. `PROPOSER`-gated.
+    /// Sensitive floor: upgrades, ownership transfers, `SetPriceAggregator`. Other
+    /// ops use min delay. `TransferGovOwnership` requires the owner as proposer;
+    /// `RevokeGovRole` may not target the proposer or the owner.
     ///
     /// # Errors
-    /// * `PoolNotInitialized` - a controller-targeted operation is proposed
-    ///   before the controller is deployed.
-    /// * Per-operation input validation (via `op::resolve_op`), e.g.
-    ///   `InvalidPoolTemplate` (zero wasm hash), `InvalidTimelockDelay` (delay
-    ///   update), `InvalidRole` (unknown governance role), `InvalidAggregator`
-    ///   / `NotSmartContract` (address is not a deployed contract),
-    ///   `InvalidPositionLimits`, `InvalidBorrowParams`, `WrongToken` /
-    ///   `InvalidAsset` (market creation), `BadLastTolerance` /
-    ///   `InvalidExchangeSrc` and live oracle-probe reverts (oracle config).
-    /// * The `PROPOSER` role check and duplicate-schedule rejection are
-    ///   enforced by the access-control and OZ timelock libraries.
+    /// * `NotAuthorized` — revoke self/owner, or non-owner proposes ownership transfer.
+    /// * `PoolNotInitialized` / `AggregatorNotSet` — target not wired yet.
+    /// * Via `resolve_op`: `InvalidPoolTemplate`, `InvalidTimelockDelay`, `InvalidRole`,
+    ///   `InvalidAggregator`, `NotSmartContract`, `InvalidPositionLimits`,
+    ///   `InvalidBorrowParams`, `WrongToken`, `InvalidAsset`, `BadLastTolerance`,
+    ///   `InvalidExchangeSrc`, and live oracle-probe reverts.
+    /// * Access-control / OZ timelock reject unknown proposer or duplicate schedule.
     ///
     /// # Events
-    /// * A timelock schedule event emitted by the OZ governance library.
+    /// * OZ timelock schedule event.
     pub fn propose(
         env: Env,
         proposer: Address,
@@ -188,28 +181,20 @@ impl Governance {
         operation_id
     }
 
-    /// Executes a ready timelock operation against `target` (a non-self
-    /// contract, typically the controller) and returns its result.
-    ///
-    /// # Arguments
-    /// * `executor` - `Some(addr)` gates execution on the `EXECUTOR` role and
-    ///   that address's authorization; `None` leaves execution open.
+    /// Executes a ready non-self timelock operation and returns its result.
+    /// `Some(executor)` requires `EXECUTOR` auth; `None` leaves execution open.
+    /// Self-ops must use `execute_self`.
     ///
     /// # Errors
-    /// * `InternalError` - `target` is the governance contract itself
-    ///   (self-operations must go through `execute_self`).
-    /// * `TimelockOperationExpired` - the operation is past its grace window.
-    /// * The `EXECUTOR` role check and the not-scheduled / not-ready reverts are
-    ///   enforced by the OZ timelock library.
+    /// * `InternalError` — `target` is this governance contract.
+    /// * `TimelockOperationExpired` — past grace window.
+    /// * OZ timelock rejects not-scheduled / not-ready; `EXECUTOR` gate when set.
     ///
     /// # Events
-    /// * A timelock execute event (OZ governance library); the invoked target
-    ///   entrypoint emits its own events.
+    /// * OZ timelock execute event; target emits its own.
     ///
     /// # Security Warning
-    /// * With `executor` = `None` any caller may execute a ready operation; the
-    ///   timelock schedule and readiness gate are the operative control, not
-    ///   the caller identity.
+    /// * With `executor` = `None` any caller may execute a ready operation.
     pub fn execute(
         env: Env,
         executor: Option<Address>,
@@ -237,28 +222,21 @@ impl Governance {
         execute_operation(&env, &operation)
     }
 
-    /// Executes a ready governance-self operation (upgrade, delay update, role
-    /// grant/revoke, or ownership transfer) inline once its timelock matures.
-    ///
-    /// # Arguments
-    /// * `executor` - `Some(addr)` gates on the `EXECUTOR` role and that
-    ///   address's authorization; `None` leaves execution open.
-    /// * `op` - must be a governance-self variant.
+    /// Applies a ready governance-self op inline (upgrade, delay, roles,
+    /// ownership, `SetPriceAggregator`). `Some(executor)` requires `EXECUTOR`;
+    /// `None` leaves execution open.
     ///
     /// # Errors
-    /// * Panics if `op` does not target the governance contract itself.
-    /// * `TimelockOperationExpired` - the operation is past its grace window.
-    /// * Self-application reverts: `InvalidTimelockDelay` (delay update),
-    ///   `InvalidRole` (unknown/no-op role change or executor/canceller
-    ///   overlap), or `OwnerNotSet` (ownership transfer without an owner).
+    /// * `InternalError` — `op` does not target this contract.
+    /// * `TimelockOperationExpired` — past grace window.
+    /// * `InvalidTimelockDelay`, `InvalidRole`, `OwnerNotSet`, `InvalidAggregator`
+    ///   on self-apply; OZ not-scheduled / not-ready.
     ///
     /// # Events
-    /// * A timelock execute event plus the applied operation's own events
-    ///   (role grant/revoke, ownership transfer, or upgrade).
+    /// * OZ timelock execute event plus role / ownership / upgrade events.
     ///
     /// # Security Warning
-    /// * With `executor` = `None` any caller may execute a ready self-operation;
-    ///   the timelock schedule and readiness gate are the operative control.
+    /// * With `executor` = `None` any caller may execute a ready self-operation.
     pub fn execute_self(
         env: Env,
         executor: Option<Address>,
@@ -282,20 +260,15 @@ impl Governance {
         apply_self_op(&env, &op);
     }
 
-    /// Cancels a pending timelock operation.
-    ///
-    /// # Arguments
-    /// * `canceller` - must hold the `CANCELLER` role and authorize.
+    /// Cancels a pending timelock operation. `CANCELLER`-gated.
+    /// Recovery-tier ops and self-targeted role revocations are not cancellable.
     ///
     /// # Errors
-    /// * `OperationNotCancellable` - the operation is a non-vetoable Recovery-tier
-    ///   op, or it revokes `canceller`'s own role (a role holder cannot veto
-    ///   their own removal).
-    /// * The `CANCELLER` role check and the not-pending reject are enforced by
-    ///   the access-control and OZ timelock libraries.
+    /// * `OperationNotCancellable` — Recovery op, or revoke of `canceller`'s own role.
+    /// * Access-control / OZ timelock reject unknown canceller or not-pending.
     ///
     /// # Events
-    /// * A timelock cancel event emitted by the OZ governance library.
+    /// * OZ timelock cancel event.
     pub fn cancel(env: Env, canceller: Address, operation_id: BytesN<32>) {
         renew_governance_instance(&env);
         canceller.require_auth();
@@ -323,40 +296,29 @@ impl Governance {
         cancel_operation(&env, &operation_id);
     }
 
-    /// Emergency brake: halts the controller immediately, bypassing the
-    /// timelock. `GUARDIAN`-gated — halting is fail-safe, so the fast incident
-    /// key can act without the owner online. Resuming is risk-loosening and
-    /// rides the timelocked `Unpause` proposal instead.
-    ///
-    /// # Arguments
-    /// * `caller` - must hold the `GUARDIAN` role and authorize.
+    /// Halts the controller immediately. `GUARDIAN`-gated. Resume is timelocked
+    /// `AdminOperation::Unpause` only.
     ///
     /// # Errors
-    /// * The `GUARDIAN` role check is enforced here; the controller's `pause`
-    ///   may revert per its own rules.
+    /// * Access-control rejects non-`GUARDIAN`; controller may revert on pause.
     ///
     /// # Events
-    /// * The controller emits its own pause event.
+    /// * Controller pause event.
     pub fn pause(env: Env, caller: Address) {
         begin_immediate(&env, &caller, GUARDIAN_ROLE);
         controller_client(&env).pause();
     }
 
-    /// Sets a spoke listing's `paused`/`frozen` flags immediately, bypassing
-    /// the timelock. Guardian incident brake for one listing: flags may only
-    /// tighten (`false -> true`) or stay put — clearing one is risk-loosening
-    /// and rides the timelocked `EditAssetInSpoke`.
-    ///
-    /// # Arguments
-    /// * `caller` - must hold the `GUARDIAN` role and authorize.
+    /// Sets spoke listing `paused`/`frozen` immediately. `GUARDIAN`-gated.
+    /// Tighten-only (`false → true` or stay); clearing rides timelocked
+    /// `EditAssetInSpoke`.
     ///
     /// # Errors
-    /// * The `GUARDIAN` role check is enforced here; `AssetNotInSpoke` and
-    ///   `SpokeAssetFlagRelaxation` propagate from the controller.
+    /// * Access-control rejects non-`GUARDIAN`.
+    /// * `AssetNotInSpoke`, `SpokeAssetFlagRelaxation` from the controller.
     ///
     /// # Events
-    ///
-    /// Refer to controller `update_spoke_asset` events.
+    /// * Controller spoke-asset update event.
     pub fn set_spoke_asset_flags(
         env: Env,
         caller: Address,
@@ -369,21 +331,16 @@ impl Governance {
         controller_client(&env).set_spoke_asset_flags(&spoke_id, &hub_asset, &paused, &frozen);
     }
 
-    /// Moves an asset oracle's sanity band immediately, bypassing the
-    /// timelock. Bot incident path for band exits; the controller proves the
-    /// new band contains the current live price.
-    ///
-    /// # Arguments
-    /// * `caller` - must hold the `ORACLE` role and authorize.
+    /// Moves an asset oracle sanity band immediately. `ORACLE`-gated. Aggregator
+    /// requires the new band to contain the live price.
     ///
     /// # Errors
-    /// * The `ORACLE` role check is enforced here; `PairNotActive`,
-    ///   `InvalidSanityBounds`, `SanityBandTooWideForSingleSource`,
-    ///   `SanityBoundViolated`, and feed-resolution errors propagate from the
-    ///   price aggregator.
+    /// * Access-control rejects non-`ORACLE`.
+    /// * `PairNotActive`, `InvalidSanityBounds`, `SanityBandTooWideForSingleSource`,
+    ///   `SanityBoundViolated`, and feed-resolution errors from the aggregator.
     ///
     /// # Events
-    /// * The price aggregator emits `UpdateAssetOracleEvent`.
+    /// * Aggregator `UpdateAssetOracleEvent`.
     pub fn set_sanity_band(
         env: Env,
         caller: Address,
@@ -395,40 +352,36 @@ impl Governance {
         price_aggregator_client(&env).set_sanity_band(&asset, &min_wad, &max_wad);
     }
 
-    /// Safe instant: the new registry entry is inert until assets are listed
-    /// through the timelocked path.
+    /// Creates a hub and returns its id. `GUARDIAN`-gated. Listings still ride
+    /// the timelock.
     ///
-    /// # Arguments
-    /// * `caller` - must hold the `GUARDIAN` role and authorize.
+    /// # Errors
+    /// * Access-control rejects non-`GUARDIAN`; controller may revert.
     pub fn create_hub(env: Env, caller: Address) -> u32 {
         begin_immediate(&env, &caller, GUARDIAN_ROLE);
         controller_client(&env).create_hub()
     }
 
-    /// id. Safe instant: listings on it still ride the timelock.
+    /// Creates a spoke and returns its id. `GUARDIAN`-gated. Listings still ride
+    /// the timelock.
     ///
-    /// # Arguments
-    /// * `caller` - must hold the `GUARDIAN` role and authorize.
+    /// # Errors
+    /// * Access-control rejects non-`GUARDIAN`; controller may revert.
     pub fn add_spoke(env: Env, caller: Address) -> u32 {
         begin_immediate(&env, &caller, GUARDIAN_ROLE);
         controller_client(&env).add_spoke()
     }
 
-    /// Revokes `GUARDIAN` or `ORACLE` immediately, bypassing the timelock.
-    /// Owner-gated emergency de-authorization: stripping a compromised
-    /// immediate-role key must be at least as fast as the powers it holds.
-    /// `PROPOSER`/`EXECUTOR`/`CANCELLER` revocations stay timelocked, so a
-    /// compromised owner cannot instantly strip the independent cancellers. A
-    /// colluding-canceller deadlock is broken by the non-vetoable Recovery tier
-    /// (`propose_canceller_reset`), not by an instant owner path. Grants stay
-    /// timelocked.
+    /// Revokes `GUARDIAN` or `ORACLE` immediately. Owner only. Other role
+    /// revokes and all grants stay timelocked; canceller deadlock uses
+    /// `propose_canceller_reset`.
     ///
     /// # Errors
-    /// * `InvalidRole` - role is not `GUARDIAN`/`ORACLE`, or `account` does not hold it.
-    /// * `NotAuthorized` - `account` is the owner (its roles are never revocable).
+    /// * `InvalidRole` — not `GUARDIAN`/`ORACLE`, or `account` does not hold it.
+    /// * `NotAuthorized` — `account` is the owner (roles never revocable).
     ///
     /// # Events
-    /// * A role-revoke event from the access-control library.
+    /// * Access-control role-revoke event.
     #[only_owner]
     pub fn revoke_role_immediate(env: Env, account: Address, role: Symbol) {
         assert_with_error!(
@@ -444,12 +397,12 @@ impl Governance {
         get_min_delay(&env)
     }
 
-    /// Current lifecycle state of an operation.
+    /// Lifecycle state of a scheduled operation.
     pub fn get_operation_state(env: Env, operation_id: BytesN<32>) -> OperationState {
         get_operation_state(&env, &operation_id)
     }
 
-    /// Ledger at which an operation becomes ready (`0` unset, `1` done).
+    /// Ledger when an operation becomes ready (`0` unset, `1` done).
     pub fn get_operation_ledger(env: Env, operation_id: BytesN<32>) -> u32 {
         get_operation_ledger(&env, &operation_id)
     }
@@ -473,17 +426,16 @@ impl Governance {
         hash_operation(&env, &operation)
     }
 
-    /// Resolves a market oracle input to the `AssetOracleConfig` the matching
-    /// proposer would schedule, running the same live oracle probes; read-only.
+    /// Resolves market oracle input to the `AssetOracleConfig` `propose` would
+    /// schedule, including live probes. Read-only.
     ///
     /// # Errors
-    /// * Tolerance validation: `BadLastTolerance` or `MathOverflow`.
-    /// * Oracle shape/config: `InvalidExchangeSrc`, `SpotOnlyNotProductionSafe`,
-    ///   `InvalidStalenessConfig`, `InvalidSanityBounds`,
-    ///   `SanityBandTooWideForSingleSource`, or `InvalidOracleDecimals`.
+    /// * `BadLastTolerance`, `MathOverflow`.
+    /// * `InvalidExchangeSrc`, `SpotOnlyNotProductionSafe`, `InvalidStalenessConfig`,
+    ///   `InvalidSanityBounds`, `SanityBandTooWideForSingleSource`, `InvalidOracleDecimals`.
     /// * Live probe: `InvalidAsset`, `InvalidTicker`, `InvalidOracleBase`,
     ///   `InvalidOracleResolution`, `ReflectorHistoryEmpty`,
-    ///   `TwapInsufficientObservations`, or `PriceFeedStale`.
+    ///   `TwapInsufficientObservations`, `PriceFeedStale`.
     pub fn resolve_market_oracle_config(
         env: Env,
         asset: Address,
@@ -492,19 +444,24 @@ impl Governance {
         resolve_market_oracle(&env, &asset, &cfg)
     }
 
-    /// Resolves a tolerance-BPS input to the `OracleTolerance` band the
-    /// matching proposer would schedule; read-only.
+    /// Resolves tolerance BPS to the `OracleTolerance` band `propose` would
+    /// schedule. Read-only.
     ///
     /// # Errors
-    /// * `BadLastTolerance` - `tolerance` is outside the allowed BPS range.
-    /// * `MathOverflow` - band computation overflows.
+    /// * `BadLastTolerance` — outside allowed BPS range.
+    /// * `MathOverflow` — band computation overflows.
     pub fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OracleTolerance {
         validate::tolerance::validate_and_calculate_tolerances(&env, tolerance)
     }
 
-    /// Owner-only, non-vetoable council reset scheduled at the Recovery delay.
-    /// Public and slow so it cannot serve as a quiet theft path; used only to
-    /// recover from a compromised majority of the canceller council.
+    /// Schedules a non-vetoable canceller-council reset at Recovery delay. Owner only.
+    ///
+    /// # Errors
+    /// * Owner gate via `#[only_owner]`.
+    /// * OZ timelock rejects duplicate schedule.
+    ///
+    /// # Events
+    /// * OZ timelock schedule event.
     #[only_owner]
     pub fn propose_canceller_reset(
         env: Env,
@@ -525,7 +482,19 @@ impl Governance {
         id
     }
 
-    /// Executes a matured council reset. `executor=None` leaves execution open.
+    /// Executes a matured canceller-council reset. `Some(executor)` requires
+    /// `EXECUTOR`; `None` leaves execution open.
+    ///
+    /// # Errors
+    /// * `TimelockOperationExpired` — past grace window.
+    /// * `InvalidRole` — EXECUTOR/CANCELLER overlap on a non-owner grant.
+    /// * OZ not-scheduled / not-ready; `EXECUTOR` gate when set.
+    ///
+    /// # Events
+    /// * OZ timelock execute event; access-control role grant/revoke events.
+    ///
+    /// # Security Warning
+    /// * With `executor` = `None` any caller may execute a ready reset.
     pub fn execute_canceller_reset(
         env: Env,
         executor: Option<Address>,
