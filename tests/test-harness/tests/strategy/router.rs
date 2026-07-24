@@ -848,7 +848,8 @@ fn test_sanity_bound_ceiling_exact_accept_then_one_over_reject() {
 
     // Now push ETH price to $2000 + 1 WAD-cent → must reject.
     // 1 WAD-cent = WAD / 100 = 10^16
-    t.set_price("ETH", usd(2_000) + WAD / 100);
+    // Keep the seeded floor/ceiling: do not re-center the sanity band.
+    t.set_price_keeping_sanity_band("ETH", usd(2_000) + WAD / 100);
     let result = t.try_borrow(ALICE, "ETH", 0.1);
     assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
 }
@@ -868,7 +869,7 @@ fn test_sanity_bound_floor_exact_accept_then_one_under_reject() {
     t.borrow(ALICE, "ETH", 1.0);
 
     // Drop ETH below the floor by 1 WAD-cent → must reject.
-    t.set_price("ETH", usd(2_000) - WAD / 100);
+    t.set_price_keeping_sanity_band("ETH", usd(2_000) - WAD / 100);
     let result = t.try_borrow(ALICE, "ETH", 0.1);
     assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
 }

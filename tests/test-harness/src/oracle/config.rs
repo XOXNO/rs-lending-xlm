@@ -77,7 +77,10 @@ pub fn reflector_primary_anchor_config(
 /// range is astronomically wide (it spans the whole `MAX_REASONABLE_PRICE_WAD`
 /// domain) and only fits `PrimaryWithAnchor` builders, which the band cap
 /// doesn't apply to.
-fn tight_single_source_band(price_wad: i128) -> (i128, i128) {
+///
+/// Public so harness `set_price` can re-center the live band when tests crash
+/// Reflector for liquidations without weakening production fail-closed checks.
+pub fn tight_single_source_band(price_wad: i128) -> (i128, i128) {
     (price_wad - price_wad / 100, price_wad + price_wad / 100)
 }
 

@@ -239,6 +239,9 @@ fn test_clean_bad_debt_rejected_under_oracle_deviation() {
         .with_dust_disabled_all_markets()
         .build();
 
+    // Dual-source so primary/anchor can diverge into UnsafePriceNotAllowed
+    // instead of a Single TWAP print hitting SanityBoundViolated first.
+    t.enable_dual_source_oracle("USDC");
     // Tight tolerance so a small primary/anchor gap counts as
     // deviation.
     t.set_tolerance("USDC", TIGHT_TOLERANCE);
