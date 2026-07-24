@@ -73,6 +73,8 @@ where
     E: IntoVal<Env, Val> + TryFromVal<Env, Val> + Clone,
 {
     renew_pool_instance(env);
+    // TODO(ttl): batch-local market cache across duplicate hub_assets to skip
+    // repeated load+sync when consecutive legs hit the same market.
     let mut mutations = Vec::new(env);
     let mut snapshots = Vec::new(env);
     for entry in entries.iter() {
@@ -288,7 +290,7 @@ fn net_settle_one(
     entry: &PoolNetSettleEntry,
 ) -> (PoolNetSettleResult, MarketStateSnapshot) {
     require_nonneg_amount(env, entry.amount);
-    let mut cache = load_synced_cache(env, &entry.hub_asset);
+    let mut cache = synced_market_cache(env, &entry.hub_asset);
 
     let supply_scaled = Ray::from(entry.supply_position.scaled_amount);
     let debt_scaled = Ray::from(entry.debt_position.scaled_amount);
@@ -650,8 +652,13 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// * topics — `["market", "batch_state_update"]`
     #[only_owner]
     fn update_indexes(env: Env, hub_asset: HubAssetKey) {
-        let cache = load_synced_cache(&env, &hub_asset);
-        cache.save();
+        renew_pool_instance(&env);
+        let mut cache = Cache::load(&env, &hub_asset);
+        let dirty = cache.current_timestamp != cache.last_timestamp;
+        interest::global_sync(&env, &mut cache);
+        if dirty {
+            cache.save();
+        }
         events::emit_market_state(&env, cache.market_snapshot());
     }
 
@@ -867,6 +874,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
     fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>) {
         renew_pool_instance(&env);
+        // TODO(ttl): batch-local market cache across duplicate hub_assets (same
+        // as `run_batch`) so sequential seize legs on one market skip reload.
         let mut snapshots = Vec::new(&env);
         for entry in entries.iter() {
             snapshots.push_back(seize_one(&env, &entry));
@@ -945,8 +954,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         cache.save();
 
         model.verify(&env);
-        apply_rate_model(&env, &hub_asset, &model);
-        let params = views::load_params(&env, &hub_asset);
+        let params = apply_rate_model(&env, &hub_asset, &model);
         events::emit_market_params(&env, hub_asset.hub_id, hub_asset.asset, params);
     }
 

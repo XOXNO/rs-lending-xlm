@@ -1,7 +1,7 @@
 //! `max_borrow` preview for borrowability gates, caps, and health factor.
 
 use common::math::fp::Ray;
-use common::rates::{scaled_to_original, utilization};
+use common::rates::{calculate_scaled_borrow, scaled_to_original, utilization};
 use common::types::{Account, AssetConfig, DebtPositionRaw, HubAssetKey};
 use common::validation::cap_is_enabled;
 use soroban_sdk::Env;
@@ -161,7 +161,7 @@ fn borrow_ok(
         return false;
     }
 
-    let new_scaled = Ray::from_asset(amount, market.decimals).div(env, market.borrow_index);
+    let new_scaled = calculate_scaled_borrow(env, amount, market.decimals, market.borrow_index);
     let post_borrowed = market.borrowed.checked_add(env, new_scaled);
 
     // Pool max-utilization gate (skipped when utilization is uncapped).

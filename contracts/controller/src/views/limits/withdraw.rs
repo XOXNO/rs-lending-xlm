@@ -6,7 +6,7 @@ use crate::storage;
 use common::constants::WAD;
 use common::math::fp::{Ray, Wad};
 use common::math::fp_core;
-use common::rates::scaled_to_original;
+use common::rates::{resolve_withdrawal, scaled_to_original};
 use common::types::PriceFeed;
 use common::types::{Account, AccountPosition, HubAssetKey};
 use soroban_sdk::Env;
@@ -327,8 +327,18 @@ fn partial_ok(
     if amount < 0 {
         return false;
     }
-    // resolve_withdrawal replica: shares burnt at the half-up conversion.
-    let scaled_w = Ray::from_asset(amount, market.decimals).div(env, market.supply_index);
+    // Pool resolve_withdrawal: shares burnt at the ceil conversion.
+    let (scaled_w, _) = resolve_withdrawal(
+        env,
+        amount,
+        pos_scaled,
+        market.supply_index,
+        market.decimals,
+    );
+    if scaled_w == pos_scaled {
+        return full_close_ok(env, cache, account, hub_asset, market, pos_scaled);
+    }
+    // Defensive: ceil burn must not exceed the position (pool would panic).
     if scaled_w > pos_scaled {
         return false;
     }

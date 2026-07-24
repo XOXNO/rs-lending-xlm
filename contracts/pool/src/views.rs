@@ -10,33 +10,43 @@ use soroban_sdk::{panic_with_error, Env};
 use crate::cache::Cache;
 use crate::utils;
 
-pub fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
+fn read_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
     let key = PoolKey::State(hub_asset.clone());
-    let v = env
-        .storage()
+    env.storage()
         .persistent()
         .get(&key)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
+}
+
+fn read_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw {
+    let key = PoolKey::Params(hub_asset.clone());
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
+}
+
+pub fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
+    let v = read_state(env, hub_asset);
     utils::renew_market_keys(env, hub_asset);
     v
 }
 
+/// Single-key params load with TTL renew. Prefer `load_sync_data` when both
+/// params and state are needed (one renew after both reads).
+#[allow(dead_code)]
 pub fn load_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw {
-    let key = PoolKey::Params(hub_asset.clone());
-    let v = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
+    let v = read_params(env, hub_asset);
     utils::renew_market_keys(env, hub_asset);
     v
 }
 
 pub fn load_sync_data(env: &Env, hub_asset: &HubAssetKey) -> PoolSyncData {
-    PoolSyncData {
-        params: load_params(env, hub_asset),
-        state: load_state(env, hub_asset),
-    }
+    let params = read_params(env, hub_asset);
+    let state = read_state(env, hub_asset);
+    // Renew once after both loads; each key must exist before `extend_ttl`.
+    utils::renew_market_keys(env, hub_asset);
+    PoolSyncData { params, state }
 }
 
 pub fn capital_utilisation(env: &Env, hub_asset: &HubAssetKey) -> i128 {

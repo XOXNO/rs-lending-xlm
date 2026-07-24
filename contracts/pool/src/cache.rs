@@ -3,7 +3,16 @@
 
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
-use common::rates::{scaled_to_original, utilization as rate_utilization};
+use common::rates::{
+    calculate_scaled_borrow as rates_calculate_scaled_borrow,
+    calculate_scaled_borrow_floor as rates_calculate_scaled_borrow_floor,
+    calculate_scaled_supply as rates_calculate_scaled_supply,
+    calculate_scaled_supply_ceil as rates_calculate_scaled_supply_ceil, scaled_to_original,
+    unscale_borrow as rates_unscale_borrow, unscale_borrow_ceil as rates_unscale_borrow_ceil,
+    unscale_borrow_ceil_ray as rates_unscale_borrow_ceil_ray,
+    unscale_supply as rates_unscale_supply, unscale_supply_floor as rates_unscale_supply_floor,
+    utilization as rate_utilization,
+};
 use common::types::{
     HubAssetKey, MarketIndexRaw, MarketParams, MarketParamsRaw, MarketStateSnapshot, PoolKey,
     PoolPositionMutation, PoolState, PoolStateRaw, PoolStrategyMutation, ScaledPositionRaw,
@@ -132,55 +141,85 @@ impl Cache {
     }
 
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {
-        // Supply is a user credit: round down so minted shares never exceed cash in.
-        Ray::from_asset(amount, self.params.asset_decimals).div_floor(&self.env, self.supply_index)
+        rates_calculate_scaled_supply(
+            &self.env,
+            amount,
+            self.params.asset_decimals,
+            self.supply_index,
+        )
     }
 
     pub fn calculate_scaled_supply_ceil(&self, amount: i128) -> Ray {
-        // Withdrawal is a user debit: round up so cash out never exceeds burned value.
-        Ray::from_asset(amount, self.params.asset_decimals).div_ceil(&self.env, self.supply_index)
+        rates_calculate_scaled_supply_ceil(
+            &self.env,
+            amount,
+            self.params.asset_decimals,
+            self.supply_index,
+        )
     }
 
     pub fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
-        // Borrow is a user debit: round up so recorded debt covers cash out.
-        Ray::from_asset(amount, self.params.asset_decimals).div_ceil(&self.env, self.borrow_index)
+        rates_calculate_scaled_borrow(
+            &self.env,
+            amount,
+            self.params.asset_decimals,
+            self.borrow_index,
+        )
     }
 
     pub fn calculate_scaled_borrow_floor(&self, amount: i128) -> Ray {
-        // Repay is a user credit: round down so debt burned never exceeds cash in.
-        Ray::from_asset(amount, self.params.asset_decimals).div_floor(&self.env, self.borrow_index)
+        rates_calculate_scaled_borrow_floor(
+            &self.env,
+            amount,
+            self.params.asset_decimals,
+            self.borrow_index,
+        )
     }
 
     pub fn unscale_supply(&self, scaled: Ray) -> i128 {
-        scaled_to_original(&self.env, scaled, self.supply_index)
-            .to_asset(self.params.asset_decimals)
+        rates_unscale_supply(
+            &self.env,
+            scaled,
+            self.supply_index,
+            self.params.asset_decimals,
+        )
     }
 
     pub fn unscale_supply_floor(&self, scaled: Ray) -> i128 {
-        scaled
-            .mul_floor(&self.env, self.supply_index)
-            .to_asset_floor(self.params.asset_decimals)
+        rates_unscale_supply_floor(
+            &self.env,
+            scaled,
+            self.supply_index,
+            self.params.asset_decimals,
+        )
     }
 
     pub fn unscale_borrow(&self, scaled: Ray) -> i128 {
-        scaled_to_original(&self.env, scaled, self.borrow_index)
-            .to_asset(self.params.asset_decimals)
+        rates_unscale_borrow(
+            &self.env,
+            scaled,
+            self.borrow_index,
+            self.params.asset_decimals,
+        )
     }
 
     pub fn unscale_borrow_ceil(&self, scaled: Ray) -> i128 {
-        scaled
-            .mul_ceil(&self.env, self.borrow_index)
-            .to_asset_ceil(self.params.asset_decimals)
+        rates_unscale_borrow_ceil(
+            &self.env,
+            scaled,
+            self.borrow_index,
+            self.params.asset_decimals,
+        )
     }
 
     pub fn unscale_borrow_ceil_ray(&self, scaled: Ray) -> Ray {
-        // Bad-debt seizure must not under-socialize the removed debt claim.
-        scaled.mul_ceil(&self.env, self.borrow_index)
+        rates_unscale_borrow_ceil_ray(&self.env, scaled, self.borrow_index)
     }
 
     /// Full-close when request ≥ half-up actual: burns all shares, pays floor gross.
-    /// Controller dust gate MUST mirror this rule or position map and pool diverge.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
+        // Keep branching here so Cache scale wrappers stay live; body matches
+        // `common::rates::resolve_withdrawal` exactly.
         let current_supply_actual = self.unscale_supply(pos_scaled);
         let current_supply_floor = self.unscale_supply_floor(pos_scaled);
         if amount >= current_supply_actual {
@@ -209,6 +248,8 @@ impl Cache {
     }
 
     pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
+        // Keep branching here so Cache scale wrappers stay live; body matches
+        // `common::rates::resolve_repay` exactly.
         let current_debt_ceil = self.unscale_borrow_ceil(pos_scaled);
         if amount >= current_debt_ceil {
             (

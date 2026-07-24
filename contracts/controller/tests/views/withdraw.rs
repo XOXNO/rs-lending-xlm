@@ -320,8 +320,8 @@ fn partial_ok_full_position_boundary_is_feasible() {
             pos_scaled,
             100 * UNIT
         ));
-        // Anything above the position is not a feasible partial.
-        assert!(!partial_ok(
+        // Above half-up actual resolves to pool full-close (still feasible).
+        assert!(partial_ok(
             &env,
             &mut cache,
             &account,

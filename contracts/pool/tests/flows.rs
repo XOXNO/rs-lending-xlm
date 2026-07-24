@@ -2035,8 +2035,14 @@ fn test_create_market_initializes_state() {
     client.create_market(&0u32, &market_params(&asset_b));
 
     let sync = client.get_sync_data(&hub(&asset_b));
-    assert_eq!(sync.state.supply_index, RAY, "supply index must start at RAY");
-    assert_eq!(sync.state.borrow_index, RAY, "borrow index must start at RAY");
+    assert_eq!(
+        sync.state.supply_index, RAY,
+        "supply index must start at RAY"
+    );
+    assert_eq!(
+        sync.state.borrow_index, RAY,
+        "borrow index must start at RAY"
+    );
     assert_eq!(
         sync.state.last_timestamp,
         t.env.ledger().timestamp() * MS_PER_SECOND,
@@ -2675,12 +2681,11 @@ fn test_revenue_claim_pays_out_once_entitlement_clears_one_raw_unit() {
     assert!(paid * WAD_PER_RAW <= owed_ray);
 }
 
-// --- POOL-CAN-004: `load_sync_data` pays a redundant TTL renewal. ---
+// --- POOL-CAN-004: `load_sync_data` renews market keys once. ---
 
-/// `load_sync_data` pays two `renew_market_keys` calls; the second is redundant
-/// (no TTL change, measurable extra CPU).
+/// `load_sync_data` renews once after both loads; a second renew is pure waste.
 #[test]
-fn test_load_sync_data_pays_for_a_redundant_ttl_renewal() {
+fn test_load_sync_data_renews_market_keys_once() {
     let t = TestSetup::new();
 
     t.env.cost_estimate().budget().reset_default();
@@ -2697,33 +2702,35 @@ fn test_load_sync_data_pays_for_a_redundant_ttl_renewal() {
     let two_renewals = t.env.cost_estimate().budget().cpu_instruction_cost();
 
     let redundant = two_renewals - one_renewal;
-    assert!(redundant > 0);
+    assert!(
+        redundant > 0,
+        "second renew still costs CPU when TTL already fresh"
+    );
 
-    const PRODUCTION_CPU_LIMIT: u64 = 100_000_000;
-    assert!(redundant * 20 < PRODUCTION_CPU_LIMIT / 100);
-
-    let ttl_before = t.env.as_contract(&t.pool, || {
-        t.env
-            .storage()
-            .persistent()
-            .get_ttl(&PoolKey::State(hub(&t.asset)))
-    });
+    t.env.cost_estimate().budget().reset_default();
     t.env.as_contract(&t.pool, || {
-        crate::utils::renew_market_keys(&t.env, &hub(&t.asset));
+        let _ = crate::views::load_sync_data(&t.env, &hub(&t.asset));
     });
-    let ttl_after = t.env.as_contract(&t.pool, || {
-        t.env
-            .storage()
-            .persistent()
-            .get_ttl(&PoolKey::State(hub(&t.asset)))
+    let sync_cpu = t.env.cost_estimate().budget().cpu_instruction_cost();
+
+    t.env.cost_estimate().budget().reset_default();
+    t.env.as_contract(&t.pool, || {
+        let _ = crate::views::load_params(&t.env, &hub(&t.asset));
+        let _ = crate::views::load_state(&t.env, &hub(&t.asset));
     });
-    assert_eq!(ttl_before, ttl_after);
+    let double_load_cpu = t.env.cost_estimate().budget().cpu_instruction_cost();
+
+    assert!(
+        sync_cpu + redundant / 2 < double_load_cpu,
+        "load_sync_data should skip the second renew paid by load_params+load_state; sync_cpu={sync_cpu} double_load_cpu={double_load_cpu} redundant={redundant}"
+    );
 
     if VERBOSE_CLAIM_DUST {
         std::println!(
-            "renew_market_keys cpu={} redundant cpu per get_sync_data={}",
+            "renew_market_keys cpu={} load_sync_data cpu={} load_params+load_state cpu={}",
             one_renewal,
-            redundant
+            sync_cpu,
+            double_load_cpu
         );
     }
 }

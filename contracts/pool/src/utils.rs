@@ -44,7 +44,11 @@ pub(crate) fn renew_market_keys(env: &Env, hub_asset: &HubAssetKey) {
     );
 }
 
-pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestRateModel) {
+pub(crate) fn apply_rate_model(
+    env: &Env,
+    hub_asset: &HubAssetKey,
+    m: &InterestRateModel,
+) -> MarketParamsRaw {
     let key = PoolKey::Params(hub_asset.clone());
     let mut params: MarketParamsRaw = env
         .storage()
@@ -65,6 +69,7 @@ pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestR
     params.flashloan_fee = m.flashloan_fee;
 
     env.storage().persistent().set(&key, &params);
+    params
 }
 
 pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {

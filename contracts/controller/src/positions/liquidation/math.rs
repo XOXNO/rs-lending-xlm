@@ -4,6 +4,7 @@
 use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
+use common::rates::{resolve_withdrawal, unscale_borrow_ceil};
 use common::types::{
     Account, AccountPositionRaw, DebtPosition, HubAssetKey, LiquidationResult, PaymentTuple,
     RepayEntry, SeizeEntry, SpokeConfig,
@@ -219,10 +220,7 @@ fn debt_close_amount(
     asset_decimals: u32,
 ) -> i128 {
     // dimensional: debt share/index -> Ray<Token(asset)>; to_asset_ceil returns Token(asset).
-    position
-        .scaled_amount
-        .mul(env, borrow_index)
-        .to_asset_ceil(asset_decimals)
+    unscale_borrow_ceil(env, position.scaled_amount, borrow_index, asset_decimals)
 }
 
 /// Sums the USD value across the repaid legs.
@@ -280,7 +278,8 @@ pub(crate) fn calculate_seized_collateral(
         let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
         let bonus_ray = capped_ray.checked_sub(env, base_ray);
         let protocol_fee_ray = position.liquidation_fees.apply_to_ray(env, bonus_ray);
-        // Full close: half-up (pool). Partial: floor to RAY amount.
+        // Full close: half-up request triggers pool full-close (floor gross).
+        // Partial: floor request so the pool does not expand the burn.
         let capped_amount = if capped_ray == actual_ray {
             capped_ray.to_asset(feed.asset_decimals)
         } else {
@@ -290,19 +289,22 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        // Fee can never exceed the gross the pool actually pays out. The pool
-        // floors gross on both partial and full close (`resolve_withdrawal`),
-        // whereas a full close forwards a half-up `capped_amount`. Clamp the fee
-        // to that floor gross so a sub-unit full-close leg carries fee 0 instead
-        // of an impossible {amount:1, fee:1} that trips `WithdrawLessThanFee`.
-        let floor_gross = capped_ray.to_asset_floor(feed.asset_decimals);
+        // Fee can never exceed the gross the pool actually pays out. Share
+        // `resolve_withdrawal` so full-close floor / partial request cannot drift.
+        let (_, pool_gross) = resolve_withdrawal(
+            env,
+            capped_amount,
+            position.scaled_amount,
+            market_index.supply_index,
+            feed.asset_decimals,
+        );
         let fee_asset = protocol_fee_ray.to_asset_floor(feed.asset_decimals);
         let bumped_fee = if protocol_fee_ray > Ray::ZERO && fee_asset == 0 {
             1
         } else {
             fee_asset
         };
-        let protocol_fee = bumped_fee.min(floor_gross);
+        let protocol_fee = bumped_fee.min(pool_gross);
 
         seized.push_back(SeizeEntry {
             hub_asset,
