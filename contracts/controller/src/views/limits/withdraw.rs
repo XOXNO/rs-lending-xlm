@@ -39,9 +39,8 @@ pub(crate) fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) 
             return 0;
         }
     }
-    // Mirror the mutating withdraw path: refresh the withdrawn leg (incl. LT
-    // sticky rules), then portfolio-restamp LTV/bonus/fees on every listed
-    // supply leg so sibling stamps cannot inflate capacity after a cut.
+    // Mirror the mutating path: refresh the withdrawn leg (sticky LT rules),
+    // then restamp LTV/bonus/fees across every listed supply leg.
     if !account.borrow_positions.is_empty() {
         risk::refresh_supply_risk_params_for_asset(
             env,

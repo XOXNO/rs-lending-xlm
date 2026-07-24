@@ -92,10 +92,8 @@ pub(crate) fn process_withdraw(
 
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
 
-    // Mirror borrow / strategy_finalize: rebind every listed supply leg's
-    // LTV/bonus/fees from live listing before portfolio gates. Without this,
-    // sibling legs keep stale-high LTV after a governance cut and can pass
-    // the LTV check while live capacity is insufficient (H-RISK-01 sibling).
+    // Risk gates read live listing config: every listed supply leg's
+    // LTV/bonus/fees must be restamped first, not just the withdrawn one.
     let _ = restamp_listed_supply_safe_params(&mut cache, &mut account);
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
 

@@ -56,16 +56,11 @@ fn age_oracle_observations(t: &LendingTest) {
     t.env.ledger().with_mut(|ledger| ledger.timestamp += 1_000);
 }
 
-/// H-RISK-01 sibling: debt-bearing `withdraw` must portfolio-restamp listed
-/// supply LTV before LTV/HF gates (same as borrow / strategy_finalize). After
-/// an LTV cut on a sibling asset, withdrawing another leg must not pass on
-/// stale-high stamps.
+/// H-RISK-01 sibling: debt-bearing `withdraw` restamps listed supply LTV on
+/// every leg before the LTV/HF gates, not only the withdrawn one.
 ///
-/// Setup: USDC $5k + ETH $10k stamped @ 75% LTV (~$11.25k capacity), debt ~$7k.
-/// Cut ETH listing LTV to 50% (live capacity ~$3.75k + $5k = $8.75k).
-/// Full USDC withdraw leaves only ETH live capacity $5k < $7k → must reject.
-/// Pre-fix: withdrawing USDC only refreshed that leg → stale ETH 75% still
-/// counted → gate passed. Post-fix: full USDC withdraw is rejected.
+/// USDC $5k + ETH $10k stamped @ 75% LTV, debt ~$7k. Cutting ETH listing LTV
+/// to 50% leaves $5k live capacity after a full USDC withdraw, below the debt.
 #[test]
 fn regression_withdraw_restamps_sibling_ltv_after_governance_cut() {
     let mut t = LendingTest::new()
@@ -87,8 +82,8 @@ fn regression_withdraw_restamps_sibling_ltv_after_governance_cut() {
     let blocked = t.try_withdraw(ALICE, "USDC", 5_000.0);
     assert_contract_error(blocked, errors::INSUFFICIENT_COLLATERAL);
 
-    // Modest USDC withdraw that keeps post-op live LTV above debt still works
-    // and persists the restamped ETH LTV.
+    // A withdraw that keeps live capacity above debt succeeds and persists the
+    // restamped ETH LTV.
     t.withdraw(ALICE, "USDC", 100.0);
     let id = t.resolve_account_id(ALICE);
     let (eth_ltv, _) = supply_ltv_and_lt(&t, id, "ETH");
