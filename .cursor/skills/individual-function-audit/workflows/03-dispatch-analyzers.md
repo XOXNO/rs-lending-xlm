@@ -10,11 +10,14 @@
 
 1. For each wave-1 item (max **4 concurrent** Task agents):
    - `subagent_type`: `function-analyzer` (fallback: `generalPurpose`)
-   - Fill every placeholder in `analyzer-prompt.md`
-   - Require the agent to return the full microstructure document
+   - Fill every placeholder in `analyzer-prompt.md`, including
+     `{{ARTIFACT_NAME}}` (e.g. `controller__liquidation__liquidate`)
+   - Require the agent to **Write** the full document to
+     `audit/function-context/functions/{{ARTIFACT_NAME}}.md` itself
    - Require caller enumeration (Grep) and storage key enumeration
 2. On agent return:
-   - Write `audit/function-context/functions/<crate>__<module>__<fn>.md`
+   - Confirm the on-disk file exists and is non-trivial
+     (>5 KB for dense functions)
    - Verify against [references/output-schema.md](../references/output-schema.md)
    - If incomplete: **re-dispatch the same function** with the missing
      sections listed — do not mark the queue item done
