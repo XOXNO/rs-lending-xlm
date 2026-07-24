@@ -34,21 +34,15 @@ pub(crate) fn resolve_price_status(cache: &mut ResolutionContext, asset: &Addres
     let primary_wad = primary.price_wad;
 
     match config.strategy {
-        OracleStrategy::Single => {
-            let final_wad = primary_wad;
-            let stale = primary_stale;
-            let deviation = false;
-            let valid = is_valid(final_wad, stale, deviation, &config);
-            PriceStatus {
-                final_wad,
-                primary_wad,
-                secondary_wad: final_wad,
-                price_timestamp: primary.timestamp(),
-                stale,
-                deviation,
-                valid,
-            }
-        }
+        OracleStrategy::Single => PriceStatus {
+            final_wad: primary_wad,
+            primary_wad,
+            secondary_wad: primary_wad,
+            price_timestamp: primary.timestamp(),
+            stale: primary_stale,
+            deviation: false,
+            valid: is_valid(primary_wad, primary_stale, false, &config),
+        },
         OracleStrategy::PrimaryWithAnchor => {
             resolve_anchored_status(cache, &config, primary, primary_stale, primary_wad, now)
         }

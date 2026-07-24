@@ -51,7 +51,7 @@ fn from_oracle_flattens_anchored_reflector_source() {
         max_sanity_price_wad: 2,
     };
 
-    let event = EventOracleProvider::from_oracle(&env, &asset, &config);
+    let event = EventOracleProvider::from_oracle(&asset, &config);
 
     assert_eq!(event.base_token_id, asset);
     assert_eq!(event.strategy, OracleStrategy::PrimaryWithAnchor as u32);

@@ -35,7 +35,7 @@ pub(crate) fn resolve_components(
         },
         OracleStrategy::PrimaryWithAnchor => {
             // Missing anchor on dual strategy fails closed with NoLastPrice (#210),
-            // matching the historical read-time backstop.
+            // matching the read-time backstop.
             let anchor_config = config
                 .anchor
                 .as_ref()

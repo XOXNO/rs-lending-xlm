@@ -75,7 +75,7 @@ pub struct EventOracleProvider {
 }
 
 impl EventOracleProvider {
-    pub fn from_oracle(_env: &Env, asset: &Address, oracle: &AssetOracleConfig) -> Self {
+    pub fn from_oracle(asset: &Address, oracle: &AssetOracleConfig) -> Self {
         let market_max_stale = oracle.max_price_stale_seconds;
         let primary = EventOracleSource::from(&oracle.primary, market_max_stale);
         let anchor = oracle
@@ -209,7 +209,7 @@ pub struct UpdateAssetOracleEvent {
 pub(crate) fn emit_oracle_updated(env: &Env, asset: &Address, config: &AssetOracleConfig) {
     UpdateAssetOracleEvent {
         asset: asset.clone(),
-        oracle: EventOracleProvider::from_oracle(env, asset, config),
+        oracle: EventOracleProvider::from_oracle(asset, config),
     }
     .publish(env);
 }
