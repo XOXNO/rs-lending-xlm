@@ -45,6 +45,6 @@ pub(crate) fn strategy_finalize(
     cache: &mut Cache,
 ) {
     let _ = risk::restamp_listed_supply_safe_params(cache, account);
-    validation::require_post_pool_risk_gates(env, cache, account, true);
+    validation::require_post_pool_risk_gates(env, cache, account);
     finalize_position_flow(env, account_id, account, cache, PositionSides::BOTH, true);
 }

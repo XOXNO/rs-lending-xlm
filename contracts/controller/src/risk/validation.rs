@@ -35,16 +35,7 @@ pub(crate) fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
 
 /// Post-pool LTV, health factor, and min-borrow-collateral gates in one
 /// prefetch and one portfolio walk. No-op when the account is debt-free.
-///
-/// `enforce_min_collateral_floor` gates the min-borrow-collateral check: `true`
-/// on debt-increasing paths (borrow, strategy), `false` on withdraw so a
-/// below-floor account is not locked out of partial withdrawals.
-pub(crate) fn require_post_pool_risk_gates(
-    env: &Env,
-    cache: &mut Cache,
-    account: &Account,
-    enforce_min_collateral_floor: bool,
-) {
+pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Account) {
     if account.borrow_positions.is_empty() {
         return;
     }
@@ -74,11 +65,9 @@ pub(crate) fn require_post_pool_risk_gates(
         CollateralError::InsufficientCollateral
     );
 
-    if enforce_min_collateral_floor {
-        let floor = storage::get_min_borrow_collateral_usd_wad(env);
-        if floor != 0 && totals.ltv_collateral.raw() < floor {
-            panic_with_error!(env, CollateralError::MinBorrowCollateralNotMet);
-        }
+    let floor = storage::get_min_borrow_collateral_usd_wad(env);
+    if floor != 0 && totals.ltv_collateral.raw() < floor {
+        panic_with_error!(env, CollateralError::MinBorrowCollateralNotMet);
     }
 }
 
