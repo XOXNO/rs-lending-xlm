@@ -39,8 +39,9 @@ pub(crate) fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) 
             return 0;
         }
     }
-    // The mutating path refreshes the withdrawn asset's risk params before
-    // its LTV/HF gates; mirror that on the in-memory account.
+    // Mirror the mutating withdraw path: refresh the withdrawn leg (incl. LT
+    // sticky rules), then portfolio-restamp LTV/bonus/fees on every listed
+    // supply leg so sibling stamps cannot inflate capacity after a cut.
     if !account.borrow_positions.is_empty() {
         risk::refresh_supply_risk_params_for_asset(
             env,
@@ -52,6 +53,10 @@ pub(crate) fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) 
         account
             .supply_positions
             .set(hub_asset.clone(), (&position).into());
+        let _ = risk::restamp_listed_supply_safe_params(&mut cache, &mut account);
+        if let Some(raw) = account.supply_positions.get(hub_asset.clone()) {
+            position = (&raw).into();
+        }
     }
 
     let market = MarketLimitCtx::load(&mut cache, hub_asset);
