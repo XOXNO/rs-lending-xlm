@@ -116,6 +116,14 @@ pub(crate) fn pool_add_rewards_call(
     LiquidityPoolClient::new(env, pool_addr).add_rewards(hub_asset, &amount)
 }
 
+pub(crate) fn pool_reconcile_reserves_call(
+    env: &Env,
+    pool_addr: &Address,
+    hub_asset: &HubAssetKey,
+) {
+    LiquidityPoolClient::new(env, pool_addr).reconcile_reserves(hub_asset)
+}
+
 pub(crate) fn fetch_pool_sync_data(
     env: &Env,
     pool_addr: &Address,

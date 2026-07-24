@@ -40,7 +40,9 @@ fn grant_role_via_timelock(
         role: Symbol::new(env, role),
     });
     gov.propose(admin, &grant, &salt);
-    env.ledger().with_mut(|l| l.sequence_number += delay);
+    // Role grants ride the Sensitive tier; mature at its floor, not `delay`.
+    env.ledger()
+        .with_mut(|l| l.sequence_number += delay.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS));
     gov.execute_self(&Some(admin.clone()), &grant, &salt);
     account
 }
@@ -513,7 +515,8 @@ fn revoking_proposer_ok_when_another_remains() {
         role: proposer.clone(),
     });
     gov.propose(&admin, &revoke, &r_salt);
-    env.ledger().with_mut(|l| l.sequence_number += delay);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += delay.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS));
     gov.execute_self(&Some(admin.clone()), &revoke, &r_salt);
     assert!(!gov.has_role(&second, &proposer));
     assert!(gov.has_role(&admin, &proposer));

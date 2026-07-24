@@ -155,7 +155,7 @@ fn transfer_and_build_supply_entries(
     for (hub_asset, amount_in) in aggregated {
         let asset_config: AssetConfig =
             (&cache.require_spoke_asset(account.spoke_id, &hub_asset)).into();
-        payments::transfer_amount(
+        let received = payments::transfer_amount_measured(
             env,
             &hub_asset.asset,
             caller,
@@ -165,7 +165,7 @@ fn transfer_and_build_supply_entries(
         );
         let position = account.get_or_create_supply_position(&hub_asset, &asset_config);
         entries.push_back(PoolSupplyEntry {
-            action: make_pool_action(&position, amount_in, hub_asset.clone()),
+            action: make_pool_action(&position, received, hub_asset.clone()),
         });
     }
     entries

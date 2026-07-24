@@ -176,7 +176,8 @@ fn execute_grant_governance_role_after_delay() {
         }),
         &salt,
     );
-    env.ledger().with_mut(|l| l.sequence_number += delay);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += delay.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS));
     gov.execute_self(
         &Some(admin.clone()),
         &AdminOperation::GrantGovRole(RoleArgs {

@@ -277,10 +277,50 @@ fn test_swap_collateral_rejects_new_asset_when_supply_limit_reached() {
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
     t.supply_to(ALICE, account_id, "USDT", 5_000.0);
 
-    // Invalid swap data proves the position limit is rejected in preflight,
-    // before the router payload is decoded or any external call is attempted.
-    let result = t.try_swap_collateral(ALICE, "USDC", 100.0, "DAI", &Bytes::new(&t.env));
+    // A partial swap keeps the USDC leg, so depositing DAI is a 5th position. The
+    // preflight no longer pre-rejects (that wrongly blocked full same-slot swaps);
+    // the deposit stage enforces the limit and reverts POSITION_LIMIT_EXCEEDED
+    // after the swap, rolled back atomically.
+    t.fund_router("DAI", 100.0);
+    let steps = build_aggregator_swap(&t, "USDC", "DAI", 1_000_000_000, 1_000_000_000);
+    let result = t.try_swap_collateral(ALICE, "USDC", 100.0, "DAI", &steps);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
+}
+
+// Full same-slot swap at max positions: closing the source leg frees the slot,
+// so rotating one collateral into a new asset must succeed (previously the
+// preflight wrongly counted the new asset before the source leg closed).
+#[test]
+fn test_swap_collateral_full_close_frees_slot_at_max_positions() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(wbtc_preset())
+        .with_market(usdt_stable_preset())
+        .with_market(dai_preset())
+        .with_position_limits(4, 10)
+        .build();
+
+    let account_id = t.create_account(ALICE);
+    t.supply_to(ALICE, account_id, "USDC", 10_000.0);
+    t.supply_to(ALICE, account_id, "ETH", 1.0);
+    t.supply_to(ALICE, account_id, "WBTC", 0.1);
+    t.supply_to(ALICE, account_id, "USDT", 5_000.0);
+
+    // Full-close the USDC leg into DAI: 4 positions before, 4 after.
+    t.fund_router("DAI", 10_000.0);
+    let steps = build_aggregator_swap(&t, "USDC", "DAI", 100_000_000_000, 100_000_000_000);
+    let result = t.try_swap_collateral(ALICE, "USDC", 10_000.0, "DAI", &steps);
+    assert!(
+        result.is_ok(),
+        "a full same-slot swap at max positions must succeed: {result:?}"
+    );
+    assert!(t.supply_balance(ALICE, "DAI") > 0.0, "DAI leg must be created");
+    assert_eq!(
+        t.supply_balance(ALICE, "USDC"),
+        0.0,
+        "USDC leg must be fully closed"
+    );
 }
 // Spoke account; new collateral is not in the spoke category.
 

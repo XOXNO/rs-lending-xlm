@@ -32,6 +32,10 @@ pub const POSITION_LIMIT_MAX: u32 = 10;
 /// Minimum primary/anchor tolerance input (BPS) for oracle config validation.
 pub const MIN_TOLERANCE: u32 = 150;
 
+/// Minimum sanity-band half-width (BPS) around par. Blocks a pinched band that
+/// would revert on the next live print and brick every hard price read.
+pub const MIN_SANITY_BAND_BPS: i128 = 50;
+
 /// Max primary/anchor tolerance input (BPS, ±25%); midpoint move ≤ ~12.5% at edge.
 pub const MAX_TOLERANCE: u32 = 2_500;
 

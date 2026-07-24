@@ -288,12 +288,16 @@ fn test_update_account_threshold_safe() {
         c.liquidation_fees = fee_before + 150;
     });
 
-    // Update safe params (has_risks=false): LTV, bonus, fees.
-    // Should succeed without an HF check.
+    // Update safe params (has_risks=false): LTV, bonus, fees. Succeeds without
+    // an HF check, but the permissionless path only ever LOWERS the bonus (M1):
+    // a raised config bonus must not ratchet a passive account's bonus up.
     t.update_account_threshold(false, &[account_id]);
 
     let (_, bonus_after, _) = supply_risk_fields(&t, account_id, "USDC");
-    assert_eq!(bonus_after, bonus_before + 100);
+    assert_eq!(
+        bonus_after, bonus_before,
+        "a raised bonus must not propagate via the permissionless keeper path"
+    );
     assert_eq!(supply_fee_bps(&t, account_id, "USDC"), fee_before + 150);
 
     // Position should still exist and stay healthy.
@@ -456,15 +460,21 @@ fn test_update_account_threshold_mixed_spokes_batch() {
     let alice_id = t.resolve_account_id(ALICE);
     let bob_id = t.resolve_account_id(BOB);
     let (_, alice_bonus_before, alice_ltv_before) = supply_risk_fields(&t, alice_id, "USDC");
+    let (_, bob_bonus_before, _) = supply_risk_fields(&t, bob_id, "USDC");
 
-    // Change only spoke 2 so the sync writes a visible delta for BOB.
+    // Change only spoke 2 so the sync writes a visible delta for BOB. LTV syncs
+    // unconditionally; the bonus is clamped so it can only move down (M1).
     t.edit_asset_in_spoke("USDC", 2, true, true, 9600, 9700, 300);
 
     t.update_account_threshold(false, &[alice_id, bob_id]);
 
     let (_, bob_bonus, bob_ltv) = supply_risk_fields(&t, bob_id, "USDC");
-    assert_eq!(bob_bonus, 300, "BOB must sync spoke-2 bonus");
     assert_eq!(bob_ltv, 9600, "BOB must sync spoke-2 LTV");
+    assert_eq!(
+        bob_bonus,
+        bob_bonus_before.min(300),
+        "BOB's bonus is clamped downward, never ratcheted up"
+    );
 
     let (_, alice_bonus, alice_ltv) = supply_risk_fields(&t, alice_id, "USDC");
     assert_eq!(

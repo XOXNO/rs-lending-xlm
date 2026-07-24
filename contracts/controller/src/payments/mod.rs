@@ -2,7 +2,7 @@
 
 use common::errors::GenericError;
 use common::types::HubAssetKey;
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Map, Vec};
 
 use crate::events;
 use crate::external::sac::sac_transfer_call;
@@ -36,6 +36,27 @@ pub(crate) fn transfer_amount(
     assert_with_error!(env, amount > 0, non_positive_error);
     sac_transfer_call(env, asset, from, to, &amount);
     amount
+}
+
+/// Like [`transfer_amount`], but returns the balance delta actually credited to
+/// `to`, not the nominal `amount`. For a well-behaved SAC the two are equal; a
+/// fee-on-transfer or negative-rebase token credits less, so recording the
+/// measured delta keeps tracked pool cash from exceeding tokens received.
+pub(crate) fn transfer_amount_measured(
+    env: &Env,
+    asset: &Address,
+    from: &Address,
+    to: &Address,
+    amount: i128,
+    non_positive_error: GenericError,
+) -> i128 {
+    assert_with_error!(env, amount > 0, non_positive_error);
+    let tok = token::Client::new(env, asset);
+    let pre = tok.balance(to);
+    sac_transfer_call(env, asset, from, to, &amount);
+    let post = tok.balance(to);
+    post.checked_sub(pre)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::AmountMustBePositive))
 }
 
 /// Deduplicates payments by hub asset and sums amounts; a zero leg means withdraw-all when `zero_is_withdraw_all`.

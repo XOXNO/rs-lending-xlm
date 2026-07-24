@@ -147,6 +147,27 @@ fn test_borrow_rate_capped() {
 }
 
 #[test]
+fn test_borrow_rate_clamps_utilization_above_one() {
+    let env = Env::default();
+    // Degenerate-but-representable curve: optimal just below RAY (range = 1 raw).
+    // Utilization above 100% is reachable in a post-bad-debt / over-cap state.
+    // Without clamping util to RAY the slope3 term overflows i128; the clamp must
+    // bound it to the curve top (then the max-rate cap) instead of trapping.
+    let mut raw = make_test_params_raw(&env);
+    raw.optimal_utilization = RAY - 1;
+    raw.max_utilization = RAY;
+    let params = MarketParams::from(&raw);
+
+    let rate = calculate_borrow_rate(&env, Ray::from(RAY * 2), &params);
+    let expected = div_by_int_half_up(params.max_borrow_rate.raw(), MILLISECONDS_PER_YEAR as i128);
+    assert!(rate.raw() > 0);
+    assert!(
+        rate.raw() <= expected + 1,
+        "util > RAY must clamp and stay bounded by the max-rate cap"
+    );
+}
+
+#[test]
 fn test_compound_interest_zero_delta() {
     let env = Env::default();
     let result = compound_interest(&env, Ray::from(RAY / 10), 0);

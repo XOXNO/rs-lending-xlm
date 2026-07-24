@@ -4,8 +4,8 @@
 //! identical error codes for the same malformed input.
 
 use crate::constants::{
-    BPS, MAX_LIQUIDATION_TARGET_HF_WAD, MAX_REASONABLE_PRICE_WAD, MAX_TOLERANCE, MIN_TOLERANCE,
-    RAY_DECIMALS, WAD,
+    BPS, MAX_LIQUIDATION_TARGET_HF_WAD, MAX_REASONABLE_PRICE_WAD, MAX_TOLERANCE, MIN_SANITY_BAND_BPS,
+    MIN_TOLERANCE, RAY_DECIMALS, WAD,
 };
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use crate::math::fp_core::mul_div_ceil;
@@ -140,6 +140,14 @@ pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     assert_with_error!(
         env,
         min_wad > 0 && max_wad > 0 && min_wad < max_wad && max_wad <= MAX_REASONABLE_PRICE_WAD,
+        OracleError::InvalidSanityBounds
+    );
+    // Reject a pinched band (no minimum width otherwise): a band barely wider than
+    // the live price reverts on the next real print and bricks every hard read.
+    let half_width_bps = mul_div_ceil(env, max_wad - min_wad, BPS, max_wad + min_wad);
+    assert_with_error!(
+        env,
+        half_width_bps >= MIN_SANITY_BAND_BPS,
         OracleError::InvalidSanityBounds
     );
 }

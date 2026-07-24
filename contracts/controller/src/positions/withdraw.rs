@@ -92,10 +92,20 @@ pub(crate) fn process_withdraw(
 
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
 
+<<<<<<< HEAD
     // Risk gates read live listing config: every listed supply leg's
     // LTV/bonus/fees must be restamped first, not just the withdrawn one.
     let _ = restamp_listed_supply_safe_params(&mut cache, &mut account);
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
+=======
+    // Re-stamp LTV/bonus/fees on every supply leg (not just the withdrawn one)
+    // so the post-pool gate values untouched collateral at current spoke config.
+    restamp_listed_supply_safe_params(&mut cache, &mut account);
+    // Withdraw does not raise debt, so skip the min-borrow-collateral floor —
+    // it would otherwise lock all partial withdrawals for a below-floor account.
+    // HF and LTV-collateral >= debt still bind below.
+    validation::require_post_pool_risk_gates(env, &mut cache, &account, false);
+>>>>>>> claude/contract-code-integrity-review-04a21c
 
     finalize_position_flow(
         env,

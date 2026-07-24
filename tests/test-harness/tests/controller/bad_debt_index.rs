@@ -1,5 +1,6 @@
 use test_harness::{
-    days, hub_asset, usd, usd_cents, LendingTest, ALICE, BOB, CAROL, DAVE, LIQUIDATOR,
+    assert_contract_error, days, errors, hub_asset, usd, usd_cents, LendingTest, ALICE, BOB, CAROL,
+    DAVE, LIQUIDATOR,
 };
 // Bad debt supply index tests -- the only case where supply_index decreases.
 //
@@ -179,6 +180,72 @@ fn test_supply_index_recovers_after_bad_debt() {
         "supply index should recover with new interest: post_bad_debt={}, recovered={}",
         si_after_bad_debt,
         si_recovered
+    );
+}
+
+// H1: governance force-socialize retires bad debt on an underwater account whose
+// collateral is above the $5 dust threshold (e.g. frozen/clawed collateral that
+// liquidation cannot seize). The permissionless `clean_bad_debt` still refuses.
+#[test]
+fn test_force_socialize_bad_debt_above_dust_threshold() {
+    let mut t = setup();
+
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(ALICE, "USDC", 100.0); // $100 collateral.
+    t.borrow(ALICE, "ETH", 0.02); // $40 debt at $2000/ETH.
+
+    // Crash USDC so debt ($40) exceeds collateral (~$30), while collateral stays
+    // well above the $5 socialization dust threshold.
+    t.set_price("USDC", usd_cents(30));
+    let account_id = t.resolve_account_id(ALICE);
+
+    // Permissionless clean_bad_debt refuses: collateral > $5.
+    let refused = t.try_clean_bad_debt_by_id(account_id);
+    assert_contract_error(refused, errors::CANNOT_CLEAN_BAD_DEBT);
+
+    let (si_before, _) = get_indexes(&t, "ETH");
+
+    // Governance force-socialize retires the debt regardless of the dust cap.
+    t.force_socialize_bad_debt_by_id(account_id);
+
+    let (si_after, _) = get_indexes(&t, "ETH");
+    assert!(
+        si_after < si_before,
+        "force-socialize must drop the ETH supply index: before={si_before}, after={si_after}"
+    );
+    t.assert_no_positions(ALICE);
+}
+
+// H1 guard: force-socialize rejects a healthy (over-collateralized) account so it
+// cannot be used to seize a solvent account's collateral.
+#[test]
+fn test_force_socialize_rejects_healthy_account() {
+    let mut t = setup();
+
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(ALICE, "USDC", 100.0);
+    t.borrow(ALICE, "ETH", 0.01); // $20 debt vs $100 collateral: healthy.
+
+    let account_id = t.resolve_account_id(ALICE);
+    let refused = t.try_force_socialize_bad_debt_by_id(account_id);
+    assert_contract_error(refused, errors::CANNOT_CLEAN_BAD_DEBT);
+}
+
+// L2: reconciling a market with no clawback (tracked cash == live balance) is a
+// no-op — it never socializes a loss that did not happen.
+#[test]
+fn test_reconcile_reserves_noop_on_healthy_market() {
+    let mut t = setup();
+
+    t.supply(BOB, "ETH", 100.0);
+    let (si_before, _) = get_indexes(&t, "ETH");
+
+    t.reconcile_pool_reserves_for("ETH");
+
+    let (si_after, _) = get_indexes(&t, "ETH");
+    assert_eq!(
+        si_after, si_before,
+        "reconcile must not change a market whose cash matches its balance"
     );
 }
 

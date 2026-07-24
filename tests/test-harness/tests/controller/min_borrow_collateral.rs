@@ -36,18 +36,24 @@ fn test_borrow_succeeds_when_ltv_collateral_meets_instance_floor() {
 }
 
 #[test]
-fn test_withdraw_while_in_debt_rejected_when_ltv_collateral_falls_below_floor() {
+fn test_withdraw_while_in_debt_allowed_below_min_borrow_collateral_floor() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // Keep debt small so LTV still passes while LTV-weighted collateral drops
-    // below the $5 instance floor.
+    // Debt stays tiny so HF and LTV-collateral >= debt still hold; the withdraw
+    // drops LTV-weighted collateral below the $5 floor. That floor gates only
+    // debt-increasing paths (borrow/strategy), never withdraw, so the withdraw
+    // must succeed rather than lock the account out of its collateral.
     t.supply(ALICE, "USDC", 12.0);
     t.borrow(ALICE, "ETH", 0.001);
     let res = t.try_withdraw(ALICE, "USDC", 9.0);
-    assert_contract_error(res, errors::MIN_BORROW_COLLATERAL_NOT_MET);
+    assert!(
+        res.is_ok(),
+        "withdraw must not be blocked by the min-borrow-collateral floor: {res:?}"
+    );
+    t.assert_healthy(ALICE);
 }
 
 #[test]

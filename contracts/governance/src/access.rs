@@ -202,6 +202,9 @@ impl Governance {
     /// # Security Warning
     /// * Runs once at deploy with no authorization; `admin` becomes owner and
     ///   holds `ORACLE`, `PROPOSER`, `EXECUTOR`, `CANCELLER`, and `GUARDIAN`.
+    /// * `min_delay` is only floored at nonzero. Mainnet deploys must set it at
+    ///   or above `TIMELOCK_MIN_DELAY_LEDGERS` (48h); shorter delays are supported
+    ///   for non-mainnet only.
     pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
         ownable::set_owner(&env, &admin);
         access_control::set_admin(&env, &admin);
