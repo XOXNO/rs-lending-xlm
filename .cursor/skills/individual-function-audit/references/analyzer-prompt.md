@@ -48,8 +48,13 @@ exactly. Minimums:
 - Stopping at the first callee boundary
 - Analyzing unrelated functions not in the target or fold-in list
 
-## Return
+## Persist + return
 
-Return one markdown document with the five required sections and a short
-closing list: key invariants + open questions. The orchestrator will persist
-it to disk.
+1. Write the full markdown document to:
+   `audit/function-context/functions/{{ARTIFACT_NAME}}.md`
+   (create parent dirs if needed).
+2. Also return the same document in your final message.
+3. End with a short closing list: key invariants + open questions.
+
+The orchestrator marks the queue item done only after the on-disk file exists
+and passes the completeness gate.
