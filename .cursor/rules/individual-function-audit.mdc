@@ -1,0 +1,20 @@
+---
+description: Forbid broad-sweep security audits; require individual-function-audit skill
+alwaysApply: true
+---
+
+# Individual-function audit discipline
+
+When the task is a security review, audit, vulnerability hunt, or "check for
+bugs" across `contracts/`, `common/`, or `interfaces/`:
+
+1. Load and follow `.cursor/skills/individual-function-audit/SKILL.md`.
+2. Do **not** perform a free-form broad sweep (read file → move on).
+3. Inventory → queue → dispatch ≤4 `function-analyzer` agents per wave →
+   integrate `GLOBAL_MODEL.md` → only then hunt.
+4. Persist context under `audit/function-context/`; do not keep the mental
+   model only in chat.
+5. Do not assign severity until Phase 5 entry criteria are met.
+
+Style / code-quality passes and single-function bugfixes requested by name
+are exempt.

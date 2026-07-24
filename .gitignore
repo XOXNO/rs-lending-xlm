@@ -88,3 +88,7 @@ superpowers
 .codebase-memory/
 target-mutants/
 target-fixtures/
+.cursor/settings.json
+
+# Per-function audit context bodies (skill outputs). Directory keeps its
+# own .gitignore + README; analysis markdown stays untracked.

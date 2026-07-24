@@ -1,0 +1,131 @@
+# Priority seed queue for rs-lending-xlm
+# Merge into QUEUE.md during Phase 2. Paths are hints — verify on the
+# audited commit before dispatch.
+
+wave1_max: 8
+max_parallel_agents: 4
+
+items:
+  - id: controller.liquidate
+    priority: P0
+    crate: controller
+    function: liquidate
+    path_hint: contracts/controller/src/
+    reason: permissionless value move; seize + repay coupling; prior audit focus
+    fold_in:
+      - apply_liquidation_seizures
+      - liquidation math / bonus / HF planning
+
+  - id: controller.bad_debt
+    priority: P0
+    crate: controller
+    function: execute_bad_debt_cleanup
+    path_hint: contracts/controller/src/positions/liquidation/
+    reason: supply-index writedown gate; unsocializable debt edge
+    fold_in:
+      - is_socializable_bad_debt
+
+  - id: controller.update_account_threshold
+    priority: P0
+    crate: controller
+    function: update_account_threshold
+    path_hint: contracts/controller/src/pool_ops/
+    reason: permissionless restamp of LT/LTV/bonus; keeper/attacker timing
+    fold_in:
+      - sync_account_thresholds
+
+  - id: controller.flash_loan
+    priority: P0
+    crate: controller
+    function: flash_loan
+    path_hint: contracts/controller/src/
+    reason: callback surface; CEI / reentrancy assumptions; balance bracketing
+    fold_in: []
+
+  - id: controller.supply_withdraw_borrow_repay
+    priority: P0
+    crate: controller
+    function: supply
+    path_hint: contracts/controller/src/
+    reason: core money path; shared risk gates with withdraw/borrow/repay
+    fold_in:
+      - withdraw
+      - borrow
+      - repay
+      - require_post_pool_risk_gates
+
+  - id: pool.cash_transfer
+    priority: P0
+    crate: pool
+    function: transfer_out
+    path_hint: contracts/pool/src/cache.rs
+    reason: cash vs live balance; freeze/clawback trust boundary
+    fold_in:
+      - credit_cash
+      - require_reserves
+
+  - id: pool.indexes
+    priority: P1
+    crate: pool
+    function: global_sync
+    path_hint: contracts/pool/src/
+    reason: index/rate engine; must mirror controller simulate_update_indexes
+    fold_in:
+      - update_indexes / interest accrual helpers
+
+  - id: pool.flash_loan
+    priority: P1
+    crate: pool
+    function: flash_loan
+    path_hint: contracts/pool/src/lib.rs
+    reason: balance-delta validation; fee; callback ordering
+    fold_in: []
+
+  - id: governance.execute
+    priority: P1
+    crate: governance
+    function: execute
+    path_hint: contracts/governance/src/
+    reason: timelock maturity; permissionless execute_self; admin sinks
+    fold_in:
+      - propose
+      - cancel
+      - execute_self
+
+  - id: governance.roles
+    priority: P1
+    crate: governance
+    function: revoke_role_immediate
+    path_hint: contracts/governance/src/access.rs
+    reason: immediate privilege; canceller/guardian invariants (ADR 0010)
+    fold_in:
+      - grant/revoke role paths
+      - execute_canceller_reset
+
+  - id: price_aggregator.hard_read
+    priority: P1
+    crate: price-aggregator
+    function: prices
+    path_hint: contracts/price-aggregator/src/
+    reason: fail-closed hard path used by money ops; compose/tolerance
+    fold_in:
+      - resolve_with_config / sanity / staleness / deviation
+
+  - id: price_aggregator.set_sanity_band
+    priority: P2
+    crate: price-aggregator
+    function: set_sanity_band
+    path_hint: contracts/price-aggregator/src/config.rs
+    reason: immediate ORACLE band moves; market liveness
+    fold_in:
+      - set_oracle_config
+
+  - id: controller.swap_multiply
+    priority: P2
+    crate: controller
+    function: multiply
+    path_hint: contracts/controller/src/
+    reason: aggregator trust + payment ordering; strategy-adjacent
+    fold_in:
+      - swap_collateral
+      - swap_debt
