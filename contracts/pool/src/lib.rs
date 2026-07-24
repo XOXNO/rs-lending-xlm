@@ -312,6 +312,10 @@ fn net_settle_one(
     // No credit_cash/debit_cash: the withdrawn amount and the repaid amount
     // are identical (`gross_amount`), so cash is invariant by construction.
 
+    // Same terminal-state guard the withdraw leg enforces: never persist
+    // supply-drained-to-zero while debt remains.
+    utils::require_solvent_withdraw_state(env, &cache);
+
     cache.save();
     let supply_scaled_after = supply_scaled.checked_sub(env, scaled_withdrawal);
     let debt_scaled_after = debt_scaled.checked_sub(env, scaled_repay);
@@ -933,6 +937,29 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         events::emit_market_state(&env, cache.market_snapshot());
         mutation
+    }
+
+    /// Reconciles tracked `cash` to the live SAC balance after an issuer
+    /// clawback, socializing the shortfall through the supply index. Owner
+    /// (controller) only. No-op unless `cash > balance`.
+    #[only_owner]
+    fn reconcile_reserves(env: Env, hub_asset: HubAssetKey) {
+        let mut cache = load_synced_cache(&env, &hub_asset);
+
+        let live_balance = token::Client::new(&env, &cache.params.asset_id)
+            .balance(&env.current_contract_address());
+
+        // Donations only raise the balance, so `cash > balance` isolates an
+        // out-of-band loss (clawback); reconciling never socializes a donation.
+        if cache.cash > live_balance {
+            let deficit = cache.cash - live_balance;
+            let deficit_ray = Ray::from_asset(deficit, cache.params.asset_decimals);
+            interest::apply_bad_debt_to_supply_index(&mut cache, deficit_ray);
+            cache.debit_cash(deficit);
+            cache.save();
+        }
+
+        events::emit_market_state(&env, cache.market_snapshot());
     }
 
     /// Accrues at the current rate model, then replaces the interest-rate

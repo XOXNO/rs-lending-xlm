@@ -110,6 +110,9 @@ pub enum AdminOperation {
     ConfigureMarketOracle(ConfigureOracleArgs),
     EditOracleTolerance(EditToleranceArgs),
     SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs),
+    /// Force-socializes an underwater account's bad debt (frozen/clawed
+    /// collateral) through the supply index, bypassing the dust threshold.
+    ForceSocializeBadDebt(u64),
     /// Risk-loosening: rides the timelock. Counterpart to GUARDIAN-immediate `pause`.
     Unpause,
 

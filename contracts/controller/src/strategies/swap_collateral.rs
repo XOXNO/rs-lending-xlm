@@ -3,7 +3,7 @@
 //! Owner/delegate auth. Debt-neutral until `strategy_finalize` re-checks LTV/HF.
 
 use common::errors::{CollateralError, GenericError};
-use common::types::{Account, AccountPosition, AccountPositionType, HubAssetKey, StrategySwap};
+use common::types::{Account, AccountPosition, HubAssetKey, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, vec, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
@@ -146,13 +146,8 @@ pub(crate) fn validate_swap_new_collateral_preflight(
 
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
 
-    if !account.supply_positions.contains_key(new.clone()) {
-        let new_assets = vec![env, (new.clone(), 0i128)];
-        validation::validate_bulk_position_limits(
-            env,
-            account,
-            AccountPositionType::Deposit,
-            &new_assets,
-        );
-    }
+    // No position-limit check here: the source leg is withdrawn (and possibly
+    // fully closed, freeing a slot) before the deposit. `process_deposit` runs
+    // the correct post-withdraw limit check, so a full same-slot swap at
+    // max_supply_positions is not falsely rejected.
 }

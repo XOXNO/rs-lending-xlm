@@ -16,6 +16,7 @@ pub(crate) use plan::execute_liquidation;
 use common::errors::CollateralError;
 use common::types::{Account, HubAssetKey};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
+use stellar_macros::only_owner;
 
 use self::math::is_socializable_bad_debt;
 use crate::context::Cache;
@@ -67,6 +68,26 @@ impl Controller {
         caller.require_auth();
         validation::require_not_flash_loaning(&env);
         clean_bad_debt_standalone(&env, account_id);
+    }
+
+    /// Socializes an underwater account's residual bad debt via the supply index
+    /// with no token transfer. Owner only (gov timelock). Unlike the
+    /// permissionless `clean_bad_debt`, this bypasses the dust-collateral
+    /// threshold so debt on an account whose collateral cannot be seized
+    /// (issuer-frozen or clawed-back) can still be retired. Requires the account
+    /// to be genuinely underwater.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `DebtPositionNotFound` — the account carries no debt.
+    /// * `CannotCleanBadDebt` — the account is not underwater (collateral >= debt).
+    ///
+    /// # Events
+    /// * topics — `["debt", "bad_debt"]`
+    #[only_owner]
+    pub fn force_socialize_bad_debt(env: Env, account_id: u64) {
+        validation::require_not_flash_loaning(&env);
+        force_socialize_bad_debt_inner(&env, account_id);
     }
 }
 
@@ -169,6 +190,47 @@ pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     if !is_socializable_bad_debt(totals.total_debt, totals.total_collateral) {
         panic_with_error!(env, CollateralError::CannotCleanBadDebt);
     }
+
+    bad_debt::execute_bad_debt_cleanup(
+        env,
+        &mut cache,
+        account_id,
+        &account,
+        totals.total_debt.raw(),
+        totals.total_collateral.raw(),
+    );
+}
+
+/// Governance bad-debt socialization: same cleanup as `clean_bad_debt_standalone`
+/// but gated on plain insolvency (`total_debt > total_collateral`) instead of the
+/// dust threshold, so a large-collateral account whose collateral cannot be
+/// seized can still be retired.
+pub(crate) fn force_socialize_bad_debt_inner(env: &Env, account_id: u64) {
+    let mut cache = Cache::new(env);
+    let account = storage::get_account(env, account_id);
+
+    assert_with_error!(
+        env,
+        !account.borrow_positions.is_empty(),
+        CollateralError::DebtPositionNotFound
+    );
+
+    let totals = risk::calculate_account_risk_totals(
+        env,
+        &mut cache,
+        account.spoke_id,
+        &account.supply_positions,
+        &account.borrow_positions,
+    );
+
+    // Underwater only; no dust cap. Seizure moves collateral shares to revenue
+    // and writes debt down through the supply index — neither step transfers
+    // tokens, so a frozen or clawed collateral leg does not block the cleanup.
+    assert_with_error!(
+        env,
+        totals.total_debt > totals.total_collateral,
+        CollateralError::CannotCleanBadDebt
+    );
 
     bad_debt::execute_bad_debt_cleanup(
         env,

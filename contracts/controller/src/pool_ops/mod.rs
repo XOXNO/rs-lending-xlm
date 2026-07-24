@@ -20,7 +20,8 @@ use crate::context::Cache;
 use crate::events;
 use crate::external::pool::{
     pool_add_rewards_call, pool_claim_revenue_call, pool_create_market_call,
-    pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
+    pool_reconcile_reserves_call, pool_update_indexes_call, pool_update_params_call,
+    pool_upgrade_call,
 };
 use crate::external::sac::sac_transfer_call;
 use crate::{
@@ -186,6 +187,24 @@ impl Controller {
         storage::renew_controller_instance(&env);
         let pool_addr = storage::get_pool(&env);
         pool_upgrade_call(&env, &pool_addr, &new_wasm_hash);
+    }
+
+    /// Reconciles a market's tracked cash to the live pool balance after an
+    /// issuer clawback, socializing the shortfall through the supply index.
+    /// Permissionless (caller auth); blocked while paused. Safe to open: the pool
+    /// only ever writes cash down to the real balance, so no caller can profit or
+    /// impose a loss beyond the clawback that already happened.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `PoolNotInitialized` — the market has not been created.
+    #[when_not_paused]
+    pub fn reconcile_pool_reserves(env: Env, caller: Address, hub_asset: HubAssetKey) {
+        caller.require_auth();
+        validation::require_not_flash_loaning(&env);
+        let mut cache = Cache::new(&env);
+        let pool_addr = cache.cached_pool_address();
+        pool_reconcile_reserves_call(&env, &pool_addr, &hub_asset);
     }
 
     /// Claims protocol revenue per market and forwards it to the accumulator.
@@ -397,7 +416,11 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
             updated_pos.liquidation_threshold = cfg_lt;
         } else {
             updated_pos.loan_to_value = cfg_ltv;
-            updated_pos.liquidation_bonus = cfg_bonus;
+            // Permissionless path: only ever lower the bonus. Raising it is
+            // liquidator-favorable, so a third party must not be able to ratchet
+            // a passive account's bonus up ahead of a liquidation. Owner-authed
+            // flows restamp the full config through `refresh_supply_risk_params`.
+            updated_pos.liquidation_bonus = updated_pos.liquidation_bonus.min(cfg_bonus);
             updated_pos.liquidation_fees = cfg_fees;
         }
 

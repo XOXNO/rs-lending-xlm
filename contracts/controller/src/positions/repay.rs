@@ -111,7 +111,7 @@ fn transfer_and_build_repay_actions(
         // Paused blocks repay; frozen still allows it.
         enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, false);
         let position = get_debt_position_or_panic(env, account, &hub_asset);
-        let amount_in = payments::transfer_amount(
+        let amount_in = payments::transfer_amount_measured(
             env,
             &hub_asset.asset,
             caller,

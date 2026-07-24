@@ -301,6 +301,20 @@ pub trait LiquidityPoolInterface {
     /// * topics — `["market", "batch_state_update"]`
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation;
 
+    /// Reconciles tracked `cash` down to the live SAC balance when an issuer
+    /// clawback has burned pool tokens out of band, socializing the shortfall
+    /// through the supply index. No-op when `cash <= balance` (a direct donation
+    /// only ever raises the balance, so this never mistakes a donation for a
+    /// loss). Owner (controller) only.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
+    /// * `MathOverflow` — cash or index accounting overflows.
+    ///
+    /// # Events
+    /// * topics — `["market", "batch_state_update"]`
+    fn reconcile_reserves(env: Env, hub_asset: HubAssetKey);
+
     // --- lifecycle ---
 
     /// Replaces the pool contract Wasm with the code at `new_wasm_hash`. Owner

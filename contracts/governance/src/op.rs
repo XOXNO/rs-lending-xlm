@@ -108,7 +108,9 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                     args.account.clone().into_val(env),
                     args.role.clone().into_val(env),
                 ],
-                DelayTier::Standard,
+                // Role changes grant immediate powers (pause, oracle, sanity band);
+                // mature them no faster than an upgrade.
+                DelayTier::Sensitive,
             )
         }
         AdminOperation::RevokeGovRole(args) => {
@@ -121,7 +123,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                     args.account.clone().into_val(env),
                     args.role.clone().into_val(env),
                 ],
-                DelayTier::Standard,
+                DelayTier::Sensitive,
             )
         }
         AdminOperation::TransferGovOwnership(args) => self_operation(
@@ -326,6 +328,11 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             )
         }
         AdminOperation::Unpause => controller_operation(env, "unpause", vec![env]),
+        AdminOperation::ForceSocializeBadDebt(account_id) => sensitive_controller_operation(
+            env,
+            "force_socialize_bad_debt",
+            vec![env, account_id.into_val(env)],
+        ),
         AdminOperation::SetSpokeLiquidationCurve(args) => {
             validate_liquidation_curve(
                 env,
@@ -397,6 +404,7 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::ConfigureMarketOracle(_)
         | AdminOperation::EditOracleTolerance(_)
         | AdminOperation::SetSpokeLiquidationCurve(_)
+        | AdminOperation::ForceSocializeBadDebt(_)
         | AdminOperation::Unpause => panic_with_error!(env, GenericError::InternalError),
     }
 }

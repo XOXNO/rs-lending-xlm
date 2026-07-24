@@ -84,7 +84,7 @@ pub(crate) fn process_borrow(
     settle_borrow(env, &recipient, &mut account, &aggregated, &mut cache);
 
     let restamped = risk::restamp_listed_supply_safe_params(&mut cache, &mut account);
-    validation::require_post_pool_risk_gates(env, &mut cache, &account);
+    validation::require_post_pool_risk_gates(env, &mut cache, &account, true);
 
     let sides = if restamped {
         PositionSides::BOTH

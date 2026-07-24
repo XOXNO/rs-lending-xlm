@@ -17,6 +17,13 @@ use crate::types::{MarketParams, PoolState, PoolSyncData};
 pub const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
 pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
+    // Clamp util >100% (degenerate over-cap state) to RAY so a near-RAY
+    // optimal_utilization cannot overflow the slope3 term before the rate cap.
+    let utilization = if utilization > Ray::ONE {
+        Ray::ONE
+    } else {
+        utilization
+    };
     // dimensional: utilization is Ray<1>; model slopes are Ray<RatePerYear>.
     let annual_rate = if utilization < params.mid_utilization {
         let contribution = utilization

@@ -59,6 +59,21 @@ fn sanity_bounds_rejects_max_above_cap() {
 }
 
 #[test]
+#[should_panic(expected = "#224")]
+fn sanity_bounds_rejects_pinched_band() {
+    let env = Env::default();
+    // ~1 bps half-width around $1 (WAD): below the 50 bps minimum.
+    validate_sanity_bounds(&env, 999_900_000_000_000_000, 1_000_100_000_000_000_000);
+}
+
+#[test]
+fn sanity_bounds_accepts_band_at_min_width() {
+    let env = Env::default();
+    // ~60 bps half-width around $1: clears the 50 bps minimum.
+    validate_sanity_bounds(&env, 994_000_000_000_000_000, 1_006_000_000_000_000_000);
+}
+
+#[test]
 fn single_source_band_accepts_within_threshold() {
     let env = Env::default();
     // ±8% symmetric band: (10_800 - 9_200) / (10_800 + 9_200) = 800 bps < 1_000.

@@ -225,3 +225,51 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
             || (expected_supply_burn.raw() > 0 && expected_debt_burn.raw() > 0)
     );
 }
+
+/// Net settlement never persists a supply-drained market while debt remains —
+/// the same terminal-insolvent state the withdraw leg rejects. The settling
+/// account holds the entire pool supply and its debt strictly exceeds it, so a
+/// full-close settlement would drain `supplied` to zero with debt outstanding;
+/// the `require_solvent_withdraw_state` guard must revert that path. Timestamp
+/// equals ledger time so `global_sync` is a no-op and no accrual masks the drain.
+#[rule]
+fn net_settle_never_persists_supply_drained_with_debt(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    requested: i128,
+    supply_scaled: i128,
+    extra_debt: i128,
+) {
+    cvlr_assume!(supply_scaled > 0 && supply_scaled <= 20 * RAY);
+    cvlr_assume!(extra_debt > 0 && extra_debt <= 20 * RAY);
+    cvlr_assume!(requested >= 0 && requested <= MAX_FLOW_AMOUNT);
+
+    let debt_scaled = supply_scaled + extra_debt;
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            supply_scaled,
+            debt_scaled,
+            0,
+            RAY,
+            RAY,
+            50 * ONE_TOKEN,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let entry = PoolNetSettleEntry {
+        hub_asset: hub(asset.clone()),
+        amount: requested,
+        supply_position: position(supply_scaled),
+        debt_position: position(debt_scaled),
+    };
+    let (_result, _) = crate::net_settle_one(&e, &entry);
+    let post = read_state(&e, &asset);
+
+    cvlr_assert!(!(post.supplied == 0 && post.borrowed != 0));
+}

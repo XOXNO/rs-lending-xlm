@@ -1,7 +1,6 @@
 //! `max_supply` preview: spoke supply-cap headroom.
 
 use common::math::fp::Ray;
-use common::rates::scaled_to_original;
 use common::types::{Account, AssetConfig, HubAssetKey};
 use common::validation::cap_is_enabled;
 use soroban_sdk::Env;
@@ -12,7 +11,10 @@ use crate::storage;
 use crate::views::limits::MarketLimitCtx;
 
 /// Largest suppliable amount of `hub_asset`; `0` while paused, on a
-/// deprecated spoke or paused/frozen listing, or a non-suppliable asset.
+/// deprecated spoke or paused/frozen listing, a non-suppliable asset, or when a
+/// new supply slot would exceed `max_supply_positions`. Like `max_borrow`, hub
+/// activity and the pool `require_backed_market` guard are not re-checked here,
+/// so a deactivated hub or an unbacked market can still show nonzero headroom.
 pub(crate) fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
@@ -33,6 +35,12 @@ pub(crate) fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) ->
         return 0;
     }
     if !AssetConfig::from(&spoke_cfg).can_supply() {
+        return 0;
+    }
+    // Supply-position limit: a new supply asset needs a free slot.
+    if !account.supply_positions.contains_key(hub_asset.clone())
+        && account.supply_positions.len() >= storage::get_position_limits(env).max_supply_positions
+    {
         return 0;
     }
     let market = MarketLimitCtx::load(&mut cache, hub_asset);
@@ -60,10 +68,10 @@ fn spoke_supply_cap_headroom(
     if used_scaled >= cap_scaled {
         return 0;
     }
-    scaled_to_original(
-        env,
-        cap_scaled.checked_sub(env, used_scaled),
-        market.supply_index,
-    )
-    .to_asset(market.decimals)
+    // Floor both conversions: execution floors the deposit into shares and
+    // enforces next_scaled <= cap_scaled, so a half-up quote over-states headroom.
+    cap_scaled
+        .checked_sub(env, used_scaled)
+        .mul_floor(env, market.supply_index)
+        .to_asset_floor(market.decimals)
 }

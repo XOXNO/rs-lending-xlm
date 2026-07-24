@@ -190,7 +190,11 @@ pub(crate) fn normalize_repayment_plan(
     if total_debt_payment_usd < ideal_repayment_usd {
         if let Some(cap) = max_hf_preserving_bonus_bps(snap) {
             if cap >= 0 && cap < bonus_bounds.base.raw() {
-                panic_with_error!(env, CollateralError::FullCloseRequired);
+                // Re-test full close on the ceil basis `snap.total_debt` uses;
+                // the half-up payment total understates it by up to 1 raw WAD/leg.
+                if sum_repaid_usd_ceil(env, &repaid_tokens) < ideal_repayment_usd {
+                    panic_with_error!(env, CollateralError::FullCloseRequired);
+                }
             }
         }
     }
@@ -228,6 +232,19 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
         total.checked_add_assign(env, Wad::from(entry.usd_wad));
+    }
+    total
+}
+
+/// Ceil USD of the repaid legs, matching `snap.total_debt`'s `position_value_ceil`
+/// basis. Full-close gate only: keeps an exact full close from failing on the
+/// half-up understatement in [`sum_repaid_usd`].
+fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
+    let mut total = Wad::ZERO;
+    for entry in repaid_tokens.iter() {
+        let value = Wad::from_token(entry.amount, entry.feed.asset_decimals)
+            .mul_ceil(env, Wad::from(entry.feed.price_wad));
+        total.checked_add_assign(env, value);
     }
     total
 }

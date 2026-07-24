@@ -458,7 +458,7 @@ fn entrypoint_renews_governance_instance_ttl() {
         &salt,
     );
     env.ledger().with_mut(|l| {
-        l.sequence_number += constants::TIMELOCK_MIN_DELAY_LEDGERS;
+        l.sequence_number += constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS;
     });
     gov.execute_self(
         &Some(admin.clone()),

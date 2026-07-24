@@ -21,7 +21,7 @@ use crate::positions::{
     enforce_spoke_asset_flags, finalize_position_flow, get_supply_position_or_panic,
     make_pool_action, AggregatedPayments, HubPayment, PositionSides,
 };
-use crate::risk::{refresh_supply_risk_params, validation};
+use crate::risk::{refresh_supply_risk_params, restamp_listed_supply_safe_params, validation};
 use crate::storage;
 use crate::{Controller, ControllerArgs, ControllerClient};
 
@@ -92,7 +92,13 @@ pub(crate) fn process_withdraw(
 
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
 
-    validation::require_post_pool_risk_gates(env, &mut cache, &account);
+    // Re-stamp LTV/bonus/fees on every supply leg (not just the withdrawn one)
+    // so the post-pool gate values untouched collateral at current spoke config.
+    restamp_listed_supply_safe_params(&mut cache, &mut account);
+    // Withdraw does not raise debt, so skip the min-borrow-collateral floor —
+    // it would otherwise lock all partial withdrawals for a below-floor account.
+    // HF and LTV-collateral >= debt still bind below.
+    validation::require_post_pool_risk_gates(env, &mut cache, &account, false);
 
     finalize_position_flow(
         env,

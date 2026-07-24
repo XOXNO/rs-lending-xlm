@@ -40,6 +40,27 @@ impl LendingTest {
         )
     }
 
+    /// Governance force-socialize of an underwater account (owner-gated).
+    pub fn force_socialize_bad_debt_by_id(&self, account_id: u64) {
+        self.ctrl_client().force_socialize_bad_debt(&account_id);
+    }
+
+    pub fn try_force_socialize_bad_debt_by_id(
+        &self,
+        account_id: u64,
+    ) -> Result<(), soroban_sdk::Error> {
+        crate::ops::internal::map_try_ok_unit(
+            self.ctrl_client().try_force_socialize_bad_debt(&account_id),
+        )
+    }
+
+    /// Permissionless reserve reconciliation for a market.
+    pub fn reconcile_pool_reserves_for(&self, asset_name: &str) {
+        let hub_asset = hub_asset(self.resolve_asset(asset_name));
+        self.ctrl_client()
+            .reconcile_pool_reserves(&self.keeper, &hub_asset);
+    }
+
     /// Sync risk params on every supply position for each account.
     pub fn update_account_threshold(&self, has_risks: bool, account_ids: &[u64]) {
         let mut ids = Vec::new(&self.env);
