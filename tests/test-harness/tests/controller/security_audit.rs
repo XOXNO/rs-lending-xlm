@@ -3,6 +3,7 @@
 //! These tests drive **shipped** controller entrypoints via the integration
 //! harness. Each case pins a hypothesis from the controller audit:
 //! - H-RISK-01 / F3: borrow restamps listed LTV before gates (regression)
+//! - H-RISK-01 sibling: withdraw portfolio-restamps sibling LTV before gates
 //! - H-LIQ-16: stale LT stamp blocks liquidation under tighter listing config
 //! - H-USER-03: permissionless third-party supply can open new position slots
 //! - H-LIQ-12: paused debt blocks liquidation repay
@@ -53,6 +54,41 @@ fn supply_ltv_and_lt(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32
 /// the default staleness window (~900s).
 fn age_oracle_observations(t: &LendingTest) {
     t.env.ledger().with_mut(|ledger| ledger.timestamp += 1_000);
+}
+
+/// H-RISK-01 sibling: debt-bearing `withdraw` restamps listed supply LTV on
+/// every leg before the LTV/HF gates, not only the withdrawn one.
+///
+/// USDC $5k + ETH $10k stamped @ 75% LTV, debt ~$7k. Cutting ETH listing LTV
+/// to 50% leaves $5k live capacity after a full USDC withdraw, below the debt.
+#[test]
+fn regression_withdraw_restamps_sibling_ltv_after_governance_cut() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 5_000.0);
+    t.supply(ALICE, "ETH", 5.0); // $10_000 @ $2k
+    t.borrow(ALICE, "ETH", 3.5); // ~$7_000 debt
+    t.assert_healthy(ALICE);
+
+    t.edit_asset_config("ETH", |cfg| {
+        cfg.loan_to_value = 5_000;
+        cfg.liquidation_threshold = 5_500;
+    });
+
+    // Full USDC withdraw must fail under live portfolio LTV after ETH cut.
+    let blocked = t.try_withdraw(ALICE, "USDC", 5_000.0);
+    assert_contract_error(blocked, errors::INSUFFICIENT_COLLATERAL);
+
+    // A withdraw that keeps live capacity above debt succeeds and persists the
+    // restamped ETH LTV.
+    t.withdraw(ALICE, "USDC", 100.0);
+    let id = t.resolve_account_id(ALICE);
+    let (eth_ltv, _) = supply_ltv_and_lt(&t, id, "ETH");
+    assert_eq!(eth_ltv, 5_000, "withdraw must persist sibling restamped LTV");
+    t.assert_healthy(ALICE);
 }
 
 /// H-RISK-01 regression: debt-increasing `borrow` restamps listed supply LTV

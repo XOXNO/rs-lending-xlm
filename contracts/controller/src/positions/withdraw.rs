@@ -21,7 +21,7 @@ use crate::positions::{
     enforce_spoke_asset_flags, finalize_position_flow, get_supply_position_or_panic,
     make_pool_action, AggregatedPayments, HubPayment, PositionSides,
 };
-use crate::risk::{refresh_supply_risk_params, validation};
+use crate::risk::{refresh_supply_risk_params, restamp_listed_supply_safe_params, validation};
 use crate::storage;
 use crate::{Controller, ControllerArgs, ControllerClient};
 
@@ -92,6 +92,9 @@ pub(crate) fn process_withdraw(
 
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
 
+    // Risk gates read live listing config: every listed supply leg's
+    // LTV/bonus/fees must be restamped first, not just the withdrawn one.
+    let _ = restamp_listed_supply_safe_params(&mut cache, &mut account);
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
 
     finalize_position_flow(
