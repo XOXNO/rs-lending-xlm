@@ -55,10 +55,7 @@ pub(crate) fn try_read_source(
 pub(crate) fn read_required_source(
     cache: &mut ResolutionContext,
     source: &OracleSourceConfig,
-    _max_stale: u64,
 ) -> OracleObservation {
-    // `max_stale` stays in the signature for certora summary parity; freshness
-    // is enforced by the compose caller via `require_fresh`.
     dispatch_required_source(cache, source)
 }
 
@@ -68,7 +65,6 @@ cvlr_soroban_macros::apply_summary!(
     pub(crate) fn read_required_source(
         cache: &mut ResolutionContext,
         source: &OracleSourceConfig,
-        _max_stale: u64,
     ) -> OracleObservation {
         dispatch_required_source(cache, source)
     }

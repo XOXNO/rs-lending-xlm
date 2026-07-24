@@ -25,7 +25,7 @@ pub(crate) fn resolve_components(
     let primary_max_stale = config
         .primary
         .max_stale_seconds(config.max_price_stale_seconds);
-    let primary = providers::read_required_source(cache, &config.primary, primary_max_stale);
+    let primary = providers::read_required_source(cache, &config.primary);
     require_fresh(cache, &primary, primary_max_stale);
 
     match config.strategy {
@@ -41,7 +41,7 @@ pub(crate) fn resolve_components(
                 .as_ref()
                 .unwrap_or_else(|| panic_with_error!(cache.env(), OracleError::NoLastPrice));
             let anchor_max_stale = anchor_config.max_stale_seconds(config.max_price_stale_seconds);
-            let anchor = providers::read_required_source(cache, anchor_config, anchor_max_stale);
+            let anchor = providers::read_required_source(cache, anchor_config);
             require_fresh(cache, &anchor, anchor_max_stale);
 
             let final_price_wad = midpoint_if_in_band(
