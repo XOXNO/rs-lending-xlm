@@ -258,12 +258,16 @@ impl Controller {
     }
 
     /// Propagates spoke risk params onto supply positions. Permissionless
-    /// (caller auth); HF gate blocks threshold raises below min HF. Delisted
+    /// (caller auth). When `has_risks`, re-stamps each supply leg's liquidation
+    /// threshold and asserts the account stays at or above the min HF; this only
+    /// ever rejects a threshold lowering, since a raise can only increase HF.
+    /// When `!has_risks`, re-stamps LTV / bonus / fees with no HF gate. Delisted
     /// spoke members keep stamped params and are skipped. Blocked while paused.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `HealthFactorTooLow` — a threshold raise would drop an account below min HF.
+    /// * `HealthFactorTooLow` — re-stamping a lower liquidation threshold would
+    ///   drop the account below the min HF.
     ///
     /// # Events
     /// * Position-batch event per updated account.
