@@ -24,6 +24,8 @@ pub trait LiquidityPoolInterface {
     /// (controller) only.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `AssetAlreadySupported` — params already exist for `(hub_id, asset)`.
     /// * `AssetDecimalsTooHigh` — `asset_decimals` exceeds `RAY_DECIMALS`.
     /// * `InvalidBorrowParams` — `flashloan_fee` exceeds the protocol cap.
@@ -40,6 +42,8 @@ pub trait LiquidityPoolInterface {
     /// parameters for `hub_asset`. Owner (controller) only.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     /// * `BaseRateNegative` / `SlopeNonMonotonic` / `MaxRateBelowBase` /
     ///   `MaxBorrowRateTooHigh` / `InvalidUtilRange` / `OptUtilTooHigh` /
@@ -54,6 +58,8 @@ pub trait LiquidityPoolInterface {
     /// only.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     /// * `MathOverflow` — accrual or timestamp math overflows.
     ///
@@ -71,6 +77,8 @@ pub trait LiquidityPoolInterface {
     /// * `entries` — one supply leg per entry; amounts must be non-negative.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — an entry targets a market with no stored state.
     /// * `AmountMustBePositive` — an entry amount is negative.
     /// * `PoolInsolvent` — aggregate supply claims exceed cash plus debt.
@@ -93,6 +101,8 @@ pub trait LiquidityPoolInterface {
     /// * `entries` — one borrow leg per entry; amounts must be positive.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — an entry targets a market with no stored state.
     /// * `AmountMustBePositive` — an entry amount is not strictly positive.
     /// * `BorrowRoundsToZeroShares` — a positive amount mints zero scaled debt
@@ -124,6 +134,8 @@ pub trait LiquidityPoolInterface {
     ///   closes the position; `protocol_fee` must be non-negative.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — an entry targets a market with no stored state.
     /// * `AmountMustBePositive` — an entry amount or `protocol_fee` is negative.
     /// * `WithdrawLessThanFee` — the liquidation fee exceeds the gross seized amount.
@@ -156,6 +168,8 @@ pub trait LiquidityPoolInterface {
     /// * `actions` — one repay leg per action; amounts must be non-negative.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — an action targets a market with no stored state.
     /// * `AmountMustBePositive` — an action amount is negative.
     /// * `RepayRoundsToZeroShares` — a positive applied repayment burns zero
@@ -175,6 +189,8 @@ pub trait LiquidityPoolInterface {
     /// * `entry` — hub-asset market plus both legs' current scaled amounts.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — the entry targets a market with no stored state.
     /// * `AmountMustBePositive` — `entry.amount` is negative.
     /// * `InternalError` — the repay leg overpaid (structurally unexpected).
@@ -192,6 +208,8 @@ pub trait LiquidityPoolInterface {
     /// hub-assets in one batch apply sequentially.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — an entry targets a market with no stored state.
     /// * `InternalError` — a seized deposit exceeds the market's supply shares.
     /// * `MathOverflow` — bad-debt, revenue, or scaled-share accounting overflows.
@@ -213,6 +231,8 @@ pub trait LiquidityPoolInterface {
     /// * `data` — opaque callback payload forwarded to the receiver.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     /// * `AmountMustBePositive` — `amount` is not strictly positive.
     /// * `FlashloanNotEnabled` — the market is not flashloanable.
@@ -249,6 +269,8 @@ pub trait LiquidityPoolInterface {
     ///   when false (migration), borrow fee-free.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — no stored state for the action's market.
     /// * `AmountMustBePositive` — `amount` is not strictly positive.
     /// * `StrategyFeeExceeds` — computed fee exceeds the borrowed `amount`.
@@ -280,6 +302,8 @@ pub trait LiquidityPoolInterface {
     /// * `amount` — reward tokens to distribute; must be non-negative.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     /// * `AmountMustBePositive` — `amount` is negative.
     /// * `NoSuppliersToReward` — the market has no scaled supply to receive rewards.
@@ -294,10 +318,13 @@ pub trait LiquidityPoolInterface {
     /// payout to the owner. Owner (controller) only.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     /// * `UtilizationAboveMax` — the claim would leave utilization above the cap.
     /// * `PoolInsolvent` — the projected state leaves debt with zero supply.
-    /// * `OwnerNotSet` — claimable amount is positive but no owner is configured.
+    /// * `GenericError::OwnerNotSet` — claimable amount is positive but no
+    ///   owner is configured to receive the payout.
     /// * `MathOverflow` — revenue or cash accounting overflows.
     ///
     /// # Events
@@ -311,6 +338,8 @@ pub trait LiquidityPoolInterface {
     /// loss). Owner (controller) only.
     ///
     /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     /// * `MathOverflow` — cash or index accounting overflows.
     ///
@@ -327,7 +356,8 @@ pub trait LiquidityPoolInterface {
     /// * `new_wasm_hash` — hash of already-installed Wasm to run on next invocation.
     ///
     /// # Errors
-    /// * `OwnableUnauthorized` — the caller is not the owner.
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
 
     // --- views ---

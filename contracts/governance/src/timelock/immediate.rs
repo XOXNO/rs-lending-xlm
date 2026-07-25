@@ -1,9 +1,24 @@
 //! Incident brakes: the entrypoints that deliberately BYPASS the timelock.
 //!
-//! Each one is role-gated (`GUARDIAN`, `ORACLE`, or owner) and each can only
-//! tighten risk — pausing, freezing, narrowing a sanity band, revoking an
-//! operational role. Anything that relaxes risk rides the delay in
-//! `lifecycle`. Adding a loosening entrypoint here defeats the timelock.
+//! Each one is role-gated (`GUARDIAN`, `ORACLE`, or owner). Every member except
+//! `set_sanity_band` can only tighten risk — pausing, freezing, revoking an
+//! operational role — or is inert on its own (`create_hub` / `add_spoke` mint an
+//! empty container; the listings that give it teeth ride the delay). Anything
+//! else that relaxes risk rides the delay in `lifecycle`. Adding a loosening
+//! entrypoint here defeats the timelock.
+//!
+//! `set_sanity_band` is the deliberate exception, and it is not narrow-only: the
+//! aggregator asks only that the new band overlap the old one and contain the
+//! live price, so an `ORACLE` holder can widen a band as well as narrow it, with
+//! no delay. Two things bound the blast radius. First, absolute caps:
+//! `validate_sanity_bounds` holds `max_wad` at or under
+//! `MAX_REASONABLE_PRICE_WAD`, and a `Single`-strategy band stays within
+//! `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` of its midpoint (anchored strategies are
+//! exempt from the relative cap and keep only the absolute one). Second, the
+//! containment probe resolves the price under the new config before storing it,
+//! so a band that excludes what the feeds print today cannot be written at all.
+//! A widened band loosens the tripwire; it does not move the price, and the
+//! `ORACLE` role is itself revocable immediately.
 
 use common::errors::GenericError;
 use common::types::HubAssetKey;
@@ -54,7 +69,8 @@ impl Governance {
     }
 
     /// Moves an asset oracle sanity band immediately. `ORACLE`-gated. Aggregator
-    /// requires the new band to contain the live price.
+    /// requires the new band to overlap the old one and to contain the live
+    /// price; within that, the band may be widened as well as narrowed.
     ///
     /// # Errors
     /// * Access-control rejects non-`ORACLE`.

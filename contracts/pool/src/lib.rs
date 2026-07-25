@@ -412,6 +412,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// Replaces the pool contract Wasm with the code at `new_wasm_hash`. Owner
     /// (controller) only.
     ///
+    /// # Arguments
+    /// * `new_wasm_hash` — hash of already-installed Wasm to run on next invocation.
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_instance(&env);

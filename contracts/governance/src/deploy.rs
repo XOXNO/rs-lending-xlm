@@ -135,12 +135,14 @@ impl Governance {
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl Governance {
-    /// Wires the controller address after deployment. Owner-gated, one-shot.
+    /// Overwrites the stored controller address. Test-harness wiring: no auth
+    /// gate and no one-shot check, so it is compiled out of production builds.
     pub fn set_controller(env: Env, addr: Address) {
         storage::set_controller(&env, &addr);
     }
 
-    /// Wires the price-aggregator address after deployment. Owner-gated, one-shot.
+    /// Overwrites the stored price-aggregator address. Test-harness wiring: no
+    /// auth gate and no one-shot check, so it is compiled out of production builds.
     pub fn set_price_aggregator(env: Env, addr: Address) {
         storage::set_price_aggregator(&env, &addr);
     }
