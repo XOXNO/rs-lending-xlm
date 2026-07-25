@@ -68,8 +68,9 @@ pub(crate) fn restamp_listed_supply_ltv(cache: &mut Cache, account: &mut Account
 
 /// Writes threshold, bonus, and fees together, keeping the three same-vintage.
 /// A tuple that moves the liquidator's way is skipped unless the account is
-/// debt-free or still clears the min HF under the new threshold.
-fn apply_gated_liquidation_params(
+/// debt-free or still clears the min HF under the new threshold. Both
+/// permissionless restamp paths route through here.
+pub(crate) fn apply_gated_liquidation_params(
     env: &Env,
     cache: &mut Cache,
     account: &Account,

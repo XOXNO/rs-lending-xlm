@@ -548,10 +548,12 @@ fn poc_stale_oracle_blocks_liquidation() {
 }
 
 /// H-RISK-04: debt-bearing LT cuts only apply when post-hypo HF ≥ 1.05.
-/// After a listing LT cut that would put HF below that floor, a restamp path
-/// (third-party top-up / supply refresh) keeps the **old** LT stamp.
+/// After a listing LT cut that would put HF below that floor, every restamp
+/// path — permissionless keeper and third-party top-up alike — keeps the
+/// **old** LT stamp.
 ///
-/// Mode: **behavior PoC** of shipped `refresh_supply_risk_params` via `supply`.
+/// Mode: **behavior PoC** of shipped `apply_gated_liquidation_params` through
+/// both `update_account_threshold` and `supply`.
 #[test]
 fn poc_lt_cut_stays_sticky_when_hf_below_min() {
     let mut t = LendingTest::new()
@@ -574,9 +576,14 @@ fn poc_lt_cut_stays_sticky_when_hf_below_min() {
         c.liquidation_threshold = 6_100;
     });
 
-    // Keeper risky restamp rejects entirely at the outer HF gate.
-    let keeper = t.try_update_account_threshold(true, &[id]);
-    assert_contract_error(keeper, errors::HEALTH_FACTOR_TOO_LOW);
+    // Keeper risky restamp runs the same directional gate: the LT cut is
+    // skipped rather than stamped, so the batch completes with the old LT.
+    t.update_account_threshold(true, &[id]);
+    assert_eq!(
+        supply_ltv_and_lt(&t, id, "USDC").1,
+        8_000,
+        "H-RISK-04: the keeper path holds the LT stamp under the HF floor too"
+    );
 
     // Supply refresh path: LTV always updates; LT stays sticky under HF floor.
     t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)

@@ -349,6 +349,9 @@ fn test_update_account_threshold_risky() {
         hf_after
     );
 }
+// The post-walk floor is an account-state check, not an edit check: an account
+// that has drifted under 1.05 on price alone rejects the risky restamp outright
+// rather than re-stamping params onto a near-liquidation position.
 #[test]
 fn test_update_account_threshold_rejects_low_hf() {
     let mut t = LendingTest::new()
@@ -363,17 +366,107 @@ fn test_update_account_threshold_rejects_low_hf() {
 
     let account_id = t.resolve_account_id(ALICE);
 
-    // Lower the threshold so HF drops below the 1.05 safety buffer.
-    // Also lower LTV to remain below the threshold (the contract validates
-    // threshold > LTV).
-    // $10k * 61% = $6100 weighted collateral / $6000 debt = HF ~1.017 < 1.05.
-    t.edit_asset_config("USDC", |c| {
-        c.loan_to_value = 5000;
-        c.liquidation_threshold = 6100;
-    });
+    // $7_800 collateral * 80% LT = $6_240 weighted / $6_000 debt = HF ~1.04,
+    // under the 1.05 buffer while still solvent.
+    t.set_price("USDC", usd_cents(78));
 
     let result = t.try_update_account_threshold(true, &[account_id]);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_LOW);
+}
+
+// The gate is directional, not a freeze: an account far above the floor takes a
+// wholly liquidator-favorable tuple, so a risk-off listing change is not
+// stranded on idle accounts. Twin of the supply path's
+// `regression_supply_propagates_bonus_raise_to_healthy_account`.
+#[test]
+fn test_update_account_threshold_propagates_adverse_tuple_to_healthy_account() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    // $100k collateral against ~$2k debt — far above the 1.05 floor.
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let (_, bonus_before, _) = supply_risk_fields(&t, account_id, "USDC");
+    let fee_before = supply_fee_bps(&t, account_id, "USDC");
+
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 5_000;
+        c.liquidation_threshold = 6_100;
+        c.liquidation_bonus = bonus_before + 500;
+        c.liquidation_fees = fee_before - 50;
+    });
+
+    t.update_account_threshold(true, &[account_id]);
+
+    let (lt_after, bonus_after, ltv_after) = supply_risk_fields(&t, account_id, "USDC");
+    assert_eq!(
+        (
+            ltv_after,
+            lt_after,
+            bonus_after,
+            supply_fee_bps(&t, account_id, "USDC")
+        ),
+        (5_000, 6_100, bonus_before + 500, fee_before - 50),
+        "a healthy account takes the whole tuple, same vintage"
+    );
+}
+
+// M1: the permissionless keeper path must not ratchet a liquidator-favorable
+// tuple onto an indebted account. Governance goes risk-off — LT 80%→61%, bonus
+// 5%→10%, fee 1%→0.5% — which puts the post-cut HF at ~1.017, under the 1.05
+// floor. A third-party keeper call still completes and LTV still binds, but the
+// tuple holds its old vintage in full: this is a skip, not a revert, so the
+// held stamp cannot be mistaken for the outer assert doing the work.
+#[test]
+fn regression_third_party_keeper_cannot_force_adverse_tuple_below_min_hf() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let (lt_before, bonus_before, _) = supply_risk_fields(&t, account_id, "USDC");
+    let fee_before = supply_fee_bps(&t, account_id, "USDC");
+    assert_eq!(
+        (lt_before, bonus_before, fee_before),
+        (8_000, 500, 100),
+        "preset tuple"
+    );
+
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 5_000;
+        c.liquidation_threshold = 6_100;
+        c.liquidation_bonus = 1_000;
+        c.liquidation_fees = 50;
+    });
+
+    // `t.keeper` is neither the account owner nor a role holder.
+    t.update_account_threshold(true, &[account_id]);
+
+    let (lt_after, bonus_after, ltv_after) = supply_risk_fields(&t, account_id, "USDC");
+    assert_eq!(ltv_after, 5_000, "LTV rides outside the gate");
+    assert_eq!(
+        (
+            lt_after,
+            bonus_after,
+            supply_fee_bps(&t, account_id, "USDC")
+        ),
+        (lt_before, bonus_before, fee_before),
+        "M1: threshold, bonus, and fees hold their vintage together under the HF floor"
+    );
+    assert!(
+        !t.can_be_liquidated(ALICE),
+        "the held tuple keeps the account out of liquidation"
+    );
 }
 #[test]
 fn test_update_account_threshold_deprecated_spoke_retains_spoke_params() {
