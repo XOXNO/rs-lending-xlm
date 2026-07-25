@@ -91,12 +91,10 @@ impl XoxnoOracle {
 
         let take = core::cmp::min(limit, history.len());
         let mut newest_first = Vec::new(&env);
+        // Walk backwards from the newest sample; `take <= history.len()` bounds
+        // the index from below.
         for i in 0..take {
-            newest_first.push_back(
-                history
-                    .get(history.len() - 1 - i)
-                    .expect("invariant: i < take <= history.len()"),
-            );
+            newest_first.push_back(history.get_unchecked(history.len() - 1 - i));
         }
         Ok(newest_first)
     }

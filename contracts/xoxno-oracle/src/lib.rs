@@ -76,7 +76,7 @@ impl XoxnoOracle {
         threshold: u32,
         resolution: u32,
     ) -> Result<(), Error> {
-        if threshold == 0 || threshold > signers.len() || storage::has_duplicate(&signers) {
+        if threshold == 0 || threshold > signers.len() || has_duplicate(&signers) {
             return Err(Error::InvalidThreshold);
         }
 
@@ -130,4 +130,17 @@ impl Ownable for XoxnoOracle {
     fn renounce_ownership(e: &Env) {
         ownable::renounce_ownership(e);
     }
+}
+
+/// True when `signers` contains the same address twice.
+fn has_duplicate(signers: &Vec<Address>) -> bool {
+    // Both indices are bounded by `signers.len()`.
+    for i in 0..signers.len() {
+        for j in (i + 1)..signers.len() {
+            if signers.get_unchecked(i) == signers.get_unchecked(j) {
+                return true;
+            }
+        }
+    }
+    false
 }

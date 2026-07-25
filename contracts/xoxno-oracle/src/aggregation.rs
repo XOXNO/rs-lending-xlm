@@ -128,10 +128,10 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     // Relative cluster: drop submissions too far behind the freshest peer so a
     // single lagging-but-in-window signer cannot pin package_timestamp.
     let mut newest_ts: u64 = 0;
+    // `i` is bounded by `kept_ts.len()`; prices and timestamps are pushed as a
+    // pair, so both vectors index identically.
     for i in 0..kept_ts.len() {
-        let ts = kept_ts
-            .get(i)
-            .expect("invariant: i < kept_ts.len() after paired push");
+        let ts = kept_ts.get_unchecked(i);
         if ts > newest_ts {
             newest_ts = ts;
         }
@@ -141,17 +141,11 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let mut clustered_prices: Vec<i128> = Vec::new(env);
     let mut oldest_package_timestamp: u64 = u64::MAX;
     for i in 0..kept_ts.len() {
-        let ts = kept_ts
-            .get(i)
-            .expect("invariant: i < kept_ts.len() after paired push");
+        let ts = kept_ts.get_unchecked(i);
         if newest_ts.saturating_sub(ts) > skew_ms {
             continue;
         }
-        clustered_prices.push_back(
-            kept_prices
-                .get(i)
-                .expect("invariant: kept_prices.len() == kept_ts.len()"),
-        );
+        clustered_prices.push_back(kept_prices.get_unchecked(i));
         oldest_package_timestamp = oldest_package_timestamp.min(ts);
     }
 
@@ -190,13 +184,13 @@ fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
 fn sorted_copy(prices: &Vec<i128>) -> Vec<i128> {
     let mut sorted = prices.clone();
     let len = sorted.len();
+    // Insertion sort over a clone of the input: `i` stays below `len` and `j`
+    // never reaches zero before the read, so every index is in range.
     for i in 1..len {
-        let key = sorted
-            .get(i)
-            .expect("invariant: i in 1..len after clone of input vec");
+        let key = sorted.get_unchecked(i);
         let mut j = i;
-        while j > 0 && sorted.get(j - 1).expect("invariant: j-1 < j <= len") > key {
-            let prev = sorted.get(j - 1).expect("invariant: j-1 < j <= len");
+        while j > 0 && sorted.get_unchecked(j - 1) > key {
+            let prev = sorted.get_unchecked(j - 1);
             sorted.set(j, prev);
             j -= 1;
         }
@@ -210,9 +204,8 @@ fn sorted_copy(prices: &Vec<i128>) -> Vec<i128> {
 fn median_of(prices: &Vec<i128>) -> i128 {
     let sorted = sorted_copy(prices);
     let len = sorted.len();
-    sorted
-        .get((len - 1) / 2)
-        .expect("invariant: len >= 1 when median_of is called under threshold")
+    // Callers gate on `len >= threshold >= 1`, so the midpoint index exists.
+    sorted.get_unchecked((len - 1) / 2)
 }
 
 /// Records `aggregate` in `History(feed_id)` as a `resolution`-spaced sample:
@@ -231,7 +224,7 @@ fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePriceData) {
     let resolution_ms = u64::from(load_resolution(env)) * MS_PER_SECOND;
     let len = history.len();
     let replace_last = len > 0 && {
-        let last = history.get(len - 1).expect("invariant: len > 0 checked");
+        let last = history.get_unchecked(len - 1);
         aggregate.write_timestamp < last.write_timestamp.saturating_add(resolution_ms)
     };
 
@@ -246,3 +239,7 @@ fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePriceData) {
     env.storage().persistent().set(&key, &history);
     renew_persistent_key(env, &key);
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/aggregation.rs"]
+mod tests;
