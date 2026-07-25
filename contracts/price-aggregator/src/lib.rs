@@ -64,8 +64,10 @@ impl PriceAggregator {
     /// * `SanityBoundViolated` — final price outside sanity band.
     /// * `InvalidPrice` — non-positive final or invalid provider payload.
     /// * `ReflectorHistoryEmpty` / `TwapInsufficientObservations` — TWAP gaps.
+    /// * `TwapRecordsOutOfRange` — configured TWAP window above the cap.
     /// * `InvalidOracleBase` — quoted base not USD-rooted.
-    /// * `MathOverflow` — midpoint or normalize overflow.
+    /// * `InvalidOracleTokenType` — Reflector asset ref the provider cannot express.
+    /// * `MathOverflow` — midpoint, normalize, or quoted-reprice overflow.
     pub fn prices(env: Env, assets: Vec<Address>) -> Map<Address, PriceFeedRaw> {
         let mut cache = context::ResolutionContext::new(&env);
         prefetch::warm_multi_feed_adapters(&mut cache, &assets);

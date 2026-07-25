@@ -11,6 +11,8 @@ use common::types::OracleSourceConfig;
 #[cfg(not(feature = "certora"))]
 use soroban_sdk::{Map, String};
 
+/// No-op under `--features certora`: the summarized provider reads never
+/// consult the bulk cache, so warming it would only add unreachable state.
 #[cfg(feature = "certora")]
 pub(crate) fn warm_multi_feed_adapters(_cache: &mut ResolutionContext, _assets: &Vec<Address>) {}
 

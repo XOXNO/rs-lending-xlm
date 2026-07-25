@@ -25,6 +25,17 @@ pub(crate) fn set_oracle_config(env: &Env, asset: Address, config: AssetOracleCo
     emit_oracle_updated(env, &asset, &config);
 }
 
+/// Gate on storing an `AssetOracleConfig`: the sanity band is well formed, a
+/// `Single` band is narrow enough to stand without an anchor, an anchored
+/// tolerance sits inside its envelope, and every Reflector quoted base names an
+/// asset other than `asset` that carries its own active USD-rooted oracle.
+///
+/// It decides nothing about the sources themselves. Oracle `decimals`, TWAP
+/// record counts, and whether a Reflector asset ref is one the provider can
+/// express are bounded by the governance input validator
+/// (`contracts/governance/src/validate/`), never here, so a direct owner call
+/// can store a config that only fails when it is read. Nor is a live feed
+/// required: nothing in this path reads a price.
 pub(crate) fn validate_oracle_config(env: &Env, asset: &Address, config: &AssetOracleConfig) {
     validate_sanity_bounds(
         env,

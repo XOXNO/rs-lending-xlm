@@ -27,8 +27,10 @@ pub trait PriceAggregatorInterface {
     /// * `SanityBoundViolated` — final price outside sanity band.
     /// * `InvalidPrice` — non-positive final or invalid provider payload.
     /// * `ReflectorHistoryEmpty` / `TwapInsufficientObservations` — TWAP gaps.
+    /// * `TwapRecordsOutOfRange` — configured TWAP window above the cap.
     /// * `InvalidOracleBase` — quoted base not USD-rooted.
-    /// * `MathOverflow` — midpoint or normalize overflow.
+    /// * `InvalidOracleTokenType` — Reflector asset ref the provider cannot express.
+    /// * `MathOverflow` — midpoint, normalize, or quoted-reprice overflow.
     fn prices(env: Env, assets: Vec<Address>) -> Map<Address, PriceFeedRaw>;
 
     /// Single token-rooted USD price. Fail-closed (same checks as `prices`).

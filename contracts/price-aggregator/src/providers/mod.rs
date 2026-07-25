@@ -1,6 +1,14 @@
 //! Provider dispatch: soft `try_read_source` (`None` for per-asset read
 //! problems) vs hard `read_required_source` (reverts). Both are summarized
 //! under `--features certora`.
+//!
+//! Soft turns per-asset read problems into `None`; it is not panic-free. Four
+//! failures revert under either discipline: a TWAP record count
+//! `validate_twap_records` rejects, a Reflector asset ref `to_reflector_asset`
+//! cannot express, a Reflector contract that reverts at read time (the SEP-40
+//! client calls are not `try_`), and a quoted reprice whose `Wad::mul`
+//! overflows. `compose`'s callers gate each leg before the next is read, so a
+//! caller whose verdict is settled never reverts inside a leg it would discard.
 
 pub(crate) mod multi_feed;
 pub(crate) mod reflector;
@@ -62,6 +70,8 @@ pub(crate) fn try_read_source(
 #[cfg(feature = "certora")]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::try_read_source_summary,
+    /// Certora build of the soft read: the summary yields a nondeterministic
+    /// observation and always succeeds, so no leg is ever unreadable.
     pub(crate) fn try_read_source(
         cache: &mut ResolutionContext,
         source: &OracleSourceConfig,
@@ -85,6 +95,8 @@ pub(crate) fn read_required_source(
 #[cfg(feature = "certora")]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::read_required_source_summary,
+    /// Certora build of the hard read: the summary yields a nondeterministic
+    /// observation, so the replay path never reverts.
     pub(crate) fn read_required_source(
         cache: &mut ResolutionContext,
         source: &OracleSourceConfig,

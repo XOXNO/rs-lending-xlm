@@ -11,7 +11,8 @@
 //! the read. So the gate is what keeps a broken primary from being outranked by
 //! a later leg, and what keeps a caller that has already decided from paying
 //! for — and reverting inside — a leg it would discard. Answering `true`
-//! throughout yields a `Composition` carrying every leg the strategy calls for.
+//! throughout yields a `Composition` carrying every leg the strategy calls for
+//! and the config supplies.
 
 use common::oracle::observation::is_stale;
 use common::types::{AssetOracleConfig, OracleSourceConfig, OracleStrategy, OracleTolerance};
@@ -49,10 +50,10 @@ pub(crate) struct Leg {
     pub stale: bool,
 }
 
-/// Every leg the strategy calls for, up to the point the gate stopped. A leg
-/// that cannot be read is reported as an unreadable `Leg`, but a
-/// config-invariant violation still reverts from inside the read rather than
-/// reaching here.
+/// Every leg the strategy calls for and the config supplies, up to the point
+/// the gate stopped. A leg that cannot be read is reported as an unreadable
+/// `Leg`; the failures `providers` reverts on under either discipline still
+/// revert from inside the read rather than reaching here.
 pub(crate) struct Composition {
     pub primary: Leg,
     /// `None` when no anchor leg was read: either the strategy is `Single`, or
@@ -137,9 +138,14 @@ where
 }
 
 impl Composition {
-    /// Final price and timestamp when both legs are readable and agree inside
-    /// the tolerance band. Timestamp is the older leg — blend freshness is the
-    /// weaker of the two.
+    /// Final price and timestamp for a composition that holds together: the
+    /// primary alone when the strategy called for no anchor, otherwise the
+    /// midpoint of a readable pair that agrees inside the tolerance band. A
+    /// blend's timestamp is the older leg — freshness is the weaker of the two.
+    ///
+    /// `None` when a leg is unreadable, when the anchor the strategy called for
+    /// is missing, or when the pair falls outside the band. Staleness is not
+    /// consulted; the caller decides what a stale leg means.
     pub(crate) fn blended(&self, env: &Env, tolerance: &OracleTolerance) -> Option<(i128, u64)> {
         let primary = self.primary.result.as_ref().ok()?;
         match self.anchor.as_ref() {

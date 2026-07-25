@@ -75,6 +75,14 @@ pub struct EventOracleProvider {
 }
 
 impl EventOracleProvider {
+    /// Flattens an `AssetOracleConfig` into the wire snapshot decoders consume:
+    /// the primary and anchor legs become parallel field sets and the quote is
+    /// always `USD`.
+    ///
+    /// With no anchor the optional anchor fields are `None` and the scalar ones
+    /// are `0`. Each leg reports the stale window it is actually read under, so
+    /// a Reflector leg carries the market-wide `max_price_stale_seconds` and a
+    /// RedStone/Xoxno leg carries its own.
     pub fn from_oracle(asset: &Address, oracle: &AssetOracleConfig) -> Self {
         let market_max_stale = oracle.max_price_stale_seconds;
         let primary = EventOracleSource::from(&oracle.primary, market_max_stale);
@@ -206,6 +214,11 @@ pub struct UpdateAssetOracleEvent {
     pub oracle: EventOracleProvider,
 }
 
+/// Publishes the post-write config snapshot for `asset`. Every config mutator
+/// calls this once, after the write.
+///
+/// # Events
+/// * topics — `["config", "oracle"]`
 pub(crate) fn emit_oracle_updated(env: &Env, asset: &Address, config: &AssetOracleConfig) {
     UpdateAssetOracleEvent {
         asset: asset.clone(),

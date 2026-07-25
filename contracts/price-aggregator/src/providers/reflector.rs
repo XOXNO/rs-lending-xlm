@@ -1,9 +1,11 @@
 //! Reflector SEP-40 price provider: spot or TWAP read, repricing a quoted base
 //! into USD. The hard read path reverts on missing/short TWAP history; the
 //! soft path maps every per-asset read problem to `None` for the diagnostic
-//! views and for `compose`'s traversal. Only config-invariant violations
-//! (`validate_twap_records`) revert in both disciplines. Staleness is owned by
-//! the callers (`price` reverts, `status` flags), not by this reader.
+//! views and for `compose`'s traversal. Four failures revert under either
+//! discipline: a record count `validate_twap_records` rejects, an asset ref
+//! `to_reflector_asset` cannot express, a Reflector contract that reverts at
+//! read time, and a quoted reprice whose `Wad::mul` overflows. Staleness is
+//! owned by the callers (`price` reverts, `status` flags), not by this reader.
 
 use common::errors::OracleError;
 use common::math::fp::Wad;
@@ -41,7 +43,9 @@ pub(crate) fn read_reflector_source(
     observation.and_then(|obs| reprice_to_usd(cache, &config.base, obs, soft))
 }
 
-/// `None` only in soft mode (unresolvable quote leg); hard mode reverts.
+/// `None` only in soft mode (unresolvable quote leg); hard mode reverts. The
+/// reprice multiplication is hard either way — it raises `MathOverflow` rather
+/// than softening.
 fn reprice_to_usd(
     cache: &mut ResolutionContext,
     base: &ReflectorBase,
@@ -109,7 +113,8 @@ fn try_resolve_usd_quote_soft(
     })
 }
 
-/// Spot read via Reflector `lastprice`. `None` when the feed has no price.
+/// Spot read via Reflector `lastprice`. `None` when the feed carries no price,
+/// or — in soft mode only — when the payload is rejected.
 fn read_spot(
     cache: &ResolutionContext,
     config: &ReflectorSourceConfig,
@@ -124,8 +129,10 @@ fn read_spot(
 
 /// TWAP over returned samples. Every present-but-invalid condition (missing or
 /// short history, a future timestamp, a non-positive/overflowing sample) is an
-/// `Err` for the caller to revert (hard path) or soften (status path). Only
-/// config-invariant violations (`validate_twap_records`) stay hard in both.
+/// `Err` for the caller to revert (hard path) or soften (status path). The
+/// record-count check and the asset-ref conversion run ahead of all of that and
+/// panic under either discipline, as does a `prices` call the Reflector
+/// contract itself reverts.
 fn read_twap(
     cache: &ResolutionContext,
     config: &ReflectorSourceConfig,

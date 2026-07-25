@@ -32,6 +32,8 @@ pub(crate) struct ResolutionContext {
 }
 
 impl ResolutionContext {
+    /// Empty context for one transaction, pinned to the ledger timestamp read
+    /// at construction.
     pub(crate) fn new(env: &Env) -> Self {
         ResolutionContext {
             env: env.clone(),
@@ -44,10 +46,13 @@ impl ResolutionContext {
         }
     }
 
+    /// The `Env` this context was built from.
     pub(crate) fn env(&self) -> &Env {
         &self.env
     }
 
+    /// The sampled ledger clock, so every freshness judgement in one
+    /// transaction is made against the same instant.
     pub(crate) fn ledger_timestamp_secs(&self) -> u64 {
         self.current_timestamp_secs
     }
@@ -63,6 +68,7 @@ impl ResolutionContext {
         self.token_prices.contains_key(asset.clone())
     }
 
+    /// Memoizes a resolved USD feed for the rest of the transaction.
     pub(crate) fn store_price(&mut self, asset: &Address, feed: PriceFeedRaw) {
         self.token_prices.set(asset.clone(), feed);
     }
@@ -72,6 +78,8 @@ impl ResolutionContext {
         self.price_statuses.get(asset.clone())
     }
 
+    /// Memoizes a diagnostic status, unusable ones included, for the rest of
+    /// the transaction.
     pub(crate) fn store_status(&mut self, asset: &Address, status: PriceStatus) {
         self.price_statuses.set(asset.clone(), status);
     }
