@@ -53,7 +53,7 @@ fn supply_scaled_balance_matches_index(
     let entry = PoolSupplyEntry {
         action: action(asset.clone(), position_before, amount),
     };
-    let (result, _) = crate::supply_one(&e, &entry);
+    let (result, _) = crate::ops::supply::apply(&e, &entry);
     let post = read_state(&e, &asset);
     let pre_claim = Ray::from(pre.supplied)
         .mul_floor(&e, Ray::from(pre.supply_index))
@@ -116,7 +116,7 @@ fn borrow_scaled_debt_matches_index(
     let entry = PoolBorrowEntry {
         action: action(asset.clone(), debt_before, amount),
     };
-    let (_, result, _) = crate::borrow_accounting(&e, &entry);
+    let result = crate::ops::borrow::accounting(&e, &entry).mutation;
     let post = read_state(&e, &asset);
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount - debt_before == expected);
@@ -170,7 +170,8 @@ fn partial_withdraw_burns_scaled_supply(
         action: action(asset.clone(), position_before, amount),
         protocol_fee: 0,
     };
-    let (_, result, _, net) = crate::withdraw_accounting(&e, false, &entry);
+    let outcome = crate::ops::withdraw::accounting(&e, false, &entry);
+    let (result, net) = (outcome.mutation, outcome.net_transfer);
     let post = read_state(&e, &asset);
     cvlr_assert!(result.actual_amount == amount && net == amount);
     cvlr_assert!(position_before - result.position.scaled_amount == expected_burn);
@@ -214,7 +215,8 @@ fn full_withdraw_burns_entire_position(
         action: action(asset.clone(), position_before, i128::MAX),
         protocol_fee: 0,
     };
-    let (_, result, _, net) = crate::withdraw_accounting(&e, false, &entry);
+    let outcome = crate::ops::withdraw::accounting(&e, false, &entry);
+    let (result, net) = (outcome.mutation, outcome.net_transfer);
     let post = read_state(&e, &asset);
     let expected_gross = Ray::from(position_before)
         .mul_floor(&e, Ray::from(supply_index))
@@ -266,7 +268,8 @@ fn partial_repay_burns_scaled_debt(
 
     let pre = read_state(&e, &asset);
     let act = action(asset.clone(), debt_before, amount);
-    let (_, result, _, overpayment) = crate::repay_accounting(&e, &act);
+    let outcome = crate::ops::repay::accounting(&e, &act);
+    let (result, overpayment) = (outcome.mutation, outcome.overpayment);
     let post = read_state(&e, &asset);
     cvlr_assert!(overpayment == 0 && result.actual_amount == amount);
     cvlr_assert!(debt_before - result.position.scaled_amount == expected_burn);
@@ -313,7 +316,8 @@ fn full_repay_refunds_overpayment(
 
     let pre = read_state(&e, &asset);
     let act = action(asset.clone(), debt_before, amount);
-    let (_, result, _, overpayment) = crate::repay_accounting(&e, &act);
+    let outcome = crate::ops::repay::accounting(&e, &act);
+    let (result, overpayment) = (outcome.mutation, outcome.overpayment);
     let post = read_state(&e, &asset);
 
     cvlr_assert!(result.position.scaled_amount == 0);

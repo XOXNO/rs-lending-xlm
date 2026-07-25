@@ -16,16 +16,15 @@ pub mod fee_strategy_accounting_rules;
     feature = "certora-flash-loan-accounting-rules"
 ))]
 pub mod flash_loan_accounting_rules;
+#[cfg(any(not(feature = "certora-focused"), feature = "certora-guard-rules"))]
+pub mod guard_rules;
+#[cfg(any(not(feature = "certora-focused"), feature = "certora-lifecycle-rules"))]
+pub mod lifecycle_rules;
 #[cfg(any(
     not(feature = "certora-focused"),
     feature = "certora-position-accounting-rules"
 ))]
 pub mod position_accounting_rules;
-#[cfg(any(
-    not(feature = "certora-focused"),
-    feature = "certora-rate-index-accounting-rules"
-))]
-pub mod rate_index_accounting_rules;
 #[cfg(any(
     not(feature = "certora-focused"),
     feature = "certora-seize-settle-accounting-rules"

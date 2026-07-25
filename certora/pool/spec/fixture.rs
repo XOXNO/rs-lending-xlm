@@ -46,6 +46,18 @@ pub fn params_with_decimals(
     }
 }
 
+/// Params with the operation-level utilization cap actually ENABLED.
+///
+/// [`params`] uses the `RAY` sentinel, which makes
+/// `guards::require_utilization_below_max` early-return — so every rule built on
+/// it skips the cap entirely. Guard rules must use this instead.
+pub fn params_with_max_util(asset: Address, max_utilization: i128) -> MarketParamsRaw {
+    MarketParamsRaw {
+        max_utilization,
+        ..params(asset, 0, false)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn state(
     supplied: i128,

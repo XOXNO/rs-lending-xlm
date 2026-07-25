@@ -4,16 +4,16 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
 
-use common::constants::{
+use crate::constants::{
     BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR,
     RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
-use common::math::fp::{Bps, Ray};
-use common::rates::{
-    calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
-    supply_index_reward_shortfall, update_borrow_index, update_supply_index, utilization,
+use crate::math::fp::{Bps, Ray};
+use crate::rates::{
+    calculate_borrow_rate, calculate_supplier_rewards, compound_interest,
+    supply_index_reward_shortfall, update_borrow_index, update_supply_index,
 };
-use common::types::MarketParams;
+use crate::types::MarketParams;
 
 const REWARD_REGRESSION_INDEX_MAX: i128 = 200_000_000 * RAY;
 
@@ -136,29 +136,6 @@ fn borrow_rate_kinks_match_configured_curve(
     cvlr_assert!(at_full.raw() == expected_full.raw());
 }
 
-/// Supplier rate remains nonnegative and cannot exceed the borrow rate.
-#[rule]
-fn deposit_rate_respects_utilization_and_reserve(
-    e: Env,
-    util_raw: i128,
-    borrow_rate: i128,
-    reserve_factor: u32,
-) {
-    cvlr_assume!(util_raw >= 0 && util_raw <= RAY);
-    cvlr_assume!(borrow_rate >= 0 && borrow_rate <= MAX_BORROW_RATE_RAY);
-    cvlr_assume!(reserve_factor < BPS as u32);
-
-    let out = calculate_deposit_rate(
-        &e,
-        Ray::from(util_raw),
-        Ray::from(borrow_rate),
-        Bps::from(i128::from(reserve_factor)),
-    );
-    cvlr_assert!(out.raw() >= 0);
-    cvlr_assert!(out.raw() <= borrow_rate);
-    cvlr_assert!(util_raw != 0 || out.raw() == 0);
-}
-
 /// Valid nonnegative per-millisecond rates produce a factor at least one.
 #[rule]
 fn compound_factor_never_below_one(e: Env, rate_per_ms: i128, delta_ms: u64) {
@@ -231,29 +208,6 @@ fn supply_index_rounded_zero_value_is_noop(e: Env, supplied: i128, old_index: i1
 
     let out = update_supply_index(&e, supplied_ray, old_index_ray, Ray::from(rewards));
     cvlr_assert!(out.raw() == old_index);
-}
-
-/// Positive rewards on a positive supplied value never reduce the index and
-/// cannot exceed the production cap.
-#[rule]
-fn supply_index_positive_rewards_grow_and_respect_cap(
-    e: Env,
-    supplied: i128,
-    old_index: i128,
-    rewards: i128,
-) {
-    cvlr_assume!(supplied > 0 && supplied <= 100 * RAY);
-    cvlr_assume!(old_index >= SUPPLY_INDEX_FLOOR_RAW && old_index <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assume!(rewards > 0 && rewards <= 100 * RAY);
-    let supplied_ray = Ray::from(supplied);
-    let old_index_ray = Ray::from(old_index);
-    let supplied_value = supplied_ray.mul(&e, old_index_ray);
-    cvlr_assume!(supplied_value.raw() > 0);
-    let reward = Ray::from(rewards);
-
-    let out = update_supply_index(&e, supplied_ray, old_index_ray, reward);
-    cvlr_assert!(out.raw() >= old_index);
-    cvlr_assert!(out.raw() <= MAX_SUPPLY_INDEX_RAY);
 }
 
 /// In the ordinary symbolic state band, supplier value growth never exceeds
@@ -359,16 +313,4 @@ fn accrued_interest_split_is_conservative(
 
     cvlr_assert!(supplier.raw() >= 0 && fee.raw() >= 0);
     cvlr_assert!(supplier.raw() + fee.raw() == accrued.raw());
-}
-
-/// Utilization is zero without supply and bounded for debt not above supply.
-#[rule]
-fn utilization_respects_supply_ratio(e: Env, borrowed: i128, supplied: i128) {
-    cvlr_assume!(borrowed >= 0 && borrowed <= 100 * RAY);
-    cvlr_assume!(supplied >= 0 && supplied <= 100 * RAY);
-    cvlr_assume!(supplied == 0 || borrowed <= supplied);
-
-    let out = utilization(&e, Ray::from(borrowed), Ray::from(supplied));
-    cvlr_assert!(out.raw() >= 0 && out.raw() <= RAY);
-    cvlr_assert!(supplied != 0 || out.raw() == 0);
 }

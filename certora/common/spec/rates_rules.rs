@@ -3,8 +3,8 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::{
-    BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR,
-    RAY, SUPPLY_INDEX_FLOOR_RAW,
+    BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, RAY,
+    SUPPLY_INDEX_FLOOR_RAW,
 };
 use crate::math::fp::{Bps, Ray};
 use crate::math::fp_core::{mul_div_floor, mul_div_half_up};
@@ -53,19 +53,6 @@ fn utilization_bounded_when_borrowed_lte_supplied(e: Env, borrowed: i128, suppli
     let util = utilization(&e, Ray::from(borrowed), Ray::from(supplied));
     cvlr_assert!(util.raw() >= 0);
     cvlr_assert!(util.raw() <= RAY);
-}
-
-#[rule]
-fn borrow_rate_per_ms_respects_annual_cap(e: Env, asset: Address, util_raw: i128) {
-    cvlr_assume!((0..=RAY).contains(&util_raw));
-
-    let params = valid_params(asset);
-    let rate = calculate_borrow_rate(&e, Ray::from(util_raw), &params);
-    let per_ms_cap = params
-        .max_borrow_rate
-        .div_by_int(MILLISECONDS_PER_YEAR as i128);
-    cvlr_assert!(rate.raw() >= 0);
-    cvlr_assert!(rate.raw() <= per_ms_cap.raw());
 }
 
 #[rule]

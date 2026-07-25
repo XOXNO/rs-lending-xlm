@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
-INVARIANTS = REPO / "architecture" / "INVARIANTS.md"
+INVARIANTS = REPO / "docs" / "reference" / "invariants.md"
 RULE_RE = re.compile(r"#\[rule\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?fn\s+(\w+)")
 TABLE_ROW_RE = re.compile(r"\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)\s*\|")
 # Verification cells mix labelled groups ("Certora: `a`, `b`; fuzz: `c`") with

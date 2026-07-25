@@ -7,6 +7,7 @@ use soroban_sdk::{Address, Env, Vec};
 use crate::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
 use crate::types::HubAssetKey;
 use common::math::fp::{Ray, Wad};
+use controller_interface::ControllerInterface;
 
 /// Primary-hub coordinate for `asset`.
 fn hub0(asset: Address) -> HubAssetKey {
@@ -39,12 +40,8 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
         &post_account.borrow_positions.keys(),
     ));
 
-    let ltv_collateral = crate::risk::calculate_ltv_collateral_wad(
-        &e,
-        &mut cache,
-        post_account.spoke_id,
-        &post_account.supply_positions,
-    );
+    let ltv_collateral =
+        crate::risk::calculate_ltv_collateral_wad(&e, &mut cache, &post_account.supply_positions);
 
     let mut total_debt = Wad::ZERO;
     for hub_asset in post_account.borrow_positions.keys() {
@@ -60,7 +57,7 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
             market_index.borrow_index,
             feed.price,
         );
-        total_debt.checked_add_assign(&e, value);
+        total_debt = total_debt.checked_add(&e, value);
     }
 
     cvlr_assert!(total_debt.raw() <= ltv_collateral.raw());

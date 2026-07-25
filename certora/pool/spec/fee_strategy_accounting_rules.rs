@@ -6,7 +6,7 @@ use soroban_sdk::{Address, Env};
 
 use common::constants::{
     BPS, MAX_BORROW_INDEX_RAY, MAX_FLASHLOAN_FEE_BPS, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR,
-    RAY, SUPPLY_INDEX_FLOOR_RAW,
+    RAY, SUPPLY_INDEX_FLOOR_RAW, SUPPLY_INDEX_REWARD_CEILING_RAY,
 };
 use common::math::fp::Ray;
 use common::math::fp_core;
@@ -21,6 +21,7 @@ use super::fixture::{
     action, expected_protocol_fee_shares, hub, params, read_state, seed, state, ASSET_DECIMALS,
     MAX_FLOW_AMOUNT, ONE_TOKEN,
 };
+use crate::ops::strategy::StrategyOutcome;
 
 /// Reward cash is split between supplier index growth and shortfall revenue;
 /// the shortfall mints identical deltas into revenue and aggregate supply.
@@ -33,7 +34,9 @@ fn add_rewards_accounts_cash_index_and_shortfall(
     supply_index: i128,
 ) {
     cvlr_assume!(reward_amount >= 0 && reward_amount <= MAX_FLOW_AMOUNT);
-    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= 200_000_000 * RAY);
+    cvlr_assume!(
+        supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= SUPPLY_INDEX_REWARD_CEILING_RAY
+    );
     let reward = Ray::from_asset(reward_amount, ASSET_DECIMALS);
     seed(
         &e,
@@ -107,7 +110,7 @@ fn one_chunk_global_sync_preserves_accounting_and_advances_time(
     cvlr_assume!(supply_index >= RAY && supply_index <= 10 * RAY);
     cvlr_assume!(delta_ms > 0 && delta_ms <= MILLISECONDS_PER_YEAR);
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
-    let current_timestamp = crate::utils::now_ms(&e);
+    let current_timestamp = crate::time::now_ms(&e);
     cvlr_assume!(delta_ms <= current_timestamp);
     let borrowed_value = Ray::from(borrowed).mul(&e, Ray::from(borrow_index));
     let supplied_value = Ray::from(supplied).mul(&e, Ray::from(supply_index));
@@ -131,12 +134,12 @@ fn one_chunk_global_sync_preserves_accounting_and_advances_time(
     );
 
     let mut cache = crate::cache::Cache::load(&e, &hub(asset));
-    let supplied_before = cache.supplied;
-    let revenue_before = cache.revenue;
-    let cash_before = cache.cash;
-    let old_supply_index = cache.supply_index;
+    let supplied_before = cache.supplied();
+    let revenue_before = cache.revenue();
+    let cash_before = cache.cash();
+    let old_supply_index = cache.supply_index();
     let expected_utilization = borrowed_value.div(&e, supplied_value);
-    let expected_rate = calculate_borrow_rate(&e, expected_utilization, &cache.params);
+    let expected_rate = calculate_borrow_rate(&e, expected_utilization, &cache.params());
     let expected_factor = compound_interest(&e, expected_rate, delta_ms);
     let expected_borrow_index = update_borrow_index(&e, Ray::from(borrow_index), expected_factor);
     let old_debt = Ray::from(borrowed).mul(&e, Ray::from(borrow_index));
@@ -146,7 +149,7 @@ fn one_chunk_global_sync_preserves_accounting_and_advances_time(
     let expected_protocol_fee = Ray::from(fp_core::mul_div_half_up(
         &e,
         accrued.raw(),
-        cache.params.reserve_factor.raw(),
+        cache.params().reserve_factor.raw(),
         BPS,
     ));
     cvlr_assert!(expected_protocol_fee.raw() <= accrued.raw());
@@ -179,15 +182,15 @@ fn one_chunk_global_sync_preserves_accounting_and_advances_time(
 
     crate::interest::global_sync(&e, &mut cache);
 
-    cvlr_assert!(cache.borrow_index == expected_borrow_index);
-    cvlr_assert!(cache.borrow_index.raw() <= MAX_BORROW_INDEX_RAY);
-    cvlr_assert!(cache.supply_index == expected_supply_index);
-    cvlr_assert!(cache.supply_index.raw() <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assert!(cache.borrowed.raw() == borrowed);
-    cvlr_assert!(cache.revenue.raw() - revenue_before.raw() == expected_fee_shares.raw());
-    cvlr_assert!(cache.supplied.raw() - supplied_before.raw() == expected_fee_shares.raw());
-    cvlr_assert!(cache.cash == cash_before);
-    cvlr_assert!(cache.last_timestamp == current_timestamp);
+    cvlr_assert!(cache.borrow_index() == expected_borrow_index);
+    cvlr_assert!(cache.borrow_index().raw() <= MAX_BORROW_INDEX_RAY);
+    cvlr_assert!(cache.supply_index() == expected_supply_index);
+    cvlr_assert!(cache.supply_index().raw() <= MAX_SUPPLY_INDEX_RAY);
+    cvlr_assert!(cache.borrowed().raw() == borrowed);
+    cvlr_assert!(cache.revenue().raw() - revenue_before.raw() == expected_fee_shares.raw());
+    cvlr_assert!(cache.supplied().raw() - supplied_before.raw() == expected_fee_shares.raw());
+    cvlr_assert!(cache.cash() == cash_before);
+    cvlr_assert!(cache.last_timestamp() == current_timestamp);
 }
 
 /// Liquidation withdrawal retains the fee in cash and books exactly the same
@@ -245,7 +248,8 @@ fn liquidation_withdraw_books_protocol_fee(
         action: action(asset.clone(), position_before, gross_amount),
         protocol_fee,
     };
-    let (_, result, _, net) = crate::withdraw_accounting(&e, true, &entry);
+    let outcome = crate::ops::withdraw::accounting(&e, true, &entry);
+    let (result, net) = (outcome.mutation, outcome.net_transfer);
     let post = read_state(&e, &asset);
 
     cvlr_assert!(result.actual_amount == gross_amount);
@@ -316,7 +320,11 @@ fn create_strategy_accounts_debt_cash_and_fee(
     let expected_debt =
         Ray::from_asset(amount, ASSET_DECIMALS).div_ceil(&e, Ray::from(borrow_index));
 
-    let (_, result, fee) = crate::create_strategy_accounting(
+    let StrategyOutcome {
+        mutation: result,
+        fee,
+        ..
+    } = crate::ops::strategy::accounting(
         &e,
         action(asset.clone(), debt_before, amount),
         charge_fee,
@@ -376,7 +384,7 @@ fn claim_revenue_burns_equal_shares_and_cash(
         let ratio = Ray::from_fraction(&e, expected_claim, treasury_actual);
         Ray::from(revenue_before).mul(&e, ratio)
     };
-    let (_, result) = crate::claim_revenue_accounting(&e, hub(asset.clone()));
+    let result = crate::ops::revenue::accounting(&e, hub(asset.clone())).mutation;
     let post = read_state(&e, &asset);
     let burned_revenue = pre.revenue - post.revenue;
 
@@ -388,4 +396,44 @@ fn claim_revenue_burns_equal_shares_and_cash(
     cvlr_assert!(post.borrowed == pre.borrowed);
     cvlr_assert!(post.supply_index == pre.supply_index && post.borrow_index == pre.borrow_index);
     cvlr_assert!(treasury_actual == 0 || expected_claim != treasury_actual || post.revenue == 0);
+}
+
+/// Repeated reward legs can never ratchet the supply index past its ceiling.
+/// The `SupplyIndexRewardCeiling` assert in `interest::distribute_reward` was
+/// unreachable while the assumed index band sat below the cap.
+#[rule]
+fn distribute_reward_respects_ceiling(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    reward_amount: i128,
+    supply_index: i128,
+) {
+    cvlr_assume!(reward_amount > 0 && reward_amount <= MAX_FLOW_AMOUNT);
+    cvlr_assume!(
+        supply_index >= SUPPLY_INDEX_REWARD_CEILING_RAY / 2
+            && supply_index <= SUPPLY_INDEX_REWARD_CEILING_RAY
+    );
+
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            100 * RAY,
+            0,
+            0,
+            RAY,
+            supply_index,
+            1_000 * ONE_TOKEN,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    crate::ops::rewards::apply(&e, hub(asset.clone()), reward_amount);
+    let post = read_state(&e, &asset);
+
+    cvlr_assert!(post.supply_index <= SUPPLY_INDEX_REWARD_CEILING_RAY);
+    cvlr_assert!(post.supply_index >= supply_index);
 }

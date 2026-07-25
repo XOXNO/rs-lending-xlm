@@ -5,6 +5,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Bytes, Env};
 
 use crate::types::HubAssetKey;
+use controller_interface::ControllerInterface;
 
 #[rule]
 fn flash_loan_guard_blocks_callers(e: Env) {

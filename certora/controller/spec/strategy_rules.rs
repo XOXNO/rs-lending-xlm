@@ -5,6 +5,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::types::{AccountPositionType, HubAssetKey, StrategySwap};
+use controller_interface::ControllerInterface;
 
 /// Primary-hub coordinate for `asset`.
 fn hub0(asset: Address) -> HubAssetKey {

@@ -60,7 +60,7 @@ fn seize_borrow_reduces_debt_and_writes_down_supply(
         side: AccountPositionType::Borrow,
         position: position(seized_scaled),
     };
-    crate::seize_one(&e, &entry);
+    crate::ops::seize::apply(&e, &entry);
     let post = read_state(&e, &asset);
     let post_value = Ray::from(post.supplied).mul(&e, Ray::from(post.supply_index));
     let floor_value = Ray::from(post.supplied).mul(&e, Ray::from(SUPPLY_INDEX_FLOOR_RAW));
@@ -112,7 +112,7 @@ fn seize_deposit_moves_scaled_position_to_revenue(
         side: AccountPositionType::Deposit,
         position: position(seized_scaled),
     };
-    crate::seize_one(&e, &entry);
+    crate::ops::seize::apply(&e, &entry);
     let post = read_state(&e, &asset);
 
     cvlr_assert!(post.revenue - pre.revenue == seized_scaled);
@@ -205,7 +205,7 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
         supply_position: position(supply_before),
         debt_position: position(debt_before),
     };
-    let (result, _) = crate::net_settle_one(&e, &entry);
+    let (result, _) = crate::ops::net_settle::apply(&e, &entry);
     let post = read_state(&e, &asset);
 
     cvlr_assert!(expected_gross <= capped && capped <= requested);
@@ -268,8 +268,110 @@ fn net_settle_never_persists_supply_drained_with_debt(
         supply_position: position(supply_scaled),
         debt_position: position(debt_scaled),
     };
-    let (_result, _) = crate::net_settle_one(&e, &entry);
+    let (_result, _) = crate::ops::net_settle::apply(&e, &entry);
     let post = read_state(&e, &asset);
 
     cvlr_assert!(!(post.supplied == 0 && post.borrowed != 0));
+}
+
+/// Reconciling an issuer clawback debits exactly the shortfall, never raises
+/// cash on a donation, and writes the loss down through the supply index
+/// without ever pushing it below the floor. Driven on the SAC-free accounting
+/// half so `live_balance` is symbolic rather than a mocked token.
+#[rule]
+fn reconcile_debits_shortfall_and_never_credits_donation(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    live_balance: i128,
+    supply_index: i128,
+) {
+    cvlr_assume!(live_balance >= 0 && live_balance <= 1_000 * ONE_TOKEN);
+    // Span the floor-clamped band too: production can sit at SUPPLY_INDEX_FLOOR_RAW
+    // after a write-down, and that is exactly where the floor assert must bite.
+    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
+
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            100 * RAY,
+            20 * RAY,
+            0,
+            RAY,
+            supply_index,
+            80 * ONE_TOKEN,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let pre = read_state(&e, &asset);
+    crate::ops::reconcile::accounting(&e, &hub(asset.clone()), live_balance);
+    let post = read_state(&e, &asset);
+
+    if pre.cash > live_balance {
+        // The whole shortfall leaves tracked cash, exactly once.
+        cvlr_assert!(post.cash == live_balance);
+        cvlr_assert!(pre.cash - post.cash == pre.cash - live_balance);
+        // Loss is socialized downward, and the floor is the hard stop.
+        cvlr_assert!(post.supply_index <= pre.supply_index);
+        cvlr_assert!(post.supply_index >= SUPPLY_INDEX_FLOOR_RAW);
+    } else {
+        // A donation (or an exact match) must change nothing at all.
+        cvlr_assert!(post.cash == pre.cash);
+        cvlr_assert!(post.supply_index == pre.supply_index);
+    }
+
+    // Reconciliation only ever moves cash and the supply index.
+    cvlr_assert!(post.supplied == pre.supplied && post.borrowed == pre.borrowed);
+    cvlr_assert!(post.revenue == pre.revenue);
+    cvlr_assert!(post.borrow_index == pre.borrow_index);
+}
+
+/// With no suppliers, the write-down has no one to charge: the index must not
+/// move and the loss lands on dead reserve. This early-return branch
+/// (`interest::apply_bad_debt_to_supply_index`) had no rule.
+#[rule]
+fn bad_debt_writedown_is_noop_on_empty_market(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    seized_scaled: i128,
+    borrowed: i128,
+    supply_index: i128,
+) {
+    cvlr_assume!(borrowed > 0 && borrowed <= 20 * RAY);
+    cvlr_assume!(seized_scaled >= 0 && seized_scaled <= borrowed);
+    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
+
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            0,
+            borrowed,
+            0,
+            RAY,
+            supply_index,
+            80 * ONE_TOKEN,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let pre = read_state(&e, &asset);
+    let entry = PoolSeizeEntry {
+        hub_asset: hub(asset.clone()),
+        side: AccountPositionType::Borrow,
+        position: position(seized_scaled),
+    };
+    crate::ops::seize::apply(&e, &entry);
+    let post = read_state(&e, &asset);
+
+    cvlr_assert!(post.supply_index == pre.supply_index);
+    cvlr_assert!(pre.borrowed - post.borrowed == seized_scaled);
+    cvlr_assert!(post.cash == pre.cash && post.supplied == 0);
 }

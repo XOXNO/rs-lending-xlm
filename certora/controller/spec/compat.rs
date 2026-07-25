@@ -1,4 +1,5 @@
 use crate::types::{HubAssetKey, Payment, PositionMode, StrategySwap};
+use controller_interface::ControllerInterface;
 use cvlr::nondet::nondet;
 use cvlr_soroban::nondet_address;
 use soroban_sdk::{vec, Address, Env, Vec};

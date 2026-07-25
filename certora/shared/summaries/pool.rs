@@ -186,6 +186,10 @@ pub fn update_indexes_summary(_env: &Env, _asset: &Address) {}
 /// nothing (production emits an event).
 pub fn add_rewards_summary(_env: &Env, _asset: &Address, _amount: i128) {}
 
+/// Reserve reconciliation: production writes cash down to the live SAC balance
+/// and socializes the shortfall. Returns nothing (production emits an event).
+pub fn reconcile_reserves_summary(_env: &Env, _asset: &Address) {}
+
 /// Flash-loan return abstraction for controller lock cleanup only. It omits
 /// liquidity checks, transfers, receiver callback, repayment, and pool state.
 pub fn flash_loan_summary(

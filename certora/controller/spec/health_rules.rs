@@ -38,7 +38,7 @@ fn inline_total_borrow_wad(env: &Env, cache: &mut crate::context::Cache, account
             market_index.borrow_index,
             feed.price,
         );
-        total.checked_add_assign(env, value);
+        total = total.checked_add(env, value);
     }
     total
 }
@@ -63,7 +63,7 @@ fn inline_weighted_collateral_wad(
             market_index.supply_index,
             feed.price,
         );
-        weighted.checked_add_assign(
+        weighted = weighted.checked_add(
             env,
             crate::risk::weighted_collateral(env, value, Bps::from(position.liquidation_threshold)),
         );
