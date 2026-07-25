@@ -118,8 +118,7 @@ fn render_composition(
             );
             ResolvedPrice {
                 final_price_wad,
-                // Blend freshness is the older leg.
-                timestamp: core::cmp::min(primary.timestamp(), anchor.timestamp()),
+                timestamp: compose::blend_timestamp(primary, anchor),
             }
         }
         // Single strategy: a configured-but-unused anchor source is ignored,

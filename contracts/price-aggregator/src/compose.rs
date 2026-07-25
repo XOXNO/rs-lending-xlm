@@ -64,6 +64,12 @@ pub(crate) struct Composition {
     /// the config omits the anchor source, or the gate ended the traversal
     /// before it was read. Either way there is no second opinion to price
     /// against, which is what a renderer needs to know.
+    ///
+    /// Only the first cause reaches a renderer today: the fail-closed gate never
+    /// stops, and the diagnostic gate stops only on an unreadable primary, which
+    /// its renderer answers before it reads this flag. The gate-stop cause is
+    /// kept because it is the correct answer for a future caller that does stop
+    /// the traversal mid-way.
     pub dual_missing_anchor: bool,
 }
 
@@ -137,30 +143,34 @@ where
     }
 }
 
-impl Composition {
-    /// Final price and timestamp for a composition that holds together: the
-    /// primary alone when the strategy called for no anchor, otherwise the
-    /// midpoint of a readable pair that agrees inside the tolerance band. A
-    /// blend's timestamp is the older leg — freshness is the weaker of the two.
-    ///
-    /// `None` when a leg is unreadable, when the anchor the strategy called for
-    /// is missing, or when the pair falls outside the band. Staleness is not
-    /// consulted; the caller decides what a stale leg means.
-    pub(crate) fn blended(&self, env: &Env, tolerance: &OracleTolerance) -> Option<(i128, u64)> {
-        let primary = self.primary.result.as_ref().ok()?;
-        match self.anchor.as_ref() {
-            None if !self.dual_missing_anchor => Some((primary.price_wad, primary.timestamp())),
-            None => None,
-            Some(anchor_leg) => {
-                let anchor = anchor_leg.result.as_ref().ok()?;
-                if !within_tolerance_band(env, anchor.price_wad, primary.price_wad, tolerance) {
-                    return None;
-                }
-                let price = midpoint_price_or_zero(env, anchor.price_wad, primary.price_wad);
-                Some((price, primary.timestamp().min(anchor.timestamp())))
-            }
-        }
-    }
+/// Freshness of a blended pair: the older of the two legs, because a blend is
+/// only as fresh as the weaker source it rests on.
+pub(crate) fn blend_timestamp(primary: &OracleObservation, anchor: &OracleObservation) -> u64 {
+    primary.timestamp().min(anchor.timestamp())
+}
+
+/// Midpoint price and blend timestamp of a readable pair. The tolerance band is
+/// not consulted, so a pair that disagrees still yields the number it would have
+/// priced at — which is what a diagnostic reports and `pair_in_band` rejects.
+pub(crate) fn pair_midpoint(
+    env: &Env,
+    primary: &OracleObservation,
+    anchor: &OracleObservation,
+) -> (i128, u64) {
+    (
+        midpoint_price_or_zero(env, anchor.price_wad, primary.price_wad),
+        blend_timestamp(primary, anchor),
+    )
+}
+
+/// True when a readable pair agrees inside the tolerance band.
+pub(crate) fn pair_in_band(
+    env: &Env,
+    primary: &OracleObservation,
+    anchor: &OracleObservation,
+    tolerance: &OracleTolerance,
+) -> bool {
+    within_tolerance_band(env, anchor.price_wad, primary.price_wad, tolerance)
 }
 
 #[cfg(test)]

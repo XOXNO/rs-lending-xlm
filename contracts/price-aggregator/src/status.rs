@@ -14,7 +14,6 @@ use soroban_sdk::Address;
 use crate::compose::{self, Composition};
 use crate::context::ResolutionContext;
 use crate::observation::OracleObservation;
-use crate::tolerance;
 
 /// Soft-resolves one asset into a diagnostic [`PriceStatus`], memoized for the
 /// rest of the transaction.
@@ -102,21 +101,12 @@ fn anchored_status(
         return unpaired;
     };
 
-    // Both legs are readable, so `blended` withholds a price for exactly one
-    // reason left: the pair fell outside the tolerance band. Its absence is the
-    // deviation flag. The view still surfaces the midpoint `blended` withheld —
-    // a diagnostic shows the number it rejected — and `deviation` is what keeps
-    // that number out of `valid`.
-    let (final_wad, price_timestamp, deviation) =
-        match composition.blended(cache.env(), &config.tolerance) {
-            Some((price_wad, timestamp)) => (price_wad, timestamp, false),
-            None => (
-                tolerance::midpoint_price_or_zero(cache.env(), anchor.price_wad, primary.price_wad),
-                // Blend freshness is the older leg, band agreement or not.
-                primary.timestamp().min(anchor.timestamp()),
-                true,
-            ),
-        };
+    // Both legs are readable, so one question is left: does the pair agree
+    // inside the tolerance band. The view reports the same midpoint and blend
+    // timestamp either way — a diagnostic shows the number it rejected — and
+    // `deviation` is what keeps a rejected one out of `valid`.
+    let (final_wad, price_timestamp) = compose::pair_midpoint(cache.env(), primary, anchor);
+    let deviation = !compose::pair_in_band(cache.env(), primary, anchor, &config.tolerance);
     let stale = composition.primary.stale || anchor_leg.stale;
 
     PriceStatus {

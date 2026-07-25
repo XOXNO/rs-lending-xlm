@@ -13,10 +13,11 @@ use crate::test_support::{
     redstone_dual, redstone_single, reflector_single, register_redstone_feed, EmptyReflector,
 };
 
-/// Single strategy with a readable primary: no anchor leg, `blended` mirrors
-/// the primary's price and timestamp verbatim.
+/// Single strategy with a readable primary: the leg carries the feed's price
+/// and timestamp verbatim and no anchor leg is read. Pricing off that lone leg
+/// is the renderers' rule, not the traversal's.
 #[test]
-fn single_strategy_readable_leg_blends_to_primary() {
+fn single_strategy_readable_leg_composes_without_anchor() {
     let env = Env::default();
     let now: u64 = 1_700_000_000;
     env.ledger().with_mut(|li| li.timestamp = now);
@@ -37,17 +38,12 @@ fn single_strategy_readable_leg_blends_to_primary() {
     assert!(!composition.primary.stale);
     assert!(composition.anchor.is_none());
     assert!(!composition.dual_missing_anchor);
-
-    let blended = composition
-        .blended(&env, &config.tolerance)
-        .expect("single-leg blend");
-    assert_eq!(blended, (WAD, now));
 }
 
 /// Dual strategy, both legs readable, inside the tolerance band, and priced
-/// *differently*: `blended` returns the actual midpoint of the two distinct
-/// prices, not just the primary echoed back (which identical inputs could
-/// not distinguish from a bug that skips averaging entirely).
+/// *differently*: `pair_midpoint` returns the actual midpoint of the two
+/// distinct prices, not just the primary echoed back (which identical inputs
+/// could not distinguish from a bug that skips averaging entirely).
 #[test]
 fn dual_strategy_both_legs_in_band_blends_to_midpoint() {
     let env = Env::default();
@@ -63,19 +59,24 @@ fn dual_strategy_both_legs_in_band_blends_to_midpoint() {
 
     let composition = compose(&mut cache, &config, |_, _, _| true);
 
-    assert!(composition.primary.result.is_ok());
+    let primary = composition
+        .primary
+        .result
+        .as_ref()
+        .expect("primary readable");
     let anchor_leg = composition.anchor.as_ref().expect("anchor leg present");
-    assert!(anchor_leg.result.is_ok());
+    let anchor = anchor_leg.result.as_ref().expect("anchor readable");
     assert!(!composition.dual_missing_anchor);
 
-    let blended = composition
-        .blended(&env, &config.tolerance)
-        .expect("dual in-band blend");
-    assert_eq!(blended, ((primary_price + anchor_price) / 2, now));
+    assert!(pair_in_band(&env, primary, anchor, &config.tolerance));
+    assert_eq!(
+        pair_midpoint(&env, primary, anchor),
+        ((primary_price + anchor_price) / 2, now)
+    );
 }
 
 /// Dual strategy, both legs readable, but the primary leg is the older of the
-/// two: `blended`'s timestamp is the primary's, not the anchor's.
+/// two: the blend timestamp is the primary's, not the anchor's.
 #[test]
 fn dual_strategy_primary_older_blends_to_primary_timestamp() {
     let env = Env::default();
@@ -95,14 +96,23 @@ fn dual_strategy_primary_older_blends_to_primary_timestamp() {
 
     let composition = compose(&mut cache, &config, |_, _, _| true);
 
-    let blended = composition
-        .blended(&env, &config.tolerance)
-        .expect("dual in-band blend");
-    assert_eq!(blended, (WAD, older));
+    let primary = composition
+        .primary
+        .result
+        .as_ref()
+        .expect("primary readable");
+    let anchor = composition
+        .anchor
+        .as_ref()
+        .expect("anchor leg present")
+        .result
+        .as_ref()
+        .expect("anchor readable");
+    assert_eq!(pair_midpoint(&env, primary, anchor), (WAD, older));
 }
 
 /// Dual strategy, both legs readable, but the anchor leg is the older of the
-/// two: `blended`'s timestamp is the anchor's, not the primary's. Pairs with
+/// two: the blend timestamp is the anchor's, not the primary's. Pairs with
 /// the primary-older case so the older-of-two-legs rule cannot pass by
 /// always returning whichever leg happens to be read first.
 #[test]
@@ -124,15 +134,24 @@ fn dual_strategy_anchor_older_blends_to_anchor_timestamp() {
 
     let composition = compose(&mut cache, &config, |_, _, _| true);
 
-    let blended = composition
-        .blended(&env, &config.tolerance)
-        .expect("dual in-band blend");
-    assert_eq!(blended, (WAD, older));
+    let primary = composition
+        .primary
+        .result
+        .as_ref()
+        .expect("primary readable");
+    let anchor = composition
+        .anchor
+        .as_ref()
+        .expect("anchor leg present")
+        .result
+        .as_ref()
+        .expect("anchor readable");
+    assert_eq!(pair_midpoint(&env, primary, anchor), (WAD, older));
 }
 
 /// Dual strategy but the config carries no anchor source: `compose` cannot
 /// read a leg that does not exist, so it flags `dual_missing_anchor` instead
-/// of guessing at an error. `blended` reports no price.
+/// of guessing at an error.
 #[test]
 fn dual_strategy_missing_anchor_config_sets_flag() {
     let env = Env::default();
@@ -151,12 +170,11 @@ fn dual_strategy_missing_anchor_config_sets_flag() {
     assert!(composition.primary.result.is_ok());
     assert!(composition.anchor.is_none());
     assert!(composition.dual_missing_anchor);
-    assert!(composition.blended(&env, &config.tolerance).is_none());
 }
 
 /// Dual strategy, anchor configured but unreadable (feed id never populated):
 /// the anchor leg carries the provider family that would have raised the
-/// hard-path error, and `blended` reports no price rather than panicking.
+/// hard-path error rather than panicking on the spot.
 #[test]
 fn dual_strategy_anchor_unreadable_carries_source_kind() {
     let env = Env::default();
@@ -177,14 +195,13 @@ fn dual_strategy_anchor_unreadable_carries_source_kind() {
         &SourceKind::MultiFeed
     );
     assert!(!composition.dual_missing_anchor);
-    assert!(composition.blended(&env, &config.tolerance).is_none());
 }
 
-/// Primary unreadable (feed id never populated): `blended`'s early return
-/// (`self.primary.result.as_ref().ok()?`) fires before the anchor is ever
-/// consulted, so the composition reports no price.
+/// Primary unreadable (feed id never populated): the leg carries the multi-feed
+/// family in place of an observation, and the traversal returns rather than
+/// panicking. Pairs with the Reflector case below.
 #[test]
-fn primary_unreadable_blended_returns_none() {
+fn primary_unreadable_carries_multi_feed_source_kind() {
     let env = Env::default();
     let now: u64 = 1_700_000_000;
     env.ledger().with_mut(|li| li.timestamp = now);
@@ -199,7 +216,6 @@ fn primary_unreadable_blended_returns_none() {
         composition.primary.result.as_ref().unwrap_err(),
         &SourceKind::MultiFeed
     );
-    assert!(composition.blended(&env, &config.tolerance).is_none());
 }
 
 /// Primary unreadable via a Reflector source: the leg carries
@@ -223,13 +239,12 @@ fn primary_reflector_unreadable_carries_source_kind() {
         composition.primary.result.as_ref().unwrap_err(),
         &SourceKind::Reflector
     );
-    assert!(composition.blended(&env, &config.tolerance).is_none());
 }
 
 /// A gate that answers `false` on the primary ends the traversal: the anchor
 /// source is never read, and the composition reports the same "dual strategy,
-/// no anchor leg" shape a missing anchor config produces, so `blended`
-/// withholds a price rather than treating the primary as a lone `Single` leg.
+/// no anchor leg" shape a missing anchor config produces, so a renderer cannot
+/// mistake the primary for a lone `Single` leg.
 #[test]
 fn gate_refusing_the_primary_leaves_the_anchor_unread() {
     let env = Env::default();
@@ -251,12 +266,11 @@ fn gate_refusing_the_primary_leaves_the_anchor_unread() {
     assert!(composition.primary.result.is_ok());
     assert!(composition.anchor.is_none());
     assert!(composition.dual_missing_anchor);
-    assert!(composition.blended(&env, &config.tolerance).is_none());
 }
 
 /// A leg past its max-stale window is still `Ok`: `compose` never panics on
-/// staleness, it only flags it. `blended` does not consult `stale` — that
-/// decision belongs to the renderer, not the traversal.
+/// staleness, it only flags it. What a stale leg costs is the renderer's
+/// decision, not the traversal's.
 #[test]
 fn stale_leg_stays_ok_with_stale_flag_set() {
     let env = Env::default();
@@ -275,6 +289,4 @@ fn stale_leg_stays_ok_with_stale_flag_set() {
 
     assert!(composition.primary.result.is_ok());
     assert!(composition.primary.stale);
-    // Readability, not staleness, drives `blended`.
-    assert!(composition.blended(&env, &config.tolerance).is_some());
 }
