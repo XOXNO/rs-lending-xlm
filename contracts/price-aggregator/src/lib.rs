@@ -24,6 +24,14 @@ mod tolerance;
 #[path = "../../../certora/price-aggregator/spec/mod.rs"]
 pub mod spec;
 
+/// Shared fixtures for `compose::tests` and `price::hard_path_error_tests`.
+/// Owned here (rather than under either test module) so the file is loaded
+/// exactly once; those two test trees are siblings and cannot otherwise
+/// share a `#[path]`-included module without loading it twice.
+#[cfg(test)]
+#[path = "../tests/oracle/support.rs"]
+mod test_support;
+
 use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
