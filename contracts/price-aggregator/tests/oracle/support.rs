@@ -27,6 +27,20 @@ const REFLECTOR_DECIMALS: u32 = 14;
 /// normalizes to exactly `WAD`.
 const REFLECTOR_ONE_RAW: i128 = 100_000_000_000_000;
 
+/// Age of the newer [`TwapReflector`] sample, in seconds before the ledger clock.
+pub(crate) const TWAP_NEWER_AGE_SECS: u64 = 100;
+
+/// Age of the older [`TwapReflector`] sample, in seconds before the ledger clock.
+/// A TWAP observation dates itself to this one, not the newer sample.
+pub(crate) const TWAP_OLDER_AGE_SECS: u64 = 200;
+
+/// Mean of the two [`TwapReflector`] samples, normalized to WAD.
+pub(crate) const TWAP_MEAN_WAD: i128 = 2 * WAD;
+
+/// Samples [`TwapReflector`] reports, raw at [`REFLECTOR_DECIMALS`]. Distinct
+/// values, so their mean is neither of them.
+const TWAP_SAMPLES_RAW: [i128; 2] = [REFLECTOR_ONE_RAW, 3 * REFLECTOR_ONE_RAW];
+
 pub(crate) fn register_redstone_feed(env: &Env) -> (Address, MockRedStonePriceFeedClient<'_>) {
     let id = env.register(MockRedStonePriceFeed, ());
     (id.clone(), MockRedStonePriceFeedClient::new(env, &id))
@@ -144,6 +158,28 @@ pub(crate) fn reflector_quoted(
     }
 }
 
+/// Reflector primary read as a TWAP over `records` samples, USD-based. Pairs
+/// with [`TwapReflector`], whose history is two samples: `records` chooses
+/// whether that history is long enough for `min_twap_observations`.
+pub(crate) fn reflector_twap(
+    reflector: &Address,
+    asset: &Address,
+    records: u32,
+    max_stale: u64,
+) -> AssetOracleConfig {
+    AssetOracleConfig {
+        primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+            contract: reflector.clone(),
+            asset: OracleAssetRef::Stellar(asset.clone()),
+            read_mode: OracleReadMode::Twap(records),
+            decimals: REFLECTOR_DECIMALS,
+            resolution_seconds: 300,
+            base: ReflectorBase::Usd,
+        }),
+        ..reflector_single(reflector, asset, max_stale)
+    }
+}
+
 /// Dual config pairing a RedStone primary with a Reflector spot anchor — a
 /// plain shape with no config-invariant violation in either leg, so the only
 /// way it fails is at read time.
@@ -229,6 +265,52 @@ impl ReflectorOracle for PricedReflector {
 
     fn prices(_env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
         None
+    }
+}
+
+/// Reflector-shaped stub reporting a two-sample TWAP history regardless of how
+/// many records the caller asks for. The samples carry distinct prices, so the
+/// mean is a value neither of them holds and cannot be mistaken for one sample
+/// echoed back, and distinct timestamps, so which one an observation dates
+/// itself to is observable. Spot reads report nothing: no fixture reads
+/// `lastprice` from it.
+#[contract]
+pub(crate) struct TwapReflector;
+
+#[contractimpl]
+impl ReflectorOracle for TwapReflector {
+    fn base(env: Env) -> ReflectorAsset {
+        ReflectorAsset::Other(Symbol::new(&env, "USD"))
+    }
+
+    fn decimals(_env: Env) -> u32 {
+        REFLECTOR_DECIMALS
+    }
+
+    fn resolution(_env: Env) -> u32 {
+        300
+    }
+
+    fn lastprice(_env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        None
+    }
+
+    fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
+        let now = env.ledger().timestamp();
+        let history = Vec::from_array(
+            &env,
+            [
+                ReflectorPriceData {
+                    price: TWAP_SAMPLES_RAW[0],
+                    timestamp: now.saturating_sub(TWAP_NEWER_AGE_SECS),
+                },
+                ReflectorPriceData {
+                    price: TWAP_SAMPLES_RAW[1],
+                    timestamp: now.saturating_sub(TWAP_OLDER_AGE_SECS),
+                },
+            ],
+        );
+        Some(history)
     }
 }
 

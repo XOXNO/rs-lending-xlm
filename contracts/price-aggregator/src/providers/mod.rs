@@ -92,3 +92,7 @@ cvlr_soroban_macros::apply_summary!(
         dispatch_required_source(cache, source)
     }
 );
+
+#[cfg(test)]
+#[path = "../../tests/oracle/providers.rs"]
+mod tests;

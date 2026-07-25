@@ -40,3 +40,7 @@ pub(crate) fn remove_oracle_config(env: &Env, asset: &Address) {
         .persistent()
         .remove(&AggregatorKey::AssetOracle(asset.clone()));
 }
+
+#[cfg(test)]
+#[path = "../tests/oracle/storage.rs"]
+mod tests;

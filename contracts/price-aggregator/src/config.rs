@@ -132,3 +132,7 @@ pub(crate) fn set_tolerance(env: &Env, asset: Address, tolerance: OracleToleranc
     storage::set_oracle_config(env, &asset, &oracle);
     emit_oracle_updated(env, &asset, &oracle);
 }
+
+#[cfg(test)]
+#[path = "../tests/oracle/config.rs"]
+mod tests;
