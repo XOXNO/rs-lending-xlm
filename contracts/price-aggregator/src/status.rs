@@ -9,12 +9,26 @@ use crate::observation::OracleObservation;
 use crate::providers;
 use crate::tolerance;
 
-/// Soft-resolves one asset into a diagnostic [`PriceStatus`].
+/// Soft-resolves one asset into a diagnostic [`PriceStatus`], memoized for the
+/// rest of the transaction.
 ///
 /// Missing config, unreadable feeds, or hard provider failures yield
 /// [`PriceStatus::unusable`] (or partial legs when only one side is readable).
 /// Staleness and dual-source deviation set flags instead of panicking.
+///
+/// The memo matters beyond the bulk view: a Reflector leg with a quoted base
+/// reprices through this, so assets sharing a quote resolve it once per
+/// transaction instead of once each.
 pub(crate) fn resolve_price_status(cache: &mut ResolutionContext, asset: &Address) -> PriceStatus {
+    if let Some(status) = cache.cached_status(asset) {
+        return status;
+    }
+    let status = compute_price_status(cache, asset);
+    cache.store_status(asset, status.clone());
+    status
+}
+
+fn compute_price_status(cache: &mut ResolutionContext, asset: &Address) -> PriceStatus {
     let Some(config) = cache.cached_asset_oracle_opt(asset) else {
         return PriceStatus::unusable();
     };
@@ -119,3 +133,7 @@ fn is_valid(final_wad: i128, stale: bool, deviation: bool, config: &AssetOracleC
     }
     final_wad >= config.min_sanity_price_wad && final_wad <= config.max_sanity_price_wad
 }
+
+#[cfg(test)]
+#[path = "../tests/oracle/status.rs"]
+mod tests;

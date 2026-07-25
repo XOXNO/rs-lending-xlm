@@ -1,7 +1,7 @@
 //! Hard-path USD price resolution (`resolve_usd_price`). Fail-closed.
 
 use common::errors::{GenericError, OracleError};
-use common::types::{AssetOracleConfig, OracleSourceConfig, PriceFeedRaw};
+use common::types::{AssetOracleConfig, OracleSourceConfig, OracleStrategy, PriceFeedRaw};
 use soroban_sdk::{assert_with_error, panic_with_error, Address};
 
 use crate::compose::{self, Composition, Leg, SourceKind};
@@ -60,7 +60,12 @@ pub(crate) fn resolve_guarded(
         !config.is_pending(asset),
         OracleError::OracleNotConfigured
     );
-    let composition = compose::compose(cache, config);
+    // Gating each leg as `compose` reads it leaves the anchor untouched until
+    // the primary has passed, so a config broken in both legs reverts with the
+    // primary's error rather than whichever leg the traversal reached last.
+    let composition = compose::compose(cache, config, |cache, source, leg| {
+        require_leg(cache, source, leg);
+    });
     let resolved = render_composition(cache, config, &composition);
     assert_with_error!(
         cache.env(),
@@ -78,9 +83,12 @@ pub(crate) fn resolve_guarded(
 
 /// Renders a [`Composition`] fail-closed: every leg must be readable and fresh,
 /// a dual strategy must carry an anchor, and a dual pair must agree inside the
-/// tolerance band. Walked in the order the error contract fixes — primary
-/// readable, primary fresh, anchor present, anchor readable, anchor fresh,
-/// band — so a config broken in several ways reverts with the first error.
+/// tolerance band.
+///
+/// The strategy, not the presence of an anchor leg, decides whether the band is
+/// checked: only `Single` may price off one source, so a `PrimaryWithAnchor`
+/// config that reached here without an anchor leg fails closed instead of
+/// quietly dropping the band that is the whole point of a dual source.
 fn render_composition(
     cache: &mut ResolutionContext,
     config: &AssetOracleConfig,
@@ -88,13 +96,20 @@ fn render_composition(
 ) -> ResolvedPrice {
     let primary = require_leg(cache, &config.primary, &composition.primary);
 
-    match (config.anchor.as_ref(), composition.anchor.as_ref()) {
-        // Missing anchor on dual strategy fails closed with NoLastPrice (#210),
-        // matching the read-time backstop.
-        (_, None) if composition.dual_missing_anchor => {
-            panic_with_error!(cache.env(), OracleError::NoLastPrice)
-        }
-        (Some(anchor_source), Some(anchor_leg)) => {
+    match config.strategy {
+        OracleStrategy::PrimaryWithAnchor => {
+            // A dual strategy prices only against an anchor: `compose` reports
+            // an anchorless config in `dual_missing_anchor`, and without both
+            // the source and the leg it read there is no tolerance band left to
+            // enforce. Fails closed with NoLastPrice (#210), matching the
+            // read-time backstop.
+            let (false, Some(anchor_source), Some(anchor_leg)) = (
+                composition.dual_missing_anchor,
+                config.anchor.as_ref(),
+                composition.anchor.as_ref(),
+            ) else {
+                panic_with_error!(cache.env(), OracleError::NoLastPrice)
+            };
             let anchor = require_leg(cache, anchor_source, anchor_leg);
             let final_price_wad = tolerance::midpoint_if_in_band(
                 cache.env(),
@@ -110,14 +125,20 @@ fn render_composition(
         }
         // Single strategy: a configured-but-unused anchor source is ignored,
         // exactly as `compose` ignores it.
-        _ => ResolvedPrice {
+        OracleStrategy::Single => ResolvedPrice {
             final_price_wad: primary.price_wad,
             timestamp: primary.timestamp(),
         },
     }
 }
 
-/// Requires a leg to be readable and fresh, in that order.
+/// Requires a leg to be readable and fresh, in that order, and yields its
+/// observation.
+///
+/// `resolve_guarded` runs this as `compose`'s per-leg gate, which fixes when a
+/// bad leg reverts relative to the next source read; `render_composition` runs
+/// it again to take the observation. It inspects only the already-read [`Leg`],
+/// so the second run cannot disagree with the first.
 fn require_leg<'a>(
     cache: &mut ResolutionContext,
     source: &OracleSourceConfig,
@@ -138,10 +159,14 @@ fn require_leg<'a>(
 ///
 /// `compose` reads softly, which reports a missing feed and a present-but-
 /// rejected payload (non-positive price, future timestamp, `i128` overflow)
-/// alike as one unreadable leg. The required read accepts exactly what the soft
-/// read accepts, so replaying it here reverts with the provider's own code
-/// instead of one guessed from the source family. The family error remains the
-/// backstop for the missing-feed case.
+/// alike as one unreadable leg. Replaying the required read reverts with the
+/// provider's own code instead of one guessed from the source family.
+///
+/// The family error is the backstop for the one config the replay accepts after
+/// the soft read rejected it: `decimals > 18`, which
+/// `try_normalize_positive_price` refuses and `Wad::from_token` downscales
+/// instead. Unreachable under `--features certora`, where the summarized soft
+/// read always succeeds and no leg is ever rejected.
 fn reject_leg(cache: &mut ResolutionContext, source: &OracleSourceConfig, kind: SourceKind) -> ! {
     providers::read_required_source(cache, source);
     match kind {
@@ -153,3 +178,7 @@ fn reject_leg(cache: &mut ResolutionContext, source: &OracleSourceConfig, kind: 
 #[cfg(test)]
 #[path = "../tests/oracle/hard_path_errors.rs"]
 mod hard_path_error_tests;
+
+#[cfg(test)]
+#[path = "../tests/oracle/error_precedence.rs"]
+mod error_precedence_tests;

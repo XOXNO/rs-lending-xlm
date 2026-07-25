@@ -3,7 +3,7 @@
 
 use common::errors::OracleError;
 use common::oracle::providers::redstone::RedStonePriceData;
-use common::types::{AssetOracleConfig, PriceFeedRaw};
+use common::types::{AssetOracleConfig, PriceFeedRaw, PriceStatus};
 use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 
 use crate::storage;
@@ -12,6 +12,11 @@ pub(crate) struct ResolutionContext {
     env: Env,
     /// Token-rooted USD price feeds resolved this transaction.
     token_prices: Map<Address, PriceFeedRaw>,
+    /// Diagnostic statuses resolved this transaction. `resolve_usd_price` never
+    /// reads this map. The one place a status backs a fail-closed price is the
+    /// Reflector quoted-base reprice, which takes the quote only when its
+    /// status is `valid` — the soft mirror of every hard-path gate.
+    price_statuses: Map<Address, PriceStatus>,
     /// Assets whose USD price is being resolved right now (the resolution stack).
     /// A quote/anchor cycle (A quoted in B, B quoted in A) recurses until this
     /// shadow stack traps the re-entry and reverts with a clear error.
@@ -31,6 +36,7 @@ impl ResolutionContext {
         ResolutionContext {
             env: env.clone(),
             token_prices: Map::new(env),
+            price_statuses: Map::new(env),
             resolving: Vec::new(env),
             bulk_feed_cache: Map::new(env),
             asset_oracle: Map::new(env),
@@ -59,6 +65,15 @@ impl ResolutionContext {
 
     pub(crate) fn store_price(&mut self, asset: &Address, feed: PriceFeedRaw) {
         self.token_prices.set(asset.clone(), feed);
+    }
+
+    /// Diagnostic status resolved earlier this transaction, if any.
+    pub(crate) fn cached_status(&self, asset: &Address) -> Option<PriceStatus> {
+        self.price_statuses.get(asset.clone())
+    }
+
+    pub(crate) fn store_status(&mut self, asset: &Address, status: PriceStatus) {
+        self.price_statuses.set(asset.clone(), status);
     }
 
     /// True when `asset` is already on the resolution stack (soft-path cycle

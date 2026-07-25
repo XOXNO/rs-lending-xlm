@@ -1,6 +1,13 @@
-//! Composition: gathers every configured source into one `Composition` without
-//! deciding what a failure means. `price` renders it fail-closed, `status`
-//! renders it as diagnostic flags.
+//! Composition: one traversal that gathers every configured source into a
+//! `Composition` without deciding what a failure means. The leg-level rules —
+//! the soft read and the staleness flag — live here, so every renderer applies
+//! the same ones.
+//!
+//! Callers supply a per-leg gate that runs the instant a leg is read, before
+//! the next source is touched. Reading a leg is soft about per-asset problems
+//! but still reverts on a config-invariant violation, so the gate is what keeps
+//! a broken primary from being outranked by a later leg. A gate that returns
+//! yields a `Composition` carrying every leg the strategy calls for.
 
 use common::oracle::observation::is_stale;
 use common::types::{AssetOracleConfig, OracleSourceConfig, OracleStrategy, OracleTolerance};
@@ -11,8 +18,9 @@ use crate::observation::OracleObservation;
 use crate::providers;
 use crate::tolerance::{midpoint_price_or_zero, within_tolerance_band};
 
-/// Which provider family a leg came from. The hard path needs this to raise the
-/// same error code the provider used to raise itself.
+/// Which provider family a leg came from. The hard path replays the required
+/// read to reproduce the provider's own error; this family is the backstop for
+/// the cases where that replay returns instead of reverting.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SourceKind {
     Reflector,
@@ -30,17 +38,21 @@ impl SourceKind {
     }
 }
 
-/// One resolved source. `Err` carries the provider family so the hard path can
-/// raise `NoLastPrice` or `InvalidTicker` exactly as before.
+/// One resolved source. `Err` carries the provider family that backs the hard
+/// path's `NoLastPrice` / `InvalidTicker` choice.
 pub(crate) struct Leg {
     pub result: Result<OracleObservation, SourceKind>,
     pub stale: bool,
 }
 
-/// Everything both paths need, gathered in one traversal and without panicking.
+/// Every leg the strategy calls for. A leg that cannot be read is reported as
+/// an unreadable `Leg`, but a config-invariant violation still reverts from
+/// inside the read rather than reaching here.
 pub(crate) struct Composition {
     pub primary: Leg,
-    /// `None` when the strategy is `Single`.
+    /// `None` when no anchor was read: either the strategy is `Single`, or it
+    /// is dual and the config carries no anchor. `dual_missing_anchor` tells
+    /// the two apart.
     pub anchor: Option<Leg>,
     /// Strategy is dual but the config carries no anchor.
     pub dual_missing_anchor: bool,
@@ -69,12 +81,24 @@ fn read_leg(cache: &mut ResolutionContext, source: &OracleSourceConfig, max_stal
 }
 
 /// Resolves every configured source without deciding what a failure means.
-/// `price` renders failures as panics; `status` renders them as flags.
-pub(crate) fn compose(cache: &mut ResolutionContext, config: &AssetOracleConfig) -> Composition {
+///
+/// `gate` runs on each leg the instant it is read and before the next source is
+/// touched, so a fail-closed caller rejects a broken primary while the anchor
+/// is still untouched. A caller that wants every leg regardless of failure
+/// passes a gate that does nothing.
+pub(crate) fn compose<G>(
+    cache: &mut ResolutionContext,
+    config: &AssetOracleConfig,
+    mut gate: G,
+) -> Composition
+where
+    G: FnMut(&mut ResolutionContext, &OracleSourceConfig, &Leg),
+{
     let primary_max_stale = config
         .primary
         .max_stale_seconds(config.max_price_stale_seconds);
     let primary = read_leg(cache, &config.primary, primary_max_stale);
+    gate(cache, &config.primary, &primary);
 
     match config.strategy {
         OracleStrategy::Single => Composition {
@@ -92,6 +116,7 @@ pub(crate) fn compose(cache: &mut ResolutionContext, config: &AssetOracleConfig)
                 let anchor_max_stale =
                     anchor_config.max_stale_seconds(config.max_price_stale_seconds);
                 let anchor = read_leg(cache, anchor_config, anchor_max_stale);
+                gate(cache, anchor_config, &anchor);
                 Composition {
                     primary,
                     anchor: Some(anchor),

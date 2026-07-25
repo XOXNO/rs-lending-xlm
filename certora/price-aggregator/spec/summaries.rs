@@ -1,5 +1,6 @@
 //! Sound over-approximation of successful external provider observations.
-//! Freshness is owned by compose `require_fresh`, not this summary.
+//! Freshness is owned by the renderers — `price::require_leg` reads the `stale`
+//! flag `compose` derives — not by this summary.
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
@@ -33,4 +34,21 @@ pub(crate) fn read_required_source_summary(
         observed_at,
         published_at,
     }
+}
+
+/// Soft read of the same modeled observation. Every leg a successful `price`
+/// call resolves comes through `providers::try_read_source`, so summarizing it
+/// keeps the rules on the composition and rendering logic instead of descending
+/// into provider wire decoding and cross-contract calls.
+///
+/// Always `Some`, which is sound for the `price` / `prices` rules: there an
+/// unreadable leg only reverts, and a reverting path cannot violate a rule. It
+/// is *not* sound for a rule over `price_status` / `prices_status`, which
+/// answer `PriceStatus::unusable` without reverting — such a rule needs an
+/// unsummarized read or its own conf.
+pub(crate) fn try_read_source_summary(
+    cache: &mut ResolutionContext,
+    source: &OracleSourceConfig,
+) -> Option<OracleObservation> {
+    Some(read_required_source_summary(cache, source))
 }

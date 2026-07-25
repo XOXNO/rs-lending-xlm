@@ -1,8 +1,9 @@
 //! Reflector SEP-40 price provider: spot or TWAP read, repricing a quoted base
 //! into USD. The hard read path reverts on missing/short TWAP history; the
-//! soft (status) path maps every per-asset read problem to `None` so
-//! diagnostic views never revert. Staleness is owned by the callers (`compose`
-//! reverts, `status` flags), not by this reader.
+//! soft path maps every per-asset read problem to `None` for the diagnostic
+//! views and for `compose`'s traversal. Only config-invariant violations
+//! (`validate_twap_records`) revert in both disciplines. Staleness is owned by
+//! the callers (`price` reverts, `status` flags), not by this reader.
 
 use common::errors::OracleError;
 use common::math::fp::Wad;
