@@ -1,17 +1,15 @@
-//! Client-only ABI mirror of the controller's admin entrypoints (production
-//! surface).
+//! Owner and governance ABI of the lending controller (production surface).
 //!
 //! `#[contractclient]` generates `ControllerAdminClient` for governance
-//! forwarding. Matches deployed controller-admin entrypoints by ABI name.
-//! Omits `accept_ownership` and `get_app_version` (not on this client trait).
+//! forwarding. The controller contract implements this trait, so the compiler
+//! enforces that client and deployed entrypoints stay in step.
 
 use common::types::{
     HubAssetKey, InterestRateModel, MarketParamsRaw, PositionLimits, SpokeAssetArgs,
-    SpokeAssetConfig,
 };
 use soroban_sdk::{contractclient, Address, BytesN, Env};
 
-/// Mirrors the controller admin ABI for governance forwarding.
+/// Owner-gated controller surface for governance forwarding.
 #[contractclient(name = "ControllerAdminClient")]
 pub trait ControllerAdmin {
     // --- wiring ---
@@ -53,7 +51,23 @@ pub trait ControllerAdmin {
     /// * `UpdateMinBorrowCollateralEvent` — new floor.
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128);
 
-    // --- hubs / spokes / listings ---
+    /// Registers or removes a position manager (`false` deletes). Owner only
+    /// (gov timelock).
+    fn set_position_manager(env: Env, manager: Address, is_active: bool);
+
+    /// Allows a Blend pool as a migration source. Owner only (gov timelock).
+    ///
+    /// # Events
+    /// * `ApproveBlendPoolEvent` — `approved = true`.
+    fn approve_blend_pool(env: Env, pool: Address);
+
+    /// Revokes a Blend migration allowlist entry. Owner only (gov timelock).
+    ///
+    /// # Events
+    /// * `ApproveBlendPoolEvent` — `approved = false`.
+    fn revoke_blend_pool(env: Env, pool: Address);
+
+    // --- hubs and spokes ---
 
     /// Creates an active hub; inert until markets list. Owner only (gov;
     /// GUARDIAN immediate path).
@@ -127,16 +141,6 @@ pub trait ControllerAdmin {
     /// * `UpdateSpokeAssetEvent` — resolved listing.
     fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs);
 
-    /// Unlists a hub-asset when spoke usage is zero. Owner only (gov timelock).
-    ///
-    /// # Errors
-    /// * `AssetNotInSpoke` — listing missing.
-    /// * `SpokeAssetInUse` — scaled supply or borrow usage is non-zero.
-    ///
-    /// # Events
-    /// * `RemoveSpokeAssetEvent` — removed listing key.
-    fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32);
-
     /// Tightens `paused`/`frozen` on a listing (clearing a flag reverts). Owner
     /// only (gov; GUARDIAN immediate path).
     ///
@@ -154,31 +158,24 @@ pub trait ControllerAdmin {
         frozen: bool,
     );
 
-    /// Per-spoke risk listing (`spoke_id >= 1`).
+    /// Unlists a hub-asset when spoke usage is zero. Owner only (gov timelock).
     ///
     /// # Errors
     /// * `AssetNotInSpoke` — listing missing.
-    fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig;
-
-    // --- integrations ---
-
-    /// Allows a Blend pool as a migration source. Owner only (gov timelock).
+    /// * `SpokeAssetInUse` — scaled supply or borrow usage is non-zero.
     ///
     /// # Events
-    /// * `ApproveBlendPoolEvent` — `approved = true`.
-    fn approve_blend_pool(env: Env, pool: Address);
+    /// * `RemoveSpokeAssetEvent` — removed listing key.
+    fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32);
 
-    /// Revokes a Blend migration allowlist entry. Owner only (gov timelock).
+    // --- pool lifecycle ---
+
+    /// Deploys the central liquidity pool once from `wasm_hash` (address from
+    /// controller + salt). Owner only (gov timelock).
     ///
-    /// # Events
-    /// * `ApproveBlendPoolEvent` — `approved = false`.
-    fn revoke_blend_pool(env: Env, pool: Address);
-
-    /// Registers or removes a position manager (`false` deletes). Owner only
-    /// (gov timelock).
-    fn set_position_manager(env: Env, manager: Address, is_active: bool);
-
-    // --- pool ---
+    /// # Errors
+    /// * `PoolAlreadyDeployed` — pool already deployed.
+    fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address;
 
     /// Creates a `(hub_id, asset)` market on the deployed pool. Owner only
     /// (gov timelock).
@@ -214,13 +211,6 @@ pub trait ControllerAdmin {
     /// * `UpdateMarketParamsEvent` — new rate-model parameters.
     fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel);
 
-    /// Deploys the central liquidity pool once from `wasm_hash` (address from
-    /// controller + salt). Owner only (gov timelock).
-    ///
-    /// # Errors
-    /// * `PoolAlreadyDeployed` — pool already deployed.
-    fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address;
-
     /// Upgrades the deployed central pool Wasm to `new_wasm_hash`. Owner only
     /// (gov timelock).
     ///
@@ -228,7 +218,25 @@ pub trait ControllerAdmin {
     /// * `PoolNotInitialized` — pool not deployed.
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>);
 
-    // --- lifecycle ---
+    // --- emergency ---
+
+    /// Socializes an underwater account's residual bad debt via the supply index
+    /// with no token transfer. Owner only (gov timelock). Unlike the
+    /// permissionless `clean_bad_debt`, this bypasses the dust-collateral
+    /// threshold so debt on an account whose collateral cannot be seized
+    /// (issuer-frozen or clawed-back) can still be retired. Requires the account
+    /// to be genuinely underwater.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `DebtPositionNotFound` — the account carries no debt.
+    /// * `CannotCleanBadDebt` — the account is not underwater (collateral >= debt).
+    ///
+    /// # Events
+    /// * topics — `["debt", "bad_debt"]`
+    fn force_socialize_bad_debt(env: Env, account_id: u64);
+
+    // --- lifecycle and ownership ---
 
     /// Pauses the contract, blocking risk-increasing flows. Owner only (gov;
     /// GUARDIAN immediate path).
@@ -249,6 +257,9 @@ pub trait ControllerAdmin {
     /// * `InternalError` — `new_version` is not greater than the current version.
     fn migrate(env: Env, new_version: u32);
 
+    /// Returns the stored app version.
+    fn get_app_version(env: Env) -> u32;
+
     /// Arms a two-step ownership transfer to `new_owner` until
     /// `live_until_ledger`; the pending owner must call `accept_ownership`.
     /// Owner only (gov timelock).
@@ -259,4 +270,11 @@ pub trait ControllerAdmin {
     /// # Errors
     /// * `OwnerNotSet` — no current owner.
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32);
+
+    /// Completes a pending ownership transfer and syncs the access-control
+    /// admin. Pending owner only (armed by `transfer_ownership`).
+    ///
+    /// # Errors
+    /// * `OwnerNotSet` — no owner before or after the transfer.
+    fn accept_ownership(env: Env);
 }

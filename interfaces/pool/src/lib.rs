@@ -180,6 +180,7 @@ pub trait LiquidityPoolInterface {
     /// * `InternalError` — the repay leg overpaid (structurally unexpected).
     /// * `NetSettleRoundsToZeroShares` — a positive settlement burns zero scaled
     ///   units on either leg.
+    /// * `PoolInsolvent` — the projected state leaves debt with zero supply.
     /// * `MathOverflow` — scaled-share accounting overflows.
     ///
     /// # Events
@@ -192,7 +193,8 @@ pub trait LiquidityPoolInterface {
     ///
     /// # Errors
     /// * `PoolNotInitialized` — an entry targets a market with no stored state.
-    /// * `MathOverflow` — bad-debt, revenue, or scaled-total accounting overflows.
+    /// * `InternalError` — a seized deposit exceeds the market's supply shares.
+    /// * `MathOverflow` — bad-debt, revenue, or scaled-share accounting overflows.
     ///
     /// # Events
     /// * topics — `["market", "batch_state_update"]`
@@ -281,6 +283,7 @@ pub trait LiquidityPoolInterface {
     /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     /// * `AmountMustBePositive` — `amount` is negative.
     /// * `NoSuppliersToReward` — the market has no scaled supply to receive rewards.
+    /// * `SupplyIndexRewardCeiling` — the reward would push the supply index past its cap.
     /// * `MathOverflow` — index or cash accounting overflows.
     ///
     /// # Events
@@ -322,39 +325,73 @@ pub trait LiquidityPoolInterface {
     ///
     /// # Arguments
     /// * `new_wasm_hash` — hash of already-installed Wasm to run on next invocation.
+    ///
+    /// # Errors
+    /// * `OwnableUnauthorized` — the caller is not the owner.
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
 
     // --- views ---
 
     /// Returns checkpoint utilization in RAY for `hub_asset` (no accrual).
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128;
 
     /// Returns tracked `cash` in asset decimals (not live SAC balance).
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     fn get_reserves(env: Env, hub_asset: HubAssetKey) -> i128;
 
     /// Returns the checkpoint deposit rate in RAY (no accrual).
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     fn get_deposit_rate(env: Env, hub_asset: HubAssetKey) -> i128;
 
     /// Returns the checkpoint borrow rate in RAY (no accrual).
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     fn get_borrow_rate(env: Env, hub_asset: HubAssetKey) -> i128;
 
     /// Returns floored claimable protocol revenue in asset decimals.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     fn get_revenue(env: Env, hub_asset: HubAssetKey) -> i128;
 
     /// Returns total supplied amount in asset decimals (checkpoint, no accrual).
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     fn get_supplied_amount(env: Env, hub_asset: HubAssetKey) -> i128;
 
     /// Returns total borrowed amount in asset decimals (checkpoint, no accrual).
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     fn get_borrowed_amount(env: Env, hub_asset: HubAssetKey) -> i128;
 
-    /// Returns seconds since the market last accrued interest.
+    /// Returns milliseconds since the market last accrued interest.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     fn get_delta_time(env: Env, hub_asset: HubAssetKey) -> u64;
 
     /// Returns raw params and accounting state (checkpoint). Prefer
     /// `get_bulk_indexes` for live indexes.
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     fn get_sync_data(env: Env, hub_asset: HubAssetKey) -> PoolSyncData;
 
     /// Returns borrow/supply indexes accrued to now for each hub-asset (simulate,
     /// no write).
+    ///
+    /// # Errors
+    /// * `PoolNotInitialized` — an entry targets a market with no stored state.
+    /// * `MathOverflow` — accrual or timestamp math overflows.
     fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw>;
 }
