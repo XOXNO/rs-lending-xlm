@@ -42,6 +42,9 @@ pub(crate) fn apply(
         outcome.fee,
         outcome.mutation.amount_received,
     );
+    // Snapshot, not commit: `accounting` already persisted this exact state, and
+    // the event must not publish before the payout above can fail.
+    events::emit_market_state(env, outcome.cache.snapshot());
     outcome.mutation
 }
 

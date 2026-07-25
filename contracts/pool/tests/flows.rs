@@ -462,6 +462,31 @@ fn test_market_mutations_emit_indexer_events() {
         1,
         "last invocation (update_indexes) should retain one state batch event"
     );
+
+    // create_strategy mints debt, debits cash, and mints revenue shares, so an
+    // indexer needs the resulting market state alongside the strategy fee.
+    t.env.as_contract(&t.pool, || {
+        let key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+        params.flashloan_fee = 100;
+        t.env.storage().persistent().set(&key, &params);
+    });
+    client.create_strategy(
+        &Address::generate(&t.env),
+        &t.action(0, 1_000_000_000),
+        &true,
+    );
+    let strategy_events = t.env.events().all();
+    assert_eq!(
+        count_topic(&strategy_events, "strategy", "fee"),
+        1,
+        "last invocation (create_strategy) should retain one strategy fee event"
+    );
+    assert_eq!(
+        count_topic(&strategy_events, "market", "batch_state_update"),
+        1,
+        "last invocation (create_strategy) should retain one state batch event"
+    );
 }
 
 #[test]
