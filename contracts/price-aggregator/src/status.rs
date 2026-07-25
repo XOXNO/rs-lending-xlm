@@ -43,10 +43,14 @@ fn compute_price_status(cache: &mut ResolutionContext, asset: &Address) -> Price
         return PriceStatus::unusable();
     }
 
-    // The gate does nothing: a diagnostic wants every leg the strategy calls
-    // for, including the ones `price` rejects on sight, so no leg may cut the
-    // traversal short here.
-    let composition = compose::compose(cache, &config, |_, _, _| {});
+    // The gate stops at the first unreadable leg, because the renderer below
+    // returns `unusable()` on an unreadable primary without ever consulting the
+    // anchor. Reading it anyway would not just waste a cross-contract call: a
+    // soft read is not panic-free, so an anchor whose Reflector contract
+    // reverts at read time — paused, archived, or upgraded, with nothing wrong
+    // in the config — would revert this view and, through a quoted base, the
+    // fail-closed path that reprices on it.
+    let composition = compose::compose(cache, &config, |_, _, leg| leg.result.is_ok());
     let Ok(primary) = composition.primary.result.as_ref() else {
         return PriceStatus::unusable();
     };

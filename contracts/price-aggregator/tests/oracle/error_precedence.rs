@@ -10,6 +10,12 @@
 //! `broken_anchor_alone_reverts_twap_error` is the control: it shows the anchor
 //! fault used here really does revert, so the two precedence tests are pinning
 //! an ordering rather than passing vacuously.
+//!
+//! The same ordering has to survive one indirection: a Reflector primary with a
+//! quoted base reprices its quote through the *soft* status path, so the
+//! quote's own traversal sits underneath a fail-closed `price`. If that
+//! traversal reads past a broken quote primary, an anchor revert one level down
+//! surfaces as `price`'s error.
 
 use super::*;
 use common::constants::WAD;
@@ -22,7 +28,10 @@ use soroban_sdk::{Env, String};
 
 use crate::{PriceAggregator, PriceAggregatorClient};
 
-use crate::test_support::{redstone_dual, register_redstone_feed, EmptyReflector};
+use crate::test_support::{
+    redstone_dual, redstone_primary_reflector_anchor, reflector_quoted, register_redstone_feed,
+    EmptyReflector, PricedReflector, RevertingReflector,
+};
 
 const NOW: u64 = 1_700_000_000;
 const MAX_STALE: u64 = 60;
@@ -93,6 +102,47 @@ fn unreadable_primary_outranks_broken_anchor() {
     client.seed_oracle_config(
         &asset,
         &dual_with_unreadable_twap_anchor(&env, &feed, "MISSING", &asset),
+    );
+
+    assert_eq!(
+        client.try_price(&asset).unwrap_err(),
+        Ok(soroban_sdk::Error::from_contract_error(
+            GenericError::InvalidTicker as u32
+        ))
+    );
+}
+
+// A quote asset broken in both legs, reached through a quoted base: the
+// quote's primary error surfaces, not its anchor's read-time revert.
+//
+// Every config here is one `set_oracle_config` accepts; only the runtime fails.
+// The quote's soft traversal runs underneath the hard path, so an anchor read
+// it does not need is a revert the hard path cannot catch — `price` would
+// report `OracleNotConfigured` (#216) from a contract it merely quotes against,
+// rather than `InvalidTicker` (#3) for the feed that is actually missing.
+#[test]
+fn quoted_base_reports_the_quote_primary_error_not_its_anchor_revert() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| li.timestamp = NOW);
+    let client = register_agg(&env);
+    let asset = Address::generate(&env);
+    let quote = Address::generate(&env);
+
+    // Quote: RedStone primary whose feed id is never populated, anchored on a
+    // Reflector contract that reverts when read.
+    let (feed, _feed_client) = register_redstone_feed(&env);
+    let reverting = env.register(RevertingReflector, ());
+    client.seed_oracle_config(
+        &quote,
+        &redstone_primary_reflector_anchor(&env, &feed, "MISSING", &reverting, &quote, MAX_STALE),
+    );
+
+    // Asset: a readable Reflector spot priced in `quote`.
+    let priced = env.register(PricedReflector, ());
+    client.seed_oracle_config(
+        &asset,
+        &reflector_quoted(&priced, &asset, &quote, MAX_STALE),
     );
 
     assert_eq!(

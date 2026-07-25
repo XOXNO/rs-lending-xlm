@@ -18,7 +18,8 @@ use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Env, String};
 
 use crate::test_support::{
-    redstone_dual, redstone_single, reflector_single, register_redstone_feed, EmptyReflector,
+    redstone_dual, redstone_primary_reflector_anchor, redstone_single, reflector_quoted,
+    reflector_single, register_redstone_feed, EmptyReflector, PricedReflector, RevertingReflector,
 };
 use crate::{PriceAggregator, PriceAggregatorClient};
 
@@ -126,6 +127,40 @@ fn valid_status_implies_hard_path_succeeds() {
 
         assert!(client.price_status(&asset).valid);
         assert_agrees("dual in band", &client, &asset);
+    }
+
+    // Success (quoted base): a Reflector primary priced through a USD-rooted
+    // quote. The only shape that consumes `valid` on the fail-closed path, so
+    // an agreement test without it pins the invariant everywhere except where
+    // it is load-bearing.
+    {
+        let env = env_at_now();
+        let client = register_agg(&env);
+        let asset = Address::generate(&env);
+        let quote = Address::generate(&env);
+        let (feed, feed_client) = register_redstone_feed(&env);
+        feed_client.set_price(&String::from_str(&env, "QUOTE/USD"), &WAD);
+        client.seed_oracle_config(&quote, &redstone_single(&env, &feed, "QUOTE/USD", 900));
+        let reflector = env.register(PricedReflector, ());
+        client.seed_oracle_config(&asset, &reflector_quoted(&reflector, &asset, &quote, 900));
+
+        assert!(client.price_status(&asset).valid);
+        assert_agrees("quoted base", &client, &asset);
+    }
+
+    // Quoted base whose quote leg is unusable (quote feed id never populated):
+    // the reprice has nothing to rest on, so both paths must refuse it.
+    {
+        let env = env_at_now();
+        let client = register_agg(&env);
+        let asset = Address::generate(&env);
+        let quote = Address::generate(&env);
+        let (feed, _feed_client) = register_redstone_feed(&env);
+        client.seed_oracle_config(&quote, &redstone_single(&env, &feed, "MISSING", 900));
+        let reflector = env.register(PricedReflector, ());
+        client.seed_oracle_config(&asset, &reflector_quoted(&reflector, &asset, &quote, 900));
+
+        assert_agrees("quoted base, unusable quote", &client, &asset);
     }
 
     // No `AssetOracle` at all.
@@ -293,6 +328,35 @@ fn valid_status_implies_hard_path_succeeds() {
 
         assert_agrees("sanity band disabled", &client, &asset);
     }
+}
+
+/// An unreadable primary settles the answer, so the anchor is never read — and
+/// here that matters, because reading it would revert.
+///
+/// Nothing in this config is invalid: a RedStone primary with a Reflector spot
+/// anchor is a shape `set_oracle_config` and the governance probe both accept.
+/// Only the runtime fails — the primary feed id is absent and the anchor's
+/// Reflector contract reverts, as a paused, archived, or upgraded one would. A
+/// diagnostic view that touched the anchor anyway would inherit that revert
+/// instead of reporting `unusable`.
+#[test]
+fn unreadable_primary_leaves_a_reverting_anchor_unread() {
+    let env = env_at_now();
+    let client = register_agg(&env);
+    let asset = Address::generate(&env);
+    // "MISSING" is never populated on the mock feed.
+    let (feed, _feed_client) = register_redstone_feed(&env);
+    let reflector = env.register(RevertingReflector, ());
+    client.seed_oracle_config(
+        &asset,
+        &redstone_primary_reflector_anchor(&env, &feed, "MISSING", &reflector, &asset, 900),
+    );
+
+    assert_eq!(
+        client.try_price_status(&asset),
+        Ok(Ok(PriceStatus::unusable()))
+    );
+    assert_agrees("unreadable primary, reverting anchor", &client, &asset);
 }
 
 /// An agreeing dual pair reports the older leg's timestamp, not the primary's.

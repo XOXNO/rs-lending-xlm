@@ -4,10 +4,14 @@
 //! the same ones.
 //!
 //! Callers supply a per-leg gate that runs the instant a leg is read, before
-//! the next source is touched. Reading a leg is soft about per-asset problems
-//! but still reverts on a config-invariant violation, so the gate is what keeps
-//! a broken primary from being outranked by a later leg. A gate that returns
-//! yields a `Composition` carrying every leg the strategy calls for.
+//! the next source is touched, and answers whether the traversal continues.
+//! Reading a leg is soft about per-asset problems but neither free nor
+//! panic-free: it costs a cross-contract call, and a config-invariant violation
+//! or a provider contract that reverts at read time still reverts from inside
+//! the read. So the gate is what keeps a broken primary from being outranked by
+//! a later leg, and what keeps a caller that has already decided from paying
+//! for — and reverting inside — a leg it would discard. Answering `true`
+//! throughout yields a `Composition` carrying every leg the strategy calls for.
 
 use common::oracle::observation::is_stale;
 use common::types::{AssetOracleConfig, OracleSourceConfig, OracleStrategy, OracleTolerance};
@@ -45,16 +49,20 @@ pub(crate) struct Leg {
     pub stale: bool,
 }
 
-/// Every leg the strategy calls for. A leg that cannot be read is reported as
-/// an unreadable `Leg`, but a config-invariant violation still reverts from
-/// inside the read rather than reaching here.
+/// Every leg the strategy calls for, up to the point the gate stopped. A leg
+/// that cannot be read is reported as an unreadable `Leg`, but a
+/// config-invariant violation still reverts from inside the read rather than
+/// reaching here.
 pub(crate) struct Composition {
     pub primary: Leg,
-    /// `None` when no anchor was read: either the strategy is `Single`, or it
-    /// is dual and the config carries no anchor. `dual_missing_anchor` tells
-    /// the two apart.
+    /// `None` when no anchor leg was read: either the strategy is `Single`, or
+    /// it is dual and no anchor leg reached the composition.
+    /// `dual_missing_anchor` tells the two apart.
     pub anchor: Option<Leg>,
-    /// Strategy is dual but the config carries no anchor.
+    /// The strategy called for an anchor leg this composition does not carry —
+    /// the config omits the anchor source, or the gate ended the traversal
+    /// before it was read. Either way there is no second opinion to price
+    /// against, which is what a renderer needs to know.
     pub dual_missing_anchor: bool,
 }
 
@@ -83,46 +91,47 @@ fn read_leg(cache: &mut ResolutionContext, source: &OracleSourceConfig, max_stal
 /// Resolves every configured source without deciding what a failure means.
 ///
 /// `gate` runs on each leg the instant it is read and before the next source is
-/// touched, so a fail-closed caller rejects a broken primary while the anchor
-/// is still untouched. A caller that wants every leg regardless of failure
-/// passes a gate that does nothing.
+/// touched, and answers whether to keep going. A fail-closed caller reverts
+/// from inside the gate, so it always answers `true` and rejects a broken
+/// primary while the anchor is still untouched. A caller whose verdict is
+/// already settled by the primary answers `false` instead, and the anchor is
+/// never read.
 pub(crate) fn compose<G>(
     cache: &mut ResolutionContext,
     config: &AssetOracleConfig,
     mut gate: G,
 ) -> Composition
 where
-    G: FnMut(&mut ResolutionContext, &OracleSourceConfig, &Leg),
+    G: FnMut(&mut ResolutionContext, &OracleSourceConfig, &Leg) -> bool,
 {
     let primary_max_stale = config
         .primary
         .max_stale_seconds(config.max_price_stale_seconds);
     let primary = read_leg(cache, &config.primary, primary_max_stale);
-    gate(cache, &config.primary, &primary);
+    let proceed = gate(cache, &config.primary, &primary);
 
-    match config.strategy {
-        OracleStrategy::Single => Composition {
+    let dual = matches!(config.strategy, OracleStrategy::PrimaryWithAnchor);
+    let anchor_config = if dual { config.anchor.as_ref() } else { None };
+
+    match anchor_config {
+        Some(anchor_config) if proceed => {
+            let anchor_max_stale = anchor_config.max_stale_seconds(config.max_price_stale_seconds);
+            let anchor = read_leg(cache, anchor_config, anchor_max_stale);
+            // Nothing follows the anchor, so its answer has no read left to stop.
+            gate(cache, anchor_config, &anchor);
+            Composition {
+                primary,
+                anchor: Some(anchor),
+                dual_missing_anchor: false,
+            }
+        }
+        // A `Single` strategy calls for no anchor; a dual one that reaches here
+        // wanted an anchor leg and has none, whether the config omitted the
+        // source or the gate stopped before the read.
+        _ => Composition {
             primary,
             anchor: None,
-            dual_missing_anchor: false,
-        },
-        OracleStrategy::PrimaryWithAnchor => match config.anchor.as_ref() {
-            None => Composition {
-                primary,
-                anchor: None,
-                dual_missing_anchor: true,
-            },
-            Some(anchor_config) => {
-                let anchor_max_stale =
-                    anchor_config.max_stale_seconds(config.max_price_stale_seconds);
-                let anchor = read_leg(cache, anchor_config, anchor_max_stale);
-                gate(cache, anchor_config, &anchor);
-                Composition {
-                    primary,
-                    anchor: Some(anchor),
-                    dual_missing_anchor: false,
-                }
-            }
+            dual_missing_anchor: dual,
         },
     }
 }

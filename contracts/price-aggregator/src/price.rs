@@ -63,8 +63,10 @@ pub(crate) fn resolve_guarded(
     // Gating each leg as `compose` reads it leaves the anchor untouched until
     // the primary has passed, so a config broken in both legs reverts with the
     // primary's error rather than whichever leg the traversal reached last.
+    // The gate always continues: a leg it rejects never returns at all.
     let composition = compose::compose(cache, config, |cache, source, leg| {
         require_leg(cache, source, leg);
+        true
     });
     let resolved = render_composition(cache, config, &composition);
     assert_with_error!(

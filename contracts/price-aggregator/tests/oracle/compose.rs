@@ -25,7 +25,7 @@ fn single_strategy_readable_leg_blends_to_primary() {
     feed_client.set_price(&String::from_str(&env, "BTC/USD"), &WAD);
     let config = redstone_single(&env, &feed, "BTC/USD", 900);
 
-    let composition = compose(&mut cache, &config, |_, _, _| {});
+    let composition = compose(&mut cache, &config, |_, _, _| true);
 
     let primary = composition
         .primary
@@ -61,7 +61,7 @@ fn dual_strategy_both_legs_in_band_blends_to_midpoint() {
     feed_client.set_price(&String::from_str(&env, "ANCHOR"), &anchor_price);
     let config = redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_500);
 
-    let composition = compose(&mut cache, &config, |_, _, _| {});
+    let composition = compose(&mut cache, &config, |_, _, _| true);
 
     assert!(composition.primary.result.is_ok());
     let anchor_leg = composition.anchor.as_ref().expect("anchor leg present");
@@ -93,7 +93,7 @@ fn dual_strategy_primary_older_blends_to_primary_timestamp() {
     feed_client.set_price(&String::from_str(&env, "ANCHOR"), &WAD);
     let config = redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_500);
 
-    let composition = compose(&mut cache, &config, |_, _, _| {});
+    let composition = compose(&mut cache, &config, |_, _, _| true);
 
     let blended = composition
         .blended(&env, &config.tolerance)
@@ -122,7 +122,7 @@ fn dual_strategy_anchor_older_blends_to_anchor_timestamp() {
     );
     let config = redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_500);
 
-    let composition = compose(&mut cache, &config, |_, _, _| {});
+    let composition = compose(&mut cache, &config, |_, _, _| true);
 
     let blended = composition
         .blended(&env, &config.tolerance)
@@ -146,7 +146,7 @@ fn dual_strategy_missing_anchor_config_sets_flag() {
     config.strategy = OracleStrategy::PrimaryWithAnchor;
     config.anchor = OracleSourceConfigOption::None;
 
-    let composition = compose(&mut cache, &config, |_, _, _| {});
+    let composition = compose(&mut cache, &config, |_, _, _| true);
 
     assert!(composition.primary.result.is_ok());
     assert!(composition.anchor.is_none());
@@ -168,7 +168,7 @@ fn dual_strategy_anchor_unreadable_carries_source_kind() {
     // "ANCHOR" feed id is never populated on the mock.
     let config = redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_500);
 
-    let composition = compose(&mut cache, &config, |_, _, _| {});
+    let composition = compose(&mut cache, &config, |_, _, _| true);
 
     assert!(composition.primary.result.is_ok());
     let anchor_leg = composition.anchor.as_ref().expect("anchor leg present");
@@ -193,7 +193,7 @@ fn primary_unreadable_blended_returns_none() {
     // "MISSING" feed id is never populated on the mock.
     let config = redstone_single(&env, &feed, "MISSING", 900);
 
-    let composition = compose(&mut cache, &config, |_, _, _| {});
+    let composition = compose(&mut cache, &config, |_, _, _| true);
 
     assert_eq!(
         composition.primary.result.as_ref().unwrap_err(),
@@ -217,12 +217,40 @@ fn primary_reflector_unreadable_carries_source_kind() {
     let asset = Address::generate(&env);
     let config = reflector_single(&reflector, &asset, 900);
 
-    let composition = compose(&mut cache, &config, |_, _, _| {});
+    let composition = compose(&mut cache, &config, |_, _, _| true);
 
     assert_eq!(
         composition.primary.result.as_ref().unwrap_err(),
         &SourceKind::Reflector
     );
+    assert!(composition.blended(&env, &config.tolerance).is_none());
+}
+
+/// A gate that answers `false` on the primary ends the traversal: the anchor
+/// source is never read, and the composition reports the same "dual strategy,
+/// no anchor leg" shape a missing anchor config produces, so `blended`
+/// withholds a price rather than treating the primary as a lone `Single` leg.
+#[test]
+fn gate_refusing_the_primary_leaves_the_anchor_unread() {
+    let env = Env::default();
+    let now: u64 = 1_700_000_000;
+    env.ledger().with_mut(|li| li.timestamp = now);
+    let mut cache = ResolutionContext::new(&env);
+    let (feed, feed_client) = register_redstone_feed(&env);
+    feed_client.set_price(&String::from_str(&env, "PRIMARY"), &WAD);
+    feed_client.set_price(&String::from_str(&env, "ANCHOR"), &WAD);
+    let config = redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_500);
+
+    let mut legs_read = 0;
+    let composition = compose(&mut cache, &config, |_, _, _| {
+        legs_read += 1;
+        false
+    });
+
+    assert_eq!(legs_read, 1);
+    assert!(composition.primary.result.is_ok());
+    assert!(composition.anchor.is_none());
+    assert!(composition.dual_missing_anchor);
     assert!(composition.blended(&env, &config.tolerance).is_none());
 }
 
@@ -243,7 +271,7 @@ fn stale_leg_stays_ok_with_stale_flag_set() {
     env.ledger().with_mut(|li| li.timestamp = now + 10_000);
     let mut cache = ResolutionContext::new(&env);
 
-    let composition = compose(&mut cache, &config, |_, _, _| {});
+    let composition = compose(&mut cache, &config, |_, _, _| true);
 
     assert!(composition.primary.result.is_ok());
     assert!(composition.primary.stale);
