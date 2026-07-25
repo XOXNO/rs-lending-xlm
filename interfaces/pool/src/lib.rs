@@ -141,6 +141,9 @@ pub trait LiquidityPoolInterface {
     /// * `WithdrawLessThanFee` — the liquidation fee exceeds the gross seized amount.
     /// * `WithdrawRoundsToZeroShares` — a positive withdrawal burns zero scaled
     ///   supply despite ceil rounding.
+    /// * `InternalError` — burning the leg would leave protocol revenue shares
+    ///   above total supply shares (an oversized position from the caller).
+    ///   Raised on every withdraw, including a liquidation seizure leg.
     /// * `InsufficientLiquidity` — tracked cash cannot cover the net transfer.
     /// * `UtilizationAboveMax` — a non-liquidation withdrawal breaches the utilization cap.
     /// * `PoolInsolvent` — the projected state leaves debt with zero supply.
@@ -193,7 +196,9 @@ pub trait LiquidityPoolInterface {
     ///   unauthorized caller fails host auth instead, with no contract error code.
     /// * `PoolNotInitialized` — the entry targets a market with no stored state.
     /// * `AmountMustBePositive` — `entry.amount` is negative.
-    /// * `InternalError` — the repay leg overpaid (structurally unexpected).
+    /// * `InternalError` — the repay leg overpaid (structurally unexpected), or
+    ///   burning the supply leg would leave protocol revenue shares above total
+    ///   supply shares (an oversized position from the caller).
     /// * `NetSettleRoundsToZeroShares` — a positive settlement burns zero scaled
     ///   units on either leg.
     /// * `PoolInsolvent` — the projected state leaves debt with zero supply.

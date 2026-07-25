@@ -1218,6 +1218,123 @@ fn test_seize_positions_deposit_dust() {
     );
 }
 
+// Revenue shares are a slice of total supply shares, so `revenue <= supplied`
+// holds at every transition. The three tests below drive each path that can
+// break it — the two that shrink supply and the one that grows revenue — with
+// an oversized caller position, and pin the hard revert on each.
+
+/// Seeds a market with 100 supply shares of which 60 are protocol revenue, so
+/// burning more than the remaining 40 strands revenue above total supply.
+fn market_with_revenue_at_sixty_percent(t: &TestSetup) -> i128 {
+    t.edit_state(|state| {
+        state.revenue = state.supplied * 6 / 10;
+    });
+    41_0000000i128
+}
+
+#[test]
+fn test_withdraw_rejects_burn_that_strands_revenue_above_supply() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    let position = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
+    let over_backing = market_with_revenue_at_sixty_percent(&t);
+    let user = Address::generate(&t.env);
+
+    let result = flatten_contract_result(client.try_withdraw(
+        &user,
+        &false,
+        &t.wdr(position.position.scaled_amount, over_backing, 0),
+    ));
+    assert_contract_error(result, GenericError::InternalError as u32);
+}
+
+// The liquidation seizure leg takes the same withdraw path and is deliberately
+// not exempt: a books mismatch stops the protocol rather than seizing on state
+// already known to be wrong.
+#[test]
+fn test_withdraw_liquidation_leg_rejects_burn_that_strands_revenue_above_supply() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    let position = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
+    let over_backing = market_with_revenue_at_sixty_percent(&t);
+    let user = Address::generate(&t.env);
+
+    let result = flatten_contract_result(client.try_withdraw(
+        &user,
+        &true,
+        &t.wdr(position.position.scaled_amount, over_backing, 0),
+    ));
+    assert_contract_error(result, GenericError::InternalError as u32);
+}
+
+// Pins the comparison as `revenue <= supplied`: burning down to exactly the
+// revenue slice is backed and must settle.
+#[test]
+fn test_withdraw_allows_burn_down_to_exactly_the_revenue_slice() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    let position = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
+    market_with_revenue_at_sixty_percent(&t);
+    let user = Address::generate(&t.env);
+
+    client.withdraw(
+        &user,
+        &false,
+        &t.wdr(position.position.scaled_amount, 40_0000000i128, 0),
+    );
+
+    let state = t.state_snapshot();
+    assert_eq!(
+        state.supplied, state.revenue,
+        "supply burned down to the revenue slice stays exactly backed"
+    );
+}
+
+#[test]
+fn test_net_settle_rejects_burn_that_strands_revenue_above_supply() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    let supply_position = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
+    let borrower = Address::generate(&t.env);
+    let debt_position = client
+        .borrow(&borrower, &t.bor(0, 50_0000000i128))
+        .get_unchecked(0);
+    let over_backing = market_with_revenue_at_sixty_percent(&t);
+
+    let entry = PoolNetSettleEntry {
+        hub_asset: hub(&t.asset),
+        amount: over_backing,
+        supply_position: supply_position.position.clone(),
+        debt_position: debt_position.position.clone(),
+    };
+
+    let result = flatten_contract_result(client.try_net_settle(&entry));
+    assert_contract_error(result, GenericError::InternalError as u32);
+}
+
+#[test]
+fn test_seize_positions_rejects_deposit_above_market_supply_shares() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    client.supply(&t.sup(0, 100_0000000i128));
+
+    // One share past the market's total: absorbing it would leave the protocol
+    // claiming more shares than exist.
+    let oversized = ScaledPositionRaw {
+        scaled_amount: t.state_snapshot().supplied + 1,
+    };
+
+    let result = flatten_contract_result(
+        client.try_seize_positions(&t.sez(AccountPositionType::Deposit, &oversized)),
+    );
+    assert_contract_error(result, GenericError::InternalError as u32);
+}
+
 // Pins the per-entry reload semantics: a batch hitting the same hub-asset
 // twice must equal the same seizes issued as sequential single-entry calls.
 #[test]
