@@ -19,6 +19,8 @@ pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
 /// hub/spoke registry creation, bypassing the timelock.
 pub(crate) const GUARDIAN_ROLE: &str = "GUARDIAN";
 
+/// The five operational roles this contract recognises. Ownership is separate
+/// and is not a role.
 pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 5] {
     [
         Symbol::new(env, ORACLE_ROLE),
@@ -29,6 +31,11 @@ pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 5] {
     ]
 }
 
+/// Rejects a role symbol outside [`default_operational_roles`], so a typo
+/// cannot grant an unreachable role that looks live on-chain.
+///
+/// # Errors
+/// * `InvalidRole` — the symbol is not one of the five operational roles.
 pub(crate) fn require_known_governance_role(env: &Env, role: &Symbol) {
     assert_with_error!(
         env,
@@ -79,15 +86,22 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
     }
 }
 
+/// Current owner.
+///
+/// # Errors
+/// * `OwnerNotSet` — the contract has no owner configured.
 pub(crate) fn owner_or_panic(env: &Env) -> Address {
     ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
 }
 
+/// Replaces this contract's own Wasm. Runs only after its timelock matures.
 pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     storage::renew_governance_instance(env);
     stellar_contract_utils::upgradeable::upgrade(env, new_wasm_hash);
 }
 
+/// Starts a two-step ownership handover: writes the pending owner with an
+/// expiry, leaving the current owner in place until the recipient accepts.
 pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     storage::renew_governance_instance(env);
     let current_owner = owner_or_panic(env);
@@ -133,6 +147,8 @@ fn require_executor_canceller_separation(
     );
 }
 
+/// Grants an operational role, rejecting an executor/canceller overlap so no
+/// single account can both schedule and veto.
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     storage::renew_governance_instance(env);
     let owner = owner_or_panic(env);
@@ -164,6 +180,11 @@ pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &soroban_sdk::Vec
     }
 }
 
+/// Revokes an operational role.
+///
+/// # Errors
+/// * `InvalidRole` — the account does not hold the role (no-op revokes are
+///   rejected so a failed revoke is never mistaken for a successful one).
 pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
     storage::renew_governance_instance(env);
     // Reject no-op revokes.

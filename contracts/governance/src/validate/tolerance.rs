@@ -12,6 +12,8 @@ pub(crate) fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
     u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
 }
 
+/// Turns a tolerance in BPS into the absolute upper/lower ratio bounds the
+/// oracle compares against.
 pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128, i128) {
     let tolerance = i128::from(tolerance_bps);
     let upper_bound = BPS
@@ -21,6 +23,7 @@ pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128,
     (upper_bound, lower_bound)
 }
 
+/// Validates a tolerance and returns the resulting range.
 pub(crate) fn validate_and_calculate_tolerances(env: &Env, tolerance: u32) -> OracleTolerance {
     assert_with_error!(
         env,

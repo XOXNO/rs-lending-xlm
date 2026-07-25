@@ -28,6 +28,10 @@ use crate::validate::oracle_config::{
     validate_decimals, validate_max_stale, validate_oracle_config_shape, validate_twap_records,
 };
 
+/// Probes every configured source live and rejects the config unless each one
+/// answers, so a market can never be listed against a feed that is already
+/// dead. This is the expensive half of oracle validation; the cheap structural
+/// half is `oracle_config`.
 pub(crate) fn validate_market_oracle_sources(
     env: &Env,
     asset: &Address,

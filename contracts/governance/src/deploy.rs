@@ -3,7 +3,9 @@
 
 use common::errors::GenericError;
 
-use soroban_sdk::{assert_with_error, contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val};
+use soroban_sdk::{
+    assert_with_error, contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val,
+};
 
 use stellar_macros::only_owner;
 
@@ -133,10 +135,12 @@ impl Governance {
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl Governance {
+    /// Wires the controller address after deployment. Owner-gated, one-shot.
     pub fn set_controller(env: Env, addr: Address) {
         storage::set_controller(&env, &addr);
     }
 
+    /// Wires the price-aggregator address after deployment. Owner-gated, one-shot.
     pub fn set_price_aggregator(env: Env, addr: Address) {
         storage::set_price_aggregator(&env, &addr);
     }

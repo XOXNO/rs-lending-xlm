@@ -11,6 +11,8 @@ pub(crate) use common::validation::validate_twap_records;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
+/// Structural gate on an oracle config: source count, strategy, and per-source
+/// fields. Shape only — liveness is proved separately by `oracle_probe`.
 pub(crate) fn validate_oracle_config_shape(env: &Env, config: &AssetOracleConfigInput) {
     let needs_anchor = config.strategy == OracleStrategy::PrimaryWithAnchor;
     let has_anchor = !config.anchor.is_none();
@@ -70,6 +72,7 @@ pub(crate) fn validate_oracle_config_shape(env: &Env, config: &AssetOracleConfig
     }
 }
 
+/// Rejects a staleness window outside the protocol's bounds.
 pub(crate) fn validate_max_stale(env: &Env, max_stale: u64) {
     assert_with_error!(
         env,
@@ -78,6 +81,7 @@ pub(crate) fn validate_max_stale(env: &Env, max_stale: u64) {
     );
 }
 
+/// Rejects oracle decimals the WAD scale cannot represent.
 pub(crate) fn validate_decimals(env: &Env, decimals: u32) {
     assert_with_error!(
         env,

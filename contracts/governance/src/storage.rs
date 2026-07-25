@@ -21,6 +21,7 @@ enum GovernanceKey {
     RecoveryOp(BytesN<32>),
 }
 
+/// Renews the contract instance entry. Every mutating entrypoint calls this.
 pub(crate) fn renew_governance_instance(env: &Env) {
     env.storage()
         .instance()
@@ -31,11 +32,7 @@ pub(crate) fn renew_governance_instance(env: &Env) {
 /// self-veto guard. The 180-day bump outlives the timelock delay (≤14 days)
 /// and execution grace, so the record cannot archive out from under a
 /// still-pending operation.
-pub(crate) fn mark_role_revocation_target(
-    env: &Env,
-    operation_id: &BytesN<32>,
-    account: &Address,
-) {
+pub(crate) fn mark_role_revocation_target(env: &Env, operation_id: &BytesN<32>, account: &Address) {
     let key = GovernanceKey::RoleRevocationTarget(operation_id.clone());
     env.storage().persistent().set(&key, account);
     env.storage()
@@ -43,6 +40,7 @@ pub(crate) fn mark_role_revocation_target(
         .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
+/// Flags an operation id as Recovery-tier so `cancel` can refuse to veto it.
 pub(crate) fn mark_recovery_op(env: &Env, operation_id: &BytesN<32>) {
     let key = GovernanceKey::RecoveryOp(operation_id.clone());
     env.storage().persistent().set(&key, &true);
@@ -69,6 +67,7 @@ pub(crate) fn role_revocation_target(env: &Env, operation_id: &BytesN<32>) -> Op
         .get(&GovernanceKey::RoleRevocationTarget(operation_id.clone()))
 }
 
+/// True while `operation_id` is flagged Recovery-tier.
 pub(crate) fn is_recovery_op(env: &Env, operation_id: &BytesN<32>) -> bool {
     env.storage()
         .persistent()
@@ -76,10 +75,15 @@ pub(crate) fn is_recovery_op(env: &Env, operation_id: &BytesN<32>) -> bool {
         .unwrap_or(false)
 }
 
+/// True once the controller address is wired.
 pub(crate) fn has_controller(env: &Env) -> bool {
     env.storage().instance().has(&GovernanceKey::Controller)
 }
 
+/// Wired controller address.
+///
+/// # Errors
+/// * `PoolNotInitialized` — the controller has not been set yet.
 pub(crate) fn get_controller(env: &Env) -> Address {
     env.storage()
         .instance()
@@ -87,18 +91,24 @@ pub(crate) fn get_controller(env: &Env) -> Address {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
+/// Wires the controller address. One-shot; see `deploy`.
 pub(crate) fn set_controller(env: &Env, addr: &Address) {
     env.storage()
         .instance()
         .set(&GovernanceKey::Controller, addr);
 }
 
+/// True once the price-aggregator address is wired.
 pub(crate) fn has_price_aggregator(env: &Env) -> bool {
     env.storage()
         .instance()
         .has(&GovernanceKey::PriceAggregator)
 }
 
+/// Wired price-aggregator address.
+///
+/// # Errors
+/// * `AggregatorNotSet` — the aggregator has not been set yet.
 pub(crate) fn get_price_aggregator(env: &Env) -> Address {
     env.storage()
         .instance()
@@ -106,6 +116,7 @@ pub(crate) fn get_price_aggregator(env: &Env) -> Address {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AggregatorNotSet))
 }
 
+/// Wires the price-aggregator address.
 pub(crate) fn set_price_aggregator(env: &Env, addr: &Address) {
     env.storage()
         .instance()

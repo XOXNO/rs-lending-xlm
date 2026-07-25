@@ -35,6 +35,8 @@ pub(crate) struct ResolvedOperation {
     pub delay_tier: DelayTier,
 }
 
+/// Routes to the controller at the standard delay. The default for anything
+/// that does not change who holds power or which code runs.
 fn controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
     ResolvedOperation {
         target: storage::get_controller(env),
@@ -44,6 +46,10 @@ fn controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOp
     }
 }
 
+/// Routes to the controller at the sensitive delay floor
+/// (`TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS`). Reserved for operations that
+/// move value or authority irreversibly, so token holders get a longer window
+/// to react than a routine parameter change allows.
 fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
     ResolvedOperation {
         target: storage::get_controller(env),
@@ -53,8 +59,8 @@ fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> 
     }
 }
 
-/// Oracle config ops target the price-aggregator (the oracle authority), not
-/// the controller.
+/// Routes to the price-aggregator at the standard delay. Oracle config ops
+/// target the oracle authority, not the controller.
 fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
     ResolvedOperation {
         target: storage::get_price_aggregator(env),
@@ -64,6 +70,9 @@ fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> Reso
     }
 }
 
+/// Routes back to this governance contract. Used by operations that change
+/// governance's own delay, roles, ownership, or code — the caller picks the
+/// tier because those range from routine to `Recovery`.
 fn self_operation(
     env: &Env,
     function: &str,
@@ -78,6 +87,13 @@ fn self_operation(
     }
 }
 
+/// Validates an `AdminOperation` and lowers it to a concrete call: target
+/// contract, function, args, and delay tier.
+///
+/// This match is deliberately exhaustive rather than table-driven — the
+/// compiler then forces every new variant to declare its target and tier,
+/// which is the property that keeps an operation from silently defaulting to
+/// the shortest delay.
 pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
     match op {
         AdminOperation::UpgradeGov(hash) => {
@@ -253,11 +269,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
         }
         AdminOperation::DeployPool(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
-            controller_operation(
-                env,
-                "deploy_pool",
-                vec![env, hash.clone().into_val(env)],
-            )
+            controller_operation(env, "deploy_pool", vec![env, hash.clone().into_val(env)])
         }
         AdminOperation::UpgradePool(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
@@ -355,6 +367,9 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
     }
 }
 
+/// Applies the governance-self variants once their timelock matures. Only
+/// operations whose target is this contract reach here; everything else is
+/// dispatched by the timelock as a cross-contract call.
 pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
     match op {
         AdminOperation::UpgradeGov(hash) => access::apply_upgrade(env, hash),

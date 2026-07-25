@@ -13,6 +13,11 @@ use soroban_sdk::{
     assert_with_error, panic_with_error, Address, BytesN, Env, Error, Executable, SpecShakingMarker,
 };
 
+/// Rejects an address that is not a deployed contract, so an admin operation
+/// cannot be pointed at an account that can never answer.
+///
+/// # Errors
+/// * `NotSmartContract` — the address is not a contract.
 pub(crate) fn require_contract_address(
     env: &Env,
     addr: &Address,
@@ -23,6 +28,8 @@ pub(crate) fn require_contract_address(
     }
 }
 
+/// # Errors
+/// * `InvalidWasmHash` — an all-zero hash would brick the target on upgrade.
 pub(crate) fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
     assert_with_error!(
         env,
