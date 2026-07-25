@@ -65,3 +65,7 @@ pub(crate) fn resolve_guarded(
     }
     resolved
 }
+
+#[cfg(test)]
+#[path = "../tests/oracle/hard_path_errors.rs"]
+mod hard_path_error_tests;
