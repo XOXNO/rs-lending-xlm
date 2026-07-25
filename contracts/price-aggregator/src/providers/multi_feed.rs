@@ -24,16 +24,7 @@ pub(crate) fn read_multi_feed_source(
     let env = cache.env().clone();
     let now_secs = cache.ledger_timestamp_secs();
     let price_data = read_price_data(cache, &config.contract, &config.feed_id)?;
-    if soft {
-        OracleObservation::try_from_multi_feed(now_secs, &price_data, config.decimals)
-    } else {
-        Some(OracleObservation::from_multi_feed(
-            &env,
-            now_secs,
-            &price_data,
-            config.decimals,
-        ))
-    }
+    OracleObservation::from_multi_feed(&env, now_secs, &price_data, config.decimals, soft)
 }
 
 fn read_price_data(

@@ -118,16 +118,7 @@ fn read_spot(
     let now_secs = cache.ledger_timestamp_secs();
     let asset = to_reflector_asset(env, &config.asset);
     let price_data = reflector_lastprice_call(env, &config.contract, &asset)?;
-    if soft {
-        OracleObservation::try_from_reflector(now_secs, &price_data, config.decimals)
-    } else {
-        Some(OracleObservation::from_reflector(
-            env,
-            now_secs,
-            &price_data,
-            config.decimals,
-        ))
-    }
+    OracleObservation::from_reflector(env, now_secs, &price_data, config.decimals, soft)
 }
 
 /// TWAP over returned samples. Every present-but-invalid condition (missing or
@@ -167,11 +158,9 @@ fn read_twap(
     // Mean over returned samples (not requested count); shared with governance
     // probe. Staleness of `oldest_ts` is judged by the caller.
     let raw_price = try_twap_mean_price(&history).ok_or(OracleError::InvalidPrice)?;
-    let price_wad = common::oracle::observation::try_normalize_positive_price(
-        raw_price,
-        config.decimals,
-    )
-    .ok_or(OracleError::InvalidPrice)?;
+    let price_wad =
+        common::oracle::observation::try_normalize_positive_price(raw_price, config.decimals)
+            .ok_or(OracleError::InvalidPrice)?;
     Ok(OracleObservation {
         price_wad,
         observed_at: oldest_ts,
