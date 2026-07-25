@@ -98,16 +98,13 @@ fn render_composition(
 
     match config.strategy {
         OracleStrategy::PrimaryWithAnchor => {
-            // A dual strategy prices only against an anchor: `compose` reports
-            // an anchorless config in `dual_missing_anchor`, and without both
-            // the source and the leg it read there is no tolerance band left to
-            // enforce. Fails closed with NoLastPrice (#210), matching the
-            // read-time backstop.
-            let (false, Some(anchor_source), Some(anchor_leg)) = (
-                composition.dual_missing_anchor,
-                config.anchor.as_ref(),
-                composition.anchor.as_ref(),
-            ) else {
+            // A dual strategy prices only against an anchor: without both the
+            // configured source and the leg `compose` read from it there is no
+            // tolerance band left to enforce. Fails closed with NoLastPrice
+            // (#210), matching the read-time backstop.
+            let (Some(anchor_source), Some(anchor_leg)) =
+                (config.anchor.as_ref(), composition.anchor.as_ref())
+            else {
                 panic_with_error!(cache.env(), OracleError::NoLastPrice)
             };
             let anchor = require_leg(cache, anchor_source, anchor_leg);
