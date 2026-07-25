@@ -7,19 +7,13 @@
 //! sanity band, so `None` is a contract, not an implementation detail.
 //!
 //! Persistent storage is only reachable from inside a contract frame, so every
-//! case runs through [`in_contract`].
+//! case runs through `in_contract`.
 
 use super::*;
-use crate::test_support::{redstone_single, register_redstone_feed};
+use crate::test_support::{in_contract, redstone_single, register_redstone_feed};
 use crate::PriceAggregator;
 use soroban_sdk::testutils::storage::Persistent as _;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-
-/// Runs `body` in a contract frame, which persistent storage requires.
-fn in_contract<T>(env: &Env, body: impl FnOnce() -> T) -> T {
-    let id = env.register(PriceAggregator, (Address::generate(env),));
-    env.as_contract(&id, body)
-}
 
 /// A stored config comes back field-for-field. Compared as a whole struct
 /// rather than field by field, so a codec that silently drops or reorders a

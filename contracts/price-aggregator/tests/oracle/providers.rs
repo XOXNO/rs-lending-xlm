@@ -3,24 +3,25 @@
 //! `try_read_source` is soft and `read_required_source` is hard, but the split
 //! is narrower than the names suggest: soft means *per-asset read problems*
 //! become `None`, and nothing more. A config-invariant violation, an asset ref
-//! no provider can express, and a Reflector contract that reverts at read time
-//! all revert straight through the soft read — which is exactly why `compose`'s
-//! callers gate each leg before the next one is touched. Every case below is
-//! written as a pair where the two disciplines can differ, so a change that
-//! collapsed one into the other shows up here rather than in the fail-closed
-//! path.
+//! no provider can express, a Reflector contract that reverts at read time, and
+//! a quoted reprice whose multiplication overflows all revert straight through
+//! the soft read — which is exactly why `compose`'s callers gate each leg
+//! before the next one is touched. Those four are the whole set. Every case
+//! below is written as a pair where the two disciplines can differ, so a change
+//! that collapsed one into the other shows up here rather than in the
+//! fail-closed path.
 //!
 //! Cases whose config carries a quoted base read the quote asset's stored
-//! oracle, so they run inside a contract frame via [`in_contract`].
+//! oracle, so they run inside a contract frame via `in_contract`.
 
 use super::*;
 use crate::compose::SourceKind;
+use crate::storage;
 use crate::test_support::{
-    redstone_single, reflector_quoted, reflector_single, reflector_twap, register_redstone_feed,
-    EmptyReflector, PricedReflector, RevertingReflector, TwapReflector, TWAP_MEAN_WAD,
-    TWAP_OLDER_AGE_SECS,
+    in_contract, redstone_single, reflector_quoted, reflector_single, reflector_twap,
+    register_redstone_feed, EmptyReflector, EmptyWindowReflector, HugeReflector, PricedReflector,
+    RevertingReflector, TwapReflector, TWAP_MEAN_WAD, TWAP_OLDER_AGE_SECS,
 };
-use crate::PriceAggregator;
 use common::constants::WAD;
 use common::oracle::providers::redstone::RedStonePriceData;
 use common::types::OracleAssetRef;
@@ -34,12 +35,6 @@ fn env_at_now() -> Env {
     let env = Env::default();
     env.ledger().with_mut(|li| li.timestamp = NOW);
     env
-}
-
-/// Runs `body` in a contract frame, which the quote-oracle lookup requires.
-fn in_contract<T>(env: &Env, body: impl FnOnce() -> T) -> T {
-    let id = env.register(PriceAggregator, (Address::generate(env),));
-    env.as_contract(&id, body)
 }
 
 /// The provider family each source config belongs to. The hard path branches on
@@ -232,12 +227,31 @@ fn try_read_source_softens_an_empty_twap_history() {
     assert!(try_read_source(&mut cache, &source).is_none());
 }
 
-/// The hard read names it.
+/// The hard read names it. This is the provider answering with no history
+/// object at all; the case below is the other branch of the same rejection.
 #[test]
 #[should_panic(expected = "Error(Contract, #212)")]
 fn read_required_source_reverts_reflector_history_empty() {
     let env = env_at_now();
     let reflector = env.register(EmptyReflector, ());
+    let asset = Address::generate(&env);
+    let source = reflector_twap(&reflector, &asset, 4, 900).primary;
+    let mut cache = ResolutionContext::new(&env);
+
+    read_required_source(&mut cache, &source);
+}
+
+/// A history the provider did return, holding no samples, is the same
+/// rejection. It has to be pinned separately: the emptiness check sits after
+/// the absent-history check, so the case above never reaches it, and a window
+/// of zero samples is also shorter than any observation minimum — leaving this
+/// branch free to raise the short-history error instead without any existing
+/// case noticing.
+#[test]
+#[should_panic(expected = "Error(Contract, #212)")]
+fn read_required_source_reverts_history_empty_for_a_present_but_empty_window() {
+    let env = env_at_now();
+    let reflector = env.register(EmptyWindowReflector, ());
     let asset = Address::generate(&env);
     let source = reflector_twap(&reflector, &asset, 4, 900).primary;
     let mut cache = ResolutionContext::new(&env);
@@ -370,5 +384,41 @@ fn read_required_source_reverts_invalid_oracle_base_for_an_unresolvable_quote() 
     in_contract(&env, || {
         let mut cache = ResolutionContext::new(&env);
         read_required_source(&mut cache, &source)
+    });
+}
+
+/// The fourth way the soft read reverts, and the only one that fires after
+/// every provider call has already returned: the reprice multiplication itself
+/// overflows. Both legs read cleanly — positive, in scale, upscaling to WAD
+/// without loss — and normalization has no complaint about either, because it
+/// judges one price at a time. Their product is what does not fit, and
+/// `Wad::mul` reverts rather than saturating, so there is nothing for the soft
+/// discipline to turn into `None`.
+///
+/// Both legs read from one stub, so both price at `1e29` WAD and the product is
+/// `1e40` against an `i128` ceiling near `1.7e38`. Sharing the stub is what
+/// forces the widened band below, and that widening is a fixture convenience,
+/// not what makes the overflow possible: an asymmetric pair reaches it inside
+/// bounds `validate_oracle_config` accepts, since a token leg is bounded only
+/// by the normalizer while `MAX_REASONABLE_PRICE_WAD` caps the quote — `1e30`
+/// against a quote at `9e26` already exceeds the ceiling.
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn try_read_source_reverts_on_a_quoted_reprice_overflow() {
+    let env = env_at_now();
+    let reflector = env.register(HugeReflector, ());
+    let asset = Address::generate(&env);
+    let quote = Address::generate(&env);
+    let source = reflector_quoted(&reflector, &asset, &quote, 900).primary;
+    // A quote leg backs a reprice only while its status is VALID, and the
+    // fixture band refuses a price this large. Seeded straight into storage, so
+    // the band is opened rather than the shared stub's price lowered.
+    let mut quote_config = reflector_single(&reflector, &quote, 900);
+    quote_config.max_sanity_price_wad = i128::MAX;
+
+    in_contract(&env, || {
+        storage::set_oracle_config(&env, &quote, &quote_config);
+        let mut cache = ResolutionContext::new(&env);
+        try_read_source(&mut cache, &source);
     });
 }

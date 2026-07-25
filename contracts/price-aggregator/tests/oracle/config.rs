@@ -9,23 +9,16 @@
 //! the other way: they pin bounds this function does *not* apply.
 //!
 //! Quote-base validation reads the quote asset's own stored config, so the
-//! cases that reach it run inside a contract frame via [`in_contract`].
+//! cases that reach it run inside a contract frame via `in_contract`.
 
 use super::*;
 use crate::test_support::{
-    redstone_dual, redstone_primary_reflector_anchor, redstone_single, reflector_quoted,
-    reflector_single, reflector_twap, register_redstone_feed,
+    in_contract, redstone_dual, redstone_primary_reflector_anchor, redstone_single,
+    reflector_quoted, reflector_single, reflector_twap, register_redstone_feed,
 };
-use crate::PriceAggregator;
 use common::constants::WAD;
 use common::types::OracleSourceConfigOption;
 use soroban_sdk::testutils::Address as _;
-
-/// Runs `body` in a contract frame, which the quote-oracle lookup requires.
-fn in_contract<T>(env: &Env, body: impl FnOnce() -> T) -> T {
-    let id = env.register(PriceAggregator, (Address::generate(env),));
-    env.as_contract(&id, body)
-}
 
 /// The baseline every rejection case below mutates: a single-source RedStone
 /// config with an ordered, non-pinched, single-source-width sanity band.
@@ -231,7 +224,10 @@ fn anchor_with_an_unconfigured_quote_reverts_invalid_oracle_base() {
 /// aggregator directly is not held to it. Above 18 the two normalizers diverge
 /// (`normalize_positive_price` downscales, `try_normalize_positive_price`
 /// returns `None`), which is why the hard path carries a source-family backstop
-/// for a leg the soft read rejected and the replay accepted.
+/// for a leg the soft read rejected and the replay accepted. Known gap, not a
+/// decision: the backstop keeps the divergence from being exploitable, but
+/// applying the same bound here is a one-line change, held back only because
+/// where the bound belongs is a governance-boundary question.
 #[test]
 fn oracle_config_validation_does_not_bound_source_decimals() {
     let env = Env::default();
