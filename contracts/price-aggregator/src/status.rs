@@ -1,12 +1,19 @@
 //! Soft price diagnostics for views: report stale / deviation without reverting.
+//!
+//! Every rule that decides an outcome — which sources the strategy calls for,
+//! whether a leg is past its max-stale window, whether a dual pair agrees inside
+//! the tolerance band — is applied once by `compose` and only rendered here, so
+//! this view and the fail-closed `price` path cannot drift apart. What remains
+//! here is presentation: which [`PriceStatus`] shape each outcome takes, and
+//! `is_valid`, the soft mirror of the hard path's positive-price and sanity-band
+//! gates.
 
-use common::oracle::observation::is_stale;
-use common::types::{AssetOracleConfig, OracleStrategy, PriceStatus};
+use common::types::{AssetOracleConfig, PriceStatus};
 use soroban_sdk::Address;
 
+use crate::compose::{self, Composition};
 use crate::context::ResolutionContext;
 use crate::observation::OracleObservation;
-use crate::providers;
 use crate::tolerance;
 
 /// Soft-resolves one asset into a diagnostic [`PriceStatus`], memoized for the
@@ -36,94 +43,94 @@ fn compute_price_status(cache: &mut ResolutionContext, asset: &Address) -> Price
         return PriceStatus::unusable();
     }
 
-    let primary_max_stale = config
-        .primary
-        .max_stale_seconds(config.max_price_stale_seconds);
-    let Some(primary) = providers::try_read_source(cache, &config.primary) else {
+    // The gate does nothing: a diagnostic wants every leg the strategy calls
+    // for, including the ones `price` rejects on sight, so no leg may cut the
+    // traversal short here.
+    let composition = compose::compose(cache, &config, |_, _, _| {});
+    let Ok(primary) = composition.primary.result.as_ref() else {
         return PriceStatus::unusable();
     };
 
-    let now = cache.ledger_timestamp_secs();
-    let primary_stale = is_stale(now, primary.timestamp(), primary_max_stale);
-    let primary_wad = primary.price_wad;
-
-    match config.strategy {
-        OracleStrategy::Single => PriceStatus {
-            final_wad: primary_wad,
-            primary_wad,
-            secondary_wad: primary_wad,
-            price_timestamp: primary.timestamp(),
-            stale: primary_stale,
-            deviation: false,
-            valid: is_valid(primary_wad, primary_stale, false, &config),
-        },
-        OracleStrategy::PrimaryWithAnchor => {
-            resolve_anchored_status(cache, &config, primary, primary_stale, primary_wad, now)
+    match composition.anchor.as_ref() {
+        // No anchor leg and none was called for: a `Single` strategy prices off
+        // the primary alone, so there is no second opinion to deviate from.
+        None if !composition.dual_missing_anchor => {
+            let primary_wad = primary.price_wad;
+            let stale = composition.primary.stale;
+            PriceStatus {
+                final_wad: primary_wad,
+                primary_wad,
+                secondary_wad: primary_wad,
+                price_timestamp: primary.timestamp(),
+                stale,
+                deviation: false,
+                valid: is_valid(primary_wad, stale, false, &config),
+            }
         }
+        _ => anchored_status(cache, &config, &composition, primary),
     }
 }
 
-fn resolve_anchored_status(
-    cache: &mut ResolutionContext,
+/// Renders the dual-source cases: an anchor the config omits, an anchor that
+/// could not be read, and a readable pair that either agrees or does not.
+fn anchored_status(
+    cache: &ResolutionContext,
     config: &AssetOracleConfig,
-    primary: OracleObservation,
-    primary_stale: bool,
-    primary_wad: i128,
-    now: u64,
+    composition: &Composition,
+    primary: &OracleObservation,
 ) -> PriceStatus {
-    let Some(anchor_cfg) = config.anchor.as_ref() else {
-        // Dual strategy without anchor: primary only, never valid.
-        return PriceStatus {
-            final_wad: 0,
-            primary_wad,
-            secondary_wad: 0,
-            price_timestamp: primary.timestamp(),
-            stale: primary_stale,
-            deviation: true,
-            valid: false,
-        };
+    // Nothing to price against, because the config carries no anchor source or
+    // the one it carries is unreadable. The pair never agreed, which is what
+    // `deviation` records, and the view reports only the leg it did read.
+    let unpaired = PriceStatus {
+        final_wad: 0,
+        primary_wad: primary.price_wad,
+        secondary_wad: 0,
+        price_timestamp: primary.timestamp(),
+        stale: composition.primary.stale,
+        deviation: true,
+        valid: false,
+    };
+    let Some(anchor_leg) = composition.anchor.as_ref() else {
+        return unpaired;
+    };
+    let Ok(anchor) = anchor_leg.result.as_ref() else {
+        return unpaired;
     };
 
-    let anchor_max_stale = anchor_cfg.max_stale_seconds(config.max_price_stale_seconds);
-    let Some(anchor) = providers::try_read_source(cache, anchor_cfg) else {
-        return PriceStatus {
-            final_wad: 0,
-            primary_wad,
-            secondary_wad: 0,
-            price_timestamp: primary.timestamp(),
-            stale: primary_stale,
-            deviation: true,
-            valid: false,
+    // Both legs are readable, so `blended` withholds a price for exactly one
+    // reason left: the pair fell outside the tolerance band. Its absence is the
+    // deviation flag. The view still surfaces the midpoint `blended` withheld —
+    // a diagnostic shows the number it rejected — and `deviation` is what keeps
+    // that number out of `valid`.
+    let (final_wad, price_timestamp, deviation) =
+        match composition.blended(cache.env(), &config.tolerance) {
+            Some((price_wad, timestamp)) => (price_wad, timestamp, false),
+            None => (
+                tolerance::midpoint_price_or_zero(cache.env(), anchor.price_wad, primary.price_wad),
+                // Blend freshness is the older leg, band agreement or not.
+                primary.timestamp().min(anchor.timestamp()),
+                true,
+            ),
         };
-    };
-
-    let anchor_stale = is_stale(now, anchor.timestamp(), anchor_max_stale);
-    let stale = primary_stale || anchor_stale;
-    let secondary_wad = anchor.price_wad;
-    let price_timestamp = primary.timestamp().min(anchor.timestamp());
-
-    let within_band = tolerance::within_tolerance_band(
-        cache.env(),
-        secondary_wad,
-        primary_wad,
-        &config.tolerance,
-    );
-    let deviation = !within_band;
-    // Still surface a midpoint for UI when both legs exist; validity requires band.
-    let final_wad = tolerance::midpoint_price_or_zero(cache.env(), secondary_wad, primary_wad);
-    let valid = is_valid(final_wad, stale, deviation, config);
+    let stale = composition.primary.stale || anchor_leg.stale;
 
     PriceStatus {
         final_wad,
-        primary_wad,
-        secondary_wad,
+        primary_wad: primary.price_wad,
+        secondary_wad: anchor.price_wad,
         price_timestamp,
         stale,
         deviation,
-        valid,
+        valid: is_valid(final_wad, stale, deviation, config),
     }
 }
 
+/// True when a composed price would also survive the fail-closed path: fresh,
+/// in band, positive, and inside an enabled sanity band.
+///
+/// `providers::reflector` leans on this — a quoted base reprices only through a
+/// `valid` status — so loosening it loosens `price` itself.
 fn is_valid(final_wad: i128, stale: bool, deviation: bool, config: &AssetOracleConfig) -> bool {
     if stale || deviation || final_wad <= 0 {
         return false;
