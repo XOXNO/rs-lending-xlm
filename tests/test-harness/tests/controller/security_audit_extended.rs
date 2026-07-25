@@ -82,7 +82,7 @@ fn poc_global_pause_blocks_risk_increasing_allows_exit_and_liq() {
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0); // $6k debt against $10k coll
-    // Second account: debt-free withdraw under pause.
+                                 // Second account: debt-free withdraw under pause.
     t.supply(BOB, "USDC", 1_000.0);
 
     t.pause();
@@ -295,10 +295,7 @@ fn refutation_flash_guard_blocks_clean_bad_debt() {
     let id = t.resolve_account_id(ALICE);
 
     t.set_flash_loan_ongoing(true);
-    assert_contract_error(
-        t.try_clean_bad_debt_by_id(id),
-        errors::FLASH_LOAN_ONGOING,
-    );
+    assert_contract_error(t.try_clean_bad_debt_by_id(id), errors::FLASH_LOAN_ONGOING);
     t.set_flash_loan_ongoing(false);
 }
 
@@ -361,7 +358,10 @@ fn refutation_clean_bad_debt_rejects_non_residual() {
     t.borrow(ALICE, "ETH", 1.0);
     let id = t.resolve_account_id(ALICE);
 
-    assert_contract_error(t.try_clean_bad_debt_by_id(id), errors::CANNOT_CLEAN_BAD_DEBT);
+    assert_contract_error(
+        t.try_clean_bad_debt_by_id(id),
+        errors::CANNOT_CLEAN_BAD_DEBT,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +405,10 @@ fn poc_spoke_pause_blocks_withdraw_freeze_allows() {
     );
 
     t.set_spoke_asset_paused("USDC", true);
-    assert_contract_error(t.try_withdraw(ALICE, "USDC", 10.0), errors::SPOKE_ASSET_PAUSED);
+    assert_contract_error(
+        t.try_withdraw(ALICE, "USDC", 10.0),
+        errors::SPOKE_ASSET_PAUSED,
+    );
 }
 
 // ---------------------------------------------------------------------------

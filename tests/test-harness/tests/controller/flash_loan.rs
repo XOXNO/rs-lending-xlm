@@ -485,8 +485,7 @@ fn test_flash_loan_non_contract_receiver_rejects_and_rolls_back() {
     let reserves_before = pool_reserves(&t, "USDC");
     let data = receiver_data(&t, FlashLoanMode::Success);
 
-    let result =
-        t.try_flash_loan_with_data(BOB, "USDC", amount, &non_contract_receiver, &data);
+    let result = t.try_flash_loan_with_data(BOB, "USDC", amount, &non_contract_receiver, &data);
     assert_contract_error(result, errors::INVALID_FLASHLOAN_RECEIVER);
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);

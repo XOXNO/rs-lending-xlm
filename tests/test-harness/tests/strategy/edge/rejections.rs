@@ -315,7 +315,10 @@ fn test_swap_collateral_full_close_frees_slot_at_max_positions() {
         result.is_ok(),
         "a full same-slot swap at max positions must succeed: {result:?}"
     );
-    assert!(t.supply_balance(ALICE, "DAI") > 0.0, "DAI leg must be created");
+    assert!(
+        t.supply_balance(ALICE, "DAI") > 0.0,
+        "DAI leg must be created"
+    );
     assert_eq!(
         t.supply_balance(ALICE, "USDC"),
         0.0,

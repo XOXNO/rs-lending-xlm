@@ -177,12 +177,8 @@ fn sanity_band_not_containing_price_rejected() {
     assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
 
     // Entirely below the $1 live price, still overlapping the seeded band.
-    let result = gov.try_set_sanity_band(
-        &admin,
-        &usdc,
-        &(usd(1) * 95 / 100),
-        &(usd(1) * 995 / 1000),
-    );
+    let result =
+        gov.try_set_sanity_band(&admin, &usdc, &(usd(1) * 95 / 100), &(usd(1) * 995 / 1000));
     assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
 }
 
@@ -202,12 +198,8 @@ fn sanity_band_disjoint_from_old_band_rejected() {
 
     // A new band disjoint from the narrow window is rejected even before pricing
     // (containment would also fail here; the overlap rule fires first).
-    let result = gov.try_set_sanity_band(
-        &admin,
-        &usdc,
-        &(usd(1) * 110 / 100),
-        &(usd(1) * 115 / 100),
-    );
+    let result =
+        gov.try_set_sanity_band(&admin, &usdc, &(usd(1) * 110 / 100), &(usd(1) * 115 / 100));
     assert_contract_error(flatten(result), errors::INVALID_SANITY_BOUNDS);
 
     // An overlapping widening that still contains the live price passes.

@@ -140,10 +140,7 @@ fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    test_harness::assert::assert_contract_error(
-        mapped,
-        test_harness::errors::INVALID_ORACLE_BASE,
-    );
+    test_harness::assert::assert_contract_error(mapped, test_harness::errors::INVALID_ORACLE_BASE);
 }
 
 /// Execute-time re-check: if the quote market loses USD base during the

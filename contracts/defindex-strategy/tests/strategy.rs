@@ -486,10 +486,7 @@ fn test_harvest_requires_from_auth() {
 
     // Harvest fails without `from` auth.
     let blocked_harvest = s.client().try_harvest(&attacker_chosen_from, &None);
-    assert!(
-        blocked_harvest.is_err(),
-        "harvest must require `from` auth"
-    );
+    assert!(blocked_harvest.is_err(), "harvest must require `from` auth");
 
     // Deposit also fails without auth.
     let blocked_deposit = s.client().try_deposit(&UNIT, &attacker_chosen_from);

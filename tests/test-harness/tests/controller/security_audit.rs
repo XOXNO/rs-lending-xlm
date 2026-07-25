@@ -12,6 +12,8 @@
 //! - H-RISK-03: third-party top-up force-restamps LTV
 //! - H-RISK-04: LT cut sticky when post-cut HF would be < 1.05
 //! - H-LIQ-DOS: one untransferable collateral leg bricks the whole liquidation
+//! - M1: borrow restamps LTV only; the liquidation tuple moves as one unit and
+//!   is skipped when it favors the liquidator below the min-HF floor
 
 use controller::types::ControllerKey;
 use soroban_sdk::testutils::Ledger as _;
@@ -20,11 +22,7 @@ use test_harness::{
     wbtc_preset, HubAssetKey, LendingTest, PositionType, ALICE, BOB, LIQUIDATOR,
 };
 
-fn supply_risk_stamp(
-    t: &LendingTest,
-    account_id: u64,
-    asset_name: &str,
-) -> (u32, u32, u32, u32) {
+fn supply_risk_stamp(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32, u32, u32) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
         let map: soroban_sdk::Map<HubAssetKey, controller::types::AccountPositionRaw> = t
@@ -87,7 +85,10 @@ fn regression_withdraw_restamps_sibling_ltv_after_governance_cut() {
     t.withdraw(ALICE, "USDC", 100.0);
     let id = t.resolve_account_id(ALICE);
     let (eth_ltv, _) = supply_ltv_and_lt(&t, id, "ETH");
-    assert_eq!(eth_ltv, 5_000, "withdraw must persist sibling restamped LTV");
+    assert_eq!(
+        eth_ltv, 5_000,
+        "withdraw must persist sibling restamped LTV"
+    );
     t.assert_healthy(ALICE);
 }
 
@@ -110,7 +111,10 @@ fn regression_borrow_restamps_ltv_after_governance_cut() {
     let id = t.resolve_account_id(ALICE);
     let (ltv_before, lt_before) = supply_ltv_and_lt(&t, id, "USDC");
     assert_eq!(ltv_before, 7_500);
-    assert_eq!(lt_before, 8_000, "preset LT must stay until a threshold path");
+    assert_eq!(
+        lt_before, 8_000,
+        "preset LT must stay until a threshold path"
+    );
 
     // Governance cuts listing LTV to 50% (live capacity $5_000).
     t.edit_asset_config("USDC", |cfg| {
@@ -134,9 +138,11 @@ fn regression_borrow_restamps_ltv_after_governance_cut() {
     t.assert_healthy(ALICE);
 }
 
-/// Borrow restamps liquidation bonus and fees (not only LTV); LT stays put.
+/// M1: borrow restamps LTV alone. The liquidation tuple is permissionless to
+/// trigger, so it moves only through the gated supply path — a borrow can never
+/// stamp a liquidator-favorable threshold, bonus, or fee onto the account.
 #[test]
-fn regression_borrow_restamps_bonus_and_fees() {
+fn regression_borrow_restamps_ltv_only() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -147,73 +153,103 @@ fn regression_borrow_restamps_bonus_and_fees() {
     let (ltv0, lt0, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
     assert_eq!((ltv0, lt0, bonus0, fees0), (7_500, 8_000, 500, 100));
 
+    // Every term of the tuple moves the liquidator's way, and LTV moves too.
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value = 7_500;
-        c.liquidation_threshold = 8_000;
-        c.liquidation_bonus = 300;
+        c.loan_to_value = 6_000;
+        c.liquidation_threshold = 7_000;
+        c.liquidation_bonus = 900;
         c.liquidation_fees = 50;
     });
 
     t.borrow(ALICE, "ETH", 1.0);
+
     let (ltv1, lt1, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!(ltv1, 7_500);
-    assert_eq!(lt1, 8_000, "LT must not change on borrow restamp");
-    assert_eq!(bonus1, 300, "borrow must restamp liquidation bonus");
-    assert_eq!(fees1, 50, "borrow must restamp liquidation fees");
+    assert_eq!(ltv1, 6_000, "borrow must persist the restamped LTV");
+    assert_eq!(
+        (lt1, bonus1, fees1),
+        (lt0, bonus0, fees0),
+        "M1: borrow must leave threshold, bonus, and fees at their vintage"
+    );
 }
 
-/// Restamp triggers when only the liquidation bonus diverges (LTV and fees held
-/// equal), so the bonus term of the skip guard is load-bearing on its own.
-#[test]
-fn regression_borrow_restamps_bonus_only() {
+/// Parks Alice just under the 1.05 restamp floor: $10k USDC at LT 80% carrying
+/// $7.4k of ETH debt, nudged to HF ≈ 1.04 by a small collateral price move.
+/// Above 1.0 so the account is not liquidatable, below the floor so any
+/// liquidator-favorable tuple restamp must be skipped.
+fn account_just_below_restamp_floor() -> (LendingTest, u64) {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
-    let id = t.resolve_account_id(ALICE);
-    let (ltv0, _, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!((ltv0, bonus0, fees0), (7_500, 500, 100));
+    t.borrow(ALICE, "ETH", 3.7); // $7_400 @ $2k
+    t.set_price("USDC", test_harness::usd_cents(96));
 
+    // Weighted collateral $7_680 against $7_400 debt → HF ≈ 1.038.
+    assert!(
+        !t.can_be_liquidated(ALICE),
+        "setup: account stays healthy, only below the restamp floor"
+    );
+
+    let id = t.resolve_account_id(ALICE);
+    (t, id)
+}
+
+/// M1: a bonus raise on its own is enough to make the tuple liquidator-favorable,
+/// so it is skipped below the min-HF floor. Pins the bonus term of the skip
+/// guard — drop it and a third party could force a wider bonus onto an account
+/// that is already near liquidation.
+#[test]
+fn regression_supply_skips_bonus_only_raise_below_min_hf() {
+    let (mut t, id) = account_just_below_restamp_floor();
+    let (_, lt0, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!((lt0, bonus0, fees0), (8_000, 500, 100), "preset tuple");
+
+    // Bonus alone diverges; threshold and fees hold, LTV moves outside the gate.
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value = 7_500;
-        c.liquidation_bonus = 300;
-        c.liquidation_fees = 100;
+        c.loan_to_value = 6_000;
+        c.liquidation_bonus = 1_000;
     });
 
-    t.borrow(ALICE, "ETH", 1.0);
-    let (ltv1, _, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!(ltv1, 7_500, "LTV unchanged");
-    assert_eq!(fees1, 100, "fees unchanged");
-    assert_eq!(bonus1, 300, "bonus-only divergence must restamp");
+    t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
+        .expect("third-party top-up of an existing leg stays allowed");
+
+    let (ltv1, lt1, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!(ltv1, 6_000, "LTV rides outside the gate");
+    assert_eq!(
+        (lt1, bonus1, fees1),
+        (lt0, bonus0, fees0),
+        "a bonus-only raise must be skipped below the min-HF floor"
+    );
 }
 
-/// Restamp triggers when only the liquidation fees diverge (LTV and bonus held
-/// equal), so the fees term of the skip guard is load-bearing on its own.
+/// M1: a fee cut on its own is liquidator-favorable too — fees are carved out of
+/// the bonus, so a smaller fee enlarges the liquidator's net take. Pins the fees
+/// term of the skip guard.
 #[test]
-fn regression_borrow_restamps_fees_only() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+fn regression_supply_skips_fees_only_cut_below_min_hf() {
+    let (mut t, id) = account_just_below_restamp_floor();
+    let (_, lt0, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!((lt0, bonus0, fees0), (8_000, 500, 100), "preset tuple");
 
-    t.supply(ALICE, "USDC", 10_000.0);
-    let id = t.resolve_account_id(ALICE);
-    let (ltv0, _, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!((ltv0, bonus0, fees0), (7_500, 500, 100));
-
+    // Fees alone diverge; threshold and bonus hold, LTV moves outside the gate.
     t.edit_asset_config("USDC", |c| {
-        c.loan_to_value = 7_500;
-        c.liquidation_bonus = 500;
+        c.loan_to_value = 6_000;
         c.liquidation_fees = 50;
     });
 
-    t.borrow(ALICE, "ETH", 1.0);
-    let (ltv1, _, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!(ltv1, 7_500, "LTV unchanged");
-    assert_eq!(bonus1, 500, "bonus unchanged");
-    assert_eq!(fees1, 50, "fees-only divergence must restamp");
+    t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
+        .expect("third-party top-up of an existing leg stays allowed");
+
+    let (ltv1, lt1, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!(ltv1, 6_000, "LTV rides outside the gate");
+    assert_eq!(
+        (lt1, bonus1, fees1),
+        (lt0, bonus0, fees0),
+        "a fees-only cut must be skipped below the min-HF floor"
+    );
 }
 
 /// After a listing LTV cut, `get_ltv_collateral_usd` uses live listing LTV
@@ -693,5 +729,81 @@ fn poc_untransferable_collateral_leg_bricks_whole_liquidation() {
     assert!(
         t.token_balance(LIQUIDATOR, "USDC") > 0.0,
         "and the USDC leg too — seizure is forced across every collateral asset"
+    );
+}
+
+/// M1: a third-party top-up must not force a liquidator-favorable tuple onto an
+/// account that is already near liquidation.
+///
+/// $10k USDC @ LT 80% against ~$6k ETH debt. Governance goes risk-off — LT 61%,
+/// bonus 5%→10%, fee 1%→0.5% — which puts the post-cut HF at ~1.017, under the
+/// 1.05 floor. LTV still binds; the tuple stays at its old vintage in full.
+#[test]
+fn regression_third_party_supply_cannot_force_adverse_tuple_below_min_hf() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    let id = t.resolve_account_id(ALICE);
+    let (_, lt_before, bonus_before, fees_before) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!(
+        (lt_before, bonus_before, fees_before),
+        (8_000, 500, 100),
+        "preset tuple"
+    );
+
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 5_000;
+        c.liquidation_threshold = 6_100;
+        c.liquidation_bonus = 1_000;
+        c.liquidation_fees = 50;
+    });
+
+    t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
+        .expect("third-party top-up of an existing leg stays allowed");
+
+    let (ltv_after, lt_after, bonus_after, fees_after) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!(ltv_after, 5_000, "LTV rides outside the gate");
+    assert_eq!(
+        (lt_after, bonus_after, fees_after),
+        (lt_before, bonus_before, fees_before),
+        "M1: threshold, bonus, and fees hold their vintage together under the HF floor"
+    );
+}
+
+/// The gate blocks forcing, not propagation: a healthy account still takes a
+/// raised bonus, so a risk-off listing change is not stranded on idle accounts.
+#[test]
+fn regression_supply_propagates_bonus_raise_to_healthy_account() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    // $100k collateral against ~$2k debt — far above the 1.05 floor.
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+    let id = t.resolve_account_id(ALICE);
+    let (_, lt_before, bonus_before, _) = supply_risk_stamp(&t, id, "USDC");
+
+    t.edit_asset_config("USDC", |c| c.liquidation_bonus = bonus_before + 500);
+
+    t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
+        .expect("third-party top-up of an existing leg stays allowed");
+
+    let (_, lt_after, bonus_after, _) = supply_risk_stamp(&t, id, "USDC");
+    assert_eq!(
+        bonus_after,
+        bonus_before + 500,
+        "a healthy account takes the raised bonus"
+    );
+    assert_eq!(
+        lt_after, lt_before,
+        "an unchanged threshold restamps to itself"
     );
 }
