@@ -106,7 +106,10 @@ fn try_normalize_positive_price_softens_invalid() {
     // Boundary: WAD_DECIMALS (18) is the max valid decimals — a pure identity
     // upscale (10^0 = 1), so it must return Some, not None. Pins the guard's
     // `>` (not `==`/`>=`): at exactly 18 the price passes through.
-    assert_eq!(try_normalize_positive_price(1_000, WAD_DECIMALS), Some(1_000));
+    assert_eq!(
+        try_normalize_positive_price(1_000, WAD_DECIMALS),
+        Some(1_000)
+    );
     // One past the boundary rejects instead of underflowing `WAD_DECIMALS -
     // decimals` (which would panic in the soft path).
     assert_eq!(try_normalize_positive_price(1_000, WAD_DECIMALS + 1), None);

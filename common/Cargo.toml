@@ -22,6 +22,7 @@ certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive"]
 certora-focused = []
 certora-math-rules = ["certora", "certora-focused"]
 certora-rates-rules = ["certora", "certora-focused"]
+certora-rate-index-accounting-rules = ["certora", "certora-focused"]
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

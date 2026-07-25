@@ -142,14 +142,6 @@ fn test_wad_min_max() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #33)")]
-fn test_wad_add_assign_overflow_panics() {
-    let env = Env::default();
-    let mut total = Wad::from(i128::MAX);
-    total.checked_add_assign(&env, Wad::from(1));
-}
-
-#[test]
 fn test_bps_to_wad() {
     let env = Env::default();
     let ltv = Bps::from(8000);
@@ -220,18 +212,18 @@ fn test_ordering() {
 }
 
 #[test]
-fn test_ray_add_assign() {
+fn test_ray_checked_add() {
     let env = Env::default();
     let mut x = Ray::from(RAY);
-    x.checked_add_assign(&env, Ray::from(RAY / 2));
+    x = x.checked_add(&env, Ray::from(RAY / 2));
     assert_eq!(x.raw(), RAY + RAY / 2);
 }
 
 #[test]
-fn test_ray_sub_assign() {
+fn test_ray_checked_sub_value() {
     let env = Env::default();
     let mut x = Ray::from(RAY);
-    x.checked_sub_assign(&env, Ray::from(RAY / 4));
+    x = x.checked_sub(&env, Ray::from(RAY / 4));
     assert_eq!(x.raw(), RAY - RAY / 4);
 }
 
@@ -260,10 +252,10 @@ fn test_ray_checked_sub_rejects_negative_self() {
 }
 
 #[test]
-fn test_ray_checked_sub_assign() {
+fn test_ray_checked_sub_chain() {
     let env = Env::default();
     let mut x = Ray::from(10 * RAY);
-    x.checked_sub_assign(&env, Ray::from(4 * RAY));
+    x = x.checked_sub(&env, Ray::from(4 * RAY));
     assert_eq!(x.raw(), 6 * RAY);
 }
 
@@ -274,18 +266,10 @@ fn test_ray_from_asset_high_decimals() {
 }
 
 #[test]
-fn test_wad_add_assign_ok() {
+fn test_wad_checked_sub() {
     let env = Env::default();
     let mut w = Wad::from(WAD);
-    w.checked_add_assign(&env, Wad::from(WAD / 2));
-    assert_eq!(w.raw(), WAD + WAD / 2);
-}
-
-#[test]
-fn test_wad_sub_assign() {
-    let env = Env::default();
-    let mut w = Wad::from(WAD);
-    w.checked_sub_assign(&env, Wad::from(WAD / 3));
+    w = w.checked_sub(&env, Wad::from(WAD / 3));
     assert_eq!(w.raw(), WAD - WAD / 3);
 }
 
@@ -468,7 +452,7 @@ fn test_wad_checked_add_ok() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_wad_checked_add_overflow_panics() {
     let env = Env::default();
     let _ = Wad::from(i128::MAX).checked_add(&env, Wad::from(1));
@@ -645,29 +629,29 @@ fn test_bps_sub_equal_returns_zero() {
     assert_eq!(Bps::ONE.checked_sub(&env, Bps::ONE), Bps::from(0i128));
 }
 
-// Assign-ops update observable state.
+// Checked ops return the updated value.
 
 #[test]
-fn test_ray_checked_add_assign_mutates() {
+fn test_ray_checked_add_returns_sum() {
     let env = Env::default();
     let mut x = Ray::from(RAY);
-    x.checked_add_assign(&env, Ray::from(2 * RAY));
+    x = x.checked_add(&env, Ray::from(2 * RAY));
     assert_eq!(x.raw(), 3 * RAY);
 }
 
 #[test]
-fn test_wad_checked_add_assign_mutates() {
+fn test_wad_checked_add_returns_sum() {
     let env = Env::default();
     let mut x = Wad::from(crate::constants::WAD);
-    x.checked_add_assign(&env, Wad::from(2 * crate::constants::WAD));
+    x = x.checked_add(&env, Wad::from(2 * crate::constants::WAD));
     assert_eq!(x.raw(), 3 * crate::constants::WAD);
 }
 
 #[test]
-fn test_wad_checked_sub_assign_mutates() {
+fn test_wad_checked_sub_returns_difference() {
     let env = Env::default();
     let mut x = Wad::from(5 * crate::constants::WAD);
-    x.checked_sub_assign(&env, Wad::from(2 * crate::constants::WAD));
+    x = x.checked_sub(&env, Wad::from(2 * crate::constants::WAD));
     assert_eq!(x.raw(), 3 * crate::constants::WAD);
 }
 
@@ -782,4 +766,3 @@ fn test_wad_add_checked() {
     let sum = Wad::from(WAD).checked_add(&env, Wad::from(WAD / 2));
     assert_eq!(sum.raw(), WAD + WAD / 2);
 }
-

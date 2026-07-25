@@ -36,7 +36,10 @@ fn test_min_twap_observations_clamps_and_rounds_up() {
 
 fn pd(env: &soroban_sdk::Env, price: i128) -> ReflectorPriceData {
     let _ = env;
-    ReflectorPriceData { price, timestamp: 0 }
+    ReflectorPriceData {
+        price,
+        timestamp: 0,
+    }
 }
 
 #[test]

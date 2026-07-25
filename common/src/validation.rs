@@ -4,8 +4,8 @@
 //! identical error codes for the same malformed input.
 
 use crate::constants::{
-    BPS, MAX_LIQUIDATION_TARGET_HF_WAD, MAX_REASONABLE_PRICE_WAD, MAX_TOLERANCE, MIN_SANITY_BAND_BPS,
-    MIN_TOLERANCE, RAY_DECIMALS, WAD,
+    BPS, MAX_LIQUIDATION_TARGET_HF_WAD, MAX_REASONABLE_PRICE_WAD, MAX_TOLERANCE,
+    MIN_SANITY_BAND_BPS, MIN_TOLERANCE, RAY_DECIMALS, WAD,
 };
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use crate::math::fp_core::mul_div_ceil;
@@ -13,6 +13,10 @@ use crate::oracle::observation::{MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MAX_TWAP_REC
 use crate::types::{OracleStrategy, OracleTolerance};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Executable};
 
+/// Strictly positive amount; zero is rejected.
+///
+/// # Errors
+/// * [`GenericError::AmountMustBePositive`] - `amount <= 0`.
 pub fn require_positive_amount(env: &Env, amount: i128) {
     assert_with_error!(env, amount > 0, GenericError::AmountMustBePositive);
 }
@@ -30,6 +34,12 @@ pub fn cap_is_enabled(cap: i128) -> bool {
     cap > 0 && cap != i128::MAX
 }
 
+/// Rejects a supply/borrow cap that cannot be scaled to RAY without overflowing.
+/// `i128::MAX` is the disabled sentinel and always passes.
+///
+/// # Errors
+/// * [`CollateralError::AssetDecimalsTooHigh`] - `asset_decimals > RAY_DECIMALS`.
+/// * [`CollateralError::InvalidBorrowParams`] - the cap exceeds the RAY-scalable ceiling.
 pub fn require_cap_within_asset_domain(env: &Env, cap: i128, asset_decimals: u32) {
     if cap == i128::MAX {
         return;
@@ -48,6 +58,11 @@ pub fn require_cap_within_asset_domain(env: &Env, cap: i128, asset_decimals: u32
     );
 }
 
+/// Requires `receiver` to be a deployed Wasm contract, so a flash-loan callback
+/// cannot be routed to an account or a built-in.
+///
+/// # Errors
+/// * [`FlashLoanError::InvalidFlashloanReceiver`] - `receiver` is not Wasm.
 pub fn require_wasm_receiver(env: &Env, receiver: &Address) {
     assert_with_error!(
         env,
@@ -136,6 +151,12 @@ pub fn validate_oracle_tolerance(env: &Env, tolerance: &OracleTolerance) {
     );
 }
 
+/// Validates an oracle sanity band: positive, ordered, under the reasonable-price
+/// ceiling, and wide enough that a normal print cannot revert every hard read.
+///
+/// # Errors
+/// * [`OracleError::InvalidSanityBounds`] - bounds are non-positive, unordered,
+///   above `MAX_REASONABLE_PRICE_WAD`, or narrower than `MIN_SANITY_BAND_BPS`.
 pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     assert_with_error!(
         env,
