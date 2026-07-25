@@ -54,9 +54,7 @@ PURE_CONTROLLER_CONFS = {
     "scaled-reconstruction.conf",
     "supply-dust-sanity.conf",
 }
-PURE_POOL_CONFS = {
-    "rate-index-accounting.conf",
-}
+PURE_POOL_CONFS: set[str] = set()
 PURE_PRICE_AGGREGATOR_CONFS = {
     "freshness.conf",
     "oracle.conf",

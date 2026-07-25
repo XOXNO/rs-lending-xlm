@@ -56,10 +56,16 @@ fn utilization_bounded_when_borrowed_lte_supplied(e: Env, borrowed: i128, suppli
 }
 
 #[rule]
-fn deposit_rate_zero_when_no_utilization(e: Env, borrow_rate: i128) {
+fn deposit_rate_zero_when_no_utilization(e: Env, borrow_rate: i128, reserve_bps: u32) {
     cvlr_assume!((0..=MAX_BORROW_RATE_RAY).contains(&borrow_rate));
+    cvlr_assume!(reserve_bps < BPS as u32);
 
-    let rate = calculate_deposit_rate(&e, Ray::ZERO, Ray::from(borrow_rate), Bps::from(1_000));
+    let rate = calculate_deposit_rate(
+        &e,
+        Ray::ZERO,
+        Ray::from(borrow_rate),
+        Bps::from(i128::from(reserve_bps)),
+    );
     cvlr_assert!(rate.raw() == 0);
 }
 

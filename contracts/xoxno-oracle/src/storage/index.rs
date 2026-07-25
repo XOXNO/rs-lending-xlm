@@ -7,7 +7,7 @@ use soroban_sdk::{Env, String};
 use crate::storage::{ttl::renew_persistent_key, DataKey};
 
 /// Number of occupied asset slots; also the next free index.
-pub(crate) fn asset_count(env: &Env) -> u32 {
+pub(in crate::storage) fn asset_count(env: &Env) -> u32 {
     env.storage()
         .persistent()
         .get(&DataKey::AssetCount)
@@ -15,7 +15,7 @@ pub(crate) fn asset_count(env: &Env) -> u32 {
 }
 
 /// Number of occupied feed slots; also the next free index.
-pub(crate) fn feed_count(env: &Env) -> u32 {
+pub(in crate::storage) fn feed_count(env: &Env) -> u32 {
     env.storage()
         .persistent()
         .get(&DataKey::FeedCount)
@@ -85,7 +85,7 @@ pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
 }
 
 /// Appends a feed to the dense index. Caller must check it is absent first.
-pub(crate) fn feed_index_insert(env: &Env, feed_id: String) {
+pub(in crate::storage) fn feed_index_insert(env: &Env, feed_id: String) {
     let count = feed_count(env);
     let at_key = DataKey::FeedAt(count);
     let index_key = DataKey::FeedIndex(feed_id.clone());
