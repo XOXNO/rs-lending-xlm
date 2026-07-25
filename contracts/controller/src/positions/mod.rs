@@ -1,8 +1,15 @@
 //! Core position money path: supply, borrow, withdraw, repay, liquidation.
 //!
 //! Auth and risk gates live on public entrypoints; pool settles shares/cash.
-//! Stages: process_* → build_* → settle_* → finish_*_leg → finalize_position_flow.
-//! See `docs/reference/invariants.md` §3.
+//!
+//! Stages: `process_*` → `settle_*` → `build_*_entries` → `apply_*_batch` →
+//! `merge_*_leg` → `finalize_position_flow`. `process_*` owns auth, account
+//! loading and entry gates. `settle_*` sequences one money path end to end.
+//! `build_*_entries` shapes the pool entries, and moves tokens in on the paths
+//! that pre-fund the pool. `apply_*_batch` is the reusable batch step over one
+//! pool call's results, walked in input order. `merge_*_leg` folds a single
+//! result into the account, spoke usage and events. `finalize_position_flow`
+//! persists the shared tail. See `docs/reference/invariants.md` §3.
 
 use common::errors::{CollateralError, SpokeError};
 use common::types::{
@@ -12,6 +19,7 @@ use common::types::{
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
 use crate::account;
+use crate::config;
 use crate::context::Cache;
 use crate::risk::validation;
 use crate::spoke;
@@ -98,7 +106,7 @@ pub(crate) fn validate_position_entry_gates(
     validation::validate_bulk_position_limits(env, account, position_type, aggregated);
 
     for (hub_asset, _) in aggregated {
-        validation::require_hub_active(env, hub_asset.hub_id);
+        config::require_hub_active(env, hub_asset.hub_id);
         // Unlisted assets revert `AssetNotInSpoke`.
         let asset_config =
             spoke::require_listed_active_config(env, cache, account.spoke_id, &hub_asset);

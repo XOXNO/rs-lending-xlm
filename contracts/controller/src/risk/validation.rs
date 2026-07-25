@@ -1,18 +1,15 @@
 //! Shared account, market, risk, and position-limit gates.
 
 use crate::risk;
+use crate::spec_hooks;
 use common::errors::*;
 use common::math::fp::Wad;
 use common::types::{Account, AccountPositionType, HubAssetKey};
-pub use common::validation::{require_positive_amount, require_wasm_receiver};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Map, Vec};
 
 use crate::positions::AggregatedPayments;
 
 use crate::{context::Cache, storage};
-
-/// Hub-active gate for position flows.
-pub(crate) use crate::config::require_hub_active;
 
 /// Unwraps a controller-built value or panics with `InternalError`.
 /// Missing values indicate corrupted storage or caller logic bugs after checks.
@@ -43,7 +40,6 @@ pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account
     let totals = risk::calculate_account_risk_totals(
         env,
         cache,
-        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );
@@ -54,10 +50,7 @@ pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account
         CollateralError::InsufficientCollateral
     );
 
-    // Mark that the solvency gate executed its collateral-covers-debt check.
-    // Read only by the Blend-style "health-gated" Certora rules.
-    #[cfg(feature = "certora")]
-    crate::spec::health_ghost::set_checked();
+    spec_hooks::solvency_gate_checked();
 
     assert_with_error!(
         env,

@@ -39,8 +39,8 @@ pub(crate) fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) 
             return 0;
         }
     }
-    // Mirror the mutating path: refresh the withdrawn leg (sticky LT rules),
-    // then restamp LTV/bonus/fees across every listed supply leg.
+    // Mirror the mutating path: refresh the withdrawn leg (gated liquidation
+    // tuple), then restamp LTV across every listed supply leg.
     if !account.borrow_positions.is_empty() {
         risk::refresh_supply_risk_params_for_asset(
             env,
@@ -52,7 +52,7 @@ pub(crate) fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) 
         account
             .supply_positions
             .set(hub_asset.clone(), (&position).into());
-        let _ = risk::restamp_listed_supply_safe_params(&mut cache, &mut account);
+        let _ = risk::restamp_listed_supply_ltv(&mut cache, &mut account);
         if let Some(raw) = account.supply_positions.get(hub_asset.clone()) {
             position = (&raw).into();
         }
@@ -144,7 +144,6 @@ fn risk_partial_cap(
     let totals = risk::calculate_account_risk_totals(
         env,
         cache,
-        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );

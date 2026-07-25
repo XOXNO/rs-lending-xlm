@@ -1,6 +1,8 @@
-//! Strategy wrappers over borrow/withdraw/repay settle primitives.
+//! Strategy legs: wrappers over the borrow, withdraw, and repay position
+//! primitives, moving tokens through the controller rather than the caller.
 //!
-//! No public auth or post-pool HF: calling strategy entrypoints own both.
+//! No leg runs `require_auth` and none re-runs the post-pool health gate: the
+//! calling strategy entrypoint owns both.
 
 use common::errors::GenericError;
 use common::math::fp::Ray;

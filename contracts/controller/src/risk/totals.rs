@@ -120,7 +120,7 @@ pub(crate) fn sum_supply_usd_loaded(
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
-        total.checked_add_assign(
+        total = total.checked_add(
             env,
             position_value_with_mode(
                 env,
@@ -161,7 +161,7 @@ pub(crate) fn sum_debt_usd_loaded(
     for (hub_asset, position) in iter_debt_positions(borrow_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
-        total.checked_add_assign(
+        total = total.checked_add(
             env,
             position_value_with_mode(
                 env,
@@ -179,7 +179,6 @@ pub(crate) fn sum_debt_usd_loaded(
 pub(crate) fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut Cache,
-    _spoke_id: u32,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
 ) -> Wad {
     cache.load_markets(&supply_positions.keys());
@@ -198,7 +197,7 @@ pub(crate) fn calculate_ltv_collateral_wad(
             feed.price,
         );
 
-        ltv.checked_add_assign(env, position.loan_to_value.apply_to_wad_floor(env, value));
+        ltv = ltv.checked_add(env, position.loan_to_value.apply_to_wad_floor(env, value));
     }
     ltv
 }
@@ -212,47 +211,39 @@ pub(crate) struct AccountRiskTotals {
     pub health_factor: Wad,
 }
 
+/// Loads prices and market indexes, then walks the portfolio to build risk totals.
+///
+/// The portfolio walk is unbounded for the prover, so the `certora` build
+/// swaps this entry point for a nondeterministic summary; both builds keep
+/// `calculate_account_risk_totals_body` as the single real aggregation.
+#[cfg(not(feature = "certora"))]
 pub(crate) fn calculate_account_risk_totals(
     env: &Env,
     cache: &mut Cache,
-    spoke_id: u32,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> AccountRiskTotals {
-    _calculate_account_risk_totals_impl(env, cache, spoke_id, supply_positions, borrow_positions)
-}
-
-/// Dispatches account risk totals to the shared body in non-Certora builds.
-#[cfg(not(feature = "certora"))]
-fn _calculate_account_risk_totals_impl(
-    env: &Env,
-    cache: &mut Cache,
-    spoke_id: u32,
-    supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
-    borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
-) -> AccountRiskTotals {
-    calculate_account_risk_totals_body(env, cache, spoke_id, supply_positions, borrow_positions)
+    calculate_account_risk_totals_body(env, cache, supply_positions, borrow_positions)
 }
 
 #[cfg(feature = "certora")]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::calculate_account_risk_totals_summary,
-    pub(crate) fn _calculate_account_risk_totals_impl(
+    pub(crate) fn calculate_account_risk_totals(
         env: &Env,
         cache: &mut Cache,
-        spoke_id: u32,
         supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
         borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
     ) -> AccountRiskTotals {
-        calculate_account_risk_totals_body(env, cache, spoke_id, supply_positions, borrow_positions)
+        calculate_account_risk_totals_body(env, cache, supply_positions, borrow_positions)
     }
 );
 
-/// Loads prices and market indexes, then walks the portfolio to build risk totals.
+/// Prices every supply leg into neutral, LTV-weighted, and threshold-weighted
+/// collateral, ceils total debt, and derives the health factor.
 fn calculate_account_risk_totals_body(
     env: &Env,
     cache: &mut Cache,
-    _spoke_id: u32,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> AccountRiskTotals {
@@ -282,12 +273,12 @@ fn calculate_account_risk_totals_body(
             feed.price,
         );
 
-        total_collateral.checked_add_assign(env, value);
-        ltv_collateral.checked_add_assign(
+        total_collateral = total_collateral.checked_add(env, value);
+        ltv_collateral = ltv_collateral.checked_add(
             env,
             position.loan_to_value.apply_to_wad_floor(env, gate_value),
         );
-        weighted_coll.checked_add_assign(
+        weighted_coll = weighted_coll.checked_add(
             env,
             weighted_collateral(env, gate_value, position.liquidation_threshold),
         );

@@ -186,7 +186,7 @@ fn borrow_ok(
     }
 
     let mut adjusted = account.clone();
-    let _ = risk::restamp_listed_supply_safe_params(cache, &mut adjusted);
+    let _ = risk::restamp_listed_supply_ltv(cache, &mut adjusted);
     let existing = adjusted
         .borrow_positions
         .get(hub_asset.clone())

@@ -5,6 +5,11 @@ use common::types::PositionMode;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 
+const STAMPED_LT: i128 = 8_000;
+const STAMPED_LTV: i128 = 7_500;
+const STAMPED_BONUS: i128 = 500;
+const STAMPED_FEES: i128 = 100;
+
 fn debt_free_account(env: &Env) -> Account {
     Account {
         owner: Address::generate(env),
@@ -15,28 +20,95 @@ fn debt_free_account(env: &Env) -> Account {
     }
 }
 
-fn position_with_threshold(lt_bps: i128) -> AccountPosition {
+fn stamped_position() -> AccountPosition {
     AccountPosition {
         scaled_amount: Ray::from(0),
-        liquidation_threshold: Bps::from(lt_bps),
-        liquidation_bonus: Bps::from(500i128),
-        loan_to_value: Bps::from(7_500i128),
-        liquidation_fees: Bps::from(100i128),
+        liquidation_threshold: Bps::from(STAMPED_LT),
+        liquidation_bonus: Bps::from(STAMPED_BONUS),
+        loan_to_value: Bps::from(STAMPED_LTV),
+        liquidation_fees: Bps::from(STAMPED_FEES),
     }
 }
 
-// H-RISK-04: LT cuts on debt-free accounts always apply; the 1.05 HF floor is
-// the gate constant used for debt-bearing accounts (integration PoC covers
-// sticky LT under live risk totals).
+fn config(lt: i128, bonus: i128, fees: i128) -> AssetConfig {
+    AssetConfig {
+        loan_to_value: Bps::from(5_000i128),
+        liquidation_threshold: Bps::from(lt),
+        liquidation_bonus: Bps::from(bonus),
+        liquidation_fees: Bps::from(fees),
+        is_collateralizable: true,
+        is_borrowable: true,
+    }
+}
+
+// The gate constant the liquidation tuple is held to; pinned so a config edit
+// cannot silently widen the window in which adverse params can be forced on.
 #[test]
 fn threshold_update_min_hf_is_one_point_zero_five_wad() {
     assert_eq!(THRESHOLD_UPDATE_MIN_HF_RAW, 1_050_000_000_000_000_000);
 }
 
-// Threshold raises are unconditional and debt-free decreases skip the HF
-// gate — both must land on the position.
+// A cut threshold hands the liquidator a cheaper trigger.
 #[test]
-fn apply_liquidation_threshold_updates_position_value() {
+fn favors_liquidator_on_threshold_cut() {
+    let position = stamped_position();
+    assert!(favors_liquidator(
+        &position,
+        &config(STAMPED_LT - 1, STAMPED_BONUS, STAMPED_FEES)
+    ));
+}
+
+// A raised bonus enlarges the seizure multiplier.
+#[test]
+fn favors_liquidator_on_bonus_raise() {
+    let position = stamped_position();
+    assert!(favors_liquidator(
+        &position,
+        &config(STAMPED_LT, STAMPED_BONUS + 1, STAMPED_FEES)
+    ));
+}
+
+// Fees are carved out of the bonus, so the adverse direction is downward — the
+// inverse of the threshold and bonus rules.
+#[test]
+fn favors_liquidator_on_fee_cut() {
+    let position = stamped_position();
+    assert!(favors_liquidator(
+        &position,
+        &config(STAMPED_LT, STAMPED_BONUS, STAMPED_FEES - 1)
+    ));
+
+    assert!(!favors_liquidator(
+        &position,
+        &config(STAMPED_LT, STAMPED_BONUS, STAMPED_FEES + 1)
+    ));
+}
+
+// A tuple that moves wholly against the liquidator carries no gate.
+#[test]
+fn favors_liquidator_false_when_every_field_is_borrower_favorable() {
+    let position = stamped_position();
+    assert!(!favors_liquidator(
+        &position,
+        &config(STAMPED_LT + 1, STAMPED_BONUS - 1, STAMPED_FEES + 1)
+    ));
+}
+
+// An unchanged tuple is not adverse, so a bonus-only listing edit is the only
+// thing that can pull an otherwise-idle restamp through the gate.
+#[test]
+fn favors_liquidator_false_when_tuple_is_unchanged() {
+    let position = stamped_position();
+    assert!(!favors_liquidator(
+        &position,
+        &config(STAMPED_LT, STAMPED_BONUS, STAMPED_FEES)
+    ));
+}
+
+// Debt-free accounts skip the HF walk: the whole tuple lands even when every
+// field is liquidator-favorable, since there is nothing to liquidate.
+#[test]
+fn refresh_writes_full_tuple_for_debt_free_account() {
     let env = Env::default();
     let contract = env.register(crate::Controller, (Address::generate(&env),));
     env.as_contract(&contract, || {
@@ -46,26 +118,48 @@ fn apply_liquidation_threshold_updates_position_value() {
             asset: Address::generate(&env),
         };
         let mut cache = Cache::new_view(&env);
+        let mut position = stamped_position();
 
-        let mut position = position_with_threshold(8_000);
-        apply_liquidation_threshold(
+        refresh_supply_risk_params(
             &env,
             &mut cache,
             &account,
             &hub,
             &mut position,
-            Bps::from(9_000i128),
+            &config(7_000, STAMPED_BONUS + 400, STAMPED_FEES - 50),
         );
-        assert_eq!(position.liquidation_threshold.raw(), 9_000);
 
-        apply_liquidation_threshold(
-            &env,
-            &mut cache,
-            &account,
-            &hub,
-            &mut position,
-            Bps::from(7_000i128),
-        );
         assert_eq!(position.liquidation_threshold.raw(), 7_000);
+        assert_eq!(position.liquidation_bonus.raw(), STAMPED_BONUS + 400);
+        assert_eq!(position.liquidation_fees.raw(), STAMPED_FEES - 50);
+        assert_eq!(position.loan_to_value.raw(), 5_000, "LTV is ungated");
+    });
+}
+
+// LTV rides outside the gate entirely: it bounds borrow capacity and never
+// feeds the liquidation planner.
+#[test]
+fn refresh_writes_ltv_even_when_tuple_is_gated() {
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    env.as_contract(&contract, || {
+        let account = debt_free_account(&env);
+        let hub = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
+        let mut cache = Cache::new_view(&env);
+        let mut position = stamped_position();
+
+        refresh_supply_risk_params(
+            &env,
+            &mut cache,
+            &account,
+            &hub,
+            &mut position,
+            &config(STAMPED_LT, STAMPED_BONUS, STAMPED_FEES),
+        );
+
+        assert_eq!(position.loan_to_value.raw(), 5_000);
     });
 }

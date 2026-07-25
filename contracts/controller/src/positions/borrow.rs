@@ -8,8 +8,7 @@ use common::math::fp::Ray;
 use common::types::{
     Account, AccountPositionType, DebtPosition, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
 };
-use soroban_sdk::{contractimpl, vec, Address, Env, Vec};
-use stellar_macros::when_not_paused;
+use soroban_sdk::{vec, Address, Env, Vec};
 
 use crate::account::{require_owner_or_delegate, update_or_remove_debt_position};
 use crate::context::Cache;
@@ -22,36 +21,6 @@ use crate::positions::{
 };
 use crate::risk::{self, validation};
 use crate::storage;
-use crate::{Controller, ControllerArgs, ControllerClient};
-
-#[contractimpl]
-impl Controller {
-    /// Borrows `borrows` to `to` (default `caller`) on an existing account.
-    /// Owner or active delegate. Re-checks LTV/HF on pool-returned indexes.
-    ///
-    /// # Errors
-    /// * `NotAuthorized` — `caller` is neither owner nor active delegate.
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `HubNotActive` / `AssetNotInSpoke` / `SpokeAssetPaused` / `SpokeAssetFrozen` /
-    ///   `AssetNotBorrowable` / `PositionLimitExceeded` — entry gates.
-    /// * `SpokeBorrowCapReached` — borrow would exceed the spoke borrow cap.
-    /// * `BorrowRoundsToZeroShares` — amount rounds to zero scaled debt (pool).
-    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — post-pool risk gates.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
-    ///
-    /// # Events
-    /// * topics — `["position", "batch_update"]`
-    #[when_not_paused]
-    pub fn borrow(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        borrows: Vec<(HubAssetKey, i128)>,
-        to: Option<Address>,
-    ) {
-        process_borrow(&env, &caller, account_id, &borrows, to);
-    }
-}
 
 /// Auth, load account, entry gates, pool borrow, post-pool solvency, then persist.
 ///
@@ -83,7 +52,7 @@ pub(crate) fn process_borrow(
     );
     settle_borrow(env, &recipient, &mut account, &aggregated, &mut cache);
 
-    let restamped = risk::restamp_listed_supply_safe_params(&mut cache, &mut account);
+    let restamped = risk::restamp_listed_supply_ltv(&mut cache, &mut account);
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
 
     let sides = if restamped {
@@ -105,7 +74,7 @@ fn settle_borrow(
     let entries = build_borrow_entries(env, account, aggregated);
     let pool_addr = cache.cached_pool_address();
     let results = pool_borrow_call(env, &pool_addr, recipient, &entries);
-    apply_borrow_results(env, account, &entries, &results, cache);
+    apply_borrow_batch(env, account, &entries, &results, cache);
 }
 
 /// Snapshots each debt leg for the pool action (in-memory; merge persists).
@@ -124,8 +93,8 @@ fn build_borrow_entries(
     entries
 }
 
-/// Input-ordered pool results → `finish_borrow_leg` per entry.
-fn apply_borrow_results(
+/// Input-ordered pool results → `merge_borrow_leg` per entry.
+fn apply_borrow_batch(
     env: &Env,
     account: &mut Account,
     entries: &Vec<PoolBorrowEntry>,
@@ -134,7 +103,7 @@ fn apply_borrow_results(
 ) {
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        finish_borrow_leg(
+        merge_borrow_leg(
             env,
             account,
             &entry.action.hub_asset,
@@ -146,7 +115,7 @@ fn apply_borrow_results(
 }
 
 /// Per-leg merge: debt position, spoke usage, market index, event, debt map.
-fn finish_borrow_leg(
+fn merge_borrow_leg(
     env: &Env,
     account: &mut Account,
     hub_asset: &HubAssetKey,
@@ -182,6 +151,7 @@ fn finish_borrow_leg(
     update_or_remove_debt_position(account, hub_asset, &position);
 }
 
+/// Borrows `amount` of `hub_debt` against `account` for a strategy flow
 /// and returns the asset amount received by the controller.
 ///
 /// Used by multiply and swap-debt. Charges the market's configured flash-loan fee.
@@ -268,7 +238,7 @@ fn borrow_strategy_inner(
         charge_fee,
     );
     let mutation: PoolPositionMutation = PoolPositionMutation::from(&result);
-    finish_borrow_leg(env, account, &hub_debt, event_action, &mutation, cache);
+    merge_borrow_leg(env, account, &hub_debt, event_action, &mutation, cache);
 
     result.amount_received
 }

@@ -8,7 +8,7 @@
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{Account, DebtPosition, HubAssetKey, PoolAction, PoolPositionMutation};
-use soroban_sdk::{contractimpl, vec, Address, Env, Vec};
+use soroban_sdk::{vec, Address, Env, Vec};
 
 use crate::account::update_or_remove_debt_position;
 use crate::context::Cache;
@@ -21,31 +21,12 @@ use crate::positions::{
 };
 use crate::risk::validation;
 use crate::storage;
-use crate::{Controller, ControllerArgs, ControllerClient};
 
 /// Single-asset repay input for strategy paths (tokens already at the pool).
 pub(crate) struct RepaymentRequest<'a> {
     pub hub_asset: &'a HubAssetKey,
     pub position: &'a DebtPosition,
     pub amount: i128,
-}
-
-#[contractimpl]
-impl Controller {
-    /// Repays `payments` against `account_id`. Any caller may repay any account;
-    /// payer auth covers the token transfer. Global pause does not block.
-    ///
-    /// # Errors
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `AmountMustBePositive` — a leg amount is not strictly positive.
-    /// * `SpokeAssetPaused` — spoke asset is paused (frozen may still repay).
-    /// * `DebtPositionNotFound` — no debt position for an asset.
-    ///
-    /// # Events
-    /// * topics — `["position", "batch_update"]`
-    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>) {
-        process_repay(&env, &caller, account_id, &payments);
-    }
 }
 
 /// Auth (payer), aggregate, load debt map, transfer + pool settle, persist debt.
@@ -86,8 +67,8 @@ fn settle_repay(
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) {
-    let actions = transfer_and_build_repay_actions(env, caller, account, aggregated, cache);
-    settle_repay_actions(
+    let actions = build_repay_actions(env, caller, account, aggregated, cache);
+    apply_repay_batch(
         env,
         account,
         caller,
@@ -98,7 +79,7 @@ fn settle_repay(
 }
 
 /// Per leg: spoke pause check, require debt, transfer to pool, build pool action.
-fn transfer_and_build_repay_actions(
+fn build_repay_actions(
     env: &Env,
     caller: &Address,
     account: &Account,
@@ -129,7 +110,7 @@ fn transfer_and_build_repay_actions(
 /// Does not enforce spoke pause/freeze or transfer tokens: user path checks flags
 /// and transfers first; liquidation/strategy callers are responsible for funding
 /// and (for strategy) pause checks via `execute_repayment`.
-pub(crate) fn settle_repay_actions(
+pub(crate) fn apply_repay_batch(
     env: &Env,
     account: &mut Account,
     payer: &Address,
@@ -141,7 +122,7 @@ pub(crate) fn settle_repay_actions(
     let results = pool_repay_call(env, &pool_addr, payer, actions);
     for (i, entry) in actions.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        finish_repay_leg(env, account, action, &entry.hub_asset, &result, cache);
+        merge_repay_leg(env, account, action, &entry.hub_asset, &result, cache);
     }
     results
 }
@@ -150,7 +131,7 @@ pub(crate) fn settle_repay_actions(
 ///
 /// Usage delta is debt shares repaid (`old_scaled - new_scaled`). Debt position
 /// is fully pool-owned.
-pub(crate) fn finish_repay_leg(
+pub(crate) fn merge_repay_leg(
     env: &Env,
     account: &mut Account,
     action: events::PositionAction,
@@ -184,7 +165,7 @@ pub(crate) fn finish_repay_leg(
 ///
 /// Enforces spoke pause (frozen still allowed). Does not transfer tokens — the
 /// caller must already have funded the pool. Liquidation bypasses this and calls
-/// `settle_repay_actions` directly.
+/// `apply_repay_batch` directly.
 ///
 /// # Security Warning
 /// * Performs no `require_auth`: the calling strategy entrypoint owns
@@ -206,6 +187,6 @@ pub(crate) fn execute_repayment(
         env,
         make_pool_action(req.position, req.amount, req.hub_asset.clone()),
     ];
-    let results = settle_repay_actions(env, account, &counterparty, action, &actions, cache);
+    let results = apply_repay_batch(env, account, &counterparty, action, &actions, cache);
     validation::expect_invariant(env, results.get(0))
 }

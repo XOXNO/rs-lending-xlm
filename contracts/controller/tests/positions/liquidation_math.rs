@@ -416,7 +416,13 @@ fn bonus_factor_at_bps_ceiling_never_exceeds_max() {
 fn custom_target_changes_estimate() {
     let env = Env::default();
     // 100 USD debt/collateral, 0.5 mix proportion.
-    let s = snap(100 * WAD, 100 * WAD, 95 * WAD, WAD / 2, 950_000_000_000_000_000);
+    let s = snap(
+        100 * WAD,
+        100 * WAD,
+        95 * WAD,
+        WAD / 2,
+        950_000_000_000_000_000,
+    );
     let bounds = BonusBounds {
         base: Bps::from(200i128),
         max: Bps::from(1_000i128),
@@ -440,7 +446,13 @@ fn custom_target_changes_estimate() {
 #[test]
 fn post_liquidation_hf_saturates_when_debt_fully_repaid() {
     let env = Env::default();
-    let s = snap(100 * WAD, 100 * WAD, 90 * WAD, WAD / 2, 900_000_000_000_000_000);
+    let s = snap(
+        100 * WAD,
+        100 * WAD,
+        90 * WAD,
+        WAD / 2,
+        900_000_000_000_000_000,
+    );
     let hf = calculate_post_liquidation_hf(&env, &s, s.total_debt, Bps::from(0i128));
     assert_eq!(hf.raw(), i128::MAX);
 }
@@ -448,7 +460,13 @@ fn post_liquidation_hf_saturates_when_debt_fully_repaid() {
 #[test]
 fn post_liquidation_hf_does_not_decrease_for_partial_zero_bonus_repay() {
     let env = Env::default();
-    let s = snap(100 * WAD, 100 * WAD, 90 * WAD, WAD / 2, 900_000_000_000_000_000);
+    let s = snap(
+        100 * WAD,
+        100 * WAD,
+        90 * WAD,
+        WAD / 2,
+        900_000_000_000_000_000,
+    );
     let hf = calculate_post_liquidation_hf(&env, &s, Wad::from(10 * WAD), Bps::from(0i128));
     assert!(hf >= s.hf);
 }
@@ -1182,7 +1200,6 @@ fn account_bonus_params_accumulates_collateral_and_weights_bonus() {
         let bounds = get_account_bonus_params(
             &env,
             &mut cache,
-            account.spoke_id,
             &account.supply_positions,
             Wad::from(WAD / 2),
         );

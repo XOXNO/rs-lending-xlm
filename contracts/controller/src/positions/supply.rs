@@ -8,11 +8,9 @@
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPositionType, AssetConfig, HubAssetKey, PoolPositionMutation, PoolSupplyEntry,
-    PositionMode,
+    Account, AccountPositionType, AssetConfig, PoolPositionMutation, PoolSupplyEntry, PositionMode,
 };
-use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
-use stellar_macros::when_not_paused;
+use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 use crate::account::{self, update_or_remove_supply_position};
 use crate::context::Cache;
@@ -24,36 +22,6 @@ use crate::positions::{
     HubPayment, PositionSides,
 };
 use crate::risk::{refresh_supply_risk_params, validation};
-use crate::{Controller, ControllerArgs, ControllerClient};
-
-#[contractimpl]
-impl Controller {
-    /// Deposits `assets` as collateral and returns the account id. Caller auth.
-    /// `account_id == 0` opens a new account on `spoke_id`; otherwise `spoke_id`
-    /// is ignored. Owner/delegate for new slots; anyone may top up an existing leg.
-    ///
-    /// # Errors
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `AmountMustBePositive` — a leg amount is not strictly positive.
-    /// * `NotAuthorized` — a non-owner/non-delegate opens a new supply asset slot.
-    /// * `HubNotActive` / `AssetNotInSpoke` / `SpokeAssetPaused` / `SpokeAssetFrozen` /
-    ///   `NotCollateral` / `PositionLimitExceeded` — entry gates.
-    /// * `SpokeSupplyCapReached` — deposit would exceed the spoke supply cap.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
-    ///
-    /// # Events
-    /// * topics — `["position", "batch_update"]`
-    #[when_not_paused]
-    pub fn supply(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        spoke_id: u32,
-        assets: Vec<(HubAssetKey, i128)>,
-    ) -> u64 {
-        process_supply(&env, &caller, account_id, spoke_id, &assets)
-    }
-}
 
 /// Auth, aggregate, load/create account, deposit, then persist supply positions.
 ///
@@ -124,11 +92,11 @@ pub(crate) fn process_deposit(
         cache,
         AccountPositionType::Deposit,
     );
-    settle_deposit(env, caller, account, aggregated, cache);
+    settle_supply(env, caller, account, aggregated, cache);
 }
 
 /// Transfer tokens into the pool, one batch `pool.supply`, merge results.
-fn settle_deposit(
+fn settle_supply(
     env: &Env,
     caller: &Address,
     account: &mut Account,
@@ -136,14 +104,13 @@ fn settle_deposit(
     cache: &mut Cache,
 ) {
     let pool_addr = cache.cached_pool_address();
-    let entries =
-        transfer_and_build_supply_entries(env, caller, account, aggregated, cache, &pool_addr);
+    let entries = build_supply_entries(env, caller, account, aggregated, cache, &pool_addr);
     let results = pool_supply_call(env, &pool_addr, &entries);
-    apply_supply_results(env, account, &entries, &results, cache);
+    apply_supply_batch(env, account, &entries, &results, cache);
 }
 
-/// Moves each deposit leg to the pool, then builds the matching `PoolSupplyEntry`.
-fn transfer_and_build_supply_entries(
+/// Moves each supply leg to the pool, then builds the matching `PoolSupplyEntry`.
+fn build_supply_entries(
     env: &Env,
     caller: &Address,
     account: &Account,
@@ -171,8 +138,8 @@ fn transfer_and_build_supply_entries(
     entries
 }
 
-/// Input-ordered pool results → `finish_supply_leg` per entry.
-fn apply_supply_results(
+/// Input-ordered pool results → `merge_supply_leg` per entry.
+fn apply_supply_batch(
     env: &Env,
     account: &mut Account,
     entries: &Vec<PoolSupplyEntry>,
@@ -181,12 +148,12 @@ fn apply_supply_results(
 ) {
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        finish_supply_leg(env, account, &entry, &result, cache);
+        merge_supply_leg(env, account, &entry, &result, cache);
     }
 }
 
 /// Per-leg merge: risk params, scaled shares, spoke usage, event, supply map.
-fn finish_supply_leg(
+fn merge_supply_leg(
     env: &Env,
     account: &mut Account,
     entry: &PoolSupplyEntry,

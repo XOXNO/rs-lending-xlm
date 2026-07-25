@@ -104,13 +104,7 @@ pub(crate) fn calculate_seizure_proportions(
         Wad::ZERO
     };
 
-    let bounds = get_account_bonus_params(
-        env,
-        cache,
-        account.spoke_id,
-        &account.supply_positions,
-        proportion_seized,
-    );
+    let bounds = get_account_bonus_params(env, cache, &account.supply_positions, proportion_seized);
 
     (proportion_seized, bounds)
 }
@@ -157,7 +151,7 @@ pub(crate) fn calculate_repayment_amounts(
 
         let payment_usd = feed.usd_value_wad(env, payment_amount);
 
-        total_repaid_usd.checked_add_assign(env, payment_usd);
+        total_repaid_usd = total_repaid_usd.checked_add(env, payment_usd);
         repaid_tokens.push_back(RepayEntry {
             hub_asset,
             amount: payment_amount,
@@ -231,7 +225,7 @@ fn debt_close_amount(
 pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
-        total.checked_add_assign(env, Wad::from(entry.usd_wad));
+        total = total.checked_add(env, Wad::from(entry.usd_wad));
     }
     total
 }
@@ -244,7 +238,7 @@ fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     for entry in repaid_tokens.iter() {
         let value = Wad::from_token(entry.amount, entry.feed.asset_decimals)
             .mul_ceil(env, Wad::from(entry.feed.price_wad));
-        total.checked_add_assign(env, value);
+        total = total.checked_add(env, value);
     }
     total
 }
@@ -391,7 +385,7 @@ pub(crate) fn process_excess_payment(
                 amount: entry.amount,
             });
             repaid_tokens.remove(current_index);
-            remaining_excess_usd.checked_sub_assign(env, usd);
+            remaining_excess_usd = remaining_excess_usd.checked_sub(env, usd);
         }
     }
 }
@@ -597,7 +591,6 @@ pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps 
 pub(crate) fn get_account_bonus_params(
     env: &Env,
     cache: &mut Cache,
-    _spoke_id: u32,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
     proportion_seized: Wad,
 ) -> BonusBounds {
@@ -618,7 +611,7 @@ pub(crate) fn get_account_bonus_params(
             feed.price,
         );
 
-        total_collateral.checked_add_assign(env, value);
+        total_collateral = total_collateral.checked_add(env, value);
         asset_values.push_back((value.raw(), position.liquidation_bonus.raw()));
     }
 

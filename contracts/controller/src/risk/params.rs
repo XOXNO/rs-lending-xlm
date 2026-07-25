@@ -9,6 +9,11 @@ use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Cache;
 use crate::risk::calculate_account_risk_totals;
 
+/// Re-stamps a supply leg from the spoke listing.
+///
+/// LTV is unconditional: it bounds borrow capacity and never feeds liquidation.
+/// Threshold, bonus, and fees move as one tuple behind the min-HF gate, since
+/// restamping is permissionless on the supply path.
 pub(crate) fn refresh_supply_risk_params(
     env: &Env,
     cache: &mut Cache,
@@ -18,19 +23,10 @@ pub(crate) fn refresh_supply_risk_params(
     effective_config: &AssetConfig,
 ) {
     position.loan_to_value = effective_config.loan_to_value;
-    position.liquidation_bonus = effective_config.liquidation_bonus;
-    position.liquidation_fees = effective_config.liquidation_fees;
-    apply_liquidation_threshold(
-        env,
-        cache,
-        account,
-        hub_asset,
-        position,
-        effective_config.liquidation_threshold,
-    );
+    apply_gated_liquidation_params(env, cache, account, hub_asset, position, effective_config);
 }
 
-/// Re-stamps LTV, LT, bonus, and fees from the spoke listing when present.
+/// Re-stamps a leg from the spoke listing when the asset is still listed.
 pub(crate) fn refresh_supply_risk_params_for_asset(
     env: &Env,
     cache: &mut Cache,
@@ -45,12 +41,10 @@ pub(crate) fn refresh_supply_risk_params_for_asset(
     refresh_supply_risk_params(env, cache, account, hub_asset, position, &config);
 }
 
-/// Sets each supply leg's LTV, liquidation bonus, and fees from the spoke listing.
-/// Does not change liquidation threshold. Returns true if any leg was updated.
-pub(crate) fn restamp_listed_supply_safe_params(
-    cache: &mut Cache,
-    account: &mut Account,
-) -> bool {
+/// Sets each supply leg's LTV from the spoke listing. The liquidation tuple is
+/// gated and moves only through [`refresh_supply_risk_params`]. Returns true if
+/// any leg was updated.
+pub(crate) fn restamp_listed_supply_ltv(cache: &mut Cache, account: &mut Account) -> bool {
     let mut changed = false;
     let keys = account.supply_positions.keys();
     for hub_asset in keys.iter() {
@@ -62,52 +56,68 @@ pub(crate) fn restamp_listed_supply_safe_params(
             continue;
         };
         let mut position = AccountPosition::from(&raw);
-        if position.loan_to_value.raw() == config.loan_to_value.raw()
-            && position.liquidation_bonus.raw() == config.liquidation_bonus.raw()
-            && position.liquidation_fees.raw() == config.liquidation_fees.raw()
-        {
+        if position.loan_to_value.raw() == config.loan_to_value.raw() {
             continue;
         }
         position.loan_to_value = config.loan_to_value;
-        position.liquidation_bonus = config.liquidation_bonus;
-        position.liquidation_fees = config.liquidation_fees;
         update_or_remove_supply_position(account, &hub_asset, &position);
         changed = true;
     }
     changed
 }
 
-fn apply_liquidation_threshold(
+/// Writes threshold, bonus, and fees together, keeping the three same-vintage.
+/// A tuple that moves the liquidator's way is skipped unless the account is
+/// debt-free or still clears the min HF under the new threshold.
+fn apply_gated_liquidation_params(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
     hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
-    new_lt: Bps,
+    effective_config: &AssetConfig,
 ) {
-    let old_lt = position.liquidation_threshold;
-    if new_lt.raw() >= old_lt.raw() {
-        position.liquidation_threshold = new_lt;
+    if favors_liquidator(position, effective_config)
+        && !account.borrow_positions.is_empty()
+        && !clears_min_hf(
+            env,
+            cache,
+            account,
+            hub_asset,
+            position,
+            effective_config.liquidation_threshold,
+        )
+    {
         return;
     }
 
-    if account.borrow_positions.is_empty() {
-        position.liquidation_threshold = new_lt;
-        return;
-    }
+    position.liquidation_threshold = effective_config.liquidation_threshold;
+    position.liquidation_bonus = effective_config.liquidation_bonus;
+    position.liquidation_fees = effective_config.liquidation_fees;
+}
 
+/// True when any leg of the tuple moves the liquidator's way: a lower
+/// threshold, a higher bonus, or a lower fee — fees are carved out of the
+/// bonus, so cutting them enlarges the liquidator's net take.
+fn favors_liquidator(position: &AccountPosition, effective_config: &AssetConfig) -> bool {
+    effective_config.liquidation_threshold.raw() < position.liquidation_threshold.raw()
+        || effective_config.liquidation_bonus.raw() > position.liquidation_bonus.raw()
+        || effective_config.liquidation_fees.raw() < position.liquidation_fees.raw()
+}
+
+fn clears_min_hf(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    hub_asset: &HubAssetKey,
+    position: &AccountPosition,
+    new_lt: Bps,
+) -> bool {
     let supply_positions = supply_positions_with(account, hub_asset, position, new_lt);
-    let hf = calculate_account_risk_totals(
-        env,
-        cache,
-        account.spoke_id,
-        &supply_positions,
-        &account.borrow_positions,
-    )
-    .health_factor;
-    if hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW) {
-        position.liquidation_threshold = new_lt;
-    }
+    let hf =
+        calculate_account_risk_totals(env, cache, &supply_positions, &account.borrow_positions)
+            .health_factor;
+    hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW)
 }
 
 fn supply_positions_with(

@@ -14,9 +14,8 @@ mod plan;
 pub(crate) use plan::execute_liquidation;
 
 use common::errors::CollateralError;
-use common::types::{Account, HubAssetKey};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
-use stellar_macros::only_owner;
+use common::types::Account;
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Vec};
 
 use self::math::is_socializable_bad_debt;
 use crate::context::Cache;
@@ -25,71 +24,6 @@ use crate::payments;
 use crate::positions::{persist_account_positions, AggregatedPayments, HubPayment, PositionSides};
 use crate::risk::validation;
 use crate::storage;
-use crate::{Controller, ControllerArgs, ControllerClient};
-
-#[contractimpl]
-impl Controller {
-    /// Liquidates an underwater account: liquidator pays selected debt and
-    /// receives bonused collateral. Permissionless; liquidator auth; not the
-    /// owner. Requires HF < 1. Global pause does not block.
-    ///
-    /// # Errors
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `InvalidPayments` — empty debt payment list or empty post-normalization set.
-    /// * `AmountMustBePositive` — a leg amount is not strictly positive.
-    /// * `SelfLiquidationNotAllowed` — `liquidator` is the account owner.
-    /// * `SpokeAssetPaused` — a repaid debt leg's listing is paused.
-    /// * `HealthFactorTooHigh` — account HF is still at or above one.
-    /// * `OracleNotConfigured` / `PoolNotInitialized` — fail-closed pricing path.
-    ///
-    /// # Events
-    /// * topics — `["position", "liquidation"]`
-    /// * topics — `["position", "batch_update"]`
-    pub fn liquidate(
-        env: Env,
-        liquidator: Address,
-        account_id: u64,
-        debt_payments: Vec<(HubAssetKey, i128)>,
-    ) {
-        process_liquidation(&env, &liquidator, account_id, &debt_payments);
-    }
-
-    /// Socializes residual bad debt into the pool (no liquidator proceeds).
-    /// Permissionless; caller auth for accountability. Global pause does not block.
-    ///
-    /// # Errors
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `DebtPositionNotFound` — the account carries no debt.
-    /// * `CannotCleanBadDebt` — not eligible socializable residual.
-    ///
-    /// # Events
-    /// * topics — `["debt", "bad_debt"]`
-    pub fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
-        caller.require_auth();
-        validation::require_not_flash_loaning(&env);
-        clean_bad_debt_standalone(&env, account_id);
-    }
-
-    /// Socializes an underwater account's residual bad debt via the supply index
-    /// with no token transfer. Owner only (gov timelock). Unlike the
-    /// permissionless `clean_bad_debt`, this bypasses the dust-collateral
-    /// threshold so debt on an account whose collateral cannot be seized
-    /// (issuer-frozen or clawed-back) can still be retired. Requires the account
-    /// to be genuinely underwater.
-    ///
-    /// # Errors
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `DebtPositionNotFound` — the account carries no debt.
-    /// * `CannotCleanBadDebt` — the account is not underwater (collateral >= debt).
-    ///
-    /// # Events
-    /// * topics — `["debt", "bad_debt"]`
-    #[only_owner]
-    pub fn force_socialize_bad_debt(env: Env, account_id: u64) {
-        validation::require_not_flash_loaning(&env);
-        force_socialize_bad_debt_inner(&env, account_id);
-    }
-}
 
 /// Auth, plan, transfer repay + seize, persist both sides, then residual bad debt.
 ///
@@ -131,7 +65,6 @@ pub(crate) fn process_liquidation(
     let post_totals = risk::calculate_account_risk_totals(
         env,
         &mut cache,
-        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );
@@ -167,6 +100,13 @@ fn validate_liquidation_inputs(
     );
 }
 
+/// Caller auth and flash-loan guard, then the standalone socialization path.
+pub(crate) fn process_clean_bad_debt(env: &Env, caller: &Address, account_id: u64) {
+    caller.require_auth();
+    validation::require_not_flash_loaning(env);
+    clean_bad_debt_standalone(env, account_id);
+}
+
 /// Socializes residual bad debt when eligible; removes the account on success.
 pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     // Same risk-totals + threshold as the post-liquidation cleanup path.
@@ -182,7 +122,6 @@ pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     let totals = risk::calculate_account_risk_totals(
         env,
         &mut cache,
-        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );
@@ -199,6 +138,12 @@ pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
         totals.total_debt.raw(),
         totals.total_collateral.raw(),
     );
+}
+
+/// Flash-loan guard, then the governance bad-debt socialization path.
+pub(crate) fn process_force_socialize_bad_debt(env: &Env, account_id: u64) {
+    validation::require_not_flash_loaning(env);
+    force_socialize_bad_debt_inner(env, account_id);
 }
 
 /// Governance bad-debt socialization: same cleanup as `clean_bad_debt_standalone`
@@ -218,7 +163,6 @@ pub(crate) fn force_socialize_bad_debt_inner(env: &Env, account_id: u64) {
     let totals = risk::calculate_account_risk_totals(
         env,
         &mut cache,
-        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );

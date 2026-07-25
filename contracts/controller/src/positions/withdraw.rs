@@ -9,7 +9,7 @@ use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AssetConfig, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry,
 };
-use soroban_sdk::{contractimpl, vec, Address, Env, Vec};
+use soroban_sdk::{vec, Address, Env, Vec};
 
 use crate::account::{require_owner_or_delegate, update_or_remove_supply_position};
 use crate::constants::WITHDRAW_ALL_SENTINEL;
@@ -21,9 +21,8 @@ use crate::positions::{
     enforce_spoke_asset_flags, finalize_position_flow, get_supply_position_or_panic,
     make_pool_action, AggregatedPayments, HubPayment, PositionSides,
 };
-use crate::risk::{refresh_supply_risk_params, restamp_listed_supply_safe_params, validation};
+use crate::risk::{refresh_supply_risk_params, restamp_listed_supply_ltv, validation};
 use crate::storage;
-use crate::{Controller, ControllerArgs, ControllerClient};
 
 /// Supply-risk refresh policy after a withdraw leg.
 pub(crate) enum SpokeRefresh {
@@ -38,34 +37,6 @@ pub(crate) struct WithdrawalRequest<'a> {
     pub hub_asset: &'a HubAssetKey,
     pub amount: i128,
     pub position: &'a AccountPosition,
-}
-
-#[contractimpl]
-impl Controller {
-    /// Withdraws collateral to `to` (default `caller`). Owner or active delegate.
-    /// Amount `0` closes the leg. Returns gross pool `actual_amount` per asset.
-    /// Re-checks LTV/HF when the account still has debt. Global pause does not block.
-    ///
-    /// # Errors
-    /// * `NotAuthorized` — `caller` is neither owner nor active delegate.
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `SpokeAssetPaused` — spoke asset is paused (frozen may still withdraw).
-    /// * `CollateralPositionNotFound` — no supply position for an asset.
-    /// * `InsufficientLiquidity` — pool cannot cover the withdrawal.
-    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — post-pool risk
-    ///   gates on debt-bearing accounts.
-    ///
-    /// # Events
-    /// * topics — `["position", "batch_update"]`
-    pub fn withdraw(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        withdrawals: Vec<(HubAssetKey, i128)>,
-        to: Option<Address>,
-    ) -> Vec<(HubAssetKey, i128)> {
-        process_withdraw(&env, &caller, account_id, &withdrawals, to)
-    }
 }
 
 /// Auth, load account, settle, post-pool solvency, then persist supply positions.
@@ -92,9 +63,9 @@ pub(crate) fn process_withdraw(
 
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
 
-    // Risk gates read live listing config: every listed supply leg's
-    // LTV/bonus/fees must be restamped first, not just the withdrawn one.
-    let _ = restamp_listed_supply_safe_params(&mut cache, &mut account);
+    // Risk gates read live listing config: every listed supply leg's LTV must
+    // be restamped first, not just the withdrawn one.
+    let _ = restamp_listed_supply_ltv(&mut cache, &mut account);
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
 
     finalize_position_flow(
@@ -118,7 +89,7 @@ fn settle_withdraw(
     cache: &mut Cache,
 ) -> Vec<HubPayment> {
     let entries = build_withdraw_entries(env, account, aggregated, cache);
-    let results = settle_withdraw_entries(
+    let results = apply_withdraw_batch(
         env,
         account,
         recipient,
@@ -164,7 +135,7 @@ fn build_withdraw_entries(
 ///
 /// Does not enforce spoke pause/freeze: user and strategy paths check flags
 /// before calling; liquidation calls this directly and stays exempt.
-pub(crate) fn settle_withdraw_entries(
+pub(crate) fn apply_withdraw_batch(
     env: &Env,
     account: &mut Account,
     recipient: &Address,
@@ -182,7 +153,7 @@ pub(crate) fn settle_withdraw_entries(
         } else {
             withdraw_refresh_spoke_for_asset(cache, account, &entry.action.hub_asset)
         };
-        finish_withdraw_leg(
+        merge_withdraw_leg(
             env,
             account,
             action,
@@ -214,7 +185,7 @@ fn withdraw_refresh_spoke_for_asset(
 ///
 /// Usage delta is shares withdrawn (`old_scaled - new_scaled`). Risk params are
 /// refreshed only when `refresh_spoke` is `Refresh`.
-pub(crate) fn finish_withdraw_leg(
+pub(crate) fn merge_withdraw_leg(
     env: &Env,
     account: &mut Account,
     action: events::PositionAction,
@@ -259,7 +230,7 @@ pub(crate) fn finish_withdraw_leg(
 /// Single-asset wrapper over bulk pool withdraw for strategy and account-close.
 ///
 /// Enforces spoke pause (frozen still allowed). Liquidation bypasses this and
-/// calls `settle_withdraw_entries` directly.
+/// calls `apply_withdraw_batch` directly.
 ///
 /// # Security Warning
 /// * Performs no `require_auth` and re-runs no post-pool solvency gate: the
@@ -283,6 +254,6 @@ pub(crate) fn execute_withdrawal(
             protocol_fee: 0,
         },
     ];
-    let results = settle_withdraw_entries(env, account, &counterparty, action, &entries, cache);
+    let results = apply_withdraw_batch(env, account, &counterparty, action, &entries, cache);
     validation::expect_invariant(env, results.get(0))
 }

@@ -6,13 +6,13 @@
 use crate::account;
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, DebtPosition, HubAssetKey, PositionMode};
+use common::validation::require_positive_amount;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, token, Address, Env, IntoVal,
-    Map, Vec,
+    assert_with_error, panic_with_error, symbol_short, token, Address, Env, IntoVal, Map, Vec,
 };
-use stellar_macros::when_not_paused;
 
+use crate::config;
 use crate::context::Cache;
 use crate::events::{self, BlendMigrationEvent};
 use crate::external::blend::{
@@ -25,7 +25,7 @@ use crate::strategies::{
     borrow_for_migration, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
     StrategyRepay,
 };
-use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
+use crate::{risk::validation, storage};
 
 pub(crate) struct MigrateBlendParams {
     pub account_id: u64,
@@ -36,52 +36,6 @@ pub(crate) struct MigrateBlendParams {
     pub collateral_assets: Vec<Address>,
     pub supply_assets: Vec<Address>,
     pub debt_caps: Vec<(Address, i128)>,
-}
-
-#[contractimpl]
-impl Controller {
-    /// Migrates Blend V2 positions into the controller on `hub_id`.
-    /// Caller auth; `account_id == 0` creates on `spoke_id`. Each debt cap
-    /// bounds the zero-fee borrow that clears that Blend debt. Returns account id.
-    ///
-    /// # Errors
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `HubNotActive` / `InvalidPayments` / `BlendPoolNotApproved` — preflight.
-    /// * `AssetsAreTheSame` — duplicate debt asset in `debt_caps`.
-    /// * `NotCollateral` / spoke pause-freeze — destination withdraw assets.
-    /// * Borrow/repay/deposit errors from nested legs; Blend submit failures.
-    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — finalize risk gates.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
-    ///
-    /// # Events
-    /// * topics — `["position", "batch_update"]`
-    /// * topics — `["strategy", "blend_migration"]`
-    #[when_not_paused]
-    pub fn migrate_from_blend(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        spoke_id: u32,
-        hub_id: u32,
-        blend_pool: Address,
-        collateral_assets: Vec<Address>,
-        supply_assets: Vec<Address>,
-        debt_caps: Vec<(Address, i128)>,
-    ) -> u64 {
-        process_migrate_blend(
-            &env,
-            &caller,
-            MigrateBlendParams {
-                account_id,
-                spoke_id,
-                hub_id,
-                blend_pool,
-                collateral_assets,
-                supply_assets,
-                debt_caps,
-            },
-        )
-    }
 }
 
 /// Migrate Blend V2 → controller: clear Blend debt, sweep assets, open positions.
@@ -103,7 +57,7 @@ pub(crate) fn process_migrate_blend(
         debt_caps,
     } = params;
 
-    validation::require_hub_active(env, hub_id);
+    config::require_hub_active(env, hub_id);
     validate_migration_request(
         env,
         &blend_pool,
@@ -187,7 +141,7 @@ fn execute_migration_debt_leg(
     // Borrow before submit so post-submit delta is only Blend's over-repay refund.
     let before_debt = snapshot_balances(env, &debt_asset_list(env, debt_caps));
     for (debt_asset, max) in debt_caps.iter() {
-        validation::require_positive_amount(env, max);
+        require_positive_amount(env, max);
         let hub_debt = HubAssetKey {
             hub_id,
             asset: debt_asset,
@@ -239,7 +193,11 @@ fn require_withdraw_assets_supplyable(
         let hub_asset = HubAssetKey { hub_id, asset };
         let asset_config = require_listed_active_config(env, cache, spoke_id, &hub_asset);
         enforce_spoke_asset_flags(env, cache, spoke_id, &hub_asset, true);
-        assert_with_error!(env, asset_config.can_supply(), CollateralError::NotCollateral);
+        assert_with_error!(
+            env,
+            asset_config.can_supply(),
+            CollateralError::NotCollateral
+        );
     }
 }
 
@@ -365,9 +323,11 @@ fn build_withdraw_requests(
     requests
 }
 
-/// pull controller-held tokens must set up that authorization immediately
-/// before this call (see `authorize_repay_pulls`); withdraw-only submits need
-/// no such authorization.
+/// Invokes the Blend pool's `submit` under the flash-loan reentrancy guard.
+///
+/// Callers whose requests make Blend pull controller-held tokens must set up
+/// that authorization immediately before this call (see
+/// `authorize_repay_pulls`); withdraw-only submits need no such authorization.
 fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
     storage::with_flash_guard(env, || {
         let controller = env.current_contract_address();

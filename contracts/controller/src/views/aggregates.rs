@@ -37,7 +37,6 @@ pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
         return 0;
     };
     let mut cache = Cache::new_view(env);
-    let _ = risk::restamp_listed_supply_safe_params(&mut cache, &mut account);
-    risk::calculate_ltv_collateral_wad(env, &mut cache, account.spoke_id, &account.supply_positions)
-        .raw()
+    let _ = risk::restamp_listed_supply_ltv(&mut cache, &mut account);
+    risk::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw()
 }

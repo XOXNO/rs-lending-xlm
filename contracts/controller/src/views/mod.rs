@@ -4,25 +4,24 @@
 
 use crate::constants::{MAX_VIEW_INPUTS, WAD};
 use crate::risk;
-use common::errors::{GenericError, SpokeError};
+use common::errors::GenericError;
 use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, LiquidationEstimate,
-    MarketIndexRaw, MarketIndexView, PaymentTuple, PriceStatus, SpokeAssetConfig, SpokeConfig,
-    SpokeUsageRaw,
+    MarketIndexView, PaymentTuple, PriceStatus,
 };
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 
 #[cfg(not(feature = "certora"))]
 mod aggregates;
 #[cfg(feature = "certora")]
 #[path = "../../../../certora/controller/harness/views/aggregates.rs"]
 mod aggregates;
-mod limits;
+pub(crate) mod limits;
 pub(crate) use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
 
 use crate::context::Cache;
 use crate::positions::{liquidation::execute_liquidation, HubPayment};
-use crate::{storage, Controller, ControllerArgs, ControllerClient};
+use crate::storage;
 
 fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
     assert_with_error!(
@@ -30,138 +29,6 @@ fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
         values.len() <= MAX_VIEW_INPUTS,
         GenericError::InvalidPayments
     );
-}
-
-#[contractimpl]
-impl Controller {
-    /// missing account is never liquidatable.
-    ///
-    /// # Errors
-    /// * Pricing an indebted account reads oracles and can revert (e.g.
-    ///   `OracleNotConfigured`, `PriceFeedStale`, `UnsafePriceNotAllowed`).
-    pub fn is_liquidatable(env: Env, account_id: u64) -> bool {
-        can_be_liquidated(&env, account_id)
-    }
-
-    pub fn get_health_factor(env: Env, account_id: u64) -> i128 {
-        health_factor(&env, account_id)
-    }
-
-    pub fn get_total_collateral_usd(env: Env, account_id: u64) -> i128 {
-        total_collateral_in_usd(&env, account_id)
-    }
-
-    pub fn get_total_borrow_usd(env: Env, account_id: u64) -> i128 {
-        total_borrow_in_usd(&env, account_id)
-    }
-
-    pub fn get_collateral_amount(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128 {
-        collateral_amount_for_hub_asset(&env, account_id, &hub_asset)
-    }
-
-    pub fn get_borrow_amount(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128 {
-        borrow_amount_for_hub_asset(&env, account_id, &hub_asset)
-    }
-
-    pub fn get_account_positions(
-        env: Env,
-        account_id: u64,
-    ) -> (
-        Map<HubAssetKey, AccountPositionRaw>,
-        Map<HubAssetKey, DebtPositionRaw>,
-    ) {
-        get_account_positions(&env, account_id)
-    }
-
-    pub fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes {
-        get_account_attributes(&env, account_id)
-    }
-
-    /// Whether `account_id` still has on-chain account metadata.
-    pub fn account_exists(env: Env, account_id: u64) -> bool {
-        account_exists(&env, account_id)
-    }
-
-    pub fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig {
-        storage::get_spoke_asset(&env, spoke_id, &hub_asset)
-            .unwrap_or_else(|| panic_with_error!(&env, SpokeError::AssetNotInSpoke))
-    }
-
-    pub fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig {
-        storage::get_spoke(&env, spoke_id)
-    }
-
-    pub fn get_spoke_usage(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeUsageRaw {
-        storage::get_spoke_usage(&env, spoke_id, &hub_asset).unwrap_or_default()
-    }
-
-    /// Central liquidity pool for all markets; reads instance storage only.
-    pub fn get_pool_address(env: Env) -> Address {
-        get_pool_address(&env)
-    }
-
-    /// Pool indexes + soft oracle status for each requested hub-asset market.
-    ///
-    /// Oracle legs are diagnostic: `stale` / `deviation` set flags instead of
-    /// trapping; `valid` is true only when the price is usable like the
-    /// fail-closed solvency path. Prefer `get_pool_address` for the pool id.
-    ///
-    /// # Errors
-    /// * `InvalidPayments` - `hub_assets` exceeds the view input bound.
-    /// * `PoolNotInitialized` - a requested `(hub, asset)` market was never created.
-    pub fn get_market_indexes_detailed(
-        env: Env,
-        hub_assets: Vec<HubAssetKey>,
-    ) -> Vec<MarketIndexView> {
-        get_all_market_indexes_detailed(&env, &hub_assets)
-    }
-
-    /// Estimates the seize, repay, refund, and bonus data for liquidating the
-    /// account with the supplied debt payments.
-    ///
-    /// # Errors
-    /// * `InvalidPayments` - `debt_payments` exceeds the view input bound.
-    /// * `AccountNotFound` - no account exists for `account_id`.
-    /// * The liquidation engine reverts on oracle resolution or when the account
-    ///   is not liquidatable; refer to the liquidation flow errors.
-    pub fn get_liquidation_estimate(
-        env: Env,
-        account_id: u64,
-        debt_payments: Vec<(HubAssetKey, i128)>,
-    ) -> LiquidationEstimate {
-        liquidation_estimations_detailed(&env, account_id, &debt_payments)
-    }
-
-    pub fn get_liquidation_collateral(env: Env, account_id: u64) -> i128 {
-        liquidation_collateral_available(&env, account_id)
-    }
-
-    pub fn get_ltv_collateral_usd(env: Env, account_id: u64) -> i128 {
-        ltv_collateral_in_usd(&env, account_id)
-    }
-
-    /// Largest executable `withdraw` amount.
-    pub fn max_withdraw(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128 {
-        limits::max_withdraw(&env, account_id, &hub_asset)
-    }
-
-    /// Supply-cap headroom for `account_id`; `i128::MAX` uncapped, `0` paused or inactive.
-    pub fn max_supply(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128 {
-        limits::max_supply(&env, account_id, &hub_asset)
-    }
-
-    /// Largest executable `borrow` amount of `hub_asset`; `0` while
-    /// paused, on an inactive/non-borrowable market, or when the asset is
-    /// structurally not borrowable for the account.
-    pub fn max_borrow(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128 {
-        limits::max_borrow(&env, account_id, &hub_asset)
-    }
-
-    /// Accrued indexes; reads no oracle.
-    pub fn get_market_index(env: Env, hub_asset: HubAssetKey) -> MarketIndexRaw {
-        let mut cache = Cache::new_view(&env);
-        MarketIndexRaw::from(&cache.cached_market_index(&hub_asset))
-    }
 }
 
 pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
@@ -175,7 +42,6 @@ pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
             risk::calculate_account_risk_totals(
                 env,
                 &mut cache,
-                account.spoke_id,
                 &account.supply_positions,
                 &account.borrow_positions,
             )
@@ -264,7 +130,6 @@ pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i1
     risk::calculate_account_risk_totals(
         env,
         &mut cache,
-        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     )

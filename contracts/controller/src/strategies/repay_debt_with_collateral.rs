@@ -5,10 +5,11 @@
 
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, HubAssetKey, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, vec, Address, Bytes, Env};
-use stellar_macros::when_not_paused;
+use common::validation::require_positive_amount;
+use soroban_sdk::{assert_with_error, vec, Address, Env};
 
 use crate::account;
+use crate::config;
 use crate::context::Cache;
 use crate::events;
 use crate::positions::{get_debt_position_or_panic, get_supply_position_or_panic};
@@ -17,7 +18,7 @@ use crate::strategies::{
     repay_debt_from_controller, strategy_finalize, swap_tokens_or_passthrough,
     withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
 };
-use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
+use crate::{risk::validation, storage};
 
 pub(crate) struct RepayWithCollateralParams<'a> {
     pub account_id: u64,
@@ -26,51 +27,6 @@ pub(crate) struct RepayWithCollateralParams<'a> {
     pub debt: &'a HubAssetKey,
     pub swap: &'a StrategySwap,
     pub close_position: bool,
-}
-
-#[contractimpl]
-impl Controller {
-    /// Repays `debt` using `collateral_amount` of `collateral` (swap when distinct).
-    /// Owner or active delegate. `close_position` fully exits remaining collateral
-    /// only when debt is already zero. Finalizes with post-pool LTV/HF gates.
-    ///
-    /// # Errors
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `AmountMustBePositive` / `HubNotActive` — preflight.
-    /// * `NotAuthorized` — caller is neither owner nor active delegate.
-    /// * `CollateralPositionNotFound` / `DebtPositionNotFound` — missing legs.
-    /// * `CannotCloseWithRemainingDebt` — `close_position` while debt remains.
-    /// * `InvalidPayments` — non-empty swap on same-asset net path.
-    /// * Swap/withdraw/repay errors from the nested legs.
-    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — finalize risk gates.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
-    ///
-    /// # Events
-    /// * topics — `["position", "batch_update"]`
-    #[when_not_paused]
-    pub fn repay_debt_with_collateral(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        collateral: HubAssetKey,
-        collateral_amount: i128,
-        debt: HubAssetKey,
-        swap: Bytes,
-        close_position: bool,
-    ) {
-        process_repay_debt_with_collateral(
-            &env,
-            &caller,
-            RepayWithCollateralParams {
-                account_id,
-                collateral: &collateral,
-                collateral_amount,
-                debt: &debt,
-                swap: &swap,
-                close_position,
-            },
-        );
-    }
 }
 
 /// Withdraw collateral → (swap to debt token) → repay; optional full close.
@@ -91,9 +47,9 @@ pub(crate) fn process_repay_debt_with_collateral(
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    validation::require_positive_amount(env, collateral_amount);
-    validation::require_hub_active(env, collateral.hub_id);
-    validation::require_hub_active(env, debt.hub_id);
+    require_positive_amount(env, collateral_amount);
+    config::require_hub_active(env, collateral.hub_id);
+    config::require_hub_active(env, debt.hub_id);
 
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);

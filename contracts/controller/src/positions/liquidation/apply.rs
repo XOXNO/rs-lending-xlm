@@ -1,6 +1,6 @@
 //! Applies a liquidation plan: debt repayments, collateral seizures, then
-//! residual bad-debt check. Reuses repay/withdraw settle with `LiqRepay` /
-//! `LiqSeize` so usage maps stay aligned with user flows.
+//! residual bad-debt check. Reuses `apply_repay_batch` / `apply_withdraw_batch`
+//! with `LiqRepay` / `LiqSeize` so usage maps stay aligned with user flows.
 
 use crate::account;
 use common::errors::SpokeError;
@@ -50,7 +50,7 @@ pub(crate) fn apply_liquidation_repayments(
             .into();
         actions.push_back(make_pool_action(&position, entry.amount, entry.hub_asset));
     }
-    repay::settle_repay_actions(
+    repay::apply_repay_batch(
         env,
         account,
         liquidator,
@@ -83,7 +83,7 @@ pub(crate) fn apply_liquidation_seizures(
             protocol_fee: entry.protocol_fee,
         });
     }
-    withdraw::settle_withdraw_entries(
+    withdraw::apply_withdraw_batch(
         env,
         account,
         liquidator,

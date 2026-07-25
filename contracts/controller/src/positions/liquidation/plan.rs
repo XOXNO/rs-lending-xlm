@@ -46,7 +46,6 @@ pub(crate) fn build_liquidation_plan(
     let totals = risk::calculate_account_risk_totals(
         env,
         cache,
-        account.spoke_id,
         &account.supply_positions,
         &account.borrow_positions,
     );

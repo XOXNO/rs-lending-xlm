@@ -1,4 +1,7 @@
-//! Account lifecycle, owner/delegate auth, and position-map helpers.
+//! Account lifecycle, owner/delegate auth, and position-map helpers. Also owns
+//! the account-owner ops (TTL renewal, delegate opt-in/out), which are gated by
+//! the owner's own auth rather than protocol ownership. See
+//! [INVARIANTS](../../../docs/reference/invariants.md) §5.2 / §5.3.
 
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
@@ -151,17 +154,32 @@ pub(crate) fn update_or_remove_debt_position(
     }
 }
 
-/// Extends the account's storage TTL. Caller must be the account owner.
-pub(crate) fn renew_account(env: &Env, caller: &Address, account_id: u64) {
+/// Extends the controller instance and the account's storage TTL. Caller must
+/// be the account owner.
+pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
+    storage::renew_controller_instance(env);
+
     caller.require_auth();
     let meta = storage::get_account_meta(env, account_id);
-    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
+    assert_with_error!(env, meta.owner == caller, GenericError::AccountNotInMarket);
 
     storage::renew_user_account(env, account_id);
 }
 
+/// Opts `delegate` into managing `account_id`. Caller must be the owner.
+pub(crate) fn add_delegate(env: &Env, caller: Address, account_id: u64, delegate: Address) {
+    storage::renew_controller_instance(env);
+    set_account_delegate(env, &caller, account_id, &delegate, true);
+}
+
+/// Revokes `delegate` from `account_id`. Caller must be the owner.
+pub(crate) fn remove_delegate(env: &Env, caller: Address, account_id: u64, delegate: Address) {
+    storage::renew_controller_instance(env);
+    set_account_delegate(env, &caller, account_id, &delegate, false);
+}
+
 /// Adds or removes a delegate for `account_id`. Caller must be the owner.
-pub(crate) fn set_account_delegate(
+fn set_account_delegate(
     env: &Env,
     caller: &Address,
     account_id: u64,

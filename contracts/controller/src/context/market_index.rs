@@ -6,7 +6,10 @@
 //! request order.
 
 use common::types::{HubAssetKey, MarketIndex, MarketIndexRaw};
-use soroban_sdk::{vec, Vec};
+use soroban_sdk::vec;
+
+#[cfg(not(feature = "certora"))]
+use soroban_sdk::Vec;
 
 use crate::context::Cache;
 use crate::external::pool::fetch_pool_bulk_indexes;
@@ -17,13 +20,12 @@ impl Cache {
         self.market_indexes.set(hub_asset.clone(), index.clone());
     }
 
-    /// No-op under Certora; the harness supplies indexes directly.
-    #[cfg(feature = "certora")]
-    pub(crate) fn fetch_market_indexes(&mut self, _hub_assets: &Vec<HubAssetKey>) {}
-
     /// Bulk-fetch pool indexes for any `hub_assets` not yet in this transaction's
     /// map (deduped). Pool reverts `PoolNotInitialized` for any uncreated market
     /// in the batch. Prefer [`Cache::load_markets`] when USD prices are needed too.
+    ///
+    /// The `certora` build replaces this with the no-op in `spec_hooks`, where
+    /// the harness supplies indexes directly.
     #[cfg(not(feature = "certora"))]
     pub(crate) fn fetch_market_indexes(&mut self, hub_assets: &Vec<HubAssetKey>) {
         let mut missing: Vec<HubAssetKey> = Vec::new(&self.env);
