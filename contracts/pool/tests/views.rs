@@ -1,12 +1,13 @@
 extern crate std;
 
 use super::*;
+use crate::storage::{load_state, read_params as load_params};
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
 use common::math::fp::Ray;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
-use common::types::MarketParams;
+use common::types::{MarketParams, MarketParamsRaw, PoolKey, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, Address};
 
@@ -96,10 +97,10 @@ fn test_views_load_and_compute_expected_values() {
         // revenue: 3 scaled * 2.0 index = 6.0 -> 60_000_000 (7 dec).
         assert_eq!(protocol_revenue(&t.env, &hub(&t.asset)), 60_000_000);
         // utilization stays in RAY (internal math).
-        assert_eq!(capital_utilisation(&t.env, &hub(&t.asset)), (15 * RAY) / 20);
+        assert_eq!(utilization(&t.env, &hub(&t.asset)), (15 * RAY) / 20);
         assert_eq!(delta_time(&t.env, &hub(&t.asset)), 50_000);
 
-        let util = Ray::from(capital_utilisation(&t.env, &hub(&t.asset)));
+        let util = Ray::from(utilization(&t.env, &hub(&t.asset)));
         let params: MarketParams = (&t.params).into();
         let expected_borrow = calculate_borrow_rate(&t.env, util, &params);
         let expected_deposit =
@@ -111,7 +112,7 @@ fn test_views_load_and_compute_expected_values() {
 }
 
 #[test]
-fn test_capital_utilisation_returns_zero_when_no_supply_exists() {
+fn test_utilization_returns_zero_when_no_supply_exists() {
     let t = TestSetup::new();
 
     t.as_contract(|| {
@@ -124,7 +125,7 @@ fn test_capital_utilisation_returns_zero_when_no_supply_exists() {
             .persistent()
             .set(&PoolKey::State(hub(&t.asset)), &zero_supply);
 
-        assert_eq!(capital_utilisation(&t.env, &hub(&t.asset)), 0);
+        assert_eq!(utilization(&t.env, &hub(&t.asset)), 0);
     });
 }
 

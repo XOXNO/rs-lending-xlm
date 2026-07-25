@@ -1,17 +1,24 @@
 extern crate std;
 
 use super::*;
+use crate::cache::Cache;
 use crate::test_support::hub;
 use common::constants::{
     BPS, MS_PER_SECOND, RAY, SUPPLY_INDEX_REWARD_CEILING_RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED,
     TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };
 use common::errors::{CollateralError, FlashLoanError, GenericError};
-use common::types::{MarketIndexRaw, ScaledPositionRaw};
+use common::math::fp::Ray;
+use common::types::{
+    AccountPositionType, MarketIndexRaw, MarketParamsRaw, PoolKey, PoolStateRaw, ScaledPositionRaw,
+};
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
 use soroban_sdk::xdr::{ContractEventBody, ScVal, SorobanAuthorizationEntry};
-use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, Env, Error, InvokeError, Vec};
+use soroban_sdk::{
+    contract, contractimpl, panic_with_error, token, vec, Address, Bytes, Env, Error, InvokeError,
+    Vec,
+};
 
 /// Ray-per-raw-unit for the 7-decimal test asset.
 const WAD_PER_RAW: i128 = 100_000_000_000_000_000_000;
@@ -2593,8 +2600,8 @@ fn test_revenue_conversion_floor_never_exceeds_entitlement_but_half_up_does() {
     let (half_up, floored) = t.env.as_contract(&t.pool, || {
         let cache = Cache::load(&t.env, &hub(&t.asset));
         (
-            cache.unscale_supply(cache.revenue),
-            cache.unscale_supply_floor(cache.revenue),
+            cache.unscale_supply(cache.revenue()),
+            cache.unscale_supply_floor(cache.revenue()),
         )
     });
 
@@ -2623,7 +2630,7 @@ fn test_claims_never_outpay_burned_shares_where_half_up_would() {
 
         let half_up = t.env.as_contract(&t.pool, || {
             let cache = Cache::load(&t.env, &hub(&t.asset));
-            cache.unscale_supply(cache.revenue)
+            cache.unscale_supply(cache.revenue())
         });
 
         let before = t.state_snapshot();
@@ -2690,14 +2697,14 @@ fn test_load_sync_data_renews_market_keys_once() {
 
     t.env.cost_estimate().budget().reset_default();
     t.env.as_contract(&t.pool, || {
-        crate::utils::renew_market_keys(&t.env, &hub(&t.asset));
+        crate::storage::renew_market(&t.env, &hub(&t.asset));
     });
     let one_renewal = t.env.cost_estimate().budget().cpu_instruction_cost();
 
     t.env.cost_estimate().budget().reset_default();
     t.env.as_contract(&t.pool, || {
-        crate::utils::renew_market_keys(&t.env, &hub(&t.asset));
-        crate::utils::renew_market_keys(&t.env, &hub(&t.asset));
+        crate::storage::renew_market(&t.env, &hub(&t.asset));
+        crate::storage::renew_market(&t.env, &hub(&t.asset));
     });
     let two_renewals = t.env.cost_estimate().budget().cpu_instruction_cost();
 
@@ -2709,28 +2716,30 @@ fn test_load_sync_data_renews_market_keys_once() {
 
     t.env.cost_estimate().budget().reset_default();
     t.env.as_contract(&t.pool, || {
-        let _ = crate::views::load_sync_data(&t.env, &hub(&t.asset));
+        let _ = crate::storage::load_sync_data(&t.env, &hub(&t.asset));
     });
     let sync_cpu = t.env.cost_estimate().budget().cpu_instruction_cost();
 
     t.env.cost_estimate().budget().reset_default();
     t.env.as_contract(&t.pool, || {
-        let _ = crate::views::load_params(&t.env, &hub(&t.asset));
-        let _ = crate::views::load_state(&t.env, &hub(&t.asset));
+        let _ = crate::storage::read_params(&t.env, &hub(&t.asset));
+        let _ = crate::storage::read_state(&t.env, &hub(&t.asset));
+        crate::storage::renew_market(&t.env, &hub(&t.asset));
+        crate::storage::renew_market(&t.env, &hub(&t.asset));
     });
-    let double_load_cpu = t.env.cost_estimate().budget().cpu_instruction_cost();
+    let double_renew_cpu = t.env.cost_estimate().budget().cpu_instruction_cost();
 
     assert!(
-        sync_cpu + redundant / 2 < double_load_cpu,
-        "load_sync_data should skip the second renew paid by load_params+load_state; sync_cpu={sync_cpu} double_load_cpu={double_load_cpu} redundant={redundant}"
+        sync_cpu + redundant / 2 < double_renew_cpu,
+        "load_sync_data should renew once, not twice; sync_cpu={sync_cpu} double_renew_cpu={double_renew_cpu} redundant={redundant}"
     );
 
     if VERBOSE_CLAIM_DUST {
         std::println!(
-            "renew_market_keys cpu={} load_sync_data cpu={} load_params+load_state cpu={}",
+            "renew_market cpu={} load_sync_data cpu={} read+read+renew+renew cpu={}",
             one_renewal,
             sync_cpu,
-            double_load_cpu
+            double_renew_cpu
         );
     }
 }
@@ -2748,9 +2757,9 @@ fn test_bad_debt_wipeout_leaves_market_usable_at_realistic_scale() {
 
     t.env.as_contract(&t.pool, || {
         let mut cache = Cache::load(&t.env, &hub(&t.asset));
-        let total_supplied_value = cache.supplied.mul(&t.env, cache.supply_index);
+        let total_supplied_value = cache.supplied().mul(&t.env, cache.supply_index());
         crate::interest::apply_bad_debt_to_supply_index(&mut cache, total_supplied_value);
-        cache.save();
+        cache.commit();
     });
 
     let floored = t.state_snapshot().supply_index;

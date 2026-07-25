@@ -5,8 +5,13 @@ use common::types::{MarketParamsRaw, MarketStateSnapshot};
 
 use soroban_sdk::{contractevent, contracttype, vec, Address, Env, Vec};
 
-/// Pool market accounting snapshot. Field order is wire ABI:
-/// `[hub_id, asset, timestamp, supply_index, borrow_index, cash,
+/// Pool market accounting snapshot.
+///
+/// Positional, not named: field order *is* the ABI. Reordering two of the six
+/// `i128` fields compiles silently and breaks every indexer, so build it only
+/// through the [`From`] impl below, never from a bare tuple literal.
+///
+/// Order: `[hub_id, asset, timestamp, supply_index, borrow_index, cash,
 ///   supplied, borrowed, revenue]`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -58,6 +63,8 @@ pub struct PoolMarketParamsBatchEvent {
     pub updates: Vec<PoolMarketParamsEvent>,
 }
 
+/// Strategy borrow fee. `amount` is the gross borrow, `fee` the withheld
+/// flash-loan fee, and `amount_sent` the net paid out (`amount - fee`).
 #[contractevent(topics = ["strategy", "fee"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StrategyFeeEvent {
@@ -68,11 +75,7 @@ pub struct StrategyFeeEvent {
     pub amount_sent: i128,
 }
 
-/// Empty batch suppressed.
-///
-/// # Events
-/// * topics - `["market", "batch_state_update"]`
-/// * data - `[updates: Vec<PoolMarketStateEvent>]`
+/// Publishes one batched market-state event. An empty batch emits nothing.
 pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnapshot>) {
     if snapshots.is_empty() {
         return;
@@ -85,16 +88,12 @@ pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnaps
     PoolMarketStateBatchEvent { updates }.publish(env);
 }
 
-/// # Events
-/// * topics - `["market", "batch_state_update"]`
-/// * data - `[updates: Vec<PoolMarketStateEvent>]`
+/// Publishes a one-entry market-state batch.
 pub(crate) fn emit_market_state(env: &Env, snapshot: MarketStateSnapshot) {
     emit_market_state_batch(env, vec![env, snapshot]);
 }
 
-/// # Events
-/// * topics - `["market", "batch_params_update"]`
-/// * data - `[updates: Vec<PoolMarketParamsEvent>]`
+/// Publishes a one-entry params batch.
 pub(crate) fn emit_market_params(env: &Env, hub_id: u32, asset: Address, params: MarketParamsRaw) {
     let updates = vec![
         env,
@@ -107,11 +106,7 @@ pub(crate) fn emit_market_params(env: &Env, hub_id: u32, asset: Address, params:
     PoolMarketParamsBatchEvent { updates }.publish(env);
 }
 
-/// Zero-fee suppressed.
-///
-/// # Events
-/// * topics - `["strategy", "fee"]`
-/// * data - `[hub_id: u32, asset: Address, amount: i128, fee: i128, amount_sent: i128]`
+/// Publishes a strategy fee event. A zero fee emits nothing.
 pub(crate) fn emit_strategy_fee(
     env: &Env,
     hub_id: u32,
@@ -120,7 +115,6 @@ pub(crate) fn emit_strategy_fee(
     fee: i128,
     amount_sent: i128,
 ) {
-    // Zero-fee strategy borrows have nothing to report.
     if fee == 0 {
         return;
     }
