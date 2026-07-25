@@ -349,11 +349,17 @@ pub trait ControllerInterface {
 
     /// Propagates spoke risk params onto supply positions. Permissionless
     /// (caller auth). LTV always re-stamps. When `has_risks`, each leg's
-    /// liquidation tuple (threshold, bonus, fees) re-stamps too and the account
-    /// must end at or above the min HF, so a third party cannot force a cut
-    /// threshold, a raised bonus, or a lowered fee onto an account that is
-    /// already near liquidation. Delisted spoke members keep stamped params and
-    /// are skipped. Blocked while paused.
+    /// liquidation tuple (threshold, bonus, fees) re-stamps too and the whole
+    /// call must leave the account at or above the min HF.
+    ///
+    /// That gate bounds the threshold, which feeds the health factor. Bonus and
+    /// fees do not enter the HF computation, so the gate does not bound them —
+    /// it only reverts the entire stamp for an account that is already near
+    /// liquidation. Every field is copied from the spoke listing, so a caller
+    /// can only write governance's configured values, never arbitrary ones; a
+    /// healthy account's bonus may be raised to the current config value.
+    /// Delisted spoke members keep stamped params and are skipped. Blocked
+    /// while paused.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.

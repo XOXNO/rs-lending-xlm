@@ -67,6 +67,20 @@ pub(crate) fn add_rewards(env: &Env, caller: Address, rewards: Vec<(HubAssetKey,
     }
 }
 
+/// Re-stamps live spoke risk params onto each account's supply legs.
+///
+/// Permissionless by design: keeping stamped params current is upkeep, and
+/// gating it on a role would let stale params outlive a governance change.
+/// A caller cannot choose what it writes — every field is copied from the
+/// spoke listing, so the reachable set is exactly governance's configured
+/// values. Bonus is bounded by `cfg_bonus`, never an arbitrary number.
+///
+/// With `has_risks`, the post-walk HF assert bounds the threshold only; bonus
+/// and fees are outside the health-factor computation. Residual accepted: a
+/// third party may raise a healthy account's bonus to the current config value
+/// ahead of a future liquidation. The ceiling is governance's, and the account
+/// must clear the min HF at stamp time, so this front-runs the schedule of a
+/// config change rather than exceeding it.
 pub(crate) fn update_account_threshold(
     env: &Env,
     caller: Address,
@@ -181,8 +195,12 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         // propagates with no HF walk.
         updated_pos.loan_to_value = asset_config.loan_to_value.raw() as u32;
         if has_risks {
-            // Threshold, bonus, and fees move as one tuple; the post-walk HF
-            // assert below is their gate.
+            // Threshold, bonus, and fees move as one tuple so the three stay
+            // same-vintage. Only the threshold feeds the post-walk HF assert:
+            // health factor is derived from `weighted_collateral`, which reads
+            // `liquidation_threshold` alone. Bonus and fees never enter that
+            // computation, so for them the assert is not a bound — it only
+            // confirms the account is healthy at stamp time.
             updated_pos.liquidation_threshold = asset_config.liquidation_threshold.raw() as u32;
             updated_pos.liquidation_bonus = asset_config.liquidation_bonus.raw() as u32;
             updated_pos.liquidation_fees = asset_config.liquidation_fees.raw() as u32;
