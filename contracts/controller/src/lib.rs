@@ -286,11 +286,6 @@ impl ControllerInterface for Controller {
     }
 
     #[when_not_paused]
-    fn reconcile_pool_reserves(env: Env, caller: Address, hub_asset: HubAssetKey) {
-        keepers::reconcile_pool_reserves(&env, caller, hub_asset);
-    }
-
-    #[when_not_paused]
     fn claim_revenue(env: Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
         keepers::claim_revenue(&env, caller, assets)
     }
@@ -569,6 +564,11 @@ impl ControllerAdmin for Controller {
     #[only_owner]
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>) {
         markets::upgrade_pool(&env, new_wasm_hash);
+    }
+
+    #[only_owner]
+    fn recapitalize(env: Env, payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128 {
+        keepers::recapitalize(&env, payer, hub_asset, amount)
     }
 
     // --- emergency ---

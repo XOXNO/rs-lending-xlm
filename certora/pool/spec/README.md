@@ -34,7 +34,10 @@ fee-strategy-accounting.conf
   One positive production `global_sync` chunk, including reserve-fee and
   supplier-shortfall booking into protocol revenue; reward allocation and
   cash; liquidation withdrawal fee shares; strategy gross debt/net payout/fee;
-  protocol revenue claim burns and cash.
+  protocol revenue claim burns and cash, including fail-closed rejection when
+  a positive payout would round its share burn to zero; recapitalization caps
+  retained cash to the backing shortfall, refunds all excess, and creates no
+  liabilities.
 
 flash-loan-accounting.conf
   Exact configured fee, payout/repayment balance targets, principal-plus-fee

@@ -231,24 +231,6 @@ fn test_force_socialize_rejects_healthy_account() {
     assert_contract_error(refused, errors::CANNOT_CLEAN_BAD_DEBT);
 }
 
-// L2: reconciling a market with no clawback (tracked cash == live balance) is a
-// no-op — it never socializes a loss that did not happen.
-#[test]
-fn test_reconcile_reserves_noop_on_healthy_market() {
-    let mut t = setup();
-
-    t.supply(BOB, "ETH", 100.0);
-    let (si_before, _) = get_indexes(&t, "ETH");
-
-    t.reconcile_pool_reserves_for("ETH");
-
-    let (si_after, _) = get_indexes(&t, "ETH");
-    assert_eq!(
-        si_after, si_before,
-        "reconcile must not change a market whose cash matches its balance"
-    );
-}
-
 #[test]
 fn test_keeper_clean_bad_debt_decreases_supply_index() {
     let mut t = setup();

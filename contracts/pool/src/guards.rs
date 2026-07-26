@@ -31,16 +31,24 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
 /// survives later accrual and rewards, so the check cannot be folded into
 /// [`require_solvent_withdraw_state`].
 pub(crate) fn require_backed_market(env: &Env, cache: &Cache) {
+    assert_with_error!(
+        env,
+        backing_shortfall(cache) == 0,
+        CollateralError::PoolInsolvent
+    );
+}
+
+/// Returns the asset-native cash injection required to back every outstanding
+/// supply claim. The same supplier-favouring admission boundary as
+/// [`require_backed_market`] is used so recapitalization opens supply exactly
+/// when this reaches zero.
+pub(crate) fn backing_shortfall(cache: &Cache) -> i128 {
     // Both roundings favour passing — floor the claim, ceil the backing — so
     // rounding dust never bricks supply. Real insolvency is orders above dust.
     let supplied_claim = cache.unscale_supply_floor(cache.supplied());
     let outstanding_debt = cache.unscale_borrow_ceil(cache.borrowed());
     let backing = cache.cash().saturating_add(outstanding_debt);
-    assert_with_error!(
-        env,
-        supplied_claim <= backing,
-        CollateralError::PoolInsolvent
-    );
+    supplied_claim.saturating_sub(backing).max(0)
 }
 
 /// Rejects a terminal state where debt survives with no supply left to back it.

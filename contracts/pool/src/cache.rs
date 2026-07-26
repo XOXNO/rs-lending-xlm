@@ -207,6 +207,15 @@ impl Cache {
             let ratio = Ray::from_fraction(&self.env, amount, treasury_actual);
             self.revenue.mul(&self.env, ratio)
         };
+        // A positive payout must always retire a positive part of the protocol
+        // claim. At extreme cash-to-claim ratios both half-up operations above
+        // can round to zero; paying in that state would leave revenue unchanged
+        // and let the same claim absorb future cash repeatedly.
+        assert_with_error!(
+            self.env,
+            scaled_to_burn != Ray::ZERO,
+            GenericError::InternalError
+        );
         self.revenue = self.revenue.checked_sub(&self.env, scaled_to_burn);
         self.supplied = self.supplied.checked_sub(&self.env, scaled_to_burn);
         amount

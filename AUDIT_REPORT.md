@@ -74,11 +74,15 @@ The protocol is **strongly engineered and heavily hardened**. Systematic strengt
 **Impact:** temporary, self-healing liquidation delay — no theft. Inherent to share-based pools (you cannot transfer out underlying that was borrowed away); `clean_bad_debt` (no transfer) is unaffected.
 **Proposed patch:** none strictly required; document, rely on `clean_bad_debt` for the socializable tail, and add keeper monitoring for cash-starved-but-liquidatable markets.
 
-### L2 — Low — Clawback overstates tracked `cash` (no reserve reconciliation)
+### L2 — Low — Clawback overstates tracked `cash`
 **Where:** `pool/src/cache.rs:37-46,113-141`; `lib.rs:977-980`.
 **Mechanism:** `cash` is a pure internal counter, never reconciled to live SAC balance (a deliberate donation-attack defense). A clawback-enabled issuer can burn pool tokens out-of-band, so `cash > real balance`; `require_reserves` passes on the overstated counter and `transfer_out` then traps for late withdrawers.
 **Impact:** the loss (the clawback itself) is inherent to holding a clawback token and outside protocol control; the protocol-attributable effect is loss *distribution* — first-come withdrawers exit whole, the last ones trap, instead of a socialized write-down. Bounded value-leak/fairness, not silent insolvency (you can never extract more than the real remaining balance).
-**Proposed patch:** do **not** add naive live-balance reconciliation (breaks donation-attack safety). Instead add a governance-only reserve-reconciliation entrypoint that writes down `cash` and the supply index together when an out-of-band balance loss is detected, socializing the loss rather than trapping late withdrawers. (Composes with H1's force-socialize path.)
+**Proposed patch:** do **not** compare one hub-market's cash with the pool-wide
+token balance: the same asset may exist in multiple hubs, so that balance
+cannot identify a per-market loss. A future repair requires either isolated
+per-market custody or atomic asset-level loss allocation across every hub that
+uses the asset.
 
 ### L3 — Low — Issuer freeze of the pool trustline = market-wide DoS
 **Where:** `pool/src/cache.rs:135-141` + every pool token movement.

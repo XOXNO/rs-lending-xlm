@@ -13,7 +13,6 @@ its own math.
 | `add_rewards` / `claim_revenue` | Supply-index rewards; burn revenue shares |
 | `flash_loan` / `create_strategy` | Callback lend / strategy borrow + fee |
 | `update_indexes` / `update_params` | Accrue; optional IRM replace |
-| `reconcile_reserves` | Realign tracked cash after an issuer clawback |
 | `upgrade` | Replace contract Wasm |
 | Views | Checkpoint util, cash, rates, amounts; `get_bulk_indexes` simulates live |
 

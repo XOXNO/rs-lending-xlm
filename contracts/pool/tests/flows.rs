@@ -669,6 +669,75 @@ fn test_supply_rejects_underbacked_market_after_floor_index_lift() {
 }
 
 #[test]
+fn test_recapitalize_caps_to_shortfall_and_refunds_every_excess_unit() {
+    let t = TestSetup::new();
+    let payer = Address::generate(&t.env);
+    let token_admin = token::StellarAssetClient::new(&t.env, &t.asset);
+    let token = token::Client::new(&t.env, &t.asset);
+
+    // 100 tokens of claims backed by only 90 tokens of tracked cash.
+    let claim = 100 * RAY;
+    let cash = 900_000_000i128;
+    let shortfall = 100_000_000i128;
+    t.edit_state(|state| {
+        state.supplied = claim;
+        state.borrowed = 0;
+        state.revenue = 0;
+        state.supply_index = RAY;
+        state.borrow_index = RAY;
+        state.cash = cash;
+    });
+
+    let offered = 250_000_000i128;
+    token_admin.mint(&payer, &offered);
+    token.transfer(&payer, &t.pool, &offered);
+    let pool_balance_before_call = token.balance(&t.pool);
+
+    let before = t.state_snapshot();
+    let result = t.client().recapitalize(&hub(&t.asset), &payer, &offered);
+    let after = t.state_snapshot();
+
+    assert_eq!(result.actual_amount, shortfall);
+    assert_eq!(after.cash, cash + shortfall);
+    assert_eq!(after.supplied, before.supplied);
+    assert_eq!(after.borrowed, before.borrowed);
+    assert_eq!(after.revenue, before.revenue);
+    assert_eq!(after.supply_index, before.supply_index);
+    assert_eq!(after.borrow_index, before.borrow_index);
+    assert_eq!(token.balance(&payer), offered - shortfall);
+    assert_eq!(
+        token.balance(&t.pool),
+        pool_balance_before_call - (offered - shortfall)
+    );
+
+    // The exact conservative boundary is restored, so supply admission opens.
+    let supplied = t.client().supply(&t.sup(0, 1));
+    assert_eq!(supplied.get_unchecked(0).actual_amount, 1);
+}
+
+#[test]
+fn test_recapitalize_refunds_everything_when_market_is_already_backed() {
+    let t = TestSetup::new();
+    let payer = Address::generate(&t.env);
+    let token_admin = token::StellarAssetClient::new(&t.env, &t.asset);
+    let token = token::Client::new(&t.env, &t.asset);
+    let offered = 250_000_000i128;
+
+    token_admin.mint(&payer, &offered);
+    token.transfer(&payer, &t.pool, &offered);
+    let before = t.state_snapshot();
+    let pool_balance_before_call = token.balance(&t.pool);
+
+    let result = t.client().recapitalize(&hub(&t.asset), &payer, &offered);
+    let after = t.state_snapshot();
+
+    assert_eq!(result.actual_amount, 0);
+    assert_pool_state_eq(&after, &before);
+    assert_eq!(token.balance(&payer), offered);
+    assert_eq!(token.balance(&t.pool), pool_balance_before_call - offered);
+}
+
+#[test]
 fn test_repay_rejects_positive_amount_that_rounds_to_zero_shares() {
     let t = TestSetup::new();
     t.env.as_contract(&t.pool, || {

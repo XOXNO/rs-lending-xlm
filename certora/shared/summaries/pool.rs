@@ -186,9 +186,15 @@ pub fn update_indexes_summary(_env: &Env, _asset: &Address) {}
 /// nothing (production emits an event).
 pub fn add_rewards_summary(_env: &Env, _asset: &Address, _amount: i128) {}
 
-/// Reserve reconciliation: production writes cash down to the live SAC balance
-/// and socializes the shortfall. Returns nothing (production emits an event).
-pub fn reconcile_reserves_summary(_env: &Env, _asset: &Address) {}
+/// Recapitalization retains a non-negative prefix of the offered amount and
+/// refunds the rest. Pool-core rules prove the exact shortfall cap; controller
+/// rules need only the cross-contract return bound.
+pub fn recapitalize_summary(_env: &Env, _asset: &Address, amount: i128) -> PoolAmountMutation {
+    let actual_amount: i128 = nondet();
+    cvlr_assume!(actual_amount >= 0);
+    cvlr_assume!(actual_amount <= amount);
+    PoolAmountMutation { actual_amount }
+}
 
 /// Flash-loan return abstraction for controller lock cleanup only. It omits
 /// liquidity checks, transfers, receiver callback, repayment, and pool state.

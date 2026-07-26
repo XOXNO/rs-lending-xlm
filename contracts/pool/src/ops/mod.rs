@@ -11,7 +11,7 @@ pub(crate) mod borrow;
 pub(crate) mod flash;
 pub(crate) mod market;
 pub(crate) mod net_settle;
-pub(crate) mod reconcile;
+pub(crate) mod recapitalize;
 pub(crate) mod repay;
 pub(crate) mod revenue;
 pub(crate) mod rewards;

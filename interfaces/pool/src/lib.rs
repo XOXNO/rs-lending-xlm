@@ -319,6 +319,30 @@ pub trait LiquidityPoolInterface {
     /// * topics — `["market", "batch_state_update"]`
     fn add_rewards(env: Env, hub_asset: HubAssetKey, amount: i128);
 
+    /// Credits only enough pre-transferred cash to cover the market's
+    /// conservative backing shortfall. Does not mint shares or grow indexes;
+    /// refunds the entire excess to `payer`. Owner (controller) only.
+    ///
+    /// # Arguments
+    /// * `payer` — recipient of the amount not needed to cover the shortfall.
+    /// * `amount` — offered cash; must be non-negative.
+    ///
+    /// # Errors
+    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
+    ///   unauthorized caller fails host auth instead, with no contract error code.
+    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
+    /// * `AmountMustBePositive` — `amount` is negative.
+    /// * `MathOverflow` — accrual, cash, or refund accounting overflows.
+    ///
+    /// # Events
+    /// * topics — `["market", "batch_state_update"]`
+    fn recapitalize(
+        env: Env,
+        hub_asset: HubAssetKey,
+        payer: Address,
+        amount: i128,
+    ) -> PoolAmountMutation;
+
     /// Burns claimable protocol revenue shares and transfers the floored cash
     /// payout to the owner. Owner (controller) only.
     ///
@@ -335,22 +359,6 @@ pub trait LiquidityPoolInterface {
     /// # Events
     /// * topics — `["market", "batch_state_update"]`
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation;
-
-    /// Reconciles tracked `cash` down to the live SAC balance when an issuer
-    /// clawback has burned pool tokens out of band, socializing the shortfall
-    /// through the supply index. No-op when `cash <= balance` (a direct donation
-    /// only ever raises the balance, so this never mistakes a donation for a
-    /// loss). Owner (controller) only.
-    ///
-    /// # Errors
-    /// * `OwnableError::OwnerNotSet` (2100) — owner-gated; no owner is set. An
-    ///   unauthorized caller fails host auth instead, with no contract error code.
-    /// * `PoolNotInitialized` — no stored state for `hub_asset`.
-    /// * `MathOverflow` — cash or index accounting overflows.
-    ///
-    /// # Events
-    /// * topics — `["market", "batch_state_update"]`
-    fn reconcile_reserves(env: Env, hub_asset: HubAssetKey);
 
     // --- lifecycle ---
 

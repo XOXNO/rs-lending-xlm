@@ -293,6 +293,33 @@ fn test_burn_claimable_revenue_full_when_revenue_smaller_than_reserves() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn test_positive_revenue_payout_rejects_zero_scaled_burn() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut params = t.params.clone();
+        params.asset_decimals = 18;
+
+        // treasury_actual = 3e27 asset units while only one unit of cash is
+        // payable. The sub-RAY fraction rounds to zero, so the claim must fail
+        // closed instead of transferring cash without retiring shares.
+        let extreme_revenue = 3 * 10i128.pow(36);
+        let mut cache = cache_with(
+            &t.env,
+            &params,
+            extreme_revenue,
+            0,
+            extreme_revenue,
+            RAY,
+            RAY,
+        );
+        cache.set_cash(1);
+
+        let _ = cache.burn_claimable_revenue();
+    });
+}
+
+#[test]
 fn test_position_mutation_builder_includes_scaled_and_actual() {
     let t = TestSetup::new();
     t.as_contract(|| {

@@ -54,13 +54,6 @@ impl LendingTest {
         )
     }
 
-    /// Permissionless reserve reconciliation for a market.
-    pub fn reconcile_pool_reserves_for(&self, asset_name: &str) {
-        let hub_asset = hub_asset(self.resolve_asset(asset_name));
-        self.ctrl_client()
-            .reconcile_pool_reserves(&self.keeper, &hub_asset);
-    }
-
     /// Sync risk params on every supply position for each account.
     pub fn update_account_threshold(&self, has_risks: bool, account_ids: &[u64]) {
         let mut ids = Vec::new(&self.env);

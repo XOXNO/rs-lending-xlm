@@ -1,7 +1,7 @@
-//! Permissionless upkeep: index refresh, reserve reconciliation, revenue
-//! sweeps to the accumulator, reward donations, and risk-param resync. Any
-//! caller may run these; the only gate is the caller's own `require_auth` plus
-//! the flash-loan reentrancy guard. See
+//! Upkeep: permissionless index refresh, revenue sweeps, reward donations, and
+//! risk-param resync, plus owner-approved market recapitalization.
+//! Permissionless flows require caller auth; recapitalization is owner-gated
+//! at the ABI. Every flow also uses the flash-loan reentrancy guard. See
 //! [INVARIANTS](../../../docs/reference/invariants.md) §2.4 / §5.2.
 
 use common::errors::{CollateralError, GenericError, OracleError};
@@ -13,7 +13,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Vec};
 use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Cache;
 use crate::external::pool::{
-    pool_add_rewards_call, pool_claim_revenue_call, pool_reconcile_reserves_call,
+    pool_add_rewards_call, pool_claim_revenue_call, pool_recapitalize_call,
     pool_update_indexes_call,
 };
 use crate::external::sac::sac_transfer_call;
@@ -31,14 +31,6 @@ pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey
         // `PoolNotInitialized` for an uncreated market.
         pool_update_indexes_call(env, &pool_addr, &hub_asset);
     }
-}
-
-pub(crate) fn reconcile_pool_reserves(env: &Env, caller: Address, hub_asset: HubAssetKey) {
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
-    let mut cache = Cache::new(env);
-    let pool_addr = cache.cached_pool_address();
-    pool_reconcile_reserves_call(env, &pool_addr, &hub_asset);
 }
 
 pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
@@ -65,6 +57,31 @@ pub(crate) fn add_rewards(env: &Env, caller: Address, rewards: Vec<(HubAssetKey,
     for (hub_asset, amount) in aggregated {
         add_reward(env, &caller, &hub_asset, amount, &mut cache);
     }
+}
+
+/// Pulls an owner-approved cash injection from `payer`; the pool retains only
+/// its current shortfall and refunds the rest directly to `payer`.
+pub(crate) fn recapitalize(
+    env: &Env,
+    payer: Address,
+    hub_asset: HubAssetKey,
+    amount: i128,
+) -> i128 {
+    validation::require_not_flash_loaning(env);
+    require_positive_amount(env, amount);
+
+    let mut cache = Cache::new(env);
+    let pool_addr = cache.cached_pool_address();
+    payments::transfer_amount(
+        env,
+        &hub_asset.asset,
+        &payer,
+        &pool_addr,
+        amount,
+        GenericError::AmountMustBePositive,
+    );
+
+    pool_recapitalize_call(env, &pool_addr, &hub_asset, &payer, amount).actual_amount
 }
 
 /// Re-stamps live spoke risk params onto each account's supply legs.

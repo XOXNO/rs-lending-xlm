@@ -5,7 +5,7 @@
 use crate::spec::summaries::bulk_index_summary;
 use crate::spec::summaries::pool::{
     add_rewards_summary, borrow_summary, claim_revenue_summary, create_strategy_summary,
-    flash_loan_summary, get_sync_data_summary, net_settle_summary, reconcile_reserves_summary,
+    flash_loan_summary, get_sync_data_summary, net_settle_summary, recapitalize_summary,
     repay_summary, seize_positions_summary, supply_summary, update_indexes_summary,
     withdraw_summary,
 };
@@ -171,12 +171,14 @@ pub(crate) fn pool_add_rewards_call(
     add_rewards_summary(env, &hub_asset.asset, amount)
 }
 
-pub(crate) fn pool_reconcile_reserves_call(
+pub(crate) fn pool_recapitalize_call(
     env: &Env,
     _pool_addr: &Address,
     hub_asset: &HubAssetKey,
-) {
-    reconcile_reserves_summary(env, &hub_asset.asset)
+    _payer: &Address,
+    amount: i128,
+) -> PoolAmountMutation {
+    recapitalize_summary(env, &hub_asset.asset, amount)
 }
 
 pub(crate) fn fetch_pool_sync_data(

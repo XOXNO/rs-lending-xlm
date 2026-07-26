@@ -11,17 +11,96 @@ use common::constants::{
 use common::math::fp::Ray;
 use common::math::fp_core;
 use common::rates::{
-    calculate_borrow_rate, compound_interest, supply_index_reward_shortfall, update_borrow_index,
-    update_supply_index,
+    calculate_borrow_rate, compound_interest, supply_index_reward_shortfall, unscale_borrow_ceil,
+    unscale_supply_floor, update_borrow_index, update_supply_index,
 };
 use common::types::PoolWithdrawEntry;
 use pool_interface::LiquidityPoolInterface;
 
 use super::fixture::{
-    action, expected_protocol_fee_shares, hub, params, read_state, seed, state, ASSET_DECIMALS,
-    MAX_FLOW_AMOUNT, ONE_TOKEN,
+    action, expected_protocol_fee_shares, hub, params, params_with_decimals, read_state, seed,
+    state, ASSET_DECIMALS, MAX_FLOW_AMOUNT, ONE_TOKEN,
 };
 use crate::ops::strategy::StrategyOutcome;
+
+/// Recapitalization retains exactly the lesser of the offered amount and the
+/// independently valued backing shortfall. It refunds every other unit and
+/// creates no shares, revenue, debt, or index movement.
+#[rule]
+#[allow(clippy::too_many_arguments)]
+fn recapitalize_caps_cash_to_shortfall_and_refunds_excess(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    offered: i128,
+    supplied: i128,
+    borrowed: i128,
+    revenue: i128,
+    supply_index: i128,
+    borrow_index: i128,
+    cash: i128,
+) {
+    cvlr_assume!(offered >= 0 && offered <= MAX_FLOW_AMOUNT);
+    cvlr_assume!(supplied >= 0 && supplied <= 100 * RAY);
+    cvlr_assume!(borrowed >= 0 && borrowed <= supplied);
+    cvlr_assume!(revenue >= 0 && revenue <= supplied);
+    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
+    cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
+    cvlr_assume!(cash >= 0 && cash <= 1_000 * ONE_TOKEN);
+
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            supplied,
+            borrowed,
+            revenue,
+            borrow_index,
+            supply_index,
+            cash,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let pre = read_state(&e, &asset);
+    let supply_claim = unscale_supply_floor(
+        &e,
+        Ray::from(pre.supplied),
+        Ray::from(pre.supply_index),
+        ASSET_DECIMALS,
+    );
+    let debt_backing = unscale_borrow_ceil(
+        &e,
+        Ray::from(pre.borrowed),
+        Ray::from(pre.borrow_index),
+        ASSET_DECIMALS,
+    );
+    let backing = pre.cash + debt_backing;
+    let shortfall = if supply_claim > backing {
+        supply_claim - backing
+    } else {
+        0
+    };
+    let expected_applied = offered.min(shortfall);
+    let expected_refund = offered - expected_applied;
+
+    let outcome = crate::ops::recapitalize::accounting(&e, hub(asset.clone()), offered);
+    let post = read_state(&e, &asset);
+
+    cvlr_assert!(outcome.mutation.actual_amount == expected_applied);
+    cvlr_assert!(outcome.refund == expected_refund);
+    cvlr_assert!(outcome.mutation.actual_amount + outcome.refund == offered);
+    cvlr_assert!(outcome.mutation.actual_amount <= shortfall);
+    cvlr_assert!(post.cash - pre.cash == expected_applied);
+    cvlr_assert!(post.supplied == pre.supplied && post.borrowed == pre.borrowed);
+    cvlr_assert!(post.revenue == pre.revenue);
+    cvlr_assert!(post.supply_index == pre.supply_index);
+    cvlr_assert!(post.borrow_index == pre.borrow_index);
+    cvlr_assert!(shortfall != 0 || outcome.mutation.actual_amount == 0);
+    cvlr_assert!(offered < shortfall || post.cash + debt_backing >= supply_claim);
+}
 
 /// Reward cash is split between supplier index growth and shortfall revenue;
 /// the shortfall mints identical deltas into revenue and aggregate supply.
@@ -393,9 +472,38 @@ fn claim_revenue_burns_equal_shares_and_cash(
     cvlr_assert!(pre.supplied - post.supplied == burned_revenue);
     cvlr_assert!(burned_revenue == expected_burn.raw());
     cvlr_assert!(burned_revenue >= 0 && burned_revenue <= revenue_before);
+    cvlr_assert!(result.actual_amount == 0 || burned_revenue > 0);
     cvlr_assert!(post.borrowed == pre.borrowed);
     cvlr_assert!(post.supply_index == pre.supply_index && post.borrow_index == pre.borrow_index);
     cvlr_assert!(treasury_actual == 0 || expected_claim != treasury_actual || post.revenue == 0);
+}
+
+/// A positive cash payout can never succeed when the proportional revenue-share
+/// burn rounds to zero. This pins the extreme 18-decimal boundary that is well
+/// outside the bounded successful-claim fixture above.
+#[rule]
+fn positive_revenue_claim_with_zero_share_burn_reverts(e: Env, admin: Address, asset: Address) {
+    let extreme_revenue = 3 * 10i128.pow(36);
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params_with_decimals(asset.clone(), 0, false, 18),
+        state(
+            extreme_revenue,
+            0,
+            extreme_revenue,
+            RAY,
+            RAY,
+            1,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    crate::ops::revenue::accounting(&e, hub(asset));
+
+    // The production zero-burn guard must revert before this point.
+    cvlr_assert!(false);
 }
 
 /// Repeated reward legs can never ratchet the supply index past its ceiling.

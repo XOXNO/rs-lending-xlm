@@ -310,17 +310,6 @@ pub trait ControllerInterface {
     /// * `PoolNotInitialized` — a listed market has not been created.
     fn update_indexes(env: Env, caller: Address, assets: Vec<HubAssetKey>);
 
-    /// Reconciles a market's tracked cash to the live pool balance after an
-    /// issuer clawback, socializing the shortfall through the supply index.
-    /// Permissionless (caller auth); blocked while paused. Safe to open: the pool
-    /// only ever writes cash down to the real balance, so no caller can profit or
-    /// impose a loss beyond the clawback that already happened.
-    ///
-    /// # Errors
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `PoolNotInitialized` — the market has not been created.
-    fn reconcile_pool_reserves(env: Env, caller: Address, hub_asset: HubAssetKey);
-
     /// Claims protocol revenue per market and forwards it to the accumulator.
     /// Permissionless (caller auth); blocked while paused.
     ///

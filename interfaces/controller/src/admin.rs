@@ -218,6 +218,19 @@ pub trait ControllerAdmin {
     /// * `PoolNotInitialized` — pool not deployed.
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>);
 
+    /// Transfers `amount` from `payer` to repair a market's backing shortfall.
+    /// The pool retains at most the exact conservative shortfall and refunds
+    /// every excess token directly to `payer`. Returns the retained amount.
+    /// Owner only (gov timelock); callable while paused.
+    ///
+    /// `payer` must authorize the token transfer. It may be the owner or a
+    /// separately authorized treasury.
+    ///
+    /// # Errors
+    /// * `AmountMustBePositive` — `amount` is not strictly positive.
+    /// * `PoolNotInitialized` — the market or central pool has not been created.
+    fn recapitalize(env: Env, payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128;
+
     // --- emergency ---
 
     /// Socializes an underwater account's residual bad debt via the supply index
