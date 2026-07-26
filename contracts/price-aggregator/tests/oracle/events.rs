@@ -1,8 +1,8 @@
 use super::{read_mode_parts, EventOracleProvider};
 use common::types::{
     AssetOracleConfig, OracleAssetRef, OracleReadMode, OracleSourceConfig,
-    OracleSourceConfigOption, OracleStrategy, OracleTolerance, RedStoneSourceConfig,
-    ReflectorBase, ReflectorSourceConfig,
+    OracleSourceConfigOption, OracleStrategy, OracleTolerance, RedStoneSourceConfig, ReflectorBase,
+    ReflectorSourceConfig,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, String};

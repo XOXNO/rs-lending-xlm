@@ -554,10 +554,7 @@ fn test_deprecated_spoke_blocks_new_borrow_but_preserves_exit() {
     t.remove_spoke_category(2);
 
     // Deprecation closes new borrows.
-    assert_contract_error(
-        t.try_borrow(ALICE, "USDT", 100.0),
-        errors::SPOKE_DEPRECATED,
-    );
+    assert_contract_error(t.try_borrow(ALICE, "USDT", 100.0), errors::SPOKE_DEPRECATED);
 
     // Exits still execute against the stored position params, so a deprecated
     // spoke never traps collateral.

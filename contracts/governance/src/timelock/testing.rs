@@ -1,6 +1,5 @@
 //! Test-only immediate executor; excluded from production WASM.
 
-
 use soroban_sdk::{contractimpl, Address, BytesN, Env, IntoVal, Symbol, Val};
 
 use crate::op::apply_self_op;

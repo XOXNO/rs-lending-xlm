@@ -589,7 +589,10 @@ fn audit_hard_price_reverts_stale_while_status_soft_flags() {
 
     // Hard path must fail closed (not return the stale WAD).
     let hard = client.try_price(&asset);
-    assert!(hard.is_err(), "hard price must revert on stale feed; got {hard:?}");
+    assert!(
+        hard.is_err(),
+        "hard price must revert on stale feed; got {hard:?}"
+    );
 }
 
 /// H-ORC-DUAL-HARD: dual-source out-of-band reverts hard `price` with
@@ -784,4 +787,3 @@ fn audit_hard_price_reverts_outside_sanity_band() {
         "hard price must revert outside sanity band; got {hard:?}"
     );
 }
-
