@@ -42,6 +42,13 @@ fn test_borrow_at_max_utilization_succeeds() {
     t.supply(BOB, "ETH", 10.0);
     // Exactly at the cap — utilization == 85 %.
     t.borrow(BOB, "USDC", 850.0);
+
+    // The borrow must actually land: this is the accepting half of the boundary
+    // that `test_borrow_above_max_utilization_rejected` closes from above, so a
+    // cap that rejected at exactly 85 % has to fail here rather than pass on a
+    // silently-empty position.
+    t.assert_borrow_near(BOB, "USDC", 850.0, 0.01);
+    t.assert_healthy(BOB);
 }
 
 // The cap must use index-aware utilization

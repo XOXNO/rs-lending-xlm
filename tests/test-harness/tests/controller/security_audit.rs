@@ -461,6 +461,11 @@ fn poc_frozen_collateral_still_backs_new_borrows() {
         "H-USER-02: freeze on collateral must not block borrow of another asset; got {:?}",
         borrowed
     );
+    // `is_ok` alone would also hold for a borrow that moved nothing. Pin the
+    // debt and the resulting health, which is what shows the frozen USDC still
+    // backed the position rather than the borrow succeeding on no collateral.
+    t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
+    t.assert_healthy(ALICE);
 }
 
 /// Flash-loan guard blocks nested user mutators (sanity for pool trust boundary).

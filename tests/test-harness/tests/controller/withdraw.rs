@@ -162,6 +162,10 @@ fn test_withdraw_allowed_when_paused() {
         result.is_ok(),
         "withdraw should remain available while paused"
     );
+    // The point of keeping withdraw open during a pause is that collateral
+    // actually leaves; a withdraw that returned Ok while moving nothing would
+    // leave users trapped and still satisfy `is_ok`.
+    t.assert_supply_near(ALICE, "USDC", 9_000.0, 0.01);
 }
 #[test]
 fn test_withdraw_removes_position_when_empty() {

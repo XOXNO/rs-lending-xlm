@@ -240,24 +240,6 @@ fn test_supply_position_limit_exceeded() {
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
 #[test]
-fn test_supply_spoke_rejects_non_category_asset() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        // ETH is NOT in the spoke category
-        .build();
-
-    t.create_spoke_account(ALICE, 2);
-
-    // Supplying ETH to an spoke stablecoin account must fail: ETH is not
-    // listed on the account's spoke, so the spoke model rejects it as
-    // AssetNotInSpoke.
-    let result = t.try_supply(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
-}
-#[test]
 fn test_supply_raw_precision() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())

@@ -104,6 +104,10 @@ fn test_repay_allowed_when_paused() {
 
     let result = t.try_repay(ALICE, "ETH", 0.5);
     assert!(result.is_ok(), "repay should remain available while paused");
+    // The point of keeping repay open during a pause is that debt actually
+    // comes down; a repay that returned Ok while moving nothing would leave
+    // users trapped and still satisfy `is_ok`.
+    t.assert_borrow_near(ALICE, "ETH", 0.5, 0.01);
 }
 
 #[test]

@@ -174,4 +174,10 @@ fn test_renew_account_owner_succeeds() {
 
     let alice = t.get_or_create_user(ALICE);
     t.ctrl_client().renew_account(&alice, &account_id);
+
+    // The TTL bump itself is not observable through the harness, so pin what is:
+    // renewal is non-destructive — the account still resolves and its position
+    // is untouched. Without this the test only proves the call did not panic.
+    assert_eq!(t.find_account_id(ALICE), Some(account_id));
+    t.assert_supply_near(ALICE, "USDC", 1_000.0, 0.01);
 }

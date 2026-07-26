@@ -108,6 +108,7 @@ fn test_flash_loan_rejects_bad_repayment() {
 
     t.supply(ALICE, "USDC", 100_000.0);
 
+    let reserves_before = pool_reserves(&t, "USDC");
     let bad_receiver = t.deploy_bad_flash_loan_receiver();
     let result = t.try_flash_loan(BOB, "USDC", 10_000.0, &bad_receiver);
     // The bad receiver triggers a cross-contract failure that surfaces as
@@ -116,6 +117,12 @@ fn test_flash_loan_rejects_bad_repayment() {
         result.is_err(),
         "flash loan should fail when receiver doesn't repay"
     );
+    // `is_err` alone does not say the failure was clean. A flash loan that
+    // reverts while leaving the reentrancy guard set would brick every later
+    // flash loan, and one that moved reserves would have leaked funds — the
+    // same pair every other adversarial-receiver test here checks.
+    assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
+    assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
 #[test]
 fn test_flash_loan_rejects_disabled() {

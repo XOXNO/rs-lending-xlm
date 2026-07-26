@@ -221,6 +221,12 @@ fn poc_delisted_collateral_flag_still_backs_new_borrows() {
         borrowed.is_ok(),
         "H-USER-18: delisting can_collateral must not strip existing stamp from HF/LTV; got {borrowed:?}"
     );
+    // `is_ok` alone would also hold for a borrow that moved nothing. Pin the
+    // debt and the resulting health, which is what shows the delisted USDC
+    // stamp still counted toward LTV rather than the borrow slipping through
+    // on some other collateral.
+    t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
+    t.assert_healthy(ALICE);
 }
 
 // ---------------------------------------------------------------------------
