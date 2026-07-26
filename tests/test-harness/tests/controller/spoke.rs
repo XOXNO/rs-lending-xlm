@@ -1,6 +1,6 @@
 use controller::types::{ControllerKey, SpokeAssetArgs};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, f64_to_i128, hub_asset, usd_cents, usdc_preset,
+    assert_contract_error, errors, eth_preset, hub_asset, usd_cents, usdc_preset,
     usdt_stable_preset, LendingTest, PositionType, ALICE, HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR,
     STABLECOIN_SPOKE,
 };
@@ -116,28 +116,6 @@ fn test_spoke_rejects_non_category_borrow() {
     // Borrowing ETH must fail because ETH is outside the spoke category.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
-}
-#[test]
-fn test_spoke_deprecated_blocks_new_accounts() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .build();
-
-    // Create the spoke account BEFORE deprecation so the harness's local
-    // deprecation assert does not short-circuit. The contract path under
-    // test is the one that supplies under a deprecated category, which
-    // routes through `active_spoke_category` -> `ensure_spoke_not_deprecated`.
-    t.create_spoke_account(ALICE, 2);
-
-    // Deprecate the spoke category.
-    t.remove_spoke_category(2);
-
-    // Supplying under the deprecated category must reject with the
-    // contract error SpokeDeprecated (301).
-    let result = t.try_supply(ALICE, "USDC", 1_000.0);
-    assert_contract_error(result, errors::SPOKE_DEPRECATED);
 }
 #[test]
 fn test_spoke_edit_asset_params() {
@@ -560,7 +538,7 @@ fn test_deprecated_spoke_category_still_allows_liquidation() {
 }
 
 #[test]
-fn test_deprecated_spoke_views_block_new_borrow_but_preserve_exit_preview() {
+fn test_deprecated_spoke_blocks_new_borrow_but_preserves_exit() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
@@ -572,24 +550,18 @@ fn test_deprecated_spoke_views_block_new_borrow_but_preserve_exit_preview() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 2_000.0);
-    let account_id = t.resolve_account_id(ALICE);
-    let usdc = t.resolve_asset("USDC");
-    let usdt = t.resolve_asset("USDT");
 
     t.remove_spoke_category(2);
 
-    assert_eq!(
-        t.ctrl_client()
-            .max_borrow(&account_id, &hub_asset(usdt.clone())),
-        0,
-        "deprecated spoke must preview no additional borrow capacity"
+    // Deprecation closes new borrows.
+    assert_contract_error(
+        t.try_borrow(ALICE, "USDT", 100.0),
+        errors::SPOKE_DEPRECATED,
     );
-    assert!(
-        t.ctrl_client()
-            .max_withdraw(&account_id, &hub_asset(usdc.clone()))
-            >= f64_to_i128(4_000.0, t.resolve_market("USDC").decimals),
-        "deprecated spoke must preview exits using the stored position params, not base fallback"
-    );
+
+    // Exits still execute against the stored position params, so a deprecated
+    // spoke never traps collateral.
+    t.withdraw(ALICE, "USDC", 4_000.0);
 }
 
 /// Deletes a listing at the storage layer, bypassing the zero-usage removal
@@ -1063,14 +1035,7 @@ fn test_edit_spoke_supply_cap_below_usage_ratchets_down() {
         borrow_cap: 0,
     });
 
-    // Over-cap usage blocks any new supply and previews zero headroom.
-    let account_id = t.resolve_account_id(ALICE);
-    assert_eq!(
-        t.ctrl_client()
-            .max_supply(&account_id, &hub_asset(usdc.clone())),
-        0,
-        "over-cap listing must preview zero supply headroom"
-    );
+    // Over-cap usage blocks any new supply.
     assert_contract_error(
         t.try_supply(ALICE, "USDC", 1.0),
         errors::SPOKE_SUPPLY_CAP_REACHED,
@@ -1085,7 +1050,7 @@ fn test_edit_spoke_supply_cap_below_usage_ratchets_down() {
 }
 
 #[test]
-fn test_max_supply_respects_spoke_cap_headroom() {
+fn test_spoke_supply_cap_bounds_cumulative_supply() {
     let spoke_cap = 1_000 * UNIT;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -1113,20 +1078,14 @@ fn test_max_supply_respects_spoke_cap_headroom() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
 
-    let account_id = t.resolve_account_id(ALICE);
-    let headroom = t
-        .ctrl_client()
-        .max_supply(&account_id, &hub_asset(usdc.clone()));
-    assert!(
-        headroom > 400 * UNIT && headroom <= 500 * UNIT,
-        "spoke headroom should be ~500 USDC, got {headroom}"
-    );
+    // No interest has accrued, so the supply index is still unit: the remaining
+    // headroom is exactly the cap minus what is already supplied.
+    t.supply_raw(ALICE, "USDC", 500 * UNIT);
 
-    t.supply_raw(ALICE, "USDC", headroom);
-    assert_eq!(
-        t.ctrl_client()
-            .max_supply(&account_id, &hub_asset(usdc.clone())),
-        0
+    // The cap is now exactly filled; the next unit reverts.
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 1.0),
+        errors::SPOKE_SUPPLY_CAP_REACHED,
     );
 }
 
@@ -1258,30 +1217,16 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
     });
 
     t.create_spoke_account(ALICE, 2);
-    let account_id = t.resolve_account_id(ALICE);
 
-    // Fill to the spoke cap: headroom collapses and one more unit reverts.
+    // Fill to the spoke cap: one more unit reverts.
     t.supply(ALICE, "USDC", 1_000.0);
-    assert!(
-        t.ctrl_client()
-            .max_supply(&account_id, &hub_asset(usdc.clone()))
-            <= 1,
-        "headroom must collapse at the spoke cap"
-    );
     assert_contract_error(
         t.try_supply(ALICE, "USDC", 1.0),
         errors::SPOKE_SUPPLY_CAP_REACHED,
     );
 
-    // Withdraw frees usage; headroom is restored and a re-supply executes.
+    // Withdraw frees usage, so a re-supply within the freed room executes.
     t.withdraw(ALICE, "USDC", 400.0);
-    let restored = t
-        .ctrl_client()
-        .max_supply(&account_id, &hub_asset(usdc.clone()));
-    assert!(
-        restored > 390 * UNIT && restored <= 400 * UNIT,
-        "headroom should restore to ~400 USDC after withdraw, got {restored}"
-    );
     let res = t.try_supply(ALICE, "USDC", 300.0);
     assert!(
         res.is_ok(),
@@ -1327,22 +1272,10 @@ fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 1_000.0); // borrow up to the spoke cap
 
-    let account_id = t.resolve_account_id(ALICE);
-    assert!(
-        t.ctrl_client()
-            .max_borrow(&account_id, &hub_asset(usdt.clone()))
-            <= 1,
-        "headroom must be ~0 right at the cap"
-    );
-
     t.advance_time(60 * 60 * 24 * 365);
 
-    assert_eq!(
-        t.ctrl_client()
-            .max_borrow(&account_id, &hub_asset(usdt.clone())),
-        0,
-        "accrued debt must push the spoke position past the fixed spoke cap"
-    );
+    // Accrued debt pushes the spoke position past the fixed spoke cap, so a
+    // further borrow reverts even though scaled usage is unchanged.
     assert_contract_error(
         t.try_borrow(ALICE, "USDT", 1.0),
         errors::SPOKE_BORROW_CAP_REACHED,
@@ -1415,36 +1348,6 @@ fn test_edit_asset_in_spoke_rejects_liquidation_fees_above_bps() {
     }
 }
 
-// Regression: `max_supply` must preview zero on a deprecated spoke because the
-// mutating supply path rejects with `SpokeDeprecated`.
-#[test]
-fn test_deprecated_spoke_max_supply_returns_zero() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .build();
-
-    t.create_spoke_account(ALICE, 2);
-    t.supply(ALICE, "USDC", 100.0);
-    let account_id = t.resolve_account_id(ALICE);
-    let usdc = t.resolve_asset("USDC");
-
-    assert!(
-        t.ctrl_client()
-            .max_supply(&account_id, &hub_asset(usdc.clone()))
-            > 0,
-        "active spoke must preview supply headroom"
-    );
-
-    t.remove_spoke_category(2);
-    assert_eq!(
-        t.ctrl_client().max_supply(&account_id, &hub_asset(usdc)),
-        0,
-        "deprecated spoke must preview zero supply capacity"
-    );
-}
-
 /// Sets the per-listing paused/frozen incident flags through the real
 /// `edit_asset_in_spoke` entrypoint, preserving the listing's current risk
 /// params.
@@ -1473,43 +1376,16 @@ fn set_spoke_asset_flags(
     });
 }
 
-// Regression: `max_supply`/`max_borrow` must preview zero for a paused spoke
-// asset because `enforce_spoke_asset_flags` rejects the mutating paths.
+// Regression: a paused listing blocks every flow, entries and exits alike,
+// through `enforce_spoke_asset_flags`.
 #[test]
-fn test_paused_spoke_asset_zeroes_supply_and_borrow_previews() {
+fn test_paused_spoke_asset_blocks_supply_and_withdraw() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     t.supply(ALICE, "USDC", 1_000.0);
-    let account_id = t.resolve_account_id(ALICE);
-    let usdc = t.resolve_asset("USDC");
-
-    assert!(
-        t.ctrl_client()
-            .max_supply(&account_id, &hub_asset(usdc.clone()))
-            > 0
-    );
-    assert!(
-        t.ctrl_client()
-            .max_borrow(&account_id, &hub_asset(usdc.clone()))
-            > 0
-    );
 
     set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", true, false);
 
-    assert_eq!(
-        t.ctrl_client()
-            .max_supply(&account_id, &hub_asset(usdc.clone())),
-        0,
-        "paused listing must preview zero supply capacity"
-    );
-    assert_eq!(
-        t.ctrl_client()
-            .max_borrow(&account_id, &hub_asset(usdc.clone())),
-        0,
-        "paused listing must preview zero borrow capacity"
-    );
-
-    // The mutating paths agree with the previews: paused blocks everything.
     assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::SPOKE_ASSET_PAUSED);
     assert_contract_error(
         t.try_withdraw(ALICE, "USDC", 1.0),
@@ -1519,34 +1395,20 @@ fn test_paused_spoke_asset_zeroes_supply_and_borrow_previews() {
     // Clearing the flag through the same edit restores capacity.
     set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", false, false);
     assert!(
-        t.ctrl_client().max_supply(&account_id, &hub_asset(usdc)) > 0,
+        t.try_supply(ALICE, "USDC", 1.0).is_ok(),
         "clearing paused must restore supply capacity"
     );
 }
 
 // Regression: frozen blocks risk-increasing flows (supply/borrow) while still
-// allowing exits, so both previews must report zero.
+// allowing exits.
 #[test]
-fn test_frozen_spoke_asset_zeroes_supply_and_borrow_previews() {
+fn test_frozen_spoke_asset_blocks_entries_but_allows_exit() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     t.supply(ALICE, "USDC", 1_000.0);
-    let account_id = t.resolve_account_id(ALICE);
-    let usdc = t.resolve_asset("USDC");
 
     set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", false, true);
-
-    assert_eq!(
-        t.ctrl_client()
-            .max_supply(&account_id, &hub_asset(usdc.clone())),
-        0,
-        "frozen listing must preview zero supply capacity"
-    );
-    assert_eq!(
-        t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc)),
-        0,
-        "frozen listing must preview zero borrow capacity"
-    );
 
     // Frozen blocks risk-increasing entries but keeps exits open.
     assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::SPOKE_ASSET_FROZEN);

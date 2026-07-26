@@ -125,15 +125,13 @@ pub(crate) fn update_or_remove_supply_position(
     account: &mut Account,
     hub_asset: &HubAssetKey,
     position: &AccountPosition,
-) -> bool {
+) {
     if position.scaled_amount == Ray::ZERO {
         account.supply_positions.remove(hub_asset.clone());
-        true
     } else {
         account
             .supply_positions
             .set(hub_asset.clone(), position.into());
-        false
     }
 }
 
@@ -142,15 +140,13 @@ pub(crate) fn update_or_remove_debt_position(
     account: &mut Account,
     hub_asset: &HubAssetKey,
     position: &DebtPosition,
-) -> bool {
+) {
     if position.scaled_amount == Ray::ZERO {
         account.borrow_positions.remove(hub_asset.clone());
-        true
     } else {
         account
             .borrow_positions
             .set(hub_asset.clone(), position.into());
-        false
     }
 }
 

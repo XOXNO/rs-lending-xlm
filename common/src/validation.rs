@@ -11,7 +11,7 @@ use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use crate::math::fp_core::mul_div_ceil;
 use crate::oracle::observation::{MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MAX_TWAP_RECORDS};
 use crate::types::{OracleStrategy, OracleTolerance};
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Executable};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Executable, Vec};
 
 /// Strictly positive amount; zero is rejected.
 ///
@@ -32,6 +32,26 @@ pub fn require_nonneg_amount(env: &Env, amount: i128) {
 /// Cap enabled when `> 0` and not `i128::MAX` (disabled sentinels).
 pub fn cap_is_enabled(cap: i128) -> bool {
     cap > 0 && cap != i128::MAX
+}
+
+/// Unwraps a contract-built value or panics with `InternalError`.
+///
+/// A missing value here means corrupted storage or a caller logic bug after the
+/// checks that were supposed to guarantee it — never ordinary user input.
+///
+/// # Errors
+/// * [`GenericError::InternalError`] - the option was `None`.
+#[inline]
+pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
+    opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
+}
+
+/// Rejects an empty payment batch.
+///
+/// # Errors
+/// * [`GenericError::InvalidPayments`] - `payments` is empty.
+pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
+    assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
 }
 
 /// Rejects a supply/borrow cap that cannot be scaled to RAY without overflowing.

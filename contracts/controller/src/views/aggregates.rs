@@ -16,7 +16,7 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Cache::new_view(env);
-    risk::sum_supply_usd(env, &mut cache, &supply, risk::PositionValueMode::Neutral).raw()
+    risk::sum_supply_usd(env, &mut cache, &supply).raw()
 }
 
 pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
@@ -29,7 +29,7 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Cache::new_view(env);
-    risk::sum_debt_usd(env, &mut cache, &borrow, risk::PositionValueMode::Neutral).raw()
+    risk::sum_debt_usd(env, &mut cache, &borrow).raw()
 }
 
 pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {

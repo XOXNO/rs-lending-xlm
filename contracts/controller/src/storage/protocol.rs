@@ -7,7 +7,7 @@ use common::types::{ControllerKey, PositionLimits, PositionManagerConfig};
 use soroban_sdk::{panic_with_error, Address, Env};
 
 use crate::constants;
-use crate::storage::renew_protocol_shared_key;
+use crate::storage::set_shared;
 
 // Governance allowlists (Blend pools, position managers) are unbounded-set
 // registries: one persistent key per entry, loaded on demand. Persistent (not
@@ -23,8 +23,7 @@ pub(crate) fn is_blend_pool_approved(env: &Env, pool: &Address) -> bool {
 pub(crate) fn set_blend_pool_approved(env: &Env, pool: &Address, approved: bool) {
     let key = ControllerKey::BlendPoolAllowed(pool.clone());
     if approved {
-        env.storage().persistent().set(&key, &true);
-        renew_protocol_shared_key(env, &key);
+        set_shared(env, &key, &true);
     } else {
         env.storage().persistent().remove(&key);
     }
@@ -93,9 +92,7 @@ pub(crate) fn increment_account_nonce(env: &Env) -> u64 {
     let next = current
         .checked_add(1)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    let key = ControllerKey::AccountNonce;
-    env.storage().persistent().set(&key, &next);
-    renew_protocol_shared_key(env, &key);
+    set_shared(env, &ControllerKey::AccountNonce, &next);
     next
 }
 
@@ -138,8 +135,7 @@ pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<Position
 pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionManagerConfig) {
     let key = ControllerKey::PositionManager(addr.clone());
     if config.is_active {
-        env.storage().persistent().set(&key, config);
-        renew_protocol_shared_key(env, &key);
+        set_shared(env, &key, config);
     } else {
         env.storage().persistent().remove(&key);
     }

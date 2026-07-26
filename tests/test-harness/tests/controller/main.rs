@@ -17,7 +17,6 @@ mod decimal_diversity;
 mod events;
 mod flash_loan;
 mod keeper;
-mod limits;
 mod liquidation;
 mod liquidation_boundary;
 mod liquidation_coverage;

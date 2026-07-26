@@ -7,20 +7,14 @@ use crate::account;
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, DebtPosition, HubAssetKey, PositionMode};
 use common::validation::require_positive_amount;
-use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
-use soroban_sdk::{
-    assert_with_error, panic_with_error, symbol_short, token, Address, Env, IntoVal, Map, Vec,
-};
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Map, Vec};
 
 use crate::config;
 use crate::context::Cache;
 use crate::events::{self, BlendMigrationEvent};
-use crate::external::blend::{
-    blend_submit_call, BlendRequest, REQ_REPAY, REQ_WITHDRAW, REQ_WITHDRAW_COLLATERAL,
-};
+use crate::external::blend::{blend_repay_all, blend_sweep_all};
+use crate::payments::balance_delta;
 use crate::positions::{enforce_spoke_asset_flags, supply};
-use crate::spoke::require_listed_active_config;
-use crate::strategies::swap::balance_delta;
 use crate::strategies::{
     borrow_for_migration, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
     StrategyRepay,
@@ -83,8 +77,8 @@ pub(crate) fn process_migrate_blend(
 
     // Fail fast before any Blend call: a priced-but-unlisted (or non-supplyable)
     // withdraw asset would otherwise only be rejected by `process_deposit`
-    // AFTER the external `guarded_submit`. Debt assets are gated by the borrow
-    // entry gates inside the debt leg, which also runs before the submit.
+    // AFTER the external sweep. Debt assets are gated by the borrow entry gates
+    // inside the debt leg, which also runs before the repay.
     require_withdraw_assets_supplyable(env, &mut cache, spoke_id, hub_id, &withdraw_assets);
 
     execute_migration_debt_leg(
@@ -99,8 +93,7 @@ pub(crate) fn process_migrate_blend(
 
     if !withdraw_assets.is_empty() {
         let before_withdraw = snapshot_balances(env, &withdraw_assets);
-        let withdraw_requests = build_withdraw_requests(env, &collateral_assets, &supply_assets);
-        guarded_submit(env, &blend_pool, caller, &withdraw_requests);
+        blend_sweep_all(env, &blend_pool, caller, &collateral_assets, &supply_assets);
         deposit_withdrawn(
             env,
             &mut account,
@@ -148,9 +141,7 @@ fn execute_migration_debt_leg(
         };
         borrow_for_migration(env, account, &hub_debt, max, cache);
     }
-    let repay_requests = build_repay_requests(env, debt_caps);
-    authorize_repay_pulls(env, blend_pool, debt_caps);
-    guarded_submit(env, blend_pool, caller, &repay_requests);
+    blend_repay_all(env, blend_pool, caller, debt_caps);
     reconcile_debt_refunds(env, account, cache, caller, hub_id, debt_caps, &before_debt);
 }
 
@@ -191,7 +182,7 @@ fn require_withdraw_assets_supplyable(
 ) {
     for asset in withdraw_assets.iter() {
         let hub_asset = HubAssetKey { hub_id, asset };
-        let asset_config = require_listed_active_config(env, cache, spoke_id, &hub_asset);
+        let asset_config = cache.require_listed_active_config(spoke_id, &hub_asset);
         enforce_spoke_asset_flags(env, cache, spoke_id, &hub_asset, true);
         assert_with_error!(
             env,
@@ -283,77 +274,6 @@ fn snapshot_balances(env: &Env, assets: &Vec<Address>) -> Map<Address, i128> {
         before.set(asset, bal);
     }
     before
-}
-
-/// Repay requests, one per debt asset (`Repay(asset, cap)`).
-fn build_repay_requests(env: &Env, debt_caps: &Vec<(Address, i128)>) -> Vec<BlendRequest> {
-    let mut requests: Vec<BlendRequest> = Vec::new(env);
-    for (asset, max) in debt_caps.iter() {
-        requests.push_back(BlendRequest {
-            request_type: REQ_REPAY,
-            address: asset,
-            amount: max,
-        });
-    }
-    requests
-}
-
-/// Withdraw-all requests: collateral (`WithdrawCollateral`) then non-collateral
-/// supply (`Withdraw`), each with `i128::MAX` to sweep the full balance.
-fn build_withdraw_requests(
-    env: &Env,
-    collateral_assets: &Vec<Address>,
-    supply_assets: &Vec<Address>,
-) -> Vec<BlendRequest> {
-    let mut requests: Vec<BlendRequest> = Vec::new(env);
-    for asset in collateral_assets.iter() {
-        requests.push_back(BlendRequest {
-            request_type: REQ_WITHDRAW_COLLATERAL,
-            address: asset,
-            amount: i128::MAX,
-        });
-    }
-    for asset in supply_assets.iter() {
-        requests.push_back(BlendRequest {
-            request_type: REQ_WITHDRAW,
-            address: asset,
-            amount: i128::MAX,
-        });
-    }
-    requests
-}
-
-/// Invokes the Blend pool's `submit` under the flash-loan reentrancy guard.
-///
-/// Callers whose requests make Blend pull controller-held tokens must set up
-/// that authorization immediately before this call (see
-/// `authorize_repay_pulls`); withdraw-only submits need no such authorization.
-fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
-    storage::with_flash_guard(env, || {
-        let controller = env.current_contract_address();
-        let _ = blend_submit_call(env, blend_pool, from, &controller, &controller, requests);
-    });
-}
-
-/// Authorizes Blend debt-token pulls from the controller.
-/// Withdraw-only submits have no debt caps and need no pull authorization.
-fn authorize_repay_pulls(env: &Env, blend_pool: &Address, debt_caps: &Vec<(Address, i128)>) {
-    if debt_caps.is_empty() {
-        return;
-    }
-    let controller = env.current_contract_address();
-    let mut entries: Vec<InvokerContractAuthEntry> = Vec::new(env);
-    for (debt_asset, max) in debt_caps.iter() {
-        entries.push_back(InvokerContractAuthEntry::Contract(SubContractInvocation {
-            context: ContractContext {
-                contract: debt_asset,
-                fn_name: symbol_short!("transfer"),
-                args: (controller.clone(), blend_pool.clone(), max).into_val(env),
-            },
-            sub_invocations: Vec::new(env),
-        }));
-    }
-    env.authorize_as_current_contract(entries);
 }
 
 /// Deposits the positive balance delta of each swept asset as controller collateral.

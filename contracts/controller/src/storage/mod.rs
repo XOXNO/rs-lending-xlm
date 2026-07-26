@@ -30,7 +30,9 @@ pub(crate) use spoke::{
     get_spoke, get_spoke_asset, get_spoke_usage, increment_spoke_id, remove_spoke_asset, set_spoke,
     set_spoke_asset, set_spoke_usage,
 };
-pub(crate) use ttl::{renew_controller_instance, renew_protocol_shared_key, renew_user_key};
+pub(crate) use ttl::{
+    get_shared, get_user, renew_controller_instance, renew_user_key, set_shared, set_user,
+};
 
 // Reads and writes that only the testing and verification harnesses reach;
 // production flows go through the guarded helpers above.

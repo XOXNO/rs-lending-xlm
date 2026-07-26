@@ -12,17 +12,17 @@
 //! persists the shared tail. See `docs/reference/invariants.md` §3.
 
 use common::errors::{CollateralError, SpokeError};
+use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, AccountPositionType, DebtPosition, HubAssetKey, PoolAction,
-    ScaledPositionRaw,
+    Account, AccountPosition, AccountPositionType, AggregatedPayments, DebtPosition, HubAssetKey,
+    HubPayment, MarketIndexRaw, PoolAction, PoolPositionMutation, ScaledPositionRaw,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::account;
 use crate::config;
 use crate::context::Cache;
 use crate::risk::validation;
-use crate::spoke;
 use crate::storage;
 
 pub(crate) mod borrow;
@@ -31,11 +31,29 @@ pub(crate) mod repay;
 pub(crate) mod supply;
 pub(crate) mod withdraw;
 
-/// Hub asset plus amount (one payment leg).
-pub(crate) type HubPayment = (HubAssetKey, i128);
+/// What the pool returned for one position leg, reduced to what the merge step
+/// actually consumes.
+///
+/// Keeps `merge_withdraw_leg` / `merge_repay_leg` independent of which pool call
+/// produced the numbers, so the batch paths and the net-settle path share one
+/// merge implementation per side instead of hand-rolling their own tail.
+pub(crate) struct LegOutcome {
+    /// Post-call scaled shares, as owned by the pool.
+    pub new_scaled: Ray,
+    pub market_index: MarketIndexRaw,
+    /// Asset-native amount moved, for the event payload.
+    pub amount: i128,
+}
 
-/// Deduped payment rows after aggregation.
-pub(crate) type AggregatedPayments = Vec<HubPayment>;
+impl From<&PoolPositionMutation> for LegOutcome {
+    fn from(mutation: &PoolPositionMutation) -> Self {
+        Self {
+            new_scaled: Ray::from(mutation.position.scaled_amount),
+            market_index: mutation.market_index.clone(),
+            amount: mutation.actual_amount,
+        }
+    }
+}
 
 /// Which account position maps to write on finalize.
 #[derive(Copy, Clone)]
@@ -77,6 +95,24 @@ pub(crate) fn persist_account_positions(
     }
 }
 
+/// Persist half of the position-flow tail: buffered spoke usage first, then the
+/// account's position maps.
+///
+/// Split out from [`finalize_position_flow`] so liquidation, which must run its
+/// bad-debt check between persisting and emitting, shares this ordering instead
+/// of open-coding it.
+pub(crate) fn persist_position_flow(
+    env: &Env,
+    account_id: u64,
+    account: &Account,
+    cache: &mut Cache,
+    sides: PositionSides,
+    remove_if_empty: bool,
+) {
+    cache.persist_spoke_usage();
+    persist_account_positions(env, account_id, account, sides, remove_if_empty);
+}
+
 /// Standard tail for user position flows: spoke usage, positions, then events.
 ///
 /// `remove_if_empty` is true only on full-exit withdraw; supply/borrow/repay
@@ -89,8 +125,7 @@ pub(crate) fn finalize_position_flow(
     sides: PositionSides,
     remove_if_empty: bool,
 ) {
-    cache.persist_spoke_usage();
-    persist_account_positions(env, account_id, account, sides, remove_if_empty);
+    persist_position_flow(env, account_id, account, cache, sides, remove_if_empty);
     cache.emit_position_batch(account_id, account);
 }
 
@@ -108,8 +143,7 @@ pub(crate) fn validate_position_entry_gates(
     for (hub_asset, _) in aggregated {
         config::require_hub_active(env, hub_asset.hub_id);
         // Unlisted assets revert `AssetNotInSpoke`.
-        let asset_config =
-            spoke::require_listed_active_config(env, cache, account.spoke_id, &hub_asset);
+        let asset_config = cache.require_listed_active_config(account.spoke_id, &hub_asset);
         // New entries: frozen blocks; paused blocks every verb.
         enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
         match position_type {

@@ -161,3 +161,10 @@ pub use strategy::*;
 #[cfg(test)]
 #[path = "../../tests/events.rs"]
 mod tests;
+
+/// Shared context for position and debt update events. `counterparty` is the
+/// funds counterparty: the withdrawal recipient or the repayment payer.
+pub(crate) struct EventContext {
+    pub counterparty: soroban_sdk::Address,
+    pub action: PositionAction,
+}

@@ -2,6 +2,7 @@
 //! errors, validation. No contract storage — consumers own TTL and persistence.
 #![no_std]
 
+pub mod collections;
 pub mod constants;
 pub mod errors;
 pub mod math;

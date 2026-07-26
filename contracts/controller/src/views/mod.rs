@@ -3,11 +3,13 @@
 //! state without renewing the controller instance TTL.
 
 use crate::constants::{MAX_VIEW_INPUTS, WAD};
+use common::collections::unique_hub_tokens;
+
 use crate::risk;
 use common::errors::GenericError;
 use common::types::{
-    AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, LiquidationEstimate,
-    MarketIndexView, PaymentTuple, PriceStatus,
+    AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubPayment,
+    LiquidationEstimate, MarketIndexView, PaymentTuple, PriceStatus,
 };
 use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 
@@ -16,11 +18,10 @@ mod aggregates;
 #[cfg(feature = "certora")]
 #[path = "../../../../certora/controller/harness/views/aggregates.rs"]
 mod aggregates;
-pub(crate) mod limits;
 pub(crate) use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
 
 use crate::context::Cache;
-use crate::positions::{liquidation::execute_liquidation, HubPayment};
+use crate::positions::liquidation::execute_liquidation;
 use crate::storage;
 
 fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
@@ -149,7 +150,7 @@ pub(crate) fn get_all_market_indexes_detailed(
     require_view_inputs_bound(env, hub_assets);
     let mut cache = Cache::new_view(env);
     cache.fetch_market_indexes(hub_assets);
-    let assets = unique_hub_assets(env, hub_assets);
+    let assets = unique_hub_tokens(env, hub_assets);
     let statuses = if assets.is_empty() {
         Map::new(env)
     } else {
@@ -179,17 +180,6 @@ pub(crate) fn get_all_market_indexes_detailed(
     }
 
     result
-}
-
-/// Deduped token addresses from a hub-asset batch (order-preserving).
-fn unique_hub_assets(env: &Env, hub_assets: &Vec<HubAssetKey>) -> Vec<Address> {
-    let mut assets = Vec::new(env);
-    for hub_asset in hub_assets.iter() {
-        if !assets.contains(&hub_asset.asset) {
-            assets.push_back(hub_asset.asset);
-        }
-    }
-    assets
 }
 
 /// Simulates liquidating `account_id` with `debt_payments` and returns the seize,

@@ -3,15 +3,15 @@
 //! Gates: non-empty debt, debt-leg pause preflight, HF < 1. Pure relative to
 //! pool transfers — apply owns money movement.
 
+use super::curve::{LiquidationCurve, LiquidationSnapshot};
 use crate::risk;
 use common::errors::{CollateralError, SpokeError};
 use common::math::fp::Wad;
-use common::types::{Account, LiquidationResult};
+use common::types::{Account, HubPayment, LiquidationResult};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
 use crate::context::Cache;
 use crate::positions::liquidation::math::*;
-use crate::positions::HubPayment;
 
 pub(crate) fn execute_liquidation(
     env: &Env,

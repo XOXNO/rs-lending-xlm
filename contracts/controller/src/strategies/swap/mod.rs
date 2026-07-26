@@ -5,7 +5,7 @@
 
 use common::errors::GenericError;
 use common::types::StrategySwap;
-use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
+use soroban_sdk::{assert_with_error, token, Address, Env};
 
 mod auth;
 mod balances;
@@ -38,8 +38,7 @@ pub(crate) fn swap_tokens(
 
     route::call_router_with_reentrancy_guard(env, &router, amount_in, swap);
 
-    balances::verify_router_input_spend(env, &token_in_client, balance_before.token_in, amount_in);
-    balances::refund_router_underspend(
+    balances::settle_router_input(
         env,
         &token_in_client,
         balance_before.token_in,
@@ -64,14 +63,4 @@ pub(crate) fn swap_tokens_or_passthrough(
     } else {
         swap_tokens(env, refund_to, token_in, amount_in, token_out, swap)
     }
-}
-
-/// Token balance the controller gained since `balance_before`; may be
-/// negative if the balance decreased. Panics only on i128 overflow, not on
-/// an ordinary negative result — every caller checks the sign itself.
-pub(crate) fn balance_delta(env: &Env, token: &token::Client, balance_before: i128) -> i128 {
-    token
-        .balance(&env.current_contract_address())
-        .checked_sub(balance_before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }

@@ -311,10 +311,12 @@ impl ControllerInterface for Controller {
         account::renew_account(&env, caller, account_id);
     }
 
+    #[when_not_paused]
     fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         account::add_delegate(&env, caller, account_id, delegate);
     }
 
+    #[when_not_paused]
     fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         account::remove_delegate(&env, caller, account_id, delegate);
     }
@@ -377,20 +379,6 @@ impl ControllerInterface for Controller {
 
     fn get_ltv_collateral_usd(env: Env, account_id: u64) -> i128 {
         views::ltv_collateral_in_usd(&env, account_id)
-    }
-
-    // --- views: per-account limits ---
-
-    fn max_withdraw(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128 {
-        views::limits::max_withdraw(&env, account_id, &hub_asset)
-    }
-
-    fn max_supply(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128 {
-        views::limits::max_supply(&env, account_id, &hub_asset)
-    }
-
-    fn max_borrow(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128 {
-        views::limits::max_borrow(&env, account_id, &hub_asset)
     }
 
     // --- views: markets and registry ---

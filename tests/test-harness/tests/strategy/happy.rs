@@ -513,7 +513,7 @@ fn test_repay_debt_with_collateral_same_token_leaves_excess_as_supply() {
 }
 
 #[test]
-fn test_same_token_net_settle_restores_spoke_cap_headroom() {
+fn test_same_token_net_settle_reduces_both_position_sides() {
     const UNIT: i128 = 10_000_000;
 
     let mut t = LendingTest::new()
@@ -538,22 +538,23 @@ fn test_same_token_net_settle_restores_spoke_cap_headroom() {
 
     let account_id = t.resolve_account_id(ALICE);
     let usdc = hub_asset(t.resolve_asset("USDC"));
-    let supply_headroom_before = t.ctrl_client().max_supply(&account_id, &usdc);
-    let borrow_headroom_before = t.ctrl_client().max_borrow(&account_id, &usdc);
+    let collateral_before = t.ctrl_client().get_collateral_amount(&account_id, &usdc);
+    let debt_before = t.ctrl_client().get_borrow_amount(&account_id, &usdc);
 
     t.repay_debt_with_collateral(ALICE, "USDC", 10_000.0, "USDC", &Bytes::new(&t.env), false);
 
-    let supply_headroom_after = t.ctrl_client().max_supply(&account_id, &usdc);
-    let borrow_headroom_after = t.ctrl_client().max_borrow(&account_id, &usdc);
-    let restored_supply = supply_headroom_after - supply_headroom_before;
-    let restored_borrow = borrow_headroom_after - borrow_headroom_before;
+    // Same-token net settle burns collateral shares against debt shares, so
+    // both sides of the position fall by the settled amount.
+    let collateral_drop =
+        collateral_before - t.ctrl_client().get_collateral_amount(&account_id, &usdc);
+    let debt_drop = debt_before - t.ctrl_client().get_borrow_amount(&account_id, &usdc);
     assert!(
-        (9_900 * UNIT..=10_000 * UNIT).contains(&restored_supply),
-        "net settlement should restore about 10,000 USDC of supply headroom, restored {restored_supply}"
+        (9_900 * UNIT..=10_000 * UNIT).contains(&collateral_drop),
+        "net settlement should burn about 10,000 USDC of collateral, burned {collateral_drop}"
     );
     assert!(
-        (9_900 * UNIT..=10_000 * UNIT).contains(&restored_borrow),
-        "net settlement should restore about 10,000 USDC of borrow headroom, restored {restored_borrow}"
+        (9_900 * UNIT..=10_000 * UNIT).contains(&debt_drop),
+        "net settlement should retire about 10,000 USDC of debt, retired {debt_drop}"
     );
 }
 

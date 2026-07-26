@@ -515,19 +515,6 @@ pub trait ControllerInterface {
     /// * `PoolNotInitialized` — a supplied market has no pool state.
     fn get_ltv_collateral_usd(env: Env, account_id: u64) -> i128;
 
-    // --- views: per-account limits ---
-
-    /// Largest executable `withdraw` amount.
-    fn max_withdraw(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
-
-    /// Supply-cap headroom for `account_id`; `i128::MAX` uncapped, `0` paused or inactive.
-    fn max_supply(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
-
-    /// Largest executable `borrow` amount of `hub_asset`; `0` while
-    /// paused, on an inactive/non-borrowable market, or when the asset is
-    /// structurally not borrowable for the account.
-    fn max_borrow(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
-
     // --- views: markets and registry ---
 
     /// Central liquidity pool for all markets; reads instance storage only.

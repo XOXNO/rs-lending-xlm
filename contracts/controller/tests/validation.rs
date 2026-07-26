@@ -60,15 +60,19 @@ fn with_limits(env: &Env, contract: &Address, max_supply: u32, max_borrow: u32, 
     });
 }
 
+// The same asset twice is one new position, not two.
+//
+// The cap is deliberately 1: at cap 2 this passes whether the gate dedupes
+// (1 <= 2) or double-counts (2 <= 2), so it would prove nothing. At cap 1 only
+// a correctly deduping gate survives.
 #[test]
 fn test_validate_bulk_position_limits_dedupes_duplicate_assets() {
     let env = Env::default();
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     let account = account_with(&env, None, None);
-    // Same asset twice is one new position (1 <= cap 2).
     let aggregated = Vec::from_array(&env, [(hub(&asset), 100i128), (hub(&asset), 200i128)]);
-    with_limits(&env, &contract, 2, 2, || {
+    with_limits(&env, &contract, 1, 1, || {
         validate_bulk_position_limits(&env, &account, AccountPositionType::Deposit, &aggregated);
     });
 }

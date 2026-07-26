@@ -73,7 +73,7 @@ fn bad_debt_socialization_threshold_boundary(e: Env, debt_wad: i128, collateral_
     cvlr_assume!(debt_wad > 0 && debt_wad <= 1_000_000 * WAD);
     cvlr_assume!(collateral_wad >= 0 && collateral_wad <= 1_000_000 * WAD);
 
-    let socializable = crate::positions::liquidation::math::is_socializable_bad_debt(
+    let socializable = crate::positions::liquidation::curve::is_socializable_bad_debt(
         Wad::from(debt_wad),
         Wad::from(collateral_wad),
     );

@@ -7,7 +7,7 @@
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use common::types::{AccountPosition, AssetConfig, HubAssetKey};
-use common::validation::require_positive_amount;
+use common::validation::{expect_invariant, require_positive_amount};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Vec};
 
 use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
@@ -170,6 +170,11 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
 
     let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
     let assets = account.supply_positions.keys();
+    let scope = if has_risks {
+        risk::RiskRefreshScope::FullTuple
+    } else {
+        risk::RiskRefreshScope::LtvOnly
+    };
 
     for hub_asset in assets.iter() {
         // Delisted assets keep their stamped params; skip them instead of
@@ -179,24 +184,20 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         };
         let asset_config = AssetConfig::from(&spoke_config);
 
-        let raw =
-            validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));
+        let raw = expect_invariant(env, account.supply_positions.get(hub_asset.clone()));
         let mut updated = AccountPosition::from(&raw);
 
         // Only the risk fields are copied; the position's scaled share amount
-        // is unchanged. LTV bounds borrow capacity only and never feeds
-        // liquidation, so it propagates with no HF walk.
-        updated.loan_to_value = asset_config.loan_to_value;
-        if has_risks {
-            risk::apply_gated_liquidation_params(
-                env,
-                cache,
-                &account,
-                &hub_asset,
-                &mut updated,
-                &asset_config,
-            );
-        }
+        // is unchanged.
+        risk::refresh_supply_risk_params(
+            env,
+            cache,
+            &account,
+            &hub_asset,
+            &mut updated,
+            &asset_config,
+            scope,
+        );
 
         account::update_or_remove_supply_position(&mut account, &hub_asset, &updated);
 

@@ -1,7 +1,7 @@
 //! Account storage layout.
 
 use crate::constants::MAX_DELEGATES;
-use crate::storage::renew_user_key;
+use crate::storage::{get_user, renew_user_key, set_user};
 use common::errors::GenericError;
 use common::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,
@@ -25,13 +25,7 @@ pub(crate) fn account_from_parts(
 }
 
 pub(crate) fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
-    let key = ControllerKey::AccountMeta(account_id);
-    env.storage()
-        .persistent()
-        .get::<_, AccountMeta>(&key)
-        .inspect(|_| {
-            renew_user_key(env, &key);
-        })
+    get_user(env, &ControllerKey::AccountMeta(account_id))
 }
 
 pub(crate) fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
@@ -40,42 +34,18 @@ pub(crate) fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
 }
 
 pub(crate) fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
-    let key = ControllerKey::AccountMeta(account_id);
-    env.storage().persistent().set(&key, meta);
-    renew_user_key(env, &key);
+    set_user(env, &ControllerKey::AccountMeta(account_id), meta);
 }
 
 pub(crate) fn get_supply_positions(
     env: &Env,
     account_id: u64,
 ) -> Map<HubAssetKey, AccountPositionRaw> {
-    let key = ControllerKey::SupplyPositions(account_id);
-    match env
-        .storage()
-        .persistent()
-        .get::<_, Map<HubAssetKey, AccountPositionRaw>>(&key)
-    {
-        Some(map) => {
-            renew_user_key(env, &key);
-            map
-        }
-        None => Map::new(env),
-    }
+    get_user(env, &ControllerKey::SupplyPositions(account_id)).unwrap_or_else(|| Map::new(env))
 }
 
 pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<HubAssetKey, DebtPositionRaw> {
-    let key = ControllerKey::BorrowPositions(account_id);
-    match env
-        .storage()
-        .persistent()
-        .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&key)
-    {
-        Some(map) => {
-            renew_user_key(env, &key);
-            map
-        }
-        None => Map::new(env),
-    }
+    get_user(env, &ControllerKey::BorrowPositions(account_id)).unwrap_or_else(|| Map::new(env))
 }
 
 /// Persists the supply-position map and renews the account's TTL.
@@ -173,14 +143,7 @@ pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
 
 /// Opt-in delegate list for an account; empty when none are set.
 pub(crate) fn get_delegates(env: &Env, account_id: u64) -> Vec<Address> {
-    let key = ControllerKey::Delegates(account_id);
-    match env.storage().persistent().get(&key) {
-        Some(vec) => {
-            renew_user_key(env, &key);
-            vec
-        }
-        None => Vec::new(env),
-    }
+    get_user(env, &ControllerKey::Delegates(account_id)).unwrap_or_else(|| Vec::new(env))
 }
 
 /// Persists the delegate list, removing the entry when it becomes empty so a
@@ -190,8 +153,7 @@ pub(crate) fn set_delegates(env: &Env, account_id: u64, delegates: &Vec<Address>
     if delegates.is_empty() {
         env.storage().persistent().remove(&key);
     } else {
-        env.storage().persistent().set(&key, delegates);
-        renew_user_key(env, &key);
+        set_user(env, &key, delegates);
     }
 }
 

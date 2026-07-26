@@ -3,9 +3,17 @@ use soroban_sdk::testutils::Address as _;
 use stellar_access::access_control::AccessControlStorageKey;
 use stellar_access::ownable::OwnableStorageKey;
 
+// `sync_pending_admin_transfer` names the *current* admin as the initiator of
+// the transfer event, falling back to the owner. With neither configured there
+// is no one to name, so it fails closed with `OwnerNotSet` rather than emitting
+// an unattributed event.
+//
+// This is a configuration requirement, not an authorization one: the function
+// takes no caller. Caller auth lives on the `transfer_ownership` entrypoint
+// that invokes it.
 #[test]
 #[should_panic(expected = "Error(Contract, #32)")]
-fn sync_pending_admin_transfer_requires_owner_or_admin() {
+fn sync_pending_admin_transfer_panics_when_no_owner_or_admin_configured() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));

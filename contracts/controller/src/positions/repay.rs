@@ -13,14 +13,17 @@ use soroban_sdk::{vec, Address, Env, Vec};
 use crate::account::update_or_remove_debt_position;
 use crate::context::Cache;
 use crate::events;
+use crate::events::EventContext;
 use crate::external::pool::pool_repay_call;
-use crate::payments::{self, EventContext};
+use crate::payments;
 use crate::positions::{
     enforce_spoke_asset_flags, finalize_position_flow, get_debt_position_or_panic,
-    make_pool_action, AggregatedPayments, HubPayment, PositionSides,
+    make_pool_action, AggregatedPayments, HubPayment, LegOutcome, PositionSides,
 };
 use crate::risk::validation;
+use crate::spoke::UsageSide;
 use crate::storage;
+use common::validation::expect_invariant;
 
 /// Single-asset repay input for strategy paths (tokens already at the pool).
 pub(crate) struct RepaymentRequest<'a> {
@@ -45,6 +48,7 @@ pub(crate) fn process_repay(
     let aggregated = payments::aggregate_positive_payments(env, payments);
 
     let mut account = storage::get_account_borrow_only(env, account_id);
+    account.owner.require_auth();
     let mut cache = Cache::new(env);
 
     settle_repay(env, caller, &mut account, &aggregated, &mut cache);
@@ -121,8 +125,15 @@ pub(crate) fn apply_repay_batch(
     let pool_addr = cache.cached_pool_address();
     let results = pool_repay_call(env, &pool_addr, payer, actions);
     for (i, entry) in actions.iter().enumerate() {
-        let result = validation::expect_invariant(env, results.get(i as u32));
-        merge_repay_leg(env, account, action, &entry.hub_asset, &result, cache);
+        let result = expect_invariant(env, results.get(i as u32));
+        merge_repay_leg(
+            env,
+            account,
+            action,
+            &entry.hub_asset,
+            &LegOutcome::from(&result),
+            cache,
+        );
     }
     results
 }
@@ -136,27 +147,33 @@ pub(crate) fn merge_repay_leg(
     account: &mut Account,
     action: events::PositionAction,
     hub_asset: &HubAssetKey,
-    result: &PoolPositionMutation,
+    outcome: &LegOutcome,
     cache: &mut Cache,
 ) {
     let old_scaled = account
         .borrow_positions
         .get(hub_asset.clone())
         .map_or(Ray::ZERO, |p| Ray::from(p.scaled_amount));
-    let position = DebtPosition::from(&result.position);
+    let position = DebtPosition {
+        scaled_amount: outcome.new_scaled,
+    };
 
     let shares_repaid = old_scaled.checked_sub(env, position.scaled_amount);
-    let ctx = cache.require_spoke_usage_context(account.spoke_id);
-    ctx.apply_repay_after_pool(env, hub_asset, shares_repaid);
+    cache.apply_spoke_exit(
+        account.spoke_id,
+        UsageSide::Borrow,
+        hub_asset,
+        shares_repaid,
+    );
 
     update_or_remove_debt_position(account, hub_asset, &position);
 
-    cache.put_market_index(hub_asset, &result.market_index);
+    cache.put_market_index(hub_asset, &outcome.market_index);
     cache.record_debt_position_update(
         action,
         hub_asset,
-        result.market_index.borrow_index,
-        result.actual_amount,
+        outcome.market_index.borrow_index,
+        outcome.amount,
         &position,
     );
 }
@@ -188,5 +205,5 @@ pub(crate) fn execute_repayment(
         make_pool_action(req.position, req.amount, req.hub_asset.clone()),
     ];
     let results = apply_repay_batch(env, account, &counterparty, action, &actions, cache);
-    validation::expect_invariant(env, results.get(0))
+    expect_invariant(env, results.get(0))
 }

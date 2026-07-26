@@ -17,7 +17,10 @@ mod pool;
 mod spoke;
 
 use crate::events::{EventBorrowDelta, EventDepositDelta};
-use common::types::{HubAssetKey, MarketIndexRaw, PoolSyncData, PriceFeedRaw};
+use common::collections::unique_hub_tokens;
+use common::types::{
+    HubAssetKey, MarketIndexRaw, PoolSyncData, PriceFeedRaw, SpokeAssetConfig, SpokeConfig,
+};
 use soroban_sdk::{Address, Env, Map, Vec};
 
 use crate::spoke::SpokeUsageContext;
@@ -36,6 +39,13 @@ pub(crate) struct Cache {
     /// One loaded spoke at a time: usage buffer and cap writes. Reset between
     /// accounts (`reset_spoke_context`) so one batch can cover several spokes.
     spoke_usage: Option<SpokeUsageContext>,
+    /// Config of the bound spoke, loaded once. Memoized because the Cache is
+    /// fresh per transaction and no governance write to `Spoke` happens inside
+    /// a user flow. Cleared with the usage buffer on `reset_spoke_context`.
+    spoke_config: Option<SpokeConfig>,
+    /// Per-asset listings for the bound spoke. A missing entry is never
+    /// memoized, so an unlisted asset still reverts on every touch.
+    spoke_assets: Map<HubAssetKey, SpokeAssetConfig>,
     /// Supply-side position event deltas (supply, withdraw, liq seize, …).
     supply_updates: Vec<EventDepositDelta>,
     /// Debt-side position event deltas (borrow, repay, liq repay, …).
@@ -61,6 +71,8 @@ impl Cache {
             pool_address: None,
             pool_sync_data: Map::new(env),
             spoke_usage: None,
+            spoke_config: None,
+            spoke_assets: Map::new(env),
             supply_updates: Vec::new(env),
             debt_updates: Vec::new(env),
         }
@@ -76,12 +88,7 @@ impl Cache {
     /// Token addresses are deduped (same asset on multiple hubs or both sides
     /// of the book). Token-only pricing uses [`Self::fetch_prices`] instead.
     pub(crate) fn load_markets(&mut self, hub_assets: &Vec<HubAssetKey>) {
-        let mut assets = Vec::new(&self.env);
-        for key in hub_assets.iter() {
-            if !assets.contains(&key.asset) {
-                assets.push_back(key.asset);
-            }
-        }
+        let assets = unique_hub_tokens(&self.env, hub_assets);
         self.fetch_prices(&assets);
         self.fetch_market_indexes(hub_assets);
     }

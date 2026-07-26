@@ -8,15 +8,15 @@ use common::math::fp::Wad;
 use common::types::{
     Account, AccountPosition, DebtPosition, PoolAction, PoolWithdrawEntry, RepayEntry, SeizeEntry,
 };
+use common::validation::expect_invariant;
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 use crate::context::Cache;
 use crate::events;
 use crate::external::sac::sac_transfer_call;
 use crate::positions::liquidation::bad_debt;
-use crate::positions::liquidation::math::is_socializable_bad_debt;
+use crate::positions::liquidation::curve::is_socializable_bad_debt;
 use crate::positions::{make_pool_action, repay, withdraw};
-use crate::risk::validation;
 
 /// Transfer each planned repay leg from the liquidator, then one bulk pool repay.
 pub(crate) fn apply_liquidation_repayments(
@@ -43,11 +43,8 @@ pub(crate) fn apply_liquidation_repayments(
             &entry.amount,
         );
 
-        let position: DebtPosition = (&validation::expect_invariant(
-            env,
-            account.borrow_positions.get(entry.hub_asset.clone()),
-        ))
-            .into();
+        let position: DebtPosition =
+            (&expect_invariant(env, account.borrow_positions.get(entry.hub_asset.clone()))).into();
         actions.push_back(make_pool_action(&position, entry.amount, entry.hub_asset));
     }
     repay::apply_repay_batch(
@@ -73,11 +70,8 @@ pub(crate) fn apply_liquidation_seizures(
 ) {
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
-        let position: AccountPosition = (&validation::expect_invariant(
-            env,
-            account.supply_positions.get(entry.hub_asset.clone()),
-        ))
-            .into();
+        let position: AccountPosition =
+            (&expect_invariant(env, account.supply_positions.get(entry.hub_asset.clone()))).into();
         entries.push_back(PoolWithdrawEntry {
             action: make_pool_action(&position, entry.amount, entry.hub_asset),
             protocol_fee: entry.protocol_fee,
@@ -87,6 +81,7 @@ pub(crate) fn apply_liquidation_seizures(
         env,
         account,
         liquidator,
+        withdraw::WithdrawKind::Liquidation,
         events::PositionAction::LiqSeize,
         &entries,
         cache,

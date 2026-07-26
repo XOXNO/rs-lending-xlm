@@ -21,7 +21,9 @@ use crate::positions::{
     finalize_position_flow, make_pool_action, validate_position_entry_gates, AggregatedPayments,
     HubPayment, PositionSides,
 };
-use crate::risk::{refresh_supply_risk_params, validation};
+use crate::risk::{refresh_supply_risk_params, validation, RiskRefreshScope};
+use crate::spoke::UsageSide;
+use common::validation::expect_invariant;
 
 /// Auth, aggregate, load/create account, deposit, then persist supply positions.
 ///
@@ -147,7 +149,7 @@ fn apply_supply_batch(
     cache: &mut Cache,
 ) {
     for (i, entry) in entries.iter().enumerate() {
-        let result = validation::expect_invariant(env, results.get(i as u32));
+        let result = expect_invariant(env, results.get(i as u32));
         merge_supply_leg(env, account, &entry, &result, cache);
     }
 }
@@ -166,15 +168,23 @@ fn merge_supply_leg(
 
     let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
     let old_scaled = position.scaled_amount;
-    refresh_supply_risk_params(env, cache, account, hub_asset, &mut position, &asset_config);
+    refresh_supply_risk_params(
+        env,
+        cache,
+        account,
+        hub_asset,
+        &mut position,
+        &asset_config,
+        RiskRefreshScope::FullTuple,
+    );
 
     // Pool owns scaled shares; controller keeps collateral risk params.
     position.scaled_amount = Ray::from(result.position.scaled_amount);
 
     let delta = position.scaled_amount.checked_sub(env, old_scaled);
-    let ctx = cache.require_spoke_usage_context(account.spoke_id);
-    ctx.apply_supply_after_pool(
-        env,
+    cache.apply_spoke_entry(
+        account.spoke_id,
+        UsageSide::Supply,
         hub_asset,
         delta,
         &result.market_index,

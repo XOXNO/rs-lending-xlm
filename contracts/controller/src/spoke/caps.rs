@@ -1,38 +1,76 @@
-//! Spoke cap checks and per-asset usage accounting.
+//! Spoke cap rules and the per-asset usage write buffer.
+//!
+//! Knows storage and the cap arithmetic only. Spoke and listing config are
+//! memoized one layer up, on `Cache`.
 
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
-use common::types::{HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
+use common::types::{HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeUsageRaw};
 use common::validation::cap_is_enabled;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
 use crate::storage;
 
+/// Which side of a spoke's usage row a flow touches. Both sides are accounted
+/// identically; only the usage field, market index, cap, and error differ.
+#[derive(Clone, Copy)]
+pub(crate) enum UsageSide {
+    Supply,
+    Borrow,
+}
+
+impl UsageSide {
+    fn scaled(self, usage: &SpokeUsageRaw) -> i128 {
+        match self {
+            Self::Supply => usage.supplied_scaled_ray,
+            Self::Borrow => usage.borrowed_scaled_ray,
+        }
+    }
+
+    fn set_scaled(self, usage: &mut SpokeUsageRaw, value: i128) {
+        match self {
+            Self::Supply => usage.supplied_scaled_ray = value,
+            Self::Borrow => usage.borrowed_scaled_ray = value,
+        }
+    }
+
+    pub(crate) fn cap(self, cfg: &SpokeAssetConfig) -> i128 {
+        match self {
+            Self::Supply => cfg.supply_cap,
+            Self::Borrow => cfg.borrow_cap,
+        }
+    }
+
+    pub(crate) fn index(self, market_index: &MarketIndexRaw) -> Ray {
+        match self {
+            Self::Supply => Ray::from(market_index.supply_index),
+            Self::Borrow => Ray::from(market_index.borrow_index),
+        }
+    }
+
+    fn cap_error(self) -> SpokeError {
+        match self {
+            Self::Supply => SpokeError::SpokeSupplyCapReached,
+            Self::Borrow => SpokeError::SpokeBorrowCapReached,
+        }
+    }
+}
+
 /// Transaction-local buffer for touched `SpokeUsage` rows.
 pub(crate) struct SpokeUsageContext {
     spoke_id: u32,
     usage: Map<HubAssetKey, SpokeUsageRaw>,
-    /// The spoke config, loaded once on first access. Memoized because the Cache
-    /// is fresh per transaction and no governance write to `Spoke` happens inside
-    /// a user flow.
-    spoke: Option<SpokeConfig>,
-    /// Per-asset spoke config, keyed by `hub_asset`. Loaded on first touch. A
-    /// missing entry is never memoized, so an unlisted asset still reverts on
-    /// every touch.
-    spoke_assets: Map<HubAssetKey, SpokeAssetConfig>,
 }
 
 impl SpokeUsageContext {
-    pub fn new(env: &Env, spoke_id: u32) -> Self {
+    pub(crate) fn new(env: &Env, spoke_id: u32) -> Self {
         Self {
             spoke_id,
             usage: Map::new(env),
-            spoke: None,
-            spoke_assets: Map::new(env),
         }
     }
 
-    pub fn persist(&self, env: &Env) {
+    pub(crate) fn persist(&self, env: &Env) {
         for (hub_asset, usage) in self.usage.iter() {
             storage::set_spoke_usage(env, self.spoke_id, &hub_asset, &usage);
         }
@@ -42,31 +80,8 @@ impl SpokeUsageContext {
         self.spoke_id
     }
 
-    pub(crate) fn spoke(&mut self, env: &Env) -> SpokeConfig {
-        if let Some(spoke) = &self.spoke {
-            return spoke.clone();
-        }
-        let spoke = storage::get_spoke(env, self.spoke_id);
-        self.spoke = Some(spoke.clone());
-        spoke
-    }
-
-    /// Spoke asset config; unlisted never memoized.
-    pub(crate) fn spoke_asset(
-        &mut self,
-        env: &Env,
-        hub_asset: &HubAssetKey,
-    ) -> Option<SpokeAssetConfig> {
-        if let Some(cfg) = self.spoke_assets.get(hub_asset.clone()) {
-            return Some(cfg);
-        }
-        let loaded = storage::get_spoke_asset(env, self.spoke_id, hub_asset)?;
-        self.spoke_assets.set(hub_asset.clone(), loaded.clone());
-        Some(loaded)
-    }
-
     /// Buffered usage for `hub_asset`, lazily loaded from storage (default zero).
-    pub(crate) fn spoke_usage(&mut self, env: &Env, hub_asset: &HubAssetKey) -> SpokeUsageRaw {
+    fn usage_row(&mut self, env: &Env, hub_asset: &HubAssetKey) -> SpokeUsageRaw {
         if let Some(usage) = self.usage.get(hub_asset.clone()) {
             return usage;
         }
@@ -77,7 +92,7 @@ impl SpokeUsageContext {
 
     /// Buffered usage only when an entry already exists (buffer or storage).
     /// Withdraw/repay decrement existing usage but must not create new entries.
-    fn spoke_usage_if_present(
+    fn usage_row_if_present(
         &mut self,
         env: &Env,
         hub_asset: &HubAssetKey,
@@ -94,160 +109,73 @@ impl SpokeUsageContext {
         self.usage.set(hub_asset.clone(), usage);
     }
 
-    /// Enforces the spoke supply cap and adds the scaled supply delta to buffered usage.
-    pub fn apply_supply_after_pool(
+    /// Enforces the side's spoke cap, then adds the scaled delta to buffered usage.
+    pub(crate) fn apply_entry(
         &mut self,
         env: &Env,
+        side: UsageSide,
         hub_asset: &HubAssetKey,
         delta_scaled: Ray,
-        market_index: &MarketIndexRaw,
+        cap: i128,
+        index: Ray,
         decimals: u32,
     ) {
-        let cfg = self
-            .spoke_asset(env, hub_asset)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
-        let mut usage = self.spoke_usage(env, hub_asset);
-        enforce_spoke_supply_cap(
-            env,
-            &usage,
-            delta_scaled,
-            Ray::from(market_index.supply_index),
-            cfg.supply_cap,
-            decimals,
-        );
-        usage.supplied_scaled_ray = usage
-            .supplied_scaled_ray
+        let mut usage = self.usage_row(env, hub_asset);
+        enforce_spoke_cap(env, side, &usage, delta_scaled, cap, index, decimals);
+        let next = side
+            .scaled(&usage)
             .checked_add(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+        side.set_scaled(&mut usage, next);
         self.set_usage(hub_asset, usage);
     }
 
-    /// Enforces the spoke borrow cap and adds the scaled borrow delta to buffered usage.
-    pub fn apply_borrow_after_pool(
+    /// Subtracts the scaled delta from buffered usage when a row already exists.
+    /// Exits never open a new usage row: a missing row means nothing to decrement.
+    pub(crate) fn apply_exit(
         &mut self,
         env: &Env,
-        hub_asset: &HubAssetKey,
-        delta_scaled: Ray,
-        market_index: &MarketIndexRaw,
-        decimals: u32,
-    ) {
-        let cfg = self
-            .spoke_asset(env, hub_asset)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
-        let mut usage = self.spoke_usage(env, hub_asset);
-        enforce_spoke_borrow_cap(
-            env,
-            &usage,
-            delta_scaled,
-            Ray::from(market_index.borrow_index),
-            cfg.borrow_cap,
-            decimals,
-        );
-        usage.borrowed_scaled_ray = usage
-            .borrowed_scaled_ray
-            .checked_add(delta_scaled.raw())
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-        self.set_usage(hub_asset, usage);
-    }
-
-    /// Subtracts the scaled supply delta from buffered usage when a row already exists.
-    pub fn apply_withdraw_after_pool(
-        &mut self,
-        env: &Env,
+        side: UsageSide,
         hub_asset: &HubAssetKey,
         delta_scaled: Ray,
     ) {
         if delta_scaled == Ray::ZERO {
             return;
         }
-        let Some(mut usage) = self.spoke_usage_if_present(env, hub_asset) else {
+        let Some(mut usage) = self.usage_row_if_present(env, hub_asset) else {
             return;
         };
-        usage.supplied_scaled_ray = usage
-            .supplied_scaled_ray
+        let next = side
+            .scaled(&usage)
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
         // Sign-underflow guard: negative usage would fake the zero-usage removal gate.
-        assert_with_error!(
-            env,
-            usage.supplied_scaled_ray >= 0,
-            GenericError::InternalError
-        );
-        self.set_usage(hub_asset, usage);
-    }
-
-    /// Subtracts the scaled borrow delta from buffered usage when a row already exists.
-    pub fn apply_repay_after_pool(
-        &mut self,
-        env: &Env,
-        hub_asset: &HubAssetKey,
-        delta_scaled: Ray,
-    ) {
-        if delta_scaled == Ray::ZERO {
-            return;
-        }
-        let Some(mut usage) = self.spoke_usage_if_present(env, hub_asset) else {
-            return;
-        };
-        usage.borrowed_scaled_ray = usage
-            .borrowed_scaled_ray
-            .checked_sub(delta_scaled.raw())
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-        assert_with_error!(
-            env,
-            usage.borrowed_scaled_ray >= 0,
-            GenericError::InternalError
-        );
+        assert_with_error!(env, next >= 0, GenericError::InternalError);
+        side.set_scaled(&mut usage, next);
         self.set_usage(hub_asset, usage);
     }
 }
 
-fn max_scaled_for_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
-    if !cap_is_enabled(cap) {
-        return Ray::from(i128::MAX);
-    }
+/// Cap in token units expressed in the side's scaled-share basis.
+fn cap_to_scaled(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
     // dimensional: Token(asset) cap -> Ray<Token(asset)> -> Ray<Share(asset, side)>.
     Ray::from_asset(cap, decimals).div_floor(env, index)
 }
 
-/// Reverts `SpokeSupplyCapReached` when the new scaled supply would exceed the cap.
-fn enforce_spoke_supply_cap(
+/// Reverts the side's cap error when the new scaled usage would exceed the cap.
+fn enforce_spoke_cap(
     env: &Env,
+    side: UsageSide,
     usage: &SpokeUsageRaw,
     delta_scaled: Ray,
-    supply_index: Ray,
     cap: i128,
+    index: Ray,
     decimals: u32,
 ) {
     if !cap_is_enabled(cap) {
         return;
     }
-    let cap_scaled = max_scaled_for_cap(env, cap, decimals, supply_index);
-    let next_scaled = Ray::from(usage.supplied_scaled_ray).checked_add(env, delta_scaled);
-    assert_with_error!(
-        env,
-        next_scaled <= cap_scaled,
-        SpokeError::SpokeSupplyCapReached
-    );
-}
-
-/// Reverts `SpokeBorrowCapReached` when the new scaled borrow would exceed the cap.
-fn enforce_spoke_borrow_cap(
-    env: &Env,
-    usage: &SpokeUsageRaw,
-    delta_scaled: Ray,
-    borrow_index: Ray,
-    cap: i128,
-    decimals: u32,
-) {
-    if !cap_is_enabled(cap) {
-        return;
-    }
-    let cap_scaled = max_scaled_for_cap(env, cap, decimals, borrow_index);
-    let next_scaled = Ray::from(usage.borrowed_scaled_ray).checked_add(env, delta_scaled);
-    assert_with_error!(
-        env,
-        next_scaled <= cap_scaled,
-        SpokeError::SpokeBorrowCapReached
-    );
+    let cap_scaled = cap_to_scaled(env, cap, decimals, index);
+    let next_scaled = Ray::from(side.scaled(usage)).checked_add(env, delta_scaled);
+    assert_with_error!(env, next_scaled <= cap_scaled, side.cap_error());
 }

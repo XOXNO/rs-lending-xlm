@@ -1,13 +1,15 @@
 use super::*;
+use crate::context::Cache;
 use crate::storage;
 use crate::Controller;
 use common::constants::RAY;
 use common::math::fp::Ray;
 use common::types::{
-    Account, AssetConfig, MarketIndexRaw, PositionMode, SpokeAssetConfig, SpokeUsageRaw,
+    Account, AssetConfig, HubAssetKey, MarketIndexRaw, PositionMode, SpokeAssetConfig,
+    SpokeUsageRaw,
 };
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Map};
+use soroban_sdk::{Address, Env, Map};
 
 fn spoke_asset_config(ltv_bps: u32) -> SpokeAssetConfig {
     SpokeAssetConfig {
@@ -143,7 +145,7 @@ fn usage_supply_decrement_below_zero_panics() {
             },
         );
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        ctx.apply_withdraw_after_pool(&env, &hub(&asset), Ray::from(10));
+        ctx.apply_exit(&env, UsageSide::Supply, &hub(&asset), Ray::from(10));
     });
 }
 
@@ -165,7 +167,7 @@ fn usage_borrow_decrement_below_zero_panics() {
             },
         );
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        ctx.apply_repay_after_pool(&env, &hub(&asset), Ray::from(10));
+        ctx.apply_exit(&env, UsageSide::Borrow, &hub(&asset), Ray::from(10));
     });
 }
 
@@ -179,12 +181,12 @@ fn apply_supply_without_listing_panics() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
-        let mut ctx = SpokeUsageContext::new(&env, 1);
+        let mut cache = Cache::new_view(&env);
         let index = MarketIndexRaw {
             supply_index: RAY,
             borrow_index: RAY,
         };
-        ctx.apply_supply_after_pool(&env, &hub(&asset), Ray::from(1), &index, 7);
+        cache.apply_spoke_entry(1, UsageSide::Supply, &hub(&asset), Ray::from(1), &index, 7);
     });
 }
 
@@ -196,11 +198,11 @@ fn apply_borrow_without_listing_panics() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
-        let mut ctx = SpokeUsageContext::new(&env, 1);
+        let mut cache = Cache::new_view(&env);
         let index = MarketIndexRaw {
             supply_index: RAY,
             borrow_index: RAY,
         };
-        ctx.apply_borrow_after_pool(&env, &hub(&asset), Ray::from(1), &index, 7);
+        cache.apply_spoke_entry(1, UsageSide::Borrow, &hub(&asset), Ray::from(1), &index, 7);
     });
 }

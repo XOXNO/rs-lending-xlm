@@ -87,41 +87,6 @@ fn health_factor_debt_free_account_skips_pricing() {
     });
 }
 
-#[test]
-fn max_actions_return_zero_for_missing_account_or_inactive_asset() {
-    use crate::views::limits::{max_borrow, max_supply, max_withdraw};
-    use crate::Controller;
-    use common::types::{AccountMeta, PositionMode};
-    let env = Env::default();
-    let admin = Address::generate(&env);
-    let contract_id = env.register(Controller, (admin,));
-    env.as_contract(&contract_id, || {
-        let key = HubAssetKey {
-            hub_id: 1,
-            asset: Address::generate(&env),
-        };
-
-        // A missing account cannot borrow or withdraw.
-        assert_eq!(max_borrow(&env, 1, &key), 0);
-        assert_eq!(max_withdraw(&env, 1, &key), 0);
-        // An inactive asset cannot be supplied.
-        assert_eq!(max_supply(&env, 1, &key), 0);
-
-        // Creating the account does not make the asset active.
-        let owner = Address::generate(&env);
-        storage::set_account_meta(
-            &env,
-            1,
-            &AccountMeta {
-                owner,
-                spoke_id: 0,
-                mode: PositionMode::Normal,
-            },
-        );
-        assert_eq!(max_borrow(&env, 1, &key), 0);
-    });
-}
-
 // The spoke-usage view reads the stored row verbatim, not a default.
 #[test]
 fn get_spoke_usage_returns_stored_row() {

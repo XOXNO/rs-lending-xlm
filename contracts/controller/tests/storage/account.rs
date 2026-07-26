@@ -58,10 +58,29 @@ fn remove_absent_delegate_is_noop() {
     });
 }
 
-// The delegate list is bounded; growth past the cap is rejected.
+// Filling exactly to the cap succeeds. This is the other half of the boundary
+// from `add_delegate_rejects_delegate_past_the_cap`: that test fills to the cap
+// inside `#[should_panic]`, so a cap that rejected one delegate early would
+// panic during the fill and still satisfy it. This test is what forbids that
+// off-by-one — it has no `should_panic`, so an early rejection fails it.
+#[test]
+fn add_delegate_accepts_exactly_max_delegates() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        let account_id = 13u64;
+        for _ in 0..MAX_DELEGATES {
+            add_delegate(&env, account_id, &Address::generate(&env));
+        }
+        assert_eq!(get_delegates(&env, account_id).len(), MAX_DELEGATES);
+    });
+}
+
+// The delegate list is bounded; the one past the cap is rejected.
 #[test]
 #[should_panic(expected = "Error(Contract, #45)")]
-fn add_delegate_rejects_overflowing_cap() {
+fn add_delegate_rejects_delegate_past_the_cap() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));

@@ -9,6 +9,16 @@ use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Cache;
 use crate::risk::calculate_account_risk_totals;
 
+/// How much of a supply leg's risk tuple a restamp carries over.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum RiskRefreshScope {
+    /// LTV alone. It bounds borrow capacity and never feeds liquidation, so it
+    /// propagates with no health-factor walk.
+    LtvOnly,
+    /// LTV plus the threshold/bonus/fees tuple, behind the min-HF gate.
+    FullTuple,
+}
+
 /// Re-stamps a supply leg from the spoke listing.
 ///
 /// LTV is unconditional: it bounds borrow capacity and never feeds liquidation.
@@ -21,24 +31,12 @@ pub(crate) fn refresh_supply_risk_params(
     hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
     effective_config: &AssetConfig,
+    scope: RiskRefreshScope,
 ) {
     position.loan_to_value = effective_config.loan_to_value;
-    apply_gated_liquidation_params(env, cache, account, hub_asset, position, effective_config);
-}
-
-/// Re-stamps a leg from the spoke listing when the asset is still listed.
-pub(crate) fn refresh_supply_risk_params_for_asset(
-    env: &Env,
-    cache: &mut Cache,
-    account: &Account,
-    hub_asset: &HubAssetKey,
-    position: &mut AccountPosition,
-) {
-    let Some(listed) = cache.cached_spoke_asset(account.spoke_id, hub_asset) else {
-        return;
-    };
-    let config: AssetConfig = (&listed).into();
-    refresh_supply_risk_params(env, cache, account, hub_asset, position, &config);
+    if scope == RiskRefreshScope::FullTuple {
+        apply_gated_liquidation_params(env, cache, account, hub_asset, position, effective_config);
+    }
 }
 
 /// Sets each supply leg's LTV from the spoke listing. The liquidation tuple is

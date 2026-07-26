@@ -20,7 +20,9 @@ use crate::positions::{
     HubPayment, PositionSides,
 };
 use crate::risk::{self, validation};
+use crate::spoke::UsageSide;
 use crate::storage;
+use common::validation::expect_invariant;
 
 /// Auth, load account, entry gates, pool borrow, post-pool solvency, then persist.
 ///
@@ -102,7 +104,7 @@ fn apply_borrow_batch(
     cache: &mut Cache,
 ) {
     for (i, entry) in entries.iter().enumerate() {
-        let result = validation::expect_invariant(env, results.get(i as u32));
+        let result = expect_invariant(env, results.get(i as u32));
         merge_borrow_leg(
             env,
             account,
@@ -131,9 +133,9 @@ fn merge_borrow_leg(
     let position: DebtPosition = DebtPosition::from(&result.position);
 
     let delta = position.scaled_amount.checked_sub(env, old_scaled);
-    let ctx = cache.require_spoke_usage_context(account.spoke_id);
-    ctx.apply_borrow_after_pool(
-        env,
+    cache.apply_spoke_entry(
+        account.spoke_id,
+        UsageSide::Borrow,
         hub_asset,
         delta,
         &result.market_index,
@@ -173,8 +175,7 @@ pub(crate) fn borrow_for_strategy(
         hub_debt,
         amount,
         cache,
-        true,
-        events::PositionAction::Multiply,
+        StrategyBorrowKind::Multiply,
     )
 }
 
@@ -196,24 +197,44 @@ pub(crate) fn borrow_for_migration(
         hub_debt,
         amount,
         cache,
-        false,
-        events::PositionAction::Migrate,
+        StrategyBorrowKind::Migration,
     )
+}
+
+/// Which strategy is borrowing. Binds the flash-loan fee to the emitted event so
+/// the two cannot drift: a fee-free borrow can only ever report as `Migrate`.
+#[derive(Clone, Copy)]
+enum StrategyBorrowKind {
+    /// Leveraged open. Pays the market's configured flash-loan fee.
+    Multiply,
+    /// Blend migration. Fee-free, since the debt already exists elsewhere.
+    Migration,
+}
+
+impl StrategyBorrowKind {
+    fn charges_fee(self) -> bool {
+        matches!(self, Self::Multiply)
+    }
+
+    fn event_action(self) -> events::PositionAction {
+        match self {
+            Self::Multiply => events::PositionAction::Multiply,
+            Self::Migration => events::PositionAction::Migrate,
+        }
+    }
 }
 
 /// Shared strategy-borrow body.
 ///
-/// `charge_fee`: `true` applies the market flash-loan fee (multiply); `false`
-/// borrows fee-free (migration). The fee amount is computed pool-side from the
-/// market's `flashloan_fee` bps. Entry gates run; post-pool HF does not.
+/// The fee amount is computed pool-side from the market's `flashloan_fee` bps.
+/// Entry gates run; post-pool HF does not.
 fn borrow_strategy_inner(
     env: &Env,
     account: &mut Account,
     hub_debt: &HubAssetKey,
     amount: i128,
     cache: &mut Cache,
-    charge_fee: bool,
-    event_action: events::PositionAction,
+    kind: StrategyBorrowKind,
 ) -> i128 {
     let hub_debt = hub_debt.clone();
     let payments: AggregatedPayments = vec![env, (hub_debt.clone(), amount)];
@@ -235,10 +256,17 @@ fn borrow_strategy_inner(
         &pool_addr,
         &env.current_contract_address(),
         pool_action,
-        charge_fee,
+        kind.charges_fee(),
     );
     let mutation: PoolPositionMutation = PoolPositionMutation::from(&result);
-    merge_borrow_leg(env, account, &hub_debt, event_action, &mutation, cache);
+    merge_borrow_leg(
+        env,
+        account,
+        &hub_debt,
+        kind.event_action(),
+        &mutation,
+        cache,
+    );
 
     result.amount_received
 }

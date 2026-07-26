@@ -105,9 +105,6 @@ view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
     # collateral with USDC+XLM debt here, so each is exercised with live state.
     assert_bool_view account_exists_alice true account_exists --account_id "$acct"
     assert_int_view_eq pool_addr_view "$POOL" get_pool_address
-    assert_int_view_positive max_supply_usdc max_supply --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")"
-    assert_int_view_positive max_withdraw_xlm max_withdraw --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")"
-    assert_int_view_nonneg max_borrow_usdc max_borrow --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")"
 
     # Guard reverts: zero amount, over-LTV borrow, paused-state behavior is in admin flow.
     xfail supply_zero 'Error\(Contract, #14\)' "$ALICE" "$CONTROLLER" -- supply \

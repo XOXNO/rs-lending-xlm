@@ -1,5 +1,6 @@
 use super::*;
 use common::constants::WAD;
+use common::errors::GenericError;
 use soroban_sdk::testutils::Address as _;
 
 fn new_controller(env: &Env) -> Address {
@@ -198,48 +199,75 @@ fn blend_pool_approval_entrypoints_round_trip() {
     assert!(!client.is_blend_pool_approved(&pool));
 }
 
-// `upgrade_pool` must reach the pool lookup: with no pool deployed the
-// entrypoint reverts instead of silently returning.
+// `upgrade_pool` must reach the pool lookup rather than failing earlier: with
+// no pool deployed it reverts `PoolNotInitialized` specifically, so an auth or
+// argument failure short-circuiting the call cannot satisfy this test.
 #[test]
-fn upgrade_pool_reverts_without_deployed_pool() {
+fn upgrade_pool_reverts_pool_not_initialized_without_deployed_pool() {
     let env = Env::default();
     env.mock_all_auths();
     let contract = new_controller(&env);
     let client = crate::ControllerClient::new(&env, &contract);
 
     let bogus = soroban_sdk::BytesN::from_array(&env, &[7u8; 32]);
-    assert!(client.try_upgrade_pool(&bogus).is_err());
+    assert_eq!(
+        client.try_upgrade_pool(&bogus),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            GenericError::PoolNotInitialized as u32
+        )))
+    );
 }
 
-// `remove_delegate` must reach the owner check: a caller that owns no such
-// account reverts instead of silently returning.
+// `remove_delegate` must reach the account lookup rather than failing earlier:
+// a caller that owns no such account reverts `AccountNotInMarket` specifically.
+//
+// The constructor leaves the contract paused, and `remove_delegate` is
+// `#[when_not_paused]`, so the unpause below is load-bearing: without it the
+// call bounces off the pause guard and never reaches the owner check at all.
 #[test]
-fn remove_delegate_reverts_for_non_owner() {
+fn remove_delegate_reverts_account_not_in_market_for_non_owner() {
     let env = Env::default();
     env.mock_all_auths();
     let contract = new_controller(&env);
     let client = crate::ControllerClient::new(&env, &contract);
+    client.unpause();
 
     let stranger = Address::generate(&env);
     let delegate = Address::generate(&env);
-    assert!(client
-        .try_remove_delegate(&stranger, &1u64, &delegate)
-        .is_err());
+    assert_eq!(
+        client.try_remove_delegate(&stranger, &1u64, &delegate),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            GenericError::AccountNotInMarket as u32
+        )))
+    );
 }
 
+// An unset floor reads back as the default constant rather than zero, so a
+// fresh deployment still enforces a minimum borrow collateral.
 #[test]
-fn min_borrow_floor_defaults_and_blend_wrapper_reflects_storage() {
+fn min_borrow_floor_reads_the_default_when_unset() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        // Unset floor returns the default constant.
         assert_eq!(
             storage::get_min_borrow_collateral_usd_wad(&env),
             crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD
         );
-        // Blend-pool wrapper reflects storage both ways.
+    });
+}
+
+// Helper-level view of the allowlist, one layer under the ABI round-trip above:
+// absence reads as not-approved, and an approval write is visible on read back.
+#[test]
+fn blend_pool_approval_helper_reflects_storage() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    env.as_contract(&contract, || {
         let pool = Address::generate(&env);
-        assert!(!approvals::is_blend_pool_approved(&env, pool.clone()));
+        assert!(
+            !approvals::is_blend_pool_approved(&env, pool.clone()),
+            "an unwritten pool must read as not approved"
+        );
         approvals::set_blend_pool_approval(&env, pool.clone(), true);
         assert!(approvals::is_blend_pool_approved(&env, pool));
     });

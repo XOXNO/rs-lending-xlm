@@ -4,19 +4,10 @@ use crate::risk;
 use crate::spec_hooks;
 use common::errors::*;
 use common::math::fp::Wad;
-use common::types::{Account, AccountPositionType, HubAssetKey};
-use soroban_sdk::{assert_with_error, panic_with_error, Env, Map, Vec};
-
-use crate::positions::AggregatedPayments;
+use common::types::{Account, AccountPositionType, AggregatedPayments, HubAssetKey};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
 use crate::{context::Cache, storage};
-
-/// Unwraps a controller-built value or panics with `InternalError`.
-/// Missing values indicate corrupted storage or caller logic bugs after checks.
-#[inline]
-pub(crate) fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
-    opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
-}
 
 pub(crate) fn require_not_flash_loaning(env: &Env) {
     assert_with_error!(
@@ -24,10 +15,6 @@ pub(crate) fn require_not_flash_loaning(env: &Env) {
         !storage::is_flash_loan_ongoing(env),
         FlashLoanError::FlashLoanOngoing
     );
-}
-
-pub(crate) fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
-    assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
 }
 
 /// Post-pool LTV, health factor, and min-borrow-collateral gates in one

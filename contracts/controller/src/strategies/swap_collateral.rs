@@ -16,7 +16,7 @@ use crate::strategies::{
     prefetch_strategy_prices, strategy_finalize, swap_tokens_or_passthrough,
     withdraw_collateral_to_controller, StrategyWithdraw,
 };
-use crate::{positions::supply, risk::validation, spoke, storage};
+use crate::{positions::supply, risk::validation, storage};
 
 pub(crate) struct SwapCollateralParams<'a> {
     pub account_id: u64,
@@ -98,7 +98,7 @@ pub(crate) fn validate_swap_new_collateral_preflight(
     account: &Account,
     new: &HubAssetKey,
 ) {
-    let config = spoke::require_listed_active_config(env, cache, account.spoke_id, new);
+    let config = cache.require_listed_active_config(account.spoke_id, new);
 
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
 

@@ -4,8 +4,9 @@ use common::math::fp::{Bps, Ray, Wad};
 use common::types::{Account, AccountPositionRaw, DebtPositionRaw, HubAssetKey};
 use soroban_sdk::{Address, Env, Map, Vec};
 
+use common::collections::push_unique_address;
+
 use crate::context::Cache;
-use crate::payments;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 /// Merge supply + borrow hub keys for bulk market-index and price prefetch.
@@ -27,13 +28,13 @@ pub(crate) fn account_price_assets(
 ) -> Vec<Address> {
     let mut assets = Vec::new(env);
     for key in account.supply_positions.keys().iter() {
-        payments::push_unique_address(&mut assets, key.asset);
+        push_unique_address(&mut assets, key.asset);
     }
     for key in account.borrow_positions.keys().iter() {
-        payments::push_unique_address(&mut assets, key.asset);
+        push_unique_address(&mut assets, key.asset);
     }
     for asset in extras.iter() {
-        payments::push_unique_address(&mut assets, asset.clone());
+        push_unique_address(&mut assets, asset.clone());
     }
     assets
 }
@@ -68,63 +69,25 @@ pub(crate) fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad 
     threshold.apply_to_wad_floor(env, value)
 }
 
-/// Rounding mode for USD position valuation.
+/// Neutrally-valued supply total in USD WAD, fetching prices and indexes first.
 ///
-/// Views use [`Neutral`](Self::Neutral). Solvency gates use
-/// [`Floor`](Self::Floor) on collateral and [`Ceil`](Self::Ceil) on debt.
-#[derive(Clone, Copy)]
-pub(crate) enum PositionValueMode {
-    Neutral,
-    Floor,
-    Ceil,
-}
-
-fn position_value_with_mode(
-    env: &Env,
-    mode: PositionValueMode,
-    scaled: Ray,
-    index: Ray,
-    price: Wad,
-) -> Wad {
-    match mode {
-        PositionValueMode::Neutral => position_value(env, scaled, index, price),
-        PositionValueMode::Floor => position_value_floor(env, scaled, index, price),
-        PositionValueMode::Ceil => position_value_ceil(env, scaled, index, price),
-    }
-}
-
-/// Sums supply positions to USD WAD using `supply_index` and `mode`.
-///
-/// Loads markets for the supply keys, then walks. Prefer
-/// [`sum_supply_usd_loaded`] when the caller already called
-/// [`Cache::load_markets`].
+/// Neutral rounding is for reporting only; solvency gates use the floor/ceil
+/// valuations in [`calculate_account_risk_totals`].
 pub(crate) fn sum_supply_usd(
     env: &Env,
     cache: &mut Cache,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
-    mode: PositionValueMode,
 ) -> Wad {
     cache.load_markets(&supply_positions.keys());
-    sum_supply_usd_loaded(env, cache, supply_positions, mode)
-}
 
-/// Like [`sum_supply_usd`], but does not fetch — prices/indexes must already
-/// be loaded for every supply key.
-pub(crate) fn sum_supply_usd_loaded(
-    env: &Env,
-    cache: &mut Cache,
-    supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
-    mode: PositionValueMode,
-) -> Wad {
     let mut total = Wad::ZERO;
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
         total = total.checked_add(
             env,
-            position_value_with_mode(
+            position_value(
                 env,
-                mode,
                 position.scaled_amount,
                 market_index.supply_index,
                 feed.price,
@@ -134,28 +97,37 @@ pub(crate) fn sum_supply_usd_loaded(
     total
 }
 
-/// Sums debt positions to USD WAD using `borrow_index` and `mode`.
-///
-/// Loads markets for the debt keys, then walks. Prefer
-/// [`sum_debt_usd_loaded`] when the caller already called
-/// [`Cache::load_markets`].
+/// Neutrally-valued debt total in USD WAD, fetching prices and indexes first.
 pub(crate) fn sum_debt_usd(
     env: &Env,
     cache: &mut Cache,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
-    mode: PositionValueMode,
 ) -> Wad {
     cache.load_markets(&borrow_positions.keys());
-    sum_debt_usd_loaded(env, cache, borrow_positions, mode)
+
+    let mut total = Wad::ZERO;
+    for (hub_asset, position) in iter_debt_positions(borrow_positions) {
+        let feed = cache.cached_price(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
+        total = total.checked_add(
+            env,
+            position_value(
+                env,
+                position.scaled_amount,
+                market_index.borrow_index,
+                feed.price,
+            ),
+        );
+    }
+    total
 }
 
-/// Like [`sum_debt_usd`], but does not fetch — prices/indexes must already
-/// be loaded for every debt key.
-pub(crate) fn sum_debt_usd_loaded(
+/// Ceil-valued debt total for solvency gates: owed value cannot round downward.
+/// Does not fetch — prices and indexes must already be loaded for every key.
+fn sum_debt_usd_ceil_loaded(
     env: &Env,
     cache: &mut Cache,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
-    mode: PositionValueMode,
 ) -> Wad {
     let mut total = Wad::ZERO;
     for (hub_asset, position) in iter_debt_positions(borrow_positions) {
@@ -163,9 +135,8 @@ pub(crate) fn sum_debt_usd_loaded(
         let market_index = cache.cached_market_index(&hub_asset);
         total = total.checked_add(
             env,
-            position_value_with_mode(
+            position_value_ceil(
                 env,
-                mode,
                 position.scaled_amount,
                 market_index.borrow_index,
                 feed.price,
@@ -189,9 +160,8 @@ pub(crate) fn calculate_ltv_collateral_wad(
         let market_index = cache.cached_market_index(&hub_asset);
 
         // Floor the whole chain: borrowing capacity cannot round upward.
-        let value = position_value_with_mode(
+        let value = position_value_floor(
             env,
-            PositionValueMode::Floor,
             position.scaled_amount,
             market_index.supply_index,
             feed.price,
@@ -286,7 +256,7 @@ fn calculate_account_risk_totals_body(
 
     // Ceil the whole chain: owed value cannot round downward.
     // Markets already loaded above — do not re-walk keys through load_markets.
-    let total_debt = sum_debt_usd_loaded(env, cache, borrow_positions, PositionValueMode::Ceil);
+    let total_debt = sum_debt_usd_ceil_loaded(env, cache, borrow_positions);
 
     let health_factor = if total_debt == Wad::ZERO {
         Wad::from(i128::MAX)

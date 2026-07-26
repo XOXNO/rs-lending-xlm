@@ -122,12 +122,6 @@ view market_index_xlm "$CONTROLLER" -- get_market_index \
 --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" >/dev/null
 view total_borrow_bob_minb "$CONTROLLER" -- get_total_borrow_usd \
 --account_id "$bob_minb_acct" >/dev/null
-view max_supply_bob_minb "$CONTROLLER" -- max_supply \
---account_id "$bob_minb_acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" >/dev/null
-view max_withdraw_bob_minb "$CONTROLLER" -- max_withdraw \
---account_id "$bob_minb_acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" >/dev/null
-view max_borrow_bob_minb "$CONTROLLER" -- max_borrow \
---account_id "$bob_minb_acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
 inv manager_activate_alice "$ADMIN" "$CONTROLLER" -- set_position_manager \
 --manager "$ALICE_ADDR" --is_active true >/dev/null
 inv delegate_add_alice "$BOB" "$CONTROLLER" -- add_delegate \

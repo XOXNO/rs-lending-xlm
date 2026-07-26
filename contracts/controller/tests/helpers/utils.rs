@@ -1,7 +1,7 @@
 use super::*;
 use common::types::HubAssetKey;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Env, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 #[test]
 fn aggregate_payments_dedups_and_preserves_order() {
@@ -30,42 +30,46 @@ fn aggregate_payments_dedups_and_preserves_order() {
 #[should_panic(expected = "Error(Contract, #14)")]
 fn aggregate_rejects_negative() {
     let env = Env::default();
-    aggregate_payment_amount(&env, None, -1, false);
+    aggregate_payment_amount(&env, None, -1, ZeroLeg::Rejected);
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #14)")]
 fn aggregate_rejects_zero_when_not_withdraw_all() {
     let env = Env::default();
-    aggregate_payment_amount(&env, None, 0, false);
+    aggregate_payment_amount(&env, None, 0, ZeroLeg::Rejected);
 }
 
 #[test]
 fn aggregate_zero_is_withdraw_all_sentinel() {
     let env = Env::default();
-    assert_eq!(aggregate_payment_amount(&env, None, 0, true), 0);
-    assert_eq!(aggregate_payment_amount(&env, Some(0), 5, true), 0);
-    assert_eq!(aggregate_payment_amount(&env, None, 5, true), 5);
+    assert_eq!(
+        aggregate_payment_amount(&env, None, 0, ZeroLeg::MeansAll),
+        0
+    );
+    assert_eq!(
+        aggregate_payment_amount(&env, Some(0), 5, ZeroLeg::MeansAll),
+        0
+    );
+    assert_eq!(
+        aggregate_payment_amount(&env, None, 5, ZeroLeg::MeansAll),
+        5
+    );
 }
 
 #[test]
 fn aggregate_sums_previous_and_amount() {
     let env = Env::default();
-    assert_eq!(aggregate_payment_amount(&env, Some(10), 5, false), 15);
-    assert_eq!(aggregate_payment_amount(&env, None, 7, false), 7);
-    assert_eq!(aggregate_payment_amount(&env, Some(0), 5, false), 5);
-}
-
-#[test]
-fn push_unique_dedups_preserving_order() {
-    let env = Env::default();
-    let a = Address::generate(&env);
-    let b = Address::generate(&env);
-    let mut out: Vec<Address> = Vec::new(&env);
-    push_unique_address(&mut out, a.clone());
-    push_unique_address(&mut out, a.clone());
-    push_unique_address(&mut out, b.clone());
-    assert_eq!(out.len(), 2);
-    assert_eq!(out.get_unchecked(0), a);
-    assert_eq!(out.get_unchecked(1), b);
+    assert_eq!(
+        aggregate_payment_amount(&env, Some(10), 5, ZeroLeg::Rejected),
+        15
+    );
+    assert_eq!(
+        aggregate_payment_amount(&env, None, 7, ZeroLeg::Rejected),
+        7
+    );
+    assert_eq!(
+        aggregate_payment_amount(&env, Some(0), 5, ZeroLeg::Rejected),
+        5
+    );
 }

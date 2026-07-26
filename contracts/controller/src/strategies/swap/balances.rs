@@ -1,9 +1,9 @@
 //! Verifies router spend/output by controller SAC balance deltas.
 
-use common::errors::{GenericError, StrategyError};
-use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
+use common::errors::StrategyError;
+use soroban_sdk::{assert_with_error, token, Address, Env};
 
-use crate::strategies::swap::balance_delta;
+use crate::payments::balance_delta;
 
 pub(crate) struct SwapBalanceSnapshot {
     // D{token_in.decimals}{Token(token_in)} controller balance before router call.
@@ -23,11 +23,15 @@ pub(crate) fn snapshot_swap_balances(
     }
 }
 
-pub(crate) fn verify_router_input_spend(
+/// Bounds the router's pull at `amount_in` and refunds any underspend to
+/// `refund_to`. One balance read serves both the overspend assert and the
+/// refund, so the two cannot observe different post-router balances.
+pub(crate) fn settle_router_input(
     env: &Env,
     token_in_client: &token::Client,
     balance_before: i128,
     amount_in: i128,
+    refund_to: &Address,
 ) {
     let balance_after = token_in_client.balance(&env.current_contract_address());
     assert_with_error!(
@@ -36,29 +40,16 @@ pub(crate) fn verify_router_input_spend(
         StrategyError::RouterOverspend
     );
     // D{token_in.decimals}{Token(token_in)} spent by router from controller balance.
-    let actual_in_spent = balance_before - balance_after;
+    // Non-negative and free of overflow by the assert above.
+    let actual_spent = balance_before - balance_after;
     assert_with_error!(
         env,
-        actual_in_spent <= amount_in,
+        actual_spent <= amount_in,
         StrategyError::RouterOverspend
     );
-}
 
-pub(crate) fn refund_router_underspend(
-    env: &Env,
-    token_in_client: &token::Client,
-    balance_before: i128,
-    amount_in: i128,
-    refund_to: &Address,
-) {
-    let balance_after = token_in_client.balance(&env.current_contract_address());
-    let actual_spent = balance_before
-        .checked_sub(balance_after)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
     // D{token_in.decimals}{Token(token_in)} refund router underspend in same input token.
-    let leftover = amount_in
-        .checked_sub(actual_spent)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    let leftover = amount_in - actual_spent;
     if leftover > 0 {
         token_in_client.transfer(&env.current_contract_address(), refund_to, &leftover);
     }

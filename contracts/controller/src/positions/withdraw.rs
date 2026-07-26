@@ -5,7 +5,6 @@
 //! pause still blocks; freeze does not). Liquidation skips spoke pause via the
 //! bulk settle path. See `docs/reference/invariants.md` §3.
 
-use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AssetConfig, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry,
 };
@@ -15,14 +14,34 @@ use crate::account::{require_owner_or_delegate, update_or_remove_supply_position
 use crate::constants::WITHDRAW_ALL_SENTINEL;
 use crate::context::Cache;
 use crate::events;
+use crate::events::EventContext;
 use crate::external::pool::pool_withdraw_call;
-use crate::payments::{self, EventContext};
+use crate::payments;
 use crate::positions::{
     enforce_spoke_asset_flags, finalize_position_flow, get_supply_position_or_panic,
-    make_pool_action, AggregatedPayments, HubPayment, PositionSides,
+    make_pool_action, AggregatedPayments, HubPayment, LegOutcome, PositionSides,
 };
-use crate::risk::{refresh_supply_risk_params, restamp_listed_supply_ltv, validation};
+use crate::risk::{
+    refresh_supply_risk_params, restamp_listed_supply_ltv, validation, RiskRefreshScope,
+};
+use crate::spoke::UsageSide;
 use crate::storage;
+use common::validation::expect_invariant;
+
+/// How a withdraw batch executes. Selects the pool's liquidation semantics and
+/// whether collateral risk params stay at their stamped vintage.
+///
+/// Deliberately independent of [`events::PositionAction`]: the event taxonomy is
+/// an ABI concern and must not decide money-path behavior.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum WithdrawKind {
+    /// User or strategy withdraw. The pool takes its normal path and every
+    /// still-listed leg is restamped from live spoke config.
+    Normal,
+    /// Liquidation seizure. The pool takes its liquidation path and risk params
+    /// stay frozen, so a delisted or frozen leg is still seizable.
+    Liquidation,
+}
 
 /// Supply-risk refresh policy after a withdraw leg.
 pub(crate) enum SpokeRefresh {
@@ -59,7 +78,7 @@ pub(crate) fn process_withdraw(
     let recipient = to.unwrap_or_else(|| caller.clone());
     let mut cache = Cache::new(env);
     // `zero_is_withdraw_all: true` keeps amount `0` as a full-withdraw sentinel.
-    let aggregated = payments::aggregate_payments(env, withdrawals, true);
+    let aggregated = payments::aggregate_payments(env, withdrawals, payments::ZeroLeg::MeansAll);
 
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
 
@@ -93,6 +112,7 @@ fn settle_withdraw(
         env,
         account,
         recipient,
+        WithdrawKind::Normal,
         events::PositionAction::Withdraw,
         &entries,
         cache,
@@ -100,7 +120,7 @@ fn settle_withdraw(
 
     let mut paid: Vec<HubPayment> = Vec::new(env);
     for (i, entry) in entries.iter().enumerate() {
-        let result = validation::expect_invariant(env, results.get(i as u32));
+        let result = expect_invariant(env, results.get(i as u32));
         paid.push_back((entry.action.hub_asset.clone(), result.actual_amount));
     }
     paid
@@ -139,19 +159,20 @@ pub(crate) fn apply_withdraw_batch(
     env: &Env,
     account: &mut Account,
     recipient: &Address,
+    kind: WithdrawKind,
     action: events::PositionAction,
     entries: &Vec<PoolWithdrawEntry>,
     cache: &mut Cache,
 ) -> Vec<PoolPositionMutation> {
-    let is_liquidation = matches!(action, events::PositionAction::LiqSeize);
+    let is_liquidation = kind == WithdrawKind::Liquidation;
     let pool_addr = cache.cached_pool_address();
     let results = pool_withdraw_call(env, &pool_addr, recipient, is_liquidation, entries);
     for (i, entry) in entries.iter().enumerate() {
-        let result = validation::expect_invariant(env, results.get(i as u32));
+        let result = expect_invariant(env, results.get(i as u32));
         let refresh_spoke = if is_liquidation {
             SpokeRefresh::Frozen
         } else {
-            withdraw_refresh_spoke_for_asset(cache, account, &entry.action.hub_asset)
+            refresh_spoke_for_asset(cache, account, &entry.action.hub_asset)
         };
         merge_withdraw_leg(
             env,
@@ -159,7 +180,7 @@ pub(crate) fn apply_withdraw_batch(
             action,
             &entry.action.hub_asset,
             &refresh_spoke,
-            &result,
+            &LegOutcome::from(&result),
             cache,
         );
     }
@@ -167,7 +188,7 @@ pub(crate) fn apply_withdraw_batch(
 }
 
 /// Risk-param refresh policy for a withdraw leg (listing present → refresh).
-fn withdraw_refresh_spoke_for_asset(
+pub(crate) fn refresh_spoke_for_asset(
     cache: &mut Cache,
     account: &Account,
     hub_asset: &HubAssetKey,
@@ -191,17 +212,21 @@ pub(crate) fn merge_withdraw_leg(
     action: events::PositionAction,
     hub_asset: &HubAssetKey,
     refresh_spoke: &SpokeRefresh,
-    result: &PoolPositionMutation,
+    outcome: &LegOutcome,
     cache: &mut Cache,
 ) {
     let mut result_position = get_supply_position_or_panic(env, account, hub_asset);
     let old_scaled = result_position.scaled_amount;
     // Pool owns scaled shares; controller keeps collateral risk params unless refreshing.
-    result_position.scaled_amount = Ray::from(result.position.scaled_amount);
+    result_position.scaled_amount = outcome.new_scaled;
 
     let shares_withdrawn = old_scaled.checked_sub(env, result_position.scaled_amount);
-    let ctx = cache.require_spoke_usage_context(account.spoke_id);
-    ctx.apply_withdraw_after_pool(env, hub_asset, shares_withdrawn);
+    cache.apply_spoke_exit(
+        account.spoke_id,
+        UsageSide::Supply,
+        hub_asset,
+        shares_withdrawn,
+    );
 
     if matches!(refresh_spoke, SpokeRefresh::Refresh) {
         let config: AssetConfig = (&cache.require_spoke_asset(account.spoke_id, hub_asset)).into();
@@ -212,17 +237,18 @@ pub(crate) fn merge_withdraw_leg(
             hub_asset,
             &mut result_position,
             &config,
+            RiskRefreshScope::FullTuple,
         );
     }
 
     update_or_remove_supply_position(account, hub_asset, &result_position);
 
-    cache.put_market_index(hub_asset, &result.market_index);
+    cache.put_market_index(hub_asset, &outcome.market_index);
     cache.record_supply_position_update(
         action,
         hub_asset,
-        result.market_index.supply_index,
-        result.actual_amount,
+        outcome.market_index.supply_index,
+        outcome.amount,
         &result_position,
     );
 }
@@ -254,6 +280,14 @@ pub(crate) fn execute_withdrawal(
             protocol_fee: 0,
         },
     ];
-    let results = apply_withdraw_batch(env, account, &counterparty, action, &entries, cache);
-    validation::expect_invariant(env, results.get(0))
+    let results = apply_withdraw_batch(
+        env,
+        account,
+        &counterparty,
+        WithdrawKind::Normal,
+        action,
+        &entries,
+        cache,
+    );
+    expect_invariant(env, results.get(0))
 }
