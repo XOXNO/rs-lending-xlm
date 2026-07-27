@@ -1,6 +1,6 @@
 //! Read-only timelock and oracle-config views. No auth, no state change.
 
-use common::types::OracleTolerance;
+use common::types::{AssetOracle, OracleTolerance, PriceKey};
 
 use soroban_sdk::{contractimpl, Address, BytesN, Env, Symbol, Val, Vec};
 
@@ -55,5 +55,20 @@ impl Governance {
     /// * `MathOverflow` — band computation overflows.
     pub fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OracleTolerance {
         validate::tolerance::validate_and_calculate_tolerances(&env, tolerance)
+    }
+
+    /// Resolves an oracle proposal to the exact [`AssetOracle`] a
+    /// `ConfigureAssetOracle` proposal would schedule. Read-only.
+    ///
+    /// This is what a CLI dry run (`--send=no`) invokes: governance overrides
+    /// `asset_decimals` from the token, so the struct a proposer submits is not
+    /// the struct that gets stored, and reviewing the submitted one would review
+    /// the wrong thing.
+    ///
+    /// # Errors
+    /// * `InvalidAsset` — `PriceKey::Token` whose address is not a readable
+    ///   token contract.
+    pub fn resolve_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) -> AssetOracle {
+        crate::op::resolve_asset_oracle(&env, &key, &oracle)
     }
 }

@@ -1,8 +1,7 @@
 use controller::constants::RAY;
 use controller::types::{
-    AssetOracleConfig, InterestRateModel, OracleAssetRef, OracleReadMode, OracleSourceConfig,
-    OracleSourceConfigOption, OracleStrategy, OracleTolerance, PositionLimits, ReflectorBase,
-    ReflectorSourceConfig,
+    AssetOracle, FeedSource, IndependencePolicy, InterestRateModel, OracleAssetRef, OracleReadMode,
+    OracleTolerance, PositionLimits, PriceSource, ProviderRef, ReflectorFeedRef,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
@@ -11,33 +10,39 @@ use test_harness::{
     DEFAULT_TOLERANCE, HARNESS_HUB,
 };
 
-/// Pre-resolved config for the thin `set_oracle_config` setter:
-/// mock-reflector shape (14 decimals, 300 s resolution, USD base) with the
-/// 200/500 BPS tolerance bands governance computes in-path.
-fn resolved_reflector_primary_anchor_config(
+/// Two-source config in the mock-reflector shape (14 decimals) with the
+/// 200/500 BPS agreement band governance computes in-path.
+fn resolved_reflector_dual_source_config(
+    env: &soroban_sdk::Env,
     oracle: &Address,
     asset: &Address,
-) -> AssetOracleConfig {
+) -> AssetOracle {
     let source = |read_mode: OracleReadMode| {
-        OracleSourceConfig::Reflector(ReflectorSourceConfig {
-            contract: oracle.clone(),
-            asset: OracleAssetRef::Stellar(asset.clone()),
-            read_mode,
+        PriceSource::Feed(FeedSource {
+            provider: ProviderRef::Reflector(ReflectorFeedRef {
+                contract: oracle.clone(),
+                asset: OracleAssetRef::Stellar(asset.clone()),
+                read_mode,
+            }),
             decimals: 14,
-            resolution_seconds: 300,
-            base: ReflectorBase::Usd,
+            max_stale_seconds: 900,
         })
     };
-    AssetOracleConfig {
+    let mut sources = soroban_sdk::Vec::new(env);
+    sources.push_back(source(OracleReadMode::Twap(3)));
+    sources.push_back(source(OracleReadMode::Spot));
+    AssetOracle {
         asset_decimals: 7,
         max_price_stale_seconds: 900,
+        sources,
         tolerance: OracleTolerance {
             upper_ratio_bps: 10_500,
             lower_ratio_bps: 9_524,
         },
-        strategy: OracleStrategy::PrimaryWithAnchor,
-        primary: source(OracleReadMode::Twap(3)),
-        anchor: OracleSourceConfigOption::Some(source(OracleReadMode::Spot)),
+        // Both sources are the same Reflector deployment, which the production
+        // rule rejects unless declared. Seeded directly here so the test can
+        // exercise the read path rather than the listing rules.
+        independence: IndependencePolicy::RequireDisjoint,
         min_sanity_price_wad: 1,
         max_sanity_price_wad: controller::constants::MAX_REASONABLE_PRICE_WAD,
     }
@@ -249,7 +254,7 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
 }
 
 #[test]
-fn test_set_oracle_config_activates_pending_market() {
+fn test_seeding_an_oracle_activates_a_pending_market() {
     let t = LendingTest::new().build(); // Empty protocol.
     let ctrl = t.ctrl_client();
     let admin = &t.admin;
@@ -265,16 +270,22 @@ fn test_set_oracle_config_activates_pending_market() {
         "market must start in PendingOracle"
     );
 
-    let oracle_cfg = resolved_reflector_primary_anchor_config(&t.mock_reflector, &asset);
-    t.price_agg_client().set_oracle_config(&asset, &oracle_cfg);
+    let oracle_cfg = resolved_reflector_dual_source_config(&t.env, &t.mock_reflector, &asset);
+    t.price_agg_client().seed_asset_oracle(
+        &controller::types::PriceKey::Token(asset.clone()),
+        &oracle_cfg,
+    );
 
     let oracle = t.market_oracle_config(&asset);
-    match oracle.primary {
-        controller::types::OracleSourceConfig::Reflector(source) => {
-            assert_eq!(source.contract, t.mock_reflector);
-            assert_eq!(source.read_mode, controller::types::OracleReadMode::Twap(3));
-        }
-        _ => panic!("expected Reflector primary source"),
+    match oracle.sources.get_unchecked(0) {
+        controller::types::PriceSource::Feed(feed) => match feed.provider {
+            ProviderRef::Reflector(source) => {
+                assert_eq!(source.contract, t.mock_reflector);
+                assert_eq!(source.read_mode, OracleReadMode::Twap(3));
+            }
+            _ => panic!("expected Reflector provider"),
+        },
+        _ => panic!("expected a direct feed source"),
     }
     assert_eq!(oracle.max_price_stale_seconds, 900);
     assert!(
@@ -283,11 +294,11 @@ fn test_set_oracle_config_activates_pending_market() {
     );
 }
 
-// `set_oracle_config` re-validates the agreement band for anchored
+// `set_asset_oracle` re-validates the agreement band for dual-source
 // configs, so a degenerate tolerance on the (otherwise valid) pending-market
 // activation path is rejected instead of silently disabling the guard.
 #[test]
-fn test_set_oracle_config_rejects_degenerate_tolerance() {
+fn test_set_asset_oracle_rejects_a_degenerate_tolerance() {
     let t = LendingTest::new().build();
     let ctrl = t.ctrl_client();
     let admin = &t.admin;
@@ -299,15 +310,16 @@ fn test_set_oracle_config_rejects_degenerate_tolerance() {
     let params = usdc_preset().params.to_market_params(&asset, 7);
     ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params);
 
-    let mut oracle_cfg = resolved_reflector_primary_anchor_config(&t.mock_reflector, &asset);
+    let mut oracle_cfg = resolved_reflector_dual_source_config(&t.env, &t.mock_reflector, &asset);
     // In-envelope upper, loose lower: would let a manipulated-low primary blend in.
     oracle_cfg.tolerance = OracleTolerance {
         upper_ratio_bps: 10_500,
         lower_ratio_bps: 100,
     };
-    let result = t
-        .price_agg_client()
-        .try_set_oracle_config(&asset, &oracle_cfg);
+    let result = t.price_agg_client().try_set_asset_oracle(
+        &controller::types::PriceKey::Token(asset.clone()),
+        &oracle_cfg,
+    );
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -353,7 +365,10 @@ fn test_set_tolerance_overwrites_bands() {
     let asset = t.resolve_market("USDC").asset.clone();
 
     let tolerance = bands_300_600();
-    t.price_agg_client().set_tolerance(&asset, &tolerance);
+    t.price_agg_client().set_tolerance(
+        &controller::types::PriceKey::Token(asset.clone()),
+        &tolerance,
+    );
 
     let oracle = t.market_oracle_config(&asset);
     assert_eq!(
@@ -368,7 +383,10 @@ fn test_set_tolerance_rejects_unknown_asset() {
     let tolerance = bands_300_600();
 
     let unknown = Address::generate(&t.env);
-    let result = t.price_agg_client().try_set_tolerance(&unknown, &tolerance);
+    let result = t.price_agg_client().try_set_tolerance(
+        &controller::types::PriceKey::Token(unknown.clone()),
+        &tolerance,
+    );
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -390,7 +408,9 @@ fn test_set_tolerance_rejects_degenerate_band() {
         upper_ratio_bps: 9_000,
         lower_ratio_bps: 11_000,
     };
-    let result = t.price_agg_client().try_set_tolerance(&asset, &bad);
+    let result = t
+        .price_agg_client()
+        .try_set_tolerance(&controller::types::PriceKey::Token(asset.clone()), &bad);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -410,7 +430,9 @@ fn test_set_tolerance_rejects_loose_lower_band() {
         upper_ratio_bps: 10_500,
         lower_ratio_bps: 100,
     };
-    let result = t.price_agg_client().try_set_tolerance(&asset, &loose);
+    let result = t
+        .price_agg_client()
+        .try_set_tolerance(&controller::types::PriceKey::Token(asset.clone()), &loose);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -482,6 +504,7 @@ fn test_market_initialization_cascade() {
 
     // 2. Configure the full market oracle in one call.
     let reflector_cfg = test_harness::reflector_primary_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &asset,
         1_0000000i128,
@@ -498,9 +521,14 @@ fn test_market_initialization_cascade() {
 }
 
 // Reconfiguring an ACTIVE market's oracle to a sanity band that excludes the
-// current live price is rejected at PROPOSE with `SanityBoundViolated` (#223):
-// governance resolves the fresh feed while scheduling, so a band that would
-// brick every later risk read (borrow/withdraw/liquidation) never gets stored.
+// current live price is rejected at configure time with `SanityBoundViolated`
+// (#223): the aggregator resolves the fresh feed under the proposed config
+// before storing it, so a band that would brick every later risk read
+// (borrow/withdraw/liquidation) never gets stored.
+//
+// The source is smoothed on purpose: a spot-only single source is refused
+// earlier by the smoothing rule (#38), which would make this pass without ever
+// reaching the band.
 #[test]
 #[should_panic(expected = "Error(Contract, #223)")]
 fn test_configure_market_oracle_rejects_out_of_band_live_price() {
@@ -508,7 +536,8 @@ fn test_configure_market_oracle_rejects_out_of_band_live_price() {
     let usdc = t.resolve_asset("USDC");
 
     // USDC lives at $1; a single-source band tight around $3 excludes it.
-    let cfg = test_harness::reflector_single_spot_config(
+    let cfg = test_harness::reflector_primary_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &usdc,
         test_harness::usd(3),

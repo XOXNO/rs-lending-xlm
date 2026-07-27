@@ -6,10 +6,10 @@ use crate::oracle::config::{
 };
 use crate::presets::TolerancePreset;
 use controller::types::{
-    OracleAssetRef, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy,
-    ReflectorBase, ReflectorSourceConfig,
+    AssetOracle, FeedSource, OracleAssetRef, OracleReadMode, PriceKey, PriceSource, ProviderRef,
+    ReflectorFeedRef,
 };
-use soroban_sdk::Address;
+use soroban_sdk::{Address, Vec};
 
 impl LendingTest {
     /// Set the oracle price for an asset. Use with usd(), usd_cents(), usd_frac().
@@ -57,29 +57,27 @@ impl LendingTest {
 
     /// Re-center / widen the live sanity band after a harness price move.
     ///
-    /// * `Single` — tight ±1% around the new print (matches setup builders).
-    /// * `PrimaryWithAnchor` — restore the wide default band so soft
-    ///   spot/TWAP divergence tests hit deviation/staleness before #223.
+    /// * single-source — tight ±1% around the new print (matches setup builders).
+    /// * dual-source — restore the wide default band so soft spot/TWAP
+    ///   divergence tests hit deviation/staleness before #223.
     /// * Non-positive prices — leave the band alone (InvalidPrice path).
     fn sync_sanity_band_for_test_price(&self, asset: &Address, price_wad: i128) {
         if price_wad <= 0 {
             return;
         }
-        let Some(mut oracle) = self.price_agg_client().oracle_config(asset) else {
+        let key = PriceKey::Token(asset.clone());
+        let Some(mut oracle) = self.price_agg_client().oracle_for(&key) else {
             return;
         };
-        match oracle.strategy {
-            OracleStrategy::Single => {
-                let (min_wad, max_wad) = tight_single_source_band(price_wad);
-                oracle.min_sanity_price_wad = min_wad;
-                oracle.max_sanity_price_wad = max_wad;
-            }
-            OracleStrategy::PrimaryWithAnchor => {
-                oracle.min_sanity_price_wad = DEFAULT_MIN_SANITY_PRICE_WAD;
-                oracle.max_sanity_price_wad = DEFAULT_MAX_SANITY_PRICE_WAD;
-            }
+        if oracle.is_dual() {
+            oracle.min_sanity_price_wad = DEFAULT_MIN_SANITY_PRICE_WAD;
+            oracle.max_sanity_price_wad = DEFAULT_MAX_SANITY_PRICE_WAD;
+        } else {
+            let (min_wad, max_wad) = tight_single_source_band(price_wad);
+            oracle.min_sanity_price_wad = min_wad;
+            oracle.max_sanity_price_wad = max_wad;
         }
-        self.price_agg_client().seed_oracle_config(asset, &oracle);
+        self.price_agg_client().seed_asset_oracle(&key, &oracle);
     }
 
     /// Set the raw WAD price for an asset (alias for set_price).
@@ -100,26 +98,22 @@ impl LendingTest {
         self.gov_client().execute_immediate(
             &self.admin,
             &AdminOperation::EditOracleTolerance(EditToleranceArgs {
-                asset,
+                key: PriceKey::Token(asset),
                 tolerance: preset.tolerance_bps,
             }),
         );
     }
 
-    /// Configure a market oracle through the governance forwarder, which
-    /// probes the mock oracles, validates the input, and forwards the
-    /// resolved config to the controller's thin setter.
-    pub fn configure_market_oracle(
-        &self,
-        asset: &Address,
-        input: &controller::types::AssetOracleConfigInput,
-    ) {
-        use governance::op::{AdminOperation, ConfigureOracleArgs};
+    /// Configure a market oracle through the governance forwarder, which reads
+    /// `asset_decimals` from the token and forwards to the aggregator, where the
+    /// full validation set runs.
+    pub fn configure_market_oracle(&self, asset: &Address, oracle: &AssetOracle) {
+        use governance::op::{AdminOperation, ConfigureAssetOracleArgs};
         self.gov_client().execute_immediate(
             &self.admin,
-            &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-                hub_asset: crate::helpers::hub_asset(asset.clone()),
-                cfg: input.clone(),
+            &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+                key: PriceKey::Token(asset.clone()),
+                oracle: oracle.clone(),
             }),
         );
     }
@@ -140,77 +134,88 @@ impl LendingTest {
     pub fn set_oracle_single_spot(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
         let price_wad = self.resolve_market(asset_name).price_wad;
-        let mut oracle = self.price_agg_client().oracle_config(&asset).unwrap();
-        oracle.strategy = OracleStrategy::Single;
-        oracle.primary = source_with_read_mode(&oracle.primary, OracleReadMode::Spot);
-        oracle.anchor = OracleSourceConfigOption::None;
+        let key = PriceKey::Token(asset.clone());
+        let mut oracle = self.price_agg_client().oracle_for(&key).unwrap();
+        oracle.sources = single(
+            &self.env,
+            with_read_mode(&oracle.sources.get_unchecked(0), OracleReadMode::Spot),
+        );
         if price_wad > 0 {
             let (min_wad, max_wad) = tight_single_source_band(price_wad);
             oracle.min_sanity_price_wad = min_wad;
             oracle.max_sanity_price_wad = max_wad;
         }
-        self.price_agg_client().seed_oracle_config(&asset, &oracle);
+        self.price_agg_client().seed_asset_oracle(&key, &oracle);
     }
 
     pub fn set_oracle_primary_anchor(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
-        let mut oracle = self.price_agg_client().oracle_config(&asset).unwrap();
-        oracle.strategy = OracleStrategy::PrimaryWithAnchor;
-        oracle.primary = source_with_read_mode(&oracle.primary, OracleReadMode::Twap(3));
-        oracle.anchor = OracleSourceConfigOption::Some(source_with_read_mode(
-            &oracle.primary,
-            OracleReadMode::Spot,
-        ));
+        let key = PriceKey::Token(asset.clone());
+        let mut oracle = self.price_agg_client().oracle_for(&key).unwrap();
+        let first = oracle.sources.get_unchecked(0);
+        let mut sources = Vec::new(&self.env);
+        sources.push_back(with_read_mode(&first, OracleReadMode::Twap(3)));
+        sources.push_back(with_read_mode(&first, OracleReadMode::Spot));
+        oracle.sources = sources;
         // Dual-source soft paths need room for spot/TWAP divergence; drop the
-        // Single-market ±1% band inherited from setup.
+        // single-source ±1% band inherited from setup.
         oracle.min_sanity_price_wad = DEFAULT_MIN_SANITY_PRICE_WAD;
         oracle.max_sanity_price_wad = DEFAULT_MAX_SANITY_PRICE_WAD;
-        self.price_agg_client().seed_oracle_config(&asset, &oracle);
+        self.price_agg_client().seed_asset_oracle(&key, &oracle);
     }
 
-    /// Alias for dual-source tolerance tests: primary TWAP + anchor spot.
+    /// Alias for dual-source tolerance tests: TWAP source + spot source.
     pub fn enable_dual_source_oracle(&self, asset_name: &str) {
         self.set_oracle_primary_anchor(asset_name);
     }
 
-    /// Wire a separate DEX reflector as anchor spot for dual-source repricing tests.
+    /// Wire a separate DEX reflector as the second source for repricing tests.
     pub fn set_dual_oracle_dex_anchor(&self, asset_name: &str, dex_oracle: Address) {
         let asset = self.resolve_asset(asset_name);
-        let mut oracle = self.price_agg_client().oracle_config(&asset).unwrap();
-        oracle.strategy = OracleStrategy::PrimaryWithAnchor;
-        oracle.primary = match oracle.primary {
-            OracleSourceConfig::Reflector(mut source) => {
-                source.read_mode = OracleReadMode::Twap(3);
-                OracleSourceConfig::Reflector(source)
-            }
-            source => source,
-        };
-        oracle.anchor =
-            OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(ReflectorSourceConfig {
+        let key = PriceKey::Token(asset.clone());
+        let mut oracle = self.price_agg_client().oracle_for(&key).unwrap();
+
+        let mut sources = Vec::new(&self.env);
+        sources.push_back(with_read_mode(
+            &oracle.sources.get_unchecked(0),
+            OracleReadMode::Twap(3),
+        ));
+        sources.push_back(PriceSource::Feed(FeedSource {
+            provider: ProviderRef::Reflector(ReflectorFeedRef {
                 contract: dex_oracle,
                 asset: OracleAssetRef::Stellar(asset.clone()),
                 read_mode: OracleReadMode::Spot,
-                decimals: 14,
-                resolution_seconds: 300,
-                base: ReflectorBase::Usd,
-            }));
+            }),
+            decimals: 14,
+            max_stale_seconds: oracle.max_price_stale_seconds,
+        }));
+        oracle.sources = sources;
         oracle.min_sanity_price_wad = DEFAULT_MIN_SANITY_PRICE_WAD;
         oracle.max_sanity_price_wad = DEFAULT_MAX_SANITY_PRICE_WAD;
-        self.price_agg_client().seed_oracle_config(&asset, &oracle);
+        self.price_agg_client().seed_asset_oracle(&key, &oracle);
     }
 }
 
-fn source_with_read_mode(
-    source: &OracleSourceConfig,
-    read_mode: OracleReadMode,
-) -> OracleSourceConfig {
+fn single(env: &soroban_sdk::Env, source: PriceSource) -> Vec<PriceSource> {
+    let mut sources = Vec::new(env);
+    sources.push_back(source);
+    sources
+}
+
+/// Re-reads a source under a different Reflector read mode, leaving every other
+/// shape untouched. Non-Reflector sources have no window to change.
+fn with_read_mode(source: &PriceSource, read_mode: OracleReadMode) -> PriceSource {
     match source {
-        OracleSourceConfig::Reflector(config) => {
-            let mut config = config.clone();
-            config.read_mode = read_mode;
-            OracleSourceConfig::Reflector(config)
-        }
-        OracleSourceConfig::RedStone(config) => OracleSourceConfig::RedStone(config.clone()),
-        OracleSourceConfig::Xoxno(config) => OracleSourceConfig::Xoxno(config.clone()),
+        PriceSource::Feed(feed) => match &feed.provider {
+            ProviderRef::Reflector(reflector) => PriceSource::Feed(FeedSource {
+                provider: ProviderRef::Reflector(ReflectorFeedRef {
+                    read_mode,
+                    ..reflector.clone()
+                }),
+                ..feed.clone()
+            }),
+            _ => source.clone(),
+        },
+        _ => source.clone(),
     }
 }

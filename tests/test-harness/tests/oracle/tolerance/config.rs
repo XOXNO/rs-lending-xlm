@@ -12,7 +12,10 @@ fn test_tolerance_config_valid_update() {
         upper_ratio_bps: 10_600,
         lower_ratio_bps: 9_434,
     };
-    let result = t.price_agg_client().try_set_tolerance(&asset, &tolerance);
+    let result = t.price_agg_client().try_set_tolerance(
+        &controller::types::PriceKey::Token(asset.clone()),
+        &tolerance,
+    );
     assert!(result.is_ok(), "valid tolerance update should succeed");
 }
 

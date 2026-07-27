@@ -311,7 +311,12 @@ fn test_solvbtc_config_validates_with_its_shared_adapter_declared() {
             btc,
             IndependencePolicy::AllowShared(declared),
         );
-        crate::config::set_asset_oracle(&env, solvbtc.clone(), oracle);
+        // Static validation only: the providers here are generated addresses,
+        // not deployed contracts, so the live attestation and containment probe
+        // `set_asset_oracle` also runs have nothing to read. Those are covered
+        // against real mocks in the integration harness.
+        crate::config::validate_asset_oracle(&env, &solvbtc, &oracle);
+        registry::set_oracle(&env, &solvbtc, &oracle);
 
         // The asset that no v1 configuration could express is now stored.
         let stored = registry::resolve_oracle(&env, &solvbtc).expect("solvbtc must be configured");
@@ -332,7 +337,7 @@ fn test_solvbtc_config_is_rejected_without_the_declaration() {
     with_contract(&env, || {
         let btc = register_btc_reference(&env, &reflector);
         let oracle = solvbtc_oracle(&env, &adapter, btc, IndependencePolicy::RequireDisjoint);
-        crate::config::set_asset_oracle(&env, solvbtc, oracle);
+        crate::config::validate_asset_oracle(&env, &solvbtc, &oracle);
     });
 }
 
@@ -362,7 +367,7 @@ fn test_a_ratio_leg_outliving_the_asset_ceiling_is_rejected() {
         );
         // Legs are 86400; drop the ceiling under them.
         oracle.max_price_stale_seconds = 3_600;
-        crate::config::set_asset_oracle(&env, solvbtc, oracle);
+        crate::config::validate_asset_oracle(&env, &solvbtc, &oracle);
     });
 }
 
@@ -374,12 +379,20 @@ fn test_a_ratio_leg_outliving_the_asset_ceiling_is_rejected() {
 /// Stores a one-source config with a band narrow enough to satisfy the
 /// single-source cap, so a rejection is attributable to the field under test
 /// rather than to `InvalidSanityBounds`.
+/// Runs the **static** half of configure-time validation and stores the result.
+///
+/// Deliberately not `set_asset_oracle`: the providers in these tests are
+/// generated addresses, so the live attestation and containment probe would
+/// revert every case with `NoLastPrice` before the rule under test ever ran —
+/// and each `#[should_panic]` here would then pass for the wrong reason. Those
+/// two live steps are covered against real mocks in the integration harness.
 fn store_single(env: &Env, key: PriceKey, source: PriceSource, asset_decimals: u32) {
     let mut oracle = oracle_of(env, one(env, source));
     oracle.asset_decimals = asset_decimals;
     oracle.min_sanity_price_wad = 95 * 10i128.pow(16);
     oracle.max_sanity_price_wad = 105 * 10i128.pow(16);
-    crate::config::set_asset_oracle(env, key, oracle);
+    crate::config::validate_asset_oracle(env, &key, &oracle);
+    registry::set_oracle(env, &key, &oracle);
 }
 
 #[test]
@@ -535,6 +548,6 @@ fn test_a_self_referential_config_is_rejected_at_write_time() {
         let key = PriceKey::Ref(Symbol::new(&env, "LOOP"));
         let mut oracle = oracle_of(&env, one(&env, scaled_onto(&env, &adapter, key.clone())));
         oracle.asset_decimals = 0;
-        crate::config::set_asset_oracle(&env, key, oracle);
+        crate::config::validate_asset_oracle(&env, &key, &oracle);
     });
 }

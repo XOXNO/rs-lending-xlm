@@ -6,7 +6,6 @@ use common::oracle::providers::redstone::RedStonePriceData;
 use common::types::{PriceFeedRaw, PriceKey, PriceStatus};
 use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 
-
 pub(crate) struct ResolutionContext {
     env: Env,
     /// Raw multi-feed adapter payloads (RedStone/Xoxno wire ABI) fetched once
@@ -122,7 +121,6 @@ impl ResolutionContext {
     pub(crate) fn store_key_price(&mut self, key: &PriceKey, feed: PriceFeedRaw) {
         self.key_prices.set(key.clone(), feed);
     }
-
 }
 
 #[cfg(test)]

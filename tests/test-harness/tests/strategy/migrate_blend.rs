@@ -746,7 +746,8 @@ fn test_migrate_rejects_priced_but_unlisted_withdraw_asset_before_blend() {
         .set_price(&unlisted, &test_harness::helpers::usd(1));
     t.configure_market_oracle(
         &unlisted,
-        &test_harness::reflector_single_spot_config(
+        &test_harness::reflector_primary_anchor_config(
+            &t.env,
             &t.mock_reflector,
             &unlisted,
             test_harness::helpers::usd(1),

@@ -13,7 +13,7 @@ fn try_tolerance(
     match t.gov_client().try_execute_immediate(
         &t.admin(),
         &AdminOperation::EditOracleTolerance(EditToleranceArgs {
-            asset: asset.clone(),
+            key: controller::types::PriceKey::Token(asset.clone()),
             tolerance,
         }),
     ) {

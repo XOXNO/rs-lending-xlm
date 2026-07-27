@@ -25,7 +25,7 @@ use crate::oracle::observation::{
     MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
 };
 use crate::types::composable_oracle::{
-    FeedSource, IndependencePolicy, PriceKey, PriceSource, ProviderRef, ScaledSource,
+    FeedSource, IndependencePolicy, PriceKey, PriceSource, ProviderKind, ProviderRef, ScaledSource,
     SourceProperties, MAX_RESOLUTION_DEPTH, MAX_SOURCES, MIN_SOURCES,
 };
 use crate::types::oracle::OracleReadMode;
@@ -246,11 +246,33 @@ fn validate_feed_shape(env: &Env, feed: &FeedSource) {
     if !(MIN_ORACLE_DECIMALS..=MAX_ORACLE_DECIMALS).contains(&feed.decimals) {
         panic_with_error!(env, OracleError::InvalidOracleDecimals);
     }
-    if let ProviderRef::Reflector(reflector) = &feed.provider {
-        if let OracleReadMode::Twap(records) = reflector.read_mode {
-            validate_twap_records(env, records);
-            if records < MIN_SMOOTHING_TWAP_RECORDS {
-                panic_with_error!(env, OracleError::TwapInsufficientObservations);
+    // Each leg's own window, bounded on both ends and independently of the
+    // asset ceiling. `validate_staleness_envelope` only proves a leg cannot
+    // outlive the ceiling; it says nothing about a leg set to one second (which
+    // makes the feed permanently stale and the market unusable) or to a value
+    // past the protocol maximum on an asset whose ceiling was never tightened.
+    if !(MIN_PRICE_STALE_SECONDS..=MAX_PRICE_STALE_SECONDS).contains(&feed.max_stale_seconds) {
+        panic_with_error!(env, OracleError::InvalidStalenessConfig);
+    }
+    match &feed.provider {
+        ProviderRef::Reflector(reflector) => {
+            if let OracleReadMode::Twap(records) = reflector.read_mode {
+                validate_twap_records(env, records);
+                if records < MIN_SMOOTHING_TWAP_RECORDS {
+                    panic_with_error!(env, OracleError::TwapInsufficientObservations);
+                }
+            }
+        }
+        // `kind` names the operator standing behind a multi-feed adapter. It is
+        // a trust label, not an ABI selector — but it decides how the adapter's
+        // decimals are established (RedStone fixes them in the wire format,
+        // XOXNO publishes them), so a label naming no multi-feed operator has
+        // no defined attestation. A Reflector deployment is reached through
+        // `ProviderRef::Reflector`, which addresses an asset rather than a feed
+        // id, so this label is always a mistake here.
+        ProviderRef::MultiFeed(multi_feed) => {
+            if matches!(multi_feed.kind, ProviderKind::Reflector) {
+                panic_with_error!(env, GenericError::InvalidExchangeSrc);
             }
         }
     }

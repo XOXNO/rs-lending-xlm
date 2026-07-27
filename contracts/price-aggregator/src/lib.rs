@@ -15,6 +15,7 @@
 
 #![no_std]
 
+mod attest;
 mod config;
 mod context;
 mod engine;
@@ -40,9 +41,7 @@ use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
 
-use common::types::{
-    AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus,
-};
+use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus};
 
 pub use common::errors::OracleError as Error;
 
@@ -128,7 +127,6 @@ impl PriceAggregator {
         }
         out
     }
-
 
     /// USD price for `key` under the composable model. Fail-closed, same
     /// discipline as [`Self::price`].

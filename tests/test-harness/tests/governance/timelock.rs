@@ -12,15 +12,15 @@
 //! The harness constructor arms a short non-zero delay so scheduled ops sit in
 //! `Waiting` until the ledger advances to `Ready`.
 
-use controller::types::{AssetOracleConfig, ControllerKey, PositionLimits};
+use controller::types::{ControllerKey, PositionLimits};
 use governance_interface::{
-    AdminOperation, ConfigureOracleArgs, EditToleranceArgs, TransferOwnershipArgs,
+    AdminOperation, ConfigureAssetOracleArgs, EditToleranceArgs, TransferOwnershipArgs,
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, IntoVal, Symbol};
 use test_harness::{
-    assert_contract_error, errors, hub_asset, reflector_single_spot_config, usd, usdc_preset,
-    LendingTest, DEFAULT_TOLERANCE,
+    assert_contract_error, errors, reflector_primary_anchor_config, usd, usdc_preset, LendingTest,
+    DEFAULT_TOLERANCE,
 };
 
 const SET_POSITION_LIMITS: &str = "set_position_limits";
@@ -337,7 +337,7 @@ fn same_params_distinct_salts_schedule_independently() {
     );
 }
 
-const SET_MARKET_ORACLE_CONFIG: &str = "set_oracle_config";
+const SET_ASSET_ORACLE: &str = "set_asset_oracle";
 
 // The CLI timelock linchpin (TL-5b): the `resolve_market_oracle_config` view runs
 // the SAME validate+probe path as `propose_configure_market_oracle`, so its output
@@ -356,7 +356,8 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
 
     assert_harness_delay(&t);
 
-    let cfg = reflector_single_spot_config(
+    let cfg = reflector_primary_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &asset,
         usd(1),
@@ -365,14 +366,15 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
 
     // Resolve independently through the read-only view (no schedule, no state
     // change): this is exactly what the CLI invokes under `--send=no`.
-    let resolved: AssetOracleConfig = gov.resolve_market_oracle_config(&asset, &cfg);
+    let resolved =
+        gov.resolve_asset_oracle(&controller::types::PriceKey::Token(asset.clone()), &cfg);
 
     // Schedule the same op through the proposer; it stores the resolved struct.
     let id = gov.propose(
         &admin,
-        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            hub_asset: hub_asset(asset.clone()),
-            cfg,
+        &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+            key: controller::types::PriceKey::Token(asset.clone()),
+            oracle: cfg,
         }),
         &s,
     );
@@ -385,16 +387,23 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
         .ledger()
         .with_mut(|l| l.sequence_number += TEST_DELAY_LEDGERS);
 
+    // The mock keeps its prices in temporary storage, which the ledger jump
+    // above expires. A real feed publishes continuously across the timelock, so
+    // re-seed it — otherwise `set_asset_oracle`'s containment probe reads an
+    // empty history and reverts for reasons that have nothing to do with the
+    // view/propose agreement under test.
+    t.mock_reflector_client().set_price(&asset, &usd(1));
+
     // Execute with the VIEW's output as args. This only succeeds if the view
     // output hashes to the same operation id the proposer scheduled — i.e. it is
     // byte-identical to the scheduled args.
     gov.execute(
         &Some(admin.clone()),
         &t.price_aggregator,
-        &Symbol::new(&t.env, SET_MARKET_ORACLE_CONFIG),
+        &Symbol::new(&t.env, SET_ASSET_ORACLE),
         &soroban_sdk::vec![
             &t.env,
-            asset.clone().into_val(&t.env),
+            controller::types::PriceKey::Token(asset.clone()).into_val(&t.env),
             resolved.clone().into_val(&t.env),
         ],
         &salt(&t.env, 0),
@@ -430,7 +439,7 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
     let id = gov.propose(
         &admin,
         &AdminOperation::EditOracleTolerance(EditToleranceArgs {
-            asset: asset.clone(),
+            key: controller::types::PriceKey::Token(asset.clone()),
             tolerance,
         }),
         &s,
@@ -450,7 +459,7 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
         &Symbol::new(&t.env, "set_tolerance"),
         &soroban_sdk::vec![
             &t.env,
-            asset.clone().into_val(&t.env),
+            controller::types::PriceKey::Token(asset.clone()).into_val(&t.env),
             resolved.clone().into_val(&t.env),
         ],
         &salt(&t.env, 0),

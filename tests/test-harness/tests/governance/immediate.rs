@@ -146,7 +146,12 @@ fn oracle_role_moves_sanity_band_containing_price() {
     // single-source width cap.
     let min = usd(1) * 95 / 100;
     let max = usd(1) * 105 / 100;
-    gov.set_sanity_band(&admin, &usdc, &min, &max);
+    gov.set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &min,
+        &max,
+    );
 
     let after = t.market_oracle_config(&usdc);
     assert_eq!(after.min_sanity_price_wad, min);
@@ -170,15 +175,19 @@ fn sanity_band_not_containing_price_rejected() {
     // so the overlap gate does not fire first.
     let result = gov.try_set_sanity_band(
         &admin,
-        &usdc,
+        &controller::types::PriceKey::Token(usdc.clone()),
         &(usd(1) * 1005 / 1000),
         &(usd(1) * 105 / 100),
     );
     assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
 
     // Entirely below the $1 live price, still overlapping the seeded band.
-    let result =
-        gov.try_set_sanity_band(&admin, &usdc, &(usd(1) * 95 / 100), &(usd(1) * 995 / 1000));
+    let result = gov.try_set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &(usd(1) * 95 / 100),
+        &(usd(1) * 995 / 1000),
+    );
     assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
 }
 
@@ -194,18 +203,32 @@ fn sanity_band_disjoint_from_old_band_rejected() {
     // Narrow the band around the live $1 price first.
     let narrow_min = usd(1) * 97 / 100;
     let narrow_max = usd(1) * 103 / 100;
-    gov.set_sanity_band(&admin, &usdc, &narrow_min, &narrow_max);
+    gov.set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &narrow_min,
+        &narrow_max,
+    );
 
     // A new band disjoint from the narrow window is rejected even before pricing
     // (containment would also fail here; the overlap rule fires first).
-    let result =
-        gov.try_set_sanity_band(&admin, &usdc, &(usd(1) * 110 / 100), &(usd(1) * 115 / 100));
+    let result = gov.try_set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &(usd(1) * 110 / 100),
+        &(usd(1) * 115 / 100),
+    );
     assert_contract_error(flatten(result), errors::INVALID_SANITY_BOUNDS);
 
     // An overlapping widening that still contains the live price passes.
     let wide_min = usd(1) * 94 / 100;
     let wide_max = usd(1) * 106 / 100;
-    gov.set_sanity_band(&admin, &usdc, &wide_min, &wide_max);
+    gov.set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &wide_min,
+        &wide_max,
+    );
     let after = t.market_oracle_config(&usdc);
     assert_eq!(after.min_sanity_price_wad, wide_min);
     assert_eq!(after.max_sanity_price_wad, wide_max);
@@ -220,12 +243,17 @@ fn sanity_band_input_and_role_gates() {
     let stranger = Address::generate(&t.env);
     let usdc = t.resolve_asset("USDC");
 
-    let result = gov.try_set_sanity_band(&admin, &usdc, &usd(2), &usd(1));
+    let result = gov.try_set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &usd(2),
+        &usd(1),
+    );
     assert_contract_error(flatten(result), errors::INVALID_SANITY_BOUNDS);
 
     let result = gov.try_set_sanity_band(
         &stranger,
-        &usdc,
+        &controller::types::PriceKey::Token(usdc.clone()),
         &(usd(1) * 95 / 100),
         &(usd(1) * 105 / 100),
     );

@@ -206,12 +206,8 @@ fn render_hard(env: &Env, oracle: &AssetOracle, composition: &Composition) -> Re
             require_fresh(env, second);
             // `midpoint_if_in_band` is symmetric in its two arguments, so source
             // order cannot change either the price or the accept/reject outcome.
-            let price_wad = midpoint_if_in_band(
-                env,
-                second.price_wad,
-                first.price_wad,
-                &oracle.tolerance,
-            );
+            let price_wad =
+                midpoint_if_in_band(env, second.price_wad, first.price_wad, &oracle.tolerance);
             Resolved {
                 price_wad,
                 // A blend is only as fresh as the weaker source it rests on.
@@ -305,12 +301,8 @@ fn render_soft(env: &Env, oracle: &AssetOracle, composition: &Composition) -> Pr
             // A diagnostic shows the number it rejected, so the midpoint is
             // reported either way and `deviation` is what keeps it out of `valid`.
             let final_wad = midpoint_price_or_zero(env, second.price_wad, first.price_wad);
-            let deviation = !within_tolerance_band(
-                env,
-                second.price_wad,
-                first.price_wad,
-                &oracle.tolerance,
-            );
+            let deviation =
+                !within_tolerance_band(env, second.price_wad, first.price_wad, &oracle.tolerance);
             let stale = first.stale || second.stale;
             PriceStatus {
                 final_wad,
@@ -341,7 +333,14 @@ fn is_valid(final_wad: i128, stale: bool, deviation: bool, oracle: &AssetOracle)
 ///
 /// # Errors
 /// * [`OracleError::SourceCountOutOfRange`] - a stored config with no sources,
-///   or more than the model admits. Structural, so it reverts in both modes.
+///   or more than the model admits. **Hard mode only**: the soft renderers
+///   exist so a view never reverts, and the controller prices a whole portfolio
+///   in one call, so one structurally-corrupt entry taking down every other
+///   asset's status would be a worse failure than reporting it unusable. In
+///   soft mode this returns an empty composition, which renders `valid: false`.
+///
+/// Such a config is unreachable through `set_asset_oracle`, which enforces
+/// arity; it could only arrive through a storage-level fault or a test seed.
 fn compose(
     cache: &mut ResolutionContext,
     oracle: &AssetOracle,
@@ -351,6 +350,12 @@ fn compose(
     let env = cache.env().clone();
     let count = oracle.sources.len();
     if count == 0 || count > 2 {
+        if mode.soft() {
+            return Composition {
+                first: None,
+                second: None,
+            };
+        }
         panic_with_error!(&env, OracleError::SourceCountOutOfRange);
     }
 
@@ -559,4 +564,3 @@ fn require_depth_within_cap(env: &Env, depth: u32) {
 #[cfg(test)]
 #[path = "../tests/oracle/engine.rs"]
 mod tests;
-

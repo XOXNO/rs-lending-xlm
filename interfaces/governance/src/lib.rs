@@ -7,9 +7,7 @@
 //! entrypoints by ABI name. Test-only helpers (`execute_immediate`,
 //! `set_controller`, `set_price_aggregator`) are excluded.
 
-use common::types::{
-    AssetOracle, HubAssetKey, OracleTolerance, PositionLimits, PriceKey,
-};
+use common::types::{AssetOracle, HubAssetKey, OracleTolerance, PositionLimits, PriceKey};
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
 pub use stellar_governance::timelock::OperationState;
@@ -243,6 +241,16 @@ pub trait GovernanceInterface {
     /// * `MathOverflow` — band computation overflows.
     fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OracleTolerance;
 
+    /// Resolves an oracle proposal to the exact `AssetOracle` a
+    /// `ConfigureAssetOracle` proposal would schedule. Read-only. Governance
+    /// overrides `asset_decimals` from the token, so a dry run must be reviewed
+    /// against this struct rather than the submitted one.
+    ///
+    /// # Errors
+    /// * `InvalidAsset` — `PriceKey::Token` whose address is not a readable
+    ///   token contract.
+    fn resolve_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) -> AssetOracle;
+
     /// Schedules an `AdminOperation` and returns its operation id. `PROPOSER`-gated.
     /// Sensitive floor: upgrades, ownership transfers, `SetPriceAggregator`. Other
     /// ops use min delay. `TransferGovOwnership` requires the owner as proposer;
@@ -300,7 +308,7 @@ pub trait GovernanceInterface {
     ///
     /// # Events
     /// * Aggregator `UpdateAssetOracleEvent`.
-    fn set_sanity_band(env: Env, caller: Address, asset: Address, min_wad: i128, max_wad: i128);
+    fn set_sanity_band(env: Env, caller: Address, key: PriceKey, min_wad: i128, max_wad: i128);
 
     /// Creates a hub and returns its id. `GUARDIAN`-gated. Listings still ride
     /// the timelock.

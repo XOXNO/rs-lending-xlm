@@ -2,12 +2,14 @@
 
 extern crate std;
 
-use crate::op::{AdminOperation, ConfigureAssetOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs};
+use crate::op::{
+    AdminOperation, ConfigureAssetOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs,
+};
 use common::constants::MAX_REASONABLE_PRICE_WAD;
 use common::types::{
-    AssetOracleConfigInput, ControllerKey, HubAssetKey, OracleAssetRef, OracleReadMode,
-    OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
-    ReflectorSourceConfigInput,
+    AssetOracle, ControllerKey, FeedSource, HubAssetKey, IndependencePolicy, OracleAssetRef,
+    OracleReadMode, OracleTolerance, PositionLimits, PriceKey, PriceSource, ProviderRef,
+    ReflectorFeedRef,
 };
 use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
@@ -26,17 +28,32 @@ fn register_native_controller(env: &Env, gov_id: &Address, gov: &GovernanceClien
     controller_id
 }
 
-fn sample_oracle_input(env: &Env) -> AssetOracleConfigInput {
-    AssetOracleConfigInput {
+/// A well-formed single-source oracle over throwaway addresses.
+///
+/// These tests exercise governance's routing and auth, not the aggregator's
+/// validation — the proposals here are never executed against a live feed — so
+/// the providers need only be shaped correctly, not deployed.
+fn sample_asset_oracle(env: &Env) -> AssetOracle {
+    AssetOracle {
+        asset_decimals: 7,
         max_price_stale_seconds: 900,
-        tolerance_bps: 500,
-        strategy: OracleStrategy::Single,
-        primary: OracleSourceConfigInput::Reflector(ReflectorSourceConfigInput {
-            contract: Address::generate(env),
-            asset: OracleAssetRef::Stellar(Address::generate(env)),
-            read_mode: OracleReadMode::Twap(5),
-        }),
-        anchor: OracleSourceConfigInputOption::None,
+        sources: soroban_sdk::vec![
+            env,
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::Reflector(ReflectorFeedRef {
+                    contract: Address::generate(env),
+                    asset: OracleAssetRef::Stellar(Address::generate(env)),
+                    read_mode: OracleReadMode::Twap(5),
+                }),
+                decimals: 14,
+                max_stale_seconds: 900,
+            })
+        ],
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence: IndependencePolicy::RequireDisjoint,
         min_sanity_price_wad: 1,
         max_sanity_price_wad: MAX_REASONABLE_PRICE_WAD,
     }
@@ -682,7 +699,12 @@ fn set_sanity_band_requires_oracle_role() {
     register_native_controller(&env, &gov_id, &gov);
     let stranger = Address::generate(&env);
 
-    gov.set_sanity_band(&stranger, &Address::generate(&env), &1i128, &2i128);
+    gov.set_sanity_band(
+        &stranger,
+        &PriceKey::Token(Address::generate(&env)),
+        &1i128,
+        &2i128,
+    );
 }
 
 #[test]
@@ -701,7 +723,12 @@ fn oracle_set_sanity_bounds_reaches_aggregator_config_check() {
     // No oracle configured for the asset: the price-aggregator's
     // OracleNotConfigured (#216) proves the ORACLE role sanity-band forwarding
     // reached the authority.
-    gov.set_sanity_band(&bot, &Address::generate(&env), &1i128, &2i128);
+    gov.set_sanity_band(
+        &bot,
+        &PriceKey::Token(Address::generate(&env)),
+        &1i128,
+        &2i128,
+    );
 }
 
 #[test]

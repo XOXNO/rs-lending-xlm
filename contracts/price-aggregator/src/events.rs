@@ -207,26 +207,6 @@ fn read_mode_parts(read_mode: &OracleReadMode) -> (u32, u32) {
     }
 }
 
-#[contractevent(topics = ["config", "oracle"])]
-#[derive(Clone, Debug)]
-pub struct UpdateAssetOracleEvent {
-    pub asset: Address,
-    pub oracle: EventOracleProvider,
-}
-
-/// Publishes the post-write config snapshot for `asset`. Every config mutator
-/// calls this once, after the write.
-///
-/// # Events
-/// * topics — `["config", "oracle"]`
-pub(crate) fn emit_oracle_updated(env: &Env, asset: &Address, config: &AssetOracleConfig) {
-    UpdateAssetOracleEvent {
-        asset: asset.clone(),
-        oracle: EventOracleProvider::from_oracle(asset, config),
-    }
-    .publish(env);
-}
-
 /// Published on every composable-oracle write.
 ///
 /// Carries the config verbatim rather than a projection. Two of the model's

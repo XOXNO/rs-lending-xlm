@@ -2,12 +2,11 @@
 //! client, with real mock oracles probed in-path.
 
 use controller::constants::{BPS, MAX_REASONABLE_PRICE_WAD, RAY};
-use controller::types::{
-    AssetOracleConfigInput, InterestRateModel, OracleReadMode, OracleSourceConfigInput,
-    OracleSourceConfigInputOption, OracleStrategy,
+use controller::types::{AssetOracle, InterestRateModel, OracleReadMode};
+use governance::op::{
+    AdminOperation, ConfigureAssetOracleArgs, SpokeAssetArgs, UpgradePoolParamsArgs,
 };
-use governance::op::{AdminOperation, ConfigureOracleArgs, SpokeAssetArgs, UpgradePoolParamsArgs};
-use soroban_sdk::{String, Symbol};
+use soroban_sdk::{String, Symbol, Vec};
 use test_harness::{
     hub_asset, usdc_preset, LendingTest, DEFAULT_TOLERANCE, HARNESS_HUB, HARNESS_SPOKE,
 };
@@ -186,9 +185,10 @@ fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
 
 // `configure_market_oracle` error paths against the live mock reflector.
 
-fn base_oracle_config(t: &LendingTest) -> AssetOracleConfigInput {
+fn base_oracle_config(t: &LendingTest) -> AssetOracle {
     let market = t.resolve_market("USDC");
     test_harness::reflector_primary_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &market.asset,
         market.price_wad,
@@ -196,20 +196,18 @@ fn base_oracle_config(t: &LendingTest) -> AssetOracleConfigInput {
     )
 }
 
-fn set_primary_reflector_read_mode(cfg: &mut AssetOracleConfigInput, read_mode: OracleReadMode) {
-    if let OracleSourceConfigInput::Reflector(ref mut source) = cfg.primary {
-        source.read_mode = read_mode;
-    }
+fn set_primary_reflector_read_mode(cfg: &mut AssetOracle, read_mode: OracleReadMode) {
+    test_harness::set_reflector_read_mode(cfg, 0, read_mode);
 }
 
-fn configure_usdc(t: &LendingTest, cfg: &AssetOracleConfigInput) {
+fn configure_usdc(t: &LendingTest, cfg: &AssetOracle) {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            hub_asset: hub_asset(asset),
-            cfg: cfg.clone(),
+        &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+            key: controller::types::PriceKey::Token(asset),
+            oracle: cfg.clone(),
         }),
     );
 }
@@ -244,50 +242,68 @@ fn test_configure_market_oracle_rejects_excessive_twap_records() {
     configure_usdc(&t, &cfg);
 }
 
-// PrimaryWithAnchor without an anchor rejects InvalidExchangeSrc (#11).
+// A sourceless oracle would price nothing while still reporting a config, so
+// arity is bounded on both ends: SourceCountOutOfRange (#231).
 #[test]
-#[should_panic(expected = "Error(Contract, #11)")]
-fn test_configure_market_oracle_rejects_dual_without_dex() {
+#[should_panic(expected = "Error(Contract, #231)")]
+fn test_configure_market_oracle_rejects_zero_sources() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let mut cfg = base_oracle_config(&t);
-    cfg.strategy = OracleStrategy::PrimaryWithAnchor;
-    cfg.anchor = OracleSourceConfigInputOption::None;
+    cfg.sources = Vec::new(&t.env);
     configure_usdc(&t, &cfg);
 }
 
-// Identical primary and anchor collapse the dual-source diversity guarantee
-// (anchor compared against itself always passes the tolerance band) and are
-// rejected with InvalidExchangeSrc (#11).
+// Three sources have no defined agreement rule — the band is pairwise — so the
+// upper arity bound is enforced rather than silently truncating to two (#231).
 #[test]
-#[should_panic(expected = "Error(Contract, #11)")]
-fn test_configure_market_oracle_rejects_identical_primary_anchor() {
+#[should_panic(expected = "Error(Contract, #231)")]
+fn test_configure_market_oracle_rejects_three_sources() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
+    let redstone = t.mock_reflector.clone();
     let mut cfg = base_oracle_config(&t);
-    cfg.strategy = OracleStrategy::PrimaryWithAnchor;
-    cfg.anchor = OracleSourceConfigInputOption::Some(cfg.primary.clone());
+    for name in ["BTC", "ETH"] {
+        let feed_id = String::from_str(&t.env, name);
+        cfg.sources
+            .push_back(test_harness::redstone_source(&redstone, &feed_id));
+    }
     configure_usdc(&t, &cfg);
 }
 
-// Two RedStone sources on the same contract and feed differ only in the
-// policy-only `max_stale_seconds`, so they read the same underlying feed and
-// collapse the dual-source diversity guarantee. Rejected with InvalidExchangeSrc
-// (#11) at shape validation even though the configs are not byte-equal.
+// Two sources on the same contract are not two opinions: whoever controls that
+// contract controls both legs, so the agreement band it is meant to police
+// compares a value against itself. Under `RequireDisjoint` that is
+// IndependenceNotDeclared (#232).
 #[test]
-#[should_panic(expected = "Error(Contract, #11)")]
+#[should_panic(expected = "Error(Contract, #232)")]
+fn test_configure_market_oracle_rejects_identical_sources() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut cfg = base_oracle_config(&t);
+    cfg.sources.push_back(cfg.sources.get_unchecked(0));
+    configure_usdc(&t, &cfg);
+}
+
+// Same contract and feed, differing only in the policy-only `max_stale_seconds`.
+// Independence is judged on the contract address, not on config equality, so
+// these are rejected (#232) even though the two structs are not byte-equal —
+// the shared-writer risk is identical.
+#[test]
+#[should_panic(expected = "Error(Contract, #232)")]
 fn test_configure_market_oracle_rejects_same_redstone_feed_distinct_max_stale() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    // The diversity check runs before any live feed read, so a placeholder
+    // Independence is judged before any live feed read, so a placeholder
     // contract address suffices; both sources share it (and the feed id) on
     // purpose so they resolve to the same underlying feed.
     let redstone = t.mock_reflector.clone();
     let feed_id = String::from_str(&t.env, "BTC");
 
     let mut cfg = base_oracle_config(&t);
-    cfg.strategy = OracleStrategy::PrimaryWithAnchor;
-    cfg.primary = test_harness::redstone_source_with_max_stale(&redstone, &feed_id, 600);
-    cfg.anchor = OracleSourceConfigInputOption::Some(test_harness::redstone_source_with_max_stale(
-        &redstone, &feed_id, 900,
-    ));
+    cfg.sources = Vec::from_array(
+        &t.env,
+        [
+            test_harness::redstone_source_with_max_stale(&redstone, &feed_id, 600),
+            test_harness::redstone_source_with_max_stale(&redstone, &feed_id, 900),
+        ],
+    );
     configure_usdc(&t, &cfg);
 }
 

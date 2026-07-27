@@ -38,6 +38,7 @@ pub fn anchor_market_with_redstone_feed(
     let asset = t.resolve_asset(symbol);
     let feed = String::from_str(&t.env, feed_id);
     let cfg = crate::oracle::config::reflector_primary_redstone_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &asset,
         adapter,

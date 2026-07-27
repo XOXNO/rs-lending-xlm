@@ -1,4 +1,4 @@
-use controller::types::{OracleSourceConfig, OracleSourceConfigOption};
+use controller::types::{PriceSource, ProviderRef};
 use soroban_sdk::{Address, String};
 use test_harness::oracle::redstone::register_redstone_adapter;
 use test_harness::{hub_asset, usd, usdc_preset, LendingTest, ALICE, BOB, DEFAULT_TOLERANCE};
@@ -6,6 +6,7 @@ use test_harness::{hub_asset, usd, usdc_preset, LendingTest, ALICE, BOB, DEFAULT
 fn configure_usdc_with_redstone_single(t: &LendingTest, redstone: &Address, feed_id: &String) {
     let asset = t.resolve_asset("USDC");
     let cfg = test_harness::redstone_single_config(
+        &t.env,
         redstone,
         feed_id,
         usd(1),
@@ -34,6 +35,7 @@ fn test_reflector_primary_redstone_anchor_market_works() {
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1))]);
 
     let cfg = test_harness::reflector_primary_redstone_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &asset,
         &redstone,
@@ -68,6 +70,7 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
     );
 
     let cfg = test_harness::reflector_primary_redstone_anchor_config_with_anchor_stale(
+        &t.env,
         &t.mock_reflector,
         &asset,
         &redstone,
@@ -98,6 +101,7 @@ fn test_redstone_anchor_read_failure_marks_view_invalid() {
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1))]);
 
     let cfg = test_harness::reflector_primary_redstone_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &asset,
         &redstone,
@@ -106,15 +110,26 @@ fn test_redstone_anchor_read_failure_marks_view_invalid() {
     );
     t.configure_market_oracle(&asset, &cfg);
 
-    let mut oracle = t.price_agg_client().oracle_config(&asset).unwrap();
-    oracle.anchor = match oracle.anchor {
-        OracleSourceConfigOption::Some(OracleSourceConfig::RedStone(mut config)) => {
-            config.feed_id = String::from_str(&t.env, "MISSING");
-            OracleSourceConfigOption::Some(OracleSourceConfig::RedStone(config))
+    let mut oracle = t
+        .price_agg_client()
+        .oracle_for(&controller::types::PriceKey::Token(asset.clone()))
+        .unwrap();
+    let anchor = match oracle.sources.get_unchecked(1) {
+        PriceSource::Feed(mut feed) => {
+            match feed.provider {
+                ProviderRef::MultiFeed(mut multi_feed) => {
+                    multi_feed.feed_id = String::from_str(&t.env, "MISSING");
+                    feed.provider = ProviderRef::MultiFeed(multi_feed);
+                }
+                _ => panic!("expected redstone anchor"),
+            }
+            PriceSource::Feed(feed)
         }
         _ => panic!("expected redstone anchor"),
     };
-    t.price_agg_client().seed_oracle_config(&asset, &oracle);
+    oracle.sources.set(1, anchor);
+    t.price_agg_client()
+        .seed_asset_oracle(&controller::types::PriceKey::Token(asset.clone()), &oracle);
 
     let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let row = t
@@ -136,13 +151,19 @@ fn test_redstone_anchor_outside_tolerance_marks_view_deviation() {
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(2))]);
 
     let cfg = test_harness::reflector_primary_redstone_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &asset,
         &redstone,
         &feed_id,
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    t.configure_market_oracle(&asset, &cfg);
+    // Seeded, not configured: the write path resolves the config first and
+    // would reject two sources that already disagree (#205). Reaching the soft
+    // read path requires the disagreement to appear *after* the config stored,
+    // which is exactly the case this covers.
+    t.price_agg_client()
+        .seed_asset_oracle(&controller::types::PriceKey::Token(asset.clone()), &cfg);
 
     let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let row = t

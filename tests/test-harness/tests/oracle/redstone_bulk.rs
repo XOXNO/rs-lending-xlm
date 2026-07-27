@@ -106,7 +106,7 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
     //
     // Supply is oracle-free, so the missing ETH anchor never blocks the setup
     // supplies. Fail-closed borrow requires the RedStone anchor: the per-feed
-    // path finds the ETH feed absent and reverts InvalidTicker (#3); there is
+    // path finds the ETH feed absent and reverts NoLastPrice (#210); there is
     // no fallback to the Reflector primary.
     //
     // Counter deltas are asserted on committed txs only: try_borrow rolls
@@ -161,7 +161,7 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
     // storage changes from that transaction, so the counter increments from
     // the failed borrow are NOT visible after this call.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::GenericError::InvalidTicker as u32);
+    assert_contract_error(result, errors::OracleError::NoLastPrice as u32);
 }
 
 #[test]
@@ -513,10 +513,20 @@ fn test_shared_feed_two_assets_single_redstone_call() {
     // Configure both USDC and ETH with RedStone Single strategy on "SHARED".
     // Both markets now resolve to the same (adapter, feed_id) — the degenerate
     // shared-feed case that exposes the 2-call bug.
-    let usdc_cfg =
-        redstone_single_config(&redstone, &feed_id, usd(1), DEFAULT_TOLERANCE.tolerance_bps);
-    let eth_cfg =
-        redstone_single_config(&redstone, &feed_id, usd(1), DEFAULT_TOLERANCE.tolerance_bps);
+    let usdc_cfg = redstone_single_config(
+        &t.env,
+        &redstone,
+        &feed_id,
+        usd(1),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
+    let eth_cfg = redstone_single_config(
+        &t.env,
+        &redstone,
+        &feed_id,
+        usd(1),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
     t.configure_market_oracle(&t.resolve_asset("USDC"), &usdc_cfg);
     t.configure_market_oracle(&t.resolve_asset("ETH"), &eth_cfg);
 
@@ -616,12 +626,14 @@ fn test_redstone_primary_markets_fire_one_bulk() {
 
     // Both markets use RedStone Single strategy (primary = RedStone, no anchor).
     let usdc_cfg = redstone_single_config(
+        &t.env,
         &redstone,
         &usdc_feed,
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
     let eth_cfg = redstone_single_config(
+        &t.env,
         &redstone,
         &eth_feed,
         usd(2_000),
@@ -858,7 +870,7 @@ fn test_disabled_market_panics_same_through_prefetch() {
     // Disable the ETH market by removing its `AssetOracle` entry, which is the
     // "active" signal price resolution reads.
     t.price_agg_client()
-        .remove_oracle_config(&t.resolve_asset("ETH"));
+        .remove_asset_oracle(&controller::types::PriceKey::Token(t.resolve_asset("ETH")));
 
     // Attempt a borrow: the post-pool HF check prices both assets including
     // disabled ETH → token_price reverts OracleNotConfigured.

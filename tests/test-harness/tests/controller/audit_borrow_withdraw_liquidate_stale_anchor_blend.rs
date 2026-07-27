@@ -71,6 +71,7 @@ fn run(anchor_stale: bool) -> Outcome {
     t.set_price("XLM", ANCHOR_FROZEN_PRICE);
 
     let cfg = test_harness::reflector_primary_redstone_anchor_config_with_anchor_stale(
+        &t.env,
         &t.mock_reflector,
         &xlm,
         &redstone,

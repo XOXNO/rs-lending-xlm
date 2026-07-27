@@ -13,6 +13,7 @@ fn test_xoxno_single_source_market_works() {
     let adapter = register_redstone_adapter(&t, &[("USDC", usd(1))]);
 
     let cfg = test_harness::xoxno_single_config(
+        &t.env,
         &adapter,
         &feed_id,
         usd(1),
@@ -24,23 +25,29 @@ fn test_xoxno_single_source_market_works() {
     t.assert_supply_near(ALICE, "USDC", 1_000.0, 1.0);
 }
 
+/// A non-default adapter width works when the config declares it.
+///
+/// v1 read `decimals()` off the adapter on every listing. The composable model
+/// carries the width as config data (so reads stay cheap) and verifies that
+/// declaration against the adapter once, at configure time. Either way an
+/// operator cannot end up 10x mis-scaled — see the companion test below for the
+/// half that v1 could not express at all.
 #[test]
-fn test_xoxno_listing_probes_adapter_decimals() {
+fn test_xoxno_listing_accepts_a_declared_non_default_adapter_width() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_asset("USDC");
     let feed_id = String::from_str(&t.env, "USDC");
     let adapter = register_redstone_adapter(&t, &[]);
 
-    // A 9-decimal adapter: were the RedStone width (8) assumed instead of
-    // probed, the read would mis-scale the price 10x and trip the tight
-    // single-source sanity band.
     let client = test_harness::mock_redstone::MockRedStonePriceFeedClient::new(&t.env, &adapter);
     client.set_decimals(&9);
     client.set_price(&feed_id, &usd(1));
 
-    let cfg = test_harness::xoxno_single_config(
+    let cfg = test_harness::xoxno_single_config_with_decimals(
+        &t.env,
         &adapter,
         &feed_id,
+        9,
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
@@ -55,6 +62,36 @@ fn test_xoxno_listing_probes_adapter_decimals() {
     assert_eq!(view.price_wad, usd(1));
 }
 
+/// The other half: a config declaring the wrong width against a live adapter is
+/// rejected (`InvalidOracleDecimals`, #221).
+///
+/// This is the case that makes carrying decimals as config data safe. Left
+/// unchecked, declaring 8 against a 9-decimal adapter would read a fresh,
+/// in-band-looking price that is wrong by 10x — and nothing downstream could
+/// catch it, because the proposer sets the sanity band too.
+#[test]
+#[should_panic(expected = "Error(Contract, #221)")]
+fn test_xoxno_listing_rejects_a_width_the_adapter_contradicts() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_asset("USDC");
+    let feed_id = String::from_str(&t.env, "USDC");
+    let adapter = register_redstone_adapter(&t, &[]);
+
+    let client = test_harness::mock_redstone::MockRedStonePriceFeedClient::new(&t.env, &adapter);
+    client.set_decimals(&9);
+    client.set_price(&feed_id, &usd(1));
+
+    // Declares the RedStone default of 8 against a 9-decimal adapter.
+    let cfg = test_harness::xoxno_single_config(
+        &t.env,
+        &adapter,
+        &feed_id,
+        usd(1),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
+    t.configure_market_oracle(&asset, &cfg);
+}
+
 #[test]
 fn test_real_adapter_single_source_market_end_to_end() {
     // Full path against the real `xoxno-oracle` contract, no mock:
@@ -66,6 +103,7 @@ fn test_real_adapter_single_source_market_end_to_end() {
     let (adapter, _signers) = register_xoxno_adapter(&t, &[("USDC", usd(1))], 3, 2);
 
     let cfg = test_harness::xoxno_single_config(
+        &t.env,
         &adapter,
         &feed_id,
         usd(1),
@@ -93,6 +131,7 @@ fn test_reflector_primary_xoxno_anchor_market_works() {
     let adapter = register_redstone_adapter(&t, &[("USDC", usd(1))]);
 
     let cfg = test_harness::reflector_primary_xoxno_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &asset,
         &adapter,

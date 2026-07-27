@@ -1,4 +1,4 @@
-use controller::types::{AssetOracleConfig, OracleReadMode, OracleSourceConfig};
+use controller::types::OracleReadMode;
 use soroban_sdk::vec;
 use test_harness::{
     assert_contract_error, errors, hub_asset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
@@ -13,19 +13,28 @@ fn configure_accepts_minimum_resolution_equal_to_max_stale() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_asset("USDC");
     t.mock_reflector_client().set_resolution(&60);
-    let mut cfg = test_harness::reflector_single_spot_config(
+    let mut cfg = test_harness::reflector_primary_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &usdc,
         usd(1),
         test_harness::DEFAULT_TOLERANCE.tolerance_bps,
     );
+    // Ceiling and leg window both at the 60s floor: the envelope rule requires
+    // the ceiling to cover every leg, so tightening only the asset field would
+    // be rejected (#218) rather than silently ignored.
     cfg.max_price_stale_seconds = 60;
+    if let controller::types::PriceSource::Feed(mut feed) = cfg.sources.get_unchecked(0) {
+        feed.max_stale_seconds = 60;
+        cfg.sources
+            .set(0, controller::types::PriceSource::Feed(feed));
+    }
 
     t.configure_market_oracle(&usdc, &cfg);
 
-    let stored: AssetOracleConfig = t
+    let stored = t
         .price_agg_client()
-        .oracle_config(&usdc)
+        .oracle_for(&controller::types::PriceKey::Token(usdc.clone()))
         .expect("configured oracle");
     assert_eq!(stored.max_price_stale_seconds, 60);
 }
@@ -44,12 +53,13 @@ fn configure_twap_rejects_out_of_band_mean_when_spot_in_band() {
     t.mock_reflector_client().set_twap_price(&usdc, &usd(3));
 
     let mut cfg = test_harness::reflector_single_spot_config(
+        &t.env,
         &t.mock_reflector,
         &usdc,
         usd(1),
         test_harness::DEFAULT_TOLERANCE.tolerance_bps,
     );
-    cfg.primary = test_harness::reflector_source(&t.mock_reflector, &usdc, OracleReadMode::Twap(3));
+    test_harness::set_reflector_read_mode(&mut cfg, 0, OracleReadMode::Twap(3));
 
     t.configure_market_oracle(&usdc, &cfg);
 }
@@ -60,7 +70,8 @@ fn configure_rejects_nonpositive_live_reflector_price() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_asset("USDC");
     t.mock_reflector_client().set_price(&usdc, &0);
-    let cfg = test_harness::reflector_single_spot_config(
+    let cfg = test_harness::reflector_primary_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &usdc,
         usd(1),
@@ -182,14 +193,24 @@ fn test_reflector_spot_missing_lastprice_panics_under_strict() {
     let usdc_asset = t.resolve_asset("USDC");
     let eth_asset = t.resolve_asset("ETH");
 
-    // Switch ETH to Single+Spot so the price path is `read_spot` only.
+    // Switch ETH to a lone spot source so the price path is `read_spot` only.
+    //
+    // Seeded rather than configured: a single unsmoothed market leg is refused
+    // at configure time (`SpotOnlyNotProductionSafe`), and that refusal would
+    // land before the read path under test ever ran. The shape is unreachable
+    // through governance by design; this pins what the *reader* does if one
+    // ever exists.
     let spot_cfg = test_harness::reflector_single_spot_config(
+        &t.env,
         &t.mock_reflector,
         &eth_asset,
         usd(2_000), // dual_source_two_asset's ETH default (WAD * 2_000).
         test_harness::DEFAULT_TOLERANCE.tolerance_bps,
     );
-    t.configure_market_oracle(&eth_asset, &spot_cfg);
+    t.price_agg_client().seed_asset_oracle(
+        &controller::types::PriceKey::Token(eth_asset.clone()),
+        &spot_cfg,
+    );
 
     // Establish USDC collateral so the borrow path can reach the ETH price.
     let _ = usdc_asset;
@@ -215,11 +236,13 @@ fn test_reflector_spot_missing_lastprice_panics_under_strict() {
 fn test_twap_zero_records_reverts_on_view() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
-    let mut oracle = t.price_agg_client().oracle_config(&usdc).unwrap();
-    if let OracleSourceConfig::Reflector(ref mut source) = oracle.primary {
-        source.read_mode = OracleReadMode::Twap(0);
-    }
-    t.price_agg_client().seed_oracle_config(&usdc, &oracle);
+    let mut oracle = t
+        .price_agg_client()
+        .oracle_for(&controller::types::PriceKey::Token(usdc.clone()))
+        .unwrap();
+    test_harness::set_reflector_read_mode(&mut oracle, 0, OracleReadMode::Twap(0));
+    t.price_agg_client()
+        .seed_asset_oracle(&controller::types::PriceKey::Token(usdc.clone()), &oracle);
 
     let assets = vec![&t.env, hub_asset(usdc)];
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
@@ -231,11 +254,13 @@ fn test_twap_zero_records_reverts_on_view() {
 fn test_twap_records_above_max_rejects_on_view() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
-    let mut oracle = t.price_agg_client().oracle_config(&usdc).unwrap();
-    if let OracleSourceConfig::Reflector(ref mut source) = oracle.primary {
-        source.read_mode = OracleReadMode::Twap(13);
-    }
-    t.price_agg_client().seed_oracle_config(&usdc, &oracle);
+    let mut oracle = t
+        .price_agg_client()
+        .oracle_for(&controller::types::PriceKey::Token(usdc.clone()))
+        .unwrap();
+    test_harness::set_reflector_read_mode(&mut oracle, 0, OracleReadMode::Twap(13));
+    t.price_agg_client()
+        .seed_asset_oracle(&controller::types::PriceKey::Token(usdc.clone()), &oracle);
 
     let assets = vec![&t.env, hub_asset(usdc)];
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);

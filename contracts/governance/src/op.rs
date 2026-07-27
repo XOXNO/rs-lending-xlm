@@ -3,7 +3,7 @@
 //! governance-self variants once the timelock matures.
 
 use common::errors::{CollateralError, GenericError, OracleError};
-use common::types::PriceKey;
+use common::types::{AssetOracle, PriceKey};
 use common::validation::{
     validate_liquidation_curve, validate_liquidation_fees, validate_risk_bounds,
 };
@@ -17,14 +17,33 @@ use crate::timelock::{apply_update_delay, validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
-    AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, EditToleranceArgs, RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs,
-    SpokeLiquidationCurveArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
+    AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, EditToleranceArgs,
+    RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, SpokeLiquidationCurveArgs,
+    TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
 fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
     validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     validate_liquidation_fees(env, args.liquidation_fees);
     validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
+}
+
+/// Fills in the fields governance derives rather than trusts the proposer for.
+///
+/// `asset_decimals` is read from the asset itself, never taken from the
+/// proposal: it scales seize amounts and protocol fees in liquidation, so a
+/// proposer-supplied value is a direct lever on how much a liquidator takes. A
+/// reference price has no token and no amounts, so it carries zero.
+///
+/// Shared by `propose` and the read-only `resolve_asset_oracle` view so a
+/// dry run returns the exact struct the timelock would later store.
+pub(crate) fn resolve_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) -> AssetOracle {
+    let mut resolved = oracle.clone();
+    resolved.asset_decimals = match key {
+        PriceKey::Token(asset) => validate::asset::validate_and_fetch_token_decimals(env, asset),
+        PriceKey::Ref(_) => 0,
+    };
+    resolved
 }
 
 /// Resolved call target for a proposed `AdminOperation`.
@@ -308,16 +327,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             )
         }
         AdminOperation::ConfigureAssetOracle(args) => {
-            // Decimals are read from the asset, never taken from the proposer:
-            // they scale seize amounts and protocol fees in liquidation. A
-            // reference price has no token and no amounts, so it carries zero.
-            let mut oracle = args.oracle.clone();
-            oracle.asset_decimals = match &args.key {
-                PriceKey::Token(asset) => {
-                    validate::asset::validate_and_fetch_token_decimals(env, asset)
-                }
-                PriceKey::Ref(_) => 0,
-            };
+            let oracle = resolve_asset_oracle(env, &args.key, &args.oracle);
             price_aggregator_operation(
                 env,
                 "set_asset_oracle",

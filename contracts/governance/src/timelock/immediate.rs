@@ -79,13 +79,7 @@ impl Governance {
     ///
     /// # Events
     /// * Aggregator `UpdateAssetOracleV2Event`.
-    pub fn set_sanity_band(
-        env: Env,
-        caller: Address,
-        key: PriceKey,
-        min_wad: i128,
-        max_wad: i128,
-    ) {
+    pub fn set_sanity_band(env: Env, caller: Address, key: PriceKey, min_wad: i128, max_wad: i128) {
         begin_immediate(&env, &caller, ORACLE_ROLE);
         price_aggregator_client(&env).set_sanity_band(&key, &min_wad, &max_wad);
     }

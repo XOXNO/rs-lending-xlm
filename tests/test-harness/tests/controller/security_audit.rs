@@ -313,9 +313,18 @@ fn regression_strategy_finalize_restamps_safe_params() {
     t.swap_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps);
 
     let (ltv1, _, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!(ltv1, 5_000, "strategy path must restamp LTV (finalize LtvOnly)");
-    assert_eq!(bonus1, 250, "touched supply/withdraw legs must restamp bonus (FullTuple)");
-    assert_eq!(fees1, 40, "touched supply/withdraw legs must restamp fees (FullTuple)");
+    assert_eq!(
+        ltv1, 5_000,
+        "strategy path must restamp LTV (finalize LtvOnly)"
+    );
+    assert_eq!(
+        bonus1, 250,
+        "touched supply/withdraw legs must restamp bonus (FullTuple)"
+    );
+    assert_eq!(
+        fees1, 40,
+        "touched supply/withdraw legs must restamp fees (FullTuple)"
+    );
 }
 
 /// H-LIQ-16: lowering listing LT does not restamp; HF stays on the old LT and

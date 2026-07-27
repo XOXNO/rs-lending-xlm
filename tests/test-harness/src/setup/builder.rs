@@ -2,7 +2,7 @@ extern crate std;
 
 use std::collections::HashMap;
 
-use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs, SpokeAssetArgs};
+use governance::op::{AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, TryFromVal};
 
@@ -316,7 +316,8 @@ impl LendingTestBuilder {
             if pm.configure_oracle {
                 mock_reflector_client.set_price(&asset_address, &pm.price_wad);
 
-                let oracle_input = crate::oracle::config::reflector_primary_anchor_config(
+                let oracle = crate::oracle::config::reflector_primary_anchor_config(
+                    &env,
                     &mock_reflector_address,
                     &asset_address,
                     pm.price_wad,
@@ -324,9 +325,9 @@ impl LendingTestBuilder {
                 );
                 gov.execute_immediate(
                     &admin,
-                    &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-                        hub_asset: hub_asset(asset_address.clone()),
-                        cfg: oracle_input,
+                    &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+                        key: controller::types::PriceKey::Token(asset_address.clone()),
+                        oracle,
                     }),
                 );
             }

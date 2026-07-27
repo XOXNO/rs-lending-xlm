@@ -1,6 +1,6 @@
 //! Token-shape probing and asset-config bounds on the governance forwarders.
 
-use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs, SpokeAssetArgs};
+use governance::op::{AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 use test_harness::{
@@ -129,6 +129,7 @@ fn test_configure_market_oracle_rejects_tolerance_below_min() {
     let market = t.resolve_market("USDC");
     let admin = t.admin();
     let cfg = test_harness::reflector_primary_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &market.asset,
         market.price_wad,
@@ -136,9 +137,9 @@ fn test_configure_market_oracle_rejects_tolerance_below_min() {
     );
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            hub_asset: hub_asset(market.asset.clone()),
-            cfg,
+        &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+            key: controller::types::PriceKey::Token(market.asset.clone()),
+            oracle: cfg,
         }),
     );
 }

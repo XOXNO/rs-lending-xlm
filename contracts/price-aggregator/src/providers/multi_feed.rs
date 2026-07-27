@@ -16,7 +16,30 @@ use crate::observation::OracleObservation;
 /// `soft = false`: present-but-invalid payloads (future timestamp,
 /// non-positive/overflowing price) revert via the panicking normalizers.
 /// `soft = true`: they yield `None` for the status path.
-pub(crate) fn read_multi_feed_source(
+#[cfg(feature = "certora")]
+pub(crate) use certora_read::read_multi_feed_source;
+
+#[cfg(feature = "certora")]
+mod certora_read {
+    use super::*;
+    cvlr_soroban_macros::apply_summary!(
+        crate::spec::summaries::read_multi_feed_source_summary,
+        /// Certora build: the summary yields a nondeterministic observation, so
+        /// rules reason about composition rather than adapter wire decoding.
+        pub(crate) fn read_multi_feed_source(
+            cache: &mut ResolutionContext,
+            config: &RedStoneSourceConfig,
+            soft: bool,
+        ) -> Option<OracleObservation> {
+            super::read_multi_feed_source_impl(cache, config, soft)
+        }
+    );
+}
+
+#[cfg(not(feature = "certora"))]
+pub(crate) use read_multi_feed_source_impl as read_multi_feed_source;
+
+pub(crate) fn read_multi_feed_source_impl(
     cache: &mut ResolutionContext,
     config: &RedStoneSourceConfig,
     soft: bool,

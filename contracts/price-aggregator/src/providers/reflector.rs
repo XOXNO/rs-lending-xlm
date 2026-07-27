@@ -26,7 +26,30 @@ use crate::observation::OracleObservation;
 /// `soft = false` (hard path): missing/short TWAP history and quoted-base
 /// failures revert with their precise error. `soft = true` (status path):
 /// they yield `None` and the caller reports an unusable status.
-pub(crate) fn read_reflector_source(
+#[cfg(feature = "certora")]
+pub(crate) use certora_read::read_reflector_source;
+
+#[cfg(feature = "certora")]
+mod certora_read {
+    use super::*;
+    cvlr_soroban_macros::apply_summary!(
+        crate::spec::summaries::read_reflector_source_summary,
+        /// Certora build: the summary yields a nondeterministic observation, so
+        /// rules reason about composition rather than SEP-40 wire decoding.
+        pub(crate) fn read_reflector_source(
+            cache: &mut ResolutionContext,
+            config: &ReflectorSourceConfig,
+            soft: bool,
+        ) -> Option<OracleObservation> {
+            super::read_reflector_source_impl(cache, config, soft)
+        }
+    );
+}
+
+#[cfg(not(feature = "certora"))]
+pub(crate) use read_reflector_source_impl as read_reflector_source;
+
+pub(crate) fn read_reflector_source_impl(
     cache: &mut ResolutionContext,
     config: &ReflectorSourceConfig,
     soft: bool,
