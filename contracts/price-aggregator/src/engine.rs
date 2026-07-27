@@ -259,3 +259,10 @@ fn require_depth_within_cap(env: &Env, depth: u32) {
 #[cfg(test)]
 #[path = "../tests/oracle/engine.rs"]
 mod tests;
+
+/// Differential tests against the v1 path. Kept beside the engine because they
+/// are the migration gate: every live market is priced through `lift_legacy`
+/// until it is individually migrated.
+#[cfg(test)]
+#[path = "../tests/oracle/lift_parity.rs"]
+mod lift_parity_tests;
