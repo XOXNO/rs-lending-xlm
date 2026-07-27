@@ -5,8 +5,8 @@
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol};
 
 use common::types::{
-    AssetOracleConfig, OracleAssetRef, OracleProviderKind, OracleReadMode, OracleSourceConfig,
-    OracleStrategy, OracleTolerance, ReflectorBase,
+    AssetOracle, AssetOracleConfig, OracleAssetRef, OracleProviderKind, OracleReadMode,
+    OracleSourceConfig, OracleStrategy, OracleTolerance, PriceKey, ReflectorBase,
 };
 
 #[contracttype]
@@ -223,6 +223,35 @@ pub(crate) fn emit_oracle_updated(env: &Env, asset: &Address, config: &AssetOrac
     UpdateAssetOracleEvent {
         asset: asset.clone(),
         oracle: EventOracleProvider::from_oracle(asset, config),
+    }
+    .publish(env);
+}
+
+/// Published on every composable-oracle write.
+///
+/// Carries the config verbatim rather than a projection. Two of the model's
+/// guarantees are *disclosure* mechanisms rather than on-chain checks -
+/// `IndependencePolicy::AllowShared` names the trust a config knowingly shares,
+/// and `FeedNature::Fundamental` exempts a feed from the smoothing rule - and a
+/// disclosure nobody can observe is not a disclosure. This is the half that
+/// makes them mean something: an indexer can alarm on a waiver appearing, or on
+/// a market feed being declared fundamental.
+#[contractevent(topics = ["config", "asset_oracle"])]
+#[derive(Clone, Debug)]
+pub struct UpdateAssetOracleV2Event {
+    pub key: PriceKey,
+    pub oracle: AssetOracle,
+}
+
+/// Publishes the stored composable oracle. `config::set_asset_oracle` calls this
+/// once, after the write.
+///
+/// # Events
+/// * topics — `["config", "asset_oracle"]`
+pub(crate) fn emit_asset_oracle_updated(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
+    UpdateAssetOracleV2Event {
+        key: key.clone(),
+        oracle: oracle.clone(),
     }
     .publish(env);
 }

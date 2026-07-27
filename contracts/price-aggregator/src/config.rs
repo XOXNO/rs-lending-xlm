@@ -7,7 +7,7 @@ use common::errors::OracleError;
 use common::oracle::policy;
 use common::types::{
     AssetOracle, AssetOracleConfig, OracleSourceConfig, OracleStrategy, OracleTolerance, PriceKey,
-    PriceSource, ReflectorBase,
+    ReflectorBase,
 };
 use common::validation::{
     validate_oracle_tolerance, validate_sanity_bounds, validate_single_source_sanity_band,
@@ -15,7 +15,7 @@ use common::validation::{
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::context::ResolutionContext;
-use crate::events::emit_oracle_updated;
+use crate::events::{emit_asset_oracle_updated, emit_oracle_updated};
 use crate::price::resolve_with_config;
 use crate::properties;
 use crate::registry;
@@ -184,15 +184,22 @@ pub(crate) fn set_asset_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
         oracle.max_sanity_price_wad,
     );
     validate_single_source_sanity_band_for(env, &oracle);
+    policy::validate_asset_decimals(env, &key, oracle.asset_decimals);
 
+    // Provider-level shape: decimals, the TWAP window, factor bounds, and the
+    // refusal of source kinds the engine cannot price. v1 read decimals off the
+    // provider contract and bounded the window at listing time; the composable
+    // model takes both as config data, so they are bounded here or nowhere.
     for source in oracle.sources.iter() {
-        if let PriceSource::Scaled(scaled) = &source {
-            policy::validate_factor_bounds(env, scaled);
-        }
+        policy::validate_source_shape(env, &source);
     }
 
     let mut cache = ResolutionContext::new(env);
+    // Pushed so a config naming itself as its own dependency is rejected now,
+    // with a cycle error, rather than storing and bricking on first read.
+    cache.push_price_key(&key);
     let derived = properties::properties_of_config(&mut cache, &oracle.sources);
+    cache.pop_price_key();
 
     policy::validate_composition_depth(env, &derived.first);
     if let Some(second) = derived.second.as_ref() {
@@ -207,6 +214,7 @@ pub(crate) fn set_asset_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     }
 
     registry::set_oracle(env, &key, &oracle);
+    emit_asset_oracle_updated(env, &key, &oracle);
 }
 
 /// A lone opinion has nothing to be checked against, so its sanity band is the

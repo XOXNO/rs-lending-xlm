@@ -78,7 +78,15 @@ fn test_single_strategy_lifts_to_one_source() {
     assert_eq!(lifted.sources.len(), 1);
     assert!(!lifted.is_dual());
     assert_eq!(lifted.asset_decimals, 7);
-    assert_eq!(lifted.max_price_stale_seconds, ASSET_STALE);
+    // The ceiling is raised to cover the leg, not carried over verbatim.
+    //
+    // v1 has no asset-level gate at all - a multi-feed leg is checked against
+    // its own bound and nothing else - and this fixture is the shape that makes
+    // the difference visible: a 3600 asset figure over a 43200 leg. Carrying
+    // 3600 across would apply the engine's composite gate where v1 applied
+    // none, rejecting readings v1 accepts. Fail-closed, but a price path that
+    // reverts blocks liquidations while the position keeps deteriorating.
+    assert_eq!(lifted.max_price_stale_seconds, FEED_STALE);
     assert_eq!(lifted.min_sanity_price_wad, config.min_sanity_price_wad);
     assert_eq!(lifted.max_sanity_price_wad, config.max_sanity_price_wad);
 }
@@ -332,4 +340,55 @@ fn test_writing_the_new_shape_leaves_the_legacy_entry_decodable() {
         assert_eq!(still_there.strategy, OracleStrategy::Single);
         assert_eq!(still_there.asset_decimals, 7);
     });
+}
+
+#[test]
+fn test_the_lifted_ceiling_never_tightens_below_a_leg() {
+    // Property form of the case above: whatever the legacy pair, the lifted
+    // ceiling is at least every leg's own bound, so the composite gate is inert
+    // for lifted configs and the v1 accept/reject behaviour is preserved.
+    let env = Env::default();
+    let adapter = Address::generate(&env);
+    let reflector = Address::generate(&env);
+
+    for (asset_stale, leg_stale) in [(3_600u64, 43_200u64), (43_200, 3_600), (7_200, 7_200)] {
+        let mut config = legacy_config(
+            OracleSourceConfig::RedStone(RedStoneSourceConfig {
+                contract: adapter.clone(),
+                feed_id: String::from_str(&env, "X"),
+                decimals: 8,
+                max_stale_seconds: leg_stale,
+            }),
+            OracleSourceConfigOption::Some(reflector_source(&env, &reflector, ReflectorBase::Usd)),
+            OracleStrategy::PrimaryWithAnchor,
+        );
+        config.max_price_stale_seconds = asset_stale;
+
+        let lifted = lift_legacy(&env, &config);
+        assert!(
+            lifted.max_price_stale_seconds >= leg_stale
+                && lifted.max_price_stale_seconds >= asset_stale,
+            "ceiling {} must cover both the asset figure {} and the leg {}",
+            lifted.max_price_stale_seconds,
+            asset_stale,
+            leg_stale
+        );
+    }
+}
+
+#[test]
+#[should_panic]
+fn test_a_dual_config_with_no_anchor_fails_closed_rather_than_lifting_to_one_source() {
+    // v1 reverts on this shape instead of pricing off the primary alone.
+    // Lifting it to a single source would turn a halted market into a live one
+    // with no agreement band - and with a sanity band never held to the
+    // single-source cap, because it was written as dual.
+    let env = Env::default();
+    let adapter = Address::generate(&env);
+    let config = legacy_config(
+        redstone_source(&env, &adapter, "X"),
+        OracleSourceConfigOption::None,
+        OracleStrategy::PrimaryWithAnchor,
+    );
+    let _ = lift_legacy(&env, &config);
 }

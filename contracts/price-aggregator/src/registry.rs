@@ -22,12 +22,13 @@
 //! governance write. [`unmigrated`] is what proves that is done.
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+use common::errors::OracleError;
 use common::types::{
     AssetOracle, AssetOracleConfig, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
     OracleSourceConfig, OracleStrategy, PriceKey, PriceSource, ProviderKind, ProviderRef,
     ReflectorBase, ReflectorFeedRef, ScaledSource,
 };
-use soroban_sdk::{contracttype, Address, Env, Vec};
+use soroban_sdk::{contracttype, panic_with_error, Address, Env, Vec};
 
 #[contracttype]
 enum AggregatorKey {
@@ -157,14 +158,20 @@ pub(crate) fn lift_legacy(env: &Env, legacy: &AssetOracleConfig) -> AssetOracle 
         legacy.max_price_stale_seconds,
     ));
     if legacy.strategy == OracleStrategy::PrimaryWithAnchor {
-        if let Some(anchor) = legacy.anchor.as_ref() {
-            sources.push_back(lift_source(env, anchor, legacy.max_price_stale_seconds));
-        }
+        // v1 fails closed on a dual strategy with no anchor leg rather than
+        // pricing off the primary alone. Lifting it to a single source would
+        // quietly turn a halted market into a live one with no agreement band -
+        // and with a sanity band that was never held to the single-source cap,
+        // because it was written as dual.
+        let Some(anchor) = legacy.anchor.as_ref() else {
+            panic_with_error!(env, OracleError::NoLastPrice)
+        };
+        sources.push_back(lift_source(env, anchor, legacy.max_price_stale_seconds));
     }
 
     AssetOracle {
         asset_decimals: legacy.asset_decimals,
-        max_price_stale_seconds: legacy.max_price_stale_seconds,
+        max_price_stale_seconds: lifted_stale_ceiling(env, legacy, &sources),
         sources,
         tolerance: legacy.tolerance.clone(),
         // A lifted config makes no independence claim: it was written under
@@ -174,6 +181,36 @@ pub(crate) fn lift_legacy(env: &Env, legacy: &AssetOracleConfig) -> AssetOracle 
         min_sanity_price_wad: legacy.min_sanity_price_wad,
         max_sanity_price_wad: legacy.max_sanity_price_wad,
     }
+}
+
+/// The asset ceiling a lifted config must carry so the composite gate is inert.
+///
+/// v1 has no asset-level gate: a multi-feed leg is checked against its own
+/// `max_stale_seconds` and nothing else, and nothing ever compared that to
+/// `max_price_stale_seconds`. Real configs exist where a leg's window is the
+/// looser of the two.
+///
+/// Applying the composite gate at the legacy asset figure would therefore reject
+/// readings v1 accepts - fail-closed, but for a lending protocol a price path
+/// that reverts blocks liquidations while the position keeps deteriorating.
+/// Raising the ceiling to cover every leg makes the second gate a no-op for
+/// lifted configs, which is exactly the v1 behaviour being preserved. A migrated
+/// config states a real ceiling and `validate_staleness_envelope` enforces it.
+fn lifted_stale_ceiling(env: &Env, legacy: &AssetOracleConfig, sources: &Vec<PriceSource>) -> u64 {
+    let mut ceiling = legacy.max_price_stale_seconds;
+    for source in sources.iter() {
+        let bound = match &source {
+            PriceSource::Feed(feed) => feed.max_stale_seconds,
+            PriceSource::Scaled(scaled) => scaled.factor.max_stale_seconds,
+            // Unreachable: no legacy shape lifts to an LP share.
+            PriceSource::LpShare(_) => 0,
+        };
+        if bound > ceiling {
+            ceiling = bound;
+        }
+    }
+    let _ = env;
+    ceiling
 }
 
 fn lift_source(env: &Env, source: &OracleSourceConfig, asset_max_stale: u64) -> PriceSource {

@@ -2,6 +2,7 @@ use super::*;
 use crate::types::oracle::{OracleAssetRef, OracleReadMode};
 use crate::types::oracle_v2::{
     FeedNature, FeedSource, MultiFeedRef, PriceKey, ProviderKind, ProviderRef, ReflectorFeedRef,
+    TrustDomain,
 };
 use soroban_sdk::{testutils::Address as _, Address, String, Symbol};
 
@@ -419,17 +420,83 @@ fn test_declaring_a_domain_that_is_not_shared_is_rejected() {
 }
 
 #[test]
-#[should_panic]
-fn test_two_reflector_deployments_are_rejected_by_the_kind_floor() {
-    // Different addresses, so the domain rule alone calls these independent -
-    // but one operator with one admin key stands behind both, and there is no
-    // shared domain to declare, so no waiver exists.
+fn test_two_deployments_of_one_provider_are_allowed() {
+    // Different addresses share no contract, so nothing is waived and nothing
+    // is rejected. An earlier version of this rule rejected the shape outright
+    // via a provider-kind floor - and offered no waiver, because a *computed*
+    // shared set that is empty can never be matched by a declaration. That
+    // reproduced exactly the over-strictness this model was meant to remove.
     let env = Env::default();
     let cex = Address::generate(&env);
     let dex = Address::generate(&env);
     let a = props(&env, &reflector(&env, &cex, OracleReadMode::Twap(3), 3_600));
     let b = props(&env, &reflector(&env, &dex, OracleReadMode::Twap(3), 3_600));
     validate_independence(&env, &a, &b, &IndependencePolicy::RequireDisjoint);
+}
+
+#[test]
+#[should_panic]
+fn test_one_adapter_relabelled_as_two_providers_is_still_shared() {
+    // The forgery the address-level rule exists to stop: `kind` on a multi-feed
+    // adapter is declared by the proposer and unverifiable on-chain, so two
+    // feeds on ONE contract can be labelled RedStone and Xoxno and would read as
+    // disjoint if sharing were judged on the (kind, contract) pair.
+    let env = Env::default();
+    let adapter = Address::generate(&env);
+    let a = props(
+        &env,
+        &adapter_feed(
+            &env,
+            &adapter,
+            "A",
+            ProviderKind::RedStone,
+            FeedNature::Fundamental,
+            43_200,
+        ),
+    );
+    let b = props(
+        &env,
+        &adapter_feed(
+            &env,
+            &adapter,
+            "B",
+            ProviderKind::Xoxno,
+            FeedNature::Fundamental,
+            43_200,
+        ),
+    );
+    validate_independence(&env, &a, &b, &IndependencePolicy::RequireDisjoint);
+}
+
+#[test]
+#[should_panic]
+fn test_an_empty_waiver_is_rejected() {
+    // `AllowShared([])` is `RequireDisjoint` spelled differently; two ways to
+    // say the same thing defeats any off-chain rule keyed on the variant.
+    let env = Env::default();
+    let reflector_contract = Address::generate(&env);
+    let adapter = Address::generate(&env);
+    let a = props(
+        &env,
+        &reflector(&env, &reflector_contract, OracleReadMode::Twap(3), 3_600),
+    );
+    let b = props(
+        &env,
+        &adapter_feed(
+            &env,
+            &adapter,
+            "x",
+            ProviderKind::RedStone,
+            FeedNature::Fundamental,
+            43_200,
+        ),
+    );
+    validate_independence(
+        &env,
+        &a,
+        &b,
+        &IndependencePolicy::AllowShared(Vec::new(&env)),
+    );
 }
 
 #[test]

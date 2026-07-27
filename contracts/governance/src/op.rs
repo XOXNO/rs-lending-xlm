@@ -3,6 +3,7 @@
 //! governance-self variants once the timelock matures.
 
 use common::errors::{CollateralError, GenericError, OracleError};
+use common::types::PriceKey;
 use common::validation::{
     validate_liquidation_curve, validate_liquidation_fees, validate_risk_bounds,
 };
@@ -16,9 +17,9 @@ use crate::timelock::{apply_update_delay, validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
-    AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EditToleranceArgs,
-    RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, SpokeLiquidationCurveArgs,
-    TransferOwnershipArgs, UpgradePoolParamsArgs,
+    AdminOperation, ConfigureAssetOracleArgs, ConfigureOracleArgs, CreatePoolArgs,
+    EditToleranceArgs, RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs,
+    SpokeLiquidationCurveArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
 fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
@@ -326,6 +327,23 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 ],
             )
         }
+        AdminOperation::ConfigureAssetOracle(args) => {
+            // Decimals are read from the asset, never taken from the proposer:
+            // they scale seize amounts and protocol fees in liquidation. A
+            // reference price has no token and no amounts, so it carries zero.
+            let mut oracle = args.oracle.clone();
+            oracle.asset_decimals = match &args.key {
+                PriceKey::Token(asset) => {
+                    validate::asset::validate_and_fetch_token_decimals(env, asset)
+                }
+                PriceKey::Ref(_) => 0,
+            };
+            price_aggregator_operation(
+                env,
+                "set_asset_oracle",
+                vec![env, args.key.clone().into_val(env), oracle.into_val(env)],
+            )
+        }
         AdminOperation::EditOracleTolerance(args) => {
             let tolerance =
                 validate::tolerance::validate_and_calculate_tolerances(env, args.tolerance);
@@ -417,6 +435,7 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::MigrateController(_)
         | AdminOperation::TransferCtrlOwnership(_)
         | AdminOperation::ConfigureMarketOracle(_)
+        | AdminOperation::ConfigureAssetOracle(_)
         | AdminOperation::EditOracleTolerance(_)
         | AdminOperation::SetSpokeLiquidationCurve(_)
         | AdminOperation::ForceSocializeBadDebt(_)

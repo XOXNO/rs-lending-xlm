@@ -190,9 +190,15 @@ impl PriceAggregator {
     /// * `IndependenceNotDeclared` - shared trust does not match the declaration.
     /// * `InvalidSanityBounds` / `SanityBandTooWideForSingleSource` - band checks.
     /// * `BadLastTolerance` - dual tolerance outside its envelope.
+    /// * `InvalidOracleDecimals` - feed or asset decimals out of range.
+    /// * `TwapInsufficientObservations` / `TwapRecordsOutOfRange` - TWAP window.
+    /// * `UnsupportedPoolKind` - LP shares are not priceable yet.
+    /// * `OracleCycleDetected` - the config names itself as a dependency.
     ///
     /// # Events
-    /// * topics - `["config", "oracle"]`
+    /// * topics - `["config", "asset_oracle"]`, carrying the stored config
+    ///   verbatim so a declared independence waiver or a feed marked
+    ///   fundamental is externally observable.
     #[only_owner]
     pub fn set_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
         config::set_asset_oracle(&env, key, oracle);

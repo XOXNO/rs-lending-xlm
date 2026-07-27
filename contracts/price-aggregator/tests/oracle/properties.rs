@@ -365,3 +365,176 @@ fn test_a_ratio_leg_outliving_the_asset_ceiling_is_rejected() {
         crate::config::set_asset_oracle(&env, solvbtc, oracle);
     });
 }
+
+// ---------------------------------------------------------------------------
+// Provider-level shape: the bounds v1 got from probing the provider, which the
+// composable model has to state in config instead.
+// ---------------------------------------------------------------------------
+
+/// Stores a one-source config with a band narrow enough to satisfy the
+/// single-source cap, so a rejection is attributable to the field under test
+/// rather than to `InvalidSanityBounds`.
+fn store_single(env: &Env, key: PriceKey, source: PriceSource, asset_decimals: u32) {
+    let mut oracle = oracle_of(env, one(env, source));
+    oracle.asset_decimals = asset_decimals;
+    oracle.min_sanity_price_wad = 95 * 10i128.pow(16);
+    oracle.max_sanity_price_wad = 105 * 10i128.pow(16);
+    crate::config::set_asset_oracle(env, key, oracle);
+}
+
+#[test]
+#[should_panic]
+fn test_feed_decimals_past_the_wad_scale_are_rejected() {
+    // A feed declaring more decimals than WAD can express makes the rescale
+    // factor overflow and trap as a raw wasm error rather than a typed one.
+    let env = Env::default();
+    let adapter = Address::generate(&env);
+    with_contract(&env, || {
+        let mut feed = nav_feed(&env, &adapter, "x");
+        feed.decimals = 57;
+        store_single(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            PriceSource::Feed(feed),
+            8,
+        );
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_a_zero_sample_twap_is_rejected() {
+    // `Twap(0)` reads as smoothed, satisfies the smoothing rule, and then
+    // reverts on every read: a market that validates and is born bricked.
+    let env = Env::default();
+    let reflector = Address::generate(&env);
+    with_contract(&env, || {
+        let mut feed = twap_feed(&env, &reflector);
+        feed.provider = ProviderRef::Reflector(ReflectorFeedRef {
+            contract: reflector.clone(),
+            asset: OracleAssetRef::Symbol(Symbol::new(&env, "BTC")),
+            read_mode: OracleReadMode::Twap(0),
+        });
+        store_single(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            PriceSource::Feed(feed),
+            8,
+        );
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_a_one_sample_twap_does_not_count_as_smoothing() {
+    // A one-sample "average" is a spot read wearing a different label, and it
+    // would satisfy a rule whose whole justification is that moving a
+    // time-average costs more than moving one print.
+    let env = Env::default();
+    let reflector = Address::generate(&env);
+    with_contract(&env, || {
+        let mut feed = twap_feed(&env, &reflector);
+        feed.provider = ProviderRef::Reflector(ReflectorFeedRef {
+            contract: reflector.clone(),
+            asset: OracleAssetRef::Symbol(Symbol::new(&env, "BTC")),
+            read_mode: OracleReadMode::Twap(1),
+        });
+        store_single(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            PriceSource::Feed(feed),
+            8,
+        );
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {
+    // The smoothing rule alone does not catch this: "at least one opinion is
+    // clean" is satisfied by the pairing, so the config would store and then
+    // revert on every single read.
+    let env = Env::default();
+    let reflector = Address::generate(&env);
+    with_contract(&env, || {
+        let mut sources = one(&env, PriceSource::Feed(twap_feed(&env, &reflector)));
+        sources.push_back(PriceSource::LpShare(common::types::LpShareSource {
+            pool: Address::generate(&env),
+            kind: common::types::PoolKind::ConstantProduct,
+            key_a: PriceKey::Ref(Symbol::new(&env, "A")),
+            key_b: PriceKey::Ref(Symbol::new(&env, "B")),
+            reserve_a_decimals: 7,
+            reserve_b_decimals: 7,
+            share_decimals: 7,
+        }));
+        let oracle = oracle_of(&env, sources);
+        crate::config::set_asset_oracle(&env, PriceKey::Token(Address::generate(&env)), oracle);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// asset_decimals scales every token amount a consumer derives from the price,
+// including liquidation seize amounts, so it is bounded rather than trusted.
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic]
+fn test_absurd_asset_decimals_are_rejected_for_a_token() {
+    let env = Env::default();
+    let reflector = Address::generate(&env);
+    with_contract(&env, || {
+        store_single(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            PriceSource::Feed(twap_feed(&env, &reflector)),
+            999,
+        );
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_a_reference_key_may_not_claim_token_decimals() {
+    // A reference price has no token and no amounts.
+    let env = Env::default();
+    let reflector = Address::generate(&env);
+    with_contract(&env, || {
+        store_single(
+            &env,
+            PriceKey::Ref(Symbol::new(&env, "BTC")),
+            PriceSource::Feed(twap_feed(&env, &reflector)),
+            8,
+        );
+    });
+}
+
+#[test]
+fn test_a_reference_key_with_zero_decimals_is_accepted() {
+    let env = Env::default();
+    let reflector = Address::generate(&env);
+    with_contract(&env, || {
+        store_single(
+            &env,
+            PriceKey::Ref(Symbol::new(&env, "BTC")),
+            PriceSource::Feed(twap_feed(&env, &reflector)),
+            0,
+        );
+    });
+}
+
+// ---------------------------------------------------------------------------
+// A config naming itself is caught at write time, not on first read.
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic]
+fn test_a_self_referential_config_is_rejected_at_write_time() {
+    let env = Env::default();
+    let adapter = Address::generate(&env);
+    with_contract(&env, || {
+        let key = PriceKey::Ref(Symbol::new(&env, "LOOP"));
+        let mut oracle = oracle_of(&env, one(&env, scaled_onto(&env, &adapter, key.clone())));
+        oracle.asset_decimals = 0;
+        crate::config::set_asset_oracle(&env, key, oracle);
+    });
+}

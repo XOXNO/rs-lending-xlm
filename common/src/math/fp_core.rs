@@ -187,6 +187,10 @@ const GEOMETRIC_MEAN_MAX_ITERATIONS: u32 = 64;
 /// half so each factor stays inside `i128` (the caller's exponent is bounded by
 /// 128, so each half is at most `2^64`).
 fn pow2_i256(env: &Env, exponent: u32) -> I256 {
+    // `1i128 << 127` is `i128::MIN`, not a trap, so an out-of-range exponent
+    // would silently produce a negative "bound" and break Newton's descent. The
+    // sole caller tops out at 128; this keeps that true if another appears.
+    debug_assert!(exponent <= 128, "pow2_i256 exponent must stay within 128");
     let low = exponent / 2;
     let high = exponent - low;
     I256::from_i128(env, 1i128 << low).mul(&I256::from_i128(env, 1i128 << high))

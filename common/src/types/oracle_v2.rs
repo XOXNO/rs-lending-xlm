@@ -476,6 +476,24 @@ impl SourceProperties {
         self.trust.iter().any(|d| contains_domain(&other.trust, &d))
     }
 
+    /// Contract addresses reachable from both sources, deduplicated.
+    ///
+    /// The unit the independence rule judges on. `TrustDomain`'s `kind` is
+    /// declared by the proposer for a multi-feed adapter and cannot be checked
+    /// on-chain, so two feeds on one contract could otherwise be labelled as
+    /// different providers and read as independent.
+    pub fn shared_contracts_with(&self, env: &Env, other: &SourceProperties) -> Vec<Address> {
+        let mut shared = Vec::new(env);
+        for domain in self.trust.iter() {
+            let in_other = other.trust.iter().any(|d| d.contract == domain.contract);
+            let already = shared.iter().any(|c| c == domain.contract);
+            if in_other && !already {
+                shared.push_back(domain.contract.clone());
+            }
+        }
+        shared
+    }
+
     /// Trust domains present in both, deduplicated.
     pub fn shared_with(&self, env: &Env, other: &SourceProperties) -> Vec<TrustDomain> {
         let mut shared = Vec::new(env);

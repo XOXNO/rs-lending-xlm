@@ -8,7 +8,8 @@
 //! `set_controller`, `set_price_aggregator`) are excluded.
 
 use common::types::{
-    AssetOracleConfig, AssetOracleConfigInput, HubAssetKey, OracleTolerance, PositionLimits,
+    AssetOracle, AssetOracleConfig, AssetOracleConfigInput, HubAssetKey, OracleTolerance,
+    PositionLimits, PriceKey,
 };
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
@@ -53,6 +54,20 @@ pub struct TransferOwnershipArgs {
 pub struct ConfigureOracleArgs {
     pub hub_asset: HubAssetKey,
     pub cfg: AssetOracleConfigInput,
+}
+
+/// A composable oracle config together with the key it prices.
+///
+/// `oracle.asset_decimals` is **overwritten** by the resolver from the token
+/// itself for a `Token` key, and forced to zero for a `Ref`, which has no token
+/// and no amounts. Decimals drive seize amounts and protocol fees in
+/// liquidation, so they are read from the asset rather than taken on trust from
+/// the proposer.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ConfigureAssetOracleArgs {
+    pub key: PriceKey,
+    pub oracle: AssetOracle,
 }
 
 #[contracttype]
@@ -122,6 +137,13 @@ pub enum AdminOperation {
     GrantGovRole(RoleArgs),
     RevokeGovRole(RoleArgs),
     TransferGovOwnership(TransferOwnershipArgs),
+
+    // Price-aggregator target
+    /// Stores a composable oracle under a `PriceKey`.
+    ///
+    /// Appended last on purpose: every existing discriminant keeps its value, so
+    /// a proposal encoded before this variant existed still decodes.
+    ConfigureAssetOracle(ConfigureAssetOracleArgs),
 }
 
 #[contractclient(name = "GovernanceClient")]
