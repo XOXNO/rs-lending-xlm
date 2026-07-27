@@ -204,6 +204,24 @@ pub enum OracleError {
     AnchorConfigMismatch = 227,
     /// TWAP record count above `MAX_TWAP_RECORDS`.
     TwapRecordsOutOfRange = 228,
+    /// Composition nested deeper than `MAX_RESOLUTION_DEPTH`. Distinct from
+    /// `OracleCycleDetected`: an acyclic but deep graph is a CPU-budget hazard,
+    /// not a cycle, and the two need different remediation.
+    OracleDepthExceeded = 229,
+    /// A `Scaled` source's factor left its configured bounds. Catches a
+    /// compromised or malfunctioning ratio feed before it reaches the price.
+    FactorOutOfBounds = 230,
+    /// Source count outside the supported `1..=2`.
+    SourceCountOutOfRange = 231,
+    /// The trust domains shared by the two sources do not match the config's
+    /// declared `IndependencePolicy`.
+    IndependenceNotDeclared = 232,
+    /// LP pool reports zero total supply, so a share has no defined value.
+    LpSupplyZero = 233,
+    /// LP pool shape is not one this engine can price.
+    UnsupportedPoolKind = 234,
+    /// LP pool reserves are non-positive.
+    LpReservesInvalid = 235,
 }
 
 #[contracterror]

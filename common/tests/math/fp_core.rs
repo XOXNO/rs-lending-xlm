@@ -317,3 +317,104 @@ fn test_rescale_ceil_downscale_to_nonzero_decimals() {
     assert_eq!(rescale_ceil(1_000_000_001, 9, 6), 1_000_001);
     assert_eq!(rescale_ceil(1_000_000_000, 9, 6), 1_000_000);
 }
+
+// ---------------------------------------------------------------------------
+// geometric_mean_floor: floor(sqrt(a*b)) via I256, AM-GM-seeded Newton.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_geometric_mean_exact_squares() {
+    let env = Env::default();
+    assert_eq!(geometric_mean_floor(&env, 4, 9), 6);
+    assert_eq!(geometric_mean_floor(&env, 100, 100), 100);
+    assert_eq!(geometric_mean_floor(&env, 1, 1), 1);
+}
+
+#[test]
+fn test_geometric_mean_floors_not_rounds() {
+    let env = Env::default();
+    // sqrt(2*3) = sqrt(6) = 2.449... -> 2, not 3.
+    assert_eq!(geometric_mean_floor(&env, 2, 3), 2);
+    // sqrt(3*3) = 3 exactly.
+    assert_eq!(geometric_mean_floor(&env, 3, 3), 3);
+    // sqrt(8*9) = sqrt(72) = 8.485... -> 8.
+    assert_eq!(geometric_mean_floor(&env, 8, 9), 8);
+}
+
+#[test]
+fn test_geometric_mean_zero_operand() {
+    let env = Env::default();
+    assert_eq!(geometric_mean_floor(&env, 0, 12345), 0);
+    assert_eq!(geometric_mean_floor(&env, 12345, 0), 0);
+    assert_eq!(geometric_mean_floor(&env, 0, 0), 0);
+}
+
+#[test]
+fn test_geometric_mean_wad_scale_balanced_pool() {
+    let env = Env::default();
+    // A balanced pool leg pair: $1000 each side, in WAD. The geometric mean of
+    // two equal values is that value, so the LP total is 2x it.
+    let leg = 1_000 * WAD;
+    assert_eq!(geometric_mean_floor(&env, leg, leg), leg);
+}
+
+#[test]
+fn test_geometric_mean_overflows_i128_product() {
+    let env = Env::default();
+    // 1e30 * 1e30 = 1e60, far past i128::MAX (~1.7e38). Only the I256
+    // intermediate makes this representable; the root narrows back to 1e30.
+    let big = 10i128.pow(30);
+    assert_eq!(geometric_mean_floor(&env, big, big), big);
+}
+
+#[test]
+fn test_geometric_mean_extreme_imbalance_converges() {
+    let env = Env::default();
+    // 1e12x imbalance: the AM seed sits ~500000x above the answer, which is the
+    // worst case for the iteration cap.
+    let a = 10i128.pow(6);
+    let b = 10i128.pow(30);
+    // sqrt(1e36) = 1e18 exactly.
+    assert_eq!(geometric_mean_floor(&env, a, b), 10i128.pow(18));
+}
+
+#[test]
+fn test_geometric_mean_is_symmetric() {
+    let env = Env::default();
+    for (a, b) in [
+        (7i128, 1_000_000i128),
+        (3 * WAD, 5 * WAD),
+        (1, i128::MAX / 2),
+    ] {
+        assert_eq!(
+            geometric_mean_floor(&env, a, b),
+            geometric_mean_floor(&env, b, a),
+            "geometric mean must not depend on operand order"
+        );
+    }
+}
+
+#[test]
+fn test_geometric_mean_result_squared_brackets_product() {
+    let env = Env::default();
+    // Defining property of a floor square root: r^2 <= a*b < (r+1)^2. Operands
+    // are kept small enough that the product and (r+1)^2 stay inside i128.
+    for (a, b) in [
+        (6i128, 7i128),
+        (99, 101),
+        (123_456, 654_321),
+        (WAD, 3 * WAD),
+    ] {
+        let r = geometric_mean_floor(&env, a, b);
+        let product = a * b;
+        assert!(r * r <= product, "r^2 > a*b for ({a}, {b})");
+        assert!((r + 1) * (r + 1) > product, "(r+1)^2 <= a*b for ({a}, {b})");
+    }
+}
+
+#[test]
+#[should_panic]
+fn test_geometric_mean_rejects_negative() {
+    let env = Env::default();
+    let _ = geometric_mean_floor(&env, -1, 4);
+}

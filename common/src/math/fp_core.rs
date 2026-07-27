@@ -176,6 +176,109 @@ pub fn div_by_int_half_up(a: i128, b: i128) -> i128 {
     }
 }
 
+/// Newton iterations allowed before `geometric_mean_floor` gives up. Both seeds
+/// below are upper bounds within a small factor of the answer, so convergence is
+/// monotone and takes a handful of steps at any imbalance. The cap only bounds
+/// CPU against a pathological input; reaching it is a bug, not a valid outcome,
+/// so it reverts rather than returning a guess.
+const GEOMETRIC_MEAN_MAX_ITERATIONS: u32 = 64;
+
+/// `2^exponent` as an I256, for exponents past what `i128` can hold. Split in
+/// half so each factor stays inside `i128` (the caller's exponent is bounded by
+/// 128, so each half is at most `2^64`).
+fn pow2_i256(env: &Env, exponent: u32) -> I256 {
+    let low = exponent / 2;
+    let high = exponent - low;
+    I256::from_i128(env, 1i128 << low).mul(&I256::from_i128(env, 1i128 << high))
+}
+
+/// Upper bound on `sqrt(a * b)` from operand bit lengths.
+///
+/// `a < 2^(ilog2(a)+1)` and likewise for `b`, so `a*b < 2^(ba+bb+2)` and
+/// `sqrt(a*b) < 2^((ba+bb)/2 + 1)`. Integer division floors, so one extra
+/// exponent keeps the bound sound. Lands within a factor of ~4 of the answer at
+/// any imbalance, which is what keeps the iteration count flat.
+fn sqrt_upper_bound_pow2(env: &Env, a: i128, b: i128) -> I256 {
+    debug_assert!(a > 0 && b > 0, "bit-length seed needs positive operands");
+    let exponent = (a.ilog2() + b.ilog2()) / 2 + 2;
+    pow2_i256(env, exponent)
+}
+
+// Dimensional anchor: Dk{U} * Dk{U} -> Dk{U}; the square root cancels the
+// doubled scale, so the result is in the same fixed-point domain as the inputs.
+/// Floor of `sqrt(a * b)` for non-negative `a`, `b`, via I256 intermediates.
+///
+/// The product overflows `i128` well inside real reserve/price ranges (two WAD
+/// values near 1e30 give 1e60), so the multiply and every iteration run in I256
+/// and only the converged root — which is bounded by `max(a, b)` — narrows back.
+///
+/// Seeded from the tighter of two upper bounds, never from the product itself:
+///
+/// * the arithmetic mean, `>= sqrt(a*b)` by AM-GM and *exact* when `a == b`
+///   (the balanced-pool case, which then costs zero iterations);
+/// * a power of two derived from operand bit lengths, which stays within a small
+///   factor of the answer even at extreme imbalance, where the arithmetic mean
+///   is useless — for `(1, 8.5e37)` it sits ~62 halvings above the root.
+///
+/// Both are upper bounds, so the minimum is too, and Newton descends
+/// monotonically from it. Seeding from `n` instead would cost one halving per
+/// bit, ~127 iterations at the top of the range.
+///
+/// # Errors
+/// * [`GenericError::MathOverflow`] - negative input, or no convergence within
+///   [`GEOMETRIC_MEAN_MAX_ITERATIONS`].
+pub fn geometric_mean_floor(env: &Env, a: i128, b: i128) -> i128 {
+    if a < 0 || b < 0 {
+        panic_with_error!(env, crate::errors::GenericError::MathOverflow);
+    }
+    if a == 0 || b == 0 {
+        return 0;
+    }
+
+    let one = I256::from_i128(env, 1);
+    let two = I256::from_i128(env, 2);
+    let n = I256::from_i128(env, a).mul(&I256::from_i128(env, b));
+
+    let arithmetic_mean = I256::from_i128(env, a)
+        .add(&I256::from_i128(env, b))
+        .div(&two);
+    let bit_length_bound = sqrt_upper_bound_pow2(env, a, b);
+    let mut x = if arithmetic_mean < bit_length_bound {
+        arithmetic_mean
+    } else {
+        bit_length_bound
+    };
+    // Both operands are >= 1 here, so both bounds are >= 1 and the division in
+    // the first iteration is safe; this only guards the degenerate rounding.
+    if x < one {
+        x = one.clone();
+    }
+
+    // Integer Newton on f(x) = x^2 - n. From an upper-bound seed the sequence is
+    // non-increasing until it reaches floor(sqrt(n)), where it either fixes or
+    // oscillates up by one; both are caught by the `next >= x` exit.
+    let mut iterations = 0u32;
+    loop {
+        let next = x.add(&n.div(&x)).div(&two);
+        if next >= x {
+            break;
+        }
+        x = next;
+        iterations += 1;
+        if iterations >= GEOMETRIC_MEAN_MAX_ITERATIONS {
+            panic_with_error!(env, crate::errors::GenericError::MathOverflow);
+        }
+    }
+
+    // Newton on integers can settle one above the true floor; step down until
+    // `x*x <= n` holds. At most one correction is needed in practice.
+    while x.mul(&x) > n {
+        x = x.sub(&one);
+    }
+
+    to_i128(env, &x)
+}
+
 fn to_i128(env: &Env, val: &I256) -> i128 {
     val.to_i128()
         .unwrap_or_else(|| panic_with_error!(env, crate::errors::GenericError::MathOverflow))
