@@ -7,6 +7,15 @@ use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::types::AssetOracleConfig;
 use soroban_sdk::{contracttype, Address, Env};
 
+/// Legacy key space.
+///
+/// `registry.rs` declares its own `AggregatorKey` with a matching
+/// `AssetOracle(Address)` variant, and the two MUST stay name-identical: the SDK
+/// encodes a variant by its **name** as a Symbol, not by its index, so the
+/// shared name is the only thing making `registry::get_legacy` read what this
+/// module wrote. Renaming here without renaming there silently orphans every
+/// unmigrated config. `registry::tests::test_writing_the_new_shape_leaves_the_legacy_entry_decodable`
+/// is what would catch it.
 #[contracttype]
 enum AggregatorKey {
     AssetOracle(Address),

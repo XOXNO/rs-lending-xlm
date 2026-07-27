@@ -34,6 +34,10 @@ use soroban_sdk::{contracttype, panic_with_error, Address, Env, Vec};
 enum AggregatorKey {
     /// Legacy: token-rooted `AssetOracleConfig`. Read-only after migration
     /// begins; never written by the new path.
+    ///
+    /// Must stay name-identical to `storage::AggregatorKey::AssetOracle` - the
+    /// SDK encodes a variant by name, not index, so the shared name is the only
+    /// thing linking these two independent declarations.
     AssetOracle(Address),
     /// Current: [`AssetOracle`] under a [`PriceKey`], so reference prices with
     /// no token can be stored alongside real assets.

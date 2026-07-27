@@ -35,7 +35,7 @@ pub mod spec;
 #[path = "../tests/oracle/support.rs"]
 mod test_support;
 
-use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
 
@@ -156,10 +156,7 @@ impl PriceAggregator {
     /// Same variants as [`Self::price_of`].
     pub fn price_spread_of(env: Env, key: PriceKey) -> (i128, i128) {
         let mut cache = context::ResolutionContext::new(&env);
-        let Some(oracle) = registry::resolve_oracle(&env, &key) else {
-            panic_with_error!(&env, Error::OracleNotConfigured)
-        };
-        let resolved = engine::resolve_with(&mut cache, &oracle, 0);
+        let resolved = engine::resolve_detailed(&mut cache, &key, 0);
         (resolved.low_wad, resolved.high_wad)
     }
 

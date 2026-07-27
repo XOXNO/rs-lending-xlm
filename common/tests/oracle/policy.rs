@@ -1,9 +1,9 @@
 use super::*;
-use crate::types::oracle::{OracleAssetRef, OracleReadMode};
-use crate::types::oracle_v2::{
+use crate::types::composable_oracle::{
     FeedNature, FeedSource, MultiFeedRef, PriceKey, ProviderKind, ProviderRef, ReflectorFeedRef,
     TrustDomain,
 };
+use crate::types::oracle::{OracleAssetRef, OracleReadMode};
 use soroban_sdk::{testutils::Address as _, Address, String, Symbol};
 
 fn reflector(env: &Env, contract: &Address, mode: OracleReadMode, max_stale: u64) -> FeedSource {

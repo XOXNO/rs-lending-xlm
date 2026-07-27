@@ -24,11 +24,11 @@ use crate::errors::{GenericError, OracleError};
 use crate::oracle::observation::{
     MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
 };
-use crate::types::oracle::OracleReadMode;
-use crate::types::oracle_v2::{
+use crate::types::composable_oracle::{
     FeedSource, IndependencePolicy, PriceKey, PriceSource, ProviderRef, ScaledSource,
     SourceProperties, MAX_RESOLUTION_DEPTH, MAX_SOURCES, MIN_SOURCES,
 };
+use crate::types::oracle::OracleReadMode;
 use crate::validation::validate_twap_records;
 
 /// Decimals of a priced token, matching the pool-params bound. A reference key

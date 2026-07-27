@@ -3,7 +3,7 @@
 //!
 //! # Why this exists alongside [`super::oracle`]
 //!
-//! The v1 model fixes two asymmetric roles (`primary` / `anchor`) and hard-wires
+//! The older model in [`super::oracle`] fixes two asymmetric roles (`primary` / `anchor`) and hard-wires
 //! composition to a single shape (a Reflector feed repriced through a registered
 //! token's oracle). That cannot express an asset whose only USD-independent
 //! opinion is `ratio x price(reference)` — the reference need not be a token at
@@ -567,5 +567,5 @@ pub fn local_properties(env: &Env, source: &PriceSource) -> LocalProperties {
 }
 
 #[cfg(test)]
-#[path = "../../tests/types/oracle_v2.rs"]
+#[path = "../../tests/types/composable_oracle.rs"]
 mod tests;

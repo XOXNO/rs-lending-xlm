@@ -454,3 +454,161 @@ fn test_the_engine_prices_an_unmigrated_legacy_config() {
         assert_eq!(feed.asset_decimals, 7, "legacy decimals carry through");
     });
 }
+
+// ---------------------------------------------------------------------------
+// Quote chains: allowed, bounded, and checked at every link.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_a_two_hop_chain_prices_and_is_band_checked_at_every_link() {
+    // The older model forbade this outright ("one hop, no quote chains") because
+    // nothing else bounded depth. Here the depth cap does, and every
+    // intermediate faces its own sanity band rather than only the endpoints.
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "BTC", 100 * WAD, 0);
+    publish(&client, &env, "RATIO", 2 * WAD, 0);
+    publish(&client, &env, "RATIO2", 3 * WAD, 0);
+
+    in_contract(&env, || {
+        // BTC = 100, mid = 2 x BTC = 200, top = 3 x mid = 600.
+        let btc = PriceKey::Ref(Symbol::new(&env, "BTC"));
+        registry::set_oracle(
+            &env,
+            &btc,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Feed(multi_feed(&env, &adapter, "BTC", 3_600))],
+                ),
+                3_600,
+                WAD / 2,
+                1_000_000 * WAD,
+            ),
+        );
+
+        let mid = PriceKey::Ref(Symbol::new(&env, "MID"));
+        registry::set_oracle(
+            &env,
+            &mid,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Scaled(ScaledSource {
+                        factor: multi_feed(&env, &adapter, "RATIO", RATIO_BOUND),
+                        quote: btc,
+                        min_factor_wad: WAD,
+                        max_factor_wad: 5 * WAD,
+                    })],
+                ),
+                RATIO_BOUND,
+                WAD / 2,
+                1_000_000 * WAD,
+            ),
+        );
+
+        let top = PriceKey::Token(Address::generate(&env));
+        registry::set_oracle(
+            &env,
+            &top,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Scaled(ScaledSource {
+                        factor: multi_feed(&env, &adapter, "RATIO2", RATIO_BOUND),
+                        quote: mid,
+                        min_factor_wad: WAD,
+                        max_factor_wad: 5 * WAD,
+                    })],
+                ),
+                RATIO_BOUND,
+                WAD / 2,
+                1_000_000 * WAD,
+            ),
+        );
+
+        let mut cache = ResolutionContext::new(&env);
+        assert_eq!(resolve(&mut cache, &top, 0).price_wad, 600 * WAD);
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_an_intermediate_link_failing_its_own_band_reverts_the_chain() {
+    // The strength the one-hop rule did not have: the middle of a chain is
+    // checked, not just its endpoints.
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "BTC", 100 * WAD, 0);
+    publish(&client, &env, "RATIO", 2 * WAD, 0);
+    publish(&client, &env, "RATIO2", WAD, 0);
+
+    in_contract(&env, || {
+        let btc = PriceKey::Ref(Symbol::new(&env, "BTC"));
+        registry::set_oracle(
+            &env,
+            &btc,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Feed(multi_feed(&env, &adapter, "BTC", 3_600))],
+                ),
+                3_600,
+                WAD / 2,
+                1_000_000 * WAD,
+            ),
+        );
+
+        // mid resolves to 200, but its own band tops out at 150.
+        let mid = PriceKey::Ref(Symbol::new(&env, "MID"));
+        registry::set_oracle(
+            &env,
+            &mid,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Scaled(ScaledSource {
+                        factor: multi_feed(&env, &adapter, "RATIO", RATIO_BOUND),
+                        quote: btc,
+                        min_factor_wad: WAD,
+                        max_factor_wad: 5 * WAD,
+                    })],
+                ),
+                RATIO_BOUND,
+                WAD / 2,
+                150 * WAD,
+            ),
+        );
+
+        let top = PriceKey::Token(Address::generate(&env));
+        registry::set_oracle(
+            &env,
+            &top,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Scaled(ScaledSource {
+                        factor: multi_feed(&env, &adapter, "RATIO2", RATIO_BOUND),
+                        quote: mid,
+                        min_factor_wad: WAD / 2,
+                        max_factor_wad: 5 * WAD,
+                    })],
+                ),
+                RATIO_BOUND,
+                WAD / 2,
+                1_000_000 * WAD,
+            ),
+        );
+
+        let mut cache = ResolutionContext::new(&env);
+        let _ = resolve(&mut cache, &top, 0);
+    });
+}

@@ -17,10 +17,34 @@
 //!   range before it reaches the product.
 //! * **Agreement** — two sources must land inside the tolerance band.
 //! * **Sanity band** — the final price must sit inside the configured bounds.
-//! * **Cycle and depth** — enforced on entry, before any config is read.
+//! * **Cycle and depth** — enforced on entry, before any config is read, by the
+//!   single guarded entry [`resolve_detailed`]. Every caller routes through it.
 //!
 //! Nothing here falls back. Every failure reverts, because a lending protocol
 //! that guesses a price is a lending protocol that has already lost the money.
+//!
+//! # Quote chains are allowed, deliberately
+//!
+//! The older model enforced "one hop, no quote chains": a Reflector quoted base
+//! had to name an asset whose own oracle was USD-rooted, so composition depth
+//! was structurally pinned at exactly two. Here a [`ScaledSource`]'s quote may
+//! itself be composed, up to `MAX_RESOLUTION_DEPTH`.
+//!
+//! That is the point of the model, not an oversight — SolvBTC needs one hop and
+//! an LP share needs two — but it means the one-hop rule's protection has to
+//! come from somewhere else. It does, and from something stronger:
+//!
+//! * The one-hop rule bounded depth by forbidding the second hop, because
+//!   nothing else bounded it. `MAX_RESOLUTION_DEPTH` and the cycle stack bound
+//!   it directly.
+//! * Every hop resolves through [`resolve`], so **each intermediate price faces
+//!   its own sanity band, staleness gates, and agreement check** before it is
+//!   multiplied into anything. The old rule validated only the endpoints; a
+//!   chain here is checked at every link.
+//!
+//! The residual cost is compounding: each hop multiplies its own error into the
+//! result. That argues for keeping chains shallow in practice, which is what the
+//! depth cap enforces — it is set to 3, not to the largest number that works.
 
 use common::errors::OracleError;
 use common::math::fp::Wad;
@@ -66,6 +90,28 @@ pub(crate) fn resolve(cache: &mut ResolutionContext, key: &PriceKey, depth: u32)
     if let Some(cached) = cache.cached_key_price(key) {
         return cached;
     }
+    resolve_detailed(cache, key, depth).feed
+}
+
+/// A resolved key together with the interval its sources spanned.
+pub(crate) struct ResolvedKey {
+    pub feed: PriceFeedRaw,
+    pub low_wad: i128,
+    pub high_wad: i128,
+}
+
+/// The single guarded entry into resolution.
+///
+/// Every caller goes through here, so the depth cap and the cycle push apply
+/// uniformly. A view that reached `resolve_with` directly would price a
+/// self-quoting root one level deeper than it should and would skip the depth
+/// cap for the root entirely - bounded, but it would make the module's own
+/// claim that cycle and depth are "enforced on entry" false.
+pub(crate) fn resolve_detailed(
+    cache: &mut ResolutionContext,
+    key: &PriceKey,
+    depth: u32,
+) -> ResolvedKey {
     let env = cache.env().clone();
     require_depth_within_cap(&env, depth);
 
@@ -88,15 +134,15 @@ pub(crate) fn resolve(cache: &mut ResolutionContext, key: &PriceKey, depth: u32)
     // Memoized only after every guard has passed, so a cached entry is always a
     // fully-checked one. The memo has exactly one writer for that reason.
     cache.store_key_price(key, feed.clone());
-    feed
+    ResolvedKey {
+        feed,
+        low_wad: resolved.low_wad,
+        high_wad: resolved.high_wad,
+    }
 }
 
 /// Combines a config's sources and applies the price-level guards.
-pub(crate) fn resolve_with(
-    cache: &mut ResolutionContext,
-    oracle: &AssetOracle,
-    depth: u32,
-) -> Resolved {
+fn resolve_with(cache: &mut ResolutionContext, oracle: &AssetOracle, depth: u32) -> Resolved {
     let env = cache.env().clone();
     let count = oracle.sources.len();
     if count == 0 || count > 2 {
