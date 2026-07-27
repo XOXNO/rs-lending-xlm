@@ -21,7 +21,7 @@
 //! `ORACLE` role is itself revocable immediately.
 
 use common::errors::GenericError;
-use common::types::HubAssetKey;
+use common::types::{HubAssetKey, PriceKey};
 
 use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Symbol};
 
@@ -78,16 +78,16 @@ impl Governance {
     ///   `SanityBoundViolated`, and feed-resolution errors from the aggregator.
     ///
     /// # Events
-    /// * Aggregator `UpdateAssetOracleEvent`.
+    /// * Aggregator `UpdateAssetOracleV2Event`.
     pub fn set_sanity_band(
         env: Env,
         caller: Address,
-        asset: Address,
+        key: PriceKey,
         min_wad: i128,
         max_wad: i128,
     ) {
         begin_immediate(&env, &caller, ORACLE_ROLE);
-        price_aggregator_client(&env).set_sanity_band(&asset, &min_wad, &max_wad);
+        price_aggregator_client(&env).set_sanity_band(&key, &min_wad, &max_wad);
     }
 
     /// Creates a hub and returns its id. `GUARDIAN`-gated. Listings still ride

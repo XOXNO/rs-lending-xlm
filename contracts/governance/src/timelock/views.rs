@@ -1,6 +1,6 @@
 //! Read-only timelock and oracle-config views. No auth, no state change.
 
-use common::types::{AssetOracleConfig, AssetOracleConfigInput, OracleTolerance};
+use common::types::OracleTolerance;
 
 use soroban_sdk::{contractimpl, Address, BytesN, Env, Symbol, Val, Vec};
 
@@ -45,26 +45,6 @@ impl Governance {
             salt,
         };
         hash_operation(&env, &operation)
-    }
-
-    /// Resolves market oracle input to the `AssetOracleConfig` `propose` would
-    /// schedule, including live probes. Read-only.
-    ///
-    /// # Errors
-    /// * `BadLastTolerance`, `MathOverflow`.
-    /// * `InvalidExchangeSrc`, `SpotOnlyNotProductionSafe`, `InvalidStalenessConfig`,
-    ///   `InvalidSanityBounds`, `SanityBandTooWideForSingleSource`, `InvalidOracleDecimals`.
-    /// * Live probe: `InvalidAsset`, `InvalidTicker`, `InvalidOracleBase`,
-    ///   `InvalidOracleResolution`, `ReflectorHistoryEmpty`,
-    ///   `TwapInsufficientObservations`, `PriceFeedStale`.
-    pub fn resolve_market_oracle_config(
-        env: Env,
-        asset: Address,
-        cfg: AssetOracleConfigInput,
-    ) -> AssetOracleConfig {
-        let tolerance =
-            validate::tolerance::validate_and_calculate_tolerances(&env, cfg.tolerance_bps);
-        validate::oracle_probe::validate_market_oracle_sources(&env, &asset, &cfg, tolerance)
     }
 
     /// Resolves tolerance BPS to the `OracleTolerance` band `propose` would

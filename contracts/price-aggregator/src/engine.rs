@@ -1,18 +1,20 @@
 //! Price resolution over the composable model.
 //!
-//! One recursive entry point, [`resolve`], and one dispatch,
-//! [`evaluate_source`]. Reading those two answers "how is this asset priced"
-//! without cross-referencing a validator.
+//! One composition, two renderers. [`compose`] reads every source and applies
+//! every rule that decides an outcome — staleness, factor bounds, agreement —
+//! exactly once. [`render_hard`] turns that into a price or a revert;
+//! [`render_soft`] turns the same thing into flags. Neither renderer re-decides
+//! anything, which is what keeps `price` and `price_status` from drifting apart.
 //!
 //! # Guards, and where each one lives
 //!
 //! * **Per-feed staleness** — every [`FeedSource`] carries its own bound and is
-//!   gated against it the moment it is read.
+//!   checked against it the moment it is read.
 //! * **Composite staleness** — a source made of several feeds is only as fresh
-//!   as its stalest component, and that `min` is gated again at the asset-level
-//!   ceiling. Both gates are needed: per-feed alone lets a frozen slow leg ride
-//!   under a live fast one for the slow leg's entire window, which is exactly
-//!   what a ratio feed going silent during a depeg looks like.
+//!   as its stalest component, and that `min` is checked again at the asset-level
+//!   ceiling. Both are needed: per-feed alone lets a frozen slow leg ride under
+//!   a live fast one for the slow leg's entire window, which is exactly what a
+//!   ratio feed going silent during a depeg looks like.
 //! * **Factor bounds** — a [`ScaledSource`]'s ratio is checked against its own
 //!   range before it reaches the product.
 //! * **Agreement** — two sources must land inside the tolerance band.
@@ -20,38 +22,27 @@
 //! * **Cycle and depth** — enforced on entry, before any config is read, by the
 //!   single guarded entry [`resolve_detailed`]. Every caller routes through it.
 //!
-//! Nothing here falls back. Every failure reverts, because a lending protocol
-//! that guesses a price is a lending protocol that has already lost the money.
+//! The hard path never falls back. Every failure reverts, because a lending
+//! protocol that guesses a price is one that has already lost the money. The
+//! soft path never reverts on a *per-asset* problem, because a view that dies
+//! on one bad market is a view nobody can use during an incident.
 //!
 //! # Quote chains are allowed, deliberately
 //!
-//! The older model enforced "one hop, no quote chains": a Reflector quoted base
-//! had to name an asset whose own oracle was USD-rooted, so composition depth
-//! was structurally pinned at exactly two. Here a [`ScaledSource`]'s quote may
-//! itself be composed, up to `MAX_RESOLUTION_DEPTH`.
-//!
-//! That is the point of the model, not an oversight — SolvBTC needs one hop and
-//! an LP share needs two — but it means the one-hop rule's protection has to
-//! come from somewhere else. It does, and from something stronger:
-//!
-//! * The one-hop rule bounded depth by forbidding the second hop, because
-//!   nothing else bounded it. `MAX_RESOLUTION_DEPTH` and the cycle stack bound
-//!   it directly.
-//! * Every hop resolves through [`resolve`], so **each intermediate price faces
-//!   its own sanity band, staleness gates, and agreement check** before it is
-//!   multiplied into anything. The old rule validated only the endpoints; a
-//!   chain here is checked at every link.
-//!
-//! The residual cost is compounding: each hop multiplies its own error into the
-//! result. That argues for keeping chains shallow in practice, which is what the
-//! depth cap enforces — it is set to 3, not to the largest number that works.
+//! A [`ScaledSource`]'s quote may itself be composed, up to
+//! [`MAX_RESOLUTION_DEPTH`]. That is the point of the model — SolvBTC needs one
+//! hop, an LP share needs two — and the depth cap plus the cycle stack bound it
+//! directly. Every hop resolves through this engine, so each intermediate faces
+//! its own sanity band, staleness gates, and agreement check before being
+//! multiplied into anything. The residual cost is compounding error per hop,
+//! which is why the cap is 3 rather than the largest number that works.
 
 use common::errors::OracleError;
 use common::math::fp::Wad;
 use common::oracle::observation::is_stale;
 use common::oracle::policy::require_factor_in_bounds;
 use common::types::{
-    AssetOracle, FeedSource, PriceFeedRaw, PriceKey, PriceSource, ProviderRef,
+    AssetOracle, FeedSource, PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef,
     RedStoneSourceConfig, ReflectorBase, ReflectorSourceConfig, ScaledSource, MAX_RESOLUTION_DEPTH,
 };
 use soroban_sdk::{panic_with_error, Env};
@@ -60,12 +51,42 @@ use crate::context::ResolutionContext;
 use crate::observation::OracleObservation;
 use crate::providers::{multi_feed, reflector};
 use crate::registry;
-use crate::tolerance::midpoint_if_in_band;
+use crate::tolerance::{midpoint_if_in_band, midpoint_price_or_zero, within_tolerance_band};
 
-/// A resolved price plus the spread the sources actually disagreed by.
+/// Read discipline. `Hard` lets a provider revert with its own precise error;
+/// `Soft` maps every per-asset problem to an absent reading.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Hard,
+    Soft,
+}
+
+impl Mode {
+    fn soft(self) -> bool {
+        self == Mode::Soft
+    }
+}
+
+/// One source, read and dated. `stale` is recorded rather than acted on, so the
+/// renderers decide what it means.
+struct Reading {
+    price_wad: i128,
+    timestamp: u64,
+    stale: bool,
+}
+
+/// Every source a config calls for, in order. `None` is an unreadable source.
+struct Composition {
+    first: Option<Reading>,
+    /// `None` when the config is single-source; `Some(None)` when it is dual and
+    /// the second source could not be read.
+    second: Option<Option<Reading>>,
+}
+
+/// A resolved price plus the interval its sources spanned.
 ///
 /// `low`/`high` are carried even though only `price_wad` is published today.
-/// The combination rule is the one open question in this design — a source
+/// The combination rule is the open question in this design — a source
 /// compromised high moves a midpoint by half that error, where collateral wants
 /// the low end and debt the high end — and keeping the band computed here means
 /// widening `PriceFeedRaw` later is a change to the boundary, not to the engine.
@@ -76,11 +97,22 @@ pub(crate) struct Resolved {
     pub high_wad: i128,
 }
 
+/// A resolved key together with the interval its sources spanned.
+pub(crate) struct ResolvedKey {
+    pub feed: PriceFeedRaw,
+    pub low_wad: i128,
+    pub high_wad: i128,
+}
+
+// ---------------------------------------------------------------------------
+// Hard path
+// ---------------------------------------------------------------------------
+
 /// USD price for `key`, fail-closed.
 ///
 /// # Errors
 /// * [`OracleError::OracleDepthExceeded`] / [`OracleError::OracleCycleDetected`]
-/// * [`OracleError::OracleNotConfigured`] - no config, migrated or legacy.
+/// * [`OracleError::OracleNotConfigured`] - no config stored for `key`.
 /// * [`OracleError::PriceFeedStale`] - a feed, or a composite, past its bound.
 /// * [`OracleError::FactorOutOfBounds`] - a scaled ratio outside its range.
 /// * [`OracleError::UnsafePriceNotAllowed`] - two sources outside tolerance.
@@ -93,20 +125,12 @@ pub(crate) fn resolve(cache: &mut ResolutionContext, key: &PriceKey, depth: u32)
     resolve_detailed(cache, key, depth).feed
 }
 
-/// A resolved key together with the interval its sources spanned.
-pub(crate) struct ResolvedKey {
-    pub feed: PriceFeedRaw,
-    pub low_wad: i128,
-    pub high_wad: i128,
-}
-
-/// The single guarded entry into resolution.
+/// The single guarded entry into hard resolution.
 ///
 /// Every caller goes through here, so the depth cap and the cycle push apply
-/// uniformly. A view that reached `resolve_with` directly would price a
+/// uniformly. A view that reached the renderer directly would price a
 /// self-quoting root one level deeper than it should and would skip the depth
-/// cap for the root entirely - bounded, but it would make the module's own
-/// claim that cycle and depth are "enforced on entry" false.
+/// cap for the root entirely.
 pub(crate) fn resolve_detailed(
     cache: &mut ResolutionContext,
     key: &PriceKey,
@@ -123,7 +147,8 @@ pub(crate) fn resolve_detailed(
         panic_with_error!(&env, OracleError::OracleNotConfigured)
     };
 
-    let resolved = resolve_with(cache, &oracle, depth);
+    let composition = compose(cache, &oracle, depth, Mode::Hard);
+    let resolved = render_hard(&env, &oracle, &composition);
     let feed = PriceFeedRaw {
         price_wad: resolved.price_wad,
         asset_decimals: oracle.asset_decimals,
@@ -141,83 +166,268 @@ pub(crate) fn resolve_detailed(
     }
 }
 
-/// Combines a config's sources and applies the price-level guards.
-fn resolve_with(cache: &mut ResolutionContext, oracle: &AssetOracle, depth: u32) -> Resolved {
+/// Resolves `key` against a config that is not (yet) stored.
+///
+/// Used by the sanity-band walk, which must prove the live price sits inside a
+/// proposed band before committing it. Deliberately does **not** memoize: the
+/// price memo has exactly one writer, and a probe result describes a config no
+/// reader should see.
+///
+/// # Errors
+/// Same variants as [`resolve`].
+pub(crate) fn resolve_probe(
+    cache: &mut ResolutionContext,
+    key: &PriceKey,
+    oracle: &AssetOracle,
+) -> Resolved {
+    let env = cache.env().clone();
+    cache.push_price_key(key);
+    let composition = compose(cache, oracle, 0, Mode::Hard);
+    let resolved = render_hard(&env, oracle, &composition);
+    cache.pop_price_key();
+    resolved
+}
+
+/// Turns a composition into a price, reverting on anything that would make it
+/// unsafe. Decides nothing `compose` has not already established.
+fn render_hard(env: &Env, oracle: &AssetOracle, composition: &Composition) -> Resolved {
+    let first = require_readable(env, composition.first.as_ref());
+    require_fresh(env, first);
+
+    let resolved = match composition.second.as_ref() {
+        None => Resolved {
+            price_wad: first.price_wad,
+            timestamp: first.timestamp,
+            low_wad: first.price_wad,
+            high_wad: first.price_wad,
+        },
+        Some(second) => {
+            let second = require_readable(env, second.as_ref());
+            require_fresh(env, second);
+            // `midpoint_if_in_band` is symmetric in its two arguments, so source
+            // order cannot change either the price or the accept/reject outcome.
+            let price_wad = midpoint_if_in_band(
+                env,
+                second.price_wad,
+                first.price_wad,
+                &oracle.tolerance,
+            );
+            Resolved {
+                price_wad,
+                // A blend is only as fresh as the weaker source it rests on.
+                timestamp: first.timestamp.min(second.timestamp),
+                low_wad: first.price_wad.min(second.price_wad),
+                high_wad: first.price_wad.max(second.price_wad),
+            }
+        }
+    };
+
+    require_within_sanity_band(env, resolved.price_wad, oracle);
+    resolved
+}
+
+// ---------------------------------------------------------------------------
+// Soft path
+// ---------------------------------------------------------------------------
+
+/// Diagnostic status for `key`. Never reverts on a per-asset problem.
+///
+/// `valid` is true exactly when [`resolve`] would not revert, which is the
+/// property that lets a view be trusted as a pre-flight check. It holds because
+/// both paths render the same [`Composition`] under the same rules.
+pub(crate) fn resolve_status(
+    cache: &mut ResolutionContext,
+    key: &PriceKey,
+    depth: u32,
+) -> PriceStatus {
+    if let Some(cached) = cache.cached_key_status(key) {
+        return cached;
+    }
+    let status = compute_status(cache, key, depth);
+    cache.store_key_status(key, status.clone());
+    status
+}
+
+fn compute_status(cache: &mut ResolutionContext, key: &PriceKey, depth: u32) -> PriceStatus {
+    let env = cache.env().clone();
+    // Depth and cycles are structural, not per-asset: an over-deep or looping
+    // config is unusable rather than merely unhealthy.
+    if depth > MAX_RESOLUTION_DEPTH || cache.is_price_key_resolving(key) {
+        return PriceStatus::unusable();
+    }
+    let Some(oracle) = registry::resolve_oracle(&env, key) else {
+        return PriceStatus::unusable();
+    };
+
+    cache.push_price_key(key);
+    let composition = compose(cache, &oracle, depth, Mode::Soft);
+    cache.pop_price_key();
+
+    render_soft(&env, &oracle, &composition)
+}
+
+/// Turns a composition into flags. Mirrors [`render_hard`] decision for
+/// decision; `is_valid` is the soft form of the hard path's final gates.
+fn render_soft(env: &Env, oracle: &AssetOracle, composition: &Composition) -> PriceStatus {
+    let Some(first) = composition.first.as_ref() else {
+        return PriceStatus::unusable();
+    };
+
+    match composition.second.as_ref() {
+        None => {
+            let stale = first.stale;
+            PriceStatus {
+                final_wad: first.price_wad,
+                primary_wad: first.price_wad,
+                secondary_wad: first.price_wad,
+                price_timestamp: first.timestamp,
+                stale,
+                deviation: false,
+                valid: is_valid(first.price_wad, stale, false, oracle),
+            }
+        }
+        Some(second) => {
+            // A dual config with one readable source has no second opinion, so
+            // the pair never agreed - which is what `deviation` records. The
+            // view still reports the leg it did read.
+            let Some(second) = second.as_ref() else {
+                return PriceStatus {
+                    final_wad: 0,
+                    primary_wad: first.price_wad,
+                    secondary_wad: 0,
+                    price_timestamp: first.timestamp,
+                    stale: first.stale,
+                    deviation: true,
+                    valid: false,
+                };
+            };
+
+            // A diagnostic shows the number it rejected, so the midpoint is
+            // reported either way and `deviation` is what keeps it out of `valid`.
+            let final_wad = midpoint_price_or_zero(env, second.price_wad, first.price_wad);
+            let deviation = !within_tolerance_band(
+                env,
+                second.price_wad,
+                first.price_wad,
+                &oracle.tolerance,
+            );
+            let stale = first.stale || second.stale;
+            PriceStatus {
+                final_wad,
+                primary_wad: first.price_wad,
+                secondary_wad: second.price_wad,
+                price_timestamp: first.timestamp.min(second.timestamp),
+                stale,
+                deviation,
+                valid: is_valid(final_wad, stale, deviation, oracle),
+            }
+        }
+    }
+}
+
+/// True when a composed price would also survive the fail-closed path.
+fn is_valid(final_wad: i128, stale: bool, deviation: bool, oracle: &AssetOracle) -> bool {
+    if stale || deviation || final_wad <= 0 {
+        return false;
+    }
+    final_wad >= oracle.min_sanity_price_wad && final_wad <= oracle.max_sanity_price_wad
+}
+
+// ---------------------------------------------------------------------------
+// Composition, shared by both renderers
+// ---------------------------------------------------------------------------
+
+/// Reads every source the config calls for and records its freshness.
+///
+/// # Errors
+/// * [`OracleError::SourceCountOutOfRange`] - a stored config with no sources,
+///   or more than the model admits. Structural, so it reverts in both modes.
+fn compose(
+    cache: &mut ResolutionContext,
+    oracle: &AssetOracle,
+    depth: u32,
+    mode: Mode,
+) -> Composition {
     let env = cache.env().clone();
     let count = oracle.sources.len();
     if count == 0 || count > 2 {
         panic_with_error!(&env, OracleError::SourceCountOutOfRange);
     }
 
-    let first = observe_source(cache, oracle, &oracle.sources.get_unchecked(0), depth);
-    let resolved = if count == 1 {
-        Resolved {
-            price_wad: first.price_wad,
-            timestamp: first.timestamp(),
-            low_wad: first.price_wad,
-            high_wad: first.price_wad,
-        }
+    let first = read_source(cache, oracle, &oracle.sources.get_unchecked(0), depth, mode);
+    let second = if count == 2 {
+        Some(read_source(
+            cache,
+            oracle,
+            &oracle.sources.get_unchecked(1),
+            depth,
+            mode,
+        ))
     } else {
-        let second = observe_source(cache, oracle, &oracle.sources.get_unchecked(1), depth);
-        // `midpoint_if_in_band` is symmetric in its two arguments, so source
-        // order cannot change either the price or the accept/reject outcome.
-        let price_wad =
-            midpoint_if_in_band(&env, second.price_wad, first.price_wad, &oracle.tolerance);
-        Resolved {
-            price_wad,
-            // A blend is only as fresh as the weaker source it rests on.
-            timestamp: first.timestamp().min(second.timestamp()),
-            low_wad: first.price_wad.min(second.price_wad),
-            high_wad: first.price_wad.max(second.price_wad),
-        }
+        None
     };
-
-    require_within_sanity_band(&env, resolved.price_wad, oracle);
-    resolved
+    Composition { first, second }
 }
 
-/// Evaluates one source and applies the composite staleness gate.
-fn observe_source(
+/// Evaluates one source and dates it against the asset-level ceiling.
+fn read_source(
     cache: &mut ResolutionContext,
     oracle: &AssetOracle,
     source: &PriceSource,
     depth: u32,
-) -> OracleObservation {
-    let observation = evaluate_source(cache, source, depth);
+    mode: Mode,
+) -> Option<Reading> {
+    let (observation, component_stale) = evaluate_source(cache, source, depth, mode)?;
+    let timestamp = observation.timestamp();
     // The second gate. Each feed was already checked against its own bound; this
     // one holds the *composed* answer to the asset's ceiling, so a source whose
     // slowest component has frozen cannot keep looking fresh on the strength of
     // its live components.
-    require_fresh(
-        cache,
-        observation.timestamp(),
-        oracle.max_price_stale_seconds,
-    );
-    observation
+    let stale = component_stale
+        || is_stale(
+            cache.ledger_timestamp_secs(),
+            timestamp,
+            oracle.max_price_stale_seconds,
+        );
+    Some(Reading {
+        price_wad: observation.price_wad,
+        timestamp,
+        stale,
+    })
 }
 
-/// One source, one price. The only place a source shape is interpreted.
+/// One source, one price, plus whether any component was past its own bound.
+///
+/// Staleness is reported rather than acted on so the renderers decide: the hard
+/// path reverts, the soft path flags. Making a stale component simply vanish
+/// would collapse "past its window" into "unreadable" and cost the diagnostic
+/// its most useful distinction.
+///
+/// The only place a source shape is interpreted.
 fn evaluate_source(
     cache: &mut ResolutionContext,
     source: &PriceSource,
     depth: u32,
-) -> OracleObservation {
+    mode: Mode,
+) -> Option<(OracleObservation, bool)> {
     match source {
-        PriceSource::Feed(feed) => read_feed(cache, feed),
-        PriceSource::Scaled(scaled) => read_scaled(cache, scaled, depth),
+        PriceSource::Feed(feed) => read_feed(cache, feed, mode),
+        PriceSource::Scaled(scaled) => read_scaled(cache, scaled, depth, mode),
         PriceSource::LpShare(_) => {
-            // Types and the fair-value primitive exist; the evaluator does not.
-            // LP collateral carries donation, first-depositor, fee-on-transfer,
-            // and pool-callback re-entrancy surface that needs its own review,
-            // and `validate_smoothing` already refuses such a config. This is
-            // the read-path backstop for a config that predates that rule.
+            // `validate_source_shape` refuses this variant outright, so a stored
+            // config carrying one predates that rule. Structural rather than
+            // per-asset, so it reverts under either mode.
             panic_with_error!(cache.env(), OracleError::UnsupportedPoolKind)
         }
     }
 }
 
-/// Reads one provider feed and gates it at its own staleness bound.
-fn read_feed(cache: &mut ResolutionContext, feed: &FeedSource) -> OracleObservation {
+/// Reads one provider feed and measures it against its own staleness bound.
+fn read_feed(
+    cache: &mut ResolutionContext,
+    feed: &FeedSource,
+    mode: Mode,
+) -> Option<(OracleObservation, bool)> {
     let env = cache.env().clone();
     let observation = match &feed.provider {
         ProviderRef::Reflector(reflector_ref) => {
@@ -226,13 +436,13 @@ fn read_feed(cache: &mut ResolutionContext, feed: &FeedSource) -> OracleObservat
                 asset: reflector_ref.asset.clone(),
                 read_mode: reflector_ref.read_mode,
                 decimals: feed.decimals,
-                // Read-path-irrelevant; bounded at listing time only.
+                // Read-path-irrelevant; bounded at config time only.
                 resolution_seconds: 0,
                 // Quoting is `ScaledSource`'s job now, so a feed is always read
                 // in whatever unit it natively publishes.
                 base: ReflectorBase::Usd,
             };
-            reflector::read_reflector_source(cache, &config, false)
+            reflector::read_reflector_source(cache, &config, mode.soft())
         }
         ProviderRef::MultiFeed(multi_feed_ref) => {
             let config = RedStoneSourceConfig {
@@ -241,15 +451,22 @@ fn read_feed(cache: &mut ResolutionContext, feed: &FeedSource) -> OracleObservat
                 decimals: feed.decimals,
                 max_stale_seconds: feed.max_stale_seconds,
             };
-            multi_feed::read_multi_feed_source(cache, &config, false)
+            multi_feed::read_multi_feed_source(cache, &config, mode.soft())
         }
     };
 
-    let Some(observation) = observation else {
-        panic_with_error!(&env, OracleError::NoLastPrice)
+    let observation = match observation {
+        Some(observation) => observation,
+        None if mode.soft() => return None,
+        None => panic_with_error!(&env, OracleError::NoLastPrice),
     };
-    require_fresh(cache, observation.timestamp(), feed.max_stale_seconds);
-    observation
+
+    let stale = is_stale(
+        cache.ledger_timestamp_secs(),
+        observation.timestamp(),
+        feed.max_stale_seconds,
+    );
+    Some((observation, stale))
 }
 
 /// `factor x price(quote)`, in WAD.
@@ -257,33 +474,70 @@ fn read_scaled(
     cache: &mut ResolutionContext,
     scaled: &ScaledSource,
     depth: u32,
-) -> OracleObservation {
+    mode: Mode,
+) -> Option<(OracleObservation, bool)> {
     let env = cache.env().clone();
-    let factor = read_feed(cache, &scaled.factor);
+    let (factor, factor_stale) = read_feed(cache, &scaled.factor, mode)?;
 
     // Bounded before it reaches the product. The final sanity band has to be
     // sized for the quote's volatility, which leaves a wrong ratio room to hide
     // inside it; a wrapper ratio is a slow, tightly-known quantity, so checking
     // it directly is far stronger than anything the output band can express.
-    require_factor_in_bounds(&env, factor.price_wad, scaled);
+    if mode.soft() {
+        if factor.price_wad < scaled.min_factor_wad || factor.price_wad > scaled.max_factor_wad {
+            return None;
+        }
+    } else {
+        require_factor_in_bounds(&env, factor.price_wad, scaled);
+    }
 
-    let quote = resolve(cache, &scaled.quote, depth + 1);
+    let (quote_price_wad, quote_timestamp) = match mode {
+        Mode::Hard => {
+            let quote = resolve(cache, &scaled.quote, depth + 1);
+            (quote.price_wad, quote.timestamp)
+        }
+        Mode::Soft => {
+            // The quote must be fully usable to back a reprice: a soft read that
+            // accepted a stale or out-of-band quote would report a status the
+            // hard path would reject, breaking the parity `valid` promises.
+            let status = resolve_status(cache, &scaled.quote, depth + 1);
+            if !status.valid {
+                return None;
+            }
+            (status.final_wad, status.price_timestamp)
+        }
+    };
+
     let price_wad = Wad::from(factor.price_wad)
-        .mul(&env, Wad::from(quote.price_wad))
+        .mul(&env, Wad::from(quote_price_wad))
         .raw();
 
-    OracleObservation {
-        price_wad,
-        // Only as fresh as the weaker leg. Each leg has already faced its own
-        // bound; the caller holds this composite to the asset ceiling.
-        observed_at: factor.timestamp().min(quote.timestamp),
-        published_at: None,
-    }
+    Some((
+        OracleObservation {
+            price_wad,
+            // Only as fresh as the weaker leg. Each leg has already faced its
+            // own bound; the caller holds this composite to the asset ceiling.
+            observed_at: factor.timestamp().min(quote_timestamp),
+            published_at: None,
+        },
+        factor_stale,
+    ))
 }
 
-fn require_fresh(cache: &ResolutionContext, timestamp: u64, max_stale_seconds: u64) {
-    if is_stale(cache.ledger_timestamp_secs(), timestamp, max_stale_seconds) {
-        panic_with_error!(cache.env(), OracleError::PriceFeedStale);
+// ---------------------------------------------------------------------------
+// Hard-path gates
+// ---------------------------------------------------------------------------
+
+fn require_readable<'a>(env: &Env, reading: Option<&'a Reading>) -> &'a Reading {
+    // Unreachable in practice: a hard read reverts inside the provider with its
+    // own error rather than returning absent. This is the backstop for a reader
+    // that returns instead.
+    reading.unwrap_or_else(|| panic_with_error!(env, OracleError::NoLastPrice))
+}
+
+fn require_fresh(env: &Env, reading: &Reading) {
+    if reading.stale {
+        panic_with_error!(env, OracleError::PriceFeedStale);
     }
 }
 
@@ -306,9 +560,3 @@ fn require_depth_within_cap(env: &Env, depth: u32) {
 #[path = "../tests/oracle/engine.rs"]
 mod tests;
 
-/// Differential tests against the v1 path. Kept beside the engine because they
-/// are the migration gate: every live market is priced through `lift_legacy`
-/// until it is individually migrated.
-#[cfg(test)]
-#[path = "../tests/oracle/lift_parity.rs"]
-mod lift_parity_tests;

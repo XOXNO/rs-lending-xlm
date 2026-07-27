@@ -1,9 +1,8 @@
 //! Admin-input validation before scheduling or forwarding to the controller /
-//! price-aggregator. Pure shape checks plus live oracle probes.
+//! price-aggregator. Pure shape checks; oracle-source validation lives in the
+//! price-aggregator, where the rules are predicates over derived properties.
 
 pub(crate) mod asset;
-pub(crate) mod oracle_config;
-pub(crate) mod oracle_probe;
 pub(crate) mod spoke;
 pub(crate) mod tolerance;
 

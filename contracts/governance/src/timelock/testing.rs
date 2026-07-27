@@ -14,7 +14,7 @@ impl Governance {
         storage::renew_governance_instance(&env);
         caller.require_auth();
         match &op {
-            crate::op::AdminOperation::ConfigureMarketOracle(_)
+            crate::op::AdminOperation::ConfigureAssetOracle(_)
             | crate::op::AdminOperation::EditOracleTolerance(_) => {
                 stellar_access::access_control::ensure_role(
                     &env,

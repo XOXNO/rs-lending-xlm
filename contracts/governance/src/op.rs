@@ -17,8 +17,7 @@ use crate::timelock::{apply_update_delay, validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
-    AdminOperation, ConfigureAssetOracleArgs, ConfigureOracleArgs, CreatePoolArgs,
-    EditToleranceArgs, RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs,
+    AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, EditToleranceArgs, RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs,
     SpokeLiquidationCurveArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
@@ -308,25 +307,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 ],
             )
         }
-        AdminOperation::ConfigureMarketOracle(args) => {
-            let tolerance =
-                validate::tolerance::validate_and_calculate_tolerances(env, args.cfg.tolerance_bps);
-            let resolved_config = validate::oracle_probe::validate_market_oracle_sources(
-                env,
-                &args.hub_asset.asset,
-                &args.cfg,
-                tolerance,
-            );
-            price_aggregator_operation(
-                env,
-                "set_oracle_config",
-                vec![
-                    env,
-                    args.hub_asset.asset.clone().into_val(env),
-                    resolved_config.into_val(env),
-                ],
-            )
-        }
         AdminOperation::ConfigureAssetOracle(args) => {
             // Decimals are read from the asset, never taken from the proposer:
             // they scale seize amounts and protocol fees in liquidation. A
@@ -350,11 +330,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             price_aggregator_operation(
                 env,
                 "set_tolerance",
-                vec![
-                    env,
-                    args.asset.clone().into_val(env),
-                    tolerance.into_val(env),
-                ],
+                vec![env, args.key.clone().into_val(env), tolerance.into_val(env)],
             )
         }
         AdminOperation::Unpause => controller_operation(env, "unpause", vec![env]),
@@ -434,7 +410,6 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::UpgradeController(_)
         | AdminOperation::MigrateController(_)
         | AdminOperation::TransferCtrlOwnership(_)
-        | AdminOperation::ConfigureMarketOracle(_)
         | AdminOperation::ConfigureAssetOracle(_)
         | AdminOperation::EditOracleTolerance(_)
         | AdminOperation::SetSpokeLiquidationCurve(_)

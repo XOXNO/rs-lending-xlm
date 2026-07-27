@@ -3,34 +3,18 @@
 
 use common::errors::OracleError;
 use common::oracle::providers::redstone::RedStonePriceData;
-use common::types::{AssetOracleConfig, PriceFeedRaw, PriceKey, PriceStatus};
+use common::types::{PriceFeedRaw, PriceKey, PriceStatus};
 use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 
-use crate::storage;
 
 pub(crate) struct ResolutionContext {
     env: Env,
-    /// Token-rooted USD price feeds resolved this transaction.
-    token_prices: Map<Address, PriceFeedRaw>,
-    /// Diagnostic statuses resolved this transaction. `resolve_usd_price` never
-    /// reads this map. The one place a status backs a fail-closed price is the
-    /// Reflector quoted-base reprice, which takes the quote only when its
-    /// status is `valid` — the soft mirror of every hard-path gate.
-    price_statuses: Map<Address, PriceStatus>,
-    /// Assets whose USD price is being resolved right now (the resolution stack).
-    /// A quote/anchor cycle (A quoted in B, B quoted in A) recurses until this
-    /// shadow stack traps the re-entry and reverts with a clear error.
-    #[cfg_attr(feature = "certora", allow(dead_code))]
-    resolving: Vec<Address>,
     /// Raw multi-feed adapter payloads (RedStone/Xoxno wire ABI) fetched once
     /// per transaction.
     bulk_feed_cache: Map<(Address, String), RedStonePriceData>,
-    /// Token-rooted oracle configs; absence is not memoized (repeated probes
-    /// re-hit storage until configured).
-    asset_oracle: Map<Address, AssetOracleConfig>,
-    /// Keys whose properties or price are being derived right now. Separate
-    /// from `resolving` because a `PriceKey` covers reference prices that have
-    /// no `Address` to push.
+    /// Keys whose properties or price are being derived right now — the
+    /// resolution stack. A composition cycle recurses until this traps the
+    /// re-entry and reverts with a clear error.
     resolving_keys: Vec<PriceKey>,
     /// Key-rooted USD prices resolved this transaction.
     ///
@@ -39,6 +23,9 @@ pub(crate) struct ResolutionContext {
     /// writer that skipped a guard would serve an unchecked price to any later
     /// hard read that hit the same key.
     key_prices: Map<PriceKey, PriceFeedRaw>,
+    /// Key-rooted diagnostic statuses resolved this transaction. Never read by
+    /// the hard path.
+    key_statuses: Map<PriceKey, PriceStatus>,
     current_timestamp_secs: u64,
 }
 
@@ -48,13 +35,10 @@ impl ResolutionContext {
     pub(crate) fn new(env: &Env) -> Self {
         ResolutionContext {
             env: env.clone(),
-            token_prices: Map::new(env),
-            price_statuses: Map::new(env),
-            resolving: Vec::new(env),
             bulk_feed_cache: Map::new(env),
-            asset_oracle: Map::new(env),
             resolving_keys: Vec::new(env),
             key_prices: Map::new(env),
+            key_statuses: Map::new(env),
             current_timestamp_secs: env.ledger().timestamp(),
         }
     }
@@ -68,56 +52,6 @@ impl ResolutionContext {
     /// transaction is made against the same instant.
     pub(crate) fn ledger_timestamp_secs(&self) -> u64 {
         self.current_timestamp_secs
-    }
-
-    /// USD price feed resolved earlier this transaction, if any.
-    pub(crate) fn cached_price(&self, asset: &Address) -> Option<PriceFeedRaw> {
-        self.token_prices.get(asset.clone())
-    }
-
-    /// Only the (certora-stubbed) prefetch pass needs the existence probe.
-    #[cfg_attr(feature = "certora", allow(dead_code))]
-    pub(crate) fn has_price(&self, asset: &Address) -> bool {
-        self.token_prices.contains_key(asset.clone())
-    }
-
-    /// Memoizes a resolved USD feed for the rest of the transaction.
-    pub(crate) fn store_price(&mut self, asset: &Address, feed: PriceFeedRaw) {
-        self.token_prices.set(asset.clone(), feed);
-    }
-
-    /// Diagnostic status resolved earlier this transaction, if any.
-    pub(crate) fn cached_status(&self, asset: &Address) -> Option<PriceStatus> {
-        self.price_statuses.get(asset.clone())
-    }
-
-    /// Memoizes a diagnostic status, unusable ones included, for the rest of
-    /// the transaction.
-    pub(crate) fn store_status(&mut self, asset: &Address, status: PriceStatus) {
-        self.price_statuses.set(asset.clone(), status);
-    }
-
-    /// True when `asset` is already on the resolution stack (soft-path cycle
-    /// probe; the hard path lets `push_resolution` revert instead).
-    #[cfg_attr(feature = "certora", allow(dead_code))]
-    pub(crate) fn is_resolving(&self, asset: &Address) -> bool {
-        self.resolving.iter().any(|a| a == *asset)
-    }
-
-    /// Marks `asset` as being priced; reverts `OracleCycleDetected` if it is
-    /// already on the stack. Must pair with `pop_resolution` on success.
-    #[cfg_attr(feature = "certora", allow(dead_code))]
-    pub(crate) fn push_resolution(&mut self, asset: &Address) {
-        if self.resolving.iter().any(|a| a == *asset) {
-            panic_with_error!(&self.env, OracleError::OracleCycleDetected);
-        }
-        self.resolving.push_back(asset.clone());
-    }
-
-    /// Pops the most recently entered asset (caller ensures enter/exit balance).
-    #[cfg_attr(feature = "certora", allow(dead_code))]
-    pub(crate) fn pop_resolution(&mut self) {
-        self.resolving.pop_back();
     }
 
     /// Prefetched multi-feed adapter payload for `(adapter, feed_id)`, if any.
@@ -157,6 +91,27 @@ impl ResolutionContext {
         self.resolving_keys.pop_back();
     }
 
+    /// True when `key` is already on the resolution stack.
+    ///
+    /// The soft counterpart of [`Self::push_price_key`]: a diagnostic view must
+    /// report a cycle as unusable rather than revert, so it probes first.
+    pub(crate) fn is_price_key_resolving(&self, key: &PriceKey) -> bool {
+        self.resolving_keys.iter().any(|k| k == *key)
+    }
+
+    /// Key-rooted diagnostic status resolved earlier this transaction, if any.
+    ///
+    /// Kept strictly separate from the price memo. A soft status is allowed to
+    /// describe a price the hard path would reject, so letting the two share a
+    /// map would be a way for an unusable reading to reach a fail-closed caller.
+    pub(crate) fn cached_key_status(&self, key: &PriceKey) -> Option<PriceStatus> {
+        self.key_statuses.get(key.clone())
+    }
+
+    pub(crate) fn store_key_status(&mut self, key: &PriceKey, status: PriceStatus) {
+        self.key_statuses.set(key.clone(), status);
+    }
+
     /// Key-rooted USD price resolved earlier this transaction, if any.
     pub(crate) fn cached_key_price(&self, key: &PriceKey) -> Option<PriceFeedRaw> {
         self.key_prices.get(key.clone())
@@ -168,21 +123,6 @@ impl ResolutionContext {
         self.key_prices.set(key.clone(), feed);
     }
 
-    /// Token-rooted oracle config if configured (absence not memoized).
-    pub(crate) fn cached_asset_oracle_opt(&mut self, asset: &Address) -> Option<AssetOracleConfig> {
-        if let Some(config) = self.asset_oracle.get(asset.clone()) {
-            return Some(config);
-        }
-        let config = storage::get_oracle_config(&self.env, asset)?;
-        self.asset_oracle.set(asset.clone(), config.clone());
-        Some(config)
-    }
-
-    /// Required token-rooted oracle config, or `OracleNotConfigured`.
-    pub(crate) fn cached_asset_oracle(&mut self, asset: &Address) -> AssetOracleConfig {
-        self.cached_asset_oracle_opt(asset)
-            .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured))
-    }
 }
 
 #[cfg(test)]

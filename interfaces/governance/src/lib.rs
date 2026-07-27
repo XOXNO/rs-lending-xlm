@@ -8,8 +8,7 @@
 //! `set_controller`, `set_price_aggregator`) are excluded.
 
 use common::types::{
-    AssetOracle, AssetOracleConfig, AssetOracleConfigInput, HubAssetKey, OracleTolerance,
-    PositionLimits, PriceKey,
+    AssetOracle, HubAssetKey, OracleTolerance, PositionLimits, PriceKey,
 };
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
@@ -49,13 +48,6 @@ pub struct TransferOwnershipArgs {
     pub live_until_ledger: u32,
 }
 
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct ConfigureOracleArgs {
-    pub hub_asset: HubAssetKey,
-    pub cfg: AssetOracleConfigInput,
-}
-
 /// A composable oracle config together with the key it prices.
 ///
 /// `oracle.asset_decimals` is **overwritten** by the resolver from the token
@@ -73,7 +65,7 @@ pub struct ConfigureAssetOracleArgs {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EditToleranceArgs {
-    pub asset: Address,
+    pub key: PriceKey,
     pub tolerance: u32,
 }
 
@@ -96,8 +88,8 @@ pub struct RoleArgs {
 #[contracttype]
 #[derive(Clone, Debug)]
 // `#[contracttype]` enums cannot box variants (Soroban has no `Box` codec);
-// `CreateLiquidityPool` embeds large `MarketParamsRaw`. Mirrors allow on
-// `AssetOracleConfigOption`.
+// `CreateLiquidityPool` embeds a large `MarketParamsRaw` and
+// `ConfigureAssetOracle` an `AssetOracle`.
 #[allow(clippy::large_enum_variant)]
 pub enum AdminOperation {
     // Controller target
@@ -122,7 +114,6 @@ pub enum AdminOperation {
     UpgradeController(BytesN<32>),
     MigrateController(u32),
     TransferCtrlOwnership(TransferOwnershipArgs),
-    ConfigureMarketOracle(ConfigureOracleArgs),
     EditOracleTolerance(EditToleranceArgs),
     SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs),
     /// Force-socializes an underwater account's bad debt (frozen/clawed
@@ -243,22 +234,6 @@ pub trait GovernanceInterface {
         predecessor: BytesN<32>,
         salt: BytesN<32>,
     ) -> BytesN<32>;
-
-    /// Resolves market oracle input to the `AssetOracleConfig` `propose` would
-    /// schedule, including live probes. Read-only.
-    ///
-    /// # Errors
-    /// * `BadLastTolerance`, `MathOverflow`.
-    /// * `InvalidExchangeSrc`, `SpotOnlyNotProductionSafe`, `InvalidStalenessConfig`,
-    ///   `InvalidSanityBounds`, `SanityBandTooWideForSingleSource`, `InvalidOracleDecimals`.
-    /// * Live probe: `InvalidAsset`, `InvalidTicker`, `InvalidOracleBase`,
-    ///   `InvalidOracleResolution`, `ReflectorHistoryEmpty`,
-    ///   `TwapInsufficientObservations`, `PriceFeedStale`.
-    fn resolve_market_oracle_config(
-        env: Env,
-        asset: Address,
-        cfg: AssetOracleConfigInput,
-    ) -> AssetOracleConfig;
 
     /// Resolves tolerance BPS to the `OracleTolerance` band `propose` would
     /// schedule. Read-only.

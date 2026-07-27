@@ -2,7 +2,7 @@
 
 extern crate std;
 
-use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs};
+use crate::op::{AdminOperation, ConfigureAssetOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs};
 use common::constants::MAX_REASONABLE_PRICE_WAD;
 use common::types::{
     AssetOracleConfigInput, ControllerKey, HubAssetKey, OracleAssetRef, OracleReadMode,
@@ -262,9 +262,9 @@ fn configure_market_oracle_requires_oracle_role() {
 
     gov.execute_immediate(
         &stranger,
-        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            hub_asset: HubAssetKey { hub_id: 0, asset },
-            cfg: sample_oracle_input(&env),
+        &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+            key: common::types::PriceKey::Token(asset),
+            oracle: sample_asset_oracle(&env),
         }),
     );
 }
@@ -281,7 +281,7 @@ fn edit_oracle_tolerance_validates_before_any_cross_call() {
     gov.execute_immediate(
         &admin,
         &AdminOperation::EditOracleTolerance(EditToleranceArgs {
-            asset,
+            key: common::types::PriceKey::Token(asset),
             tolerance: 0,
         }),
     );

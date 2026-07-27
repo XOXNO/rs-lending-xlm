@@ -4,11 +4,11 @@
 //!
 //! `#[contractclient]` generates `PriceAggregatorClient`. Matches deployed
 //! entrypoints by ABI name (no formal `impl`). Test-only seeding
-//! (`seed_oracle_config` / `remove_oracle_config`) and Ownable surface
+//! (`seed_asset_oracle` / `remove_asset_oracle`) and Ownable surface
 //! (`get_owner` / `transfer_ownership` / `accept_ownership` /
 //! `renounce_ownership`) are excluded.
 
-use common::types::{AssetOracleConfig, OracleTolerance, PriceFeedRaw, PriceStatus};
+use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus};
 use soroban_sdk::{contractclient, Address, Env, Map, Vec};
 
 #[contractclient(name = "PriceAggregatorClient")]
@@ -18,19 +18,17 @@ pub trait PriceAggregatorInterface {
     /// consumers (controller) rely on the revert.
     ///
     /// # Errors
-    /// * `OracleNotConfigured` — missing or pending `AssetOracle`.
-    /// * `OracleCycleDetected` — quote/anchor cycle while resolving.
-    /// * `PriceFeedStale` — observation past max stale or beyond future skew.
-    /// * `NoLastPrice` — Reflector spot missing, or dual strategy without anchor.
-    /// * `InvalidTicker` — RedStone/Xoxno feed missing.
-    /// * `UnsafePriceNotAllowed` — primary/anchor outside tolerance band.
-    /// * `SanityBoundViolated` — final price outside sanity band.
-    /// * `InvalidPrice` — non-positive final or invalid provider payload.
+    /// * `OracleNotConfigured` — no config stored for the asset.
+    /// * `OracleCycleDetected` / `OracleDepthExceeded` — composition bounds.
+    /// * `PriceFeedStale` — a feed, or a composite, past its bound.
+    /// * `NoLastPrice` / `InvalidTicker` — provider reported no price.
+    /// * `FactorOutOfBounds` — a scaled ratio outside its configured range.
+    /// * `UnsafePriceNotAllowed` — two sources outside the tolerance band.
+    /// * `SanityBoundViolated` / `InvalidPrice` — final price rejected.
     /// * `ReflectorHistoryEmpty` / `TwapInsufficientObservations` — TWAP gaps.
-    /// * `TwapRecordsOutOfRange` — configured TWAP window above the cap.
-    /// * `InvalidOracleBase` — quoted base not USD-rooted.
-    /// * `InvalidOracleTokenType` — Reflector asset ref the provider cannot express.
-    /// * `MathOverflow` — midpoint, normalize, or quoted-reprice overflow.
+    /// * `SourceCountOutOfRange` — stored config holds no sources.
+    /// * `UnsupportedPoolKind` — LP shares are not priceable yet.
+    /// * `MathOverflow` — midpoint, normalize, or scaled-product overflow.
     fn prices(env: Env, assets: Vec<Address>) -> Map<Address, PriceFeedRaw>;
 
     /// Single token-rooted USD price. Fail-closed (same checks as `prices`).
@@ -49,41 +47,70 @@ pub trait PriceAggregatorInterface {
     /// on each [`PriceStatus`]. Unreadable feeds yield [`PriceStatus::unusable`].
     fn prices_status(env: Env, assets: Vec<Address>) -> Map<Address, PriceStatus>;
 
-    /// Token-rooted oracle config for `asset`, if configured. Public view.
-    fn oracle_config(env: Env, asset: Address) -> Option<AssetOracleConfig>;
-
-    /// Registers or replaces the token-rooted oracle config for `asset`.
-    /// Owner (governance) only. Does not require a live feed at write time.
+    /// USD price for `key`. Fail-closed, same discipline as [`Self::price`].
+    ///
+    /// The key-space form: reaches reference prices, which are priceable but
+    /// never collateral and so have no address to look up.
     ///
     /// # Errors
-    /// * `InvalidSanityBounds` — non-positive or inverted band, or above cap.
-    /// * `SanityBandTooWideForSingleSource` — Single band exceeds midpoint width.
-    /// * `BadLastTolerance` — anchored tolerance outside envelope.
-    /// * `InvalidOracleBase` — Reflector quote not USD-rooted or self-quote.
-    ///
-    /// # Events
-    /// * topics — `["config", "oracle"]`
-    fn set_oracle_config(env: Env, asset: Address, config: AssetOracleConfig);
+    /// Same named variants as [`Self::prices`].
+    fn price_of(env: Env, key: PriceKey) -> PriceFeedRaw;
 
-    /// Walks the sanity band on an active oracle. Owner only. New band must
-    /// overlap the old one and contain the current live hard-path price.
+    /// The interval the configured sources actually spanned for `key`, WAD.
+    ///
+    /// `(low, high)` are equal for a single-source key and are the two source
+    /// prices otherwise, both having already passed the agreement and sanity
+    /// bands. Published so the cost of combining by midpoint can be measured on
+    /// live configs: a source compromised high moves a midpoint by half that
+    /// error, where collateral valuation wants the low end and debt the high.
     ///
     /// # Errors
-    /// * `OracleNotConfigured` — no stored config for `asset`.
+    /// Same named variants as [`Self::price_of`].
+    fn price_spread_of(env: Env, key: PriceKey) -> (i128, i128);
+
+    /// Stored oracle for `key`, if configured. Public view.
+    fn oracle_for(env: Env, key: PriceKey) -> Option<AssetOracle>;
+
+    /// Validates and stores a composable oracle under `key`. Owner (governance)
+    /// only. Does not require a live feed at write time.
+    ///
+    /// # Errors
+    /// * `SourceCountOutOfRange` — not one or two sources.
+    /// * `OracleDepthExceeded` — composition nested past the cap.
+    /// * `InvalidStalenessConfig` — ceiling out of range, or a component
+    ///   permitted to outlive it.
+    /// * `SpotOnlyNotProductionSafe` — every opinion is movable by trading.
+    /// * `IndependenceNotDeclared` — shared trust does not match the declaration.
     /// * `InvalidSanityBounds` / `SanityBandTooWideForSingleSource` — band checks.
-    /// * Plus every fail-closed variant from [`Self::price`] on the containment probe.
+    /// * `InvalidOracleDecimals` — feed or asset decimals out of range.
+    /// * `TwapInsufficientObservations` / `TwapRecordsOutOfRange` — TWAP window.
+    /// * `UnsupportedPoolKind` — LP shares are not priceable yet.
+    /// * `OracleCycleDetected` — the config names itself as a dependency.
+    /// * `BadLastTolerance` — dual tolerance outside its envelope.
     ///
     /// # Events
-    /// * topics — `["config", "oracle"]`
-    fn set_sanity_band(env: Env, asset: Address, min_wad: i128, max_wad: i128);
+    /// * topics — `["config", "asset_oracle"]`
+    fn set_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle);
 
-    /// Updates the primary/anchor tolerance band on an active oracle. Owner only.
+    /// Walks the sanity band on an active oracle. Owner only. The new band must
+    /// overlap the old one and contain the current live price.
     ///
     /// # Errors
-    /// * `OracleNotConfigured` — no stored config for `asset`.
+    /// * `OracleNotConfigured` — no stored config for `key`.
+    /// * `InvalidSanityBounds` / `SanityBandTooWideForSingleSource` — band checks.
+    /// * Plus every fail-closed variant from [`Self::price_of`] on the probe.
+    ///
+    /// # Events
+    /// * topics — `["config", "asset_oracle"]`
+    fn set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128);
+
+    /// Updates the agreement band between the two sources. Owner only.
+    ///
+    /// # Errors
+    /// * `OracleNotConfigured` — no stored config for `key`.
     /// * `BadLastTolerance` — tolerance outside envelope.
     ///
     /// # Events
-    /// * topics — `["config", "oracle"]`
-    fn set_tolerance(env: Env, asset: Address, tolerance: OracleTolerance);
+    /// * topics — `["config", "asset_oracle"]`
+    fn set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance);
 }

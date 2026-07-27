@@ -105,6 +105,3 @@ cvlr_soroban_macros::apply_summary!(
     }
 );
 
-#[cfg(test)]
-#[path = "../../tests/oracle/providers.rs"]
-mod tests;

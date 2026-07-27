@@ -1,36 +1,37 @@
 //! Price aggregator: the lending protocol's single oracle entry point.
 //!
-//! Owns token-rooted `AssetOracle` configs and every oracle interaction
-//! (source reads, composition, primary/anchor tolerance, staleness, sanity
-//! bounds, recursive quote resolution). Risk paths use `price`/`prices`
-//! (fail-closed). Views use `price_status`/`prices_status` (soft flags).
-//! See `docs/reference/invariants.md` §4.3 and ADR 0003.
+//! Owns every [`AssetOracle`] and every oracle interaction: source reads,
+//! composition, agreement, staleness, sanity bounds, and recursive quote
+//! resolution.
+//!
+//! Risk paths use `price`/`prices` (fail-closed); views use
+//! `price_status`/`prices_status` (soft flags). Both render the same
+//! composition under the same rules, so `valid` is true exactly when the hard
+//! path would not revert.
+//!
+//! The address-keyed entrypoints exist for ABI compatibility with the
+//! controller; internally everything is a [`PriceKey`], which also covers
+//! reference prices that have no token.
 
 #![no_std]
 
-mod compose;
 mod config;
 mod context;
 mod engine;
 mod events;
 mod observation;
 mod prefetch;
-mod price;
 mod properties;
 mod providers;
 mod registry;
-mod status;
-mod storage;
 mod tolerance;
 
 #[cfg(feature = "certora")]
 #[path = "../../../certora/price-aggregator/spec/mod.rs"]
 pub mod spec;
 
-/// Shared fixtures for `compose::tests` and `price::hard_path_error_tests`.
-/// Owned here (rather than under either test module) so the file is loaded
-/// exactly once; those two test trees are siblings and cannot otherwise
-/// share a `#[path]`-included module without loading it twice.
+/// Shared test fixtures. Owned at the crate root so sibling test trees can each
+/// `use` them without the file being loaded twice.
 #[cfg(test)]
 #[path = "../tests/oracle/support.rs"]
 mod test_support;
@@ -40,10 +41,19 @@ use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
 
 use common::types::{
-    AssetOracle, AssetOracleConfig, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus,
+    AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus,
 };
 
 pub use common::errors::OracleError as Error;
+
+/// Lifts an address list into the key space the engine works in.
+fn token_keys(env: &Env, assets: &Vec<Address>) -> Vec<PriceKey> {
+    let mut keys = Vec::new(env);
+    for asset in assets.iter() {
+        keys.push_back(PriceKey::Token(asset));
+    }
+    keys
+}
 
 #[contract]
 pub struct PriceAggregator;
@@ -59,26 +69,29 @@ impl PriceAggregator {
     /// stale, or unconfigured asset reverts the whole call. Public; risk-path
     /// consumers (controller) rely on the revert.
     ///
+    /// Address-keyed for ABI compatibility - the controller calls this and
+    /// `prices_status` and nothing else. Each address is a `PriceKey::Token`;
+    /// reference prices are reachable only through [`Self::price_of`], because
+    /// they are priceable but never collateral.
+    ///
     /// # Errors
-    /// * `OracleNotConfigured` — missing or pending `AssetOracle`.
-    /// * `OracleCycleDetected` — quote/anchor cycle while resolving.
-    /// * `PriceFeedStale` — observation past max stale or beyond future skew.
-    /// * `NoLastPrice` — Reflector spot missing, or dual strategy without anchor.
-    /// * `InvalidTicker` — RedStone/Xoxno feed missing.
-    /// * `UnsafePriceNotAllowed` — primary/anchor outside tolerance band.
-    /// * `SanityBoundViolated` — final price outside sanity band.
-    /// * `InvalidPrice` — non-positive final or invalid provider payload.
-    /// * `ReflectorHistoryEmpty` / `TwapInsufficientObservations` — TWAP gaps.
-    /// * `TwapRecordsOutOfRange` — configured TWAP window above the cap.
-    /// * `InvalidOracleBase` — quoted base not USD-rooted.
-    /// * `InvalidOracleTokenType` — Reflector asset ref the provider cannot express.
-    /// * `MathOverflow` — midpoint, normalize, or quoted-reprice overflow.
+    /// * `OracleNotConfigured` - no config stored for the asset.
+    /// * `OracleCycleDetected` / `OracleDepthExceeded` - composition bounds.
+    /// * `PriceFeedStale` - a feed, or a composite, past its bound.
+    /// * `NoLastPrice` / `InvalidTicker` - provider reported no price.
+    /// * `FactorOutOfBounds` - a scaled ratio outside its configured range.
+    /// * `UnsafePriceNotAllowed` - two sources outside the tolerance band.
+    /// * `SanityBoundViolated` / `InvalidPrice` - final price rejected.
+    /// * `ReflectorHistoryEmpty` / `TwapInsufficientObservations` - TWAP gaps.
+    /// * `SourceCountOutOfRange` - stored config holds no sources.
+    /// * `UnsupportedPoolKind` - LP shares are not priceable yet.
+    /// * `MathOverflow` - midpoint, normalize, or scaled-product overflow.
     pub fn prices(env: Env, assets: Vec<Address>) -> Map<Address, PriceFeedRaw> {
         let mut cache = context::ResolutionContext::new(&env);
-        prefetch::warm_multi_feed_adapters(&mut cache, &assets);
+        prefetch::warm_multi_feed_adapters(&mut cache, &token_keys(&env, &assets));
         let mut out = Map::new(&env);
         for asset in assets.iter() {
-            let feed = price::resolve_usd_price(&mut cache, &asset);
+            let feed = engine::resolve(&mut cache, &PriceKey::Token(asset.clone()), 0);
             out.set(asset, feed);
         }
         out
@@ -90,47 +103,38 @@ impl PriceAggregator {
     /// Same named variants as [`Self::prices`].
     pub fn price(env: Env, asset: Address) -> PriceFeedRaw {
         let mut cache = context::ResolutionContext::new(&env);
-        price::resolve_usd_price(&mut cache, &asset)
+        engine::resolve(&mut cache, &PriceKey::Token(asset), 0)
     }
 
-    /// Soft diagnostic status for one asset. Public; never reverts on stale,
-    /// dual-source deviation, or unreadable feeds — those set flags / yield
+    /// Soft diagnostic status for one asset. Never reverts on a per-asset
+    /// problem - stale, deviation, and unreadable feeds set flags or yield
     /// [`PriceStatus::unusable`].
+    ///
+    /// `valid` is true exactly when [`Self::price`] would not revert, because
+    /// both render the same composition under the same rules.
     pub fn price_status(env: Env, asset: Address) -> PriceStatus {
         let mut cache = context::ResolutionContext::new(&env);
-        status::resolve_price_status(&mut cache, &asset)
+        engine::resolve_status(&mut cache, &PriceKey::Token(asset), 0)
     }
 
     /// Bulk soft diagnostic statuses (one context + multi-feed prefetch).
-    /// Never reverts for stale feeds or dual-source deviation; those set flags
-    /// on each [`PriceStatus`]. Unreadable feeds yield [`PriceStatus::unusable`].
     pub fn prices_status(env: Env, assets: Vec<Address>) -> Map<Address, PriceStatus> {
         let mut cache = context::ResolutionContext::new(&env);
-        prefetch::warm_multi_feed_adapters(&mut cache, &assets);
+        prefetch::warm_multi_feed_adapters(&mut cache, &token_keys(&env, &assets));
         let mut out = Map::new(&env);
         for asset in assets.iter() {
-            out.set(
-                asset.clone(),
-                status::resolve_price_status(&mut cache, &asset),
-            );
+            let status = engine::resolve_status(&mut cache, &PriceKey::Token(asset.clone()), 0);
+            out.set(asset, status);
         }
         out
     }
 
-    /// Token-rooted oracle config for `asset`, if configured. Public view.
-    pub fn oracle_config(env: Env, asset: Address) -> Option<AssetOracleConfig> {
-        storage::get_oracle_config(&env, &asset)
-    }
 
     /// USD price for `key` under the composable model. Fail-closed, same
     /// discipline as [`Self::price`].
     ///
-    /// Resolves through the migrated config if one exists, otherwise through the
-    /// legacy config lifted into the current shape, so this answers for every
-    /// configured asset during migration as well as after it.
-    ///
     /// # Errors
-    /// * `OracleNotConfigured` - no config, migrated or legacy.
+    /// * `OracleNotConfigured` - no config stored for `key`.
     /// * `OracleCycleDetected` / `OracleDepthExceeded` - composition bounds.
     /// * `PriceFeedStale` - a feed, or a composed source, past its bound.
     /// * `FactorOutOfBounds` - a scaled ratio outside its configured range.
@@ -160,19 +164,9 @@ impl PriceAggregator {
         (resolved.low_wad, resolved.high_wad)
     }
 
-    /// Oracle that would price `key`: the migrated config if one exists, else
-    /// the legacy config lifted into the current shape. Public view.
+    /// Stored oracle for `key`, if configured. Public view.
     pub fn oracle_for(env: Env, key: PriceKey) -> Option<AssetOracle> {
         registry::resolve_oracle(&env, &key)
-    }
-
-    /// Which of `candidates` still resolve through the legacy reader.
-    ///
-    /// The guard on retiring that reader: it may only be removed once this
-    /// returns empty for every listed asset. Takes an explicit list because
-    /// persistent storage is not enumerable.
-    pub fn unmigrated_oracles(env: Env, candidates: Vec<PriceKey>) -> Vec<PriceKey> {
-        registry::unmigrated(&env, &candidates)
     }
 
     /// Validates and stores a composable oracle under `key`. Owner (governance)
@@ -201,63 +195,51 @@ impl PriceAggregator {
         config::set_asset_oracle(&env, key, oracle);
     }
 
-    /// Registers or replaces the token-rooted oracle config for `asset`.
-    /// Owner (governance) only. Does not require a live feed at write time.
+    /// Walks the sanity band on an active oracle. Owner only.
+    ///
+    /// The new band must overlap the old one and contain the current live
+    /// hard-path price: a band can be walked, never teleported to a disjoint
+    /// range on one transient print.
     ///
     /// # Errors
-    /// * `InvalidSanityBounds` — non-positive or inverted band, or above cap.
-    /// * `SanityBandTooWideForSingleSource` — Single band exceeds midpoint width.
-    /// * `BadLastTolerance` — anchored tolerance outside envelope.
-    /// * `InvalidOracleBase` — Reflector quote not USD-rooted or self-quote.
-    ///
-    /// # Events
-    /// * topics — `["config", "oracle"]`
-    #[only_owner]
-    pub fn set_oracle_config(env: Env, asset: Address, config: AssetOracleConfig) {
-        config::set_oracle_config(&env, asset, config);
-    }
-
-    /// Walks the sanity band on an active oracle. Owner only. New band must
-    /// overlap the old one and contain the current live hard-path price.
-    ///
-    /// # Errors
-    /// * `OracleNotConfigured` — no stored config for `asset`.
+    /// * `OracleNotConfigured` — no stored config for `key`.
     /// * `InvalidSanityBounds` / `SanityBandTooWideForSingleSource` — band checks.
-    /// * Plus every fail-closed variant from [`Self::price`] on the containment probe.
+    /// * Plus every fail-closed variant from [`Self::price_of`] on the
+    ///   containment probe.
     ///
     /// # Events
-    /// * topics — `["config", "oracle"]`
+    /// * topics — `["config", "asset_oracle"]`
     #[only_owner]
-    pub fn set_sanity_band(env: Env, asset: Address, min_wad: i128, max_wad: i128) {
-        config::set_sanity_band(&env, asset, min_wad, max_wad);
+    pub fn set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128) {
+        config::set_sanity_band(&env, key, min_wad, max_wad);
     }
 
-    /// Updates the primary/anchor tolerance band on an active oracle. Owner only.
+    /// Updates the agreement band between the two sources. Owner only.
     ///
     /// # Errors
-    /// * `OracleNotConfigured` — no stored config for `asset`.
+    /// * `OracleNotConfigured` — no stored config for `key`.
     /// * `BadLastTolerance` — tolerance outside envelope.
     ///
     /// # Events
-    /// * topics — `["config", "oracle"]`
+    /// * topics — `["config", "asset_oracle"]`
     #[only_owner]
-    pub fn set_tolerance(env: Env, asset: Address, tolerance: OracleTolerance) {
-        config::set_tolerance(&env, asset, tolerance);
+    pub fn set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance) {
+        config::set_tolerance(&env, key, tolerance);
     }
 }
 
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl PriceAggregator {
-    /// Test-only: seed a resolved oracle config directly, bypassing owner auth
-    /// and validation, so consumer tests can wire a priceable asset cheaply.
-    pub fn seed_oracle_config(env: Env, asset: Address, config: AssetOracleConfig) {
-        storage::set_oracle_config(&env, &asset, &config);
+    /// Test-only: seed a config directly, bypassing owner auth and validation,
+    /// so consumer tests can wire a priceable key cheaply.
+    pub fn seed_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
+        registry::set_oracle(&env, &key, &oracle);
     }
 
-    /// Test-only: remove an asset's oracle (disables pricing for it).
-    pub fn remove_oracle_config(env: Env, asset: Address) {
-        storage::remove_oracle_config(&env, &asset);
+    /// Test-only: remove a key's oracle (disables pricing for it).
+    pub fn remove_asset_oracle(env: Env, key: PriceKey) {
+        registry::remove_oracle(&env, &key);
     }
 }
 
