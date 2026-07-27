@@ -15,7 +15,9 @@ mod events;
 mod observation;
 mod prefetch;
 mod price;
+mod properties;
 mod providers;
+mod registry;
 mod status;
 mod storage;
 mod tolerance;
@@ -36,7 +38,9 @@ use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
 
-use common::types::{AssetOracleConfig, OracleTolerance, PriceFeedRaw, PriceStatus};
+use common::types::{
+    AssetOracle, AssetOracleConfig, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus,
+};
 
 pub use common::errors::OracleError as Error;
 
@@ -115,6 +119,41 @@ impl PriceAggregator {
     /// Token-rooted oracle config for `asset`, if configured. Public view.
     pub fn oracle_config(env: Env, asset: Address) -> Option<AssetOracleConfig> {
         storage::get_oracle_config(&env, &asset)
+    }
+
+    /// Oracle that would price `key`: the migrated config if one exists, else
+    /// the legacy config lifted into the current shape. Public view.
+    pub fn oracle_for(env: Env, key: PriceKey) -> Option<AssetOracle> {
+        registry::resolve_oracle(&env, &key)
+    }
+
+    /// Which of `candidates` still resolve through the legacy reader.
+    ///
+    /// The guard on retiring that reader: it may only be removed once this
+    /// returns empty for every listed asset. Takes an explicit list because
+    /// persistent storage is not enumerable.
+    pub fn unmigrated_oracles(env: Env, candidates: Vec<PriceKey>) -> Vec<PriceKey> {
+        registry::unmigrated(&env, &candidates)
+    }
+
+    /// Validates and stores a composable oracle under `key`. Owner (governance)
+    /// only.
+    ///
+    /// # Errors
+    /// * `SourceCountOutOfRange` - not one or two sources.
+    /// * `OracleDepthExceeded` - composition nested past the cap.
+    /// * `InvalidStalenessConfig` - ceiling out of range, or a component
+    ///   permitted to outlive it.
+    /// * `SpotOnlyNotProductionSafe` - every opinion is movable by trading.
+    /// * `IndependenceNotDeclared` - shared trust does not match the declaration.
+    /// * `InvalidSanityBounds` / `SanityBandTooWideForSingleSource` - band checks.
+    /// * `BadLastTolerance` - dual tolerance outside its envelope.
+    ///
+    /// # Events
+    /// * topics - `["config", "oracle"]`
+    #[only_owner]
+    pub fn set_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
+        config::set_asset_oracle(&env, key, oracle);
     }
 
     /// Registers or replaces the token-rooted oracle config for `asset`.

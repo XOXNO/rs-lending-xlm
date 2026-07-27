@@ -102,9 +102,10 @@ pub fn validate_staleness_envelope(
 ///
 /// # Errors
 /// * [`GenericError::SpotOnlyNotProductionSafe`]
-pub fn validate_smoothing(env: &Env, per_source: &[SourceProperties]) {
-    let has_clean_opinion = per_source.iter().any(|p| !p.has_unsmoothed_market_leg);
-    if !has_clean_opinion {
+pub fn validate_smoothing(env: &Env, first: &SourceProperties, second: Option<&SourceProperties>) {
+    let clean =
+        !first.has_unsmoothed_market_leg || second.is_some_and(|s| !s.has_unsmoothed_market_leg);
+    if !clean {
         panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);
     }
 }

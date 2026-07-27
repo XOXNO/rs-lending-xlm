@@ -171,7 +171,7 @@ fn test_smoothing_accepts_single_fundamental_source() {
             43_200,
         ),
     );
-    validate_smoothing(&env, &[nav]);
+    validate_smoothing(&env, &nav, None);
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn test_smoothing_rejects_single_unsmoothed_market_source() {
         &env,
         &reflector(&env, &contract, OracleReadMode::Spot, 3_600),
     );
-    validate_smoothing(&env, &[spot]);
+    validate_smoothing(&env, &spot, None);
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn test_smoothing_accepts_dual_when_one_opinion_is_clean() {
             43_200,
         ),
     );
-    validate_smoothing(&env, &[dirty, clean]);
+    validate_smoothing(&env, &dirty, Some(&clean));
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn test_smoothing_rejects_dual_when_both_opinions_are_movable() {
     let b = Address::generate(&env);
     let first = props(&env, &reflector(&env, &a, OracleReadMode::Spot, 3_600));
     let second = props(&env, &reflector(&env, &b, OracleReadMode::Spot, 3_600));
-    validate_smoothing(&env, &[first, second]);
+    validate_smoothing(&env, &first, Some(&second));
 }
 
 #[test]
@@ -240,8 +240,8 @@ fn test_smoothing_is_order_independent() {
             43_200,
         ),
     );
-    validate_smoothing(&env, &[dirty.clone(), clean.clone()]);
-    validate_smoothing(&env, &[clean, dirty]);
+    validate_smoothing(&env, &dirty, Some(&clean));
+    validate_smoothing(&env, &clean, Some(&dirty));
 }
 
 // ---------------------------------------------------------------------------

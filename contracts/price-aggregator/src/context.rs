@@ -3,7 +3,7 @@
 
 use common::errors::OracleError;
 use common::oracle::providers::redstone::RedStonePriceData;
-use common::types::{AssetOracleConfig, PriceFeedRaw, PriceStatus};
+use common::types::{AssetOracleConfig, PriceFeedRaw, PriceKey, PriceStatus};
 use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 
 use crate::storage;
@@ -28,6 +28,10 @@ pub(crate) struct ResolutionContext {
     /// Token-rooted oracle configs; absence is not memoized (repeated probes
     /// re-hit storage until configured).
     asset_oracle: Map<Address, AssetOracleConfig>,
+    /// Keys whose properties or price are being derived right now. Separate
+    /// from `resolving` because a `PriceKey` covers reference prices that have
+    /// no `Address` to push.
+    resolving_keys: Vec<PriceKey>,
     current_timestamp_secs: u64,
 }
 
@@ -42,6 +46,7 @@ impl ResolutionContext {
             resolving: Vec::new(env),
             bulk_feed_cache: Map::new(env),
             asset_oracle: Map::new(env),
+            resolving_keys: Vec::new(env),
             current_timestamp_secs: env.ledger().timestamp(),
         }
     }
@@ -125,6 +130,23 @@ impl ResolutionContext {
     ) {
         self.bulk_feed_cache
             .set((adapter.clone(), feed_id.clone()), data);
+    }
+
+    /// Marks `key` as being derived; reverts `OracleCycleDetected` if it is
+    /// already on the stack.
+    ///
+    /// Pushed before the config is read, never after: a guard installed after
+    /// resolution cannot see the re-entry it exists to catch.
+    pub(crate) fn push_price_key(&mut self, key: &PriceKey) {
+        if self.resolving_keys.iter().any(|k| k == *key) {
+            panic_with_error!(&self.env, OracleError::OracleCycleDetected);
+        }
+        self.resolving_keys.push_back(key.clone());
+    }
+
+    /// Pops the most recently entered key (caller ensures enter/exit balance).
+    pub(crate) fn pop_price_key(&mut self) {
+        self.resolving_keys.pop_back();
     }
 
     /// Token-rooted oracle config if configured (absence not memoized).
