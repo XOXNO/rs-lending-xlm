@@ -253,9 +253,25 @@ pub enum PoolKind {
 /// Priced from the pool invariant, never from the reserve split:
 /// `total = 2 * sqrt(r_a * r_b * p_a * p_b)`, `per_share = total / supply`.
 /// Reserves enter only through `k = r_a * r_b`, which a swap leaves invariant
-/// (fees grow it, never shrink it), so a flash-loan skew cannot move the price.
-/// The naive `(r_a*p_a + r_b*p_b)/supply` can be moved at will and is not
-/// implemented anywhere in this crate.
+/// (fees grow it, never shrink it), so a flash-loan **skew** cannot move the
+/// price. The naive `(r_a*p_a + r_b*p_b)/supply` can be moved at will and is
+/// not implemented anywhere in this crate.
+///
+/// # What the formula does not defend
+///
+/// It immunizes the reserve *ratio*, not the reserve *level* or `total_supply`:
+///
+/// * **Donation.** A direct transfer into a pool that derives reserves from
+///   balances raises `k` with `total_supply` unchanged, so `per_share` jumps
+///   with no LP minted. A permissionless `sync`/`skim` restores the same attack
+///   even against stored reserves.
+/// * **Dust supply.** `per_share = total / supply` is unbounded as `supply`
+///   approaches zero - the first-depositor shape.
+/// * **Fee-on-transfer or rebasing legs.** `k`-derived value diverges from
+///   redeemable value, and redemption is always the smaller number.
+///
+/// None of these are handled here, which is why `validate_source_shape` refuses
+/// this variant outright.
 ///
 /// `key_a` / `key_b` and the decimals are expected to be read back from the pool
 /// contract at configuration time rather than supplied by hand: deriving the
@@ -444,34 +460,16 @@ impl SourceProperties {
         }
     }
 
-    /// Provider families this source depends on, for the disjointness floor.
-    ///
-    /// Trust domains key on `(kind, contract)`, so two deployments by the same
-    /// operator read as distinct — which is exactly how a config could claim
-    /// independence across two Reflector contracts sharing an admin key. Kind
-    /// disjointness is kept as a separate, blunter floor underneath the domain
-    /// rule rather than replaced by it.
-    pub fn kinds(&self, env: &Env) -> Vec<ProviderKind> {
-        let mut kinds = Vec::new(env);
-        for domain in self.trust.iter() {
-            if !kinds.iter().any(|k| k == domain.kind) {
-                kinds.push_back(domain.kind);
-            }
-        }
-        kinds
-    }
-
-    pub fn shares_any_kind(&self, env: &Env, other: &SourceProperties) -> bool {
-        let mine = self.kinds(env);
-        other.kinds(env).iter().any(|k| mine.iter().any(|m| m == k))
-    }
-
     /// Raises depth by one composition level.
     pub fn nest(mut self) -> Self {
         self.depth += 1;
         self
     }
 
+    /// True when any trust domain is common to both. Diagnostic only.
+    ///
+    /// Not what the independence rule asks — see
+    /// [`Self::shared_contracts_with`] for that, and why.
     pub fn shares_any(&self, other: &SourceProperties) -> bool {
         self.trust.iter().any(|d| contains_domain(&other.trust, &d))
     }
@@ -494,7 +492,12 @@ impl SourceProperties {
         shared
     }
 
-    /// Trust domains present in both, deduplicated.
+    /// Trust domains present in both, deduplicated. Diagnostic only.
+    ///
+    /// The independence rule keys on [`Self::shared_contracts_with`], not on
+    /// this. Naming the provider is what a reviewer wants to read; it is not
+    /// something a rule can trust, because `kind` on a multi-feed adapter is
+    /// declared by the proposer and unverifiable on-chain.
     pub fn shared_with(&self, env: &Env, other: &SourceProperties) -> Vec<TrustDomain> {
         let mut shared = Vec::new(env);
         for domain in self.trust.iter() {

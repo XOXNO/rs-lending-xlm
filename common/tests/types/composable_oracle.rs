@@ -434,34 +434,3 @@ fn test_empty_properties_do_not_loosen_freshness() {
 // ---------------------------------------------------------------------------
 // Provider-kind floor under the trust-domain rule.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn test_two_reflector_deployments_share_a_kind_though_not_a_domain() {
-    let env = Env::default();
-    let cex_oracle = Address::generate(&env);
-    let dex_oracle = Address::generate(&env);
-
-    let a = SourceProperties::of_feed(&env, &reflector_twap(&env, &cex_oracle, 3));
-    let b = SourceProperties::of_feed(&env, &reflector_twap(&env, &dex_oracle, 3));
-
-    // Distinct addresses, so the domain rule alone would call these independent
-    // - but one operator with one admin key stands behind both.
-    assert!(!a.shares_any(&b), "domains differ by address");
-    assert!(
-        a.shares_any_kind(&env, &b),
-        "the kind floor must still catch one operator behind two deployments"
-    );
-}
-
-#[test]
-fn test_distinct_kinds_pass_the_floor() {
-    let env = Env::default();
-    let reflector = Address::generate(&env);
-    let adapter = Address::generate(&env);
-    let a = SourceProperties::of_feed(&env, &reflector_twap(&env, &reflector, 3));
-    let b = SourceProperties::of_feed(
-        &env,
-        &multi_feed(&env, &adapter, "X", ProviderKind::RedStone),
-    );
-    assert!(!a.shares_any_kind(&env, &b));
-}
