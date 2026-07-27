@@ -1,3 +1,5 @@
+use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+use soroban_sdk::IntoVal;
 use test_harness::{
     assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, wbtc_preset, HubAssetKey,
     LendingTest, PositionType, ALICE, BOB,
@@ -120,7 +122,7 @@ fn test_repay_by_third_party() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Bob repays Alice's debt using the controller directly.
+    // Bob funds Alice's repay. Repay is permissionless: only the payer authorizes.
     let alice_account_id = t.resolve_account_id(ALICE);
     let bob_addr = t.get_or_create_user(BOB);
     let eth_market = t.resolve_market("ETH");
@@ -153,6 +155,81 @@ fn test_repay_by_third_party() {
         t.token_balance(ALICE, "ETH"),
         1.0,
         "Alice's wallet must be untouched by Bob's repay"
+    );
+}
+
+/// Repay is permissionless: the payer's signature is the only one required.
+///
+/// The blanket-auth third-party test above cannot distinguish permissionless
+/// repay from owner-gated repay, because the harness satisfies every address.
+/// This one supplies **only** Bob's auth, so it fails if `process_repay` ever
+/// re-introduces an owner or delegate check.
+#[test]
+fn test_repay_permissionless_payer_auth_only() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let alice_account_id = t.resolve_account_id(ALICE);
+    let bob_addr = t.get_or_create_user(BOB);
+    let eth_market = t.resolve_market("ETH");
+    let eth_addr = eth_market.asset.clone();
+    let pool_addr = eth_market.pool.clone();
+
+    // Deliberately overpays by ~0.01 ETH: the refund must reach the payer, not
+    // the account owner, or a third-party repay would leak the payer's funds.
+    let repay_amount = 1_0100000i128; // 1.01 ETH (7 decimals)
+    eth_market.token_admin.mint(&bob_addr, &repay_amount);
+    let bob_before = t.token_balance(BOB, "ETH");
+
+    let payments = soroban_sdk::vec![&t.env, (hub_asset(eth_addr.clone()), repay_amount)];
+
+    // Bob authorizes the controller call and the SAC transfer that funds it.
+    // Alice contributes no authorization at all.
+    let transfer_args = (bob_addr.clone(), pool_addr.clone(), repay_amount).into_val(&t.env);
+    let transfer_invoke = MockAuthInvoke {
+        contract: &eth_addr,
+        fn_name: "transfer",
+        args: transfer_args,
+        sub_invokes: &[],
+    };
+    let repay_args = (bob_addr.clone(), alice_account_id, payments.clone()).into_val(&t.env);
+    let repay_invoke = MockAuthInvoke {
+        contract: &t.controller,
+        fn_name: "repay",
+        args: repay_args,
+        sub_invokes: core::slice::from_ref(&transfer_invoke),
+    };
+    let auths = [MockAuth {
+        address: &bob_addr,
+        invoke: &repay_invoke,
+    }];
+
+    t.ctrl_client()
+        .mock_auths(&auths)
+        .repay(&bob_addr, &alice_account_id, &payments);
+
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < 0.01,
+        "Alice's debt must clear on a repay she never authorized"
+    );
+    assert_eq!(
+        t.token_balance(ALICE, "ETH"),
+        1.0,
+        "Alice's wallet must be untouched"
+    );
+    // Overpayment refunds to the payer (`pool/src/ops/repay.rs` refunds to
+    // `payer`), so Bob is debited the debt, not the full amount he sent.
+    let bob_after = t.token_balance(BOB, "ETH");
+    let bob_paid = bob_before - bob_after;
+    assert!(
+        (0.99..1.005).contains(&bob_paid),
+        "Bob must be debited ~1.0 ETH (debt), with the ~0.01 overpayment refunded to him, got {}",
+        bob_paid
     );
 }
 #[test]

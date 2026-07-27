@@ -499,16 +499,16 @@
       "hub_id": 2,
       "asset_address": "CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV",
       "oracle": {
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 86400,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
           "tag": "RedStone",
           "values": [
             {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "DEJTRSY",
-              "max_stale_seconds": 43200
+              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+              "feed_id": "deJTRSY_FUNDAMENTAL/USD",
+              "max_stale_seconds": 86400
             }
           ]
         },
@@ -538,16 +538,16 @@
       "hub_id": 2,
       "asset_address": "CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL",
       "oracle": {
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 86400,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
           "tag": "RedStone",
           "values": [
             {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "DEJAAA",
-              "max_stale_seconds": 43200
+              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+              "feed_id": "deJAAA_FUNDAMENTAL/USD",
+              "max_stale_seconds": 86400
             }
           ]
         },
@@ -697,7 +697,7 @@
       "hub_id": 2,
       "asset_address": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP",
       "oracle": {
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 86400,
         "tolerance_bps": 500,
         "strategy": 0,
         "primary": {
@@ -706,7 +706,7 @@
             {
               "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
               "feed_id": "USDY_FUNDAMENTAL/USD",
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 86400
             }
           ]
         },

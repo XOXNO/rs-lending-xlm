@@ -16,8 +16,7 @@ MANIFEST = ROOT / "certora" / "profiles.json"
 
 
 def load_profiles() -> dict[str, list[dict[str, object]]]:
-    data = json.loads(MANIFEST.read_text())
-    return data["profiles"]
+    return json.loads(MANIFEST.read_text())["profiles"]
 
 
 def expand_profile(
@@ -29,34 +28,41 @@ def expand_profile(
         known = ", ".join(sorted(profiles))
         raise SystemExit(f"unknown profile '{profile}'. Known profiles: {known}")
     if profile in seen:
-        chain = " -> ".join((*seen, profile))
-        raise SystemExit(f"recursive profile include: {chain}")
+        raise SystemExit(f"recursive profile include: {' -> '.join((*seen, profile))}")
 
     commands: list[dict[str, object]] = []
     for item in profiles[profile]:
         if "profile" in item:
-            commands.extend(expand_profile(profiles, str(item["profile"]), (*seen, profile)))
+            commands.extend(
+                expand_profile(profiles, str(item["profile"]), (*seen, profile))
+            )
         else:
             commands.append(item)
     return commands
 
 
 def command_line(
-    item: dict[str, object], extra_args: list[str], local: bool = False
+    item: dict[str, object], extra_args: list[str], *, local: bool
 ) -> tuple[Path, list[str]]:
     conf_path = ROOT / str(item["conf"])
-    args = [str(arg) for arg in item.get("args", [])]
+    args = [str(a) for a in item.get("args", [])]
     if local:
         runner = ROOT / "certora" / "scripts" / "run-rules-local.sh"
         return ROOT, [str(runner), str(conf_path), *args, *extra_args]
     return conf_path.parent, ["certoraSorobanProver", conf_path.name, *args, *extra_args]
 
 
+def _strip_flag(extra: list[str], flag: str) -> tuple[list[str], bool]:
+    if flag not in extra:
+        return extra, False
+    return [a for a in extra if a != flag], True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("profile", nargs="?", help="profile name from profiles.json")
     parser.add_argument("--list", action="store_true", help="list available profiles")
-    parser.add_argument("--dry-run", action="store_true", help="print commands without executing")
+    parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--no-key-check",
         action="store_true",
@@ -65,43 +71,43 @@ def main() -> int:
     parser.add_argument(
         "--local",
         action="store_true",
-        help="run each rule through run-rules-local.sh and the local Prover JAR",
+        help="run each rule via run-rules-local.sh + local Prover JAR",
     )
     parser.add_argument("extra_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
     profiles = load_profiles()
     if args.list:
-        for name in sorted(profiles):
-            print(name)
+        print("\n".join(sorted(profiles)))
         return 0
-
     if not args.profile:
         parser.error("profile is required unless --list is used")
 
-    extra_args = list(args.extra_args)
-    if "--dry-run" in extra_args:
-        args.dry_run = True
-        extra_args = [arg for arg in extra_args if arg != "--dry-run"]
-    if "--no-key-check" in extra_args:
-        args.no_key_check = True
-        extra_args = [arg for arg in extra_args if arg != "--no-key-check"]
-    if "--local" in extra_args:
-        args.local = True
-        extra_args = [arg for arg in extra_args if arg != "--local"]
+    extra = list(args.extra_args)
+    for flag, attr in (
+        ("--dry-run", "dry_run"),
+        ("--no-key-check", "no_key_check"),
+        ("--local", "local"),
+    ):
+        extra, hit = _strip_flag(extra, flag)
+        if hit:
+            setattr(args, attr, True)
     if args.local:
-        args.no_key_check = True  # local runs never touch the cloud
-    if extra_args and extra_args[0] == "--":
-        extra_args = extra_args[1:]
+        args.no_key_check = True
+    if extra and extra[0] == "--":
+        extra = extra[1:]
 
-    commands = expand_profile(profiles, args.profile)
     if not args.no_key_check and not args.dry_run and not os.environ.get("CERTORAKEY"):
         raise SystemExit("error: CERTORAKEY is not set")
-    if not args.dry_run and not args.local and shutil.which("certoraSorobanProver") is None:
+    if (
+        not args.dry_run
+        and not args.local
+        and shutil.which("certoraSorobanProver") is None
+    ):
         raise SystemExit("error: certoraSorobanProver is not installed or not on PATH")
 
-    for item in commands:
-        cwd, cmd = command_line(item, extra_args, local=args.local)
+    for item in expand_profile(profiles, args.profile):
+        cwd, cmd = command_line(item, extra, local=args.local)
         print(f"=== {item['conf']} {' '.join(cmd[2:])} ===", flush=True)
         if args.dry_run:
             print(f"cd {cwd} && {' '.join(cmd)}")

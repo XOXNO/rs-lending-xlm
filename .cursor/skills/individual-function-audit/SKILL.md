@@ -40,6 +40,24 @@ then integrates the results into a durable mental model before any bug hunt.
 | "Parallelize everything" | Max **4** concurrent `function-analyzer` agents. Batch the rest. |
 | "Context is in my head" | Write artifacts under `audit/function-context/`. Memory decays. |
 | "Found a bug mid-context" | Park it in `OPEN_QUESTIONS.md`. No severity until Phase 5. |
+| "I'll trace_path liquidate / supply" | Forbidden. Resolve ABI → **dense** first (`process_*` / `apply_*` from lib.rs wrappers). lib.rs Methods are often empty in the graph. |
+| "Architecture hotspots look important" | Ignore fan-in on `new` / `Ray.mul`. Prefer dense money-path bodies and `require_*` gates. |
+
+## L0 context (load before any free-form read)
+
+Graph: `make cbm-reindex` (respects `.cbmignore`). There is no
+`scripts/build_audit_index.py` / `make audit-index` path anymore — resolve
+ABI → dense (`process_*` / `apply_*`) from source and codebase-memory.
+
+| Order | Source | Use |
+|-------|--------|-----|
+| 1 | codebase-memory (`make cbm-index` / `cbm-reindex`) | Call graph, fan-in/out |
+| 2 | `interfaces/*` + `contracts/*/src/lib.rs` | ABI surface |
+| 3 | Dense `process_*` / `apply_*` under `contracts/*` | Trace targets (lib.rs Methods are often empty stubs) |
+| 4 | Storage key enums in contracts | R/W map |
+| 5 | Source | Only spans you resolved as dense |
+
+codebase-memory project: `Users-mihaieremia-GitHub-rs-lending-xlm` · mode: `fast`.
 
 ## Pipeline
 
@@ -47,6 +65,7 @@ Execute in order. Read each workflow file and follow it exactly.
 
 | Phase | Workflow | Exit criteria |
 |-------|----------|---------------|
+| 0 | Refresh graph if stale (`make cbm-index`) | Graph usable for callers/callees |
 | 1 | [workflows/01-inventory.md](workflows/01-inventory.md) | `audit/function-context/INVENTORY.md` lists state-changing entrypoints + dense internals |
 | 2 | [workflows/02-queue.md](workflows/02-queue.md) | `audit/function-context/QUEUE.md` prioritized; seed merged |
 | 3 | [workflows/03-dispatch-analyzers.md](workflows/03-dispatch-analyzers.md) | One markdown artifact per queued function; completeness checklist passed |
@@ -77,16 +96,17 @@ leave agent output only in chat.
 ## Artifact Layout
 
 ```
-audit/function-context/
-  INVENTORY.md
-  QUEUE.md
-  OPEN_QUESTIONS.md
-  GLOBAL_MODEL.md
-  functions/
-    <crate>__<module>__<function>.md
+audit/
+  function-context/              # deep-audit dossiers (Phase 1–5)
+    INVENTORY.md
+    QUEUE.md
+    OPEN_QUESTIONS.md
+    GLOBAL_MODEL.md
+    functions/
+      <crate>__<module>__<function>.md
 ```
 
-Generated bodies under `audit/function-context/` are gitignored except
+Generated bodies under `audit/function-context/` may be gitignored except
 `.gitkeep`. The skill, seed queue, and rules are committed.
 
 ## Success Definition

@@ -19,45 +19,41 @@ PACKAGES = {
     "price-aggregator": "price-aggregator",
 }
 
+_ROOT_INPUTS = (
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "Makefile",
+    "certora/scripts/focused_wasm.py",
+    "vendor/cvlr-log",
+)
+
+
+def _inputs(*extra: str) -> tuple[str, ...]:
+    return _ROOT_INPUTS + extra
+
+
 BASE_INPUTS: dict[str, tuple[str, ...]] = {
-    "common": (
-        "Cargo.toml",
-        "Cargo.lock",
-        "rust-toolchain.toml",
-        "Makefile",
-        "certora/scripts/focused_wasm.py",
+    "common": _inputs(
         "common/Cargo.toml",
         "common/src",
-        "vendor/cvlr-log",
         "certora/common/spec",
         "certora/shared/summaries",
     ),
-    "pool": (
-        "Cargo.toml",
-        "Cargo.lock",
-        "rust-toolchain.toml",
-        "Makefile",
-        "certora/scripts/focused_wasm.py",
+    "pool": _inputs(
         "contracts/pool/Cargo.toml",
         "contracts/pool/src",
         "common/Cargo.toml",
         "common/src",
-        "vendor/cvlr-log",
         "interfaces/pool",
         "certora/pool/spec",
         "certora/shared/summaries",
     ),
-    "controller": (
-        "Cargo.toml",
-        "Cargo.lock",
-        "rust-toolchain.toml",
-        "Makefile",
-        "certora/scripts/focused_wasm.py",
+    "controller": _inputs(
         "contracts/controller/Cargo.toml",
         "contracts/controller/src",
         "common/Cargo.toml",
         "common/src",
-        "vendor/cvlr-log",
         "interfaces/controller",
         "interfaces/pool",
         "interfaces/price-aggregator",
@@ -65,17 +61,11 @@ BASE_INPUTS: dict[str, tuple[str, ...]] = {
         "certora/controller/spec",
         "certora/shared/summaries",
     ),
-    "price-aggregator": (
-        "Cargo.toml",
-        "Cargo.lock",
-        "rust-toolchain.toml",
-        "Makefile",
-        "certora/scripts/focused_wasm.py",
+    "price-aggregator": _inputs(
         "contracts/price-aggregator/Cargo.toml",
         "contracts/price-aggregator/src",
         "common/Cargo.toml",
         "common/src",
-        "vendor/cvlr-log",
         "interfaces/price-aggregator",
         "certora/price-aggregator/spec",
     ),
@@ -145,23 +135,13 @@ def all_targets() -> list[FocusedTarget]:
     for layer in PACKAGES:
         for conf in sorted((CERTORA_ROOT / layer / "confs").glob("*.conf")):
             targets.add(target_for_conf(conf, layer))
-    return sorted(targets, key=lambda target: (target.layer, target.module))
+    return sorted(targets, key=lambda t: (t.layer, t.module))
 
 
 def target_by_artifact() -> dict[str, FocusedTarget]:
-    return {target.artifact: target for target in all_targets()}
+    return {t.artifact: t for t in all_targets()}
 
 
 if __name__ == "__main__":
-    for target in all_targets():
-        print(
-            "|".join(
-                (
-                    target.layer,
-                    target.package,
-                    target.feature,
-                    target.artifact,
-                    target.build_key,
-                )
-            )
-        )
+    for t in all_targets():
+        print("|".join((t.layer, t.package, t.feature, t.artifact, t.build_key)))

@@ -1,5 +1,5 @@
 {
-  "_comment": "Mainnet feeds for xoxno-oracle-adapter (make mainnet configureOracleFeeds). feed_id must match xoxno-lending-functions' mainnet/stellar-bot-config/1.yaml priceJobs[].pairs.",
+  "_comment": "Mainnet feeds for xoxno-oracle-adapter (make mainnet configureOracleFeeds). Scope is Spiko-only: every other asset reads RedStone directly. feed_id must match xoxno-lending-functions' mainnet/stellar-bot-config/1.yaml priceJobs[].pairs - retire the DEJAAA/DEJTRSY/USDY jobs there when this ships.",
   "_windows_comment": "Applied by `make mainnet configureOracleWindows` / `upgradeOracleAdapterFull`. max_submission_age_seconds is the tight aggregation inclusion window: keep it > the bot submission cadence and <= every consumer market's max_price_stale_seconds. max_stale_seconds is the cache TTL (>= the inclusion window). max_relative_skew_seconds defaults to the inclusion window (900) so desynced bots are not dropped beyond absolute age; tighten only with synchronized heartbeats.",
   "max_submission_age_seconds": 900,
   "max_stale_seconds": 86400,
@@ -27,22 +27,6 @@
       "asset": {
         "tag": "Stellar",
         "value": "CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR"
-      }
-    },
-    {
-      "_note": "Centrifuge deJTRSY. Chronicle ChainlinkAdapter (Ethereum) + CoinGecko.",
-      "feed_id": "DEJTRSY",
-      "asset": {
-        "tag": "Stellar",
-        "value": "CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV"
-      }
-    },
-    {
-      "_note": "Centrifuge deJAAA. Chronicle ChainlinkAdapter (Ethereum) + CoinGecko.",
-      "feed_id": "DEJAAA",
-      "asset": {
-        "tag": "Stellar",
-        "value": "CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL"
       }
     },
     {
@@ -83,14 +67,6 @@
       "asset": {
         "tag": "Stellar",
         "value": "CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP"
-      }
-    },
-    {
-      "_note": "Ondo USDY. No Chainlink feed; CoinGecko, USD.",
-      "feed_id": "USDY",
-      "asset": {
-        "tag": "Stellar",
-        "value": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP"
       }
     }
   ]

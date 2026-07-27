@@ -89,14 +89,19 @@ pub trait ControllerInterface {
         to: Option<Address>,
     ) -> Vec<(HubAssetKey, i128)>;
 
-    /// Repays `payments` against `account_id`. Any caller may repay any account;
-    /// payer auth covers the token transfer. Global pause does not block.
+    /// Repays `payments` against `account_id`. **Permissionless**: requires only
+    /// caller auth, since only the caller's funds move — anyone may repay any
+    /// account's debt without its owner's consent. Overpayment is refunded to
+    /// the caller. Global pause does not block. Supply/repay credit the measured
+    /// recipient balance delta, not the nominal request alone.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
     /// * `AmountMustBePositive` — a leg amount is not strictly positive.
     /// * `SpokeAssetPaused` — spoke asset is paused (frozen may still repay).
+    /// * `AccountNotInMarket` — `account_id` does not exist.
     /// * `DebtPositionNotFound` — no debt position for an asset.
+    /// * Auth failure — the caller did not authorize.
     ///
     /// # Events
     /// * topics — `["position", "batch_update"]`
@@ -273,8 +278,10 @@ pub trait ControllerInterface {
     );
 
     /// Migrates Blend V2 positions into the controller on `hub_id`.
-    /// Caller auth; `account_id == 0` creates on `spoke_id`. Each debt cap
-    /// bounds the zero-fee borrow that clears that Blend debt. Returns account id.
+    /// Caller auth. For an existing account (`account_id != 0`), requires
+    /// owner-or-delegate and spoke match; `account_id == 0` creates on
+    /// `spoke_id` with the caller as owner. Each debt cap bounds the zero-fee
+    /// borrow that clears that Blend debt. Returns account id.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
@@ -368,17 +375,21 @@ pub trait ControllerInterface {
     fn renew_account(env: Env, caller: Address, account_id: u64);
 
     /// Registers `delegate` on `account_id` (effective only while `delegate` is
-    /// also an active position manager). Account owner only.
+    /// also an active position manager). Account owner only. Blocked while the
+    /// controller is globally paused (`#[when_not_paused]`).
     ///
     /// # Errors
     /// * `AccountNotInMarket` — missing account or `caller` is not the owner.
     /// * `RegistryCapReached` — delegate list is at capacity.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
     fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address);
 
-    /// Revokes `delegate` from `account_id`. Account owner only.
+    /// Revokes `delegate` from `account_id`. Account owner only. Blocked while
+    /// the controller is globally paused (`#[when_not_paused]`).
     ///
     /// # Errors
     /// * `AccountNotInMarket` — missing account or `caller` is not the owner.
+    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
     fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address);
 
     // --- views: account health and positions ---

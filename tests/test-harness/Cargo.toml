@@ -23,7 +23,7 @@ governance = { path = "../../contracts/governance", features = ["testing"] }
 governance-interface = { path = "../../interfaces/governance" }
 price-aggregator = { path = "../../contracts/price-aggregator", features = ["testing"] }
 pool = { path = "../../contracts/pool" }
-flash-loan-receiver = { path = "../../contracts/flash-loan-receiver" }
+flash-loan-receiver = { path = "../../mock/flash-loan-receiver" }
 xoxno-oracle = { path = "../../contracts/xoxno-oracle" }
 # Exact rational arithmetic for the reference implementation used by the
 # liquidation differential fuzz harness (Phase B). Pulled in as a regular

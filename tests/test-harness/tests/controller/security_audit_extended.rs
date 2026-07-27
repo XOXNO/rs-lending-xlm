@@ -103,7 +103,7 @@ fn poc_global_pause_blocks_risk_increasing_allows_exit_and_liq() {
         "H-PAUSE-GLOBAL: debt-free withdraw must remain open while paused; got {w:?}"
     );
 
-    // Permissionless repay still works under global pause.
+    // Owner-gated repay still works under global pause (exit path).
     let r = t.try_repay(ALICE, "ETH", 0.1);
     assert!(
         r.is_ok(),

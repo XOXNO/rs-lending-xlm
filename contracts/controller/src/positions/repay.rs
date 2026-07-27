@@ -1,9 +1,12 @@
-//! User and strategy repay: reduce debt shares; permissionless for any payer.
+//! User and strategy repay: reduce debt shares.
 //!
-//! Payer auth only (no owner check). Debt decreases, so no post-pool HF gate and
-//! no oracle read. Not gated by `#[when_not_paused]` (spoke pause still blocks;
-//! freeze does not). Liquidation skips spoke pause via bulk settle; strategy
-//! `execute_repayment` requires the caller to pre-fund the pool.
+//! User `process_repay` is permissionless: it requires only caller auth (the
+//! caller funds the SAC transfer), so anyone may repay any account's debt. Debt
+//! decreases, so no post-pool HF gate and no oracle read. Not gated by
+//! `#[when_not_paused]` (spoke pause still blocks; freeze does not). Liquidation
+//! skips spoke pause via bulk settle; strategy `execute_repayment` has no
+//! `require_auth` (the strategy entrypoint owns authorization) and requires the
+//! pool pre-funded.
 
 use common::errors::GenericError;
 use common::math::fp::Ray;
@@ -32,7 +35,12 @@ pub(crate) struct RepaymentRequest<'a> {
     pub amount: i128,
 }
 
-/// Auth (payer), aggregate, load debt map, transfer + pool settle, persist debt.
+/// Payer auth, aggregate, load debt map, transfer + pool settle, persist debt.
+///
+/// Permissionless: only `caller` authorizes, because only `caller`'s funds move
+/// (`transfer_amount_measured` debits `caller`). The account owner is not
+/// consulted — repaying another account's debt strictly reduces its debt and
+/// raises its health factor, so it needs no consent.
 ///
 /// `remove_if_empty` is false: full debt close does not remove the account here
 /// (supply may still exist; withdraw owns empty-account cleanup).
@@ -47,8 +55,9 @@ pub(crate) fn process_repay(
 
     let aggregated = payments::aggregate_positive_payments(env, payments);
 
+    // Panics `AccountNotInMarket` on an unknown id, so a permissionless caller
+    // cannot address a non-existent account.
     let mut account = storage::get_account_borrow_only(env, account_id);
-    account.owner.require_auth();
     let mut cache = Cache::new(env);
 
     settle_repay(env, caller, &mut account, &aggregated, &mut cache);

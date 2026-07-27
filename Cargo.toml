@@ -10,11 +10,11 @@ members = [
     "contracts/governance",
     "contracts/swap-aggregator",
     "contracts/defindex-strategy",
-    "contracts/flash-loan-receiver",
     "contracts/xoxno-oracle",
     "contracts/price-aggregator",
     "mock/mock-oracle",
     "mock/mock-redstone",
+    "mock/flash-loan-receiver",
     "tests/test-harness",
 ]
 exclude = ["tests/fuzz", "vendor"]

@@ -71,16 +71,16 @@ make miri-common                # pure math changes
 
 Full matrix in architecture §14 (`mutants`, full Certora profiles, coverage, Scout, etc.).
 
-### Mirror CI locally (optional)
+### Local CI-adjacent checks (optional)
 
 ```bash
-# Docker + act; see .actrc
-.github/scripts/act-local.sh list
-make act-ci-dryrun
-make act-ci
+make scout            # Scout on host (CI uses the scout.yml action)
+make scout-strict     # fail if any crate report is incomplete
+make certora-wasm     # focused Certora WASM artifacts
 ```
 
-Certora under act needs `.github/act/.secrets` (see `.secrets.example`).
+Full GitHub Actions runs on the self-hosted runners; there is no local
+`act` / Docker mirror of workflows.
 
 ## Pull request body
 
@@ -111,13 +111,8 @@ not export test-only ABIs.
 
 ## Documentation style
 
-Public ABI and type comments follow
-[docs/reference/doc-style.md](./docs/reference/doc-style.md). Code is the source of
-truth; update rustdoc when behavior changes. Optional local check:
-
-```bash
-scripts/check-interface-docs.sh
-```
+Public ABI and type comments follow the interface and `contractimpl` rustdoc in
+source. Code is the source of truth; update rustdoc when behavior changes.
 
 ## Issues
 

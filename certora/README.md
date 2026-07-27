@@ -15,7 +15,7 @@ certora/
 │   ├── confs/
 │   └── spec/        # README.txt — domain invariant + conf map
 ├── shared/          # cross-contract summaries
-├── scripts/         # Python entrypoints, wasm helpers, run-all.sh wrapper
+├── scripts/         # Python entrypoints, wasm helpers, local runner
 ├── profiles.json    # sanity | fast | core | heavy | manual | all
 └── compile_all.sh
 ```
@@ -81,8 +81,8 @@ artifacts are not destroyed.
 ```
 
 Runs `cargo check` for all `certora` feature paths, then `check_orphans.py`
-(conf ↔ `#[rule]` alignment) and `check_invariant_coverage.py` (INVARIANTS.md
-↔ spec modules).
+(conf ↔ `#[rule]` alignment, profile coverage, conf integrity) and
+`sync_wasm_conf.py --check` (focused WASM path/features).
 
 ## Local prover (no cloud)
 
@@ -156,7 +156,7 @@ their source fingerprints before submission. Requires the `CERTORAKEY` secret.
 
 ```bash
 ./certora/scripts/run_profile.py --list
-./certora/scripts/run-all.sh sanity
+./certora/scripts/run_profile.py sanity
 ./certora/scripts/run_profile.py fast
 ./certora/scripts/run_profile.py core
 ./certora/scripts/run_profile.py heavy

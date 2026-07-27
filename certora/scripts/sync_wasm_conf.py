@@ -14,25 +14,26 @@ ROOT = Path(__file__).resolve().parents[2]
 CERTORA_ROOT = ROOT / "certora"
 
 
-def patch_conf(conf: Path, layer: str) -> bool:
+def conf_drift(conf: Path, layer: str) -> tuple[dict, object, bool]:
     data = json.loads(conf.read_text())
     target = target_for_conf(conf, layer)
-    changed = False
+    drifted = (
+        "build_script" in data
+        or data.get("files") != [target.conf_relative_wasm]
+        or data.get("cargo_features") != target.cargo_features
+    )
+    return data, target, drifted
 
-    if data.pop("build_script", None) is not None:
-        changed = True
 
-    if data.get("files") != [target.conf_relative_wasm]:
-        data["files"] = [target.conf_relative_wasm]
-        changed = True
-
-    if data.get("cargo_features") != target.cargo_features:
-        data["cargo_features"] = target.cargo_features
-        changed = True
-
-    if changed:
-        conf.write_text(json.dumps(data, indent=4) + "\n")
-    return changed
+def patch_conf(conf: Path, layer: str) -> bool:
+    data, target, drifted = conf_drift(conf, layer)
+    if not drifted:
+        return False
+    data.pop("build_script", None)
+    data["files"] = [target.conf_relative_wasm]
+    data["cargo_features"] = target.cargo_features
+    conf.write_text(json.dumps(data, indent=4) + "\n")
+    return True
 
 
 def main() -> int:
@@ -51,19 +52,17 @@ def main() -> int:
             print(f"missing conf dir: {confs_dir}", file=sys.stderr)
             return 1
         for conf in sorted(confs_dir.glob("*.conf")):
-            data = json.loads(conf.read_text())
-            target = target_for_conf(conf, layer)
-            drifted = (
-                "build_script" in data
-                or data.get("files") != [target.conf_relative_wasm]
-                or data.get("cargo_features") != target.cargo_features
-            )
-            if drifted and args.check:
+            _, _, drifted = conf_drift(conf, layer)
+            if not drifted:
+                continue
+            rel = conf.relative_to(ROOT)
+            if args.check:
                 changed += 1
-                print(f"drift: {conf.relative_to(ROOT)}", file=sys.stderr)
-            elif drifted and patch_conf(conf, layer):
+                print(f"drift: {rel}", file=sys.stderr)
+            elif patch_conf(conf, layer):
                 changed += 1
-                print(f"updated {conf.relative_to(ROOT)}")
+                print(f"updated {rel}")
+
     if args.check:
         if changed:
             print(f"{changed} conf file(s) need sync", file=sys.stderr)

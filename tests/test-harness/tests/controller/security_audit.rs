@@ -285,7 +285,8 @@ fn regression_ltv_collateral_view_uses_live_listing_ltv() {
     );
 }
 
-/// Strategy finalize restamps safe params (`swap_collateral`).
+/// `swap_collateral` restamps LTV at finalize and FullTuple (LT/bonus/fees)
+/// on supply/withdraw legs that touch the position.
 #[test]
 fn regression_strategy_finalize_restamps_safe_params() {
     use test_harness::build_aggregator_swap;
@@ -312,9 +313,9 @@ fn regression_strategy_finalize_restamps_safe_params() {
     t.swap_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps);
 
     let (ltv1, _, bonus1, fees1) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!(ltv1, 5_000, "strategy finalize must restamp LTV");
-    assert_eq!(bonus1, 250, "strategy finalize must restamp bonus");
-    assert_eq!(fees1, 40, "strategy finalize must restamp fees");
+    assert_eq!(ltv1, 5_000, "strategy path must restamp LTV (finalize LtvOnly)");
+    assert_eq!(bonus1, 250, "touched supply/withdraw legs must restamp bonus (FullTuple)");
+    assert_eq!(fees1, 40, "touched supply/withdraw legs must restamp fees (FullTuple)");
 }
 
 /// H-LIQ-16: lowering listing LT does not restamp; HF stays on the old LT and
@@ -495,8 +496,9 @@ fn poc_flash_loan_ongoing_blocks_risk_increasing_and_exit_paths() {
     t.set_flash_loan_ongoing(false);
 }
 
-/// Permissionless repay: any funded caller may reduce another account's debt
-/// (debt-decreasing only; no owner check on the controller path).
+/// Owner-gated repay with third-party funding: caller funds the transfer;
+/// account owner must co-auth (not permissionless / payer-only).
+/// Debt-decreasing only; no post-pool HF gate.
 #[test]
 fn poc_permissionless_repay_any_caller() {
     use soroban_sdk::vec;

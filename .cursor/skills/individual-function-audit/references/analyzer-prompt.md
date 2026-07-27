@@ -18,10 +18,20 @@ pattern, record it as an open structural question — not a finding.
 - Why queued: `{{PRIORITY_REASON}}`
 - Fold-in helpers (analyze as continuous flow if listed): `{{HELPERS}}`
 
+## Pre-read (mandatory, before opening source)
+
+1. If `{{FUNCTION}}` is an ABI name (`liquidate`, `supply`, …), switch the
+   analysis target to its **dense** alias (`process_liquidation`, …) via the
+   thin wrapper in `contracts/*/src/lib.rs`. Do not analyze empty Method stubs.
+2. codebase-memory: `trace_path` / `search_graph` on the **dense** name only;
+   project `Users-mihaieremia-GitHub-rs-lending-xlm`.
+3. Grep storage key enums and cross-contract client calls for this path.
+
 ## Required work
 
-1. Read the function implementation completely (no skimming).
-2. Grep for **all callers** of this function / method across the workspace.
+1. Read the **dense** function implementation completely (no skimming).
+2. Grep for **all callers** of this function / method across the workspace
+   (include the ABI thin wrapper in lib.rs as a caller).
 3. Enumerate every **storage read/write** (keys, maps, TTL bumps).
 4. Jump into each internal callee and continue micro-analysis; treat the
    call chain as one execution. For external contracts with source in-repo,

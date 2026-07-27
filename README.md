@@ -60,6 +60,7 @@ contracts/          Soroban contracts
   price-aggregator/ Oracle authority
   xoxno-oracle/     Multi-signer RedStone / SEP-40 feed
   defindex-strategy/
+mock/               Test-only contracts (oracles, flash-loan receiver)
 common/             Shared math, types, errors
 interfaces/         Client ABIs
 configs/            Network and market deploy inputs (`networks.json`)

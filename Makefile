@@ -44,7 +44,8 @@ SHELL := /bin/bash
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
-        wasm-size-check wasm-testing-abi-check act-ci act-ci-dryrun clean install-stellar-cli \
+        wasm-size-check wasm-testing-abi-check clean install-stellar-cli \
+        cbm-reindex cbm-index \
         _mutants-check _mutants-harness-prepare \
         mutants mutants-math mutants-rates mutants-pool-interest mutants-common mutants-pool \
         mutants-governance mutants-governance-oracle-probe mutants-diff \
@@ -307,7 +308,7 @@ certora: certora-wasm
 		echo "certoraSorobanProver not found; install with: pip install certora-cli"; \
 		exit 1; \
 	}
-	@./certora/scripts/run-all.sh $(CERTORA_PROFILE) $(CERTORA_ARGS)
+	@./certora/scripts/run_profile.py $(CERTORA_PROFILE) $(CERTORA_ARGS)
 
 _wasm-manifest:
 	@python3 certora/scripts/write_wasm_manifest.py \
@@ -475,13 +476,12 @@ clippy-contracts:
 clippy-fuzz:
 	cargo clippy --manifest-path $(FUZZ_DIR)/Cargo.toml --all-targets -- -D warnings
 
-## Run the scout.yml workflow in Docker via nektos/act (same action + gate as CI).
+## Run Scout on the host (pinned detectors; matches CI exclude list).
 scout:
-	bash .github/scripts/act-local.sh scout
-
-## Run Scout directly on the host (no Docker).
-scout-host:
 	.github/scripts/run_scout.sh
+
+## Alias for `make scout` (kept for older docs/muscle memory).
+scout-host: scout
 
 ## Run Scout on the host and fail if any report is incomplete.
 scout-strict:
@@ -540,14 +540,6 @@ wasm-size-check: deploy-artifacts wasm-testing-abi-check
 		fi; \
 	done <$(WASM_BUDGET_FILE); \
 	exit $$status
-
-## Dry-run ci.yml build-and-test in Docker via nektos/act (requires Docker + act).
-act-ci-dryrun:
-	bash .github/scripts/act-local.sh -n ci
-
-## Run ci.yml build-and-test job in Docker via nektos/act (requires Docker + act).
-act-ci:
-	bash .github/scripts/act-local.sh ci
 
 # ---------------------------------------------------------------------------
 # Mutation testing
@@ -1771,8 +1763,6 @@ help:
 	@echo "  make deploy-artifacts   Optimized WASM for mainnet ($(DEPLOY_DIR))"
 	@echo "  make wasm-size-check    Build deploy artifacts + enforce size budget"
 	@echo "  make integration-wasm   Deploy-sized WASM + mocks for testnet harness"
-	@echo "  make act-ci-dryrun      Dry-run ci.yml in Docker via nektos/act"
-	@echo "  make act-ci             Run ci.yml build-and-test job via act"
 	@echo "  make certora-wasm       Certora-feature WASM for hosted prover"
 	@echo "  make wasm-artifacts     Build deploy + certora WASM ($(WASM_ARTIFACTS_DIR))"
 	@echo "  make certora            Submit Certora cloud jobs (CERTORA_PROFILE=sanity)"
@@ -1797,7 +1787,7 @@ help:
 	@echo "  make proptest           Contract properties (tuned defaults; override PROPTEST_CASES=N)"
 	@echo "  make mutants            Full non-overlapping mutation suite (common/pool/governance/controller)"
 	@echo "  make mutants-math       Focused local mutation run (also -rates and -pool-interest)"
-	@echo "  make scout              Scout audit workflow in Docker via act (scout-host runs on host; scout-strict gates incomplete reports)"
+	@echo "  make scout              Scout audit on host (scout-strict gates incomplete reports)"
 	@echo ""
 	@echo "Deployment (pattern: make <network> <action>, network = testnet | mainnet):"
 	@echo "  make keygen                         Generate deployer key (testnet: friendbot-funded)"
@@ -1985,3 +1975,25 @@ help:
 	@echo "    SIGNER=ledger make mainnet setupAll"
 
 .DEFAULT_GOAL := usage
+
+
+# ---------------------------------------------------------------------------
+# Codebase-memory (agent-first security context)
+# ---------------------------------------------------------------------------
+
+CBM_PROJECT := Users-mihaieremia-GitHub-rs-lending-xlm
+CBM_ROOT := $(CURDIR)
+
+.PHONY: cbm-reindex cbm-index
+
+## Incremental graph refresh (respects .cbmignore; mode=fast)
+cbm-index:
+	codebase-memory-mcp cli index_repository '{"repo_path":"$(CBM_ROOT)","mode":"fast","persistence":true}'
+
+## Clean rebuild of codebase-memory graph (delete project + artifact + index)
+cbm-reindex:
+	-codebase-memory-mcp cli delete_project '{"project":"$(CBM_PROJECT)"}'
+	rm -f .codebase-memory/graph.db.zst .codebase-memory/artifact.json
+	codebase-memory-mcp cli index_repository '{"repo_path":"$(CBM_ROOT)","mode":"fast","persistence":true}'
+	@echo "Graph rebuilt."
+

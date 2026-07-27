@@ -51,7 +51,7 @@ Reporters who follow this policy may be credited in release notes (with consent)
 - Issues that require already-compromised operator keys (governance owner, role
   holders including GUARDIAN, keeper keys)
 - Theoretical issues without a reproducible PoC
-- `contracts/flash-loan-receiver` as a production surface — it is **test-only**
+- `mock/flash-loan-receiver` as a production surface — it is **test-only**
   unless you are attacking the test harness itself
 
 Technical properties: [docs/reference/invariants.md](./docs/reference/invariants.md),
