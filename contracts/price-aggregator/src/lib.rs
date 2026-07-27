@@ -11,6 +11,7 @@
 mod compose;
 mod config;
 mod context;
+mod engine;
 mod events;
 mod observation;
 mod prefetch;
@@ -34,7 +35,7 @@ pub mod spec;
 #[path = "../tests/oracle/support.rs"]
 mod test_support;
 
-use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
+use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env, Map, Vec};
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
 
@@ -119,6 +120,47 @@ impl PriceAggregator {
     /// Token-rooted oracle config for `asset`, if configured. Public view.
     pub fn oracle_config(env: Env, asset: Address) -> Option<AssetOracleConfig> {
         storage::get_oracle_config(&env, &asset)
+    }
+
+    /// USD price for `key` under the composable model. Fail-closed, same
+    /// discipline as [`Self::price`].
+    ///
+    /// Resolves through the migrated config if one exists, otherwise through the
+    /// legacy config lifted into the current shape, so this answers for every
+    /// configured asset during migration as well as after it.
+    ///
+    /// # Errors
+    /// * `OracleNotConfigured` - no config, migrated or legacy.
+    /// * `OracleCycleDetected` / `OracleDepthExceeded` - composition bounds.
+    /// * `PriceFeedStale` - a feed, or a composed source, past its bound.
+    /// * `FactorOutOfBounds` - a scaled ratio outside its configured range.
+    /// * `UnsafePriceNotAllowed` - two sources outside the tolerance band.
+    /// * `SanityBoundViolated` / `InvalidPrice` - final price rejected.
+    /// * `UnsupportedPoolKind` - LP shares are not priceable yet.
+    pub fn price_of(env: Env, key: PriceKey) -> PriceFeedRaw {
+        let mut cache = context::ResolutionContext::new(&env);
+        engine::resolve(&mut cache, &key, 0)
+    }
+
+    /// The interval the configured sources actually spanned for `key`, WAD.
+    ///
+    /// `(low, high)` are equal for a single-source key and are the two source
+    /// prices otherwise, both having already passed the tolerance band and the
+    /// sanity band. Published because the combination rule is the open question
+    /// in this model: a source compromised high moves a midpoint by half that
+    /// error, where collateral valuation wants the low end and debt the high
+    /// end. Exposing the interval lets that be measured on live configs before
+    /// `PriceFeedRaw` is widened to carry it.
+    ///
+    /// # Errors
+    /// Same variants as [`Self::price_of`].
+    pub fn price_spread_of(env: Env, key: PriceKey) -> (i128, i128) {
+        let mut cache = context::ResolutionContext::new(&env);
+        let Some(oracle) = registry::resolve_oracle(&env, &key) else {
+            panic_with_error!(&env, Error::OracleNotConfigured)
+        };
+        let resolved = engine::resolve_with(&mut cache, &oracle, 0);
+        (resolved.low_wad, resolved.high_wad)
     }
 
     /// Oracle that would price `key`: the migrated config if one exists, else

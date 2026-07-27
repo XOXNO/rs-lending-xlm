@@ -32,6 +32,13 @@ pub(crate) struct ResolutionContext {
     /// from `resolving` because a `PriceKey` covers reference prices that have
     /// no `Address` to push.
     resolving_keys: Vec<PriceKey>,
+    /// Key-rooted USD prices resolved this transaction.
+    ///
+    /// Written by exactly one place - `engine::resolve`, after every guard has
+    /// passed - so a cached entry is always a fully-checked one. A second
+    /// writer that skipped a guard would serve an unchecked price to any later
+    /// hard read that hit the same key.
+    key_prices: Map<PriceKey, PriceFeedRaw>,
     current_timestamp_secs: u64,
 }
 
@@ -47,6 +54,7 @@ impl ResolutionContext {
             bulk_feed_cache: Map::new(env),
             asset_oracle: Map::new(env),
             resolving_keys: Vec::new(env),
+            key_prices: Map::new(env),
             current_timestamp_secs: env.ledger().timestamp(),
         }
     }
@@ -147,6 +155,17 @@ impl ResolutionContext {
     /// Pops the most recently entered key (caller ensures enter/exit balance).
     pub(crate) fn pop_price_key(&mut self) {
         self.resolving_keys.pop_back();
+    }
+
+    /// Key-rooted USD price resolved earlier this transaction, if any.
+    pub(crate) fn cached_key_price(&self, key: &PriceKey) -> Option<PriceFeedRaw> {
+        self.key_prices.get(key.clone())
+    }
+
+    /// Memoizes a fully-guarded key-rooted price for the rest of the
+    /// transaction. See the field docs for why this must stay single-writer.
+    pub(crate) fn store_key_price(&mut self, key: &PriceKey, feed: PriceFeedRaw) {
+        self.key_prices.set(key.clone(), feed);
     }
 
     /// Token-rooted oracle config if configured (absence not memoized).
