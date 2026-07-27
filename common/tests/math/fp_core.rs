@@ -418,3 +418,40 @@ fn test_geometric_mean_rejects_negative() {
     let env = Env::default();
     let _ = geometric_mean_floor(&env, -1, 4);
 }
+
+#[test]
+fn test_geometric_mean_at_the_i128_ceiling() {
+    // Worst case for both seeds and for the I256 intermediate: MAX^2 is ~2.9e76
+    // against an I256 ceiling of ~5.7e76, and the root is MAX itself, which only
+    // just fits back into i128.
+    let env = Env::default();
+    assert_eq!(
+        geometric_mean_floor(&env, i128::MAX, i128::MAX),
+        i128::MAX,
+        "sqrt(MAX^2) must round-trip exactly"
+    );
+}
+
+#[test]
+fn test_geometric_mean_at_adjacent_powers_of_two() {
+    // Exercises the bit-length seed where the two operands straddle a power of
+    // two, which is where an off-by-one in the exponent would show up as a seed
+    // below the true root - and Newton from below does not converge downward.
+    let env = Env::default();
+    let high = 1i128 << 126;
+    assert_eq!(geometric_mean_floor(&env, high, high), high);
+    // sqrt(2^126 * (2^126 - 1)) floors to 2^126 - 1.
+    assert_eq!(geometric_mean_floor(&env, high, high - 1), high - 1);
+}
+
+#[test]
+fn test_geometric_mean_extreme_ratio_stays_well_inside_the_iteration_cap() {
+    // A brute-force model over 60k structured and random pairs peaks at 8
+    // Newton steps; this pins the shape that produces the worst count so a
+    // regression in the seed shows up as a revert rather than silent slowness.
+    let env = Env::default();
+    assert_eq!(
+        geometric_mean_floor(&env, 1, i128::MAX),
+        13_043_817_825_332_782_212
+    );
+}
