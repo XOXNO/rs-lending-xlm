@@ -64,13 +64,18 @@ impl Cache {
         let scaled_to_burn = if amount >= treasury_actual {
             self.revenue
         } else {
-            let ratio = Ray::from_fraction(&self.env, amount, treasury_actual);
-            self.revenue.mul(&self.env, ratio)
+            // Burn `revenue * amount / treasury_actual` in one full-precision
+            // ceil. A single ceil rounds the burn against the claimant, so the
+            // shares retired always cover the cash paid: the residual claim can
+            // never exceed `previous_claim - payout`. A prior two-step half-up
+            // (`from_fraction` then `mul`) could under-burn by a few ulps at
+            // extreme index/decimal states and leave paid-for claim behind.
+            self.revenue
+                .mul_ratio_ceil(&self.env, amount, treasury_actual)
         };
         // A positive payout must always retire a positive part of the protocol
-        // claim. At extreme cash-to-claim ratios both half-up operations above
-        // can round to zero; paying in that state would leave revenue unchanged
-        // and let the same claim absorb future cash repeatedly.
+        // claim. The ceil above cannot round a positive ratio to zero; the guard
+        // stays as defense against a future rounding-direction change.
         assert_with_error!(
             self.env,
             scaled_to_burn != Ray::ZERO,

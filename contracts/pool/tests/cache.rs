@@ -292,17 +292,19 @@ fn test_burn_claimable_revenue_full_when_revenue_smaller_than_reserves() {
     });
 }
 
+// A one-unit payout against an enormous claim was the degenerate case for the
+// old two-step half-up burn: the sub-RAY fraction rounded to zero and the claim
+// had to fail closed (`InternalError`) to avoid paying cash without retiring
+// shares. The single-ceil burn retires a positive share instead, so the same
+// input now settles the one unit correctly and never trips the zero guard.
 #[test]
-#[should_panic(expected = "Error(Contract, #34)")]
-fn test_positive_revenue_payout_rejects_zero_scaled_burn() {
+fn test_positive_revenue_payout_burns_positive_share_at_extreme_ratio() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut params = t.params.clone();
         params.asset_decimals = 18;
 
-        // treasury_actual = 3e27 asset units while only one unit of cash is
-        // payable. The sub-RAY fraction rounds to zero, so the claim must fail
-        // closed instead of transferring cash without retiring shares.
+        // treasury_actual = 3e27 asset units while only one unit of cash is payable.
         let extreme_revenue = 3 * 10i128.pow(36);
         let mut cache = cache_with(
             &t.env,
@@ -313,9 +315,24 @@ fn test_positive_revenue_payout_rejects_zero_scaled_burn() {
             RAY,
             RAY,
         );
+        let claim_before = cache.unscale_supply_floor(cache.revenue());
         cache.set_cash(1);
 
-        let _ = cache.burn_claimable_revenue();
+        let paid = cache.burn_claimable_revenue();
+        let claim_after = cache.unscale_supply_floor(cache.revenue());
+
+        assert_eq!(paid, 1, "the single unit of cash must settle");
+        // The ceil burn retired a positive share, so revenue strictly shrank.
+        assert!(
+            cache.revenue() < Ray::from(extreme_revenue),
+            "a positive payout must retire a positive share"
+        );
+        // No value created, and revenue stays a slice of supply.
+        assert!(claim_after + paid <= claim_before, "claim value created");
+        assert!(
+            cache.revenue() <= cache.supplied(),
+            "revenue escaped supply"
+        );
     });
 }
 
@@ -420,6 +437,49 @@ fn test_cash_short_revenue_claim_never_creates_claim_value() {
                 }
             }
         }
+    });
+}
+
+// L-03 regression: at an extreme 18-decimal supply index, the prior two-step
+// half-up burn (`Ray::from_fraction` then `Ray::mul`) under-burned the protocol
+// claim, leaving `claim_after + paid == claim_before + 10` — value the protocol
+// had already been paid for. The single-ceil burn must hold the no-value-created
+// invariant exactly here. Values are the reproduced worst case.
+#[test]
+fn test_cash_short_revenue_claim_no_underburn_at_extreme_18_decimal_index() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut params = t.params.clone();
+        params.asset_decimals = 18;
+
+        let revenue: i128 = 1_432_935_336_057_397_002_322_192_627;
+        let supply_index: i128 = 33_724_649_353_785_347_172_825_295_000_714_896_438;
+        let cash: i128 = 754_839_994_657_833_529;
+        let supplied = revenue + 50 * RAY;
+
+        let mut cache = cache_with(&t.env, &params, supplied, 0, revenue, supply_index, RAY);
+        let claim_before = cache.unscale_supply_floor(cache.revenue());
+        cache.set_cash(cash);
+
+        let paid = cache.burn_claimable_revenue();
+        let claim_after = cache.unscale_supply_floor(cache.revenue());
+
+        // Cash-short branch: the payout must not have cleared the whole claim,
+        // otherwise this no longer exercises the pro-rata burn the fix targets.
+        assert!(
+            paid < claim_before,
+            "expected cash-short branch: paid={paid}"
+        );
+        // The exact invariant the double-rounding violated by +10.
+        assert!(
+            claim_after + paid <= claim_before,
+            "claim value created: before={claim_before} after={claim_after} paid={paid}"
+        );
+        assert!(paid <= cash, "paid {paid} exceeds cash {cash}");
+        assert!(
+            cache.revenue() <= cache.supplied(),
+            "revenue escaped supply"
+        );
     });
 }
 

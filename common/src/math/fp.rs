@@ -89,6 +89,15 @@ impl Ray {
         Ray(fp_core::mul_div_ceil(env, self.0, other.0, RAY))
     }
 
+    /// Scales by the integer ratio `numerator / denominator` with ceiling
+    /// rounding, in one full-precision step. `numerator` and `denominator` must
+    /// share one unit so the RAY scale is preserved. Ceiling rounds the result
+    /// up — use when the scaled share must round against its holder.
+    pub fn mul_ratio_ceil(self, env: &Env, numerator: i128, denominator: i128) -> Ray {
+        // D27{U} * {n} / {d} -> D27{U * n/d}.
+        Ray(fp_core::mul_div_ceil(env, self.0, numerator, denominator))
+    }
+
     // --- construct ---
 
     // --- convert ---
