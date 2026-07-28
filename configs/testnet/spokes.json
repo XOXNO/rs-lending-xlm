@@ -1,6 +1,6 @@
 {
   "1": {
-    "name": "Stablecoins",
+    "name": "Main (USDC/EURC/XLM/BTC)",
     "assets": {
       "USDC": {
         "hub_id": 1,
@@ -22,6 +22,28 @@
         "liquidation_bonus": 200,
         "supply_cap": "50000000000000",
         "borrow_cap": "25000000000000",
+        "liquidation_fees": 100
+      },
+      "XLM": {
+        "hub_id": 1,
+        "can_be_collateral": true,
+        "can_be_borrowed": true,
+        "ltv": 6847,
+        "liquidation_threshold": 7512,
+        "liquidation_bonus": 423,
+        "supply_cap": "100000000000000",
+        "borrow_cap": "50000000000000",
+        "liquidation_fees": 100
+      },
+      "BTC": {
+        "hub_id": 1,
+        "can_be_collateral": true,
+        "can_be_borrowed": true,
+        "ltv": 6500,
+        "liquidation_threshold": 7000,
+        "liquidation_bonus": 700,
+        "supply_cap": "1000000000",
+        "borrow_cap": "500000000",
         "liquidation_fees": 100
       }
     }
