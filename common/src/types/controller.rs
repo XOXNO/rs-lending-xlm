@@ -150,9 +150,10 @@ pub struct SpokeUsageRaw {
 
 /// Pool indexes + soft oracle status for one hub-asset market.
 ///
-/// Price fields use historical ABI names: `safe_price_wad` = primary leg,
-/// `aggregator_price_wad` = secondary/anchor leg. Status flags describe whether
-/// the price is usable (`valid`) or blocked by staleness / dual-source deviation.
+/// Price legs: `price_wad` is the final composed USD answer;
+/// `primary_price_wad` / `anchor_price_wad` are the independent oracle legs
+/// (equal when single-source). Status flags describe whether the price is
+/// usable (`valid`) or blocked by staleness / dual-source deviation.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketIndexView {
@@ -163,10 +164,11 @@ pub struct MarketIndexView {
     pub borrow_index: i128,
     /// Final composed USD WAD (0 when unusable / unreadable).
     pub price_wad: i128,
-    /// Primary oracle leg (historical ABI name; not a safety flag).
-    pub safe_price_wad: i128,
-    /// Secondary/anchor leg (historical ABI name; not the swap aggregator).
-    pub aggregator_price_wad: i128,
+    /// First independent oracle leg, USD WAD.
+    pub primary_price_wad: i128,
+    /// Second independent oracle leg (anchor), USD WAD.
+    /// Equals `primary_price_wad` under single-source configs.
+    pub anchor_price_wad: i128,
     /// Freshness timestamp of the final blend (seconds).
     pub price_timestamp: u64,
     pub stale: bool,

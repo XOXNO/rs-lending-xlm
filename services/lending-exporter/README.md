@@ -29,8 +29,8 @@ Per asset (oracle labels: `network`, `asset`, `symbol`):
 | Metric | On-chain field |
 |---|---|
 | `lending_oracle_price_usd` | `price_wad` (final blend) |
-| `lending_oracle_primary_price_usd` | `safe_price_wad` (primary leg) |
-| `lending_oracle_anchor_price_usd` | `aggregator_price_wad` (secondary/anchor leg — historical ABI name) |
+| `lending_oracle_primary_price_usd` | `primary_price_wad` (primary leg) |
+| `lending_oracle_anchor_price_usd` | `anchor_price_wad` (second independent oracle leg) |
 | `lending_oracle_deviation_bps` | derived \|primary−anchor\| |
 | `lending_oracle_status_timestamp_seconds` | `price_timestamp` (blend freshness) |
 | `lending_oracle_stale` | `stale` (0/1) |

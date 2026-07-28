@@ -169,9 +169,8 @@ pub(crate) fn get_all_market_indexes_detailed(
             supply_index: index.supply_index.raw(),
             borrow_index: index.borrow_index.raw(),
             price_wad: status.final_wad,
-            // Historical ABI names: primary / secondary legs.
-            safe_price_wad: status.primary_wad,
-            aggregator_price_wad: status.secondary_wad,
+            primary_price_wad: status.primary_wad,
+            anchor_price_wad: status.secondary_wad,
             price_timestamp: status.price_timestamp,
             stale: status.stale,
             deviation: status.deviation,

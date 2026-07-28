@@ -174,8 +174,8 @@ fn test_redstone_anchor_outside_tolerance_marks_view_deviation() {
     assert!(!row.valid);
     assert!(row.deviation);
     assert!(!row.stale);
-    assert!(row.safe_price_wad > 0);
-    assert!(row.aggregator_price_wad > 0);
+    assert!(row.primary_price_wad > 0);
+    assert!(row.anchor_price_wad > 0);
 }
 
 // Runtime path: configure-time succeeds (price is set), then the feed is

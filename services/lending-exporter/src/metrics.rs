@@ -44,9 +44,9 @@ pub struct Metrics {
 
     /// Final composed USD WAD (`MarketIndexView.price_wad`).
     pub oracle_price_usd: GaugeVec,
-    /// Primary leg (`safe_price_wad` historical ABI name).
+    /// Primary oracle leg (`primary_price_wad`).
     pub oracle_primary_price_usd: GaugeVec,
-    /// Secondary/anchor leg (`aggregator_price_wad` historical ABI name).
+    /// Anchor (second) oracle leg (`anchor_price_wad`).
     pub oracle_anchor_price_usd: GaugeVec,
     pub oracle_deviation_bps: GaugeVec,
     /// Soft status `valid` (1 = usable for solvency).
@@ -142,8 +142,8 @@ impl Metrics {
             market_param: register_gauge_vec(&registry, "lending_market_param", "IRM curve params by `param` (rates/util as ratio, fees as ratio, bool as 0/1)", &["network", "hub_id", "hub", "asset", "symbol", "param"])?,
 
             oracle_price_usd: register_gauge_vec(&registry, "lending_oracle_price_usd", "Final blended USD price (MarketIndexView.price_wad)", ORACLE_LABELS)?,
-            oracle_primary_price_usd: register_gauge_vec(&registry, "lending_oracle_primary_price_usd", "Primary oracle leg USD (safe_price_wad)", ORACLE_LABELS)?,
-            oracle_anchor_price_usd: register_gauge_vec(&registry, "lending_oracle_anchor_price_usd", "Secondary/anchor oracle leg USD (aggregator_price_wad)", ORACLE_LABELS)?,
+            oracle_primary_price_usd: register_gauge_vec(&registry, "lending_oracle_primary_price_usd", "Primary oracle leg USD (primary_price_wad)", ORACLE_LABELS)?,
+            oracle_anchor_price_usd: register_gauge_vec(&registry, "lending_oracle_anchor_price_usd", "Secondary/anchor oracle leg USD (anchor_price_wad)", ORACLE_LABELS)?,
             oracle_deviation_bps: register_gauge_vec(&registry, "lending_oracle_deviation_bps", "Primary vs anchor deviation (bps)", ORACLE_LABELS)?,
             oracle_healthy: register_gauge_vec(&registry, "lending_oracle_healthy", "1 if soft status valid (fresh, in-band, in sanity)", ORACLE_LABELS)?,
             oracle_stale: register_gauge_vec(&registry, "lending_oracle_stale", "1 if soft status stale flag is set", ORACLE_LABELS)?,

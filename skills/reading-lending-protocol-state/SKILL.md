@@ -49,7 +49,7 @@ fn max_supply(account_id: u64, hub_asset: HubAssetKey) -> i128;
 
 ```rust
 // Pool indexes + soft oracle status (does not trap on stale/deviation):
-// price_wad / safe_price_wad (primary) / aggregator_price_wad (secondary),
+// price_wad / primary_price_wad / anchor_price_wad,
 // price_timestamp, stale, deviation, valid.
 fn get_market_indexes_detailed(hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexView>;
 fn get_market_index(hub_asset: HubAssetKey) -> MarketIndexRaw; // accrued to now, reads NO oracle
