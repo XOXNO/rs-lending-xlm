@@ -300,6 +300,12 @@ impl ControllerInterface for Controller {
         keepers::update_account_threshold(&env, caller, has_risks, account_ids);
     }
 
+    // Permissionless and not pause-gated: `payer` authorizes the funds, the pool
+    // only ever gains backing, and a shortfall must be repairable during a pause.
+    fn recapitalize(env: Env, payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128 {
+        keepers::recapitalize(&env, payer, hub_asset, amount)
+    }
+
     // --- account ops ---
 
     fn renew_account(env: Env, caller: Address, account_id: u64) {
@@ -311,7 +317,8 @@ impl ControllerInterface for Controller {
         account::add_delegate(&env, caller, account_id, delegate);
     }
 
-    #[when_not_paused]
+    // Not pause-gated: revoking a delegate is risk-reducing and must work during
+    // an incident, mirroring the pause-exempt withdraw/repay exits.
     fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         account::remove_delegate(&env, caller, account_id, delegate);
     }
@@ -564,11 +571,6 @@ impl ControllerAdmin for Controller {
     #[only_owner]
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>) {
         markets::upgrade_pool(&env, new_wasm_hash);
-    }
-
-    #[only_owner]
-    fn recapitalize(env: Env, payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128 {
-        keepers::recapitalize(&env, payer, hub_asset, amount)
     }
 
     // --- emergency ---

@@ -271,7 +271,7 @@ fn test_seeding_an_oracle_activates_a_pending_market() {
     );
 
     let oracle_cfg = resolved_reflector_dual_source_config(&t.env, &t.mock_reflector, &asset);
-    t.price_agg_client().seed_asset_oracle(
+    t.price_agg_client().seed_oracle(
         &controller::types::PriceKey::Token(asset.clone()),
         &oracle_cfg,
     );
@@ -294,11 +294,11 @@ fn test_seeding_an_oracle_activates_a_pending_market() {
     );
 }
 
-// `set_asset_oracle` re-validates the agreement band for dual-source
+// `set_oracle` re-validates the agreement band for dual-source
 // configs, so a degenerate tolerance on the (otherwise valid) pending-market
 // activation path is rejected instead of silently disabling the guard.
 #[test]
-fn test_set_asset_oracle_rejects_a_degenerate_tolerance() {
+fn test_set_oracle_rejects_a_degenerate_tolerance() {
     let t = LendingTest::new().build();
     let ctrl = t.ctrl_client();
     let admin = &t.admin;
@@ -316,7 +316,7 @@ fn test_set_asset_oracle_rejects_a_degenerate_tolerance() {
         upper_ratio_bps: 10_500,
         lower_ratio_bps: 100,
     };
-    let result = t.price_agg_client().try_set_asset_oracle(
+    let result = t.price_agg_client().try_set_oracle(
         &controller::types::PriceKey::Token(asset.clone()),
         &oracle_cfg,
     );

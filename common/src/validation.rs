@@ -8,9 +8,9 @@ use crate::constants::{
     MIN_SANITY_BAND_BPS, MIN_TOLERANCE, RAY_DECIMALS, WAD,
 };
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
-use crate::math::fp_core::mul_div_ceil;
+use crate::math::fp_core::{mul_div_ceil, mul_div_half_up};
 use crate::oracle::observation::{MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MAX_TWAP_RECORDS};
-use crate::types::{OracleStrategy, OracleTolerance};
+use crate::types::OracleTolerance;
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Executable, Vec};
 
 /// Strictly positive amount; zero is rejected.
@@ -153,12 +153,14 @@ pub fn validate_liquidation_curve(
 }
 
 /// Oracle tolerance band brackets par within `[MIN_TOLERANCE, MAX_TOLERANCE]`.
-/// The lower leg carries a symmetric floor (`bps - MAX_TOLERANCE`) so a
-/// manipulated-low primary cannot sit "in band" and drag the blended midpoint
-/// down; the reciprocal band the governance builder emits always clears it.
+///
+/// Lower must be the half-up reciprocal of upper (`BPS² / upper`) so the
+/// directed ratio check is invariant to source order. Envelope floor
+/// `bps - MAX_TOLERANCE` still applies (reciprocal of `bps + MAX_TOLERANCE`
+/// always clears it).
 ///
 /// # Errors
-/// * [`OracleError::BadLastTolerance`] - inverted/out-of-envelope band.
+/// * [`OracleError::BadLastTolerance`] - inverted/out-of-envelope/non-reciprocal.
 pub fn validate_oracle_tolerance(env: &Env, tolerance: &OracleTolerance) {
     let bps = BPS as u32;
     assert_with_error!(
@@ -167,6 +169,18 @@ pub fn validate_oracle_tolerance(env: &Env, tolerance: &OracleTolerance) {
             && tolerance.upper_ratio_bps <= bps + MAX_TOLERANCE
             && tolerance.lower_ratio_bps >= bps - MAX_TOLERANCE
             && tolerance.lower_ratio_bps <= bps,
+        OracleError::BadLastTolerance
+    );
+    // Order-invariant dual agree: lower = half-up(BPS² / upper), same as governance.
+    let expected_lower = mul_div_half_up(
+        env,
+        BPS,
+        BPS,
+        i128::from(tolerance.upper_ratio_bps),
+    );
+    assert_with_error!(
+        env,
+        i128::from(tolerance.lower_ratio_bps) == expected_lower,
         OracleError::BadLastTolerance
     );
 }
@@ -193,18 +207,19 @@ pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     );
 }
 
-/// `Single` strategy: midpoint half-width ≤ `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`.
-/// Anchored markets exempt. Requires prior `validate_sanity_bounds`.
+/// Single-source markets: midpoint half-width ≤ `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`.
+/// Dual-source markets are exempt. Requires prior `validate_sanity_bounds`.
 ///
 /// # Errors
-/// * [`OracleError::SanityBandTooWideForSingleSource`] - band too wide for Single.
+/// * [`OracleError::SanityBandTooWideForSingleSource`] - band too wide for a
+///   lone opinion.
 pub fn validate_single_source_sanity_band(
     env: &Env,
-    strategy: OracleStrategy,
+    is_dual: bool,
     min_wad: i128,
     max_wad: i128,
 ) {
-    if strategy != OracleStrategy::Single {
+    if is_dual {
         return;
     }
     // Ceil so exact ceiling is accepted; anything wider is rejected.

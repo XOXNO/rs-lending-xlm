@@ -50,6 +50,30 @@ fn test_large_values_no_overflow() {
 }
 
 #[test]
+fn try_mul_div_half_up_matches_panicking_path_when_in_range() {
+    let env = Env::default();
+    assert_eq!(
+        try_mul_div_half_up(&env, 2 * WAD, 3 * WAD, WAD),
+        Some(mul_div_half_up(&env, 2 * WAD, 3 * WAD, WAD))
+    );
+}
+
+#[test]
+fn try_mul_div_half_up_softens_i128_overflow() {
+    let env = Env::default();
+    // Intermediate fits I256; result does not fit i128.
+    assert_eq!(try_mul_div_half_up(&env, i128::MAX, i128::MAX, 1), None);
+}
+
+#[test]
+fn try_mul_div_half_up_rejects_non_positive_divisor_or_negatives() {
+    let env = Env::default();
+    assert_eq!(try_mul_div_half_up(&env, 1, 1, 0), None);
+    assert_eq!(try_mul_div_half_up(&env, -1, 1, 1), None);
+    assert_eq!(try_mul_div_half_up(&env, 1, -1, 1), None);
+}
+
+#[test]
 fn test_rescale_upscale() {
     // 1.0 at 6 decimals -> 18 decimals.
     assert_eq!(rescale_half_up(1_000_000, 6, 18), 1_000_000_000_000_000_000);

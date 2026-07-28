@@ -44,8 +44,8 @@ fn test_round_trips_a_token_key() {
     let env = Env::default();
     with_contract(&env, || {
         let key = PriceKey::Token(Address::generate(&env));
-        set_oracle(&env, &key, &oracle(&env, 7));
-        assert_eq!(resolve_oracle(&env, &key).unwrap().asset_decimals, 7);
+        store_oracle(&env, &key, &oracle(&env, 7));
+        assert_eq!(get_oracle(&env, &key).unwrap().asset_decimals, 7);
     });
 }
 
@@ -56,8 +56,8 @@ fn test_round_trips_a_reference_key() {
     let env = Env::default();
     with_contract(&env, || {
         let key = PriceKey::Ref(Symbol::new(&env, "BTC"));
-        set_oracle(&env, &key, &oracle(&env, 0));
-        assert!(resolve_oracle(&env, &key).is_some());
+        store_oracle(&env, &key, &oracle(&env, 0));
+        assert!(get_oracle(&env, &key).is_some());
     });
 }
 
@@ -70,12 +70,12 @@ fn test_token_and_reference_keys_do_not_alias() {
         let token = PriceKey::Token(Address::generate(&env));
         let reference = PriceKey::Ref(Symbol::new(&env, "BTC"));
 
-        set_oracle(&env, &token, &oracle(&env, 7));
-        assert!(resolve_oracle(&env, &reference).is_none());
+        store_oracle(&env, &token, &oracle(&env, 7));
+        assert!(get_oracle(&env, &reference).is_none());
 
-        set_oracle(&env, &reference, &oracle(&env, 0));
-        assert_eq!(resolve_oracle(&env, &token).unwrap().asset_decimals, 7);
-        assert_eq!(resolve_oracle(&env, &reference).unwrap().asset_decimals, 0);
+        store_oracle(&env, &reference, &oracle(&env, 0));
+        assert_eq!(get_oracle(&env, &token).unwrap().asset_decimals, 7);
+        assert_eq!(get_oracle(&env, &reference).unwrap().asset_decimals, 0);
     });
 }
 
@@ -85,8 +85,8 @@ fn test_two_reference_symbols_do_not_alias() {
     with_contract(&env, || {
         let btc = PriceKey::Ref(Symbol::new(&env, "BTC"));
         let eth = PriceKey::Ref(Symbol::new(&env, "ETH"));
-        set_oracle(&env, &btc, &oracle(&env, 0));
-        assert!(resolve_oracle(&env, &eth).is_none());
+        store_oracle(&env, &btc, &oracle(&env, 0));
+        assert!(get_oracle(&env, &eth).is_none());
     });
 }
 
@@ -94,7 +94,7 @@ fn test_two_reference_symbols_do_not_alias() {
 fn test_an_unconfigured_key_resolves_to_none() {
     let env = Env::default();
     with_contract(&env, || {
-        assert!(resolve_oracle(&env, &PriceKey::Token(Address::generate(&env))).is_none());
+        assert!(get_oracle(&env, &PriceKey::Token(Address::generate(&env))).is_none());
     });
 }
 
@@ -103,8 +103,8 @@ fn test_remove_disables_pricing_for_a_key() {
     let env = Env::default();
     with_contract(&env, || {
         let key = PriceKey::Token(Address::generate(&env));
-        set_oracle(&env, &key, &oracle(&env, 7));
+        store_oracle(&env, &key, &oracle(&env, 7));
         remove_oracle(&env, &key);
-        assert!(resolve_oracle(&env, &key).is_none());
+        assert!(get_oracle(&env, &key).is_none());
     });
 }

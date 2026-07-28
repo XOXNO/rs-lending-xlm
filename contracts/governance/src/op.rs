@@ -330,7 +330,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             let oracle = resolve_asset_oracle(env, &args.key, &args.oracle);
             price_aggregator_operation(
                 env,
-                "set_asset_oracle",
+                "set_oracle",
                 vec![env, args.key.clone().into_val(env), oracle.into_val(env)],
             )
         }

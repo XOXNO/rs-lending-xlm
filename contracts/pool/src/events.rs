@@ -1,5 +1,12 @@
-//! Market-state and params batch events; empty batches and zero-fee strategy
-//! events are suppressed.
+//! Market-state, params, and strategy-fee events.
+//!
+//! | Emit | When |
+//! |---|---|
+//! | [`emit_market_state_batch`] / [`emit_market_state`] | After money-path commits |
+//! | [`emit_market_params`] | After create / replace rate model |
+//! | [`emit_strategy_fee`] | After strategy borrow when fee > 0 |
+//!
+//! Empty batches and zero-fee strategy events are suppressed.
 
 use common::types::{MarketParamsRaw, MarketStateSnapshot};
 

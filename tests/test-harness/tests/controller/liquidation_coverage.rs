@@ -53,11 +53,9 @@ fn test_liquidation_aggregates_duplicate_debt_payments() {
     );
 }
 
-// `token_price` rejects zero oracle prices globally. Reading any price for an
-// asset whose oracle returns zero panics immediately with
-// `OracleError::InvalidPrice` (#217).
+// Soft observation rejects price ≤ 0 as miss → hard path NoLastPrice (#210).
 #[test]
-#[should_panic(expected = "Error(Contract, #217)")]
+#[should_panic(expected = "Error(Contract, #210)")]
 fn test_oracle_rejects_zero_price_before_liquidation_check() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -72,7 +70,7 @@ fn test_oracle_rejects_zero_price_before_liquidation_check() {
     t.set_oracle_single_spot("USDC");
     t.set_price("USDC", 0);
 
-    // Any price fetch for USDC panics with InvalidPrice.
+    // Any hard price fetch for USDC panics with NoLastPrice.
     t.assert_liquidatable(alice);
 }
 

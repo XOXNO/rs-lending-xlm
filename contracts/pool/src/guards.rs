@@ -1,6 +1,6 @@
 //! Market-level solvency and utilization guards. The controller owns account
 //! health; these guards protect the pool's own books and are the last check
-//! before a mutation is persisted. See `docs/reference/invariants.md`.
+//! before a mutation is persisted.
 
 use common::errors::CollateralError;
 use common::math::fp::Ray;

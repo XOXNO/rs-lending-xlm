@@ -366,6 +366,21 @@ pub trait ControllerInterface {
     /// * Position-batch event per updated account.
     fn update_account_threshold(env: Env, caller: Address, has_risks: bool, account_ids: Vec<u64>);
 
+    /// Repairs a market's backing shortfall by pulling `amount` from `payer`
+    /// into the pool. **Permissionless**: anyone may call it, but `payer`
+    /// authorizes the transfer, so only the payer's own funds move. The pool
+    /// retains at most its exact conservative shortfall and refunds every excess
+    /// token directly to `payer`, minting no shares and moving no index — a
+    /// recapitalization can only add backing. Returns the retained amount. Not
+    /// pause-gated: a shortfall (which blocks new supply) must be repairable
+    /// during an incident, mirroring the pause-exempt withdraw/repay exits.
+    ///
+    /// # Errors
+    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
+    /// * `AmountMustBePositive` — `amount` is not strictly positive.
+    /// * `PoolNotInitialized` — the market or central pool has not been created.
+    fn recapitalize(env: Env, payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128;
+
     // --- account ops ---
 
     /// Extends the account's storage TTL. Account owner only.
@@ -384,12 +399,13 @@ pub trait ControllerInterface {
     /// * The `#[when_not_paused]` guard reverts while the contract is paused.
     fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address);
 
-    /// Revokes `delegate` from `account_id`. Account owner only. Blocked while
-    /// the controller is globally paused (`#[when_not_paused]`).
+    /// Revokes `delegate` from `account_id`. Account owner only. Not pause-gated:
+    /// revoking a delegate is risk-reducing and must work during an incident,
+    /// mirroring the pause-exempt withdraw/repay exits (a delegate keeps its
+    /// pause-exempt withdraw/repay reach until revoked).
     ///
     /// # Errors
     /// * `AccountNotInMarket` — missing account or `caller` is not the owner.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
     fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address);
 
     // --- views: account health and positions ---

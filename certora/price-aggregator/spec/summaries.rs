@@ -1,48 +1,18 @@
-//! Sound over-approximation of successful external provider observations.
-//!
-//! Freshness is **not** owned here. `compose` derives a `stale` flag per source
-//! from the timestamp this summary hands back, and the renderers act on it, so
-//! a summary that forced fresh timestamps would prove the staleness rules
-//! vacuously. The only assumption made about time is the bounded future skew
-//! production itself accepts.
-//!
-//! # Where these attach
-//!
-//! The engine reads providers through exactly two functions —
-//! `reflector::read_reflector_source` and `multi_feed::read_multi_feed_source`.
-//! Summarizing those two keeps every rule on composition and rendering rather
-//! than descending into wire decoding and cross-contract calls, which is where
-//! the interesting logic is *not*.
-//!
-//! Both take a `soft` flag. It is deliberately ignored: the summary always
-//! returns `Some`, modelling a provider that answers. See the soundness note on
-//! [`read_source_summary`].
+//! Certora summaries for provider reads (always successful observation).
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 
-use crate::context::ResolutionContext;
 use crate::observation::OracleObservation;
+use crate::session::Session;
 use common::oracle::observation::MAX_FUTURE_SKEW_SECONDS;
-use common::types::{RedStoneSourceConfig, ReflectorSourceConfig};
+use common::types::{MultiFeedRef, ReflectorFeedRef};
 
-/// An arbitrary successful observation: any positive price, at any time not
-/// implausibly far in the future.
-///
-/// # Soundness
-///
-/// Always `Some`, which is sound for rules over `price` / `prices`: there an
-/// unreadable source only reverts, and a reverting path cannot violate a rule.
-/// It is **not** sound for a rule over `price_status` / `prices_status`, which
-/// answer `PriceStatus::unusable` without reverting — modelling every source as
-/// readable would prove the unusable branch unreachable. Such a rule needs an
-/// unsummarized read or its own conf.
-fn read_source_summary(cache: &mut ResolutionContext) -> Option<OracleObservation> {
+fn read_source_summary(session: &mut Session) -> Option<OracleObservation> {
     let price_wad: i128 = nondet();
     let observed_at: u64 = nondet();
-    let now = cache.ledger_timestamp_secs();
+    let now = session.now_secs();
     cvlr_assume!(price_wad > 0);
-    // Production accepts bounded future skew from external providers.
     cvlr_assume!(observed_at <= now.saturating_add(60));
 
     let published_at = if nondet::<bool>() {
@@ -61,17 +31,17 @@ fn read_source_summary(cache: &mut ResolutionContext) -> Option<OracleObservatio
 }
 
 pub(crate) fn read_reflector_source_summary(
-    cache: &mut ResolutionContext,
-    _config: &ReflectorSourceConfig,
-    _soft: bool,
+    session: &mut Session,
+    _feed: &ReflectorFeedRef,
+    _decimals: u32,
 ) -> Option<OracleObservation> {
-    read_source_summary(cache)
+    read_source_summary(session)
 }
 
 pub(crate) fn read_multi_feed_source_summary(
-    cache: &mut ResolutionContext,
-    _config: &RedStoneSourceConfig,
-    _soft: bool,
+    session: &mut Session,
+    _feed: &MultiFeedRef,
+    _decimals: u32,
 ) -> Option<OracleObservation> {
-    read_source_summary(cache)
+    read_source_summary(session)
 }

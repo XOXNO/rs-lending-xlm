@@ -1,30 +1,46 @@
 # Price Aggregator
 
-Single oracle entry point. Token-rooted `AssetOracle` configs; hard
-`price`/`prices` fail closed; soft `*_status` diagnostics flag without
-reverting.
+Single oracle entry for the lending protocol. All pricing uses `PriceKey`.
 
-| | |
-| --- | --- |
-| Owner | Governance (`#[only_owner]`) |
-| Consumers | Controller (and views) |
-| Interface | `interfaces/price-aggregator` |
+## Pipeline
+
+```text
+prices(keys) / quotes(keys)
+  → Session::new · warm(keys)   // multi-feed bulk by adapter (≥2 feeds)
+  → for each key: resolve → Outcome   // one evaluator; providers always soft
+  → force (hard) | to_status (soft)   // only edge that diverges
+```
+
+## Three gates
+
+1. **Stale** — per-feed window + asset ceiling  
+2. **Disagree** — dual sources outside tolerance  
+3. **Sanity** — final USD not in `[min, max]`
 
 ## Surface
 
 | Call | Role |
 | --- | --- |
-| `price` / `prices` | Fail-closed USD feeds |
-| `price_status` / `prices_status` | Soft diagnostics (flags, no stale/deviation revert) |
-| `oracle_config` | Read token-rooted config |
-| `set_oracle_config` | Register/replace config (owner) |
-| `set_sanity_band` / `set_tolerance` | Live band updates (owner) |
+| `price` / `prices` | Fail-closed (`PriceKey` / `Vec<PriceKey>`) |
+| `quote` / `quotes` | Soft diagnostics |
+| `oracle` / `set_oracle` | Config read / owner write |
+| `set_sanity_band` / `set_tolerance` | Live band edits (both live-probe before commit) |
+| `price_spread` | `(low, high)` after gates |
 
-## Related
+Controller lifts `Address → PriceKey::Token` before calling.
 
-| Doc | Topic |
-| --- | --- |
-| Crate rustdoc (`//!`) | Semantics |
-| [`docs/reference/invariants.md`](../../docs/reference/invariants.md) §4.3 | Price resolution |
-| [ADR 0003](../../docs/explanation/decisions/0003-oracle-dual-source-with-tolerance-bands.md) | Dual-source + bands |
-| `contracts/xoxno-oracle` | Self-hosted multi-signer feed |
+## Layout
+
+```text
+lib.rs          # contract entrypoints + session orchestration
+session.rs      # clock, stack, multi-feed warm, memos
+engine.rs       # resolve → Outcome → force | to_status
+admin.rs        # storage, attest, validate, set_*, events
+properties.rs   # write-time dependency walk
+providers/      # multi_feed (bulk) + reflector
+interfaces/…    # client ABI mirror
+```
+
+## Owner
+
+Governance (`Ownable`). Consumers: controller (risk), views (quotes).

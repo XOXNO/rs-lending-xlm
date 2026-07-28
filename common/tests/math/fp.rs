@@ -96,6 +96,21 @@ fn test_wad_mul_div() {
 }
 
 #[test]
+fn test_wad_try_mul_matches_mul_when_in_range() {
+    let env = Env::default();
+    let a = Wad::from(2 * WAD);
+    let b = Wad::from(3 * WAD);
+    assert_eq!(a.try_mul(&env, b), Some(a.mul(&env, b)));
+}
+
+#[test]
+fn test_wad_try_mul_softens_overflow() {
+    let env = Env::default();
+    let huge = Wad::from(i128::MAX);
+    assert_eq!(huge.try_mul(&env, huge), None);
+}
+
+#[test]
 fn test_wad_div_floor_saturating() {
     let env = Env::default();
 

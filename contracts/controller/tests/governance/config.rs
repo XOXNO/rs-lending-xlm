@@ -218,19 +218,19 @@ fn upgrade_pool_reverts_pool_not_initialized_without_deployed_pool() {
     );
 }
 
-// `remove_delegate` must reach the account lookup rather than failing earlier:
-// a caller that owns no such account reverts `AccountNotInMarket` specifically.
+// `remove_delegate` reaches the account lookup rather than failing earlier: a
+// caller that owns no such account reverts `AccountNotInMarket` specifically.
 //
-// The constructor leaves the contract paused, and `remove_delegate` is
-// `#[when_not_paused]`, so the unpause below is load-bearing: without it the
-// call bounces off the pause guard and never reaches the owner check at all.
+// The constructor leaves the contract paused and `remove_delegate` is pause-exempt
+// (revoking a delegate is risk-reducing, like withdraw/repay), so this reaches the
+// owner/account check WITHOUT any unpause: the revert is the account lookup, not a
+// pause guard. Keeping it paused is the point — revocation must work mid-incident.
 #[test]
 fn remove_delegate_reverts_account_not_in_market_for_non_owner() {
     let env = Env::default();
     env.mock_all_auths();
     let contract = new_controller(&env);
     let client = crate::ControllerClient::new(&env, &contract);
-    client.unpause();
 
     let stranger = Address::generate(&env);
     let delegate = Address::generate(&env);
@@ -238,6 +238,30 @@ fn remove_delegate_reverts_account_not_in_market_for_non_owner() {
         client.try_remove_delegate(&stranger, &1u64, &delegate),
         Err(Ok(soroban_sdk::Error::from_contract_error(
             GenericError::AccountNotInMarket as u32
+        )))
+    );
+}
+
+// `recapitalize` is permissionless and pause-exempt: a non-owner reaches the pool
+// call while the contract is still paused rather than bouncing off an owner gate or
+// the pause guard. With no pool deployed it reverts `PoolNotInitialized`, proving the
+// flow is reached (F4: it was `#[only_owner]` with no governance path, so unreachable).
+#[test]
+fn recapitalize_is_permissionless_and_pause_exempt() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract = new_controller(&env);
+    let client = crate::ControllerClient::new(&env, &contract);
+
+    let payer = Address::generate(&env);
+    let hub_asset = common::types::HubAssetKey {
+        hub_id: 1,
+        asset: Address::generate(&env),
+    };
+    assert_eq!(
+        client.try_recapitalize(&payer, &hub_asset, &1i128),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            GenericError::PoolNotInitialized as u32
         )))
     );
 }

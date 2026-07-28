@@ -186,6 +186,11 @@ impl Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, other.0, WAD))
     }
 
+    /// Non-panicking [`Self::mul`]: `None` when the product does not fit `i128`.
+    pub fn try_mul(self, env: &Env, other: Wad) -> Option<Wad> {
+        fp_core::try_mul_div_half_up(env, self.0, other.0, WAD).map(Wad)
+    }
+
     /// Divides two WAD values with half-up rounding.
     pub fn div(self, env: &Env, other: Wad) -> Wad {
         // D18{A} * D18{1} / D18{B} -> D18{A/B}.

@@ -66,7 +66,7 @@ impl LendingTest {
             return;
         }
         let key = PriceKey::Token(asset.clone());
-        let Some(mut oracle) = self.price_agg_client().oracle_for(&key) else {
+        let Some(mut oracle) = self.price_agg_client().oracle(&key) else {
             return;
         };
         if oracle.is_dual() {
@@ -77,7 +77,7 @@ impl LendingTest {
             oracle.min_sanity_price_wad = min_wad;
             oracle.max_sanity_price_wad = max_wad;
         }
-        self.price_agg_client().seed_asset_oracle(&key, &oracle);
+        self.price_agg_client().seed_oracle(&key, &oracle);
     }
 
     /// Set the raw WAD price for an asset (alias for set_price).
@@ -135,7 +135,7 @@ impl LendingTest {
         let asset = self.resolve_asset(asset_name);
         let price_wad = self.resolve_market(asset_name).price_wad;
         let key = PriceKey::Token(asset.clone());
-        let mut oracle = self.price_agg_client().oracle_for(&key).unwrap();
+        let mut oracle = self.price_agg_client().oracle(&key).unwrap();
         oracle.sources = single(
             &self.env,
             with_read_mode(&oracle.sources.get_unchecked(0), OracleReadMode::Spot),
@@ -145,13 +145,13 @@ impl LendingTest {
             oracle.min_sanity_price_wad = min_wad;
             oracle.max_sanity_price_wad = max_wad;
         }
-        self.price_agg_client().seed_asset_oracle(&key, &oracle);
+        self.price_agg_client().seed_oracle(&key, &oracle);
     }
 
     pub fn set_oracle_primary_anchor(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
         let key = PriceKey::Token(asset.clone());
-        let mut oracle = self.price_agg_client().oracle_for(&key).unwrap();
+        let mut oracle = self.price_agg_client().oracle(&key).unwrap();
         let first = oracle.sources.get_unchecked(0);
         let mut sources = Vec::new(&self.env);
         sources.push_back(with_read_mode(&first, OracleReadMode::Twap(3)));
@@ -161,7 +161,7 @@ impl LendingTest {
         // single-source ±1% band inherited from setup.
         oracle.min_sanity_price_wad = DEFAULT_MIN_SANITY_PRICE_WAD;
         oracle.max_sanity_price_wad = DEFAULT_MAX_SANITY_PRICE_WAD;
-        self.price_agg_client().seed_asset_oracle(&key, &oracle);
+        self.price_agg_client().seed_oracle(&key, &oracle);
     }
 
     /// Alias for dual-source tolerance tests: TWAP source + spot source.
@@ -173,7 +173,7 @@ impl LendingTest {
     pub fn set_dual_oracle_dex_anchor(&self, asset_name: &str, dex_oracle: Address) {
         let asset = self.resolve_asset(asset_name);
         let key = PriceKey::Token(asset.clone());
-        let mut oracle = self.price_agg_client().oracle_for(&key).unwrap();
+        let mut oracle = self.price_agg_client().oracle(&key).unwrap();
 
         let mut sources = Vec::new(&self.env);
         sources.push_back(with_read_mode(
@@ -192,7 +192,7 @@ impl LendingTest {
         oracle.sources = sources;
         oracle.min_sanity_price_wad = DEFAULT_MIN_SANITY_PRICE_WAD;
         oracle.max_sanity_price_wad = DEFAULT_MAX_SANITY_PRICE_WAD;
-        self.price_agg_client().seed_asset_oracle(&key, &oracle);
+        self.price_agg_client().seed_oracle(&key, &oracle);
     }
 }
 

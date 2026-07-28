@@ -337,7 +337,7 @@ fn same_params_distinct_salts_schedule_independently() {
     );
 }
 
-const SET_ASSET_ORACLE: &str = "set_asset_oracle";
+const SET_ASSET_ORACLE: &str = "set_oracle";
 
 // The CLI timelock linchpin (TL-5b): the `resolve_market_oracle_config` view runs
 // the SAME validate+probe path as `propose_configure_market_oracle`, so its output
@@ -389,7 +389,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
 
     // The mock keeps its prices in temporary storage, which the ledger jump
     // above expires. A real feed publishes continuously across the timelock, so
-    // re-seed it — otherwise `set_asset_oracle`'s containment probe reads an
+    // re-seed it — otherwise `set_oracle`'s containment probe reads an
     // empty history and reverts for reasons that have nothing to do with the
     // view/propose agreement under test.
     t.mock_reflector_client().set_price(&asset, &usd(1));

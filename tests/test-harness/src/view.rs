@@ -252,7 +252,7 @@ impl LendingTest {
     /// (absence = pending/disabled).
     pub fn market_is_active(&self, asset: &soroban_sdk::Address) -> bool {
         self.price_agg_client()
-            .oracle_for(&controller::types::PriceKey::Token(asset.clone()))
+            .oracle(&controller::types::PriceKey::Token(asset.clone()))
             .is_some()
     }
 
@@ -261,7 +261,7 @@ impl LendingTest {
         asset: &soroban_sdk::Address,
     ) -> controller::types::AssetOracle {
         self.price_agg_client()
-            .oracle_for(&controller::types::PriceKey::Token(asset.clone()))
+            .oracle(&controller::types::PriceKey::Token(asset.clone()))
             .expect("market oracle config must exist")
     }
 

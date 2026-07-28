@@ -75,6 +75,7 @@ pub(crate) fn load_or_create_account(
         }
         AccountGuard::Multiply => {
             require_owner_or_delegate(env, account_id, caller, &account.owner);
+            require_spoke_match(env, &account, spoke_id);
             assert_with_error!(env, account.mode == mode, GenericError::AccountModeMismatch);
         }
     }

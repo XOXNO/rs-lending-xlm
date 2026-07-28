@@ -1,4 +1,5 @@
 use super::*;
+use crate::constants::MAX_REASONABLE_PRICE_WAD;
 use crate::types::composable_oracle::{
     FeedNature, FeedSource, MultiFeedRef, PriceKey, ProviderKind, ProviderRef, ReflectorFeedRef,
     TrustDomain,
@@ -567,6 +568,27 @@ fn test_factor_bounds_reject_inverted_range() {
     validate_factor_bounds(
         &env,
         &scaled_with_bounds(&env, 2 * 10i128.pow(18), 10i128.pow(18)),
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_factor_bounds_reject_max_above_reasonable_price_cap() {
+    let env = Env::default();
+    // Same economic ceiling as USD sanity: oversized max would only enable
+    // overflow-shaped configs without adding real pricing headroom.
+    validate_factor_bounds(
+        &env,
+        &scaled_with_bounds(&env, 10i128.pow(18), MAX_REASONABLE_PRICE_WAD + 1),
+    );
+}
+
+#[test]
+fn test_factor_bounds_accept_max_at_reasonable_price_cap() {
+    let env = Env::default();
+    validate_factor_bounds(
+        &env,
+        &scaled_with_bounds(&env, 10i128.pow(18), MAX_REASONABLE_PRICE_WAD),
     );
 }
 

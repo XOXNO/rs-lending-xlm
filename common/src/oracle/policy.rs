@@ -295,12 +295,19 @@ pub fn validate_asset_decimals(env: &Env, key: &PriceKey, asset_decimals: u32) {
     }
 }
 
-/// A scaled source's factor bounds are a well-formed, positive range.
+/// A scaled source's factor bounds are a well-formed, positive range and
+/// cannot exceed [`MAX_REASONABLE_PRICE_WAD`] (same economic ceiling as USD
+/// sanity caps) so a product with a large quote cannot be configured into
+/// an overflow-only failure mode.
 ///
 /// # Errors
 /// * [`OracleError::InvalidSanityBounds`]
 pub fn validate_factor_bounds(env: &Env, scaled: &ScaledSource) {
-    if scaled.min_factor_wad <= 0 || scaled.max_factor_wad < scaled.min_factor_wad {
+    use crate::constants::MAX_REASONABLE_PRICE_WAD;
+    if scaled.min_factor_wad <= 0
+        || scaled.max_factor_wad < scaled.min_factor_wad
+        || scaled.max_factor_wad > MAX_REASONABLE_PRICE_WAD
+    {
         panic_with_error!(env, OracleError::InvalidSanityBounds);
     }
 }

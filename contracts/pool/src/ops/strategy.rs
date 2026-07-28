@@ -1,14 +1,14 @@
 //! Strategy leg: a borrow that withholds the market's flash-loan fee as
 //! protocol revenue and pays out the remainder.
+//!
+//! Flow: fee → mint_debt (gross) → book revenue → debit net cash → commit → transfer.
 
-use common::errors::FlashLoanError;
+use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::{Bps, Ray};
 use common::types::{PoolAction, PoolStrategyMutation};
 use common::validation::require_nonneg_amount;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
-
-use common::errors::GenericError;
 
 use crate::cache::Cache;
 use crate::ops::borrow;
@@ -59,13 +59,7 @@ pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> Str
     require_nonneg_amount(env, amount);
 
     let mut cache = ops::renewed_market(env, &hub_asset);
-
-    let fee = if charge_fee {
-        Bps::from(i128::from(cache.params().flashloan_fee)).flash_loan_fee_on(env, amount)
-    } else {
-        0
-    };
-    assert_with_error!(env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
+    let fee = compute_fee(env, &cache, amount, charge_fee);
 
     let mut position = Ray::from(position.scaled_amount);
     borrow::mint_debt(env, &mut cache, &mut position, amount);
@@ -87,4 +81,14 @@ pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> Str
         mutation,
         fee,
     }
+}
+
+/// Flash-loan fee in asset units, or zero when `charge_fee` is false.
+fn compute_fee(env: &Env, cache: &Cache, amount: i128, charge_fee: bool) -> i128 {
+    if !charge_fee {
+        return 0;
+    }
+    let fee = Bps::from(i128::from(cache.params().flashloan_fee)).flash_loan_fee_on(env, amount);
+    assert_with_error!(env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
+    fee
 }

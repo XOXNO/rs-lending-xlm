@@ -152,7 +152,7 @@ fn test_scaled_read_fails_closed_when_quote_key_loses_its_oracle() {
 
     // The quote key stops being priceable.
     t.price_agg_client()
-        .remove_asset_oracle(&PriceKey::Token(usdc.clone()));
+        .remove_oracle(&PriceKey::Token(usdc.clone()));
 
     // Soft view: the XLM row is unusable, never a revert.
     let row = index_view(&t, &xlm);
@@ -160,7 +160,7 @@ fn test_scaled_read_fails_closed_when_quote_key_loses_its_oracle() {
     assert_eq!(row.price_wad, 0);
 
     // Hard read path reverts rather than pricing without the quote.
-    let mapped = match t.price_agg_client().try_price(&xlm) {
+    let mapped = match t.price_agg_client().try_price(&PriceKey::Token(xlm.clone())) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -202,14 +202,14 @@ fn test_scaled_config_write_rejects_quote_key_broken_during_delay() {
     // the delay.
     let stale = t
         .price_agg_client()
-        .oracle_for(&PriceKey::Token(xlm.clone()))
+        .oracle(&PriceKey::Token(xlm.clone()))
         .unwrap();
     t.price_agg_client()
-        .remove_asset_oracle(&PriceKey::Token(usdc.clone()));
+        .remove_oracle(&PriceKey::Token(usdc.clone()));
 
     // Writing the stale op re-resolves and refuses.
     t.price_agg_client()
-        .set_asset_oracle(&PriceKey::Token(xlm.clone()), &stale);
+        .set_oracle(&PriceKey::Token(xlm.clone()), &stale);
 }
 
 /// Happy path: replaying the same resolved config while the quote key is still
@@ -242,11 +242,11 @@ fn test_scaled_config_write_accepts_a_healthy_quote_key() {
 
     let resolved = t
         .price_agg_client()
-        .oracle_for(&PriceKey::Token(xlm.clone()))
+        .oracle(&PriceKey::Token(xlm.clone()))
         .unwrap();
 
     t.price_agg_client()
-        .set_asset_oracle(&PriceKey::Token(xlm.clone()), &resolved);
+        .set_oracle(&PriceKey::Token(xlm.clone()), &resolved);
     assert_eq!(index_view(&t, &xlm).price_wad, usd(2));
 }
 

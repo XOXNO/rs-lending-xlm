@@ -22,7 +22,7 @@ its own math.
 | --- | --- |
 | `src/lib.rs` | Module declarations and the ABI; every entrypoint delegates |
 | `src/ops/` | One module per entrypoint, end to end |
-| `src/cache.rs` | `Cache`: load a market, mutate by named transition, commit |
+| `src/cache/` | `Cache`: load a market, mutate by named transition, commit |
 | `src/interest.rs` | Every index movement: accrual, revenue, rewards, bad debt |
 | `src/guards.rs` | Utilization and solvency checks before a mutation persists |
 | `src/storage.rs` | The only place `PoolKey` is constructed, read, written, renewed |
@@ -31,5 +31,5 @@ its own math.
 | `src/time.rs` | Ledger clock in milliseconds |
 
 Full semantics: rustdoc on the `LiquidityPoolInterface` impl in `src/lib.rs`.
-Protocol properties: [`docs/reference/invariants.md`](../../docs/reference/invariants.md).
-Ownership boundary: [ADR 0001](../../docs/explanation/decisions/0001-controller-pool-ownership-boundary.md).
+Invariants live next to the checks that enforce them (`guards`, `cache` cash
+comments, `interest` bad-debt floor).

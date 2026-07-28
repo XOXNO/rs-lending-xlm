@@ -141,6 +141,7 @@ pub(crate) fn validate_position_entry_gates(
     validation::validate_bulk_position_limits(env, account, position_type, aggregated);
 
     for (hub_asset, _) in aggregated {
+        // TODO: Use Cache to cache hub ID storage and avoid a loop of reads if that ID was fetched and status checked once
         config::require_hub_active(env, hub_asset.hub_id);
         // Unlisted assets revert `AssetNotInSpoke`.
         let asset_config = cache.require_listed_active_config(account.spoke_id, &hub_asset);

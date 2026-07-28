@@ -77,7 +77,7 @@ fn sanity_bounds_accepts_band_at_min_width() {
 fn single_source_band_accepts_within_threshold() {
     let env = Env::default();
     // ±8% symmetric band: (10_800 - 9_200) / (10_800 + 9_200) = 800 bps < 1_000.
-    validate_single_source_sanity_band(&env, OracleStrategy::Single, 9_200, 10_800);
+    validate_single_source_sanity_band(&env, false, 9_200, 10_800);
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn single_source_band_accepts_at_exact_threshold() {
     let env = Env::default();
     // ±10% symmetric band: (11_000 - 9_000) / (11_000 + 9_000) = 1_000 bps ==
     // threshold: inclusive boundary.
-    validate_single_source_sanity_band(&env, OracleStrategy::Single, 9_000, 11_000);
+    validate_single_source_sanity_band(&env, false, 9_000, 11_000);
 }
 
 #[test]
@@ -94,14 +94,69 @@ fn single_source_band_rejects_above_threshold() {
     let env = Env::default();
     // ±11% symmetric band: (11_100 - 8_900) / (11_100 + 8_900) = 1_100 bps >
     // 1_000: too wide for a single source.
-    validate_single_source_sanity_band(&env, OracleStrategy::Single, 8_900, 11_100);
+    validate_single_source_sanity_band(&env, false, 8_900, 11_100);
 }
 
 #[test]
-fn single_source_band_exempts_primary_with_anchor() {
+fn single_source_band_exempts_dual_source() {
     let env = Env::default();
-    // Anchor strategy is exempt from the band-width gate regardless of width.
-    validate_single_source_sanity_band(&env, OracleStrategy::PrimaryWithAnchor, 1_000, 100_000);
+    // Dual-source markets are exempt from the band-width gate regardless of width.
+    validate_single_source_sanity_band(&env, true, 1_000, 100_000);
+}
+
+#[test]
+fn oracle_tolerance_accepts_reciprocal_band() {
+    let env = Env::default();
+    // ±5%: upper 10_500 → lower half-up(10_000² / 10_500) = 9_524.
+    validate_oracle_tolerance(
+        &env,
+        &OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "#208")]
+fn oracle_tolerance_rejects_non_reciprocal_lower() {
+    let env = Env::default();
+    // Additive ±5% lower is not the reciprocal of upper.
+    validate_oracle_tolerance(
+        &env,
+        &OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_500,
+        },
+    );
+}
+
+#[test]
+fn oracle_tolerance_accepts_max_envelope_reciprocal() {
+    let env = Env::default();
+    // ±25% upper (MAX_TOLERANCE): lower = half-up(10_000² / 12_500) = 8_000.
+    validate_oracle_tolerance(
+        &env,
+        &OracleTolerance {
+            upper_ratio_bps: 10_000 + MAX_TOLERANCE,
+            lower_ratio_bps: 8_000,
+        },
+    );
+}
+
+#[test]
+fn oracle_tolerance_accepts_min_envelope_reciprocal() {
+    let env = Env::default();
+    // ±1.5% upper (MIN_TOLERANCE): lower = half-up(10_000² / 10_150).
+    let upper = 10_000 + MIN_TOLERANCE;
+    let lower = mul_div_half_up(&env, BPS, BPS, i128::from(upper)) as u32;
+    validate_oracle_tolerance(
+        &env,
+        &OracleTolerance {
+            upper_ratio_bps: upper,
+            lower_ratio_bps: lower,
+        },
+    );
 }
 
 #[test]

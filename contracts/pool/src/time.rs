@@ -1,7 +1,6 @@
 //! Ledger clock. Interest accrual works in milliseconds; the ledger reports
 //! seconds, so every timestamp entering pool state passes through here — a unit
 //! slip here would scale all interest by 1000.
-//! See `docs/reference/invariants.md`.
 
 use common::constants::MS_PER_SECOND;
 use common::errors::GenericError;

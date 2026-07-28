@@ -154,14 +154,12 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
         "supply must not bulk-fetch RedStone feeds"
     );
 
-    // Borrow: HF check collects [USDC, ETH] → two feeds → bulk attempted →
-    // ETH absent → bulk fails → prefetch map empty → per-feed lazy: USDC
-    // anchor found, ETH anchor missing → required RedStone read reverts
-    // InvalidTicker (#3).  try_borrow catches the panic and rolls back all
-    // storage changes from that transaction, so the counter increments from
-    // the failed borrow are NOT visible after this call.
+    // Borrow: bulk fails on missing ETH → lazy single: USDC ok, ETH miss.
+    // Dual Reflector+RedStone configs treat one-leg miss as Partial →
+    // UnsafePriceNotAllowed (#205). try_borrow rolls back storage so counters
+    // from the failed tx are not visible after this call.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::OracleError::NoLastPrice as u32);
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 #[test]
@@ -870,7 +868,7 @@ fn test_disabled_market_panics_same_through_prefetch() {
     // Disable the ETH market by removing its `AssetOracle` entry, which is the
     // "active" signal price resolution reads.
     t.price_agg_client()
-        .remove_asset_oracle(&controller::types::PriceKey::Token(t.resolve_asset("ETH")));
+        .remove_oracle(&controller::types::PriceKey::Token(t.resolve_asset("ETH")));
 
     // Attempt a borrow: the post-pool HF check prices both assets including
     // disabled ETH → token_price reverts OracleNotConfigured.

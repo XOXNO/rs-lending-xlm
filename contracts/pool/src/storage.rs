@@ -1,6 +1,6 @@
 //! Sole owner of `PoolKey`. Every persistent market read, write, and TTL
 //! renewal in this contract goes through this module, so key shape and TTL
-//! policy have exactly one definition. See `docs/reference/invariants.md`.
+//! policy have exactly one definition.
 
 use common::constants::{
     TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,

@@ -18,11 +18,21 @@ pub fn mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> i128 {
         x >= 0 && y >= 0 && d > 0,
         "mul_div_half_up: non-negative x, y and positive d"
     );
+    try_mul_div_half_up(env, x, y, d)
+        .unwrap_or_else(|| panic_with_error!(env, crate::errors::GenericError::MathOverflow))
+}
+
+/// Non-panicking [`mul_div_half_up`]: `None` when the result does not fit `i128`
+/// or inputs are not non-negative with positive divisor.
+pub fn try_mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> Option<i128> {
+    if x < 0 || y < 0 || d <= 0 {
+        return None;
+    }
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     let half = d256.div(&I256::from_i128(env, 2));
     // Rounding offset: half an output ulp expressed in pre-divide integer space.
     let product = x256.mul(&y256).add(&half);
-    to_i128(env, &product.div(&d256))
+    product.div(&d256).to_i128()
 }
 
 /// Computes `(x * y) / d` with floor rounding for non-negative inputs.

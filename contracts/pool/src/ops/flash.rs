@@ -1,6 +1,10 @@
-//! Flash loan: pays out, calls back, pulls back principal plus fee. Repayment
-//! is enforced by bracketing the callback with exact loaned-token balance
-//! checks, so the market asset must be a well-behaved SAC.
+//! Flash loan: pays out, calls back, pulls back principal plus fee.
+//!
+//! CEI is inverted on purpose — the callback *is* the entrypoint. Repayment is
+//! enforced by exact SAC balance checks bracketing the callback, so the market
+//! asset must be a well-behaved SAC.
+//!
+//! Flow: terms → payout → callback → collect → book fee → commit.
 
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::{Bps, Ray};
@@ -22,9 +26,8 @@ pub(crate) struct FlashTerms {
     pub(crate) balance_after_repayment: i128,
 }
 
-/// Lends `amount` to `receiver`, invokes its `execute_flash_loan` callback,
-/// pulls back `amount + fee`, and books the fee as protocol revenue. Returns
-/// the fee.
+/// Lends `amount` to `receiver`, invokes `execute_flash_loan`, pulls back
+/// `amount + fee`, and books the fee as protocol revenue. Returns the fee.
 pub(crate) fn apply(
     env: &Env,
     hub_asset: HubAssetKey,
@@ -36,16 +39,12 @@ pub(crate) fn apply(
     require_positive_amount(env, amount);
 
     let mut cache = ops::renewed_market(env, &hub_asset);
-
-    // Availability and fee are pool-owned: the market must be flashloanable and
-    // the fee derives from its `flashloan_fee` bps.
     assert_with_error!(
         env,
         cache.params().is_flashloanable,
         FlashLoanError::FlashloanNotEnabled
     );
-    // Gated on tracked `cash` while the payout below moves live SAC balance, so
-    // tokens donated straight to the pool are never loanable.
+    // Tracked cash only — donated SAC tokens are never loanable.
     cache.require_reserves(amount);
     require_wasm_receiver(env, &receiver);
 
@@ -58,38 +57,21 @@ pub(crate) fn apply(
         asset.balance(&pool),
     );
 
-    asset.transfer(&pool, &receiver, &amount);
-    require_balance(env, &asset, &pool, terms.balance_after_payout);
-
-    env.invoke_contract::<()>(
-        &receiver,
-        &Symbol::new(env, "execute_flash_loan"),
-        (
-            initiator,
-            cache.params().asset_id.clone(),
-            amount,
-            terms.fee,
-            pool.clone(),
-            data,
-        )
-            .into_val(env),
-    );
-
-    // The callback must not change the pool's loaned-token balance.
-    require_balance(env, &asset, &pool, terms.balance_after_payout);
-
-    assert_with_error!(
+    payout(env, &asset, &pool, &receiver, amount, terms.balance_after_payout);
+    invoke_receiver(
         env,
-        asset.allowance(&receiver, &pool) >= terms.total_repayment,
-        FlashLoanError::InvalidFlashloanRepay
+        &cache,
+        &receiver,
+        initiator,
+        amount,
+        terms.fee,
+        &pool,
+        data,
     );
-    asset.transfer_from(&pool, &receiver, &pool, &terms.total_repayment);
-    require_balance(env, &asset, &pool, terms.balance_after_repayment);
-
-    // CEI does not apply here: the callback is the point of the entrypoint, so
-    // repayment is enforced by the balance checks bracketing it, not by ordering.
-    // Net effect — the pool sent `amount` and got back `amount + fee`, so only the
-    // fee touches tracked cash.
+    // Callback must not change the pool's loaned-token balance.
+    require_balance(env, &asset, &pool, terms.balance_after_payout);
+    collect_repayment(env, &asset, &pool, &receiver, &terms);
+    // Net effect: sent `amount`, got `amount + fee` — only the fee hits tracked cash.
     book_fee(&mut cache, terms.fee);
 
     events::emit_market_state(env, cache.commit());
@@ -120,7 +102,60 @@ pub(crate) fn book_fee(cache: &mut Cache, fee: i128) {
     cache.credit_cash(fee);
 }
 
-/// Asserts the pool's loaned-token balance equals `expected`.
+fn payout(
+    env: &Env,
+    asset: &token::Client,
+    pool: &Address,
+    receiver: &Address,
+    amount: i128,
+    expected_balance: i128,
+) {
+    asset.transfer(pool, receiver, &amount);
+    require_balance(env, asset, pool, expected_balance);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn invoke_receiver(
+    env: &Env,
+    cache: &Cache,
+    receiver: &Address,
+    initiator: Address,
+    amount: i128,
+    fee: i128,
+    pool: &Address,
+    data: Bytes,
+) {
+    env.invoke_contract::<()>(
+        receiver,
+        &Symbol::new(env, "execute_flash_loan"),
+        (
+            initiator,
+            cache.params().asset_id.clone(),
+            amount,
+            fee,
+            pool.clone(),
+            data,
+        )
+            .into_val(env),
+    );
+}
+
+fn collect_repayment(
+    env: &Env,
+    asset: &token::Client,
+    pool: &Address,
+    receiver: &Address,
+    terms: &FlashTerms,
+) {
+    assert_with_error!(
+        env,
+        asset.allowance(receiver, pool) >= terms.total_repayment,
+        FlashLoanError::InvalidFlashloanRepay
+    );
+    asset.transfer_from(pool, receiver, pool, &terms.total_repayment);
+    require_balance(env, asset, pool, terms.balance_after_repayment);
+}
+
 fn require_balance(env: &Env, asset: &token::Client, pool: &Address, expected: i128) {
     assert_with_error!(
         env,

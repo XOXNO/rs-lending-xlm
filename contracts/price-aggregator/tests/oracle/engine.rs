@@ -1,4 +1,6 @@
 use super::*;
+use crate::admin;
+use crate::session::Session;
 use crate::test_support::{in_contract, register_redstone_feed};
 use common::constants::WAD;
 use common::types::{
@@ -68,7 +70,7 @@ fn publish(client: &MockRedStonePriceFeedClient, env: &Env, feed_id: &str, price
 
 fn single_feed_key(env: &Env, adapter: &Address, feed: &str, ceiling: u64) -> PriceKey {
     let key = PriceKey::Token(Address::generate(env));
-    registry::set_oracle(
+    admin::store_oracle(
         env,
         &key,
         &oracle(
@@ -98,7 +100,7 @@ fn test_single_feed_source_resolves() {
 
     in_contract(&env, || {
         let key = single_feed_key(&env, &adapter, "USST", ASSET_CEILING);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         let feed = resolve(&mut cache, &key, 0);
         assert_eq!(feed.price_wad, WAD);
         assert_eq!(feed.asset_decimals, 8);
@@ -115,7 +117,7 @@ fn test_a_feed_past_its_own_bound_reverts() {
 
     in_contract(&env, || {
         let key = single_feed_key(&env, &adapter, "USST", ASSET_CEILING);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         let _ = resolve(&mut cache, &key, 0);
     });
 }
@@ -130,7 +132,7 @@ fn test_a_price_outside_the_sanity_band_reverts() {
 
     in_contract(&env, || {
         let key = single_feed_key(&env, &adapter, "USST", ASSET_CEILING);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         let _ = resolve(&mut cache, &key, 0);
     });
 }
@@ -144,7 +146,7 @@ fn dual_key(env: &Env, adapter: &Address, reversed: bool) -> PriceKey {
     let a = PriceSource::Feed(multi_feed(env, adapter, "A", ASSET_CEILING));
     let b = PriceSource::Feed(multi_feed(env, adapter, "B", ASSET_CEILING));
     let ordered = if reversed { [b, a] } else { [a, b] };
-    registry::set_oracle(
+    admin::store_oracle(
         env,
         &key,
         &oracle(env, sources(env, &ordered), ASSET_CEILING, WAD / 2, 2 * WAD),
@@ -162,7 +164,7 @@ fn test_two_agreeing_sources_yield_their_midpoint() {
 
     in_contract(&env, || {
         let key = dual_key(&env, &adapter, false);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         assert_eq!(resolve(&mut cache, &key, 0).price_wad, WAD + WAD / 200);
     });
 }
@@ -180,7 +182,7 @@ fn test_source_order_changes_neither_price_nor_outcome() {
     let (forward, backward) = in_contract(&env, || {
         let forward_key = dual_key(&env, &adapter, false);
         let backward_key = dual_key(&env, &adapter, true);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         (
             resolve(&mut cache, &forward_key, 0).price_wad,
             resolve(&mut cache, &backward_key, 0).price_wad,
@@ -200,7 +202,7 @@ fn test_two_disagreeing_sources_revert() {
 
     in_contract(&env, || {
         let key = dual_key(&env, &adapter, false);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         let _ = resolve(&mut cache, &key, 0);
     });
 }
@@ -218,7 +220,7 @@ fn scaled_setup(
     max_factor: i128,
 ) -> PriceKey {
     let btc = PriceKey::Ref(Symbol::new(env, "BTC"));
-    registry::set_oracle(
+    admin::store_oracle(
         env,
         &btc,
         &oracle(
@@ -234,7 +236,7 @@ fn scaled_setup(
     );
 
     let token = PriceKey::Token(Address::generate(env));
-    registry::set_oracle(
+    admin::store_oracle(
         env,
         &token,
         &oracle(
@@ -266,7 +268,7 @@ fn test_scaled_source_multiplies_ratio_by_quote() {
 
     in_contract(&env, || {
         let token = scaled_setup(&env, &adapter, RATIO_BOUND, WAD, 2 * WAD);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         // 1.01 x 100 = 101
         assert_eq!(resolve(&mut cache, &token, 0).price_wad, 101 * WAD);
     });
@@ -285,7 +287,62 @@ fn test_a_ratio_outside_its_bounds_reverts() {
 
     in_contract(&env, || {
         let token = scaled_setup(&env, &adapter, RATIO_BOUND, WAD, 2 * WAD);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
+        let _ = resolve(&mut cache, &token, 0);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #217)")]
+fn test_scaled_product_overflow_is_typed_invalid_price_not_host_trap() {
+    // Bypass write-time factor caps via store_oracle. Multi-feed raw is 8-dec;
+    // upscale by 1e10, then factor×quote / WAD must not fit i128 → InvalidPrice
+    // (#217) via try_mul, not a host MathOverflow trap.
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    // Largest raw that still normalizes: ≈ i128::MAX / 1e10 → ~1e28 WAD each.
+    let huge_raw = i128::MAX / 10i128.pow(10);
+    publish(&client, &env, "BTC", huge_raw, 0);
+    publish(&client, &env, "RATIO", huge_raw, 0);
+
+    in_contract(&env, || {
+        let btc = PriceKey::Ref(Symbol::new(&env, "BTC"));
+        admin::store_oracle(
+            &env,
+            &btc,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Feed(multi_feed(&env, &adapter, "BTC", 3_600))],
+                ),
+                3_600,
+                1,
+                i128::MAX,
+            ),
+        );
+        let token = PriceKey::Token(Address::generate(&env));
+        admin::store_oracle(
+            &env,
+            &token,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Scaled(ScaledSource {
+                        factor: multi_feed(&env, &adapter, "RATIO", RATIO_BOUND),
+                        quote: btc,
+                        min_factor_wad: 1,
+                        max_factor_wad: i128::MAX,
+                    })],
+                ),
+                RATIO_BOUND,
+                1,
+                i128::MAX,
+            ),
+        );
+        let mut cache = Session::new(&env);
         let _ = resolve(&mut cache, &token, 0);
     });
 }
@@ -308,7 +365,7 @@ fn test_a_frozen_slow_leg_cannot_ride_under_a_live_fast_one() {
 
     in_contract(&env, || {
         let token = scaled_setup(&env, &adapter, ASSET_CEILING, WAD / 2, 2 * WAD);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         let _ = resolve(&mut cache, &token, 0);
     });
 }
@@ -326,7 +383,7 @@ fn test_the_same_frozen_leg_prices_under_a_ceiling_that_allows_it() {
 
     in_contract(&env, || {
         let token = scaled_setup(&env, &adapter, RATIO_BOUND, WAD / 2, 2 * WAD);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         assert_eq!(resolve(&mut cache, &token, 0).price_wad, 100 * WAD);
     });
 }
@@ -341,7 +398,7 @@ fn test_a_composite_reports_the_freshness_of_its_weaker_leg() {
 
     in_contract(&env, || {
         let token = scaled_setup(&env, &adapter, RATIO_BOUND, WAD / 2, 2 * WAD);
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         assert_eq!(resolve(&mut cache, &token, 0).timestamp, NOW - 600);
     });
 }
@@ -356,7 +413,7 @@ fn test_an_unconfigured_key_reverts_rather_than_pricing_zero() {
     let env = Env::default();
     at_now(&env);
     in_contract(&env, || {
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         let _ = resolve(&mut cache, &PriceKey::Ref(Symbol::new(&env, "NOPE")), 0);
     });
 }
@@ -368,7 +425,7 @@ fn test_lp_shares_are_not_priceable_yet() {
     at_now(&env);
     in_contract(&env, || {
         let key = PriceKey::Token(Address::generate(&env));
-        registry::set_oracle(
+        admin::store_oracle(
             &env,
             &key,
             &oracle(
@@ -390,7 +447,7 @@ fn test_lp_shares_are_not_priceable_yet() {
                 i128::MAX / 2,
             ),
         );
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         let _ = resolve(&mut cache, &key, 0);
     });
 }
@@ -407,7 +464,7 @@ fn test_a_scaled_cycle_reverts_at_read_time_too() {
 
     in_contract(&env, || {
         let key = PriceKey::Ref(Symbol::new(&env, "LOOP"));
-        registry::set_oracle(
+        admin::store_oracle(
             &env,
             &key,
             &oracle(
@@ -426,7 +483,7 @@ fn test_a_scaled_cycle_reverts_at_read_time_too() {
                 i128::MAX / 2,
             ),
         );
-        let mut cache = ResolutionContext::new(&env);
+        let mut cache = Session::new(&env);
         let _ = resolve(&mut cache, &key, 0);
     });
 }

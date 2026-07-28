@@ -1,7 +1,7 @@
-//! Upkeep: permissionless index refresh, revenue sweeps, reward donations, and
-//! risk-param resync, plus owner-approved market recapitalization.
-//! Permissionless flows require caller auth; recapitalization is owner-gated
-//! at the ABI. Every flow also uses the flash-loan reentrancy guard. See
+//! Upkeep: permissionless index refresh, revenue sweeps, reward donations,
+//! risk-param resync, and market recapitalization.
+//! Every flow requires the funder's auth (the `caller`, or `payer` for
+//! recapitalize) and uses the flash-loan reentrancy guard. See
 //! [INVARIANTS](../../../docs/reference/invariants.md) §2.4 / §5.2.
 
 use common::errors::{CollateralError, GenericError, OracleError};
@@ -59,14 +59,20 @@ pub(crate) fn add_rewards(env: &Env, caller: Address, rewards: Vec<(HubAssetKey,
     }
 }
 
-/// Pulls an owner-approved cash injection from `payer`; the pool retains only
-/// its current shortfall and refunds the rest directly to `payer`.
+/// Pulls a caller-funded cash injection from `payer`; the pool retains only its
+/// current shortfall and refunds the rest directly to `payer`.
+///
+/// Permissionless: anyone may invoke it, but `payer` authorizes the transfer, so
+/// only the payer's own funds move. The pool mints no shares and moves no index,
+/// so a recapitalization can only add backing — there is nothing to grief with
+/// and no proceeds to capture, which is why it needs no owner gate.
 pub(crate) fn recapitalize(
     env: &Env,
     payer: Address,
     hub_asset: HubAssetKey,
     amount: i128,
 ) -> i128 {
+    payer.require_auth();
     validation::require_not_flash_loaning(env);
     require_positive_amount(env, amount);
 

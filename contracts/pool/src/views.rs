@@ -1,6 +1,6 @@
 //! Checkpoint market reads for the view ABI. Every value here reflects the last
 //! persisted accrual — nothing accrues or writes. Live indexes come from
-//! `get_bulk_indexes`. See `docs/reference/invariants.md`.
+//! `get_bulk_indexes`.
 
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
 use common::types::HubAssetKey;

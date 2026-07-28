@@ -38,21 +38,31 @@ pub fn reflector_base_call(env: &Env, oracle: &Address) -> ReflectorAsset {
     ReflectorClient::new(env, oracle).base()
 }
 
+/// Soft read: host trap / contract error / missing payload → `None`.
+/// Matches multi-feed soft I/O so a trapping Reflector cannot brick soft views
+/// or cascade as an untyped hard trap on the pricing path.
 pub fn reflector_lastprice_call(
     env: &Env,
     oracle: &Address,
     asset: &ReflectorAsset,
 ) -> Option<ReflectorPriceData> {
-    ReflectorClient::new(env, oracle).lastprice(asset)
+    match ReflectorClient::new(env, oracle).try_lastprice(asset) {
+        Ok(Ok(data)) => data,
+        _ => None,
+    }
 }
 
+/// Soft TWAP history read; same trap-to-`None` policy as [`reflector_lastprice_call`].
 pub fn reflector_prices_call(
     env: &Env,
     oracle: &Address,
     asset: &ReflectorAsset,
     records: u32,
 ) -> Option<Vec<ReflectorPriceData>> {
-    ReflectorClient::new(env, oracle).prices(asset, &records)
+    match ReflectorClient::new(env, oracle).try_prices(asset, &records) {
+        Ok(Ok(data)) => data,
+        _ => None,
+    }
 }
 
 pub fn reflector_decimals_call(env: &Env, oracle: &Address) -> u32 {

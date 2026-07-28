@@ -14,6 +14,7 @@ mod vault;
 mod venues;
 
 #[cfg(test)]
+#[path = "../tests/unit/mod.rs"]
 mod test;
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};

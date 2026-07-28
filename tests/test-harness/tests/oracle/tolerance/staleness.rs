@@ -67,8 +67,9 @@ fn test_missing_twap_history_blocks_strict_borrow() {
     t.mock_reflector_client()
         .set_twap_history_mode(&usdc_asset, &1);
 
+    // TWAP leg soft-misses; dual config → Partial → UnsafePriceNotAllowed.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
-    assert_contract_error(result, errors::REFLECTOR_HISTORY_EMPTY);
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 #[test]
@@ -115,6 +116,8 @@ fn test_dual_oracle_future_dex_reverts() {
     t.supply(ALICE, "USDC", 100_000.0);
     set_dual_oracle_dex(&t, "USDC", dex_oracle);
 
+    // Future ts soft-rejects as miss (not PriceFeedStale flag) → dual Partial
+    // → UnsafePriceNotAllowed on the hard path.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
-    assert_contract_error(result, errors::PRICE_FEED_STALE);
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }

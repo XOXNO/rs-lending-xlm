@@ -385,8 +385,9 @@ fn test_withdraw_with_debt_still_requires_oracle() {
 
     t.set_price("USDC", 0);
 
+    // Soft zero → unreadable → hard NoLastPrice on risk-gated withdraw.
     let result = t.try_withdraw(ALICE, "USDC", 100.0);
-    assert_contract_error(result, errors::INVALID_PRICE);
+    assert_contract_error(result, errors::NO_LAST_PRICE);
 }
 
 #[test]

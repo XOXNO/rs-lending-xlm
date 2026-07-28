@@ -257,10 +257,11 @@ fn test_multiply_reuses_spoke_account_with_zero_category() {
         20_000_000_000,
     );
 
+    // Existing Multiply account on spoke 2: pass matching spoke_id to reuse it.
     let result = t.ctrl_client().try_multiply(
         &caller,
         &account_id,
-        &1u32,
+        &2u32,
         &hub_asset(usdc.clone()),
         &1000_0000000i128,
         &hub_asset(usdt.clone()),
@@ -277,7 +278,7 @@ fn test_multiply_reuses_spoke_account_with_zero_category() {
     let attrs = t.ctrl_client().get_account_attributes(&account_id);
     assert_eq!(
         attrs.spoke_id, 2,
-        "zero spoke_id must reuse the account's stored spoke category"
+        "reused account must keep spoke 2"
     );
     assert!(
         t.supply_balance_for(ALICE, account_id, "USDC") > 1_999.0,

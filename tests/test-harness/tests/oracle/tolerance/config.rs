@@ -1,5 +1,5 @@
-use super::setup;
-use test_harness::{eth_preset, usdc_preset, LendingTest, HARNESS_HUB};
+use super::{enable_dual_source, setup};
+use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, HARNESS_HUB};
 
 #[test]
 fn test_tolerance_config_valid_update() {
@@ -7,7 +7,7 @@ fn test_tolerance_config_valid_update() {
 
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // 600 BPS band as governance computes it in-path.
+    // 600 BPS band as governance computes it in-path (reciprocal lower).
     let tolerance = controller::types::OracleTolerance {
         upper_ratio_bps: 10_600,
         lower_ratio_bps: 9_434,
@@ -17,6 +17,39 @@ fn test_tolerance_config_valid_update() {
         &tolerance,
     );
     assert!(result.is_ok(), "valid tolerance update should succeed");
+}
+
+#[test]
+fn test_tolerance_config_rejects_non_reciprocal_lower() {
+    let t = setup();
+    let asset = t.resolve_market("USDC").asset.clone();
+
+    // Envelope-valid additive band; on-chain reciprocal gate rejects it.
+    let result = t.price_agg_client().try_set_tolerance(
+        &controller::types::PriceKey::Token(asset),
+        &controller::types::OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_500,
+        },
+    );
+    assert!(
+        result.is_err(),
+        "non-reciprocal tolerance must fail BadLastTolerance"
+    );
+}
+
+#[test]
+fn test_dual_source_prices_and_risk_gates_still_resolve() {
+    // Integration: dual oracle + controller hard prices after reciprocal bands.
+    let mut t = setup();
+    enable_dual_source(&t, "USDC");
+    enable_dual_source(&t, "ETH");
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 10.0);
+
+    let hf = t.health_factor(ALICE);
+    assert!(hf > 0.0, "dual-source portfolio must still hard-price");
 }
 
 #[test]

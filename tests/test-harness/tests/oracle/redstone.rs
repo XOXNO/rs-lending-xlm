@@ -112,7 +112,7 @@ fn test_redstone_anchor_read_failure_marks_view_invalid() {
 
     let mut oracle = t
         .price_agg_client()
-        .oracle_for(&controller::types::PriceKey::Token(asset.clone()))
+        .oracle(&controller::types::PriceKey::Token(asset.clone()))
         .unwrap();
     let anchor = match oracle.sources.get_unchecked(1) {
         PriceSource::Feed(mut feed) => {
@@ -129,7 +129,7 @@ fn test_redstone_anchor_read_failure_marks_view_invalid() {
     };
     oracle.sources.set(1, anchor);
     t.price_agg_client()
-        .seed_asset_oracle(&controller::types::PriceKey::Token(asset.clone()), &oracle);
+        .seed_oracle(&controller::types::PriceKey::Token(asset.clone()), &oracle);
 
     let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let row = t
@@ -163,7 +163,7 @@ fn test_redstone_anchor_outside_tolerance_marks_view_deviation() {
     // read path requires the disagreement to appear *after* the config stored,
     // which is exactly the case this covers.
     t.price_agg_client()
-        .seed_asset_oracle(&controller::types::PriceKey::Token(asset.clone()), &cfg);
+        .seed_oracle(&controller::types::PriceKey::Token(asset.clone()), &cfg);
 
     let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let row = t
