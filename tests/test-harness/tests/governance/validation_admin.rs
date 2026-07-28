@@ -335,8 +335,10 @@ fn test_configure_market_oracle_rejects_bad_reflector_resolution() {
     configure_usdc(&t, &cfg);
 }
 
+// TWAP history problems are miss-equivalent (`read_twap` errors are `.ok()`ed
+// at the provider entry), so the configure probe reverts `NoLastPrice` (#210).
 #[test]
-#[should_panic(expected = "Error(Contract, #212)")]
+#[should_panic(expected = "Error(Contract, #210)")]
 fn test_configure_market_oracle_rejects_missing_twap_history() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();

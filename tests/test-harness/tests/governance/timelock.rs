@@ -453,6 +453,10 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
         .ledger()
         .with_mut(|l| l.sequence_number += TEST_DELAY_LEDGERS);
 
+    // The ledger jump expires the mock's temporary-storage prices; re-seed so
+    // `set_tolerance`'s validation probe reads a live price.
+    t.mock_reflector_client().set_price(&asset, &usd(1));
+
     gov.execute(
         &Some(admin.clone()),
         &t.price_aggregator,

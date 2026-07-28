@@ -94,6 +94,8 @@ fn test_redstone_stale_write_timestamp_rejects_config() {
     assert_contract_error(try_configure_usdc(&t, &cfg), errors::PRICE_FEED_STALE);
 }
 
+// A future timestamp is unreadable, not stale: `from_multi_feed` drops the
+// payload, so the configure-time probe reports `NoLastPrice` (#210).
 #[test]
 fn test_redstone_future_timestamps_reject_config() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -110,7 +112,7 @@ fn test_redstone_future_timestamps_reject_config() {
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    assert_contract_error(try_configure_usdc(&t, &cfg), errors::PRICE_FEED_STALE);
+    assert_contract_error(try_configure_usdc(&t, &cfg), errors::NO_LAST_PRICE);
 }
 
 // A feed id the adapter does not serve is caught by the configure-time
