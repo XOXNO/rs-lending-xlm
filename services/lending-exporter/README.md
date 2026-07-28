@@ -83,11 +83,15 @@ controller and `(hub_id, asset, symbol)` markets + `spokes` to scan.
 
 - **Pool** and **price-aggregator** are resolved each scrape from the controller
   (`get_pool_address`, `price_aggregator`). YAML `price_aggregator` is a fallback.
-- Addresses in `config/testnet.yaml` mirror `configs/networks.json`.
+- Addresses in `config/*.yaml` mirror `configs/networks.json` when present.
+- Markets / hubs / spokes labels mirror `configs/{network}/{markets,hubs,spokes}.json`.
 - `symbol`, `hubs`, `spoke_names` are display labels only.
 
-Mainnet contracts are not deployed yet; `config/mainnet.yaml` is a stub and the
-exporter refuses to boot until `contracts.controller` is a valid `C…` address.
+`config/mainnet.yaml` lists all mainnet markets (17), hubs (`Core` / `RWA`), and
+spokes (`Main` / `Etherfuse` / `Spiko` / `Centrifuge` / `Forex`), plus RPC and the
+xoxno oracle adapter. Controller is still empty in `configs/networks.json` —
+fill `contracts.controller` after deploy; the exporter refuses to boot until it
+is a valid `C…` address.
 
 ## Deploy (two networks)
 

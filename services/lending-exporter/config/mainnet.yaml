@@ -1,21 +1,58 @@
 # Mainnet config for the lending metrics exporter.
 #
-# Rollout stub — mainnet lending contracts are not deployed yet. Controller and
-# price_aggregator below mirror the latest testnet deploy (configs/networks.json)
-# so IDs are ready during rollout. Fill markets/spokes and confirm RPC once
-# mainnet is live, then start a second exporter instance + Prometheus job.
-# The exporter refuses to boot while `controller` is not a valid C... address.
+# Markets / hubs / spokes mirror configs/mainnet/{markets,hubs,spokes}.json.
+# Contract IDs mirror configs/networks.json when present.
+#
+# Controller (and optionally price_aggregator) must be filled from
+# configs/networks.json after mainnet deploy — the exporter refuses to
+# boot until contracts.controller is a valid C… address.
+# Pool + price-aggregator are also resolved each scrape from controller
+# views; YAML price_aggregator is only a fallback.
 network: mainnet
 rpc:
-  url: https://stellar-gateway.xoxno.com
+  # Coolify shared-network alias (stellar-rpc-mainnet → :8080). Requires the
+  # exporter container to be attached to the `coolify` Docker network.
+  # Public fallback: https://stellar-gateway.xoxno.com
+  url: http://stellar-rpc-mainnet:8080
   passphrase: "Public Global Stellar Network ; September 2015"
   timeout_seconds: 30
 contracts:
-  controller: CDBAQ67PCS7XXMBGIRCQ2EPRYKV7QKYPIYZBW7IAAWEE5NKMYNYQ4UYU
-  price_aggregator: CCQXGZSQWK2ZBA6L5UPZHGSGBE6AZEKAU65I7RWAQGVOMUGICZE4MK4F
-  xoxno_oracle_adapter: ""
-markets: []
-spokes: []
+  # From configs/networks.json — empty until mainnet controller is deployed.
+  controller: ""
+  # Optional fallback if controller.price_aggregator view is unavailable.
+  price_aggregator: ""
+  # Spiko / xoxno adapter (provider probes); RedStone legs resolve from oracle config.
+  xoxno_oracle_adapter: "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM"
+markets:
+  - { hub_id: 1, asset: CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA, symbol: XLM }
+  - { hub_id: 1, asset: CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75, symbol: USDC }
+  - { hub_id: 1, asset: CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV, symbol: EURC }
+  - { hub_id: 1, asset: CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2, symbol: PYUSD }
+  - { hub_id: 2, asset: CBZ4DCE7PYMUTOAKKUTRSUPT3FJFVOWCSKWUM5A72D6SAVMUJE5JN2PJ, symbol: USST }
+  - { hub_id: 2, asset: CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF, symbol: SPIKOEUTBL }
+  - { hub_id: 2, asset: CARUUX2FZNPH6DGJOEUFSIUQWYHNL5AVDV7PMVSHWL7OBYIBFC76F4TO, symbol: SPIKOUSTBL }
+  - { hub_id: 2, asset: CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR, symbol: SPIKOUKTBL }
+  - { hub_id: 2, asset: CDGSC6BA4TCAOVSFQCUEHDMOIIHYYVNYBT6YEARS4MX3ITAHUINVGQHX, symbol: SPIKOSAFO }
+  - { hub_id: 2, asset: CBOOCGZSVRSZFRE4U2NWR2B4RXYVJWRCBTGOUD2JPI2TDJPWMTJX7FZP, symbol: SPIKOEURSAFO }
+  - { hub_id: 2, asset: CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP, symbol: SPIKOGBPSAFO }
+  - { hub_id: 2, asset: CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV, symbol: DEJTRSY }
+  - { hub_id: 2, asset: CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL, symbol: DEJAAA }
+  - { hub_id: 2, asset: CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR, symbol: USTRY }
+  - { hub_id: 2, asset: CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV, symbol: CETES }
+  - { hub_id: 2, asset: CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP, symbol: USDY }
+  - { hub_id: 1, asset: CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN, symbol: SolvBTC }
+spokes: [1, 2, 3, 4, 5]
+# hub_id -> display name (configs/mainnet/hubs.json)
+hubs:
+  1: Core
+  2: RWA
+# spoke_id -> display name (configs/mainnet/spokes.json)
+spoke_names:
+  1: Main
+  2: Etherfuse
+  3: Spiko
+  4: Centrifuge
+  5: Forex
 scrape_interval_seconds: 30
 metrics:
   bind: 0.0.0.0:9110

@@ -14,7 +14,9 @@ services:
     #   - ./config/testnet.yaml:/etc/lending-exporter/testnet.yaml:ro
     networks: [monitoring]
 
-  # Enable once mainnet contracts are deployed and mainnet.yaml is filled in.
+  # Enable once configs/networks.json mainnet.controller is set (mainnet.yaml
+  # already has markets / hubs / spokes / xoxno adapter).
+  # RPC uses Coolify alias http://stellar-rpc-mainnet:8080 — join `coolify`.
   # lending-exporter-mainnet:
   #   build: .
   #   image: xoxno/lending-exporter:latest
@@ -23,8 +25,11 @@ services:
   #   environment:
   #     EXPORTER_CONFIG: /etc/lending-exporter/mainnet.yaml
   #     RUST_LOG: info
-  #   networks: [monitoring]
+  #   networks: [monitoring, coolify]
 
 networks:
   monitoring:
+    external: true
+  # Shared Coolify network (stellar-rpc-mainnet alias lives here).
+  coolify:
     external: true
