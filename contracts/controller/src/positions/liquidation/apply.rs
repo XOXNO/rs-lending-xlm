@@ -59,8 +59,9 @@ pub(crate) fn apply_liquidation_repayments(
 
 /// One bulk pool withdraw of planned seizures to the liquidator (with protocol fees).
 ///
-/// Does not enforce spoke pause: paused collateral remains seizable. Risk params
-/// stay frozen via `LiqSeize` in withdraw settle.
+/// Paused collateral is not seizable (twin of the plan preflight); frozen or
+/// delisted legs remain seizable. Risk params stay frozen via `LiqSeize` in
+/// withdraw settle.
 pub(crate) fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
@@ -70,6 +71,12 @@ pub(crate) fn apply_liquidation_seizures(
 ) {
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
+        // Paused collateral listing releases no tokens (post-normalization legs).
+        let collateral_paused = cache
+            .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
+            .is_some_and(|c| c.paused);
+        assert_with_error!(env, !collateral_paused, SpokeError::SpokeAssetPaused);
+
         let position: AccountPosition =
             (&expect_invariant(env, account.supply_positions.get(entry.hub_asset.clone()))).into();
         entries.push_back(PoolWithdrawEntry {

@@ -75,17 +75,18 @@ fn test_close_position_paused_residual_collateral_reverts() {
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
-// Pause check lives in strategy wrappers, not settle_*; liquidation stays reachable on paused collateral (ADR 0011).
+// Paused collateral is not seizable: pause blocks liquidation symmetrically
+// with the borrower's repay/deposit defenses. Frozen collateral remains
+// seizable (covered by H-LIQ-21).
 #[test]
-fn test_liquidation_of_paused_collateral_still_succeeds() {
+fn test_liquidation_of_paused_collateral_reverts() {
     let mut t = liquidatable_usdc_eth();
 
     t.set_spoke_asset_paused("USDC", true);
 
-    let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
-    assert!(
-        result.is_ok(),
-        "liquidation must stay reachable on paused collateral: {result:?}"
+    assert_contract_error(
+        t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0),
+        errors::SPOKE_ASSET_PAUSED,
     );
 }
 

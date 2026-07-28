@@ -2,7 +2,8 @@
 //!
 //! Pipeline: plan (HF < 1, price, normalize) → apply (repay then seize) →
 //! optional bad-debt cleanup. Permissionless keepers; not gated by global pause.
-//! Spoke pause blocks inbound repay tokens; paused collateral remains seizable.
+//! Spoke pause blocks both sides: paused debt accepts no repay tokens and
+//! paused collateral is not seizable (frozen/delisted legs stay seizable).
 //! See `docs/reference/invariants.md` §3.3.
 
 use crate::risk;

@@ -118,7 +118,8 @@ pub trait ControllerInterface {
     /// * `InvalidPayments` — empty debt payment list or empty post-normalization set.
     /// * `AmountMustBePositive` — a leg amount is not strictly positive.
     /// * `SelfLiquidationNotAllowed` — `liquidator` is the account owner.
-    /// * `SpokeAssetPaused` — a repaid debt leg's listing is paused.
+    /// * `SpokeAssetPaused` — a repaid debt leg's or seized collateral leg's
+    ///   listing is paused.
     /// * `HealthFactorTooHigh` — account HF is still at or above one.
     /// * `OracleNotConfigured` / `PoolNotInitialized` — fail-closed pricing path.
     ///

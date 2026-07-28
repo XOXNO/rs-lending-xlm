@@ -427,6 +427,38 @@ fn poc_paused_debt_blocks_liquidation_repay() {
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
+/// Paused collateral blocks its seizure, mirroring the debt-leg gate; clearing
+/// the flag restores liquidation.
+#[test]
+fn poc_paused_collateral_blocks_liquidation_seizure() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.set_price("USDC", test_harness::usd_cents(50));
+    assert!(t.can_be_liquidated(ALICE));
+
+    t.set_spoke_asset_paused("USDC", true);
+
+    let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
+    assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
+
+    // Unpausing reopens the leg for seizure.
+    t.set_spoke_asset_paused("USDC", false);
+    let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
+    assert!(
+        result.is_ok(),
+        "unpaused collateral must be seizable again; got {result:?}"
+    );
+    assert!(
+        t.token_balance(LIQUIDATOR, "USDC") > 0.0,
+        "liquidator must receive seized USDC after unpause"
+    );
+}
+
 /// H-USER-02: freezing collateral does not block borrowing against its stamp.
 #[test]
 fn poc_frozen_collateral_still_backs_new_borrows() {

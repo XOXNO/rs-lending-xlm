@@ -85,6 +85,17 @@ pub(crate) fn build_liquidation_plan(
     let seized_collaterals =
         calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
 
+    // Twin of the per-transfer gate in apply: paused collateral is not
+    // seizable, mirroring the debt-leg gate above. Pause blocks the borrower's
+    // defenses (repay/deposit), so it blocks the liquidator too. Frozen legs
+    // stay seizable; missing listing is not treated as paused.
+    for entry in seized_collaterals.iter() {
+        let collateral_paused = cache
+            .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
+            .is_some_and(|c| c.paused);
+        assert_with_error!(env, !collateral_paused, SpokeError::SpokeAssetPaused);
+    }
+
     let plan = LiquidationPlan {
         repayment,
         seized: seized_collaterals,
