@@ -2,7 +2,7 @@
 //! typed (RAY/WAD/BPS) forms of market params, interest-rate model, and
 //! account/debt positions, plus their boundary `verify` guards.
 
-use crate::constants::{BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, RAY, RAY_DECIMALS};
+use crate::constants::{BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, RAY, WAD_DECIMALS};
 use crate::errors::CollateralError;
 use crate::math::fp::{Bps, Ray};
 use crate::types::shared::AccountPositionType;
@@ -65,14 +65,16 @@ impl MarketParamsRaw {
     ///
     /// # Errors
     /// * [`CollateralError::AssetDecimalsTooHigh`] - `asset_decimals` exceeds
-    ///   `RAY_DECIMALS`, outside the `Ray::from_asset` domain.
+    ///   `WAD_DECIMALS`. No listable asset carries more than 18 decimals, and
+    ///   the bound keeps every scale conversion (`Wad::from_token`,
+    ///   `Ray::from_asset`) inside its domain with room to spare.
     /// * [`CollateralError::InvalidBorrowParams`] - `flashloan_fee` exceeds
     ///   `MAX_FLASHLOAN_FEE_BPS`.
     /// * refer to [`InterestRateModel::verify`] errors for the rate-model bounds.
     pub fn verify(&self, env: &Env) {
         assert_with_error!(
             env,
-            self.asset_decimals <= RAY_DECIMALS,
+            self.asset_decimals <= WAD_DECIMALS,
             CollateralError::AssetDecimalsTooHigh
         );
         // `flashloan_fee` bound is checked by `verify_rate_model` (the rate-model

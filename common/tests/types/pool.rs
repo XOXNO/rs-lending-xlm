@@ -97,11 +97,21 @@ fn test_market_params_verify_accepts_valid_config() {
 }
 
 #[test]
-#[should_panic(expected = "#132")]
-fn test_market_params_verify_rejects_decimals_above_ray() {
+fn test_market_params_verify_accepts_decimals_at_wad() {
     let env = Env::default();
     let mut raw = sample_raw_params(&env);
-    raw.asset_decimals = RAY_DECIMALS + 1;
+    raw.asset_decimals = WAD_DECIMALS;
+    raw.verify(&env);
+}
+
+// AssetDecimalsTooHigh (#132): no listable token carries more than 18 decimals,
+// so anything above WAD is a misconfigured listing, not an exotic asset.
+#[test]
+#[should_panic(expected = "#132")]
+fn test_market_params_verify_rejects_decimals_above_wad() {
+    let env = Env::default();
+    let mut raw = sample_raw_params(&env);
+    raw.asset_decimals = WAD_DECIMALS + 1;
     raw.verify(&env);
 }
 
