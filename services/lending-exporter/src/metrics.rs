@@ -155,7 +155,7 @@ impl Metrics {
             oracle_tolerance_lower_bps: register_gauge_vec(&registry, "lending_oracle_tolerance_lower_bps", "Configured lower deviation band (bps)", ORACLE_LABELS)?,
             oracle_sanity_min_usd: register_gauge_vec(&registry, "lending_oracle_sanity_min_usd", "Configured min sanity price (USD)", ORACLE_LABELS)?,
             oracle_sanity_max_usd: register_gauge_vec(&registry, "lending_oracle_sanity_max_usd", "Configured max sanity price (USD)", ORACLE_LABELS)?,
-            oracle_strategy: register_gauge_vec(&registry, "lending_oracle_strategy", "Oracle strategy (0 single, 1 primary+anchor)", ORACLE_LABELS)?,
+            oracle_strategy: register_gauge_vec(&registry, "lending_oracle_strategy", "Oracle source count code (0 single source, 1 dual source)", ORACLE_LABELS)?,
             oracle_price_timestamp: register_gauge_vec(&registry, "lending_oracle_price_timestamp_seconds", "Provider-probe feed timestamp of worst leg (Unix s)", ORACLE_LABELS)?,
             oracle_seconds_until_stale: register_gauge_vec(&registry, "lending_oracle_seconds_until_stale", "Seconds until the worst provider leg goes stale (negative if already stale)", ORACLE_LABELS)?,
 

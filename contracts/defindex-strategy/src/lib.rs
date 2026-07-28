@@ -1,5 +1,15 @@
 #![no_std]
-//! DeFindex adapter: one vault ↔ one controller account; harvest emits D12 supply-index PPS.
+//! DeFindex vault adapter over the lending controller.
+//!
+//! Each vault address maps to exactly one controller account. Deposit and
+//! withdraw supply and redeem collateral on that account; balance reads live
+//! collateral. Harvest does not move funds — it publishes a 12-decimal
+//! price-per-share derived from the market supply index (`RAY / 1e12`).
+//!
+//! Constructor binds one listed `HubAssetKey` and spoke. Persistent
+//! `VaultAccount` entries extend TTL when read while live (~30d threshold,
+//! ~180d extend-to). Full withdraw clears the mapping so the next deposit
+//! opens a new account.
 
 use common::constants::RAY;
 use common::types::pool::HubAssetKey;
@@ -12,13 +22,13 @@ use soroban_sdk::{
     vec, Address, Bytes, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
 
+/// Emitted by `harvest`. `amount` is always `0`; `price_per_share` is the
+/// market supply index scaled to 12 decimals.
 #[contractevent(topics = ["strategy", "harvest"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HarvestEvent {
     pub from: Address,
-    // D{AssetDecimals(asset)}{Token(asset)}; this adapter emits zero.
     pub amount: i128,
-    // D12{Token(asset)/Share(asset, supply)}
     pub price_per_share: i128,
 }
 
@@ -31,23 +41,30 @@ pub(crate) fn emit_harvest(e: &Env, from: Address, amount: i128, price_per_share
     .publish(e);
 }
 
+/// Price-per-share scale: 12 decimals (`1e12`).
 const PPS_SCALAR: i128 = 1_000_000_000_000;
 // dimensional: D27{1} / D12{1} = D15{1} Ray-to-price-per-share divisor.
 const RAY_PER_PPS: i128 = RAY / PPS_SCALAR;
 
-/// Vault-account TTL: extend when below ~30 days, up to ~180 days.
+/// Persistent `VaultAccount` TTL: extend when remaining ledgers fall below
+/// ~30 days, up to ~180 days (`17_280` ledgers ≈ 1 day).
 const VAULT_ACCOUNT_TTL_THRESHOLD: u32 = 17_280 * 30;
 const VAULT_ACCOUNT_TTL_EXTEND_TO: u32 = 17_280 * 180;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeFindexStrategyError {
+    /// Instance `Config` missing or constructor `init_args` malformed.
     NotInitialized = 401,
+    /// Deposit or withdraw `amount` is not strictly positive.
     AmountNotPositive = 460,
+    /// Withdraw against a missing account or for more than live collateral.
     InsufficientBalance = 461,
+    /// Supply-index to price-per-share division failed.
     ArithmeticError = 462,
 }
 
+/// Instance configuration written by the constructor.
 #[contracttype]
 #[derive(Clone)]
 pub struct Config {
@@ -60,16 +77,27 @@ pub struct Config {
 
 #[contracttype]
 pub enum DataKey {
+    /// Instance `Config`.
     Config,
-    /// Per-vault controller account id (`0` = none stored).
+    /// Persistent vault address → controller account id (`0` means none).
     VaultAccount(Address),
 }
 
+/// DeFindex strategy surface implemented by [`Strategy`].
 pub trait DeFindexStrategyTrait {
+    /// Configured underlying asset.
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError>;
+
+    /// Pulls `amount` from `from` and supplies it into the vault account.
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError>;
+
+    /// Publishes supply-index price-per-share; does not move funds.
     fn harvest(env: Env, from: Address, data: Option<Bytes>) -> Result<(), DeFindexStrategyError>;
+
+    /// Live underlying collateral for `from`'s vault account.
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError>;
+
+    /// Withdraws `amount` from the vault account to `to`.
     fn withdraw(
         env: Env,
         amount: i128,
@@ -160,16 +188,17 @@ impl<'a> Ctx<'a> {
 
 #[contractimpl]
 impl Strategy {
-    /// Deploys the adapter for one controller market, caching the resolved
-    /// `Config` (hub, spoke, asset, controller, pool).
+    /// Caches instance `Config` for one listed market: `asset`, `controller`,
+    /// `hub_id`, `spoke_id`, and the controller's pool address.
     ///
     /// # Arguments
-    /// * `init_args` - `[controller, hub_id, spoke_id]`; the asset must be listed
-    ///   for `hub_id`, and positions are opened on `spoke_id`.
+    /// * `asset` - underlying token for the strategy market.
+    /// * `init_args` - `[controller, hub_id, spoke_id]` as `Val`s.
     ///
     /// # Errors
-    /// * `NotInitialized` - `init_args` is missing an element or an element has the wrong type.
-    /// * The controller's `get_market_index` reverts when the asset is not listed for `hub_id`.
+    /// * `NotInitialized` - missing `init_args` element or wrong element type.
+    /// * Controller `get_market_index` reverts when `asset` is not listed for
+    ///   `hub_id`.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         let controller_val = init_args
             .get(0)
@@ -192,7 +221,7 @@ impl Strategy {
             hub_id,
             asset: asset.clone(),
         };
-        // Validate configured HubAssetKey; get_market_index reverts if unlisted.
+        // Reverts if HubAssetKey is unlisted for hub_id.
         controller_client.get_market_index(&hub_asset);
         env.storage().instance().set(
             &DataKey::Config,
@@ -209,23 +238,33 @@ impl Strategy {
 
 #[contractimpl]
 impl DeFindexStrategyTrait for Strategy {
+    /// Returns the configured underlying asset address.
+    ///
+    /// # Errors
+    /// * `NotInitialized` - instance `Config` missing.
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError> {
         Ok(config(&env)?.asset)
     }
 
-    /// Pulls `amount` of the strategy asset from `from` and supplies it into the
-    /// vault's controller account (opening one on first deposit); returns the
-    /// post-deposit underlying balance.
+    /// Transfers `amount` of the strategy asset from `from` into this contract,
+    /// supplies it on the vault's controller account (opening one when none is
+    /// live), stores the account id, and returns post-deposit collateral.
     ///
     /// # Arguments
-    /// * `amount` - strategy-asset amount to supply; must be positive.
-    /// * `from` - the vault; must authorize.
+    /// * `amount` - token amount to supply; must be `> 0`.
+    /// * `from` - vault; must authorize.
     ///
     /// # Errors
-    /// * `AmountNotPositive` - `amount` is not greater than zero.
-    /// * `NotInitialized` - the adapter has no cached `Config`.
-    /// * The controller `supply` call enforces its own market, spoke, cap, and
-    ///   pause gates; refer to controller errors.
+    /// * `AmountNotPositive` - `amount <= 0`.
+    /// * `NotInitialized` - instance `Config` missing.
+    /// * Controller `supply` enforces its own market, spoke, cap, and pause
+    ///   gates.
+    ///
+    /// # Notes
+    /// * Stale vault mappings (stored id whose account no longer exists) are
+    ///   cleared before supply so a fresh account can open.
+    /// * Pool-transfer auth is installed immediately before `supply`; no
+    ///   controller call may sit between auth and that invocation.
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError> {
         if amount <= 0 {
             return Err(DeFindexStrategyError::AmountNotPositive);
@@ -237,9 +276,9 @@ impl DeFindexStrategyTrait for Strategy {
         // D{AssetDecimals(asset)}{Token(asset)}
         token::Client::new(&env, &ctx.cfg.asset).transfer(&from, &ctx.strategy, &amount);
 
-        // Resolve stale vault-account state before authorizing the pool transfer.
-        // Authorization applies to the next sub-invocation, so no controller calls
-        // can sit between authorization and `supply`.
+        // Clear stale mapping before pool-transfer auth; auth covers the next
+        // sub-invocation only, so no controller call may sit between auth and
+        // supply.
         let stored_id = prepare_vault_account_for_supply(ctx.env, &ctx.controller, &from);
         ctx.authorize_supply_to_pool(amount);
         // dimensional: Token(asset) enters controller; supply shares are internal.
@@ -255,18 +294,20 @@ impl DeFindexStrategyTrait for Strategy {
         Ok(ctx.collateral(new_or_existing_id))
     }
 
-    /// Publishes a `HarvestEvent` carrying the market's current supply-index
-    /// price-per-share (12 decimals); moves no funds and reports zero amount.
+    /// Requires `from` auth and emits `HarvestEvent` with `amount = 0` and the
+    /// current supply-index price-per-share (12 decimals). Does not transfer
+    /// tokens. `data` is ignored.
     ///
     /// # Arguments
-    /// * `from` - the caller; must authorize. `data` is ignored.
+    /// * `from` - caller; must authorize.
+    /// * `data` - unused.
     ///
     /// # Errors
-    /// * `NotInitialized` - the adapter has no cached `Config`.
-    /// * `ArithmeticError` - the supply-index-to-price-per-share division overflows.
+    /// * `NotInitialized` - instance `Config` missing.
+    /// * `ArithmeticError` - supply-index / `RAY_PER_PPS` division fails.
     ///
     /// # Events
-    /// * `HarvestEvent` - the current 12-decimal price-per-share.
+    /// * `HarvestEvent` - `from`, `amount = 0`, 12-decimal `price_per_share`.
     fn harvest(env: Env, from: Address, _data: Option<Bytes>) -> Result<(), DeFindexStrategyError> {
         from.require_auth();
         let ctx = Ctx::try_load(&env)?;
@@ -274,25 +315,35 @@ impl DeFindexStrategyTrait for Strategy {
         Ok(())
     }
 
+    /// Returns live underlying collateral for `from`'s vault account, or `0`
+    /// when none is mapped or the stored account no longer exists.
+    ///
+    /// # Errors
+    /// * `NotInitialized` - instance `Config` missing.
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError> {
         // dimensional: strategy balance is live D{AssetDecimals(asset)}{Token(asset)}.
         Ok(Ctx::try_load(&env)?.vault_balance(&from))
     }
 
-    /// account to `to`, closing the account on a full exit; returns the
-    /// remaining underlying balance.
+    /// Withdraws `amount` of the strategy asset from `from`'s controller
+    /// account to `to`. A full-balance withdraw uses the controller full-
+    /// withdraw sentinel `0` and clears the vault mapping. Returns remaining
+    /// collateral (or controller-reported collateral after a full exit).
     ///
     /// # Arguments
-    /// * `amount` - strategy-asset amount to withdraw; must be positive and at
-    ///   most the current balance (a full-balance amount closes the position).
-    /// * `from` - the vault; must authorize.
-    /// * `to` - recipient of the withdrawn tokens.
+    /// * `amount` - token amount to withdraw; must be `> 0` and `<=` balance.
+    /// * `from` - vault; must authorize.
+    /// * `to` - recipient of withdrawn tokens.
     ///
     /// # Errors
-    /// * `AmountNotPositive` - `amount` is not greater than zero.
-    /// * `NotInitialized` - the adapter has no cached `Config`.
-    /// * `InsufficientBalance` - no vault account exists or `amount` exceeds the balance.
-    /// * The controller `withdraw` call enforces its own gates; refer to controller errors.
+    /// * `AmountNotPositive` - `amount <= 0`.
+    /// * `NotInitialized` - instance `Config` missing.
+    /// * `InsufficientBalance` - no live vault account or `amount > balance`.
+    /// * Controller `withdraw` enforces its own gates.
+    ///
+    /// # Notes
+    /// * Full exit clears `VaultAccount` immediately so the next deposit opens
+    ///   a new controller account rather than reusing a closed id.
     fn withdraw(
         env: Env,
         amount: i128,
@@ -316,7 +367,7 @@ impl DeFindexStrategyTrait for Strategy {
             return Err(DeFindexStrategyError::InsufficientBalance);
         }
 
-        // Full exit maps to controller full-withdraw sentinel 0; public ABI rejects amount ≤ 0.
+        // Controller full-withdraw sentinel is 0; public ABI already rejected amount <= 0.
         let is_full_withdraw = amount == balance;
         let withdraw_amount = if is_full_withdraw { 0 } else { amount };
         ctx.controller.withdraw(
@@ -326,14 +377,10 @@ impl DeFindexStrategyTrait for Strategy {
             &Some(to),
         );
 
-        // Full exit (zero collateral): clear the mapping immediately so the
-        // next deposit gets a fresh controller account. Prevents dust pinning
-        // that could hit PositionLimitExceeded on redeposit.
         if is_full_withdraw {
             clear_vault_account(ctx.env, &from);
         }
 
-        // Removed accounts report 0 collateral.
         // D{AssetDecimals(asset)}{Token(asset)} post-withdraw strategy balance.
         Ok(ctx.collateral(account_id))
     }
@@ -375,6 +422,11 @@ fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     }
 }
 
+/// Resolves the stored controller account for `vault`.
+///
+/// Returns `0` when none is stored or the account no longer exists. When the
+/// account is live, extends the mapping TTL. When gone and `clear_if_gone`,
+/// removes the stale mapping.
 fn resolve_vault_account(
     env: &Env,
     controller: &ControllerClient,
@@ -399,6 +451,8 @@ fn resolve_vault_account(
     0
 }
 
+/// Supply path: resolve and clear a stale mapping so `account_id = 0` opens a
+/// new controller account.
 fn prepare_vault_account_for_supply(
     env: &Env,
     controller: &ControllerClient,
@@ -407,6 +461,7 @@ fn prepare_vault_account_for_supply(
     resolve_vault_account(env, controller, vault, true)
 }
 
+/// Read/withdraw path: resolve without clearing a stale mapping.
 fn reconcile_vault_account(env: &Env, controller: &ControllerClient, vault: &Address) -> u64 {
     resolve_vault_account(env, controller, vault, false)
 }

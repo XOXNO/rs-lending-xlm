@@ -1,5 +1,4 @@
-//! Timelock lifecycle: propose, execute, and cancel a scheduled
-//! `AdminOperation`. Every entrypoint here enforces the delay.
+//! Delayed `AdminOperation` lifecycle: propose, execute, cancel.
 
 use common::errors::GenericError;
 
@@ -17,19 +16,19 @@ use crate::{storage, Governance, GovernanceArgs, GovernanceClient};
 
 #[contractimpl]
 impl Governance {
-    /// Schedules an `AdminOperation` and returns its operation id. `PROPOSER`-gated.
-    /// Sensitive floor: upgrades, ownership transfers, `SetPriceAggregator`. Other
-    /// ops use min delay. `TransferGovOwnership` requires the owner as proposer;
-    /// `RevokeGovRole` may not target the proposer or the owner.
+    /// Schedules an `AdminOperation` and returns its operation id. `PROPOSER`
+    /// only. Sensitive floor applies to upgrades, ownership transfers, and
+    /// `SetPriceAggregator`. `TransferGovOwnership` requires the owner as
+    /// proposer. `RevokeGovRole` may not target the proposer or the owner.
     ///
     /// # Errors
-    /// * `NotAuthorized` — revoke self/owner, or non-owner proposes ownership transfer.
-    /// * `PoolNotInitialized` / `AggregatorNotSet` — target not wired yet.
-    /// * Via `resolve_op`: `InvalidWasmHash`, `InvalidTimelockDelay`, `InvalidRole`,
-    ///   `InvalidAggregator`, `NotSmartContract`, `InvalidPositionLimits`,
-    ///   `InvalidBorrowParams`, `WrongToken`, `InvalidAsset`, `BadLastTolerance`,
-    ///   `InvalidExchangeSrc`, and live oracle-probe reverts.
-    /// * Access-control / OZ timelock reject unknown proposer or duplicate schedule.
+    /// * [`GenericError::NotAuthorized`] — self/owner revoke, or non-owner
+    ///   proposes ownership transfer.
+    /// * [`GenericError::PoolNotInitialized`] / [`GenericError::AggregatorNotSet`]
+    ///   — target not wired.
+    /// * Via `resolve_op`: invalid wasm, delay, role, aggregator, limits, asset,
+    ///   tolerance, and live oracle-probe reverts.
+    /// * Access-control / OZ timelock reject unknown proposer or duplicate id.
     ///
     /// # Events
     /// * OZ timelock schedule event.
@@ -41,8 +40,6 @@ impl Governance {
     ) -> BytesN<32> {
         begin_immediate(&env, &proposer, PROPOSER_ROLE);
         match &op {
-            // A proposer may revoke anyone's role except its own; the owner's
-            // roles are never revocable. The owner check is re-enforced at apply.
             crate::op::AdminOperation::RevokeGovRole(args) => {
                 assert_with_error!(&env, args.account != proposer, GenericError::NotAuthorized);
                 assert_with_error!(
@@ -51,8 +48,6 @@ impl Governance {
                     GenericError::NotAuthorized
                 );
             }
-            // Only the owner may initiate an ownership transfer; any canceller
-            // can still veto it during the timelock.
             crate::op::AdminOperation::TransferGovOwnership(_) => {
                 assert_with_error!(
                     &env,
@@ -65,27 +60,26 @@ impl Governance {
         let (operation, delay_tier) = operation_for_admin_op(&env, &op, salt);
         let delay = operation_delay(&env, delay_tier);
         let operation_id = schedule_operation(&env, &operation, delay);
-        // Record the target so `cancel` can enforce the self-veto guard.
         if let crate::op::AdminOperation::RevokeGovRole(args) = &op {
             storage::mark_role_revocation_target(&env, &operation_id, &args.account);
         }
         operation_id
     }
 
-    /// Executes a ready non-self timelock operation and returns its result.
-    /// `Some(executor)` requires `EXECUTOR` auth; `None` leaves execution open.
-    /// Self-ops must use `execute_self`.
+    /// Executes a ready non-self operation and returns its result.
+    /// `Some(executor)` requires `EXECUTOR` auth; `None` is open execution.
+    /// Self-ops use `execute_self`.
     ///
     /// # Errors
-    /// * `InternalError` — `target` is this governance contract.
-    /// * `TimelockOperationExpired` — past grace window.
-    /// * OZ timelock rejects not-scheduled / not-ready; `EXECUTOR` gate when set.
+    /// * [`GenericError::InternalError`] — `target` is this contract.
+    /// * [`GenericError::TimelockOperationExpired`] — past grace.
+    /// * OZ not-scheduled / not-ready; `EXECUTOR` gate when set.
     ///
     /// # Events
-    /// * OZ timelock execute event; target emits its own.
+    /// * OZ execute event; target emits its own.
     ///
     /// # Security Warning
-    /// * With `executor` = `None` any caller may execute a ready operation.
+    /// * With `executor` = `None`, any caller may execute a ready operation.
     pub fn execute(
         env: Env,
         executor: Option<Address>,
@@ -113,21 +107,21 @@ impl Governance {
         result
     }
 
-    /// Applies a ready governance-self op inline (upgrade, delay, roles,
-    /// ownership, `SetPriceAggregator`). `Some(executor)` requires `EXECUTOR`;
-    /// `None` leaves execution open.
+    /// Applies a ready governance-self op (upgrade, delay, roles, ownership,
+    /// `SetPriceAggregator`). Inline apply — Soroban blocks self-reentry.
+    /// `Some(executor)` requires `EXECUTOR`; `None` is open execution.
     ///
     /// # Errors
-    /// * `InternalError` — `op` does not target this contract.
-    /// * `TimelockOperationExpired` — past grace window.
-    /// * `InvalidTimelockDelay`, `InvalidRole`, `OwnerNotSet`, `InvalidAggregator`
-    ///   on self-apply; OZ not-scheduled / not-ready.
+    /// * [`GenericError::InternalError`] — `op` is not self-target.
+    /// * [`GenericError::TimelockOperationExpired`] — past grace.
+    /// * Self-apply: invalid delay, role, owner, aggregator; owner revoke;
+    ///   last-proposer remove. OZ not-scheduled / not-ready.
     ///
     /// # Events
-    /// * OZ timelock execute event plus role / ownership / upgrade events.
+    /// * OZ execute event; role / ownership / upgrade events as applicable.
     ///
     /// # Security Warning
-    /// * With `executor` = `None` any caller may execute a ready self-operation.
+    /// * With `executor` = `None`, any caller may execute a ready self-op.
     pub fn execute_self(
         env: Env,
         executor: Option<Address>,
@@ -140,39 +134,32 @@ impl Governance {
             operation.target == env.current_contract_address(),
             GenericError::InternalError
         );
-        // Self-target execute is inline; Soroban blocks self-reentry.
         let operation_id = prepare_execute(&env, executor.as_ref(), &operation);
         set_execute_operation(&env, &operation);
         apply_self_op(&env, &op);
         finish_execute(&env, &operation_id);
     }
 
-    /// Cancels a pending timelock operation. `CANCELLER`-gated.
-    /// Recovery-tier ops and self-targeted role revocations are not cancellable.
+    /// Cancels a pending operation. `CANCELLER` only.
+    ///
+    /// Not cancellable: Recovery-tier ops, and role revocations whose target
+    /// is the canceller (self-veto).
     ///
     /// # Errors
-    /// * `OperationNotCancellable` — Recovery op, or revoke of `canceller`'s own role.
-    /// * Access-control / OZ timelock reject unknown canceller or not-pending.
+    /// * [`GenericError::OperationNotCancellable`] — Recovery mark or self-veto.
+    /// * Access-control / OZ reject unknown canceller or not-pending id.
     ///
     /// # Events
-    /// * OZ timelock cancel event.
+    /// * OZ cancel event.
     pub fn cancel(env: Env, canceller: Address, operation_id: BytesN<32>) {
         storage::renew_governance_instance(&env);
         canceller.require_auth();
         access_control::ensure_role(&env, &Symbol::new(&env, CANCELLER_ROLE), &canceller);
-        // Recovery-tier operations are non-vetoable — they exist precisely to
-        // override a captured canceller council.
         assert_with_error!(
             &env,
             !storage::is_recovery_op(&env, &operation_id),
             GenericError::OperationNotCancellable
         );
-        // A role revocation cannot be vetoed by its own target — no one blocks
-        // their own removal. Every other pending operation, including a
-        // revocation of another canceller, stays vetoable, so the independent
-        // cancellers remain a real check on a rogue proposer (or owner). A
-        // colluding-canceller deadlock is broken by the non-vetoable Recovery
-        // tier (`propose_canceller_reset`), not by suspending the veto here.
         if let Some(target) = storage::role_revocation_target(&env, &operation_id) {
             assert_with_error!(
                 &env,

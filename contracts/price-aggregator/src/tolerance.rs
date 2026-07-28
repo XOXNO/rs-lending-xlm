@@ -1,14 +1,16 @@
-//! Dual-source agreement band: pure math, no hard/soft fork.
+//! Dual-source agreement band: pure ratio math shared by hard and soft paths.
 //!
-//! Engine sets `Outcome.deviation` from [`within_tolerance_band`] and
-//! blends with [`midpoint_price_or_zero`]. [`force`] maps disagreement.
+//! The engine sets `Outcome.deviation` from [`within_tolerance_band`] and blends
+//! dual legs with [`midpoint_price_or_zero`]. Disagreement maps through
+//! [`crate::engine::force`] to `UnsafePriceNotAllowed`.
 
 use common::constants::{BPS_DECIMALS, RAY, RAY_DECIMALS};
 use common::math::fp_core;
 use common::types::OracleTolerance;
 use soroban_sdk::Env;
 
-/// True when the two agree within the inclusive BPS band. Symmetric.
+/// True when `primary / anchor` lies in the inclusive BPS band on `tolerance`.
+/// Symmetric in the sense that the band is applied to that single ratio.
 pub(crate) fn within_tolerance_band(
     env: &Env,
     anchor: i128,
@@ -20,7 +22,9 @@ pub(crate) fn within_tolerance_band(
         .is_some_and(|r| ratio_in_band(r, tolerance.upper_ratio_bps, tolerance.lower_ratio_bps))
 }
 
-/// Integer midpoint, or `0` on overflow (view-safe; force maps 0 → InvalidPrice).
+/// Integer midpoint of the two prices, or `0` on add overflow.
+///
+/// Hard path maps `0` to `InvalidPrice`; soft path marks invalid.
 pub(crate) fn midpoint_price_or_zero(anchor_price: i128, primary_price: i128) -> i128 {
     anchor_price
         .checked_add(primary_price)
@@ -28,9 +32,8 @@ pub(crate) fn midpoint_price_or_zero(anchor_price: i128, primary_price: i128) ->
         .unwrap_or(0)
 }
 
-/// Primary/anchor ratio in BPS. `None` when the pair is out of band by
-/// construction: a zero anchor (undefined ratio) or a ratio that would overflow
-/// the fixed-point narrowing.
+/// `primary / anchor` in BPS. `None` when the ratio is undefined (zero anchor)
+/// or would overflow the fixed-point narrowing.
 fn anchor_ratio_bps(env: &Env, anchor: i128, primary: i128) -> Option<i128> {
     if anchor == 0 {
         return None;

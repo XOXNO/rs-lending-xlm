@@ -1,4 +1,4 @@
-//! One-shot deploy events for controller and price-aggregator.
+//! Deploy events for the one-shot controller and price-aggregator installs.
 
 use soroban_sdk::{contractevent, Address, BytesN};
 

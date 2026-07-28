@@ -430,15 +430,13 @@ async fn publish_oracle_config_and_freshness(
     metrics.oracle_tolerance_lower_bps.with_label_values(&olabels).set(config.tolerance_lower_bps as f64);
     metrics.oracle_sanity_min_usd.with_label_values(&olabels).set(model::wad_to_f64(config.min_sanity_price_wad));
     metrics.oracle_sanity_max_usd.with_label_values(&olabels).set(model::wad_to_f64(config.max_sanity_price_wad));
-    metrics.oracle_strategy.with_label_values(&olabels).set(config.strategy as f64);
+    metrics.oracle_strategy.with_label_values(&olabels).set(config.source_count.saturating_sub(1) as f64);
 
     // Report the source with least headroom (stales first); publish that leg's max_stale.
-    let mut sources = vec![&config.primary];
-    if let Some(anchor) = &config.anchor {
-        sources.push(anchor);
-    }
+    // LpShare legs contribute no pollable feed, so `config.sources` can be
+    // shorter than `config.source_count`.
     let mut worst: Option<(f64, u64, u64)> = None;
-    for source in sources {
+    for source in &config.sources {
         if let Some(feed_ts) = read_feed_timestamp(client, metrics, net, market, source).await {
             let sut = model::seconds_until_stale(now_secs, feed_ts, source.max_stale_seconds);
             if worst.map(|(w, _, _)| sut < w).unwrap_or(true) {

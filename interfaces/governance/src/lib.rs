@@ -12,8 +12,6 @@ use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
 pub use stellar_governance::timelock::OperationState;
 
-pub use stellar_governance::timelock::OperationState as GovernanceOperationState;
-
 /// Spoke asset input forwarded to controller spoke-asset admin entrypoints without mutation.
 pub use common::types::SpokeAssetArgs;
 
@@ -92,6 +90,9 @@ pub struct RoleArgs {
 pub enum AdminOperation {
     // Controller target
     SetSwapAggregator(Address),
+    /// Self-targeted, not controller-targeted (kept in variant position for
+    /// ABI stability — see `ConfigureAssetOracle` below): governance re-points
+    /// its OWN stored aggregator. `Sensitive` delay tier.
     SetPriceAggregator(Address),
     SetAccumulator(Address),
     SetPositionLimits(PositionLimits),
@@ -112,6 +113,8 @@ pub enum AdminOperation {
     UpgradeController(BytesN<32>),
     MigrateController(u32),
     TransferCtrlOwnership(TransferOwnershipArgs),
+    /// Price-aggregator-targeted, not controller-targeted (kept in variant
+    /// position for ABI stability — see `ConfigureAssetOracle` below).
     EditOracleTolerance(EditToleranceArgs),
     SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs),
     /// Force-socializes an underwater account's bad debt (frozen/clawed
@@ -252,9 +255,12 @@ pub trait GovernanceInterface {
     fn resolve_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) -> AssetOracle;
 
     /// Schedules an `AdminOperation` and returns its operation id. `PROPOSER`-gated.
-    /// Sensitive floor: upgrades, ownership transfers, `SetPriceAggregator`. Other
-    /// ops use min delay. `TransferGovOwnership` requires the owner as proposer;
-    /// `RevokeGovRole` may not target the proposer or the owner.
+    /// Sensitive floor: upgrades (`UpgradeGov`, `UpgradePool`, `UpgradeController`),
+    /// ownership transfers (`TransferGovOwnership`, `TransferCtrlOwnership`),
+    /// `SetPriceAggregator`, `GrantGovRole`/`RevokeGovRole`, and
+    /// `ForceSocializeBadDebt`. Other ops use min delay. `TransferGovOwnership`
+    /// requires the owner as proposer; `RevokeGovRole` may not target the
+    /// proposer or the owner.
     ///
     /// # Errors
     /// * `NotAuthorized` — revoke self/owner, or non-owner proposes ownership transfer.
@@ -299,7 +305,8 @@ pub trait GovernanceInterface {
     );
 
     /// Moves an asset oracle sanity band immediately. `ORACLE`-gated. Aggregator
-    /// requires the new band to contain the live price.
+    /// requires the new band to overlap the old one and to contain the live
+    /// price; within that, the band may be widened as well as narrowed.
     ///
     /// # Errors
     /// * Access-control rejects non-`ORACLE`.
@@ -345,6 +352,9 @@ pub trait GovernanceInterface {
     /// * `TimelockOperationExpired` — past grace window.
     /// * `InvalidTimelockDelay`, `InvalidRole`, `OwnerNotSet`, `InvalidAggregator`
     ///   on self-apply; OZ not-scheduled / not-ready.
+    /// * `NotAuthorized` — `RevokeGovRole` targets the owner.
+    /// * `CannotRemoveLastProposer` — `RevokeGovRole` would leave the
+    ///   `PROPOSER` role with no holder.
     ///
     /// # Events
     /// * OZ timelock execute event plus role / ownership / upgrade events.

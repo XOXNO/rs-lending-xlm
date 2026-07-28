@@ -114,10 +114,7 @@ fn set_oracle_roundtrips_through_storage() {
     client.set_oracle(&PriceKey::Token(asset.clone()), &cfg);
     // Every config write publishes exactly one UpdateAssetOracleEvent.
     assert_eq!(env.events().all().events().len(), 1);
-    assert_eq!(
-        client.oracle(&PriceKey::Token(asset.clone())),
-        Some(cfg)
-    );
+    assert_eq!(client.oracle(&PriceKey::Token(asset.clone())), Some(cfg));
 }
 
 // Exactly one stale leg must mark the whole dual read stale (primary written
@@ -186,7 +183,10 @@ fn price_and_prices_resolve_live_redstone_feed() {
     assert_eq!(single.asset_decimals, 7);
 
     let bulk = client.prices(&Vec::from_array(&env, [PriceKey::Token(asset.clone())]));
-    assert_eq!(bulk.get(PriceKey::Token(asset.clone())).unwrap().price_wad, WAD);
+    assert_eq!(
+        bulk.get(PriceKey::Token(asset.clone())).unwrap().price_wad,
+        WAD
+    );
 }
 
 #[test]

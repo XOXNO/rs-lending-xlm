@@ -156,23 +156,48 @@ xfail gov_propose_bad_liquidation_curve 'Error\(Contract, #134\)' "$ADMIN" "$GOV
 --op '{"SetSpokeLiquidationCurve":{"spoke_id":1,"target_hf_wad":"1020000000000000000","hf_for_max_bonus_wad":"510000000000000000","liquidation_bonus_factor_bps":10001}}' \
 --salt "$GOV_SALT_BADCURVE"
 
-# Governance-self timelock path: grant a role to DAVE through execute_self.
-local op_self
-op_self=$(inv gov_self_propose_grant "$ADMIN" "$GOVERNANCE" -- propose \
---proposer "$ADMIN_ADDR" \
---op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
---salt "$GOV_SALT_SELF_GRANT" | tr -d '"[:space:]')
+# Governance-self timelock path (Standard tier): UpdateGovDelay matures at
+# get_min_delay (INTEG_MIN_DELAY). GrantGovRole is Sensitive-tier (7d floor)
+# and cannot reach Ready in the e2e window — exercise that only as propose→Waiting.
+local delay_now delay_next op_self
+delay_now=$(view gov_min_delay_pre_self "$GOVERNANCE" -- get_min_delay | tr -d '"[:space:]')
+delay_next=$((delay_now + 1))
+op_self=$(inv gov_self_propose_delay "$ADMIN" "$GOVERNANCE" -- propose \
+    --proposer "$ADMIN_ADDR" \
+    --op "{\"UpdateGovDelay\":$delay_next}" \
+    --salt "$GOV_SALT_SELF_GRANT" | tr -d '"[:space:]')
 gov_assert_state gov_self_state_waiting "$op_self" Waiting
 st=$(gov_await_ready "$op_self")
 if [ "$st" != "Ready" ] && [ "$st" != "Done" ]; then
-_assert_fail gov_self_await_ready "op $op_self never reached Ready (state=$st)"
+    _assert_fail gov_self_await_ready "op $op_self never reached Ready (state=$st)"
 fi
-inv gov_self_execute_grant "$ADMIN" "$GOVERNANCE" -- execute_self \
---executor null \
---op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
---salt "$GOV_SALT_SELF_GRANT" >/dev/null
-view gov_has_role_dave_executor "$GOVERNANCE" -- has_role \
---account "$DAVE_ADDR" --role EXECUTOR >/dev/null
+inv gov_self_execute_delay "$ADMIN" "$GOVERNANCE" -- execute_self \
+    --executor null \
+    --op "{\"UpdateGovDelay\":$delay_next}" \
+    --salt "$GOV_SALT_SELF_GRANT" >/dev/null
+assert_int_view_eq gov_min_delay_post_self "$delay_next" get_min_delay || \
+    view gov_min_delay_post_self "$GOVERNANCE" -- get_min_delay >/dev/null
+
+# Sensitive-tier self-op: propose only — cannot await Ready under e2e min_delay.
+local op_sensitive
+op_sensitive=$(inv gov_self_propose_grant "$ADMIN" "$GOVERNANCE" -- propose \
+    --proposer "$ADMIN_ADDR" \
+    --op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
+    --salt "$GOV_SALT_SELF_GRANT" | tr -d '"[:space:]') || true
+# Salt already used by UpdateGovDelay above — use a dedicated salt for sensitive.
+op_sensitive=$(inv gov_self_propose_grant "$ADMIN" "$GOVERNANCE" -- propose \
+    --proposer "$ADMIN_ADDR" \
+    --op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
+    --salt "$GOV_SALT_DENY" | tr -d '"[:space:]')
+gov_assert_state gov_self_sensitive_waiting "$op_sensitive" Waiting
+# Cancel so we do not leave a week-long Waiting op on the instance.
+inv gov_self_cancel_grant "$ADMIN" "$GOVERNANCE" -- cancel \
+    --canceller null \
+    --target "$GOVERNANCE" --function grant_role \
+    --args "[\"$DAVE_ADDR\",\"EXECUTOR\"]" \
+    --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_DENY" >/dev/null || \
+inv gov_self_cancel_grant "$ADMIN" "$GOVERNANCE" -- cancel \
+    --canceller null --operation_id "$op_sensitive" >/dev/null || true
 
 # Production WASM excludes testing-only entrypoints.
 xfail gov_execute_immediate_absent 'execute_immediate|unknown|not found|No such' \

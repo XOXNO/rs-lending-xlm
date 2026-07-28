@@ -1,6 +1,7 @@
-//! Read entrypoints: RedStone `RedStoneMultiFeed` (fail-closed) and SEP-40
-//! `PriceFeedTrait` (soft `Option`). SEP-40 delegates to RedStone helpers via
-//! plain function calls (same contract, no cross-contract overhead).
+//! Read entrypoints: RedStone fail-closed and SEP-40 soft-fail.
+//!
+//! RedStone surfaces `Err` on missing or stale aggregates. SEP-40 maps the same
+//! failures to `None` via in-crate RedStone helpers (no cross-contract call).
 
 use common::constants::MS_PER_SECOND;
 use common::oracle::observation::{millis_to_seconds, u256_to_i128};
@@ -16,16 +17,15 @@ use crate::storage::{
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
-// RedStone ABI — mirrors `RedStoneMultiFeed` exactly.
+// RedStone ABI — `RedStoneMultiFeed` surface.
 #[contractimpl]
 impl XoxnoOracle {
-    /// Returns the cached aggregate for `feed_id`. Fail-closed: missing or
-    /// past `MaxStaleSeconds` returns `Err` (price-aggregator hard path relies
-    /// on this).
+    /// Returns the cached aggregate for `feed_id`. Fail-closed: missing or past
+    /// `MaxStaleSeconds` returns `Err`.
     ///
     /// # Errors
-    /// * `NoDataForFeed` — no `CurrentAggregate` for `feed_id`.
-    /// * `StaleData` — aggregate age exceeds `MaxStaleSeconds`.
+    /// * [`Error::NoDataForFeed`] — no `CurrentAggregate` for `feed_id`.
+    /// * [`Error::StaleData`] — aggregate age exceeds `MaxStaleSeconds`.
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
         let key = DataKey::CurrentAggregate(feed_id.clone());
         let aggregate: RedStonePriceData = env
@@ -37,8 +37,7 @@ impl XoxnoOracle {
         renew_persistent_key(&env, &key);
 
         let max_stale = load_max_stale_seconds(&env);
-        // `write_timestamp` is milliseconds, the ledger clock is seconds;
-        // saturate so a write at/after `now` reads as fresh.
+        // `write_timestamp` is milliseconds; ledger clock is seconds.
         let age_seconds = env
             .ledger()
             .timestamp()
@@ -49,10 +48,10 @@ impl XoxnoOracle {
         Ok(aggregate)
     }
 
-    /// All-or-nothing bulk RedStone read; first missing/stale fails the whole call.
+    /// All-or-nothing bulk RedStone read; first missing or stale feed fails the call.
     ///
     /// # Errors
-    /// Same named variants as [`Self::read_price_data_for_feed`].
+    /// Same variants as [`Self::read_price_data_for_feed`].
     pub fn read_price_data(
         env: Env,
         feed_ids: Vec<String>,
@@ -64,18 +63,18 @@ impl XoxnoOracle {
         Ok(results)
     }
 
-    /// Newest-first history capped by `limit`. Fail-closed: live aggregate must
-    /// be present and within `MaxStaleSeconds`, so history cannot outlive spot.
+    /// Newest-first history capped by `limit`. Fail-closed: the live aggregate
+    /// must be present and within `MaxStaleSeconds`, so history cannot outlive
+    /// spot.
     ///
     /// # Errors
-    /// * `NoDataForFeed` — missing aggregate or empty history.
-    /// * `StaleData` — live aggregate past `MaxStaleSeconds`.
+    /// * [`Error::NoDataForFeed`] — missing aggregate or empty history.
+    /// * [`Error::StaleData`] — live aggregate past `MaxStaleSeconds`.
     pub fn read_price_history(
         env: Env,
         feed_id: String,
         limit: u32,
     ) -> Result<Vec<RedStonePriceData>, Error> {
-        // Spot TTL / presence gate first.
         Self::read_price_data_for_feed(env.clone(), feed_id.clone())?;
 
         let key = DataKey::History(feed_id.clone());
@@ -91,8 +90,6 @@ impl XoxnoOracle {
 
         let take = core::cmp::min(limit, history.len());
         let mut newest_first = Vec::new(&env);
-        // Walk backwards from the newest sample; `take <= history.len()` bounds
-        // the index from below.
         for i in 0..take {
             newest_first.push_back(history.get_unchecked(history.len() - 1 - i));
         }
@@ -104,7 +101,7 @@ impl XoxnoOracle {
         load_max_submission_age(&env)
     }
 
-    /// Cache TTL for `read_price_data_for_feed` / history gates.
+    /// Cache TTL for `read_price_data_for_feed` and history gates.
     pub fn max_stale_seconds(env: Env) -> u64 {
         load_max_stale_seconds(&env)
     }
@@ -152,8 +149,8 @@ impl XoxnoOracle {
         let feed_id = load_feed_id(&env, &asset)?;
         let history = Self::read_price_history(env.clone(), feed_id, MAX_HISTORY_LEN).ok()?;
 
-        // Select on `package_timestamp` (the exposed observation time), which
-        // is non-monotonic across recomputes — scan the whole window for the
+        // Select on `package_timestamp` (exposed observation time). Values are
+        // non-monotonic across recomputes — scan the full window for the
         // greatest qualifying observation rather than trusting position.
         let mut best: Option<RedStonePriceData> = None;
         for entry in history.iter() {
@@ -191,7 +188,7 @@ impl XoxnoOracle {
     }
 }
 
-// SEP-40 timestamp = observation (`package_timestamp`), never write time:
+// SEP-40 timestamp is observation (`package_timestamp`), not write time —
 // write time would accept stale aggregates the RedStone path rejects.
 fn to_reflector_price_data(env: &Env, data: &RedStonePriceData) -> ReflectorPriceData {
     let price = u256_to_i128(env, &data.price);

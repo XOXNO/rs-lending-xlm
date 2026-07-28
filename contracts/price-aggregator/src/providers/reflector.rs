@@ -1,5 +1,9 @@
-//! Reflector SEP-40: spot or TWAP. No bulk API — one call per feed.
-//! Always soft: bad market data → `None` (hard path maps via force).
+//! Reflector SEP-40 reads: spot or TWAP. No bulk API — one call per feed.
+//!
+//! Spot is soft: bad market data → `None`. TWAP maps history / observation /
+//! price failures to `Result` and then `.ok()` at the entry so soft views see
+//! unreadable and hard `force` panics `NoLastPrice` (not TWAP-specific codes).
+//! Invalid TWAP record counts still trap via `validate_twap_records`.
 
 use common::errors::OracleError;
 use common::oracle::observation::is_future_at;
@@ -34,6 +38,7 @@ mod certora_read {
 #[cfg(not(feature = "certora"))]
 pub(crate) use read_reflector_source_impl as read_reflector_source;
 
+/// Spot or TWAP observation for `feed`, normalized to WAD.
 pub(crate) fn read_reflector_source_impl(
     session: &mut Session,
     feed: &ReflectorFeedRef,
@@ -41,8 +46,7 @@ pub(crate) fn read_reflector_source_impl(
 ) -> Option<OracleObservation> {
     match feed.read_mode {
         OracleReadMode::Spot => read_spot(session, feed, decimals),
-        // TWAP config/history problems are miss-equivalent: soft views show
-        // unreadable; hard force panics NoLastPrice (not TWAP-specific codes).
+        // TWAP config/history problems are miss-equivalent after `.ok()`.
         OracleReadMode::Twap(records) => read_twap(session, feed, decimals, records).ok(),
     }
 }
@@ -67,7 +71,7 @@ fn read_twap(
 ) -> Result<OracleObservation, OracleError> {
     let env = session.env();
     let now_secs = session.now_secs();
-    // Invalid record count is a config bug — still traps (validate panics).
+    // Invalid record count is a config bug — traps via validate.
     validate_twap_records(env, records);
 
     let asset = to_reflector_asset(env, &feed.asset);
@@ -92,9 +96,8 @@ fn read_twap(
     }
 
     let raw_price = try_twap_mean_price(&history).ok_or(OracleError::InvalidPrice)?;
-    let price_wad =
-        common::oracle::observation::try_normalize_positive_price(raw_price, decimals)
-            .ok_or(OracleError::InvalidPrice)?;
+    let price_wad = common::oracle::observation::try_normalize_positive_price(raw_price, decimals)
+        .ok_or(OracleError::InvalidPrice)?;
     Ok(OracleObservation {
         price_wad,
         observed_at: oldest_ts,

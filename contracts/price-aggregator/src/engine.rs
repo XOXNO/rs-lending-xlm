@@ -1,17 +1,23 @@
-//! Price resolution: compose once → Outcome → force (hard) or to_status (soft).
+//! Price resolution: compose once into an [`Outcome`], then hard [`force`] or
+//! soft [`to_status`].
 //!
-//! One evaluator. Soft and hard share every step of compose / blend / gates.
-//! Only the edge differs: [`force`] panics with [`Outcome::failure`];
-//! [`to_status`] turns the same failure into flags.
+//! Soft and hard share every step of compose, blend, and gates. Only the edge
+//! differs: [`force`] panics with the code from [`Outcome::failure`];
+//! [`to_status`] maps the same failure into flags (`valid`, `stale`,
+//! `deviation`, unusable).
 //!
-//! Three gates (single source of truth: [`Outcome::failure`]):
-//! 1. **Stale** — per-feed window + asset ceiling
-//! 2. **Disagree** — dual sources outside tolerance
-//! 3. **Sanity** — final USD outside [min, max]
+//! Gate order in [`Outcome::failure`]:
+//! 1. Structural / nested `err` (config, cycle, depth, factor band, quote)
+//! 2. Unreadable market data → `NoLastPrice`
+//! 3. Stale (per-feed window and asset ceiling)
+//! 4. Dual-source disagreement (`deviation`)
+//! 5. Non-positive final USD price
+//! 6. Sanity band
 //!
-//! Providers always return `Option` (soft I/O). Precise codes for structural
-//! failures (not configured, depth, cycle, factor band, nested quote gates)
-//! live on [`Outcome::err`] and surface only through [`force`].
+//! Provider reads return `Option` for market data. Structural failures that
+//! must not look like a soft miss are carried on [`Outcome::err`] and surface
+//! through [`force`] with their precise code. Scaled nested quotes re-run the
+//! same evaluator and promote nested gate failures as typed `err`.
 
 use common::errors::OracleError;
 use common::math::fp::Wad;
@@ -34,7 +40,7 @@ struct Reading {
     stale: bool,
 }
 
-/// Which configured dual leg is present when the other is missing.
+/// Which dual leg produced a reading when the other is missing.
 #[derive(Clone, Copy)]
 enum LegSlot {
     Primary,
@@ -47,7 +53,7 @@ enum Legs {
         primary: Reading,
         anchor: Reading,
     },
-    /// Dual config, exactly one leg readable → `deviation` (not mere unreadable).
+    /// Dual config with exactly one readable leg → always `deviation`.
     Partial {
         reading: Reading,
         slot: LegSlot,
@@ -67,7 +73,7 @@ pub(crate) struct Outcome {
     pub stale: bool,
     pub deviation: bool,
     pub unreadable: bool,
-    /// Structural / nested-precise failure. Soft → unusable; hard → panic code.
+    /// Structural or nested-precise failure. Soft → unusable; hard → panic code.
     pub err: Option<OracleError>,
 }
 
@@ -142,7 +148,7 @@ impl Outcome {
 
     /// Shared gate order for hard reverts and soft `valid`.
     ///
-    /// `oracle` is `None` only when config was missing (err already set).
+    /// `oracle` is `None` only when config was missing (`err` already set).
     fn failure(&self, oracle: Option<&AssetOracle>) -> Option<OracleError> {
         if let Some(err) = self.err {
             return Some(err);
@@ -183,12 +189,8 @@ impl Outcome {
     }
 }
 
-/// Fail-closed: panic with the precise gate / structural error.
-pub(crate) fn force(
-    env: &Env,
-    outcome: &Outcome,
-    oracle: Option<&AssetOracle>,
-) -> PriceFeedRaw {
+/// Fail-closed: panic with the precise gate or structural error.
+pub(crate) fn force(env: &Env, outcome: &Outcome, oracle: Option<&AssetOracle>) -> PriceFeedRaw {
     if let Some(err) = outcome.failure(oracle) {
         panic_with_error!(env, err);
     }
@@ -211,7 +213,7 @@ pub(crate) fn to_status(outcome: &Outcome, oracle: Option<&AssetOracle>) -> Pric
     }
 }
 
-/// Hard USD price for `key`. Honors the price memo when present.
+/// Hard USD price for `key`. Returns the price memo when present.
 pub(crate) fn resolve(session: &mut Session, key: &PriceKey, depth: u32) -> PriceFeedRaw {
     if let Some(cached) = session.cached_price(key) {
         return cached;
@@ -221,7 +223,7 @@ pub(crate) fn resolve(session: &mut Session, key: &PriceKey, depth: u32) -> Pric
     feed
 }
 
-/// Soft status for `key`.
+/// Soft status for `key`. Returns the status memo when present.
 pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) -> PriceStatus {
     if let Some(cached) = session.cached_status(key) {
         return cached;
@@ -232,14 +234,16 @@ pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) 
     status
 }
 
-/// Configure-time probe against an unstored config. Does not memoize.
+/// Configure-time hard probe against an unstored (or staged) config.
+/// Does not write price or status memos.
 pub(crate) fn probe(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
     let env = session.env().clone();
     let (outcome, resolved) = resolve_outcome(session, key, 0, Some(oracle));
     let _ = force(&env, &outcome, resolved.as_ref().or(Some(oracle)));
 }
 
-/// Hard resolve with interval. Always recomputes (memo has feed only, not legs).
+/// Hard resolve plus full [`Outcome`] (leg interval). Recomputes even when a
+/// price memo exists, then refreshes that memo.
 pub(crate) fn resolve_detailed(
     session: &mut Session,
     key: &PriceKey,
@@ -262,7 +266,7 @@ fn compute_hard(
     (feed, outcome)
 }
 
-/// Mode-independent evaluation. Never panics on market data.
+/// Mode-independent evaluation. Does not panic on market-data misses.
 fn resolve_outcome(
     session: &mut Session,
     key: &PriceKey,
@@ -305,18 +309,12 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
     match legs {
         Legs::Empty => Outcome::unreadable(),
         Legs::One(r) => Outcome::one(r, oracle.asset_decimals),
-        Legs::Partial { reading, slot } => {
-            Outcome::partial(reading, slot, oracle.asset_decimals)
-        }
+        Legs::Partial { reading, slot } => Outcome::partial(reading, slot, oracle.asset_decimals),
         Legs::Two { primary, anchor } => {
             let stale = primary.stale || anchor.stale;
             let ts = primary.timestamp.min(anchor.timestamp);
-            let deviation = !within_tolerance_band(
-                env,
-                anchor.price_wad,
-                primary.price_wad,
-                &oracle.tolerance,
-            );
+            let deviation =
+                !within_tolerance_band(env, anchor.price_wad, primary.price_wad, &oracle.tolerance);
             // Overflow → 0 → force maps to InvalidPrice (soft: invalid).
             let price_wad = midpoint_price_or_zero(anchor.price_wad, primary.price_wad);
             Outcome {
@@ -336,11 +334,7 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
     }
 }
 
-fn compose(
-    session: &mut Session,
-    oracle: &AssetOracle,
-    depth: u32,
-) -> Result<Legs, OracleError> {
+fn compose(session: &mut Session, oracle: &AssetOracle, depth: u32) -> Result<Legs, OracleError> {
     let count = oracle.sources.len();
     if count == 0 || count > 2 {
         return Err(OracleError::SourceCountOutOfRange);
@@ -405,17 +399,10 @@ fn evaluate_source(
     }
 }
 
-fn read_feed(
-    session: &mut Session,
-    feed: &FeedSource,
-) -> Option<(OracleObservation, bool)> {
+fn read_feed(session: &mut Session, feed: &FeedSource) -> Option<(OracleObservation, bool)> {
     let observation = match &feed.provider {
-        ProviderRef::Reflector(r) => {
-            reflector::read_reflector_source(session, r, feed.decimals)
-        }
-        ProviderRef::MultiFeed(m) => {
-            multi_feed::read_multi_feed_source(session, m, feed.decimals)
-        }
+        ProviderRef::Reflector(r) => reflector::read_reflector_source(session, r, feed.decimals),
+        ProviderRef::MultiFeed(m) => multi_feed::read_multi_feed_source(session, m, feed.decimals),
     }?;
 
     let stale = is_stale(
@@ -440,14 +427,13 @@ fn read_scaled(
         return Err(OracleError::FactorOutOfBounds);
     }
 
-    // Same evaluator as the top level — only force/to_status diverge.
+    // Same evaluator as the top level — only force / to_status diverge.
     let (quote_out, quote_oracle) = resolve_outcome(session, &scaled.quote, depth + 1, None);
     if let Some(err) = quote_out.failure(quote_oracle.as_ref()) {
         return Err(err);
     }
 
-    let Some(price_wad) =
-        Wad::from(factor.price_wad).try_mul(&env, Wad::from(quote_out.price_wad))
+    let Some(price_wad) = Wad::from(factor.price_wad).try_mul(&env, Wad::from(quote_out.price_wad))
     else {
         return Err(OracleError::InvalidPrice);
     };

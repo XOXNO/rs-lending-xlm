@@ -1,5 +1,7 @@
-//! Asset/feed registry and per-signer feed sets: the mappings that decide
-//! which feeds exist and who may submit to them.
+//! Asset/feed registry and per-signer feed sets.
+//!
+//! Controls which feeds exist, which SEP-40 assets map to them, and which
+//! feeds each signer has submitted to.
 
 use common::oracle::providers::reflector::ReflectorAsset;
 use soroban_sdk::{Address, Env, String, Vec};
@@ -28,8 +30,8 @@ pub(crate) fn load_feed_owner(env: &Env, feed_id: &String) -> Option<ReflectorAs
     })
 }
 
-// Read-renews slots so active index can't archive under a later swap-remove.
-/// Every registered asset, skipping archived slots and renewing the live ones.
+/// Every registered asset, skipping archived slots and renewing live ones so an
+/// active index cannot expire under a later swap-remove.
 pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
     let count = asset_count(env);
     let mut out = Vec::new(env);
@@ -43,7 +45,7 @@ pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
     out
 }
 
-/// Every registered feed id, skipping archived slots and renewing the live ones.
+/// Every registered feed id, skipping archived slots and renewing live ones.
 pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
     let count = feed_count(env);
     let mut out = Vec::new(env);
@@ -64,10 +66,10 @@ pub(crate) fn ensure_known_feed(env: &Env, feed_id: &String) {
     }
 }
 
-/// Renews the allowlist gate (`FeedIndex` + its paired `FeedAt` slot) for an
-/// already-registered feed. Returns `false` when the entry is absent, without
-/// inserting. Called on the submit hot path so an actively-submitted feed keeps
-/// its gate alive on-chain rather than relying solely on the off-chain keeper.
+/// Renews the allowlist gate (`FeedIndex` + paired `FeedAt` slot) for an
+/// already-registered feed. Returns `false` when absent, without inserting.
+/// Called on the submit hot path so an actively-submitted feed keeps its gate
+/// alive on-chain.
 pub(crate) fn renew_known_feed(env: &Env, feed_id: &String) -> bool {
     let index_key = DataKey::FeedIndex(feed_id.clone());
     match env.storage().persistent().get::<DataKey, u32>(&index_key) {
@@ -80,8 +82,8 @@ pub(crate) fn renew_known_feed(env: &Env, feed_id: &String) -> bool {
     }
 }
 
-/// Adds `feed_id` to a signer's submitted-feed set, renewing when already present.
-/// The set is what `remove_signer` uses to find the state it must clean up.
+/// Adds `feed_id` to a signer's submitted-feed set, renewing when already
+/// present. `remove_signer` uses this set to find state to clean up.
 pub(crate) fn record_signer_feed(env: &Env, signer: &Address, feed_id: &String) {
     let key = DataKey::SignerFeeds(signer.clone());
     let mut feeds: Vec<String> = env
@@ -106,8 +108,7 @@ pub(crate) fn load_signer_feeds(env: &Env, signer: &Address) -> Vec<String> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
-/// Drops `feed_id` from a signer's set, removing the entry entirely when it
-/// empties so a departed signer leaves no dangling key.
+/// Drops `feed_id` from a signer's set. Removes the storage entry when empty.
 pub(crate) fn remove_signer_feed(env: &Env, signer: &Address, feed_id: &String) {
     let key = DataKey::SignerFeeds(signer.clone());
     let Some(feeds): Option<Vec<String>> = env.storage().persistent().get(&key) else {
@@ -127,11 +128,10 @@ pub(crate) fn remove_signer_feed(env: &Env, signer: &Address, feed_id: &String) 
     }
 }
 
-/// Drops aggregate, history, per-signer submissions, known-feed index entry,
-/// and reverse asset ownership for `feed_id`. Mapping for an asset is left to
-/// the caller (`remove_feed`) so purge can reset data under a live mapping.
-/// Erases every per-feed key — aggregate, history, and submissions — so a
-/// re-registered feed starts clean rather than inheriting stale samples.
+/// Erases aggregate, history, per-signer submissions, known-feed index entry,
+/// and reverse asset ownership for `feed_id`. Asset mapping is left to the
+/// caller (`remove_feed` / `purge_feed`) so purge can reset data under a live
+/// mapping when needed. A re-registered feed starts clean.
 pub(crate) fn clear_feed_state(env: &Env, feed_id: &String) {
     env.storage()
         .persistent()
@@ -151,7 +151,7 @@ pub(crate) fn clear_feed_state(env: &Env, feed_id: &String) {
     feed_index_remove(env, feed_id);
 }
 
-/// Reverts `NotAuthorizedSigner` when `signer` is not registered.
+/// Returns [`Error::NotAuthorizedSigner`] when `signer` is not registered.
 pub(crate) fn require_registered_signer(env: &Env, signer: &Address) -> Result<(), Error> {
     let signers = load_signers(env);
     if !signers.contains(signer) {
@@ -160,7 +160,7 @@ pub(crate) fn require_registered_signer(env: &Env, signer: &Address) -> Result<(
     Ok(())
 }
 
-/// Reverts `FeedNotKnown` when `feed_id` is absent from the allowlist.
+/// Returns [`Error::FeedNotKnown`] when `feed_id` is absent from the allowlist.
 pub(crate) fn require_known_feed(env: &Env, feed_id: &String) -> Result<(), Error> {
     if !feed_index_contains(env, feed_id) {
         return Err(Error::FeedNotKnown);

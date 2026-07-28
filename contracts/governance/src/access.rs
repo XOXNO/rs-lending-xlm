@@ -1,5 +1,8 @@
-//! Ownership, operational roles, and self-admin apply helpers. Owner is root
-//! recovery authority; non-owners may not hold both `EXECUTOR` and `CANCELLER`.
+//! Ownership, operational roles, and self-admin apply helpers.
+//!
+//! Owner is root recovery authority. Non-owners may not hold both `EXECUTOR`
+//! and `CANCELLER`. Owner roles are not revocable; the last `PROPOSER` cannot
+//! be removed.
 
 use common::errors::GenericError;
 
@@ -15,12 +18,10 @@ pub(crate) const ORACLE_ROLE: &str = "ORACLE";
 pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
 pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
 pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
-/// Immediate incident role: per-listing pause/freeze flags and instant
-/// hub/spoke registry creation, bypassing the timelock.
+/// Incident role: per-listing pause/freeze and hub/spoke creation without delay.
 pub(crate) const GUARDIAN_ROLE: &str = "GUARDIAN";
 
-/// The five operational roles this contract recognises. Ownership is separate
-/// and is not a role.
+/// The five operational roles. Ownership is separate and is not a role.
 pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 5] {
     [
         Symbol::new(env, ORACLE_ROLE),
@@ -31,11 +32,10 @@ pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 5] {
     ]
 }
 
-/// Rejects a role symbol outside [`default_operational_roles`], so a typo
-/// cannot grant an unreachable role that looks live on-chain.
+/// Rejects role symbols outside [`default_operational_roles`].
 ///
 /// # Errors
-/// * `InvalidRole` — the symbol is not one of the five operational roles.
+/// * [`GenericError::InvalidRole`] — unknown role symbol.
 pub(crate) fn require_known_governance_role(env: &Env, role: &Symbol) {
     assert_with_error!(
         env,
@@ -89,19 +89,19 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
 /// Current owner.
 ///
 /// # Errors
-/// * `OwnerNotSet` — the contract has no owner configured.
+/// * [`GenericError::OwnerNotSet`] — no owner configured.
 pub(crate) fn owner_or_panic(env: &Env) -> Address {
     ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
 }
 
-/// Replaces this contract's own Wasm. Runs only after its timelock matures.
+/// Replaces this contract's Wasm after its Sensitive-tier timelock matures.
 pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     storage::renew_governance_instance(env);
     stellar_contract_utils::upgradeable::upgrade(env, new_wasm_hash);
 }
 
-/// Starts a two-step ownership handover: writes the pending owner with an
-/// expiry, leaving the current owner in place until the recipient accepts.
+/// Starts two-step ownership transfer: pending owner with expiry; current owner
+/// remains until `accept_ownership`.
 pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     storage::renew_governance_instance(env);
     let current_owner = owner_or_panic(env);
@@ -116,12 +116,8 @@ pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_unti
     sync_pending_admin_transfer(env, new_owner, live_until_ledger);
 }
 
-/// Disallows `EXECUTOR`/`CANCELLER` overlap for non-owner accounts. The owner
-/// is exempt: it must be able to hold both recovery roles at once so it can
-/// always cancel a pending malicious or erroneous operation even while
-/// holding `EXECUTOR` — otherwise an accidental/malicious revoke of the
-/// owner's `CANCELLER` could never be undone through the timelocked grant
-/// path.
+/// Rejects non-owner accounts that would hold both `EXECUTOR` and `CANCELLER`.
+/// Owner is exempt so it can retain cancel authority while holding execute.
 fn require_executor_canceller_separation(
     env: &Env,
     owner: &Address,
@@ -147,8 +143,12 @@ fn require_executor_canceller_separation(
     );
 }
 
-/// Grants an operational role, rejecting an executor/canceller overlap so no
-/// single account can both schedule and veto.
+/// Grants an operational role. Enforces executor/canceller separation for
+/// non-owners.
+///
+/// # Errors
+/// * [`GenericError::InvalidRole`] — would create executor/canceller overlap.
+/// * [`GenericError::OwnerNotSet`] — no owner.
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     storage::renew_governance_instance(env);
     let owner = owner_or_panic(env);
@@ -156,8 +156,13 @@ pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     access_control::grant_role_no_auth(env, account, role, &owner);
 }
 
-/// Revokes every non-owner CANCELLER holder and grants CANCELLER to each address
-/// in `new_cancellers`. Owner's CANCELLER is preserved (root recovery authority).
+/// Replaces the non-owner `CANCELLER` set with `new_cancellers`. Owner's
+/// `CANCELLER` is always preserved. Enforces executor/canceller separation on
+/// each non-owner grant.
+///
+/// # Errors
+/// * [`GenericError::InvalidRole`] — non-owner would hold both roles.
+/// * [`GenericError::OwnerNotSet`] — no owner.
 pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &soroban_sdk::Vec<Address>) {
     storage::renew_governance_instance(env);
     let owner = owner_or_panic(env);
@@ -172,8 +177,6 @@ pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &soroban_sdk::Vec
     }
     for account in new_cancellers.iter() {
         if account != owner && access_control::has_role(env, &account, &role).is_none() {
-            // Recovery grants obey the same EXECUTOR/CANCELLER separation the
-            // normal grant path enforces: a non-owner may not hold both.
             require_executor_canceller_separation(env, &owner, &account, &role);
             access_control::grant_role_no_auth(env, &account, &role, &owner);
         }
@@ -183,25 +186,19 @@ pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &soroban_sdk::Vec
 /// Revokes an operational role.
 ///
 /// # Errors
-/// * `InvalidRole` — the account does not hold the role (no-op revokes are
-///   rejected so a failed revoke is never mistaken for a successful one).
+/// * [`GenericError::InvalidRole`] — account does not hold the role.
+/// * [`GenericError::NotAuthorized`] — account is the owner.
+/// * [`GenericError::CannotRemoveLastProposer`] — would leave zero proposers.
+/// * [`GenericError::OwnerNotSet`] — no owner.
 pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
     storage::renew_governance_instance(env);
-    // Reject no-op revokes.
     assert_with_error!(
         env,
         access_control::has_role(env, account, role).is_some(),
         GenericError::InvalidRole
     );
     let owner = owner_or_panic(env);
-    // The owner is the root recovery authority; its roles are never revocable.
-    // Enforced here so it holds for both the timelocked `RevokeGovRole` path and
-    // the immediate `revoke_role_immediate` escape hatch. Ownership transfer
-    // migrates roles through `revoke_role_no_auth` directly, bypassing this.
     assert_with_error!(env, account != &owner, GenericError::NotAuthorized);
-    // Never remove the last PROPOSER: it is the sole gate on `propose`, and every
-    // recovery path (grant role, upgrade, ownership transfer) must be scheduled
-    // through it, so zeroing it would permanently freeze governance.
     if *role == Symbol::new(env, PROPOSER_ROLE) {
         assert_with_error!(
             env,
@@ -214,18 +211,18 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
 
 #[contractimpl]
 impl Governance {
-    /// Initializes governance: sets `admin` as owner and access-control admin,
-    /// grants the five operational roles, and sets the timelock min delay.
+    /// Sets owner, access-control admin, five operational roles, and min delay.
+    ///
+    /// # Arguments
+    /// * `admin` — becomes owner and holds all operational roles.
+    /// * `min_delay` — initial timelock minimum (nonzero; mainnet should be
+    ///   ≥ [`crate::TIMELOCK_MIN_DELAY_LEDGERS`]).
     ///
     /// # Errors
-    /// * `InvalidTimelockDelay` — `min_delay` is zero.
+    /// * [`GenericError::InvalidTimelockDelay`] — `min_delay` is zero.
     ///
     /// # Security Warning
-    /// * Runs once at deploy with no authorization; `admin` becomes owner and
-    ///   holds `ORACLE`, `PROPOSER`, `EXECUTOR`, `CANCELLER`, and `GUARDIAN`.
-    /// * `min_delay` is only floored at nonzero. Mainnet deploys must set it at
-    ///   or above `TIMELOCK_MIN_DELAY_LEDGERS` (48h); shorter delays are supported
-    ///   for non-mainnet only.
+    /// * Runs once at deploy with no authorization.
     pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
         ownable::set_owner(&env, &admin);
         access_control::set_admin(&env, &admin);
@@ -238,15 +235,16 @@ impl Governance {
         stellar_governance::timelock::set_min_delay(&env, min_delay);
     }
 
-    /// Accepts pending ownership transfer; pending owner must authorize.
-    /// Migrates access-control admin and the five operational roles.
+    /// Completes pending ownership transfer. Pending owner must authorize.
+    /// Migrates access-control admin and grants all operational roles to the
+    /// new owner; revokes them from the previous owner when distinct.
     ///
     /// # Errors
-    /// * `OwnerNotSet` — no current owner.
-    /// * OZ ownable rejects unauthorized or missing pending transfer.
+    /// * [`GenericError::OwnerNotSet`] — no current owner.
+    /// * Ownable rejects missing or unauthorized pending transfer.
     ///
     /// # Events
-    /// * Ownership- and admin-transfer-completed; role grant/revoke events.
+    /// * Ownership and admin transfer completed; role grant/revoke events.
     pub fn accept_ownership(env: Env) {
         storage::renew_governance_instance(&env);
         let previous_owner = owner_or_panic(&env);

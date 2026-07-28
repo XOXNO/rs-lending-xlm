@@ -1,6 +1,9 @@
-//! Write path: storage, events, provider attestation, validate + probe + store.
+//! Write path: persistent storage, events, provider attestation, and
+//! validate → probe → commit.
 //!
-//! [`set_oracle`]: validate (static) → attest → probe (live) → commit.
+//! [`set_oracle`]: static validate → attest live provider facts → hard probe →
+//! store + event. [`set_sanity_band`] and [`set_tolerance`] stage the field
+//! change, hard-probe under the staged config, then commit.
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::{GenericError, OracleError};
@@ -16,9 +19,7 @@ use common::types::{
 use common::validation::{
     validate_oracle_tolerance, validate_sanity_bounds, validate_single_source_sanity_band,
 };
-use soroban_sdk::{
-    assert_with_error, contractevent, contracttype, panic_with_error, Env, Symbol,
-};
+use soroban_sdk::{assert_with_error, contractevent, contracttype, panic_with_error, Env, Symbol};
 
 use crate::engine;
 use crate::properties;
@@ -33,7 +34,7 @@ enum AggregatorKey {
     Oracle(PriceKey),
 }
 
-/// Stored oracle for `key`, renewing shared-tier TTL on hit.
+/// Stored oracle for `key`, extending shared-tier TTL on hit.
 pub(crate) fn get_oracle(env: &Env, key: &PriceKey) -> Option<AssetOracle> {
     let storage_key = AggregatorKey::Oracle(key.clone());
     let oracle: Option<AssetOracle> = env.storage().persistent().get(&storage_key);
@@ -45,6 +46,7 @@ pub(crate) fn get_oracle(env: &Env, key: &PriceKey) -> Option<AssetOracle> {
     oracle
 }
 
+/// Persist `oracle` for `key` and extend shared-tier TTL.
 pub(crate) fn store_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     let storage_key = AggregatorKey::Oracle(key.clone());
     env.storage().persistent().set(&storage_key, oracle);
@@ -53,7 +55,7 @@ pub(crate) fn store_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
         .extend_ttl(&storage_key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
-/// Test-only: remove a key's oracle.
+/// Test-only: remove the stored oracle for `key`.
 #[cfg(any(test, feature = "testing"))]
 pub(crate) fn remove_oracle(env: &Env, key: &PriceKey) {
     env.storage()
@@ -70,7 +72,7 @@ fn commit(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
 // Events
 // ---------------------------------------------------------------------------
 
-/// Published on every composable-oracle write (config verbatim).
+/// Emitted on every successful oracle write with the stored config verbatim.
 #[contractevent(topics = ["config", "asset_oracle"])]
 #[derive(Clone, Debug)]
 pub struct UpdateAssetOracleEvent {
@@ -164,7 +166,15 @@ fn attest_xoxno(env: &Env, contract: &soroban_sdk::Address, decimals: u32, max_s
 // Writes
 // ---------------------------------------------------------------------------
 
-/// Validate → attest → live probe → store → event.
+/// Validate → attest → live hard probe → store → event.
+///
+/// # Errors
+/// * Static config validation ([`validate_asset_oracle`]).
+/// * Provider attestation (base, decimals, resolution, staleness envelope).
+/// * Hard probe gate failures under the staged config.
+///
+/// # Events
+/// * [`UpdateAssetOracleEvent`]
 pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     validate_asset_oracle(env, &key, &oracle);
     attest_sources(env, &oracle);
@@ -173,7 +183,12 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     commit(env, &key, &oracle);
 }
 
-/// Static validation from config + dependency graph (no feed reads).
+/// Static config validation and dependency-graph checks (no feed reads).
+///
+/// Walks sources for shape, composition depth, staleness envelope, smoothing,
+/// tolerance, and dual-source independence. Builds properties via
+/// [`properties::properties_of_config`], which panics if a nested key lacks a
+/// stored oracle or the dependency graph cycles / exceeds depth.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     validate_sanity_bounds(
         env,
@@ -210,7 +225,17 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
     }
 }
 
-/// Walk the sanity band; new band must overlap old and contain live hard price.
+/// Stage a new sanity band, require overlap with the previous band, hard-probe
+/// so the live price lies inside the new band, then commit.
+///
+/// # Errors
+/// * [`OracleError::OracleNotConfigured`] — no stored oracle for `key`.
+/// * [`OracleError::InvalidSanityBounds`] — invalid or non-overlapping band;
+///   single-source band rules.
+/// * Hard probe failures under the staged band.
+///
+/// # Events
+/// * [`UpdateAssetOracleEvent`]
 pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: i128) {
     let mut oracle = get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
@@ -230,11 +255,18 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
     commit(env, &key, &oracle);
 }
 
-/// Replace the dual-source agreement band.
+/// Replace the dual-source agreement band, hard-probe under the staged band,
+/// then commit.
 ///
-/// Live hard probe after the band is applied so a widen cannot unfreeze a dual
-/// market on a contested midpoint without the current feeds agreeing under the
-/// new band (same containment discipline as [`set_sanity_band`]).
+/// Probe runs after the band is applied so a widen cannot commit a contested
+/// midpoint that still fails under the new band.
+///
+/// # Errors
+/// * [`OracleError::OracleNotConfigured`] — no stored oracle for `key`.
+/// * Tolerance validation and hard probe failures.
+///
+/// # Events
+/// * [`UpdateAssetOracleEvent`]
 pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance) {
     let mut oracle = get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));

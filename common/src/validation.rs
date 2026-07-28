@@ -172,12 +172,7 @@ pub fn validate_oracle_tolerance(env: &Env, tolerance: &OracleTolerance) {
         OracleError::BadLastTolerance
     );
     // Order-invariant dual agree: lower = half-up(BPS² / upper), same as governance.
-    let expected_lower = mul_div_half_up(
-        env,
-        BPS,
-        BPS,
-        i128::from(tolerance.upper_ratio_bps),
-    );
+    let expected_lower = mul_div_half_up(env, BPS, BPS, i128::from(tolerance.upper_ratio_bps));
     assert_with_error!(
         env,
         i128::from(tolerance.lower_ratio_bps) == expected_lower,
@@ -213,12 +208,7 @@ pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
 /// # Errors
 /// * [`OracleError::SanityBandTooWideForSingleSource`] - band too wide for a
 ///   lone opinion.
-pub fn validate_single_source_sanity_band(
-    env: &Env,
-    is_dual: bool,
-    min_wad: i128,
-    max_wad: i128,
-) {
+pub fn validate_single_source_sanity_band(env: &Env, is_dual: bool, min_wad: i128, max_wad: i128) {
     if is_dual {
         return;
     }

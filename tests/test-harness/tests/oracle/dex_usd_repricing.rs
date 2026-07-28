@@ -160,7 +160,10 @@ fn test_scaled_read_fails_closed_when_quote_key_loses_its_oracle() {
     assert_eq!(row.price_wad, 0);
 
     // Hard read path reverts rather than pricing without the quote.
-    let mapped = match t.price_agg_client().try_price(&PriceKey::Token(xlm.clone())) {
+    let mapped = match t
+        .price_agg_client()
+        .try_price(&PriceKey::Token(xlm.clone()))
+    {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };

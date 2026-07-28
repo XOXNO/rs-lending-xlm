@@ -1,8 +1,10 @@
-//! One transaction session: clock, cycle stack, multi-feed cache, key memos.
+//! Transaction-local pricing state: ledger clock, cycle stack, multi-feed
+//! payload cache, and per-key price / status memos.
 //!
-//! Bulk `prices` / `quotes` call [`Session::warm`] once, then engine resolve
-//! each key. Multi-feed adapters are bulk-fetched by address; Reflector is not.
-//! The feed cache also holds lazy single multi-feed reads within the same call.
+//! Bulk `prices` / `quotes` call [`Session::warm`] once, then resolve each key.
+//! Multi-feed adapters may be bulk-fetched by contract address when a call
+//! needs two or more distinct feed ids; Reflector has no bulk path. The feed
+//! cache also stores lazy single multi-feed reads within the same session.
 
 use common::errors::OracleError;
 use common::oracle::providers::redstone::RedStonePriceData;
@@ -15,7 +17,7 @@ use common::types::{PriceSource, ProviderRef, MAX_RESOLUTION_DEPTH};
 /// Transaction-local state for one pricing call.
 pub(crate) struct Session {
     env: Env,
-    /// Multi-feed payloads: filled by [`Self::warm`] (bulk) and by lazy singles.
+    /// Multi-feed payloads filled by [`Self::warm`] and by lazy single reads.
     feed_cache: Map<(Address, String), RedStonePriceData>,
     resolving_keys: Vec<PriceKey>,
     key_prices: Map<PriceKey, PriceFeedRaw>,
@@ -24,6 +26,7 @@ pub(crate) struct Session {
 }
 
 impl Session {
+    /// Snapshot the ledger timestamp and empty caches / stacks.
     pub(crate) fn new(env: &Env) -> Self {
         Session {
             env: env.clone(),
@@ -39,6 +42,7 @@ impl Session {
         &self.env
     }
 
+    /// Ledger timestamp captured at [`Self::new`].
     pub(crate) fn now_secs(&self) -> u64 {
         self.now_secs
     }
@@ -61,11 +65,15 @@ impl Session {
             .set((adapter.clone(), feed_id.clone()), data);
     }
 
+    /// Whether `key` is already on the resolve stack.
     pub(crate) fn is_resolving(&self, key: &PriceKey) -> bool {
         self.resolving_keys.iter().any(|k| k == *key)
     }
 
-    /// Push `key` onto the cycle stack; reverts on re-entry.
+    /// Push `key` onto the cycle stack.
+    ///
+    /// # Errors
+    /// * [`OracleError::OracleCycleDetected`] — `key` is already resolving.
     pub(crate) fn push_key(&mut self, key: &PriceKey) {
         if self.is_resolving(key) {
             panic_with_error!(&self.env, OracleError::OracleCycleDetected);
@@ -93,10 +101,11 @@ impl Session {
         self.key_statuses.set(key.clone(), status);
     }
 
-    /// Bulk-warm multi-feed payloads for every MultiFeed leaf under `keys`
+    /// Bulk-fetch multi-feed payloads for MultiFeed leaves under `keys`
     /// (including nested Scaled quotes). Best-effort: never reverts.
-    /// Adapters with fewer than two distinct feeds in this call are left to
-    /// lazy single reads (same cost as a one-id bulk).
+    ///
+    /// Adapters with fewer than two distinct feed ids in this call are left
+    /// for lazy single reads. Under `certora`, this is a no-op.
     #[cfg(feature = "certora")]
     pub(crate) fn warm(&mut self, _keys: &Vec<PriceKey>) {}
 
@@ -161,11 +170,7 @@ fn collect_key(
 }
 
 #[cfg(not(feature = "certora"))]
-fn collect_provider(
-    env: &Env,
-    by_adapter: &mut Map<Address, Vec<String>>,
-    provider: &ProviderRef,
-) {
+fn collect_provider(env: &Env, by_adapter: &mut Map<Address, Vec<String>>, provider: &ProviderRef) {
     let ProviderRef::MultiFeed(multi_feed) = provider else {
         return;
     };

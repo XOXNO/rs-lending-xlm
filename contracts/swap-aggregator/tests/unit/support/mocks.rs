@@ -3,14 +3,11 @@
 //! Each mock is a minimal on-chain stand-in for a venue (or a hostile variant)
 //! so tests can exercise adapter dispatch without deploying real AMMs.
 
-use soroban_sdk::{
-    contract, contractimpl, contracttype, token, vec, Address, Env, Val, Vec, U256,
-};
+use soroban_sdk::{contract, contractimpl, contracttype, token, vec, Address, Env, Val, Vec, U256};
 
 /// Uniswap-v2-style pair: live reserves + k-invariant `swap`.
 pub mod soroswap_mock {
     use super::*;
-
 
     #[contract]
     pub struct SoroswapPair;
@@ -115,7 +112,6 @@ pub mod soroswap_mock {
 pub mod aquarius_mock {
     use super::*;
 
-
     #[contract]
     pub struct AqPool;
 
@@ -168,7 +164,6 @@ pub mod aquarius_mock {
 /// Used to prove the router trusts balance deltas, not pool return values.
 pub mod malicious_aquarius_mock {
     use super::*;
-
 
     #[contract]
     pub struct MaliciousAqPool;
@@ -249,7 +244,6 @@ pub mod malicious_aquarius_mock {
 pub mod sushi_mock {
     use super::*;
 
-
     #[contract]
     pub struct SushiPool;
 
@@ -311,7 +305,6 @@ pub mod sushi_mock {
 /// Comet pull-via-allowance pool, plus a no-pull variant.
 pub mod comet_mock {
     use super::*;
-
 
     #[contract]
     pub struct CometPool;
@@ -427,7 +420,6 @@ pub mod comet_zero_mock {
 pub mod no_transfer_token_mock {
     use super::*;
 
-
     #[contract]
     pub struct NoTransferToken;
 
@@ -456,7 +448,6 @@ pub mod no_transfer_token_mock {
 /// `transfer_from` (infinite-approval style).
 pub mod sticky_allowance_token_mock {
     use super::*;
-
 
     #[contract]
     pub struct StickyAllowanceToken;
@@ -514,4 +505,3 @@ pub mod sticky_allowance_token_mock {
         }
     }
 }
-

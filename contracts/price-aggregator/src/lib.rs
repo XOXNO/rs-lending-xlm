@@ -1,15 +1,17 @@
-//! Price aggregator — single oracle entry for the lending protocol.
+//! Single oracle surface for the lending protocol.
 //!
-//! # Pipeline
-//! ```text
-//! price(s) / quote(s)
-//!   → Session::new · warm(keys)   // multi-feed bulk by adapter (≥2 feeds)
-//!   → for each key: resolve → Outcome   // one evaluator, soft I/O
-//!   → force (hard) | to_status (soft)   // only place hard/soft diverge
-//! ```
+//! Keys are [`PriceKey`]. Reads share one `Session` per call: multi-feed leaves
+//! are warmed in bulk when a call supplies two or more distinct feed ids on the
+//! same adapter, then each key is composed once.
 //!
-//! Gates (stale / disagree / sanity) live in [`engine`]. All pricing uses
-//! [`PriceKey`]; the controller lifts token addresses to `PriceKey::Token`.
+//! Hard paths (`price` / `prices` / `price_spread`) fail closed: any gate or
+//! structural failure reverts the whole call. Soft paths (`quote` / `quotes`)
+//! return [`PriceStatus`] flags and never panic on market-data problems.
+//! Soft and hard share the same compose, blend, and gate evaluation in the
+//! engine; only the edge (`force` vs `to_status`) differs.
+//!
+//! Owner-only writes (`set_oracle`, `set_sanity_band`, `set_tolerance`) validate,
+//! attest providers where required, live-probe under hard gates, then store.
 
 #![no_std]
 
@@ -38,11 +40,7 @@ use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceS
 pub use common::errors::OracleError as Error;
 
 /// Build a session, warm multi-feed leaves under `keys`, run `body`.
-fn with_warmed_session(
-    env: &Env,
-    keys: &Vec<PriceKey>,
-    body: impl FnOnce(&mut session::Session),
-) {
+fn with_warmed_session(env: &Env, keys: &Vec<PriceKey>, body: impl FnOnce(&mut session::Session)) {
     let mut sess = session::Session::new(env);
     sess.warm(keys);
     body(&mut sess);
@@ -53,11 +51,20 @@ pub struct PriceAggregator;
 
 #[contractimpl]
 impl PriceAggregator {
+    /// Sets the contract owner. No oracle config is written at construction.
     pub fn __constructor(env: Env, owner: Address) {
         ownable::set_owner(&env, &owner);
     }
 
-    /// Fail-closed bulk USD prices. Any unsafe key reverts the whole call.
+    /// Fail-closed USD prices for every key in `keys`.
+    ///
+    /// One session warms multi-feed leaves under the batch, then resolves each
+    /// key hard. Any unsafe or unreadable key reverts the entire call.
+    ///
+    /// # Errors
+    /// * [`Error`] variants from compose, blend, and gates (stale, disagree,
+    ///   non-positive, sanity, missing config, cycle, depth, factor band, and
+    ///   nested quote failures).
     pub fn prices(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceFeedRaw> {
         let mut out = Map::new(&env);
         with_warmed_session(&env, &keys, |sess| {
@@ -68,7 +75,12 @@ impl PriceAggregator {
         out
     }
 
-    /// Fail-closed single USD price (warms multi-feed leaves for this key).
+    /// Fail-closed single USD price for `key`.
+    ///
+    /// Warms multi-feed leaves reachable from this key, then resolves hard.
+    ///
+    /// # Errors
+    /// * Same gate and structural set as `prices`.
     pub fn price(env: Env, key: PriceKey) -> PriceFeedRaw {
         let keys = Vec::from_array(&env, [key.clone()]);
         let mut feed = PriceFeedRaw {
@@ -82,7 +94,11 @@ impl PriceAggregator {
         feed
     }
 
-    /// Soft diagnostic for one key (flags; no per-asset revert on stale/disagree).
+    /// Soft diagnostic for one key: flags and leg prices without hard revert
+    /// on stale, disagree, sanity, or missing market data.
+    ///
+    /// Structural problems (missing config, cycle, depth, factor band, nested
+    /// hard-gate failures during scaled quotes) surface as unusable status.
     pub fn quote(env: Env, key: PriceKey) -> PriceStatus {
         let keys = Vec::from_array(&env, [key.clone()]);
         let mut status = PriceStatus::unusable();
@@ -92,7 +108,7 @@ impl PriceAggregator {
         status
     }
 
-    /// Soft bulk diagnostics (one session + multi-feed warm).
+    /// Soft bulk diagnostics. One session and multi-feed warm for the batch.
     pub fn quotes(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus> {
         let mut out = Map::new(&env);
         with_warmed_session(&env, &keys, |sess| {
@@ -103,7 +119,13 @@ impl PriceAggregator {
         out
     }
 
-    /// Interval the sources spanned for `key` after gates (low, high) WAD.
+    /// Inclusive WAD interval spanned by dual legs after a hard resolve
+    /// (`low`, `high`). Single-source keys return the same price for both.
+    ///
+    /// Always recomputes (price memo stores the feed only, not the legs).
+    ///
+    /// # Errors
+    /// * Same gate and structural set as `price`.
     pub fn price_spread(env: Env, key: PriceKey) -> (i128, i128) {
         let keys = Vec::from_array(&env, [key.clone()]);
         let mut low = 0;
@@ -116,24 +138,47 @@ impl PriceAggregator {
         (low, high)
     }
 
-    /// Stored oracle for `key`, if any.
+    /// Stored oracle config for `key`, if any.
     pub fn oracle(env: Env, key: PriceKey) -> Option<AssetOracle> {
         admin::get_oracle(&env, &key)
     }
 
-    /// Validate, attest, probe, and store. Owner only.
+    /// Validate, attest providers, live hard-probe, store, and emit update.
+    /// Owner only.
+    ///
+    /// # Errors
+    /// * Config validation, provider attestation, and hard probe failures.
+    ///
+    /// # Events
+    /// * `UpdateAssetOracleEvent`
     #[only_owner]
     pub fn set_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
         admin::set_oracle(&env, key, oracle);
     }
 
-    /// Walk sanity band with live containment probe. Owner only.
+    /// Replace the sanity band when it overlaps the previous band and the live
+    /// hard price sits inside the new band. Owner only.
+    ///
+    /// # Errors
+    /// * [`Error::OracleNotConfigured`] — no stored oracle for `key`.
+    /// * Sanity-bound validation and hard probe failures.
+    ///
+    /// # Events
+    /// * `UpdateAssetOracleEvent`
     #[only_owner]
     pub fn set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128) {
         admin::set_sanity_band(&env, key, min_wad, max_wad);
     }
 
-    /// Update dual-source agreement band. Owner only.
+    /// Replace the dual-source agreement band, then hard-probe under the new
+    /// band. Owner only.
+    ///
+    /// # Errors
+    /// * [`Error::OracleNotConfigured`] — no stored oracle for `key`.
+    /// * Tolerance validation and hard probe failures.
+    ///
+    /// # Events
+    /// * `UpdateAssetOracleEvent`
     #[only_owner]
     pub fn set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance) {
         admin::set_tolerance(&env, key, tolerance);
@@ -143,10 +188,12 @@ impl PriceAggregator {
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl PriceAggregator {
+    /// Test-only: store `oracle` for `key` without validation or probe.
     pub fn seed_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
         admin::store_oracle(&env, &key, &oracle);
     }
 
+    /// Test-only: delete the stored oracle for `key`.
     pub fn remove_oracle(env: Env, key: PriceKey) {
         admin::remove_oracle(&env, &key);
     }

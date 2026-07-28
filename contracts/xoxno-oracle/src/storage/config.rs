@@ -1,5 +1,7 @@
-//! Instance-storage configuration reads. Every getter has a safe default so
-//! a partially-configured contract reads as inert rather than trapping.
+//! Instance-storage configuration reads.
+//!
+//! Getters return safe defaults so a partially-configured contract reads as
+//! inert rather than trapping.
 
 use soroban_sdk::{Address, Env, Vec};
 
@@ -32,7 +34,8 @@ pub(crate) fn load_max_stale_seconds(env: &Env) -> u64 {
         .unwrap_or(DEFAULT_MAX_STALE_SECONDS)
 }
 
-/// Absolute inclusion window: submissions older than this are rejected outright.
+/// Absolute inclusion window: submissions older than this are excluded from
+/// aggregation and rejected at submit.
 pub(crate) fn load_max_submission_age(env: &Env) -> u64 {
     env.storage()
         .instance()

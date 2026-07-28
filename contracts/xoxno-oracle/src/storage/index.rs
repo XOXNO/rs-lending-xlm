@@ -1,5 +1,6 @@
-//! Dense swap-remove indexes behind the registry. Add/remove costs O(1)
-//! persistent writes instead of rewriting a growing instance blob.
+//! Dense swap-remove indexes for assets and known feeds.
+//!
+//! Add/remove cost O(1) persistent writes instead of rewriting a growing list.
 
 use common::oracle::providers::reflector::ReflectorAsset;
 use soroban_sdk::{Env, String};
@@ -45,8 +46,8 @@ pub(crate) fn asset_index_insert(env: &Env, asset: ReflectorAsset) {
     renew_persistent_key(env, &count_key);
 }
 
-/// Swap-removes an asset: the tail slot moves into the hole and the count shrinks,
-/// so the index stays dense and `load_all_assets` needs no tombstone handling.
+/// Swap-removes an asset: the tail slot moves into the hole and the count
+/// shrinks so the index stays dense.
 pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
     let index_key = DataKey::AssetIndex(asset.clone());
     let Some(removed_at): Option<u32> = env.storage().persistent().get(&index_key) else {
@@ -58,7 +59,7 @@ pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
     let last_at = count - 1;
     if removed_at != last_at {
         let last_key = DataKey::AssetAt(last_at);
-        // Defensive: if the last slot archived, shrink without swap rather than panic.
+        // If the last slot archived, shrink without swap rather than panic.
         if let Some(moved) = env
             .storage()
             .persistent()
@@ -100,7 +101,7 @@ pub(in crate::storage) fn feed_index_insert(env: &Env, feed_id: String) {
     renew_persistent_key(env, &count_key);
 }
 
-/// Swap-removes a feed from the dense index; mirrors [`asset_index_remove`].
+/// Swap-removes a feed from the dense index; mirrors `asset_index_remove`.
 pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
     let index_key = DataKey::FeedIndex(feed_id.clone());
     let Some(removed_at): Option<u32> = env.storage().persistent().get(&index_key) else {
@@ -112,7 +113,7 @@ pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
     let last_at = count - 1;
     if removed_at != last_at {
         let last_key = DataKey::FeedAt(last_at);
-        // Defensive: if the last slot archived, shrink without swap rather than panic.
+        // If the last slot archived, shrink without swap rather than panic.
         if let Some(moved) = env.storage().persistent().get::<DataKey, String>(&last_key) {
             let moved_at_key = DataKey::FeedAt(removed_at);
             env.storage().persistent().set(&moved_at_key, &moved);

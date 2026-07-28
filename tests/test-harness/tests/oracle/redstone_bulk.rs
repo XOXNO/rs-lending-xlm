@@ -609,9 +609,9 @@ fn test_liquidation_fires_one_bulk_redstone_call() {
 
 #[test]
 fn test_redstone_primary_markets_fire_one_bulk() {
-    // Two markets with RedStone as the sole/primary source
-    // (OracleStrategy::Single) — the production BTC/ETH shape. Pins the
-    // collector's primary-source branch.
+    // Two markets with RedStone as the sole source (a single-entry `sources`
+    // list) — the production BTC/ETH shape. Pins the collector's
+    // single-source branch.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())

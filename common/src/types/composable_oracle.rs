@@ -466,14 +466,6 @@ impl SourceProperties {
         self
     }
 
-    /// True when any trust domain is common to both. Diagnostic only.
-    ///
-    /// Not what the independence rule asks — see
-    /// [`Self::shared_contracts_with`] for that, and why.
-    pub fn shares_any(&self, other: &SourceProperties) -> bool {
-        self.trust.iter().any(|d| contains_domain(&other.trust, &d))
-    }
-
     /// Contract addresses reachable from both sources, deduplicated.
     ///
     /// The unit the independence rule judges on. `TrustDomain`'s `kind` is
@@ -491,34 +483,10 @@ impl SourceProperties {
         }
         shared
     }
-
-    /// Trust domains present in both, deduplicated. Diagnostic only.
-    ///
-    /// The independence rule keys on [`Self::shared_contracts_with`], not on
-    /// this. Naming the provider is what a reviewer wants to read; it is not
-    /// something a rule can trust, because `kind` on a multi-feed adapter is
-    /// declared by the proposer and unverifiable on-chain.
-    pub fn shared_with(&self, env: &Env, other: &SourceProperties) -> Vec<TrustDomain> {
-        let mut shared = Vec::new(env);
-        for domain in self.trust.iter() {
-            if contains_domain(&other.trust, &domain) && !contains_domain(&shared, &domain) {
-                shared.push_back(domain);
-            }
-        }
-        shared
-    }
 }
 
 pub fn contains_domain(haystack: &Vec<TrustDomain>, needle: &TrustDomain) -> bool {
     haystack.iter().any(|d| &d == needle)
-}
-
-/// Set equality over trust domains, order-independent.
-pub fn same_domain_set(left: &Vec<TrustDomain>, right: &Vec<TrustDomain>) -> bool {
-    if left.len() != right.len() {
-        return false;
-    }
-    left.iter().all(|d| contains_domain(right, &d))
 }
 
 /// The part of a source's properties knowable without touching the registry,

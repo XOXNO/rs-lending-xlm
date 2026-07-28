@@ -355,6 +355,8 @@ pub trait LiquidityPoolInterface {
     /// * `GenericError::OwnerNotSet` — claimable amount is positive but no
     ///   owner is configured to receive the payout.
     /// * `MathOverflow` — revenue or cash accounting overflows.
+    /// * `GenericError::InternalError` — a cash-short claim rounds to zero
+    ///   shares burned despite a positive payout, at extreme cash-to-claim ratios.
     ///
     /// # Events
     /// * topics — `["market", "batch_state_update"]`
@@ -399,7 +401,9 @@ pub trait LiquidityPoolInterface {
     /// * `PoolNotInitialized` — no stored state for `hub_asset`.
     fn get_borrow_rate(env: Env, hub_asset: HubAssetKey) -> i128;
 
-    /// Returns floored claimable protocol revenue in asset decimals.
+    /// Returns the floored protocol revenue claim in asset decimals.
+    /// `claim_revenue`'s actual payout is this value capped by tracked cash
+    /// (`cash.min(claim)`), so the two diverge whenever the market is cash-short.
     ///
     /// # Errors
     /// * `PoolNotInitialized` — no stored state for `hub_asset`.

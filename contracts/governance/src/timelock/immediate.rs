@@ -1,24 +1,13 @@
-//! Incident brakes: the entrypoints that deliberately BYPASS the timelock.
+//! Role-gated entrypoints that bypass the timelock.
 //!
-//! Each one is role-gated (`GUARDIAN`, `ORACLE`, or owner). Every member except
-//! `set_sanity_band` can only tighten risk — pausing, freezing, revoking an
-//! operational role — or is inert on its own (`create_hub` / `add_spoke` mint an
-//! empty container; the listings that give it teeth ride the delay). Anything
-//! else that relaxes risk rides the delay in `lifecycle`. Adding a loosening
-//! entrypoint here defeats the timelock.
+//! Tighten-only or empty-container actions (`pause`, spoke flags, hub/spoke
+//! create, immediate `GUARDIAN`/`ORACLE` revoke). Risk-relaxing changes use
+//! delayed ops in `lifecycle`.
 //!
-//! `set_sanity_band` is the deliberate exception, and it is not narrow-only: the
-//! aggregator asks only that the new band overlap the old one and contain the
-//! live price, so an `ORACLE` holder can widen a band as well as narrow it, with
-//! no delay. Two things bound the blast radius. First, absolute caps:
-//! `validate_sanity_bounds` holds `max_wad` at or under
-//! `MAX_REASONABLE_PRICE_WAD`, and a `Single`-strategy band stays within
-//! `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` of its midpoint (anchored strategies are
-//! exempt from the relative cap and keep only the absolute one). Second, the
-//! containment probe resolves the price under the new config before storing it,
-//! so a band that excludes what the feeds print today cannot be written at all.
-//! A widened band loosens the tripwire; it does not move the price, and the
-//! `ORACLE` role is itself revocable immediately.
+//! `set_sanity_band` is the exception: `ORACLE` may widen or narrow a band
+//! without delay, subject to aggregator bounds (absolute max price, single-
+//! source relative width, overlap with the prior band, and live-price
+//! containment). The role itself is immediately revocable by the owner.
 
 use common::errors::GenericError;
 use common::types::{HubAssetKey, PriceKey};
@@ -33,11 +22,11 @@ use crate::{Governance, GovernanceArgs, GovernanceClient};
 
 #[contractimpl]
 impl Governance {
-    /// Halts the controller immediately. `GUARDIAN`-gated. Resume is timelocked
-    /// `AdminOperation::Unpause` only.
+    /// Pauses the controller. `GUARDIAN` only. Resume is timelocked
+    /// [`crate::op::AdminOperation::Unpause`].
     ///
     /// # Errors
-    /// * Access-control rejects non-`GUARDIAN`; controller may revert on pause.
+    /// * Access-control rejects non-`GUARDIAN`; controller may revert.
     ///
     /// # Events
     /// * Controller pause event.
@@ -46,13 +35,13 @@ impl Governance {
         controller_client(&env).pause();
     }
 
-    /// Sets spoke listing `paused`/`frozen` immediately. `GUARDIAN`-gated.
-    /// Tighten-only (`false → true` or stay); clearing rides timelocked
+    /// Sets spoke listing `paused` / `frozen`. `GUARDIAN` only. Tighten-only
+    /// (`false → true` or unchanged); clearing uses timelocked
     /// `EditAssetInSpoke`.
     ///
     /// # Errors
     /// * Access-control rejects non-`GUARDIAN`.
-    /// * `AssetNotInSpoke`, `SpokeAssetFlagRelaxation` from the controller.
+    /// * Controller: `AssetNotInSpoke`, `SpokeAssetFlagRelaxation`.
     ///
     /// # Events
     /// * Controller spoke-asset update event.
@@ -68,24 +57,23 @@ impl Governance {
         controller_client(&env).set_spoke_asset_flags(&spoke_id, &hub_asset, &paused, &frozen);
     }
 
-    /// Moves an asset oracle sanity band immediately. `ORACLE`-gated. Aggregator
-    /// requires the new band to overlap the old one and to contain the live
-    /// price; within that, the band may be widened as well as narrowed.
+    /// Updates an asset oracle sanity band. `ORACLE` only. Aggregator requires
+    /// overlap with the prior band and containment of the live price.
     ///
     /// # Errors
     /// * Access-control rejects non-`ORACLE`.
-    /// * `PairNotActive`, `InvalidSanityBounds`, `SanityBandTooWideForSingleSource`,
-    ///   `SanityBoundViolated`, and feed-resolution errors from the aggregator.
+    /// * Aggregator: `PairNotActive`, `InvalidSanityBounds`,
+    ///   `SanityBandTooWideForSingleSource`, `SanityBoundViolated`, feed errors.
     ///
     /// # Events
-    /// * Aggregator `UpdateAssetOracleV2Event`.
+    /// * Aggregator asset-oracle update event.
     pub fn set_sanity_band(env: Env, caller: Address, key: PriceKey, min_wad: i128, max_wad: i128) {
         begin_immediate(&env, &caller, ORACLE_ROLE);
         price_aggregator_client(&env).set_sanity_band(&key, &min_wad, &max_wad);
     }
 
-    /// Creates a hub and returns its id. `GUARDIAN`-gated. Listings still ride
-    /// the timelock.
+    /// Creates a hub and returns its id. `GUARDIAN` only. Listings remain
+    /// timelocked.
     ///
     /// # Errors
     /// * Access-control rejects non-`GUARDIAN`; controller may revert.
@@ -94,8 +82,8 @@ impl Governance {
         controller_client(&env).create_hub()
     }
 
-    /// Creates a spoke and returns its id. `GUARDIAN`-gated. Listings still ride
-    /// the timelock.
+    /// Creates a spoke and returns its id. `GUARDIAN` only. Listings remain
+    /// timelocked.
     ///
     /// # Errors
     /// * Access-control rejects non-`GUARDIAN`; controller may revert.
@@ -104,13 +92,14 @@ impl Governance {
         controller_client(&env).add_spoke()
     }
 
-    /// Revokes `GUARDIAN` or `ORACLE` immediately. Owner only. Other role
-    /// revokes and all grants stay timelocked; canceller deadlock uses
+    /// Immediately revokes `GUARDIAN` or `ORACLE`. Owner only. Other revokes
+    /// and all grants stay timelocked; canceller deadlock uses
     /// `propose_canceller_reset`.
     ///
     /// # Errors
-    /// * `InvalidRole` — not `GUARDIAN`/`ORACLE`, or `account` does not hold it.
-    /// * `NotAuthorized` — `account` is the owner (roles never revocable).
+    /// * [`GenericError::InvalidRole`] — role is not `GUARDIAN`/`ORACLE`, or
+    ///   `account` does not hold it.
+    /// * [`GenericError::NotAuthorized`] — `account` is the owner.
     ///
     /// # Events
     /// * Access-control role-revoke event.

@@ -1,5 +1,7 @@
-//! Write entrypoints: per-signer price submission. Aggregation itself lives
-//! in `aggregation`.
+//! Signer write path: single- and multi-feed price submission.
+//!
+//! Aggregation runs in `aggregation` after each accepted store. Auth is
+//! `signer.require_auth()` plus membership on the registered signer set.
 
 use soroban_sdk::{contractimpl, Address, Env, String, Vec};
 
@@ -22,19 +24,19 @@ fn validate_price(price: i128) -> Result<(), Error> {
 
 #[contractimpl]
 impl XoxnoOracle {
-    /// Records `signer`'s latest observation for `feed_id` and recomputes
-    /// the cached aggregate. Caller must auth as `signer`.
+    /// Records `signer`'s latest observation for `feed_id` and recomputes the
+    /// cached aggregate. Caller must auth as `signer`.
     ///
     /// # Errors
-    /// * `NotAuthorizedSigner` — `signer` is not a registered signer.
-    /// * `FeedNotKnown` — `feed_id` was never registered by the owner.
-    /// * `InvalidPrice` — `price <= 0`.
-    /// * `PriceOutOfRange` — `price > MAX_SUBMITTED_PRICE`.
-    /// * `FutureTimestamp` — `package_timestamp` is more than
-    ///   `MAX_FUTURE_SKEW_SECONDS` ahead of the ledger clock.
-    /// * `StaleSubmission` — `package_timestamp` is already older than the
+    /// * [`Error::NotAuthorizedSigner`] — `signer` is not registered.
+    /// * [`Error::FeedNotKnown`] — `feed_id` is not on the allowlist.
+    /// * [`Error::InvalidPrice`] — `price <= 0`.
+    /// * [`Error::PriceOutOfRange`] — `price > MAX_SUBMITTED_PRICE`.
+    /// * [`Error::FutureTimestamp`] — `package_timestamp` is more than
+    ///   `MAX_FUTURE_SKEW_SECONDS` ahead of ledger time.
+    /// * [`Error::StaleSubmission`] — `package_timestamp` is older than the
     ///   `MaxSubmissionAgeSeconds` inclusion window, or older than this
-    ///   signer's previously stored observation for the feed.
+    ///   signer's stored observation for the feed.
     pub fn submit_price(
         env: Env,
         signer: Address,
@@ -56,21 +58,21 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Records `signer`'s latest observations for multiple feeds in one
-    /// call, sharing a single `package_timestamp` and one auth check. All
-    /// inputs are validated upfront; no partial application on failure.
+    /// Records `signer`'s latest observations for multiple feeds in one call,
+    /// sharing one `package_timestamp` and one auth check. All inputs are
+    /// validated upfront; nothing is written on failure.
     ///
     /// # Errors
-    /// * `NotAuthorizedSigner` — `signer` is not a registered signer.
-    /// * `LengthMismatch` — `feed_ids.len() != prices.len()`.
-    /// * `FeedNotKnown` — any `feed_ids[i]` was never registered.
-    /// * `InvalidPrice` — any `prices[i] <= 0`.
-    /// * `PriceOutOfRange` — any `prices[i] > MAX_SUBMITTED_PRICE`.
-    /// * `FutureTimestamp` — the shared `package_timestamp` is more than
-    ///   `MAX_FUTURE_SKEW_SECONDS` ahead of the ledger clock.
-    /// * `StaleSubmission` — the shared `package_timestamp` is already older
-    ///   than the `MaxSubmissionAgeSeconds` inclusion window, or older than
-    ///   this signer's stored observation for any of the feeds.
+    /// * [`Error::NotAuthorizedSigner`] — `signer` is not registered.
+    /// * [`Error::LengthMismatch`] — `feed_ids.len() != prices.len()`.
+    /// * [`Error::FeedNotKnown`] — any `feed_ids[i]` is not on the allowlist.
+    /// * [`Error::InvalidPrice`] — any `prices[i] <= 0`.
+    /// * [`Error::PriceOutOfRange`] — any `prices[i] > MAX_SUBMITTED_PRICE`.
+    /// * [`Error::FutureTimestamp`] — shared `package_timestamp` is more than
+    ///   `MAX_FUTURE_SKEW_SECONDS` ahead of ledger time.
+    /// * [`Error::StaleSubmission`] — shared `package_timestamp` is older than
+    ///   the inclusion window, or older than this signer's stored observation
+    ///   for any of the feeds.
     pub fn submit_prices(
         env: Env,
         signer: Address,

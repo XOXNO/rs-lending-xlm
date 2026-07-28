@@ -13,8 +13,7 @@ use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{token, vec, Address, Env};
 
 use super::super::support::{
-    comet_mock, comet_zero_mock, new_asset, one_hop_path, sticky_allowance_token_mock,
-    strategy_xdr,
+    comet_mock, comet_zero_mock, new_asset, one_hop_path, sticky_allowance_token_mock, strategy_xdr,
 };
 
 #[test]

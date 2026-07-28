@@ -1,6 +1,7 @@
-//! Admin-input validation before scheduling or forwarding to the controller /
-//! price-aggregator. Pure shape checks; oracle-source validation lives in the
-//! price-aggregator, where the rules are predicates over derived properties.
+//! Proposal-shape validation before schedule or forward.
+//!
+//! Shape and address checks only. Oracle-source rules live on the
+//! price-aggregator.
 
 pub(crate) mod asset;
 pub(crate) mod spoke;
@@ -12,11 +13,10 @@ use soroban_sdk::{
     assert_with_error, panic_with_error, Address, BytesN, Env, Error, Executable, SpecShakingMarker,
 };
 
-/// Rejects an address that is not a deployed contract, so an admin operation
-/// cannot be pointed at an account that can never answer.
+/// Requires a deployed Wasm contract address.
 ///
 /// # Errors
-/// * `NotSmartContract` — the address is not a contract.
+/// * Caller-supplied `error` when the address is missing or not Wasm.
 pub(crate) fn require_contract_address(
     env: &Env,
     addr: &Address,
@@ -27,8 +27,10 @@ pub(crate) fn require_contract_address(
     }
 }
 
+/// Rejects an all-zero wasm hash.
+///
 /// # Errors
-/// * `InvalidWasmHash` — an all-zero hash would brick the target on upgrade.
+/// * [`GenericError::InvalidWasmHash`] — zero hash.
 pub(crate) fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
     assert_with_error!(
         env,

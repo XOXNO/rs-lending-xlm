@@ -34,8 +34,9 @@ pub(crate) fn borrow_rate(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     calculate_borrow_rate(env, cache.calculate_utilization(), cache.params()).raw()
 }
 
-/// Returns claimable protocol revenue, floored to match what `claim_revenue`
-/// actually pays out.
+/// Returns the floored protocol revenue claim. `claim_revenue`'s actual payout
+/// is this value capped by tracked cash (`cash.min(claim)`), so the two
+/// diverge whenever the market is cash-short.
 pub(crate) fn protocol_revenue(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
     cache.unscale_supply_floor(cache.revenue())

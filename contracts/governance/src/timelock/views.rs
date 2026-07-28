@@ -23,7 +23,7 @@ impl Governance {
         get_operation_state(&env, &operation_id)
     }
 
-    /// Ledger when an operation becomes ready (`0` when unset / not pending).
+    /// Ledger when an operation becomes ready (`0` when unset or not pending).
     pub fn get_operation_ledger(env: Env, operation_id: BytesN<32>) -> u32 {
         get_operation_ledger(&env, &operation_id)
     }
@@ -47,27 +47,22 @@ impl Governance {
         hash_operation(&env, &operation)
     }
 
-    /// Resolves tolerance BPS to the `OracleTolerance` band `propose` would
-    /// schedule. Read-only.
+    /// Builds the [`OracleTolerance`] band that `propose` would schedule for
+    /// the given BPS value.
     ///
     /// # Errors
-    /// * `BadLastTolerance` — outside allowed BPS range.
-    /// * `MathOverflow` — band computation overflows.
+    /// * [`common::errors::OracleError::BadLastTolerance`] — outside allowed BPS.
+    /// * [`common::errors::GenericError::MathOverflow`] — band math overflows.
     pub fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OracleTolerance {
         validate::tolerance::validate_and_calculate_tolerances(&env, tolerance)
     }
 
-    /// Resolves an oracle proposal to the exact [`AssetOracle`] a
-    /// `ConfigureAssetOracle` proposal would schedule. Read-only.
-    ///
-    /// This is what a CLI dry run (`--send=no`) invokes: governance overrides
-    /// `asset_decimals` from the token, so the struct a proposer submits is not
-    /// the struct that gets stored, and reviewing the submitted one would review
-    /// the wrong thing.
+    /// Builds the [`AssetOracle`] that a `ConfigureAssetOracle` proposal would
+    /// schedule, including governance-derived `asset_decimals`.
     ///
     /// # Errors
-    /// * `InvalidAsset` — `PriceKey::Token` whose address is not a readable
-    ///   token contract.
+    /// * [`common::errors::GenericError::InvalidAsset`] — token key whose
+    ///   address is not a readable SAC.
     pub fn resolve_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) -> AssetOracle {
         crate::op::resolve_asset_oracle(&env, &key, &oracle)
     }

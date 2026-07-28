@@ -259,6 +259,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     ///
     /// # Errors
     /// * `PoolNotInitialized` · `UtilizationAboveMax` · `PoolInsolvent` · `MathOverflow`
+    /// * `InternalError` — a cash-short claim rounds to zero shares burned
+    ///   despite a positive payout, at extreme cash-to-claim ratios.
     #[only_owner]
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
         ops::revenue::apply(&env, hub_asset)

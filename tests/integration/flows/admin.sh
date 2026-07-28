@@ -27,8 +27,15 @@ flow_admin() {
 
     # Market param + asset config edits on EURC (idle real market: edits here
     # disturb nothing else, and it is disabled at the end of this flow).
+    # InterestRateModel: rates/slopes/utils + reserve_factor + flash-loan fields
+    # (not full MarketParamsRaw — create_market uses the wider shape).
     inv update_pool_params "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
-        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$EURC_SAC")" --params "$(market_params_json "$EURC_SAC" 7 | jq -c 'del(.asset_id, .asset_decimals, .supply_cap, .borrow_cap, .is_flashloanable, .flashloan_fee) | .reserve_factor=1500')" >/dev/null
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$EURC_SAC")" \
+        --params "$(market_params_json "$EURC_SAC" 7 | jq -c '{
+            max_borrow_rate, base_borrow_rate, slope1, slope2, slope3,
+            mid_utilization, optimal_utilization, max_utilization,
+            reserve_factor: 1500, is_flashloanable, flashloan_fee
+        }')" >/dev/null
     # edit_asset_in_spoke is the per-asset risk edit path.
     inv edit_asset_config_admin "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$EURC_SAC" "$PRIMARY_SPOKE_ID" true true 6500 7000 900)" >/dev/null

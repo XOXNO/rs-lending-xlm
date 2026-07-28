@@ -276,10 +276,7 @@ fn test_multiply_reuses_spoke_account_with_zero_category() {
     );
 
     let attrs = t.ctrl_client().get_account_attributes(&account_id);
-    assert_eq!(
-        attrs.spoke_id, 2,
-        "reused account must keep spoke 2"
-    );
+    assert_eq!(attrs.spoke_id, 2, "reused account must keep spoke 2");
     assert!(
         t.supply_balance_for(ALICE, account_id, "USDC") > 1_999.0,
         "multiply should add USDC collateral to the existing spoke account"

@@ -1,7 +1,7 @@
-//! Recovery tier: the non-vetoable canceller reset.
+//! Recovery tier: non-vetoable canceller-council reset.
 //!
-//! Longest delay of any path and cancellers cannot veto it, so this is the
-//! escape hatch when the canceller set itself is captured. See ADR 0010.
+//! Longest delay floor. Canceller set cannot cancel a Recovery op. Owner
+//! schedules; open or `EXECUTOR`-gated execution applies the new set.
 
 use soroban_sdk::{contractimpl, Address, BytesN, Env, Vec};
 
@@ -14,14 +14,15 @@ use crate::{storage, Governance, GovernanceArgs, GovernanceClient};
 
 #[contractimpl]
 impl Governance {
-    /// Schedules a non-vetoable canceller-council reset at Recovery delay. Owner only.
+    /// Schedules a Recovery-delay canceller reset. Owner only. Marks the
+    /// operation non-cancellable.
     ///
     /// # Errors
     /// * Owner gate via `#[only_owner]`.
-    /// * OZ timelock rejects duplicate schedule.
+    /// * OZ rejects duplicate schedule.
     ///
     /// # Events
-    /// * OZ timelock schedule event.
+    /// * OZ schedule event.
     #[only_owner]
     pub fn propose_canceller_reset(
         env: Env,
@@ -35,19 +36,20 @@ impl Governance {
         id
     }
 
-    /// Executes a matured canceller-council reset. `Some(executor)` requires
-    /// `EXECUTOR`; `None` leaves execution open.
+    /// Executes a matured canceller reset. `Some(executor)` requires
+    /// `EXECUTOR`; `None` is open execution.
     ///
     /// # Errors
-    /// * `TimelockOperationExpired` — past grace window.
-    /// * `InvalidRole` — EXECUTOR/CANCELLER overlap on a non-owner grant.
+    /// * [`common::errors::GenericError::TimelockOperationExpired`] — past grace.
+    /// * [`common::errors::GenericError::InvalidRole`] — non-owner EXECUTOR/
+    ///   CANCELLER overlap on grant.
     /// * OZ not-scheduled / not-ready; `EXECUTOR` gate when set.
     ///
     /// # Events
-    /// * OZ timelock execute event; access-control role grant/revoke events.
+    /// * OZ execute event; access-control grant/revoke events.
     ///
     /// # Security Warning
-    /// * With `executor` = `None` any caller may execute a ready reset.
+    /// * With `executor` = `None`, any caller may execute a ready reset.
     pub fn execute_canceller_reset(
         env: Env,
         executor: Option<Address>,

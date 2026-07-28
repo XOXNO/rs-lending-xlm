@@ -339,9 +339,9 @@ fn same_params_distinct_salts_schedule_independently() {
 
 const SET_ASSET_ORACLE: &str = "set_oracle";
 
-// The CLI timelock linchpin (TL-5b): the `resolve_market_oracle_config` view runs
-// the SAME validate+probe path as `propose_configure_market_oracle`, so its output
-// is byte-identical to the resolved `AssetOracleConfig` the proposer scheduled.
+// The CLI timelock linchpin (TL-5b): the `resolve_asset_oracle` view runs the
+// SAME validate+probe path as the `ConfigureAssetOracle` proposer, so its output
+// is byte-identical to the resolved `AssetOracle` the proposer scheduled.
 // If the two diverged by even one field the operation-id hash would not match and
 // `execute` would revert (OZ `InvalidOperationState`). This proves: (1) the view
 // output equals what the controller persists, and (2) feeding the view output as

@@ -1,8 +1,15 @@
-//! Self-hosted multi-signer price oracle. Signers submit under `require_auth`;
-//! write-time N-of-M median keeps reads O(1). RedStone-style reads fail closed;
-//! SEP-40 reads soft-fail with `None`. Primary/anchor source for the
-//! price-aggregator. See `docs/reference/invariants.md` §4.2.
 #![no_std]
+
+//! Multi-signer price oracle with write-time N-of-M median aggregation.
+//!
+//! Registered signers submit under `require_auth`. Aggregation runs on write so
+//! reads are O(1) in signer count. RedStone-style reads fail closed; SEP-40
+//! reads soft-fail with `None`. Consumed as one of the composable feed sources
+//! behind the price-aggregator.
+//!
+//! Modules: `admin` (owner config), `submit` (signer writes), `aggregation`
+//! (guards + median), `reads` (RedStone / SEP-40), `storage` (keys, registry,
+//! TTL).
 
 mod admin;
 mod aggregation;
@@ -62,13 +69,13 @@ pub struct XoxnoOracle;
 
 #[contractimpl]
 impl XoxnoOracle {
-    /// Registers `admin` as the OZ `Ownable` owner, the initial `signers`
-    /// set, the N-of-M `threshold`, and the SEP-40 `resolution`. Staleness
-    /// windows start at their defaults; tune them via the owner setters.
+    /// Registers `admin` as the OZ `Ownable` owner, the initial signer set,
+    /// N-of-M `threshold`, and SEP-40 `resolution`. Staleness windows start at
+    /// their defaults; owner setters adjust them later.
     ///
     /// # Errors
-    /// * `InvalidThreshold` — `threshold == 0`, `threshold > signers.len()`,
-    ///   or `signers` contains a duplicate address.
+    /// * [`Error::InvalidThreshold`] — `threshold == 0`,
+    ///   `threshold > signers.len()`, or `signers` contains a duplicate.
     pub fn __constructor(
         env: Env,
         admin: Address,
@@ -101,8 +108,8 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Replaces the contract Wasm with the code at `new_wasm_hash`, keeping
-    /// the contract address and all storage intact. Owner only.
+    /// Replaces contract Wasm at `new_wasm_hash`, preserving address and storage.
+    /// Owner only.
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_oracle_instance(&env);
@@ -110,9 +117,8 @@ impl XoxnoOracle {
     }
 }
 
-/// `#[contractimpl]` can't see through to `Ownable`'s trait defaults, so each
-/// body is written out. `transfer_ownership`/`renounce_ownership` gate on
-/// owner auth internally — no `#[only_owner]` here.
+/// Explicit `Ownable` surface: `#[contractimpl]` does not export trait defaults.
+/// `transfer_ownership` / `renounce_ownership` enforce owner auth internally.
 #[contractimpl]
 impl Ownable for XoxnoOracle {
     fn get_owner(e: &Env) -> Option<Address> {
@@ -134,7 +140,6 @@ impl Ownable for XoxnoOracle {
 
 /// True when `signers` contains the same address twice.
 fn has_duplicate(signers: &Vec<Address>) -> bool {
-    // Both indices are bounded by `signers.len()`.
     for i in 0..signers.len() {
         for j in (i + 1)..signers.len() {
             if signers.get_unchecked(i) == signers.get_unchecked(j) {

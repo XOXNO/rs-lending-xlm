@@ -111,19 +111,26 @@ flow_strategies() {
     # repay_debt_with_collateral close_position=true full-close branch.
     # CAROL opens a small USDC debt, over-covers it with XLM collateral, and
     # exits with no borrow or collateral positions.
+    #
+    # Sizing: at live oracle ~$0.17 XLM and DEX fills a bit worse, 30 USDC of
+    # debt was not fully covered by selling 250 XLM (~$27–28 out), leaving
+    # residual debt and CannotCloseWithRemainingDebt (#114). Keep debt small
+    # (15 USDC) and sell almost all collateral so the swap clears the loan
+    # with room for oracle/DEX divergence; close_position then withdraws dust.
     local rdwc_acct
     rdwc_acct=$(inv rdwc_close_supply "$CAROL" "$CONTROLLER" -- supply \
         --caller "$CAROL_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 3000000000)" | tr -d '"') || return 1
     inv rdwc_close_borrow "$CAROL" "$CONTROLLER" -- borrow \
         --caller "$CAROL_ADDR" --account_id "$rdwc_acct" \
-        --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 300000000)" --to null >/dev/null
+        --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 150000000)" --to null >/dev/null
     leg_rdwc_close() {
         local hex
-        hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 2500000000) || return 1
+        # Sell 290 XLM (~$40–50 at live rates) against 15 USDC debt.
+        hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 2900000000) || return 1
         inv rdwc_close "$CAROL" "$CONTROLLER" -- repay_debt_with_collateral \
             --caller "$CAROL_ADDR" --account_id "$rdwc_acct" \
-            --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --collateral_amount 2500000000 \
+            --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --collateral_amount 2900000000 \
             --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" --close_position true >/dev/null
     }
     retry_leg leg_rdwc_close

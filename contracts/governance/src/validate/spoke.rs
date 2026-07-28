@@ -1,4 +1,4 @@
-//! Spoke liquidation-curve unit tests (validators live in `common::validation`).
+//! Spoke liquidation-curve tests. Validators live in `common::validation`.
 
 #[cfg(test)]
 #[path = "../../tests/validate/spoke.rs"]

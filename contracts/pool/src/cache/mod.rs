@@ -16,9 +16,7 @@ mod scale;
 mod shares;
 
 use common::math::fp::Ray;
-use common::types::{
-    HubAssetKey, MarketParams, MarketStateSnapshot, PoolState, PoolStateRaw,
-};
+use common::types::{HubAssetKey, MarketParams, MarketStateSnapshot, PoolState, PoolStateRaw};
 
 use soroban_sdk::Env;
 
@@ -39,12 +37,15 @@ pub(crate) struct Cache {
     borrow_index: Ray,
     supply_index: Ray,
     /// Tracked cash (`Token(asset)`); direct donations never increase this.
+    /// Borrowing debits this without reducing `supplied`, so `cash` alone can
+    /// sit below the supplier claim once a market has outstanding debt — that
+    /// is expected fractional-reserve behaviour, not a shortfall.
     ///
-    /// Invariant: `cash >= sum(claimable supplier + revenue value)`. The surplus
-    /// is protocol-owned dead reserve, unreachable by any user path because every
-    /// payout is cash-gated by [`Cache::require_reserves`]. Residue from a
-    /// floor-clamped bad-debt write-down is rejected on the next supply by
-    /// [`crate::guards::require_backed_market`].
+    /// Invariant: `cash + outstanding_debt >= claimable supplier value`
+    /// (`unscale_supply_floor(supplied)`, floored; debt ceiled). Enforced by
+    /// [`crate::guards::require_backed_market`] / [`crate::guards::backing_shortfall`].
+    /// Residue from a floor-clamped bad-debt write-down is rejected on the next
+    /// supply by that same guard.
     cash: i128,
 }
 

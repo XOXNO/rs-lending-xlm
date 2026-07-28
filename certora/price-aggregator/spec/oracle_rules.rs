@@ -3,13 +3,24 @@
 use cvlr::macros::rule;
 use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use common::constants::{MAX_TOLERANCE, MIN_TOLERANCE, WAD};
+use common::errors::OracleError;
 use common::types::{
     AssetOracle, FeedSource, IndependencePolicy, OracleAssetRef, OracleReadMode, OracleTolerance,
-    PriceFeedRaw, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef,
+    PriceFeedRaw, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef, ScaledSource,
 };
+
+/// Panics out of band, else the blended price — mirrors the composition of
+/// `crate::tolerance::within_tolerance_band` + `midpoint_price_or_zero` that
+/// the engine applies on the live blend path.
+fn midpoint_if_in_band(e: &Env, anchor: i128, primary: i128, tolerance: &OracleTolerance) -> i128 {
+    if !crate::tolerance::within_tolerance_band(e, anchor, primary, tolerance) {
+        panic_with_error!(e, OracleError::UnsafePriceNotAllowed);
+    }
+    crate::tolerance::midpoint_price_or_zero(anchor, primary)
+}
 
 const MAX_REALISTIC_PRICE: i128 = 1_000_000 * WAD;
 const PAR_RATIO_BPS: u32 = 10_000;
@@ -44,7 +55,7 @@ fn assert_blend_within_inputs(e: &Env, first: i128, second: i128, tolerance_bps:
         upper_ratio_bps: PAR_RATIO_BPS + tolerance_bps,
         lower_ratio_bps: PAR_RATIO_BPS - tolerance_bps,
     };
-    let final_price = crate::tolerance::midpoint_if_in_band(e, first, second, &tolerance);
+    let final_price = midpoint_if_in_band(e, first, second, &tolerance);
     let min_price = first.min(second);
     let max_price = first.max(second);
     cvlr_assert!(final_price >= min_price);
@@ -156,6 +167,41 @@ fn missing_oracle_config_reverts(e: Env, asset: Address) {
     cvlr_assert!(false);
 }
 
+/// A [`ScaledSource`] whose `quote` names the very [`PriceKey`] being
+/// configured reverts at config time.
+///
+/// v1's version of this bug was syntactic: `ReflectorBase::Quoted(asset)` let
+/// a Reflector leg name its own asset as base. That shape doesn't exist here
+/// — [`PriceSource`] carries no base to self-reference — but composition
+/// through [`PriceKey`] indirection reopens the same defect in a new form: a
+/// [`ScaledSource::quote`] is free to name any key, including the asset's
+/// own. Nothing here rejects that syntactically either; it is caught only
+/// because [`properties_of_config`](crate::properties::properties_of_config)
+/// walks the same dependency graph the read path resolves, through the
+/// identical cycle stack (`Session::push_key` / `is_resolving`) — so a
+/// self-quoting config dies on the write path with
+/// [`OracleError::OracleCycleDetected`] instead of surviving to panic (or
+/// worse, silently loop) on the first read.
+#[rule]
+fn self_quoted_scaled_source_reverts(e: Env, asset: Address, oracle: Address) {
+    cvlr_assume!(asset != oracle);
+    let mut config = pinned_oracle(&e, &asset, oracle);
+    let PriceSource::Feed(feed) = config.sources.get_unchecked(0) else {
+        unreachable!()
+    };
+    let mut sources = Vec::new(&e);
+    sources.push_back(PriceSource::Scaled(ScaledSource {
+        factor: feed,
+        quote: PriceKey::Token(asset.clone()),
+        min_factor_wad: WAD,
+        max_factor_wad: 2 * WAD,
+    }));
+    config.sources = sources;
+
+    crate::admin::validate_asset_oracle(&e, &PriceKey::Token(asset), &config);
+    cvlr_assert!(false);
+}
+
 #[rule]
 fn invalid_sanity_bounds_revert(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);
@@ -163,6 +209,6 @@ fn invalid_sanity_bounds_revert(e: Env, asset: Address, oracle: Address) {
     config.min_sanity_price_wad = 0;
     config.max_sanity_price_wad = 0;
 
-    let _ = crate::admin::validate_asset_oracle(&e, &PriceKey::Token(asset), &config);
+    crate::admin::validate_asset_oracle(&e, &PriceKey::Token(asset), &config);
     cvlr_assert!(false);
 }

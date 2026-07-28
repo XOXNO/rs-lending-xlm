@@ -231,9 +231,12 @@ pub trait ControllerInterface {
     /// * `AssetsAreTheSame` — identical `(hub, asset)` pair.
     /// * `AmountMustBePositive` / `HubNotActive` — preflight.
     /// * `NotAuthorized` — caller is neither owner nor active delegate.
-    /// * `NotCollateral` / `PositionLimitExceeded` — destination preflight.
+    /// * `NotCollateral` — destination preflight.
     /// * `CollateralPositionNotFound` — no supply position for `current`.
     /// * Swap/deposit errors (`NoSwapOutput`, `RouterOverspend`, entry gates).
+    /// * `PositionLimitExceeded` — the post-withdraw deposit step's limit check,
+    ///   not a destination preflight (a full same-slot swap frees its own slot
+    ///   first, so it is not falsely rejected).
     /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — finalize risk gates.
     /// * The `#[when_not_paused]` guard reverts while the contract is paused.
     ///
@@ -344,23 +347,27 @@ pub trait ControllerInterface {
     fn add_rewards(env: Env, caller: Address, rewards: Vec<(HubAssetKey, i128)>);
 
     /// Propagates spoke risk params onto supply positions. Permissionless
-    /// (caller auth). LTV always re-stamps. When `has_risks`, each leg's
-    /// liquidation tuple (threshold, bonus, fees) re-stamps too and the whole
-    /// call must leave the account at or above the min HF.
-    ///
-    /// That gate bounds the threshold, which feeds the health factor. Bonus and
-    /// fees do not enter the HF computation, so the gate does not bound them —
-    /// it only reverts the entire stamp for an account that is already near
-    /// liquidation. Every field is copied from the spoke listing, so a caller
-    /// can only write governance's configured values, never arbitrary ones; a
-    /// healthy account's bonus may be raised to the current config value.
-    /// Delisted spoke members keep stamped params and are skipped. Blocked
-    /// while paused.
+    /// (caller auth). LTV always re-stamps, unconditionally, for every account.
+    /// When `has_risks`, each leg's liquidation tuple (threshold, bonus, fees)
+    /// re-stamps too, gated per position: a tuple change that favors the
+    /// liquidator (lower threshold, higher bonus, or lower fee) is skipped —
+    /// keeping the position's old tuple — when the account carries debt and
+    /// would not clear the min HF under the new threshold. A tuple that favors
+    /// the account (or a debt-free account) always re-stamps. This per-leg gate
+    /// only shields the tuple's own contribution; it does not cover LTV, which
+    /// is never gated. So after all positions on an account are updated, when
+    /// `has_risks` the account's overall health factor is checked once more —
+    /// if an LTV change (or any residual drop) leaves it below the min HF, the
+    /// call reverts for that account, which aborts the whole batch since a
+    /// Soroban panic unwinds the entire invocation. Every field is copied from
+    /// the spoke listing, so a caller can only write governance's configured
+    /// values, never arbitrary ones. Delisted spoke members keep stamped params
+    /// and are skipped. Blocked while paused.
     ///
     /// # Errors
     /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `HealthFactorTooLow` — re-stamping the liquidation tuple would leave
-    ///   the account below the min HF.
+    /// * `HealthFactorTooLow` — an account's post-update health factor (driven
+    ///   by an LTV change, since LTV is never gated) falls below the min HF.
     ///
     /// # Events
     /// * Position-batch event per updated account.

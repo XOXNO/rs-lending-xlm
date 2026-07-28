@@ -57,16 +57,16 @@ pub(crate) fn apply(
         asset.balance(&pool),
     );
 
-    payout(env, &asset, &pool, &receiver, amount, terms.balance_after_payout);
-    invoke_receiver(
+    payout(
         env,
-        &cache,
-        &receiver,
-        initiator,
-        amount,
-        terms.fee,
+        &asset,
         &pool,
-        data,
+        &receiver,
+        amount,
+        terms.balance_after_payout,
+    );
+    invoke_receiver(
+        env, &cache, &receiver, initiator, amount, terms.fee, &pool, data,
     );
     // Callback must not change the pool's loaned-token balance.
     require_balance(env, &asset, &pool, terms.balance_after_payout);

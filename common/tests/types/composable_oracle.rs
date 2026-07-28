@@ -111,8 +111,7 @@ fn test_two_feeds_on_one_adapter_share_a_domain() {
 
     let pa = SourceProperties::of_feed(&env, &a);
     let pb = SourceProperties::of_feed(&env, &b);
-    assert!(pa.shares_any(&pb));
-    assert_eq!(pa.shared_with(&env, &pb).len(), 1);
+    assert_eq!(pa.shared_contracts_with(&env, &pb).len(), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -168,59 +167,8 @@ fn test_join_is_symmetric_in_smoothing_and_trust() {
     let ba = b.join(&a);
     assert_eq!(ab.has_unsmoothed_market_leg, ba.has_unsmoothed_market_leg);
     assert_eq!(ab.depth, ba.depth);
-    assert!(same_domain_set(&ab.trust, &ba.trust));
-}
-
-// ---------------------------------------------------------------------------
-// Domain set equality.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_same_domain_set_ignores_order() {
-    let env = Env::default();
-    let one = TrustDomain {
-        kind: ProviderKind::Reflector,
-        contract: Address::generate(&env),
-    };
-    let two = TrustDomain {
-        kind: ProviderKind::RedStone,
-        contract: Address::generate(&env),
-    };
-
-    let mut forward = Vec::new(&env);
-    forward.push_back(one.clone());
-    forward.push_back(two.clone());
-
-    let mut backward = Vec::new(&env);
-    backward.push_back(two);
-    backward.push_back(one);
-
-    assert!(same_domain_set(&forward, &backward));
-}
-
-#[test]
-fn test_same_domain_set_rejects_subset() {
-    let env = Env::default();
-    let one = TrustDomain {
-        kind: ProviderKind::Reflector,
-        contract: Address::generate(&env),
-    };
-    let two = TrustDomain {
-        kind: ProviderKind::RedStone,
-        contract: Address::generate(&env),
-    };
-
-    let mut full = Vec::new(&env);
-    full.push_back(one.clone());
-    full.push_back(two);
-
-    let mut partial = Vec::new(&env);
-    partial.push_back(one);
-
-    // A later edit that introduces a second shared domain must not pass against
-    // a declaration naming only the first.
-    assert!(!same_domain_set(&full, &partial));
-    assert!(!same_domain_set(&partial, &full));
+    assert_eq!(ab.trust.len(), ba.trust.len());
+    assert!(ab.trust.iter().all(|d| contains_domain(&ba.trust, &d)));
 }
 
 // ---------------------------------------------------------------------------
