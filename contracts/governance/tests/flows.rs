@@ -474,8 +474,10 @@ fn entrypoint_renews_governance_instance_ttl() {
         }),
         &salt,
     );
+    // Effective sensitive delay is max(min_delay, sensitive floor).
     env.ledger().with_mut(|l| {
-        l.sequence_number += constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS;
+        l.sequence_number += constants::TIMELOCK_MIN_DELAY_LEDGERS
+            .max(constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
     });
     gov.execute_self(
         &Some(admin.clone()),
@@ -562,7 +564,10 @@ fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
     let gov = GovernanceClient::new(&env, &gov_id);
     let new_owner = Address::generate(&env);
 
-    let live_until = env.ledger().sequence() + TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS + 10_000;
+    // Effective sensitive delay is max(min_delay, sensitive floor).
+    let sensitive_delay =
+        constants::TIMELOCK_MIN_DELAY_LEDGERS.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
+    let live_until = env.ledger().sequence() + sensitive_delay + 10_000;
     let op = AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
         new_owner: new_owner.clone(),
         live_until_ledger: live_until,
@@ -570,7 +575,7 @@ fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
     let salt = BytesN::<32>::from_array(&env, &[0u8; 32]);
     gov.propose(&admin, &op, &salt);
     env.ledger()
-        .with_mut(|l| l.sequence_number += TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
+        .with_mut(|l| l.sequence_number += sensitive_delay);
     gov.execute_self(&Some(admin.clone()), &op, &salt);
 
     let pending_admin = env.as_contract(&gov_id, || {
