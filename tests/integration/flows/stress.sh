@@ -132,10 +132,23 @@ flow_stress_dualify() {
         sac=$(stress_sac "$i")
         set_rs_price "$code" "$WAD" "rs_px_$code"
         local resolved_dual
-        resolved_dual=$(view "dualify_resolve_$code" "$GOVERNANCE" -- resolve_market_oracle_config \
-            --asset "$sac" --cfg "$(oracle_cfg_mock_dual "$sac" "$code")") || continue
-        inv "dualify_$code" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle_config \
-            --asset "$sac" --config "$resolved_dual" >/dev/null
+        local dual_key dual_oracle_file dual_resolved_file
+        dual_key=$(price_key_token "$sac")
+        dual_oracle_file=$(mktemp)
+        dual_resolved_file=$(mktemp)
+        printf '%s' "$(oracle_cfg_mock_dual "$sac" "$code")" > "$dual_oracle_file"
+        resolved_dual=$(view "dualify_resolve_$code" "$GOVERNANCE" -- resolve_asset_oracle \
+            --key "$dual_key" --oracle-file-path "$dual_oracle_file" | jq -c '.') || {
+            rm -f "$dual_oracle_file" "$dual_resolved_file"
+            continue
+        }
+        printf '%s' "$resolved_dual" > "$dual_resolved_file"
+        inv "dualify_$code" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle \
+            --key "$dual_key" --oracle-file-path "$dual_resolved_file" >/dev/null || {
+            rm -f "$dual_oracle_file" "$dual_resolved_file"
+            continue
+        }
+        rm -f "$dual_oracle_file" "$dual_resolved_file"
     done
     save_state STRESS_DUAL_DONE 1
 }

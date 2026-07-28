@@ -8,10 +8,10 @@
 #
 # Market creation follows the production sequence on an explicit created hub:
 # create_liquidity_pool (pending primary spoke listing: not
-# collateralizable/borrowable) → resolve_market_oracle_config (governance view) →
-# set_oracle_config on PRICE_AGGREGATOR → add_asset_to_spoke on the primary spoke.
-# Oracle configs for mock markets must use Twap (Spot-only primaries reject with
-# SpotOnlyNotProductionSafe #38) and market params must include max_utilization.
+# collateralizable/borrowable) → resolve_asset_oracle (governance view) →
+# set_oracle on PRICE_AGGREGATOR → add_asset_to_spoke on the primary spoke.
+# Oracle configs are AssetOracle documents (sources / tolerance / independence);
+# mock Reflector legs use Twap (Spot-only market legs reject with #38).
 
 # Uploads pool wasm, deploys controller + price-aggregator + central pool + flash
 # receiver, wires aggregator/accumulator/price-aggregator, unpauses. Persists:
@@ -135,8 +135,8 @@ deploy_protocol() {
         save_state CTRL_HASH "$chash"
         record upload_controller_wasm ok upload "$txh" "" "" "" "" "$chash"
     fi
-    # Governance-owned controller: required so resolve_market_oracle_config has a
-    # controller to read (get_controller); also the target of the timelock e2e.
+    # Governance-owned controller: required so resolve_asset_oracle / token
+    # decimal probes have a controller; also the target of the timelock e2e.
     if [ -z "${GOV_CONTROLLER:-}" ]; then
         local gc
         gc=$(inv deploy_controller "$ADMIN" "$GOVERNANCE" -- deploy_controller \
@@ -250,35 +250,82 @@ spoke_args() {
     }'
 }
 
-# Single-source oracle config: Reflector-shaped mock, Twap(3). The sanity band
-# is a tight +/-10% around $1 (the mock's fixed price), the widest a `Single`
-# strategy may use. Flows that crash the mock price below this band must use the
-# anchored (`oracle_cfg_mock_dual`) shape, which is exempt from the cap.
+# PriceKey::Token JSON for CLI invokes.
+#   price_key_token <sac-id>
+price_key_token() {
+    jq -nc --arg a "$1" '{Token:$a}'
+}
+
+# Reciprocal agreement band for `tolerance_bps` around 10000 (matches
+# governance resolve_oracle_tolerance / harness tolerance_band).
+#   oracle_tolerance_band <bps>
+oracle_tolerance_band() {
+    local bps="$1"
+    jq -nc --argjson t "$bps" '
+        def half_up(n; d): ((n + (d/2|floor)) / d | floor);
+        {upper_ratio_bps: (10000 + $t),
+         lower_ratio_bps: half_up(10000 * 10000; 10000 + $t)}'
+}
+
+# Single-source AssetOracle: Reflector-shaped mock, Twap(3). Sanity band is a
+# tight +/-10% around $1 (the mock's fixed price) — the single-source cap.
+# Flows that crash the mock price below this band must use oracle_cfg_mock_dual.
 #   oracle_cfg_mock_single <sac-id>
 oracle_cfg_mock_single() {
     local sac="$1"
-    jq -nc --arg mock "$MOCK" --arg sac "$sac" '{
+    jq -nc --arg mock "$MOCK" --arg sac "$sac" --argjson tol "$(oracle_tolerance_band 500)" '{
+        asset_decimals: 7,
         max_price_stale_seconds: 3600,
-        tolerance_bps: 500,
-        strategy: 0,
-        primary: {Reflector: {contract: $mock, asset: {Stellar: $sac}, read_mode: {Twap: 3}}},
-        anchor: "None",
+        sources: [{
+            Feed: {
+                provider: {Reflector: {
+                    contract: $mock,
+                    asset: {Stellar: $sac},
+                    read_mode: {Twap: 3}
+                }},
+                decimals: 14,
+                max_stale_seconds: 3600
+            }
+        }],
+        tolerance: $tol,
+        independence: "RequireDisjoint",
         min_sanity_price_wad: "900000000000000000",
         max_sanity_price_wad: "1100000000000000000"
     }'
 }
 
-# Dual-source (mainnet-faithful) oracle config: mock Reflector primary +
-# mock RedStone anchor. Anchor MUST be a different provider kind.
+# Dual-source AssetOracle: mock Reflector Twap + mock RedStone MultiFeed
+# (Fundamental). Different provider kinds satisfy RequireDisjoint.
 #   oracle_cfg_mock_dual <sac-id> <feed-id>
 oracle_cfg_mock_dual() {
     local sac="$1" feed="$2"
-    jq -nc --arg mock "$MOCK" --arg mockrs "$MOCKRS" --arg sac "$sac" --arg feed "$feed" '{
+    jq -nc --arg mock "$MOCK" --arg mockrs "$MOCKRS" --arg sac "$sac" --arg feed "$feed" \
+        --argjson tol "$(oracle_tolerance_band 500)" '{
+        asset_decimals: 7,
         max_price_stale_seconds: 3600,
-        tolerance_bps: 500,
-        strategy: 1,
-        primary: {Reflector: {contract: $mock, asset: {Stellar: $sac}, read_mode: {Twap: 3}}},
-        anchor: {Some: {RedStone: {contract: $mockrs, feed_id: $feed, max_stale_seconds: 3600}}},
+        sources: [
+            {Feed: {
+                provider: {Reflector: {
+                    contract: $mock,
+                    asset: {Stellar: $sac},
+                    read_mode: {Twap: 3}
+                }},
+                decimals: 14,
+                max_stale_seconds: 3600
+            }},
+            {Feed: {
+                provider: {MultiFeed: {
+                    contract: $mockrs,
+                    feed_id: $feed,
+                    kind: "RedStone",
+                    nature: "Fundamental"
+                }},
+                decimals: 8,
+                max_stale_seconds: 3600
+            }}
+        ],
+        tolerance: $tol,
+        independence: "RequireDisjoint",
         min_sanity_price_wad: "1000000000000000",
         max_sanity_price_wad: "1000000000000000000000"
     }'
@@ -288,12 +335,23 @@ oracle_cfg_mock_dual() {
 #   oracle_cfg_reflector <SYMBOL> <min-sanity-wad> <max-sanity-wad>
 oracle_cfg_reflector() {
     local sym="$1" min_wad="$2" max_wad="$3"
-    jq -nc --arg orc "$REFLECTOR_CEX" --arg sym "$sym" --arg min "$min_wad" --arg max "$max_wad" '{
+    jq -nc --arg orc "$REFLECTOR_CEX" --arg sym "$sym" --arg min "$min_wad" --arg max "$max_wad" \
+        --argjson tol "$(oracle_tolerance_band 500)" '{
+        asset_decimals: 7,
         max_price_stale_seconds: 3600,
-        tolerance_bps: 500,
-        strategy: 0,
-        primary: {Reflector: {contract: $orc, asset: {Symbol: $sym}, read_mode: {Twap: 3}}},
-        anchor: "None",
+        sources: [{
+            Feed: {
+                provider: {Reflector: {
+                    contract: $orc,
+                    asset: {Symbol: $sym},
+                    read_mode: {Twap: 3}
+                }},
+                decimals: 14,
+                max_stale_seconds: 3600
+            }
+        }],
+        tolerance: $tol,
+        independence: "RequireDisjoint",
         min_sanity_price_wad: $min,
         max_sanity_price_wad: $max
     }'
@@ -344,11 +402,25 @@ create_market() {
             --hub_id "$hub_id" --asset "$sac" --params "$params" >/dev/null || return 1
     fi
 
-    resolved_oracle=$(view "resolve_oracle_$name" "$GOVERNANCE" -- resolve_market_oracle_config \
-        --asset "$sac" --cfg "$oracle_json" | jq -c '.') || return 1
-    # Oracle authority is the price-aggregator (token-rooted config, bare asset).
-    inv "set_oracle_$name" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle_config \
-        --asset "$sac" --config "$resolved_oracle" >/dev/null || return 1
+    local key_json oracle_file resolved_file
+    key_json=$(price_key_token "$sac")
+    oracle_file=$(mktemp)
+    resolved_file=$(mktemp)
+    printf '%s' "$oracle_json" > "$oracle_file"
+    # Governance overwrites asset_decimals from the SAC; store that resolved form.
+    resolved_oracle=$(view "resolve_oracle_$name" "$GOVERNANCE" -- resolve_asset_oracle \
+        --key "$key_json" --oracle-file-path "$oracle_file" | jq -c '.') || {
+        rm -f "$oracle_file" "$resolved_file"
+        return 1
+    }
+    printf '%s' "$resolved_oracle" > "$resolved_file"
+    # Oracle authority is the price-aggregator (PriceKey::Token + AssetOracle).
+    inv "set_oracle_$name" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle \
+        --key "$key_json" --oracle-file-path "$resolved_file" >/dev/null || {
+        rm -f "$oracle_file" "$resolved_file"
+        return 1
+    }
+    rm -f "$oracle_file" "$resolved_file"
 
     ltv=$(jq -r '.loan_to_value' <<<"$active_cfg")
     thr=$(jq -r '.liquidation_threshold' <<<"$active_cfg")
