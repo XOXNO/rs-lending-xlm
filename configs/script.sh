@@ -577,6 +577,34 @@ price_key_token() {
     jq -nc --arg a "$1" '{Token:$a}'
 }
 
+# PriceKey::Ref JSON for pure registry prices (no SAC / market).
+price_key_ref() {
+    jq -nc --arg s "$1" '{Ref:$s}'
+}
+
+# Normalize markets.json oracle JSON for the Stellar CLI (tag/values → friendly).
+oracle_cfg_cli_union() {
+    jq -c '
+        def cli_union:
+            if type == "object" and has("tag") and has("values") then
+                if .values == null or .values == [] then
+                    .tag
+                elif (.values | type) == "array" and (.values | length) == 1 then
+                    {(.tag): (.values[0] | cli_union)}
+                else
+                    {(.tag): (.values | map(cli_union))}
+                end
+            elif type == "object" then
+                with_entries(.value |= cli_union)
+            elif type == "array" then
+                map(cli_union)
+            else
+                .
+            end;
+        cli_union
+    '
+}
+
 # Mark a local op record as executed. On-chain ledger is cleared after execute;
 # this flag is the CLI's synthetic Done for salt probing and converge skips.
 mark_op_executed() {
@@ -1402,12 +1430,13 @@ validate_configs() {
         fi
 
         # Per-source checks: envelope, provider contracts, multi-feed heartbeat.
+        # Feed validates the provider leg; Scaled validates the factor leg and
+        # that the quote key is a known reference or earlier market.
         local nsrc i sjson pkind pcontract fstale
         nsrc=$(printf '%s' "$o" | jq -r '.sources | length')
         i=0
         while [ "$i" -lt "$nsrc" ]; do
             sjson=$(printf '%s' "$o" | jq -c --argjson i "$i" '.sources[$i]')
-            # Unwrap Feed → provider
             if printf '%s' "$sjson" | jq -e 'has("Feed")' >/dev/null; then
                 fstale=$(printf '%s' "$sjson" | jq -r '.Feed.max_stale_seconds // "missing"')
                 pkind=$(printf '%s' "$sjson" | jq -r '
@@ -1418,8 +1447,42 @@ validate_configs() {
                     if .Feed.provider | has("Reflector") then .Feed.provider.Reflector.contract
                     elif .Feed.provider | has("MultiFeed") then .Feed.provider.MultiFeed.contract
                     else "" end')
+            elif printf '%s' "$sjson" | jq -e 'has("Scaled")' >/dev/null; then
+                fstale=$(printf '%s' "$sjson" | jq -r '.Scaled.factor.max_stale_seconds // "missing"')
+                pkind=$(printf '%s' "$sjson" | jq -r '
+                    if .Scaled.factor.provider | has("Reflector") then "Reflector"
+                    elif .Scaled.factor.provider | has("MultiFeed") then (.Scaled.factor.provider.MultiFeed.kind // "MultiFeed")
+                    else "unknown" end')
+                pcontract=$(printf '%s' "$sjson" | jq -r '
+                    if .Scaled.factor.provider | has("Reflector") then .Scaled.factor.provider.Reflector.contract
+                    elif .Scaled.factor.provider | has("MultiFeed") then .Scaled.factor.provider.MultiFeed.contract
+                    else "" end')
+                local quote_ref quote_token
+                quote_ref=$(printf '%s' "$sjson" | jq -r '.Scaled.quote.Ref // empty')
+                quote_token=$(printf '%s' "$sjson" | jq -r '.Scaled.quote.Token // empty')
+                if [ -n "$quote_ref" ]; then
+                    if ! jq -e --arg n "$quote_ref" '
+                        any(.references[]?; (.name == $n) or (.key.Ref == $n))
+                    ' "$MARKET_CONFIG_FILE" >/dev/null; then
+                        vc_err "market ${m}: sources[$i] Scaled quote Ref ${quote_ref} not in markets.json references"
+                    fi
+                elif [ -n "$quote_token" ]; then
+                    if ! jq -e --arg a "$quote_token" '
+                        any(.markets[]?; .asset_address == $a)
+                    ' "$MARKET_CONFIG_FILE" >/dev/null; then
+                        vc_err "market ${m}: sources[$i] Scaled quote Token ${quote_token} not in markets.json"
+                    fi
+                else
+                    vc_err "market ${m}: sources[$i] Scaled missing quote Ref or Token"
+                fi
+                if ! printf '%s' "$sjson" | jq -e '
+                    (.Scaled.min_factor_wad | tonumber) > 0 and
+                    (.Scaled.max_factor_wad | tonumber) > (.Scaled.min_factor_wad | tonumber)
+                ' >/dev/null; then
+                    vc_err "market ${m}: sources[$i] Scaled min/max_factor_wad invalid"
+                fi
             else
-                vc_err "market ${m}: sources[$i] is not PriceSource::Feed (only Feed is validated here)"
+                vc_err "market ${m}: sources[$i] must be PriceSource::Feed or Scaled"
                 i=$((i + 1))
                 continue
             fi
@@ -1454,6 +1517,36 @@ validate_configs() {
             esac
             i=$((i + 1))
         done
+    done
+
+    # Reference oracles (PriceKey::Ref): same envelope as markets, no SAC.
+    # Every Scaled quote Ref must resolve to an entry; unused refs are warned.
+    local rname ro needed
+    for rname in $(jq -r '(.references // [])[].name // empty' "$MARKET_CONFIG_FILE"); do
+        ro=$(jq -c --arg n "$rname" '.references[] | select(.name == $n) | .oracle' "$MARKET_CONFIG_FILE")
+        if ! printf '%s' "$ro" | jq -e '(.sources | type) == "array" and ((.sources | length) == 1 or (.sources | length) == 2)' >/dev/null; then
+            vc_err "reference ${rname}: oracle.sources must be length 1 or 2"
+        fi
+        if ! printf '%s' "$ro" | jq -e '(.asset_decimals // -1) == 0' >/dev/null; then
+            vc_err "reference ${rname}: asset_decimals must be 0 for PriceKey::Ref"
+        fi
+        if ! printf '%s' "$ro" | jq -e 'has("min_sanity_price_wad") and has("max_sanity_price_wad")' >/dev/null; then
+            vc_err "reference ${rname}: missing min/max_sanity_price_wad"
+        fi
+    done
+    for needed in $(all_scaled_ref_quotes); do
+        if ! jq -e --arg n "$needed" '
+            any(.references[]?; (.name == $n) or (.key.Ref == $n))
+        ' "$MARKET_CONFIG_FILE" >/dev/null; then
+            vc_err "Scaled markets quote Ref ${needed} but it is not listed under .references[]"
+        fi
+    done
+    for rname in $(jq -r '(.references // [])[].name // empty' "$MARKET_CONFIG_FILE"); do
+        if ! jq -e --arg n "$rname" '
+            any(.markets[]?; any(.oracle.sources[]?; (.Scaled.quote.Ref // "") == $n))
+        ' "$MARKET_CONFIG_FILE" >/dev/null; then
+            vc_warn "reference ${rname} is listed but no market Scaled source quotes it"
+        fi
     done
 
     # DEX Reflector sources reprice via a quote asset: the quote market must
@@ -2683,92 +2776,77 @@ withdraw_position() {
         --to null
 }
 
-configure_market_oracle() {
+# Unique Ref quote symbols required by a market's Scaled sources.
+market_scaled_ref_quotes() {
     local market_name=$1
+    jq -r --arg m "$market_name" '
+        .markets[] | select(.name == $m) | (.oracle.sources // [])[] |
+        select(has("Scaled")) | .Scaled.quote.Ref // empty
+    ' "$MARKET_CONFIG_FILE" | sort -u
+}
 
-    echo "Configuring market oracle for ${market_name}..."
+# Unique Ref quotes required by any market (setup order drivers).
+all_scaled_ref_quotes() {
+    jq -r '
+        [.markets[] | (.oracle.sources // [])[] |
+         select(has("Scaled")) | .Scaled.quote.Ref // empty] | unique | .[]
+    ' "$MARKET_CONFIG_FILE"
+}
 
-    # Preflight: every oracle config must carry sanity bounds. On mainnet
-    # the `(0, 0)` disabled-sentinel is rejected — that combination is for
-    # test setups only. (Codex adversarial-review #4.)
-    local missing
-    missing=$(jq -r --arg m "$market_name" '
-        .markets[] | select(.name == $m) | .oracle |
-        (if has("min_sanity_price_wad") and has("max_sanity_price_wad")
-            then "" else "missing min_sanity_price_wad / max_sanity_price_wad" end)
+require_reference_entry() {
+    local ref_name=$1
+    local entry
+    entry=$(jq -c --arg n "$ref_name" '
+        first(.references[]? | select(.name == $n or .key.Ref == $n)) // empty
     ' "$MARKET_CONFIG_FILE")
-    if [ -n "$missing" ]; then
-        echo "ERROR: $market_name oracle config $missing" >&2
+    if [ -z "$entry" ] || [ "$entry" = "null" ]; then
+        echo "ERROR: reference oracle '${ref_name}' not listed in ${MARKET_CONFIG_FILE} .references[]" >&2
+        echo "       Scaled quotes need a PriceKey::Ref entry with name/key matching '${ref_name}'." >&2
+        exit 1
+    fi
+    printf '%s' "$entry"
+}
+
+preflight_oracle_sanity() {
+    local label=$1
+    local oracle_json=$2
+    if ! printf '%s' "$oracle_json" | jq -e 'has("min_sanity_price_wad") and has("max_sanity_price_wad")' >/dev/null; then
+        echo "ERROR: ${label} oracle config missing min_sanity_price_wad / max_sanity_price_wad" >&2
         exit 1
     fi
     if [ "$NETWORK" = "mainnet" ]; then
-        local zero
-        zero=$(jq -r --arg m "$market_name" '
-            .markets[] | select(.name == $m) | .oracle |
-            (if (.min_sanity_price_wad == "0" and .max_sanity_price_wad == "0")
-                then "yes" else "no" end)
-        ' "$MARKET_CONFIG_FILE")
-        if [ "$zero" = "yes" ]; then
-            echo "ERROR: $market_name uses (0, 0) sanity-bound sentinel on mainnet" >&2
+        if printf '%s' "$oracle_json" | jq -e '
+            (.min_sanity_price_wad | tostring) == "0" and
+            (.max_sanity_price_wad | tostring) == "0"
+        ' >/dev/null; then
+            echo "ERROR: ${label} uses (0, 0) sanity-bound sentinel on mainnet" >&2
             exit 1
         fi
     fi
+}
 
-    local asset_address
-    asset_address=$(require_market_address "$market_name")
-    local key_json
-    key_json=$(price_key_token "$asset_address")
-    local cfg_file
-    cfg_file=$(mktemp)
-    # markets.json stores friendly AssetOracle JSON already; cli_union is a
-    # no-op on that shape and keeps tag/values XDR dumps decodable if any remain.
-    jq -c --arg market "$market_name" '
-        def cli_union:
-            if type == "object" and has("tag") and has("values") then
-                if .values == null or .values == [] then
-                    .tag
-                elif (.values | type) == "array" and (.values | length) == 1 then
-                    {(.tag): (.values[0] | cli_union)}
-                else
-                    {(.tag): (.values | map(cli_union))}
-                end
-            elif type == "object" then
-                with_entries(.value |= cli_union)
-            elif type == "array" then
-                map(cli_union)
-            else
-                .
-            end;
-        .markets[] | select(.name == $market) | .oracle | cli_union
-    ' "$MARKET_CONFIG_FILE" > "$cfg_file"
+# propose(ConfigureAssetOracle{key, oracle}) for Token or Ref keys. Validates +
+# probes the INPUT AssetOracle, schedules price-aggregator set_oracle with the
+# governance-RESOLVED AssetOracle. Op record stores a resolve block; executeOp
+# replays resolve_asset_oracle through set_oracle. See resolve_oracle_op_args.
+# label is log-only (e.g. "market SolvBTC" or "reference BTC").
+schedule_configure_asset_oracle() {
+    local label=$1
+    local key_json=$2
+    local cfg_json=$3
 
-    # propose(ConfigureAssetOracle{key, oracle}) validates+probes the INPUT
-    # AssetOracle, then schedules price-aggregator set_oracle with the
-    # governance-RESOLVED AssetOracle (decimals fixed from the SAC). The CLI
-    # can't capture that struct as ScVal from the friendly view output, so the
-    # op record stores a resolve block; executeOp replays resolve_asset_oracle
-    # through set_oracle --build-only. See resolve_oracle_op_args.
-    local gov
+    local gov proposer
     gov=$(get_governance)
-    local proposer
     proposer=$(get_signer_address)
 
-    local cfg_json
-    cfg_json=$(jq -c . "$cfg_file")
-    rm -f "$cfg_file"
-    local salt
-    local salt_input
+    local salt_input salt resolve_args
     salt_input=$(jq -nc --argjson oracle "$cfg_json" --argjson key "$key_json" \
         '{key:$key, oracle:$oracle}')
     salt=$(gen_salt "set_oracle" "$salt_input")
-    local resolve_args
     resolve_args=$(jq -nc --argjson key "$key_json" --argjson oracle "$cfg_json" \
         '{key:$key, oracle:$oracle}')
 
-    # Idempotency pre-check: derive the scheduled (resolved) args now, compute
-    # the deterministic op id, and reuse an op that already exists on-chain
-    # instead of re-proposing (which the timelock rejects). A resolve failure
-    # falls through to propose, whose validation reports the authoritative error.
+    # Idempotency: reuse a scheduled/executed op for this exact config.
     local agg resolved_args salt_use known_id state gen
     agg=$(get_price_aggregator)
     resolved_args=$(resolve_oracle_args_for resolve_asset_oracle "$agg" \
@@ -2777,27 +2855,27 @@ configure_market_oracle() {
         read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle "$resolved_args" "$salt")
         case "$state" in
             Ready|Waiting)
-                echo "Oracle config op ${known_id} for ${market_name} already ${state}; reusing it instead of re-proposing." >&2
+                echo "Oracle config op ${known_id} for ${label} already ${state}; reusing it instead of re-proposing." >&2
                 write_oracle_op_record "$known_id" "set_oracle" \
                     "resolve_asset_oracle" "$resolve_args" "$salt_use"
                 schedule_and_maybe_execute "$known_id"
                 return 0
                 ;;
             Exhausted)
-                die "configureMarketOracle ${market_name}: all ${MAX_SALT_GENERATIONS} salt generations already executed; re-run with a fresh SALT_NONCE=<n>"
+                die "configure oracle ${label}: all ${MAX_SALT_GENERATIONS} salt generations already executed; re-run with a fresh SALT_NONCE=<n>"
                 ;;
             Unset)
                 if [ "$gen" -gt 0 ]; then
                     if [ "${REAPPLY_ON_DONE:-1}" != "1" ]; then
                         local done_id
                         done_id=$(precomputed_op_id "$agg" set_oracle "$resolved_args" "$salt")
-                        echo "Oracle config for ${market_name} already executed with this exact config; skipping propose (converge mode)." >&2
+                        echo "Oracle config for ${label} already executed with this exact config; skipping propose (converge mode)." >&2
                         write_oracle_op_record "$done_id" "set_oracle" \
                             "resolve_asset_oracle" "$resolve_args" "$salt"
                         mark_op_executed "$done_id"
                         return 0
                     fi
-                    echo "Oracle config for ${market_name} already executed with this exact config; RE-APPLYING as generation ${gen}." >&2
+                    echo "Oracle config for ${label} already executed with this exact config; RE-APPLYING as generation ${gen}." >&2
                     salt=$salt_use
                 fi
                 ;;
@@ -2805,13 +2883,12 @@ configure_market_oracle() {
         esac
     fi
 
-    # ConfigureAssetOracle { key: PriceKey, oracle: AssetOracle } via --op-file-path.
     local op_file
     op_file=$(mktemp)
     jq -nc --argjson key "$key_json" --argjson oracle "$cfg_json" \
         '{ConfigureAssetOracle: {key:$key, oracle:$oracle}}' > "$op_file"
 
-    echo "Scheduling market oracle config for ${market_name}..." >&2
+    echo "Scheduling oracle config for ${label}..." >&2
     local out
     out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
@@ -2824,14 +2901,118 @@ configure_market_oracle() {
     local op_id
     op_id=$(parse_op_id "$out")
     if [ -z "$op_id" ]; then
-        echo "ERROR: propose ConfigureAssetOracle returned no operation id (output: $out)" >&2
+        echo "ERROR: propose ConfigureAssetOracle for ${label} returned no operation id (output: $out)" >&2
         exit 1
     fi
     write_oracle_op_record "$op_id" "set_oracle" \
         "resolve_asset_oracle" "$resolve_args" "$salt"
 
-    echo "Market oracle scheduled for ${market_name} as op ${op_id}." >&2
+    echo "Oracle scheduled for ${label} as op ${op_id}." >&2
     schedule_and_maybe_execute "$op_id"
+}
+
+# set_oracle(PriceKey::Ref, …) for a .references[] entry. No market / SAC.
+configure_reference_oracle() {
+    local ref_name=$1
+    if [ -z "$ref_name" ]; then
+        echo "Usage: $0 configureReferenceOracle <ref_name>" >&2
+        exit 1
+    fi
+
+    echo "Configuring reference oracle for ${ref_name}..."
+    local entry key_json cfg_json
+    entry=$(require_reference_entry "$ref_name")
+    key_json=$(printf '%s' "$entry" | jq -c '.key')
+    cfg_json=$(printf '%s' "$entry" | jq -c '.oracle' | oracle_cfg_cli_union)
+    preflight_oracle_sanity "reference ${ref_name}" "$cfg_json"
+
+    if ! printf '%s' "$cfg_json" | jq -e '(.asset_decimals // -1) == 0' >/dev/null; then
+        echo "ERROR: reference ${ref_name}: asset_decimals must be 0 for PriceKey::Ref" >&2
+        exit 1
+    fi
+
+    schedule_configure_asset_oracle "reference ${ref_name}" "$key_json" "$cfg_json"
+}
+
+# Configure every Ref a market's Scaled sources quote (listed under .references).
+# Required before the market oracle can live-probe at propose time.
+ensure_reference_oracles_for_market() {
+    local market_name=$1
+    local ref
+    for ref in $(market_scaled_ref_quotes "$market_name"); do
+        [ -z "$ref" ] && continue
+        echo "Market ${market_name} Scaled quote requires reference ${ref}; ensuring it is configured..." >&2
+        configure_reference_oracle "$ref"
+    done
+}
+
+# All Refs any market Scaled-quotes. setupAll / setupAllMarkets call this first.
+setup_all_reference_oracles() {
+    local refs ref
+    refs=$(all_scaled_ref_quotes)
+    if [ -z "$refs" ]; then
+        echo "=== No Scaled Ref quotes in markets; skipping reference oracles ==="
+        return 0
+    fi
+    echo "=== Configuring reference oracles required by Scaled markets ==="
+    for ref in $refs; do
+        configure_reference_oracle "$ref"
+    done
+    echo "=== Reference oracles configured ==="
+}
+
+list_references() {
+    echo "=== Reference oracles (${NETWORK}) from ${MARKET_CONFIG_FILE} ===" >&2
+    if ! jq -e '(.references // []) | length > 0' "$MARKET_CONFIG_FILE" >/dev/null; then
+        echo "(none)" >&2
+        return 0
+    fi
+    local r i n src used_by
+    for r in $(jq -r '.references[].name' "$MARKET_CONFIG_FILE"); do
+        used_by=$(jq -r --arg r "$r" '
+            [.markets[] | select(any(.oracle.sources[]?;
+                (.Scaled.quote.Ref // "") == $r)) | .name] | join(", ")
+        ' "$MARKET_CONFIG_FILE")
+        [ -z "$used_by" ] && used_by="(unused by markets)"
+        jq -r --arg r "$r" --arg u "$used_by" '
+            first(.references[] | select(.name == $r)) |
+            "\(.name) key=\(.key|tostring) used_by=\($u): sources=\((.oracle.sources // [])|length) stale=\(.oracle.max_price_stale_seconds // "?")s independence=\(.oracle.independence // "?")"
+        ' "$MARKET_CONFIG_FILE" >&2
+        n=$(jq -r --arg r "$r" 'first(.references[] | select(.name == $r)) | (.oracle.sources // []) | length' "$MARKET_CONFIG_FILE")
+        i=0
+        while [ "$i" -lt "$n" ]; do
+            src=$(jq -c --arg r "$r" --argjson i "$i" \
+                'first(.references[] | select(.name == $r)) | .oracle.sources[$i]' "$MARKET_CONFIG_FILE")
+            describe_oracle_source "  source[$i]" "$src"
+            i=$((i + 1))
+        done
+    done
+}
+
+configure_market_oracle() {
+    local market_name=$1
+
+    echo "Configuring market oracle for ${market_name}..."
+
+    # Scaled quotes resolve nested PriceKeys — those must already be on-chain.
+    ensure_reference_oracles_for_market "$market_name"
+
+    local cfg_json
+    cfg_json=$(jq -c --arg market "$market_name" '
+        first(.markets[] | select(.name == $market) | .oracle) // empty
+    ' "$MARKET_CONFIG_FILE")
+    if [ -z "$cfg_json" ] || [ "$cfg_json" = "null" ]; then
+        echo "ERROR: market ${market_name} has no oracle config in ${MARKET_CONFIG_FILE}" >&2
+        exit 1
+    fi
+    cfg_json=$(printf '%s' "$cfg_json" | oracle_cfg_cli_union)
+    preflight_oracle_sanity "market ${market_name}" "$cfg_json"
+
+    local asset_address key_json
+    asset_address=$(require_market_address "$market_name")
+    key_json=$(price_key_token "$asset_address")
+
+    schedule_configure_asset_oracle "market ${market_name}" "$key_json" "$cfg_json"
 }
 
 # Edit only a market's oracle tolerance bands. propose(EditOracleTolerance{...})
@@ -2940,6 +3121,9 @@ setup_all_markets() {
     # Hubs must exist before any market is listed: create_liquidity_pool reverts
     # HubNotActive for an uncreated hub (there is no implicit hub 0).
     ensure_hubs
+    # Reference oracles (PriceKey::Ref) first: Scaled market configs live-probe
+    # their quote key at propose time (e.g. SolvBTC × Ref BTC).
+    setup_all_reference_oracles
     local markets
     markets=$(jq -r '.markets[].name' "$MARKET_CONFIG_FILE")
 
@@ -3492,11 +3676,14 @@ list_hubs() {
 # on-chain config is readable via price-aggregator `oracle(PriceKey)` but the
 # JSON is still the operator source of truth for listOracles.
 list_oracles() {
+    list_references
     echo "=== Configured market oracles (${NETWORK}) ===" >&2
-    local m i n src
+    local m i n src refs
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
-        jq -r --arg m "$m" 'first(.markets[] | select(.name == $m)) |
-            "\(.name) (hub \(.hub_id // "?")): sources=\((.oracle.sources // [])|length) stale=\(.oracle.max_price_stale_seconds // "?")s tolerance=[\(.oracle.tolerance.upper_ratio_bps // "?")/\(.oracle.tolerance.lower_ratio_bps // "?")] sanity=[\(.oracle.min_sanity_price_wad // "?") .. \(.oracle.max_sanity_price_wad // "?")] independence=\(.oracle.independence // "?")"' \
+        refs=$(market_scaled_ref_quotes "$m" | tr '\n' ',' | sed 's/,$//')
+        [ -z "$refs" ] && refs="-"
+        jq -r --arg m "$m" --arg refs "$refs" 'first(.markets[] | select(.name == $m)) |
+            "\(.name) (hub \(.hub_id // "?")): sources=\((.oracle.sources // [])|length) scaled_refs=\($refs) stale=\(.oracle.max_price_stale_seconds // "?")s tolerance=[\(.oracle.tolerance.upper_ratio_bps // "?")/\(.oracle.tolerance.lower_ratio_bps // "?")] sanity=[\(.oracle.min_sanity_price_wad // "?") .. \(.oracle.max_sanity_price_wad // "?")] independence=\(.oracle.independence // "?")"' \
             "$MARKET_CONFIG_FILE" >&2
         n=$(jq -r --arg m "$m" 'first(.markets[] | select(.name == $m)) | (.oracle.sources // []) | length' "$MARKET_CONFIG_FILE")
         i=0
@@ -4343,6 +4530,16 @@ describe_oracle_source() {
             provider_tag=$(printf '%s' "$body" | jq -c '.provider' | oracle_union_tag)
             body=$(printf '%s' "$body" | jq -c '.provider' | oracle_union_value)
             ;;
+        Scaled)
+            local quote factor_json
+            quote=$(printf '%s' "$source_json" | jq -c '.Scaled.quote // empty')
+            factor_json=$(printf '%s' "$source_json" | jq -c '.Scaled.factor // empty')
+            feed_decimals=$(printf '%s' "$factor_json" | jq -r '.decimals // "input"')
+            feed_stale=$(printf '%s' "$factor_json" | jq -r '.max_stale_seconds // "input"')
+            provider_tag=$(printf '%s' "$factor_json" | jq -c '.provider' | oracle_union_tag)
+            body=$(printf '%s' "$factor_json" | jq -c '.provider' | oracle_union_value)
+            echo "[${label}] Scaled quote=${quote} factor_provider=${provider_tag}" >&2
+            ;;
         Reflector|RedStone|MultiFeed|Xoxno)
             # Legacy direct provider shape (defensive).
             provider_tag="$shape"
@@ -4642,6 +4839,22 @@ case "$1" in
         fi
         configure_market_oracle "$2"
         ;;
+    "configureReferenceOracle")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 configureReferenceOracle <ref_name>"
+            list_references
+            exit 1
+        fi
+        configure_reference_oracle "$2"
+        ;;
+    "listReferences")
+        list_references
+        ;;
+    "setupAllReferenceOracles")
+        export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
+        validate_configs
+        setup_all_reference_oracles
+        ;;
     "editOracleTolerance")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 editOracleTolerance <market> <tolerance_bps>"
@@ -4674,11 +4887,13 @@ case "$1" in
     "setupAllMarkets")
         export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
         validate_configs
+        # Refs before markets: Scaled configs probe quote keys at propose time.
         setup_all_markets
         ;;
     "setupAll")
         export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
         validate_configs
+        # setup_all_markets configures required PriceKey::Ref oracles first.
         setup_all_markets
         setup_all_spokes
         echo "=== Full setup complete ==="
@@ -4974,6 +5189,10 @@ case "$1" in
         echo "  listMarkets                     List configured markets"
         echo "  createMarket <name>             Deploy market from config"
         echo "  configureMarketOracle <name>    Configure full market oracle from config"
+        echo "                                  (auto-configures Scaled Ref quotes first)"
+        echo "  configureReferenceOracle <name> set_oracle(PriceKey::Ref) from .references[]"
+        echo "  setupAllReferenceOracles        All Refs required by Scaled markets"
+        echo "  listReferences                  Reference oracles from markets.json"
         echo "  editOracleTolerance <m> <tol>   Edit a market's oracle tolerance band (bps)"
         echo "  updateIndexes <name> [...]      Sync indexes for one or more markets"
         echo "  setupAllMarkets                 Idempotently configure markets; no deploy/unpause"
@@ -5006,7 +5225,7 @@ case "$1" in
         echo "  cancelOp <op-id>                Cancel a pending op (CANCELLER)"
         echo "  opState <op-id>                 Unset | Waiting | Ready | Done"
         echo "  awaitOp <op-id>                 Poll until the op is Ready"
-        echo "  NOTE: oracle ops (configureMarketOracle, editOracleTolerance) schedule a"
+        echo "  NOTE: oracle ops (configureMarketOracle, configureReferenceOracle, editOracleTolerance) schedule a"
         echo "  governance-resolved struct; executeOp re-derives it via the resolve_* views"
         echo "  (build-only re-encode), so they are CLI-executable like every other op."
         echo ""
@@ -5037,7 +5256,7 @@ case "$1" in
         echo ""
         echo "Quick views (reads):"
         echo "  info                            Deployment addresses & signer"
-        echo "  listOracles                     Per-market oracle wiring from config"
+        echo "  listOracles                     Reference + per-market oracle wiring from config"
         echo "  configureOracleFeeds           Call add_feed on xoxno_oracle_adapter for every entry in \${NETWORK}/oracle_feeds.json"
         echo "  reconfigureOracleFeeds         remove_feed then add_feed for every entry (wipe + rebuild FeedOwner)"
         echo "  finalizeOracleAdapterUpgrade   windows + reconfigure feeds + verify (post-Wasm)"

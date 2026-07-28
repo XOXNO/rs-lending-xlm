@@ -12,6 +12,7 @@
 //!
 //! Owner-only writes (`set_oracle`, `set_sanity_band`, `set_tolerance`) validate,
 //! attest providers where required, live-probe under hard gates, then store.
+//! Ownership is fixed at construct (governance): no transfer, accept, or renounce.
 
 #![no_std]
 
@@ -32,7 +33,7 @@ pub mod spec;
 mod test_support;
 
 use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
-use stellar_access::ownable::{self, Ownable};
+use stellar_access::ownable;
 use stellar_macros::only_owner;
 
 use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus};
@@ -51,9 +52,15 @@ pub struct PriceAggregator;
 
 #[contractimpl]
 impl PriceAggregator {
-    /// Sets the contract owner. No oracle config is written at construction.
+    /// Sets the permanent owner (governance). No oracle config at construction.
+    /// Ownership is not transferable or renounceable on this contract.
     pub fn __constructor(env: Env, owner: Address) {
         ownable::set_owner(&env, &owner);
+    }
+
+    /// Current owner, if set. Always governance after a normal deploy.
+    pub fn get_owner(env: Env) -> Option<Address> {
+        ownable::get_owner(&env)
     }
 
     /// Fail-closed USD prices for every key in `keys`.
@@ -196,24 +203,5 @@ impl PriceAggregator {
     /// Test-only: delete the stored oracle for `key`.
     pub fn remove_oracle(env: Env, key: PriceKey) {
         admin::remove_oracle(&env, &key);
-    }
-}
-
-#[contractimpl]
-impl Ownable for PriceAggregator {
-    fn get_owner(e: &Env) -> Option<Address> {
-        ownable::get_owner(e)
-    }
-
-    fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32) {
-        ownable::transfer_ownership(e, &new_owner, live_until_ledger);
-    }
-
-    fn accept_ownership(e: &Env) {
-        ownable::accept_ownership(e);
-    }
-
-    fn renounce_ownership(e: &Env) {
-        ownable::renounce_ownership(e);
     }
 }

@@ -1579,11 +1579,11 @@ _setup-markets:
 
 # Action classification - dispatcher routes action to script.sh,
 # passing positional args verbatim. Adding a new verb means add here + script.sh.
-SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeReady \
+SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listReferences listOps executeReady \
 	configureOracleFeeds reconfigureOracleFeeds listOracleFeeds configureOracleWindows \
 	verifyOracleAdapterWindows finalizeOracleAdapterUpgrade \
 	validateConfigs checkDelay \
-	setupAll setupAllMarkets setupAllSpokes \
+	setupAll setupAllMarkets setupAllSpokes setupAllReferenceOracles \
 	whitelistBlendPools approveBlendPools configureSpokeCurves \
 	setAggregator setAccumulator pause unpause info \
 	getAllMarkets getAllIndexes getMinBorrowCollateralUsd getBulkIndexes \
@@ -1602,6 +1602,7 @@ POSITIONAL_ID_ACTIONS := addSpoke getSpoke createHub removeSpoke \
 	transferCtrlOwnership migrateController accountExists isBlendPoolApproved \
 	addOracleSigner setOracleSubmissionAge setOracleMaxStale setOracleRelativeSkew \
 	setSpokeLiquidationCurve \
+	configureReferenceOracle \
 	setAggregatorFee addAggregatorWhitelist removeAggregatorWhitelist \
 	addAggregatorReferral setAggregatorReferralFee setAggregatorReferralActive \
 	setAggregatorReferralOwner upgradeAggregatorHash upgradeOracleAdapterHash \
@@ -1871,12 +1872,15 @@ help:
 	@echo "  Markets (writes):"
 	@echo "    make testnet createMarket USDC"
 	@echo "    make testnet updateMarketParams USDC                       Push max_utilization/rate model from JSON"
-	@echo "    make testnet configureMarketOracle USDC"
+	@echo "    make testnet configureMarketOracle USDC   Auto-configures Scaled Ref quotes first"
+	@echo "    make testnet configureReferenceOracle BTC set_oracle(PriceKey::Ref) from .references[]"
+	@echo "    make testnet setupAllReferenceOracles     All Refs required by Scaled markets"
 	@echo "    make testnet editOracleTolerance USDC 500"
 	@echo "    make testnet updateIndexes USDC XLM"
-	@echo "    make testnet setupAllMarkets       Configure markets only; does not deploy or unpause"
+	@echo "    make testnet setupAllMarkets       Refs then markets; does not deploy or unpause"
 	@echo "    make testnet listMarkets"
-	@echo "    make testnet listOracles           Per-market oracle wiring from JSON"
+	@echo "    make testnet listReferences        PriceKey::Ref oracles from markets.json"
+	@echo "    make testnet listOracles           References + per-market oracle wiring from JSON"
 	@echo ""
 	@echo "  Hubs / Spokes (writes):"
 	@echo "    make testnet listHubs"

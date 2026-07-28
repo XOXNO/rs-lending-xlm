@@ -664,30 +664,13 @@ fn remove_oracle_disables_pricing() {
 }
 
 #[test]
-fn ownable_get_owner_and_two_step_transfer() {
+fn constructor_sets_owner_and_ownership_is_not_exported() {
     let env = Env::default();
     env.mock_all_auths();
-    env.ledger().with_mut(|li| {
-        li.sequence_number = 10;
-        li.timestamp = 1_700_000_000;
-    });
     let (owner, client) = register_agg(&env);
     assert_eq!(client.get_owner(), Some(owner));
-
-    let new_owner = Address::generate(&env);
-    // live_until_ledger must be in the future relative to sequence.
-    client.transfer_ownership(&new_owner, &100u32);
-    client.accept_ownership();
-    assert_eq!(client.get_owner(), Some(new_owner));
-}
-
-#[test]
-fn ownable_renounce_clears_owner() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (_owner, client) = register_agg(&env);
-    client.renounce_ownership();
-    assert_eq!(client.get_owner(), None);
+    // transfer_ownership / accept_ownership / renounce_ownership are intentionally
+    // not on the ABI — governance is the permanent owner.
 }
 
 // ---------------------------------------------------------------------------

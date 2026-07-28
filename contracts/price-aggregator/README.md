@@ -43,4 +43,5 @@ interfaces/…    # client ABI mirror
 
 ## Owner
 
-Governance (`Ownable`). Consumers: controller (risk), views (quotes).
+Governance at construct only. `#[only_owner]` gates writes; no transfer,
+accept, or renounce on the ABI. Consumers: controller (risk), views (quotes).

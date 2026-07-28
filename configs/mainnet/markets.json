@@ -1,6 +1,59 @@
 {
-  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live on market_params (flat MarketParamsRaw). Per-asset risk (LTV, caps, pause/freeze) is spoke-scoped via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA: production enforces a \u00b110% midpoint-relative sanity band (validate_single_source_sanity_band).",
+  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live on market_params (flat MarketParamsRaw). Per-asset risk (LTV, caps, pause/freeze) is spoke-scoped via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA: production enforces a \u00b110% midpoint-relative sanity band (validate_single_source_sanity_band). references are PriceKey::Ref oracles (no market/spoke); configure before any Scaled market that quotes them.",
   "network": "mainnet",
+  "references": [
+    {
+      "_note": "Pure BTC/USD reference for Scaled quotes (e.g. SolvBTC). Not listable as a market.",
+      "name": "BTC",
+      "key": {
+        "Ref": "BTC"
+      },
+      "oracle": {
+        "asset_decimals": 0,
+        "max_price_stale_seconds": 43200,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "BTC"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
+              },
+              "decimals": 14,
+              "max_stale_seconds": 3600
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "BTC",
+                  "kind": "RedStone",
+                  "nature": "Market"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 43200
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 11000,
+          "lower_ratio_bps": 9091
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "40000000000000000000000",
+        "max_sanity_price_wad": "120000000000000000000000"
+      }
+    }
+  ],
   "markets": [
     {
       "name": "XLM",
@@ -805,6 +858,80 @@
         "reserve_factor": 2500,
         "is_flashloanable": false,
         "flashloan_fee": 0
+      }
+    },
+    {
+      "_note": "SolvBTC (SAC CBIJBD…, 8 decimals). Dual: Scaled RedStone SolvBTC_FUNDAMENTAL × Reflector BTC Ref, plus RedStone SolvBTC_FUNDAMENTAL/USD. Shared RedStone domain declared. Configure references.BTC before this market.",
+      "name": "SolvBTC",
+      "hub_id": 1,
+      "asset_address": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
+      "oracle": {
+        "asset_decimals": 8,
+        "max_price_stale_seconds": 43200,
+        "sources": [
+          {
+            "Scaled": {
+              "factor": {
+                "provider": {
+                  "MultiFeed": {
+                    "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                    "feed_id": "SolvBTC_FUNDAMENTAL",
+                    "kind": "RedStone",
+                    "nature": "Fundamental"
+                  }
+                },
+                "decimals": 8,
+                "max_stale_seconds": 43200
+              },
+              "quote": {
+                "Ref": "BTC"
+              },
+              "min_factor_wad": "1000000000000000000",
+              "max_factor_wad": "1050000000000000000"
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "SolvBTC_FUNDAMENTAL/USD",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 43200
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": {
+          "AllowShared": [
+            {
+              "kind": "RedStone",
+              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
+            }
+          ]
+        },
+        "min_sanity_price_wad": "40000000000000000000000",
+        "max_sanity_price_wad": "120000000000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
       }
     }
   ]

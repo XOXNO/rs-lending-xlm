@@ -45,6 +45,17 @@
         "supply_cap": "989689579298",
         "borrow_cap": "742267184473",
         "liquidation_fees": 1000
+      },
+      "SolvBTC": {
+        "hub_id": 1,
+        "can_be_collateral": true,
+        "can_be_borrowed": true,
+        "ltv": 6000,
+        "liquidation_threshold": 7000,
+        "liquidation_bonus": 900,
+        "supply_cap": "5000000000",
+        "borrow_cap": "3000000000",
+        "liquidation_fees": 1200
       }
     }
   },
