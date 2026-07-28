@@ -39,6 +39,21 @@ impl LendingTest {
             .unwrap_or(i128::MAX)
     }
 
+    /// Health factor when it is readable, `None` when pricing fails closed (a
+    /// stale/unresolvable oracle leg). A debt-free or missing account reads as
+    /// `i128::MAX`. Lets fuzz snapshots treat an unpriceable account as an
+    /// expected state rather than a host panic.
+    pub fn try_health_factor_raw(&self, user: &str) -> Option<i128> {
+        match self.find_account_id(user) {
+            None => Some(i128::MAX),
+            Some(account_id) => self
+                .ctrl_client()
+                .try_get_health_factor(&account_id)
+                .ok()
+                .and_then(Result::ok),
+        }
+    }
+
     pub fn health_factor_for_raw(&self, _user: &str, account_id: u64) -> i128 {
         self.ctrl_client().get_health_factor(&account_id)
     }

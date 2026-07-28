@@ -580,7 +580,7 @@ fuzz_target!(|i: In| {
                 let math_overflow =
                     soroban_sdk::Error::from_contract_error(GenericError::MathOverflow as u32);
                 let check_ratio_view = |label: &str,
-                                            res: Result<
+                                        res: Result<
                     Result<i128, soroban_sdk::Error>,
                     Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
                 >| {

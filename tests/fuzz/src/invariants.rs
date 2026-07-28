@@ -6,7 +6,13 @@ use test_harness::hub_asset;
 const ACCOUNTING_TOLERANCE_UNITS: i128 = 4;
 
 pub fn assert_user_health(t: &LendingTest, user: &str, min_hf: f64) {
-    let hf = t.health_factor(user);
+    // A stale/unresolvable oracle leg makes health unreadable — an intended
+    // fail-closed state, not a health-floor breach. Skip the floor check there;
+    // the risk gates already blocked any unsafe mutation before reaching here.
+    let Some(hf_raw) = t.try_health_factor_raw(user) else {
+        return;
+    };
+    let hf = test_harness::wad_to_f64(hf_raw);
     assert!(
         hf + 1e-9 >= min_hf && hf > 0.0,
         "health factor {} < floor {} for {}",
@@ -58,7 +64,10 @@ pub fn assert_flash_guard_cleared(t: &LendingTest) {
 
 #[derive(Clone, Debug)]
 pub struct StateSnapshot {
-    pub health_raw: i128,
+    /// `None` when health is unreadable (oracle fail-closed). Comparing the
+    /// before/after `Option` still catches drift: a failed op must leave the
+    /// readable/unreadable state unchanged.
+    pub health_raw: Option<i128>,
     pub token_raw: Vec<i128>,
     pub pool_state: Vec<PoolStateSnapshot>,
     pub supply_raw: Vec<i128>,
@@ -93,7 +102,7 @@ impl From<common::types::PoolStateRaw> for PoolStateSnapshot {
 
 pub fn snapshot(t: &LendingTest, user: &str, assets: &[&str]) -> StateSnapshot {
     StateSnapshot {
-        health_raw: t.health_factor_raw(user),
+        health_raw: t.try_health_factor_raw(user),
         token_raw: assets
             .iter()
             .map(|a| t.token_balance_raw(user, a))
@@ -114,6 +123,62 @@ pub fn snapshot(t: &LendingTest, user: &str, assets: &[&str]) -> StateSnapshot {
             .map(|a| t.borrow_balance_raw(user, a))
             .collect(),
         active_accounts: t.get_active_accounts(user).len() as usize,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::build_wide_context;
+    use test_harness::ALICE;
+
+    // M-03 regression: an oracle aged past its staleness window makes health
+    // unreadable (intended fail-closed). Before the fix, `snapshot` and
+    // `assert_user_health` called `get_health_factor` unconditionally and the
+    // host panic aborted the `flow_e2e` harness before it could test the next
+    // op. The fallible read must model the stale state as `None` and neither
+    // helper may panic on it.
+    #[test]
+    fn stale_oracle_snapshot_and_health_do_not_panic() {
+        let assets = ["USDC", "XLM", "ETH"];
+        let mut t = build_wide_context();
+        t.supply(ALICE, "USDC", 50_000.0);
+        t.borrow(ALICE, "XLM", 10_000.0);
+
+        // Health is priceable while fresh.
+        assert!(t.try_health_factor_raw(ALICE).is_some());
+
+        // Age well past any feed's staleness window without republishing.
+        t.advance_time_no_refresh(30 * 24 * 60 * 60);
+
+        // The debt-bearing account is now unpriceable: fail-closed, not a panic.
+        assert!(
+            t.try_health_factor_raw(ALICE).is_none(),
+            "expected fail-closed health on a stale feed"
+        );
+
+        // Proof the fix is load-bearing: the eager read still traps on this
+        // exact state — the panic the old snapshot/assert path propagated.
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(std::boxed::Box::new(|_| {}));
+        let eager_trapped =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t.health_factor_raw(ALICE)))
+                .is_err();
+        std::panic::set_hook(prev_hook);
+        assert!(eager_trapped, "eager health read must trap on a stale feed");
+
+        // The two helpers that used to abort the harness must tolerate it.
+        let snap = snapshot(&t, ALICE, &assets);
+        assert!(
+            snap.health_raw.is_none(),
+            "stale health must snapshot as None"
+        );
+        assert_user_health(&t, ALICE, 1.0);
+
+        // A repeated snapshot is unchanged, so the failed-op drift check holds
+        // across the stale state instead of tripping on an unreadable read.
+        let snap_again = snapshot(&t, ALICE, &assets);
+        assert_state_preserved_on_failure(&snap, &snap_again);
     }
 }
 
