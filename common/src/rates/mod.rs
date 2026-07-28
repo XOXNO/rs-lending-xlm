@@ -11,7 +11,7 @@
 //!   position map and the pool's books drift apart.
 //!
 //! Rates and indexes are RAY (`1e27`); reserve factor is BPS. Accrual chunks at
-//! most one year (`MAX_COMPOUND_DELTA_MS`). See `docs/reference/invariants.md`.
+//! most one year (`MAX_COMPOUND_DELTA_MS`).
 
 #[cfg(test)]
 #[path = "../../tests/rates/support.rs"]

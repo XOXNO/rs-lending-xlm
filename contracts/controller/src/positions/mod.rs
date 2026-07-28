@@ -9,7 +9,7 @@
 //! that pre-fund the pool. `apply_*_batch` is the reusable batch step over one
 //! pool call's results, walked in input order. `merge_*_leg` folds a single
 //! result into the account, spoke usage and events. `finalize_position_flow`
-//! persists the shared tail. See `docs/reference/invariants.md` §3.
+//! persists the shared tail.
 
 use common::errors::{CollateralError, SpokeError};
 use common::math::fp::Ray;

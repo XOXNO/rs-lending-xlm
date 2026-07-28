@@ -1,7 +1,7 @@
 //! User flash loans: pool pays `receiver`, exact principal+fee repaid in-callback.
 //!
 //! Caller auth; no account/HF. Reentrancy guard blocks nested controller entry
-//! for the callback. See `docs/reference/invariants.md` §2.5.
+//! for the callback.
 
 use crate::events::FlashLoanEvent;
 use common::types::HubAssetKey;

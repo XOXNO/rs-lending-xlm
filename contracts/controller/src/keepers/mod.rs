@@ -1,8 +1,7 @@
 //! Upkeep: permissionless index refresh, revenue sweeps, reward donations,
 //! risk-param resync, and market recapitalization.
 //! Every flow requires the funder's auth (the `caller`, or `payer` for
-//! recapitalize) and uses the flash-loan reentrancy guard. See
-//! [INVARIANTS](../../../docs/reference/invariants.md) §2.4 / §5.2.
+//! recapitalize) and uses the flash-loan reentrancy guard.
 
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;

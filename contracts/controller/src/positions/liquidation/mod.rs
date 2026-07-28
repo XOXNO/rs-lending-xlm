@@ -4,7 +4,6 @@
 //! optional bad-debt cleanup. Permissionless keepers; not gated by global pause.
 //! Spoke pause blocks both sides: paused debt accepts no repay tokens and
 //! paused collateral is not seizable (frozen/delisted legs stay seizable).
-//! See `docs/reference/invariants.md` §3.3.
 
 use crate::risk;
 use common::validation::require_non_empty_payments;

@@ -1,7 +1,6 @@
 //! Account lifecycle, owner/delegate auth, and position-map helpers. Also owns
 //! the account-owner ops (TTL renewal, delegate opt-in/out), which are gated by
-//! the owner's own auth rather than protocol ownership. See
-//! [INVARIANTS](../../../docs/reference/invariants.md) §5.2 / §5.3.
+//! the owner's own auth rather than protocol ownership.
 
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;

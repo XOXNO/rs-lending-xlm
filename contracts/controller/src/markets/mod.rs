@@ -1,8 +1,6 @@
 //! Pool lifecycle: the one-time pool deployment, market creation, rate-model
 //! replacement, and pool WASM upgrade. Owner-gated only, so every entry rides
-//! the governance timelock. See
-//! [ADR 0010](../../../docs/explanation/decisions/0010-governance-timelock-for-controller-admin.md)
-//! and [INVARIANTS](../../../docs/reference/invariants.md) §4.1 / §5.1.
+//! the governance timelock.
 
 use common::errors::GenericError;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw};
