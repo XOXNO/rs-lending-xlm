@@ -247,19 +247,17 @@ get_contract_decimals() {
 # reconstruct the Operation without re-deriving anything.
 #
 # Oracle ops (configureMarketOracle / editOracleTolerance) schedule the
-# governance-RESOLVED struct (AssetOracleConfig / OracleTolerance) against the
-# price-aggregator (`set_oracle_config` / `set_tolerance`), not the raw input.
-# The CLI renders a struct view as friendly JSON, which is not the ScVal
-# `Vec<Val>` form `execute` needs, so we cannot capture the resolved args
-# directly from the view. Instead each oracle op record stores a `resolve` block
-# (the governance resolve_* view + its friendly inputs); at execute time
-# `resolve_oracle_op_args` runs the view, feeds the friendly result back through
-# the price-aggregator's typed setter with `--build-only`, and decodes the
-# CLI-encoded ScVal args. Those match the proposer's scheduled args byte-for-byte
-# because both encode the same `#[contracttype]` struct (canonical sorted map).
-# Every other op (primitives and the plain field-map structs: PositionLimits /
-# AssetConfigRaw / MarketParamsRaw / InterestRateModel) stores its ScVal args
-# directly. All ops are CLI-executable.
+# governance-RESOLVED struct (AssetOracle / OracleTolerance) against the
+# price-aggregator (`set_oracle` / `set_tolerance`), keyed by PriceKey, not the
+# raw proposer input. The CLI renders a struct view as friendly JSON, which is
+# not the ScVal `Vec<Val>` form `execute` needs, so we cannot capture the
+# resolved args directly from the view. Instead each oracle op record stores a
+# `resolve` block (the governance resolve_* view + its friendly inputs); at
+# execute time `resolve_oracle_op_args` runs the view, feeds the friendly result
+# back through the price-aggregator's typed setter with `--build-only`, and
+# decodes the CLI-encoded ScVal args. Those match the proposer's scheduled args
+# byte-for-byte because both encode the same `#[contracttype]` struct (canonical
+# sorted map). Every other op stores its ScVal args directly.
 # ---------------------------------------------------------------------------
 
 # 32-byte zero predecessor (no dependency), hex form for ScVal/record use.
@@ -538,7 +536,7 @@ write_gov_self_op_record() {
 }
 
 # Persist an oracle op record whose scheduled args are a governance-RESOLVED
-# struct (AssetOracleConfig / OracleTolerance) targeting the price-aggregator.
+# struct (AssetOracle / OracleTolerance) targeting the price-aggregator.
 # The CLI cannot capture that struct as ScVal JSON from the friendly view
 # output, so instead of storing `args` we store a `resolve` block (the
 # governance view + its friendly inputs). At execute time
@@ -574,6 +572,11 @@ write_oracle_op_record() {
     echo "  Recorded oracle op $op_id -> $path" >&2
 }
 
+# PriceKey::Token JSON for CLI invokes.
+price_key_token() {
+    jq -nc --arg a "$1" '{Token:$a}'
+}
+
 # Mark a local op record as executed. On-chain ledger is cleared after execute;
 # this flag is the CLI's synthetic Done for salt probing and converge skips.
 mark_op_executed() {
@@ -595,70 +598,78 @@ mark_op_executed() {
 # the price-aggregator's typed setter with `--build-only` so the CLI re-encodes
 # it to ScVal exactly as the proposer scheduled, then decodes that transaction
 # and extracts the InvokeContract args. Prints the ScVal `Vec<Val>` JSON array.
-#   $1 view_fn   resolve_market_oracle_config | resolve_oracle_tolerance
+#   $1 view_fn   resolve_asset_oracle | resolve_oracle_tolerance
 #   $2 target    price-aggregator address (op target)
-#   $3 function  aggregator setter (set_oracle_config | set_tolerance)
-#   $4 asset     asset address
-#   $5 hub_id    unused for aggregator ABI (kept for resolve-record compatibility)
-#   $6 payload   cfg JSON (market-oracle) | tolerance bps (tolerance)
+#   $3 function  aggregator setter (set_oracle | set_tolerance)
+#   $4 key_json  PriceKey JSON, e.g. {"Token":"C…"}
+#   $5 payload   AssetOracle JSON (set_oracle) | tolerance bps (set_tolerance)
 resolve_oracle_args_for() {
-    local view_fn=$1 target=$2 function=$3 asset=$4 hub_id=$5 payload=$6
-    local gov resolved tx_xdr
+    local view_fn=$1 target=$2 function=$3 key_json=$4 payload=$5
+    local gov resolved tx_xdr key_file
     gov=$(get_governance)
+    key_file=$(mktemp)
+    printf '%s' "$key_json" > "$key_file"
     case "$view_fn" in
-        resolve_market_oracle_config)
-            local cfg_file
-            cfg_file=$(mktemp)
-            printf '%s' "$payload" > "$cfg_file"
+        resolve_asset_oracle)
+            local oracle_file oracle_file2
+            oracle_file=$(mktemp)
+            printf '%s' "$payload" > "$oracle_file"
             resolved=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-                --send=no -- "$view_fn" --asset "$asset" --cfg-file-path "$cfg_file")
-            rm -f "$cfg_file"
-            local cfg_file2
-            cfg_file2=$(mktemp)
-            printf '%s' "$resolved" > "$cfg_file2"
-            # set_oracle_config takes a bare asset + AssetOracleConfig.
+                --send=no -- resolve_asset_oracle \
+                --key-file-path "$key_file" --oracle-file-path "$oracle_file")
+            rm -f "$oracle_file"
+            oracle_file2=$(mktemp)
+            printf '%s' "$resolved" > "$oracle_file2"
+            # set_oracle takes PriceKey + AssetOracle.
             tx_xdr=$(stellar contract invoke --id "$target" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
-                --asset "$asset" --config-file-path "$cfg_file2")
-            rm -f "$cfg_file2"
+                --key-file-path "$key_file" --oracle-file-path "$oracle_file2")
+            rm -f "$oracle_file2"
             printf '%s' "$tx_xdr" | stellar tx decode \
                 | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
             ;;
         resolve_oracle_tolerance)
             resolved=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-                --send=no -- "$view_fn" --tolerance "$payload")
+                --send=no -- resolve_oracle_tolerance --tolerance "$payload")
             local tol_file
             tol_file=$(mktemp)
             printf '%s' "$resolved" > "$tol_file"
             tx_xdr=$(stellar contract invoke --id "$target" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
-                --asset "$asset" --tolerance-file-path "$tol_file")
+                --key-file-path "$key_file" --tolerance-file-path "$tol_file")
             rm -f "$tol_file"
             printf '%s' "$tx_xdr" | stellar tx decode \
                 | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
             ;;
         *)
+            rm -f "$key_file"
             echo "ERROR: unknown oracle resolve view '${view_fn}'." >&2
             exit 1
             ;;
     esac
+    rm -f "$key_file"
 }
 
 resolve_oracle_op_args() {
     local path=$1
-    local target function view_fn asset
+    local target function view_fn key_json
     target=$(jq -r '.target' "$path")
     function=$(jq -r '.function' "$path")
     view_fn=$(jq -r '.resolve.view_fn' "$path")
-    asset=$(jq -r '.resolve.args.asset' "$path")
+    # Prefer stored PriceKey; fall back to Token(asset) for any older records.
+    key_json=$(jq -c '.resolve.args.key // (if .resolve.args.asset then {Token:.resolve.args.asset} else empty end)' "$path")
+    if [ -z "$key_json" ] || [ "$key_json" = "null" ]; then
+        echo "ERROR: oracle op record ${path} missing resolve.args.key (and asset)." >&2
+        exit 1
+    fi
     case "$view_fn" in
-        resolve_market_oracle_config)
-            resolve_oracle_args_for "$view_fn" "$target" "$function" "$asset" \
-                "$(jq -r '.resolve.args.hub_id // empty' "$path")" "$(jq -c '.resolve.args.cfg' "$path")"
+        resolve_asset_oracle)
+            resolve_oracle_args_for "$view_fn" "$target" "$function" "$key_json" \
+                "$(jq -c '.resolve.args.oracle // .resolve.args.cfg' "$path")"
             ;;
         resolve_oracle_tolerance)
-            resolve_oracle_args_for "$view_fn" "$target" "$function" "$asset" \
-                "" "$(jq -r '.resolve.args.tolerance' "$path")"
+            resolve_oracle_args_for "$view_fn" "$target" "$function" "$key_json" \
+                "$(jq -r '.resolve.args.tolerance' "$path")"
             ;;
         *)
             echo "ERROR: unknown oracle resolve view '${view_fn}' in ${path}." >&2
@@ -1353,29 +1364,29 @@ validate_configs() {
             vc_err "market ${m}: market_params.is_flashloanable must be a boolean"
         fi
 
-        # Oracle config
+        # Oracle config (AssetOracle: sources / tolerance / independence / sanity)
         o=$(printf '%s' "$mj" | jq -c '.oracle // {}')
-        if ! printf '%s' "$o" | jq -e '(.tolerance_bps // 0) >= 1 and (.tolerance_bps // 99999) <= 10000' >/dev/null; then
-            vc_err "market ${m}: oracle tolerance_bps out of [1, 10000]"
+        if ! printf '%s' "$o" | jq -e '(.sources | type) == "array" and ((.sources | length) == 1 or (.sources | length) == 2)' >/dev/null; then
+            vc_err "market ${m}: oracle.sources must be an array of length 1 or 2"
         fi
-        strat=$(printf '%s' "$o" | jq -r '.strategy // "missing"')
-        anchor_tag=$(printf '%s' "$o" | jq -r '
-            if (.anchor | type) == "object" then (.anchor.tag // "Some")
-            elif (.anchor | type) == "string" then .anchor
-            else "None" end')
-        case "$strat" in
-            0)
-                if [ "$anchor_tag" = "Some" ]; then
-                    vc_warn "market ${m}: anchor configured but strategy Single(0) ignores it"
-                fi
-                ;;
-            1)
-                if [ "$anchor_tag" != "Some" ]; then
-                    vc_err "market ${m}: strategy PrimaryWithAnchor(1) requires an anchor"
-                fi
-                ;;
-            *) vc_err "market ${m}: oracle strategy must be 0 (Single) or 1 (PrimaryWithAnchor)" ;;
-        esac
+        if printf '%s' "$o" | jq -e 'has("primary") or has("anchor") or has("strategy") or has("tolerance_bps")' >/dev/null; then
+            vc_err "market ${m}: oracle still uses legacy primary/anchor/strategy/tolerance_bps fields"
+        fi
+        if ! printf '%s' "$o" | jq -e '
+            (.tolerance.upper_ratio_bps // 0) > 10000 and
+            (.tolerance.lower_ratio_bps // 99999) < 10000 and
+            (.tolerance.lower_ratio_bps // 0) >= 1' >/dev/null; then
+            vc_err "market ${m}: oracle.tolerance must be a reciprocal band around 10000 bps"
+        fi
+        if ! printf '%s' "$o" | jq -e '
+            .independence == "RequireDisjoint" or
+            (.independence | type) == "object"' >/dev/null; then
+            vc_err "market ${m}: oracle.independence missing or invalid"
+        fi
+        ceiling=$(printf '%s' "$o" | jq -r '.max_price_stale_seconds // "missing"')
+        if [ "$ceiling" = "missing" ]; then
+            vc_err "market ${m}: oracle.max_price_stale_seconds missing"
+        fi
         minw=$(printf '%s' "$o" | jq -r '.min_sanity_price_wad // "missing"')
         maxw=$(printf '%s' "$o" | jq -r '.max_sanity_price_wad // "missing"')
         if [ "$minw" = "missing" ] || [ "$maxw" = "missing" ]; then
@@ -1390,61 +1401,71 @@ validate_configs() {
             vc_err "market ${m}: min_sanity_price_wad >= max_sanity_price_wad"
         fi
 
-        # Cross-check oracle contract addresses against networks.json
-        ptag=$(printf '%s' "$o" | jq -r '.primary.tag // "missing"')
-        pcontract=$(printf '%s' "$o" | jq -r '.primary.values[0].contract // ""')
-        if [ "$ptag" = "Reflector" ] && [ -n "$pcontract" ]; then
-            case "$pcontract" in
-                "$cex"|"$dex"|"$fx") ;;
-                *) vc_warn "market ${m}: primary Reflector contract ${pcontract} is none of networks.json cex/dex/fx oracles" ;;
+        # Per-source checks: envelope, provider contracts, multi-feed heartbeat.
+        local nsrc i sjson pkind pcontract fstale
+        nsrc=$(printf '%s' "$o" | jq -r '.sources | length')
+        i=0
+        while [ "$i" -lt "$nsrc" ]; do
+            sjson=$(printf '%s' "$o" | jq -c --argjson i "$i" '.sources[$i]')
+            # Unwrap Feed → provider
+            if printf '%s' "$sjson" | jq -e 'has("Feed")' >/dev/null; then
+                fstale=$(printf '%s' "$sjson" | jq -r '.Feed.max_stale_seconds // "missing"')
+                pkind=$(printf '%s' "$sjson" | jq -r '
+                    if .Feed.provider | has("Reflector") then "Reflector"
+                    elif .Feed.provider | has("MultiFeed") then (.Feed.provider.MultiFeed.kind // "MultiFeed")
+                    else "unknown" end')
+                pcontract=$(printf '%s' "$sjson" | jq -r '
+                    if .Feed.provider | has("Reflector") then .Feed.provider.Reflector.contract
+                    elif .Feed.provider | has("MultiFeed") then .Feed.provider.MultiFeed.contract
+                    else "" end')
+            else
+                vc_err "market ${m}: sources[$i] is not PriceSource::Feed (only Feed is validated here)"
+                i=$((i + 1))
+                continue
+            fi
+            if [ "$fstale" = "missing" ]; then
+                vc_err "market ${m}: sources[$i] missing max_stale_seconds"
+            elif [ "$fstale" -gt "$ceiling" ]; then
+                vc_err "market ${m}: sources[$i] max_stale_seconds ${fstale} > asset ceiling ${ceiling}"
+            fi
+            case "$pkind" in
+                Reflector)
+                    case "$pcontract" in
+                        "$cex"|"$dex"|"$fx"|"") ;;
+                        *) vc_warn "market ${m}: sources[$i] Reflector ${pcontract} is none of networks.json cex/dex/fx oracles" ;;
+                    esac
+                    ;;
+                RedStone)
+                    if [ -n "$pcontract" ] && [ "$pcontract" != "$redstone" ]; then
+                        vc_warn "market ${m}: sources[$i] RedStone contract differs from networks.json redstone_adapter_contract"
+                    fi
+                    if [ "$fstale" != "missing" ] && [ "$fstale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
+                        vc_err "market ${m}: sources[$i] RedStone max_stale_seconds ${fstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
+                    fi
+                    ;;
+                Xoxno)
+                    if [ -n "$pcontract" ] && [ "$pcontract" != "$xoxno_adapter" ]; then
+                        vc_warn "market ${m}: sources[$i] Xoxno contract differs from networks.json xoxno_oracle_adapter"
+                    fi
+                    if [ "$fstale" != "missing" ] && [ "$fstale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
+                        vc_err "market ${m}: sources[$i] Xoxno max_stale_seconds ${fstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
+                    fi
+                    ;;
             esac
-        fi
-        if [ "$ptag" = "RedStone" ] && [ -n "$pcontract" ] && [ "$pcontract" != "$redstone" ]; then
-            vc_warn "market ${m}: primary RedStone contract differs from networks.json redstone_adapter_contract"
-        fi
-        if [ "$ptag" = "Xoxno" ] && [ -n "$pcontract" ] && [ "$pcontract" != "$xoxno_adapter" ]; then
-            vc_warn "market ${m}: primary Xoxno contract differs from networks.json xoxno_oracle_adapter"
-        fi
-        atag=$(printf '%s' "$o" | jq -r '.anchor.values[0].tag // ""')
-        acontract=$(printf '%s' "$o" | jq -r '.anchor.values[0].values[0].contract // ""')
-        if [ "$atag" = "RedStone" ] && [ -n "$acontract" ] && [ "$acontract" != "$redstone" ]; then
-            vc_warn "market ${m}: anchor RedStone contract differs from networks.json redstone_adapter_contract"
-        fi
-        if [ "$atag" = "Xoxno" ] && [ -n "$acontract" ] && [ "$acontract" != "$xoxno_adapter" ]; then
-            vc_warn "market ${m}: anchor Xoxno contract differs from networks.json xoxno_oracle_adapter"
-        fi
-
-        # RedStone/Xoxno staleness limits must dominate the bot heartbeat, or
-        # a brief bot outage makes the controller revert PriceFeedStale for
-        # the market. Require >= 4 heartbeats of slack.
-        if [ "$ptag" = "RedStone" ] || [ "$ptag" = "Xoxno" ]; then
-            pstale=$(printf '%s' "$o" | jq -r '.primary.values[0].max_stale_seconds // "missing"')
-            if [ "$pstale" = "missing" ]; then
-                vc_err "market ${m}: primary ${ptag} missing max_stale_seconds"
-            elif [ "$pstale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
-                vc_err "market ${m}: primary ${ptag} max_stale_seconds ${pstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
-            fi
-        fi
-        if [ "$atag" = "RedStone" ] || [ "$atag" = "Xoxno" ]; then
-            astale=$(printf '%s' "$o" | jq -r '.anchor.values[0].values[0].max_stale_seconds // "missing"')
-            if [ "$astale" = "missing" ]; then
-                vc_err "market ${m}: anchor ${atag} missing max_stale_seconds"
-            elif [ "$astale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
-                vc_err "market ${m}: anchor ${atag} max_stale_seconds ${astale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
-            fi
-        fi
+            i=$((i + 1))
+        done
     done
 
-    # DEX-primary markets reprice through their quote asset's oracle
-    # (ReflectorBase::Quoted): the quote market must be configured FIRST, and
-    # setupAllMarkets configures in file order. Fail when the very first market
-    # is DEX-primary; otherwise remind that ordering is load-bearing.
+    # DEX Reflector sources reprice via a quote asset: the quote market must
+    # appear earlier in markets.json (setup order = file order).
     local first_dex
-    first_dex=$(jq -r --arg dex "$dex" 'first(.markets | to_entries[] |
-        select(.value.oracle.primary.tag == "Reflector" and .value.oracle.primary.values[0].contract == $dex) | .key) // ""' \
-        "$MARKET_CONFIG_FILE")
+    first_dex=$(jq -r --arg dex "$dex" '
+        first(.markets | to_entries[] |
+            select(any(.value.oracle.sources[]?;
+                (.Feed.provider.Reflector.contract // "") == $dex)) | .key) // empty
+        ' "$MARKET_CONFIG_FILE")
     if [ "$first_dex" = "0" ]; then
-        vc_err "first market in ${MARKET_CONFIG_FILE} is DEX-oracle-primary; its USD quote market must come before it (file order = setup order)"
+        vc_err "first market in ${MARKET_CONFIG_FILE} uses DEX Reflector; its USD quote market must come before it (file order = setup order)"
     elif [ -n "$first_dex" ]; then
         vc_warn "DEX-oracle markets present: each one's USD quote market must appear EARLIER in ${MARKET_CONFIG_FILE} (file order = setup order)"
     fi
@@ -2695,15 +2716,12 @@ configure_market_oracle() {
 
     local asset_address
     asset_address=$(require_market_address "$market_name")
-    # Token-rooted oracle config; hub_id still required for ConfigureMarketOracle
-    # admin-op shape / resolve-record metadata.
-    local hub_id
-    hub_id=$(get_market_value "$market_name" "hub_id")
-    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
-        die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
-    fi
+    local key_json
+    key_json=$(price_key_token "$asset_address")
     local cfg_file
     cfg_file=$(mktemp)
+    # markets.json stores friendly AssetOracle JSON already; cli_union is a
+    # no-op on that shape and keeps tag/values XDR dumps decodable if any remain.
     jq -c --arg market "$market_name" '
         def cli_union:
             if type == "object" and has("tag") and has("values") then
@@ -2724,13 +2742,12 @@ configure_market_oracle() {
         .markets[] | select(.name == $market) | .oracle | cli_union
     ' "$MARKET_CONFIG_FILE" > "$cfg_file"
 
-    # propose(ConfigureMarketOracle{asset, cfg}) validates+probes the INPUT cfg,
-    # then schedules price-aggregator set_oracle_config with the
-    # governance-RESOLVED AssetOracleConfig. The CLI can't capture that struct
-    # as ScVal from the friendly view output, so the op record stores a `resolve`
-    # block (the resolve_market_oracle_config view + the input cfg); executeOp
-    # replays the view through the aggregator's typed setter (`--build-only`) to
-    # reconstruct byte-identical args. See resolve_oracle_op_args.
+    # propose(ConfigureAssetOracle{key, oracle}) validates+probes the INPUT
+    # AssetOracle, then schedules price-aggregator set_oracle with the
+    # governance-RESOLVED AssetOracle (decimals fixed from the SAC). The CLI
+    # can't capture that struct as ScVal from the friendly view output, so the
+    # op record stores a resolve block; executeOp replays resolve_asset_oracle
+    # through set_oracle --build-only. See resolve_oracle_op_args.
     local gov
     gov=$(get_governance)
     local proposer
@@ -2741,12 +2758,12 @@ configure_market_oracle() {
     rm -f "$cfg_file"
     local salt
     local salt_input
-    salt_input=$(jq -nc --argjson cfg "$cfg_json" --arg asset "$asset_address" \
-        '{asset:$asset, cfg:$cfg}')
-    salt=$(gen_salt "set_oracle_config" "$salt_input")
+    salt_input=$(jq -nc --argjson oracle "$cfg_json" --argjson key "$key_json" \
+        '{key:$key, oracle:$oracle}')
+    salt=$(gen_salt "set_oracle" "$salt_input")
     local resolve_args
-    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" --argjson hub_id "$hub_id" \
-        '{hub_id:$hub_id, asset:$asset, cfg:$cfg}')
+    resolve_args=$(jq -nc --argjson key "$key_json" --argjson oracle "$cfg_json" \
+        '{key:$key, oracle:$oracle}')
 
     # Idempotency pre-check: derive the scheduled (resolved) args now, compute
     # the deterministic op id, and reuse an op that already exists on-chain
@@ -2754,15 +2771,15 @@ configure_market_oracle() {
     # falls through to propose, whose validation reports the authoritative error.
     local agg resolved_args salt_use known_id state gen
     agg=$(get_price_aggregator)
-    resolved_args=$(resolve_oracle_args_for resolve_market_oracle_config "$agg" \
-        set_oracle_config "$asset_address" "$hub_id" "$cfg_json" 2>/dev/null) || resolved_args=""
+    resolved_args=$(resolve_oracle_args_for resolve_asset_oracle "$agg" \
+        set_oracle "$key_json" "$cfg_json" 2>/dev/null) || resolved_args=""
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
-        read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle_config "$resolved_args" "$salt")
+        read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle "$resolved_args" "$salt")
         case "$state" in
             Ready|Waiting)
                 echo "Oracle config op ${known_id} for ${market_name} already ${state}; reusing it instead of re-proposing." >&2
-                write_oracle_op_record "$known_id" "set_oracle_config" \
-                    "resolve_market_oracle_config" "$resolve_args" "$salt_use"
+                write_oracle_op_record "$known_id" "set_oracle" \
+                    "resolve_asset_oracle" "$resolve_args" "$salt_use"
                 schedule_and_maybe_execute "$known_id"
                 return 0
                 ;;
@@ -2773,10 +2790,10 @@ configure_market_oracle() {
                 if [ "$gen" -gt 0 ]; then
                     if [ "${REAPPLY_ON_DONE:-1}" != "1" ]; then
                         local done_id
-                        done_id=$(precomputed_op_id "$agg" set_oracle_config "$resolved_args" "$salt")
+                        done_id=$(precomputed_op_id "$agg" set_oracle "$resolved_args" "$salt")
                         echo "Oracle config for ${market_name} already executed with this exact config; skipping propose (converge mode)." >&2
-                        write_oracle_op_record "$done_id" "set_oracle_config" \
-                            "resolve_market_oracle_config" "$resolve_args" "$salt"
+                        write_oracle_op_record "$done_id" "set_oracle" \
+                            "resolve_asset_oracle" "$resolve_args" "$salt"
                         mark_op_executed "$done_id"
                         return 0
                     fi
@@ -2788,18 +2805,11 @@ configure_market_oracle() {
         esac
     fi
 
-    # Generic propose takes the typed AdminOperation. ConfigureMarketOracle wraps
-    # ConfigureOracleArgs { hub_asset, cfg: AssetOracleConfigInput }. cfg is the
-    # nested friendly cli_union JSON (built above); rather than hand-encode that
-    # deep union tree to explicit ScVal, pass the AdminOperation in friendly-enum
-    # form via --op-file-path (propose's `op` arg is typed, so the CLI's friendly
-    # decoder applies — exactly as the old --cfg-file-path consumed it). The
-    # execute/replay side is unaffected: it re-derives the RESOLVED config through
-    # the resolve_market_oracle_config view (write_oracle_op_record below).
+    # ConfigureAssetOracle { key: PriceKey, oracle: AssetOracle } via --op-file-path.
     local op_file
     op_file=$(mktemp)
-    jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" --argjson hub_id "$hub_id" \
-        '{ConfigureMarketOracle: {hub_asset:{hub_id:$hub_id, asset:$asset}, cfg:$cfg}}' > "$op_file"
+    jq -nc --argjson key "$key_json" --argjson oracle "$cfg_json" \
+        '{ConfigureAssetOracle: {key:$key, oracle:$oracle}}' > "$op_file"
 
     echo "Scheduling market oracle config for ${market_name}..." >&2
     local out
@@ -2814,11 +2824,11 @@ configure_market_oracle() {
     local op_id
     op_id=$(parse_op_id "$out")
     if [ -z "$op_id" ]; then
-        echo "ERROR: propose ConfigureMarketOracle returned no operation id (output: $out)" >&2
+        echo "ERROR: propose ConfigureAssetOracle returned no operation id (output: $out)" >&2
         exit 1
     fi
-    write_oracle_op_record "$op_id" "set_oracle_config" \
-        "resolve_market_oracle_config" "$resolve_args" "$salt"
+    write_oracle_op_record "$op_id" "set_oracle" \
+        "resolve_asset_oracle" "$resolve_args" "$salt"
 
     echo "Market oracle scheduled for ${market_name} as op ${op_id}." >&2
     schedule_and_maybe_execute "$op_id"
@@ -2837,26 +2847,28 @@ edit_oracle_tolerance() {
 
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local key_json
+    key_json=$(price_key_token "$asset_address")
     local gov
     gov=$(get_governance)
     local proposer
     proposer=$(get_signer_address)
 
     local salt_input
-    salt_input=$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
-        '{asset:$asset, tolerance:$t}')
+    salt_input=$(jq -nc --argjson key "$key_json" --argjson t "$tolerance" \
+        '{key:$key, tolerance:$t}')
     local salt
     salt=$(gen_salt "set_tolerance" "$salt_input")
     local resolve_args
-    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
-        '{asset:$asset, tolerance:$t}')
+    resolve_args=$(jq -nc --argjson key "$key_json" --argjson t "$tolerance" \
+        '{key:$key, tolerance:$t}')
 
     # Idempotency pre-check (see configure_market_oracle): reuse an op that is
     # already scheduled or executed instead of re-proposing.
     local agg resolved_args salt_use known_id state gen
     agg=$(get_price_aggregator)
     resolved_args=$(resolve_oracle_args_for resolve_oracle_tolerance "$agg" \
-        set_tolerance "$asset_address" "" "$tolerance" 2>/dev/null) || resolved_args=""
+        set_tolerance "$key_json" "$tolerance" 2>/dev/null) || resolved_args=""
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
         read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_tolerance "$resolved_args" "$salt")
         case "$state" in
@@ -2889,14 +2901,13 @@ edit_oracle_tolerance() {
         esac
     fi
 
-    # EditOracleTolerance wraps friendly EditToleranceArgs { asset,
-    # tolerance(u32) }. The `--op` payload carries the INPUT tolerance; the
-    # aggregator's RESOLVED OracleTolerance is re-derived at execute time via
-    # the resolve_oracle_tolerance block below.
+    # EditOracleTolerance wraps EditToleranceArgs { key: PriceKey, tolerance(u32) }.
+    # The `--op` payload carries the INPUT bps; the aggregator's RESOLVED
+    # OracleTolerance is re-derived at execute time via resolve_oracle_tolerance.
     local admin_op_json
     admin_op_json=$(admin_op EditOracleTolerance \
-        "$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
-            '{asset:$asset, tolerance:$t}')")
+        "$(jq -nc --argjson key "$key_json" --argjson t "$tolerance" \
+            '{key:$key, tolerance:$t}')")
     local op_file
     op_file=$(mktemp)
     printf '%s' "$admin_op_json" > "$op_file"
@@ -3432,11 +3443,8 @@ show_info() {
     if adapter_addr=$(get_oracle_adapter_address 2>/dev/null); then
         echo "Oracle adapter owner (chain-verified): $(invoke_view "$adapter_addr" get_owner 2>/dev/null | tail -n1 || echo 'read failed')"
     fi
-    # Markets that actually reference RedStone (as primary or anchor) in the
-    # market config, read through the single shared redstone_adapter_contract
-    # + feed_id string (RedStone has no separate per-feed contract; every feed
-    # is read via that one adapter's read_price_data_for_feed(feed_id)).
-    echo "RedStone markets: $(jq -r '[.markets[] | select((.oracle.primary.tag == "RedStone") or (.oracle.anchor.tag == "Some" and (.oracle.anchor.values[0].tag // "") == "RedStone")) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
+    # Markets that reference a RedStone MultiFeed in any source.
+    echo "RedStone markets: $(jq -r '[.markets[] | select(any(.oracle.sources[]?; (.Feed.provider.MultiFeed.kind // "") == "RedStone")) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
 }
 
 # Compare the LIVE governance min-delay against the configured production value.
@@ -3481,20 +3489,23 @@ list_hubs() {
 }
 
 # Per-market oracle wiring as configured in the markets JSON. The stored
-# on-chain config is write-only (no view), so the JSON is the source of truth
-# for wiring; use getPrice/getOracle for live price components.
+# on-chain config is readable via price-aggregator `oracle(PriceKey)` but the
+# JSON is still the operator source of truth for listOracles.
 list_oracles() {
     echo "=== Configured market oracles (${NETWORK}) ===" >&2
-    local m src anchor
+    local m i n src
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
         jq -r --arg m "$m" 'first(.markets[] | select(.name == $m)) |
-            "\(.name) (hub \(.hub_id // "?")): strategy=\(.oracle.strategy // "?") stale=\(.oracle.max_price_stale_seconds // "?")s tolerance=\(.oracle.tolerance_bps // "?")bps sanity=[\(.oracle.min_sanity_price_wad // "?") .. \(.oracle.max_sanity_price_wad // "?")]"' \
+            "\(.name) (hub \(.hub_id // "?")): sources=\((.oracle.sources // [])|length) stale=\(.oracle.max_price_stale_seconds // "?")s tolerance=[\(.oracle.tolerance.upper_ratio_bps // "?")/\(.oracle.tolerance.lower_ratio_bps // "?")] sanity=[\(.oracle.min_sanity_price_wad // "?") .. \(.oracle.max_sanity_price_wad // "?")] independence=\(.oracle.independence // "?")"' \
             "$MARKET_CONFIG_FILE" >&2
-        src=$(jq -c --arg m "$m" 'first(.markets[] | select(.name == $m)) | .oracle.primary // null' "$MARKET_CONFIG_FILE")
-        anchor=$(jq -c --arg m "$m" 'first(.markets[] | select(.name == $m)) | .oracle.anchor |
-            if type == "object" and .tag == "Some" then .values[0] else null end' "$MARKET_CONFIG_FILE")
-        describe_oracle_source "  primary" "$src"
-        describe_oracle_source "  anchor " "$anchor"
+        n=$(jq -r --arg m "$m" 'first(.markets[] | select(.name == $m)) | (.oracle.sources // []) | length' "$MARKET_CONFIG_FILE")
+        i=0
+        while [ "$i" -lt "$n" ]; do
+            src=$(jq -c --arg m "$m" --argjson i "$i" \
+                'first(.markets[] | select(.name == $m)) | .oracle.sources[$i]' "$MARKET_CONFIG_FILE")
+            describe_oracle_source "  source[$i]" "$src"
+            i=$((i + 1))
+        done
     done
 }
 
@@ -4321,38 +4332,61 @@ describe_oracle_source() {
         return
     fi
 
-    local tag body
-    tag=$(printf '%s' "$source_json" | oracle_union_tag)
-    body=$(printf '%s' "$source_json" | oracle_union_value)
+    # Unwrap PriceSource::{Feed,Scaled,LpShare} then ProviderRef.
+    local shape provider_tag body feed_decimals feed_stale
+    shape=$(printf '%s' "$source_json" | oracle_union_tag)
+    case "$shape" in
+        Feed)
+            body=$(printf '%s' "$source_json" | oracle_union_value)
+            feed_decimals=$(printf '%s' "$body" | jq -r '.decimals // "input"')
+            feed_stale=$(printf '%s' "$body" | jq -r '.max_stale_seconds // "input"')
+            provider_tag=$(printf '%s' "$body" | jq -c '.provider' | oracle_union_tag)
+            body=$(printf '%s' "$body" | jq -c '.provider' | oracle_union_value)
+            ;;
+        Reflector|RedStone|MultiFeed|Xoxno)
+            # Legacy direct provider shape (defensive).
+            provider_tag="$shape"
+            body=$(printf '%s' "$source_json" | oracle_union_value)
+            feed_decimals="input"
+            feed_stale="input"
+            ;;
+        *)
+            echo "[${label}] ${shape}: ${source_json}" >&2
+            return
+            ;;
+    esac
 
-    case "$tag" in
+    case "$provider_tag" in
         Reflector)
-            local contract asset read_mode decimals resolution
+            local contract asset read_mode
             contract=$(printf '%s' "$body" | jq -r '.contract // empty')
             asset=$(printf '%s' "$body" | jq -c '.asset' | describe_reflector_asset)
             read_mode=$(printf '%s' "$body" | jq -c '.read_mode' | describe_read_mode)
-            decimals=$(printf '%s' "$body" | jq -r '.decimals // "input"')
-            resolution=$(printf '%s' "$body" | jq -r '.resolution_seconds // "input"')
-            echo "[${label}] Reflector contract=${contract} asset=${asset} read_mode=${read_mode} decimals=${decimals} resolution=${resolution}" >&2
+            echo "[${label}] Reflector contract=${contract} asset=${asset} read_mode=${read_mode} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
             ;;
-        RedStone)
-            local contract feed_id decimals max_stale
+        MultiFeed)
+            local contract feed_id kind nature
             contract=$(printf '%s' "$body" | jq -r '.contract // empty')
             feed_id=$(printf '%s' "$body" | jq -r '.feed_id // empty')
-            decimals=$(printf '%s' "$body" | jq -r '.decimals // "input"')
-            max_stale=$(printf '%s' "$body" | jq -r '.max_stale_seconds // "input"')
-            echo "[${label}] RedStone contract=${contract} feed_id=${feed_id} decimals=${decimals} max_stale=${max_stale}" >&2
+            kind=$(printf '%s' "$body" | jq -r '.kind // empty')
+            nature=$(printf '%s' "$body" | jq -r '.nature // empty')
+            echo "[${label}] MultiFeed kind=${kind} nature=${nature} contract=${contract} feed_id=${feed_id} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
+            ;;
+        RedStone)
+            # Pre-migration RedStone-only body (no MultiFeed wrapper).
+            local contract feed_id
+            contract=$(printf '%s' "$body" | jq -r '.contract // empty')
+            feed_id=$(printf '%s' "$body" | jq -r '.feed_id // empty')
+            echo "[${label}] RedStone contract=${contract} feed_id=${feed_id} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
             ;;
         *)
-            echo "[${label}] unknown source: ${source_json}" >&2
+            echo "[${label}] unknown provider ${provider_tag}: ${source_json}" >&2
             ;;
     esac
 }
 
-# Live price components for a market. The raw stored Oracle V2 config is no
-# longer view-exposed (set_oracle_config is write-only on price-aggregator; get_market_config
-# was removed), so this prints the controller's resolved/safe/aggregator prices
-# via get_market_indexes_detailed instead of the provider wiring.
+# Live price components for a market. Prefer price-aggregator `oracle` for the
+# stored AssetOracle; this path prints controller market indexes / prices.
 get_oracle_cmd() {
     local market_name=$1
     local asset_address

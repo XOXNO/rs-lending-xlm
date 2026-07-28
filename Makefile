@@ -510,8 +510,8 @@ wasm-testing-abi-check: deploy-artifacts
 	echo "OK   governance.wasm exports no test-only ABI"
 	@pa="$(DEPLOY_DIR)/price_aggregator.wasm"; \
 	if [ ! -f "$$pa" ]; then echo "price-aggregator deploy WASM missing: $$pa"; exit 1; fi; \
-	if strings "$$pa" | grep -q "seed_oracle_config"; then \
-		echo "FAIL: price_aggregator.wasm exports test-only ABI 'seed_oracle_config'"; \
+	if strings "$$pa" | grep -Eq 'seed_oracle(_config)?'; then \
+		echo "FAIL: price_aggregator.wasm exports test-only ABI 'seed_oracle' (or legacy seed_oracle_config)"; \
 		echo "  The price-aggregator/testing feature leaked into the deployable build."; \
 		exit 1; \
 	fi; \
