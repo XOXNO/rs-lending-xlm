@@ -1,0 +1,16 @@
+{
+  "kind": "controller",
+  "op_id": "0c15eef4c20e866630764665a1267fb9b20574c0322b20cf59c9b6a75b4eb52d",
+  "network": "testnet",
+  "target": "CCALVOBCRG66RHGR5HIVG3XBBW4FFDA4BKZXJ23E26D6SX334J7S5ZOT",
+  "function": "deploy_pool",
+  "args": [
+    {
+      "bytes": "f2887b7c724573b314a25675095ea47d6da41ff296016d74433c872e77abba2c"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "964f178cfd0daa94d66e22bdd5147404999dc70adeeba8f96811afcece1e3e6c",
+  "cli_executable": true,
+  "executed": true
+}

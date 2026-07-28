@@ -10,7 +10,7 @@
       },
       "oracle": {
         "asset_decimals": 0,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -40,7 +40,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -61,7 +61,7 @@
       "asset_address": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -91,7 +91,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -123,7 +123,7 @@
       "asset_address": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -153,7 +153,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -185,7 +185,7 @@
       "asset_address": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -215,7 +215,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -247,7 +247,7 @@
       "asset_address": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -260,7 +260,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -292,7 +292,7 @@
       "asset_address": "CBZ4DCE7PYMUTOAKKUTRSUPT3FJFVOWCSKWUM5A72D6SAVMUJE5JN2PJ",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -305,7 +305,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -337,7 +337,7 @@
       "asset_address": "CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -350,7 +350,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -382,7 +382,7 @@
       "asset_address": "CARUUX2FZNPH6DGJOEUFSIUQWYHNL5AVDV7PMVSHWL7OBYIBFC76F4TO",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -395,7 +395,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -427,7 +427,7 @@
       "asset_address": "CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -440,7 +440,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -472,7 +472,7 @@
       "asset_address": "CDGSC6BA4TCAOVSFQCUEHDMOIIHYYVNYBT6YEARS4MX3ITAHUINVGQHX",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -485,7 +485,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -517,7 +517,7 @@
       "asset_address": "CBOOCGZSVRSZFRE4U2NWR2B4RXYVJWRCBTGOUD2JPI2TDJPWMTJX7FZP",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -530,7 +530,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -562,7 +562,7 @@
       "asset_address": "CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -575,7 +575,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -607,7 +607,7 @@
       "asset_address": "CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 86400,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -620,7 +620,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -629,8 +629,8 @@
           "lower_ratio_bps": 9524
         },
         "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "1020015960000000000",
-        "max_sanity_price_wad": "1197410040000000000"
+        "min_sanity_price_wad": "995690261700000000",
+        "max_sanity_price_wad": "1067916498300000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -652,7 +652,7 @@
       "asset_address": "CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 86400,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -665,7 +665,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -674,8 +674,8 @@
           "lower_ratio_bps": 9524
         },
         "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "957002400000000000",
-        "max_sanity_price_wad": "1123437600000000000"
+        "min_sanity_price_wad": "1004395710050000000",
+        "max_sanity_price_wad": "1077253429950000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -697,7 +697,7 @@
       "asset_address": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -727,7 +727,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -759,7 +759,7 @@
       "asset_address": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -789,7 +789,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -821,7 +821,7 @@
       "asset_address": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 86400,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Feed": {
@@ -834,7 +834,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 86400
+              "max_stale_seconds": 50400
             }
           }
         ],
@@ -861,13 +861,13 @@
       }
     },
     {
-      "_note": "SolvBTC (SAC CBIJBD…, 8 decimals). Dual: Scaled RedStone SolvBTC_FUNDAMENTAL × Reflector BTC Ref, plus RedStone SolvBTC_FUNDAMENTAL/USD. Shared RedStone domain declared. Configure references.BTC before this market.",
+      "_note": "SolvBTC (SAC CBIJBD\u2026, 8 decimals). Dual: Scaled RedStone SolvBTC_FUNDAMENTAL \u00d7 Reflector BTC Ref, plus RedStone SolvBTC_FUNDAMENTAL/USD. Shared RedStone domain declared. Configure references.BTC before this market.",
       "name": "SolvBTC",
       "hub_id": 1,
       "asset_address": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
       "oracle": {
         "asset_decimals": 8,
-        "max_price_stale_seconds": 43200,
+        "max_price_stale_seconds": 50400,
         "sources": [
           {
             "Scaled": {
@@ -881,7 +881,7 @@
                   }
                 },
                 "decimals": 8,
-                "max_stale_seconds": 43200
+                "max_stale_seconds": 50400
               },
               "quote": {
                 "Ref": "BTC"
@@ -901,7 +901,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 43200
+              "max_stale_seconds": 50400
             }
           }
         ],
