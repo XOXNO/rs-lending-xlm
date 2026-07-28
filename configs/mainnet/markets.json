@@ -7,44 +7,46 @@
       "hub_id": 1,
       "asset_address": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
       "oracle": {
-        "max_price_stale_seconds": 3600,
-        "tolerance_bps": 1000,
-        "strategy": 1,
-        "primary": {
-          "tag": "Reflector",
-          "values": [
-            {
-              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-              "asset": {
-                "tag": "Symbol",
-                "values": [
-                  "XLM"
-                ]
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 43200,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "XLM"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
               },
-              "read_mode": {
-                "tag": "Twap",
-                "values": [
-                  3
-                ]
-              }
+              "decimals": 14,
+              "max_stale_seconds": 3600
             }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "RedStone",
-              "values": [
-                {
+          },
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "XLM",
-                  "max_stale_seconds": 43200
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
                 }
-              ]
+              },
+              "decimals": 8,
+              "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 11000,
+          "lower_ratio_bps": 9091
         },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "50000000000000000",
         "max_sanity_price_wad": "1000000000000000000"
       },
@@ -67,44 +69,46 @@
       "hub_id": 1,
       "asset_address": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
       "oracle": {
-        "max_price_stale_seconds": 3600,
-        "tolerance_bps": 500,
-        "strategy": 1,
-        "primary": {
-          "tag": "Reflector",
-          "values": [
-            {
-              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-              "asset": {
-                "tag": "Symbol",
-                "values": [
-                  "USDC"
-                ]
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 43200,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "USDC"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
               },
-              "read_mode": {
-                "tag": "Twap",
-                "values": [
-                  3
-                ]
-              }
+              "decimals": 14,
+              "max_stale_seconds": 3600
             }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "RedStone",
-              "values": [
-                {
+          },
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "USDC",
-                  "max_stale_seconds": 43200
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
                 }
-              ]
+              },
+              "decimals": 8,
+              "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "950000000000000000",
         "max_sanity_price_wad": "1050000000000000000"
       },
@@ -127,44 +131,46 @@
       "hub_id": 1,
       "asset_address": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
       "oracle": {
-        "max_price_stale_seconds": 3600,
-        "tolerance_bps": 500,
-        "strategy": 1,
-        "primary": {
-          "tag": "Reflector",
-          "values": [
-            {
-              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-              "asset": {
-                "tag": "Symbol",
-                "values": [
-                  "EURC"
-                ]
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 43200,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "EURC"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
               },
-              "read_mode": {
-                "tag": "Twap",
-                "values": [
-                  3
-                ]
-              }
+              "decimals": 14,
+              "max_stale_seconds": 3600
             }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "RedStone",
-              "values": [
-                {
+          },
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "EUROC",
-                  "max_stale_seconds": 43200
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
                 }
-              ]
+              },
+              "decimals": 8,
+              "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1060000000000000000",
         "max_sanity_price_wad": "1220000000000000000"
       },
@@ -187,23 +193,29 @@
       "hub_id": 1,
       "asset_address": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "PYUSD",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "PYUSD",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "950000000000000000",
         "max_sanity_price_wad": "1050000000000000000"
       },
@@ -226,23 +238,29 @@
       "hub_id": 2,
       "asset_address": "CBZ4DCE7PYMUTOAKKUTRSUPT3FJFVOWCSKWUM5A72D6SAVMUJE5JN2PJ",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "USST_FUNDAMENTAL",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USST_FUNDAMENTAL",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "928300000000000000",
         "max_sanity_price_wad": "1089700000000000000"
       },
@@ -265,23 +283,29 @@
       "hub_id": 2,
       "asset_address": "CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOEUTBL",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOEUTBL",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1110546720000000000",
         "max_sanity_price_wad": "1303685280000000000"
       },
@@ -304,23 +328,29 @@
       "hub_id": 2,
       "asset_address": "CARUUX2FZNPH6DGJOEUFSIUQWYHNL5AVDV7PMVSHWL7OBYIBFC76F4TO",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOUSTBL",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOUSTBL",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1001653680000000000",
         "max_sanity_price_wad": "1175854320000000000"
       },
@@ -343,23 +373,29 @@
       "hub_id": 2,
       "asset_address": "CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOUKTBL",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOUKTBL",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1261045840000000000",
         "max_sanity_price_wad": "1480358160000000000"
       },
@@ -382,23 +418,29 @@
       "hub_id": 2,
       "asset_address": "CDGSC6BA4TCAOVSFQCUEHDMOIIHYYVNYBT6YEARS4MX3ITAHUINVGQHX",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOSAFO",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOSAFO",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "931885480000000000",
         "max_sanity_price_wad": "1093952520000000000"
       },
@@ -421,23 +463,29 @@
       "hub_id": 2,
       "asset_address": "CBOOCGZSVRSZFRE4U2NWR2B4RXYVJWRCBTGOUD2JPI2TDJPWMTJX7FZP",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOEURSAFO",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOEURSAFO",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1061177680000000000",
         "max_sanity_price_wad": "1245730320000000000"
       },
@@ -460,23 +508,29 @@
       "hub_id": 2,
       "asset_address": "CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOGBPSAFO",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOGBPSAFO",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1248319480000000000",
         "max_sanity_price_wad": "1465418520000000000"
       },
@@ -499,23 +553,29 @@
       "hub_id": 2,
       "asset_address": "CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 86400,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "deJTRSY_FUNDAMENTAL/USD",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "deJTRSY_FUNDAMENTAL/USD",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 86400
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1020015960000000000",
         "max_sanity_price_wad": "1197410040000000000"
       },
@@ -538,23 +598,29 @@
       "hub_id": 2,
       "asset_address": "CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 86400,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "deJAAA_FUNDAMENTAL/USD",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "deJAAA_FUNDAMENTAL/USD",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 86400
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "957002400000000000",
         "max_sanity_price_wad": "1123437600000000000"
       },
@@ -577,44 +643,46 @@
       "hub_id": 2,
       "asset_address": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
       "oracle": {
-        "max_price_stale_seconds": 7200,
-        "tolerance_bps": 500,
-        "strategy": 1,
-        "primary": {
-          "tag": "Reflector",
-          "values": [
-            {
-              "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
-              "asset": {
-                "tag": "Stellar",
-                "values": [
-                  "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
-                ]
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 43200,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+                  "asset": {
+                    "Stellar": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
               },
-              "read_mode": {
-                "tag": "Twap",
-                "values": [
-                  3
-                ]
-              }
+              "decimals": 14,
+              "max_stale_seconds": 7200
             }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "RedStone",
-              "values": [
-                {
+          },
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "USTRY",
-                  "max_stale_seconds": 43200
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
                 }
-              ]
+              },
+              "decimals": 8,
+              "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "984400000000000000",
         "max_sanity_price_wad": "1155600000000000000"
       },
@@ -637,44 +705,46 @@
       "hub_id": 2,
       "asset_address": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
       "oracle": {
-        "max_price_stale_seconds": 7200,
-        "tolerance_bps": 500,
-        "strategy": 1,
-        "primary": {
-          "tag": "Reflector",
-          "values": [
-            {
-              "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
-              "asset": {
-                "tag": "Stellar",
-                "values": [
-                  "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
-                ]
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 43200,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+                  "asset": {
+                    "Stellar": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
               },
-              "read_mode": {
-                "tag": "Twap",
-                "values": [
-                  3
-                ]
-              }
+              "decimals": 14,
+              "max_stale_seconds": 7200
             }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "RedStone",
-              "values": [
-                {
+          },
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "CETES",
-                  "max_stale_seconds": 43200
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
                 }
-              ]
+              },
+              "decimals": 8,
+              "max_stale_seconds": 43200
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "61548000000000000",
         "max_sanity_price_wad": "72252000000000000"
       },
@@ -697,23 +767,29 @@
       "hub_id": 2,
       "asset_address": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP",
       "oracle": {
+        "asset_decimals": 7,
         "max_price_stale_seconds": 86400,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "USDY_FUNDAMENTAL/USD",
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "MultiFeed": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USDY_FUNDAMENTAL/USD",
+                  "kind": "RedStone",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
               "max_stale_seconds": 86400
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1048800000000000000",
         "max_sanity_price_wad": "1231200000000000000"
       },
