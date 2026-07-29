@@ -81,6 +81,6 @@ pub fn seed_liquidator_usdc(t: &mut LendingTest, amount: f64) {
 fn configure_dual_source_oracle(t: &LendingTest) {
     t.set_oracle_primary_anchor("USDC");
     t.set_oracle_primary_anchor("ETH");
-    t.set_safe_price("USDC", WAD, true, true);
-    t.set_safe_price("ETH", WAD * 2_000, true, true);
+    t.set_safe_price("USDC", WAD);
+    t.set_safe_price("ETH", WAD * 2_000);
 }

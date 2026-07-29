@@ -118,6 +118,28 @@ fn cache_with(
 }
 
 #[test]
+fn test_cache_clock_tracks_zero_and_positive_elapsed_time() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
+        cache.last_timestamp = 42;
+        cache.current_timestamp = 42;
+
+        assert_eq!(cache.last_timestamp(), 42);
+        assert_eq!(cache.elapsed_ms(), 0);
+        assert!(!cache.needs_accrual());
+
+        cache.set_current_timestamp(43);
+        assert_eq!(cache.elapsed_ms(), 1);
+        assert!(cache.needs_accrual());
+
+        cache.mark_accrued();
+        assert_eq!(cache.last_timestamp(), 43);
+        assert!(!cache.needs_accrual());
+    });
+}
+
+#[test]
 fn test_calculate_utilization_returns_zero_when_supplied_is_zero() {
     let t = TestSetup::new();
     t.as_contract(|| {

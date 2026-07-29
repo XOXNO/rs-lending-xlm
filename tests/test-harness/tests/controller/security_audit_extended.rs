@@ -469,9 +469,9 @@ fn poc_dual_in_band_midpoint_used_on_borrow_path() {
     // set_price writes spot+TWAP; set_safe_price overwrites TWAP only.
     // primary(TWAP)=$1.00, anchor(spot)=$1.03 → midpoint ≈ $1.015.
     t.set_price("USDC", usd_cents(103));
-    t.set_safe_price("USDC", usd(1), true, true);
+    t.set_safe_price("USDC", usd(1));
     t.set_price("ETH", usd(2000));
-    t.set_safe_price("ETH", usd(2000), true, true);
+    t.set_safe_price("ETH", usd(2000));
 
     // Alice: $7_510 debt (3.755 ETH) sits above primary-only $7_500 and under
     // midpoint ≈ $7_612.5.

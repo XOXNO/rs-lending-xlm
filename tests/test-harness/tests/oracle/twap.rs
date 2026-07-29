@@ -9,7 +9,8 @@ fn setup() -> LendingTest {
 }
 
 #[test]
-fn configure_accepts_minimum_resolution_equal_to_max_stale() {
+#[should_panic(expected = "Error(Contract, #222)")]
+fn configure_rejects_twap_window_larger_than_max_stale() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_asset("USDC");
     t.mock_reflector_client().set_resolution(&60);
@@ -31,12 +32,6 @@ fn configure_accepts_minimum_resolution_equal_to_max_stale() {
     }
 
     t.configure_market_oracle(&usdc, &cfg);
-
-    let stored = t
-        .price_agg_client()
-        .oracle(&controller::types::PriceKey::Token(usdc.clone()))
-        .expect("configured oracle");
-    assert_eq!(stored.max_price_stale_seconds, 60);
 }
 
 // The propose-time containment probe must price a TWAP leg with the same mean
@@ -121,6 +116,39 @@ fn test_exact_minimum_twap_history_is_accepted() {
     t.borrow(ALICE, "ETH", 1.0);
 
     assert!(t.health_factor(ALICE) > 1.0);
+}
+
+#[test]
+fn test_duplicate_timestamp_twap_blocks_strict_borrow() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &7);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    assert_contract_error(t.try_borrow(ALICE, "ETH", 1.0), errors::UNSAFE_PRICE);
+}
+
+#[test]
+fn test_insufficient_span_twap_blocks_strict_borrow() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &8);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    assert_contract_error(t.try_borrow(ALICE, "ETH", 1.0), errors::UNSAFE_PRICE);
+}
+
+#[test]
+fn test_clustered_adjacent_twap_sample_blocks_strict_borrow() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &9);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    assert_contract_error(t.try_borrow(ALICE, "ETH", 1.0), errors::UNSAFE_PRICE);
 }
 
 // Round-trip the `set_price` / `set_safe_price` plumbing so the

@@ -56,7 +56,9 @@ pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
     env.storage().persistent().remove(&index_key);
 
     let count = asset_count(env);
-    let last_at = count - 1;
+    let last_at = count
+        .checked_sub(1)
+        .expect("asset index count must cover indexed asset");
     if removed_at != last_at {
         let last_key = DataKey::AssetAt(last_at);
         // If the last slot archived, shrink without swap rather than panic.
@@ -110,7 +112,9 @@ pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
     env.storage().persistent().remove(&index_key);
 
     let count = feed_count(env);
-    let last_at = count - 1;
+    let last_at = count
+        .checked_sub(1)
+        .expect("feed index count must cover indexed feed");
     if removed_at != last_at {
         let last_key = DataKey::FeedAt(last_at);
         // If the last slot archived, shrink without swap rather than panic.

@@ -489,7 +489,6 @@ jobs:
           - target: mutants-common
           - target: mutants-pool
           - target: mutants-governance
-          - target: mutants-governance-oracle-probe
           - target: mutants-controller-core
             shard: 0/2
             suffix: '-1of2'

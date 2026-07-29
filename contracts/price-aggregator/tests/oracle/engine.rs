@@ -1,11 +1,12 @@
 use super::*;
 use crate::admin;
 use crate::session::Session;
-use crate::test_support::{in_contract, register_redstone_feed};
+use crate::test_support::{in_contract, register_redstone_feed, CountingReflector};
 use common::constants::WAD;
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, LpShareSource, MultiFeedRef,
-    OracleTolerance, PoolKind, ProviderKind, ProviderRef, ScaledSource,
+    OracleAssetRef, OracleReadMode, OracleTolerance, PoolKind, ProviderKind, ProviderRef,
+    ReflectorFeedRef, ScaledSource,
 };
 use mock_redstone::MockRedStonePriceFeedClient;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
@@ -271,6 +272,92 @@ fn test_scaled_source_multiplies_ratio_by_quote() {
         let mut cache = Session::new(&env);
         // 1.01 x 100 = 101
         assert_eq!(resolve(&mut cache, &token, 0).price_wad, 101 * WAD);
+    });
+}
+
+#[test]
+fn test_shared_nested_quote_is_composed_once_per_session() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "RATIO_A", WAD, 0);
+    publish(&client, &env, "RATIO_B", WAD, 0);
+    let reflector = env.register(CountingReflector, ());
+
+    in_contract(&env, || {
+        let quote = PriceKey::Ref(Symbol::new(&env, "QUOTE"));
+        admin::store_oracle(
+            &env,
+            &quote,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Feed(FeedSource {
+                        provider: ProviderRef::Reflector(ReflectorFeedRef {
+                            contract: reflector.clone(),
+                            asset: OracleAssetRef::Symbol(Symbol::new(&env, "QUOTE")),
+                            read_mode: OracleReadMode::Spot,
+                        }),
+                        decimals: 14,
+                        max_stale_seconds: ASSET_CEILING,
+                    })],
+                ),
+                ASSET_CEILING,
+                1,
+                10 * WAD,
+            ),
+        );
+
+        let parent = |feed_id: &str| {
+            let key = PriceKey::Token(Address::generate(&env));
+            admin::store_oracle(
+                &env,
+                &key,
+                &oracle(
+                    &env,
+                    sources(
+                        &env,
+                        &[PriceSource::Scaled(ScaledSource {
+                            factor: multi_feed(&env, &adapter, feed_id, ASSET_CEILING),
+                            quote: quote.clone(),
+                            min_factor_wad: WAD,
+                            max_factor_wad: WAD,
+                        })],
+                    ),
+                    ASSET_CEILING,
+                    1,
+                    10 * WAD,
+                ),
+            );
+            key
+        };
+        let first = parent("RATIO_A");
+        let second = parent("RATIO_B");
+        let mut session = Session::new(&env);
+
+        let first_price = resolve(&mut session, &first, 0).price_wad;
+        let second_price = resolve(&mut session, &second, 0).price_wad;
+        assert_eq!(first_price, second_price);
+    });
+}
+
+#[test]
+fn test_cached_nested_quote_still_enforces_depth_backstop() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "BTC", 100 * WAD, 0);
+    publish(&client, &env, "RATIO", WAD, 0);
+
+    in_contract(&env, || {
+        let token = scaled_setup(&env, &adapter, RATIO_BOUND, WAD, 2 * WAD);
+        let mut session = Session::new(&env);
+        assert!(resolve_nested(&mut session, &token, 0).is_ok());
+        assert!(matches!(
+            resolve_nested(&mut session, &token, MAX_RESOLUTION_DEPTH),
+            Err(common::errors::OracleError::OracleDepthExceeded)
+        ));
     });
 }
 

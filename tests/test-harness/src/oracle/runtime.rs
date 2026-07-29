@@ -119,13 +119,7 @@ impl LendingTest {
     }
 
     /// Set the TWAP ("safe") leg for dual-source tolerance tests.
-    pub fn set_safe_price(
-        &self,
-        asset_name: &str,
-        price_wad: i128,
-        _within_first: bool,
-        _within_second: bool,
-    ) {
+    pub fn set_safe_price(&self, asset_name: &str, price_wad: i128) {
         let asset = self.resolve_market(asset_name).asset.clone();
         self.mock_reflector_client()
             .set_twap_price(&asset, &price_wad);

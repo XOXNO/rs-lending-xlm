@@ -136,6 +136,25 @@ fn submission_at_exact_inclusion_window_boundary_is_aggregated() {
 }
 
 #[test]
+fn relative_skew_boundary_is_inclusive() {
+    let env = Env::default();
+    env.mock_all_auths();
+    advance_ledger_seconds(&env, 2_000);
+    let (client, _admin, signers) = setup(&env, 2, 2);
+    let feed = feed_id(&env);
+
+    client.set_max_relative_skew_seconds(&100u64);
+    let newest_ms = env.ledger().timestamp() * 1_000;
+    client.submit_price(&signers[0], &feed, &100i128, &newest_ms);
+    client.submit_price(&signers[1], &feed, &200i128, &(newest_ms - 100 * 1_000));
+
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(100u128)
+    );
+}
+
+#[test]
 fn median_even_count_with_odd_gap_rounds_toward_lower_middle() {
     let env = Env::default();
     env.mock_all_auths();
@@ -158,20 +177,28 @@ fn stale_submission_excluded_from_aggregate() {
     let (client, _admin, signers) = setup(&env, 2, 2);
     let feed = feed_id(&env);
 
-    // Both submit at ledger time 0 (package_timestamp in ms).
-    client.submit_price(&signers[0], &feed, &100i128, &0u64);
-    client.submit_price(&signers[1], &feed, &200i128, &0u64);
+    // Keep the package timestamp non-zero so milliseconds-to-seconds
+    // conversion remains observable.
+    advance_ledger_seconds(&env, 1_000);
+    let initial_ms = env.ledger().timestamp() * 1_000;
+    client.submit_price(&signers[0], &feed, &100i128, &initial_ms);
+    client.submit_price(&signers[1], &feed, &200i128, &initial_ms);
     // Threshold met — aggregate exists (lower mid of [100, 200] = 100).
     let data = client.read_price_data_for_feed(&feed);
     assert_eq!(data.price.to_u128(), Some(100u128));
 
     // Advance ledger time well past MaxSubmissionAgeSeconds (default 900s).
-    advance_ledger_seconds(&env, 90_000);
+    advance_ledger_seconds(&env, 901);
 
     // A fresh submission from signer[0] triggers recompute; signer[1]'s
-    // now-stale submission (package_timestamp 0) must be excluded, dropping
+    // now-stale submission must be excluded, dropping
     // the kept count below threshold (2), so CurrentAggregate is cleared.
-    client.submit_price(&signers[0], &feed, &500i128, &90_000_000u64);
+    // Keep the fresh replacement one second behind ledger time: its package
+    // timestamp is exactly 900s ahead of the stale peer, inside the relative
+    // skew window, so absolute-age conversion alone decides peer inclusion.
+    client.set_max_relative_skew_seconds(&900u64);
+    let fresh_ms = (env.ledger().timestamp() - 1) * 1_000;
+    client.submit_price(&signers[0], &feed, &500i128, &fresh_ms);
 
     // Fail-safe: dropping below threshold removes the cached aggregate, so the
     // read returns NoDataForFeed rather than serving the old poisoned value.

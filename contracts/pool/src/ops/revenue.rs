@@ -21,13 +21,16 @@ pub(crate) struct RevenueOutcome {
 pub(crate) fn apply(env: &Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
     let outcome = accounting(env, hub_asset);
 
-    if outcome.mutation.actual_amount > 0 {
-        let owner = ownable::get_owner(env)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet));
-        outcome
-            .cache
-            .transfer_out(&owner, outcome.mutation.actual_amount);
+    if outcome.mutation.actual_amount == 0 {
+        events::emit_market_state(env, outcome.cache.snapshot());
+        return outcome.mutation;
     }
+
+    let owner = ownable::get_owner(env)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet));
+    outcome
+        .cache
+        .transfer_out(&owner, outcome.mutation.actual_amount);
 
     // Snapshot, not commit: `accounting` already persisted this exact state, and
     // the event must not publish before the payout above can fail.

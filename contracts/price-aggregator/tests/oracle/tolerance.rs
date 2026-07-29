@@ -77,3 +77,34 @@ fn degenerate_anchor_overflow_is_out_of_band() {
 fn midpoint_overflow_returns_zero() {
     assert_eq!(midpoint_price_or_zero(i128::MAX, 1), 0);
 }
+
+#[test]
+fn tolerance_boundary_is_source_order_invariant() {
+    let env = Env::default();
+    let tolerance = OracleTolerance {
+        upper_ratio_bps: 10_500,
+        lower_ratio_bps: 9_524,
+    };
+    let high = 1_070i128;
+    let low = 1_019i128;
+
+    assert!(within_tolerance_band(&env, low, high, &tolerance));
+    assert_eq!(
+        within_tolerance_band(&env, low, high, &tolerance),
+        within_tolerance_band(&env, high, low, &tolerance)
+    );
+}
+
+#[test]
+fn tolerance_uses_one_step_bps_rounding() {
+    let env = Env::default();
+    let tolerance = OracleTolerance {
+        upper_ratio_bps: 10_150,
+        lower_ratio_bps: 9_852,
+    };
+    let high = 101_505_000_000_000_000_009_847i128;
+    let low = 100_000_000_000_000_000_009_701i128;
+
+    assert!(within_tolerance_band(&env, low, high, &tolerance));
+    assert!(within_tolerance_band(&env, high, low, &tolerance));
+}

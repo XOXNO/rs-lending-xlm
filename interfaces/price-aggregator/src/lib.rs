@@ -3,10 +3,13 @@
 //! Client ABI for the price-aggregator. All pricing uses [`PriceKey`].
 
 use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus};
-use soroban_sdk::{contractclient, Env, Map, Vec};
+use soroban_sdk::{contractclient, Address, Env, Map, Vec};
 
 #[contractclient(name = "PriceAggregatorClient")]
 pub trait PriceAggregatorInterface {
+    /// Current governance owner, if configured.
+    fn get_owner(env: Env) -> Option<Address>;
+
     /// Fail-closed bulk USD prices. Any unsafe key reverts the whole call.
     fn prices(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceFeedRaw>;
 

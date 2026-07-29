@@ -258,7 +258,7 @@ fn test_clean_bad_debt_rejected_under_oracle_deviation() {
     // Skew the TWAP/anchor source so primary and anchor disagree beyond the
     // tolerance band; the fail-closed read rejects rather than resolving to a
     // singly-corroborated price.
-    t.set_safe_price("USDC", usd_cents(100), false, false);
+    t.set_safe_price("USDC", usd_cents(100));
 
     // `clean_bad_debt` reads the live price: the out-of-band primary/anchor gap
     // is rejected with `UnsafePriceNotAllowed` rather than resolving to the

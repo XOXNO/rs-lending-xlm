@@ -6,10 +6,10 @@
 //! Invalid TWAP record counts still trap via `validate_twap_records`.
 
 use common::errors::OracleError;
-use common::oracle::observation::is_future_at;
+use common::oracle::observation::{is_future_at, MIN_ORACLE_RESOLUTION_SECONDS};
 use common::oracle::providers::reflector::{
     min_twap_observations, reflector_lastprice_call, reflector_prices_call, to_reflector_asset,
-    try_twap_mean_price,
+    try_reflector_resolution_call, try_twap_mean_price,
 };
 use common::types::{OracleReadMode, ReflectorFeedRef};
 use common::validation::validate_twap_records;
@@ -84,15 +84,29 @@ fn read_twap(
     if history.len() < min_twap_observations(records) {
         return Err(OracleError::TwapInsufficientObservations);
     }
+    if history.len() > records {
+        return Err(OracleError::TwapInsufficientObservations);
+    }
+
+    let resolution = try_reflector_resolution_call(env, &feed.contract)
+        .filter(|resolution| *resolution >= MIN_ORACLE_RESOLUTION_SECONDS)
+        .ok_or(OracleError::InvalidOracleResolution)?;
 
     let mut oldest_ts = u64::MAX;
+    let mut previous_ts = None;
     for price_data in history.iter() {
         if is_future_at(now_secs, price_data.timestamp) {
             return Err(OracleError::PriceFeedStale);
         }
-        if price_data.timestamp < oldest_ts {
-            oldest_ts = price_data.timestamp;
+        if previous_ts.is_some_and(|newer: u64| {
+            newer
+                .checked_sub(price_data.timestamp)
+                .is_none_or(|spacing| spacing < u64::from(resolution))
+        }) {
+            return Err(OracleError::TwapInsufficientObservations);
         }
+        previous_ts = Some(price_data.timestamp);
+        oldest_ts = price_data.timestamp;
     }
 
     let raw_price = try_twap_mean_price(&history).ok_or(OracleError::InvalidPrice)?;

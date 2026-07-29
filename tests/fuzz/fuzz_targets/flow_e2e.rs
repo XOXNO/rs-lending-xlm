@@ -216,8 +216,10 @@ fn wallet_supply_amount(
 }
 
 fn borrow_capacity_usd(t: &stellar_fuzz::LendingTest, user: &str) -> f64 {
+    let Some(hf) = t.try_health_factor(user) else {
+        return 0.0;
+    };
     let debt = t.total_debt(user);
-    let hf = t.health_factor(user);
     if debt > 0.0 && hf.is_finite() && hf > 0.0 {
         (debt * hf - debt).max(0.0)
     } else {
@@ -365,7 +367,9 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             let u = pick_user(user);
             let a = supply_asset(t, u, pick_asset(asset));
             let supplied = t.supply_balance(u, a);
-            let hf = t.health_factor(u);
+            let Some(hf) = t.try_health_factor(u) else {
+                return (false, vec![]);
+            };
             let safe_fraction = if supplied <= 0.0 || !hf.is_finite() || hf <= 1.0 {
                 0.0
             } else {
@@ -461,7 +465,13 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             let tol = i128::from(test_harness::presets::DEFAULT_TOLERANCE.tolerance_bps);
             let upper = 10_000 + tol;
             let lower = 10_000 * 10_000 / upper; // floor of the contract's half-up lower bound
-            let max_dev = (10_000 - lower).min(tol).saturating_sub(2).max(0);
+            // Default fuzz markets use a tight ±1% single-source sanity band.
+            // Stay two bps inside it as well as inside source tolerance.
+            let max_dev = (10_000 - lower)
+                .min(tol)
+                .min(100)
+                .saturating_sub(2)
+                .max(0);
             let dev = if max_dev == 0 {
                 0
             } else {
@@ -476,6 +486,15 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             let twap = spot * mult / 10_000;
             let reflector = t.mock_reflector_client();
             let addr = t.resolve_asset(a);
+            let key = controller::types::PriceKey::Token(addr.clone());
+            let oracle = t
+                .price_agg_client()
+                .oracle(&key)
+                .expect("fuzz market oracle must be configured");
+            assert!(
+                twap >= oracle.min_sanity_price_wad && twap <= oracle.max_sanity_price_wad,
+                "oracle jitter escaped configured sanity band"
+            );
             reflector.set_price(&addr, &spot);
             reflector.set_twap_price(&addr, &twap);
             (true, vec![])

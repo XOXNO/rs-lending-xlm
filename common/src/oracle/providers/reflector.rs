@@ -73,6 +73,14 @@ pub fn reflector_resolution_call(env: &Env, oracle: &Address) -> u32 {
     ReflectorClient::new(env, oracle).resolution()
 }
 
+/// Soft metadata read for runtime TWAP validation.
+pub fn try_reflector_resolution_call(env: &Env, oracle: &Address) -> Option<u32> {
+    match ReflectorClient::new(env, oracle).try_resolution() {
+        Ok(Ok(resolution)) => Some(resolution),
+        _ => None,
+    }
+}
+
 pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
     match asset {
         OracleAssetRef::Stellar(address) => ReflectorAsset::Stellar(address.clone()),

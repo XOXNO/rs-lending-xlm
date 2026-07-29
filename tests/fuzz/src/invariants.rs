@@ -126,6 +126,33 @@ pub fn snapshot(t: &LendingTest, user: &str, assets: &[&str]) -> StateSnapshot {
     }
 }
 
+pub fn assert_state_preserved_on_failure(before: &StateSnapshot, after: &StateSnapshot) {
+    assert_eq!(
+        before.health_raw, after.health_raw,
+        "health factor drifted on failed op"
+    );
+    assert_eq!(before.token_raw.len(), after.token_raw.len());
+    for (i, (b, a)) in before.token_raw.iter().zip(&after.token_raw).enumerate() {
+        assert_eq!(b, a, "asset[{}] wallet balance drifted on failed op", i);
+    }
+    assert_eq!(
+        before.pool_state, after.pool_state,
+        "pool state drifted on failed op"
+    );
+    assert_eq!(
+        before.supply_raw, after.supply_raw,
+        "user supply drifted on failed op"
+    );
+    assert_eq!(
+        before.borrow_raw, after.borrow_raw,
+        "user debt drifted on failed op"
+    );
+    assert_eq!(
+        before.active_accounts, after.active_accounts,
+        "active account count drifted on failed op"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,31 +207,4 @@ mod tests {
         let snap_again = snapshot(&t, ALICE, &assets);
         assert_state_preserved_on_failure(&snap, &snap_again);
     }
-}
-
-pub fn assert_state_preserved_on_failure(before: &StateSnapshot, after: &StateSnapshot) {
-    assert_eq!(
-        before.health_raw, after.health_raw,
-        "health factor drifted on failed op"
-    );
-    assert_eq!(before.token_raw.len(), after.token_raw.len());
-    for (i, (b, a)) in before.token_raw.iter().zip(&after.token_raw).enumerate() {
-        assert_eq!(b, a, "asset[{}] wallet balance drifted on failed op", i);
-    }
-    assert_eq!(
-        before.pool_state, after.pool_state,
-        "pool state drifted on failed op"
-    );
-    assert_eq!(
-        before.supply_raw, after.supply_raw,
-        "user supply drifted on failed op"
-    );
-    assert_eq!(
-        before.borrow_raw, after.borrow_raw,
-        "user debt drifted on failed op"
-    );
-    assert_eq!(
-        before.active_accounts, after.active_accounts,
-        "active account count drifted on failed op"
-    );
 }

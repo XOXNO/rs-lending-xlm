@@ -14,12 +14,15 @@ use common::oracle::providers::reflector::{
     reflector_base_call, reflector_decimals_call, reflector_resolution_call, ReflectorAsset,
 };
 use common::types::{
-    AssetOracle, FeedSource, OracleTolerance, PriceKey, PriceSource, ProviderKind, ProviderRef,
+    local_properties, AssetOracle, FeedSource, OracleReadMode, OracleTolerance, PriceKey,
+    PriceSource, ProviderKind, ProviderRef, ReflectorFeedRef,
 };
 use common::validation::{
     validate_oracle_tolerance, validate_sanity_bounds, validate_single_source_sanity_band,
 };
-use soroban_sdk::{assert_with_error, contractevent, contracttype, panic_with_error, Env, Symbol};
+use soroban_sdk::{
+    assert_with_error, contractevent, contracttype, panic_with_error, Env, Symbol, Vec,
+};
 
 use crate::engine;
 use crate::properties;
@@ -32,6 +35,20 @@ use crate::session::Session;
 #[contracttype]
 enum AggregatorKey {
     Oracle(PriceKey),
+    OracleKeys,
+}
+
+fn oracle_keys(env: &Env) -> Vec<PriceKey> {
+    env.storage()
+        .instance()
+        .get(&AggregatorKey::OracleKeys)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+fn store_oracle_keys(env: &Env, keys: &Vec<PriceKey>) {
+    env.storage()
+        .instance()
+        .set(&AggregatorKey::OracleKeys, keys);
 }
 
 /// Stored oracle for `key`, extending shared-tier TTL on hit.
@@ -53,6 +70,11 @@ pub(crate) fn store_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     env.storage()
         .persistent()
         .extend_ttl(&storage_key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+    let mut keys = oracle_keys(env);
+    if keys.first_index_of(key).is_none() {
+        keys.push_back(key.clone());
+        store_oracle_keys(env, &keys);
+    }
 }
 
 /// Test-only: remove the stored oracle for `key`.
@@ -61,6 +83,11 @@ pub(crate) fn remove_oracle(env: &Env, key: &PriceKey) {
     env.storage()
         .persistent()
         .remove(&AggregatorKey::Oracle(key.clone()));
+    let mut keys = oracle_keys(env);
+    if let Some(index) = keys.first_index_of(key) {
+        keys.remove(index);
+        store_oracle_keys(env, &keys);
+    }
 }
 
 fn commit(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
@@ -105,12 +132,9 @@ fn attest_sources(env: &Env, oracle: &AssetOracle) {
 
 fn attest_feed(env: &Env, feed: &FeedSource) {
     match &feed.provider {
-        ProviderRef::Reflector(reflector) => attest_reflector(
-            env,
-            &reflector.contract,
-            feed.decimals,
-            feed.max_stale_seconds,
-        ),
+        ProviderRef::Reflector(reflector) => {
+            attest_reflector(env, reflector, feed.decimals, feed.max_stale_seconds)
+        }
         ProviderRef::MultiFeed(multi_feed) => match multi_feed.kind {
             ProviderKind::RedStone => assert_with_error!(
                 env,
@@ -130,22 +154,31 @@ fn attest_feed(env: &Env, feed: &FeedSource) {
     }
 }
 
-fn attest_reflector(env: &Env, contract: &soroban_sdk::Address, decimals: u32, max_stale: u64) {
-    match reflector_base_call(env, contract) {
+fn attest_reflector(env: &Env, feed: &ReflectorFeedRef, decimals: u32, max_stale: u64) {
+    match reflector_base_call(env, &feed.contract) {
         ReflectorAsset::Other(symbol) if symbol == Symbol::new(env, "USD") => {}
         _ => panic_with_error!(env, OracleError::InvalidOracleBase),
     }
     assert_with_error!(
         env,
-        reflector_decimals_call(env, contract) == decimals,
+        reflector_decimals_call(env, &feed.contract) == decimals,
         OracleError::InvalidOracleDecimals
     );
-    let resolution = reflector_resolution_call(env, contract);
+    let resolution = reflector_resolution_call(env, &feed.contract);
     assert_with_error!(
         env,
         resolution >= MIN_ORACLE_RESOLUTION_SECONDS && u64::from(resolution) <= max_stale,
         OracleError::InvalidOracleResolution
     );
+    if let OracleReadMode::Twap(records) = feed.read_mode {
+        let required_span =
+            u64::from(records.saturating_sub(1)).saturating_mul(u64::from(resolution));
+        assert_with_error!(
+            env,
+            required_span <= max_stale,
+            OracleError::InvalidOracleResolution
+        );
+    }
 }
 
 fn attest_xoxno(env: &Env, contract: &soroban_sdk::Address, decimals: u32, max_stale: u64) {
@@ -180,7 +213,43 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     attest_sources(env, &oracle);
     let mut session = Session::new(env);
     engine::probe(&mut session, &key, &oracle);
-    commit(env, &key, &oracle);
+    // Stage before validating ancestors. Any panic rolls the entire contract
+    // call back, so a rejected child update leaves storage unchanged.
+    store_oracle(env, &key, &oracle);
+    revalidate_dependents(env, &key);
+    emit_updated(env, &key, &oracle);
+}
+
+fn revalidate_dependents(env: &Env, changed: &PriceKey) {
+    for candidate in oracle_keys(env).iter() {
+        if candidate == *changed || !depends_on(env, &candidate, changed, &mut Vec::new(env)) {
+            continue;
+        }
+        let oracle = get_oracle(env, &candidate)
+            .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
+        validate_asset_oracle(env, &candidate, &oracle);
+        let mut session = Session::new(env);
+        engine::probe(&mut session, &candidate, &oracle);
+    }
+}
+
+fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<PriceKey>) -> bool {
+    if visiting.first_index_of(root).is_some() {
+        return false;
+    }
+    visiting.push_back(root.clone());
+    let found = get_oracle(env, root).is_some_and(|oracle| {
+        oracle.sources.iter().any(|source| {
+            local_properties(env, &source)
+                .dependencies
+                .iter()
+                .any(|dependency| {
+                    dependency == *target || depends_on(env, &dependency, target, visiting)
+                })
+        })
+    });
+    visiting.pop_back();
+    found
 }
 
 /// Static config validation and dependency-graph checks (no feed reads).

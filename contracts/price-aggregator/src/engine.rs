@@ -266,6 +266,60 @@ fn compute_hard(
     (feed, outcome)
 }
 
+/// Resolve a nested quote without panicking on failure. Successful results use
+/// the same per-key price memo as top-level hard reads.
+fn resolve_nested(
+    session: &mut Session,
+    key: &PriceKey,
+    depth: u32,
+) -> Result<PriceFeedRaw, OracleError> {
+    if let Some(cached) = session.cached_price(key) {
+        validate_cached_path(session, key, depth)?;
+        return Ok(cached);
+    }
+    if let Some(cached) = session.cached_error(key) {
+        validate_cached_path(session, key, depth)?;
+        return Err(cached);
+    }
+    let (outcome, oracle) = resolve_outcome(session, key, depth, None);
+    if let Some(err) = outcome.failure(oracle.as_ref()) {
+        session.store_error(key, err);
+        return Err(err);
+    }
+    let feed = outcome.to_feed();
+    session.store_price(key, feed.clone());
+    Ok(feed)
+}
+
+/// Re-check structural backstops before reusing a key-only memo at a new path.
+fn validate_cached_path(
+    session: &mut Session,
+    key: &PriceKey,
+    depth: u32,
+) -> Result<(), OracleError> {
+    if depth > MAX_RESOLUTION_DEPTH {
+        return Err(OracleError::OracleDepthExceeded);
+    }
+    if session.is_resolving(key) {
+        return Err(OracleError::OracleCycleDetected);
+    }
+
+    let env = session.env().clone();
+    let oracle = admin::get_oracle(&env, key).ok_or(OracleError::OracleNotConfigured)?;
+    session.push_key(key);
+    let mut result = Ok(());
+    for source in oracle.sources.iter() {
+        if let PriceSource::Scaled(scaled) = source {
+            if let Err(err) = validate_cached_path(session, &scaled.quote, depth + 1) {
+                result = Err(err);
+                break;
+            }
+        }
+    }
+    session.pop_key();
+    result
+}
+
 /// Mode-independent evaluation. Does not panic on market-data misses.
 fn resolve_outcome(
     session: &mut Session,
@@ -427,13 +481,9 @@ fn read_scaled(
         return Err(OracleError::FactorOutOfBounds);
     }
 
-    // Same evaluator as the top level — only force / to_status diverge.
-    let (quote_out, quote_oracle) = resolve_outcome(session, &scaled.quote, depth + 1, None);
-    if let Some(err) = quote_out.failure(quote_oracle.as_ref()) {
-        return Err(err);
-    }
+    let quote = resolve_nested(session, &scaled.quote, depth + 1)?;
 
-    let Some(price_wad) = Wad::from(factor.price_wad).try_mul(&env, Wad::from(quote_out.price_wad))
+    let Some(price_wad) = Wad::from(factor.price_wad).try_mul(&env, Wad::from(quote.price_wad))
     else {
         return Err(OracleError::InvalidPrice);
     };
@@ -441,7 +491,7 @@ fn read_scaled(
     Ok(Some((
         OracleObservation {
             price_wad: price_wad.raw(),
-            observed_at: factor.timestamp().min(quote_out.timestamp),
+            observed_at: factor.timestamp().min(quote.timestamp),
             published_at: None,
         },
         factor_stale,

@@ -7,6 +7,8 @@
 //! | [`distribute_reward`] | Grow supply index from a donation |
 //! | [`apply_bad_debt_to_supply_index`] | Floored socialized write-down |
 
+use core::num::NonZeroU64;
+
 use common::constants::{SUPPLY_INDEX_FLOOR_RAW, SUPPLY_INDEX_REWARD_CEILING_RAY};
 use common::errors::GenericError;
 use common::math::fp::Ray;
@@ -30,8 +32,8 @@ pub(crate) fn global_sync(env: &Env, cache: &mut Cache) {
     }
 
     let mut remaining = cache.elapsed_ms();
-    while remaining > 0 {
-        let chunk = remaining.min(MAX_COMPOUND_DELTA_MS);
+    while let Some(nonzero) = NonZeroU64::new(remaining) {
+        let chunk = nonzero.get().min(MAX_COMPOUND_DELTA_MS);
         accrue_chunk(env, cache, chunk);
         remaining = remaining.saturating_sub(chunk);
     }

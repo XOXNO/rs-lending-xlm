@@ -21,6 +21,7 @@ pub(crate) struct Session {
     feed_cache: Map<(Address, String), RedStonePriceData>,
     resolving_keys: Vec<PriceKey>,
     key_prices: Map<PriceKey, PriceFeedRaw>,
+    key_errors: Map<PriceKey, OracleError>,
     key_statuses: Map<PriceKey, PriceStatus>,
     now_secs: u64,
 }
@@ -33,6 +34,7 @@ impl Session {
             feed_cache: Map::new(env),
             resolving_keys: Vec::new(env),
             key_prices: Map::new(env),
+            key_errors: Map::new(env),
             key_statuses: Map::new(env),
             now_secs: env.ledger().timestamp(),
         }
@@ -91,6 +93,14 @@ impl Session {
 
     pub(crate) fn store_price(&mut self, key: &PriceKey, feed: PriceFeedRaw) {
         self.key_prices.set(key.clone(), feed);
+    }
+
+    pub(crate) fn cached_error(&self, key: &PriceKey) -> Option<OracleError> {
+        self.key_errors.get(key.clone())
+    }
+
+    pub(crate) fn store_error(&mut self, key: &PriceKey, error: OracleError) {
+        self.key_errors.set(key.clone(), error);
     }
 
     pub(crate) fn cached_status(&self, key: &PriceKey) -> Option<PriceStatus> {

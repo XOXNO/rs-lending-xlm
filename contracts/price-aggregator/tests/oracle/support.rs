@@ -31,7 +31,7 @@ pub(crate) const TWAP_NEWER_AGE_SECS: u64 = 100;
 
 /// Age of the older [`TwapReflector`] sample, in seconds before the ledger clock.
 /// A TWAP observation dates itself to this one, not the newer sample.
-pub(crate) const TWAP_OLDER_AGE_SECS: u64 = 200;
+pub(crate) const TWAP_OLDER_AGE_SECS: u64 = 400;
 
 /// Samples [`TwapReflector`] reports, raw at [`REFLECTOR_DECIMALS`]. Distinct
 /// values, so their mean is neither of them.
@@ -137,6 +137,40 @@ impl ReflectorOracle for PricedReflector {
     fn lastprice(env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
         Some(ReflectorPriceData {
             price: REFLECTOR_ONE_RAW,
+            timestamp: env.ledger().timestamp(),
+        })
+    }
+
+    fn prices(_env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
+        None
+    }
+}
+
+/// Stateful Reflector used to prove one session composes a shared nested key
+/// only once. Each spot call returns the next whole-WAD value.
+#[contract]
+pub(crate) struct CountingReflector;
+
+#[contractimpl]
+impl ReflectorOracle for CountingReflector {
+    fn base(env: Env) -> ReflectorAsset {
+        ReflectorAsset::Other(Symbol::new(&env, "USD"))
+    }
+
+    fn decimals(_env: Env) -> u32 {
+        REFLECTOR_DECIMALS
+    }
+
+    fn resolution(_env: Env) -> u32 {
+        300
+    }
+
+    fn lastprice(env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        let key = Symbol::new(&env, "reads");
+        let reads = env.storage().instance().get::<_, i128>(&key).unwrap_or(0) + 1;
+        env.storage().instance().set(&key, &reads);
+        Some(ReflectorPriceData {
+            price: reads * REFLECTOR_ONE_RAW,
             timestamp: env.ledger().timestamp(),
         })
     }

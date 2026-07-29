@@ -641,7 +641,7 @@ _mutants-harness-prepare: _mutants-check
 		|| { echo "controller.wasm fixture is stale (missing set_swap_aggregator export)"; exit 1; }
 
 ## Run every non-overlapping production mutation scope.
-mutants: mutants-common mutants-pool mutants-governance mutants-governance-oracle-probe \
+mutants: mutants-common mutants-pool mutants-governance \
 		 mutants-controller-core \
          mutants-controller-oracle mutants-controller-positions \
          mutants-controller-strategies mutants-controller-views \
@@ -652,7 +652,7 @@ mutants-math: _mutants-check
 	$(call run_mutants,--package common --file 'common/src/math/**')
 
 mutants-rates: _mutants-check
-	$(call run_mutants,--package common --file 'common/src/rates.rs')
+	$(call run_mutants,--package common --file 'common/src/rates/**')
 
 mutants-pool-interest: _mutants-check
 	$(call run_mutants,--package pool --file 'contracts/pool/src/interest.rs')
@@ -677,14 +677,7 @@ mutants-governance: _mutants-harness-prepare
 	# Do not combine this with test-harness: that dependency enables the
 	# governance `testing` feature and compiles out production-only validators.
 	$(call run_mutants,--package governance \
-		--exclude 'contracts/governance/src/validate/oracle_probe.rs' \
 		--test-package governance)
-
-## Live oracle probes need the integration harness's deployed provider mocks.
-mutants-governance-oracle-probe: _mutants-harness-prepare
-	$(call run_mutants,--package governance \
-		--file 'contracts/governance/src/validate/oracle_probe.rs' \
-		--test-package governance --test-package test-harness)
 
 # Controller scopes run two-pass: the native controller suite kills the bulk
 # of mutants in seconds; governance + harness only re-test the survivors.
@@ -695,14 +688,14 @@ CONTROLLER_FULL_TESTS = --test-package controller --test-package governance \
 ## Everything outside the separately sharded oracle/position/strategy/view trees.
 mutants-controller-core: _mutants-harness-prepare
 	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/**' \
-		--exclude 'contracts/controller/src/oracle/**' \
+		--exclude 'contracts/controller/src/context/oracle.rs' \
 		--exclude 'contracts/controller/src/positions/**' \
 		--exclude 'contracts/controller/src/strategies/**' \
 		--exclude 'contracts/controller/src/views/**',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-oracle: _mutants-harness-prepare
-	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/oracle/**',\
+	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/context/oracle.rs',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-positions: _mutants-harness-prepare
@@ -731,7 +724,7 @@ mutants-diff: _mutants-harness-prepare
 
 ## Standalone contracts: each has its own native test suite, no harness needed.
 mutants-aggregator: _mutants-check
-	$(call run_mutants,--package swap-aggregator --test-package swap-aggregator)
+	$(call run_mutants,--package price-aggregator --test-package price-aggregator --features testing)
 
 mutants-oracle-adapter: _mutants-check
 	$(call run_mutants,--package xoxno-oracle --test-package xoxno-oracle)

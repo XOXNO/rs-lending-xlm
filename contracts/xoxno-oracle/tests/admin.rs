@@ -239,6 +239,25 @@ fn set_max_stale_cannot_drop_below_submission_age() {
 }
 
 #[test]
+fn timing_configuration_getters_and_relative_skew_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _signers) = setup(&env, 1, 1);
+
+    client.set_max_stale_seconds(&1_234u64);
+    client.set_max_submission_age_seconds(&321u64);
+
+    assert_eq!(client.max_stale_seconds(), 1_234);
+    assert_eq!(client.max_submission_age_seconds(), 321);
+    assert_eq!(
+        client.try_set_max_relative_skew_seconds(&322u64),
+        Err(Ok(Error::InvalidRelativeSkew))
+    );
+    client.set_max_relative_skew_seconds(&321u64);
+    assert_eq!(client.max_relative_skew_seconds(), 321);
+}
+
+#[test]
 fn only_admin_can_call_add_feed() {
     let env = Env::default();
     let (client, admin, _signers) = setup(&env, 1, 1);

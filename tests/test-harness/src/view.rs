@@ -29,6 +29,11 @@ impl LendingTest {
         wad_to_f64(self.health_factor_raw(user))
     }
 
+    /// Health factor when all required prices resolve.
+    pub fn try_health_factor(&self, user: &str) -> Option<f64> {
+        self.try_health_factor_raw(user).map(wad_to_f64)
+    }
+
     pub fn health_factor_for(&self, _user: &str, account_id: u64) -> f64 {
         wad_to_f64(self.health_factor_for_raw(_user, account_id))
     }

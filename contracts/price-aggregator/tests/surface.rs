@@ -1,12 +1,14 @@
 //! Contract-surface tests: ownership, config setters, fail-closed pricing,
 //! soft status flags, and end-to-end reads through a RedStone mock.
 
+use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
-    PriceKey, PriceSource, ProviderKind, ProviderRef, TrustDomain,
+    PriceKey, PriceSource, ProviderKind, ProviderRef, ScaledSource, TrustDomain,
 };
 use mock_redstone::{MockRedStonePriceFeed, MockRedStonePriceFeedClient};
 use price_aggregator::{Error, PriceAggregator, PriceAggregatorClient};
+use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::{Address, Env, String, Vec};
 
@@ -21,6 +23,25 @@ fn register_agg(env: &Env) -> (Address, PriceAggregatorClient<'_>) {
 fn register_feed(env: &Env) -> (Address, MockRedStonePriceFeedClient<'_>) {
     let id = env.register(MockRedStonePriceFeed, ());
     (id.clone(), MockRedStonePriceFeedClient::new(env, &id))
+}
+
+#[test]
+fn public_entrypoint_renews_instance_ttl() {
+    let env = Env::default();
+    let (_owner, client) = register_agg(&env);
+    let initial = env.as_contract(&client.address, || env.storage().instance().get_ttl());
+    assert_eq!(initial, TTL_BUMP_INSTANCE);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number += TTL_BUMP_INSTANCE - TTL_THRESHOLD_INSTANCE + 1;
+    });
+    let aged = env.as_contract(&client.address, || env.storage().instance().get_ttl());
+    assert!(aged < TTL_THRESHOLD_INSTANCE);
+
+    let _ = client.get_owner();
+
+    let renewed = env.as_contract(&client.address, || env.storage().instance().get_ttl());
+    assert_eq!(renewed, TTL_BUMP_INSTANCE);
 }
 
 /// One RedStone feed. Declared [`FeedNature::Fundamental`] so a lone source
@@ -115,6 +136,58 @@ fn set_oracle_roundtrips_through_storage() {
     // Every config write publishes exactly one UpdateAssetOracleEvent.
     assert_eq!(env.events().all().events().len(), 1);
     assert_eq!(client.oracle(&PriceKey::Token(asset.clone())), Some(cfg));
+}
+
+#[test]
+fn child_reconfiguration_cannot_invalidate_parent_independence() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_owner, client) = register_agg(&env);
+    let (direct_adapter, direct) = register_feed(&env);
+    let (factor_adapter, factor) = register_feed(&env);
+    let (quote_adapter, quote) = register_feed(&env);
+    direct.set_price(&String::from_str(&env, "DIRECT"), &WAD);
+    factor.set_price(&String::from_str(&env, "FACTOR"), &WAD);
+    quote.set_price(&String::from_str(&env, "QUOTE"), &WAD);
+
+    let quote_key = PriceKey::Ref(soroban_sdk::Symbol::new(&env, "QUOTE"));
+    let mut original_quote = redstone_single(&env, &quote_adapter, "QUOTE", 900);
+    original_quote.asset_decimals = 0;
+    client.set_oracle(&quote_key, &original_quote);
+
+    let factor_feed = match redstone_feed(&env, &factor_adapter, "FACTOR", 900) {
+        PriceSource::Feed(feed) => feed,
+        _ => unreachable!(),
+    };
+    let parent_key = PriceKey::Token(Address::generate(&env));
+    let parent = AssetOracle {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        sources: soroban_sdk::vec![
+            &env,
+            redstone_feed(&env, &direct_adapter, "DIRECT", 900),
+            PriceSource::Scaled(ScaledSource {
+                factor: factor_feed,
+                quote: quote_key.clone(),
+                min_factor_wad: WAD,
+                max_factor_wad: WAD,
+            }),
+        ],
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence: IndependencePolicy::RequireDisjoint,
+        min_sanity_price_wad: WAD / 2,
+        max_sanity_price_wad: 2 * WAD,
+    };
+    client.set_oracle(&parent_key, &parent);
+
+    let mut repointed = redstone_single(&env, &direct_adapter, "DIRECT", 900);
+    repointed.asset_decimals = 0;
+    assert!(client.try_set_oracle(&quote_key, &repointed).is_err());
+    assert_eq!(client.oracle(&quote_key), Some(original_quote));
+    assert_eq!(client.price(&parent_key).price_wad, WAD);
 }
 
 // Exactly one stale leg must mark the whole dual read stale (primary written

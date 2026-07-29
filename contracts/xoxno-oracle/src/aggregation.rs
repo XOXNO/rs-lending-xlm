@@ -131,9 +131,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let mut newest_ts: u64 = 0;
     for i in 0..kept_ts.len() {
         let ts = kept_ts.get_unchecked(i);
-        if ts > newest_ts {
-            newest_ts = ts;
-        }
+        newest_ts = newest_ts.max(ts);
     }
     let skew_ms = max_relative_skew.saturating_mul(MS_PER_SECOND);
 
@@ -185,10 +183,13 @@ fn sorted_copy(prices: &Vec<i128>) -> Vec<i128> {
     for i in 1..len {
         let key = sorted.get_unchecked(i);
         let mut j = i;
-        while j > 0 && sorted.get_unchecked(j - 1) > key {
-            let prev = sorted.get_unchecked(j - 1);
+        while let Some(previous_index) = j.checked_sub(1) {
+            let prev = sorted.get_unchecked(previous_index);
+            if prev <= key {
+                break;
+            }
             sorted.set(j, prev);
-            j -= 1;
+            j = previous_index;
         }
         sorted.set(j, key);
     }

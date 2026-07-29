@@ -1,20 +1,20 @@
 use super::{enable_dual_source, setup};
 use test_harness::{assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, LIQUIDATOR};
 
-// Dual-source: average price used in second tolerance zone.
+// Dual-source: midpoint price used in the single tolerance band.
 
 #[test]
-fn test_second_tolerance_uses_average_price() {
+fn test_single_tolerance_uses_midpoint_price() {
     let mut t = setup();
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Aggregator: $1.00, Safe: $1.03 (3% deviation, between first 2% and
-    // last 5%). Average price = ($1.00 + $1.03) / 2 = $1.015. Collateral
-    // value is therefore slightly higher with the average than with the
+    // Safe price is 3% above the aggregator and inside the single 5% band.
+    // Midpoint price = ($1.00 + $1.03) / 2 = $1.015. Collateral
+    // value is therefore slightly higher with the midpoint than with the
     // aggregator alone.
-    t.set_safe_price("USDC", usd_cents(103), true, true);
-    t.set_safe_price("ETH", usd(2000), true, true);
+    t.set_safe_price("USDC", usd_cents(103));
+    t.set_safe_price("ETH", usd(2000));
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
@@ -31,8 +31,8 @@ fn test_exchange_source_safe_only() {
     t.set_oracle_primary_anchor("ETH");
 
     // Set safe prices (used because exchange_source=1).
-    t.set_safe_price("USDC", usd(1), true, true);
-    t.set_safe_price("ETH", usd(2000), true, true);
+    t.set_safe_price("USDC", usd(1));
+    t.set_safe_price("ETH", usd(2000));
 
     // Operations succeed using the safe price alone.
     t.supply(ALICE, "USDC", 100_000.0);
@@ -48,15 +48,15 @@ fn test_mixed_tolerance_states() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // USDC: within first tolerance (matching prices).
-    t.set_safe_price("USDC", usd(1), true, true);
+    // USDC: within single tolerance (matching prices).
+    t.set_safe_price("USDC", usd(1));
 
-    // ETH: beyond second tolerance (10% deviation).
-    t.set_safe_price("ETH", usd(2200), true, true);
+    // ETH: beyond single tolerance (10% deviation).
+    t.set_safe_price("ETH", usd(2200));
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Borrowing ETH must fail: ETH's price is beyond the second tolerance.
+    // Borrowing ETH must fail: ETH's price is beyond the single tolerance.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
@@ -69,8 +69,8 @@ fn test_liquidation_blocked_under_flash_crash() {
     enable_dual_source(&t, "ETH");
 
     // Perfect market conditions.
-    t.set_safe_price("USDC", usd(1), true, true);
-    t.set_safe_price("ETH", usd(2000), true, true);
+    t.set_safe_price("USDC", usd(1));
+    t.set_safe_price("ETH", usd(2000));
     t.set_price("USDC", usd(1));
     t.set_price("ETH", usd(2000));
 
@@ -86,15 +86,15 @@ fn test_liquidation_blocked_under_flash_crash() {
     assert!(hf_before >= 1.0, "Alice should be healthy");
     // The flash crash
     // Spot ETH crashes to $1400 (a 30% drop). The anchor (TWAP) is slow and
-    // still reads $1950. The deviation exceeds the second tolerance.
+    // still reads $1950. The deviation exceeds the single tolerance.
     t.set_price("ETH", usd(1400));
-    t.set_safe_price("ETH", usd(1950), true, true);
+    t.set_safe_price("ETH", usd(1950));
 
     // Give the liquidator some USDC to perform the liquidation.
     t.supply(LIQUIDATOR, "USDC", 20_000.0);
 
     // The liquidator attempts a partial liquidation while spot and anchor sit
-    // beyond the second tolerance band.
+    // beyond the single tolerance band.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDC", 5_000.0);
 
     // The out-of-band deviation is rejected: the protocol will not liquidate
@@ -111,8 +111,8 @@ fn test_liquidation_collateral_extraction_via_averaging() {
     enable_dual_source(&t, "ETH");
 
     // Start with perfect market conditions.
-    t.set_safe_price("USDC", usd(1), true, true);
-    t.set_safe_price("ETH", usd(2000), true, true);
+    t.set_safe_price("USDC", usd(1));
+    t.set_safe_price("ETH", usd(2000));
     t.set_price("USDC", usd(1));
     t.set_price("ETH", usd(2000));
 
@@ -144,7 +144,7 @@ fn test_liquidation_collateral_extraction_via_averaging() {
     // Threshold value = 10 * 1910 * 0.95 = 18,145, below the 18,175 debt.
 
     t.set_price("ETH", usd(1820));
-    t.set_safe_price("ETH", usd(2000), true, true);
+    t.set_safe_price("ETH", usd(2000));
 
     let liquidator_eth_before = t.token_balance(LIQUIDATOR, "ETH");
 

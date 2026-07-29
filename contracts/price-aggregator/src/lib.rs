@@ -36,12 +36,20 @@ use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
 use stellar_access::ownable;
 use stellar_macros::only_owner;
 
+use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus};
 
 pub use common::errors::OracleError as Error;
 
+fn renew_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+}
+
 /// Build a session, warm multi-feed leaves under `keys`, run `body`.
 fn with_warmed_session(env: &Env, keys: &Vec<PriceKey>, body: impl FnOnce(&mut session::Session)) {
+    renew_instance(env);
     let mut sess = session::Session::new(env);
     sess.warm(keys);
     body(&mut sess);
@@ -56,10 +64,12 @@ impl PriceAggregator {
     /// Ownership is not transferable or renounceable on this contract.
     pub fn __constructor(env: Env, owner: Address) {
         ownable::set_owner(&env, &owner);
+        renew_instance(&env);
     }
 
     /// Current owner, if set. Always governance after a normal deploy.
     pub fn get_owner(env: Env) -> Option<Address> {
+        renew_instance(&env);
         ownable::get_owner(&env)
     }
 
@@ -147,6 +157,7 @@ impl PriceAggregator {
 
     /// Stored oracle config for `key`, if any.
     pub fn oracle(env: Env, key: PriceKey) -> Option<AssetOracle> {
+        renew_instance(&env);
         admin::get_oracle(&env, &key)
     }
 
@@ -160,6 +171,7 @@ impl PriceAggregator {
     /// * `UpdateAssetOracleEvent`
     #[only_owner]
     pub fn set_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
+        renew_instance(&env);
         admin::set_oracle(&env, key, oracle);
     }
 
@@ -174,6 +186,7 @@ impl PriceAggregator {
     /// * `UpdateAssetOracleEvent`
     #[only_owner]
     pub fn set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128) {
+        renew_instance(&env);
         admin::set_sanity_band(&env, key, min_wad, max_wad);
     }
 
@@ -188,6 +201,7 @@ impl PriceAggregator {
     /// * `UpdateAssetOracleEvent`
     #[only_owner]
     pub fn set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance) {
+        renew_instance(&env);
         admin::set_tolerance(&env, key, tolerance);
     }
 }
@@ -197,11 +211,13 @@ impl PriceAggregator {
 impl PriceAggregator {
     /// Test-only: store `oracle` for `key` without validation or probe.
     pub fn seed_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
+        renew_instance(&env);
         admin::store_oracle(&env, &key, &oracle);
     }
 
     /// Test-only: delete the stored oracle for `key`.
     pub fn remove_oracle(env: Env, key: PriceKey) {
+        renew_instance(&env);
         admin::remove_oracle(&env, &key);
     }
 }
