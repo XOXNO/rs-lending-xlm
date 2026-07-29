@@ -522,19 +522,6 @@ jobs:
           toolchain: '1.95'
           targets: wasm32v1-none
 
-      - name: Cache cargo
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            target-mutants
-          key: ${{ runner.os }}-${{ matrix.target }}${{ matrix.suffix || '' }}-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-
-            ${{ runner.os }}-mutants-
-
       - name: Download stellar-cli
         uses: actions/download-artifact@v8.0.1
         with:
