@@ -539,6 +539,26 @@ jobs:
           chmod +x .github/tools/stellar .github/tools/cargo-mutants
           echo "$PWD/.github/tools" >> "$GITHUB_PATH"
 
+      - name: Configure fast host linker
+        shell: bash
+        run: |
+          if command -v mold >/dev/null 2>&1; then
+            linker=mold
+            mold --version
+          elif command -v ld.lld >/dev/null 2>&1; then
+            linker=lld
+            ld.lld --version
+          else
+            echo "Install mold (preferred) or lld on the self-hosted runner." >&2
+            exit 1
+          fi
+          command -v cc >/dev/null 2>&1 || {
+            echo "A C compiler driver (cc) is required for the fast linker." >&2
+            exit 1
+          }
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=cc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-C link-arg=-fuse-ld=$linker" >> "$GITHUB_ENV"
+
       - name: Run mutation target
         # Scratch mode is required for cargo-mutants worker parallelism.
         # Four matrix jobs × eight workers keeps all 32 cores busy; each
