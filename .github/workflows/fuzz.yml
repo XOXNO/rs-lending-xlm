@@ -480,7 +480,9 @@ jobs:
     timeout-minutes: 1440
     strategy:
       fail-fast: false
-      max-parallel: 8
+      # Four matrix jobs × eight cargo-mutants workers saturates the
+      # 32-core/128-GB self-hosted runner without oversubscribing it.
+      max-parallel: 4
       matrix:
         # The three largest scopes split into deterministic cargo-mutants
         # shards (`--shard k/2`) so they finish in half the wall clock;
@@ -551,16 +553,15 @@ jobs:
           echo "$PWD/.github/tools" >> "$GITHUB_PATH"
 
       - name: Run mutation target
-        # CARGO_TARGET_DIR isolation: --in-place mutates real sources and
-        # builds them into the target dir. A cancelled run can leave
-        # mutant-built artifacts behind, and other workflows on the same
-        # persistent runner (e.g. Build & Test) deliberately preserve
-        # target/ across checkouts — a shared dir lets a mutated rlib leak
-        # into an ordinary test build.
+        # Scratch mode is required for cargo-mutants worker parallelism.
+        # Four matrix jobs × eight workers keeps all 32 cores busy; each
+        # individual Cargo build stays single-threaded to avoid oversubscription.
+        # target-mutants remains isolated from ordinary build/test artifacts.
         env:
           CARGO_BUILD_JOBS: '1'
           CARGO_TARGET_DIR: target-mutants
-        run: make "${{ matrix.target }}" MUTANTS_RUN_MODE=--in-place MUTANTS_SHARD="${{ matrix.shard || '' }}"
+          MUTANTS_JOBS: '8'
+        run: make "${{ matrix.target }}" MUTANTS_SHARD="${{ matrix.shard || '' }}"
 
       - name: Upload mutation results
         if: always()
