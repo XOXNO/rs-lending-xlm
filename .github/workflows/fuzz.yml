@@ -484,11 +484,22 @@ jobs:
       # 32-core/128-GB self-hosted runner without oversubscribing it.
       max-parallel: 4
       matrix:
-        # The three largest scopes split into deterministic cargo-mutants
-        # shards (`--shard k/2`) so they finish in half the wall clock;
-        # `suffix` keeps job names, cache keys, and artifact names unique.
+        # Large scopes split into deterministic cargo-mutants shards so one
+        # oversized scope cannot become the workflow tail. `suffix` keeps job
+        # names and artifact names unique.
         include:
           - target: mutants-common
+            shard: 0/4
+            suffix: '-1of4'
+          - target: mutants-common
+            shard: 1/4
+            suffix: '-2of4'
+          - target: mutants-common
+            shard: 2/4
+            suffix: '-3of4'
+          - target: mutants-common
+            shard: 3/4
+            suffix: '-4of4'
           - target: mutants-pool
           - target: mutants-governance
           - target: mutants-controller-core
@@ -566,6 +577,9 @@ jobs:
         # target-mutants remains isolated from ordinary build/test artifacts.
         env:
           CARGO_BUILD_JOBS: '1'
+          CARGO_INCREMENTAL: '0'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          CARGO_PROFILE_TEST_DEBUG: '0'
           CARGO_TARGET_DIR: target-mutants
           MUTANTS_JOBS: '8'
         run: make "${{ matrix.target }}" MUTANTS_SHARD="${{ matrix.shard || '' }}"

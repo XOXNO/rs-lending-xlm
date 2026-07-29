@@ -616,6 +616,41 @@ define run_mutants_two_pass
 		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
 endef
 
+# Three-pass execution for bottom-of-graph crates. Pass 1 runs only the
+# mutated package's own tests. Pass 2 recompiles native consumers only for
+# survivors. Pass 3 adds the integration harness only for final survivors.
+# `missed.txt` and `timeout.txt` are cargo-mutants' iterable outcomes; checking
+# them before each later pass avoids an empty `--iterate` run replacing the
+# useful prior outcome state.
+define run_mutants_three_pass
+	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
+		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
+		echo "Mutation scope: $$count mutants (three-pass)"
+	@status=0; \
+		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+			$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS) \
+			|| status=$$?; \
+		case $$status in 0|2|3) ;; *) exit $$status;; esac
+	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
+		status=0; \
+		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+			$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS) \
+			|| status=$$?; \
+		case $$status in 0|2|3) ;; *) exit $$status;; esac; \
+	else \
+		echo "Native-consumer pass skipped: package tests resolved every mutant"; \
+	fi
+	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
+		$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(4) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+			$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS); \
+	else \
+		echo "Integration pass skipped: native tests resolved every mutant"; \
+	fi
+endef
+
 _mutants-check:
 	@command -v cargo-mutants >/dev/null 2>&1 || { \
 		echo "cargo-mutants not installed. Install with:"; \
@@ -658,11 +693,12 @@ mutants-pool-interest: _mutants-check
 	$(call run_mutants,--package pool --file 'contracts/pool/src/interest.rs')
 
 ## Shared math, rates, oracle primitives, validation, and ABI data behavior.
-# Run every native consumer plus the integration harness so shared-code mutants
-# cannot survive merely because their only exercising contract was omitted.
-# Pass 1 = the native consumers; pass 2 adds the harness for the survivors.
+# Run package tests first, then native consumers, then the integration harness
+# so shared-code mutants retain full coverage without relinking every consumer
+# for the large majority killed directly by common's tests.
 mutants-common: _mutants-harness-prepare
-	$(call run_mutants_two_pass,--package common,\
+	$(call run_mutants_three_pass,--package common,\
+		--test-package common,\
 		--test-package common --test-package controller --test-package pool \
 		--test-package governance,\
 		--test-package common --test-package controller --test-package pool \
