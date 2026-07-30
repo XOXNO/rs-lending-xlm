@@ -11,21 +11,36 @@ on:
       - 'tests/test-harness/**'
       - 'tests/fuzz/**'
   schedule:
-    # Nightly standard run at 02:00 UTC Monday-Saturday.
+    # All `self-hosted` lanes are runner services on ONE 32-core box, so the
+    # long suites are split across two windows rather than run together. Sharing
+    # 02:00 meant mutants(4 lanes) + fuzz(6) + proptest(5) = 15 concurrent jobs
+    # competing for 32 cores, and the mutation matrix is the one that scales
+    # with core count. Jobs select their window with startsWith() on the cron.
+    #
+    # 02:00 UTC — mutation matrix.
     - cron: '0 2 * * 1-6'
-    # Weekly deep run at 02:00 UTC Sunday.
     - cron: '0 2 * * 0'
+    # 14:00 UTC — fuzz + proptest. Sunday is the deep run (longer FUZZ_TIME,
+    # more PROPTEST_CASES); Monday-Saturday is standard.
+    - cron: '0 14 * * 1-6'
+    - cron: '0 14 * * 0'
   workflow_dispatch:
     inputs:
       suite:
-        description: 'Long-running suite to execute'
+        description: 'Long-running suite to execute (one at a time — see schedule)'
         type: choice
+        # No `all`. Every self-hosted lane is a runner service on the same
+        # 32-core box, which is why the schedule splits mutants (02:00) from
+        # fuzz+proptest (14:00). `all` let a manual dispatch put all 15 lanes
+        # back on one box and undo that split — run 30496414050 was exactly
+        # this, and every mutation lane failed on contention timeouts. Dispatch
+        # one suite at a time; the separation is structural now, not a
+        # convention the scheduler happens to follow.
         options:
-          - all
           - fuzz
           - proptest
           - mutants
-        default: all
+        default: mutants
       fuzz_time:
         description: 'Seconds per function-level target'
         required: false
@@ -207,6 +222,17 @@ jobs:
       # each shard's incremental per-mutant rebuild stays fast. `target/` is
       # deliberately NOT cached (wasm fixtures are rebuilt from source; a
       # restored `target/` can resurrect artifacts from an older commit).
+      #
+      # NEVER add `mutants.out` here. `--iterate` reads the previously-caught
+      # and unviable lists out of `mutants.out.old/`; persisting those across
+      # runs would make a later run skip mutants that were only ever caught
+      # against an OLDER commit — a silent coverage hole, which is the one
+      # failure mode mutation testing exists to prevent.
+      #
+      # This cache is also useless for the nightly matrix, which runs in scratch
+      # mode: cargo-mutants' tree copy honours .gitignore and `copy_target`
+      # defaults to false, so `target-mutants` is never copied into a worker's
+      # build dir. Caching it there is pure tar/untar cost.
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -219,6 +245,17 @@ jobs:
             ${{ runner.os }}-mutants-diff-v3-s${{ matrix.shard }}-
             ${{ runner.os }}-mutants-diff-v3-
             ${{ runner.os }}-mutants-diff-v2-
+
+      # Caching a tree that an --in-place run wrote to is a mutant-poisoning
+      # vector, and it crosses runs: cargo-mutants reverts each mutant (giving
+      # the source a newer mtime than the mutant-built rlib, so cargo rebuilds),
+      # but a job killed between build and revert leaves a mutant rlib behind —
+      # and actions/cache saves on failure too. The next run restores it and
+      # links the mutant into an ordinary build. Same class of bug tests.yml
+      # resets `target/` for. Re-stamping every source after restore guarantees
+      # sources are newer than anything the cache carried in.
+      - name: Invalidate any mutant-built artifacts from the cache
+        run: git ls-files -z '*.rs' | xargs -0 touch
 
       - name: Install stellar-cli
         run: bash .github/scripts/install-stellar-cli.sh
@@ -238,6 +275,11 @@ jobs:
           # cache) for a cache-warm runner.
           CARGO_BUILD_JOBS: '8'
           CARGO_TARGET_DIR: target-mutants
+          # nextest ignores RUST_TEST_THREADS and defaults to one process per
+          # core, so 4 shards x 32 = 128 test processes on 32 cores. In-place is
+          # serial, so only 4 mutants are ever in flight: 4 x 8 = 32 matches
+          # both this and the CARGO_BUILD_JOBS budget above.
+          NEXTEST_TEST_THREADS: '8'
           # mold's host RUSTFLAGS is exported to $GITHUB_ENV by the setup step
           # above only when a link test proves the toolchain supports it.
         run: >-
@@ -283,9 +325,10 @@ jobs:
 
   mutants-tool:
     if: >-
-      github.event_name == 'schedule' ||
+      (github.event_name == 'schedule' &&
+      startsWith(github.event.schedule, '0 2 ')) ||
       (github.event_name == 'workflow_dispatch' &&
-      (inputs.suite == 'all' || inputs.suite == 'mutants'))
+      inputs.suite == 'mutants')
     name: Prepare cargo-mutants
     runs-on: self-hosted
     steps:
@@ -309,13 +352,86 @@ jobs:
           name: cargo-mutants-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cargo-mutants/bin/cargo-mutants
 
+  # The mutation harness reads three prebuilt wasm fixtures by absolute path
+  # (POOL_WASM_PATH, CONTROLLER_WASM_PATH, PRICE_AGGREGATOR_WASM_PATH). They are
+  # identical for every scope, but `_mutants-harness-prepare` used to rebuild
+  # them per matrix job — a full lto="fat" wasm build, at CARGO_BUILD_JOBS=1,
+  # competing with the mutation lanes, once per job.
+  #
+  # Building once here also makes staleness structurally impossible rather than
+  # merely detected: the artifact is keyed to this run, so every consumer
+  # provably has fixtures from the same commit it is mutating.
+  wasm-fixtures:
+    if: >-
+      (github.event_name == 'schedule' &&
+      startsWith(github.event.schedule, '0 2 ')) ||
+      (github.event_name == 'workflow_dispatch' &&
+      inputs.suite == 'mutants')
+    name: Prepare wasm fixtures
+    runs-on: self-hosted
+    needs: stellar-tool
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Isolate rustup toolchain dir
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+
+      - name: Download stellar-cli
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: stellar-cli-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .github/tools
+
+      - name: Add stellar-cli to PATH
+        run: |
+          chmod +x .github/tools/stellar
+          echo "$PWD/.github/tools" >> "$GITHUB_PATH"
+
+      - name: Build wasm fixtures
+        env:
+          CARGO_TARGET_DIR: target-mutants
+        run: make build
+
+      # sha256 manifest is the primary integrity guard for consumers; the
+      # export grep stays as a zero-cost tripwire against a fixture that builds
+      # but is missing the ABI the harness expects.
+      - name: Stage fixtures
+        env:
+          CARGO_TARGET_DIR: target-mutants
+        run: |
+          set -euo pipefail
+          src=target-mutants/wasm32v1-none/release
+          dst="$RUNNER_TEMP/wasm-fixtures"
+          mkdir -p "$dst"
+          for w in pool controller price_aggregator; do
+            cp "$src/$w.wasm" "$dst/$w.wasm"
+          done
+          grep -aq set_swap_aggregator "$dst/controller.wasm" \
+            || { echo "controller.wasm is missing the set_swap_aggregator export" >&2; exit 1; }
+          (cd "$dst" && sha256sum ./*.wasm > SHA256SUMS)
+          cat "$dst/SHA256SUMS"
+
+      - name: Upload wasm fixtures
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: wasm-fixtures-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wasm-fixtures/
+
   # Nightly/manual: one job per libFuzzer target. A 32-core runner can run the
   # six single-core fuzzers concurrently when enough runner services are online.
   fuzz-long:
     if: >-
-      github.event_name == 'schedule' ||
+      (github.event_name == 'schedule' &&
+      startsWith(github.event.schedule, '0 14 ')) ||
       (github.event_name == 'workflow_dispatch' &&
-      (inputs.suite == 'all' || inputs.suite == 'fuzz'))
+      inputs.suite == 'fuzz')
     name: Fuzz long (${{ matrix.target }})
     runs-on: self-hosted
     needs: stellar-tool
@@ -391,7 +507,7 @@ jobs:
 
       - name: Run fuzz target
         env:
-          FUZZ_TIME: ${{ env.FUZZ_TIME_INPUT || (github.event.schedule == '0 2 * * 0' && '7200' || '1800') }}
+          FUZZ_TIME: ${{ env.FUZZ_TIME_INPUT || (github.event.schedule == '0 14 * * 0' && '7200' || '1800') }}
           CARGO_BUILD_JOBS: '1'
         run: make fuzz-one TARGET="${{ matrix.target }}" FUZZ_TIME="$FUZZ_TIME"
 
@@ -405,9 +521,10 @@ jobs:
 
   proptest-long:
     if: >-
-      github.event_name == 'schedule' ||
+      (github.event_name == 'schedule' &&
+      startsWith(github.event.schedule, '0 14 ')) ||
       (github.event_name == 'workflow_dispatch' &&
-      (inputs.suite == 'all' || inputs.suite == 'proptest'))
+      inputs.suite == 'proptest')
     name: Proptest (${{ matrix.test }})
     runs-on: self-hosted
     needs: stellar-tool
@@ -457,7 +574,7 @@ jobs:
 
       - name: Run proptest property
         env:
-          PROPTEST_CASES: ${{ env.PROPTEST_CASES_INPUT || (github.event.schedule == '0 2 * * 0' && '50000' || '5000') }}
+          PROPTEST_CASES: ${{ env.PROPTEST_CASES_INPUT || (github.event.schedule == '0 14 * * 0' && '50000' || '5000') }}
           CARGO_BUILD_JOBS: '1'
         run: make proptest-one TEST="${{ matrix.test }}" PROPTEST_CASES="$PROPTEST_CASES"
 
@@ -471,67 +588,102 @@ jobs:
 
   mutants:
     if: >-
-      github.event_name == 'schedule' ||
+      (github.event_name == 'schedule' &&
+      startsWith(github.event.schedule, '0 2 ')) ||
       (github.event_name == 'workflow_dispatch' &&
-      (inputs.suite == 'all' || inputs.suite == 'mutants'))
+      inputs.suite == 'mutants')
     name: Mutants (${{ matrix.target }}${{ matrix.suffix || '' }})
     runs-on: self-hosted
-    needs: [stellar-tool, mutants-tool]
-    timeout-minutes: 1440
+    needs: [stellar-tool, mutants-tool, wasm-fixtures]
+    # A wedged lane holds a runner service for the whole window. Scheduled runs
+    # do not cancel-in-progress, so an over-long run also queues the next night.
+    timeout-minutes: 360
     strategy:
       fail-fast: false
-      # Four matrix jobs × eight cargo-mutants workers saturates the
-      # 32-core/128-GB self-hosted runner without oversubscribing it.
+      # All `self-hosted` lanes are runner services on ONE 32-core/128-GB box,
+      # so lanes do not add compute — they only partition it. Four lanes x eight
+      # cargo-mutants workers = 32 mutants in flight = one per core; see the
+      # per-process thread budget on the run step below.
       max-parallel: 4
       matrix:
-        # Large scopes split into deterministic cargo-mutants shards so one
-        # oversized scope cannot become the workflow tail. `suffix` keeps job
-        # names and artifact names unique.
+        # Sharding splits one scope's mutant list across lanes. On a single box
+        # it buys tail latency only (it cannot add throughput) and costs one job
+        # setup per shard, so shard only what is big enough to become the tail.
+        # Measured wall times from run 30515825968 drive the split below.
+        # `suffix` keeps job and artifact names unique.
+        #
+        # Sharding a multi-pass scope only pays when the SHARDED pass is the
+        # expensive one. Only the final pass takes --shard (see the
+        # --shard/--iterate note in the Makefile); every earlier pass runs the
+        # whole scope in every lane, so a split scope pays for those passes once
+        # per lane.
+        #
+        # Longest-processing-time-first ordering: with a fixed lane count this
+        # greedy order minimises the tail. Keep new entries in size order.
         include:
+          # 167 min, three-pass. Unsharded: its two costly passes (common's own
+          # tests, then native consumers) are the unsharded ones, and the only
+          # pass a split would divide is the integration pass over the handful
+          # of mutants those two leave alive. Splitting duplicated ~everything
+          # to divide ~nothing.
           - target: mutants-common
-            shard: 0/4
-            suffix: '-1of4'
-          - target: mutants-common
-            shard: 1/4
-            suffix: '-2of4'
-          - target: mutants-common
-            shard: 2/4
-            suffix: '-3of4'
-          - target: mutants-common
-            shard: 3/4
-            suffix: '-4of4'
-          - target: mutants-pool
-          - target: mutants-governance
-          - target: mutants-controller-core
+          # 173 min and 153 min of total work respectively. Both stay split:
+          # unsharded, either would sit near the whole-matrix floor once the
+          # other savings land, making it the new tail. Their unsharded pass is
+          # the cheap native-controller one; the harness pass is what splits.
+          - target: mutants-controller-views
             shard: 0/2
             suffix: '-1of2'
-          - target: mutants-controller-core
+          - target: mutants-controller-views
             shard: 1/2
             suffix: '-2of2'
-          - target: mutants-controller-oracle
-          - target: mutants-controller-positions
+          - target: mutants-controller-core
             shard: 0/2
             suffix: '-1of2'
-          - target: mutants-controller-positions
+          - target: mutants-controller-core
             shard: 1/2
             suffix: '-2of2'
           - target: mutants-controller-strategies
-          - target: mutants-controller-views
-            shard: 0/2
-            suffix: '-1of2'
-          - target: mutants-controller-views
-            shard: 1/2
-            suffix: '-2of2'
-          - target: mutants-aggregator
+          # 69 min across its two shards — comfortably under the floor, so the
+          # split was pure setup overhead. Unsharded.
+          - target: mutants-controller-positions
           - target: mutants-oracle-adapter
+          - target: mutants-aggregator
+          - target: mutants-pool
+          - target: mutants-governance
           - target: mutants-defindex-strategy
+          - target: mutants-controller-oracle
     steps:
       - uses: actions/checkout@v7
 
+      # Job-private rustup dir: the persistent runner shares one $HOME/.rustup
+      # across concurrent jobs, so parallel toolchain installs race and wedge
+      # (rust-std-wasm32v1-none component conflict). Every other heavy job in
+      # this file does this; the mutation matrix runs `max-parallel` lanes and
+      # needs it just as much.
+      - name: Isolate rustup toolchain dir
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+
+      # No `targets: wasm32v1-none` here: fixtures arrive prebuilt from the
+      # wasm-fixtures job, so this matrix never invokes a wasm build. That also
+      # removes the rust-std-wasm32v1-none component install that races across
+      # concurrent lanes.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.95'
-          targets: wasm32v1-none
+
+      # Scratch mode gives every cargo-mutants worker a fresh build dir, and the
+      # tree copy honours .gitignore — so `target-mutants` is never copied in and
+      # each worker would otherwise cold-build the entire dependency graph. Over
+      # a night that is hundreds of rebuilds of a bit-identical dep tree.
+      # sccache collapses them; `CARGO_INCREMENTAL: '0'` below is its hard
+      # prerequisite and is already set. Same wrapper tests.yml/coverage.yml use.
+      - name: Install sccache (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
 
       - name: Download stellar-cli
         uses: actions/download-artifact@v8.0.1
@@ -544,6 +696,14 @@ jobs:
         with:
           name: cargo-mutants-${{ github.run_id }}-${{ github.run_attempt }}
           path: .github/tools
+
+      # Into the exact CARGO_TARGET_DIR path MUTANTS_ENV points the harness
+      # loaders at, so scratch workers resolve them by absolute path.
+      - name: Download wasm fixtures
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: wasm-fixtures-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target-mutants/wasm32v1-none/release
 
       - name: Add tools to PATH
         run: |
@@ -571,10 +731,18 @@ jobs:
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-C link-arg=-fuse-ld=$linker" >> "$GITHUB_ENV"
 
       - name: Run mutation target
-        # Scratch mode is required for cargo-mutants worker parallelism.
-        # Four matrix jobs × eight workers keeps all 32 cores busy; each
-        # individual Cargo build stays single-threaded to avoid oversubscription.
-        # target-mutants remains isolated from ordinary build/test artifacts.
+        # Scratch mode is required for cargo-mutants worker parallelism, and
+        # target-mutants stays isolated from ordinary build/test artifacts.
+        #
+        # Concurrency budget on the 32-core runner, where L = max-parallel,
+        # W = MUTANTS_JOBS, and every knob below is per-process, not global:
+        #   mutants in flight  L x W                    = 4 x 8  = 32
+        #   test threads       L x W x RUST_TEST_THREADS= 4x8x1  = 32
+        #   build tokens       L x MUTANTS_JOBSERVER_TASKS = 4x8 = 32
+        # RUST_TEST_THREADS and --jobserver-tasks both default to NCPUS *per
+        # process*, which put 1024 test threads and 128 build tokens on 32
+        # cores. Pinning them is pure scheduling: no mutant verdict depends on
+        # it, and `make test` already runs the harness at --test-threads=1.
         env:
           CARGO_BUILD_JOBS: '1'
           CARGO_INCREMENTAL: '0'
@@ -582,13 +750,30 @@ jobs:
           CARGO_PROFILE_TEST_DEBUG: '0'
           CARGO_TARGET_DIR: target-mutants
           MUTANTS_JOBS: '8'
+          MUTANTS_JOBSERVER_TASKS: '8'
+          # Fixtures come from the wasm-fixtures artifact; verify, don't rebuild.
+          MUTANTS_FIXTURES_PREBUILT: '1'
+          RUST_TEST_THREADS: '1'
+          RUSTC_WRAPPER: sccache
+          SCCACHE_CACHE_SIZE: 50G
         run: make "${{ matrix.target }}" MUTANTS_SHARD="${{ matrix.shard || '' }}"
+
+      # Hit rate on third-party crates should be high after the first wave; a
+      # low rate means the scratch workers are still cold-building deps.
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
 
       - name: Upload mutation results
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
           name: mutants-artifacts-${{ matrix.target }}${{ matrix.suffix || '' }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: mutants.out/
+          # mutants.out.old/ holds the earlier passes of the multi-pass macros;
+          # without it the artifact only shows the final pass, which makes a
+          # verdict-set diff against a control run impossible.
+          path: |
+            mutants.out/
+            mutants.out.old/
           if-no-files-found: ignore
           retention-days: 7

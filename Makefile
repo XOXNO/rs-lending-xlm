@@ -557,7 +557,18 @@ CARGO_MUTANTS_VERSION ?= 27.1.0
 # Mutants can make later integration binaries fail while Cargo still finishes
 # the remaining targets. Keep the in-place default floor so those assertion
 # kills are not misclassified as timeouts on a busy self-hosted runner.
-MUTANTS_TIMEOUT ?= 300
+#
+# 300 was not enough headroom. cargo-mutants derives its cap as
+# max(this floor, baseline x multiplier), and it measures the baseline *before*
+# the workers spin up — i.e. unloaded — so the multiplier cannot self-correct
+# for runner load and the cap stays pinned at this floor. A CAUGHT mutant aborts
+# at the first failing test binary, but a surviving one must run the whole
+# selected suite, so survivors are exactly the mutants with no headroom. On run
+# 30496414050 that misclassified 38 kills across six lanes as TIMEOUT (exit 3)
+# purely from contention. This raises a resource budget, not an assertion: the
+# worst observed healthy mutant test phase is well under a minute, so a genuine
+# hang still fails loudly.
+MUTANTS_TIMEOUT ?= 600
 # Empty by default for safe scratch-tree mutation. CI passes --in-place because
 # every matrix job owns a disposable checkout and can reuse its cached target.
 MUTANTS_RUN_MODE ?=
@@ -570,11 +581,50 @@ MUTANTS_EXTRA_ARGS ?=
 MUTANTS_SHARD ?=
 # Diff file consumed by the `mutants-diff` PR gate.
 MUTANTS_DIFF_FILE ?= pr.diff
+# `--in-place` and `-j` MUST NEVER be combined. cargo-mutants gives worker 0 the
+# in-place tree itself, then has workers 1..N-1 copy their build dirs *from* that
+# same tree — while worker 0 is actively mutating it. cargo-mutants has no guard
+# against this; the conditional below is the only thing preventing silently
+# corrupt build dirs, so parallelism under --in-place comes from the CI shard
+# matrix instead.
 MUTANTS_JOB_ARGS = $(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j $(MUTANTS_JOBS))
 MUTANTS_SHARD_ARGS = $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
+# Cap on concurrent build tasks *across all workers of one cargo-mutants
+# process*. Defaults to NCPUS per process, so N concurrent matrix lanes on one
+# runner request N x NCPUS tokens. CI pins this so lanes x tasks <= cores.
+MUTANTS_JOBSERVER_TASKS ?=
+MUTANTS_JOBSERVER_ARGS = $(if $(MUTANTS_JOBSERVER_TASKS),--jobserver-tasks $(MUTANTS_JOBSERVER_TASKS))
 # Alternate test runner (e.g. `nextest`). Empty keeps the default `cargo test`.
 MUTANTS_TEST_TOOL ?=
 MUTANTS_TEST_TOOL_ARGS = $(if $(MUTANTS_TEST_TOOL),--test-tool=$(MUTANTS_TEST_TOOL),)
+# Every flag a scoped mutation run must carry, in one place. Keep it that way:
+# these used to be spelled out per macro, and MUTANTS_TEST_TOOL was silently
+# dropped by all three of them while still reporting success.
+#
+# `--shard` and `--iterate` MUST NEVER be combined on the same pass. cargo-mutants
+# applies them in that order — remove_previously_caught() strips the prior run's
+# caught/unviable mutants from the WHOLE scope, and only then does the sharder
+# slice what is left. So a sharded `--iterate` pass slices a residual list that
+# differs per lane (each lane's mutants.out only knows its own verdicts), and the
+# slices no longer partition the survivor set: a pass-1 survivor is re-tested by
+# lane A iff its index in A's residual list falls in A's slice, and by lane B iff
+# its index in B's *different* residual list falls in B's slice. Those are
+# independent, so roughly a quarter of survivors are integration-tested by
+# neither lane while the job still reports "0 missed" — the earlier passes'
+# MISSED verdicts are deliberately discarded. Observed on run 30496414050:
+# controller-core lane 0 tested 169 = ceil((444-107)/2) mutants in pass 2, not
+# the 222-107 = 115 that shard-then-exclude would give.
+#
+# Therefore: every pass but the last runs UNSHARDED, over the whole scope. That
+# costs each lane a duplicate cheap pass but makes every lane's exclusion set
+# identical, so the final `--iterate --shard k/n` slices one and the same
+# survivor list and the slices do partition it. It is also cheaper overall — the
+# expensive final pass shrinks to the true survivors instead of a re-slice of the
+# whole residual scope.
+MUTANTS_RUN_ARGS_UNSHARDED = $(MUTANTS_JOB_ARGS) \
+	$(MUTANTS_JOBSERVER_ARGS) $(MUTANTS_TEST_TOOL_ARGS) \
+	$(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+MUTANTS_RUN_ARGS = $(MUTANTS_SHARD_ARGS) $(MUTANTS_RUN_ARGS_UNSHARDED)
 MUTANTS_POOL_WASM := $(abspath $(RELEASE_DIR)/pool.wasm)
 MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
 MUTANTS_PRICE_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/price_aggregator.wasm)
@@ -592,28 +642,33 @@ define run_mutants
 		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
 		echo "Mutation scope: $$count mutants"
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) $(1) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
 # Two-pass execution for scopes whose kill criteria include the integration
 # harness. Pass 1 runs only the cheap native suites in $(2), killing the
-# large majority of mutants in seconds each; its exit code is ignored (the
-# `-` prefix) and its GitHub annotations are suppressed (GITHUB_ACTIONS=false)
-# because survivors are expected there — only pass 2 misses are real. Pass 2 re-tests ONLY the
-# survivors (`--iterate` skips mutants already caught or unviable) against
-# the full test set in $(3), which is byte-identical to the single-pass
-# configuration — so the final verdict set is the same, just reached faster.
+# large majority of mutants in seconds each; its GitHub annotations are
+# suppressed (GITHUB_ACTIONS=false) because survivors are expected there —
+# only pass 2 misses are real. Pass 2 re-tests ONLY the survivors
+# (`--iterate` skips mutants already caught or unviable) against the full
+# test set in $(3), which is byte-identical to the single-pass configuration
+# — so the final verdict set is the same, just reached faster.
+# Pass 1 tolerates exactly the outcome codes that mean "mutants survived here"
+# (2 = found problems, 3 = timeout) and propagates everything else. Discarding
+# the code wholesale — as a bare `-` prefix does — also swallows 4 (baseline
+# failed, e.g. a missing wasm fixture) and 70 (internal error), which would
+# otherwise waste a full-scope pass 2 before surfacing.
 define run_mutants_two_pass
 	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
 		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
 		echo "Mutation scope: $$count mutants (two-pass)"
-	-$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+	@status=0; \
+		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_UNSHARDED) \
+			|| status=$$?; \
+		case $$status in 0|2|3) ;; *) exit $$status;; esac
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
 # Three-pass execution for bottom-of-graph crates. Pass 1 runs only the
@@ -628,15 +683,13 @@ define run_mutants_three_pass
 		echo "Mutation scope: $$count mutants (three-pass)"
 	@status=0; \
 		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-			$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_UNSHARDED) \
 			|| status=$$?; \
 		case $$status in 0|2|3) ;; *) exit $$status;; esac
 	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
 		status=0; \
 		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-			$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_UNSHARDED) \
 			|| status=$$?; \
 		case $$status in 0|2|3) ;; *) exit $$status;; esac; \
 	else \
@@ -644,8 +697,7 @@ define run_mutants_three_pass
 	fi
 	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
 		$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(4) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-			$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS); \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS); \
 	else \
 		echo "Integration pass skipped: native tests resolved every mutant"; \
 	fi
@@ -669,9 +721,31 @@ _mutants-check:
 # The tree is removed first: restored CI caches can carry artifacts from an
 # older commit. The grep guard fails loudly on a stale controller fixture
 # instead of surfacing as a cryptic mutants-baseline test failure.
+#
+# Set MUTANTS_FIXTURES_PREBUILT=1 when the fixtures were built elsewhere and
+# staged into $(RELEASE_DIR) — CI does this once per run and shares them across
+# the whole mutation matrix instead of paying a full lto="fat" wasm build per
+# job. The guards are stricter in that mode, not weaker: presence and the
+# SHA256SUMS manifest are both checked, then the same export grep runs. Local
+# runs keep building from source by default.
+MUTANTS_FIXTURES_PREBUILT ?=
+
 _mutants-harness-prepare: _mutants-check
+ifeq ($(MUTANTS_FIXTURES_PREBUILT),)
 	rm -rf $(CARGO_TARGET_DIR)/$(WASM_TARGET)
 	$(MAKE) build
+else
+	@for w in "$(MUTANTS_POOL_WASM)" "$(MUTANTS_CONTROLLER_WASM)" "$(MUTANTS_PRICE_AGGREGATOR_WASM)"; do \
+		[ -s "$$w" ] || { echo "prebuilt fixture missing or empty: $$w"; exit 1; }; \
+	done
+	@[ -s "$(RELEASE_DIR)/SHA256SUMS" ] \
+		|| { echo "prebuilt fixtures have no SHA256SUMS manifest in $(RELEASE_DIR)"; exit 1; }
+	@cd $(RELEASE_DIR) && { \
+		if command -v sha256sum >/dev/null 2>&1; then sha256sum -c SHA256SUMS; \
+		else shasum -a 256 -c SHA256SUMS; fi; } >/dev/null \
+		|| { echo "prebuilt fixture checksums do not match SHA256SUMS"; exit 1; }
+	@echo "Using prebuilt wasm fixtures from $(RELEASE_DIR) (checksums verified)"
+endif
 	@grep -aq set_swap_aggregator "$(MUTANTS_CONTROLLER_WASM)" \
 		|| { echo "controller.wasm fixture is stale (missing set_swap_aggregator export)"; exit 1; }
 
@@ -753,19 +827,29 @@ mutants-controller-views: _mutants-harness-prepare
 # validators behind cfg(not(feature = "testing")) are not exercised here.
 mutants-diff: _mutants-harness-prepare
 	@[ -s "$(MUTANTS_DIFF_FILE)" ] || { echo "Empty diff; nothing to mutate."; exit 0; }
+# Args are spelled out rather than reusing $(MUTANTS_RUN_ARGS): scope comes from
+# --in-diff, so MUTANTS_FILTER does not apply here.
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --in-diff "$(MUTANTS_DIFF_FILE)" \
 		--test-workspace true \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_TEST_TOOL_ARGS) $(MUTANTS_EXTRA_ARGS)
+		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_JOBSERVER_ARGS) \
+		$(MUTANTS_TEST_TOOL_ARGS) $(MUTANTS_EXTRA_ARGS)
 
-## Standalone contracts: each has its own native test suite, no harness needed.
+## Standalone contracts: their native test suites need no harness. Before adding
+## a target here, check the crate's dev-dependencies — a crate that pulls in
+## test-harness needs _mutants-harness-prepare instead, because the harness
+## PoolBuilder loads POOL_WASM_PATH and panics when the fixture is absent.
 mutants-aggregator: _mutants-check
 	$(call run_mutants,--package price-aggregator --test-package price-aggregator --features testing)
 
 mutants-oracle-adapter: _mutants-check
 	$(call run_mutants,--package xoxno-oracle --test-package xoxno-oracle)
 
-mutants-defindex-strategy: _mutants-check
+# Not standalone: contracts/defindex-strategy dev-depends on test-harness, so its
+# own test suite loads the wasm fixtures. Listing it as _mutants-check only made
+# the baseline fail all 18 tests with "Liquidity pool WASM not found" (exit 4)
+# before a single mutant ran.
+mutants-defindex-strategy: _mutants-harness-prepare
 	$(call run_mutants,--package defindex-strategy --test-package defindex-strategy)
 
 # ---------------------------------------------------------------------------
