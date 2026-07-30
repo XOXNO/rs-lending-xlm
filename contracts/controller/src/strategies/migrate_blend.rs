@@ -14,7 +14,7 @@ use crate::context::Cache;
 use crate::events::{self, BlendMigrationEvent};
 use crate::external::blend::{blend_repay_all, blend_sweep_all};
 use crate::payments::balance_delta;
-use crate::positions::{enforce_spoke_asset_flags, supply};
+use crate::positions::{enforce_spoke_asset_flags, supply, FreezePolicy};
 use crate::strategies::{
     borrow_for_migration, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
     StrategyRepay,
@@ -183,7 +183,7 @@ fn require_withdraw_assets_supplyable(
     for asset in withdraw_assets.iter() {
         let hub_asset = HubAssetKey { hub_id, asset };
         let asset_config = cache.require_listed_active_config(spoke_id, &hub_asset);
-        enforce_spoke_asset_flags(env, cache, spoke_id, &hub_asset, true);
+        enforce_spoke_asset_flags(env, cache, spoke_id, &hub_asset, FreezePolicy::BlockOnEntry);
         assert_with_error!(
             env,
             asset_config.can_supply(),

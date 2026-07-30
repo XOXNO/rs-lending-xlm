@@ -77,7 +77,7 @@ pub(crate) fn apply_gated_liquidation_params(
     effective_config: &AssetConfig,
 ) {
     if favors_liquidator(position, effective_config)
-        && !account.borrow_positions.is_empty()
+        && !account.debt_free()
         && !clears_min_hf(
             env,
             cache,

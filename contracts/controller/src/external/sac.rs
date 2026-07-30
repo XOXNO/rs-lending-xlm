@@ -10,5 +10,8 @@ pub(crate) fn sac_transfer_call(
     to: &Address,
     amount: &i128,
 ) {
+    if *amount == 0 {
+        return;
+    }
     token::Client::new(env, token).transfer(from, to, amount)
 }

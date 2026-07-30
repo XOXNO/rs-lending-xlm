@@ -9,22 +9,19 @@
 //! pool pre-funded.
 
 use common::errors::GenericError;
-use common::math::fp::Ray;
 use common::types::{Account, DebtPosition, HubAssetKey, PoolAction, PoolPositionMutation};
 use soroban_sdk::{vec, Address, Env, Vec};
 
-use crate::account::update_or_remove_debt_position;
 use crate::context::Cache;
 use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::pool_repay_call;
 use crate::payments;
 use crate::positions::{
-    enforce_spoke_asset_flags, finalize_position_flow, get_debt_position_or_panic,
-    make_pool_action, AggregatedPayments, HubPayment, LegOutcome, PositionSides,
+    enforce_spoke_asset_flags, finalize_position_flow, for_each_leg, get_debt_position_or_panic,
+    make_pool_action, merge_debt_leg, require_position_caller, AggregatedPayments, FreezePolicy,
+    HubPayment, LegDirection, LegOutcome, PositionSides,
 };
-use crate::risk::validation;
-use crate::spoke::UsageSide;
 use crate::storage;
 use common::validation::expect_invariant;
 
@@ -50,8 +47,7 @@ pub(crate) fn process_repay(
     account_id: u64,
     payments: &Vec<HubPayment>,
 ) {
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    require_position_caller(env, caller);
 
     let aggregated = payments::aggregate_positive_payments(env, payments);
 
@@ -103,7 +99,13 @@ fn build_repay_actions(
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for (hub_asset, amount) in aggregated.iter() {
         // Paused blocks repay; frozen still allows it.
-        enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, false);
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &hub_asset,
+            FreezePolicy::AllowOnExit,
+        );
         let position = get_debt_position_or_panic(env, account, &hub_asset);
         let amount_in = payments::transfer_amount_measured(
             env,
@@ -133,58 +135,18 @@ pub(crate) fn apply_repay_batch(
 ) -> Vec<PoolPositionMutation> {
     let pool_addr = cache.cached_pool_address();
     let results = pool_repay_call(env, &pool_addr, payer, actions);
-    for (i, entry) in actions.iter().enumerate() {
-        let result = expect_invariant(env, results.get(i as u32));
-        merge_repay_leg(
+    for_each_leg(env, actions, &results, |entry, result| {
+        merge_debt_leg(
             env,
             account,
             action,
             &entry.hub_asset,
+            LegDirection::Exit,
             &LegOutcome::from(&result),
             cache,
         );
-    }
+    });
     results
-}
-
-/// Per-leg merge: debt shares, spoke usage, debt map, market index, event.
-///
-/// Usage delta is debt shares repaid (`old_scaled - new_scaled`). Debt position
-/// is fully pool-owned.
-pub(crate) fn merge_repay_leg(
-    env: &Env,
-    account: &mut Account,
-    action: events::PositionAction,
-    hub_asset: &HubAssetKey,
-    outcome: &LegOutcome,
-    cache: &mut Cache,
-) {
-    let old_scaled = account
-        .borrow_positions
-        .get(hub_asset.clone())
-        .map_or(Ray::ZERO, |p| Ray::from(p.scaled_amount));
-    let position = DebtPosition {
-        scaled_amount: outcome.new_scaled,
-    };
-
-    let shares_repaid = old_scaled.checked_sub(env, position.scaled_amount);
-    cache.apply_spoke_exit(
-        account.spoke_id,
-        UsageSide::Borrow,
-        hub_asset,
-        shares_repaid,
-    );
-
-    update_or_remove_debt_position(account, hub_asset, &position);
-
-    cache.put_market_index(hub_asset, &outcome.market_index);
-    cache.record_debt_position_update(
-        action,
-        hub_asset,
-        outcome.market_index.borrow_index,
-        outcome.amount,
-        &position,
-    );
 }
 
 /// Single-asset wrapper over bulk pool repay for strategy flows.
@@ -208,7 +170,13 @@ pub(crate) fn execute_repayment(
         action,
     } = ctx;
 
-    enforce_spoke_asset_flags(env, cache, account.spoke_id, req.hub_asset, false);
+    enforce_spoke_asset_flags(
+        env,
+        cache,
+        account.spoke_id,
+        req.hub_asset,
+        FreezePolicy::AllowOnExit,
+    );
     let actions = vec![
         env,
         make_pool_action(req.position, req.amount, req.hub_asset.clone()),

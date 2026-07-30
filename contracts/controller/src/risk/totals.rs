@@ -255,7 +255,6 @@ fn calculate_account_risk_totals_body(
     }
 
     // Ceil the whole chain: owed value cannot round downward.
-    // Markets already loaded above — do not re-walk keys through load_markets.
     let total_debt = sum_debt_usd_ceil_loaded(env, cache, borrow_positions);
 
     let health_factor = if total_debt == Wad::ZERO {

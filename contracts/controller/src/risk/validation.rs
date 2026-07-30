@@ -20,7 +20,7 @@ pub(crate) fn require_not_flash_loaning(env: &Env) {
 /// Post-pool LTV, health factor, and min-borrow-collateral gates in one
 /// prefetch and one portfolio walk. No-op when the account is debt-free.
 pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Account) {
-    if account.borrow_positions.is_empty() {
+    if account.debt_free() {
         return;
     }
 
@@ -33,7 +33,7 @@ pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account
 
     assert_with_error!(
         env,
-        totals.ltv_collateral.raw() >= totals.total_debt.raw(),
+        totals.ltv_collateral >= totals.total_debt,
         CollateralError::InsufficientCollateral
     );
 

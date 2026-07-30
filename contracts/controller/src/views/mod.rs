@@ -39,16 +39,14 @@ pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
         // so short-circuit before pricing: calculate_account_risk_totals would
         // otherwise read every supplied asset's oracle only to saturate to MAX,
         // making a debt-free view fail on missing/broken collateral feeds.
-        Some(account) if !account.borrow_positions.is_empty() => {
-            risk::calculate_account_risk_totals(
-                env,
-                &mut cache,
-                &account.supply_positions,
-                &account.borrow_positions,
-            )
-            .health_factor
-            .raw()
-        }
+        Some(account) if !account.debt_free() => risk::calculate_account_risk_totals(
+            env,
+            &mut cache,
+            &account.supply_positions,
+            &account.borrow_positions,
+        )
+        .health_factor
+        .raw(),
         _ => i128::MAX,
     }
 }

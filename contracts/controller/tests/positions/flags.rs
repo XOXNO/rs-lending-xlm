@@ -23,7 +23,7 @@ fn spoke_asset(paused: bool, frozen: bool) -> SpokeAssetConfig {
     }
 }
 
-fn run_gate(paused: bool, frozen: bool, block_when_frozen: bool) {
+fn run_gate(paused: bool, frozen: bool, freeze: FreezePolicy) {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
@@ -34,42 +34,42 @@ fn run_gate(paused: bool, frozen: bool, block_when_frozen: bool) {
         };
         storage::set_spoke_asset(&env, SPOKE_ID, &hub_asset, &spoke_asset(paused, frozen));
         let mut cache = Cache::new_view(&env);
-        enforce_spoke_asset_flags(&env, &mut cache, SPOKE_ID, &hub_asset, block_when_frozen);
+        enforce_spoke_asset_flags(&env, &mut cache, SPOKE_ID, &hub_asset, freeze);
     });
 }
 
-// Paused rejects new supply/borrow (block_when_frozen = true).
+// Paused rejects new supply/borrow.
 #[test]
 #[should_panic(expected = "Error(Contract, #315)")]
 fn paused_blocks_supply_borrow() {
-    run_gate(true, false, true);
+    run_gate(true, false, FreezePolicy::BlockOnEntry);
 }
 
-// Paused also rejects withdraw/repay (block_when_frozen = false).
+// Paused also rejects withdraw/repay.
 #[test]
 #[should_panic(expected = "Error(Contract, #315)")]
 fn paused_blocks_withdraw_repay() {
-    run_gate(true, false, false);
+    run_gate(true, false, FreezePolicy::AllowOnExit);
 }
 
 // Frozen rejects new supply/borrow.
 #[test]
 #[should_panic(expected = "Error(Contract, #316)")]
 fn frozen_blocks_supply_borrow() {
-    run_gate(false, true, true);
+    run_gate(false, true, FreezePolicy::BlockOnEntry);
 }
 
 // Frozen allows withdraw/repay.
 #[test]
 fn frozen_allows_withdraw_repay() {
-    run_gate(false, true, false);
+    run_gate(false, true, FreezePolicy::AllowOnExit);
 }
 
 // An unpaused, unfrozen asset passes every verb.
 #[test]
 fn clean_asset_allows_all_verbs() {
-    run_gate(false, false, true);
-    run_gate(false, false, false);
+    run_gate(false, false, FreezePolicy::BlockOnEntry);
+    run_gate(false, false, FreezePolicy::AllowOnExit);
 }
 
 // No spoke-asset entry for the asset is a no-op for any flag.
@@ -85,6 +85,12 @@ fn missing_spoke_asset_is_noop() {
         };
         let mut cache = Cache::new_view(&env);
         // Spoke without an entry for this asset: no-op.
-        enforce_spoke_asset_flags(&env, &mut cache, SPOKE_ID, &hub_asset, true);
+        enforce_spoke_asset_flags(
+            &env,
+            &mut cache,
+            SPOKE_ID,
+            &hub_asset,
+            FreezePolicy::BlockOnEntry,
+        );
     });
 }

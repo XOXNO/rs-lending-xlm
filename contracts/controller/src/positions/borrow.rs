@@ -4,25 +4,22 @@
 //! entry gates and merge logic but defer post-pool risk gates to
 //! `strategy_finalize`.
 
-use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPositionType, DebtPosition, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
+    Account, AccountPositionType, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
 };
 use soroban_sdk::{vec, Address, Env, Vec};
 
-use crate::account::{require_owner_or_delegate, update_or_remove_debt_position};
+use crate::account::require_owner_or_delegate;
 use crate::context::Cache;
 use crate::events;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::payments;
 use crate::positions::{
-    finalize_position_flow, make_pool_action, validate_position_entry_gates, AggregatedPayments,
-    HubPayment, PositionSides,
+    enforce_post_pool_solvency, finalize_position_flow, for_each_leg, make_pool_action,
+    merge_debt_leg, require_position_caller, validate_position_entry_gates, AggregatedPayments,
+    HubPayment, LegDirection, LegOutcome, PositionSides,
 };
-use crate::risk::{self, validation};
-use crate::spoke::UsageSide;
 use crate::storage;
-use common::validation::expect_invariant;
 
 /// Auth, load account, entry gates, pool borrow, post-pool solvency, then persist.
 ///
@@ -35,8 +32,7 @@ pub(crate) fn process_borrow(
     borrows: &Vec<HubPayment>,
     to: Option<Address>,
 ) {
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    require_position_caller(env, caller);
 
     let mut account = storage::get_account(env, account_id);
     require_owner_or_delegate(env, account_id, caller, &account.owner);
@@ -54,9 +50,7 @@ pub(crate) fn process_borrow(
     );
     settle_borrow(env, &recipient, &mut account, &aggregated, &mut cache);
 
-    let restamped = risk::restamp_listed_supply_ltv(&mut cache, &mut account);
-    validation::require_post_pool_risk_gates(env, &mut cache, &account);
-
+    let restamped = enforce_post_pool_solvency(env, &mut cache, &mut account);
     let sides = if restamped {
         PositionSides::BOTH
     } else {
@@ -65,7 +59,7 @@ pub(crate) fn process_borrow(
     finalize_position_flow(env, account_id, &account, &mut cache, sides, false);
 }
 
-/// One batch `pool.borrow` to `recipient`, then merge input-ordered results.
+/// Snapshot the debt legs, then the bulk pool borrow to `recipient`.
 fn settle_borrow(
     env: &Env,
     recipient: &Address,
@@ -74,9 +68,7 @@ fn settle_borrow(
     cache: &mut Cache,
 ) {
     let entries = build_borrow_entries(env, account, aggregated);
-    let pool_addr = cache.cached_pool_address();
-    let results = pool_borrow_call(env, &pool_addr, recipient, &entries);
-    apply_borrow_batch(env, account, &entries, &results, cache);
+    apply_borrow_batch(env, account, recipient, &entries, cache);
 }
 
 /// Snapshots each debt leg for the pool action (in-memory; merge persists).
@@ -95,62 +87,29 @@ fn build_borrow_entries(
     entries
 }
 
-/// Input-ordered pool results → `merge_borrow_leg` per entry.
+/// One batch `pool.borrow`, then merge results input-ordered.
 fn apply_borrow_batch(
     env: &Env,
     account: &mut Account,
+    recipient: &Address,
     entries: &Vec<PoolBorrowEntry>,
-    results: &Vec<PoolPositionMutation>,
     cache: &mut Cache,
 ) {
-    for (i, entry) in entries.iter().enumerate() {
-        let result = expect_invariant(env, results.get(i as u32));
-        merge_borrow_leg(
+    let pool_addr = cache.cached_pool_address();
+    let results = pool_borrow_call(env, &pool_addr, recipient, entries);
+    for_each_leg(env, entries, &results, |entry, result| {
+        merge_debt_leg(
             env,
             account,
-            &entry.action.hub_asset,
             events::PositionAction::Borrow,
-            &result,
+            &entry.action.hub_asset,
+            LegDirection::Entry {
+                asset_decimals: result.asset_decimals,
+            },
+            &LegOutcome::from(&result),
             cache,
         );
-    }
-}
-
-/// Per-leg merge: debt position, spoke usage, market index, event, debt map.
-fn merge_borrow_leg(
-    env: &Env,
-    account: &mut Account,
-    hub_asset: &HubAssetKey,
-    action: events::PositionAction,
-    result: &PoolPositionMutation,
-    cache: &mut Cache,
-) {
-    let old_scaled = account
-        .borrow_positions
-        .get(hub_asset.clone())
-        .map_or(Ray::ZERO, |p| Ray::from(p.scaled_amount));
-    // Debt position is fully pool-owned (scaled shares); no controller risk params.
-    let position: DebtPosition = DebtPosition::from(&result.position);
-
-    let delta = position.scaled_amount.checked_sub(env, old_scaled);
-    cache.apply_spoke_entry(
-        account.spoke_id,
-        UsageSide::Borrow,
-        hub_asset,
-        delta,
-        &result.market_index,
-        result.asset_decimals,
-    );
-
-    cache.put_market_index(hub_asset, &result.market_index);
-    cache.record_debt_position_update(
-        action,
-        hub_asset,
-        result.market_index.borrow_index,
-        result.actual_amount,
-        &position,
-    );
-    update_or_remove_debt_position(account, hub_asset, &position);
+    });
 }
 
 /// Borrows `amount` of `hub_debt` against `account` for a strategy flow
@@ -258,13 +217,16 @@ fn borrow_strategy_inner(
         pool_action,
         kind.charges_fee(),
     );
-    let mutation: PoolPositionMutation = PoolPositionMutation::from(&result);
-    merge_borrow_leg(
+    let mutation = PoolPositionMutation::from(&result);
+    merge_debt_leg(
         env,
         account,
-        &hub_debt,
         kind.event_action(),
-        &mutation,
+        &hub_debt,
+        LegDirection::Entry {
+            asset_decimals: mutation.asset_decimals,
+        },
+        &LegOutcome::from(&mutation),
         cache,
     );
 

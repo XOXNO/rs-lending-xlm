@@ -6,7 +6,6 @@
 //! `process_deposit` after their own auth.
 
 use common::errors::GenericError;
-use common::math::fp::Ray;
 use common::types::{
     Account, AccountPositionType, AssetConfig, PoolPositionMutation, PoolSupplyEntry, PositionMode,
 };
@@ -18,12 +17,12 @@ use crate::events;
 use crate::external::pool::pool_supply_call;
 use crate::payments;
 use crate::positions::{
-    finalize_position_flow, make_pool_action, validate_position_entry_gates, AggregatedPayments,
-    HubPayment, PositionSides,
+    apply_leg_usage, finalize_position_flow, for_each_leg, make_pool_action,
+    require_position_caller, validate_position_entry_gates, AggregatedPayments, HubPayment,
+    LegDirection, LegOutcome, PositionSides,
 };
-use crate::risk::{refresh_supply_risk_params, validation, RiskRefreshScope};
+use crate::risk::{refresh_supply_risk_params, RiskRefreshScope};
 use crate::spoke::UsageSide;
-use common::validation::expect_invariant;
 
 /// Auth, aggregate, load/create account, deposit, then persist supply positions.
 ///
@@ -36,8 +35,7 @@ pub(crate) fn process_supply(
     spoke_id: u32,
     assets: &Vec<HubPayment>,
 ) -> u64 {
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    require_position_caller(env, caller);
     let aggregated = payments::aggregate_positive_payments(env, assets);
     let mut cache = Cache::new(env);
 
@@ -97,7 +95,7 @@ pub(crate) fn process_deposit(
     settle_supply(env, caller, account, aggregated, cache);
 }
 
-/// Transfer tokens into the pool, one batch `pool.supply`, merge results.
+/// Move tokens to the pool while building the legs, then the bulk pool supply.
 fn settle_supply(
     env: &Env,
     caller: &Address,
@@ -107,8 +105,7 @@ fn settle_supply(
 ) {
     let pool_addr = cache.cached_pool_address();
     let entries = build_supply_entries(env, caller, account, aggregated, cache, &pool_addr);
-    let results = pool_supply_call(env, &pool_addr, &entries);
-    apply_supply_batch(env, account, &entries, &results, cache);
+    apply_supply_batch(env, account, &entries, cache);
 }
 
 /// Moves each supply leg to the pool, then builds the matching `PoolSupplyEntry`.
@@ -140,18 +137,18 @@ fn build_supply_entries(
     entries
 }
 
-/// Input-ordered pool results → `merge_supply_leg` per entry.
+/// One batch `pool.supply`, then merge results input-ordered.
 fn apply_supply_batch(
     env: &Env,
     account: &mut Account,
     entries: &Vec<PoolSupplyEntry>,
-    results: &Vec<PoolPositionMutation>,
     cache: &mut Cache,
 ) {
-    for (i, entry) in entries.iter().enumerate() {
-        let result = expect_invariant(env, results.get(i as u32));
+    let pool_addr = cache.cached_pool_address();
+    let results = pool_supply_call(env, &pool_addr, entries);
+    for_each_leg(env, entries, &results, |entry, result| {
         merge_supply_leg(env, account, &entry, &result, cache);
-    }
+    });
 }
 
 /// Per-leg merge: risk params, scaled shares, spoke usage, event, supply map.
@@ -168,6 +165,7 @@ fn merge_supply_leg(
 
     let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
     let old_scaled = position.scaled_amount;
+    // Stamped before the new shares land, so the min-HF gate prices the smaller balance.
     refresh_supply_risk_params(
         env,
         cache,
@@ -179,23 +177,27 @@ fn merge_supply_leg(
     );
 
     // Pool owns scaled shares; controller keeps collateral risk params.
-    position.scaled_amount = Ray::from(result.position.scaled_amount);
+    let outcome = LegOutcome::from(result);
+    position.scaled_amount = outcome.new_scaled;
 
-    let delta = position.scaled_amount.checked_sub(env, old_scaled);
-    cache.apply_spoke_entry(
+    apply_leg_usage(
+        env,
+        cache,
         account.spoke_id,
         UsageSide::Supply,
         hub_asset,
-        delta,
-        &result.market_index,
-        result.asset_decimals,
+        LegDirection::Entry {
+            asset_decimals: result.asset_decimals,
+        },
+        old_scaled,
+        &outcome,
     );
 
-    cache.put_market_index(hub_asset, &result.market_index);
+    cache.put_market_index(hub_asset, &outcome.market_index);
     cache.record_supply_position_update(
         events::PositionAction::Supply,
         hub_asset,
-        result.market_index.supply_index,
+        outcome.market_index.supply_index,
         entry.action.amount,
         &position,
     );

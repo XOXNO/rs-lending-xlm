@@ -21,7 +21,8 @@ use crate::payments::balance_delta;
 use crate::positions::repay::{self, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawalRequest};
 use crate::positions::{
-    enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic, LegOutcome,
+    enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
+    merge_debt_leg, FreezePolicy, LegDirection, LegOutcome,
 };
 
 pub(crate) struct StrategyRepay<'a> {
@@ -157,7 +158,13 @@ pub(crate) fn net_settle_collateral_against_debt(
 ) -> i128 {
     // Strategy chokepoint: paused blocks the settle, frozen still allows it,
     // matching the withdraw/repay primitives this replaces.
-    enforce_spoke_asset_flags(env, cache, account.spoke_id, hub_asset, false);
+    enforce_spoke_asset_flags(
+        env,
+        cache,
+        account.spoke_id,
+        hub_asset,
+        FreezePolicy::AllowOnExit,
+    );
 
     let supply_position = get_supply_position_or_panic(env, account, hub_asset);
     let debt_position = get_debt_position_or_panic(env, account, hub_asset);
@@ -185,7 +192,15 @@ pub(crate) fn net_settle_collateral_against_debt(
     };
     // A delisted asset resolves to `Frozen`, matching the net-settle contract
     // that a settle never blocks on a listing that governance has since pulled.
-    let refresh_spoke = withdraw::refresh_spoke_for_asset(cache, account, hub_asset);
+    // `Normal` because a net settle is not a seizure: a still-listed leg that
+    // keeps shares restamps exactly as a plain withdraw would.
+    let refresh_spoke = withdraw::spoke_refresh_for_leg(
+        withdraw::WithdrawKind::Normal,
+        cache,
+        account,
+        hub_asset,
+        supply_outcome.new_scaled,
+    );
     withdraw::merge_withdraw_leg(
         env,
         account,
@@ -201,7 +216,15 @@ pub(crate) fn net_settle_collateral_against_debt(
         market_index: result.market_index,
         amount: result.settled_amount,
     };
-    repay::merge_repay_leg(env, account, action, hub_asset, &debt_outcome, cache);
+    merge_debt_leg(
+        env,
+        account,
+        action,
+        hub_asset,
+        LegDirection::Exit,
+        &debt_outcome,
+        cache,
+    );
 
     result.settled_amount
 }

@@ -4,7 +4,21 @@
 //! LTV/HF after pool indexes return. Not gated by `#[when_not_paused]` (spoke
 //! pause still blocks; freeze does not). Liquidation skips spoke pause via the
 //! bulk settle path.
+//!
+//! # Entry tiers
+//!
+//! Four nested entrypoints. Each tier below drops a guarantee the tier above it
+//! provides, so its caller must already own that guarantee. Sections in this
+//! file run in tier order, with each tier's private helpers beneath it.
+//!
+//! | Tier | Entrypoint | Layer it adds | Outside caller |
+//! |---|---|---|---|
+//! | 1 | [`process_withdraw`] | `require_auth`, owner/delegate, flash-loan guard, post-pool solvency, persist + emit | `withdraw` entrypoint |
+//! | 2 | [`execute_withdrawal`] | spoke pause check, single-leg entry build | strategy legs |
+//! | 3 | [`apply_withdraw_batch`] | the `pool.withdraw` call over pre-built entries | liquidation seize |
+//! | 4 | [`merge_withdraw_leg`] | base: folds one pool result into account, spoke usage, index memo, event buffer | net settle |
 
+use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AssetConfig, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry,
 };
@@ -18,15 +32,18 @@ use crate::events::EventContext;
 use crate::external::pool::pool_withdraw_call;
 use crate::payments;
 use crate::positions::{
-    enforce_spoke_asset_flags, finalize_position_flow, get_supply_position_or_panic,
-    make_pool_action, AggregatedPayments, HubPayment, LegOutcome, PositionSides,
+    apply_leg_usage, enforce_post_pool_solvency, enforce_spoke_asset_flags, finalize_position_flow,
+    for_each_leg, get_supply_position_or_panic, make_pool_action, require_position_caller,
+    AggregatedPayments, FreezePolicy, HubPayment, LegDirection, LegOutcome, PositionSides,
 };
-use crate::risk::{
-    refresh_supply_risk_params, restamp_listed_supply_ltv, validation, RiskRefreshScope,
-};
+use crate::risk::{refresh_supply_risk_params, RiskRefreshScope};
 use crate::spoke::UsageSide;
 use crate::storage;
 use common::validation::expect_invariant;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 /// How a withdraw batch executes. Selects the pool's liquidation semantics and
 /// whether collateral risk params stay at their stamped vintage.
@@ -58,6 +75,10 @@ pub(crate) struct WithdrawalRequest<'a> {
     pub position: &'a AccountPosition,
 }
 
+// ---------------------------------------------------------------------------
+// Tier 1: user withdraw
+// ---------------------------------------------------------------------------
+
 /// Auth, load account, settle, post-pool solvency, then persist supply positions.
 ///
 /// `remove_if_empty` is true so a full exit can clean up an empty account.
@@ -69,8 +90,7 @@ pub(crate) fn process_withdraw(
     withdrawals: &Vec<HubPayment>,
     to: Option<Address>,
 ) -> Vec<HubPayment> {
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    require_position_caller(env, caller);
 
     let mut account = storage::get_account(env, account_id);
     require_owner_or_delegate(env, account_id, caller, &account.owner);
@@ -82,10 +102,7 @@ pub(crate) fn process_withdraw(
 
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
 
-    // Risk gates read live listing config: every listed supply leg's LTV must
-    // be restamped first, not just the withdrawn one.
-    let _ = restamp_listed_supply_ltv(&mut cache, &mut account);
-    validation::require_post_pool_risk_gates(env, &mut cache, &account);
+    let _ = enforce_post_pool_solvency(env, &mut cache, &mut account);
 
     finalize_position_flow(
         env,
@@ -118,10 +135,10 @@ fn settle_withdraw(
         cache,
     );
 
+    // `apply_withdraw_batch` already asserted one result per entry.
     let mut paid: Vec<HubPayment> = Vec::new(env);
-    for (i, entry) in entries.iter().enumerate() {
-        let result = expect_invariant(env, results.get(i as u32));
-        paid.push_back((entry.action.hub_asset.clone(), result.actual_amount));
+    for (entry, result) in entries.iter().zip(results.iter()) {
+        paid.push_back((entry.action.hub_asset, result.actual_amount));
     }
     paid
 }
@@ -136,122 +153,40 @@ fn build_withdraw_entries(
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for (hub_asset, amount) in aggregated.iter() {
         // Paused blocks withdraw; frozen still allows it.
-        enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, false);
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &hub_asset,
+            FreezePolicy::AllowOnExit,
+        );
         let position = get_supply_position_or_panic(env, account, &hub_asset);
-        let withdraw_amount = if amount == 0 {
-            WITHDRAW_ALL_SENTINEL
-        } else {
-            amount
-        };
         entries.push_back(PoolWithdrawEntry {
-            action: make_pool_action(&position, withdraw_amount, hub_asset.clone()),
+            action: make_pool_action(
+                &position,
+                resolve_withdraw_amount(amount),
+                hub_asset.clone(),
+            ),
             protocol_fee: 0,
         });
     }
     entries
 }
 
-/// One cross-contract pool withdraw for `entries`, then merge results input-ordered.
-///
-/// Does not enforce spoke pause/freeze: user and strategy paths check flags
-/// before calling; liquidation calls this directly and stays exempt.
-pub(crate) fn apply_withdraw_batch(
-    env: &Env,
-    account: &mut Account,
-    recipient: &Address,
-    kind: WithdrawKind,
-    action: events::PositionAction,
-    entries: &Vec<PoolWithdrawEntry>,
-    cache: &mut Cache,
-) -> Vec<PoolPositionMutation> {
-    let is_liquidation = kind == WithdrawKind::Liquidation;
-    let pool_addr = cache.cached_pool_address();
-    let results = pool_withdraw_call(env, &pool_addr, recipient, is_liquidation, entries);
-    for (i, entry) in entries.iter().enumerate() {
-        let result = expect_invariant(env, results.get(i as u32));
-        let refresh_spoke = if is_liquidation {
-            SpokeRefresh::Frozen
-        } else {
-            refresh_spoke_for_asset(cache, account, &entry.action.hub_asset)
-        };
-        merge_withdraw_leg(
-            env,
-            account,
-            action,
-            &entry.action.hub_asset,
-            &refresh_spoke,
-            &LegOutcome::from(&result),
-            cache,
-        );
+/// Maps a caller's `0` to the full-position sentinel. Bulk path only —
+/// [`execute_withdrawal`] forwards its amount untouched, so strategy callers pass
+/// [`WITHDRAW_ALL_SENTINEL`] themselves.
+fn resolve_withdraw_amount(amount: i128) -> i128 {
+    if amount == 0 {
+        WITHDRAW_ALL_SENTINEL
+    } else {
+        amount
     }
-    results
 }
 
-/// Risk-param refresh policy for a withdraw leg (listing present → refresh).
-pub(crate) fn refresh_spoke_for_asset(
-    cache: &mut Cache,
-    account: &Account,
-    hub_asset: &HubAssetKey,
-) -> SpokeRefresh {
-    if cache
-        .cached_spoke_asset(account.spoke_id, hub_asset)
-        .is_none()
-    {
-        return SpokeRefresh::Frozen;
-    }
-    SpokeRefresh::Refresh
-}
-
-/// Per-leg merge: scaled shares, usage, optional risk refresh, supply map, event.
-///
-/// Usage delta is shares withdrawn (`old_scaled - new_scaled`). Risk params are
-/// refreshed only when `refresh_spoke` is `Refresh`.
-pub(crate) fn merge_withdraw_leg(
-    env: &Env,
-    account: &mut Account,
-    action: events::PositionAction,
-    hub_asset: &HubAssetKey,
-    refresh_spoke: &SpokeRefresh,
-    outcome: &LegOutcome,
-    cache: &mut Cache,
-) {
-    let mut result_position = get_supply_position_or_panic(env, account, hub_asset);
-    let old_scaled = result_position.scaled_amount;
-    // Pool owns scaled shares; controller keeps collateral risk params unless refreshing.
-    result_position.scaled_amount = outcome.new_scaled;
-
-    let shares_withdrawn = old_scaled.checked_sub(env, result_position.scaled_amount);
-    cache.apply_spoke_exit(
-        account.spoke_id,
-        UsageSide::Supply,
-        hub_asset,
-        shares_withdrawn,
-    );
-
-    if matches!(refresh_spoke, SpokeRefresh::Refresh) {
-        let config: AssetConfig = (&cache.require_spoke_asset(account.spoke_id, hub_asset)).into();
-        refresh_supply_risk_params(
-            env,
-            cache,
-            account,
-            hub_asset,
-            &mut result_position,
-            &config,
-            RiskRefreshScope::FullTuple,
-        );
-    }
-
-    update_or_remove_supply_position(account, hub_asset, &result_position);
-
-    cache.put_market_index(hub_asset, &outcome.market_index);
-    cache.record_supply_position_update(
-        action,
-        hub_asset,
-        outcome.market_index.supply_index,
-        outcome.amount,
-        &result_position,
-    );
-}
+// ---------------------------------------------------------------------------
+// Tier 2: single-asset strategy withdraw
+// ---------------------------------------------------------------------------
 
 /// Single-asset wrapper over bulk pool withdraw for strategy and account-close.
 ///
@@ -272,7 +207,13 @@ pub(crate) fn execute_withdrawal(
         counterparty,
         action,
     } = ctx;
-    enforce_spoke_asset_flags(env, cache, account.spoke_id, req.hub_asset, false);
+    enforce_spoke_asset_flags(
+        env,
+        cache,
+        account.spoke_id,
+        req.hub_asset,
+        FreezePolicy::AllowOnExit,
+    );
     let entries = vec![
         env,
         PoolWithdrawEntry {
@@ -290,4 +231,138 @@ pub(crate) fn execute_withdrawal(
         cache,
     );
     expect_invariant(env, results.get(0))
+}
+
+// ---------------------------------------------------------------------------
+// Tier 3: bulk pool withdraw
+// ---------------------------------------------------------------------------
+
+/// One cross-contract pool withdraw for `entries`, then merge results input-ordered.
+///
+/// Does not enforce spoke pause/freeze: user and strategy paths check flags
+/// before calling; liquidation calls this directly and stays exempt.
+pub(crate) fn apply_withdraw_batch(
+    env: &Env,
+    account: &mut Account,
+    recipient: &Address,
+    kind: WithdrawKind,
+    action: events::PositionAction,
+    entries: &Vec<PoolWithdrawEntry>,
+    cache: &mut Cache,
+) -> Vec<PoolPositionMutation> {
+    let is_liquidation = kind == WithdrawKind::Liquidation;
+    let pool_addr = cache.cached_pool_address();
+    let results = pool_withdraw_call(env, &pool_addr, recipient, is_liquidation, entries);
+    for_each_leg(env, entries, &results, |entry, result| {
+        let hub_asset = entry.action.hub_asset;
+        let outcome = LegOutcome::from(&result);
+        let refresh_spoke =
+            spoke_refresh_for_leg(kind, cache, account, &hub_asset, outcome.new_scaled);
+        merge_withdraw_leg(
+            env,
+            account,
+            action,
+            &hub_asset,
+            &refresh_spoke,
+            &outcome,
+            cache,
+        );
+    });
+    results
+}
+
+// ---------------------------------------------------------------------------
+// Tier 4: single-leg account merge
+// ---------------------------------------------------------------------------
+
+/// Per-leg merge: scaled shares, usage, optional risk refresh, supply map, event.
+///
+/// Risk params refresh only when `refresh_spoke` is `Refresh` and the leg leaves
+/// shares behind.
+pub(crate) fn merge_withdraw_leg(
+    env: &Env,
+    account: &mut Account,
+    action: events::PositionAction,
+    hub_asset: &HubAssetKey,
+    refresh_spoke: &SpokeRefresh,
+    outcome: &LegOutcome,
+    cache: &mut Cache,
+) {
+    let mut result_position = get_supply_position_or_panic(env, account, hub_asset);
+    let old_scaled = result_position.scaled_amount;
+    // Pool owns scaled shares; controller keeps collateral risk params unless refreshing.
+    result_position.scaled_amount = outcome.new_scaled;
+
+    cache.put_market_index(hub_asset, &outcome.market_index);
+    apply_leg_usage(
+        env,
+        cache,
+        account.spoke_id,
+        UsageSide::Supply,
+        hub_asset,
+        LegDirection::Exit,
+        old_scaled,
+        outcome,
+    );
+
+    // Backstop, not a duplicate: `refresh_spoke` and `outcome` arrive independently
+    // and callers reach this leaf directly, so do not trust that they agree.
+    if matches!(refresh_spoke, SpokeRefresh::Refresh) && result_position.scaled_amount != Ray::ZERO
+    {
+        let config: AssetConfig = (&cache.require_spoke_asset(account.spoke_id, hub_asset)).into();
+        refresh_supply_risk_params(
+            env,
+            cache,
+            account,
+            hub_asset,
+            &mut result_position,
+            &config,
+            RiskRefreshScope::FullTuple,
+        );
+    }
+
+    update_or_remove_supply_position(account, hub_asset, &result_position);
+
+    cache.record_supply_position_update(
+        action,
+        hub_asset,
+        outcome.market_index.supply_index,
+        outcome.amount,
+        &result_position,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Risk-param refresh policy (shared by tiers 3 and 4)
+// ---------------------------------------------------------------------------
+
+/// Whether a withdraw leg restamps risk params from live spoke config, or keeps
+/// the vintage stamped at supply time. Any one reason freezes it:
+/// * liquidation — a seizure settles against the vintage it was priced on, so a
+///   delisted or frozen leg stays seizable;
+/// * the asset is no longer listed, so there is no live config;
+/// * the leg emptied the position ([`merge_withdraw_leg`] rechecks this itself).
+///
+/// Order is load-bearing: `cached_spoke_asset` renews the listing TTL on a memo
+/// miss, so the emptied check must not short-circuit past it.
+pub(crate) fn spoke_refresh_for_leg(
+    kind: WithdrawKind,
+    cache: &mut Cache,
+    account: &Account,
+    hub_asset: &HubAssetKey,
+    new_scaled: Ray,
+) -> SpokeRefresh {
+    if kind == WithdrawKind::Liquidation {
+        return SpokeRefresh::Frozen;
+    }
+    if cache
+        .cached_spoke_asset(account.spoke_id, hub_asset)
+        .is_none()
+    {
+        return SpokeRefresh::Frozen;
+    }
+    if new_scaled == Ray::ZERO {
+        return SpokeRefresh::Frozen;
+    }
+    SpokeRefresh::Refresh
 }
