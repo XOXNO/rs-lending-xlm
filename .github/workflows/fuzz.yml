@@ -11,11 +11,17 @@ on:
       - 'tests/test-harness/**'
       - 'tests/fuzz/**'
   schedule:
-    # All `self-hosted` lanes are runner services on ONE 32-core box, so the
-    # long suites are split across two windows rather than run together. Sharing
-    # 02:00 meant mutants(4 lanes) + fuzz(6) + proptest(5) = 15 concurrent jobs
-    # competing for 32 cores, and the mutation matrix is the one that scales
-    # with core count. Jobs select their window with startsWith() on the cron.
+    # The long suites run in two windows rather than together. This predates the
+    # dedicated mutation box: every `self-hosted` lane used to be a runner
+    # service on ONE 32-core host, and sharing 02:00 meant mutants(4 lanes) +
+    # fuzz(6) + proptest(5) = 15 concurrent jobs on 32 cores. Jobs select their
+    # window with startsWith() on the cron.
+    #
+    # The mutation matrix is now label-pinned to its own box, so the windows no
+    # longer overlap on hardware and could in principle be merged. Left split
+    # until the new box has run a full nightly and its core budget is confirmed
+    # — collapsing them is a one-line change, un-collapsing after a bad night is
+    # not.
     #
     # 02:00 UTC — mutation matrix.
     - cron: '0 2 * * 1-6'
@@ -615,18 +621,26 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
       inputs.suite == 'mutants')
     name: Mutants (${{ matrix.target }}${{ matrix.suffix || '' }})
-    runs-on: self-hosted
+    # Pinned to the dedicated box. `rs-lending-xlm` is carried only by the three
+    # repo-level runner services on it; the org-level pool (Runner-1/2/3 and
+    # Ubuntu-2004-focal-64-minimal, all four services on one shared host) does
+    # not have it. Bare `self-hosted` matches both pools, so without this label
+    # the matrix lands wherever and the per-box worker budget below means
+    # nothing. Fuzz and proptest still run unpinned on the shared host.
+    runs-on: [self-hosted, rs-lending-xlm]
     needs: [stellar-tool, mutants-tool, wasm-fixtures]
     # A wedged lane holds a runner service for the whole window. Scheduled runs
     # do not cancel-in-progress, so an over-long run also queues the next night.
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      # All `self-hosted` lanes are runner services on ONE 32-core/128-GB box,
-      # so lanes do not add compute — they only partition it. Four lanes x eight
-      # cargo-mutants workers = 32 mutants in flight = one per core; see the
-      # per-process thread budget on the run step below.
-      max-parallel: 4
+      # Lanes are runner services on ONE box, so they do not add compute — they
+      # only partition it. The cap is min(services on the box, cores / workers
+      # per lane): three services are registered there, and three lanes x eight
+      # cargo-mutants workers = 24 mutants in flight. Re-derive this whenever
+      # the box's core count or its service count changes; see the per-process
+      # thread budget on the run step below.
+      max-parallel: 3
       matrix:
         # Sharding splits one scope's mutant list across lanes. On a single box
         # it buys tail latency only (it cannot add throughput) and costs one job
@@ -757,11 +771,16 @@ jobs:
         # Scratch mode is required for cargo-mutants worker parallelism, and
         # target-mutants stays isolated from ordinary build/test artifacts.
         #
-        # Concurrency budget on the 32-core runner, where L = max-parallel,
+        # Concurrency budget on the pinned box, where L = max-parallel,
         # W = MUTANTS_JOBS, and every knob below is per-process, not global:
-        #   mutants in flight  L x W                    = 4 x 8  = 32
-        #   test threads       L x W x RUST_TEST_THREADS= 4x8x1  = 32
-        #   build tokens       L x MUTANTS_JOBSERVER_TASKS = 4x8 = 32
+        #   mutants in flight  L x W                    = 3 x 8  = 24
+        #   test threads       L x W x RUST_TEST_THREADS= 3x8x1  = 24
+        #   build tokens       L x MUTANTS_JOBSERVER_TASKS = 3x8 = 24
+        # W is still 8 because that is what the previous host's 32 cores
+        # supported. It is NOT yet re-derived for this box — confirm its core
+        # count and RAM and adjust W (and L) together, since the product is
+        # what lands on the cores.
+        #
         # RUST_TEST_THREADS and --jobserver-tasks both default to NCPUS *per
         # process*, which put 1024 test threads and 128 build tokens on 32
         # cores. Pinning them is pure scheduling: no mutant verdict depends on
