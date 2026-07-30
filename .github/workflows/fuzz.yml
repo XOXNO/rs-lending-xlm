@@ -341,16 +341,38 @@ jobs:
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
 
-      - name: Stage cargo-mutants
+      # Scratch mode gives every cargo-mutants worker a fresh build dir, and the
+      # tree copy honours .gitignore — so `target-mutants` is never copied in and
+      # each worker would otherwise cold-build the entire dependency graph. Over
+      # a night that is hundreds of rebuilds of a bit-identical dep tree.
+      # sccache collapses them; `CARGO_INCREMENTAL: '0'` on the run step is its
+      # hard prerequisite. Same wrapper tests.yml/coverage.yml use.
+      #
+      # Installed here rather than per lane: install-action's target is the
+      # shared $HOME/.cargo/bin, so concurrent lanes clobber each other's
+      # unpack. This job is the only writer.
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Stage tools
         run: |
           mkdir -p "$RUNNER_TEMP/cargo-mutants/bin"
           cp "$(command -v cargo-mutants)" "$RUNNER_TEMP/cargo-mutants/bin/cargo-mutants"
+          cp "$(command -v sccache)" "$RUNNER_TEMP/cargo-mutants/bin/sccache"
 
       - name: Upload cargo-mutants
         uses: actions/upload-artifact@v7.0.1
         with:
           name: cargo-mutants-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cargo-mutants/bin/cargo-mutants
+
+      - name: Upload sccache
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: sccache-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cargo-mutants/bin/sccache
 
   # The mutation harness reads three prebuilt wasm fixtures by absolute path
   # (POOL_WASM_PATH, CONTROLLER_WASM_PATH, PRICE_AGGREGATOR_WASM_PATH). They are
@@ -674,17 +696,6 @@ jobs:
         with:
           toolchain: '1.95'
 
-      # Scratch mode gives every cargo-mutants worker a fresh build dir, and the
-      # tree copy honours .gitignore — so `target-mutants` is never copied in and
-      # each worker would otherwise cold-build the entire dependency graph. Over
-      # a night that is hundreds of rebuilds of a bit-identical dep tree.
-      # sccache collapses them; `CARGO_INCREMENTAL: '0'` below is its hard
-      # prerequisite and is already set. Same wrapper tests.yml/coverage.yml use.
-      - name: Install sccache (prebuilt)
-        uses: taiki-e/install-action@v2
-        with:
-          tool: sccache
-
       - name: Download stellar-cli
         uses: actions/download-artifact@v8.0.1
         with:
@@ -697,6 +708,18 @@ jobs:
           name: cargo-mutants-${{ github.run_id }}-${{ github.run_attempt }}
           path: .github/tools
 
+      # Downloaded, not installed here. taiki-e/install-action writes to the
+      # shared $HOME/.cargo/bin, which every concurrent lane on this box also
+      # owns: lanes untar over each other (`tar: Cannot utime`) and exec a
+      # binary another lane is still writing (`Text file busy`, exit 126). Same
+      # shared-$HOME race the RUSTUP_HOME isolation above exists for; the tool
+      # jobs already solve it by installing once and shipping an artifact.
+      - name: Download sccache
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: sccache-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .github/tools
+
       # Into the exact CARGO_TARGET_DIR path MUTANTS_ENV points the harness
       # loaders at, so scratch workers resolve them by absolute path.
       - name: Download wasm fixtures
@@ -707,7 +730,7 @@ jobs:
 
       - name: Add tools to PATH
         run: |
-          chmod +x .github/tools/stellar .github/tools/cargo-mutants
+          chmod +x .github/tools/stellar .github/tools/cargo-mutants .github/tools/sccache
           echo "$PWD/.github/tools" >> "$GITHUB_PATH"
 
       - name: Configure fast host linker
