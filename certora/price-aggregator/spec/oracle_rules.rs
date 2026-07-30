@@ -176,14 +176,7 @@ fn nondet_partial_outcome(
     config: &AssetOracle,
     reading_wad: i128,
 ) -> crate::engine::Outcome {
-    crate::engine::blend_partial(
-        e,
-        config,
-        reading_wad,
-        nondet(),
-        nondet(),
-        nondet::<bool>(),
-    )
+    crate::engine::blend_partial(e, config, reading_wad, nondet(), nondet(), nondet::<bool>())
 }
 
 /// Both dual legs missing never yields a feed: `unreadable` gates first, so
