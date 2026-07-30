@@ -67,6 +67,15 @@ fn sanity_bounds_rejects_pinched_band() {
 }
 
 #[test]
+#[should_panic(expected = "#224")]
+fn sanity_bounds_rejects_band_under_min_width_with_floor() {
+    let env = Env::default();
+    // True half-width ≈ 49.26 bps: ceil would round to 50 and incorrectly
+    // accept; floor keeps 49 and rejects (F-2).
+    validate_sanity_bounds(&env, 10_000, 10_099);
+}
+
+#[test]
 fn sanity_bounds_accepts_band_at_min_width() {
     let env = Env::default();
     // ~60 bps half-width around $1: clears the 50 bps minimum.

@@ -8,7 +8,7 @@ use crate::constants::{
     MIN_SANITY_BAND_BPS, MIN_TOLERANCE, RAY_DECIMALS, WAD,
 };
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
-use crate::math::fp_core::{mul_div_ceil, mul_div_half_up};
+use crate::math::fp_core::{mul_div_ceil, mul_div_floor, mul_div_half_up};
 use crate::oracle::observation::{MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MAX_TWAP_RECORDS};
 use crate::types::OracleTolerance;
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Executable, Vec};
@@ -194,7 +194,9 @@ pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     );
     // Reject a pinched band (no minimum width otherwise): a band barely wider than
     // the live price reverts on the next real print and bricks every hard read.
-    let half_width_bps = mul_div_ceil(env, max_wad - min_wad, BPS, max_wad + min_wad);
+    // Floor so a true half-width slightly under MIN_SANITY_BAND_BPS cannot pass
+    // via ceil inflation (~1 bps slack).
+    let half_width_bps = mul_div_floor(env, max_wad - min_wad, BPS, max_wad + min_wad);
     assert_with_error!(
         env,
         half_width_bps >= MIN_SANITY_BAND_BPS,
