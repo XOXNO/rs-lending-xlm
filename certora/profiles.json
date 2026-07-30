@@ -231,6 +231,9 @@
         "conf": "certora/price-aggregator/confs/config-rejections.conf"
       },
       {
+        "conf": "certora/price-aggregator/confs/fail-closed-miss.conf"
+      },
+      {
         "conf": "certora/price-aggregator/confs/feed-endpoints.conf"
       },
       {

@@ -43,6 +43,18 @@ cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git", rev
 [patch."https://github.com/Certora/cvlr.git"]
 cvlr-log = { path = "vendor/cvlr-log" }
 
+# Dependencies only — the `package."*"` selector never applies to workspace
+# crates, so mutated code still compiles at opt-level 0 and stays cheap for
+# cargo-mutants to rebuild per mutant.
+#
+# The integration harness executes the contract wasm through soroban-env-host's
+# wasmi interpreter, which is a dependency. Unoptimized, that interpreter
+# dominates harness runtime. This does not change semantics: `overflow-checks`
+# and `debug-assertions` are untouched, and [profile.release] (the wasm
+# artifacts) is unaffected.
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.release]
 opt-level = "z"
 overflow-checks = true

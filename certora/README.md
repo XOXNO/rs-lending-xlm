@@ -198,6 +198,24 @@ unbounded batches, or controller persistence of returned account positions. A
 controller verdict that reaches a summarized pool call remains conditional on
 that summary; keep pool accounting and controller summary proofs separate.
 
+**Oracle modeling notes (price-aggregator + controller):**
+- Aggregator provider summaries (`read_*_source_summary`) use `nondet_option` so
+  `None` / Empty / Partial are reachable. Endpoint rules in
+  `feed-endpoints.conf` / `price-sanity.conf` are **success-path** lemmas
+  (assertions hold when a feed is returned). Fail-closed Empty/Partial gates
+  are proved separately in `fail-closed-miss.conf`.
+- Those fail-closed rules build their outcomes with `engine::blend_{empty,
+  partial}`, cfg-gated shims over the live `blend`, so they bind to the real
+  `Outcome` constructors. What they do **not** cover is `compose`'s
+  `(None, None) → Empty` / `(Some, None) → Partial` match: forcing a provider
+  summary to miss needs ghost state shared between rule and summary. That match
+  is driven end to end by the integration suite instead — see
+  `tests/test-harness/tests/oracle/tolerance/staleness.rs` and `twap.rs`.
+- Controller hard `fetch_prices` harness still always returns a positive feed
+  (solvency / health / liquidation remain **oracle-success-conditional**). Soft
+  `fetch_prices_status` draws nondet `stale` / `deviation` / `valid`, assumed
+  consistent with `Outcome::failure`'s gate order (`valid` implies neither flag).
+
 ## Cloud readiness (Certora hosted prover)
 
 All confs pass local syntax, rule-coverage, profile-coverage, compilation, and

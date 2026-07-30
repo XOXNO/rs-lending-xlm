@@ -115,6 +115,8 @@ fn price_cache_consistency(e: Env, asset: Address) {
     cvlr_assert!(feed.timestamp == seeded.timestamp);
 }
 
+/// Success-path only: provider summaries may return `None` (miss). Paths that
+/// reach a returned feed must still respect the configured sanity band.
 #[rule]
 fn single_price_respects_configured_sanity_bounds(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);
@@ -128,6 +130,8 @@ fn single_price_respects_configured_sanity_bounds(e: Env, asset: Address, oracle
     cvlr_assert!(feed.asset_decimals == config.asset_decimals);
 }
 
+/// Success-path reachability: there exists a provider-`Some` assignment where
+/// `price` returns a positive feed (miss paths panic and do not satisfy).
 #[rule]
 fn price_endpoint_sanity(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);
@@ -139,6 +143,7 @@ fn price_endpoint_sanity(e: Env, asset: Address, oracle: Address) {
     cvlr_satisfy!(feed.price_wad > 0);
 }
 
+/// Success-path only: when both keys resolve, the bulk map contains each key.
 #[rule]
 fn bulk_prices_contains_each_requested_asset(
     e: Env,
@@ -157,6 +162,75 @@ fn bulk_prices_contains_each_requested_asset(
     let prices = crate::PriceAggregator::prices(e, requested);
     cvlr_assert!(prices.contains_key(k1));
     cvlr_assert!(prices.contains_key(k2));
+}
+
+/// A `Legs::Partial` outcome from the real `blend`, over an unconstrained slot,
+/// timestamp and staleness. Only `price_wad` is bounded, so the rules below hold
+/// for every readable single leg a dual config can produce.
+///
+/// Built by [`crate::engine::blend_partial`] rather than as an `Outcome` literal:
+/// a literal would keep these rules green after a regression that dropped
+/// `deviation` from `Outcome::partial`, which is the property they exist to pin.
+fn nondet_partial_outcome(
+    e: &Env,
+    config: &AssetOracle,
+    reading_wad: i128,
+) -> crate::engine::Outcome {
+    crate::engine::blend_partial(
+        e,
+        config,
+        reading_wad,
+        nondet(),
+        nondet(),
+        nondet::<bool>(),
+    )
+}
+
+/// Both dual legs missing never yields a feed: `unreadable` gates first, so
+/// `force` reverts `NoLastPrice` for every config.
+#[rule]
+fn empty_legs_force_reverts(e: Env, asset: Address, oracle: Address) {
+    cvlr_assume!(asset != oracle);
+    let config = pinned_oracle(&e, &asset, oracle);
+    let outcome = crate::engine::blend_empty(&e, &config);
+    let _ = crate::engine::force(&e, &outcome, Some(&config));
+    cvlr_assert!(false);
+}
+
+/// One readable dual leg never yields a feed. The code is `PriceFeedStale` when
+/// the surviving leg is stale and `UnsafePriceNotAllowed` otherwise — the rule
+/// asserts unreachability, so it covers both without splitting.
+#[rule]
+fn partial_legs_force_reverts(e: Env, asset: Address, oracle: Address, reading_wad: i128) {
+    cvlr_assume!(asset != oracle);
+    cvlr_assume!(reading_wad > 0 && reading_wad <= MAX_REALISTIC_PRICE);
+    let config = pinned_oracle(&e, &asset, oracle);
+    let outcome = nondet_partial_outcome(&e, &config, reading_wad);
+    let _ = crate::engine::force(&e, &outcome, Some(&config));
+    cvlr_assert!(false);
+}
+
+/// Soft status for Empty is unusable (`valid == false`).
+#[rule]
+fn empty_legs_soft_invalid(e: Env, asset: Address, oracle: Address) {
+    cvlr_assume!(asset != oracle);
+    let config = pinned_oracle(&e, &asset, oracle);
+    let outcome = crate::engine::blend_empty(&e, &config);
+    let status = crate::engine::to_status(&outcome, Some(&config));
+    cvlr_assert!(!status.valid);
+}
+
+/// Soft status for Partial flags deviation and is not valid — for every slot and
+/// staleness, since a dual config without both opinions never agreed.
+#[rule]
+fn partial_legs_soft_deviation(e: Env, asset: Address, oracle: Address, reading_wad: i128) {
+    cvlr_assume!(asset != oracle);
+    cvlr_assume!(reading_wad > 0 && reading_wad <= MAX_REALISTIC_PRICE);
+    let config = pinned_oracle(&e, &asset, oracle);
+    let outcome = nondet_partial_outcome(&e, &config, reading_wad);
+    let status = crate::engine::to_status(&outcome, Some(&config));
+    cvlr_assert!(status.deviation);
+    cvlr_assert!(!status.valid);
 }
 
 #[rule]
