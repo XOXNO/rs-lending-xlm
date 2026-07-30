@@ -621,30 +621,34 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
       inputs.suite == 'mutants')
     name: Mutants (${{ matrix.target }}${{ matrix.suffix || '' }})
-    # Pinned to the dedicated box. `rs-lending-xlm` is carried only by the three
-    # repo-level runner services on it; the org-level pool (Runner-1/2/3 and
-    # Ubuntu-2004-focal-64-minimal, all four services on one shared host) does
-    # not have it. Bare `self-hosted` matches both pools, so without this label
-    # the matrix lands wherever and the per-box worker budget below means
-    # nothing. Fuzz and proptest still run unpinned on the shared host.
-    runs-on: [self-hosted, rs-lending-xlm]
+    # Deliberately unpinned: `self-hosted` matches every service on both hosts
+    # (3 on the dedicated box, 4 on the shared one), and GitHub hands each
+    # queued lane to whichever frees up first. That work-stealing matters here
+    # because scope wall times range from ~20 to ~170 minutes, so any static
+    # host split would idle one box while the other still has queue.
+    #
+    # This does NOT risk piling every lane onto one host. A lane occupies a
+    # runner service, so each host is capped by its own service count — see the
+    # budget note on max-parallel below.
+    runs-on: self-hosted
     needs: [stellar-tool, mutants-tool, wasm-fixtures]
     # A wedged lane holds a runner service for the whole window. Scheduled runs
     # do not cancel-in-progress, so an over-long run also queues the next night.
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      # Lanes are runner services on ONE box, so they do not add compute — they
-      # only partition it. Effective parallelism is min(this cap, runner
-      # services registered on the box). Raising the cap alone changes nothing:
-      # a lane needs a service to run on, so with three services registered the
-      # 4th..8th lanes queue exactly as they did at max-parallel: 3. Register
-      # more services on the box to actually cash this in.
+      # A lane needs a free runner service, so THE PER-HOST BUDGET IS THE
+      # SERVICE COUNT ON THAT HOST, not this number. Today: 3 services on the
+      # dedicated box, 4 on the shared one, so the worst case per host is
+      #   dedicated  3 x MUTANTS_JOBS: 8 = 24 mutants in flight
+      #   shared     4 x MUTANTS_JOBS: 8 = 32   (its full 32 cores)
+      # and no placement GitHub picks can exceed either. This cap is only the
+      # global ceiling; at 7 total services it binds at 7. Add services to a
+      # host to give it more lanes — and cut MUTANTS_JOBS in step, since
+      # services x workers is what lands on that host's cores.
       #
-      # The other half is the worker budget: 8 lanes x MUTANTS_JOBS: 8 = 64
-      # mutants in flight, and 8 is inherited from the old 32-core host. The
-      # "Report host capacity" step below prints nproc so the two can be
-      # re-derived together — the product is what lands on the cores.
+      # "Report host capacity" below prints each host's nproc, so the dedicated
+      # box's 24 can be checked against what it actually has.
       max-parallel: 8
       matrix:
         # Sharding splits one scope's mutant list across lanes. On a single box
@@ -786,16 +790,15 @@ jobs:
         # Scratch mode is required for cargo-mutants worker parallelism, and
         # target-mutants stays isolated from ordinary build/test artifacts.
         #
-        # Concurrency budget on the pinned box, where L = max-parallel,
-        # W = MUTANTS_JOBS, and every knob below is per-process, not global:
-        #   mutants in flight  L x W                    = 8 x 8  = 64
-        #   test threads       L x W x RUST_TEST_THREADS= 8x8x1  = 64
-        #   build tokens       L x MUTANTS_JOBSERVER_TASKS = 8x8 = 64
-        # W is still 8 because that is what the previous host's 32 cores
-        # supported, and L is now 8 by request. 64 is only right if this box has
-        # ~64 usable cores — check "Report host capacity" above against it. If
-        # it does not, W is the knob to cut, not L: fewer workers per lane keeps
-        # the tail-cutting benefit of more lanes.
+        # Concurrency budget is per HOST, where S = runner services on that host
+        # and W = MUTANTS_JOBS. Every knob below is per-process, not global, so
+        # the load a host actually sees is:
+        #   mutants in flight  S x W                        (shared: 4x8 = 32)
+        #   test threads       S x W x RUST_TEST_THREADS    (shared: 4x8x1 = 32)
+        #   build tokens       S x MUTANTS_JOBSERVER_TASKS  (shared: 4x8 = 32)
+        # W: 8 was derived for the shared host's 32 cores and lands exactly on
+        # them. The dedicated box runs 3 services, so it sees 24 — verify that
+        # against its nproc in "Report host capacity" above.
         #
         # RUST_TEST_THREADS and --jobserver-tasks both default to NCPUS *per
         # process*, which put 1024 test threads and 128 build tokens on 32
