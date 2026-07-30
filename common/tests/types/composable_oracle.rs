@@ -141,6 +141,30 @@ fn test_join_propagates_defect_unions_trust_and_takes_max_depth() {
 }
 
 #[test]
+fn test_join_takes_the_deeper_branch_in_either_order() {
+    // The case above only ever joins depth 0 with depth 1, in that order, which
+    // every comparison shape agrees on. Depth drives MAX_RESOLUTION_DEPTH, so
+    // the direction has to be pinned from both sides — and equal depths must
+    // stay put rather than pick up a level.
+    let env = Env::default();
+    let reflector = Address::generate(&env);
+    let base = SourceProperties::of_feed(&env, &reflector_twap(&env, &reflector, 3));
+
+    let shallow = base.clone().nest();
+    let deep = base.clone().nest().nest();
+    assert_eq!(shallow.depth, 1);
+    assert_eq!(deep.depth, 2);
+
+    assert_eq!(deep.join(&shallow).depth, 2, "deeper self wins");
+    assert_eq!(shallow.join(&deep).depth, 2, "deeper other wins");
+    assert_eq!(
+        shallow.join(&shallow).depth,
+        1,
+        "equal depths compose to the same level"
+    );
+}
+
+#[test]
 fn test_join_deduplicates_trust() {
     let env = Env::default();
     let adapter = Address::generate(&env);

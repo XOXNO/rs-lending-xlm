@@ -436,8 +436,9 @@ impl SourceProperties {
     }
 
     /// Combines two contributions to one source: a defect anywhere taints the
-    /// whole, trust accumulates, freshness takes the tighter bound, depth takes
-    /// the deeper branch.
+    /// whole, trust accumulates, freshness takes the looser bound (see
+    /// [`SourceProperties::loosest_max_stale_seconds`] for why), depth takes the
+    /// deeper branch.
     pub fn join(&self, other: &SourceProperties) -> Self {
         let mut trust = self.trust.clone();
         for domain in other.trust.iter() {
@@ -452,11 +453,7 @@ impl SourceProperties {
             loosest_max_stale_seconds: self
                 .loosest_max_stale_seconds
                 .max(other.loosest_max_stale_seconds),
-            depth: if self.depth > other.depth {
-                self.depth
-            } else {
-                other.depth
-            },
+            depth: self.depth.max(other.depth),
         }
     }
 
