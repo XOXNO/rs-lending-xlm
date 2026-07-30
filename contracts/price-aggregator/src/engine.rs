@@ -72,8 +72,10 @@ pub(crate) struct Outcome {
     pub asset_decimals: u32,
     pub stale: bool,
     pub deviation: bool,
-    pub unreadable: bool,
-    /// Structural or nested-precise failure. Soft → unusable; hard → panic code.
+    /// Structural, gate, or unreadable-leg failure. Soft → unusable; hard →
+    /// panic code. This is the only failure channel: an unreadable leg carries
+    /// `NoLastPrice` here rather than a separate flag, so there is exactly one
+    /// place a reader has to look.
     pub err: Option<OracleError>,
 }
 
@@ -89,24 +91,22 @@ impl Outcome {
             asset_decimals: 0,
             stale: false,
             deviation: false,
-            unreadable: false,
             err: None,
         }
     }
 
     fn with_err(err: OracleError) -> Self {
         Outcome {
-            unreadable: true,
             err: Some(err),
             ..Self::blank()
         }
     }
 
+    /// No leg produced a reading. Distinct enough at the call site to name, but
+    /// it is an ordinary failure: `NoLastPrice` is exactly what the gate order
+    /// reported for it before.
     fn unreadable() -> Self {
-        Outcome {
-            unreadable: true,
-            ..Self::blank()
-        }
+        Self::with_err(OracleError::NoLastPrice)
     }
 
     fn one(r: Reading, asset_decimals: u32) -> Self {
@@ -120,7 +120,6 @@ impl Outcome {
             asset_decimals,
             stale: r.stale,
             deviation: false,
-            unreadable: false,
             err: None,
         }
     }
@@ -141,7 +140,6 @@ impl Outcome {
             stale: reading.stale,
             // Dual config without both opinions never agreed.
             deviation: true,
-            unreadable: false,
             err: None,
         }
     }
@@ -152,9 +150,6 @@ impl Outcome {
     fn failure(&self, oracle: Option<&AssetOracle>) -> Option<OracleError> {
         if let Some(err) = self.err {
             return Some(err);
-        }
-        if self.unreadable {
-            return Some(OracleError::NoLastPrice);
         }
         let Some(oracle) = oracle else {
             return Some(OracleError::OracleNotConfigured);
@@ -199,7 +194,7 @@ pub(crate) fn force(env: &Env, outcome: &Outcome, oracle: Option<&AssetOracle>) 
 
 /// Soft diagnostic flags. `valid` matches hard success via [`Outcome::failure`].
 pub(crate) fn to_status(outcome: &Outcome, oracle: Option<&AssetOracle>) -> PriceStatus {
-    if outcome.err.is_some() || outcome.unreadable {
+    if outcome.err.is_some() {
         return PriceStatus::unusable();
     }
     PriceStatus {
@@ -381,7 +376,6 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
                 asset_decimals: oracle.asset_decimals,
                 stale,
                 deviation,
-                unreadable: false,
                 err: None,
             }
         }

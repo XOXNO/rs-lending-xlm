@@ -6,8 +6,11 @@ use common::types::{
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, String, Symbol, Vec};
 
-use crate::test_support::{NonUsdReflector, TwapReflector};
+use crate::test_support::{
+    NonUsdReflector, StubXoxnoAdapter, TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
+};
 use crate::PriceAggregator;
+use common::constants::WAD;
 
 fn oracle(env: &Env, decimals: u32) -> AssetOracle {
     let mut sources = Vec::new(env);
@@ -220,5 +223,97 @@ fn test_set_oracle_attests_the_factor_leg_of_a_scaled_source() {
         cfg.sources = sources;
 
         set_oracle(&env, PriceKey::Token(Address::generate(&env)), cfg);
+    });
+}
+
+/// A single Xoxno-adapter feed whose own staleness window is `max_stale`.
+fn xoxno_oracle(env: &Env, contract: &Address, max_stale: u64) -> AssetOracle {
+    let mut sources = Vec::new(env);
+    sources.push_back(PriceSource::Feed(FeedSource {
+        provider: ProviderRef::MultiFeed(MultiFeedRef {
+            contract: contract.clone(),
+            feed_id: String::from_str(env, "BTC/USD"),
+            kind: ProviderKind::Xoxno,
+            nature: FeedNature::Fundamental,
+        }),
+        decimals: 8,
+        max_stale_seconds: max_stale,
+    }));
+    AssetOracle {
+        asset_decimals: 8,
+        max_price_stale_seconds: max_stale.max(XOXNO_SUBMISSION_WINDOW_SECS),
+        sources,
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence: IndependencePolicy::RequireDisjoint,
+        min_sanity_price_wad: WAD - WAD / 20,
+        max_sanity_price_wad: WAD + WAD / 20,
+    }
+}
+
+#[test]
+fn test_set_oracle_accepts_a_window_matching_the_xoxno_adapter() {
+    // Equality is legal: a config exactly as tolerant as the adapter's own
+    // promise can always be satisfied.
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let adapter = env.register(StubXoxnoAdapter, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        set_oracle(
+            &env,
+            key.clone(),
+            xoxno_oracle(&env, &adapter, XOXNO_SUBMISSION_WINDOW_SECS),
+        );
+        assert!(get_oracle(&env, &key).is_some());
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #218)")]
+fn test_set_oracle_rejects_a_window_tighter_than_the_xoxno_adapter_allows() {
+    // The adapter is permitted to serve submissions up to its own window old.
+    // A config that refuses data the provider considers healthy is
+    // unsatisfiable — the market reverts on reads nothing is wrong with.
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let adapter = env.register(StubXoxnoAdapter, ());
+        set_oracle(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            xoxno_oracle(&env, &adapter, XOXNO_SUBMISSION_WINDOW_SECS - 1),
+        );
+    });
+}
+
+#[test]
+fn test_revalidation_touches_only_the_keys_that_actually_depend_on_the_change() {
+    // Writing a config re-probes the keys that quote it, because a child change
+    // can invalidate a parent that was fine a moment ago. It must not re-probe
+    // anything else: the registry accumulates keys over the protocol's life, and
+    // any one of them can be temporarily unreadable (a paused adapter, a feed
+    // between publishes). If an unrelated broken key could veto the write, one
+    // dead provider would freeze all oracle configuration — including the
+    // config change needed to route around it.
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        // Stored directly, so it never had to pass a probe. Its adapter has no
+        // price, so it would fail one now.
+        let stranded = PriceKey::Ref(Symbol::new(&env, "STRANDED"));
+        store_oracle(&env, &stranded, &oracle(&env, 8));
+
+        let reflector = env.register(TwapReflector, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        set_oracle(&env, key.clone(), reflector_oracle(&env, &reflector, 14));
+
+        assert!(get_oracle(&env, &key).is_some());
+        assert!(
+            get_oracle(&env, &stranded).is_some(),
+            "the unrelated key is untouched, not repaired and not removed"
+        );
     });
 }

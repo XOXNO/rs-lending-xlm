@@ -179,8 +179,8 @@ fn nondet_partial_outcome(
     crate::engine::blend_partial(e, config, reading_wad, nondet(), nondet(), nondet::<bool>())
 }
 
-/// Both dual legs missing never yields a feed: `unreadable` gates first, so
-/// `force` reverts `NoLastPrice` for every config.
+/// Both dual legs missing never yields a feed: the blend carries `NoLastPrice`
+/// as its error, which gates first, so `force` reverts for every config.
 #[rule]
 fn empty_legs_force_reverts(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);

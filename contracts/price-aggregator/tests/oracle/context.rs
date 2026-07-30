@@ -1,5 +1,11 @@
 use super::*;
-use soroban_sdk::testutils::Address as _;
+use crate::test_support::{in_contract, CountingRedStoneAdapter, CountingRedStoneAdapterClient};
+use common::constants::WAD;
+use common::types::{
+    AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
+    ProviderKind, ScaledSource,
+};
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, Symbol};
 
 fn token(env: &Env) -> PriceKey {
@@ -59,4 +65,209 @@ fn test_distinct_keys_do_not_collide() {
     session.push_key(&a);
     assert!(!session.is_resolving(&b));
     session.pop_key();
+}
+
+// ---------------------------------------------------------------------------
+// Bulk prefetch
+// ---------------------------------------------------------------------------
+//
+// The feed cache and the bulk prefetch are pure memos: the price a key resolves
+// to is identical whether it came from a warm batch, a lazy single read, or a
+// cache hit. Adapter call counts are the only observable, so every assertion
+// below is a count.
+
+const NOW: u64 = 1_000_000;
+const CEILING: u64 = 3_600;
+
+fn multi_feed(env: &Env, adapter: &Address, feed_id: &str) -> FeedSource {
+    FeedSource {
+        provider: ProviderRef::MultiFeed(MultiFeedRef {
+            contract: adapter.clone(),
+            feed_id: String::from_str(env, feed_id),
+            kind: ProviderKind::RedStone,
+            nature: FeedNature::Fundamental,
+        }),
+        decimals: 8,
+        max_stale_seconds: CEILING,
+    }
+}
+
+fn oracle_of(env: &Env, source: PriceSource) -> AssetOracle {
+    let mut sources = Vec::new(env);
+    sources.push_back(source);
+    AssetOracle {
+        asset_decimals: 8,
+        max_price_stale_seconds: CEILING,
+        sources,
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence: IndependencePolicy::RequireDisjoint,
+        min_sanity_price_wad: WAD / 2,
+        max_sanity_price_wad: 2 * WAD,
+    }
+}
+
+/// Registers a counting adapter with `feeds` published at one WAD each.
+fn counting_adapter<'a>(
+    env: &'a Env,
+    feeds: &[&str],
+) -> (Address, CountingRedStoneAdapterClient<'a>) {
+    let id = env.register(CountingRedStoneAdapter, ());
+    let client = CountingRedStoneAdapterClient::new(env, &id);
+    for feed in feeds {
+        client.set_price(&String::from_str(env, feed), &WAD);
+    }
+    (id, client)
+}
+
+fn feed_key(env: &Env, adapter: &Address, feed_id: &str) -> PriceKey {
+    let key = PriceKey::Token(Address::generate(env));
+    crate::admin::store_oracle(
+        env,
+        &key,
+        &oracle_of(env, PriceSource::Feed(multi_feed(env, adapter, feed_id))),
+    );
+    key
+}
+
+#[test]
+fn test_one_bulk_read_serves_every_leg_and_no_lazy_read_follows() {
+    // Two feeds on one adapter is the shape warm exists for: one bulk call
+    // replaces two single ones, and the cache it fills must actually be
+    // consulted afterwards — a prefetch nothing reads is worse than none.
+    let env = Env::default();
+    env.ledger().set_timestamp(NOW);
+    let (adapter, client) = counting_adapter(&env, &["A", "B"]);
+
+    in_contract(&env, || {
+        let first = feed_key(&env, &adapter, "A");
+        let second = feed_key(&env, &adapter, "B");
+        let keys = Vec::from_array(&env, [first.clone(), second.clone()]);
+
+        let mut session = Session::new(&env);
+        session.warm(&keys);
+        assert_eq!(
+            crate::engine::resolve(&mut session, &first, 0).price_wad,
+            WAD
+        );
+        assert_eq!(
+            crate::engine::resolve(&mut session, &second, 0).price_wad,
+            WAD
+        );
+    });
+
+    let (single, bulk, batch) = client.counts();
+    assert_eq!(bulk, 1, "one bulk read for the whole batch");
+    assert_eq!(batch, 2, "both feed ids in it");
+    assert_eq!(single, 0, "and nothing read lazily afterwards");
+}
+
+#[test]
+fn test_a_lone_feed_is_read_lazily_rather_than_bulked() {
+    // Below the bulk threshold a batch call costs more than the single read it
+    // would replace, so warm leaves it alone.
+    let env = Env::default();
+    env.ledger().set_timestamp(NOW);
+    let (adapter, client) = counting_adapter(&env, &["A"]);
+
+    in_contract(&env, || {
+        let only = feed_key(&env, &adapter, "A");
+        let mut session = Session::new(&env);
+        session.warm(&Vec::from_array(&env, [only.clone()]));
+        assert_eq!(
+            crate::engine::resolve(&mut session, &only, 0).price_wad,
+            WAD
+        );
+    });
+
+    let (single, bulk, _) = client.counts();
+    assert_eq!(bulk, 0, "one feed does not earn a bulk call");
+    assert_eq!(single, 1);
+}
+
+#[test]
+fn test_the_prefetch_walk_stops_at_the_composition_cap() {
+    // warm walks nested quotes to find their legs, and that walk carries the
+    // same depth cap the resolver does. A walk that stopped accumulating depth
+    // would descend the whole chain; one that stopped a level early would miss
+    // the deepest leg it is allowed to prefetch. Both show up as a batch of the
+    // wrong size.
+    let env = Env::default();
+    env.ledger().set_timestamp(NOW);
+    let (adapter, client) = counting_adapter(&env, &["F1", "F2", "F3", "F4", "LEAF"]);
+
+    in_contract(&env, || {
+        let mut current = PriceKey::Ref(Symbol::new(&env, "LEAF"));
+        crate::admin::store_oracle(
+            &env,
+            &current,
+            &oracle_of(&env, PriceSource::Feed(multi_feed(&env, &adapter, "LEAF"))),
+        );
+
+        // Four scaled levels above the leaf, so the walk starts at depth 0 and
+        // the leaf itself sits one past the cap.
+        for (name, factor) in [("L4", "F4"), ("L3", "F3"), ("L2", "F2"), ("L1", "F1")] {
+            let key = PriceKey::Ref(Symbol::new(&env, name));
+            crate::admin::store_oracle(
+                &env,
+                &key,
+                &oracle_of(
+                    &env,
+                    PriceSource::Scaled(ScaledSource {
+                        factor: multi_feed(&env, &adapter, factor),
+                        quote: current.clone(),
+                        min_factor_wad: WAD,
+                        max_factor_wad: WAD,
+                    }),
+                ),
+            );
+            current = key;
+        }
+
+        let mut session = Session::new(&env);
+        session.warm(&Vec::from_array(&env, [current.clone()]));
+    });
+
+    let (_, bulk, batch) = client.counts();
+    assert_eq!(bulk, 1);
+    assert_eq!(
+        batch,
+        MAX_RESOLUTION_DEPTH + 1,
+        "one factor leg per level the cap admits, and the leaf past it left out"
+    );
+}
+
+#[test]
+fn test_a_short_bulk_response_is_discarded_rather_than_misaligned() {
+    // Payloads are matched to feed ids by index. An adapter answering two ids
+    // with one payload has not just returned less — it has made index 1 mean
+    // something different, so every id after the gap would cache the wrong
+    // price. The batch is refused whole and the legs fall back to single reads.
+    let env = Env::default();
+    env.ledger().set_timestamp(NOW);
+    let (adapter, client) = counting_adapter(&env, &["A", "B"]);
+    client.set_short(&true);
+
+    in_contract(&env, || {
+        let first = feed_key(&env, &adapter, "A");
+        let second = feed_key(&env, &adapter, "B");
+        let keys = Vec::from_array(&env, [first.clone(), second.clone()]);
+
+        let mut session = Session::new(&env);
+        session.warm(&keys);
+        assert_eq!(
+            crate::engine::resolve(&mut session, &first, 0).price_wad,
+            WAD
+        );
+        assert_eq!(
+            crate::engine::resolve(&mut session, &second, 0).price_wad,
+            WAD
+        );
+    });
+
+    let (single, bulk, _) = client.counts();
+    assert_eq!(bulk, 1, "the batch was attempted");
+    assert_eq!(single, 2, "and then thrown away, both legs read singly");
 }

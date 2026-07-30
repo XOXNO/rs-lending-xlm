@@ -39,6 +39,16 @@ exclude_globs = [
 exclude_re = [
     "test_support::",
 
+    # `blend_empty` / `blend_partial` are `#[cfg(feature = "certora")]` shims in
+    # engine.rs, reachable only from the prover harness. Every mutation run uses
+    # `--features testing`, so the mutated bodies are never compiled: the crate
+    # builds, the suite passes, and cargo-mutants reports MISSED for code that no
+    # test under that feature set can execute. Excluded because they are
+    # unreachable in the scope being mutated, not because they are equivalent —
+    # their behavior is verified by the fail-closed-miss Certora profile.
+    "replace blend_empty -> Outcome with Default::default\\(\\)",
+    "replace blend_partial -> Outcome with Default::default\\(\\)",
+
     # Eager strategy prefetch only warms the same transaction cache that the
     # final portfolio-risk pass bulk-prefetches before reading. Removing this
     # call intentionally leaves results and adapter call counts unchanged.

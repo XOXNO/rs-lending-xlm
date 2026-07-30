@@ -11,13 +11,20 @@
 //! directly without the others reloading the same source a second time; each
 //! instead `use`s these items from the shared crate-root module.
 
+use common::constants::WAD;
 use common::errors::OracleError;
+use common::oracle::providers::redstone::{RedStonePriceData, REDSTONE_DECIMALS};
 use common::oracle::providers::reflector::{ReflectorAsset, ReflectorOracle, ReflectorPriceData};
 use mock_redstone::{MockRedStonePriceFeed, MockRedStonePriceFeedClient};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env, Symbol, Vec};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, panic_with_error, Address, Env, String, Symbol, Vec, U256,
+};
 
 use crate::PriceAggregator;
+
+/// WAD per one unit at `REDSTONE_DECIMALS` (8), matching `mock-redstone`.
+const WAD_TO_REDSTONE: i128 = 10_000_000_000;
 
 /// Price scale every Reflector fixture declares, matched by the stubs below.
 const REFLECTOR_DECIMALS: u32 = 14;
@@ -426,3 +433,159 @@ impl ReflectorOracle for RevertingReflector {
         panic_with_error!(&env, OracleError::OracleNotConfigured)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Counting multi-feed adapter
+// ---------------------------------------------------------------------------
+
+/// Counters [`CountingRedStoneAdapter`] keeps, plus the behaviour switch.
+#[contracttype]
+#[derive(Clone)]
+pub(crate) enum CountKey {
+    /// Payload for a feed id, raw at [`REDSTONE_DECIMALS`].
+    Price(String),
+    /// Single-feed reads served.
+    Single,
+    /// Bulk reads served.
+    Bulk,
+    /// Feed-id count the most recent bulk read was asked for.
+    LastBatch,
+    /// When set, bulk reads return one payload fewer than asked for.
+    Short,
+}
+
+/// RedStone-shaped adapter that records how it was called.
+///
+/// The session's feed cache and its bulk prefetch are pure memos: whether a
+/// price came from a warm batch, a lazy single read, or a cache hit, the
+/// resolved price is byte-identical. Call counts are the only thing that can
+/// observe them, which is why every one of those paths needs this fixture
+/// rather than a value assertion.
+///
+/// `Short` makes the adapter answer a two-feed batch with one payload — the
+/// shape that makes feed ids and payloads disagree on index, so payload[i]
+/// stops belonging to feed_ids[i].
+#[contract]
+pub(crate) struct CountingRedStoneAdapter;
+
+#[contractimpl]
+impl CountingRedStoneAdapter {
+    /// Publishes `feed_id` at `price_wad`, dated to the current ledger time.
+    pub fn set_price(env: Env, feed_id: String, price_wad: i128) {
+        let now_ms = env.ledger().timestamp() * 1_000;
+        let data = RedStonePriceData {
+            price: U256::from_u128(&env, (price_wad / WAD_TO_REDSTONE) as u128),
+            package_timestamp: now_ms,
+            write_timestamp: now_ms,
+        };
+        env.storage()
+            .persistent()
+            .set(&CountKey::Price(feed_id), &data);
+    }
+
+    /// Answer bulk reads one payload short of the request.
+    pub fn set_short(env: Env, short: bool) {
+        env.storage().instance().set(&CountKey::Short, &short);
+    }
+
+    /// `(single reads, bulk reads, feed ids in the last bulk read)`.
+    pub fn counts(env: Env) -> (u32, u32, u32) {
+        (
+            Self::counter(&env, CountKey::Single),
+            Self::counter(&env, CountKey::Bulk),
+            Self::counter(&env, CountKey::LastBatch),
+        )
+    }
+
+    pub fn read_price_data_for_feed(env: Env, feed_id: String) -> RedStonePriceData {
+        Self::bump(&env, CountKey::Single);
+        Self::payload(&env, &feed_id)
+    }
+
+    pub fn read_price_data(env: Env, feed_ids: Vec<String>) -> Vec<RedStonePriceData> {
+        Self::bump(&env, CountKey::Bulk);
+        env.storage()
+            .instance()
+            .set(&CountKey::LastBatch, &feed_ids.len());
+
+        let short: bool = env
+            .storage()
+            .instance()
+            .get(&CountKey::Short)
+            .unwrap_or(false);
+        let serve = if short {
+            feed_ids.len().saturating_sub(1)
+        } else {
+            feed_ids.len()
+        };
+
+        let mut out = Vec::new(&env);
+        for (index, feed_id) in feed_ids.iter().enumerate() {
+            if (index as u32) < serve {
+                out.push_back(Self::payload(&env, &feed_id));
+            }
+        }
+        out
+    }
+
+    fn payload(env: &Env, feed_id: &String) -> RedStonePriceData {
+        env.storage()
+            .persistent()
+            .get(&CountKey::Price(feed_id.clone()))
+            .unwrap_or_else(|| panic_with_error!(env, OracleError::NoLastPrice))
+    }
+
+    fn counter(env: &Env, key: CountKey) -> u32 {
+        env.storage().instance().get(&key).unwrap_or(0)
+    }
+
+    fn bump(env: &Env, key: CountKey) {
+        let next = Self::counter(env, key.clone()) + 1;
+        env.storage().instance().set(&key, &next);
+    }
+}
+
+/// Xoxno-adapter-shaped stub. `attest_xoxno` reads decimals *and* the adapter's
+/// own submission window off the same address, so covering it needs a contract
+/// answering both — the RedStone mock has no submission window and the Reflector
+/// stubs have no feed surface.
+///
+/// The window is the adapter's own promise about how old a submission it will
+/// accept. A config whose staleness ceiling is tighter than that promise is
+/// unsatisfiable: the adapter is permitted to serve data the config must reject,
+/// so the market reverts on reads that the provider considers healthy.
+#[contract]
+pub(crate) struct StubXoxnoAdapter;
+
+#[contractimpl]
+impl StubXoxnoAdapter {
+    pub fn decimals(_env: Env) -> u32 {
+        REDSTONE_DECIMALS
+    }
+
+    pub fn max_submission_age_seconds(_env: Env) -> u64 {
+        XOXNO_SUBMISSION_WINDOW_SECS
+    }
+
+    pub fn max_stale_seconds(_env: Env) -> u64 {
+        XOXNO_SUBMISSION_WINDOW_SECS
+    }
+
+    pub fn max_relative_skew_seconds(_env: Env) -> u64 {
+        60
+    }
+
+    /// One unit, stamped now, for any feed id — so `set_oracle`'s live probe
+    /// clears and a rejection can only have come from attestation.
+    pub fn read_price_data_for_feed(env: Env, _feed_id: String) -> RedStonePriceData {
+        let now_ms = env.ledger().timestamp() * 1_000;
+        RedStonePriceData {
+            price: U256::from_u128(&env, (WAD / WAD_TO_REDSTONE) as u128),
+            package_timestamp: now_ms,
+            write_timestamp: now_ms,
+        }
+    }
+}
+
+/// Submission window [`StubXoxnoAdapter`] advertises.
+pub(crate) const XOXNO_SUBMISSION_WINDOW_SECS: u64 = 1_800;
