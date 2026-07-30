@@ -1,7 +1,10 @@
 use super::*;
 use crate::admin;
 use crate::session::Session;
-use crate::test_support::{in_contract, register_redstone_feed, CountingReflector};
+use crate::test_support::{
+    in_contract, register_redstone_feed, CountingReflector, LongHistoryReflector,
+    TightWindowReflector, TwapReflector, TWAP_OLDER_AGE_SECS,
+};
 use common::constants::WAD;
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, LpShareSource, MultiFeedRef,
@@ -572,5 +575,222 @@ fn test_a_scaled_cycle_reverts_at_read_time_too() {
         );
         let mut cache = Session::new(&env);
         let _ = resolve(&mut cache, &key, 0);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// TWAP reads
+// ---------------------------------------------------------------------------
+//
+// A TWAP is only worth more than a spot read if the window it averages is the
+// window the config asked for. Each check below is the difference between an
+// average and a burst dressed as one, so each needs its inclusive edge pinned
+// from both sides.
+
+/// Stores a Reflector-backed TWAP config over `contract` reading `records`
+/// samples, and resolves it. Panics carry the provider's typed error.
+fn resolve_twap(env: &Env, contract: &Address, records: u32) -> PriceFeedRaw {
+    let key = PriceKey::Token(Address::generate(env));
+    admin::store_oracle(
+        env,
+        &key,
+        &oracle(
+            env,
+            sources(
+                env,
+                &[PriceSource::Feed(FeedSource {
+                    provider: ProviderRef::Reflector(ReflectorFeedRef {
+                        contract: contract.clone(),
+                        asset: OracleAssetRef::Symbol(Symbol::new(env, "BTC")),
+                        read_mode: OracleReadMode::Twap(records),
+                    }),
+                    decimals: 14,
+                    max_stale_seconds: ASSET_CEILING,
+                })],
+            ),
+            ASSET_CEILING,
+            1,
+            10 * WAD,
+        ),
+    );
+    let mut session = Session::new(env);
+    resolve(&mut session, &key, 0)
+}
+
+#[test]
+fn test_twap_read_averages_the_window_and_dates_itself_to_the_oldest_sample() {
+    // The fixture reports two distinct samples exactly one resolution apart, so
+    // this pins three inclusive edges at once: sample count equal to the record
+    // count is enough and not too many, and spacing equal to the resolution is
+    // wide enough.
+    let env = Env::default();
+    at_now(&env);
+    let reflector = env.register(TwapReflector, ());
+
+    let feed = in_contract(&env, || resolve_twap(&env, &reflector, 2));
+
+    // Samples are 1 and 3 units, so the mean is 2 — a value neither sample
+    // holds, which one sample echoed back could not produce.
+    assert_eq!(feed.price_wad, 2 * WAD);
+    // Freshness comes from the oldest sample in the window, not the newest:
+    // dating a TWAP to its newest print would let a stale window look live.
+    assert_eq!(feed.timestamp, NOW - TWAP_OLDER_AGE_SECS);
+}
+
+#[test]
+// The hard path collapses every unreadable-leg reason into NoLastPrice, so
+// the provider's own TwapInsufficientObservations (#219) is not what surfaces
+// here. What matters for the guard is that the read fails at all: drop the
+// check and the malformed window prices successfully instead.
+#[should_panic(expected = "Error(Contract, #210)")]
+fn test_twap_read_rejects_a_history_shorter_than_the_window_needs() {
+    // Six records need ceil(6/2) = 3 samples; the fixture only ever returns two.
+    // Averaging them anyway would answer a six-sample question with two.
+    let env = Env::default();
+    at_now(&env);
+    let reflector = env.register(TwapReflector, ());
+    in_contract(&env, || {
+        resolve_twap(&env, &reflector, 6);
+    });
+}
+
+#[test]
+// The hard path collapses every unreadable-leg reason into NoLastPrice, so
+// the provider's own TwapInsufficientObservations (#219) is not what surfaces
+// here. What matters for the guard is that the read fails at all: drop the
+// check and the malformed window prices successfully instead.
+#[should_panic(expected = "Error(Contract, #210)")]
+fn test_twap_read_rejects_more_samples_than_it_asked_for() {
+    // Extra samples widen the averaged window past what the config authorized,
+    // so a provider returning them is refused rather than truncated.
+    let env = Env::default();
+    at_now(&env);
+    let reflector = env.register(LongHistoryReflector, ());
+    in_contract(&env, || {
+        resolve_twap(&env, &reflector, 2);
+    });
+}
+
+#[test]
+// The hard path collapses every unreadable-leg reason into NoLastPrice, so
+// the provider's own TwapInsufficientObservations (#219) is not what surfaces
+// here. What matters for the guard is that the read fails at all: drop the
+// check and the malformed window prices successfully instead.
+#[should_panic(expected = "Error(Contract, #210)")]
+fn test_twap_read_rejects_samples_spaced_tighter_than_the_resolution() {
+    // Samples one second inside the resolution: the window is narrower than the
+    // record count implies, which is what backfilling a short burst looks like.
+    let env = Env::default();
+    at_now(&env);
+    let reflector = env.register(TightWindowReflector, ());
+    in_contract(&env, || {
+        resolve_twap(&env, &reflector, 2);
+    });
+}
+
+#[test]
+fn test_the_depth_backstop_admits_the_cap_and_rejects_everything_past_it() {
+    // Two edges the existing backstop test cannot separate, because it only ever
+    // probes the first illegal depth. The cap is the deepest legal composition,
+    // so a read carried in AT the cap must still resolve; and the guard has to
+    // reject every depth above it, not just the first one — it is a backstop,
+    // and a caller that arrives already over the cap is exactly what it is for.
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "USST", WAD, 0);
+
+    in_contract(&env, || {
+        let key = single_feed_key(&env, &adapter, "USST", ASSET_CEILING);
+        let mut session = Session::new(&env);
+
+        assert!(resolve_nested(&mut session, &key, MAX_RESOLUTION_DEPTH).is_ok());
+        assert!(matches!(
+            resolve_nested(&mut session, &key, MAX_RESOLUTION_DEPTH + 2),
+            Err(common::errors::OracleError::OracleDepthExceeded)
+        ));
+
+        // Again now that the key is memoized, so the re-check on the cached path
+        // is exercised as well as the fresh one.
+        assert!(resolve_nested(&mut session, &key, MAX_RESOLUTION_DEPTH).is_ok());
+        assert!(matches!(
+            resolve_nested(&mut session, &key, MAX_RESOLUTION_DEPTH + 2),
+            Err(common::errors::OracleError::OracleDepthExceeded)
+        ));
+    });
+}
+
+#[test]
+fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
+    // Nesting has to *raise* the depth it passes down, or the cap never binds:
+    // a chain of distinct keys would recurse as far as it liked, and the cycle
+    // guard would not stop it because no key repeats. Five levels is two past
+    // MAX_RESOLUTION_DEPTH, so a chain that stopped accumulating depth would
+    // price successfully here.
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "BASE", WAD, 0);
+    publish(&client, &env, "RATIO", WAD, 0);
+
+    in_contract(&env, || {
+        // Leaf: a plain feed.
+        let mut current = PriceKey::Ref(Symbol::new(&env, "L0"));
+        admin::store_oracle(
+            &env,
+            &current,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Feed(multi_feed(
+                        &env,
+                        &adapter,
+                        "BASE",
+                        RATIO_BOUND,
+                    ))],
+                ),
+                RATIO_BOUND,
+                WAD / 2,
+                2 * WAD,
+            ),
+        );
+
+        // Scaled levels stacked on top of it, two past the cap. Symbols are
+        // spelled out because `Symbol::new` takes a literal.
+        let level_names = ["L1", "L2", "L3", "L4", "L5"];
+        assert!(
+            level_names.len() as u32 > MAX_RESOLUTION_DEPTH + 1,
+            "the chain has to reach past the cap for this test to mean anything"
+        );
+        for name in level_names {
+            let key = PriceKey::Ref(Symbol::new(&env, name));
+            admin::store_oracle(
+                &env,
+                &key,
+                &oracle(
+                    &env,
+                    sources(
+                        &env,
+                        &[PriceSource::Scaled(ScaledSource {
+                            factor: multi_feed(&env, &adapter, "RATIO", RATIO_BOUND),
+                            quote: current.clone(),
+                            min_factor_wad: WAD,
+                            max_factor_wad: WAD,
+                        })],
+                    ),
+                    RATIO_BOUND,
+                    WAD / 2,
+                    2 * WAD,
+                ),
+            );
+            current = key;
+        }
+
+        let mut session = Session::new(&env);
+        assert!(matches!(
+            resolve_nested(&mut session, &current, 0),
+            Err(common::errors::OracleError::OracleDepthExceeded)
+        ));
     });
 }

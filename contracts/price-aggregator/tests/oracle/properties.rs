@@ -216,6 +216,22 @@ fn test_depth_past_the_cap_is_rejected() {
 }
 
 #[test]
+fn test_depth_at_the_cap_is_still_allowed() {
+    // The cap is the deepest legal composition, not the first illegal one. Only
+    // this case separates the two: the rejection above fires either way.
+    let env = Env::default();
+    let reflector = Address::generate(&env);
+    with_contract(&env, || {
+        let mut cache = Session::new(&env);
+        let source = PriceSource::Feed(twap_feed(&env, &reflector));
+        let props = properties_of_source(&mut cache, &source, common::types::MAX_RESOLUTION_DEPTH);
+        // A bare feed sits at depth 0 on its own, so the depth it reports here
+        // is the one the caller carried in.
+        assert_eq!(props.depth, common::types::MAX_RESOLUTION_DEPTH);
+    });
+}
+
+#[test]
 fn test_config_properties_carry_the_one_or_two_arity() {
     let env = Env::default();
     let reflector = Address::generate(&env);

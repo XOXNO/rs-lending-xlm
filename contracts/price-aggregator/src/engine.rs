@@ -388,6 +388,48 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
     }
 }
 
+/// Certora-only: the real `Legs::Empty` outcome.
+///
+/// `Legs`, `Reading` and the `Outcome` constructors are private to this module,
+/// so spec rules would otherwise have to re-declare the shape they mean to prove
+/// and would keep passing after a regression in [`blend`] or [`Outcome`]. These
+/// two shims route through the same [`blend`] the live path uses.
+#[cfg(feature = "certora")]
+pub(crate) fn blend_empty(env: &Env, oracle: &AssetOracle) -> Outcome {
+    blend(env, oracle, Legs::Empty)
+}
+
+/// Certora-only: the real `Legs::Partial` outcome (exactly one dual leg
+/// readable). `stale` is an input, not pinned, because [`Outcome::partial`]
+/// propagates `reading.stale`.
+#[cfg(feature = "certora")]
+pub(crate) fn blend_partial(
+    env: &Env,
+    oracle: &AssetOracle,
+    price_wad: i128,
+    timestamp: u64,
+    stale: bool,
+    primary_slot: bool,
+) -> Outcome {
+    let slot = if primary_slot {
+        LegSlot::Primary
+    } else {
+        LegSlot::Secondary
+    };
+    blend(
+        env,
+        oracle,
+        Legs::Partial {
+            reading: Reading {
+                price_wad,
+                timestamp,
+                stale,
+            },
+            slot,
+        },
+    )
+}
+
 fn compose(session: &mut Session, oracle: &AssetOracle, depth: u32) -> Result<Legs, OracleError> {
     let count = oracle.sources.len();
     if count == 0 || count > 2 {

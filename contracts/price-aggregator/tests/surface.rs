@@ -1010,3 +1010,122 @@ fn audit_hard_price_reverts_outside_sanity_band() {
         "hard price must revert outside sanity band; got {hard:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// price_spread
+// ---------------------------------------------------------------------------
+//
+// A public endpoint with no caller anywhere in the tree. Integrators size
+// liquidation buffers off the returned interval, so both the width and the
+// orientation of that interval are load-bearing.
+
+#[test]
+fn price_spread_of_a_single_source_is_the_degenerate_interval() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1_700_000_000;
+    });
+    let (_owner, client) = register_agg(&env);
+    let asset = Address::generate(&env);
+    let (feed, feed_client) = register_feed(&env);
+    feed_client.set_price(&String::from_str(&env, "BTC/USD"), &WAD);
+    client.set_oracle(
+        &PriceKey::Token(asset.clone()),
+        &redstone_single(&env, &feed, "BTC/USD", 900),
+    );
+
+    // One leg spans nothing, so low and high are the same price — and that
+    // price is the one `price` reports, not a placeholder.
+    assert_eq!(
+        client.price_spread(&PriceKey::Token(asset.clone())),
+        (WAD, WAD)
+    );
+    assert_eq!(client.price(&PriceKey::Token(asset.clone())).price_wad, WAD);
+}
+
+#[test]
+fn price_spread_of_dual_legs_brackets_the_reported_price() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1_700_000_000;
+    });
+    let (_owner, client) = register_agg(&env);
+    let asset = Address::generate(&env);
+    let (feed, feed_client) = register_feed(&env);
+    let anchor = WAD + WAD / 100; // +1%, inside the tolerance band
+    feed_client.set_price(&String::from_str(&env, "PRIMARY"), &WAD);
+    feed_client.set_price(&String::from_str(&env, "ANCHOR"), &anchor);
+    client.set_oracle(
+        &PriceKey::Token(asset.clone()),
+        &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
+    );
+
+    let (low, high) = client.price_spread(&PriceKey::Token(asset.clone()));
+    assert_eq!((low, high), (WAD, anchor));
+    assert!(low < high, "two disagreeing legs span a real interval");
+
+    // The hard price is the midpoint, so the interval must contain it. This is
+    // the property integrators actually rely on; the equalities above only pin
+    // which leg landed on which end.
+    let price = client.price(&PriceKey::Token(asset.clone())).price_wad;
+    assert_eq!(price, (WAD + anchor) / 2);
+    assert!(low <= price && price <= high);
+}
+
+#[test]
+fn price_spread_orders_its_interval_regardless_of_leg_order() {
+    // Same two prices, swapped between primary and anchor. `low` must still be
+    // the smaller: the endpoint sorts by value, it does not echo leg position.
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1_700_000_000;
+    });
+    let (_owner, client) = register_agg(&env);
+    let asset = Address::generate(&env);
+    let (feed, feed_client) = register_feed(&env);
+    let anchor = WAD + WAD / 100;
+    feed_client.set_price(&String::from_str(&env, "PRIMARY"), &anchor);
+    feed_client.set_price(&String::from_str(&env, "ANCHOR"), &WAD);
+    client.set_oracle(
+        &PriceKey::Token(asset.clone()),
+        &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
+    );
+
+    assert_eq!(
+        client.price_spread(&PriceKey::Token(asset.clone())),
+        (WAD, anchor)
+    );
+}
+
+#[test]
+fn hard_price_accepts_the_inclusive_edges_of_the_sanity_band() {
+    // The band is inclusive at both ends, and only a price sitting exactly on an
+    // edge separates that from an exclusive one. An exclusive band would reject
+    // a perfectly good price at the boundary and brick the market until someone
+    // widened the config.
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1_700_000_000;
+    });
+
+    for (min, max) in [(WAD, WAD + WAD / 10), (WAD - WAD / 20, WAD)] {
+        let (_owner, client) = register_agg(&env);
+        let asset = Address::generate(&env);
+        let (feed, feed_client) = register_feed(&env);
+        feed_client.set_price(&String::from_str(&env, "BTC/USD"), &WAD);
+        let mut cfg = redstone_single(&env, &feed, "BTC/USD", 900);
+        cfg.min_sanity_price_wad = min;
+        cfg.max_sanity_price_wad = max;
+        client.set_oracle(&PriceKey::Token(asset.clone()), &cfg);
+
+        assert_eq!(
+            client.price(&PriceKey::Token(asset.clone())).price_wad,
+            WAD,
+            "price on the band edge [{min}, {max}] must resolve"
+        );
+    }
+}

@@ -28,9 +28,7 @@ pub(crate) fn properties_of_source(
         properties = properties.join(&dependency);
     }
 
-    if properties.depth < depth {
-        properties.depth = depth;
-    }
+    properties.depth = properties.depth.max(depth);
     properties
 }
 

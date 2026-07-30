@@ -26,12 +26,24 @@ const REFLECTOR_DECIMALS: u32 = 14;
 /// normalizes to exactly `WAD`.
 const REFLECTOR_ONE_RAW: i128 = 100_000_000_000_000;
 
+/// Resolution every Reflector fixture declares. Comfortably above
+/// `MIN_ORACLE_RESOLUTION_SECONDS`, so a read is never rejected for the
+/// resolution floor when the test means to exercise something else.
+pub(crate) const REFLECTOR_RESOLUTION_SECS: u32 = 300;
+
 /// Age of the newer [`TwapReflector`] sample, in seconds before the ledger clock.
 pub(crate) const TWAP_NEWER_AGE_SECS: u64 = 100;
 
 /// Age of the older [`TwapReflector`] sample, in seconds before the ledger clock.
 /// A TWAP observation dates itself to this one, not the newer sample.
-pub(crate) const TWAP_OLDER_AGE_SECS: u64 = 400;
+///
+/// Exactly [`REFLECTOR_RESOLUTION_SECS`] after the newer sample: the sample
+/// spacing check admits its own resolution, so this pins that inclusive edge.
+pub(crate) const TWAP_OLDER_AGE_SECS: u64 = TWAP_NEWER_AGE_SECS + 300;
+
+/// Spacing [`TightWindowReflector`] uses — one second inside the resolution, so
+/// it fails the spacing check by the narrowest possible margin.
+pub(crate) const TWAP_TIGHT_SPACING_SECS: u64 = REFLECTOR_RESOLUTION_SECS as u64 - 1;
 
 /// Samples [`TwapReflector`] reports, raw at [`REFLECTOR_DECIMALS`]. Distinct
 /// values, so their mean is neither of them.
@@ -236,7 +248,56 @@ impl ReflectorOracle for TwapReflector {
     }
 
     fn resolution(_env: Env) -> u32 {
-        300
+        REFLECTOR_RESOLUTION_SECS
+    }
+
+    fn lastprice(_env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        None
+    }
+
+    fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
+        Some(twap_history(&env))
+    }
+}
+
+/// The two-sample window [`TwapReflector`] and [`NonUsdReflector`] both report,
+/// so the only attested fact that differs between them is the base.
+fn twap_history(env: &Env) -> Vec<ReflectorPriceData> {
+    let now = env.ledger().timestamp();
+    Vec::from_array(
+        env,
+        [
+            ReflectorPriceData {
+                price: TWAP_SAMPLES_RAW[0],
+                timestamp: now.saturating_sub(TWAP_NEWER_AGE_SECS),
+            },
+            ReflectorPriceData {
+                price: TWAP_SAMPLES_RAW[1],
+                timestamp: now.saturating_sub(TWAP_OLDER_AGE_SECS),
+            },
+        ],
+    )
+}
+
+/// Reflector-shaped stub reporting three correctly spaced samples regardless of
+/// how many records the caller asks for, so a two-record read receives more
+/// history than it requested. A provider returning extra samples is not benign:
+/// the mean would then cover a window the config never authorized.
+#[contract]
+pub(crate) struct LongHistoryReflector;
+
+#[contractimpl]
+impl ReflectorOracle for LongHistoryReflector {
+    fn base(env: Env) -> ReflectorAsset {
+        ReflectorAsset::Other(Symbol::new(&env, "USD"))
+    }
+
+    fn decimals(_env: Env) -> u32 {
+        REFLECTOR_DECIMALS
+    }
+
+    fn resolution(_env: Env) -> u32 {
+        REFLECTOR_RESOLUTION_SECS
     }
 
     fn lastprice(_env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
@@ -245,20 +306,93 @@ impl ReflectorOracle for TwapReflector {
 
     fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
         let now = env.ledger().timestamp();
-        let history = Vec::from_array(
+        let sample = |age: u64| ReflectorPriceData {
+            price: REFLECTOR_ONE_RAW,
+            timestamp: now.saturating_sub(age),
+        };
+        Some(Vec::from_array(
             &env,
             [
-                ReflectorPriceData {
-                    price: TWAP_SAMPLES_RAW[0],
-                    timestamp: now.saturating_sub(TWAP_NEWER_AGE_SECS),
-                },
-                ReflectorPriceData {
-                    price: TWAP_SAMPLES_RAW[1],
-                    timestamp: now.saturating_sub(TWAP_OLDER_AGE_SECS),
-                },
+                sample(TWAP_NEWER_AGE_SECS),
+                sample(TWAP_OLDER_AGE_SECS),
+                sample(TWAP_OLDER_AGE_SECS + u64::from(REFLECTOR_RESOLUTION_SECS)),
             ],
-        );
-        Some(history)
+        ))
+    }
+}
+
+/// Reflector-shaped stub whose two samples sit closer together than its own
+/// declared resolution. The window it reports is therefore narrower than the
+/// window the record count asks for — the shape a manipulated feed takes when it
+/// backfills samples to make a short burst look like a long average.
+#[contract]
+pub(crate) struct TightWindowReflector;
+
+#[contractimpl]
+impl ReflectorOracle for TightWindowReflector {
+    fn base(env: Env) -> ReflectorAsset {
+        ReflectorAsset::Other(Symbol::new(&env, "USD"))
+    }
+
+    fn decimals(_env: Env) -> u32 {
+        REFLECTOR_DECIMALS
+    }
+
+    fn resolution(_env: Env) -> u32 {
+        REFLECTOR_RESOLUTION_SECS
+    }
+
+    fn lastprice(_env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        None
+    }
+
+    fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
+        let now = env.ledger().timestamp();
+        let sample = |age: u64| ReflectorPriceData {
+            price: REFLECTOR_ONE_RAW,
+            timestamp: now.saturating_sub(age),
+        };
+        Some(Vec::from_array(
+            &env,
+            [
+                sample(TWAP_NEWER_AGE_SECS),
+                // One resolution step short of TWAP_OLDER_AGE_SECS.
+                sample(TWAP_NEWER_AGE_SECS + TWAP_TIGHT_SPACING_SECS),
+            ],
+        ))
+    }
+}
+
+/// Reflector-shaped stub identical to [`TwapReflector`] except that it quotes
+/// against something other than USD. Every other attested fact matches, so a
+/// rejection can only be the base.
+///
+/// The base is what makes a price a USD price. A Reflector deployment quoting
+/// EUR answers `lastprice` perfectly well; nothing downstream would notice, and
+/// every USD-denominated number in the protocol would silently be EUR.
+#[contract]
+pub(crate) struct NonUsdReflector;
+
+#[contractimpl]
+impl ReflectorOracle for NonUsdReflector {
+    fn base(env: Env) -> ReflectorAsset {
+        ReflectorAsset::Other(Symbol::new(&env, "EUR"))
+    }
+
+    fn decimals(_env: Env) -> u32 {
+        REFLECTOR_DECIMALS
+    }
+
+    fn resolution(_env: Env) -> u32 {
+        REFLECTOR_RESOLUTION_SECS
+    }
+
+    fn lastprice(_env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        None
+    }
+
+    fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
+        Some(twap_history(&env))
     }
 }
 
