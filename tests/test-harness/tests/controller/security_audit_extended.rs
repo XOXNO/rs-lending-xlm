@@ -364,7 +364,7 @@ fn revalidation_third_party_can_top_up_only_existing_leg() {
 }
 
 #[test]
-fn poc_dual_in_band_midpoint_used_on_borrow_path() {
+fn dual_in_band_collateral_is_valued_at_the_low_leg_on_borrow_path() {
     use test_harness::{usd, usd_cents};
 
     let mut t = LendingTest::new()
@@ -381,16 +381,19 @@ fn poc_dual_in_band_midpoint_used_on_borrow_path() {
     t.set_price("ETH", usd(2000));
     t.set_safe_price("ETH", usd(2000));
 
+    // The inflated primary ($1.03 vs the $1.00 anchor) buys no borrowing power:
+    // collateral takes the low leg, so a borrow sized against the old midpoint
+    // cap is now rejected and only the low-leg capacity is available.
     t.supply(ALICE, "USDC", 10_000.0);
-    let mid_ok = t.try_borrow(ALICE, "ETH", 3.755);
-    assert!(
-        mid_ok.is_ok(),
-        "H-ORC-INBAND: borrow in (primary_cap, midpoint_cap] must pass under midpoint; got {mid_ok:?}"
-    );
+    let at_midpoint_cap = t.try_borrow(ALICE, "ETH", 3.755);
+    assert_contract_error(at_midpoint_cap, errors::INSUFFICIENT_COLLATERAL);
 
     t.supply(BOB, "USDC", 10_000.0);
-    let above_mid = t.try_borrow(BOB, "ETH", 3.825);
-    assert_contract_error(above_mid, errors::INSUFFICIENT_COLLATERAL);
+    let within_low_cap = t.try_borrow(BOB, "ETH", 3.69);
+    assert!(
+        within_low_cap.is_ok(),
+        "borrow within the low-leg capacity must still pass; got {within_low_cap:?}"
+    );
 }
 
 #[test]

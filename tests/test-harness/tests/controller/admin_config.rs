@@ -288,6 +288,11 @@ fn test_set_oracle_rejects_a_degenerate_tolerance() {
 
     let mut oracle_cfg = resolved_reflector_dual_source_config(&t.env, &t.mock_reflector, &asset);
 
+    // Both legs of this fixture read the same mock reflector, so the config has
+    // no independent cross-check and is held to the single-source band width.
+    // Narrow the band so the tolerance gate is what rejects it.
+    oracle_cfg.min_sanity_price_wad = 990_000_000_000_000_000;
+    oracle_cfg.max_sanity_price_wad = 1_010_000_000_000_000_000;
     oracle_cfg.tolerance = OracleTolerance {
         upper_ratio_bps: 10_500,
         lower_ratio_bps: 100,
@@ -478,9 +483,11 @@ fn test_market_initialization_cascade() {
     );
 }
 
+// An out-of-band live price is transient, not structural, so the config write
+// is allowed to land (the oracle levers must stay usable during an incident).
+// The band is still enforced on every read, so the asset fails closed instead.
 #[test]
-#[should_panic(expected = "Error(Contract, #223)")]
-fn test_configure_market_oracle_rejects_out_of_band_live_price() {
+fn test_configure_market_oracle_defers_an_out_of_band_price_to_read_time() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_asset("USDC");
 
@@ -492,6 +499,15 @@ fn test_configure_market_oracle_rejects_out_of_band_live_price() {
         DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.configure_market_oracle(&usdc, &cfg);
+
+    let result = t
+        .price_agg_client()
+        .try_price(&controller::types::PriceKey::Token(usdc.clone()));
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::SANITY_BOUND_VIOLATED);
 }
 
 #[test]

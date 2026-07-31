@@ -277,15 +277,37 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
     found
 }
 
+/// Two sources whose resolved trust sets differ — each leg knows something the
+/// other does not, so their agreement is evidence.
+fn independent_dual(env: &Env, key: &PriceKey, oracle: &AssetOracle) -> bool {
+    if !oracle.is_dual() {
+        return false;
+    }
+    let mut session = Session::new(env);
+    session.push_key(key);
+    let derived = properties::properties_of_config(&mut session, &oracle.sources);
+    session.pop_key();
+    derived
+        .second
+        .as_ref()
+        .is_some_and(|second| !derived.first.trusts_exactly_as(second))
+}
+
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     validate_sanity_bounds(
         env,
         oracle.min_sanity_price_wad,
         oracle.max_sanity_price_wad,
     );
+    // The wide-band exemption is earned by an actual cross-check, not by arity:
+    // two legs that trust exactly the same contracts always move together, so
+    // their deviation band proves nothing and the sanity band is again the only
+    // guard. `derived` is computed below for the same oracle, so the exemption is
+    // decided from the resolved trust sets rather than `sources.len()`.
+    let exempt_from_band_cap = oracle.has_lp_source() || independent_dual(env, key, oracle);
     validate_single_source_sanity_band(
         env,
-        oracle.is_dual() || oracle.has_lp_source(),
+        exempt_from_band_cap,
         oracle.min_sanity_price_wad,
         oracle.max_sanity_price_wad,
     );

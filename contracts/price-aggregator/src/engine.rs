@@ -157,6 +157,8 @@ impl Outcome {
     fn to_feed(&self) -> PriceFeedRaw {
         PriceFeedRaw {
             price_wad: self.price_wad,
+            low_wad: self.low_wad,
+            high_wad: self.high_wad,
             asset_decimals: self.asset_decimals,
             timestamp: self.timestamp,
         }

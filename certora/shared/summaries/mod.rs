@@ -14,13 +14,19 @@ pub mod sac;
 
 pub(crate) fn price_feed_summary(env: &Env, _asset: &Address) -> PriceFeedRaw {
     let price_wad: i128 = nondet();
+    let low_wad: i128 = nondet();
+    let high_wad: i128 = nondet();
     let asset_decimals: u32 = nondet();
     let timestamp: u64 = nondet();
     cvlr_assume!(price_wad > 0);
+    // The engine only ever emits a feed whose legs bracket the reported price.
+    cvlr_assume!(low_wad > 0 && low_wad <= price_wad && price_wad <= high_wad);
     cvlr_assume!(asset_decimals <= 27);
     cvlr_assume!(timestamp <= env.ledger().timestamp().saturating_add(60));
     PriceFeedRaw {
         price_wad,
+        low_wad,
+        high_wad,
         asset_decimals,
         timestamp,
     }

@@ -23,6 +23,8 @@ fn test_price_memo_round_trips_per_key() {
         &key,
         PriceFeedRaw {
             price_wad: 7,
+            low_wad: 7,
+            high_wad: 7,
             asset_decimals: 8,
             timestamp: 100,
         },

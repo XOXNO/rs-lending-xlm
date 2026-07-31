@@ -250,6 +250,17 @@ impl SourceProperties {
         self
     }
 
+    /// True when neither leg trusts a contract the other does not, i.e. the two
+    /// legs carry no independent signal: one compromised contract set moves both
+    /// together, so the deviation band cross-checks nothing.
+    pub fn trusts_exactly_as(&self, other: &SourceProperties) -> bool {
+        let covered = |a: &Vec<TrustDomain>, b: &Vec<TrustDomain>| {
+            a.iter()
+                .all(|d| b.iter().any(|o| o.contract == d.contract))
+        };
+        covered(&self.trust, &other.trust) && covered(&other.trust, &self.trust)
+    }
+
     pub fn shared_contracts_with(&self, env: &Env, other: &SourceProperties) -> Vec<Address> {
         let mut shared = Vec::new(env);
         for domain in self.trust.iter() {

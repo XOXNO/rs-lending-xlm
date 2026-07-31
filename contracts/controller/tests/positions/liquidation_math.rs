@@ -21,6 +21,8 @@ fn default_spoke_config() -> SpokeConfig {
 fn feed_raw() -> PriceFeedRaw {
     PriceFeedRaw {
         price_wad: WAD,
+        low_wad: WAD,
+        high_wad: WAD,
         asset_decimals: 7,
         timestamp: 0,
     }

@@ -68,29 +68,31 @@ fn run(anchor_stale: bool) -> Outcome {
 }
 
 #[test]
-fn audit_borrow_withdraw_liquidate_stale_anchor_blends_5pct_skew_into_ltv() {
+fn audit_stale_anchor_no_longer_blends_skew_into_ltv() {
     let exploit = run(true);
     let control = run(false);
 
+    // Collateral is valued at the low leg, so an anchor frozen above the true
+    // price contributes nothing: the stale-anchor path now values the position
+    // exactly as the honest fresh-anchor path does.
     let inflation = exploit.collateral_usd / control.collateral_usd;
     assert!(
-        inflation > 1.04,
-        "stale-anchor blend must inflate collateral >4% vs the honest fresh-anchor \
-         valuation: exploit={} control={} ratio={}",
+        inflation <= 1.001,
+        "stale-anchor blend must no longer inflate collateral: exploit={} control={} ratio={}",
         exploit.collateral_usd,
         control.collateral_usd,
         inflation
     );
 
     assert!(
-        exploit.borrow.is_ok(),
-        "stale-anchor skew must let the attacker borrow beyond true capacity: {:?}",
+        exploit.borrow.is_err(),
+        "the over-capacity borrow must be rejected even with a stale high anchor: {:?}",
         exploit.borrow
     );
 
     assert!(
         control.borrow.is_err(),
-        "honest fresh-anchor pricing must reject the over-capacity borrow, \
-         proving the stale anchor alone enabled it"
+        "honest fresh-anchor pricing must also reject the over-capacity borrow"
     );
 }
+

@@ -67,6 +67,8 @@ impl PriceAggregator {
         let keys = Vec::from_array(&env, [key.clone()]);
         let mut feed = PriceFeedRaw {
             price_wad: 0,
+            low_wad: 0,
+            high_wad: 0,
             asset_decimals: 0,
             timestamp: 0,
         };

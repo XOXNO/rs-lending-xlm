@@ -158,6 +158,8 @@ fn refresh_writes_ltv_but_holds_tuple_when_gate_rejects() {
             hub.asset.clone(),
             PriceFeedRaw {
                 price_wad: WAD,
+                low_wad: WAD,
+                high_wad: WAD,
                 asset_decimals: 7,
                 timestamp: 0,
             },

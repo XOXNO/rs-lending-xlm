@@ -72,7 +72,7 @@ pub(crate) fn sum_supply_usd(
                 env,
                 position.scaled_amount,
                 market_index.supply_index,
-                feed.price,
+                feed.low,
             ),
         );
     }
@@ -96,7 +96,7 @@ pub(crate) fn sum_debt_usd(
                 env,
                 position.scaled_amount,
                 market_index.borrow_index,
-                feed.price,
+                feed.high,
             ),
         );
     }
@@ -118,7 +118,7 @@ fn sum_debt_usd_ceil_loaded(
                 env,
                 position.scaled_amount,
                 market_index.borrow_index,
-                feed.price,
+                feed.high,
             ),
         );
     }
@@ -141,7 +141,7 @@ pub(crate) fn calculate_ltv_collateral_wad(
             env,
             position.scaled_amount,
             market_index.supply_index,
-            feed.price,
+            feed.low,
         );
 
         ltv = ltv.checked_add(env, position.loan_to_value.apply_to_wad_floor(env, value));
@@ -202,13 +202,13 @@ fn calculate_account_risk_totals_body(
             env,
             position.scaled_amount,
             market_index.supply_index,
-            feed.price,
+            feed.low,
         );
         let gate_value = position_value_floor(
             env,
             position.scaled_amount,
             market_index.supply_index,
-            feed.price,
+            feed.low,
         );
 
         total_collateral = total_collateral.checked_add(env, value);
