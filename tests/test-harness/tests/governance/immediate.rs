@@ -146,27 +146,36 @@ fn oracle_role_moves_sanity_band_containing_price() {
 }
 
 #[test]
-fn sanity_band_not_containing_price_rejected() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let gov = t.gov_iface_client();
-    let admin = t.admin();
-    let usdc = t.resolve_asset("USDC");
+fn sanity_band_not_containing_price_fails_closed_at_read() {
+    // A band that excludes the live price is transient, not structural: the write
+    // lands so the ORACLE-immediate lever stays usable during an incident, and the
+    // band is enforced on every read, so the asset fails closed instead. Each case
+    // gets a fresh protocol because the second band would otherwise be rejected by
+    // the overlap rule against the first one.
+    for (min_wad, max_wad) in [
+        (usd(1) * 1005 / 1000, usd(1) * 105 / 100),
+        (usd(1) * 95 / 100, usd(1) * 995 / 1000),
+    ] {
+        let t = LendingTest::new().with_market(usdc_preset()).build();
+        let gov = t.gov_iface_client();
+        let admin = t.admin();
+        let usdc = t.resolve_asset("USDC");
 
-    let result = gov.try_set_sanity_band(
-        &admin,
-        &controller::types::PriceKey::Token(usdc.clone()),
-        &(usd(1) * 1005 / 1000),
-        &(usd(1) * 105 / 100),
-    );
-    assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
+        flatten(gov.try_set_sanity_band(
+            &admin,
+            &controller::types::PriceKey::Token(usdc.clone()),
+            &min_wad,
+            &max_wad,
+        ))
+        .expect("an out-of-band live price must not block the band write");
 
-    let result = gov.try_set_sanity_band(
-        &admin,
-        &controller::types::PriceKey::Token(usdc.clone()),
-        &(usd(1) * 95 / 100),
-        &(usd(1) * 995 / 1000),
-    );
-    assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
+        let read = t
+            .price_agg_client()
+            .try_price(&controller::types::PriceKey::Token(usdc.clone()))
+            .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
+            .unwrap_or_else(|e| Err(e.expect("expected contract error")));
+        assert_contract_error(read, errors::SANITY_BOUND_VIOLATED);
+    }
 }
 
 #[test]

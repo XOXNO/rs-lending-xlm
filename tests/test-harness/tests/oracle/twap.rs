@@ -32,9 +32,18 @@ fn configure_rejects_twap_window_larger_than_max_stale() {
     t.configure_market_oracle(&usdc, &cfg);
 }
 
+/// Reads `asset` through the aggregator, flattening to a contract error.
+fn try_price(t: &LendingTest, asset: &soroban_sdk::Address) -> Result<(), soroban_sdk::Error> {
+    t.price_agg_client()
+        .try_price(&controller::types::PriceKey::Token(asset.clone()))
+        .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
+        .unwrap_or_else(|e| Err(e.expect("expected contract error")))
+}
+
+// An out-of-band TWAP mean is transient, not structural: the config write lands
+// and the band is enforced at read.
 #[test]
-#[should_panic(expected = "Error(Contract, #223)")]
-fn configure_twap_rejects_out_of_band_mean_when_spot_in_band() {
+fn configure_twap_defers_out_of_band_mean_to_read_time() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_asset("USDC");
     t.mock_reflector_client().set_price(&usdc, &usd(1));
@@ -50,11 +59,15 @@ fn configure_twap_rejects_out_of_band_mean_when_spot_in_band() {
     test_harness::set_reflector_read_mode(&mut cfg, 0, OracleReadMode::Twap(3));
 
     t.configure_market_oracle(&usdc, &cfg);
+    test_harness::assert_contract_error(
+        try_price(&t, &usdc),
+        test_harness::errors::SANITY_BOUND_VIOLATED,
+    );
 }
 
+// A non-positive live price is transient: the write lands, the read fails closed.
 #[test]
-#[should_panic(expected = "Error(Contract, #210)")]
-fn configure_rejects_nonpositive_live_reflector_price() {
+fn configure_defers_nonpositive_live_reflector_price_to_read_time() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_asset("USDC");
     t.mock_reflector_client().set_price(&usdc, &0);
@@ -67,6 +80,7 @@ fn configure_rejects_nonpositive_live_reflector_price() {
     );
 
     t.configure_market_oracle(&usdc, &cfg);
+    test_harness::assert_contract_error(try_price(&t, &usdc), test_harness::errors::NO_LAST_PRICE);
 }
 
 #[test]

@@ -100,8 +100,10 @@ fn redstone_dual(
             }
         ]),
 
-        min_sanity_price_wad: WAD / 2,
-        max_sanity_price_wad: WAD * 2,
+        // Both legs read the same adapter, so this config earns no wide-band
+        // exemption: it is held to the single-source width cap.
+        min_sanity_price_wad: WAD * 95 / 100,
+        max_sanity_price_wad: WAD * 105 / 100,
     }
 }
 
@@ -627,7 +629,7 @@ fn set_tolerance_rejects_non_reciprocal_band() {
 }
 
 #[test]
-fn set_tolerance_live_probe_rejects_dual_out_of_new_band() {
+fn set_tolerance_narrowing_past_the_legs_fails_closed_at_read() {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().with_mut(|li| {
@@ -645,18 +647,19 @@ fn set_tolerance_live_probe_rejects_dual_out_of_new_band() {
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 12_500, 8_000),
     );
 
-    assert_eq!(
-        client.try_set_tolerance(
-            &PriceKey::Token(asset),
-            &OracleTolerance {
-                upper_ratio_bps: 10_200,
-                lower_ratio_bps: 9_804,
-            },
-        ),
-        Err(Ok(soroban_sdk::Error::from_contract_error(
-            Error::UnsafePriceNotAllowed as u32,
-        )))
+    // A deviation is transient: narrowing the band past the current legs is
+    // allowed to land, and the read then reports the deviation.
+    client.set_tolerance(
+        &PriceKey::Token(asset.clone()),
+        &OracleTolerance {
+            upper_ratio_bps: 10_200,
+            lower_ratio_bps: 9_804,
+        },
     );
+    assert!(matches!(
+        client.try_price(&PriceKey::Token(asset)),
+        Err(Ok(e)) if e == soroban_sdk::Error::from_contract_error(Error::UnsafePriceNotAllowed as u32)
+    ));
 }
 
 #[test]
@@ -800,7 +803,7 @@ fn audit_multi_feed_stale_gated_by_both_source_and_asset_windows() {
 }
 
 #[test]
-fn audit_set_sanity_band_rejects_band_excluding_live_price() {
+fn audit_set_sanity_band_excluding_live_price_fails_closed_at_read() {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().with_mut(|li| {
@@ -816,19 +819,21 @@ fn audit_set_sanity_band_rejects_band_excluding_live_price() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    let result = client.try_set_sanity_band(
+    // Out-of-band is transient, so the band lever stays usable in an incident;
+    // the new band lands and the read enforces it.
+    client.set_sanity_band(
         &PriceKey::Token(asset.clone()),
         &(WAD + WAD / 100),
         &(WAD + WAD / 20),
     );
-    assert!(
-        result.is_err(),
-        "set_sanity_band must reject a band that excludes live price; got {result:?}"
-    );
 
     let cfg = client.oracle(&PriceKey::Token(asset.clone())).unwrap();
-    assert_eq!(cfg.min_sanity_price_wad, WAD - WAD / 20);
+    assert_eq!(cfg.min_sanity_price_wad, WAD + WAD / 100);
     assert_eq!(cfg.max_sanity_price_wad, WAD + WAD / 20);
+    assert!(matches!(
+        client.try_price(&PriceKey::Token(asset.clone())),
+        Err(Ok(e)) if e == soroban_sdk::Error::from_contract_error(Error::SanityBoundViolated as u32)
+    ));
 }
 
 #[test]
@@ -881,7 +886,7 @@ fn audit_hard_price_rejects_zero_primary() {
 }
 
 #[test]
-fn set_oracle_rejects_a_config_whose_feed_cannot_be_read() {
+fn set_oracle_defers_an_unreadable_feed_to_read_time() {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().with_mut(|li| {
@@ -891,18 +896,20 @@ fn set_oracle_rejects_a_config_whose_feed_cannot_be_read() {
     let asset = Address::generate(&env);
     let (feed, _) = register_feed(&env);
 
-    let stored = client.try_set_oracle(
+    // An unreadable feed is transient, not structural: the config lands so the
+    // asset stays reconfigurable, and pricing it fails closed.
+    client.set_oracle(
         &PriceKey::Token(asset.clone()),
         &redstone_single(&env, &feed, "MISSING", 900),
     );
     assert!(
-        stored.is_err(),
-        "unreadable feed must not store; got {stored:?}"
+        client.oracle(&PriceKey::Token(asset.clone())).is_some(),
+        "the config must be stored"
     );
-    assert!(
-        client.oracle(&PriceKey::Token(asset.clone())).is_none(),
-        "a rejected config must leave no entry behind"
-    );
+    assert!(matches!(
+        client.try_price(&PriceKey::Token(asset.clone())),
+        Err(Ok(e)) if e == soroban_sdk::Error::from_contract_error(Error::NoLastPrice as u32)
+    ));
 }
 
 #[test]

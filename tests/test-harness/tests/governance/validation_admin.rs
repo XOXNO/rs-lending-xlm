@@ -5,7 +5,8 @@ use governance::op::{
 };
 use soroban_sdk::{String, Symbol, Vec};
 use test_harness::{
-    hub_asset, usdc_preset, LendingTest, DEFAULT_TOLERANCE, HARNESS_HUB, HARNESS_SPOKE,
+    assert_contract_error, errors, hub_asset, usdc_preset, LendingTest, DEFAULT_TOLERANCE,
+    HARNESS_HUB, HARNESS_SPOKE,
 };
 
 fn baseline_irm() -> InterestRateModel {
@@ -298,14 +299,22 @@ fn test_configure_market_oracle_rejects_bad_reflector_resolution() {
     configure_usdc(&t, &cfg);
 }
 
+// A TWAP window that cannot be read is transient, not structural: the config
+// write lands and the read fails closed.
 #[test]
-#[should_panic(expected = "Error(Contract, #210)")]
-fn test_configure_market_oracle_rejects_missing_twap_history() {
+fn test_configure_market_oracle_defers_missing_twap_history_to_read_time() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let cfg = base_oracle_config(&t);
     t.mock_reflector_client().set_twap_history_mode(&asset, &1);
     configure_usdc(&t, &cfg);
+
+    let read = t
+        .price_agg_client()
+        .try_price(&controller::types::PriceKey::Token(asset))
+        .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
+        .unwrap_or_else(|e| Err(e.expect("expected contract error")));
+    assert_contract_error(read, errors::NO_LAST_PRICE);
 }
 
 #[test]
