@@ -226,6 +226,7 @@ fn test_lp_source_contributes_no_provider_and_two_dependencies() {
 
     let source = PriceSource::LpShare(LpShareSource {
         pool,
+        plane: Address::generate(&env),
         kind: PoolKind::ConstantProduct,
         key_a: token_a.clone(),
         key_b: token_b.clone(),

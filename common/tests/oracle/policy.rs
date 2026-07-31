@@ -847,16 +847,36 @@ fn test_source_shape_validates_the_bounds_of_a_scaled_source() {
 }
 
 #[test]
-#[should_panic]
-fn test_source_shape_refuses_lp_shares_unconditionally() {
+fn test_source_shape_accepts_constant_product_lp() {
     let env = Env::default();
     validate_source_shape(
         &env,
         &PriceSource::LpShare(LpShareSource {
             pool: Address::generate(&env),
+            plane: Address::generate(&env),
             kind: PoolKind::ConstantProduct,
             key_a: PriceKey::Ref(Symbol::new(&env, "BTC")),
             key_b: PriceKey::Ref(Symbol::new(&env, "USD")),
+            reserve_a_decimals: 8,
+            reserve_b_decimals: 7,
+            share_decimals: 7,
+        }),
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_source_shape_refuses_lp_with_duplicate_legs() {
+    let env = Env::default();
+    let dup = PriceKey::Ref(Symbol::new(&env, "BTC"));
+    validate_source_shape(
+        &env,
+        &PriceSource::LpShare(LpShareSource {
+            pool: Address::generate(&env),
+            plane: Address::generate(&env),
+            kind: PoolKind::ConstantProduct,
+            key_a: dup.clone(),
+            key_b: dup,
             reserve_a_decimals: 8,
             reserve_b_decimals: 7,
             share_decimals: 7,

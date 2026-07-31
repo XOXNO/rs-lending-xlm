@@ -135,6 +135,9 @@ pub enum PoolKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LpShareSource {
     pub pool: Address,
+    /// The pool's reserve-mirror plane (`pool.get_pools_plane()`), captured at
+    /// listing; reserves are read from here so the pricing path stays read-only.
+    pub plane: Address,
     pub kind: PoolKind,
     pub key_a: PriceKey,
     pub key_b: PriceKey,
@@ -182,6 +185,13 @@ pub struct AssetOracle {
 impl AssetOracle {
     pub fn is_dual(&self) -> bool {
         self.sources.len() == 2
+    }
+
+    /// LP-share pricing derives from two independently-banded underlyings, so —
+    /// like a dual-source oracle — its own sanity band is a wide backstop, not a
+    /// tight single-feed guard, and is exempt from the single-source width cap.
+    pub fn has_lp_source(&self) -> bool {
+        matches!(self.sources.get(0), Some(PriceSource::LpShare(_)))
     }
 }
 
