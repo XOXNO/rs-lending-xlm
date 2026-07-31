@@ -2,10 +2,12 @@ use soroban_sdk::{contractevent, Address};
 
 #[contractevent(topics = ["strategy", "initial_payment"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// The payment asset is transit-only: it is swapped to the position's
+/// collateral and never becomes a position itself. It is therefore not priced —
+/// only the resulting supplied and borrowed assets are gated and valued.
 pub struct InitialMultiplyPaymentEvent {
     pub token: Address,
     pub amount: i128,
-    pub usd_value_wad: i128,
     pub account_id: u64,
 }
 

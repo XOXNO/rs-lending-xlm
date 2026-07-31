@@ -180,7 +180,6 @@ fn every_event_helper_publishes_exactly_one_event() {
         InitialMultiplyPaymentEvent {
             token: asset.clone(),
             amount: 0,
-            usd_value_wad: 0,
             account_id: 1,
         }
         .publish(&env);

@@ -48,7 +48,6 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
         env,
         caller,
-        &mut cache,
         collateral,
         debt,
         &initial_payment,
@@ -86,7 +85,7 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
 
-    emit_multiply_initial_payment(env, &mut cache, account_id, initial_payment);
+    emit_multiply_initial_payment(env, account_id, initial_payment);
 
     account_id
 }
@@ -145,10 +144,19 @@ fn validate_multiply_request(
     require_positive_amount(env, debt_to_flash_loan);
 }
 
+/// Collects the caller's optional up-front payment.
+///
+/// The payment asset is **transit-only** — it is either already the collateral
+/// or the debt asset, or it is swapped into the collateral asset before any
+/// position is touched. It never becomes a position, so it is deliberately not
+/// priced and not gated against the spoke: the listing, pause, freeze and
+/// `can_supply` checks all apply to the resulting collateral in
+/// `supply::process_deposit`, and the swap itself is bounded by
+/// `settle_router_input` (no router overspend) and `verify_router_output`
+/// (non-zero output).
 fn collect_initial_multiply_payment(
     env: &Env,
     caller: &Address,
-    cache: &mut Cache,
     collateral: &HubAssetKey,
     debt: &HubAssetKey,
     initial_payment: &Option<(HubAssetKey, i128)>,
@@ -159,8 +167,6 @@ fn collect_initial_multiply_payment(
     };
 
     require_positive_amount(env, *payment_amount);
-
-    cache.fetch_prices(&soroban_sdk::vec![env, payment.asset.clone()]);
 
     let payment_tok = token::Client::new(env, &payment.asset);
     payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
@@ -188,18 +194,13 @@ fn collect_initial_multiply_payment(
 
 fn emit_multiply_initial_payment(
     env: &Env,
-    cache: &mut Cache,
     account_id: u64,
     initial_payment: Option<(HubAssetKey, i128)>,
 ) {
     if let Some((payment, payment_amount)) = initial_payment {
-        cache.fetch_prices(&vec![env, payment.asset.clone()]);
-        let feed = cache.cached_price(&payment.asset);
-        let usd_value_wad = feed.usd_value_wad(env, payment_amount).raw();
         InitialMultiplyPaymentEvent {
             token: payment.asset,
             amount: payment_amount,
-            usd_value_wad,
             account_id,
         }
         .publish(env);
