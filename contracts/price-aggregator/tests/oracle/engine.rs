@@ -66,7 +66,6 @@ fn sources(env: &Env, items: &[PriceSource]) -> Vec<PriceSource> {
     out
 }
 
-/// Publishes `feed_id` at `price`, dated `age` seconds before the ledger clock.
 fn publish(client: &MockRedStonePriceFeedClient, env: &Env, feed_id: &str, price: i128, age: u64) {
     let ts_ms = (NOW - age) * 1_000;
     client.set_price_data(&String::from_str(env, feed_id), &price, &ts_ms, &ts_ms);
@@ -90,10 +89,6 @@ fn single_feed_key(env: &Env, adapter: &Address, feed: &str, ceiling: u64) -> Pr
     );
     key
 }
-
-// ---------------------------------------------------------------------------
-// Single source
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_single_feed_source_resolves() {
@@ -141,10 +136,6 @@ fn test_a_price_outside_the_sanity_band_reverts() {
     });
 }
 
-// ---------------------------------------------------------------------------
-// Two sources: symmetry is the point of the redesign
-// ---------------------------------------------------------------------------
-
 fn dual_key(env: &Env, adapter: &Address, reversed: bool) -> PriceKey {
     let key = PriceKey::Token(Address::generate(env));
     let a = PriceSource::Feed(multi_feed(env, adapter, "A", ASSET_CEILING));
@@ -175,8 +166,6 @@ fn test_two_agreeing_sources_yield_their_midpoint() {
 
 #[test]
 fn test_source_order_changes_neither_price_nor_outcome() {
-    // The invariant the symmetric model rests on: there is no primary and no
-    // anchor, so swapping the two must be unobservable.
     let env = Env::default();
     at_now(&env);
     let (adapter, client) = register_redstone_feed(&env);
@@ -211,11 +200,6 @@ fn test_two_disagreeing_sources_revert() {
     });
 }
 
-// ---------------------------------------------------------------------------
-// Scaled: the SolvBTC shape
-// ---------------------------------------------------------------------------
-
-/// `Ref("BTC")` priced by one feed, and a token scaled onto it.
 fn scaled_setup(
     env: &Env,
     adapter: &Address,
@@ -273,7 +257,7 @@ fn test_scaled_source_multiplies_ratio_by_quote() {
     in_contract(&env, || {
         let token = scaled_setup(&env, &adapter, RATIO_BOUND, WAD, 2 * WAD);
         let mut cache = Session::new(&env);
-        // 1.01 x 100 = 101
+
         assert_eq!(resolve(&mut cache, &token, 0).price_wad, 101 * WAD);
     });
 }
@@ -345,6 +329,93 @@ fn test_shared_nested_quote_is_composed_once_per_session() {
     });
 }
 
+/// Failure-path twin of the test above: a quote that fails is memoized as an
+/// error, so a second parent sharing that quote must reuse the verdict instead
+/// of re-reading the provider.
+///
+/// The assertion is behavioural rather than a read counter. `CountingReflector`
+/// returns `reads * 1 WAD`, so read 1 (1 WAD) sits below the quote's sanity
+/// floor while read 2 (2 WAD) sits inside the band. Recomputing therefore does
+/// not merely cost a call — it *changes the verdict*, and the second parent
+/// resolves successfully. That is what lets this test kill a no-op
+/// `Session::store_error` and a `Session::cached_error` stubbed to `None`,
+/// which are otherwise equivalent mutants: on a deterministic provider,
+/// recomputation returns the same error and nothing observable differs.
+#[test]
+fn test_failed_nested_quote_is_memoized_per_session() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "RATIO_A", WAD, 0);
+    publish(&client, &env, "RATIO_B", WAD, 0);
+    let reflector = env.register(CountingReflector, ());
+
+    in_contract(&env, || {
+        let quote = PriceKey::Ref(Symbol::new(&env, "QUOTE"));
+        admin::store_oracle(
+            &env,
+            &quote,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::Feed(FeedSource {
+                        provider: ProviderRef::Reflector(ReflectorFeedRef {
+                            contract: reflector.clone(),
+                            asset: OracleAssetRef::Symbol(Symbol::new(&env, "QUOTE")),
+                            read_mode: OracleReadMode::Spot,
+                        }),
+                        decimals: 14,
+                        max_stale_seconds: ASSET_CEILING,
+                    })],
+                ),
+                ASSET_CEILING,
+                // Straddles the two reads: 1 WAD is out of band, 2 WAD is in.
+                3 * WAD / 2,
+                10 * WAD,
+            ),
+        );
+
+        let parent = |feed_id: &str| {
+            let key = PriceKey::Token(Address::generate(&env));
+            admin::store_oracle(
+                &env,
+                &key,
+                &oracle(
+                    &env,
+                    sources(
+                        &env,
+                        &[PriceSource::Scaled(ScaledSource {
+                            factor: multi_feed(&env, &adapter, feed_id, ASSET_CEILING),
+                            quote: quote.clone(),
+                            min_factor_wad: WAD,
+                            max_factor_wad: WAD,
+                        })],
+                    ),
+                    ASSET_CEILING,
+                    1,
+                    10 * WAD,
+                ),
+            );
+            key
+        };
+        let first = parent("RATIO_A");
+        let second = parent("RATIO_B");
+        let mut session = Session::new(&env);
+
+        assert!(matches!(
+            resolve_nested(&mut session, &first, 0),
+            Err(common::errors::OracleError::SanityBoundViolated)
+        ));
+        // Served from the error memo. Without it the quote is read a second
+        // time, clears the band, and this resolves to Ok(2 WAD).
+        assert!(matches!(
+            resolve_nested(&mut session, &second, 0),
+            Err(common::errors::OracleError::SanityBoundViolated)
+        ));
+    });
+}
+
 #[test]
 fn test_cached_nested_quote_still_enforces_depth_backstop() {
     let env = Env::default();
@@ -367,8 +438,6 @@ fn test_cached_nested_quote_still_enforces_depth_backstop() {
 #[test]
 #[should_panic]
 fn test_a_ratio_outside_its_bounds_reverts() {
-    // A compromised ratio feed would otherwise reprice the asset arbitrarily
-    // inside a sanity band sized for the quote's volatility.
     let env = Env::default();
     at_now(&env);
     let (adapter, client) = register_redstone_feed(&env);
@@ -385,13 +454,10 @@ fn test_a_ratio_outside_its_bounds_reverts() {
 #[test]
 #[should_panic(expected = "Error(Contract, #217)")]
 fn test_scaled_product_overflow_is_typed_invalid_price_not_host_trap() {
-    // Bypass write-time factor caps via store_oracle. Multi-feed raw is 8-dec;
-    // upscale by 1e10, then factor×quote / WAD must not fit i128 → InvalidPrice
-    // (#217) via try_mul, not a host MathOverflow trap.
     let env = Env::default();
     at_now(&env);
     let (adapter, client) = register_redstone_feed(&env);
-    // Largest raw that still normalizes: ≈ i128::MAX / 1e10 → ~1e28 WAD each.
+
     let huge_raw = i128::MAX / 10i128.pow(10);
     publish(&client, &env, "BTC", huge_raw, 0);
     publish(&client, &env, "RATIO", huge_raw, 0);
@@ -440,13 +506,6 @@ fn test_scaled_product_overflow_is_typed_invalid_price_not_host_trap() {
 #[test]
 #[should_panic]
 fn test_a_frozen_slow_leg_cannot_ride_under_a_live_fast_one() {
-    // The regression that per-leg-only gating would reintroduce.
-    //
-    // The ratio publisher goes silent - plausibly *because* a depeg started -
-    // while the quote keeps updating. Every component still passes its own
-    // bound: the ratio's 86400 window is nowhere near expired. Without the
-    // composite gate at the asset ceiling, a live quote multiplied by a frozen
-    // ratio would keep printing a fresh-looking price at par.
     let env = Env::default();
     at_now(&env);
     let (adapter, client) = register_redstone_feed(&env);
@@ -462,9 +521,6 @@ fn test_a_frozen_slow_leg_cannot_ride_under_a_live_fast_one() {
 
 #[test]
 fn test_the_same_frozen_leg_prices_under_a_ceiling_that_allows_it() {
-    // Mirror of the test above: the gate is the asset ceiling, not an arbitrary
-    // tightening, so a config that genuinely tolerates a 12h heartbeat still
-    // prices. Gating a composite at its *tightest* leg would fail this.
     let env = Env::default();
     at_now(&env);
     let (adapter, client) = register_redstone_feed(&env);
@@ -492,10 +548,6 @@ fn test_a_composite_reports_the_freshness_of_its_weaker_leg() {
         assert_eq!(resolve(&mut cache, &token, 0).timestamp, NOW - 600);
     });
 }
-
-// ---------------------------------------------------------------------------
-// Bounds and unsupported shapes
-// ---------------------------------------------------------------------------
 
 #[test]
 #[should_panic]
@@ -545,9 +597,6 @@ fn test_lp_shares_are_not_priceable_yet() {
 #[test]
 #[should_panic]
 fn test_a_scaled_cycle_reverts_at_read_time_too() {
-    // Config-time validation walks the graph as it was then; a dependency
-    // re-pointed since could reintroduce a cycle, so the read path must not
-    // trust that earlier promise.
     let env = Env::default();
     at_now(&env);
     let (adapter, _client) = register_redstone_feed(&env);
@@ -578,17 +627,6 @@ fn test_a_scaled_cycle_reverts_at_read_time_too() {
     });
 }
 
-// ---------------------------------------------------------------------------
-// TWAP reads
-// ---------------------------------------------------------------------------
-//
-// A TWAP is only worth more than a spot read if the window it averages is the
-// window the config asked for. Each check below is the difference between an
-// average and a burst dressed as one, so each needs its inclusive edge pinned
-// from both sides.
-
-/// Stores a Reflector-backed TWAP config over `contract` reading `records`
-/// samples, and resolves it. Panics carry the provider's typed error.
 fn resolve_twap(env: &Env, contract: &Address, records: u32) -> PriceFeedRaw {
     let key = PriceKey::Token(Address::generate(env));
     admin::store_oracle(
@@ -619,33 +657,20 @@ fn resolve_twap(env: &Env, contract: &Address, records: u32) -> PriceFeedRaw {
 
 #[test]
 fn test_twap_read_averages_the_window_and_dates_itself_to_the_oldest_sample() {
-    // The fixture reports two distinct samples exactly one resolution apart, so
-    // this pins three inclusive edges at once: sample count equal to the record
-    // count is enough and not too many, and spacing equal to the resolution is
-    // wide enough.
     let env = Env::default();
     at_now(&env);
     let reflector = env.register(TwapReflector, ());
 
     let feed = in_contract(&env, || resolve_twap(&env, &reflector, 2));
 
-    // Samples are 1 and 3 units, so the mean is 2 — a value neither sample
-    // holds, which one sample echoed back could not produce.
     assert_eq!(feed.price_wad, 2 * WAD);
-    // Freshness comes from the oldest sample in the window, not the newest:
-    // dating a TWAP to its newest print would let a stale window look live.
+
     assert_eq!(feed.timestamp, NOW - TWAP_OLDER_AGE_SECS);
 }
 
 #[test]
-// The hard path collapses every unreadable-leg reason into NoLastPrice, so
-// the provider's own TwapInsufficientObservations (#219) is not what surfaces
-// here. What matters for the guard is that the read fails at all: drop the
-// check and the malformed window prices successfully instead.
 #[should_panic(expected = "Error(Contract, #210)")]
 fn test_twap_read_rejects_a_history_shorter_than_the_window_needs() {
-    // Six records need ceil(6/2) = 3 samples; the fixture only ever returns two.
-    // Averaging them anyway would answer a six-sample question with two.
     let env = Env::default();
     at_now(&env);
     let reflector = env.register(TwapReflector, ());
@@ -655,14 +680,8 @@ fn test_twap_read_rejects_a_history_shorter_than_the_window_needs() {
 }
 
 #[test]
-// The hard path collapses every unreadable-leg reason into NoLastPrice, so
-// the provider's own TwapInsufficientObservations (#219) is not what surfaces
-// here. What matters for the guard is that the read fails at all: drop the
-// check and the malformed window prices successfully instead.
 #[should_panic(expected = "Error(Contract, #210)")]
 fn test_twap_read_rejects_more_samples_than_it_asked_for() {
-    // Extra samples widen the averaged window past what the config authorized,
-    // so a provider returning them is refused rather than truncated.
     let env = Env::default();
     at_now(&env);
     let reflector = env.register(LongHistoryReflector, ());
@@ -672,14 +691,8 @@ fn test_twap_read_rejects_more_samples_than_it_asked_for() {
 }
 
 #[test]
-// The hard path collapses every unreadable-leg reason into NoLastPrice, so
-// the provider's own TwapInsufficientObservations (#219) is not what surfaces
-// here. What matters for the guard is that the read fails at all: drop the
-// check and the malformed window prices successfully instead.
 #[should_panic(expected = "Error(Contract, #210)")]
 fn test_twap_read_rejects_samples_spaced_tighter_than_the_resolution() {
-    // Samples one second inside the resolution: the window is narrower than the
-    // record count implies, which is what backfilling a short burst looks like.
     let env = Env::default();
     at_now(&env);
     let reflector = env.register(TightWindowReflector, ());
@@ -690,11 +703,6 @@ fn test_twap_read_rejects_samples_spaced_tighter_than_the_resolution() {
 
 #[test]
 fn test_the_depth_backstop_admits_the_cap_and_rejects_everything_past_it() {
-    // Two edges the existing backstop test cannot separate, because it only ever
-    // probes the first illegal depth. The cap is the deepest legal composition,
-    // so a read carried in AT the cap must still resolve; and the guard has to
-    // reject every depth above it, not just the first one — it is a backstop,
-    // and a caller that arrives already over the cap is exactly what it is for.
     let env = Env::default();
     at_now(&env);
     let (adapter, client) = register_redstone_feed(&env);
@@ -710,8 +718,6 @@ fn test_the_depth_backstop_admits_the_cap_and_rejects_everything_past_it() {
             Err(common::errors::OracleError::OracleDepthExceeded)
         ));
 
-        // Again now that the key is memoized, so the re-check on the cached path
-        // is exercised as well as the fresh one.
         assert!(resolve_nested(&mut session, &key, MAX_RESOLUTION_DEPTH).is_ok());
         assert!(matches!(
             resolve_nested(&mut session, &key, MAX_RESOLUTION_DEPTH + 2),
@@ -722,11 +728,6 @@ fn test_the_depth_backstop_admits_the_cap_and_rejects_everything_past_it() {
 
 #[test]
 fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
-    // Nesting has to *raise* the depth it passes down, or the cap never binds:
-    // a chain of distinct keys would recurse as far as it liked, and the cycle
-    // guard would not stop it because no key repeats. Five levels is two past
-    // MAX_RESOLUTION_DEPTH, so a chain that stopped accumulating depth would
-    // price successfully here.
     let env = Env::default();
     at_now(&env);
     let (adapter, client) = register_redstone_feed(&env);
@@ -734,7 +735,6 @@ fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
     publish(&client, &env, "RATIO", WAD, 0);
 
     in_contract(&env, || {
-        // Leaf: a plain feed.
         let mut current = PriceKey::Ref(Symbol::new(&env, "L0"));
         admin::store_oracle(
             &env,
@@ -756,8 +756,6 @@ fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
             ),
         );
 
-        // Scaled levels stacked on top of it, two past the cap. Symbols are
-        // spelled out because `Symbol::new` takes a literal.
         let level_names = ["L1", "L2", "L3", "L4", "L5"];
         assert!(
             level_names.len() as u32 > MAX_RESOLUTION_DEPTH + 1,
