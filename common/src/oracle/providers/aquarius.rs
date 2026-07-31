@@ -23,6 +23,7 @@ pub trait AquariusPool {
     fn get_total_shares(env: Env) -> u128;
     fn get_pools_plane(env: Env) -> Address;
     fn get_tokens(env: Env) -> Vec<Address>;
+    fn share_id(env: Env) -> Address;
 }
 
 /// Reserves `(a, b)` for `pool`, read from its `plane` mirror. `None` when the
@@ -37,13 +38,33 @@ pub fn aquarius_plane_reserves_call(
         Ok(Ok(rows)) => rows,
         _ => return None,
     };
-    let (_kind, _params, reserves) = rows.get(0)?;
-    if reserves.len() < 2 {
+    let (kind, _params, reserves) = rows.get(0)?;
+    // Only "standard" (constant-product) pools expose exactly [reserve0, reserve1];
+    // "stable"/"concentrated" rows carry a different or bucketed layout whose
+    // first two entries are NOT the pool's total reserves. Reject anything else
+    // so a mislisted (or type-changed) pool can never be priced as constant-product.
+    if kind != Symbol::new(env, "standard") || reserves.len() != 2 {
         return None;
     }
     let a = i128::try_from(reserves.get_unchecked(0)).ok()?;
     let b = i128::try_from(reserves.get_unchecked(1)).ok()?;
     Some((a, b))
+}
+
+/// The pool's two reserve-token addresses, in reserve order. `None` on failure.
+pub fn aquarius_get_tokens_call(env: &Env, pool: &Address) -> Option<Vec<Address>> {
+    match AquariusPoolClient::new(env, pool).try_get_tokens() {
+        Ok(Ok(tokens)) => Some(tokens),
+        _ => None,
+    }
+}
+
+/// The pool's LP share-token address. `None` on failure.
+pub fn aquarius_share_id_call(env: &Env, pool: &Address) -> Option<Address> {
+    match AquariusPoolClient::new(env, pool).try_share_id() {
+        Ok(Ok(addr)) => Some(addr),
+        _ => None,
+    }
 }
 
 /// Total LP share supply for `pool`. `None` on a failed call or `i128` overflow.

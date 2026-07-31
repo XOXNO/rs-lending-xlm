@@ -5,9 +5,9 @@
 //! prices, so the reserve *ratio* — the only thing a flash-loan swap can move —
 //! cancels out. Reserves enter solely through their product.
 
-use crate::constants::WAD;
+use crate::constants::{WAD, WAD_DECIMALS};
 use crate::errors::OracleError;
-use crate::math::fp::Wad;
+use crate::math::fp_core::try_mul_div_half_up;
 use crate::oracle::observation::try_u256_to_i128;
 use soroban_sdk::{Env, U256};
 
@@ -58,22 +58,18 @@ pub fn fair_lp_price_wad(
         return Err(OracleError::InvalidPrice);
     }
 
-    // USD value of each reserve, WAD-scaled. Each fits i128 (value × 1e18).
-    let value_a = Wad::from_token(reserve_a, reserve_a_decimals)
-        .try_mul(env, Wad::from(price_a_wad))
-        .ok_or(OracleError::InvalidPrice)?
-        .raw();
-    let value_b = Wad::from_token(reserve_b, reserve_b_decimals)
-        .try_mul(env, Wad::from(price_b_wad))
-        .ok_or(OracleError::InvalidPrice)?
-        .raw();
+    // USD value of each reserve, WAD-scaled. Checked end-to-end: overflow or a
+    // decimals > 18 maps to InvalidPrice, never a panic (a compromised/absurd
+    // pool must not brick the price with an unrecoverable host error).
+    let value_a = reserve_value_wad(env, reserve_a, reserve_a_decimals, price_a_wad)?;
+    let value_b = reserve_value_wad(env, reserve_b, reserve_b_decimals, price_b_wad)?;
 
     // 2·sqrt(V_a·V_b): the product is up to ~1e52, past i128, so accumulate in U256.
     let product = U256::from_u128(env, value_a as u128).mul(&U256::from_u128(env, value_b as u128));
     let total_value = isqrt_u256(env, &product).mul(&U256::from_u32(env, 2)); // WAD USD
 
     // Per whole LP share (WAD) = total_value · WAD / share_supply_whole_wad.
-    let share_supply_wad = Wad::from_token(total_shares, share_decimals).raw();
+    let share_supply_wad = amount_to_wad(env, total_shares, share_decimals)?;
     if share_supply_wad <= 0 {
         return Err(OracleError::InvalidPrice);
     }
@@ -82,6 +78,29 @@ pub fn fair_lp_price_wad(
         .div(&U256::from_u128(env, share_supply_wad as u128));
 
     try_u256_to_i128(&fair).ok_or(OracleError::InvalidPrice)
+}
+
+/// `reserve · price_wad / 10^decimals` in WAD USD; `InvalidPrice` on overflow.
+fn reserve_value_wad(
+    env: &Env,
+    reserve: i128,
+    decimals: u32,
+    price_wad: i128,
+) -> Result<i128, OracleError> {
+    let denom = 10i128
+        .checked_pow(decimals)
+        .ok_or(OracleError::InvalidPrice)?;
+    try_mul_div_half_up(env, reserve, price_wad, denom).ok_or(OracleError::InvalidPrice)
+}
+
+/// `amount` (in `decimals`) upscaled to WAD; `InvalidPrice` on overflow or
+/// `decimals > 18`.
+fn amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128, OracleError> {
+    let scale = WAD_DECIMALS
+        .checked_sub(decimals)
+        .and_then(|exp| 10i128.checked_pow(exp))
+        .ok_or(OracleError::InvalidPrice)?;
+    try_mul_div_half_up(env, amount, scale, 1).ok_or(OracleError::InvalidPrice)
 }
 
 /// Derives an LP-share sanity band from the two underlyings' own sanity bands.
@@ -149,6 +168,26 @@ mod tests {
         );
         // Fair value is strictly below the manipulable spot valuation.
         assert!(price < 680_000_000_000_000_000);
+    }
+
+    // A pathologically large reserve/supply (e.g. a compromised plane) must map
+    // to InvalidPrice, not an unrecoverable panic that would brick the market.
+    #[test]
+    fn absurd_reserve_errors_not_panics() {
+        let env = Env::default();
+        let err = fair_lp_price_wad(
+            &env,
+            i128::MAX,
+            7,
+            WAD,
+            1_000_000_000,
+            7,
+            WAD,
+            1_000_000_000,
+            7,
+        )
+        .unwrap_err();
+        assert_eq!(err, OracleError::InvalidPrice);
     }
 
     #[test]

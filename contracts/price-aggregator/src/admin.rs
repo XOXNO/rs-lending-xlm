@@ -2,6 +2,9 @@ use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::MIN_ORACLE_RESOLUTION_SECONDS;
 use common::oracle::policy;
+use common::oracle::providers::aquarius::{
+    aquarius_get_tokens_call, aquarius_plane_of_pool_call, aquarius_share_id_call,
+};
 use common::oracle::providers::redstone::{xoxno_max_submission_age_call, REDSTONE_DECIMALS};
 use common::oracle::providers::reflector::{
     reflector_base_call, reflector_decimals_call, reflector_resolution_call, ReflectorAsset,
@@ -13,6 +16,7 @@ use common::types::{
 use common::validation::{
     validate_oracle_tolerance, validate_sanity_bounds, validate_single_source_sanity_band,
 };
+use soroban_sdk::token::TokenClient;
 use soroban_sdk::{
     assert_with_error, contractevent, contracttype, panic_with_error, Env, Symbol, Vec,
 };
@@ -107,6 +111,41 @@ fn attest_sources(env: &Env, oracle: &AssetOracle) {
     }
 }
 
+/// Binds an LpShare source to its real pool at listing time (config trust is the
+/// only attack surface once the math is sound): the `plane` must be the pool's
+/// own reserve mirror, the priced key must be the pool's LP share token, and the
+/// configured reserve decimals must match the pool's actual reserve tokens.
+/// Cross-contract reads run once, at governance listing.
+fn attest_lp_binding(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
+    for source in oracle.sources.iter() {
+        let PriceSource::LpShare(lp) = &source else {
+            continue;
+        };
+        assert_with_error!(
+            env,
+            aquarius_plane_of_pool_call(env, &lp.pool).as_ref() == Some(&lp.plane),
+            OracleError::InvalidOracleBase
+        );
+        let share = aquarius_share_id_call(env, &lp.pool)
+            .unwrap_or_else(|| panic_with_error!(env, OracleError::InvalidOracleBase));
+        assert_with_error!(
+            env,
+            *key == PriceKey::Token(share),
+            OracleError::InvalidOracleBase
+        );
+        let tokens = aquarius_get_tokens_call(env, &lp.pool)
+            .filter(|tokens| tokens.len() == 2)
+            .unwrap_or_else(|| panic_with_error!(env, OracleError::InvalidOracleBase));
+        assert_with_error!(
+            env,
+            TokenClient::new(env, &tokens.get_unchecked(0)).decimals() == lp.reserve_a_decimals
+                && TokenClient::new(env, &tokens.get_unchecked(1)).decimals()
+                    == lp.reserve_b_decimals,
+            OracleError::InvalidOracleDecimals
+        );
+    }
+}
+
 fn attest_feed(env: &Env, feed: &FeedSource) {
     match &feed.provider {
         ProviderRef::Reflector(reflector) => {
@@ -175,6 +214,7 @@ fn attest_xoxno(env: &Env, contract: &soroban_sdk::Address, decimals: u32, max_s
 pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     validate_asset_oracle(env, &key, &oracle);
     attest_sources(env, &oracle);
+    attest_lp_binding(env, &key, &oracle);
     let mut session = Session::new(env);
     engine::probe(&mut session, &key, &oracle);
 
