@@ -204,6 +204,16 @@ pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) 
     status
 }
 
+/// Strict probe: the config must produce a usable price right now, not merely be
+/// structurally sound. Used when listing an asset whose price is derived rather
+/// than reported - there is no incident to work around when adding something new,
+/// and a derived source that cannot resolve at listing is a configuration error.
+pub(crate) fn probe_priceable(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
+    let env = session.env().clone();
+    let (outcome, resolved) = resolve_outcome(session, key, 0, Some(oracle));
+    let _ = force(&env, &outcome, resolved.as_ref().or(Some(oracle)));
+}
+
 pub(crate) fn probe(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
     let env = session.env().clone();
     let (outcome, _) = resolve_outcome(session, key, 0, Some(oracle));

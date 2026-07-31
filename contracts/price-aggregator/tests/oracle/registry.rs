@@ -584,3 +584,66 @@ fn test_set_oracle_rejects_a_pool_with_zero_total_shares() {
         );
     });
 }
+
+// Listing an LP whose price cannot be formed is a configuration error: there is
+// no incident to work around when adding a new asset, so the write is refused
+// rather than stored as a market that is dead on its first read.
+#[test]
+#[should_panic]
+fn test_set_oracle_refuses_an_lp_that_cannot_price_at_listing() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (key_a, key_b) = dollar_underlyings(&env);
+        let (pool, plane, share) =
+            lp_fixture(&env, "standard", 10_000_000_000, 10_000_000_000, 10_000_000_000);
+        let mut oracle = lp_oracle(&env, &pool, &plane, key_a, key_b, 7);
+        // The pool prices at $2.00/share; this band excludes it.
+        oracle.min_sanity_price_wad = 5 * WAD;
+        oracle.max_sanity_price_wad = 6 * WAD;
+        set_oracle(&env, PriceKey::Token(share), oracle);
+    });
+}
+
+// The strict listing probe must not leak into the incident levers: an ordinary
+// asset whose live price is out of band still lands, so it stays repairable.
+#[test]
+fn test_a_non_lp_config_still_lands_when_its_price_is_out_of_band() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (adapter, client) = crate::test_support::register_redstone_feed(&env);
+        let ts = env.ledger().timestamp() * 1_000;
+        client.set_price_data(&String::from_str(&env, "OOB"), &WAD, &ts, &ts);
+        let key = PriceKey::Token(Address::generate(&env));
+        let mut sources = Vec::new(&env);
+        sources.push_back(PriceSource::Feed(FeedSource {
+            provider: ProviderRef::MultiFeed(MultiFeedRef {
+                contract: adapter,
+                feed_id: String::from_str(&env, "OOB"),
+                kind: ProviderKind::RedStone,
+                nature: FeedNature::Fundamental,
+            }),
+            decimals: 8,
+            max_stale_seconds: 43_200,
+        }));
+        set_oracle(
+            &env,
+            key.clone(),
+            AssetOracle {
+                asset_decimals: 7,
+                max_price_stale_seconds: 43_200,
+                sources,
+                tolerance: OracleTolerance {
+                    upper_ratio_bps: 10_500,
+                    lower_ratio_bps: 9_524,
+                },
+                independence: IndependencePolicy::RequireDisjoint,
+                // Live price is $1.00, this band excludes it.
+                min_sanity_price_wad: 5 * WAD,
+                max_sanity_price_wad: 11 * WAD / 2,
+            },
+        );
+        assert!(get_oracle(&env, &key).is_some(), "config must be stored");
+    });
+}

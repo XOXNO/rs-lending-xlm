@@ -247,7 +247,16 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     attest_sources(env, &oracle);
     attest_lp_binding(env, &key, &oracle);
     let mut session = Session::new(env);
-    engine::probe(&mut session, &key, &oracle);
+    // An LP price is derived from the pool and its two underlyings, so listing one
+    // that cannot price is a configuration error, never a market condition worth
+    // preserving. Demand a real price here. `revalidate_dependents` and the band
+    // and tolerance levers below stay on the relaxed probe, so reconfiguring an
+    // underlying mid-incident is still possible.
+    if oracle.has_lp_source() {
+        engine::probe_priceable(&mut session, &key, &oracle);
+    } else {
+        engine::probe(&mut session, &key, &oracle);
+    }
 
     store_oracle(env, &key, &oracle);
     revalidate_dependents(env, &key);
