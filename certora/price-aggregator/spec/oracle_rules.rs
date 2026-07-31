@@ -98,8 +98,6 @@ fn price_cache_consistency(e: Env, asset: Address) {
     cvlr_assume!(timestamp <= now_secs + 60);
     let seeded = PriceFeedRaw {
         price_wad,
-        low_wad: price_wad,
-        high_wad: price_wad,
         asset_decimals,
         timestamp,
     };
