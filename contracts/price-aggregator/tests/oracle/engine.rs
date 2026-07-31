@@ -666,9 +666,21 @@ fn test_twap_read_rejects_a_history_shorter_than_the_window_needs() {
     });
 }
 
+// The live Reflector answers `records` periods back with the current period plus
+// that many historical ones, so N+1 is its normal shape and must resolve.
+#[test]
+fn test_twap_read_accepts_the_current_period_plus_the_window() {
+    let env = Env::default();
+    at_now(&env);
+    let reflector = env.register(crate::test_support::PlusOneReflector, ());
+    in_contract(&env, || {
+        assert_eq!(resolve_twap(&env, &reflector, 2).price_wad, WAD);
+    });
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #210)")]
-fn test_twap_read_rejects_more_samples_than_it_asked_for() {
+fn test_twap_read_rejects_more_samples_than_the_window_plus_current() {
     let env = Env::default();
     at_now(&env);
     let reflector = env.register(LongHistoryReflector, ());

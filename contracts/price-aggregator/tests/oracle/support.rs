@@ -256,6 +256,7 @@ impl ReflectorOracle for LongHistoryReflector {
                 sample(TWAP_NEWER_AGE_SECS),
                 sample(TWAP_OLDER_AGE_SECS),
                 sample(TWAP_OLDER_AGE_SECS + u64::from(REFLECTOR_RESOLUTION_SECS)),
+                sample(TWAP_OLDER_AGE_SECS + 2 * u64::from(REFLECTOR_RESOLUTION_SECS)),
             ],
         ))
     }
@@ -555,5 +556,43 @@ impl MockAquariusPlane {
             ));
         }
         out
+    }
+}
+
+/// Mirrors the live Reflector contract: `records` periods back means the current
+/// period plus that many historical ones, newest first, one resolution apart.
+#[contract]
+pub(crate) struct PlusOneReflector;
+
+#[contractimpl]
+impl ReflectorOracle for PlusOneReflector {
+    fn base(env: Env) -> ReflectorAsset {
+        ReflectorAsset::Other(Symbol::new(&env, "USD"))
+    }
+
+    fn decimals(_env: Env) -> u32 {
+        REFLECTOR_DECIMALS
+    }
+
+    fn resolution(_env: Env) -> u32 {
+        REFLECTOR_RESOLUTION_SECS
+    }
+
+    fn lastprice(_env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        None
+    }
+
+    fn prices(env: Env, _asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>> {
+        let now = env.ledger().timestamp();
+        let mut out = Vec::new(&env);
+        for step in 0..=records {
+            out.push_back(ReflectorPriceData {
+                price: REFLECTOR_ONE_RAW,
+                timestamp: now.saturating_sub(
+                    TWAP_NEWER_AGE_SECS + u64::from(step) * u64::from(REFLECTOR_RESOLUTION_SECS),
+                ),
+            });
+        }
+        Some(out)
     }
 }

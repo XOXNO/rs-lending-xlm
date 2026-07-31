@@ -76,7 +76,12 @@ fn read_twap(
     if history.len() < min_twap_observations(records) {
         return Err(OracleError::TwapInsufficientObservations);
     }
-    if history.len() > records {
+    // Reflector's `records` means "how many periods back", so it answers with the
+    // current period plus that many historical ones: N+1 samples, newest first
+    // (verified on mainnet and testnet for N = 1, 2, 3, 5, 10). Anything beyond
+    // N+1 is a provider that did not honour the window and is rejected; the mean
+    // below spans exactly what was returned.
+    if history.len() > records.saturating_add(1) {
         return Err(OracleError::TwapInsufficientObservations);
     }
 
