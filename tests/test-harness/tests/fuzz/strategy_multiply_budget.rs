@@ -4,8 +4,6 @@ use controller::types::PositionMode;
 use proptest::prelude::*;
 use test_harness::{build_aggregator_swap, LendingTest, ALICE};
 
-// Soroban's default ledger budget (soroban-env-host). Fitting this with margin
-// guarantees the op also fits the larger testnet/mainnet caps (400M CPU).
 const DEFAULT_CPU_BUDGET: u64 = 100_000_000;
 const DEFAULT_MEM_BUDGET: u64 = 41_943_040;
 
@@ -32,13 +30,6 @@ proptest! {
         let min_out_raw = test_harness::f64_to_i128(collateral_usdc, usdc_decimals);
         let steps = build_aggregator_swap(&t, "ETH", "USDC", amount_in_raw, min_out_raw);
 
-        // Measure the multiply's real resource demand under an unlimited budget,
-        // then assert it fits the default ledger budget. Measuring demand is
-        // deterministic; enforcing `reset_default` re-runs the op in the
-        // recording-auth phase, whose smaller shadow budget trips
-        // non-deterministically (a testutils artifact — on-chain auth is
-        // enforcing, not recording). Setup calls above are excluded by resetting
-        // the tracker immediately before the operation.
         let mut b = t.env.cost_estimate().budget();
         b.reset_unlimited();
         b.reset_tracker();

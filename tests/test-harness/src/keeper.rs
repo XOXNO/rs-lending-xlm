@@ -4,7 +4,6 @@ use crate::context::LendingTest;
 use crate::helpers::hub_asset;
 
 impl LendingTest {
-    /// Update indexes for markets on the base harness hub (internal keeper).
     pub fn update_indexes_for(&self, assets: &[&str]) {
         let mut hub_assets = Vec::new(&self.env);
         for name in assets {
@@ -40,7 +39,6 @@ impl LendingTest {
         )
     }
 
-    /// Governance force-socialize of an underwater account (owner-gated).
     pub fn force_socialize_bad_debt_by_id(&self, account_id: u64) {
         self.ctrl_client().force_socialize_bad_debt(&account_id);
     }
@@ -54,7 +52,6 @@ impl LendingTest {
         )
     }
 
-    /// Sync risk params on every supply position for each account.
     pub fn update_account_threshold(&self, has_risks: bool, account_ids: &[u64]) {
         let mut ids = Vec::new(&self.env);
         for id in account_ids {
@@ -64,7 +61,6 @@ impl LendingTest {
             .update_account_threshold(&self.keeper, &has_risks, &ids);
     }
 
-    /// Try update account threshold -- returns Result.
     pub fn try_update_account_threshold(
         &self,
         has_risks: bool,

@@ -10,8 +10,6 @@ use test_harness::{
     DEFAULT_TOLERANCE, HARNESS_HUB,
 };
 
-/// Two-source config in the mock-reflector shape (14 decimals) with the
-/// 200/500 BPS agreement band governance computes in-path.
 fn resolved_reflector_dual_source_config(
     env: &soroban_sdk::Env,
     oracle: &Address,
@@ -39,9 +37,7 @@ fn resolved_reflector_dual_source_config(
             upper_ratio_bps: 10_500,
             lower_ratio_bps: 9_524,
         },
-        // Both sources are the same Reflector deployment, which the production
-        // rule rejects unless declared. Seeded directly here so the test can
-        // exercise the read path rather than the listing rules.
+
         independence: IndependencePolicy::RequireDisjoint,
         min_sanity_price_wad: 1,
         max_sanity_price_wad: controller::constants::MAX_REASONABLE_PRICE_WAD,
@@ -51,14 +47,13 @@ fn resolved_reflector_dual_source_config(
 fn test_edit_asset_config() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Change LTV from default 7500 to 6000.
     t.edit_asset_config("USDC", |c| {
         c.loan_to_value = 6000;
     });
 
     let config = t.get_asset_config("USDC");
     assert_eq!(config.loan_to_value, 6000, "LTV should be updated to 6000");
-    // Threshold must remain unchanged.
+
     assert_eq!(
         config.liquidation_threshold, 8000,
         "threshold should remain 8000"
@@ -75,8 +70,6 @@ fn test_set_position_limits() {
     assert_eq!(limits.max_borrow_positions, 6);
 }
 
-// The controller re-validates position limits at execution (`1..=POSITION_LIMIT_MAX`
-// per side): a zero cap (bricks a side) and an over-cap value are both rejected.
 #[test]
 fn test_set_position_limits_rejects_out_of_range() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -112,16 +105,13 @@ fn test_pause_blocks_operations() {
         .with_market(eth_preset())
         .build();
 
-    // Supply first so the account exists.
     t.supply(ALICE, "USDC", 10_000.0);
 
     t.pause();
 
-    // try_supply must fail while paused.
     let supply_result = t.try_supply(ALICE, "USDC", 1000.0);
     assert_contract_error(supply_result, errors::CONTRACT_PAUSED);
 
-    // try_borrow must also fail while paused.
     let borrow_result = t.try_borrow(ALICE, "ETH", 0.5);
     assert_contract_error(borrow_result, errors::CONTRACT_PAUSED);
 }
@@ -135,12 +125,12 @@ fn test_unpause_restores_operations() {
     t.supply(ALICE, "USDC", 10_000.0);
 
     t.pause();
-    // Verify the pause took effect.
+
     let result = t.try_supply(ALICE, "USDC", 1000.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 
     t.unpause();
-    // The call must succeed after unpause.
+
     let result = t.try_supply(ALICE, "USDC", 1000.0);
     assert!(result.is_ok(), "supply should work after unpause");
 }
@@ -148,11 +138,10 @@ fn test_unpause_restores_operations() {
 fn test_upgrade_pool_params() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Snapshot the borrow rate before upgrading params.
     let rate_before = t.pool_borrow_rate("USDC");
 
-    let new_base_rate = RAY * 2 / 100; // 2%, far above default.
-    let new_slope1 = RAY * 8 / 100; // 8%.
+    let new_base_rate = RAY * 2 / 100;
+    let new_slope1 = RAY * 8 / 100;
 
     t.upgrade_pool_params(
         "USDC",
@@ -171,9 +160,6 @@ fn test_upgrade_pool_params() {
         },
     );
 
-    // Compare before/after to confirm the pool rate differs. At zero
-    // utilization the rate equals base_rate / MILLISECONDS_PER_YEAR, so the
-    // higher base_rate (2%) must raise it.
     let rate_after = t.pool_borrow_rate("USDC");
     assert!(
         rate_after > rate_before,
@@ -216,18 +202,12 @@ fn test_upgrade_liquidity_pool_params_alias() {
         rate_after
     );
 }
-// 6b. Regression: `max_borrow_rate` cap (Taylor envelope)
-//
-// `pool::update_params` rejects any `max_borrow_rate > 2 * RAY` to keep
-// `compound_interest`'s 8-term Taylor approximation inside its documented
-// `< 0.01 %` accuracy envelope. See `architecture/MATH_REVIEW.md §0`.
 
 #[test]
 fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let rate_before = t.pool_borrow_rate("USDC");
 
-    // At the exact cap (`2 * RAY`); slope3 must remain <= max.
     t.upgrade_pool_params(
         "USDC",
         InterestRateModel {
@@ -244,8 +224,7 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
             flashloan_fee: 0,
         },
     );
-    // The IRM was rewritten — confirm the borrow rate remains readable
-    // after the boundary upgrade.
+
     let rate_after = t.pool_borrow_rate("USDC");
     assert!(
         rate_after != rate_before || rate_after >= 0.0,
@@ -255,7 +234,7 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
 
 #[test]
 fn test_seeding_an_oracle_activates_a_pending_market() {
-    let t = LendingTest::new().build(); // Empty protocol.
+    let t = LendingTest::new().build();
     let ctrl = t.ctrl_client();
     let admin = &t.admin;
 
@@ -294,9 +273,6 @@ fn test_seeding_an_oracle_activates_a_pending_market() {
     );
 }
 
-// `set_oracle` re-validates the agreement band for dual-source
-// configs, so a degenerate tolerance on the (otherwise valid) pending-market
-// activation path is rejected instead of silently disabling the guard.
 #[test]
 fn test_set_oracle_rejects_a_degenerate_tolerance() {
     let t = LendingTest::new().build();
@@ -311,7 +287,7 @@ fn test_set_oracle_rejects_a_degenerate_tolerance() {
     ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params);
 
     let mut oracle_cfg = resolved_reflector_dual_source_config(&t.env, &t.mock_reflector, &asset);
-    // In-envelope upper, loose lower: would let a manipulated-low primary blend in.
+
     oracle_cfg.tolerance = OracleTolerance {
         upper_ratio_bps: 10_500,
         lower_ratio_bps: 100,
@@ -336,10 +312,8 @@ fn test_set_aggregator() {
         .env
         .register(test_harness::mock_reflector::MockReflector, ());
 
-    // Must not panic; the admin has permission.
     ctrl.set_swap_aggregator(&new_aggregator);
 
-    // Confirm the new aggregator is actually persisted.
     let stored: Address = t.env.as_contract(&t.controller_address(), || {
         t.env
             .storage()
@@ -350,7 +324,6 @@ fn test_set_aggregator() {
     assert_eq!(stored, new_aggregator, "aggregator must be persisted");
 }
 
-/// 600 BPS tolerance band as governance computes it in-path.
 fn bands_300_600() -> OracleTolerance {
     OracleTolerance {
         upper_ratio_bps: 10_600,
@@ -391,19 +364,15 @@ fn test_set_tolerance_rejects_unknown_asset() {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    // set_tolerance updates the asset's `AssetOracle` entry; an unknown
-    // asset has none, so it reverts OracleNotConfigured.
+
     assert_contract_error(mapped, errors::ORACLE_NOT_CONFIGURED);
 }
 
-// A direct setter call with a degenerate/inverted tolerance band is rejected by
-// the controller re-validation (a band that reverts every read can't be stored).
 #[test]
 fn test_set_tolerance_rejects_degenerate_band() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // upper below BPS + MIN_TOLERANCE and lower > upper: out of envelope, inverted.
     let bad = OracleTolerance {
         upper_ratio_bps: 9_000,
         lower_ratio_bps: 11_000,
@@ -418,9 +387,6 @@ fn test_set_tolerance_rejects_degenerate_band() {
     assert_contract_error(mapped, errors::BAD_LAST_TOLERANCE);
 }
 
-// A band whose upper leg is in-envelope but whose lower leg sits below the
-// symmetric floor (`bps - MAX_TOLERANCE`) is rejected: it would let a
-// manipulated-low primary drag the blended midpoint down while still "in band".
 #[test]
 fn test_set_tolerance_rejects_loose_lower_band() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -471,8 +437,6 @@ fn test_create_liquidity_pool_uniqueness() {
     let asset = t.resolve_asset("USDC");
     let params = usdc_preset().params.to_market_params(&asset, 7);
 
-    // USDC was already initialized by the builder. Re-creating the same market
-    // reverts on the pool's duplicate-market guard (`AssetAlreadySupported`).
     let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error")),
@@ -481,28 +445,23 @@ fn test_create_liquidity_pool_uniqueness() {
 }
 #[test]
 fn test_market_initialization_cascade() {
-    let t = LendingTest::new().build(); // Empty protocol.
+    let t = LendingTest::new().build();
     let ctrl = t.ctrl_client();
     let admin = &t.admin;
 
-    // Register a new token.
     let asset = t
         .env
         .register_stellar_asset_contract_v2(admin.clone())
         .address();
     let params = usdc_preset().params.to_market_params(&asset, 7);
 
-    // Create the liquidity pool with no oracle; the call succeeds and
-    // leaves the market in PendingOracle.
     ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params);
 
-    // Confirm the market is pending (no oracle yet).
     assert!(
         !t.market_is_active(&asset),
         "market should be in PendingOracle status"
     );
 
-    // 2. Configure the full market oracle in one call.
     let reflector_cfg = test_harness::reflector_primary_anchor_config(
         &t.env,
         &t.mock_reflector,
@@ -513,29 +472,18 @@ fn test_market_initialization_cascade() {
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
     t.configure_market_oracle(&asset, &reflector_cfg);
 
-    // 3. Confirm the market is Active (its AssetOracle entry now exists).
     assert!(
         t.market_is_active(&asset),
         "market should be in Active status"
     );
 }
 
-// Reconfiguring an ACTIVE market's oracle to a sanity band that excludes the
-// current live price is rejected at configure time with `SanityBoundViolated`
-// (#223): the aggregator resolves the fresh feed under the proposed config
-// before storing it, so a band that would brick every later risk read
-// (borrow/withdraw/liquidation) never gets stored.
-//
-// The source is smoothed on purpose: a spot-only single source is refused
-// earlier by the smoothing rule (#38), which would make this pass without ever
-// reaching the band.
 #[test]
 #[should_panic(expected = "Error(Contract, #223)")]
 fn test_configure_market_oracle_rejects_out_of_band_live_price() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_asset("USDC");
 
-    // USDC lives at $1; a single-source band tight around $3 excludes it.
     let cfg = test_harness::reflector_primary_anchor_config(
         &t.env,
         &t.mock_reflector,
@@ -546,9 +494,6 @@ fn test_configure_market_oracle_rejects_out_of_band_live_price() {
     t.configure_market_oracle(&usdc, &cfg);
 }
 
-// Oracle decimals must match the pool market's registered decimals; a
-// `upgrade_pool` must forward the hash to the deployed pool: upgrading to a
-// hash that was never uploaded fails inside the pool's upgrade call.
 #[test]
 fn test_upgrade_pool_forwards_hash_to_pool() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -559,8 +504,6 @@ fn test_upgrade_pool_forwards_hash_to_pool() {
     );
 }
 
-// A zero-revenue claim must not touch the token: no SAC transfer happens
-// (and thus no transfer event) when nothing accrued.
 #[test]
 fn test_claim_revenue_zero_accrual_skips_transfer() {
     use soroban_sdk::testutils::Events as _;
@@ -569,12 +512,9 @@ fn test_claim_revenue_zero_accrual_skips_transfer() {
     let accumulator = Address::generate(&t.env);
     t.set_accumulator(&accumulator);
 
-    // Fresh market, no borrows: nothing accrued.
     let claimed = t.claim_revenue("USDC");
     assert_eq!(claimed, 0);
 
-    // No SAC transfer may run for a zero claim: the token contract emits
-    // nothing during the claim invocation.
     let token = t.resolve_market("USDC").asset.clone();
     let token_events = t.env.events().all().filter_by_contract(&token);
     assert!(
@@ -583,8 +523,6 @@ fn test_claim_revenue_zero_accrual_skips_transfer() {
     );
 }
 
-// The min-borrow-collateral floor is inclusive: an account whose
-// LTV-weighted collateral equals the floor exactly may borrow.
 #[test]
 fn test_min_borrow_floor_is_inclusive_at_exact_boundary() {
     let mut t = LendingTest::new()
@@ -592,7 +530,6 @@ fn test_min_borrow_floor_is_inclusive_at_exact_boundary() {
         .with_market(eth_preset())
         .build();
 
-    // $10k USDC at LTV 0.75 -> LTV collateral exactly $7500.
     let floor: i128 = 7_500 * 1_000_000_000_000_000_000;
     t.ctrl_client().set_min_borrow_collateral_usd(&floor);
 

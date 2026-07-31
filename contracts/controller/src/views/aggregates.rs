@@ -1,5 +1,3 @@
-//! USD-aggregate views.
-
 use crate::risk;
 use crate::storage;
 use soroban_sdk::Env;

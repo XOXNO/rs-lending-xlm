@@ -16,7 +16,7 @@ fn aggregate_payments_dedups_and_preserves_order() {
     };
     let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&env);
     payments.push_back((asset_a.clone(), 10));
-    payments.push_back((asset_a.clone(), 5)); // same asset, summed
+    payments.push_back((asset_a.clone(), 5));
     payments.push_back((asset_b.clone(), 3));
 
     let out = aggregate_positive_payments(&env, &payments);

@@ -1,5 +1,3 @@
-//! Shared operation alphabet for accounting conservation properties.
-
 use proptest::prelude::*;
 use soroban_sdk::Vec;
 use test_harness::{hub_asset, LendingTest, ALICE, BOB, LIQUIDATOR};

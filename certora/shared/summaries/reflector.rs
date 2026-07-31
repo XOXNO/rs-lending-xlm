@@ -1,5 +1,3 @@
-//! Reflector oracle summaries: positive prices and bounded timestamps.
-
 use cvlr::cvlr_assume;
 use cvlr::nondet::{nondet, nondet_option};
 use soroban_sdk::{Address, Env, Symbol, Vec};
@@ -13,7 +11,6 @@ pub fn base_summary(env: &Env, _oracle: &Address) -> ReflectorAsset {
     ReflectorAsset::Other(Symbol::new(env, "USD"))
 }
 
-/// Last price: `price > 0`, timestamp within ledger + skew.
 pub fn lastprice_summary(
     env: &Env,
     _oracle: &Address,
@@ -28,7 +25,6 @@ pub fn lastprice_summary(
     })
 }
 
-/// Historical prices: positive entries, descending timestamps, length capped at `records`.
 pub fn prices_summary(
     env: &Env,
     _oracle: &Address,

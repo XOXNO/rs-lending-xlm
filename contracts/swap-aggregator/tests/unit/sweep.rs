@@ -1,9 +1,3 @@
-//! `sweep_balance` and reserved fee-bucket accounting.
-//!
-//! Sweeps recover stray tokens only above reserved fee backing. Walking fee
-//! buckets must skip absent slots (no TTL bump on missing entries) and renew
-//! TTLs of positive buckets.
-
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
@@ -24,7 +18,6 @@ fn sweep_balance_recovers_stray_tokens_to_recipient() {
     let (untouched_token, sac_untouched) = new_asset(&env, &asset_admin);
     let recipient = Address::generate(&env);
 
-    // Simulate dust: a direct transfer to the router outside `execute_strategy`.
     sac_stray.mint(&router_addr, &1_234);
     sac_untouched.mint(&router_addr, &500);
 
@@ -39,7 +32,7 @@ fn sweep_balance_recovers_stray_tokens_to_recipient() {
         token::Client::new(&env, &stray_token).balance(&recipient),
         1_234
     );
-    // Tokens not passed in `tokens` are left alone.
+
     assert_eq!(
         token::Client::new(&env, &untouched_token).balance(&router_addr),
         500
@@ -48,12 +41,6 @@ fn sweep_balance_recovers_stray_tokens_to_recipient() {
 
 #[test]
 fn reserved_fee_balance_skips_absent_referral_slot() {
-    // A registered referral bumps ReferralCounter, so `reserved_fee_balance`
-    // iterates that slot even when it never accrued a fee for the swept token.
-    // The `amount > 0` presence guard must skip the TTL bump on the absent
-    // entry — extending a nonexistent persistent entry panics. This pins the
-    // referral half of that guard the way `sweep_balance_recovers_stray_tokens`
-    // pins the admin half.
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
@@ -64,14 +51,11 @@ fn reserved_fee_balance_skips_absent_referral_slot() {
     let asset_admin = Address::generate(&env);
     let (stray_token, sac_stray) = new_asset(&env, &asset_admin);
 
-    // Counter goes to 1; no swap runs, so ReferralFee(1, stray_token) is absent.
     router.add_referral(&referral_owner, &100);
 
     sac_stray.mint(&router_addr, &777);
     router.sweep_balance(&recipient, &vec![&env, stray_token.clone()]);
 
-    // No fees are reserved for this token, so the full stray balance sweeps out.
-    // Under a guard mutant that bumps the absent slot the sweep panics instead.
     assert_eq!(
         token::Client::new(&env, &stray_token).balance(&router_addr),
         0
@@ -82,10 +66,6 @@ fn reserved_fee_balance_skips_absent_referral_slot() {
     );
 }
 
-// `reserved_fee_balance` must renew the shared-tier TTL of every positive fee
-// bucket it walks — the guarded `extend_ttl` is what keeps fee backing alive
-// between sweeps. Pins the `> 0` guards against a `< 0` swap, which returns
-// the same reserved total but silently drops the renewal.
 #[test]
 fn reserved_fee_balance_renews_positive_fee_bucket_ttls() {
     use crate::types::DataKey;
@@ -189,8 +169,6 @@ fn sweep_balance_keeps_fee_backing_claimable() {
     assert_eq!(token_client.balance(&router_addr), 0);
 }
 
-// When the router's whole balance is reserved fee backing, a sweep must not
-// touch the token at all (not even a zero-value transfer).
 #[test]
 fn sweep_balance_skips_transfer_when_balance_equals_reserved() {
     let env = Env::default();

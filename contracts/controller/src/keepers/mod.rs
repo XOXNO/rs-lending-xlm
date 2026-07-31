@@ -1,8 +1,3 @@
-//! Upkeep: permissionless index refresh, revenue sweeps, reward donations,
-//! risk-param resync, and market recapitalization.
-//! Every flow requires the funder's auth (the `caller`, or `payer` for
-//! recapitalize) and uses the flash-loan reentrancy guard.
-
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use common::types::{AccountPosition, AssetConfig, HubAssetKey};
@@ -26,8 +21,6 @@ pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey
     let mut cache = Cache::new(env);
     let pool_addr = cache.cached_pool_address();
     for hub_asset in assets {
-        // The pool owns the authoritative market record and reverts
-        // `PoolNotInitialized` for an uncreated market.
         pool_update_indexes_call(env, &pool_addr, &hub_asset);
     }
 }
@@ -48,8 +41,6 @@ pub(crate) fn add_rewards(env: &Env, caller: Address, rewards: Vec<(HubAssetKey,
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Sum per-market legs so one batch can't compound a market's index
-    // across sequential pool updates.
     let aggregated = payments::aggregate_positive_payments(env, &rewards);
 
     let mut cache = Cache::new(env);
@@ -58,13 +49,6 @@ pub(crate) fn add_rewards(env: &Env, caller: Address, rewards: Vec<(HubAssetKey,
     }
 }
 
-/// Pulls a caller-funded cash injection from `payer`; the pool retains only its
-/// current shortfall and refunds the rest directly to `payer`.
-///
-/// Permissionless: anyone may invoke it, but `payer` authorizes the transfer, so
-/// only the payer's own funds move. The pool mints no shares and moves no index,
-/// so a recapitalization can only add backing — there is nothing to grief with
-/// and no proceeds to capture, which is why it needs no owner gate.
 pub(crate) fn recapitalize(
     env: &Env,
     payer: Address,
@@ -89,13 +73,6 @@ pub(crate) fn recapitalize(
     pool_recapitalize_call(env, &pool_addr, &hub_asset, &payer, amount).actual_amount
 }
 
-/// Re-stamps live spoke risk params onto each account's supply legs.
-///
-/// Permissionless by design: stale params outliving a governance change is the
-/// worse failure. Every field is copied from the spoke listing, and with
-/// `has_risks` the liquidation tuple goes through
-/// [`crate::risk::apply_gated_liquidation_params`], so a third party cannot
-/// ratchet it the liquidator's way.
 pub(crate) fn update_account_threshold(
     env: &Env,
     caller: Address,
@@ -105,10 +82,6 @@ pub(crate) fn update_account_threshold(
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Propagates risk-param updates for each supplied asset on each account.
-    // The cache is shared across the batch for its token-rooted memos
-    // (prices, oracles, pool sync data); the per-spoke context is reset per
-    // account so a batch may mix accounts from different spokes.
     let mut cache = Cache::new(env);
 
     for account_id in account_ids {
@@ -127,7 +100,6 @@ fn claim_revenue_for_asset_with_cache(
 
     let pool_addr = cache.cached_pool_address();
 
-    // `claim_revenue` reverts `PoolNotInitialized` for an uncreated market.
     let result = pool_claim_revenue_call(env, &pool_addr, hub_asset);
     let amount = result.actual_amount;
 
@@ -144,7 +116,6 @@ fn claim_revenue_for_asset_with_cache(
     amount
 }
 
-/// Pulls `amount` from `caller` into the pool and raises the supply index.
 pub(crate) fn add_reward(
     env: &Env,
     caller: &Address,
@@ -165,13 +136,10 @@ pub(crate) fn add_reward(
         GenericError::AmountMustBePositive,
     );
 
-    // `add_rewards` reverts `PoolNotInitialized` for an uncreated market.
     pool_add_rewards_call(env, &pool_addr, hub_asset, amount);
 }
 
-/// Copies live spoke risk fields onto supply rows; HF-gates when `has_risks`.
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
-    // No-op when the account is gone (bad-debt cleanup, full exit).
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
         return;
     };
@@ -181,7 +149,6 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         return;
     }
 
-    // Load borrow positions only when the health-factor gate requires them.
     let borrow_positions = if has_risks {
         storage::get_debt_positions(env, account_id)
     } else {
@@ -199,8 +166,6 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     };
 
     for hub_asset in assets.iter() {
-        // Delisted assets keep their stamped params; skip them instead of
-        // blocking the rest of the account. Deprecated spokes sync normally.
         let Some(spoke_config) = cache.cached_spoke_asset(account.spoke_id, &hub_asset) else {
             continue;
         };
@@ -209,8 +174,6 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         let raw = expect_invariant(env, account.supply_positions.get(hub_asset.clone()));
         let mut updated = AccountPosition::from(&raw);
 
-        // Only the risk fields are copied; the position's scaled share amount
-        // is unchanged.
         risk::refresh_supply_risk_params(
             env,
             cache,
@@ -223,7 +186,6 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
 
         account::update_or_remove_supply_position(&mut account, &hub_asset, &updated);
 
-        // amount = 0: parameter change only, no deposit or withdraw.
         let market_index = cache.cached_market_index(&hub_asset);
         cache.record_supply_position_update(
             events::PositionAction::ParamUpd,

@@ -69,9 +69,6 @@ fn validate_position_limits_rejects_above_cap() {
     );
 }
 
-// The probed decimals must flow through verbatim; a freshly registered SAC
-// reports 7 and that exact value is what market creation later compares
-// against `params.asset_decimals`.
 #[test]
 fn validate_and_fetch_token_decimals_returns_token_value() {
     let env = Env::default();
@@ -106,7 +103,6 @@ fn validate_market_creation_rejects_decimals_out_of_range() {
     validate_market_creation(&env, &asset, &params, MAX_ASSET_DECIMALS + 1);
 }
 
-// `params.asset_decimals` must equal the live token probe (InvalidAsset #6).
 #[test]
 #[should_panic(expected = "Error(Contract, #6)")]
 fn validate_market_creation_rejects_decimals_mismatch() {

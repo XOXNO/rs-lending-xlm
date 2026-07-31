@@ -18,9 +18,7 @@ fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
         .map(|m| m.len())
         .unwrap_or(0)
 }
-/// Assert that a Result contains a specific contract error code.
-///
-/// Usage: `assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);`
+
 pub fn assert_contract_error<T: std::fmt::Debug>(
     result: Result<T, soroban_sdk::Error>,
     expected_code: u32,

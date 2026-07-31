@@ -1,8 +1,3 @@
-//! Multi-feed adapter reads (RedStone and XOXNO): cache-first single feed, plus
-//! bulk helper used by [`crate::session::Session::warm`].
-//!
-//! Always soft on market data: miss or bad payload → `None`.
-
 #[cfg(not(feature = "certora"))]
 use common::oracle::providers::redstone::RedStonePriceFeedClient;
 use common::oracle::providers::redstone::{read_price_data_uncached, RedStonePriceData};
@@ -35,7 +30,6 @@ mod certora_read {
 #[cfg(not(feature = "certora"))]
 pub(crate) use read_multi_feed_source_impl as read_multi_feed_source;
 
-/// Cache-first read of one multi-feed id, normalized to WAD.
 pub(crate) fn read_multi_feed_source_impl(
     session: &mut Session,
     feed: &MultiFeedRef,
@@ -61,8 +55,6 @@ fn read_price_data(
     Some(data)
 }
 
-/// Bulk adapter read for warm. Requires `data.len() == feed_ids.len()`; any
-/// host/result mismatch → `None`.
 #[cfg(not(feature = "certora"))]
 pub(crate) fn read_price_data_bulk(
     env: &Env,

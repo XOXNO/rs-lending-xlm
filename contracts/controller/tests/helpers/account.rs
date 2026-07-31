@@ -3,7 +3,6 @@ use crate::Controller;
 use common::types::PositionManagerConfig;
 use soroban_sdk::testutils::Address as _;
 
-/// Seeds account `1` owned by `owner` and returns its id.
 fn seed_account(env: &Env, owner: &Address) -> u64 {
     let account_id = 1u64;
     storage::set_account_meta(
@@ -18,7 +17,6 @@ fn seed_account(env: &Env, owner: &Address) -> u64 {
     account_id
 }
 
-// The owner always passes, regardless of delegate/manager state.
 #[test]
 fn owner_passes() {
     let env = Env::default();
@@ -31,7 +29,6 @@ fn owner_passes() {
     });
 }
 
-// Non-owner without delegation is rejected.
 #[test]
 #[should_panic(expected = "Error(Contract, #44)")]
 fn stranger_rejected() {
@@ -45,7 +42,6 @@ fn stranger_rejected() {
     });
 }
 
-// A registered, active manager the owner opted in passes.
 #[test]
 fn active_registered_opted_in_delegate_passes() {
     let env = Env::default();
@@ -63,7 +59,6 @@ fn active_registered_opted_in_delegate_passes() {
     });
 }
 
-// A registered, active manager NOT opted into the account is rejected.
 #[test]
 #[should_panic(expected = "Error(Contract, #44)")]
 fn registered_but_not_opted_in_rejected() {
@@ -81,7 +76,6 @@ fn registered_but_not_opted_in_rejected() {
     });
 }
 
-// An opted-in delegate whose manager registration is inactive is rejected.
 #[test]
 #[should_panic(expected = "Error(Contract, #44)")]
 fn opted_in_but_manager_inactive_rejected() {

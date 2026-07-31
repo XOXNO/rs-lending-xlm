@@ -1,4 +1,3 @@
-//! `ExtendFootprintTtl` operation builder.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
@@ -8,7 +7,6 @@ use stellar_xdr::curr::{
 
 use crate::stellar::tx::{empty_soroban_data, TxJob, TxKind};
 
-/// Stellar-core max for `ExtendFootprintTtlOp.extend_to`.
 pub const MAX_LEDGERS_TO_EXTEND: u32 = 535_679;
 
 pub fn extend_footprint_ttl(read_only_keys: &[LedgerKey], extend_to_ledgers: u32) -> Result<TxJob> {

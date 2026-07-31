@@ -3,9 +3,6 @@ use soroban_sdk::Env;
 
 use crate::test_support::fresh_governance;
 
-// `clear_operation_sidecars` must remove the Recovery-tier marker: after it
-// runs, `is_recovery_op` reads false again so the operation id can no longer be
-// treated as non-vetoable. A no-op body leaves the mark set.
 #[test]
 fn clear_operation_sidecars_removes_recovery_mark() {
     let env = Env::default();

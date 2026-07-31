@@ -7,9 +7,6 @@ use crate::context::LendingTest;
 use crate::helpers::hub_asset;
 
 impl LendingTest {
-    /// Advance the ledger timestamp by `duration_secs` seconds.
-    /// Also bumps sequence_number proportionally.
-    /// Re-sets oracle prices at the new timestamp to prevent staleness errors.
     pub fn advance_time(&mut self, duration_secs: u64) {
         let current = self.env.ledger().timestamp();
         let current_seq = self.env.ledger().sequence();
@@ -30,8 +27,6 @@ impl LendingTest {
         self.refresh_oracle_prices();
     }
 
-    /// Advance the ledger timestamp WITHOUT refreshing oracle prices.
-    /// Useful for testing staleness behavior.
     pub fn advance_time_no_refresh(&self, duration_secs: u64) {
         let current = self.env.ledger().timestamp();
         let current_seq = self.env.ledger().sequence();
@@ -50,13 +45,11 @@ impl LendingTest {
         });
     }
 
-    /// Advance time AND call update_indexes on all markets.
     pub fn advance_and_sync(&mut self, duration_secs: u64) {
         self.advance_time(duration_secs);
         self.sync_all_markets();
     }
 
-    /// Advance time AND call update_indexes on specific markets.
     pub fn advance_and_sync_markets(&mut self, duration_secs: u64, market_names: &[&str]) {
         self.advance_time(duration_secs);
 

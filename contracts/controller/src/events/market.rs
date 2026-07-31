@@ -1,5 +1,3 @@
-//! Market lifecycle and param-update events.
-
 use soroban_sdk::{contractevent, Address};
 
 #[contractevent(topics = ["market", "create"])]

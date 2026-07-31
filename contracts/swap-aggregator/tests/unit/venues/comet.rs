@@ -1,11 +1,3 @@
-//! Comet venue adapter tests.
-//!
-//! Comet pulls input via allowance. The router must:
-//! - reject output that arrives without an input spend,
-//! - clear residual approvals (including sticky-allowance tokens),
-//! - pick an approval ledger that covers the current sequence,
-//! - treat a zero reported output as `ZeroOutput`.
-
 use crate::errors::Error;
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
@@ -141,8 +133,6 @@ fn comet_zero_report_rejected() {
     );
 }
 
-// A comet hop over a token whose `transfer_from` leaves the allowance in place
-// must still end with zero residual approval from the router to the pool.
 #[test]
 fn comet_clears_unconsumed_allowance() {
     let env = Env::default();
@@ -184,10 +174,6 @@ fn comet_clears_unconsumed_allowance() {
     );
 }
 
-// The comet approval expiration must land at or after the current ledger for
-// any sequence, otherwise the SAC rejects the approve outright. A sequence
-// just past a 100k boundary distinguishes every arithmetic slip in
-// `comet_approval_ledger` (each computes an expiration below the sequence).
 #[test]
 fn comet_approval_ledger_covers_current_sequence() {
     let env = Env::default();

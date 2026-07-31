@@ -1,5 +1,3 @@
-//! Temporary session flags (flash-loan / strategy reentrancy guard).
-
 use soroban_sdk::{contracttype, Env};
 
 #[contracttype]

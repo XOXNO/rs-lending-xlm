@@ -1,5 +1,3 @@
-//! Payment batches: aggregation arithmetic and controller-side token movement.
-
 mod aggregate;
 mod transfer;
 

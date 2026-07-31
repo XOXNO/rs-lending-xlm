@@ -1,8 +1,3 @@
-//! Aquarius venue adapter tests.
-//!
-//! Covers the 1:1 happy path, pool membership checks, and zero-report rejection
-//! (including the malicious pool that lies about delivered output).
-
 use crate::errors::Error;
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};

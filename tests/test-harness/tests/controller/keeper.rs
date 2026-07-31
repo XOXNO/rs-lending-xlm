@@ -54,10 +54,6 @@ fn supply_risk_fields(t: &LendingTest, account_id: u64, asset_name: &str) -> (u3
     })
 }
 
-// Invariant guard for the borrow/collateral type split: the pool's position
-// return must merge ONLY the scaled amount back onto a supply position — it
-// must never zero the collateral risk fields the controller holds. A
-// regression here makes HF math see 0% LTV everywhere and blocks all borrows.
 #[test]
 fn test_supply_roundtrip_preserves_risk_fields() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -71,8 +67,6 @@ fn test_supply_roundtrip_preserves_risk_fields() {
         first
     );
 
-    // Second supply round-trips through the pool and merges the returned
-    // position back onto the stored one.
     t.supply(ALICE, "USDC", 1_000.0);
     let second = supply_risk_fields(&t, id, "USDC");
 
@@ -90,13 +84,11 @@ fn test_update_indexes_refreshes_rates() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // Supply + borrow to create utilization.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
     let borrow_before = t.borrow_balance(ALICE, "ETH");
 
-    // Advance time and sync indexes.
     t.advance_and_sync(days(30));
 
     let borrow_after = t.borrow_balance(ALICE, "ETH");
@@ -115,21 +107,15 @@ fn test_clean_bad_debt_removes_positions() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // Alice supplies small USDC and borrows ETH near the limit.
-    t.supply(ALICE, "USDC", 10.0); // $10 collateral
-    t.borrow(ALICE, "ETH", 0.003); // ~$6 debt
+    t.supply(ALICE, "USDC", 10.0);
+    t.borrow(ALICE, "ETH", 0.003);
 
-    // Crash USDC price so collateral becomes nearly worthless and falls below $5.
-    // $10 * $0.01 = $0.10 collateral (< $5 bad-debt threshold).
     t.set_price("USDC", usd_cents(1));
 
-    // Verify the account can be liquidated.
     assert!(t.can_be_liquidated(ALICE), "Alice should be liquidatable");
 
-    // Clean bad debt.
     t.clean_bad_debt_for(ALICE);
 
-    // After cleaning bad debt, positions must be removed.
     t.assert_no_positions(ALICE);
 }
 #[test]
@@ -140,7 +126,6 @@ fn test_clean_bad_debt_rejects_healthy() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // Alice with a healthy position.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.assert_healthy(ALICE);
@@ -157,33 +142,18 @@ fn test_clean_bad_debt_rejects_above_threshold() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // Alice supplies significant collateral and borrows near the limit.
-    t.supply(ALICE, "USDC", 1000.0); // $1000 collateral
-    t.borrow(ALICE, "ETH", 0.3); // ~$600 debt
+    t.supply(ALICE, "USDC", 1000.0);
+    t.borrow(ALICE, "ETH", 0.3);
 
-    // Drop USDC price to make Alice liquidatable while collateral > $5.
-    // $1000 * $0.50 = $500 collateral (well above the $5 threshold).
     t.set_price("USDC", usd_cents(50));
 
-    // Should be liquidatable.
     assert!(t.can_be_liquidated(ALICE), "Alice should be liquidatable");
 
-    // Collateral is above the $5 threshold, so clean_bad_debt must fail.
     let account_id = t.resolve_account_id(ALICE);
     let result = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(result, errors::CANNOT_CLEAN_BAD_DEBT);
 }
-// 4a. test_bad_debt_gap_band_resolved_by_liquidation
-//
-// Finding #2 — the ($5, total_debt) gap band. An insolvent account whose
-// collateral sits ABOVE the $5 socialization threshold but BELOW its debt is
-// NOT directly socializable (`clean_bad_debt` reverts `CannotCleanBadDebt`),
-// yet it is NOT protocol-stuck: a single liquidation's max-collateral close
-// seizes the collateral down to <=$5, which triggers the IN-TX bad-debt
-// socialization (`liquidation.rs` `will_socialize`) and winds the account down
-// — without ever calling `clean_bad_debt`. So there IS a guaranteed protocol
-// terminal transition; the only residual is whether a liquidator is
-// economically motivated to act, which is off-chain (not assertable on-chain).
+
 #[test]
 fn test_bad_debt_gap_band_resolved_by_liquidation() {
     let mut t = LendingTest::new()
@@ -192,43 +162,25 @@ fn test_bad_debt_gap_band_resolved_by_liquidation() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // $1000 USDC collateral, ~$600 ETH debt (within LTV).
     t.supply(ALICE, "USDC", 1000.0);
     t.borrow(ALICE, "ETH", 0.3);
 
-    // Crash USDC to $0.30: collateral = $300. Now $5 < collateral ($300) <
-    // debt ($600) with HF < 1 — squarely inside the gap band.
     t.set_price("USDC", usd_cents(30));
     assert!(t.can_be_liquidated(ALICE), "account should be insolvent");
 
-    // (1) Direct socialization is gated out while collateral > $5.
     let account_id = t.resolve_account_id(ALICE);
     let gated = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(gated, errors::CANNOT_CLEAN_BAD_DEBT);
 
-    // (2) A liquidation resolves it anyway. Repaying the full debt lets the
-    // contract cap the repaid amount to what the ~$300 collateral covers,
-    // seize all of it (post-state <=$5), and socialize the residual in-tx.
     t.liquidate(BOB, ALICE, "ETH", 0.3);
 
-    // (3) Terminal transition without clean_bad_debt: account is wound down.
     t.assert_no_positions(ALICE);
     assert!(
         !t.can_be_liquidated_by_id(account_id),
         "account must be resolved after the gap-band liquidation"
     );
 }
-// 4b. test_clean_bad_debt_rejected_under_oracle_deviation
-//
-// Standalone bad-debt cleanup reads the live price under the fail-closed
-// oracle: when the primary and anchor sources diverge beyond the tolerance
-// band, the read rejects with `UnsafePriceNotAllowed` instead of resolving to
-// a price only one source corroborates. Cleanup is only permitted on prices
-// both independent sources agree on within tolerance.
-//
-// The two oracles are independent, so sustained out-of-band divergence is
-// implausible — transient gaps stay inside the tolerated band — making the
-// rejection window narrow.
+
 #[test]
 fn test_clean_bad_debt_rejected_under_oracle_deviation() {
     use test_harness::TIGHT_TOLERANCE;
@@ -239,30 +191,17 @@ fn test_clean_bad_debt_rejected_under_oracle_deviation() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // Dual-source so primary/anchor can diverge into UnsafePriceNotAllowed
-    // instead of a Single TWAP print hitting SanityBoundViolated first.
     t.enable_dual_source_oracle("USDC");
-    // Tight tolerance so a small primary/anchor gap counts as
-    // deviation.
+
     t.set_tolerance("USDC", TIGHT_TOLERANCE);
 
-    // Set up the bad-debt position: tiny collateral, much larger
-    // debt. Mirror `test_clean_bad_debt_removes_positions`.
     t.supply(ALICE, "USDC", 10.0);
     t.borrow(ALICE, "ETH", 0.003);
 
-    // Crash the aggregator price (live spot) so collateral falls
-    // below the $5 threshold.
     t.set_price("USDC", usd_cents(1));
 
-    // Skew the TWAP/anchor source so primary and anchor disagree beyond the
-    // tolerance band; the fail-closed read rejects rather than resolving to a
-    // singly-corroborated price.
     t.set_safe_price("USDC", usd_cents(100));
 
-    // `clean_bad_debt` reads the live price: the out-of-band primary/anchor gap
-    // is rejected with `UnsafePriceNotAllowed` rather than resolving to the
-    // deviated aggregator price.
     let account_id = t.resolve_account_id(ALICE);
     let result = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(result, errors::UNSAFE_PRICE);
@@ -289,10 +228,6 @@ fn test_update_account_threshold_safe() {
         c.liquidation_fees = fee_before - 50;
     });
 
-    // `has_risks=false` carries no HF walk, so it may only move LTV — that
-    // bounds borrow capacity and never reaches the liquidation planner. The
-    // tuple (threshold, bonus, fees) stays put: a raised bonus and a cut fee
-    // are both liquidator-favorable, and this path is permissionless.
     t.update_account_threshold(false, &[account_id]);
 
     let (lt_after, bonus_after, ltv_after) = supply_risk_fields(&t, account_id, "USDC");
@@ -308,10 +243,8 @@ fn test_update_account_threshold_safe() {
     );
     assert_eq!(lt_after, lt_before, "threshold moves only with the tuple");
 
-    // Position should still exist and stay healthy.
     t.assert_healthy(ALICE);
 
-    // Verify the account's health factor is still valid after threshold propagation.
     let hf_after = t.health_factor(ALICE);
     assert!(
         hf_after >= 1.0,
@@ -329,18 +262,15 @@ fn test_update_account_threshold_risky() {
         .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 1.0); // ~$2000 debt on $100k collateral -> very healthy
+    t.borrow(ALICE, "ETH", 1.0);
 
     let hf_before = t.health_factor(ALICE);
     let account_id = t.resolve_account_id(ALICE);
 
-    // Update risky params (has_risks=true): liquidation threshold.
-    // Should trigger the HF check but pass since HF is very high.
     t.update_account_threshold(true, &[account_id]);
 
     t.assert_healthy(ALICE);
 
-    // Verify the HF is still valid after the risky threshold update.
     let hf_after = t.health_factor(ALICE);
     assert!(
         hf_after >= 1.0,
@@ -349,9 +279,7 @@ fn test_update_account_threshold_risky() {
         hf_after
     );
 }
-// The post-walk floor is an account-state check, not an edit check: an account
-// that has drifted under 1.05 on price alone rejects the risky restamp outright
-// rather than re-stamping params onto a near-liquidation position.
+
 #[test]
 fn test_update_account_threshold_rejects_low_hf() {
     let mut t = LendingTest::new()
@@ -360,24 +288,17 @@ fn test_update_account_threshold_rejects_low_hf() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // Supply and borrow near the limit so HF stays close to 1.0.
     t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 3.0); // ~$6000 debt on $10k collateral, HF ~ 1.33
+    t.borrow(ALICE, "ETH", 3.0);
 
     let account_id = t.resolve_account_id(ALICE);
 
-    // $7_800 collateral * 80% LT = $6_240 weighted / $6_000 debt = HF ~1.04,
-    // under the 1.05 buffer while still solvent.
     t.set_price("USDC", usd_cents(78));
 
     let result = t.try_update_account_threshold(true, &[account_id]);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_LOW);
 }
 
-// The gate is directional, not a freeze: an account far above the floor takes a
-// wholly liquidator-favorable tuple, so a risk-off listing change is not
-// stranded on idle accounts. Twin of the supply path's
-// `regression_supply_propagates_bonus_raise_to_healthy_account`.
 #[test]
 fn test_update_account_threshold_propagates_adverse_tuple_to_healthy_account() {
     let mut t = LendingTest::new()
@@ -386,7 +307,6 @@ fn test_update_account_threshold_propagates_adverse_tuple_to_healthy_account() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // $100k collateral against ~$2k debt — far above the 1.05 floor.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
@@ -416,12 +336,6 @@ fn test_update_account_threshold_propagates_adverse_tuple_to_healthy_account() {
     );
 }
 
-// M1: the permissionless keeper path must not ratchet a liquidator-favorable
-// tuple onto an indebted account. Governance goes risk-off — LT 80%→61%, bonus
-// 5%→10%, fee 1%→0.5% — which puts the post-cut HF at ~1.017, under the 1.05
-// floor. A third-party keeper call still completes and LTV still binds, but the
-// tuple holds its old vintage in full: this is a skip, not a revert, so the
-// held stamp cannot be mistaken for the outer assert doing the work.
 #[test]
 fn regression_third_party_keeper_cannot_force_adverse_tuple_below_min_hf() {
     let mut t = LendingTest::new()
@@ -449,7 +363,6 @@ fn regression_third_party_keeper_cannot_force_adverse_tuple_below_min_hf() {
         c.liquidation_fees = 50;
     });
 
-    // `t.keeper` is neither the account owner nor a role holder.
     t.update_account_threshold(true, &[account_id]);
 
     let (lt_after, bonus_after, ltv_after) = supply_risk_fields(&t, account_id, "USDC");
@@ -482,9 +395,6 @@ fn test_update_account_threshold_deprecated_spoke_retains_spoke_params() {
 
     assert_eq!(supply_threshold_bps(&t, account_id, "USDC"), 9800);
 
-    // Spokes are self-contained: a deprecated spoke keeps its stored
-    // `SpokeAsset` entry, so re-stamping a position on that spoke reads the
-    // same spoke config -- there is no spoke-0 fallback (controller spoke.rs).
     t.remove_spoke_category(2);
     t.update_account_threshold(true, &[account_id]);
 
@@ -544,7 +454,7 @@ fn test_permissionless_keeper_endpoints() {
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may update_indexes");
 }
-// Mixed-spoke keeper batch: per-account spoke-context reset avoids SpokeMismatch.
+
 #[test]
 fn test_update_account_threshold_mixed_spokes_batch() {
     let mut t = LendingTest::new()
@@ -553,7 +463,6 @@ fn test_update_account_threshold_mixed_spokes_batch() {
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    // ALICE on the base spoke (1), BOB on spoke 2, same asset.
     t.supply(ALICE, "USDC", 1_000.0);
     t.create_spoke_account(BOB, 2);
     t.supply(BOB, "USDC", 1_000.0);
@@ -563,8 +472,6 @@ fn test_update_account_threshold_mixed_spokes_batch() {
     let (_, alice_bonus_before, alice_ltv_before) = supply_risk_fields(&t, alice_id, "USDC");
     let (_, bob_bonus_before, _) = supply_risk_fields(&t, bob_id, "USDC");
 
-    // Change only spoke 2 so the sync writes a visible delta for BOB. LTV syncs
-    // unconditionally; the liquidation tuple needs the gated path.
     t.edit_asset_in_spoke("USDC", 2, true, true, 9600, 9700, 300);
 
     t.update_account_threshold(false, &[alice_id, bob_id]);
@@ -584,10 +491,6 @@ fn test_update_account_threshold_mixed_spokes_batch() {
     );
 }
 
-// M1 on the keeper path: a bonus raise alone, with the threshold untouched, is
-// still held to the HF floor. USDC marked to $0.78 leaves HF ~1.04 — solvent,
-// not liquidatable, but inside the window where an attacker would want the
-// larger bonus stamped before pulling the trigger.
 #[test]
 fn test_update_account_threshold_rejects_bonus_raise_below_min_hf() {
     let mut t = LendingTest::new()
@@ -597,11 +500,10 @@ fn test_update_account_threshold_rejects_bonus_raise_below_min_hf() {
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 3.0); // ~$6k debt
+    t.borrow(ALICE, "ETH", 3.0);
     let account_id = t.resolve_account_id(ALICE);
     let (_, bonus_before, _) = supply_risk_fields(&t, account_id, "USDC");
 
-    // $7_800 collateral * 80% LT = $6_240 weighted / $6_000 debt = HF ~1.04.
     t.set_price("USDC", usd_cents(78));
     t.edit_asset_config("USDC", |c| c.liquidation_bonus = bonus_before + 500);
 

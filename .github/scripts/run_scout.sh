@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Host Scout scan → target/scout-audit/<crate>.{md,json,...}
-# Patches a temp tree copy so production manifests stay untouched.
-#
-# Usage:  .github/scripts/run_scout.sh
-# Env:    SCOUT_OUTPUT_FORMAT=md|json  SCOUT_OUTPUT_DIR=...  SCOUT_STRICT=1
-#         SCOUT_SOURCE_DIR=... (CI: local pinned scout-audit checkout)
+
 set -euo pipefail
 
 contracts=(
@@ -20,7 +15,7 @@ contracts=(
 format="${SCOUT_OUTPUT_FORMAT:-md}"
 out_dir="${SCOUT_OUTPUT_DIR:-target/scout-audit}"
 repo_root="$(pwd)"
-# realpath without requiring the path to exist (portable; BSD realpath lacks -m).
+
 out_dir_abs="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$repo_root/$out_dir")"
 case "$out_dir_abs" in
   "$repo_root"/*) ;;
@@ -38,13 +33,10 @@ printf DONOTTRACK >"$HOME/.scout-audit/telemetry/user_id.txt"
 export SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2=1
 
 tar --exclude './.git' --exclude './target' -cf - . | (cd "$work_dir" && tar -xf -)
-# Scout needs rlib-only crate-type for analysis; only the temp tree is patched.
+
 find "$work_dir/contracts" "$work_dir/common" -name Cargo.toml -print0 |
   xargs -0 perl -0pi -e 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/g'
 
-# --exclude only (no .scout-audit/config.yaml): a config file overrides
-# --output-format and corrupts json/md extensions.
-# dos-unexpected-revert-with-storage: permissionless per-user storage is intentional.
 scout_exclude="dos-unexpected-revert-with-storage"
 scout_local_flags=()
 if [ -n "${SCOUT_SOURCE_DIR:-}" ]; then

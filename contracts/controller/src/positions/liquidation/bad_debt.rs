@@ -1,8 +1,3 @@
-//! Residual bad-debt socialization into the pool (no liquidator proceeds).
-//!
-//! Zeroes spoke usage, seizes remaining supply and debt shares, emits cleanup,
-//! and removes the account. Callers must already enforce eligibility and auth.
-
 use common::types::{Account, AccountPositionType, PoolSeizeEntry};
 use soroban_sdk::{Env, Vec};
 
@@ -12,7 +7,6 @@ use crate::external::pool::pool_seize_positions_call;
 use crate::spoke::UsageSide;
 use crate::storage::{self, iter_debt_positions, iter_typed_positions};
 
-/// Seize all supply then debt shares, emit cleanup, remove the account.
 pub(crate) fn execute_bad_debt_cleanup(
     env: &Env,
     cache: &mut Cache,
@@ -21,7 +15,6 @@ pub(crate) fn execute_bad_debt_cleanup(
     total_debt_usd: i128,
     total_collateral_usd: i128,
 ) {
-    // Usage first (full share drain), then one pool seize batch (supplies then debt).
     let mut entries: Vec<PoolSeizeEntry> = Vec::new(env);
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
         cache.apply_spoke_exit(

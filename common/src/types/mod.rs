@@ -1,5 +1,3 @@
-//! Domain types: ABI-raw (`*Raw`) and typed cores, re-exported flat.
-
 pub mod aggregator;
 pub mod composable_oracle;
 pub mod controller;

@@ -1,17 +1,5 @@
 name: Coverage
 
-# Posts a merged line-coverage summary (controller + pool + common) as a sticky
-# PR comment, with the delta against the latest `main` baseline.
-#
-# Baseline strategy: a push-to-main run records merged.lcov.info into the GitHub
-# Actions cache; PR runs restore the most recent baseline and diff against it.
-# This keeps PRs to a single coverage run. The first PR opened before any main
-# baseline exists shows absolute coverage only (no delta).
-#
-# This workflow is advisory (comment only) and MUST NOT be added to branch
-# protection's required checks: the path filter makes it "skipped" on
-# out-of-scope PRs, which a required check would read as un-mergeable.
-
 on:
   push:
     branches: [main]
@@ -37,8 +25,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   STELLAR_VERSION: '27.0.0'
-  # Baseline caches are keyed by main commit SHA under this prefix; PR runs
-  # restore the most recent match via restore-keys.
+
   COV_CACHE_PREFIX: cov-baseline-main
 
 concurrency:
@@ -48,14 +35,10 @@ concurrency:
 jobs:
   baseline:
     name: Refresh main coverage baseline
-    # push to main refreshes the baseline; workflow_dispatch lets you seed the
-    # first baseline manually (run it once from main before opening PRs).
+
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: self-hosted
-    # sccache caches per-crate compilations under $HOME (persistent on the
-    # self-hosted runner) so the heavy dependency tree is not recompiled each
-    # run, and is shared with the other self-hosted jobs. CARGO_INCREMENTAL=0 is
-    # required for sccache to cache (it passes through incremental builds).
+
     env:
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
@@ -63,8 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # Persistent self-hosted runner: preserve target/ build cache across
-          # runs (mirrors ci.yml). The next step restores a clean source tree.
+
           clean: false
 
       - name: Reset workspace, preserve target/ build cache
@@ -83,8 +65,7 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install cargo-llvm-cov (prebuilt)
-        # Was `cargo install cargo-llvm-cov --locked` (source compile). The
-        # install-action fetches a prebuilt binary in seconds.
+
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
@@ -101,8 +82,7 @@ jobs:
         run: make coverage-merged
 
       - name: Stage baseline lcov
-        # Copy to a standalone path so a PR restore never collides with the PR
-        # head's own target/coverage/merged.lcov.info.
+
         run: |
           mkdir -p coverage-baseline
           cp target/coverage/merged.lcov.info coverage-baseline/merged.lcov.info
@@ -116,19 +96,12 @@ jobs:
   coverage:
     name: PR coverage delta
     if: github.event_name == 'pull_request'
-    # Pull requests run untrusted repository content (Cargo build scripts,
-    # tests, Makefile targets, and coverage_report.py). Keep that execution off
-    # persistent self-hosted runners so PR authors cannot access runner-local
-    # state or poison caches for later jobs.
+
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
-    # The ephemeral ubuntu runner has no persistent cache, so it re-fetched
-    # every crate and recompiled the whole dependency tree each run. sccache
-    # (objects) + the cargo/sccache cache below (registry + sccache dir) make it
-    # incremental across PR runs without sharing the self-hosted runners — which
-    # this job must stay off, since it executes untrusted PR code.
+
     env:
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
@@ -146,8 +119,7 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install cargo-llvm-cov (prebuilt)
-        # Was `cargo install cargo-llvm-cov --locked` (source compile). The
-        # install-action fetches a prebuilt binary in seconds.
+
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
@@ -174,9 +146,7 @@ jobs:
         run: make coverage-merged
 
       - name: Restore latest main coverage baseline
-        # Primary key is the PR head SHA, which is never a save key (baselines
-        # are saved under main SHAs), so the restore-keys prefix always governs
-        # and returns the most recently saved main baseline.
+
         uses: actions/cache/restore@v6
         with:
           path: coverage-baseline

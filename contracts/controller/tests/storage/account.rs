@@ -4,7 +4,6 @@ use crate::Controller;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
 
-// Re-adding the same delegate is a no-op; the list never double-counts.
 #[test]
 fn add_delegate_is_idempotent() {
     let env = Env::default();
@@ -23,7 +22,6 @@ fn add_delegate_is_idempotent() {
     });
 }
 
-// Removing a delegate revokes it and leaves an empty, entry-free list.
 #[test]
 fn remove_delegate_revokes_access() {
     let env = Env::default();
@@ -45,7 +43,6 @@ fn remove_delegate_revokes_access() {
     });
 }
 
-// Removing an absent delegate is a no-op and never underflows.
 #[test]
 fn remove_absent_delegate_is_noop() {
     let env = Env::default();
@@ -58,11 +55,6 @@ fn remove_absent_delegate_is_noop() {
     });
 }
 
-// Filling exactly to the cap succeeds. This is the other half of the boundary
-// from `add_delegate_rejects_delegate_past_the_cap`: that test fills to the cap
-// inside `#[should_panic]`, so a cap that rejected one delegate early would
-// panic during the fill and still satisfy it. This test is what forbids that
-// off-by-one — it has no `should_panic`, so an early rejection fails it.
 #[test]
 fn add_delegate_accepts_exactly_max_delegates() {
     let env = Env::default();
@@ -77,7 +69,6 @@ fn add_delegate_accepts_exactly_max_delegates() {
     });
 }
 
-// The delegate list is bounded; the one past the cap is rejected.
 #[test]
 #[should_panic(expected = "Error(Contract, #45)")]
 fn add_delegate_rejects_delegate_past_the_cap() {
@@ -93,7 +84,6 @@ fn add_delegate_rejects_delegate_past_the_cap() {
     });
 }
 
-// `renew_user_account` bumps TTL on the `Delegates` key.
 #[test]
 fn renew_user_account_renews_delegates_ttl() {
     use common::constants::TTL_BUMP_USER;
@@ -106,8 +96,6 @@ fn renew_user_account_renews_delegates_ttl() {
         let account_id = 7u64;
         add_delegate(&env, account_id, &Address::generate(&env));
 
-        // Age the ledger so the key's remaining TTL drops below the threshold
-        // (extend_ttl is a no-op above it), while staying live.
         env.ledger()
             .with_mut(|l| l.sequence_number += TTL_BUMP_USER - 1_000);
 

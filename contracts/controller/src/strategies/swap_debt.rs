@@ -1,8 +1,3 @@
-//! Debt refinance: borrow new debt → aggregator swap → repay existing.
-//!
-//! Owner/delegate auth. Intermediate borrow skips HF; `strategy_finalize`
-//! re-checks LTV/HF.
-
 use common::errors::GenericError;
 use common::types::{HubAssetKey, StrategySwap};
 use common::validation::require_positive_amount;
@@ -27,7 +22,6 @@ pub(crate) struct SwapDebtParams<'a> {
     pub swap: &'a StrategySwap,
 }
 
-/// Refinance: borrow new debt → swap to existing debt token → repay existing.
 pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>) {
     let SwapDebtParams {
         account_id,
@@ -40,7 +34,6 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Reject identical (hub, asset); same token across hubs is passthrough.
     assert_with_error!(
         env,
         existing_debt != new_debt,

@@ -1,7 +1,5 @@
 #![no_std]
 
-//! Test-only flash-loan receiver for protocol smoke tests.
-
 use common::errors::GenericError;
 use common::types::HubAssetKey;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
@@ -10,7 +8,6 @@ use soroban_sdk::{
     panic_with_error, symbol_short, token, xdr::FromXdr, Address, Bytes, Env, IntoVal, Vec,
 };
 
-/// Testnet controller address used only by the reentrancy-attack test path.
 const TESTNET_CONTROLLER: &str = "CAYHSB4IPBJV6WIB2VJN5IMAVCAOUXHDLJTKWKBEQ4REIBC2RAWXQPEW";
 
 #[contractclient(name = "PoolClient")]
@@ -69,25 +66,6 @@ pub struct FlashLoanTestReceiver;
 
 #[contractimpl]
 impl FlashLoanTestReceiver {
-    /// Callback invoked by the pool mid-`flash_loan`; dispatches on the decoded
-    /// `FlashLoanMode` to exercise the repayment and reentrancy paths the pool
-    /// must guard against. Repayment is by `approve`, not `transfer`: the pool
-    /// pulls the owed amount after this callback returns.
-    ///
-    /// # Arguments
-    /// * `data` - XDR-encoded `FlashLoanRequest` selecting the `FlashLoanMode`.
-    ///
-    /// # Errors
-    /// * `InvalidData` - `data` does not decode to a `FlashLoanRequest`.
-    /// * `InvalidShortfall` - the under-repay mode computed a non-positive owed total.
-    /// * `CallbackPanic` - the `Panic` mode traps deliberately.
-    /// * `MathOverflow` - the `amount + fee` total or the approval expiration ledger overflows.
-    ///
-    /// # Security Warning
-    /// * This test receiver performs NO caller/pool authorization gate: any
-    ///   address can invoke it. A PRODUCTION receiver MUST assert the caller is
-    ///   the trusted pool (or controller) before acting; repayment itself is
-    ///   enforced pull-side by the pool via the token allowance.
     pub fn execute_flash_loan(
         env: Env,
         _initiator: Address,
@@ -132,8 +110,6 @@ fn checked_total(env: &Env, amount: i128, fee: i128) -> i128 {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-/// Approves the pool to pull exactly `amount` via the token's allowance,
-/// mirroring the pool's pull-based flash-loan repayment.
 fn approve_repayment(env: &Env, asset: &Address, pool: &Address, amount: i128) {
     let expiration_ledger = env
         .ledger()
@@ -176,8 +152,6 @@ fn authorize_token_approve(
     env.authorize_as_current_contract(auth_entries);
 }
 
-/// Approves one unit less than owed so the pool's repayment check must
-/// reject it.
 fn approve_under_repayment(env: &Env, asset: &Address, pool: &Address, amount: i128, fee: i128) {
     let shortfall = 1;
     let total = checked_total(env, amount, fee);
@@ -189,8 +163,6 @@ fn approve_under_repayment(env: &Env, asset: &Address, pool: &Address, amount: i
     approve_repayment(env, asset, pool, partial);
 }
 
-/// Exercises the pool's flash-loan reentrancy guard by calling back into
-/// `flash_loan` from within the active callback.
 fn reenter_pool_flash_loan(env: &Env, asset: &Address, pool: &Address) {
     PoolClient::new(env, pool).flash_loan(
         asset,
@@ -202,8 +174,6 @@ fn reenter_pool_flash_loan(env: &Env, asset: &Address, pool: &Address) {
     );
 }
 
-/// Exercises the controller's flash-loan reentrancy guard by calling
-/// `supply` from within the pool's active callback.
 fn reenter_controller_supply(env: &Env, asset: &Address) {
     let controller = Address::from_str(env, TESTNET_CONTROLLER);
     let caller = env.current_contract_address();

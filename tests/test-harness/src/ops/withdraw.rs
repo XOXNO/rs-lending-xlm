@@ -77,8 +77,6 @@ impl LendingTest {
         }
     }
 
-    /// Withdraw multiple assets in a single controller call.
-    /// HF check runs once AFTER all withdrawals (if borrows exist).
     pub fn withdraw_bulk(&mut self, user: &str, assets: &[(&str, f64)]) {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();
@@ -94,7 +92,6 @@ impl LendingTest {
         ctrl.withdraw(&addr, &account_id, &soroban_withdrawals, &None);
     }
 
-    /// Withdraw the entire position for an asset (passes amount=0 which means "withdraw all").
     pub fn withdraw_all(&mut self, user: &str, asset_name: &str) {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();

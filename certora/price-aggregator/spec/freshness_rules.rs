@@ -1,5 +1,3 @@
-//! Timestamp-boundary rules used by every oracle provider.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::Env;

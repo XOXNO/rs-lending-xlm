@@ -1,5 +1,3 @@
-//! Owner-gated admin surface: fees, whitelist, ownership, upgrade.
-
 use crate::errors::Error;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
@@ -30,13 +28,13 @@ fn admin_setters_and_views_surface() {
     let (token_a, _) = new_asset(&env, &admin);
     let (token_b, _) = new_asset(&env, &admin);
     router.add_to_whitelist(&token_a);
-    router.add_to_whitelist(&token_a); // dup -> no-op branch
+    router.add_to_whitelist(&token_a);
     router.add_to_whitelist(&token_b);
     assert!(router.is_whitelisted(&token_a));
     assert_eq!(router.whitelisted_tokens().len(), 2);
     router.remove_from_whitelist(&token_a);
     assert!(!router.is_whitelisted(&token_a));
-    router.remove_from_whitelist(&token_a); // absent -> None branch
+    router.remove_from_whitelist(&token_a);
     assert_eq!(router.whitelisted_tokens().len(), 1);
 
     let owner = Address::generate(&env);
@@ -81,8 +79,6 @@ fn admin_rejects_fee_over_cap() {
     );
 }
 
-// FEE_CAP is inclusive: setters accept exactly the cap and reject cap + 1
-// (the rejection side is covered by `admin_rejects_fee_over_cap`).
 #[test]
 fn fee_setters_accept_exact_cap() {
     let env = Env::default();
@@ -117,8 +113,6 @@ fn ownable_get_owner_and_renounce() {
     assert!(router.try_admin().is_err());
 }
 
-// Upgrading to a wasm hash that was never uploaded must fail rather than
-// silently succeed.
 #[test]
 fn upgrade_to_unknown_wasm_hash_fails() {
     let env = Env::default();

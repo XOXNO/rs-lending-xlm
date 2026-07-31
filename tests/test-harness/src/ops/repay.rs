@@ -24,8 +24,6 @@ impl LendingTest {
         ctrl.repay(&addr, &account_id, &payments);
     }
 
-    /// Repay multiple assets in a single controller call.
-    /// Auto-mints tokens for each repayment.
     pub fn repay_bulk(&mut self, user: &str, assets: &[(&str, f64)]) {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();

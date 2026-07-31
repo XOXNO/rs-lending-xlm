@@ -1,5 +1,3 @@
-//! Refreshes supply risk params from spoke-aware market config.
-
 use common::math::fp::{Bps, Wad};
 use common::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig, HubAssetKey};
 use soroban_sdk::{Env, Map};
@@ -9,21 +7,13 @@ use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Cache;
 use crate::risk::calculate_account_risk_totals;
 
-/// How much of a supply leg's risk tuple a restamp carries over.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum RiskRefreshScope {
-    /// LTV alone. It bounds borrow capacity and never feeds liquidation, so it
-    /// propagates with no health-factor walk.
     LtvOnly,
-    /// LTV plus the threshold/bonus/fees tuple, behind the min-HF gate.
+
     FullTuple,
 }
 
-/// Re-stamps a supply leg from the spoke listing.
-///
-/// LTV is unconditional: it bounds borrow capacity and never feeds liquidation.
-/// Threshold, bonus, and fees move as one tuple behind the min-HF gate, since
-/// restamping is permissionless on the supply path.
 pub(crate) fn refresh_supply_risk_params(
     env: &Env,
     cache: &mut Cache,
@@ -39,9 +29,6 @@ pub(crate) fn refresh_supply_risk_params(
     }
 }
 
-/// Sets each supply leg's LTV from the spoke listing. The liquidation tuple is
-/// gated and moves only through [`refresh_supply_risk_params`]. Returns true if
-/// any leg was updated.
 pub(crate) fn restamp_listed_supply_ltv(cache: &mut Cache, account: &mut Account) -> bool {
     let mut changed = false;
     let keys = account.supply_positions.keys();
@@ -64,10 +51,6 @@ pub(crate) fn restamp_listed_supply_ltv(cache: &mut Cache, account: &mut Account
     changed
 }
 
-/// Writes threshold, bonus, and fees together, keeping the three same-vintage.
-/// A tuple that moves the liquidator's way is skipped unless the account is
-/// debt-free or still clears the min HF under the new threshold. Both
-/// permissionless restamp paths route through here.
 pub(crate) fn apply_gated_liquidation_params(
     env: &Env,
     cache: &mut Cache,
@@ -95,9 +78,6 @@ pub(crate) fn apply_gated_liquidation_params(
     position.liquidation_fees = effective_config.liquidation_fees;
 }
 
-/// True when any leg of the tuple moves the liquidator's way: a lower
-/// threshold, a higher bonus, or a lower fee — fees are carved out of the
-/// bonus, so cutting them enlarges the liquidator's net take.
 fn favors_liquidator(position: &AccountPosition, effective_config: &AssetConfig) -> bool {
     effective_config.liquidation_threshold.raw() < position.liquidation_threshold.raw()
         || effective_config.liquidation_bonus.raw() > position.liquidation_bonus.raw()

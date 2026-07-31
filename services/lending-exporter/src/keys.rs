@@ -1,7 +1,3 @@
-//! XDR encoding for view args and storage keys.
-//!
-//! Structs → symbol-sorted `ScMap`; enums → `Vec[Symbol(tag), args...]`.
-//! Built without `soroban-sdk` (same layout as keeper keys).
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
@@ -15,7 +11,6 @@ pub struct HubAssetKey {
     pub asset: [u8; 32],
 }
 
-/// `HubAssetKey` as symbol-sorted ScMap (`asset` before `hub_id`).
 pub fn hub_asset_key_sc_val(hub_asset: &HubAssetKey) -> Result<ScVal> {
     let entries = vec![
         ScMapEntry {
@@ -33,7 +28,6 @@ pub fn hub_asset_key_sc_val(hub_asset: &HubAssetKey) -> Result<ScVal> {
     Ok(ScVal::Map(Some(ScMap(map))))
 }
 
-/// Arg for bulk `get_market_indexes_detailed`.
 pub fn hub_asset_vec_sc_val(keys: &[HubAssetKey]) -> Result<ScVal> {
     let items: Vec<ScVal> = keys
         .iter()
@@ -45,8 +39,6 @@ pub fn hub_asset_vec_sc_val(keys: &[HubAssetKey]) -> Result<ScVal> {
     Ok(ScVal::Vec(Some(ScVec(vec_m))))
 }
 
-/// Persistent `AggregatorKey::Oracle(PriceKey::Token(asset))` key on the
-/// price-aggregator contract.
 pub fn asset_oracle_ledger_key(
     price_aggregator_id: &[u8; 32],
     asset_id: &[u8; 32],
@@ -67,7 +59,7 @@ pub fn contract_id_from_strkey(c_strkey: &str) -> Result<[u8; 32]> {
 }
 
 pub fn contract_strkey(contract_id: &[u8; 32]) -> String {
-    // Display → std::String (inherent to_string is heapless).
+
     format!("{}", stellar_strkey::Contract(*contract_id))
 }
 

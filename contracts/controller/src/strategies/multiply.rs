@@ -1,8 +1,3 @@
-//! Leveraged multiply: flash-loan debt, swap to collateral, deposit.
-//!
-//! Owner/delegate auth (or create account). Modes `Multiply` / `Long` / `Short`.
-//! Intermediate borrow skips HF; `strategy_finalize` re-checks LTV/HF.
-
 use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
@@ -67,7 +62,6 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
         .checked_add(debt_extra)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    // Passthrough if same asset (cross-hub rate arb only).
     let swapped_collateral = swap_tokens_or_passthrough(
         env,
         caller,
@@ -135,11 +129,10 @@ fn validate_multiply_request(
     debt_to_flash_loan: i128,
 ) {
     match mode {
-        // Reject identical (hub, asset); cross-hub same asset is rate arb.
         PositionMode::Multiply => {
             assert_with_error!(env, collateral != debt, GenericError::AssetsAreTheSame);
         }
-        // Long/Short need distinct assets.
+
         PositionMode::Long | PositionMode::Short => {
             assert_with_error!(
                 env,
@@ -152,7 +145,6 @@ fn validate_multiply_request(
     require_positive_amount(env, debt_to_flash_loan);
 }
 
-/// Pulls the optional initial payment and returns its (collateral amount, same-token debt extra) contribution.
 fn collect_initial_multiply_payment(
     env: &Env,
     caller: &Address,
@@ -168,9 +160,6 @@ fn collect_initial_multiply_payment(
 
     require_positive_amount(env, *payment_amount);
 
-    // Fail fast on an unsupported/unpriceable payment token BEFORE invoking
-    // its transfer — the aggregator reverts `OracleNotConfigured` for assets
-    // outside the protocol. Also warms the price the payment event reads.
     cache.fetch_prices(&soroban_sdk::vec![env, payment.asset.clone()]);
 
     let payment_tok = token::Client::new(env, &payment.asset);
@@ -184,7 +173,7 @@ fn collect_initial_multiply_payment(
         let Some(convert) = convert_swap.as_ref() else {
             panic_with_error!(env, StrategyError::ConvertStepsRequired);
         };
-        // D{payment_token.decimals}{Token(payment_token)} -> Token(collateral_token).
+
         let collateral_amount = swap_tokens(
             env,
             caller,
@@ -197,7 +186,6 @@ fn collect_initial_multiply_payment(
     }
 }
 
-/// Publishes the initial-payment event with its USD value when a payment was made.
 fn emit_multiply_initial_payment(
     env: &Env,
     cache: &mut Cache,
@@ -205,9 +193,6 @@ fn emit_multiply_initial_payment(
     initial_payment: Option<(HubAssetKey, i128)>,
 ) {
     if let Some((payment, payment_amount)) = initial_payment {
-        // A converted third-token payment is never a position asset, so it is
-        // absent from the tx-local price map the position legs populate. Fetch
-        // it so the cached read below resolves the event's USD value.
         cache.fetch_prices(&vec![env, payment.asset.clone()]);
         let feed = cache.cached_price(&payment.asset);
         let usd_value_wad = feed.usd_value_wad(env, payment_amount).raw();

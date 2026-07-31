@@ -1,6 +1,4 @@
 #![no_main]
-//! Protocol user/keeper flows: supply, borrow, liquidate, flash loan, oracle jitter.
-//! Asserts HF floors, non-negative reserves, and rollback on failed `try_*` calls.
 
 use libfuzzer_sys::fuzz_target;
 use stellar_fuzz::{
@@ -181,11 +179,7 @@ fn supply_amount(asset: &str, size: u8) -> f64 {
 }
 
 fn borrow_amount(asset: &str, size: u8) -> f64 {
-    // Occasionally use dust amounts to stress scaling/rounding after a high
-    // index from Advance ops. All fuzz presets use 7 decimals, so anything
-    // below 1e-7 truncates to raw 0 and only exercises AmountMustBePositive;
-    // 1e-7 (raw 1 unit) is the smallest amount that reaches the scaled-share
-    // rounding path.
+
     if size.is_multiple_of(17) || size == 1 {
         return 1e-7;
     }
@@ -294,8 +288,7 @@ fuzz_target!(|data: &[u8]| {
     assert_pool_accounting(&t, &ASSETS);
 
     for op in ops {
-        // Price stress mutates oracle state; apply it before snapshotting so a
-        // failed liquidation is compared against the post-stress baseline.
+
         if let Op::Liquidate { debtor, mode, .. } = op {
             if mode & 1 == 1 {
                 stress_debtor_prices(&mut t, pick_user(debtor));
@@ -388,10 +381,7 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
                 2 => (supplied * safe_fraction * 1.05).max(f64::EPSILON),
                 _ => supplied.max(f64::EPSILON),
             };
-            // Floor at raw 1 unit (7-decimal presets): a sub-unit amount
-            // truncates to raw 0, which the controller treats as the
-            // withdraw-ALL sentinel — inverting the "tiny withdrawal"
-            // intent of modes 1/2 into a full-position exit.
+
             let amt = amt.max(1e-7);
             let ok = t.try_withdraw(u, a, amt).is_ok();
             (ok, vec![(u, HF_WAD_FLOOR)])
@@ -448,7 +438,7 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
                 t.deploy_flash_loan_receiver()
             };
             let res = t.try_flash_loan(u, a, amt, &receiver);
-            // Adversarial receiver must never succeed.
+
             if bad {
                 assert!(res.is_err(), "bad flash-loan receiver returned Ok");
             }
@@ -460,13 +450,11 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             direction_up,
         } => {
             let a = pick_asset(asset);
-            // Keep primary/anchor ratio inside reciprocal band [10000²/upper, upper];
-            // bound to half-width −2 bps (half-up).
+
             let tol = i128::from(test_harness::presets::DEFAULT_TOLERANCE.tolerance_bps);
             let upper = 10_000 + tol;
-            let lower = 10_000 * 10_000 / upper; // floor of the contract's half-up lower bound
-            // Default fuzz markets use a tight ±1% single-source sanity band.
-            // Stay two bps inside it as well as inside source tolerance.
+            let lower = 10_000 * 10_000 / upper;
+
             let max_dev = (10_000 - lower)
                 .min(tol)
                 .min(100)
@@ -518,14 +506,7 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             (ok, vec![])
         }
         Op::CleanBadDebt => {
-            // Seed sizes are coupled to protocol constants: ltv-weighted
-            // collateral ($20 * ltv) must clear DEFAULT_MIN_BORROW_COLLATERAL
-            // ($5) and cover the $12 debt; the crashed collateral ($20 * $0.05
-            // = $1) must sit under BAD_DEBT_USD_THRESHOLD ($5) and below the
-            // debt. The borrow leg is the state-dependent step — if it is
-            // legitimately rejected (e.g. after a constants retune), skip the
-            // op instead of crashing the whole run; the cleanability assert
-            // only makes sense for a successfully seeded textbook position.
+
             t.set_price("USDC", default_spot("USDC"));
             t.set_price("ETH", default_spot("ETH"));
             t.supply(BAD_DEBTOR, "USDC", 20.0);
@@ -544,13 +525,11 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
     }
 }
 
-/// Default spot price (1e18-scaled) for each fuzz asset, matching the
-/// `build_wide_context()` presets.
 fn default_spot(asset: &str) -> i128 {
     match asset {
         "USDC" => 10_i128.pow(18),
         "ETH" => 2000 * 10_i128.pow(18),
-        "XLM" => 10_i128.pow(17), // $0.10
+        "XLM" => 10_i128.pow(17),
         _ => 10_i128.pow(18),
     }
 }

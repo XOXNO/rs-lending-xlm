@@ -10,12 +10,11 @@ fn test_total_collateral_usd_multi_asset() {
         .with_market(eth_preset())
         .build();
 
-    // Supply 10k USDC ($10,000) and 1 ETH ($2,000).
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
 
     let total = t.total_collateral(ALICE);
-    // Must be ~$12,000.
+
     assert!(
         (total - 12_000.0).abs() < 1.0,
         "total collateral should be ~$12,000, got {}",
@@ -30,15 +29,13 @@ fn test_total_borrow_usd_multi_asset() {
         .with_market(wbtc_preset())
         .build();
 
-    // Supply large collateral.
     t.supply(ALICE, "USDC", 500_000.0);
 
-    // Borrow 1 ETH ($2,000) and 0.01 WBTC ($600).
     t.borrow(ALICE, "ETH", 1.0);
     t.borrow(ALICE, "WBTC", 0.01);
 
     let total = t.total_debt(ALICE);
-    // Must be ~$2,600.
+
     assert!(
         (total - 2_600.0).abs() < 1.0,
         "total debt should be ~$2,600, got {}",
@@ -52,10 +49,8 @@ fn test_collateral_amount_for_missing_token() {
         .with_market(eth_preset())
         .build();
 
-    // Supply only USDC.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Check ETH collateral (no position): must return 0.
     let eth_balance = t.supply_balance_raw(ALICE, "ETH");
     assert_eq!(eth_balance, 0, "missing supply position should return 0");
 }
@@ -66,11 +61,9 @@ fn test_borrow_amount_for_missing_token() {
         .with_market(eth_preset())
         .build();
 
-    // Supply USDC, borrow ETH.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Check the USDC borrow (no borrow position): must return 0.
     let usdc_borrow = t.borrow_balance_raw(ALICE, "USDC");
     assert_eq!(usdc_borrow, 0, "missing borrow position should return 0");
 }
@@ -81,10 +74,8 @@ fn test_can_be_liquidated_returns_false_for_healthy() {
         .with_market(eth_preset())
         .build();
 
-    // Supply 10k USDC, borrow conservatively so HF stays above 1.0.
     t.supply(ALICE, "USDC", 10_000.0);
-    // Borrow $3000 of ETH = 1.5 ETH.
-    // HF = (10000 * 0.80) / 3000 = 2.67: clearly healthy.
+
     t.borrow(ALICE, "ETH", 1.5);
 
     assert!(
@@ -100,14 +91,10 @@ fn test_can_be_liquidated_when_unhealthy() {
         .with_market(eth_preset())
         .build();
 
-    // Supply 10k USDC, borrow 3 ETH ($6000).
-    // HF = (10000 * 0.80) / 6000 = 1.33.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
     t.assert_healthy(ALICE);
 
-    // Drop USDC to $0.50 => collateral = $5000, weighted = $4000, debt =
-    // $6000. HF = 4000/6000 = 0.67 < 1.0.
     t.set_price("USDC", usd_cents(50));
 
     assert!(
@@ -227,7 +214,6 @@ fn test_get_spoke_category_view() {
     let usdc = t.resolve_asset("USDC");
     let cfg = ctrl.get_spoke_asset(&2u32, &hub_asset(usdc.clone()));
 
-    // STABLECOIN_SPOKE: ltv=9700, threshold=9800, bonus=200 (per-asset).
     assert_eq!(cfg.loan_to_value, 9700, "spoke ltv should be 9700");
     assert_eq!(
         cfg.liquidation_threshold, 9800,
@@ -276,7 +262,6 @@ fn test_liquidation_estimations_basic() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
 
-    // Make liquidatable: drop the USDC price.
     t.set_price("USDC", usd_cents(50));
     assert!(t.can_be_liquidated(ALICE));
 
@@ -287,26 +272,22 @@ fn test_liquidation_estimations_basic() {
     let estimate = ctrl.get_liquidation_estimate(&account_id, &payments);
     let hf = ctrl.get_health_factor(&account_id);
 
-    // HF must be < 1.0 WAD.
     let wad = WAD;
     assert!(hf < wad, "HF should be < 1.0 WAD, got {}", hf);
     assert!(hf > 0, "HF should be positive, got {}", hf);
 
-    // Bonus must be positive.
     assert!(
         estimate.bonus_rate_bps > 0,
         "bonus should be positive, got {}",
         estimate.bonus_rate_bps
     );
 
-    // Ideal repayment must be positive.
     assert!(
         estimate.max_payment_wad > 0,
         "ideal repayment should be positive, got {}",
         estimate.max_payment_wad
     );
 
-    // Rich liquidation output should include seized collateral and fees.
     assert!(
         !estimate.seized_collaterals.is_empty(),
         "expected non-empty seized collateral estimate"
@@ -326,7 +307,7 @@ fn test_get_market_index_view() {
     let index = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
 
     let ray = RAY;
-    // Fresh market: indexes must be 1.0 RAY.
+
     assert_eq!(
         index.supply_index, ray,
         "fresh supply index should be 1.0 RAY"
@@ -340,7 +321,6 @@ fn test_get_market_index_view() {
 fn test_get_active_accounts_multiple() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Create two accounts for Alice.
     t.supply(ALICE, "USDC", 1_000.0);
     let id1 = t.resolve_account_id(ALICE);
 
@@ -381,7 +361,6 @@ fn test_pool_address_view() {
 }
 #[test]
 fn test_collateral_amount_for_token_happy() {
-    // `collateral_amount_for_token` happy path with a non-zero supply position.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -395,7 +374,6 @@ fn test_collateral_amount_for_token_happy() {
         .ctrl_client()
         .get_collateral_amount(&account_id, &hub_asset(usdc.clone()));
 
-    // USDC has 7 decimals: 10_000 USDC == 10_000 * 10^7 raw units.
     let expected = 10_000i128 * 10_000_000;
     assert!(
         (amount - expected).abs() < expected / 10_000,
@@ -406,7 +384,6 @@ fn test_collateral_amount_for_token_happy() {
 }
 #[test]
 fn test_borrow_amount_for_token_happy() {
-    // `borrow_amount_for_token` happy path with an actual debt position.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -421,7 +398,6 @@ fn test_borrow_amount_for_token_happy() {
         .ctrl_client()
         .get_borrow_amount(&account_id, &hub_asset(eth.clone()));
 
-    // ETH has 7 decimals: 2 ETH == 2 * 10^7 raw units.
     let expected = 2i128 * 10_000_000;
     assert!(
         (amount - expected).abs() < expected / 10_000,
@@ -432,14 +408,11 @@ fn test_borrow_amount_for_token_happy() {
 }
 #[test]
 fn test_liquidation_collateral_available_happy() {
-    // `calculate_account_risk_totals` returns a non-zero weighted collateral total.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // Supply $10,000 USDC + 1 ETH ($2,000) = $12,000 collateral.
-    // USDC threshold 8000bps + ETH threshold 8000bps -> weighted ~ $9,600.
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
     t.borrow(ALICE, "ETH", 0.5);
@@ -447,7 +420,6 @@ fn test_liquidation_collateral_available_happy() {
     let account_id = t.resolve_account_id(ALICE);
     let weighted = t.ctrl_client().get_liquidation_collateral(&account_id);
 
-    // weighted_coll is in WAD USD: ~$9,600 * 10^18.
     let expected = 9_600.0;
     let weighted_usd = weighted as f64 / WAD as f64;
     assert!(
@@ -459,14 +431,11 @@ fn test_liquidation_collateral_available_happy() {
 }
 #[test]
 fn test_ltv_collateral_in_usd_happy() {
-    // `ltv_collateral_in_usd` returns a non-zero LTV-weighted total.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // Supply $10,000 USDC (LTV 7500bps) + 1 ETH ($2,000, LTV 7500bps).
-    // LTV-weighted = ($10,000 + $2,000) * 0.75 = $9,000.
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
 

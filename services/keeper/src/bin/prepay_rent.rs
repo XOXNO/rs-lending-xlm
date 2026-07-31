@@ -1,9 +1,3 @@
-//! One-shot rent prepayment for the full keeper-discovered protocol key set.
-//!
-//! After `make <net> setup`: extend every live protocol entry by the standard
-//! ~31-day bump (operator-funded). The daemon then rolls the shared set forward
-//! each tick (14-day safety margin), so users only pay rent on their own account
-//! entries (inline 5-day threshold does not fire for protocol keys).
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
@@ -25,16 +19,13 @@ use std::path::PathBuf;
     about = "Extend every protocol storage entry by the keeper bump, once"
 )]
 struct Args {
-    /// YAML config path (same shape as the keeper daemon config).
+
     #[arg(short, long, env = "KEEPER_CONFIG")]
     config: PathBuf,
 
-    /// Env var with funding secret (S...). Does not use the daemon KeyVault
-    /// signer — deploy tooling funds with the local deployer identity.
     #[arg(long, default_value = "PREPAY_SECRET")]
     secret_env: String,
 
-    /// Plan only; do not submit.
     #[arg(long)]
     dry_run: bool,
 }
@@ -60,9 +51,6 @@ async fn main() -> Result<()> {
     println!("current ledger : {}", snap.current_ledger);
     println!("funding signer : {}", signer.public_key_strkey());
 
-    // safety=u32::MAX ⇒ every live entry extends; archived-present restore first.
-    // One key per tx keeps month-scale rent (incl. large wasm) under the u32 fee
-    // cap and keeps one bad entry non-fatal.
     let restores = plan_restores(&snap, u32::MAX)?;
     let extends = plan_extends_with_chunk(&snap, u32::MAX, 1)?;
     println!(
@@ -101,7 +89,7 @@ async fn main() -> Result<()> {
             SubmitOutcome::Retriable(reason) | SubmitOutcome::Failed(reason) => {
                 failed += 1;
                 println!("FAILED: {reason}");
-                // Per-key txs: continue after a single failure.
+
             }
         }
     }

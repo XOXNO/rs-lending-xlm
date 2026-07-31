@@ -1,24 +1,3 @@
-//! Price resolution: compose once into an [`Outcome`], then hard [`force`] or
-//! soft [`to_status`].
-//!
-//! Soft and hard share every step of compose, blend, and gates. Only the edge
-//! differs: [`force`] panics with the code from [`Outcome::failure`];
-//! [`to_status`] maps the same failure into flags (`valid`, `stale`,
-//! `deviation`, unusable).
-//!
-//! Gate order in [`Outcome::failure`]:
-//! 1. Structural / nested `err` (config, cycle, depth, factor band, quote)
-//! 2. Unreadable market data → `NoLastPrice`
-//! 3. Stale (per-feed window and asset ceiling)
-//! 4. Dual-source disagreement (`deviation`)
-//! 5. Non-positive final USD price
-//! 6. Sanity band
-//!
-//! Provider reads return `Option` for market data. Structural failures that
-//! must not look like a soft miss are carried on [`Outcome::err`] and surface
-//! through [`force`] with their precise code. Scaled nested quotes re-run the
-//! same evaluator and promote nested gate failures as typed `err`.
-
 use common::errors::OracleError;
 use common::math::fp::Wad;
 use common::oracle::observation::is_stale;
@@ -40,7 +19,6 @@ struct Reading {
     stale: bool,
 }
 
-/// Which dual leg produced a reading when the other is missing.
 #[derive(Clone, Copy)]
 enum LegSlot {
     Primary,
@@ -49,19 +27,12 @@ enum LegSlot {
 
 enum Legs {
     One(Reading),
-    Two {
-        primary: Reading,
-        anchor: Reading,
-    },
-    /// Dual config with exactly one readable leg → always `deviation`.
-    Partial {
-        reading: Reading,
-        slot: LegSlot,
-    },
+    Two { primary: Reading, anchor: Reading },
+
+    Partial { reading: Reading, slot: LegSlot },
     Empty,
 }
 
-/// Fully evaluated price with gate flags. Soft and hard share this shape.
 pub(crate) struct Outcome {
     pub price_wad: i128,
     pub timestamp: u64,
@@ -72,10 +43,7 @@ pub(crate) struct Outcome {
     pub asset_decimals: u32,
     pub stale: bool,
     pub deviation: bool,
-    /// Structural, gate, or unreadable-leg failure. Soft → unusable; hard →
-    /// panic code. This is the only failure channel: an unreadable leg carries
-    /// `NoLastPrice` here rather than a separate flag, so there is exactly one
-    /// place a reader has to look.
+
     pub err: Option<OracleError>,
 }
 
@@ -102,9 +70,6 @@ impl Outcome {
         }
     }
 
-    /// No leg produced a reading. Distinct enough at the call site to name, but
-    /// it is an ordinary failure: `NoLastPrice` is exactly what the gate order
-    /// reported for it before.
     fn unreadable() -> Self {
         Self::with_err(OracleError::NoLastPrice)
     }
@@ -138,15 +103,12 @@ impl Outcome {
             high_wad: 0,
             asset_decimals,
             stale: reading.stale,
-            // Dual config without both opinions never agreed.
+
             deviation: true,
             err: None,
         }
     }
 
-    /// Shared gate order for hard reverts and soft `valid`.
-    ///
-    /// `oracle` is `None` only when config was missing (`err` already set).
     fn failure(&self, oracle: Option<&AssetOracle>) -> Option<OracleError> {
         if let Some(err) = self.err {
             return Some(err);
@@ -184,7 +146,6 @@ impl Outcome {
     }
 }
 
-/// Fail-closed: panic with the precise gate or structural error.
 pub(crate) fn force(env: &Env, outcome: &Outcome, oracle: Option<&AssetOracle>) -> PriceFeedRaw {
     if let Some(err) = outcome.failure(oracle) {
         panic_with_error!(env, err);
@@ -192,7 +153,6 @@ pub(crate) fn force(env: &Env, outcome: &Outcome, oracle: Option<&AssetOracle>) 
     outcome.to_feed()
 }
 
-/// Soft diagnostic flags. `valid` matches hard success via [`Outcome::failure`].
 pub(crate) fn to_status(outcome: &Outcome, oracle: Option<&AssetOracle>) -> PriceStatus {
     if outcome.err.is_some() {
         return PriceStatus::unusable();
@@ -208,7 +168,6 @@ pub(crate) fn to_status(outcome: &Outcome, oracle: Option<&AssetOracle>) -> Pric
     }
 }
 
-/// Hard USD price for `key`. Returns the price memo when present.
 pub(crate) fn resolve(session: &mut Session, key: &PriceKey, depth: u32) -> PriceFeedRaw {
     if let Some(cached) = session.cached_price(key) {
         return cached;
@@ -218,7 +177,6 @@ pub(crate) fn resolve(session: &mut Session, key: &PriceKey, depth: u32) -> Pric
     feed
 }
 
-/// Soft status for `key`. Returns the status memo when present.
 pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) -> PriceStatus {
     if let Some(cached) = session.cached_status(key) {
         return cached;
@@ -229,16 +187,12 @@ pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) 
     status
 }
 
-/// Configure-time hard probe against an unstored (or staged) config.
-/// Does not write price or status memos.
 pub(crate) fn probe(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
     let env = session.env().clone();
     let (outcome, resolved) = resolve_outcome(session, key, 0, Some(oracle));
     let _ = force(&env, &outcome, resolved.as_ref().or(Some(oracle)));
 }
 
-/// Hard resolve plus full [`Outcome`] (leg interval). Recomputes even when a
-/// price memo exists, then refreshes that memo.
 pub(crate) fn resolve_detailed(
     session: &mut Session,
     key: &PriceKey,
@@ -261,8 +215,6 @@ fn compute_hard(
     (feed, outcome)
 }
 
-/// Resolve a nested quote without panicking on failure. Successful results use
-/// the same per-key price memo as top-level hard reads.
 fn resolve_nested(
     session: &mut Session,
     key: &PriceKey,
@@ -286,7 +238,6 @@ fn resolve_nested(
     Ok(feed)
 }
 
-/// Re-check structural backstops before reusing a key-only memo at a new path.
 fn validate_cached_path(
     session: &mut Session,
     key: &PriceKey,
@@ -315,7 +266,6 @@ fn validate_cached_path(
     result
 }
 
-/// Mode-independent evaluation. Does not panic on market-data misses.
 fn resolve_outcome(
     session: &mut Session,
     key: &PriceKey,
@@ -328,7 +278,6 @@ fn resolve_outcome(
         return (Outcome::with_err(OracleError::OracleDepthExceeded), None);
     }
 
-    // Soft and hard both refuse re-entry without panicking mid-eval.
     if session.is_resolving(key) {
         return (Outcome::with_err(OracleError::OracleCycleDetected), None);
     }
@@ -364,7 +313,7 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
             let ts = primary.timestamp.min(anchor.timestamp);
             let deviation =
                 !within_tolerance_band(env, anchor.price_wad, primary.price_wad, &oracle.tolerance);
-            // Overflow → 0 → force maps to InvalidPrice (soft: invalid).
+
             let price_wad = midpoint_price_or_zero(anchor.price_wad, primary.price_wad);
             Outcome {
                 price_wad,
@@ -382,20 +331,11 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
     }
 }
 
-/// Certora-only: the real `Legs::Empty` outcome.
-///
-/// `Legs`, `Reading` and the `Outcome` constructors are private to this module,
-/// so spec rules would otherwise have to re-declare the shape they mean to prove
-/// and would keep passing after a regression in [`blend`] or [`Outcome`]. These
-/// two shims route through the same [`blend`] the live path uses.
 #[cfg(feature = "certora")]
 pub(crate) fn blend_empty(env: &Env, oracle: &AssetOracle) -> Outcome {
     blend(env, oracle, Legs::Empty)
 }
 
-/// Certora-only: the real `Legs::Partial` outcome (exactly one dual leg
-/// readable). `stale` is an input, not pinned, because [`Outcome::partial`]
-/// propagates `reading.stale`.
 #[cfg(feature = "certora")]
 pub(crate) fn blend_partial(
     env: &Env,
@@ -484,7 +424,7 @@ fn evaluate_source(
     match source {
         PriceSource::Feed(feed) => Ok(read_feed(session, feed)),
         PriceSource::Scaled(scaled) => read_scaled(session, scaled, depth),
-        // Refused at config validate; hard backstop if storage is corrupted.
+
         PriceSource::LpShare(_) => Err(OracleError::UnsupportedPoolKind),
     }
 }

@@ -76,16 +76,10 @@ impl LendingTest {
         governance::GovernanceClient::new(&self.env, &self.governance)
     }
 
-    /// Oracle-authority client (owner-gated setters; `mock_all_auths` covers the
-    /// governance-owner check in tests).
     pub fn price_agg_client(&self) -> price_aggregator::PriceAggregatorClient<'_> {
         price_aggregator::PriceAggregatorClient::new(&self.env, &self.price_aggregator)
     }
 
-    /// Drives governance through the published `governance-interface` ABI. Only
-    /// covers the production entrypoints; the testing-only immediate forwarders
-    /// stay on `gov_client`. Used by the timelock suite to prove the generated
-    /// client matches the real contract at call time.
     pub fn gov_iface_client(&self) -> governance_interface::GovernanceClient<'_> {
         governance_interface::GovernanceClient::new(&self.env, &self.governance)
     }
@@ -102,11 +96,6 @@ impl LendingTest {
         self.find_account_id(user).unwrap_or(0)
     }
 
-    /// The spoke an account is bound to, or the base harness spoke when
-    /// `account_id == 0` (the "create a fresh account" sentinel). Supply and
-    /// strategy entrypoints take the spoke explicitly and the controller rejects
-    /// a mismatch against an existing account, so callers must pass the account's
-    /// real spoke rather than a `0` placeholder.
     pub(crate) fn account_spoke_or_default(&self, account_id: u64) -> u32 {
         if account_id == 0 {
             crate::helpers::HARNESS_SPOKE

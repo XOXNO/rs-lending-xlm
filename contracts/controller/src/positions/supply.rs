@@ -1,10 +1,3 @@
-//! User and strategy supply: transfer into the pool, mint scaled shares, stamp
-//! controller-owned collateral risk params.
-//!
-//! Deposits never re-run post-pool solvency (unlike debt-bearing borrow/withdraw).
-//! Auth and entry gates live on the public `supply` path; strategy callers reuse
-//! `process_deposit` after their own auth.
-
 use common::errors::GenericError;
 use common::types::{
     Account, AccountPositionType, AssetConfig, PoolPositionMutation, PoolSupplyEntry, PositionMode,
@@ -24,10 +17,6 @@ use crate::positions::{
 use crate::risk::{refresh_supply_risk_params, RiskRefreshScope};
 use crate::spoke::UsageSide;
 
-/// Auth, aggregate, load/create account, deposit, then persist supply positions.
-///
-/// Does not enforce post-pool solvency. `remove_if_empty` is false so a brand-new
-/// empty account is not cleaned up if the deposit path is ever a no-op.
 pub(crate) fn process_supply(
     env: &Env,
     caller: &Address,
@@ -49,9 +38,6 @@ pub(crate) fn process_supply(
         &mut cache,
     );
 
-    // Third parties may top up existing supply legs (gift collateral) but must
-    // not open new asset slots — that would fill `max_supply_positions` and
-    // grief the owner. Owner and active delegates retain full supply rights.
     if account_id != 0 && !account::is_owner_or_delegate(env, acct_id, caller, &account.owner) {
         for (hub_asset, _) in aggregated.iter() {
             assert_with_error!(
@@ -76,8 +62,6 @@ pub(crate) fn process_supply(
     acct_id
 }
 
-/// Entry gates then settle. Shared by `supply` and strategies that already hold
-/// auth / flash-loan / account context (multiply, swap collateral, migrate).
 pub(crate) fn process_deposit(
     env: &Env,
     caller: &Address,
@@ -95,7 +79,6 @@ pub(crate) fn process_deposit(
     settle_supply(env, caller, account, aggregated, cache);
 }
 
-/// Move tokens to the pool while building the legs, then the bulk pool supply.
 fn settle_supply(
     env: &Env,
     caller: &Address,
@@ -108,7 +91,6 @@ fn settle_supply(
     apply_supply_batch(env, account, &entries, cache);
 }
 
-/// Moves each supply leg to the pool, then builds the matching `PoolSupplyEntry`.
 fn build_supply_entries(
     env: &Env,
     caller: &Address,
@@ -137,7 +119,6 @@ fn build_supply_entries(
     entries
 }
 
-/// One batch `pool.supply`, then merge results input-ordered.
 fn apply_supply_batch(
     env: &Env,
     account: &mut Account,
@@ -151,7 +132,6 @@ fn apply_supply_batch(
     });
 }
 
-/// Per-leg merge: risk params, scaled shares, spoke usage, event, supply map.
 fn merge_supply_leg(
     env: &Env,
     account: &mut Account,
@@ -165,7 +145,7 @@ fn merge_supply_leg(
 
     let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
     let old_scaled = position.scaled_amount;
-    // Stamped before the new shares land, so the min-HF gate prices the smaller balance.
+
     refresh_supply_risk_params(
         env,
         cache,
@@ -176,7 +156,6 @@ fn merge_supply_leg(
         RiskRefreshScope::FullTuple,
     );
 
-    // Pool owns scaled shares; controller keeps collateral risk params.
     let outcome = LegOutcome::from(result);
     position.scaled_amount = outcome.new_scaled;
 

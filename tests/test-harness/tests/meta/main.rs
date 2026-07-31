@@ -1,5 +1,3 @@
-//! Meta / regression / simulation tests (non-domain contract API surface).
-
 extern crate std;
 
 mod account_ttl_regression;

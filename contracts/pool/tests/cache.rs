@@ -152,16 +152,11 @@ fn test_calculate_utilization_returns_zero_when_supplied_is_zero() {
 fn test_calculate_utilization_returns_ratio_at_normal_state() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // 5 borrowed against 10 supplied at index 1 -> 50% utilization.
         let cache = cache_with(&t.env, &t.params, 10 * RAY, 5 * RAY, 0, RAY, RAY);
         assert_eq!(cache.calculate_utilization(), Ray::from(RAY / 2));
     });
 }
 
-// Across the pool's complete 0..=27 decimal domain, directed share rounding must
-// keep both roundtrips conservative: supply credits floor shares and withdrawals
-// pay at most their value; borrow debits ceil shares and full repayment charges at
-// least the amount borrowed.
 #[test]
 fn test_all_decimal_roundtrips_never_favor_user() {
     let t = TestSetup::new();
@@ -183,7 +178,6 @@ fn test_all_decimal_roundtrips_never_favor_user() {
                 for &a in &amounts {
                     let cache = cache_with(&t.env, &params, 0, 0, 0, index, index);
 
-                    // Supplier: supply `a` (mint shares down), withdraw all.
                     let shares = cache.calculate_scaled_supply(a);
                     let (_burned, paid) = cache.resolve_withdrawal(a, shares);
                     assert!(
@@ -192,7 +186,6 @@ fn test_all_decimal_roundtrips_never_favor_user() {
                          index={index} deposited={a} withdrew={paid}"
                     );
 
-                    // Borrower: borrow `a` (mint debt up), owe rounded up.
                     let debt = cache.calculate_scaled_borrow(a);
                     let owed = cache.unscale_borrow_ceil(debt);
                     assert!(
@@ -214,16 +207,10 @@ fn test_directed_partial_rounding_blocks_high_decimal_value_creation() {
         params.asset_decimals = 27;
         let cache = cache_with(&t.env, &params, 100 * RAY, 100 * RAY, 0, 3 * RAY, 3 * RAY);
 
-        // A two-raw-unit supply previously rounded 2/3 share up to one share
-        // worth three raw units. Floor credit now rejects it through the caller.
         assert_eq!(cache.calculate_scaled_supply(2), Ray::ZERO);
 
-        // Borrowing four raw units records two shares, covering six raw units.
         assert_eq!(cache.calculate_scaled_borrow(4).raw(), 2);
 
-        // Withdrawing four burns two shares; repaying two burns no share. The
-        // public callers respectively accept the conservative debit and reject
-        // the zero credit through their existing guards.
         assert_eq!(
             calculate_scaled_supply_ceil(&t.env, 4, params.asset_decimals, cache.supply_index())
                 .raw(),
@@ -240,7 +227,6 @@ fn test_directed_partial_rounding_blocks_high_decimal_value_creation() {
 fn test_resolve_repay_partial_returns_zero_overpayment() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // current_debt = 1 asset unit; partial repay of 0 (no debt cleared).
         let cache = cache_with(&t.env, &t.params, 0, 10i128.pow(20), 0, RAY, RAY);
         let pos_scaled = Ray::from(10i128.pow(20));
         let (scaled, overpayment) = cache.resolve_repay(0, pos_scaled);
@@ -253,7 +239,6 @@ fn test_resolve_repay_partial_returns_zero_overpayment() {
 fn test_resolve_repay_full_returns_positive_overpayment() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // current_debt = 1; pay 5 -> overpayment = 4, burn full position.
         let cache = cache_with(&t.env, &t.params, 0, 10i128.pow(20), 0, RAY, RAY);
         let pos_scaled = Ray::from(10i128.pow(20));
         let (scaled, overpayment) = cache.resolve_repay(5, pos_scaled);
@@ -314,11 +299,6 @@ fn test_burn_claimable_revenue_full_when_revenue_smaller_than_reserves() {
     });
 }
 
-// A one-unit payout against an enormous claim was the degenerate case for the
-// old two-step half-up burn: the sub-RAY fraction rounded to zero and the claim
-// had to fail closed (`InternalError`) to avoid paying cash without retiring
-// shares. The single-ceil burn retires a positive share instead, so the same
-// input now settles the one unit correctly and never trips the zero guard.
 #[test]
 fn test_positive_revenue_payout_burns_positive_share_at_extreme_ratio() {
     let t = TestSetup::new();
@@ -326,7 +306,6 @@ fn test_positive_revenue_payout_burns_positive_share_at_extreme_ratio() {
         let mut params = t.params.clone();
         params.asset_decimals = 18;
 
-        // treasury_actual = 3e27 asset units while only one unit of cash is payable.
         let extreme_revenue = 3 * 10i128.pow(36);
         let mut cache = cache_with(
             &t.env,
@@ -344,12 +323,12 @@ fn test_positive_revenue_payout_burns_positive_share_at_extreme_ratio() {
         let claim_after = cache.unscale_supply_floor(cache.revenue());
 
         assert_eq!(paid, 1, "the single unit of cash must settle");
-        // The ceil burn retired a positive share, so revenue strictly shrank.
+
         assert!(
             cache.revenue() < Ray::from(extreme_revenue),
             "a positive payout must retire a positive share"
         );
-        // No value created, and revenue stays a slice of supply.
+
         assert!(claim_after + paid <= claim_before, "claim value created");
         assert!(
             cache.revenue() <= cache.supplied(),
@@ -399,19 +378,11 @@ fn test_ray_checked_sub_normal_case() {
     });
 }
 
-// A cash-short revenue claim burns shares pro-rata through two half-up steps
-// (`Ray::from_fraction` then `Ray::mul`), while the payout itself is floored.
-// Half-up on the burn side could in principle under-burn and leave the protocol
-// holding claim value it has already been paid for. Sweep the branch and pin
-// that no value is created and that revenue stays inside supply.
 #[test]
 fn test_cash_short_revenue_claim_never_creates_claim_value() {
     let t = TestSetup::new();
     t.as_contract(|| {
         for &supply_index in &[RAY, 3 * RAY, RAY + 7, 1_000_000 * RAY] {
-            // The last two sit exactly on a rounding boundary for the RAY -> 7-decimal
-            // downscale (remainder == half, and just over half), so floor and half-up
-            // genuinely differ there.
             let half_ulp = 5 * 10i128.pow(19);
             for &revenue in &[
                 RAY,
@@ -421,8 +392,6 @@ fn test_cash_short_revenue_claim_never_creates_claim_value() {
                 RAY + half_ulp,
                 3 * RAY + half_ulp + 1,
             ] {
-                // Spans both branches: cash-short (pro-rata burn) and
-                // cash-rich (full burn, floored payout).
                 for &cash in &[1i128, 2, 999, 1_000_000, 3_333_333, 1_000_000_000_000] {
                     let supplied = revenue + 50 * RAY;
                     let mut cache =
@@ -435,21 +404,19 @@ fn test_cash_short_revenue_claim_never_creates_claim_value() {
                     let paid = cache.burn_claimable_revenue();
                     let claim_after = cache.unscale_supply_floor(cache.revenue());
 
-                    // No value creation: what the protocol still claims plus what it
-                    // was just paid can never exceed what it claimed beforehand.
                     assert!(
                         claim_after + paid <= claim_before,
                         "claim value created: before={claim_before} after={claim_after} \
                          paid={paid} index={supply_index} revenue={revenue} cash={cash}"
                     );
-                    // Payout is bounded by cash on hand.
+
                     assert!(paid <= cash, "paid {paid} exceeds cash {cash}");
-                    // Revenue is a slice of supply, before and after.
+
                     assert!(
                         cache.revenue() <= cache.supplied(),
                         "revenue escaped supply at index={supply_index}"
                     );
-                    // Both totals move together, so supplier-owned shares are untouched.
+
                     let burned_supply = supplied_before.checked_sub(&t.env, cache.supplied());
                     let burned_revenue = Ray::from(revenue).checked_sub(&t.env, cache.revenue());
                     assert_eq!(
@@ -462,11 +429,6 @@ fn test_cash_short_revenue_claim_never_creates_claim_value() {
     });
 }
 
-// L-03 regression: at an extreme 18-decimal supply index, the prior two-step
-// half-up burn (`Ray::from_fraction` then `Ray::mul`) under-burned the protocol
-// claim, leaving `claim_after + paid == claim_before + 10` — value the protocol
-// had already been paid for. The single-ceil burn must hold the no-value-created
-// invariant exactly here. Values are the reproduced worst case.
 #[test]
 fn test_cash_short_revenue_claim_no_underburn_at_extreme_18_decimal_index() {
     let t = TestSetup::new();
@@ -486,13 +448,11 @@ fn test_cash_short_revenue_claim_no_underburn_at_extreme_18_decimal_index() {
         let paid = cache.burn_claimable_revenue();
         let claim_after = cache.unscale_supply_floor(cache.revenue());
 
-        // Cash-short branch: the payout must not have cleared the whole claim,
-        // otherwise this no longer exercises the pro-rata burn the fix targets.
         assert!(
             paid < claim_before,
             "expected cash-short branch: paid={paid}"
         );
-        // The exact invariant the double-rounding violated by +10.
+
         assert!(
             claim_after + paid <= claim_before,
             "claim value created: before={claim_before} after={claim_after} paid={paid}"
@@ -505,10 +465,6 @@ fn test_cash_short_revenue_claim_no_underburn_at_extreme_18_decimal_index() {
     });
 }
 
-// `Cache::resolve_withdrawal` delegates to `common::rates::resolve_withdrawal`,
-// which owns the full-close and rounding semantics. The only thing the wrapper
-// can get wrong is which index and decimals it passes, so pin that with the two
-// indexes deliberately different.
 #[test]
 fn test_cache_resolve_withdrawal_feeds_supply_index_and_decimals() {
     let t = TestSetup::new();

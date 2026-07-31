@@ -10,12 +10,8 @@ fn b64(env: &Env, op: AdminOperation) -> std::string::String {
     sc.to_xdr_base64(Limits::none()).unwrap()
 }
 
-/// All-zero contract address strkey (`Address::generate` is deterministic
-/// from a fresh `Env`). Mirrors the `PARITY_ADDR` constant in the sdk-js
-/// `governance.test.ts` byte-parity suite.
 const PARITY_ADDR: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
 
-/// Pins `AdminOperation` XDR; sdk-js builders must match these bytes.
 #[test]
 fn admin_op_xdr_is_byte_stable() {
     let env = Env::default();

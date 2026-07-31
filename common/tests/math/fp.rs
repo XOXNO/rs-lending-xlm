@@ -32,7 +32,7 @@ fn test_ray_add_overflow_panics() {
 #[test]
 fn test_ray_div_by_int() {
     let x = Ray::from(7);
-    assert_eq!(x.div_by_int(2).raw(), 4); // 3.5 -> 4
+    assert_eq!(x.div_by_int(2).raw(), 4);
 }
 
 #[test]
@@ -114,7 +114,6 @@ fn test_wad_try_mul_softens_overflow() {
 fn test_wad_div_floor_saturating() {
     let env = Env::default();
 
-    // In-range ratio matches ordinary floor division.
     let total = Wad::from(6 * WAD);
     let divisor = Wad::from(3 * WAD);
     assert_eq!(
@@ -122,8 +121,6 @@ fn test_wad_div_floor_saturating() {
         Wad::from(2 * WAD)
     );
 
-    // A tiny divisor makes the true ratio exceed i128; it saturates instead of
-    // overflowing.
     let large = Wad::from(i128::MAX / 2);
     let tiny = Wad::from(1);
     assert_eq!(large.div_floor_saturating(&env, tiny), Wad::from(i128::MAX));
@@ -338,22 +335,18 @@ fn test_bps_sub() {
     let b = Bps::from(2500);
     assert_eq!(a.checked_sub(&env, b).raw(), 5000);
 }
-// Typed wrapper edge cases.
 
-// Ray::mul on exact products (0.5*1, 0.5*0.5); no half-up tie-breaker.
 #[test]
 fn test_ray_mul_exact_products() {
     let env = Env::default();
-    // 0.5 RAY * 0.5 RAY = 0.25 RAY; remainder is below the half
-    // tie-breaker. Use 0.5 RAY * 1 RAY = 0.5 RAY exactly.
+
     let half = Ray::from(RAY / 2);
     let one = Ray::ONE;
     assert_eq!(half.mul(&env, one).raw(), RAY / 2);
-    // 0.5 RAY * 0.5 RAY = 0.25 RAY (= RAY/4).
+
     assert_eq!(half.mul(&env, half).raw(), RAY / 4);
 }
 
-// Ray::div by zero propagates the host I256 divide-by-zero panic.
 #[test]
 #[should_panic]
 fn test_ray_div_by_zero_panics() {
@@ -361,8 +354,6 @@ fn test_ray_div_by_zero_panics() {
     let _ = Ray::ONE.div(&env, Ray::ZERO);
 }
 
-// Ray::mul overflow: i128::MAX in both operands; the I256 intermediate holds
-// the product, but the post-`/RAY` result overflows i128 and raises `MathOverflow`.
 #[test]
 #[should_panic]
 fn test_ray_mul_overflow_panics() {
@@ -370,7 +361,6 @@ fn test_ray_mul_overflow_panics() {
     let _ = Ray::from(i128::MAX).mul(&env, Ray::from(i128::MAX));
 }
 
-// Ray::checked_sub between equal values returns zero, not panic.
 #[test]
 fn test_ray_checked_sub_equal_returns_zero() {
     let env = Env::default();
@@ -378,7 +368,6 @@ fn test_ray_checked_sub_equal_returns_zero() {
     assert_eq!(a.checked_sub(&env, a), Ray::ZERO);
 }
 
-// Ray::from_asset with decimals == 27 is an identity (RAY_DECIMALS).
 #[test]
 fn test_ray_from_asset_at_ray_decimals_is_identity() {
     let r = Ray::from_asset(12345, 27);
@@ -394,7 +383,6 @@ fn test_ray_sub_panics_on_negative_result() {
     let _ = a.checked_sub(&env, b);
 }
 
-// Wad::div by zero uses the same propagation path as Ray.
 #[test]
 #[should_panic]
 fn test_wad_div_by_zero_panics() {
@@ -402,7 +390,6 @@ fn test_wad_div_by_zero_panics() {
     let _ = Wad::ONE.div(&env, Wad::ZERO);
 }
 
-// Wad::mul half-up boundary: 0.5 WAD * 0.5 WAD = 0.25 WAD exact.
 #[test]
 fn test_wad_mul_no_rounding_when_exact() {
     let env = Env::default();
@@ -419,18 +406,15 @@ fn test_wad_sub_panics_on_negative_result() {
     let _ = a.checked_sub(&env, b);
 }
 
-// Wad::min / max with equal operands return `other` (the rhs).
 #[test]
 fn test_wad_min_max_equal_operands() {
     let a = Wad::from(42);
     let b = Wad::from(42);
-    // Equal operands return the rhs for both.
+
     assert_eq!(a.min(b), b);
     assert_eq!(a.max(b), b);
 }
 
-// Wad::max strict-greater branch returns `self`; symmetric case to
-// `test_wad_min_max`'s self < other.
 #[test]
 fn test_wad_max_returns_self_when_strictly_greater() {
     let a = Wad::from(100);
@@ -438,9 +422,6 @@ fn test_wad_max_returns_self_when_strictly_greater() {
     assert_eq!(a.max(b), a);
     assert_eq!(b.min(a), b);
 }
-
-// Env-aware checked add/sub: the trait `+` panics with a string; these methods
-// panic with `GenericError::MathOverflow`.
 
 #[test]
 fn test_ray_checked_add_ok() {
@@ -518,25 +499,18 @@ fn test_bps_checked_sub_underflow_panics() {
     let _ = Bps::from(100).checked_sub(&env, Bps::from(500));
 }
 
-// Wad::from_token at decimals == 18 is identity (WAD_DECIMALS).
 #[test]
 fn test_wad_from_token_at_wad_decimals_is_identity() {
     let w = Wad::from_token(98765, 18);
     assert_eq!(w.raw(), 98765);
 }
 
-// Wad::to_token downscale rounding tie-breaker: 0.5 in the target's
-// smallest unit rounds up to 1.
 #[test]
 fn test_wad_to_token_half_unit_rounds_up() {
-    // 1.5 micro-USDC in WAD → 6 decimals: `1_500_000_000_000` at 18d
-    // = 1.5 * 10^-6 of a unit → rounds to 2 at 6 decimals.
     let half = Wad::from(1_500_000_000_000i128);
     assert_eq!(half.to_token(6), 2);
 }
 
-// Bps::apply_to at 0 % returns zero. At 100 % (BPS) returns the
-// input unchanged.
 #[test]
 fn test_bps_apply_to_boundaries() {
     let env = Env::default();
@@ -545,7 +519,6 @@ fn test_bps_apply_to_boundaries() {
     assert_eq!(Bps::ONE.apply_to(&env, amount), amount);
 }
 
-// Bps::apply_to_wad and apply_to_ray at 100 % return the input.
 #[test]
 fn test_bps_apply_to_wad_and_ray_at_one_returns_input() {
     let env = Env::default();
@@ -555,24 +528,19 @@ fn test_bps_apply_to_wad_and_ray_at_one_returns_input() {
     assert_eq!(Bps::ONE.apply_to_ray(&env, r).raw(), r.raw());
 }
 
-// bps > BPS produces a ratio > 1 without panicking.
 #[test]
 fn test_bps_to_wad_above_one_does_not_panic() {
     let env = Env::default();
-    // 20_000 BPS = 2.0 in WAD.
+
     assert_eq!(Bps::from(20_000).to_wad(&env).raw(), 2 * WAD);
 }
 
-// Ray::div_by_int with negative dividend rounds away from zero.
 #[test]
 fn test_ray_div_by_int_negative_rounds_away_from_zero() {
-    // Ray(-7) / 2 → -4 (i.e., -3.5 rounds to -4).
     let x = Ray::from(-7);
     assert_eq!(x.div_by_int(2).raw(), -4);
 }
 
-// Ray::div_floor truncates toward zero; this case differs from half-up by
-// one ulp.
 #[test]
 fn test_ray_div_floor_vs_div_diverges_on_half_remainder() {
     let env = Env::default();
@@ -580,15 +548,13 @@ fn test_ray_div_floor_vs_div_diverges_on_half_remainder() {
     let b = Ray::from(3 * RAY);
     let half_up = a.div(&env, b).raw();
     let floor = a.div_floor(&env, b).raw();
-    // 2/3 in RAY: half_up rounds the 0.666…7 up, floor leaves 0.666…6.
+
     assert_eq!(
         half_up - floor,
         1,
         "div and div_floor must differ by 1 ulp on a half-remainder"
     );
 }
-
-// checked_sub: zero−zero is zero; negative rhs with zero self panics.
 
 #[test]
 fn test_ray_checked_sub_zero_zero_returns_zero() {
@@ -630,8 +596,6 @@ fn test_bps_checked_sub_negative_rhs_with_zero_self_panics() {
     let _ = Bps::from(0i128).checked_sub(&env, Bps::from(-1i128));
 }
 
-// Sub at equality returns zero.
-
 #[test]
 fn test_wad_sub_equal_returns_zero() {
     let env = Env::default();
@@ -643,8 +607,6 @@ fn test_bps_sub_equal_returns_zero() {
     let env = Env::default();
     assert_eq!(Bps::ONE.checked_sub(&env, Bps::ONE), Bps::from(0i128));
 }
-
-// Checked ops return the updated value.
 
 #[test]
 fn test_ray_checked_add_returns_sum() {
@@ -670,38 +632,32 @@ fn test_wad_checked_sub_returns_difference() {
     assert_eq!(x.raw(), 3 * crate::constants::WAD);
 }
 
-// to_asset_floor / to_asset_ceil concrete outputs.
-
 #[test]
 fn test_ray_to_asset_floor_pins_concrete_output() {
-    // 1.5 in Ray (1.5 * 10^27) → asset 7-dec floor = 15000000.
     let r = Ray::from(RAY + RAY / 2);
     assert_eq!(r.to_asset_floor(7), 15_000_000);
-    // 1.999_999 in Ray (truncated) at 0-dec = 1 (floor).
+
     let r2 = Ray::from(RAY + RAY * 999_999 / 1_000_000);
     assert_eq!(r2.to_asset_floor(0), 1);
 }
 
 #[test]
 fn test_ray_to_asset_ceil_pins_concrete_output() {
-    // 1.5 in Ray at 0-dec → ceil = 2.
     let r = Ray::from(RAY + RAY / 2);
     assert_eq!(r.to_asset_ceil(0), 2);
-    // Exact 1.0 at 7-dec ceil = 10000000 (no sub-ulp remainder).
+
     assert_eq!(Ray::ONE.to_asset_ceil(7), 10_000_000);
 }
-
-// Gate rounding: floor ≤ half_up ≤ ceil; equal when exact.
 
 #[test]
 fn test_ray_mul_ceil_vs_floor_brackets_half_up() {
     let env = Env::default();
-    // 1 ulp * 1 ulp / RAY = sub-ulp remainder: floor 0, half-up 0, ceil 1.
+
     let ulp = Ray::from(1);
     assert_eq!(ulp.mul_floor(&env, ulp).raw(), 0);
     assert_eq!(ulp.mul(&env, ulp).raw(), 0);
     assert_eq!(ulp.mul_ceil(&env, ulp).raw(), 1);
-    // Exact product: all three agree.
+
     let exact = Ray::from(RAY / 2);
     assert_eq!(
         exact.mul_floor(&env, Ray::ONE).raw(),
@@ -711,11 +667,10 @@ fn test_ray_mul_ceil_vs_floor_brackets_half_up() {
 
 #[test]
 fn test_ray_to_wad_floor_and_ceil() {
-    // RAY + 1 ulp: floor drops the sub-WAD remainder, ceil keeps it.
     let r = Ray::from(RAY + 1);
     assert_eq!(r.to_wad_floor().raw(), WAD);
     assert_eq!(r.to_wad_ceil().raw(), WAD + 1);
-    // Exact value: both agree.
+
     assert_eq!(Ray::ONE.to_wad_floor().raw(), WAD);
     assert_eq!(Ray::ONE.to_wad_ceil().raw(), WAD);
 }
@@ -723,13 +678,12 @@ fn test_ray_to_wad_floor_and_ceil() {
 #[test]
 fn test_wad_mul_floor_and_ceil_bracket_half_up() {
     let env = Env::default();
-    // 1 wei * 1 wei / WAD = sub-wei remainder: floor 0, half-up 0, ceil 1.
+
     let wei = Wad::from(1);
     assert_eq!(wei.mul_floor(&env, wei).raw(), 0);
     assert_eq!(wei.mul(&env, wei).raw(), 0);
     assert_eq!(wei.mul_ceil(&env, wei).raw(), 1);
-    // 2/3-style remainder above the half tie-breaker: floor and ceil
-    // bracket half-up by exactly one ulp.
+
     let a = Wad::from(WAD / 3);
     let floor = a.mul_floor(&env, a).raw();
     let half_up = a.mul(&env, a).raw();
@@ -740,27 +694,23 @@ fn test_wad_mul_floor_and_ceil_bracket_half_up() {
 
 #[test]
 fn test_wad_to_token_floor_rounds_down() {
-    // 1.9999995 units at 6 decimals: half-up rounds to 2_000_000,
-    // floor keeps 1_999_999.
     let w = Wad::from(1_999_999_500_000_000_000i128);
     assert_eq!(w.to_token(6), 2_000_000);
     assert_eq!(w.to_token_floor(6), 1_999_999);
-    // Exact: identical.
+
     assert_eq!(Wad::ONE.to_token_floor(6), 1_000_000);
 }
 
 #[test]
 fn test_bps_apply_to_wad_floor_rounds_down() {
     let env = Env::default();
-    // 1 wei at 3333 bps: exact = 0.3333 → floor 0, half-up 0 too;
-    // use a value with a .5 boundary: 5 wei at 5000 bps = 2.5.
+
     let v = Wad::from(5);
     let half = Bps::from(5_000);
-    // Half-up rounds to 3; floor rounds to 2.
+
     assert_eq!(half.apply_to_wad(&env, v).raw(), 3);
     assert_eq!(half.apply_to_wad_floor(&env, v).raw(), 2);
 
-    // Exact input has no remainder.
     let exact = Wad::from(100 * WAD);
     assert_eq!(
         Bps::from(8_000).apply_to_wad_floor(&env, exact).raw(),
@@ -771,7 +721,7 @@ fn test_bps_apply_to_wad_floor_rounds_down() {
 #[test]
 fn test_ray_from_fraction_builds_ratio() {
     let env = Env::default();
-    // 1 / 4 in RAY scale.
+
     assert_eq!(Ray::from_fraction(&env, 1, 4).raw(), RAY / 4);
 }
 

@@ -1,16 +1,3 @@
-//! Shared fixtures for the `compose`, `price`, `status`, `config`, `storage`,
-//! and `providers` unit-test trees: mock RedStone feed registration,
-//! single/dual/quoted/TWAP oracle configs, a contract-frame helper, and six
-//! Reflector stubs — one that reports no last price, one that reports a fixed
-//! price, one that reports a two-sample TWAP history, one that reports an empty
-//! TWAP window, one whose price is large enough to overflow a quoted reprice,
-//! and one whose reads revert.
-//!
-//! Included once, as `crate::test_support`, via `#[path]` on `lib.rs`. Those
-//! test trees are siblings, not ancestor/descendant, so none can own this file
-//! directly without the others reloading the same source a second time; each
-//! instead `use`s these items from the shared crate-root module.
-
 use common::constants::WAD;
 use common::errors::OracleError;
 use common::oracle::providers::redstone::{RedStonePriceData, REDSTONE_DECIMALS};
@@ -23,46 +10,24 @@ use soroban_sdk::{
 
 use crate::PriceAggregator;
 
-/// WAD per one unit at `REDSTONE_DECIMALS` (8), matching `mock-redstone`.
 const WAD_TO_REDSTONE: i128 = 10_000_000_000;
 
-/// Price scale every Reflector fixture declares, matched by the stubs below.
 const REFLECTOR_DECIMALS: u32 = 14;
 
-/// One WAD unit expressed at [`REFLECTOR_DECIMALS`], so a spot read of it
-/// normalizes to exactly `WAD`.
 const REFLECTOR_ONE_RAW: i128 = 100_000_000_000_000;
 
-/// Resolution every Reflector fixture declares. Comfortably above
-/// `MIN_ORACLE_RESOLUTION_SECONDS`, so a read is never rejected for the
-/// resolution floor when the test means to exercise something else.
 pub(crate) const REFLECTOR_RESOLUTION_SECS: u32 = 300;
 
-/// Age of the newer [`TwapReflector`] sample, in seconds before the ledger clock.
 pub(crate) const TWAP_NEWER_AGE_SECS: u64 = 100;
 
-/// Age of the older [`TwapReflector`] sample, in seconds before the ledger clock.
-/// A TWAP observation dates itself to this one, not the newer sample.
-///
-/// Exactly [`REFLECTOR_RESOLUTION_SECS`] after the newer sample: the sample
-/// spacing check admits its own resolution, so this pins that inclusive edge.
 pub(crate) const TWAP_OLDER_AGE_SECS: u64 = TWAP_NEWER_AGE_SECS + 300;
 
-/// Spacing [`TightWindowReflector`] uses — one second inside the resolution, so
-/// it fails the spacing check by the narrowest possible margin.
 pub(crate) const TWAP_TIGHT_SPACING_SECS: u64 = REFLECTOR_RESOLUTION_SECS as u64 - 1;
 
-/// Samples [`TwapReflector`] reports, raw at [`REFLECTOR_DECIMALS`]. Distinct
-/// values, so their mean is neither of them.
 const TWAP_SAMPLES_RAW: [i128; 2] = [REFLECTOR_ONE_RAW, 3 * REFLECTOR_ONE_RAW];
 
-/// Price [`HugeReflector`] reports, raw at [`REFLECTOR_DECIMALS`]. Normalizes to
-/// `1e29` WAD — well inside `i128`, so it survives the read — but squaring it
-/// through a quoted reprice needs `1e40`, which does not fit.
 const REFLECTOR_HUGE_RAW: i128 = 10i128.pow(25);
 
-/// Runs `body` in a contract frame, which persistent storage and every lookup
-/// built on it (stored oracle configs, quote resolution) require.
 pub(crate) fn in_contract<T>(env: &Env, body: impl FnOnce() -> T) -> T {
     let id = env.register(PriceAggregator, (Address::generate(env),));
     env.as_contract(&id, body)
@@ -73,10 +38,6 @@ pub(crate) fn register_redstone_feed(env: &Env) -> (Address, MockRedStonePriceFe
     (id.clone(), MockRedStonePriceFeedClient::new(env, &id))
 }
 
-/// Reflector-shaped stub that always reports no last price. A genuinely
-/// registered contract is required for the unreadable-leg cases: an
-/// unregistered address traps with a host `InvalidAction` error, not the
-/// provider's own `NoLastPrice`.
 #[contract]
 pub(crate) struct EmptyReflector;
 
@@ -103,10 +64,6 @@ impl ReflectorOracle for EmptyReflector {
     }
 }
 
-/// Reflector-shaped stub that answers a TWAP window with a history object
-/// holding no samples, as against [`EmptyReflector`]'s "no history at all".
-/// The two are distinct branches of the same rejection, and only this one
-/// exercises the emptiness check on a history the provider did return.
 #[contract]
 pub(crate) struct EmptyWindowReflector;
 
@@ -133,9 +90,6 @@ impl ReflectorOracle for EmptyWindowReflector {
     }
 }
 
-/// Reflector-shaped stub that always reports one unit stamped at the current
-/// ledger time. Spot-only: `prices` reports no history, since no fixture reads
-/// TWAP from it.
 #[contract]
 pub(crate) struct PricedReflector;
 
@@ -165,8 +119,6 @@ impl ReflectorOracle for PricedReflector {
     }
 }
 
-/// Stateful Reflector used to prove one session composes a shared nested key
-/// only once. Each spot call returns the next whole-WAD value.
 #[contract]
 pub(crate) struct CountingReflector;
 
@@ -199,13 +151,6 @@ impl ReflectorOracle for CountingReflector {
     }
 }
 
-/// Reflector-shaped stub reporting a price that normalizes cleanly on its own
-/// and only overflows once it is multiplied by a second leg. Nothing in the
-/// read path rejects it: it is positive, its scale is under the normalizer's
-/// cap, and the upscale to WAD fits. Used to reach the reprice multiplication
-/// in [`crate::providers::reflector`], which is why the sanity band a fixture
-/// pairs with it has to be widened — the band would otherwise reject the quote
-/// leg before the reprice runs.
 #[contract]
 pub(crate) struct HugeReflector;
 
@@ -235,12 +180,6 @@ impl ReflectorOracle for HugeReflector {
     }
 }
 
-/// Reflector-shaped stub reporting a two-sample TWAP history regardless of how
-/// many records the caller asks for. The samples carry distinct prices, so the
-/// mean is a value neither of them holds and cannot be mistaken for one sample
-/// echoed back, and distinct timestamps, so which one an observation dates
-/// itself to is observable. Spot reads report nothing: no fixture reads
-/// `lastprice` from it.
 #[contract]
 pub(crate) struct TwapReflector;
 
@@ -267,8 +206,6 @@ impl ReflectorOracle for TwapReflector {
     }
 }
 
-/// The two-sample window [`TwapReflector`] and [`NonUsdReflector`] both report,
-/// so the only attested fact that differs between them is the base.
 fn twap_history(env: &Env) -> Vec<ReflectorPriceData> {
     let now = env.ledger().timestamp();
     Vec::from_array(
@@ -286,10 +223,6 @@ fn twap_history(env: &Env) -> Vec<ReflectorPriceData> {
     )
 }
 
-/// Reflector-shaped stub reporting three correctly spaced samples regardless of
-/// how many records the caller asks for, so a two-record read receives more
-/// history than it requested. A provider returning extra samples is not benign:
-/// the mean would then cover a window the config never authorized.
 #[contract]
 pub(crate) struct LongHistoryReflector;
 
@@ -328,10 +261,6 @@ impl ReflectorOracle for LongHistoryReflector {
     }
 }
 
-/// Reflector-shaped stub whose two samples sit closer together than its own
-/// declared resolution. The window it reports is therefore narrower than the
-/// window the record count asks for — the shape a manipulated feed takes when it
-/// backfills samples to make a short burst look like a long average.
 #[contract]
 pub(crate) struct TightWindowReflector;
 
@@ -363,20 +292,12 @@ impl ReflectorOracle for TightWindowReflector {
             &env,
             [
                 sample(TWAP_NEWER_AGE_SECS),
-                // One resolution step short of TWAP_OLDER_AGE_SECS.
                 sample(TWAP_NEWER_AGE_SECS + TWAP_TIGHT_SPACING_SECS),
             ],
         ))
     }
 }
 
-/// Reflector-shaped stub identical to [`TwapReflector`] except that it quotes
-/// against something other than USD. Every other attested fact matches, so a
-/// rejection can only be the base.
-///
-/// The base is what makes a price a USD price. A Reflector deployment quoting
-/// EUR answers `lastprice` perfectly well; nothing downstream would notice, and
-/// every USD-denominated number in the protocol would silently be EUR.
 #[contract]
 pub(crate) struct NonUsdReflector;
 
@@ -403,11 +324,6 @@ impl ReflectorOracle for NonUsdReflector {
     }
 }
 
-/// Reflector-shaped stub whose price reads revert. Stands in for a Reflector
-/// contract that is paused, archived, or upgraded to an incompatible interface:
-/// the oracle config naming it is perfectly valid, and only the runtime call
-/// fails. Reverting with a contract error (rather than trapping) is what a real
-/// SEP-40 contract does, so callers see `Error(Contract, #216)`.
 #[contract]
 pub(crate) struct RevertingReflector;
 
@@ -434,43 +350,25 @@ impl ReflectorOracle for RevertingReflector {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Counting multi-feed adapter
-// ---------------------------------------------------------------------------
-
-/// Counters [`CountingRedStoneAdapter`] keeps, plus the behaviour switch.
 #[contracttype]
 #[derive(Clone)]
 pub(crate) enum CountKey {
-    /// Payload for a feed id, raw at [`REDSTONE_DECIMALS`].
     Price(String),
-    /// Single-feed reads served.
+
     Single,
-    /// Bulk reads served.
+
     Bulk,
-    /// Feed-id count the most recent bulk read was asked for.
+
     LastBatch,
-    /// When set, bulk reads return one payload fewer than asked for.
+
     Short,
 }
 
-/// RedStone-shaped adapter that records how it was called.
-///
-/// The session's feed cache and its bulk prefetch are pure memos: whether a
-/// price came from a warm batch, a lazy single read, or a cache hit, the
-/// resolved price is byte-identical. Call counts are the only thing that can
-/// observe them, which is why every one of those paths needs this fixture
-/// rather than a value assertion.
-///
-/// `Short` makes the adapter answer a two-feed batch with one payload — the
-/// shape that makes feed ids and payloads disagree on index, so payload[i]
-/// stops belonging to feed_ids[i].
 #[contract]
 pub(crate) struct CountingRedStoneAdapter;
 
 #[contractimpl]
 impl CountingRedStoneAdapter {
-    /// Publishes `feed_id` at `price_wad`, dated to the current ledger time.
     pub fn set_price(env: Env, feed_id: String, price_wad: i128) {
         let now_ms = env.ledger().timestamp() * 1_000;
         let data = RedStonePriceData {
@@ -483,12 +381,10 @@ impl CountingRedStoneAdapter {
             .set(&CountKey::Price(feed_id), &data);
     }
 
-    /// Answer bulk reads one payload short of the request.
     pub fn set_short(env: Env, short: bool) {
         env.storage().instance().set(&CountKey::Short, &short);
     }
 
-    /// `(single reads, bulk reads, feed ids in the last bulk read)`.
     pub fn counts(env: Env) -> (u32, u32, u32) {
         (
             Self::counter(&env, CountKey::Single),
@@ -545,15 +441,6 @@ impl CountingRedStoneAdapter {
     }
 }
 
-/// Xoxno-adapter-shaped stub. `attest_xoxno` reads decimals *and* the adapter's
-/// own submission window off the same address, so covering it needs a contract
-/// answering both — the RedStone mock has no submission window and the Reflector
-/// stubs have no feed surface.
-///
-/// The window is the adapter's own promise about how old a submission it will
-/// accept. A config whose staleness ceiling is tighter than that promise is
-/// unsatisfiable: the adapter is permitted to serve data the config must reject,
-/// so the market reverts on reads that the provider considers healthy.
 #[contract]
 pub(crate) struct StubXoxnoAdapter;
 
@@ -575,8 +462,6 @@ impl StubXoxnoAdapter {
         60
     }
 
-    /// One unit, stamped now, for any feed id — so `set_oracle`'s live probe
-    /// clears and a rejection can only have come from attestation.
     pub fn read_price_data_for_feed(env: Env, _feed_id: String) -> RedStonePriceData {
         let now_ms = env.ledger().timestamp() * 1_000;
         RedStonePriceData {
@@ -587,5 +472,4 @@ impl StubXoxnoAdapter {
     }
 }
 
-/// Submission window [`StubXoxnoAdapter`] advertises.
 pub(crate) const XOXNO_SUBMISSION_WINDOW_SECS: u64 = 1_800;

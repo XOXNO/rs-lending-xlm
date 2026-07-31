@@ -41,7 +41,6 @@ fn propose_update_delay_rejects_zero() {
     gov.propose(&admin, &AdminOperation::UpdateGovDelay(0u32), &salt);
 }
 
-// Propose path; direct `validate_delay_update` max-cap coverage is in timelock tests.
 #[test]
 #[should_panic(expected = "Error(Contract, #39)")]
 fn propose_update_delay_rejects_above_max_cap() {

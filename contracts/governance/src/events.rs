@@ -1,5 +1,3 @@
-//! Deploy events for the one-shot controller and price-aggregator installs.
-
 use soroban_sdk::{contractevent, Address, BytesN};
 
 #[contractevent(topics = ["governance", "deploy_controller"])]

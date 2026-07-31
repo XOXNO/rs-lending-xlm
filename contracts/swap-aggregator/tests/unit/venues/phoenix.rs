@@ -1,5 +1,3 @@
-//! Phoenix venue adapter tests.
-
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;

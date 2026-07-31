@@ -1,8 +1,3 @@
-//! In-memory `Vault` unit tests (invocation-local token accounting).
-//!
-//! The vault never talks to the ledger; it only tracks deposits/withdrawals for
-//! the current `execute_strategy` call.
-
 use crate::errors::Error;
 use crate::vault::Vault;
 use soroban_sdk::testutils::Address as _;

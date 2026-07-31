@@ -1,8 +1,3 @@
-//! Multi-path PPM split rules.
-//!
-//! Paths must sum to exactly 1_000_000 ppm, reject a zero path, and the last
-//! path absorbs integer rounding so the full `total_in` is consumed.
-
 use crate::errors::Error;
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};

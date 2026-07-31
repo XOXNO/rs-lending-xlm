@@ -1,7 +1,5 @@
 #![cfg(feature = "reference-math")]
 
-//! Test-only exact-arithmetic references.
-
 pub mod liquidation;
 
 pub use liquidation::{

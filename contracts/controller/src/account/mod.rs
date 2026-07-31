@@ -1,7 +1,3 @@
-//! Account lifecycle, owner/delegate auth, and position-map helpers. Also owns
-//! the account-owner ops (TTL renewal, delegate opt-in/out), which are gated by
-//! the owner's own auth rather than protocol ownership.
-
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::types::{
@@ -43,13 +39,11 @@ pub(crate) fn create_account(
     (account_id, account)
 }
 
-/// Existing-account guard for `load_or_create_account`.
 pub(crate) enum AccountGuard {
-    /// Third-party supply; spoke arg must match stored spoke.
     Supply,
-    /// Blend migration; caller must be owner or an active delegate, and spoke must match.
+
     Migrate,
-    /// Multiply strategy; caller must be owner or an active delegate, and mode must match.
+
     Multiply,
 }
 
@@ -81,7 +75,6 @@ pub(crate) fn load_or_create_account(
     (account_id, account)
 }
 
-/// True when `caller` is the account owner or an active registered delegate.
 pub(crate) fn is_owner_or_delegate(
     env: &Env,
     account_id: u64,
@@ -120,7 +113,6 @@ pub(crate) fn cleanup_account_if_empty(env: &Env, account: &Account, account_id:
     }
 }
 
-/// Upserts collateral position or removes it when the scaled supply share is zero.
 pub(crate) fn update_or_remove_supply_position(
     account: &mut Account,
     hub_asset: &HubAssetKey,
@@ -135,7 +127,6 @@ pub(crate) fn update_or_remove_supply_position(
     }
 }
 
-/// Upserts debt position or removes it when the scaled debt share is zero.
 pub(crate) fn update_or_remove_debt_position(
     account: &mut Account,
     hub_asset: &HubAssetKey,
@@ -150,8 +141,6 @@ pub(crate) fn update_or_remove_debt_position(
     }
 }
 
-/// Extends the controller instance and the account's storage TTL. Caller must
-/// be the account owner.
 pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
     storage::renew_controller_instance(env);
 
@@ -162,19 +151,16 @@ pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
     storage::renew_user_account(env, account_id);
 }
 
-/// Opts `delegate` into managing `account_id`. Caller must be the owner.
 pub(crate) fn add_delegate(env: &Env, caller: Address, account_id: u64, delegate: Address) {
     storage::renew_controller_instance(env);
     set_account_delegate(env, &caller, account_id, &delegate, true);
 }
 
-/// Revokes `delegate` from `account_id`. Caller must be the owner.
 pub(crate) fn remove_delegate(env: &Env, caller: Address, account_id: u64, delegate: Address) {
     storage::renew_controller_instance(env);
     set_account_delegate(env, &caller, account_id, &delegate, false);
 }
 
-/// Adds or removes a delegate for `account_id`. Caller must be the owner.
 fn set_account_delegate(
     env: &Env,
     caller: &Address,

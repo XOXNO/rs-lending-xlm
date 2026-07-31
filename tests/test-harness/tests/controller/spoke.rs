@@ -12,8 +12,6 @@ fn test_spoke_category_creation() {
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    // The build created the category. Verify by creating an spoke account;
-    // a missing category would fail.
     let mut t = t;
     let account_id = t.create_spoke_account(ALICE, 2);
     assert!(account_id > 0, "should create spoke account");
@@ -30,11 +28,9 @@ fn test_spoke_enhanced_ltv_and_threshold() {
         .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    // Spoke LTV = 97%, threshold = 98%.
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Borrow 95% = $9500 USDT. Standard 75% LTV blocks this; spoke 97% allows it.
     t.borrow(ALICE, "USDT", 9_500.0);
     t.assert_healthy(ALICE);
 
@@ -90,14 +86,13 @@ fn test_spoke_borrow_with_category_asset() {
 fn test_spoke_rejects_non_category_supply() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_market(eth_preset()) // ETH is not in the spoke category.
+        .with_market(eth_preset())
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
     t.create_spoke_account(ALICE, 2);
 
-    // Supplying ETH must fail because ETH is outside the spoke category.
     let result = t.try_supply(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
@@ -113,7 +108,6 @@ fn test_spoke_rejects_non_category_borrow() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Borrowing ETH must fail because ETH is outside the spoke category.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
@@ -127,10 +121,8 @@ fn test_spoke_edit_asset_params() {
         .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    // Edit the collateral asset to lower its spoke LTV from 97% to 80%.
     t.edit_asset_in_spoke("USDC", 2, true, true, 8000, 8500, 300);
 
-    // Now create the account and borrow at 95%; the new 80% LTV must reject.
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -145,14 +137,10 @@ fn test_spoke_remove_category_deprecates() {
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    // Create the spoke account before deprecation; the harness's local
-    // deprecation assert blocks creation under a deprecated category.
     t.create_spoke_account(ALICE, 2);
 
     t.remove_spoke_category(2);
 
-    // Confirm deprecation via the contract path: supply must reject with
-    // SpokeDeprecated (301).
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::SPOKE_DEPRECATED);
 }
@@ -185,13 +173,10 @@ fn test_spoke_add_asset_to_category() {
         .with_market(usdt_stable_preset())
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
-        // USDT not yet in the category.
         .build();
 
-    // Add USDT to the category at runtime with the stablecoin spoke params.
     t.add_asset_to_spoke("USDT", 2, true, true, 9700, 9800, 200);
 
-    // USDT is valid collateral and debt in the spoke category.
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
@@ -207,10 +192,8 @@ fn test_spoke_remove_asset_from_category() {
         .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    // Remove USDT from the category.
     t.remove_asset_from_spoke("USDT", 2);
 
-    // Borrowing USDT in spoke must fail after category removal.
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -227,12 +210,10 @@ fn test_spoke_liquidation_uses_spoke_bonus() {
         .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    // Spoke bonus = 2% (200 BPS), far below the standard 5%.
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 9_500.0);
 
-    // Drop USDC price to force clear liquidation.
     t.set_price("USDC", usd_cents(90));
     t.assert_liquidatable(ALICE);
 
@@ -246,20 +227,15 @@ fn test_spoke_liquidation_uses_spoke_bonus() {
         debt_after
     );
 
-    // The liquidator must receive collateral with the 2% spoke bonus.
     let usdc_received = t.token_balance(LIQUIDATOR, "USDC");
     assert!(usdc_received > 0.0, "liquidator should receive collateral");
 
-    // The value ratio must hover near 1.02 (2% spoke bonus), not 1.05
-    // (standard). USDC trades at $0.90, so usdc_value = usdc_received * 0.90.
     let usdc_value = usdc_received * 0.90;
-    let debt_value = 2_000.0; // USDT at $1.
+    let debt_value = 2_000.0;
 
     if usdc_value > 0.0 {
         let ratio = usdc_value / debt_value;
-        // Spoke bonus is 2%, so the ratio must sit near 1.02 (between 1.015
-        // and 1.04). A one-sided `< 1.06` check would also pass under the
-        // standard 5% bonus.
+
         assert!(
             ratio > 1.015 && ratio < 1.04,
             "spoke bonus should be ~1.02 (not zero, not 5%): ratio={}",
@@ -279,7 +255,6 @@ fn test_spoke_two_assets_same_category() {
 
     t.create_spoke_account(ALICE, 2);
 
-    // Supply both stablecoins.
     t.supply(ALICE, "USDC", 5_000.0);
     t.supply(ALICE, "USDT", 5_000.0);
 
@@ -288,7 +263,6 @@ fn test_spoke_two_assets_same_category() {
     t.assert_supply_near(ALICE, "USDC", 5_000.0, 1.0);
     t.assert_supply_near(ALICE, "USDT", 5_000.0, 1.0);
 
-    // Borrow USDC against USDT collateral and vice versa.
     t.borrow(ALICE, "USDC", 2_000.0);
     t.assert_position_exists(ALICE, "USDC", PositionType::Borrow);
     t.assert_borrow_near(ALICE, "USDC", 2_000.0, 1.0);
@@ -303,10 +277,8 @@ fn test_spoke_deprecated_category_operations() {
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    // Deprecate the category first.
     t.remove_spoke_category(2);
 
-    // 1. Trying to remove/deprecate the category again must fail.
     let remove_result = t.ctrl_client().try_remove_spoke(&2u32);
     let flat_remove: Result<(), soroban_sdk::Error> = match remove_result {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
@@ -315,9 +287,6 @@ fn test_spoke_deprecated_category_operations() {
     };
     assert_contract_error(flat_remove, errors::SPOKE_DEPRECATED);
 
-    // 2. Editing an existing listing on a deprecated category must succeed:
-    // live listings stay governance-managed (flags, caps, override) while
-    // their usage drains (ADR 0011 addendum).
     let asset_address = t.resolve_asset("USDC");
     let edit_asset_result = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
@@ -339,7 +308,6 @@ fn test_spoke_deprecated_category_operations() {
         "editing a live listing on a deprecated spoke must stay possible: {edit_asset_result:?}"
     );
 
-    // 3. Listing a NEW asset on the deprecated category must fail.
     let usdt_address = t.resolve_asset("USDT");
     let add_asset_result = t.ctrl_client().try_add_asset_to_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
@@ -364,8 +332,6 @@ fn test_spoke_deprecated_category_operations() {
     assert_contract_error(flat_add_asset, errors::SPOKE_DEPRECATED);
 }
 
-// Non-zero `spoke_id` on supply must match the account's stored spoke; mismatch reverts.
-// Harness `0` does not trigger the guard.
 #[test]
 fn test_supply_rejects_spoke_mismatch_on_existing_account() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -391,7 +357,6 @@ fn test_supply_rejects_spoke_mismatch_against_active_category() {
     assert_contract_error(result, errors::SPOKE_MISMATCH);
 }
 
-// Spoke arg must match stored spoke; `0` is not a wildcard (no spoke 0).
 #[test]
 fn test_supply_zero_spoke_rejects_mismatch_against_active_category() {
     let mut t = LendingTest::new()
@@ -403,8 +368,6 @@ fn test_supply_zero_spoke_rejects_mismatch_against_active_category() {
     let _ = t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 50.0);
 
-    // Caller passes 0; the account is in spoke=2. With no `0` sentinel the
-    // strict spoke match rejects the call.
     let result = t.try_supply_with_spoke(ALICE, "USDC", 10.0, 0);
     assert_contract_error(result, errors::SPOKE_MISMATCH);
 }
@@ -477,8 +440,6 @@ fn test_deprecated_spoke_with_debt_keeps_stored_params_on_withdraw() {
     t.borrow(ALICE, "USDT", 5_000.0);
     t.remove_spoke_category(2);
 
-    // This withdrawal would fail under base USDC LTV (6000 * 75% < 5000 debt),
-    // but it is safe under the spoke LTV snapshot stored on the position.
     let result = t.try_withdraw(ALICE, "USDC", 4_000.0);
     assert!(
         result.is_ok(),
@@ -502,8 +463,6 @@ fn test_deprecated_spoke_with_debt_withdraw_still_enforces_stored_spoke_ltv() {
     t.borrow(ALICE, "USDT", 5_000.0);
     t.remove_spoke_category(2);
 
-    // Even with the frozen spoke LTV snapshot, leaving only 5000 USDC cannot
-    // support 5000 USDT debt (5000 * 97% < 5000).
     let result = t.try_withdraw(ALICE, "USDC", 5_000.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
@@ -553,18 +512,11 @@ fn test_deprecated_spoke_blocks_new_borrow_but_preserves_exit() {
 
     t.remove_spoke_category(2);
 
-    // Deprecation closes new borrows.
     assert_contract_error(t.try_borrow(ALICE, "USDT", 100.0), errors::SPOKE_DEPRECATED);
 
-    // Exits still execute against the stored position params, so a deprecated
-    // spoke never traps collateral.
     t.withdraw(ALICE, "USDC", 4_000.0);
 }
 
-/// Deletes a listing at the storage layer, bypassing the zero-usage removal
-/// gate, to model a legacy delisted-with-positions state. The public
-/// `remove_asset_from_spoke` refuses this (`SpokeAssetInUse`); these tests keep
-/// the exit/liquidation backstops covered for that otherwise-unreachable state.
 fn force_delist(t: &LendingTest, asset_name: &str, spoke_id: u32) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
@@ -593,8 +545,6 @@ fn test_removed_spoke_collateral_asset_blocks_new_supply_but_existing_withdraw_w
     let add_more = t.try_supply(ALICE, "USDC", 1.0);
     assert_contract_error(add_more, errors::ASSET_NOT_IN_SPOKE);
 
-    // Removing the asset from the category must block new supply, but the
-    // existing collateral position keeps its spoke snapshot.
     let withdraw = t.try_withdraw(ALICE, "USDC", 4_000.0);
     assert!(
         withdraw.is_ok(),
@@ -630,10 +580,6 @@ fn test_removed_spoke_debt_asset_blocks_new_borrow_but_existing_repay_works() {
     assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
 }
 
-// Liquidation must not depend on the live spoke listing: removing a
-// collateral asset from the account's spoke keeps the position seizable on
-// its snapshotted risk, with the protocol's liquidation fee falling back to
-// zero for the delisted asset (mirroring withdraw's frozen-params policy).
 #[test]
 fn test_removed_spoke_collateral_asset_stays_liquidatable() {
     let mut t = LendingTest::new()
@@ -649,7 +595,7 @@ fn test_removed_spoke_collateral_asset_stays_liquidatable() {
     t.borrow(ALICE, "USDT", 9_500.0);
     force_delist(&t, "USDC", 2);
     t.set_price("USDC", usd_cents(85));
-    // Snapshotted position risk still marks the account underwater.
+
     t.assert_liquidatable(ALICE);
 
     let debt_before = t.borrow_balance(ALICE, "USDT");
@@ -713,12 +659,6 @@ fn test_spoke_borrow_flag_update_blocks_new_borrow_but_existing_repay_works() {
     assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
 }
 
-// Defense-in-depth (D-028): the controller's own edit_asset_in_spoke
-// rejects an edit that would invert the LTV<threshold gap or breach the
-// seizure ceiling, even on a direct call that bypasses the governance
-// contract's validation. A collateral position inherits its ltv and threshold
-// from the asset's spoke config (apply_spoke_to_asset_config), so an asset
-// that can never hold ltv >= threshold means no member position can either.
 #[test]
 fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
     let t = LendingTest::new()
@@ -728,7 +668,6 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
         .build();
     let usdc = t.resolve_asset("USDC");
 
-    // ltv >= threshold must reject (the borrow-buffer invariant).
     let inverted = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
         hub_id: HARNESS_HUB,
@@ -751,8 +690,6 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
     };
     assert_contract_error(flat_inverted, errors::INVALID_LIQ_THRESHOLD);
 
-    // Gap preserved (9_500 > 9_400) but threshold*(1+bonus) > 100% must still
-    // reject: 9_500 * (10_000 + 600) = 1.007e8 > 1e8.
     let unsafe_bonus = t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
         hub_id: HARNESS_HUB,
@@ -775,7 +712,6 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
     };
     assert_contract_error(flat_unsafe, errors::INVALID_LIQ_THRESHOLD);
 
-    // A valid edit still succeeds and the stored asset keeps threshold > ltv.
     t.edit_asset_in_spoke("USDC", 2, true, true, 9_000, 9_300, 200);
     let cfg = t
         .ctrl_client()
@@ -785,18 +721,15 @@ fn test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds() {
     assert!(cfg.liquidation_threshold > cfg.loan_to_value);
 }
 
-// Per-asset divergence: two assets in the same spoke carry distinct risk params;
-// each supply position inherits its own asset's spoke LTV/threshold.
 #[test]
 fn test_spoke_per_asset_divergent_params() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE) // USDC inherits 9700/9800/200.
+        .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    // USDT joins the same category with a tighter, distinct risk profile.
     t.add_asset_to_spoke("USDT", 2, true, true, 9_000, 9_300, 300);
 
     let account_id = t.create_spoke_account(ALICE, 2);
@@ -807,7 +740,6 @@ fn test_spoke_per_asset_divergent_params() {
     let usdt = t.resolve_asset("USDT");
     let (supplies, _) = t.ctrl_client().get_account_positions(&account_id);
 
-    // USDC position keeps the stablecoin-category params.
     let usdc_pos = supplies.get(hub_asset(usdc)).expect("USDC position");
     assert_eq!(
         usdc_pos.loan_to_value, 9_700,
@@ -815,7 +747,6 @@ fn test_spoke_per_asset_divergent_params() {
     );
     assert_eq!(usdc_pos.liquidation_threshold, 9_800);
 
-    // USDT position carries its own, divergent params in the same category.
     let usdt_pos = supplies.get(hub_asset(usdt)).expect("USDT position");
     assert_eq!(
         usdt_pos.loan_to_value, 9_000,
@@ -1013,9 +944,6 @@ fn test_edit_spoke_supply_cap_below_usage_ratchets_down() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
 
-    // A cap below current usage is a valid ratchet-down: it soft-closes new
-    // entries until exits drain usage under it, instead of forcing governance
-    // to chase a falling number through timelocked edits.
     t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
         hub_id: HARNESS_HUB,
@@ -1032,13 +960,11 @@ fn test_edit_spoke_supply_cap_below_usage_ratchets_down() {
         borrow_cap: 0,
     });
 
-    // Over-cap usage blocks any new supply.
     assert_contract_error(
         t.try_supply(ALICE, "USDC", 1.0),
         errors::SPOKE_SUPPLY_CAP_REACHED,
     );
 
-    // Draining usage under the cap re-opens entries.
     t.withdraw(ALICE, "USDC", 450.0);
     assert!(
         t.try_supply(ALICE, "USDC", 10.0).is_ok(),
@@ -1075,19 +1001,14 @@ fn test_spoke_supply_cap_bounds_cumulative_supply() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
 
-    // No interest has accrued, so the supply index is still unit: the remaining
-    // headroom is exactly the cap minus what is already supplied.
     t.supply_raw(ALICE, "USDC", 500 * UNIT);
 
-    // The cap is now exactly filled; the next unit reverts.
     assert_contract_error(
         t.try_supply(ALICE, "USDC", 1.0),
         errors::SPOKE_SUPPLY_CAP_REACHED,
     );
 }
 
-// Borrow-side twin: a borrow cap set below current usage blocks new borrows
-// until repayments drain usage under it.
 #[test]
 fn test_edit_spoke_borrow_cap_below_usage_ratchets_down() {
     let spoke_cap = 1_000 * UNIT;
@@ -1133,7 +1054,7 @@ fn test_edit_spoke_borrow_cap_below_usage_ratchets_down() {
         threshold: 9_800,
         bonus: 200,
         supply_cap: 0,
-        borrow_cap: 100 * UNIT, // below the ~500 current borrow usage
+        borrow_cap: 100 * UNIT,
     });
 
     assert_contract_error(
@@ -1141,7 +1062,6 @@ fn test_edit_spoke_borrow_cap_below_usage_ratchets_down() {
         errors::SPOKE_BORROW_CAP_REACHED,
     );
 
-    // Repaying under the cap re-opens borrowing.
     t.repay(ALICE, "USDT", 450.0);
     assert!(
         t.try_borrow(ALICE, "USDT", 10.0).is_ok(),
@@ -1149,10 +1069,6 @@ fn test_edit_spoke_borrow_cap_below_usage_ratchets_down() {
     );
 }
 
-// Integration of the from_asset-domain guard on the spoke path: a spoke cap far
-// above the `Ray::from_asset` domain would overflow in a cap preview, so
-// `require_cap_within_asset_domain` must reject it at config time. Hub caps are
-// disabled so the spoke<=hub check is skipped and the domain guard is binding.
 #[test]
 fn test_spoke_spoke_cap_above_from_asset_domain_rejected() {
     let t = LendingTest::new()
@@ -1162,7 +1078,7 @@ fn test_spoke_spoke_cap_above_from_asset_domain_rejected() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    // At 7 decimals the ceiling is ~i128::MAX / 10^20 (~1.7e18); 2e21 overflows.
+
     let overflowing_cap = 2_000_000_000_000_000_000_000i128;
     let result = match t.ctrl_client().try_edit_asset_in_spoke(&SpokeAssetArgs {
         liquidation_fees: 0,
@@ -1185,8 +1101,6 @@ fn test_spoke_spoke_cap_above_from_asset_domain_rejected() {
     assert_contract_error(result, errors::INVALID_BORROW_PARAMS);
 }
 
-// Round-trip: filling the spoke supply cap collapses headroom and blocks new
-// supply; withdrawing decrements usage and restores headroom for a re-supply.
 #[test]
 fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
     let spoke_cap = 1_000 * UNIT;
@@ -1215,14 +1129,12 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
 
     t.create_spoke_account(ALICE, 2);
 
-    // Fill to the spoke cap: one more unit reverts.
     t.supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(
         t.try_supply(ALICE, "USDC", 1.0),
         errors::SPOKE_SUPPLY_CAP_REACHED,
     );
 
-    // Withdraw frees usage, so a re-supply within the freed room executes.
     t.withdraw(ALICE, "USDC", 400.0);
     let res = t.try_supply(ALICE, "USDC", 300.0);
     assert!(
@@ -1231,9 +1143,6 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
     );
 }
 
-// The spoke cap is fixed in asset units while debt accrues interest, so a
-// position borrowed up to the cap drifts past it as the index grows: a later
-// borrow must revert on the spoke cap even though scaled usage is unchanged.
 #[test]
 fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
     let spoke_cap = 1_000 * UNIT;
@@ -1262,26 +1171,20 @@ fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
         borrow_cap: spoke_cap,
     });
 
-    // A non-spoke USDT supplier so utilization is defined and interest accrues.
     t.supply(LIQUIDATOR, "USDT", 5_000.0);
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "USDT", 1_000.0); // borrow up to the spoke cap
+    t.borrow(ALICE, "USDT", 1_000.0);
 
     t.advance_time(60 * 60 * 24 * 365);
 
-    // Accrued debt pushes the spoke position past the fixed spoke cap, so a
-    // further borrow reverts even though scaled usage is unchanged.
     assert_contract_error(
         t.try_borrow(ALICE, "USDT", 1.0),
         errors::SPOKE_BORROW_CAP_REACHED,
     );
 }
 
-// Regression: liquidation_fees is a BPS ratio applied to the seized-collateral
-// bonus; values above 100% must be rejected at listing time, not stored to
-// break liquidation planning later.
 #[test]
 fn test_add_asset_to_spoke_rejects_liquidation_fees_above_bps() {
     let t = LendingTest::new()
@@ -1345,9 +1248,6 @@ fn test_edit_asset_in_spoke_rejects_liquidation_fees_above_bps() {
     }
 }
 
-/// Sets the per-listing paused/frozen incident flags through the real
-/// `edit_asset_in_spoke` entrypoint, preserving the listing's current risk
-/// params.
 fn set_spoke_asset_flags(
     t: &LendingTest,
     spoke_id: u32,
@@ -1373,8 +1273,6 @@ fn set_spoke_asset_flags(
     });
 }
 
-// Regression: a paused listing blocks every flow, entries and exits alike,
-// through `enforce_spoke_asset_flags`.
 #[test]
 fn test_paused_spoke_asset_blocks_supply_and_withdraw() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -1389,7 +1287,6 @@ fn test_paused_spoke_asset_blocks_supply_and_withdraw() {
         errors::SPOKE_ASSET_PAUSED,
     );
 
-    // Clearing the flag through the same edit restores capacity.
     set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", false, false);
     assert!(
         t.try_supply(ALICE, "USDC", 1.0).is_ok(),
@@ -1397,8 +1294,6 @@ fn test_paused_spoke_asset_blocks_supply_and_withdraw() {
     );
 }
 
-// Regression: frozen blocks risk-increasing flows (supply/borrow) while still
-// allowing exits.
 #[test]
 fn test_frozen_spoke_asset_blocks_entries_but_allows_exit() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -1407,7 +1302,6 @@ fn test_frozen_spoke_asset_blocks_entries_but_allows_exit() {
 
     set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", false, true);
 
-    // Frozen blocks risk-increasing entries but keeps exits open.
     assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::SPOKE_ASSET_FROZEN);
     assert!(
         t.try_withdraw(ALICE, "USDC", 100.0).is_ok(),
@@ -1415,10 +1309,6 @@ fn test_frozen_spoke_asset_blocks_entries_but_allows_exit() {
     );
 }
 
-// Zero-usage removal gate (ADR 0011 addendum): a listing referenced by any
-// live position cannot be unlisted out from under it — flags stay enforceable
-// and a spoke oracle override cannot vanish mid-position. Draining the
-// position re-enables removal (frozen wind-down, then delist).
 #[test]
 fn test_remove_asset_with_live_supply_usage_reverts_until_drained() {
     let mut t = LendingTest::new()
@@ -1447,7 +1337,6 @@ fn test_remove_asset_with_live_supply_usage_reverts_until_drained() {
     t.remove_asset_from_spoke("USDT", 2);
 }
 
-// Debt-side usage blocks removal the same way supply-side usage does.
 #[test]
 fn test_remove_asset_with_live_borrow_usage_reverts() {
     let mut t = LendingTest::new()
@@ -1474,10 +1363,6 @@ fn test_remove_asset_with_live_borrow_usage_reverts() {
     assert_contract_error(flat, errors::SPOKE_ASSET_IN_USE);
 }
 
-// `update_account_threshold` must skip a held asset whose listing is gone
-// instead of reverting the whole batch. The zero-usage removal gate makes this
-// state unreachable through the public API, so the listing is force-deleted at
-// the storage layer to model a legacy delisted-with-positions state.
 #[test]
 fn test_update_account_threshold_skips_force_delisted_asset() {
     let mut t = LendingTest::new()
@@ -1508,8 +1393,6 @@ fn test_update_account_threshold_skips_force_delisted_asset() {
     );
 }
 
-// Deprecated-spoke listings stay live-managed: params refresh while the listing exists;
-// permissionless threshold sync propagates post-deprecation edits.
 #[test]
 fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
     let mut t = LendingTest::new()
@@ -1523,7 +1406,7 @@ fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
     let account_id = t.resolve_account_id(ALICE);
 
     t.remove_spoke_category(2);
-    // Lower the listing LTV on the deprecated spoke, then propagate it.
+
     let usdc = t.resolve_asset("USDC");
     let listing = t
         .ctrl_client()

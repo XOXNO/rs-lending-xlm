@@ -1,9 +1,3 @@
-//! Write-time dependency walk that builds [`SourceProperties`] for config
-//! policy checks (depth, staleness envelope, smoothing, independence).
-//!
-//! Does not read live feeds. Nested keys must already be stored; missing
-//! config, cycles, and excess depth panic.
-
 use common::errors::OracleError;
 use common::types::{local_properties, PriceKey, PriceSource, SourceProperties};
 use soroban_sdk::{panic_with_error, Env, Vec};
@@ -11,7 +5,6 @@ use soroban_sdk::{panic_with_error, Env, Vec};
 use crate::admin;
 use crate::session::Session;
 
-/// Properties of one source, joining nested key dependencies at `depth + 1`.
 pub(crate) fn properties_of_source(
     session: &mut Session,
     source: &PriceSource,
@@ -32,12 +25,6 @@ pub(crate) fn properties_of_source(
     properties
 }
 
-/// Properties of a stored oracle for `key`, joining all of its sources.
-///
-/// # Errors
-/// * [`OracleError::OracleNotConfigured`] — no stored oracle for `key`.
-/// * [`OracleError::OracleCycleDetected`] — re-entry on the session key stack.
-/// * [`OracleError::OracleDepthExceeded`] — past `MAX_RESOLUTION_DEPTH`.
 pub(crate) fn properties_of_key(
     session: &mut Session,
     key: &PriceKey,
@@ -62,14 +49,12 @@ pub(crate) fn properties_of_key(
     joined
 }
 
-/// Per-leg properties of a staged source list (1 or 2 sources).
 pub(crate) struct ConfigProperties {
     pub first: SourceProperties,
     pub second: Option<SourceProperties>,
 }
 
 impl ConfigProperties {
-    /// Union of both legs when dual; otherwise the single leg.
     pub fn combined(&self) -> SourceProperties {
         match &self.second {
             Some(second) => self.first.join(second),
@@ -78,7 +63,6 @@ impl ConfigProperties {
     }
 }
 
-/// Properties for a staged `sources` vector. Enforces allowed source count.
 pub(crate) fn properties_of_config(
     session: &mut Session,
     sources: &Vec<PriceSource>,

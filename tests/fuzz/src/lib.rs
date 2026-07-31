@@ -1,4 +1,3 @@
-//! Shared helpers for contract-level libFuzzer targets.
 
 pub mod context;
 pub mod decode;

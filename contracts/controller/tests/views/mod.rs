@@ -23,12 +23,10 @@ fn aggregate_views_return_zero_for_missing_or_empty_account() {
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
-        // Missing accounts have no aggregate value.
         assert_eq!(total_collateral_in_usd(&env, 1), 0);
         assert_eq!(total_borrow_in_usd(&env, 1), 0);
         assert_eq!(ltv_collateral_in_usd(&env, 1), 0);
 
-        // Existing accounts without positions also have no collateral value.
         let owner = Address::generate(&env);
         storage::set_account_meta(
             &env,
@@ -42,9 +40,7 @@ fn aggregate_views_return_zero_for_missing_or_empty_account() {
         assert_eq!(total_collateral_in_usd(&env, 1), 0);
     });
 }
-// The debt-free short-circuit must fire before any pricing: a supply-only
-// account with an unconfigured oracle still reads `i128::MAX` instead of
-// reverting on the missing feed.
+
 #[test]
 fn health_factor_debt_free_account_skips_pricing() {
     use crate::Controller;
@@ -64,7 +60,7 @@ fn health_factor_debt_free_account_skips_pricing() {
                 mode: PositionMode::Normal,
             },
         );
-        // Supply position on an asset with no oracle configured.
+
         let key = HubAssetKey {
             hub_id: 0,
             asset: Address::generate(&env),
@@ -87,7 +83,6 @@ fn health_factor_debt_free_account_skips_pricing() {
     });
 }
 
-// The spoke-usage view reads the stored row verbatim, not a default.
 #[test]
 fn get_spoke_usage_returns_stored_row() {
     use crate::Controller;

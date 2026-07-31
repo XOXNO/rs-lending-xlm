@@ -1,16 +1,5 @@
 #![no_std]
 
-//! Multi-signer price oracle with write-time N-of-M median aggregation.
-//!
-//! Registered signers submit under `require_auth`. Aggregation runs on write so
-//! reads are O(1) in signer count. RedStone-style reads fail closed; SEP-40
-//! reads soft-fail with `None`. Consumed as one of the composable feed sources
-//! behind the price-aggregator.
-//!
-//! Modules: `admin` (owner config), `submit` (signer writes), `aggregation`
-//! (guards + median), `reads` (RedStone / SEP-40), `storage` (keys, registry,
-//! TTL).
-
 mod admin;
 mod aggregation;
 mod reads;
@@ -26,41 +15,40 @@ use stellar_macros::only_owner;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    /// Caller is not in the registered signer set.
     NotAuthorizedSigner = 1,
-    /// Submitted price is not strictly positive.
+
     InvalidPrice = 2,
-    /// Threshold is zero, exceeds signer count, or signers contain duplicates.
+
     InvalidThreshold = 3,
-    /// Signer address is already registered.
+
     SignerAlreadyRegistered = 4,
-    /// Signer address is not in the registered set.
+
     SignerNotRegistered = 5,
-    /// Removing the signer would leave fewer signers than the threshold.
+
     CannotRemoveBelowThreshold = 6,
-    /// No cached aggregate (or empty history) for the requested feed.
+
     NoDataForFeed = 7,
-    /// Cached aggregate age exceeds `MaxStaleSeconds`.
+
     StaleData = 8,
-    /// Submitted price exceeds `MAX_SUBMITTED_PRICE`.
+
     PriceOutOfRange = 9,
-    /// `feed_ids` and `prices` lengths differ on bulk submit.
+
     LengthMismatch = 10,
-    /// Package timestamp is more than `MAX_FUTURE_SKEW_SECONDS` ahead of ledger time.
+
     FutureTimestamp = 11,
-    /// Asset already mapped, or feed id already owned by another asset.
+
     FeedAlreadyMapped = 12,
-    /// SEP-40 asset has no feed mapping.
+
     FeedNotMapped = 13,
-    /// Feed id is not on the known-feed allowlist.
+
     FeedNotKnown = 14,
-    /// Submission-age / stale-seconds window is below floor or inverted vs peer knob.
+
     InvalidSubmissionAge = 15,
-    /// Package timestamp older than inclusion window or older than this signer's prior observation.
+
     StaleSubmission = 16,
-    /// Feed id is already on the known-feed allowlist.
+
     FeedAlreadyRegistered = 17,
-    /// Relative skew exceeds `MaxSubmissionAgeSeconds`.
+
     InvalidRelativeSkew = 18,
 }
 
@@ -69,13 +57,6 @@ pub struct XoxnoOracle;
 
 #[contractimpl]
 impl XoxnoOracle {
-    /// Registers `admin` as the OZ `Ownable` owner, the initial signer set,
-    /// N-of-M `threshold`, and SEP-40 `resolution`. Staleness windows start at
-    /// their defaults; owner setters adjust them later.
-    ///
-    /// # Errors
-    /// * [`Error::InvalidThreshold`] — `threshold == 0`,
-    ///   `threshold > signers.len()`, or `signers` contains a duplicate.
     pub fn __constructor(
         env: Env,
         admin: Address,
@@ -108,8 +89,6 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Replaces contract Wasm at `new_wasm_hash`, preserving address and storage.
-    /// Owner only.
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_oracle_instance(&env);
@@ -117,8 +96,6 @@ impl XoxnoOracle {
     }
 }
 
-/// Explicit `Ownable` surface: `#[contractimpl]` does not export trait defaults.
-/// `transfer_ownership` / `renounce_ownership` enforce owner auth internally.
 #[contractimpl]
 impl Ownable for XoxnoOracle {
     fn get_owner(e: &Env) -> Option<Address> {
@@ -138,7 +115,6 @@ impl Ownable for XoxnoOracle {
     }
 }
 
-/// True when `signers` contains the same address twice.
 fn has_duplicate(signers: &Vec<Address>) -> bool {
     for i in 0..signers.len() {
         for j in (i + 1)..signers.len() {

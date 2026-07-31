@@ -1,6 +1,3 @@
-//! IRM, asset-config, and oracle-config validation through the governance
-//! client, with real mock oracles probed in-path.
-
 use controller::constants::{BPS, MAX_REASONABLE_PRICE_WAD, RAY};
 use controller::types::{AssetOracle, InterestRateModel, OracleReadMode};
 use governance::op::{
@@ -10,9 +7,6 @@ use soroban_sdk::{String, Symbol, Vec};
 use test_harness::{
     hub_asset, usdc_preset, LendingTest, DEFAULT_TOLERANCE, HARNESS_HUB, HARNESS_SPOKE,
 };
-
-// `InterestRateModel::verify` invariants, driven via
-// `upgrade_liquidity_pool_params`, which validates before forwarding.
 
 fn baseline_irm() -> InterestRateModel {
     InterestRateModel {
@@ -30,7 +24,6 @@ fn baseline_irm() -> InterestRateModel {
     }
 }
 
-// base_borrow_rate < 0 -> BaseRateNegative (#128).
 #[test]
 #[should_panic(expected = "Error(Contract, #128)")]
 fn test_validate_irm_rejects_negative_base_rate() {
@@ -48,7 +41,6 @@ fn test_validate_irm_rejects_negative_base_rate() {
     );
 }
 
-// mid_utilization <= 0 rejects InvalidUtilRange (#117).
 #[test]
 #[should_panic(expected = "Error(Contract, #117)")]
 fn test_validate_irm_rejects_zero_mid_utilization() {
@@ -66,7 +58,6 @@ fn test_validate_irm_rejects_zero_mid_utilization() {
     );
 }
 
-// optimal_utilization <= mid_utilization rejects #117.
 #[test]
 #[should_panic(expected = "Error(Contract, #117)")]
 fn test_validate_irm_rejects_optimal_not_above_mid() {
@@ -84,7 +75,6 @@ fn test_validate_irm_rejects_optimal_not_above_mid() {
     );
 }
 
-// optimal_utilization >= RAY rejects OptUtilTooHigh (#118).
 #[test]
 #[should_panic(expected = "Error(Contract, #118)")]
 fn test_validate_irm_rejects_optimal_at_or_above_ray() {
@@ -102,7 +92,6 @@ fn test_validate_irm_rejects_optimal_at_or_above_ray() {
     );
 }
 
-// reserve_factor >= BPS rejects InvalidReserveFactor (#119).
 #[test]
 #[should_panic(expected = "Error(Contract, #119)")]
 fn test_validate_irm_rejects_reserve_factor_at_bps() {
@@ -120,10 +109,6 @@ fn test_validate_irm_rejects_reserve_factor_at_bps() {
     );
 }
 
-// `validate_risk_bounds` invariants, driven via `edit_asset_in_spoke`.
-
-// threshold*(1+bonus) > 100% rejects #113: a bonus large enough that
-// liquidation seizure would exceed collateral is invalid (mints bad debt).
 #[test]
 #[should_panic(expected = "Error(Contract, #113)")]
 fn test_edit_asset_in_spoke_rejects_excessive_liq_bonus() {
@@ -142,7 +127,7 @@ fn test_edit_asset_in_spoke_rejects_excessive_liq_bonus() {
         can_borrow: cfg.is_borrowable,
         paused: false,
         frozen: false,
-        // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
+
         ltv: 8000,
         threshold: 9500,
         bonus: 1000,
@@ -153,9 +138,6 @@ fn test_edit_asset_in_spoke_rejects_excessive_liq_bonus() {
         .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
 
-// A large bonus is permitted when the threshold leaves room:
-// 50% threshold * (1 + 50% bonus) = 75% <= 100%. The bonus ceiling is the
-// invariant, not a flat cap.
 #[test]
 fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -182,8 +164,6 @@ fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
     t.gov_client()
         .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
-
-// `configure_market_oracle` error paths against the live mock reflector.
 
 fn base_oracle_config(t: &LendingTest) -> AssetOracle {
     let market = t.resolve_market("USDC");
@@ -212,27 +192,24 @@ fn configure_usdc(t: &LendingTest, cfg: &AssetOracle) {
     );
 }
 
-// max_price_stale_seconds < 60 rejects InvalidStalenessConfig (#218).
 #[test]
 #[should_panic(expected = "Error(Contract, #218)")]
 fn test_configure_market_oracle_rejects_low_staleness() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let mut cfg = base_oracle_config(&t);
-    cfg.max_price_stale_seconds = 30; // Below the 60-second floor.
+    cfg.max_price_stale_seconds = 30;
     configure_usdc(&t, &cfg);
 }
 
-// max_price_stale_seconds > 86_400 rejects #218 (upper bound).
 #[test]
 #[should_panic(expected = "Error(Contract, #218)")]
 fn test_configure_market_oracle_rejects_high_staleness() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let mut cfg = base_oracle_config(&t);
-    cfg.max_price_stale_seconds = 86_401; // Above the 24-hour ceiling.
+    cfg.max_price_stale_seconds = 86_401;
     configure_usdc(&t, &cfg);
 }
 
-// twap_records > 12 rejects TwapRecordsOutOfRange (#228).
 #[test]
 #[should_panic(expected = "Error(Contract, #228)")]
 fn test_configure_market_oracle_rejects_excessive_twap_records() {
@@ -242,8 +219,6 @@ fn test_configure_market_oracle_rejects_excessive_twap_records() {
     configure_usdc(&t, &cfg);
 }
 
-// A sourceless oracle would price nothing while still reporting a config, so
-// arity is bounded on both ends: SourceCountOutOfRange (#231).
 #[test]
 #[should_panic(expected = "Error(Contract, #231)")]
 fn test_configure_market_oracle_rejects_zero_sources() {
@@ -253,8 +228,6 @@ fn test_configure_market_oracle_rejects_zero_sources() {
     configure_usdc(&t, &cfg);
 }
 
-// Three sources have no defined agreement rule — the band is pairwise — so the
-// upper arity bound is enforced rather than silently truncating to two (#231).
 #[test]
 #[should_panic(expected = "Error(Contract, #231)")]
 fn test_configure_market_oracle_rejects_three_sources() {
@@ -269,10 +242,6 @@ fn test_configure_market_oracle_rejects_three_sources() {
     configure_usdc(&t, &cfg);
 }
 
-// Two sources on the same contract are not two opinions: whoever controls that
-// contract controls both legs, so the agreement band it is meant to police
-// compares a value against itself. Under `RequireDisjoint` that is
-// IndependenceNotDeclared (#232).
 #[test]
 #[should_panic(expected = "Error(Contract, #232)")]
 fn test_configure_market_oracle_rejects_identical_sources() {
@@ -282,17 +251,11 @@ fn test_configure_market_oracle_rejects_identical_sources() {
     configure_usdc(&t, &cfg);
 }
 
-// Same contract and feed, differing only in the policy-only `max_stale_seconds`.
-// Independence is judged on the contract address, not on config equality, so
-// these are rejected (#232) even though the two structs are not byte-equal —
-// the shared-writer risk is identical.
 #[test]
 #[should_panic(expected = "Error(Contract, #232)")]
 fn test_configure_market_oracle_rejects_same_redstone_feed_distinct_max_stale() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    // Independence is judged before any live feed read, so a placeholder
-    // contract address suffices; both sources share it (and the feed id) on
-    // purpose so they resolve to the same underlying feed.
+
     let redstone = t.mock_reflector.clone();
     let feed_id = String::from_str(&t.env, "BTC");
 
@@ -335,8 +298,6 @@ fn test_configure_market_oracle_rejects_bad_reflector_resolution() {
     configure_usdc(&t, &cfg);
 }
 
-// TWAP history problems are miss-equivalent (`read_twap` errors are `.ok()`ed
-// at the provider entry), so the configure probe reverts `NoLastPrice` (#210).
 #[test]
 #[should_panic(expected = "Error(Contract, #210)")]
 fn test_configure_market_oracle_rejects_missing_twap_history() {
@@ -347,7 +308,6 @@ fn test_configure_market_oracle_rejects_missing_twap_history() {
     configure_usdc(&t, &cfg);
 }
 
-// `validate_sanity_bounds` at configure time — #224.
 #[test]
 #[should_panic(expected = "Error(Contract, #224)")]
 fn test_configure_market_oracle_rejects_zero_min_sanity() {

@@ -1,12 +1,3 @@
-//! Market oracle builders for test setup.
-//!
-//! Builders produce the [`AssetOracle`] shapes the price-aggregator stores.
-//! Where a test drives them through governance they face the full validation
-//! set, so the defaults here are chosen to be *valid* configurations rather
-//! than merely well-typed ones: real decimals for each mock, staleness ceilings
-//! that cover every component, and a source mix that satisfies the smoothing
-//! and independence rules.
-
 use controller::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
     OracleReadMode, OracleTolerance, PriceKey, PriceSource, ProviderKind, ProviderRef,
@@ -18,13 +9,10 @@ pub const DEFAULT_REDSTONE_MAX_STALE_SECONDS: u64 = 900;
 pub const DEFAULT_MIN_SANITY_PRICE_WAD: i128 = 1;
 pub const DEFAULT_MAX_SANITY_PRICE_WAD: i128 = controller::constants::MAX_REASONABLE_PRICE_WAD;
 
-/// The mock Reflector publishes at 14 decimals so the WAD rescale is exercised.
 const REFLECTOR_DECIMALS: u32 = 14;
-/// The mock RedStone adapter publishes at 8 decimals.
+
 const MULTI_FEED_DECIMALS: u32 = 8;
 
-/// Default asset-level staleness ceiling. Every component bound must sit under
-/// it, which `validate_staleness_envelope` enforces.
 const DEFAULT_MAX_PRICE_STALE_SECONDS: u64 = 900;
 
 pub fn reflector_source(
@@ -59,9 +47,6 @@ pub fn xoxno_source(contract: &Address, feed_id: &String) -> PriceSource {
     xoxno_source_with_decimals(contract, feed_id, MULTI_FEED_DECIMALS)
 }
 
-/// XOXNO adapters publish their own `decimals()`, so the config declares a width
-/// and configure-time attestation matches it against the adapter. Tests that
-/// pair a non-default adapter width with a config must pass both.
 pub fn xoxno_source_with_decimals(
     contract: &Address,
     feed_id: &String,
@@ -79,9 +64,6 @@ pub fn xoxno_source_with_decimals(
     source
 }
 
-/// Push-oracle feeds are declared [`FeedNature::Fundamental`] so a single-source
-/// market satisfies the smoothing rule the way the RWA markets do in production:
-/// trading cannot move a published NAV, so it needs no window.
 fn multi_feed_source(
     contract: &Address,
     feed_id: &String,
@@ -100,9 +82,6 @@ fn multi_feed_source(
     })
 }
 
-/// Reciprocal agreement band, matching what governance computes from BPS:
-/// `[BPS^2 / (BPS + t), BPS + t]`. Reciprocal rather than additive so the check
-/// is invariant to which source lands in the numerator.
 pub fn tolerance_band(env: &Env, tolerance_bps: u32) -> OracleTolerance {
     let bps = controller::constants::BPS;
     let upper = bps + i128::from(tolerance_bps);
@@ -113,13 +92,6 @@ pub fn tolerance_band(env: &Env, tolerance_bps: u32) -> OracleTolerance {
     }
 }
 
-/// A `Scaled` source: a ratio feed multiplied by the price of `quote`.
-///
-/// This is the composable model's replacement for v1's implicit Reflector quote
-/// hop, and the shape SolvBTC needs: a `SolvBTC/BTC` ratio from one operator
-/// times a `BTC/USD` price from another. The ratio leg is a Reflector feed here
-/// because the mock speaks that ABI; production ratio feeds are typically
-/// multi-feed adapters.
 pub fn scaled_reflector_source(
     oracle: &Address,
     asset: &Address,
@@ -144,7 +116,6 @@ pub fn scaled_reflector_source(
     })
 }
 
-/// Single smoothed `Scaled` source with a tight band around `price_wad`.
 pub fn scaled_single_config(
     env: &Env,
     oracle_address: &Address,
@@ -170,9 +141,6 @@ pub fn scaled_single_config(
     )
 }
 
-/// `Scaled` primary plus a RedStone USD anchor — the dual-source shape where
-/// the quote conversion has to happen *before* the agreement band, since one
-/// leg is quoted and the other is not.
 pub fn scaled_primary_redstone_anchor_config(
     env: &Env,
     reflector_oracle: &Address,
@@ -201,15 +169,6 @@ pub fn scaled_primary_redstone_anchor_config(
     )
 }
 
-/// Rewrites the Reflector read mode on `sources[index]` in place.
-///
-/// Tests use this to seed a stored config into a shape governance would have
-/// rejected (`Twap(0)`, `Twap(MAX+1)`), which is how the read-path fail-closed
-/// branches get exercised — validation alone cannot reach them.
-///
-/// # Panics
-/// If that slot is not a direct Reflector feed; a silent no-op would let the
-/// test assert the wrong thing and still pass.
 pub fn set_reflector_read_mode(oracle: &mut AssetOracle, index: u32, read_mode: OracleReadMode) {
     let PriceSource::Feed(mut feed) = oracle.sources.get_unchecked(index) else {
         panic!("sources[{index}] is not a direct feed");
@@ -230,8 +189,6 @@ fn sources(env: &Env, items: &[PriceSource]) -> Vec<PriceSource> {
     out
 }
 
-/// Highest component bound in `sources`, so the asset ceiling never sits under
-/// a leg it is meant to cover.
 fn stale_ceiling(sources: &Vec<PriceSource>) -> u64 {
     let mut ceiling = DEFAULT_MAX_PRICE_STALE_SECONDS;
     for source in sources.iter() {
@@ -253,8 +210,6 @@ fn oracle(
 ) -> AssetOracle {
     let sources = sources(env, items);
     AssetOracle {
-        // Overwritten from the token by the governance resolver; harness paths
-        // that seed directly do not depend on it.
         asset_decimals: 7,
         max_price_stale_seconds: stale_ceiling(&sources),
         sources,
@@ -272,8 +227,6 @@ pub fn reflector_primary_anchor_config(
     price_wad: i128,
     tolerance_bps: u32,
 ) -> AssetOracle {
-    // A same-provider pair is not independent, so the harness default is a
-    // single smoothed source with a tight band around the seeded price.
     let (min_wad, max_wad) = tight_single_source_band(price_wad);
     oracle(
         env,
@@ -288,25 +241,10 @@ pub fn reflector_primary_anchor_config(
     )
 }
 
-/// ±1% sanity band around `price_wad`, comfortably inside the protocol's
-/// `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` (10%) cap for single-source markets.
-/// The shared wide default spans the whole `MAX_REASONABLE_PRICE_WAD` domain
-/// and only fits dual-source builders, which the cap does not apply to.
-///
-/// Public so harness `set_price` can re-center the live band when tests move a
-/// price, without weakening the production fail-closed checks.
 pub fn tight_single_source_band(price_wad: i128) -> (i128, i128) {
     (price_wad - price_wad / 100, price_wad + price_wad / 100)
 }
 
-/// A lone spot Reflector source.
-///
-/// Governance refuses this shape with `SpotOnlyNotProductionSafe` (#38) unless
-/// some earlier check fires first — one unsmoothed market leg and nothing to
-/// check it against is exactly what the smoothing rule exists to stop. Use it
-/// for seeded read-path tests, or where the assertion is about a check that
-/// runs *before* smoothing (the base-asset probe, for instance). For a valid
-/// single-source listing use [`reflector_primary_anchor_config`], which smooths.
 pub fn reflector_single_spot_config(
     env: &Env,
     oracle_address: &Address,

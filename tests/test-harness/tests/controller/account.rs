@@ -36,7 +36,6 @@ fn test_create_spoke_account() {
 fn test_create_account_full_custom() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // mode=1 for Multiply.
     let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     assert!(account_id > 0);
 
@@ -105,7 +104,6 @@ fn test_account_auto_removed_after_full_repay_withdraw() {
 
     t.repay(ALICE, "ETH", 1.01);
 
-    // Withdraw all; cleanup_account_if_empty auto-removes the empty account.
     t.withdraw_all(ALICE, "USDC");
 
     let accounts = t.get_active_accounts(ALICE);
@@ -135,8 +133,6 @@ fn test_account_owner_verified() {
 
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // BOB must not withdraw from ALICE's account. mock_all_auths bypasses
-    // signature checks; ownership validation still rejects the call.
     let alice_account_id = t.resolve_account_id(ALICE);
     let bob_addr = t.get_or_create_user(BOB);
     let usdc_addr = t.resolve_asset("USDC");
@@ -175,9 +171,6 @@ fn test_renew_account_owner_succeeds() {
     let alice = t.get_or_create_user(ALICE);
     t.ctrl_client().renew_account(&alice, &account_id);
 
-    // The TTL bump itself is not observable through the harness, so pin what is:
-    // renewal is non-destructive — the account still resolves and its position
-    // is untouched. Without this the test only proves the call did not panic.
     assert_eq!(t.find_account_id(ALICE), Some(account_id));
     t.assert_supply_near(ALICE, "USDC", 1_000.0, 0.01);
 }

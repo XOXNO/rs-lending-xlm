@@ -1,4 +1,3 @@
-//! Read-only Soroban RPC client (no sequence/submit paths).
 
 use std::collections::{HashMap, HashSet};
 
@@ -32,8 +31,6 @@ impl RpcClient {
         Ok(resp.sequence)
     }
 
-    /// Latest close time (Unix s) — ages oracle prices. `getLatestLedger` has no
-    /// close time; pages one ledger via `getLedgers`.
     pub async fn latest_close_time(&self) -> Result<i64> {
         let sequence = self.latest_ledger().await?;
         let resp = self
@@ -44,7 +41,6 @@ impl RpcClient {
         Ok(resp.latest_ledger_close_time)
     }
 
-    /// Look up keys in request order; dedupes (RPC rejects duplicates).
     pub async fn get_ledger_entries(&self, keys: &[LedgerKey]) -> Result<Vec<LedgerEntryQuery>> {
         if keys.is_empty() {
             return Ok(Vec::new());
@@ -77,7 +73,6 @@ impl RpcClient {
         Ok(out)
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct LedgerEntryQuery {

@@ -1,9 +1,5 @@
 use super::*;
 
-// Multiply edge cases
-// An initial payment in the debt token must enlarge the swap input without
-// enlarging the stored debt leg.
-
 #[test]
 fn test_multiply_with_debt_token_initial_payment() {
     let mut t = LendingTest::new()
@@ -15,12 +11,11 @@ fn test_multiply_with_debt_token_initial_payment() {
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
     let eth_market = t.resolve_market("ETH");
-    eth_market.token_admin.mint(&alice, &5_000000i128); // 0.5 ETH
+    eth_market.token_admin.mint(&alice, &5_000000i128);
 
     let alice_eth_before = t.token_balance(ALICE, "ETH");
     t.fund_router("USDC", 4_500.0);
-    // multiply: borrow 1 ETH (post-fee = 9_991_000) + 0.5 ETH initial debt
-    // payment (5_000_000). swap_amount_in = 14_991_000.
+
     let steps = build_aggregator_swap(
         &t,
         "ETH",
@@ -55,8 +50,7 @@ fn test_multiply_with_debt_token_initial_payment() {
         "borrowed ETH should remain the strategy debt amount only, got {}",
         borrow
     );
-    // The 0.5 ETH initial payment must come out of Alice's wallet; the
-    // controller must not mint or otherwise replace it.
+
     let alice_eth_after = t.token_balance(ALICE, "ETH");
     assert!(
         (alice_eth_before - alice_eth_after - 0.5).abs() < 1e-6,
@@ -66,8 +60,6 @@ fn test_multiply_with_debt_token_initial_payment() {
     );
 }
 
-// An UNLISTED initial-payment token is rejected up front (fail-fast price
-// check) BEFORE its token contract is invoked — `OracleNotConfigured`.
 #[test]
 fn test_multiply_rejects_unlisted_third_token_payment_before_transfer() {
     let mut t = LendingTest::new()
@@ -106,8 +98,6 @@ fn test_multiply_rejects_unlisted_third_token_payment_before_transfer() {
     }
 }
 
-// A LISTED third-token initial payment without convert steps is rejected with
-// ConvertStepsRequired after the fail-fast price check passes.
 #[test]
 fn test_multiply_rejects_third_token_payment_without_convert() {
     use test_harness::xlm_preset;
@@ -169,8 +159,6 @@ fn test_multiply_rejects_when_paused() {
     );
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-// Reusing an account that already holds the collateral asset must add to the
-// existing position, not replace it.
 
 #[test]
 fn test_multiply_preserves_existing_collateral_balance() {
@@ -183,7 +171,7 @@ fn test_multiply_preserves_existing_collateral_balance() {
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
-    // 1 ETH (raw 10_000_000) flash-borrowed minus 9bps fee.
+
     let steps = build_aggregator_swap(
         &t,
         "ETH",
@@ -217,8 +205,6 @@ fn test_multiply_preserves_existing_collateral_balance() {
         final_supply
     );
 
-    // The multiply must also open the new ETH borrow leg; without this the
-    // test would silently pass if the borrow side regressed to a no-op.
     let final_borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
     assert!(
         (0.99..=1.01).contains(&final_borrow),
@@ -257,7 +243,6 @@ fn test_multiply_reuses_spoke_account_with_zero_category() {
         20_000_000_000,
     );
 
-    // Existing Multiply account on spoke 2: pass matching spoke_id to reuse it.
     let result = t.ctrl_client().try_multiply(
         &caller,
         &account_id,
@@ -348,8 +333,6 @@ fn test_multiply_existing_account_not_found() {
         errors::GenericError::AccountNotFound as u32,
     );
 }
-// Spoke account in the stablecoin category, but debt is ETH (not in
-// category). Validation runs before the swap, so the error is clean.
 
 #[test]
 fn test_multiply_spoke_wrong_category_debt() {
@@ -360,11 +343,8 @@ fn test_multiply_spoke_wrong_category_debt() {
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .with_spoke_asset(2, "USDT", true, true)
-        // ETH is NOT in spoke category 1
         .build();
 
-    // Use the raw controller client so `spoke_id=2` can be passed
-    // explicitly.
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("USDC");
     let debt_addr = t.resolve_asset("ETH");
@@ -373,23 +353,19 @@ fn test_multiply_spoke_wrong_category_debt() {
     let ctrl = t.ctrl_client();
     let result = ctrl.try_multiply(
         &caller,
-        &0u64, // account_id = 0 (create new)
-        &2u32, // spoke_id = 2
+        &0u64,
+        &2u32,
         &hub_asset(collateral_addr.clone()),
-        &10_0000000i128,                            // 1 ETH worth of debt
-        &hub_asset(debt_addr.clone()),              // ETH -- not in spoke category 2
-        &controller::types::PositionMode::Multiply, // mode = 1 (multiply)
+        &10_0000000i128,
+        &hub_asset(debt_addr.clone()),
+        &controller::types::PositionMode::Multiply,
         &steps,
-        &None, // initial_payment
-        &None, // convert_steps
+        &None,
+        &None,
     );
 
-    // ETH is not listed on the account's spoke, so the borrow gate rejects the
-    // leg with AssetNotInSpoke (307).
     assert_contract_error(flatten(result), errors::ASSET_NOT_IN_SPOKE);
 }
-// Spoke account in the stablecoin category, but collateral is ETH (not in
-// category).
 
 #[test]
 fn test_multiply_spoke_wrong_category_collateral() {
@@ -403,12 +379,11 @@ fn test_multiply_spoke_wrong_category_collateral() {
         .build();
 
     let caller = t.get_or_create_user(ALICE);
-    let collateral_addr = t.resolve_asset("ETH"); // not in spoke category
-    let debt_addr = t.resolve_asset("USDC"); // in spoke category
-                                             // The collateral spoke gate fires at entry, before any funds move; the
-                                             // router funding only keeps the fixture realistic.
+    let collateral_addr = t.resolve_asset("ETH");
+    let debt_addr = t.resolve_asset("USDC");
+
     t.fund_router("ETH", 5.0);
-    // multiply borrows 1000 USDC (raw 10_000_000_000) minus 9bps fee.
+
     let steps = build_aggregator_swap(
         &t,
         "USDC",
@@ -420,19 +395,17 @@ fn test_multiply_spoke_wrong_category_collateral() {
     let ctrl = t.ctrl_client();
     let result = ctrl.try_multiply(
         &caller,
-        &0u64,                               // account_id = 0 (create new)
-        &2u32,                               // spoke_id = 2
-        &hub_asset(collateral_addr.clone()), // ETH: not in spoke category
+        &0u64,
+        &2u32,
+        &hub_asset(collateral_addr.clone()),
         &1000_0000000i128,
         &hub_asset(debt_addr.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
-        &None, // initial_payment
-        &None, // convert_steps
+        &None,
+        &None,
     );
 
-    // ETH is not listed on the account's spoke, so the entry gate rejects the
-    // collateral leg with AssetNotInSpoke (307).
     assert_contract_error(flatten(result), errors::ASSET_NOT_IN_SPOKE);
 }
 #[test]
@@ -443,8 +416,7 @@ fn test_multiply_rejects_normal_mode() {
         .build();
 
     let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
-    // PositionMode::Normal is reserved for non-strategy accounts; multiply
-    // requires Multiply, Long, or Short.
+
     let result = t.try_multiply(
         ALICE,
         "USDC",
@@ -455,8 +427,6 @@ fn test_multiply_rejects_normal_mode() {
     );
     assert_contract_error(result, errors::INVALID_POSITION_MODE);
 }
-// An existing account at the supply-position limit cannot open a new
-// collateral leg through multiply.
 
 #[test]
 fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
@@ -471,7 +441,7 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
-    // 1 ETH (raw 10_000_000) flash-borrowed minus 9bps fee.
+
     let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
 
     let caller = t.get_or_create_user(ALICE);
@@ -494,7 +464,6 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
 
     assert_contract_error(flatten(result), errors::POSITION_LIMIT_EXCEEDED);
 }
-// Reusing another user's account must fail before the strategy borrow path.
 
 #[test]
 fn test_multiply_existing_account_wrong_owner() {
@@ -524,11 +493,8 @@ fn test_multiply_existing_account_wrong_owner() {
         &None,
     );
 
-    // Bob calls multiply targeting Alice's existing account. The ownership
-    // check must fail with NotAuthorized, not as a host-level auth failure.
     assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
 }
-// Favorable slippage refunds must not sweep unrelated controller balances.
 
 #[test]
 fn test_multiply_respects_borrow_position_limit() {
@@ -540,10 +506,8 @@ fn test_multiply_respects_borrow_position_limit() {
         .with_market(xlm_preset())
         .build();
 
-    // Liquidity for the second strategy's debt leg.
     t.supply(BOB, "XLM", 10_000.0);
 
-    // First multiply: 1 ETH debt -> 3000 USDC collateral (one borrow position).
     t.fund_router("USDC", 3000.0);
     let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
     let account_id = t.multiply(
@@ -555,11 +519,8 @@ fn test_multiply_respects_borrow_position_limit() {
         &steps,
     );
 
-    // Cap borrow positions at the count the account already holds.
     t.set_position_limits(8, 1);
 
-    // A second multiply into the same account with a different debt asset
-    // would open a second borrow position and must hit the limit gate.
     t.fund_router("USDC", 10.0);
     let steps2 = build_aggregator_swap(
         &t,

@@ -1,13 +1,6 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
-//! Lending controller. Owns accounts, risk rules, price-aggregator pricing,
-//! strategies, flash loans, and admin configuration.
-//!
-//! Top level only declares modules and the ABI. Every entrypoint delegates to
-//! the submodule that owns that operation end to end, following the
-//! mod.rs + storage.rs (where state owned) layout.
-
 pub mod constants;
 pub mod events;
 
@@ -69,12 +62,8 @@ contractmeta!(
 #[contract]
 pub struct Controller;
 
-// Soroban constructors cannot be declared in contractclient traits.
 #[contractimpl]
 impl Controller {
-    /// Sets `admin` as owner and access-control admin, seeds default position
-    /// limits and min-borrow-collateral floor, records app version `1`, and
-    /// starts paused so the owner can finish configuration before enabling flows.
     pub fn __constructor(env: Env, admin: Address) {
         governance::access::init(&env, &admin);
     }
@@ -82,8 +71,6 @@ impl Controller {
 
 #[contractimpl]
 impl ControllerInterface for Controller {
-    // --- money paths ---
-
     #[when_not_paused]
     fn supply(
         env: Env,
@@ -120,8 +107,6 @@ impl ControllerInterface for Controller {
         positions::repay::process_repay(&env, &caller, account_id, &payments);
     }
 
-    // --- liquidation ---
-
     fn liquidate(
         env: Env,
         liquidator: Address,
@@ -134,8 +119,6 @@ impl ControllerInterface for Controller {
     fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
         positions::liquidation::process_clean_bad_debt(&env, &caller, account_id);
     }
-
-    // --- strategies ---
 
     #[when_not_paused]
     fn flash_loan(
@@ -278,8 +261,6 @@ impl ControllerInterface for Controller {
         )
     }
 
-    // --- keepers: permissionless upkeep ---
-
     #[when_not_paused]
     fn update_indexes(env: Env, caller: Address, assets: Vec<HubAssetKey>) {
         keepers::update_indexes(&env, caller, assets);
@@ -300,13 +281,9 @@ impl ControllerInterface for Controller {
         keepers::update_account_threshold(&env, caller, has_risks, account_ids);
     }
 
-    // Permissionless and not pause-gated: `payer` authorizes the funds, the pool
-    // only ever gains backing, and a shortfall must be repairable during a pause.
     fn recapitalize(env: Env, payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128 {
         keepers::recapitalize(&env, payer, hub_asset, amount)
     }
-
-    // --- account ops ---
 
     fn renew_account(env: Env, caller: Address, account_id: u64) {
         account::renew_account(&env, caller, account_id);
@@ -317,13 +294,9 @@ impl ControllerInterface for Controller {
         account::add_delegate(&env, caller, account_id, delegate);
     }
 
-    // Not pause-gated: revoking a delegate is risk-reducing and must work during
-    // an incident, mirroring the pause-exempt withdraw/repay exits.
     fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
         account::remove_delegate(&env, caller, account_id, delegate);
     }
-
-    // --- views: account health and positions ---
 
     fn is_liquidatable(env: Env, account_id: u64) -> bool {
         views::can_be_liquidated(&env, account_id)
@@ -383,8 +356,6 @@ impl ControllerInterface for Controller {
         views::ltv_collateral_in_usd(&env, account_id)
     }
 
-    // --- views: markets and registry ---
-
     fn get_pool_address(env: Env) -> Address {
         views::get_pool_address(&env)
     }
@@ -411,8 +382,6 @@ impl ControllerInterface for Controller {
         storage::get_spoke_usage(&env, spoke_id, &hub_asset).unwrap_or_default()
     }
 
-    // --- views: configuration ---
-
     fn price_aggregator(env: Env) -> Address {
         storage::get_price_aggregator(&env)
     }
@@ -428,8 +397,6 @@ impl ControllerInterface for Controller {
 
 #[contractimpl]
 impl ControllerAdmin for Controller {
-    // --- wiring ---
-
     #[only_owner]
     fn set_swap_aggregator(env: Env, addr: Address) {
         storage::renew_controller_instance(&env);
@@ -477,8 +444,6 @@ impl ControllerAdmin for Controller {
         storage::renew_controller_instance(&env);
         config::approvals::set_blend_pool_approval(&env, pool, false);
     }
-
-    // --- hubs and spokes ---
 
     #[only_owner]
     fn create_hub(env: Env) -> u32 {
@@ -546,8 +511,6 @@ impl ControllerAdmin for Controller {
         config::asset::remove_asset_from_spoke(&env, hub_asset, spoke_id);
     }
 
-    // --- markets: pool lifecycle ---
-
     #[only_owner]
     fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address {
         markets::deploy_pool(&env, wasm_hash)
@@ -573,14 +536,10 @@ impl ControllerAdmin for Controller {
         markets::upgrade_pool(&env, new_wasm_hash);
     }
 
-    // --- emergency ---
-
     #[only_owner]
     fn force_socialize_bad_debt(env: Env, account_id: u64) {
         positions::liquidation::process_force_socialize_bad_debt(&env, account_id);
     }
-
-    // --- lifecycle and ownership ---
 
     #[only_owner]
     fn pause(env: Env) {

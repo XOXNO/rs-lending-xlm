@@ -1,4 +1,3 @@
-//! Minimal pool-core Certora suite, compiled one accounting domain at a time.
 mod fixture;
 
 #[cfg(any(

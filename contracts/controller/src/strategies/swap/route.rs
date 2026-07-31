@@ -1,5 +1,3 @@
-//! Executes opaque aggregator routes under the flash-loan reentrancy guard.
-
 use common::errors::GenericError;
 use common::types::StrategySwap;
 
@@ -10,7 +8,7 @@ use crate::storage;
 pub(crate) mod aggregator {
     use soroban_sdk::{contractclient, Address, Bytes, Env};
 
-    #[allow(dead_code)] // Generates the Soroban client proxy.
+    #[allow(dead_code)]
     #[contractclient(name = "AggregatorClient")]
     pub trait Aggregator {
         fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128;
@@ -24,10 +22,6 @@ pub(crate) fn validate_strategy_swap(env: &Env, swap: &StrategySwap, amount_in: 
     assert_with_error!(env, !swap.is_empty(), GenericError::InvalidPayments);
 }
 
-/// Invokes the aggregator's `execute_strategy` with the flash-loan
-/// reentrancy flag set, blocking any reentrant controller call (`supply`,
-/// `borrow`, `withdraw`, etc.) for the duration of the swap. `swap` is opaque
-/// route XDR decoded only by the aggregator.
 pub(crate) fn call_router_with_reentrancy_guard(
     env: &Env,
     router: &aggregator::AggregatorClient,

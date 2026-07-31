@@ -55,8 +55,6 @@ fn test_round_trips_a_token_key() {
 
 #[test]
 fn test_round_trips_a_reference_key() {
-    // The reason the key space is not just an Address: BTC has no token on any
-    // ledger, and must still be storable and priceable.
     let env = Env::default();
     with_contract(&env, || {
         let key = PriceKey::Ref(Symbol::new(&env, "BTC"));
@@ -67,8 +65,6 @@ fn test_round_trips_a_reference_key() {
 
 #[test]
 fn test_token_and_reference_keys_do_not_alias() {
-    // Distinct variants must produce distinct storage keys, or a reference
-    // price could silently shadow a listed market's config.
     let env = Env::default();
     with_contract(&env, || {
         let token = PriceKey::Token(Address::generate(&env));
@@ -113,17 +109,6 @@ fn test_remove_disables_pricing_for_a_key() {
     });
 }
 
-// ---------------------------------------------------------------------------
-// Attestation
-// ---------------------------------------------------------------------------
-//
-// Validation checks that a config is well-formed; attestation checks that it
-// matches the provider it names. A config can be perfectly well-formed and still
-// describe a contract that reports different decimals, or quotes a different
-// currency — neither of which any later read would notice.
-
-/// A single Reflector-backed TWAP config over `contract`, declaring `decimals`.
-/// Two records, one resolution apart, comfortably inside the ceiling.
 fn reflector_oracle(env: &Env, contract: &Address, decimals: u32) -> AssetOracle {
     let mut sources = Vec::new(env);
     sources.push_back(PriceSource::Feed(reflector_leg(env, contract, decimals)));
@@ -136,14 +121,12 @@ fn reflector_oracle(env: &Env, contract: &Address, decimals: u32) -> AssetOracle
             lower_ratio_bps: 9_524,
         },
         independence: IndependencePolicy::RequireDisjoint,
-        // The fixture's two samples mean to 2 WAD, and a single source has to
-        // sit inside MAX_SINGLE_SOURCE_SANITY_BAND_BPS of its own midpoint.
+
         min_sanity_price_wad: TWAP_MEAN_WAD - TWAP_MEAN_WAD / 20,
         max_sanity_price_wad: TWAP_MEAN_WAD + TWAP_MEAN_WAD / 20,
     }
 }
 
-/// What [`TwapReflector`]'s two samples average to, in WAD.
 const TWAP_MEAN_WAD: i128 = 2 * common::constants::WAD;
 
 fn reflector_leg(env: &Env, contract: &Address, decimals: u32) -> FeedSource {
@@ -160,9 +143,6 @@ fn reflector_leg(env: &Env, contract: &Address, decimals: u32) -> FeedSource {
 
 #[test]
 fn test_set_oracle_stores_a_config_whose_provider_facts_all_match() {
-    // The control for every rejection below: same shape, nothing disagreeing.
-    // It is also what makes the base check falsifiable — a guard that always
-    // rejected would fail here rather than passing every negative case.
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
@@ -176,8 +156,6 @@ fn test_set_oracle_stores_a_config_whose_provider_facts_all_match() {
 #[test]
 #[should_panic(expected = "Error(Contract, #221)")]
 fn test_set_oracle_rejects_a_reflector_whose_decimals_disagree() {
-    // The stub reports 14. A config claiming 8 would rescale every price by
-    // 1e6 — a config-time typo that no read path can detect.
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
@@ -202,9 +180,6 @@ fn test_set_oracle_rejects_a_reflector_that_does_not_quote_usd() {
 #[test]
 #[should_panic(expected = "Error(Contract, #221)")]
 fn test_set_oracle_attests_the_factor_leg_of_a_scaled_source() {
-    // A scaled source reaches its provider through `factor`, so attestation has
-    // to descend into it. Skipping that arm would leave every wrapper-asset
-    // config unattested while direct feeds stayed covered.
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
@@ -226,7 +201,6 @@ fn test_set_oracle_attests_the_factor_leg_of_a_scaled_source() {
     });
 }
 
-/// A single Xoxno-adapter feed whose own staleness window is `max_stale`.
 fn xoxno_oracle(env: &Env, contract: &Address, max_stale: u64) -> AssetOracle {
     let mut sources = Vec::new(env);
     sources.push_back(PriceSource::Feed(FeedSource {
@@ -255,8 +229,6 @@ fn xoxno_oracle(env: &Env, contract: &Address, max_stale: u64) -> AssetOracle {
 
 #[test]
 fn test_set_oracle_accepts_a_window_matching_the_xoxno_adapter() {
-    // Equality is legal: a config exactly as tolerant as the adapter's own
-    // promise can always be satisfied.
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
@@ -274,9 +246,6 @@ fn test_set_oracle_accepts_a_window_matching_the_xoxno_adapter() {
 #[test]
 #[should_panic(expected = "Error(Contract, #218)")]
 fn test_set_oracle_rejects_a_window_tighter_than_the_xoxno_adapter_allows() {
-    // The adapter is permitted to serve submissions up to its own window old.
-    // A config that refuses data the provider considers healthy is
-    // unsatisfiable — the market reverts on reads nothing is wrong with.
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
@@ -291,18 +260,9 @@ fn test_set_oracle_rejects_a_window_tighter_than_the_xoxno_adapter_allows() {
 
 #[test]
 fn test_revalidation_touches_only_the_keys_that_actually_depend_on_the_change() {
-    // Writing a config re-probes the keys that quote it, because a child change
-    // can invalidate a parent that was fine a moment ago. It must not re-probe
-    // anything else: the registry accumulates keys over the protocol's life, and
-    // any one of them can be temporarily unreadable (a paused adapter, a feed
-    // between publishes). If an unrelated broken key could veto the write, one
-    // dead provider would freeze all oracle configuration — including the
-    // config change needed to route around it.
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        // Stored directly, so it never had to pass a probe. Its adapter has no
-        // price, so it would fail one now.
         let stranded = PriceKey::Ref(Symbol::new(&env, "STRANDED"));
         store_oracle(&env, &stranded, &oracle(&env, 8));
 

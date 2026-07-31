@@ -53,10 +53,6 @@ fn event_account_attributes_from_account_meta_spoke() {
     assert_eq!(attrs.2, EventPositionMode::Long);
 }
 
-/// Number of event helpers exercised by
-/// [`every_event_helper_publishes_exactly_one_event`]. Bump this when adding a
-/// helper to that test — a stale value is what turns the count assertion into a
-/// silent pass.
 const PUBLISHED_EVENT_COUNT: usize = 10;
 
 #[test]
@@ -190,10 +186,6 @@ fn every_event_helper_publishes_exactly_one_event() {
         .publish(&env);
     });
 
-    // Each helper above publishes exactly once, so the total pins every one of
-    // them: a helper that stopped publishing, or published twice, moves this
-    // count. It does not distinguish *which* helper broke — the payload-shape
-    // tests above cover the per-event detail.
     assert_eq!(
         env.events().all().events().len(),
         PUBLISHED_EVENT_COUNT,

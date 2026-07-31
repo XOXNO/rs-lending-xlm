@@ -1,8 +1,3 @@
-//! Provider payloads normalized to WAD with ledger-clock timestamp guards.
-//!
-//! Construction is soft: rejected payloads return `None`. The hard path maps a
-//! miss to unreadable and [`crate::engine::force`] panics with the gate error.
-
 use common::oracle::observation::{
     is_future_at, millis_to_seconds, try_normalize_positive_price, try_u256_to_i128,
 };
@@ -10,7 +5,6 @@ use common::oracle::providers::redstone::RedStonePriceData;
 use common::oracle::providers::reflector::ReflectorPriceData;
 use soroban_sdk::Env;
 
-/// Normalized provider observation consumed by compose.
 #[cfg_attr(feature = "certora", allow(dead_code))]
 #[derive(Clone, Debug)]
 pub(crate) struct OracleObservation {
@@ -20,16 +14,11 @@ pub(crate) struct OracleObservation {
 }
 
 impl OracleObservation {
-    /// Strictest known freshness timestamp (`min` of observed and published).
     pub(crate) fn timestamp(&self) -> u64 {
         self.published_at
             .map_or(self.observed_at, |t| t.min(self.observed_at))
     }
 
-    /// Multi-feed adapter payload (RedStone / Xoxno wire ABI).
-    ///
-    /// Rejects future package or write timestamps relative to `now_secs`,
-    /// non-`i128` prices, and non-positive / non-normalizable values.
     pub(crate) fn from_multi_feed(
         env: &Env,
         now_secs: u64,
@@ -50,10 +39,6 @@ impl OracleObservation {
         })
     }
 
-    /// Reflector spot payload.
-    ///
-    /// Rejects a future feed timestamp relative to `now_secs` and
-    /// non-positive / non-normalizable prices.
     pub(crate) fn from_reflector(
         env: &Env,
         now_secs: u64,

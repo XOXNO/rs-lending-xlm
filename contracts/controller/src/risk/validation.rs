@@ -1,5 +1,3 @@
-//! Shared account, market, risk, and position-limit gates.
-
 use crate::risk;
 use crate::spec_hooks;
 use common::errors::*;
@@ -17,8 +15,6 @@ pub(crate) fn require_not_flash_loaning(env: &Env) {
     );
 }
 
-/// Post-pool LTV, health factor, and min-borrow-collateral gates in one
-/// prefetch and one portfolio walk. No-op when the account is debt-free.
 pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Account) {
     if account.debt_free() {
         return;

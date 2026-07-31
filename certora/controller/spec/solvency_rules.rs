@@ -1,5 +1,3 @@
-//! Solvency and cross-contract consistency rules.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
@@ -9,17 +7,12 @@ use crate::types::HubAssetKey;
 use common::math::fp::{Ray, Wad};
 use controller_interface::ControllerInterface;
 
-/// Primary-hub coordinate for `asset`.
 fn hub0(asset: Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: crate::spec::fixture::HUB_ID,
         asset,
     }
 }
-
-// Pool quantity views are independent nondet under the harness; real invariants
-// live where the math runs: rates_rules (util), integrity/rates (indexes),
-// summary_contract_rules (caps/reserves).
 
 #[rule]
 fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i128) {
@@ -129,10 +122,6 @@ fn supply_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
     cvlr_assume!(current_list.len() == limits.max_supply_positions);
     cvlr_assume!(limits.max_supply_positions <= 10);
 
-    // `new_asset` is genuinely new, so the supply adds a position above the limit.
-    // Expressed via `get_position` (not a scan of `current_list`): an
-    // `optimistic_loop` would silently drop accounts holding more positions than
-    // `loop_iter`, narrowing coverage without saying so.
     cvlr_assume!(crate::storage::get_position(
         &e,
         account_id,
@@ -170,9 +159,6 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
     cvlr_assume!(current_list.len() == limits.max_borrow_positions);
     cvlr_assume!(limits.max_borrow_positions <= 10);
 
-    // `new_asset` is genuinely new, so the borrow adds a position above the limit.
-    // Expressed via `get_position` (not a scan): an `optimistic_loop` over the
-    // list would silently drop accounts with more positions than `loop_iter`.
     cvlr_assume!(crate::storage::get_position(
         &e,
         account_id,
@@ -273,8 +259,6 @@ fn supply_withdraw_roundtrip_error_bounded(e: Env) {
     let scaled = common::math::fp_core::mul_div_half_up(&e, amount, RAY, supply_index);
     let recovered = common::math::fp_core::mul_div_half_up(&e, scaled, supply_index, RAY);
 
-    // Two half-up conversions at index <= 10 RAY accumulate at most six raw
-    // units of reconstruction error.
     cvlr_assert!(recovered >= amount.saturating_sub(6));
     cvlr_assert!(recovered <= amount + 6);
 }

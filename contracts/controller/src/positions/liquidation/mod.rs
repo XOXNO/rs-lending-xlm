@@ -1,10 +1,3 @@
-//! Liquidation and residual bad-debt socialization.
-//!
-//! Pipeline: plan (HF < 1, price, normalize) → apply (repay then seize) →
-//! optional bad-debt cleanup. Permissionless keepers; not gated by global pause.
-//! Spoke pause blocks both sides: paused debt accepts no repay tokens and
-//! paused collateral is not seizable (frozen/delisted legs stay seizable).
-
 use crate::risk;
 use common::validation::require_non_empty_payments;
 mod apply;
@@ -28,11 +21,6 @@ use crate::positions::{persist_position_flow, PositionSides};
 use crate::risk::validation;
 use crate::storage;
 
-/// Auth, plan, transfer repay + seize, persist both sides, then residual bad debt.
-///
-/// Uses `persist_position_flow` rather than `finalize_position_flow`: the
-/// bad-debt check has to run between persisting and emitting, since it may
-/// delete the account outright.
 pub(crate) fn process_liquidation(
     env: &Env,
     liquidator: &Address,
@@ -50,7 +38,7 @@ pub(crate) fn process_liquidation(
     validate_liquidation_inputs(env, &account, liquidator, &aggregated);
 
     let liquidation_plan = plan::build_liquidation_plan(env, &account, &aggregated, &mut cache);
-    // Only `result.repaid` transfers; refunds are informational.
+
     let result = liquidation_plan.into_result();
 
     require_non_empty_payments(env, &result.repaid);
@@ -82,7 +70,6 @@ pub(crate) fn process_liquidation(
         false,
     );
 
-    // Post-liq totals: empty debt → account cleanup; residual bad debt → socialize.
     apply::check_bad_debt_after_liquidation(
         env,
         &mut cache,
@@ -102,7 +89,6 @@ fn validate_liquidation_inputs(
 ) {
     require_non_empty_payments(env, aggregated);
 
-    // Owner only; a registered delegate may liquidate an account it manages.
     assert_with_error!(
         env,
         account.owner != *liquidator,
@@ -110,20 +96,15 @@ fn validate_liquidation_inputs(
     );
 }
 
-/// Caller auth and flash-loan guard, then the standalone socialization path.
 pub(crate) fn process_clean_bad_debt(env: &Env, caller: &Address, account_id: u64) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
     clean_bad_debt_standalone(env, account_id);
 }
 
-/// Eligibility rule applied to an account's risk totals before socialization.
 enum BadDebtGate {
-    /// Underwater and collateral at or below the dust threshold.
     DustCapped,
-    /// Underwater only, no dust cap. Seizure moves collateral shares to revenue
-    /// and writes debt down through the supply index — neither step transfers
-    /// tokens, so a frozen or clawed collateral leg does not block the cleanup.
+
     Insolvent,
 }
 
@@ -136,7 +117,6 @@ impl BadDebtGate {
     }
 }
 
-/// Socializes residual bad debt when `gate` admits the account; removes it on success.
 fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
     let mut cache = Cache::new(env);
     let account = storage::get_account(env, account_id);
@@ -170,14 +150,10 @@ fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
     );
 }
 
-/// Permissionless socialization: same risk totals and threshold as the
-/// post-liquidation cleanup path.
 pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     socialize_bad_debt(env, account_id, BadDebtGate::DustCapped);
 }
 
-/// Flash-loan guard, then governance socialization gated on plain insolvency, so
-/// a large-collateral account whose collateral cannot be seized can still be retired.
 pub(crate) fn process_force_socialize_bad_debt(env: &Env, account_id: u64) {
     validation::require_not_flash_loaning(env);
     socialize_bad_debt(env, account_id, BadDebtGate::Insolvent);

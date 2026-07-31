@@ -1,5 +1,3 @@
-//! Flag set by `require_post_pool_risk_gates` after the solvency check (certora build only).
-
 static mut GHOST_HF_CHECKED: bool = false;
 
 pub fn reset() {

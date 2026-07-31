@@ -1,8 +1,3 @@
-//! Spoke cap rules and the per-asset usage write buffer.
-//!
-//! Knows storage and the cap arithmetic only. Spoke and listing config are
-//! memoized one layer up, on `Cache`.
-
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::types::{HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeUsageRaw};
@@ -11,8 +6,6 @@ use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
 use crate::storage;
 
-/// Which side of a spoke's usage row a flow touches. Both sides are accounted
-/// identically; only the usage field, market index, cap, and error differ.
 #[derive(Clone, Copy)]
 pub(crate) enum UsageSide {
     Supply,
@@ -56,7 +49,6 @@ impl UsageSide {
     }
 }
 
-/// Transaction-local buffer for touched `SpokeUsage` rows.
 pub(crate) struct SpokeUsageContext {
     spoke_id: u32,
     usage: Map<HubAssetKey, SpokeUsageRaw>,
@@ -80,7 +72,6 @@ impl SpokeUsageContext {
         self.spoke_id
     }
 
-    /// Buffered usage for `hub_asset`, lazily loaded from storage (default zero).
     fn usage_row(&mut self, env: &Env, hub_asset: &HubAssetKey) -> SpokeUsageRaw {
         if let Some(usage) = self.usage.get(hub_asset.clone()) {
             return usage;
@@ -90,8 +81,6 @@ impl SpokeUsageContext {
         loaded
     }
 
-    /// Buffered usage only when an entry already exists (buffer or storage).
-    /// Withdraw/repay decrement existing usage but must not create new entries.
     fn usage_row_if_present(
         &mut self,
         env: &Env,
@@ -109,7 +98,6 @@ impl SpokeUsageContext {
         self.usage.set(hub_asset.clone(), usage);
     }
 
-    /// Enforces the side's spoke cap, then adds the scaled delta to buffered usage.
     pub(crate) fn apply_entry(
         &mut self,
         env: &Env,
@@ -130,8 +118,6 @@ impl SpokeUsageContext {
         self.set_usage(hub_asset, usage);
     }
 
-    /// Subtracts the scaled delta from buffered usage when a row already exists.
-    /// Exits never open a new usage row: a missing row means nothing to decrement.
     pub(crate) fn apply_exit(
         &mut self,
         env: &Env,
@@ -149,20 +135,17 @@ impl SpokeUsageContext {
             .scaled(&usage)
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-        // Sign-underflow guard: negative usage would fake the zero-usage removal gate.
+
         assert_with_error!(env, next >= 0, GenericError::InternalError);
         side.set_scaled(&mut usage, next);
         self.set_usage(hub_asset, usage);
     }
 }
 
-/// Cap in token units expressed in the side's scaled-share basis.
 fn cap_to_scaled(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
-    // dimensional: Token(asset) cap -> Ray<Token(asset)> -> Ray<Share(asset, side)>.
     Ray::from_asset(cap, decimals).div_floor(env, index)
 }
 
-/// Reverts the side's cap error when the new scaled usage would exceed the cap.
 fn enforce_spoke_cap(
     env: &Env,
     side: UsageSide,

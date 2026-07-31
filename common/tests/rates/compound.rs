@@ -1,5 +1,3 @@
-//! Compound-interest factor and its Taylor truncation.
-
 use super::*;
 use crate::constants::{MILLISECONDS_PER_YEAR, RAY};
 use soroban_sdk::Env;
@@ -33,19 +31,15 @@ fn test_compound_interest_accuracy() {
     );
 }
 
-// compound_interest ≈ e^0.5; tolerance catches Taylor term sign flips.
 #[test]
 fn test_compound_interest_high_x_pins_all_taylor_terms() {
     let env = Env::default();
-    // rate * delta = x = 0.5 Ray. Set rate = 0.5 RAY/ms, delta = 1.
+
     let rate = Ray::from(RAY / 2);
     let result = compound_interest(&env, rate, 1);
 
-    // e^0.5 = 1.6487212707001281468486507878...
     let expected = 1_648_721_270_700_128_146_848_650_787_i128;
 
-    // Tolerance is greater than Taylor truncation (5.4e18) and smaller
-    // than any single term's magnitude. Smallest relevant term is term8 ≈ 1.9e20.
     let tolerance = 1e19 as i128;
     let diff = (result.raw() - expected).abs();
     assert!(

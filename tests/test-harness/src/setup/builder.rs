@@ -42,10 +42,6 @@ impl LendingTestBuilder {
         self
     }
 
-    /// Lists a market backed by a mock freezable token (transfers trap to a
-    /// blocked recipient) instead of a Stellar Asset Contract. Use
-    /// `freezable_token::FreezableTokenClient::new(&env, &asset).set_blocked(..)`
-    /// to model an issuer that withholds authorization from a receiver.
     pub fn with_freezable_market(mut self, preset: MarketPreset) -> Self {
         let mut pending = PendingMarket::from_preset(preset);
         pending.freezable = true;
@@ -86,13 +82,11 @@ impl LendingTestBuilder {
         self
     }
 
-    /// Disables the instance-level min-borrow-collateral gate (floor = 0).
     pub fn with_min_borrow_collateral_disabled(mut self) -> Self {
         self.min_borrow_collateral_usd_wad = Some(0);
         self
     }
 
-    /// Alias for [`Self::with_min_borrow_collateral_disabled`].
     pub fn with_dust_disabled_all_markets(self) -> Self {
         self.with_min_borrow_collateral_disabled()
     }
@@ -170,12 +164,6 @@ impl LendingTestBuilder {
         let aggregator_address =
             env.register(crate::mock_aggregator::MockAggregator, (admin.clone(),));
 
-        // Governance owns admin validation; the controller keeps `admin` as its
-        // constructor owner so direct thin-setter tests stay meaningful, while
-        // every builder admin call routes through the governance forwarders
-        // (mock_all_auths covers the gov→controller owner auth). Setup routes
-        // through the immediate testing forwarders, not the timelock. Use the
-        // same short non-zero delay as the governance timelock integration suite.
         const HARNESS_TIMELOCK_MIN_DELAY_LEDGERS: u32 = 50;
         let governance_address = env.register(
             governance::Governance,
@@ -183,8 +171,6 @@ impl LendingTestBuilder {
         );
         let gov = governance::GovernanceClient::new(&env, &governance_address);
 
-        // Price-aggregator (oracle authority), owned by governance. Governance
-        // routes oracle-config ops here; the controller reads prices from it.
         let price_aggregator_address = env.register(
             price_aggregator::PriceAggregator,
             (governance_address.clone(),),
@@ -198,8 +184,6 @@ impl LendingTestBuilder {
             &AdminOperation::SetPriceAggregator(price_aggregator_address.clone()),
         );
 
-        // The controller deploys paused. Resume it directly (owner is `admin`
-        // here); global unpause is otherwise a timelocked `AdminOperation`.
         controller::ControllerClient::new(&env, &controller_address).unpause();
 
         let pool_wasm_path = std::env::var("POOL_WASM_PATH")
@@ -249,7 +233,6 @@ impl LendingTestBuilder {
         let mock_reflector_client =
             crate::mock_reflector::MockReflectorClient::new(&env, &mock_reflector_address);
 
-        // Create base hub (id 1) before listing markets.
         let base_hub_val = gov.execute_immediate(&admin, &AdminOperation::CreateHub);
         let base_hub: u32 = u32::try_from_val(&env, &base_hub_val).unwrap();
         assert_eq!(
@@ -257,7 +240,6 @@ impl LendingTestBuilder {
             "the base setup hub must be the harness hub id"
         );
 
-        // Create base spoke (id 1) before listing market risk.
         let base_spoke_val = gov.execute_immediate(&admin, &AdminOperation::AddSpoke);
         let base_spoke: u32 = u32::try_from_val(&env, &base_spoke_val).unwrap();
         assert_eq!(
@@ -276,17 +258,13 @@ impl LendingTestBuilder {
                     .clone()
             };
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
-            // Governance requires `params.asset_decimals == token.decimals()`.
-            // SAC v2 always reports 7; market params and amount math use the live
-            // probe. Preset `decimals` is retained for test naming / intent and
-            // must not diverge from the token for production-path validation.
+
             let token_decimals = token::Client::new(&env, &asset_address).decimals();
             let _ = pm.decimals;
             let market_decimals = token_decimals;
 
             let mut market_params = pm.params.to_market_params(&asset_address, market_decimals);
-            // Flash-loan eligibility/fee live on the pool `MarketParamsRaw` in the
-            // spoke model; thread them from the asset-config preset the test set.
+
             market_params.is_flashloanable = pm.config.is_flashloanable;
             market_params.flashloan_fee = pm.config.flashloan_fee;
             let pool_address_val = gov.execute_immediate(
@@ -303,7 +281,6 @@ impl LendingTestBuilder {
                 "create_liquidity_pool must return the global pool address"
             );
 
-            // List risk on base spoke after pool exists (required by `add_asset_to_spoke`).
             gov.execute_immediate(
                 &admin,
                 &AdminOperation::AddAssetToSpoke(pm.config.to_spoke_args(
@@ -358,18 +335,13 @@ impl LendingTestBuilder {
         for spoke in &self.pending_spokes {
             let id_val = gov.execute_immediate(&admin, &AdminOperation::AddSpoke);
             let id: u32 = u32::try_from_val(&env, &id_val).unwrap();
-            // The base harness spoke owns id 1, so spoke categories start at 2 and
-            // must be declared in ascending creation order. Assert the auto-assigned
-            // spoke id matches the test's category id so `create_spoke_account(.., id)`
-            // and `with_spoke_asset(id, ..)` land on the spoke created here.
+
             assert_eq!(
                 id, spoke.category_id,
                 "spoke category id must match its created spoke id (base spoke is {HARNESS_SPOKE}, spoke ids start at {})",
                 HARNESS_SPOKE + 1
             );
 
-            // Assets in a builder spoke share the preset's risk params; tests
-            // that need per-asset divergence use `t.add_asset_to_spoke(..)`.
             for (asset_name, can_collateral, can_borrow) in &spoke.assets {
                 let asset_addr = markets
                     .get(asset_name.as_str())

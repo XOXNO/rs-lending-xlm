@@ -1,9 +1,3 @@
-//! Soroswap venue adapter tests.
-//!
-//! The router sizes Soroswap output from **live reserves** (0.3% ceil fee,
-//! floor out) and ignores a stale `hop.amount_out`. Pair orientation follows
-//! the sorted `(token_0, token_1)` address invariant.
-
 use crate::errors::Error;
 use crate::types::{SwapHop, SwapPath, SwapVenue};
 use crate::{Router, RouterClient};
@@ -22,24 +16,13 @@ fn soroswap_single_hop_derives_output_from_live_reserves() {
     let admin = Address::generate(&env);
     let (asset_x, sac_x) = new_asset(&env, &admin);
     let (asset_y, sac_y) = new_asset(&env, &admin);
-    // Soroswap's factory stores tokens canonically sorted (`token_0 < token_1`
-    // under the host's address ordering). The router now derives the pair's
-    // orientation from that invariant instead of reading `token_0`/`token_1`,
-    // so the mock must be set up sorted too: smaller address = token_0 = the
-    // input token for this hop.
+
     let ((token_in, sac_in), (token_out, sac_out)) = if asset_x < asset_y {
         ((asset_x, sac_x), (asset_y, sac_y))
     } else {
         ((asset_y, sac_y), (asset_x, sac_x))
     };
 
-    // 2:1 reserves. The router's on-chain Soroswap math (0.3% ceil fee, floor
-    // output) honors exactly 995 for amount_in = 500:
-    //   fee     = ceil(500 * 3 / 1000)                 = 2
-    //   in_less = 500 - 2                               = 498
-    //   out     = 498 * 2_000_000 / (1_000_000 + 498)   = 995
-    // which is the largest output the pair's k-invariant accepts for this input
-    // (the mock asserts that invariant, so an over-sized request would panic).
     let reserve_0: i128 = 1_000_000;
     let reserve_1: i128 = 2_000_000;
     let reserve_derived_out: i128 = 995;
@@ -51,9 +34,8 @@ fn soroswap_single_hop_derives_output_from_live_reserves() {
     sac_out.mint(&pool, &reserve_1);
     sac_in.mint(&sender, &1_000);
 
-    // Stale hop.amount_out is ignored; router sizes from live reserves.
     let stale_quoted_out: i128 = 375;
-    // min_out under live output so this test hits sizing, not aggregate slippage.
+
     let total_min_out: i128 = 900;
 
     let swap_xdr = strategy_xdr(
@@ -109,7 +91,7 @@ fn soroswap_reverse_orientation() {
     sac0.mint(&pool, &2_000_000);
     sac1.mint(&pool, &1_000_000);
     sac1.mint(&sender, &1_000);
-    // swap t1 (token_1) -> t0 (token_0): reverse direction
+
     let xdr = strategy_xdr(
         &env,
         t1.clone(),
@@ -148,7 +130,6 @@ fn soroswap_zero_output_rejected() {
         ((ay, sacy), (ax, sacx))
     };
 
-    // A pool with no output reserves cannot produce a swap.
     let pool0 = env.register(soroswap_mock::SoroswapPair, ());
     soroswap_mock::SoroswapPairClient::new(&env, &pool0).init(&t0, &t1, &1_000_000, &0);
     sac0.mint(&sender, &1_000);
@@ -177,7 +158,6 @@ fn soroswap_zero_output_rejected() {
         Error::ZeroOutput.into()
     );
 
-    // A one-unit input is consumed by fee rounding and produces no output.
     let pool1 = env.register(soroswap_mock::SoroswapPair, ());
     soroswap_mock::SoroswapPairClient::new(&env, &pool1).init(&t0, &t1, &1_000_000, &1_000_000);
     let xdr = strategy_xdr(
@@ -206,9 +186,6 @@ fn soroswap_zero_output_rejected() {
     );
 }
 
-// A pool with an empty INPUT reserve cannot honor any output; the amount-out
-// math must return zero (→ ZeroOutput) instead of dividing against a zero
-// reserve and requesting the pool's whole output side.
 #[test]
 fn soroswap_zero_input_reserve_rejected() {
     let env = Env::default();

@@ -16,7 +16,6 @@ fn test_borrow_rejected_when_ltv_collateral_below_instance_floor() {
         .with_market(eth_preset())
         .build();
 
-    // $4 LTV-weighted collateral (0.75 × $4 = $3) with $3 debt.
     t.supply(ALICE, "USDC", 4.0);
     let res = t.try_borrow(ALICE, "ETH", 0.0015);
     assert_contract_error(res, errors::MIN_BORROW_COLLATERAL_NOT_MET);
@@ -42,8 +41,6 @@ fn test_withdraw_while_in_debt_rejected_when_ltv_collateral_falls_below_floor() 
         .with_market(eth_preset())
         .build();
 
-    // Keep debt small so LTV still passes while LTV-weighted collateral drops
-    // below the $5 instance floor.
     t.supply(ALICE, "USDC", 12.0);
     t.borrow(ALICE, "ETH", 0.001);
     let res = t.try_withdraw(ALICE, "USDC", 9.0);
@@ -101,8 +98,6 @@ fn test_borrow_not_blocked_by_unrelated_supply_price_crash() {
         "borrow should use aggregate LTV collateral: {result:?}"
     );
 
-    // `is_ok` alone would also hold for a borrow that silently moved nothing;
-    // pin the position so the crashed USDC leg is shown not to have shrunk it.
     t.assert_borrow_near(ALICE, "USDT", 50.0, 0.01);
     t.assert_healthy(ALICE);
 }

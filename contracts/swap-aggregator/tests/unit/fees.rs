@@ -1,8 +1,3 @@
-//! Static + referral fee collection and claim paths.
-//!
-//! Missing / inactive / zero-bps referrals are no-ops. A fee side that
-//! computes to zero must not create a phantom bucket entry.
-
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
@@ -50,7 +45,6 @@ fn referral_missing_id_is_noop() {
 
 #[test]
 fn referral_inactive_and_zero_combined_bps_noop() {
-    // Inactive referrals do not collect a fee.
     {
         let env = Env::default();
         env.mock_all_auths();
@@ -89,7 +83,7 @@ fn referral_inactive_and_zero_combined_bps_noop() {
         assert_eq!(router.execute_strategy(&sender, &500, &xdr), 500);
         assert_eq!(router.admin_fee_balance(&token_a), 0);
     }
-    // An active zero-BPS referral with no static fee collects nothing.
+
     {
         let env = Env::default();
         env.mock_all_auths();
@@ -125,7 +119,7 @@ fn referral_inactive_and_zero_combined_bps_noop() {
         assert_eq!(router.execute_strategy(&sender, &500, &xdr), 500);
         assert_eq!(router.admin_fee_balance(&token_a), 0);
     }
-    // A one-unit input rounds a 100-BPS fee down to zero.
+
     {
         let env = Env::default();
         env.mock_all_auths();
@@ -164,13 +158,10 @@ fn referral_inactive_and_zero_combined_bps_noop() {
     }
 }
 
-// A fee side that computes to zero must not create a zero-amount bucket entry
-// (a phantom ledger entry would accrue rent for nothing).
 #[test]
 fn zero_fee_side_creates_no_bucket_entry() {
     use crate::types::DataKey;
 
-    // Referral fee only: the zero static side must not create an AdminFee entry.
     {
         let env = Env::default();
         env.mock_all_auths();
@@ -214,7 +205,6 @@ fn zero_fee_side_creates_no_bucket_entry() {
         assert!(!has_admin_entry, "zero static fee must not create a bucket");
     }
 
-    // Static fee only (active zero-BPS referral): no ReferralFee entry.
     {
         let env = Env::default();
         env.mock_all_auths();
@@ -263,7 +253,6 @@ fn zero_fee_side_creates_no_bucket_entry() {
     }
 }
 
-// Claiming an empty fee bucket must not call `transfer`.
 #[test]
 fn claim_skips_transfer_when_bucket_is_empty() {
     let env = Env::default();

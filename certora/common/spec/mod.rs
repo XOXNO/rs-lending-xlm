@@ -1,4 +1,3 @@
-//! Common-layer Certora rules: fixed-point math and rate model.
 pub mod harness;
 #[cfg(any(not(feature = "certora-focused"), feature = "certora-math-rules"))]
 pub mod math_rules;

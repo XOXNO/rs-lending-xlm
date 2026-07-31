@@ -1,7 +1,3 @@
-//! Sole owner of `PoolKey`. Every persistent market read, write, and TTL
-//! renewal in this contract goes through this module, so key shape and TTL
-//! policy have exactly one definition.
-
 use common::constants::{
     TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };
@@ -12,14 +8,12 @@ use common::types::{
 
 use soroban_sdk::{panic_with_error, Env};
 
-/// True once `create_market` has stored params for this market.
 pub(crate) fn market_exists(env: &Env, hub_asset: &HubAssetKey) -> bool {
     env.storage()
         .persistent()
         .has(&PoolKey::Params(hub_asset.clone()))
 }
 
-/// Reads market params without renewing TTL.
 pub(crate) fn read_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw {
     env.storage()
         .persistent()
@@ -27,7 +21,6 @@ pub(crate) fn read_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-/// Reads market accounting state without renewing TTL.
 pub(crate) fn read_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
     env.storage()
         .persistent()
@@ -35,14 +28,12 @@ pub(crate) fn read_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-/// Reads market accounting state and renews both market keys.
 pub(crate) fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
     let state = read_state(env, hub_asset);
     renew_market(env, hub_asset);
     state
 }
 
-/// Reads params and state together and renews both market keys once.
 pub(crate) fn load_sync_data(env: &Env, hub_asset: &HubAssetKey) -> PoolSyncData {
     let params = read_params(env, hub_asset);
     let state = read_state(env, hub_asset);
@@ -50,21 +41,18 @@ pub(crate) fn load_sync_data(env: &Env, hub_asset: &HubAssetKey) -> PoolSyncData
     PoolSyncData { params, state }
 }
 
-/// Writes params without renewing TTL; pair with [`renew_market`].
 pub(crate) fn write_params(env: &Env, hub_asset: &HubAssetKey, params: &MarketParamsRaw) {
     env.storage()
         .persistent()
         .set(&PoolKey::Params(hub_asset.clone()), params);
 }
 
-/// Writes accounting state without renewing TTL; pair with [`renew_market`].
 pub(crate) fn write_state(env: &Env, hub_asset: &HubAssetKey, state: &PoolStateRaw) {
     env.storage()
         .persistent()
         .set(&PoolKey::State(hub_asset.clone()), state);
 }
 
-/// Overwrites the market's interest-rate parameters and returns the stored row.
 pub(crate) fn write_rate_model(
     env: &Env,
     hub_asset: &HubAssetKey,
@@ -88,15 +76,12 @@ pub(crate) fn write_rate_model(
     params
 }
 
-/// Renews the contract instance entry.
 pub(crate) fn renew_instance(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
 }
 
-/// Renews both market keys. Both must already exist — `extend_ttl` traps on a
-/// missing entry, so only call this after a successful read or write.
 pub(crate) fn renew_market(env: &Env, hub_asset: &HubAssetKey) {
     let storage = env.storage().persistent();
     storage.extend_ttl(

@@ -1,8 +1,3 @@
-//! Extreme and edge-case liquidation scenarios: custom spoke curves, extreme
-//! prices and bonuses, high-LTV/low-bonus and low-threshold/high-bonus spokes,
-//! low and mixed decimals, the full health-factor distance spectrum, the dust
-//! guard, and the toxic (solvent-but-unhealthy) band.
-
 use controller::constants::WAD;
 use governance::op::{AdminOperation, SpokeLiquidationCurveArgs};
 use test_harness::helpers::{usd, usd_cents};
@@ -11,8 +6,6 @@ use test_harness::presets::{
 };
 use test_harness::{assert_contract_error, errors, LendingTest, ALICE, HARNESS_SPOKE, LIQUIDATOR};
 
-/// Overrides the harness spoke's liquidation curve (target HF, HF for max bonus,
-/// bonus factor) through the governance forwarder.
 fn set_curve(t: &LendingTest, target_hf_wad: i128, hf_for_max_bonus_wad: i128, factor_bps: u32) {
     let admin = t.admin();
     t.gov_client().execute_immediate(
@@ -26,7 +19,6 @@ fn set_curve(t: &LendingTest, target_hf_wad: i128, hf_for_max_bonus_wad: i128, f
     );
 }
 
-/// A market preset with caller-chosen decimals, price, and risk params.
 fn asset(
     name: &'static str,
     decimals: u32,
@@ -51,14 +43,10 @@ fn asset(
     }
 }
 
-/// A $1 stable debt market (7 decimals, high LTV so it is freely borrowable).
 fn stable(name: &'static str) -> MarketPreset {
     asset(name, 7, usd(1), 9000, 9500, 200, 100_000_000.0)
 }
 
-/// Liquidates `amount` of `debt_asset` and returns
-/// `(collateral_usd_received, debt_usd_repaid, profit_ratio)` where the ratio is
-/// `1 + realized_bonus`. `coll_asset` price is fixed during the call.
 fn liquidate_measure(
     t: &mut LendingTest,
     debt_asset: &str,
@@ -79,8 +67,6 @@ fn liquidate_measure(
     (coll_usd, debt_usd, coll_usd / debt_usd)
 }
 
-// A high target HF (5.0) drives the liquidation to repay far more debt to lift
-// the account well above 1.0; the position must end much healthier or closed.
 #[test]
 fn test_extreme_high_target_hf_curve() {
     let mut t = LendingTest::new()
@@ -89,9 +75,9 @@ fn test_extreme_high_target_hf_curve() {
         .build();
     set_curve(&t, 5 * WAD, 2 * WAD, 10_000);
 
-    t.supply(ALICE, "VOL", 100.0); // $10,000
+    t.supply(ALICE, "VOL", 100.0);
     t.borrow(ALICE, "USD", 6_000.0);
-    t.set_price("VOL", usd(70)); // collateral -> $7,000, weighted $5,600 < $6,000 -> HF < 1
+    t.set_price("VOL", usd(70));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
     let hf_before = t.health_factor(ALICE);
@@ -101,40 +87,35 @@ fn test_extreme_high_target_hf_curve() {
     assert!(healed, "high target HF must produce a large heal");
 }
 
-// A near-zero bonus factor keeps the realized bonus at the base even when the
-// account is deeply underwater: the curve is effectively flat.
 #[test]
 fn test_flat_bonus_factor_stays_at_base() {
     let mut t = LendingTest::new()
         .with_market(asset("VOL", 7, usd(100), 7000, 8000, 500, 1_000_000.0))
         .with_market(stable("USD"))
         .build();
-    set_curve(&t, 1_020_000_000_000_000_000, 510_000_000_000_000_000, 1); // factor 0.01%
+    set_curve(&t, 1_020_000_000_000_000_000, 510_000_000_000_000_000, 1);
 
-    t.supply(ALICE, "VOL", 100.0); // $10,000
+    t.supply(ALICE, "VOL", 100.0);
     t.borrow(ALICE, "USD", 5_000.0);
-    t.set_price("VOL", usd(40)); // deep: collateral $4,000, weighted $3,200 << $5,000
+    t.set_price("VOL", usd(40));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
     let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", 1_000.0, "VOL", 40.0);
-    // Base bonus is 5%; a flat factor must keep the realized bonus near it.
+
     assert!(
         ratio < 1.08,
         "flat curve must stay near the 5% base bonus, got {ratio}"
     );
 }
 
-// A narrow-band curve (bonus reaches max just below target) still respects the
-// seizure-safety ceiling: the realized bonus never exceeds the per-threshold max
-// (25% at threshold 0.80), so the liquidator can never over-seize.
 #[test]
 fn test_narrow_curve_bonus_bounded_by_max() {
     let mut t = LendingTest::new()
         .with_market(asset("VOL", 7, usd(100), 7000, 8000, 500, 1_000_000.0))
         .with_market(stable("USD"))
         .build();
-    // target 1.05, max-bonus at 1.049: a 0.001 band.
+
     set_curve(
         &t,
         1_050_000_000_000_000_000,
@@ -142,9 +123,9 @@ fn test_narrow_curve_bonus_bounded_by_max() {
         10_000,
     );
 
-    t.supply(ALICE, "VOL", 100.0); // $10,000
-    t.borrow(ALICE, "USD", 6_900.0); // at the 0.70 LTV cap
-    t.set_price("VOL", usd(55)); // underwater
+    t.supply(ALICE, "VOL", 100.0);
+    t.borrow(ALICE, "USD", 6_900.0);
+    t.set_price("VOL", usd(55));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
@@ -155,8 +136,6 @@ fn test_narrow_curve_bonus_bounded_by_max() {
     );
 }
 
-// High LTV, high threshold, tiny 1% bonus (stablecoin-style): a shallow depeg
-// liquidation must pay only ~1% and never over-seize.
 #[test]
 fn test_high_ltv_low_bonus_stablecoin() {
     let mut t = LendingTest::new()
@@ -164,9 +143,9 @@ fn test_high_ltv_low_bonus_stablecoin() {
         .with_market(stable("USD"))
         .build();
 
-    t.supply(ALICE, "STA", 10_000.0); // $10,000
+    t.supply(ALICE, "STA", 10_000.0);
     t.borrow(ALICE, "USD", 9_400.0);
-    t.set_price("STA", usd_cents(96)); // depeg -> HF < 1
+    t.set_price("STA", usd_cents(96));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
@@ -177,8 +156,6 @@ fn test_high_ltv_low_bonus_stablecoin() {
     );
 }
 
-// Zero base bonus with a flat curve: the liquidator receives collateral equal in
-// value to the debt repaid (no profit, no over-seizure).
 #[test]
 fn test_zero_bonus_liquidation() {
     let mut t = LendingTest::new()
@@ -187,9 +164,9 @@ fn test_zero_bonus_liquidation() {
         .build();
     set_curve(&t, 1_020_000_000_000_000_000, 510_000_000_000_000_000, 1);
 
-    t.supply(ALICE, "VOL", 100.0); // $10,000
+    t.supply(ALICE, "VOL", 100.0);
     t.borrow(ALICE, "USD", 7_000.0);
-    t.set_price("VOL", usd(85)); // HF < 1
+    t.set_price("VOL", usd(85));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
@@ -200,10 +177,6 @@ fn test_zero_bonus_liquidation() {
     );
 }
 
-// A solvent low-threshold (0.45) position with HF < 1 is liquidated via the
-// fallback tier (base is reserved for the HF-decreasing path): the max bonus
-// applies and any residual bad debt is socialized. The realized bonus stays
-// within the per-threshold seizure-safety ceiling (122% at threshold 0.45).
 #[test]
 fn test_toxic_band_low_threshold_bounded() {
     let mut t = LendingTest::new()
@@ -211,9 +184,9 @@ fn test_toxic_band_low_threshold_bounded() {
         .with_market(stable("USD"))
         .build();
 
-    t.supply(ALICE, "VOL", 100.0); // $10,000
-    t.borrow(ALICE, "USD", 3_900.0); // within 0.40 LTV
-    t.set_price("VOL", usd(60)); // solvent ($6,000 > $3,900), HF ~0.69
+    t.supply(ALICE, "VOL", 100.0);
+    t.borrow(ALICE, "USD", 3_900.0);
+    t.set_price("VOL", usd(60));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
@@ -224,8 +197,6 @@ fn test_toxic_band_low_threshold_bounded() {
     );
 }
 
-// Toxic band with a mix of collateral decimals (3-dec + 18-dec): the liquidation
-// seizes proportionally across both collaterals.
 #[test]
 fn test_toxic_band_multi_collateral_seizes_both() {
     let mut t = LendingTest::new()
@@ -234,12 +205,12 @@ fn test_toxic_band_multi_collateral_seizes_both() {
         .with_market(stable("USD"))
         .build();
 
-    t.supply(ALICE, "LOW3", 5.0); // $5,000 at 3 decimals
+    t.supply(ALICE, "LOW3", 5.0);
     let id = t.resolve_account_id(ALICE);
-    t.supply_to(ALICE, id, "HI18", 5_000.0); // $5,000 at 18 decimals
-    t.borrow(ALICE, "USD", 3_900.0); // within LTV on $10,000
+    t.supply_to(ALICE, id, "HI18", 5_000.0);
+    t.borrow(ALICE, "USD", 3_900.0);
 
-    t.set_prices(&[("LOW3", usd(600)), ("HI18", usd_cents(60))]); // both -60% -> $6,000
+    t.set_prices(&[("LOW3", usd(600)), ("HI18", usd_cents(60))]);
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
@@ -253,8 +224,6 @@ fn test_toxic_band_multi_collateral_seizes_both() {
     );
 }
 
-// A liquidation sized so the target-HF partial would leave a sub-$5 debt
-// remainder must escalate to a full close: the account ends with zero debt.
 #[test]
 fn test_dust_debt_escalates_to_full_close() {
     let mut t = LendingTest::new()
@@ -262,13 +231,12 @@ fn test_dust_debt_escalates_to_full_close() {
         .with_market(stable("USD"))
         .build();
 
-    t.supply(ALICE, "VOL", 100.0); // $10,000
-    t.borrow(ALICE, "USD", 6.0); // tiny debt: any partial leaves < $5
-    t.set_price("VOL", usd_cents(7)); // crush collateral so HF < 1
+    t.supply(ALICE, "VOL", 100.0);
+    t.borrow(ALICE, "USD", 6.0);
+    t.set_price("VOL", usd_cents(7));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
-    // Offer to repay the whole debt; the dust guard makes the full close the plan.
     t.liquidate(LIQUIDATOR, ALICE, "USD", 6.0);
     assert!(
         t.total_debt(ALICE) < 0.01,
@@ -277,8 +245,6 @@ fn test_dust_debt_escalates_to_full_close() {
     );
 }
 
-// A collateral crash that leaves debt far above a near-zero collateral produces
-// socializable bad debt: the cleanup succeeds and removes the account.
 #[test]
 fn test_deep_crash_socializes_bad_debt() {
     let mut t = LendingTest::new()
@@ -286,9 +252,9 @@ fn test_deep_crash_socializes_bad_debt() {
         .with_market(stable("USD"))
         .build();
 
-    t.supply(ALICE, "VOL", 100.0); // $10,000
+    t.supply(ALICE, "VOL", 100.0);
     t.borrow(ALICE, "USD", 7_000.0);
-    t.set_price("VOL", usd_cents(3)); // collateral -> ~$3, debt $7,000
+    t.set_price("VOL", usd_cents(3));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
@@ -297,8 +263,6 @@ fn test_deep_crash_socializes_bad_debt() {
     assert!(t.find_account_id(ALICE).is_none(), "account cleaned away");
 }
 
-// A high-value, low-decimal (3) asset (1 milli-unit ~ $60) liquidates cleanly and
-// the liquidator's bonus stays within the expected band.
 #[test]
 fn test_high_value_low_decimal_collateral() {
     let mut t = LendingTest::new()
@@ -306,9 +270,9 @@ fn test_high_value_low_decimal_collateral() {
         .with_market(stable("USD"))
         .build();
 
-    t.supply(ALICE, "K3", 1.0); // $60,000
+    t.supply(ALICE, "K3", 1.0);
     t.borrow(ALICE, "USD", 41_000.0);
-    t.set_price("K3", usd(50_000)); // HF < 1
+    t.set_price("K3", usd(50_000));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
@@ -325,7 +289,6 @@ fn test_high_value_low_decimal_collateral() {
     );
 }
 
-// Extreme decimal spread in one account: 3-decimal collateral, 18-decimal debt.
 #[test]
 fn test_extreme_decimal_spread_3_collateral_18_debt() {
     let mut t = LendingTest::new()
@@ -333,9 +296,9 @@ fn test_extreme_decimal_spread_3_collateral_18_debt() {
         .with_market(asset("D18", 18, usd(1), 9000, 9500, 200, 100_000_000.0))
         .build();
 
-    t.supply(ALICE, "C3", 10.0); // $10,000
+    t.supply(ALICE, "C3", 10.0);
     t.borrow(ALICE, "D18", 7_000.0);
-    t.set_price("C3", usd(850)); // HF < 1
+    t.set_price("C3", usd(850));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
     let hf_before = t.health_factor(ALICE);
@@ -347,23 +310,15 @@ fn test_extreme_decimal_spread_3_collateral_18_debt() {
     );
 }
 
-// Across the HF spectrum (shallow to deep), every liquidation succeeds and moves
-// positive value within the seizure-safety ceiling. A single partial bite may
-// raise or lower HF (bounded across chains by the anti-ratchet invariant), so
-// only the bonus ceiling is asserted here.
 #[test]
 fn test_hf_spectrum_liquidations_bounded() {
-    // Price 79 is guard-safe (cap above base); 70 is solvent-toxic (C >= D
-    // but hf below p*(1+base): partials are rejected, only a full close
-    // executes); 55 and 45 are insolvent (partials wind the position down at
-    // the base bonus).
     let prices = [usd(79), usd(70), usd(55), usd(45)];
     for &price in &prices {
         let mut t = LendingTest::new()
             .with_market(asset("VOL", 7, usd(100), 7000, 8000, 500, 1_000_000.0))
             .with_market(stable("USD"))
             .build();
-        t.supply(ALICE, "VOL", 100.0); // $10,000
+        t.supply(ALICE, "VOL", 100.0);
         t.borrow(ALICE, "USD", 6_900.0);
         t.set_price("VOL", price);
         t.advance_and_sync(100);
@@ -388,31 +343,19 @@ fn test_hf_spectrum_liquidations_bounded() {
     }
 }
 
-/// A solvent low-threshold (toxic band) position: $6,000 collateral, $3,900 debt.
 fn seed_toxic() -> LendingTest {
     let mut t = LendingTest::new()
         .with_market(asset("VOL", 7, usd(100), 4000, 4500, 500, 1_000_000.0))
         .with_market(stable("USD"))
         .build();
     t.get_or_create_user(LIQUIDATOR);
-    t.supply(ALICE, "VOL", 100.0); // $10,000
+    t.supply(ALICE, "VOL", 100.0);
     t.borrow(ALICE, "USD", 3_900.0);
-    t.set_price("VOL", usd(60)); // solvent ($6,000 > $3,900), HF ~0.69
+    t.set_price("VOL", usd(60));
     t.assert_liquidatable(ALICE);
     t
 }
 
-// Full vs partial in the low-threshold toxic band. Both a single liquidation and
-// a chain of partials stay within the per-threshold seizure-safety ceiling (122%
-// at threshold 0.45).
-//
-// NOTE: strict anti-ratchet (chain <= single) does NOT hold in this sub-0.53
-// threshold band. The fallback bonus there exceeds the HF-neutral level, so a
-// partial slightly lowers HF and the next bite pays a higher bonus (the toxic-
-// liquidation-spiral shape). This is a pre-existing residual -- bounded by the
-// max bonus and terminating in socialization -- independent of the base-tier
-// rules; the strong anti-ratchet property holds at the normal thresholds
-// exercised in liquidation_ratchet.rs.
 #[test]
 fn test_toxic_band_full_and_partial_bounded() {
     let mut single = seed_toxic();
@@ -432,8 +375,6 @@ fn test_toxic_band_full_and_partial_bounded() {
     }
 }
 
-// Repeatedly liquidating a solvent toxic-band position converges to a healthy or
-// closed account within a few steps, leaving no socialized bad debt.
 #[test]
 fn test_partial_chain_converges_no_bad_debt() {
     let mut t = seed_toxic();
@@ -448,29 +389,26 @@ fn test_partial_chain_converges_no_bad_debt() {
         }
         t.liquidate(LIQUIDATOR, ALICE, "USD", 1_500.0);
     }
-    // Either fully closed or healthy, and never socializable (solvent throughout).
+
     if let Some(id) = t.find_account_id(ALICE) {
         assert!(t.health_factor(ALICE) >= 1.0, "converged to healthy");
         assert!(t.try_clean_bad_debt_by_id(id).is_err(), "no bad debt");
     }
 }
 
-// Over-repaying (submitting far more than the target-HF ideal) is capped: on a
-// recoverable account only the ideal is repaid, leaving a healthy remainder.
 #[test]
 fn test_overrepay_is_capped_at_ideal() {
     let mut t = LendingTest::new()
         .with_market(asset("VOL", 7, usd(100), 7000, 8000, 500, 1_000_000.0))
         .with_market(stable("USD"))
         .build();
-    t.supply(ALICE, "VOL", 100.0); // $10,000
+    t.supply(ALICE, "VOL", 100.0);
     t.borrow(ALICE, "USD", 6_900.0);
-    t.set_price("VOL", usd(85)); // mildly underwater, recoverable
+    t.set_price("VOL", usd(85));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
     let debt_before = t.total_debt(ALICE);
 
-    // Offer a huge repayment; the plan caps it at the ideal.
     t.liquidate(LIQUIDATOR, ALICE, "USD", 1_000_000.0);
     let repaid = debt_before - t.total_debt(ALICE);
     assert!(
@@ -480,13 +418,11 @@ fn test_overrepay_is_capped_at_ideal() {
     assert!(t.total_debt(ALICE) > 1.0, "a healthy remainder is left");
 }
 
-// Across a grid of curve parameters, every liquidation of a deep account
-// succeeds, moves positive value, and respects the seizure-safety ceiling.
 #[test]
 fn test_curve_param_sweep_invariants() {
     for &target in &[1_020_000_000_000_000_000i128, 2 * WAD] {
         for &frac_num in &[4i128, 9] {
-            let hf_for_max = target * frac_num / 10; // 0.4 or 0.9 of target
+            let hf_for_max = target * frac_num / 10;
             for &factor in &[1u32, 10_000] {
                 let mut t = LendingTest::new()
                     .with_market(asset("VOL", 7, usd(100), 7000, 8000, 500, 1_000_000.0))
@@ -495,7 +431,7 @@ fn test_curve_param_sweep_invariants() {
                 set_curve(&t, target, hf_for_max, factor);
                 t.supply(ALICE, "VOL", 100.0);
                 t.borrow(ALICE, "USD", 6_900.0);
-                t.set_price("VOL", usd(50)); // deep underwater
+                t.set_price("VOL", usd(50));
                 t.advance_and_sync(100);
                 t.assert_liquidatable(ALICE);
 
@@ -509,7 +445,6 @@ fn test_curve_param_sweep_invariants() {
     }
 }
 
-// Liquidating two debt assets in one call reduces both, within the bonus ceiling.
 #[test]
 fn test_multi_debt_liquidation_reduces_both() {
     let mut t = LendingTest::new()
@@ -517,10 +452,10 @@ fn test_multi_debt_liquidation_reduces_both() {
         .with_market(stable("D1"))
         .with_market(stable("D2"))
         .build();
-    t.supply(ALICE, "VOL", 100.0); // $10,000
+    t.supply(ALICE, "VOL", 100.0);
     t.borrow(ALICE, "D1", 3_000.0);
     t.borrow(ALICE, "D2", 3_000.0);
-    t.set_price("VOL", usd(70)); // HF < 1
+    t.set_price("VOL", usd(70));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
 
@@ -533,8 +468,6 @@ fn test_multi_debt_liquidation_reduces_both() {
     );
 }
 
-// A paused debt listing accepts no inbound liquidator tokens: the liquidation of
-// that leg reverts, even though the account is unhealthy.
 #[test]
 fn test_paused_debt_leg_rejects_liquidation() {
     let mut t = LendingTest::new()

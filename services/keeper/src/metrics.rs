@@ -1,4 +1,3 @@
-//! Prometheus metrics and health endpoint.
 
 use anyhow::{anyhow, Context, Result};
 use axum::{extract::State, http::StatusCode, routing::get, Router};

@@ -1,4 +1,3 @@
-/// Liquidation invariant rules: debt/collateral reduction, bonus bounds, seizure, fees.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
@@ -11,10 +10,8 @@ use crate::types::{AccountPositionType, HubAssetKey};
 use common::math::fp::{Bps, Wad};
 use common::math::fp_core::{mul_div_floor, mul_div_half_up};
 
-// Caps debt payment inputs to realistic position sizes and avoids i128 overflow paths.
 const MAX_DEBT_AMOUNT_RAW: i128 = 1_000_000_000_000;
 
-/// The liquidation curve stamped into every spoke at creation.
 fn default_curve() -> crate::positions::liquidation::curve::LiquidationCurve {
     crate::positions::liquidation::curve::LiquidationCurve::from_config(
         &common::types::SpokeConfig {
@@ -121,7 +118,6 @@ fn liquidation_does_not_increase_seized_collateral(
     }
 }
 
-/// The account owner cannot act as its own liquidator.
 #[rule]
 fn self_liquidation_reverts(e: Env, owner: Address, debt_asset: Address) {
     let account_id = crate::spec::fixture::ACCOUNT_ID;
@@ -155,7 +151,6 @@ fn bonus_bounded(
     cvlr_assume!(hf_wad < WAD);
     cvlr_assume!(target_wad > 0 && target_wad <= 2 * WAD);
 
-    // Production `calculate_linear_bonus_with_target` (not the certora summary).
     let curve = default_curve();
     let bonus = crate::positions::liquidation::curve::calculate_linear_bonus_with_target(
         &e,
@@ -215,8 +210,6 @@ fn seizure_split_math(
     }
 }
 
-/// Scalar fee-share lemma. This intentionally excludes production asset
-/// decimals, RAY conversion, floor-gross clamping, and portfolio allocation.
 #[rule]
 fn protocol_fee_bonus_math(e: Env, seizure_amount: i128, bonus_bps: i128, liquidation_fees: i128) {
     cvlr_assume!(seizure_amount > 0);
@@ -231,7 +224,6 @@ fn protocol_fee_bonus_math(e: Env, seizure_amount: i128, bonus_bps: i128, liquid
     let bonus_amount = seizure_amount - base_amount;
     let protocol_fee = mul_div_half_up(&e, bonus_amount, liquidation_fees, BPS);
 
-    // Production bump: ray-positive fee that rounds to zero pays 1 unit.
     let fee_final = if protocol_fee == 0 && bonus_amount > 0 && liquidation_fees > 0 {
         1
     } else {
@@ -249,8 +241,6 @@ fn protocol_fee_bonus_math(e: Env, seizure_amount: i128, bonus_bps: i128, liquid
     cvlr_assert!(fee_final <= seizure_amount);
 }
 
-/// Estimator output stays positive and inside the collateral/(1+bonus) budget
-/// for the spoke's default curve. This does not assert the post-liquidation HF.
 #[rule]
 fn ideal_repayment_targets_curve_hf(
     e: Env,
@@ -351,7 +341,6 @@ fn bonus_monotone_in_hf(e: Env, hf_lo: i128, hf_hi: i128, base_bps: i128, max_bp
     cvlr_assert!(bonus_lo.raw() >= bonus_hi.raw());
 }
 
-/// Curve floor clamp: at or below `hf_for_max_bonus` the bonus is exactly `max`.
 #[rule]
 fn bonus_is_max_below_curve_floor(e: Env, hf: i128, base_bps: i128, max_bps: i128) {
     cvlr_assume!(hf >= 0);
@@ -393,7 +382,6 @@ fn bonus_is_base_at_or_above_target(e: Env, hf: i128, base_bps: i128, max_bps: i
     cvlr_assert!(bonus.raw() == base_bps);
 }
 
-/// After estimation, residual debt is fully cleared or >= bad-debt floor.
 #[rule]
 fn estimate_leaves_no_sub_threshold_dust(
     e: Env,
@@ -461,8 +449,6 @@ fn estimate_liquidation_sanity(e: Env) {
     cvlr_satisfy!(true);
 }
 
-/// A distinct liquidator can reach the production liquidation transition for
-/// at least one non-empty, unhealthy symbolic account.
 #[rule]
 fn liquidation_transition_sanity(e: Env, liquidator: Address, owner: Address, debt_asset: Address) {
     let account_id = crate::spec::fixture::ACCOUNT_ID;

@@ -1,13 +1,3 @@
-//! User and strategy repay: reduce debt shares.
-//!
-//! User `process_repay` is permissionless: it requires only caller auth (the
-//! caller funds the SAC transfer), so anyone may repay any account's debt. Debt
-//! decreases, so no post-pool HF gate and no oracle read. Not gated by
-//! `#[when_not_paused]` (spoke pause still blocks; freeze does not). Liquidation
-//! skips spoke pause via bulk settle; strategy `execute_repayment` has no
-//! `require_auth` (the strategy entrypoint owns authorization) and requires the
-//! pool pre-funded.
-
 use common::errors::GenericError;
 use common::types::{Account, DebtPosition, HubAssetKey, PoolAction, PoolPositionMutation};
 use soroban_sdk::{vec, Address, Env, Vec};
@@ -25,22 +15,12 @@ use crate::positions::{
 use crate::storage;
 use common::validation::expect_invariant;
 
-/// Single-asset repay input for strategy paths (tokens already at the pool).
 pub(crate) struct RepaymentRequest<'a> {
     pub hub_asset: &'a HubAssetKey,
     pub position: &'a DebtPosition,
     pub amount: i128,
 }
 
-/// Payer auth, aggregate, load debt map, transfer + pool settle, persist debt.
-///
-/// Permissionless: only `caller` authorizes, because only `caller`'s funds move
-/// (`transfer_amount_measured` debits `caller`). The account owner is not
-/// consulted — repaying another account's debt strictly reduces its debt and
-/// raises its health factor, so it needs no consent.
-///
-/// `remove_if_empty` is false: full debt close does not remove the account here
-/// (supply may still exist; withdraw owns empty-account cleanup).
 pub(crate) fn process_repay(
     env: &Env,
     caller: &Address,
@@ -51,8 +31,6 @@ pub(crate) fn process_repay(
 
     let aggregated = payments::aggregate_positive_payments(env, payments);
 
-    // Panics `AccountNotInMarket` on an unknown id, so a permissionless caller
-    // cannot address a non-existent account.
     let mut account = storage::get_account_borrow_only(env, account_id);
     let mut cache = Cache::new(env);
 
@@ -68,7 +46,6 @@ pub(crate) fn process_repay(
     );
 }
 
-/// Transfer each leg into the pool, one bulk repay, merge results.
 fn settle_repay(
     env: &Env,
     caller: &Address,
@@ -87,7 +64,6 @@ fn settle_repay(
     );
 }
 
-/// Per leg: spoke pause check, require debt, transfer to pool, build pool action.
 fn build_repay_actions(
     env: &Env,
     caller: &Address,
@@ -98,7 +74,6 @@ fn build_repay_actions(
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for (hub_asset, amount) in aggregated.iter() {
-        // Paused blocks repay; frozen still allows it.
         enforce_spoke_asset_flags(
             env,
             cache,
@@ -120,11 +95,6 @@ fn build_repay_actions(
     actions
 }
 
-/// One cross-contract pool repay for `actions`, then merge results input-ordered.
-///
-/// Does not enforce spoke pause/freeze or transfer tokens: user path checks flags
-/// and transfers first; liquidation/strategy callers are responsible for funding
-/// and (for strategy) pause checks via `execute_repayment`.
 pub(crate) fn apply_repay_batch(
     env: &Env,
     account: &mut Account,
@@ -149,15 +119,6 @@ pub(crate) fn apply_repay_batch(
     results
 }
 
-/// Single-asset wrapper over bulk pool repay for strategy flows.
-///
-/// Enforces spoke pause (frozen still allowed). Does not transfer tokens — the
-/// caller must already have funded the pool. Liquidation bypasses this and calls
-/// `apply_repay_batch` directly.
-///
-/// # Security Warning
-/// * Performs no `require_auth`: the calling strategy entrypoint owns
-///   authorization. Repay only reduces debt.
 pub(crate) fn execute_repayment(
     env: &Env,
     account: &mut Account,

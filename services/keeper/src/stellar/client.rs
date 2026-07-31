@@ -1,4 +1,3 @@
-//! RPC client helpers used by the keeper.
 
 use anyhow::{anyhow, Context, Result};
 use std::collections::{HashMap, HashSet};
@@ -48,14 +47,11 @@ impl RpcClient {
             })
     }
 
-    /// Look up ledger keys; response order matches the request.
     pub async fn get_ledger_entries(&self, keys: &[LedgerKey]) -> Result<Vec<LedgerEntryQuery>> {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
-        // RPC rejects duplicate keys (cryptic captive-core 404). Dual-hub listings
-        // repeat AssetOracle (asset-only key) across markets — dedupe request;
-        // reassembly still emits one row per requested key.
+
         let mut seen = HashSet::with_capacity(keys.len());
         let unique: Vec<LedgerKey> = keys
             .iter()
@@ -68,7 +64,6 @@ impl RpcClient {
             .await
             .context("get_full_ledger_entries")?;
 
-        // RPC omits absent entries; reassemble in request order.
         let mut found = HashMap::with_capacity(resp.entries.len());
         for entry in &resp.entries {
             found.insert(&entry.key, entry);

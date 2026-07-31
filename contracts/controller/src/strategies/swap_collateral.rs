@@ -1,7 +1,3 @@
-//! Collateral refinance: withdraw → aggregator swap → deposit replacement.
-//!
-//! Owner/delegate auth. Debt-neutral until `strategy_finalize` re-checks LTV/HF.
-
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, AccountPosition, HubAssetKey, StrategySwap};
 use common::validation::require_positive_amount;
@@ -26,7 +22,6 @@ pub(crate) struct SwapCollateralParams<'a> {
     pub swap: &'a StrategySwap,
 }
 
-/// Withdraw collateral → swap → deposit replacement (debt-neutral until finalize).
 pub(crate) fn process_swap_collateral(
     env: &Env,
     caller: &Address,
@@ -43,7 +38,6 @@ pub(crate) fn process_swap_collateral(
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Reject identical (hub, asset); same token across hubs is passthrough.
     assert_with_error!(env, current != new, GenericError::AssetsAreTheSame);
     config::require_hub_active(env, current.hub_id);
     require_positive_amount(env, from_amount);
@@ -70,7 +64,6 @@ pub(crate) fn process_swap_collateral(
         },
     );
 
-    // Passthrough when same asset (cross-hub).
     let swapped_amount = swap_tokens_or_passthrough(
         env,
         caller,
@@ -101,9 +94,4 @@ pub(crate) fn validate_swap_new_collateral_preflight(
     let config = cache.require_listed_active_config(account.spoke_id, new);
 
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
-
-    // No position-limit check here: the source leg is withdrawn (and possibly
-    // fully closed, freeing a slot) before the deposit. `process_deposit` runs
-    // the correct post-withdraw limit check, so a full same-slot swap at
-    // max_supply_positions is not falsely rejected.
 }

@@ -1,5 +1,3 @@
-//! Kinked borrow-rate curve, deposit rate, and utilization.
-
 use super::*;
 use crate::constants::{MILLISECONDS_PER_YEAR, RAY};
 use crate::math::fp_core::div_by_int_half_up;
@@ -71,10 +69,7 @@ fn test_borrow_rate_capped() {
 #[test]
 fn test_borrow_rate_clamps_utilization_above_one() {
     let env = Env::default();
-    // Degenerate-but-representable curve: optimal just below RAY (range = 1 raw).
-    // Utilization above 100% is reachable in a post-bad-debt / over-cap state.
-    // Without clamping util to RAY the slope3 term overflows i128; the clamp must
-    // bound it to the curve top (then the max-rate cap) instead of trapping.
+
     let mut raw = make_test_params_raw(&env);
     raw.optimal_utilization = RAY - 1;
     raw.max_utilization = RAY;
@@ -89,7 +84,6 @@ fn test_borrow_rate_clamps_utilization_above_one() {
     );
 }
 
-// At util == mid: correct path adds 0 slope1; wrong `<=` leaks half-up drift.
 #[test]
 fn test_calculate_borrow_rate_mid_utilization_boundary_exact() {
     let env = Env::default();
@@ -107,7 +101,6 @@ fn test_calculate_borrow_rate_mid_utilization_boundary_exact() {
     );
 }
 
-// At util == optimal: correct path adds 0 slope2; wrong `<=` leaks drift.
 #[test]
 fn test_calculate_borrow_rate_optimal_utilization_boundary_exact() {
     let env = Env::default();
@@ -156,7 +149,7 @@ fn test_deposit_rate_zero_util() {
 #[test]
 fn test_deposit_rate_reserve_factor_out_of_range_returns_zero() {
     let env = Env::default();
-    // reserve_factor == BPS is outside [0, BPS); supplier rate collapses to zero.
+
     let rate = calculate_deposit_rate(
         &env,
         Ray::from(RAY / 2),

@@ -1,10 +1,7 @@
-//! Shared test fixtures; module gated by `#[cfg(test)]` in `lib.rs`.
-
 use common::types::HubAssetKey;
 use soroban_sdk::testutils::{Ledger, LedgerInfo};
 use soroban_sdk::{Address, Env};
 
-/// Canonical test ledger snapshot.
 pub(crate) fn init_ledger(env: &Env) {
     env.ledger().set(LedgerInfo {
         timestamp: 1_000,
@@ -18,7 +15,6 @@ pub(crate) fn init_ledger(env: &Env) {
     });
 }
 
-/// Hub key for the default test market (`hub_id = 0`).
 pub(crate) fn hub(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,

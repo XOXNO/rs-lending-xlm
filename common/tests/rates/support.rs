@@ -1,5 +1,3 @@
-//! Shared fixtures for the rates test modules.
-
 use crate::constants::RAY;
 use crate::math::fp::Ray;
 use crate::rates::*;
@@ -10,15 +8,15 @@ pub const TEST_ASSET: &str = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2H
 
 pub fn make_test_params_raw(env: &Env) -> MarketParamsRaw {
     MarketParamsRaw {
-        base_borrow_rate: RAY / 100,         // 1%
-        slope1: RAY * 4 / 100,               // 4%
-        slope2: RAY * 10 / 100,              // 10%
-        slope3: RAY * 300 / 100,             // 300%
-        mid_utilization: RAY * 50 / 100,     // 50%
-        optimal_utilization: RAY * 80 / 100, // 80%
-        max_utilization: RAY * 95 / 100,     // 95%
-        max_borrow_rate: RAY,                // 100%
-        reserve_factor: 1_000,               // 10%
+        base_borrow_rate: RAY / 100,
+        slope1: RAY * 4 / 100,
+        slope2: RAY * 10 / 100,
+        slope3: RAY * 300 / 100,
+        mid_utilization: RAY * 50 / 100,
+        optimal_utilization: RAY * 80 / 100,
+        max_utilization: RAY * 95 / 100,
+        max_borrow_rate: RAY,
+        reserve_factor: 1_000,
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: Address::from_str(env, TEST_ASSET),
@@ -37,7 +35,6 @@ pub fn sample_sync(env: &Env, state: PoolStateRaw) -> PoolSyncData {
     }
 }
 
-// Public-primitive oracle for per-chunk accrual + fee reinvestment guards.
 pub fn oracle_accrual(
     env: &Env,
     params: &MarketParams,
@@ -67,7 +64,6 @@ pub fn oracle_accrual(
         );
         borrow_index = new_borrow_index;
 
-        // Reserve fee and virtual-offset shortfall reinvestment mirror the live path.
         let protocol_reward = protocol_fee.checked_add(env, supplier_shortfall);
         if protocol_reward != Ray::ZERO {
             let fee_scaled = protocol_fee_shares(env, protocol_reward, supply_index, supplied);

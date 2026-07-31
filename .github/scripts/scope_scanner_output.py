@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import sys
 
-# Production money-path + policy surface (not mocks, tests, certora, services).
 IN_SCOPE = (
     "/common/src/",
     "/contracts/pool/",
@@ -23,10 +22,8 @@ IN_SCOPE = (
     "/interfaces/price-aggregator/",
 )
 
-
 def in_scope(path: str) -> bool:
     return any(m in path for m in IN_SCOPE)
-
 
 def main() -> None:
     data = json.load(sys.stdin)
@@ -48,7 +45,6 @@ def main() -> None:
     data["detector_responses"] = narrowed
     json.dump(data, sys.stdout, indent=2)
     sys.stdout.write("\n")
-
 
 if __name__ == "__main__":
     main()

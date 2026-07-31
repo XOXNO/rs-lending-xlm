@@ -1,11 +1,7 @@
-//! Configuration-change events: hub/spoke registry, spoke-asset listings,
-//! allowlists, protocol dependencies, and instance risk floors.
-
 use soroban_sdk::{contractevent, contracttype, Address};
 
 use common::types::{SpokeAssetConfig, SpokeConfig};
 
-/// Spoke snapshot emitted after spoke changes.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventSpoke {

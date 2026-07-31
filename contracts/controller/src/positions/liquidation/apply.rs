@@ -1,7 +1,3 @@
-//! Applies a liquidation plan: debt repayments, collateral seizures, then
-//! residual bad-debt check. Reuses `apply_repay_batch` / `apply_withdraw_batch`
-//! with `LiqRepay` / `LiqSeize` so usage maps stay aligned with user flows.
-
 use crate::account;
 use common::errors::SpokeError;
 use common::math::fp::Wad;
@@ -18,7 +14,6 @@ use crate::positions::liquidation::bad_debt;
 use crate::positions::liquidation::curve::is_socializable_bad_debt;
 use crate::positions::{make_pool_action, repay, withdraw};
 
-/// Transfer each planned repay leg from the liquidator, then one bulk pool repay.
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
@@ -29,7 +24,6 @@ pub(crate) fn apply_liquidation_repayments(
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
-        // Paused debt listing accepts no liquidator tokens (post-normalization legs).
         let debt_paused = cache
             .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
             .is_some_and(|c| c.paused);
@@ -57,11 +51,6 @@ pub(crate) fn apply_liquidation_repayments(
     );
 }
 
-/// One bulk pool withdraw of planned seizures to the liquidator (with protocol fees).
-///
-/// Paused collateral is not seizable (twin of the plan preflight); frozen or
-/// delisted legs remain seizable. Risk params stay frozen via `LiqSeize` in
-/// withdraw settle.
 pub(crate) fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
@@ -71,7 +60,6 @@ pub(crate) fn apply_liquidation_seizures(
 ) {
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
-        // Paused collateral listing releases no tokens (post-normalization legs).
         let collateral_paused = cache
             .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
             .is_some_and(|c| c.paused);
@@ -95,7 +83,6 @@ pub(crate) fn apply_liquidation_seizures(
     );
 }
 
-/// After liquidation: remove an emptied account, or socialize residual bad debt.
 pub(crate) fn check_bad_debt_after_liquidation(
     env: &Env,
     cache: &mut Cache,

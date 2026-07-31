@@ -100,10 +100,6 @@ fn test_feed_source_sits_at_depth_zero_and_names_one_domain() {
 
 #[test]
 fn test_scaled_source_folds_in_its_quote() {
-    // The SolvBTC shape: a fundamental ratio scaled by a reference price. The
-    // composite inherits the quote's trust domain and reports the looser of the
-    // two staleness bounds, which is what the config rule compares against the
-    // asset-level ceiling.
     let env = Env::default();
     let reflector = Address::generate(&env);
     let adapter = Address::generate(&env);
@@ -140,8 +136,6 @@ fn test_scaled_source_folds_in_its_quote() {
 
 #[test]
 fn test_market_quote_taints_a_fundamental_factor() {
-    // A spot quote is movable by trading, and the defect must reach the
-    // composite even though the factor itself is safe.
     let env = Env::default();
     let reflector = Address::generate(&env);
     let adapter = Address::generate(&env);
@@ -166,8 +160,6 @@ fn test_market_quote_taints_a_fundamental_factor() {
 #[test]
 #[should_panic]
 fn test_a_self_quoting_scaled_source_is_caught_as_a_cycle() {
-    // The guard is pushed before the config is read, so re-entry is seen. A
-    // guard installed after resolution would never fire.
     let env = Env::default();
     let adapter = Address::generate(&env);
 
@@ -204,8 +196,6 @@ fn test_a_two_key_cycle_is_caught() {
 #[test]
 #[should_panic]
 fn test_depth_past_the_cap_is_rejected() {
-    // Distinct from the cycle guard: this terminates, but a price path that
-    // exhausts the CPU budget is a position that cannot be liquidated.
     let env = Env::default();
     let reflector = Address::generate(&env);
     with_contract(&env, || {
@@ -217,16 +207,13 @@ fn test_depth_past_the_cap_is_rejected() {
 
 #[test]
 fn test_depth_at_the_cap_is_still_allowed() {
-    // The cap is the deepest legal composition, not the first illegal one. Only
-    // this case separates the two: the rejection above fires either way.
     let env = Env::default();
     let reflector = Address::generate(&env);
     with_contract(&env, || {
         let mut cache = Session::new(&env);
         let source = PriceSource::Feed(twap_feed(&env, &reflector));
         let props = properties_of_source(&mut cache, &source, common::types::MAX_RESOLUTION_DEPTH);
-        // A bare feed sits at depth 0 on its own, so the depth it reports here
-        // is the one the caller carried in.
+
         assert_eq!(props.depth, common::types::MAX_RESOLUTION_DEPTH);
     });
 }
@@ -256,13 +243,6 @@ fn test_config_properties_carry_the_one_or_two_arity() {
     });
 }
 
-// ---------------------------------------------------------------------------
-// End to end: the config that motivated the redesign.
-// ---------------------------------------------------------------------------
-
-/// Builds the SolvBTC shape. Source 0 is the RedStone SolvBTC/BTC ratio scaled
-/// by a Reflector BTC TWAP; source 1 is the RedStone direct SolvBTC/USD feed.
-/// Both legs terminate at the same adapter, so the config has to say so.
 fn solvbtc_oracle(
     env: &Env,
     adapter: &Address,
@@ -273,7 +253,7 @@ fn solvbtc_oracle(
     sources.push_back(PriceSource::Scaled(ScaledSource {
         factor: nav_feed(env, adapter, "SolvBTC_FUNDAMENTAL"),
         quote: btc,
-        // SolvBTC sits just above 1.0 BTC and only accrues upward.
+
         min_factor_wad: 10i128.pow(18),
         max_factor_wad: 2 * 10i128.pow(18),
     }));
@@ -329,14 +309,10 @@ fn test_solvbtc_config_validates_with_its_shared_adapter_declared() {
             btc,
             IndependencePolicy::AllowShared(declared),
         );
-        // Static validation only: the providers here are generated addresses,
-        // not deployed contracts, so the live attestation and containment probe
-        // `set_oracle` also runs have nothing to read. Those are covered
-        // against real mocks in the integration harness.
+
         crate::admin::validate_asset_oracle(&env, &solvbtc, &oracle);
         admin::store_oracle(&env, &solvbtc, &oracle);
 
-        // The asset that no v1 configuration could express is now stored.
         let stored = admin::get_oracle(&env, &solvbtc).expect("solvbtc must be configured");
         assert!(stored.is_dual());
     });
@@ -345,8 +321,6 @@ fn test_solvbtc_config_validates_with_its_shared_adapter_declared() {
 #[test]
 #[should_panic]
 fn test_solvbtc_config_is_rejected_without_the_declaration() {
-    // The shared adapter is real, so claiming disjoint independence must fail.
-    // This is the disclosure the whole policy exists to force.
     let env = Env::default();
     let reflector = Address::generate(&env);
     let adapter = Address::generate(&env);
@@ -362,9 +336,6 @@ fn test_solvbtc_config_is_rejected_without_the_declaration() {
 #[test]
 #[should_panic]
 fn test_a_ratio_leg_outliving_the_asset_ceiling_is_rejected() {
-    // The C1 regression, as a config rule: a component permitted to sit frozen
-    // longer than the asset's own answer may be stale would let a live quote
-    // keep the composite looking fresh.
     let env = Env::default();
     let reflector = Address::generate(&env);
     let adapter = Address::generate(&env);
@@ -383,27 +354,12 @@ fn test_a_ratio_leg_outliving_the_asset_ceiling_is_rejected() {
             btc,
             IndependencePolicy::AllowShared(declared),
         );
-        // Legs are 86400; drop the ceiling under them.
+
         oracle.max_price_stale_seconds = 3_600;
         crate::admin::validate_asset_oracle(&env, &solvbtc, &oracle);
     });
 }
 
-// ---------------------------------------------------------------------------
-// Provider-level shape: the bounds v1 got from probing the provider, which the
-// composable model has to state in config instead.
-// ---------------------------------------------------------------------------
-
-/// Stores a one-source config with a band narrow enough to satisfy the
-/// single-source cap, so a rejection is attributable to the field under test
-/// rather than to `InvalidSanityBounds`.
-/// Runs the **static** half of configure-time validation and stores the result.
-///
-/// Deliberately not `set_oracle`: the providers in these tests are
-/// generated addresses, so the live attestation and containment probe would
-/// revert every case with `NoLastPrice` before the rule under test ever ran —
-/// and each `#[should_panic]` here would then pass for the wrong reason. Those
-/// two live steps are covered against real mocks in the integration harness.
 fn store_single(env: &Env, key: PriceKey, source: PriceSource, asset_decimals: u32) {
     let mut oracle = oracle_of(env, one(env, source));
     oracle.asset_decimals = asset_decimals;
@@ -416,8 +372,6 @@ fn store_single(env: &Env, key: PriceKey, source: PriceSource, asset_decimals: u
 #[test]
 #[should_panic]
 fn test_feed_decimals_past_the_wad_scale_are_rejected() {
-    // A feed declaring more decimals than WAD can express makes the rescale
-    // factor overflow and trap as a raw wasm error rather than a typed one.
     let env = Env::default();
     let adapter = Address::generate(&env);
     with_contract(&env, || {
@@ -435,8 +389,6 @@ fn test_feed_decimals_past_the_wad_scale_are_rejected() {
 #[test]
 #[should_panic]
 fn test_a_zero_sample_twap_is_rejected() {
-    // `Twap(0)` reads as smoothed, satisfies the smoothing rule, and then
-    // reverts on every read: a market that validates and is born bricked.
     let env = Env::default();
     let reflector = Address::generate(&env);
     with_contract(&env, || {
@@ -458,9 +410,6 @@ fn test_a_zero_sample_twap_is_rejected() {
 #[test]
 #[should_panic]
 fn test_a_one_sample_twap_does_not_count_as_smoothing() {
-    // A one-sample "average" is a spot read wearing a different label, and it
-    // would satisfy a rule whose whole justification is that moving a
-    // time-average costs more than moving one print.
     let env = Env::default();
     let reflector = Address::generate(&env);
     with_contract(&env, || {
@@ -482,9 +431,6 @@ fn test_a_one_sample_twap_does_not_count_as_smoothing() {
 #[test]
 #[should_panic]
 fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {
-    // The smoothing rule alone does not catch this: "at least one opinion is
-    // clean" is satisfied by the pairing, so the config would store and then
-    // revert on every single read.
     let env = Env::default();
     let reflector = Address::generate(&env);
     with_contract(&env, || {
@@ -502,11 +448,6 @@ fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {
         crate::admin::set_oracle(&env, PriceKey::Token(Address::generate(&env)), oracle);
     });
 }
-
-// ---------------------------------------------------------------------------
-// asset_decimals scales every token amount a consumer derives from the price,
-// including liquidation seize amounts, so it is bounded rather than trusted.
-// ---------------------------------------------------------------------------
 
 #[test]
 #[should_panic]
@@ -526,7 +467,6 @@ fn test_absurd_asset_decimals_are_rejected_for_a_token() {
 #[test]
 #[should_panic]
 fn test_a_reference_key_may_not_claim_token_decimals() {
-    // A reference price has no token and no amounts.
     let env = Env::default();
     let reflector = Address::generate(&env);
     with_contract(&env, || {
@@ -552,10 +492,6 @@ fn test_a_reference_key_with_zero_decimals_is_accepted() {
         );
     });
 }
-
-// ---------------------------------------------------------------------------
-// A config naming itself is caught at write time, not on first read.
-// ---------------------------------------------------------------------------
 
 #[test]
 #[should_panic]

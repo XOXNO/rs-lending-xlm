@@ -1,4 +1,3 @@
-//! Per-tick transaction budget.
 
 #[derive(Debug, Clone, Copy)]
 pub struct TickBudget {

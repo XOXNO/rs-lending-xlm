@@ -8,7 +8,6 @@ use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
 
-/// Opt-in year-accrual dust report printing (`true` to print).
 const VERBOSE_YEAR_ACCRUAL: bool = false;
 
 struct TestSetup {
@@ -63,7 +62,6 @@ impl TestSetup {
     }
 }
 
-// Zero RAY fee is a no-op.
 #[test]
 fn test_add_protocol_revenue_ray_zero_is_noop() {
     let t = TestSetup::new();
@@ -84,7 +82,6 @@ fn test_add_protocol_revenue_ray_zero_is_noop() {
     });
 }
 
-// Fee at the supply-index floor is still minted into revenue and supplied.
 #[test]
 fn test_add_protocol_revenue_ray_books_fee_at_supply_index_floor() {
     let t = TestSetup::new();
@@ -109,7 +106,6 @@ fn test_add_protocol_revenue_ray_books_fee_at_supply_index_floor() {
     });
 }
 
-// Zero total supply short-circuits; no suppliers absorb bad debt.
 #[test]
 fn test_apply_bad_debt_noop_when_total_supply_is_zero() {
     let t = TestSetup::new();
@@ -129,7 +125,6 @@ fn test_apply_bad_debt_noop_when_total_supply_is_zero() {
     });
 }
 
-// bad_debt above total supply is capped, then the floor clamp applies.
 #[test]
 fn test_apply_bad_debt_caps_at_total_supply_and_clamps_floor() {
     let t = TestSetup::new();
@@ -139,13 +134,11 @@ fn test_apply_bad_debt_caps_at_total_supply_and_clamps_floor() {
             borrowed: 0,
             revenue: 0,
             borrow_index: RAY,
-            supply_index: RAY, // total supply value = 10 * RAY
+            supply_index: RAY,
             last_timestamp: 0,
             cash: 0,
         });
 
-        // bad_debt > total_supplied: capped path plus >90% reduction.
-        // The new index clamps to the floor.
         apply_bad_debt_to_supply_index(&mut cache, Ray::from(100 * RAY));
 
         assert_eq!(
@@ -156,25 +149,22 @@ fn test_apply_bad_debt_caps_at_total_supply_and_clamps_floor() {
     });
 }
 
-// A >90% reduction can apply without the floor clamp.
 #[test]
 fn test_apply_bad_debt_applies_severe_reduction() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // High supply_index keeps a 91% reduction above the floor.
         let mut cache = t.fresh_cache(PoolStateRaw {
             supplied: 1_000 * RAY,
             borrowed: 0,
             revenue: 0,
             borrow_index: RAY,
-            // Supply index ~1.0 means total_supplied_value ~= 1000*RAY.
+
             supply_index: RAY,
             last_timestamp: 0,
             cash: 0,
         });
         let old_index = cache.supply_index().raw();
 
-        // 91% of 1000*RAY = 910*RAY; index drops below 10% of its prior value.
         apply_bad_debt_to_supply_index(&mut cache, Ray::from(910 * RAY));
 
         assert!(
@@ -184,8 +174,6 @@ fn test_apply_bad_debt_applies_severe_reduction() {
     });
 }
 
-// Read-path simulation must match mutating accrual across multi-year deltas;
-// both paths chunk at one year. Mismatch desyncs valuations from persisted state.
 #[test]
 fn test_simulate_matches_global_sync_over_multi_year_delta() {
     use common::rates::simulate_update_indexes;
@@ -214,7 +202,7 @@ fn test_simulate_matches_global_sync_over_multi_year_delta() {
         };
 
         let mut cache = t.fresh_cache(state);
-        // 2.5 years elapsed: three chunks (1y + 1y + 0.5y).
+
         let delta_ms = 2 * MAX_COMPOUND_DELTA_MS + MAX_COMPOUND_DELTA_MS / 2;
         cache.set_current_timestamp(cache.last_timestamp() + delta_ms);
         let simulated = simulate_update_indexes(&t.env, cache.current_timestamp(), &sync);
@@ -234,7 +222,6 @@ fn test_simulate_matches_global_sync_over_multi_year_delta() {
     });
 }
 
-// A mild (<90%) reduction skips the floor clamp.
 #[test]
 fn test_apply_bad_debt_mild_reduction_preserves_index_above_floor() {
     let t = TestSetup::new();
@@ -250,7 +237,6 @@ fn test_apply_bad_debt_mild_reduction_preserves_index_above_floor() {
         });
         let old_index = cache.supply_index().raw();
 
-        // 10% bad debt reduces the index and stays above floor.
         apply_bad_debt_to_supply_index(&mut cache, Ray::from(100 * RAY));
 
         let new_index = cache.supply_index().raw();
@@ -274,7 +260,7 @@ fn test_global_sync_respects_chunk_boundary() {
             cash: 40_000_000,
         };
         let mut cache = t.fresh_cache(state);
-        // One full chunk.
+
         cache.set_current_timestamp(MAX_COMPOUND_DELTA_MS);
         global_sync(&t.env, &mut cache);
         assert!(cache.borrow_index().raw() > RAY);
@@ -299,13 +285,10 @@ fn test_apply_bad_debt_exactly_at_total_supplied_hits_cap_and_floor() {
     });
 }
 
-// Low-level regression: bypassing `supply_one` shows why its floor-market
-// backing guard is required. The public-flow regression lives in flows.rs.
 #[test]
 fn test_raw_cache_floor_residual_can_consume_fresh_cash_without_supply_guard() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // userA supplied 1,000,000 tokens at supply_index = RAY.
         let scaled_a_raw = 1_000_000 * RAY;
         let mut cache = t.fresh_cache(PoolStateRaw {
             supplied: scaled_a_raw,
@@ -314,12 +297,10 @@ fn test_raw_cache_floor_residual_can_consume_fresh_cash_without_supply_guard() {
             borrow_index: RAY,
             supply_index: RAY,
             last_timestamp: 0,
-            cash: 0, // borrower drew ~all cash then defaulted
+            cash: 0,
         });
         let scaled_a = Ray::from(scaled_a_raw);
 
-        // Near-total wipeout: bad_debt >= total supplied value drives the true
-        // index to 0; the clamp revives it to the RAY/1000 floor.
         apply_bad_debt_to_supply_index(&mut cache, Ray::from(2_000_000 * RAY));
         assert_eq!(
             cache.supply_index().raw(),
@@ -327,36 +308,29 @@ fn test_raw_cache_floor_residual_can_consume_fresh_cash_without_supply_guard() {
             "wipeout must clamp supply index UP to the floor, not reset the base"
         );
 
-        // Baseline (harmless): userA retains a stranded claim, but cash == 0 so a
-        // withdrawal would revert on require_reserves.
         let stranded = cache.unscale_supply_floor(scaled_a);
         assert!(stranded > 0, "floor clamp leaves userA a phantom claim");
         assert_eq!(cache.cash(), 0, "empty market: no cash to extract yet");
 
-        // userB supplies fresh cash C exactly equal to userA's stranded claim.
         let c = stranded;
         let scaled_b = cache.calculate_scaled_supply(c);
         cache.mint_supply(scaled_b);
         cache.credit_cash(c);
 
-        // userB's own claim is correct: deposited C, worth C.
         let b_claim = cache.unscale_supply_floor(scaled_b);
         assert_eq!(b_claim, c, "userB's honest claim equals their deposit");
 
-        // userA withdraws the FULL stranded position against userB's fresh cash.
         let (burn, gross) = cache.resolve_withdrawal(i128::MAX, scaled_a);
-        cache.require_reserves(gross); // passes now — backed by userB's deposit
+        cache.require_reserves(gross);
         cache.burn_supply(burn);
         cache.debit_cash(gross);
 
-        // LEAK: userA (fully wiped) extracts real tokens equal to userB's deposit.
         assert!(gross > 0, "stranded position pays out non-zero");
         assert_eq!(
             gross, c,
             "userA drains exactly userB's fresh deposit out of the pool"
         );
 
-        // userB can no longer be paid their honest claim — cash is gone.
         assert!(
             cache.cash() < b_claim,
             "pool cash ({}) can no longer cover userB's claim ({}): honest supplier lost funds",
@@ -367,13 +341,10 @@ fn test_raw_cache_floor_residual_can_consume_fresh_cash_without_supply_guard() {
     });
 }
 
-// Same raw-cache boundary at a smaller scale. It intentionally bypasses the
-// production supply guard and pins the underlying floor-clamp arithmetic.
 #[test]
 fn test_raw_cache_floor_clamp_strands_claim_without_supply_guard() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // S_old supplied 1,000 tokens at supply_index = RAY.
         let old_scaled_raw = 1_000 * RAY;
         let mut cache = t.fresh_cache(PoolStateRaw {
             supplied: old_scaled_raw,
@@ -382,13 +353,10 @@ fn test_raw_cache_floor_clamp_strands_claim_without_supply_guard() {
             borrow_index: RAY,
             supply_index: RAY,
             last_timestamp: 0,
-            cash: 0, // borrowers already drew and defaulted on all cash
+            cash: 0,
         });
         let old_scaled = Ray::from(old_scaled_raw);
 
-        // Full bad-debt wipeout: bad_debt >= total supplied value.
-        // Math: remaining = 0 -> reduction_factor = 0 -> new_supply_index = 0,
-        // then .max(SUPPLY_INDEX_FLOOR_RAW) pins it to RAY/1000.
         apply_bad_debt_to_supply_index(&mut cache, Ray::from(5_000 * RAY));
         assert_eq!(
             cache.supply_index().raw(),
@@ -396,7 +364,6 @@ fn test_raw_cache_floor_clamp_strands_claim_without_supply_guard() {
             "wipeout clamps supply_index UP to RAY/1000 instead of resetting shares to 0",
         );
 
-        // Invariant break: unburned old shares retain a claim while cash == 0.
         let stranded = cache.unscale_supply_floor(old_scaled);
         assert!(stranded > 0, "floor clamp leaves S_old a phantom claim");
         assert_eq!(
@@ -405,26 +372,22 @@ fn test_raw_cache_floor_clamp_strands_claim_without_supply_guard() {
             "no cash yet: invariant only masked by require_reserves"
         );
 
-        // Fresh supplier deposits real cash equal to the stranded claim.
         let fresh_cash = stranded;
         let fresh_scaled = cache.calculate_scaled_supply(fresh_cash);
         cache.mint_supply(fresh_scaled);
         cache.credit_cash(fresh_cash);
 
-        // Fresh depositor's honest claim equals their deposit.
         let fresh_claim = cache.unscale_supply_floor(fresh_scaled);
         assert_eq!(
             fresh_claim, fresh_cash,
             "fresh supplier's claim equals deposit"
         );
 
-        // S_old withdraws the full stranded position against the fresh cash.
         let (burn, gross) = cache.resolve_withdrawal(i128::MAX, old_scaled);
-        cache.require_reserves(gross); // now passes — backed by fresh deposit
+        cache.require_reserves(gross);
         cache.burn_supply(burn);
         cache.debit_cash(gross);
 
-        // LEAK: a fully-wiped supplier extracts the fresh depositor's money.
         assert!(gross > 0, "stranded wiped position pays out real tokens");
         assert_eq!(gross, fresh_cash, "S_old drains exactly the fresh deposit");
         assert!(
@@ -436,15 +399,10 @@ fn test_raw_cache_floor_clamp_strands_claim_without_supply_guard() {
     });
 }
 
-// Drives the exact seizure valuation but deliberately bypasses `supply_one`
-// when injecting fresh cash. This keeps the counterfactual loss mechanism
-// pinned while the public entrypoint test proves the guard rejects it.
 #[test]
 fn test_raw_cache_seizure_residual_would_drain_fresh_cash_without_supply_guard() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // Alice supplied 1,000 tokens at supply_index = RAY; a borrower drew ~all
-        // cash as debt (borrowed scaled = 1,000 * RAY at borrow_index = RAY).
         let alice_scaled_raw = 1_000 * RAY;
         let borrowed_scaled_raw = 1_000 * RAY;
         let mut cache = t.fresh_cache(PoolStateRaw {
@@ -454,26 +412,21 @@ fn test_raw_cache_seizure_residual_would_drain_fresh_cash_without_supply_guard()
             borrow_index: RAY,
             supply_index: RAY,
             last_timestamp: 0,
-            cash: 0, // borrower withdrew all cash then defaulted
+            cash: 0,
         });
         let alice_scaled = Ray::from(alice_scaled_raw);
         let borrow_scaled = Ray::from(borrowed_scaled_raw);
 
-        // seize_one(Borrow side): value the seized debt exactly as production does,
-        // then socialize it into the supply index.
         let bad_debt = cache.unscale_borrow_ceil_ray(borrow_scaled);
         apply_bad_debt_to_supply_index(&mut cache, bad_debt);
         cache.burn_debt(borrow_scaled);
 
-        // Full wipeout drives the true index to 0; the RAY/1000 floor clamp revives it.
         assert_eq!(
             cache.supply_index().raw(),
             SUPPLY_INDEX_FLOOR_RAW,
             "seize wipeout clamps supply_index UP to RAY/1000, leaving unburned shares a residual"
         );
 
-        // Alice's shares were never burned: they retain a phantom 0.1% claim,
-        // unbacked while cash == 0.
         let alice_stranded = cache.unscale_supply_floor(alice_scaled);
         assert!(alice_stranded > 0, "wiped survivor keeps a stranded claim");
         assert_eq!(
@@ -482,14 +435,11 @@ fn test_raw_cache_seizure_residual_would_drain_fresh_cash_without_supply_guard()
             "empty market: claim masked by require_reserves"
         );
 
-        // Counterfactual raw accounting: bypass the guarded supply entrypoint.
         let deposit = alice_stranded;
         let bob_scaled = cache.calculate_scaled_supply(deposit);
         cache.mint_supply(bob_scaled);
         cache.credit_cash(deposit);
 
-        // Pool-wide solvency gap: total owed (supplied * supply_index) now exceeds
-        // cash by Alice's stranded residual — books already record the shortfall.
         let total_owed = cache.unscale_supply_floor(cache.supplied());
         assert!(
             total_owed > cache.cash(),
@@ -498,17 +448,14 @@ fn test_raw_cache_seizure_residual_would_drain_fresh_cash_without_supply_guard()
             cache.cash()
         );
 
-        // withdraw_one: Alice full-closes her wiped position against Bob's cash.
         let (burn, gross) = cache.resolve_withdrawal(i128::MAX, alice_scaled);
-        cache.require_reserves(gross); // passes now — backed by Bob's deposit
+        cache.require_reserves(gross);
         cache.burn_supply(burn);
         cache.debit_cash(gross);
 
-        // LEAK: a fully-wiped supplier walks away with Bob's real tokens.
         assert!(gross > 0, "wiped position pays out real cash");
         assert_eq!(gross, deposit, "Alice extracts exactly Bob's fresh deposit");
 
-        // Bob's honest claim can no longer be paid — the pool was drained.
         let bob_claim = cache.unscale_supply_floor(bob_scaled);
         assert!(
             cache.cash() < bob_claim,
@@ -533,7 +480,7 @@ fn test_global_sync_step_zero_borrowed_produces_zero_interest() {
             cash: 0,
         });
         let before = cache.supply_index();
-        // Positive delta without borrows leaves supply index unchanged.
+
         cache.set_current_timestamp(1_000);
         global_sync(&t.env, &mut cache);
         assert_eq!(cache.supply_index(), before);
@@ -602,21 +549,17 @@ fn test_global_sync_books_supplier_shortfall_as_protocol_revenue() {
     });
 }
 
-// --- Year-long daily accrual: virtual offset + rounding dust ---
-
-/// One calendar day in ms (not leap-second aware).
 const DAY_MS: u64 = 86_400_000;
-/// 365 daily index updates ≈ one operational year.
+
 const DAYS_PER_YEAR: u32 = 365;
 
-/// Snapshot of pool claims after accrual, in RAY token-value units.
 struct AccrualSnapshot {
     debt: i128,
-    /// All supply shares (users + protocol revenue) × supply_index.
+
     total_supply_claim: i128,
-    /// Fixed user-scaled position (pre fee-mint) × supply_index.
+
     user_claim: i128,
-    /// Protocol revenue shares × supply_index.
+
     revenue_claim: i128,
     borrow_index: i128,
     supply_index: i128,
@@ -641,10 +584,6 @@ fn snapshot(env: &Env, cache: &Cache, user_scaled: Ray) -> AccrualSnapshot {
     }
 }
 
-/// Interest paid by borrowers must fund supplier claim growth + revenue claim
-/// growth. Virtual-offset dilution is booked into revenue, so the residual is
-/// only fixed-point conversion dust:
-/// `dust = interest - (Δ total_supply_claim)`.
 struct YearDustReport {
     label: &'static str,
     util_bps: i128,
@@ -665,7 +604,6 @@ fn run_daily_year(
     user_scaled: Ray,
     days: u32,
 ) -> (AccrualSnapshot, AccrualSnapshot, YearDustReport) {
-    // Taylor compound × 365 exceeds default Soroban test CPU budget.
     env.cost_estimate().budget().reset_unlimited();
 
     let start = snapshot(env, cache, user_scaled);
@@ -678,7 +616,7 @@ fn run_daily_year(
     let interest = end.debt - start.debt;
     let claims_growth = end.total_supply_claim - start.total_supply_claim;
     let user_growth = end.user_claim - start.user_claim;
-    // Dust can be slightly negative from half-up on fee share mint; treat as signed.
+
     let dust = interest - claims_growth;
 
     let report = YearDustReport {
@@ -706,10 +644,8 @@ fn print_year_report(label: &str, util_bps: i128, r: &YearDustReport, end: &Accr
     } else {
         0
     };
-    // RAY token value → whole tokens (27 decimals → display with 7 asset decimals:
-    // divide by 10^(27-7) = 10^20 for raw asset, then by 10^7 for whole tokens).
-    // Report in milli-tokens (10^-3 token) for readability: ray / 10^24.
-    let to_milli = |v: i128| v / 1_000_000_000_000_000_000_000_000; // / 1e24
+
+    let to_milli = |v: i128| v / 1_000_000_000_000_000_000_000_000;
 
     std::println!("=== {label} (util ~{util_bps} bps, {DAYS_PER_YEAR} daily updates) ===");
     std::println!(
@@ -754,10 +690,9 @@ fn print_year_report(label: &str, util_bps: i128, r: &YearDustReport, end: &Accr
 }
 
 fn market_state(supplied_tokens: i128, util_bps: i128, cash_tokens: i128) -> PoolStateRaw {
-    // 7-decimal asset: 1 token = 10^7 raw; value RAY = token * RAY (at index 1).
     let supplied = supplied_tokens * RAY;
     let borrowed = supplied_tokens * util_bps / 10_000 * RAY;
-    let cash = cash_tokens * 10_000_000; // 7 decimals
+    let cash = cash_tokens * 10_000_000;
     PoolStateRaw {
         supplied,
         borrowed,
@@ -769,14 +704,12 @@ fn market_state(supplied_tokens: i128, util_bps: i128, cash_tokens: i128) -> Poo
     }
 }
 
-/// Deep pool @ 50% util: virtual offset (~1 token) is tiny vs millions of
-/// supply, so year dust from daily accruals must stay well under 1 bps of interest.
 #[test]
 fn test_year_daily_accrual_deep_market_dust_is_tiny() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let supplied_tokens = 1_000_000_i128;
-        let util_bps = 5_000; // 50%
+        let util_bps = 5_000;
         let state = market_state(supplied_tokens, util_bps, supplied_tokens / 2);
         let user_scaled = Ray::from(state.supplied);
         let mut cache = t.fresh_cache(state);
@@ -790,23 +723,22 @@ fn test_year_daily_accrual_deep_market_dust_is_tiny() {
         assert!(r.debt_end > r.debt_start);
         assert!(r.user_growth > 0, "suppliers earn positive claim growth");
         assert!(r.revenue_claim > 0, "RF=10% must mint protocol revenue");
-        // Claims cannot invent more value than interest by more than half-up dust.
+
         assert!(
             r.claims_growth <= r.interest + RAY / 1_000,
             "claims_growth must not exceed interest beyond tiny rounding"
         );
-        // Virtual offset + rounding: deep market dust << 1 bps of interest.
+
         let dust_bps = r.dust.saturating_mul(10_000) / r.interest;
         assert!(
             (0..1).contains(&dust_bps),
             "deep-market dust must be < 1 bps of interest, got {dust_bps} bps (dust={})",
             r.dust
         );
-        // Explicit conservation: interest ≈ user_growth + revenue + dust
+
         let attributed = r.user_growth + r.revenue_claim;
         let recon = r.interest - attributed;
-        // recon includes (a) virtual dust and (b) claim accounting where fee
-        // mints are in total claims but revenue_claim ≈ fee value; allow 1 token.
+
         assert!(
             recon.abs() < 2 * RAY || r.dust >= 0,
             "interest vs user+revenue recon out of band: recon={recon}"
@@ -814,13 +746,12 @@ fn test_year_daily_accrual_deep_market_dust_is_tiny() {
     });
 }
 
-/// Medium pool @ 80% util (near optimal kink): still small relative dust.
 #[test]
 fn test_year_daily_accrual_medium_market_reports_dust() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let supplied_tokens = 10_000_i128;
-        let util_bps = 8_000; // 80%
+        let util_bps = 8_000;
         let state = market_state(supplied_tokens, util_bps, supplied_tokens * 2 / 10);
         let user_scaled = Ray::from(state.supplied);
         let mut cache = t.fresh_cache(state);
@@ -833,7 +764,7 @@ fn test_year_daily_accrual_medium_market_reports_dust() {
         assert!(r.interest > 0);
         assert!(r.revenue_claim > 0);
         assert!(r.user_growth > 0);
-        // Dust is non-negative once interest is material (virtual under-credits index).
+
         assert!(
             r.dust >= -RAY / 100,
             "dust should not be largely negative, got {}",
@@ -844,8 +775,7 @@ fn test_year_daily_accrual_medium_market_reports_dust() {
         } else {
             0
         };
-        // 1 token virtual on 10k supply ≈ 1 bps order on each reward; over a year
-        // compounded daily stays well under 50 bps of total interest.
+
         assert!(
             dust_bps < 50,
             "medium-market dust unexpectedly large: {dust_bps} bps"
@@ -853,9 +783,6 @@ fn test_year_daily_accrual_medium_market_reports_dust() {
     });
 }
 
-/// Thin pool @ 80% util: virtual 1-token offset is a larger fraction of supply,
-/// so relative dust is higher — still bounded, and claims never exceed interest
-/// by more than dust of rounding.
 #[test]
 fn test_year_daily_accrual_thin_market_higher_relative_dust() {
     let t = TestSetup::new();
@@ -880,7 +807,6 @@ fn test_year_daily_accrual_thin_market_higher_relative_dust() {
             std::println!("  thin-market dust_bps={dust_bps}");
         }
 
-        // Relative dust larger than deep market but still a small fraction of interest.
         assert!(
             dust_bps < 200,
             "thin-market dust should stay under 2% of interest, got {dust_bps} bps"
@@ -892,14 +818,11 @@ fn test_year_daily_accrual_thin_market_higher_relative_dust() {
     });
 }
 
-/// USDC-scale: millions supplied/borrowed, 365 daily accruals.
-/// Virtual offset is 1 whole token of value; relative dust collapses as TVL grows.
 #[test]
 fn test_year_daily_accrual_usdc_millions_scale() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // Scenarios: (label, supply tokens, util bps)
-        // Borrow = supply * util; cash = supply - borrow (fully reserved free liquidity).
+
         let cases: [(&str, i128, i128); 3] = [
             ("USDC 5M supply / 50% util", 5_000_000, 5_000),
             ("USDC 20M supply / 80% util", 20_000_000, 8_000),
@@ -916,10 +839,9 @@ fn test_year_daily_accrual_usdc_millions_scale() {
             r.util_bps = util_bps;
             print_year_report(label, util_bps, &r, &end);
 
-            // Human USDC (6 dp display): ray-value / 1e27 = whole tokens.
             let whole = |v: i128| v / RAY;
             let micro = |v: i128| {
-                // fractional tokens × 1e6 from residual after whole division
+
                 let rem = v % RAY;
                 rem * 1_000_000 / RAY
             };
@@ -942,7 +864,7 @@ fn test_year_daily_accrual_usdc_millions_scale() {
             assert!(r.interest > 0);
             assert!(r.user_growth > 0);
             assert!(r.revenue_claim > 0);
-            // Absolute dust stays sub-USDC to low single-digit USDC even at huge interest.
+
             assert!(
                 r.dust.abs() < 10 * RAY,
                 "{label}: absolute dust should be << 10 USDC, got raw {}",
@@ -957,9 +879,6 @@ fn test_year_daily_accrual_usdc_millions_scale() {
     });
 }
 
-/// Same start state: 365 daily syncs vs one single year-long sync. Dust and
-/// final debt differ (chunking/path) but both keep interest ≥ claims_growth
-/// within a loose band — documents keeper cadence impact.
 #[test]
 fn test_year_daily_vs_single_sync_dust_comparison() {
     let t = TestSetup::new();
@@ -970,7 +889,6 @@ fn test_year_daily_vs_single_sync_dust_comparison() {
         let user_scaled = Ray::from(state.supplied);
         t.env.cost_estimate().budget().reset_unlimited();
 
-        // Path A: daily.
         let mut daily = t.fresh_cache(state);
         let start_d = snapshot(&t.env, &daily, user_scaled);
         for _ in 0..DAYS_PER_YEAR {
@@ -982,7 +900,6 @@ fn test_year_daily_vs_single_sync_dust_comparison() {
         let claims_d = end_d.total_supply_claim - start_d.total_supply_claim;
         let dust_d = interest_d - claims_d;
 
-        // Path B: one shot over 365 days (same initial state reloaded).
         let mut once = t.fresh_cache(market_state(supplied_tokens, util_bps, 40_000));
         let start_o = snapshot(&t.env, &once, user_scaled);
         once.set_current_timestamp(
@@ -1026,12 +943,11 @@ fn test_year_daily_vs_single_sync_dust_comparison() {
         }
 
         assert!(interest_d > 0 && interest_o > 0);
-        // Daily compounding of util path (fee mint each day) usually differs
-        // from one long step; both must produce positive revenue and supplier growth.
+
         assert!(end_d.revenue_claim > 0 && end_o.revenue_claim > 0);
         assert!(end_d.user_claim > start_d.user_claim);
         assert!(end_o.user_claim > start_o.user_claim);
-        // Dust non-pathological on both cadences.
+
         assert!(dust_d > -RAY && dust_o > -RAY);
         let max_interest = interest_d.max(interest_o);
         assert!(

@@ -1,9 +1,3 @@
-//! Certora summaries for provider reads.
-//!
-//! Each read is `nondet_option`: `None` (soft miss) is reachable so compose can
-//! explore `Legs::Empty` / `Legs::Partial`. Positive-price and timestamp assumes
-//! apply only inside the `Some` branch.
-
 use cvlr::cvlr_assume;
 use cvlr::nondet::{nondet, nondet_option};
 

@@ -1,5 +1,3 @@
-//! Controller contract integration tests.
-
 extern crate std;
 
 mod account;

@@ -1,5 +1,3 @@
-//! RedStone source probing on the `configure_market_oracle` forwarder.
-
 use governance::op::{AdminOperation, ConfigureAssetOracleArgs};
 use soroban_sdk::String;
 use test_harness::oracle::redstone::register_redstone_adapter;
@@ -25,8 +23,6 @@ fn try_configure_usdc(
         .unwrap_or_else(|e| Err(e.expect("expected contract error")))
 }
 
-// A RedStone anchor stale window below the 60-second floor rejects
-// InvalidStalenessConfig (#218).
 #[test]
 #[should_panic(expected = "Error(Contract, #218)")]
 fn test_redstone_source_stale_window_rejects_invalid_config() {
@@ -94,8 +90,6 @@ fn test_redstone_stale_write_timestamp_rejects_config() {
     assert_contract_error(try_configure_usdc(&t, &cfg), errors::PRICE_FEED_STALE);
 }
 
-// A future timestamp is unreadable, not stale: `from_multi_feed` drops the
-// payload, so the configure-time probe reports `NoLastPrice` (#210).
 #[test]
 fn test_redstone_future_timestamps_reject_config() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -115,14 +109,6 @@ fn test_redstone_future_timestamps_reject_config() {
     assert_contract_error(try_configure_usdc(&t, &cfg), errors::NO_LAST_PRICE);
 }
 
-// A feed id the adapter does not serve is caught by the configure-time
-// containment probe: the read returns nothing and the config is refused rather
-// than stored to revert on the first borrow.
-//
-// Reported as `NoLastPrice` (#210), not v1's `InvalidTicker` (#3). The adapter
-// ABI answers "no data" the same way for an unknown feed id and a known one
-// that has never published, so naming it `InvalidTicker` asserted a distinction
-// neither version can actually make.
 #[test]
 fn test_redstone_missing_feed_id_rejects_config() {
     let t = LendingTest::new().with_market(usdc_preset()).build();

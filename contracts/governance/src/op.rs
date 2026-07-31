@@ -1,10 +1,3 @@
-//! `AdminOperation` resolution and governance-self apply.
-//!
-//! `resolve_op` validates inputs and lowers each variant to a concrete target,
-//! function, args, and delay tier. `apply_self_op` runs governance-local
-//! variants after the timelock matures. The match is exhaustive so new variants
-//! must declare target and tier at compile time.
-
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::types::{AssetOracle, PriceKey};
 use common::validation::{
@@ -31,11 +24,6 @@ fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
     validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
 }
 
-/// Derives proposal fields that governance does not trust from the proposer.
-///
-/// For `PriceKey::Token`, `asset_decimals` is read from the SAC. For
-/// `PriceKey::Ref`, decimals are zero. Shared by `propose` and the dry-run
-/// view so both return the same stored shape.
 pub(crate) fn resolve_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) -> AssetOracle {
     let mut resolved = oracle.clone();
     resolved.asset_decimals = match key {
@@ -45,7 +33,6 @@ pub(crate) fn resolve_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOrac
     resolved
 }
 
-/// Concrete call target for a proposed [`AdminOperation`].
 pub(crate) struct ResolvedOperation {
     pub target: Address,
     pub function: Symbol,
@@ -53,7 +40,6 @@ pub(crate) struct ResolvedOperation {
     pub delay_tier: DelayTier,
 }
 
-/// Controller target at [`DelayTier::Standard`].
 fn controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
     ResolvedOperation {
         target: storage::get_controller(env),
@@ -63,7 +49,6 @@ fn controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOp
     }
 }
 
-/// Controller target at [`DelayTier::Sensitive`].
 fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
     ResolvedOperation {
         target: storage::get_controller(env),
@@ -73,7 +58,6 @@ fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> 
     }
 }
 
-/// Price-aggregator target at [`DelayTier::Standard`].
 fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
     ResolvedOperation {
         target: storage::get_price_aggregator(env),
@@ -83,7 +67,6 @@ fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> Reso
     }
 }
 
-/// This governance contract as target, at the given tier.
 fn self_operation(
     env: &Env,
     function: &str,
@@ -98,7 +81,6 @@ fn self_operation(
     }
 }
 
-/// Validates `op` and returns target, function, args, and delay tier.
 pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
     match op {
         AdminOperation::UpgradeGov(hash) => {
@@ -165,7 +147,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             )
         }
         AdminOperation::SetPriceAggregator(addr) => {
-            // Self-op: updates governance storage and the controller in one execute.
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
             self_operation(
                 env,
@@ -352,10 +333,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
     }
 }
 
-/// Applies governance-self ops after their timelock matures.
-///
-/// Only self-target variants belong here. External-target ops panic with
-/// [`GenericError::InternalError`] if reached.
 pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
     match op {
         AdminOperation::UpgradeGov(hash) => access::apply_upgrade(env, hash),

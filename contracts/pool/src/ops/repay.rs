@@ -1,6 +1,3 @@
-//! Repay leg: burns scaled debt against tokens the controller already
-//! transferred in, then refunds anything paid beyond the debt owed.
-
 use common::errors::GenericError;
 use common::types::{MarketStateSnapshot, PoolAction, PoolPositionMutation};
 
@@ -9,9 +6,6 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 use crate::cache::Cache;
 use crate::ops;
 
-/// Persisted result of the repay accounting, before any token moves.
-/// `mutation.actual_amount` is the debt actually cleared; `overpayment` is the
-/// remainder owed back to the payer.
 pub(crate) struct RepayOutcome {
     pub(crate) cache: Cache,
     pub(crate) mutation: PoolPositionMutation,
@@ -19,7 +13,6 @@ pub(crate) struct RepayOutcome {
     pub(crate) overpayment: i128,
 }
 
-/// Burns debt for `action` and refunds any overpayment to `payer`.
 pub(crate) fn apply(
     env: &Env,
     payer: &Address,
@@ -31,7 +24,6 @@ pub(crate) fn apply(
     (outcome.mutation, outcome.snapshot)
 }
 
-/// Repay accounting without the refund transfer.
 pub(crate) fn accounting(env: &Env, action: &PoolAction) -> RepayOutcome {
     let (mut cache, position) = ops::load_leg(env, action);
     let amount = action.amount;
@@ -48,8 +40,7 @@ pub(crate) fn accounting(env: &Env, action: &PoolAction) -> RepayOutcome {
 
     let position = position.checked_sub(env, burned);
     cache.burn_debt(burned);
-    // The controller transferred Token(asset) `amount` in before this call, and
-    // `overpayment` goes straight back out, so cash counts only the net.
+
     cache.credit_cash(net_repay);
 
     let snapshot = cache.commit();

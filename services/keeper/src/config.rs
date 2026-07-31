@@ -1,4 +1,3 @@
-//! YAML configuration loader.
 
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
@@ -32,31 +31,25 @@ pub struct ContractsConfig {
     pub controller: String,
     pub pool_wasm_hash: String,
     pub flash_loan_receiver: String,
-    /// Hub-asset markets to monitor.
+
     #[serde(default)]
     pub markets: Vec<MarketConfig>,
-    /// Asset-only market list; each entry maps to `hub_id = 1`.
+
     #[serde(default)]
     pub market_assets: Vec<String>,
-    /// Governance contract owning the controller. When set, bumps instance
-    /// (incl. instance-tier MinDelay) + role keys. Blank YAML (`""`) → unset.
+
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub governance: Option<String>,
-    /// `xoxno-oracle-adapter` address. When set, bumps instance + enumerable
-    /// persistent index/price state each tick. Blank YAML → unset.
+
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub xoxno_oracle_adapter: Option<String>,
-    /// Price-aggregator (oracle authority). When set, bumps token-rooted
-    /// `AssetOracle(asset)` rows on that contract. Blank YAML → unset.
+
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub price_aggregator: Option<String>,
 }
 
 impl ContractsConfig {
-    /// The controller price path depends on the aggregator's `AssetOracle`
-    /// rows AND its instance/code staying live. Silently skipping them would
-    /// let oracle storage archive under a keeper that looks healthy, so a
-    /// market-bearing config must name the price aggregator.
+
     fn require_aggregator_for_markets(&self) -> Result<()> {
         if self.price_aggregator.is_none()
             && (!self.markets.is_empty() || !self.market_assets.is_empty())
@@ -104,15 +97,13 @@ pub struct ScheduleConfig {
     pub ttl_safety_margin_days: u32,
     pub asset_chunk: usize,
     pub max_txs_per_tick: usize,
-    /// Run the `update_indexes(assets)` sweep.
+
     #[serde(default)]
     pub enable_index_refresh: bool,
-    /// Scan + bump per-user keys (`AccountMeta` / positions / delegates) for
-    /// `1..=AccountNonce`. Default on.
+
     #[serde(default = "default_scan_users")]
     pub scan_users: bool,
-    /// Hard ceiling on account ids scanned per tick. When `AccountNonce` exceeds
-    /// it, warns with the dropped range and scans only `1..=max_accounts_scan`.
+
     #[serde(default = "default_max_accounts_scan")]
     pub max_accounts_scan: u64,
 }
@@ -158,7 +149,6 @@ fn default_hub_id() -> u32 {
     1
 }
 
-/// Empty / whitespace-only optional string → `None`.
 fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -265,7 +255,6 @@ impl KeeperConfig {
     }
 }
 
-/// ~ledgers per day on Stellar.
 pub const LEDGERS_PER_DAY: u32 = 17_280;
 
 #[cfg(test)]
@@ -293,7 +282,6 @@ mod tests {
         );
         assert!(wired.require_aggregator_for_markets().is_ok());
 
-        // No markets → the aggregator may stay unset.
         assert!(contracts("").require_aggregator_for_markets().is_ok());
     }
 

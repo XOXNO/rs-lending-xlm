@@ -1,5 +1,3 @@
-//! Controller persists pool-returned position updates after supply and borrow.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};

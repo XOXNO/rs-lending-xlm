@@ -1,9 +1,3 @@
-//! Coherent controller prestate for endpoint rules.
-//!
-//! Production allocates hub and spoke identifiers from one. Rules seed the
-//! registry directly so a transition cannot pass merely by trapping on an
-//! uninitialized dependency or on the obsolete hub/spoke-zero model.
-
 use common::types::{
     AccountMeta, HubAssetKey, HubConfig, PositionLimits, PositionMode, SpokeAssetConfig,
     SpokeConfig,
@@ -22,7 +16,6 @@ pub fn hub_asset(asset: &Address) -> HubAssetKey {
     }
 }
 
-/// Seeds every protocol-global dependency read by user position flows.
 pub fn seed_protocol(env: &Env) {
     crate::storage::set_pool(env, &nondet_address());
     crate::storage::set_swap_aggregator(env, &nondet_address());
@@ -49,7 +42,6 @@ pub fn seed_protocol(env: &Env) {
     );
 }
 
-/// Seeds a production-valid account shell while preserving any symbolic side maps.
 pub fn seed_account(env: &Env, account_id: u64, owner: &Address) {
     crate::storage::set_account_meta(
         env,
@@ -62,7 +54,6 @@ pub fn seed_account(env: &Env, account_id: u64, owner: &Address) {
     );
 }
 
-/// Lists one unrestricted test market on the live hub and spoke.
 pub fn seed_market(env: &Env, asset: &Address) {
     seed_protocol(env);
     crate::storage::set_spoke_asset(

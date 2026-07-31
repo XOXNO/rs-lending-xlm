@@ -1,5 +1,3 @@
-//! Pure production rate/index lemmas used by pool accrual.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
@@ -63,7 +61,6 @@ fn curve(
     }
 }
 
-/// The validated three-segment curve never falls as utilization crosses either kink.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn borrow_rate_monotonic_across_utilization(
@@ -99,7 +96,6 @@ fn borrow_rate_monotonic_across_utilization(
     );
 }
 
-/// Both kinks join the adjacent segments at the configured cumulative rates.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn borrow_rate_kinks_match_configured_curve(
@@ -136,7 +132,6 @@ fn borrow_rate_kinks_match_configured_curve(
     cvlr_assert!(at_full.raw() == expected_full.raw());
 }
 
-/// Valid nonnegative per-millisecond rates produce a factor at least one.
 #[rule]
 fn compound_factor_never_below_one(e: Env, rate_per_ms: i128, delta_ms: u64) {
     let max_per_ms = Ray::from(MAX_BORROW_RATE_RAY)
@@ -151,7 +146,6 @@ fn compound_factor_never_below_one(e: Env, rate_per_ms: i128, delta_ms: u64) {
     cvlr_assert!(rate_per_ms == 0 || delta_ms == 0 || factor.raw() > RAY);
 }
 
-/// A unit interest factor leaves every validated borrow index unchanged.
 #[rule]
 fn borrow_index_identity_is_noop(e: Env, old_index: i128) {
     cvlr_assume!(old_index >= RAY && old_index <= MAX_BORROW_INDEX_RAY);
@@ -160,8 +154,6 @@ fn borrow_index_identity_is_noop(e: Env, old_index: i128) {
     cvlr_assert!(out.raw() == old_index);
 }
 
-/// A factor strictly above one strictly grows every index below the cap while
-/// remaining bounded by the production cap.
 #[rule]
 fn borrow_index_strictly_grows_below_cap(e: Env, old_index: i128, factor: i128) {
     cvlr_assume!(old_index >= RAY && old_index < MAX_BORROW_INDEX_RAY);
@@ -172,8 +164,6 @@ fn borrow_index_strictly_grows_below_cap(e: Env, old_index: i128, factor: i128) 
     cvlr_assert!(out.raw() <= MAX_BORROW_INDEX_RAY);
 }
 
-/// Once the borrow index reaches its validated cap, positive interest cannot
-/// move it above or below that cap.
 #[rule]
 fn borrow_index_cap_is_sticky(e: Env, factor: i128) {
     cvlr_assume!(factor > RAY && factor <= 10 * RAY);
@@ -182,7 +172,6 @@ fn borrow_index_cap_is_sticky(e: Env, factor: i128) {
     cvlr_assert!(out.raw() == MAX_BORROW_INDEX_RAY);
 }
 
-/// Zero supplied shares or zero rewards leave the supply index unchanged.
 #[rule]
 fn supply_index_zero_inputs_are_noop(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!(supplied >= 0 && supplied <= 100 * RAY);
@@ -196,7 +185,6 @@ fn supply_index_zero_inputs_are_noop(e: Env, supplied: i128, old_index: i128, re
     cvlr_assert!(no_rewards.raw() == old_index);
 }
 
-/// A positive but sub-raw-unit supplied value follows the production no-op branch.
 #[rule]
 fn supply_index_rounded_zero_value_is_noop(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!(supplied > 0 && supplied <= 100 * RAY);
@@ -210,8 +198,6 @@ fn supply_index_rounded_zero_value_is_noop(e: Env, supplied: i128, old_index: i1
     cvlr_assert!(out.raw() == old_index);
 }
 
-/// In the ordinary symbolic state band, supplier value growth never exceeds
-/// the reward; every undistributed raw unit is identified as shortfall.
 #[rule]
 fn supply_index_reward_distribution_is_conservative(
     e: Env,
@@ -237,8 +223,6 @@ fn supply_index_reward_distribution_is_conservative(
     cvlr_assert!(distributed.raw() + shortfall.raw() == rewards);
 }
 
-/// The extreme-index regression band remains conservative for the production
-/// 100-share fixture, including the previously reverting 145,000,436x case.
 #[rule]
 fn supply_index_high_index_rewards_are_conservative(e: Env, old_index: i128, rewards: i128) {
     cvlr_assume!(old_index > 10 * RAY && old_index <= REWARD_REGRESSION_INDEX_MAX);
@@ -258,8 +242,6 @@ fn supply_index_high_index_rewards_are_conservative(e: Env, old_index: i128, rew
     cvlr_assert!(distributed.raw() + shortfall.raw() == rewards);
 }
 
-/// Once the validated supply-index cap is reached, rewards cannot increase it;
-/// the entire reward is conservatively classified as protocol shortfall.
 #[rule]
 fn supply_index_cap_is_sticky(e: Env, rewards: i128) {
     cvlr_assume!(rewards > 0 && rewards <= 100 * RAY);
@@ -274,7 +256,6 @@ fn supply_index_cap_is_sticky(e: Env, rewards: i128) {
     cvlr_assert!(shortfall.raw() == rewards);
 }
 
-/// Debt-index growth is split exactly between suppliers and protocol revenue.
 #[rule]
 fn accrued_interest_split_is_conservative(
     e: Env,

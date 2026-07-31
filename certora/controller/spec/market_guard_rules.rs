@@ -1,5 +1,3 @@
-//! Market entry guards reject new exposure when preconditions fail.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
@@ -42,10 +40,6 @@ fn disabled_market_blocks_new_supply(e: Env, caller: Address, asset: Address, am
     cvlr_assert!(false);
 }
 
-/// Third parties may top up existing supply legs but must not open a new
-/// asset slot on someone else's account (slot-griefing guard in
-/// `process_supply`). Caller is neither owner nor a registered delegate and
-/// the account has no position in `asset`, so supply must revert.
 #[rule]
 fn supply_new_slot_requires_owner_or_delegate(
     e: Env,

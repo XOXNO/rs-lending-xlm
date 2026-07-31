@@ -1,5 +1,3 @@
-//! Spoke liquidation-curve bounds. No external calls.
-
 use common::validation::validate_liquidation_curve;
 use soroban_sdk::Env;
 

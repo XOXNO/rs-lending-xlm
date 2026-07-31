@@ -1,5 +1,3 @@
-//! Edge-case and overflow probes at protocol decision boundaries.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
@@ -10,7 +8,6 @@ use common::math::fp::{Bps, Ray, Wad};
 use common::math::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
 use common::rates::{calculate_borrow_rate, compound_interest};
 
-/// Fixed params with known utilization breakpoints (1/4/10/80% slopes, 50/80/95% util).
 fn boundary_test_params(env: &Env) -> MarketParams {
     MarketParams {
         base_borrow_rate: Ray::from(RAY / 100),
@@ -64,9 +61,6 @@ fn compound_interest_at_max_rate_max_time_sanity(e: Env) {
     cvlr_satisfy!(factor.raw() > 2 * RAY && factor.raw() < 3 * RAY);
 }
 
-/// Production `is_socializable_bad_debt` boundary: underwater collateral at
-/// exactly the threshold socializes; one unit above never does; accounts that
-/// are not underwater never do.
 #[rule]
 fn bad_debt_socialization_threshold_boundary(e: Env, debt_wad: i128, collateral_wad: i128) {
     let _ = e;
@@ -89,7 +83,6 @@ fn bad_debt_socialization_threshold_boundary(e: Env, debt_wad: i128, collateral_
     }
 }
 
-/// `mul_half_up(i128::MAX / RAY, RAY)` does not overflow via I256 intermediate.
 #[rule]
 fn mul_at_max_i128(e: Env) {
     let a = i128::MAX / RAY;

@@ -9,7 +9,6 @@ use common::types::{DebtPositionRaw, MarketIndexRaw, PositionMode, PriceFeedRaw}
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{vec, Address};
 
-/// Curve values that `add_spoke` stamps at creation.
 fn default_spoke_config() -> SpokeConfig {
     SpokeConfig {
         is_deprecated: false,
@@ -27,8 +26,6 @@ fn feed_raw() -> PriceFeedRaw {
     }
 }
 
-/// Aggregator-resolved price map for a single asset (the controller reads
-/// prices from this map after the one `prices()` call per flow).
 fn single_price(env: &Env, asset: &Address) -> soroban_sdk::Map<Address, PriceFeedRaw> {
     let mut prices = soroban_sdk::Map::new(env);
     prices.set(asset.clone(), feed_raw());
@@ -94,8 +91,6 @@ fn empty_account(env: &Env) -> Account {
     }
 }
 
-/// One debt position of 500 tokens (7 decimals) at $1 under unit indexes.
-/// Callers seed `Cache` prices via `single_price` (no live oracle).
 fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account) {
     let contract = env.register(crate::Controller, (Address::generate(env),));
     let asset = Address::generate(env);
@@ -122,9 +117,6 @@ fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account) {
     (contract, hub_asset, account)
 }
 
-/// One supply position of 1000 tokens (7 decimals) at $1 under unit indexes,
-/// with the given position-stamped liquidation fee.
-/// Callers seed `Cache` prices via `single_price` (no live oracle).
 fn seize_fixture(env: &Env, fees_bps: u32) -> (Address, HubAssetKey, Account) {
     let contract = env.register(crate::Controller, (Address::generate(env),));
     let asset = Address::generate(env);
@@ -206,8 +198,6 @@ fn debt_close_amount_uses_pool_full_close_ceiling() {
     assert_eq!(debt_close_amount(&env, &position, Ray::ONE, 0), 2);
 }
 
-// A consistent plan validates, including the `protocol_fee == amount`
-// boundary the fee cap must admit.
 #[test]
 fn liquidation_plan_validate_accepts_consistent_plan() {
     let env = Env::default();
@@ -253,8 +243,6 @@ fn liquidation_plan_validate_rejects_fee_above_amount() {
     plan_with(&env, 5 * WAD, seized).validate(&env);
 }
 
-// Zero collateral must short-circuit to a zero proportion instead of
-// dividing by the empty collateral total.
 #[test]
 fn seizure_proportion_is_zero_for_zero_collateral() {
     let env = Env::default();
@@ -269,7 +257,6 @@ fn seizure_proportion_is_zero_for_zero_collateral() {
     });
 }
 
-// Positive collateral divides through: $50 weighted of $100 total is 0.5.
 #[test]
 fn seizure_proportion_divides_weighted_by_total() {
     let env = Env::default();
@@ -288,7 +275,6 @@ fn seizure_proportion_divides_weighted_by_total() {
     });
 }
 
-// A payment exactly equal to the closable debt produces no refund entry.
 #[test]
 fn repayment_at_exact_debt_produces_no_refund() {
     let env = Env::default();
@@ -310,8 +296,6 @@ fn repayment_at_exact_debt_produces_no_refund() {
     });
 }
 
-// Over-repayment caps the leg at the actual debt and refunds exactly the
-// excess.
 #[test]
 fn repayment_above_debt_refunds_exact_excess() {
     let env = Env::default();
@@ -335,12 +319,10 @@ fn repayment_above_debt_refunds_exact_excess() {
     });
 }
 
-// A partial seizure floors the token conversion (half-up is reserved for the
-// exact full-position close) and a zero-fee position pays zero protocol fee.
 #[test]
 fn partial_seizure_floors_amount_and_zero_fee_stays_zero() {
     let env = Env::default();
-    // 100 tokens plus half a stroop of USD at $1; floor -> 1_000_000_000.
+
     let seized = run_seizure(&env, 0, 100 * WAD + 50_000_000_000, 0);
     assert_eq!(seized.len(), 1);
     let entry = seized.get_unchecked(0);
@@ -348,13 +330,10 @@ fn partial_seizure_floors_amount_and_zero_fee_stays_zero() {
     assert_eq!(entry.protocol_fee, 0);
 }
 
-// A positive fee that floors to zero stroops is bumped to the one-unit
-// minimum.
 #[test]
 fn dust_protocol_fee_rounds_up_to_one_unit() {
     let env = Env::default();
-    // 1 stroop repaid at 50% bonus: seizure 1.5 stroops, bonus leg 0.5
-    // stroops, 100% fee on it floors to 0 -> minimum fee of 1 unit.
+
     let seized = run_seizure(&env, 10_000, WAD / 10_000_000, 5_000);
     assert_eq!(seized.len(), 1);
     let entry = seized.get_unchecked(0);
@@ -362,13 +341,10 @@ fn dust_protocol_fee_rounds_up_to_one_unit() {
     assert_eq!(entry.protocol_fee, 1);
 }
 
-// A fee that converts to whole units is passed through exactly, not clamped
-// to the one-unit minimum.
 #[test]
 fn whole_unit_protocol_fee_is_exact() {
     let env = Env::default();
-    // 100 tokens repaid at 50% bonus: seizure 150, bonus leg 50, 10% fee = 5
-    // tokens exactly.
+
     let seized = run_seizure(&env, 1_000, 100 * WAD, 5_000);
     assert_eq!(seized.len(), 1);
     let entry = seized.get_unchecked(0);
@@ -376,7 +352,6 @@ fn whole_unit_protocol_fee_is_exact() {
     assert_eq!(entry.protocol_fee, 50_000_000);
 }
 
-// Zero excess is a no-op: no refund entries, no leg mutation.
 #[test]
 fn process_excess_payment_zero_excess_is_noop() {
     let env = Env::default();
@@ -391,8 +366,6 @@ fn process_excess_payment_zero_excess_is_noop() {
     assert_eq!(repaid.get_unchecked(0).amount, stroops(100));
 }
 
-// Excess equal to the tail leg's USD removes the whole leg instead of
-// leaving a zero-amount split residue.
 #[test]
 fn process_excess_payment_boundary_leg_is_removed() {
     let env = Env::default();
@@ -409,8 +382,6 @@ fn process_excess_payment_boundary_leg_is_removed() {
     assert_eq!(refunds.get_unchecked(0).amount, stroops(5));
 }
 
-// Excess larger than everything refunds every leg and returns cleanly with
-// the shortfall unconsumed.
 #[test]
 fn process_excess_payment_survives_exhausting_all_legs() {
     let env = Env::default();
@@ -425,8 +396,6 @@ fn process_excess_payment_survives_exhausting_all_legs() {
     assert_eq!(refunds.get_unchecked(0).amount, stroops(10));
 }
 
-// Excess spanning legs: the tail leg refunds fully and reduces the running
-// excess; the boundary leg splits pro-rata.
 #[test]
 fn process_excess_payment_spans_legs_with_pro_rata_split() {
     let env = Env::default();
@@ -437,7 +406,6 @@ fn process_excess_payment_spans_legs_with_pro_rata_split() {
 
     process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(60 * WAD));
 
-    // Tail leg ($40) fully refunded; remaining $20 splits the $100 leg 20%.
     assert_eq!(refunds.len(), 2);
     assert_eq!(refunds.get_unchecked(0).amount, stroops(40));
     assert_eq!(refunds.get_unchecked(1).amount, stroops(20));
@@ -447,8 +415,6 @@ fn process_excess_payment_spans_legs_with_pro_rata_split() {
     assert_eq!(kept.usd_wad, 80 * WAD);
 }
 
-// When every partial repayment would reduce HF, even a zero-bonus estimate
-// escalates to a full close, so a debt-covering payment leaves no refund.
 #[test]
 fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
     let env = Env::default();
@@ -458,9 +424,6 @@ fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
-        // p = 1, HF = 0.4: even a zero bonus removes weighted collateral
-        // faster than debt, so no partial is HF-safe and the guard escalates
-        // to a full close -- the whole $500 payment is consumed, no refund.
         let s = snap(500 * WAD, 100 * WAD, 40 * WAD, WAD, 400_000_000_000_000_000);
         let bounds = BonusBounds {
             base: Bps::from(0i128),
@@ -480,8 +443,6 @@ fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
     });
 }
 
-// A solvent-toxic account (collateral covers debt, but 0 <= hf/p - 1 < base)
-// rejects partial payments outright: only a full close is accepted.
 #[test]
 #[should_panic(expected = "Error(Contract, #135)")]
 fn normalize_rejects_partial_on_solvent_toxic_account() {
@@ -492,7 +453,6 @@ fn normalize_rejects_partial_on_solvent_toxic_account() {
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
-        // p = 0.9, HF = 0.93: cap = 333 bps sits in [0, base 500).
         let s = snap(
             500 * WAD,
             520 * WAD,
@@ -506,13 +466,11 @@ fn normalize_rejects_partial_on_solvent_toxic_account() {
         };
         let curve = LiquidationCurve::from_config(&default_spoke_config());
 
-        // $100 of the $500 debt: below the full-close ideal -> rejected.
         let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
         normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
     });
 }
 
-// The same solvent-toxic account accepts a payment covering the full debt.
 #[test]
 fn normalize_accepts_full_close_on_solvent_toxic_account() {
     let env = Env::default();
@@ -543,10 +501,6 @@ fn normalize_accepts_full_close_on_solvent_toxic_account() {
     });
 }
 
-// Boundary: cap == base exactly (hf/p - 1 == base). A partial at the base
-// bonus is exactly HF-neutral there, so it must be ACCEPTED -- the full-close
-// gate uses a strict `cap < base`. p = 0.8, hf = 0.84 gives
-// cap = 0.84/0.8 - 1 = 500 bps == base, and C/D = 1.05 keeps it solvent.
 #[test]
 fn normalize_accepts_partial_when_cap_equals_base() {
     let env = Env::default();
@@ -556,7 +510,6 @@ fn normalize_accepts_partial_when_cap_equals_base() {
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
-        // debt $500, collateral $525, weighted $420: p = 0.8, hf = 0.84.
         let s = snap(
             500 * WAD,
             525 * WAD,
@@ -575,7 +528,6 @@ fn normalize_accepts_partial_when_cap_equals_base() {
         };
         let curve = LiquidationCurve::from_config(&default_spoke_config());
 
-        // A $100 partial (below the full-close ideal) is accepted, not rejected.
         let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
         let plan =
             normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
@@ -584,9 +536,6 @@ fn normalize_accepts_partial_when_cap_equals_base() {
     });
 }
 
-// Insolvent accounts (negative HF-neutral cap: collateral below debt) keep the
-// partial path: forcing a full close would guarantee the liquidator a loss
-// and freeze liquidation.
 #[test]
 fn normalize_allows_partial_on_insolvent_account() {
     let env = Env::default();
@@ -596,7 +545,6 @@ fn normalize_allows_partial_on_insolvent_account() {
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
-        // p = 1, HF = 0.4: cap is negative, the account is insolvent.
         let s = snap(500 * WAD, 100 * WAD, 40 * WAD, WAD, 400_000_000_000_000_000);
         let bounds = BonusBounds {
             base: Bps::from(0i128),
@@ -612,9 +560,6 @@ fn normalize_allows_partial_on_insolvent_account() {
     });
 }
 
-// `get_account_bonus_params` weights each supply leg's bonus by its share of
-// the caller-supplied `total_collateral`. A single $1000 leg at 500 bps carries
-// weight 1.0 and yields base == 500.
 #[test]
 fn account_bonus_params_weights_bonus_by_collateral_share() {
     let env = Env::default();
@@ -624,9 +569,6 @@ fn account_bonus_params_weights_bonus_by_collateral_share() {
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
-        // The fixture's sole leg is 1000 tokens at a $1.00 feed and a unit index.
-        // 0.5 collateral-mix proportion -> max bonus 10000 bps, so base is not
-        // clamped below the leg's 500 bps.
         let bounds = get_account_bonus_params(
             &env,
             &mut cache,
@@ -640,8 +582,6 @@ fn account_bonus_params_weights_bonus_by_collateral_share() {
     });
 }
 
-// A zero total collateral short-circuits to a zero base before any leg is
-// priced, and the ceiling still reflects the seized proportion.
 #[test]
 fn account_bonus_params_zero_collateral_yields_zero_base() {
     let env = Env::default();
@@ -664,18 +604,12 @@ fn account_bonus_params_zero_collateral_yields_zero_base() {
     });
 }
 
-// Bonus + seizure invariants
-
-// The estimated seizure never exceeds the account's collateral, at any
-// liquidatable HF. This is the per-threshold ceiling that keeps a liquidation
-// from over-seizing. Single 0.80-threshold collateral, swept from shallow to
-// deep.
 #[test]
 fn seizure_never_exceeds_collateral() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());
     let collateral = 100 * WAD;
-    let weighted = 80 * WAD; // threshold 0.80
+    let weighted = 80 * WAD;
     let proportion = 80 * WAD / 100;
     let bounds = BonusBounds {
         base: Bps::from(500i128),
@@ -685,7 +619,6 @@ fn seizure_never_exceeds_collateral() {
     let mut ceilings_checked = 0;
 
     for hf_pct in (10..100).step_by(5) {
-        // hf = weighted / debt  =>  debt = weighted / hf
         let debt = weighted * 100 / hf_pct as i128;
         let s = snap(
             debt,
@@ -695,10 +628,7 @@ fn seizure_never_exceeds_collateral() {
             WAD * hf_pct as i128 / 100,
         );
         let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-        // The dust guard may escalate to a full close whose notional seizure
-        // exceeds collateral; the real per-asset seizure is capped downstream in
-        // `calculate_seized_collateral`. Assert the ceiling only on the
-        // non-escalated (target-HF or collateral-capped) path.
+
         if ideal.raw() == s.total_debt.raw() {
             continue;
         }
@@ -712,8 +642,6 @@ fn seizure_never_exceeds_collateral() {
         );
     }
 
-    // Full-close estimates are skipped above, so without this the sweep would
-    // pass vacuously if every case escalated to a full close.
     assert!(
         ceilings_checked > 0,
         "swept the HF range without reaching a single non-escalated estimate"

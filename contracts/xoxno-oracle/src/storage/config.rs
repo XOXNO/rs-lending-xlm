@@ -1,8 +1,3 @@
-//! Instance-storage configuration reads.
-//!
-//! Getters return safe defaults so a partially-configured contract reads as
-//! inert rather than trapping.
-
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::storage::{
@@ -10,7 +5,6 @@ use crate::storage::{
     DEFAULT_MAX_SUBMISSION_AGE_SECONDS,
 };
 
-/// Registered signer set; empty before the constructor runs.
 pub(crate) fn load_signers(env: &Env) -> Vec<Address> {
     env.storage()
         .instance()
@@ -18,7 +12,6 @@ pub(crate) fn load_signers(env: &Env) -> Vec<Address> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
-/// Submissions required to publish an aggregate; `0` until configured.
 pub(crate) fn load_threshold(env: &Env) -> u32 {
     env.storage()
         .instance()
@@ -26,7 +19,6 @@ pub(crate) fn load_threshold(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-/// Age past which a published aggregate stops being readable.
 pub(crate) fn load_max_stale_seconds(env: &Env) -> u64 {
     env.storage()
         .instance()
@@ -34,8 +26,6 @@ pub(crate) fn load_max_stale_seconds(env: &Env) -> u64 {
         .unwrap_or(DEFAULT_MAX_STALE_SECONDS)
 }
 
-/// Absolute inclusion window: submissions older than this are excluded from
-/// aggregation and rejected at submit.
 pub(crate) fn load_max_submission_age(env: &Env) -> u64 {
     env.storage()
         .instance()
@@ -43,7 +33,6 @@ pub(crate) fn load_max_submission_age(env: &Env) -> u64 {
         .unwrap_or(DEFAULT_MAX_SUBMISSION_AGE_SECONDS)
 }
 
-/// Effective cluster skew, always capped by the absolute inclusion window.
 pub(crate) fn load_max_relative_skew(env: &Env) -> u64 {
     let configured = env
         .storage()
@@ -53,7 +42,6 @@ pub(crate) fn load_max_relative_skew(env: &Env) -> u64 {
     configured.min(load_max_submission_age(env))
 }
 
-/// History bucket width in seconds; samples inside one bucket overwrite in place.
 pub(crate) fn load_resolution(env: &Env) -> u32 {
     env.storage()
         .instance()

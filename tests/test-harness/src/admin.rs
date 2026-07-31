@@ -26,8 +26,6 @@ impl LendingTest {
         self.ctrl_client().set_accumulator(addr);
     }
 
-    /// Mutate current config: risk/`liquidation_fees` → base spoke via
-    /// `edit_asset_in_spoke`; flash-loan fields → pool `MarketParamsRaw`.
     pub fn edit_asset_config(&self, asset_name: &str, f: impl FnOnce(&mut AssetConfigView)) {
         let asset = self.resolve_asset(asset_name);
         let mut config = self.get_asset_config(asset_name);
@@ -64,7 +62,6 @@ impl LendingTest {
         });
     }
 
-    /// Set per-spoke `paused` (preserves risk). Blocks user verbs; liquidation stays reachable.
     pub fn set_spoke_asset_paused(&self, asset_name: &str, paused: bool) {
         let asset = self.resolve_asset(asset_name);
         let config = self.get_asset_config(asset_name);
@@ -167,7 +164,6 @@ impl LendingTest {
             .remove_asset_from_spoke(&hub_asset(asset), &category_id);
     }
 
-    /// Like `edit_asset_in_spoke` with real supply/borrow caps (other helpers pass `0` = disabled).
     #[allow(clippy::too_many_arguments)]
     pub fn edit_asset_in_spoke_caps(
         &self,

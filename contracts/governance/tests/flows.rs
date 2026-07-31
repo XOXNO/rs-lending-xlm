@@ -1,5 +1,3 @@
-//! Governance controller deployment and forwarding tests.
-
 extern crate std;
 
 use crate::op::{
@@ -28,11 +26,6 @@ fn register_native_controller(env: &Env, gov_id: &Address, gov: &GovernanceClien
     controller_id
 }
 
-/// A well-formed single-source oracle over throwaway addresses.
-///
-/// These tests exercise governance's routing and auth, not the aggregator's
-/// validation — the proposals here are never executed against a live feed — so
-/// the providers need only be shaped correctly, not deployed.
 fn sample_asset_oracle(env: &Env) -> AssetOracle {
     AssetOracle {
         asset_decimals: 7,
@@ -84,7 +77,6 @@ fn deploy_controller_stores_address_and_governance_owns_it() {
         assert_eq!(ownable::get_owner(&env), Some(gov_id.clone()));
     });
 
-    // Owner-gated forwarding reaches the deployed controller's storage.
     gov.execute_immediate(
         &admin,
         &AdminOperation::SetPositionLimits(PositionLimits {
@@ -128,9 +120,6 @@ fn deploy_price_aggregator_stores_address_and_governance_owns_it() {
     });
 }
 
-// Bootstrap wiring: deploying the price aggregator after the controller
-// exists must point the controller at it atomically (no timelock), so the
-// oracle authority is usable the moment it is deployed.
 #[test]
 fn deploy_price_aggregator_wires_the_controller() {
     let env = Env::default();
@@ -142,7 +131,6 @@ fn deploy_price_aggregator_wires_the_controller() {
     let controller_id = gov.deploy_controller(&upload_controller_wasm(&env));
     let aggregator_id = gov.deploy_price_aggregator(&upload_price_aggregator_wasm(&env));
 
-    // Governance stored it AND the controller now points at the same address.
     assert_eq!(gov.price_aggregator(), aggregator_id);
     let ctrl = controller::ControllerClient::new(&env, &controller_id);
     assert_eq!(ctrl.price_aggregator(), aggregator_id);
@@ -170,7 +158,6 @@ fn controller_view_panics_when_unset() {
     gov.controller();
 }
 
-// Validation runs before controller lookup.
 #[test]
 #[should_panic(expected = "Error(Contract, #36)")]
 fn validation_runs_before_controller_lookup() {
@@ -207,8 +194,6 @@ fn set_position_limits_forwards_to_native_controller() {
     assert_eq!(stored.max_borrow_positions, 2);
 }
 
-// Mock governance-owner auth; controller owner auth must pass through the
-// invoker path.
 #[test]
 fn forwarding_passes_controller_owner_auth_via_invoker() {
     let env = Env::default();
@@ -250,13 +235,11 @@ fn pause_and_unpause_forward_to_controller() {
     let (admin, gov_id, gov) = register_governance(&env);
     let controller_id = register_native_controller(&env, &gov_id, &gov);
 
-    // Unpause is a timelocked controller op; `execute_immediate` applies it in-test.
     gov.execute_immediate(&admin, &AdminOperation::Unpause);
     assert!(!env.as_contract(&controller_id, || {
         stellar_contract_utils::pausable::paused(&env)
     }));
 
-    // GUARDIAN halts the controller immediately.
     gov.pause(&admin);
     assert!(env.as_contract(&controller_id, || {
         stellar_contract_utils::pausable::paused(&env)
@@ -286,7 +269,6 @@ fn configure_market_oracle_requires_oracle_role() {
     );
 }
 
-// Tolerance validation runs before controller lookup.
 #[test]
 #[should_panic(expected = "Error(Contract, #208)")]
 fn edit_oracle_tolerance_validates_before_any_cross_call() {
@@ -330,8 +312,6 @@ fn set_aggregator_rejects_stellar_asset_contract() {
     gov.execute_immediate(&admin, &AdminOperation::SetSwapAggregator(stellar_asset));
 }
 
-// The Wasm-executable acceptance leg of `require_contract_address`: a real
-// deployed contract must pass validation and reach controller storage.
 #[test]
 fn set_aggregator_accepts_wasm_contract_address() {
     let env = Env::default();
@@ -444,7 +424,7 @@ fn edit_asset_in_spoke_rejects_bad_risk_bounds_before_any_cross_call() {
         paused: false,
         frozen: false,
         ltv: 9_000,
-        // Threshold below LTV is invalid.
+
         threshold: 8_000,
         bonus: 500,
         liquidation_fees: 100,
@@ -454,7 +434,6 @@ fn edit_asset_in_spoke_rejects_bad_risk_bounds_before_any_cross_call() {
     gov.execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
 
-// Admin entrypoints renew instance TTL for ownable, role, and controller keys.
 #[test]
 fn entrypoint_renews_governance_instance_ttl() {
     let env = Env::default();
@@ -474,7 +453,7 @@ fn entrypoint_renews_governance_instance_ttl() {
         }),
         &salt,
     );
-    // Effective sensitive delay is max(min_delay, sensitive floor).
+
     env.ledger().with_mut(|l| {
         l.sequence_number += constants::TIMELOCK_MIN_DELAY_LEDGERS
             .max(constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
@@ -510,7 +489,6 @@ fn propose_resolves_all_controller_and_self_variants() {
         BytesN::<32>::from_array(&env, &[n; 32])
     };
 
-    // Self-targeted, sensitive operation.
     gov.propose(
         &admin,
         &AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
@@ -564,7 +542,6 @@ fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
     let gov = GovernanceClient::new(&env, &gov_id);
     let new_owner = Address::generate(&env);
 
-    // Effective sensitive delay is max(min_delay, sensitive floor).
     let sensitive_delay =
         constants::TIMELOCK_MIN_DELAY_LEDGERS.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
     let live_until = env.ledger().sequence() + sensitive_delay + 10_000;
@@ -589,7 +566,6 @@ fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
     assert_eq!(pending_admin.address, new_owner);
     assert_eq!(pending_admin.live_until_ledger, live_until);
 
-    // New owner accepts -> sync_owner_access_control migrates admin + roles.
     gov.accept_ownership();
     env.as_contract(&gov_id, || {
         assert_eq!(ownable::get_owner(&env), Some(new_owner.clone()));
@@ -627,10 +603,6 @@ fn execute_immediate_self_op_applies_inline() {
     );
     assert!(!gov.has_role(&grantee, &role));
 }
-
-// Guardian/oracle immediate forwarders: the role gate must run and the call
-// must reach the controller. These live here (not only in the harness)
-// because the governance mutation scope runs governance tests alone.
 
 fn grant_incident_role(
     env: &Env,
@@ -680,8 +652,6 @@ fn guardian_set_spoke_asset_flags_reaches_controller_listing_check() {
     let guardian = Address::generate(&env);
     grant_incident_role(&env, &admin, &gov, &guardian, GUARDIAN_ROLE);
 
-    // Spoke exists but the asset is not listed on it: the controller's
-    // AssetNotInSpoke proves the forwarding happened.
     let spoke_id = gov.add_spoke(&guardian);
     gov.set_spoke_asset_flags(
         &guardian,
@@ -725,9 +695,6 @@ fn oracle_set_sanity_bounds_reaches_aggregator_config_check() {
     let bot = Address::generate(&env);
     grant_incident_role(&env, &admin, &gov, &bot, ORACLE_ROLE);
 
-    // No oracle configured for the asset: the price-aggregator's
-    // OracleNotConfigured (#216) proves the ORACLE role sanity-band forwarding
-    // reached the authority.
     gov.set_sanity_band(
         &bot,
         &PriceKey::Token(Address::generate(&env)),
@@ -773,9 +740,6 @@ fn revoke_role_immediate_strips_only_the_named_incident_role() {
     assert!(!gov.has_role(&key, &Symbol::new(&env, ORACLE_ROLE)));
 }
 
-// `Controller::upgrade` must pause a running controller before swapping the
-// Wasm, and must actually perform the swap-side pause even when invoked
-// while already paused (the guard skips only the double-pause panic).
 #[test]
 fn controller_upgrade_pauses_running_contract_before_wasm_swap() {
     let env = Env::default();
@@ -785,7 +749,6 @@ fn controller_upgrade_pauses_running_contract_before_wasm_swap() {
     let (admin, gov_id, gov) = register_governance(&env);
     let controller_id = register_native_controller(&env, &gov_id, &gov);
 
-    // The controller deploys paused; bring it into the running state.
     gov.execute_immediate(&admin, &AdminOperation::Unpause);
     env.as_contract(&controller_id, || {
         assert!(!stellar_contract_utils::pausable::paused(&env));

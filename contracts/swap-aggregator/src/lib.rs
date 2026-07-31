@@ -1,11 +1,4 @@
-//! Stellar swap router.
-//!
-//! Pulls one input amount, executes split paths, and returns measured output.
-//! Owner is OZ `Ownable` (two-step transfer); storage otherwise holds only
-//! referral config, whitelist, and fee buckets.
-
 #![no_std]
-// Soroban macros emit their own unsafe allowances.
 #![deny(unsafe_code)]
 
 mod errors;
@@ -224,9 +217,6 @@ impl Router {
     }
 }
 
-/// `#[contractimpl]` can't see through to `Ownable`'s trait defaults, so each
-/// body is written out. `transfer_ownership`/`accept_ownership` gate on
-/// owner auth internally — no `#[only_owner]` here.
 #[contractimpl]
 impl Ownable for Router {
     fn get_owner(e: &Env) -> Option<Address> {
@@ -270,8 +260,7 @@ fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address, referral_i
     if referral_id == 0 {
         return;
     }
-    // Look up referral; silently no-op if missing or inactive so a stale
-    // referral id doesn't brick the user's swap.
+
     let cfg: ReferralConfig = match env
         .storage()
         .persistent()
@@ -294,12 +283,6 @@ fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address, referral_i
         .get(&DataKey::StaticFeeBps)
         .unwrap_or(0);
 
-    // Compute the combined bps once and bail before computing the
-    // per-side fee amounts when both the admin slice and the referral
-    // slice are zero — the `total <= 0` check below would also catch
-    // this case before any vault/storage work, but this skips the two
-    // `fee_amount` calls up front. Typical of "tracking" referrals
-    // (active but 0 bps both sides) used purely for attribution.
     let combined_bps = static_fee_bps
         .checked_add(cfg.fee_bps)
         .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow));
@@ -432,29 +415,19 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
     let router = env.current_contract_address();
     let mut vault = Vault::new(&env);
 
-    // Pull total_in once into the router's vault.
     token::Client::new(&env, &input_token).transfer(&sender, &router, &total_in);
     vault.deposit(&input_token, total_in);
 
-    // Fee direction is only meaningful when there's actually a fee
-    // to charge. `referral_id == 0` means "no fee" (matches MVX
-    // semantics). Skipping this block on the no-fee path saves
-    // 2 instance-storage reads and avoids touching the whitelist
-    // entirely — the lending controller's only path.
     let fee_on_input = if payload.referral_id != 0 {
         let list = load_whitelist(&env);
         let in_wl = list.contains(&input_token);
         let out_wl = list.contains(&output_token);
-        // Fee is charged on input unless output is the only whitelisted side.
+
         !out_wl || in_wl
     } else {
         false
     };
 
-    // Apply input-side fee BEFORE walking paths so per-path slicing
-    // is on the post-fee vault balance. The function early-returns
-    // when there's nothing to charge (referral_id == 0, missing /
-    // inactive referral, or zero combined bps).
     if fee_on_input {
         apply_fees_on_token(&env, &mut vault, &input_token, payload.referral_id);
     }
@@ -485,7 +458,6 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
         execute_path(&env, &router, &mut vault, &path, path_input);
     }
 
-    // Apply output-side fee AFTER paths complete.
     if !fee_on_input {
         apply_fees_on_token(&env, &mut vault, &output_token, payload.referral_id);
     }

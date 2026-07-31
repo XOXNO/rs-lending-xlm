@@ -1,8 +1,3 @@
-//! Aggregator swaps verified by controller token balance deltas.
-//!
-//! Router address comes from storage; pull is capped at `amount_in`;
-//! underspend refunds to the caller. Reentrancy guard wraps the route call.
-
 use common::errors::GenericError;
 use common::types::StrategySwap;
 use soroban_sdk::{assert_with_error, token, Address, Env};
@@ -15,7 +10,6 @@ use crate::storage;
 use route::aggregator::AggregatorClient;
 use route::validate_strategy_swap;
 
-/// Router from storage only; pull exactly amount_in; verify in/out by balance delta.
 pub(crate) fn swap_tokens(
     env: &Env,
     refund_to: &Address,
@@ -24,7 +18,6 @@ pub(crate) fn swap_tokens(
     token_out: &Address,
     swap: &StrategySwap,
 ) -> i128 {
-    // D{token_in.decimals}{Token(token_in)} -> D{token_out.decimals}{Token(token_out)}.
     let router_addr = storage::get_swap_aggregator(env);
     let router = AggregatorClient::new(env, &router_addr);
     let token_out_client = token::Client::new(env, token_out);

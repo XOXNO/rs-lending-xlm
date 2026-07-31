@@ -1,7 +1,3 @@
-//! Pool lifecycle: the one-time pool deployment, market creation, rate-model
-//! replacement, and pool WASM upgrade. Owner-gated only, so every entry rides
-//! the governance timelock.
-
 use common::errors::GenericError;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{assert_with_error, Address, BytesN, Env};
@@ -14,8 +10,6 @@ use crate::external::pool::{
 };
 use crate::storage;
 
-/// Deterministic salt for the one-time central pool deployment; the pool
-/// address derives from (controller address, salt).
 const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 
 pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
@@ -80,7 +74,6 @@ pub(crate) fn upgrade_liquidity_pool_params(
 
     let pool_addr = cache.cached_pool_address();
 
-    // `update_indexes` reverts `PoolNotInitialized` for an uncreated market.
     pool_update_indexes_call(env, &pool_addr, hub_asset);
 
     pool_update_params_call(env, &pool_addr, hub_asset, params);

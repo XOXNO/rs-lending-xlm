@@ -1,18 +1,3 @@
-//! Interest-rate and scaled-share math shared by the pool and the controller.
-//!
-//! Split by concern, and by consumer:
-//!
-//! - [`curve`], [`compound`], [`index`], [`simulate`] are the accrual model.
-//!   Only the pool calls these in production; they live here so the `common`
-//!   Certora artifact can prove them without linking a contract.
-//! - [`scaling`] is a cross-contract surface. The controller's liquidation math
-//!   and limit views call into it, so a change there moves both contracts at
-//!   once — which is the point: a private copy on either side would let the
-//!   position map and the pool's books drift apart.
-//!
-//! Rates and indexes are RAY (`1e27`); reserve factor is BPS. Accrual chunks at
-//! most one year (`MAX_COMPOUND_DELTA_MS`).
-
 #[cfg(test)]
 #[path = "../../tests/rates/support.rs"]
 pub(crate) mod test_support;

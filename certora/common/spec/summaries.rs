@@ -1,5 +1,3 @@
-//! Certora summaries for expensive common math.
-
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use soroban_sdk::Env;
@@ -8,17 +6,6 @@ use crate::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY};
 use crate::math::fp::Ray;
 use crate::types::{MarketIndex, PoolSyncData};
 
-/// Index accrual nondet: `borrow_out` in `[borrow_in, MAX_BORROW_INDEX_RAY]`,
-/// `supply_out` in `[supply_in, MAX_SUPPLY_INDEX_RAY]`.
-///
-/// Soundness vs real `simulate_update_indexes` (inputs assumed inside the
-/// reachable band, i.e. at or below the production caps):
-///   * borrow grows only by interest; `update_borrow_index` clamps at
-///     `MAX_BORROW_INDEX_RAY` (`update_borrow_index_capped` lemma)
-///   * supply grows only by supplier rewards (read path has no bad-debt
-///     write-down); `update_supply_index` clamps at `MAX_SUPPLY_INDEX_RAY`
-///     (`update_supply_index_capped` lemma)
-///   * zero-delta early-return is exact
 pub fn simulate_update_indexes_summary(
     _env: &Env,
     _current_timestamp: u64,

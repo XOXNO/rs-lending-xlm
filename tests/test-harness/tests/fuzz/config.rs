@@ -1,5 +1,3 @@
-//! Proptest run sizing: `PROPTEST_CASES=N` overrides per-module defaults.
-
 use proptest::prelude::ProptestConfig;
 use proptest::test_runner::FileFailurePersistence;
 
@@ -13,8 +11,7 @@ pub fn cases(default: u32) -> u32 {
 pub fn config(default_cases: u32) -> ProptestConfig {
     ProptestConfig {
         cases: cases(default_cases),
-        // Keep regressions beside each property module, where they are easy to
-        // review and already committed by this repository.
+
         failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
             "proptest-regressions",
         ))),

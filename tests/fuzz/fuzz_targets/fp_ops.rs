@@ -1,8 +1,4 @@
-//! `common::math::fp` type ops: Ray/Wad/Bps roundtrips, mul/div, token conversion.
-//!
-//! Ray/Wad/Bps are non-negative by construction in the protocol, and the fp
-//! helpers debug-assert non-negative operands, so the fuzzer only exercises the
-//! valid non-negative domain.
+
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, WAD};
@@ -10,25 +6,20 @@ use common::math::fp::{Bps, Ray, Wad};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::Env;
 
-/// Operand cap (~10^19 raw). Domain must reach `a, b >= WAD` so the mul/div
-/// roundtrip property is reachable.
-const MAX_MAG: i128 = 10_000_000_000_000_000_000; // 10^19
+const MAX_MAG: i128 = 10_000_000_000_000_000_000;
 
 #[derive(Debug, Arbitrary)]
 struct In {
-    // Magnitudes sampled through modulo; keeps libFuzzer's byte mutation
-    // yielding a smooth distribution over the validated non-negative domain.
+
     a_raw: u64,
     b_raw: u64,
-    // 0..=BPS (inclusive). Values > BPS exercise the degraded path where
-    // `apply_to` scales up — a legitimate but less-common branch.
+
     bps: u16,
-    // 0..=27, asset-decimal domain.
+
     decimals: u8,
     token_amount: u64,
 }
 
-/// Non-negative operand in `[0, MAX_MAG)`.
 fn magnitude(raw: u64) -> i128 {
     (raw as i128) % MAX_MAG
 }
@@ -43,9 +34,8 @@ fuzz_target!(|i: In| {
     let wad_a = Wad::from(a);
     let wad_b = Wad::from(b);
     let bps = Bps::from(i.bps as i128);
-    let decimals = (i.decimals % 28) as u32; // 0..=27
+    let decimals = (i.decimals % 28) as u32;
 
-    // checked_add / checked_sub roundtrips over the non-negative domain.
     assert_eq!(
         ray_a.checked_add(&env, ray_b).checked_sub(&env, ray_b),
         ray_a,
@@ -64,7 +54,6 @@ fuzz_target!(|i: In| {
         "Bps add/sub roundtrip"
     );
 
-    // Ray → Wad divides by 10^9. `Ray::ONE.to_wad() == Wad::ONE`.
     let ray_one_as_wad = Ray::ONE.to_wad();
     assert_eq!(
         ray_one_as_wad.raw(),
@@ -72,7 +61,7 @@ fuzz_target!(|i: In| {
         "Ray::ONE.to_wad() != Wad::ONE ({})",
         ray_one_as_wad.raw()
     );
-    // Monotonic: larger ray => larger to_wad (within 1 ulp).
+
     let ray_small = Ray::from(a / 2);
     let ray_big = Ray::from(a);
     assert!(
@@ -80,13 +69,11 @@ fuzz_target!(|i: In| {
         "Ray::to_wad not monotonic"
     );
 
-    // to_asset quantises to token precision; roundtrip loses at most one
-    // token-unit (scaled to RAY).
     if a <= 10i128.pow(18) && decimals <= 18 {
         let asset = ray_a.to_asset(decimals);
         let back = Ray::from_asset(asset, decimals);
         let err = (back.raw() - ray_a.raw()).abs();
-        // Tolerance: one asset-unit scaled back to RAY = 10^(27 - decimals).
+
         let tol = 10i128.pow(27 - decimals.min(27));
         assert!(
             err <= tol,
@@ -99,7 +86,6 @@ fuzz_target!(|i: In| {
         );
     }
 
-    // `a * 1 == a` (half-up is exact for whole ulps on non-negative values).
     let ident = wad_a.mul(&env, Wad::ONE);
     let ident_err = (ident.raw() - wad_a.raw()).abs();
     assert!(
@@ -110,8 +96,6 @@ fuzz_target!(|i: In| {
         ident_err
     );
 
-    // `mul(a,b).div(b) == a` within 2 ulp only when a,b >= WAD; below that,
-    // `a*b/WAD` truncates so `* WAD / b` cannot recover `a`.
     if a >= WAD && b >= WAD {
         let prod = wad_a.mul(&env, wad_b);
         let roundtrip = prod.div(&env, wad_b);
@@ -125,7 +109,6 @@ fuzz_target!(|i: In| {
             err
         );
 
-        // div_floor <= div (floor <= half-up); a >= b so the quotient is >= 1.
         if wad_a.raw() >= wad_b.raw() {
             let f = wad_a.div_floor(&env, wad_b);
             let d = wad_a.div(&env, wad_b);
@@ -157,8 +140,6 @@ fuzz_target!(|i: In| {
         "max not in {{a, b}}"
     );
 
-    // ≤18 decimals: exact token roundtrip. Above WAD precision: half-up of
-    // one WAD-sized token unit.
     let token_amount = i.token_amount as i128;
     let w = Wad::from_token(token_amount, decimals);
     let back = w.to_token(decimals);
@@ -178,14 +159,13 @@ fuzz_target!(|i: In| {
         );
     }
 
-    // apply_to(0) = 0.
     assert_eq!(
         bps.apply_to(&env, 0),
         0,
         "Bps::apply_to(0) != 0 for bps={}",
         bps.raw()
     );
-    // Non-expansion: for bps ≤ BPS, `apply_to(x) ≤ x + 1` (half-up slack).
+
     if bps.raw() <= BPS && a <= 10i128.pow(24) {
         let scaled = bps.apply_to(&env, ray_a.raw());
         assert!(
@@ -197,14 +177,11 @@ fuzz_target!(|i: In| {
         );
     }
 
-    // Bps::to_wad. BPS bps = Wad::ONE.
     let full_bps = Bps::from(BPS);
     assert_eq!(full_bps.to_wad(&env).raw(), WAD, "Bps(BPS).to_wad() != WAD");
-    // Zero bps -> zero Wad.
+
     assert_eq!(Bps::from(0).to_wad(&env).raw(), 0, "Bps(0).to_wad() != 0");
 
-    // apply_to_wad: apply_to_wad(x) should equal Wad::from(apply_to(x.raw()))
-    // within 1 ulp (both use the same half-up rounding under the hood).
     if bps.raw() <= BPS && a <= 10i128.pow(15) {
         let via_wad = bps.apply_to_wad(&env, wad_a);
         let via_raw = bps.apply_to(&env, wad_a.raw());

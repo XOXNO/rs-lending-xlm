@@ -36,9 +36,6 @@ fn price_for_debt_ratio(
         / (10_000 * debt_tokens)
 }
 
-/// Shared body: seed a liquidatable position, crash the price into the
-/// differential scope, liquidate, and assert production matches the exact
-/// rational reference. `max_ltv_frac` sizes the borrow to the collateral's LTV.
 fn run_liquidation_differential(
     mut t: LendingTest,
     max_ltv_frac: f64,
@@ -103,9 +100,6 @@ fn run_liquidation_differential(
     let coll_before_usd = t.total_collateral_raw(ALICE);
     let usdc_supply_before_tokens = t.supply_balance_raw(ALICE, "USDC");
 
-    // Solvent-toxic accounts reject partial payments (`FullCloseRequired`);
-    // the reference mirrors the gate, so assert the rejection and stop -- the
-    // differential comparisons only apply to executed liquidations.
     if ref_result.requires_full_close && ref_total_repaid_usd_wad < debt_before_usd {
         let liq_res = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay_amt);
         prop_assert!(

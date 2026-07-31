@@ -1,5 +1,3 @@
-//! Router ABI types.
-
 use soroban_sdk::{contracttype, Address, Vec};
 
 #[contracttype]

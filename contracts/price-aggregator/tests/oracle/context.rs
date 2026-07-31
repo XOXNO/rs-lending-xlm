@@ -50,7 +50,7 @@ fn test_cycle_stack_rejects_reentry() {
     let mut session = Session::new(&env);
     let key = token(&env);
     session.push_key(&key);
-    // Second push panics — covered by engine cycle tests; here only is_resolving.
+
     assert!(session.is_resolving(&key));
     session.pop_key();
     assert!(!session.is_resolving(&key));
@@ -66,15 +66,6 @@ fn test_distinct_keys_do_not_collide() {
     assert!(!session.is_resolving(&b));
     session.pop_key();
 }
-
-// ---------------------------------------------------------------------------
-// Bulk prefetch
-// ---------------------------------------------------------------------------
-//
-// The feed cache and the bulk prefetch are pure memos: the price a key resolves
-// to is identical whether it came from a warm batch, a lazy single read, or a
-// cache hit. Adapter call counts are the only observable, so every assertion
-// below is a count.
 
 const NOW: u64 = 1_000_000;
 const CEILING: u64 = 3_600;
@@ -109,7 +100,6 @@ fn oracle_of(env: &Env, source: PriceSource) -> AssetOracle {
     }
 }
 
-/// Registers a counting adapter with `feeds` published at one WAD each.
 fn counting_adapter<'a>(
     env: &'a Env,
     feeds: &[&str],
@@ -134,9 +124,6 @@ fn feed_key(env: &Env, adapter: &Address, feed_id: &str) -> PriceKey {
 
 #[test]
 fn test_one_bulk_read_serves_every_leg_and_no_lazy_read_follows() {
-    // Two feeds on one adapter is the shape warm exists for: one bulk call
-    // replaces two single ones, and the cache it fills must actually be
-    // consulted afterwards — a prefetch nothing reads is worse than none.
     let env = Env::default();
     env.ledger().set_timestamp(NOW);
     let (adapter, client) = counting_adapter(&env, &["A", "B"]);
@@ -166,8 +153,6 @@ fn test_one_bulk_read_serves_every_leg_and_no_lazy_read_follows() {
 
 #[test]
 fn test_a_lone_feed_is_read_lazily_rather_than_bulked() {
-    // Below the bulk threshold a batch call costs more than the single read it
-    // would replace, so warm leaves it alone.
     let env = Env::default();
     env.ledger().set_timestamp(NOW);
     let (adapter, client) = counting_adapter(&env, &["A"]);
@@ -189,11 +174,6 @@ fn test_a_lone_feed_is_read_lazily_rather_than_bulked() {
 
 #[test]
 fn test_the_prefetch_walk_stops_at_the_composition_cap() {
-    // warm walks nested quotes to find their legs, and that walk carries the
-    // same depth cap the resolver does. A walk that stopped accumulating depth
-    // would descend the whole chain; one that stopped a level early would miss
-    // the deepest leg it is allowed to prefetch. Both show up as a batch of the
-    // wrong size.
     let env = Env::default();
     env.ledger().set_timestamp(NOW);
     let (adapter, client) = counting_adapter(&env, &["F1", "F2", "F3", "F4", "LEAF"]);
@@ -206,8 +186,6 @@ fn test_the_prefetch_walk_stops_at_the_composition_cap() {
             &oracle_of(&env, PriceSource::Feed(multi_feed(&env, &adapter, "LEAF"))),
         );
 
-        // Four scaled levels above the leaf, so the walk starts at depth 0 and
-        // the leaf itself sits one past the cap.
         for (name, factor) in [("L4", "F4"), ("L3", "F3"), ("L2", "F2"), ("L1", "F1")] {
             let key = PriceKey::Ref(Symbol::new(&env, name));
             crate::admin::store_oracle(
@@ -241,10 +219,6 @@ fn test_the_prefetch_walk_stops_at_the_composition_cap() {
 
 #[test]
 fn test_a_short_bulk_response_is_discarded_rather_than_misaligned() {
-    // Payloads are matched to feed ids by index. An adapter answering two ids
-    // with one payload has not just returned less — it has made index 1 mean
-    // something different, so every id after the gap would cache the wrong
-    // price. The batch is refused whole and the legs fall back to single reads.
     let env = Env::default();
     env.ledger().set_timestamp(NOW);
     let (adapter, client) = counting_adapter(&env, &["A", "B"]);

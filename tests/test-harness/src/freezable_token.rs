@@ -1,15 +1,3 @@
-//! Mock SEP-41 token whose transfers TRAP when the recipient is a configured
-//! "blocked" address — modelling a regulated / `AUTH_REQUIRED` / clawback-frozen
-//! asset whose issuer withholds authorization from an arbitrary receiver (for
-//! example a liquidator that was never authorized, or was frozen/blacklisted).
-//!
-//! Used to prove that the controller's forced pro-rata liquidation seizure
-//! across *every* collateral leg makes an account un-liquidatable when a single
-//! leg cannot be delivered to the liquidator. A default Stellar Asset Contract
-//! cannot model this in the test host (`set_authorized`/`clawback` require the
-//! issuer `AUTH_REVOCABLE`/`AUTH_CLAWBACK_ENABLED` flags, which the test SAC does
-//! not carry), so this stand-in reproduces the transfer trap directly.
-
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String};
 
 #[contracttype]
@@ -24,7 +12,6 @@ pub struct FreezableToken;
 
 #[contractimpl]
 impl FreezableToken {
-    /// Blocks (or, with `None`, unblocks) transfers whose recipient is `to`.
     pub fn set_blocked(env: Env, to: Option<Address>) {
         match to {
             Some(addr) => env.storage().instance().set(&Key::Blocked, &addr),

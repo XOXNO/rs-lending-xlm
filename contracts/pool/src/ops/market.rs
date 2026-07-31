@@ -1,6 +1,3 @@
-//! Market lifecycle: creation, rate-model replacement, and on-demand accrual.
-//! The only module that writes params, and every write emits a params event.
-
 use common::constants::RAY;
 use common::errors::GenericError;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw, PoolStateRaw};
@@ -10,8 +7,6 @@ use soroban_sdk::{assert_with_error, Env};
 use crate::cache::Cache;
 use crate::{events, interest, storage, time};
 
-/// Creates the market for `(hub_id, params.asset_id)` with zeroed state and
-/// both indexes at `RAY`.
 pub(crate) fn create(env: &Env, hub_id: u32, params: MarketParamsRaw) {
     storage::renew_instance(env);
     params.verify(env);
@@ -45,9 +40,7 @@ pub(crate) fn create(env: &Env, hub_id: u32, params: MarketParamsRaw) {
     events::emit_market_params(env, hub_id, hub_asset.asset, params);
 }
 
-/// Accrues at the existing rate model, then replaces it with `model`.
 pub(crate) fn replace_rate_model(env: &Env, hub_asset: HubAssetKey, model: InterestRateModel) {
-    // Interest owed under the old model must be booked before the swap.
     crate::ops::renewed_market(env, &hub_asset).commit();
 
     model.verify(env);
@@ -55,8 +48,6 @@ pub(crate) fn replace_rate_model(env: &Env, hub_asset: HubAssetKey, model: Inter
     events::emit_market_params(env, hub_asset.hub_id, hub_asset.asset, params);
 }
 
-/// Accrues interest for `hub_asset` and persists the indexes. Writes only when
-/// time has actually elapsed.
 pub(crate) fn accrue(env: &Env, hub_asset: HubAssetKey) {
     storage::renew_instance(env);
 

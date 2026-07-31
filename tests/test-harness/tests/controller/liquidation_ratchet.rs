@@ -1,30 +1,8 @@
-//! Anti-ratchet regression tests for partial liquidations.
-//!
-//! A liquidation's bonus rate scales inversely with health factor
-//! (`calculate_linear_bonus_with_target`), and a partial liquidation of
-//! high-threshold collateral can lower HF. The concern: an attacker spams
-//! small partials, each driving HF lower and so (hypothetically) earning a
-//! larger bonus than a single liquidation would.
-//!
-//! These tests pin the invariant that this cannot happen. The engine applies
-//! the HF-scaled bonus only on the recoverable branches of
-//! `estimate_liquidation_amount` (where partials RAISE HF, so the bonus
-//! auto-decreases on the next call) and pins the unrecoverable max-seizure
-//! path to the BASE bonus. So in no regime can a chain of partial liquidations
-//! extract more collateral per unit of debt repaid than one liquidation.
-//!
-//! Metric: the "effective seizure multiple" = USD value of collateral the
-//! liquidator receives per USD of debt repaid (= `1 + realized_bonus`). A
-//! ratchet would make the chain's multiple exceed the single's.
-
 use test_harness::{
     eth_preset, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, ALICE, LIQUIDATOR,
     STABLECOIN_SPOKE,
 };
 
-/// `coll_price` is the seized collateral's USD price (fixed during the tx).
-/// The liquidator's collateral-token balance delta is clean because
-/// `liquidate` auto-mints only the debt token; collateral is never minted to it.
 fn liquidate_once(
     t: &mut LendingTest,
     debt_asset: &str,
@@ -44,10 +22,6 @@ fn liquidate_once(
     (coll_usd, debt_usd)
 }
 
-// Regime 1: recoverable (normal LT). HF ~0.92 sits in the band where partials
-// RAISE HF, so each successive bite earns a SMALLER bonus and the chain
-// extracts strictly less than a single liquidation that locks in the high
-// initial-HF bonus on the whole repayment.
 #[test]
 fn test_partial_chain_does_not_out_extract_single_recoverable() {
     let build = || {
@@ -57,19 +31,17 @@ fn test_partial_chain_does_not_out_extract_single_recoverable() {
             .build();
         t.get_or_create_user(LIQUIDATOR);
         t.supply(ALICE, "USDC", 10_000.0);
-        t.borrow(ALICE, "ETH", 3.0); // ~$6000 debt
-        t.set_price("USDC", usd_cents(69)); // HF ~0.92
+        t.borrow(ALICE, "ETH", 3.0);
+        t.set_price("USDC", usd_cents(69));
         t.assert_liquidatable(ALICE);
         t
     };
     let coll_price = 0.69;
 
-    // Single liquidation of 0.5 ETH (~$1000).
     let mut single = build();
     let (s_coll, s_debt) = liquidate_once(&mut single, "ETH", 0.5, "USDC", coll_price);
     let single_multiple = s_coll / s_debt;
 
-    // The same total, repaid as five 0.1 ETH partials from an identical position.
     let mut chain = build();
     let (mut c_coll, mut c_debt) = (0.0_f64, 0.0_f64);
     let mut prev_slice = f64::INFINITY;
@@ -79,7 +51,7 @@ fn test_partial_chain_does_not_out_extract_single_recoverable() {
         }
         let (coll, debt) = liquidate_once(&mut chain, "ETH", 0.1, "USDC", coll_price);
         let slice = coll / debt;
-        // Recoverable: each bite raises HF, so the bonus must not increase.
+
         assert!(
             slice <= prev_slice + 0.005,
             "recoverable partials must not ratchet bonus up: {prev_slice:.5} -> {slice:.5}"
@@ -97,11 +69,6 @@ fn test_partial_chain_does_not_out_extract_single_recoverable() {
     );
 }
 
-// Regime 2: deep (normal LT). HF ~0.33 takes the max bonus (~25% for 80%-LT
-// collateral). At the max bonus `proportion*(1+bonus) == 1`, so a partial is
-// HF-neutral-to-rising: the account heals, later slices earn a non-increasing
-// bonus, and the chain cannot out-extract a single shot — anti-ratchet holds via
-// the per-threshold ceiling, not a base-bonus pin.
 #[test]
 fn test_partial_chain_deep_does_not_ratchet() {
     let build = || {
@@ -113,7 +80,7 @@ fn test_partial_chain_deep_does_not_ratchet() {
         t.get_or_create_user(LIQUIDATOR);
         t.supply(ALICE, "USDC", 10_000.0);
         t.borrow(ALICE, "ETH", 3.0);
-        t.set_price("USDC", usd_cents(25)); // HF ~0.33, deeply underwater
+        t.set_price("USDC", usd_cents(25));
         t.assert_liquidatable(ALICE);
         t
     };
@@ -122,7 +89,7 @@ fn test_partial_chain_deep_does_not_ratchet() {
     let mut single = build();
     let (s_coll, s_debt) = liquidate_once(&mut single, "ETH", 0.5, "USDC", coll_price);
     let single_multiple = s_coll / s_debt;
-    // Deep liquidation takes the max bonus, bounded by the per-threshold ceiling.
+
     assert!(
         single_multiple <= 1.26,
         "deep bonus bounded by the per-threshold max: multiple={single_multiple:.5}"
@@ -139,8 +106,7 @@ fn test_partial_chain_deep_does_not_ratchet() {
         let slice = coll / debt;
         match first_slice {
             None => first_slice = Some(slice),
-            // As the account heals, later slices earn a non-increasing bonus.
-            // A ratchet would make them strictly grow.
+
             Some(first) => assert!(
                 slice <= first * 1.01,
                 "deep partials must not ratchet bonus: first={first:.5}, slice={slice:.5}"
@@ -157,10 +123,6 @@ fn test_partial_chain_deep_does_not_ratchet() {
     );
 }
 
-// Regime 2 variant: deep spoke (98% threshold). Any liquidatable spoke
-// position is unrecoverable, so partials lower HF — and the high threshold is
-// where the operator most fears a bonus ratchet. The spoke bonus is bounded
-// by the category, so the chain cannot out-extract a single liquidation.
 #[test]
 fn test_partial_chain_no_ratchet_spoke() {
     let build = || {
@@ -176,7 +138,7 @@ fn test_partial_chain_no_ratchet_spoke() {
         t.create_spoke_account(ALICE, 2);
         t.supply(ALICE, "USDC", 10_000.0);
         t.borrow(ALICE, "USDT", 9_500.0);
-        t.set_price("USDC", usd_cents(85)); // HF ~0.88
+        t.set_price("USDC", usd_cents(85));
         t.assert_liquidatable(ALICE);
         t
     };
@@ -213,10 +175,6 @@ fn test_partial_chain_no_ratchet_spoke() {
     );
 }
 
-// Regime 4: solvent-toxic (high LT). Collateral still covers the debt but no
-// partial repayment is HF-safe (hf/p - 1 sits below the base bonus), so the
-// plan rejects partials with `FullCloseRequired`; a debt-covering payment
-// closes the account with zero socializable residue.
 #[test]
 fn test_solvent_toxic_rejects_partial_and_accepts_full_close() {
     use test_harness::{assert_contract_error, errors, usd_cents as cents};
@@ -227,22 +185,15 @@ fn test_solvent_toxic_rejects_partial_and_accepts_full_close() {
         .build();
     t.get_or_create_user(LIQUIDATOR);
 
-    // USDT: LT 95%, base bonus 2%. $10k supply, 4 ETH ($8k) debt.
     t.supply(ALICE, "USDT", 10_000.0);
     t.borrow(ALICE, "ETH", 4.0);
 
-    // Drop USDT to $0.81: C = $8100 >= D = $8000, HF = 0.9619 in
-    // [p, p*(1+base)) = [0.95, 0.969) -> cap = 126 bps < base 200.
     t.set_price("USDT", cents(81));
     t.assert_liquidatable(ALICE);
 
-    // Partial repayment is rejected outright.
     let partial = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
     assert_contract_error(partial, errors::FULL_CLOSE_REQUIRED);
 
-    // A debt-covering payment closes the account: all $8100 of collateral is
-    // seized (seizure 8000 * 1.02 = $8160 capped at C), debt reaches zero,
-    // nothing is left to socialize, and the account is cleaned up.
     let liq_usdt_before = t.token_balance(LIQUIDATOR, "USDT");
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 4.1);
     assert!(

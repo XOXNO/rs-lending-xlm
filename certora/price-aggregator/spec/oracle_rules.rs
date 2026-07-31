@@ -1,5 +1,3 @@
-//! Oracle invariant rules under the composable PriceKey model.
-
 use cvlr::macros::rule;
 use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
@@ -12,9 +10,6 @@ use common::types::{
     PriceFeedRaw, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef, ScaledSource,
 };
 
-/// Panics out of band, else the blended price — mirrors the composition of
-/// `crate::tolerance::within_tolerance_band` + `midpoint_price_or_zero` that
-/// the engine applies on the live blend path.
 fn midpoint_if_in_band(e: &Env, anchor: i128, primary: i128, tolerance: &OracleTolerance) -> i128 {
     if !crate::tolerance::within_tolerance_band(e, anchor, primary, tolerance) {
         panic_with_error!(e, OracleError::UnsafePriceNotAllowed);
@@ -115,8 +110,6 @@ fn price_cache_consistency(e: Env, asset: Address) {
     cvlr_assert!(feed.timestamp == seeded.timestamp);
 }
 
-/// Success-path only: provider summaries may return `None` (miss). Paths that
-/// reach a returned feed must still respect the configured sanity band.
 #[rule]
 fn single_price_respects_configured_sanity_bounds(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);
@@ -130,8 +123,6 @@ fn single_price_respects_configured_sanity_bounds(e: Env, asset: Address, oracle
     cvlr_assert!(feed.asset_decimals == config.asset_decimals);
 }
 
-/// Success-path reachability: there exists a provider-`Some` assignment where
-/// `price` returns a positive feed (miss paths panic and do not satisfy).
 #[rule]
 fn price_endpoint_sanity(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);
@@ -143,7 +134,6 @@ fn price_endpoint_sanity(e: Env, asset: Address, oracle: Address) {
     cvlr_satisfy!(feed.price_wad > 0);
 }
 
-/// Success-path only: when both keys resolve, the bulk map contains each key.
 #[rule]
 fn bulk_prices_contains_each_requested_asset(
     e: Env,
@@ -164,13 +154,6 @@ fn bulk_prices_contains_each_requested_asset(
     cvlr_assert!(prices.contains_key(k2));
 }
 
-/// A `Legs::Partial` outcome from the real `blend`, over an unconstrained slot,
-/// timestamp and staleness. Only `price_wad` is bounded, so the rules below hold
-/// for every readable single leg a dual config can produce.
-///
-/// Built by [`crate::engine::blend_partial`] rather than as an `Outcome` literal:
-/// a literal would keep these rules green after a regression that dropped
-/// `deviation` from `Outcome::partial`, which is the property they exist to pin.
 fn nondet_partial_outcome(
     e: &Env,
     config: &AssetOracle,
@@ -179,8 +162,6 @@ fn nondet_partial_outcome(
     crate::engine::blend_partial(e, config, reading_wad, nondet(), nondet(), nondet::<bool>())
 }
 
-/// Both dual legs missing never yields a feed: the blend carries `NoLastPrice`
-/// as its error, which gates first, so `force` reverts for every config.
 #[rule]
 fn empty_legs_force_reverts(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);
@@ -190,9 +171,6 @@ fn empty_legs_force_reverts(e: Env, asset: Address, oracle: Address) {
     cvlr_assert!(false);
 }
 
-/// One readable dual leg never yields a feed. The code is `PriceFeedStale` when
-/// the surviving leg is stale and `UnsafePriceNotAllowed` otherwise — the rule
-/// asserts unreachability, so it covers both without splitting.
 #[rule]
 fn partial_legs_force_reverts(e: Env, asset: Address, oracle: Address, reading_wad: i128) {
     cvlr_assume!(asset != oracle);
@@ -203,7 +181,6 @@ fn partial_legs_force_reverts(e: Env, asset: Address, oracle: Address, reading_w
     cvlr_assert!(false);
 }
 
-/// Soft status for Empty is unusable (`valid == false`).
 #[rule]
 fn empty_legs_soft_invalid(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);
@@ -213,8 +190,6 @@ fn empty_legs_soft_invalid(e: Env, asset: Address, oracle: Address) {
     cvlr_assert!(!status.valid);
 }
 
-/// Soft status for Partial flags deviation and is not valid — for every slot and
-/// staleness, since a dual config without both opinions never agreed.
 #[rule]
 fn partial_legs_soft_deviation(e: Env, asset: Address, oracle: Address, reading_wad: i128) {
     cvlr_assume!(asset != oracle);
@@ -234,21 +209,6 @@ fn missing_oracle_config_reverts(e: Env, asset: Address) {
     cvlr_assert!(false);
 }
 
-/// A [`ScaledSource`] whose `quote` names the very [`PriceKey`] being
-/// configured reverts at config time.
-///
-/// v1's version of this bug was syntactic: `ReflectorBase::Quoted(asset)` let
-/// a Reflector leg name its own asset as base. That shape doesn't exist here
-/// — [`PriceSource`] carries no base to self-reference — but composition
-/// through [`PriceKey`] indirection reopens the same defect in a new form: a
-/// [`ScaledSource::quote`] is free to name any key, including the asset's
-/// own. Nothing here rejects that syntactically either; it is caught only
-/// because [`properties_of_config`](crate::properties::properties_of_config)
-/// walks the same dependency graph the read path resolves, through the
-/// identical cycle stack (`Session::push_key` / `is_resolving`) — so a
-/// self-quoting config dies on the write path with
-/// [`OracleError::OracleCycleDetected`] instead of surviving to panic (or
-/// worse, silently loop) on the first read.
 #[rule]
 fn self_quoted_scaled_source_reverts(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);

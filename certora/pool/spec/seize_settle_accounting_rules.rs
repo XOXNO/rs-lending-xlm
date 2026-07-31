@@ -1,5 +1,3 @@
-//! Bad-debt seizure, deposit seizure, and zero-cash net settlement.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
@@ -15,8 +13,6 @@ use super::fixture::{
     ONE_TOKEN,
 };
 
-/// Borrow seizure removes the exact debt shares and applies the production
-/// proportional write-down, saturated only by the supply-index floor.
 #[rule]
 fn seize_borrow_reduces_debt_and_writes_down_supply(
     e: Env,
@@ -80,8 +76,6 @@ fn seize_borrow_reduces_debt_and_writes_down_supply(
     );
 }
 
-/// Seizing an already-aggregated deposit transfers its shares to protocol
-/// revenue; aggregate supply itself must not change.
 #[rule]
 fn seize_deposit_moves_scaled_position_to_revenue(
     e: Env,
@@ -122,8 +116,6 @@ fn seize_deposit_moves_scaled_position_to_revenue(
     cvlr_assert!(post.supply_index == pre.supply_index && post.borrow_index == pre.borrow_index);
 }
 
-/// Net settlement uses one common gross amount for both legs, changes both
-/// aggregates by their returned position deltas, and never moves cash.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn net_settle_conserves_cash_and_both_scaled_totals(
@@ -165,9 +157,6 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
     let supply_index_ray = Ray::from(supply_index);
     let borrow_index_ray = Ray::from(borrow_index);
 
-    // Independent expansion of the documented lesser-of semantics. Do not use
-    // Cache::resolve_withdrawal/resolve_repay here: those are the implementation
-    // under test and would make the oracle circular.
     let debt_due = debt_position
         .mul_ceil(&e, borrow_index_ray)
         .to_asset_ceil(asset_decimals);
@@ -226,12 +215,6 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
     );
 }
 
-/// Net settlement never persists a supply-drained market while debt remains —
-/// the same terminal-insolvent state the withdraw leg rejects. The settling
-/// account holds the entire pool supply and its debt strictly exceeds it, so a
-/// full-close settlement would drain `supplied` to zero with debt outstanding;
-/// the `require_solvent_withdraw_state` guard must revert that path. Timestamp
-/// equals ledger time so `global_sync` is a no-op and no accrual masks the drain.
 #[rule]
 fn net_settle_never_persists_supply_drained_with_debt(
     e: Env,
@@ -274,9 +257,6 @@ fn net_settle_never_persists_supply_drained_with_debt(
     cvlr_assert!(!(post.supplied == 0 && post.borrowed != 0));
 }
 
-/// With no suppliers, the write-down has no one to charge: the index must not
-/// move and the loss lands on dead reserve. This early-return branch
-/// (`interest::apply_bad_debt_to_supply_index`) had no rule.
 #[rule]
 fn bad_debt_writedown_is_noop_on_empty_market(
     e: Env,

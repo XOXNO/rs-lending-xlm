@@ -6,15 +6,12 @@ use crate::core::LendingTest;
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
 
 impl LendingTest {
-    /// Supply tokens. Auto-creates user address and account on first call.
-    /// Auto-mints tokens to the user before calling controller.
     pub fn supply(&mut self, user: &str, asset_name: &str, amount: f64) {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
         self.supply_raw(user, asset_name, raw_amount);
     }
 
-    /// Supply with raw i128 amount.
     pub fn supply_raw(&mut self, user: &str, asset_name: &str, amount: i128) {
         let addr = self.get_or_create_user(user);
         let market = self.resolve_market(asset_name);
@@ -34,7 +31,6 @@ impl LendingTest {
         }
     }
 
-    /// Supply to a specific account.
     pub fn supply_to(&mut self, user: &str, account_id: u64, asset_name: &str, amount: f64) {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
@@ -49,8 +45,6 @@ impl LendingTest {
         ctrl.supply(&addr, &account_id, &spoke, &assets);
     }
 
-    /// Try supply -- returns Result instead of panicking. Passes the account's
-    /// real spoke (the base harness spoke for a fresh account).
     pub fn try_supply(
         &mut self,
         user: &str,
@@ -62,8 +56,6 @@ impl LendingTest {
         self.try_supply_with_spoke(user, asset_name, amount, spoke)
     }
 
-    /// Try supply with an explicit spoke argument -- returns Result.
-    /// Supply to an existing account owned by `target_user`, signed by `caller`.
     pub fn try_supply_to_account(
         &mut self,
         caller: &str,
@@ -124,8 +116,6 @@ impl LendingTest {
         res
     }
 
-    /// Supply multiple assets in a single controller call.
-    /// Auto-mints tokens for each asset. Auto-creates account if needed.
     pub fn supply_bulk(&mut self, user: &str, assets: &[(&str, f64)]) {
         let addr = self.get_or_create_user(user);
 

@@ -1,7 +1,7 @@
 use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE};
 
 use crate::helpers::build_swap_steps;
-// ASSET_NOT_BORROWABLE
+
 #[test]
 fn test_multiply_rejects_non_borrowable_debt() {
     let mut t = LendingTest::new()
@@ -12,8 +12,6 @@ fn test_multiply_rejects_non_borrowable_debt() {
         })
         .build();
 
-    // ETH is not borrowable: multiply must fail with ASSET_NOT_BORROWABLE,
-    // not an upstream pause or flash-loan guard error.
     let steps = build_swap_steps(&t, "ETH", "USDC", 1_0000000);
     let result = t.try_multiply(
         ALICE,
@@ -25,7 +23,7 @@ fn test_multiply_rejects_non_borrowable_debt() {
     );
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
-// NOT_COLLATERAL
+
 #[test]
 fn test_multiply_rejects_non_collateralizable() {
     let mut t = LendingTest::new()
@@ -47,7 +45,7 @@ fn test_multiply_rejects_non_collateralizable() {
     );
     assert_contract_error(result, errors::NOT_COLLATERAL);
 }
-// FLASH_LOAN_ONGOING
+
 #[test]
 fn test_multiply_rejects_during_flash_loan() {
     let mut t = LendingTest::new()
@@ -55,7 +53,6 @@ fn test_multiply_rejects_during_flash_loan() {
         .with_market(eth_preset())
         .build();
 
-    // Set the flash-loan ongoing flag to simulate reentrancy.
     t.set_flash_loan_ongoing(true);
 
     let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);

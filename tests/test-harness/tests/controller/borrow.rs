@@ -16,7 +16,6 @@ fn test_borrow_basic() {
     t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
     t.assert_healthy(ALICE);
 
-    // The wallet must hold the borrowed ETH.
     let eth_wallet = t.token_balance(ALICE, "ETH");
     assert!(
         eth_wallet > 0.99,
@@ -28,7 +27,6 @@ fn test_borrow_basic() {
 fn test_borrow_same_asset_xlm() {
     let mut t = LendingTest::new().with_market(xlm_preset()).build();
 
-    // Supply 1,000,000 XLM ($100,000), then borrow 500,000 XLM ($50,000).
     t.supply(ALICE, "XLM", 1_000_000.0);
     t.borrow(ALICE, "XLM", 500_000.0);
 
@@ -53,10 +51,8 @@ fn test_borrow_multiple_assets_bulk() {
         .with_market(wbtc_preset())
         .build();
 
-    // Supply enough collateral.
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Borrow 1 ETH ($2000) and 0.01 WBTC ($600) in one bulk call.
     t.borrow_bulk(ALICE, &[("ETH", 1.0), ("WBTC", 0.01)]);
 
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
@@ -105,11 +101,8 @@ fn test_borrow_rejects_exceeding_ltv() {
         .with_market(eth_preset())
         .build();
 
-    // Supply $10k. LTV = 75%, so max borrow value = $7500.
-    // ETH = $2000, so max borrow ~ 3.75 ETH.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Borrow 5 ETH = $10k, which must exceed the LTV.
     let result = t.try_borrow(ALICE, "ETH", 5.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
@@ -123,8 +116,7 @@ fn test_borrow_rejects_zero_amount() {
     t.supply(ALICE, "USDC", 10_000.0);
 
     let result = t.try_borrow(ALICE, "ETH", 0.0);
-    // Must reject with the precise AMOUNT_MUST_BE_POSITIVE (14), not a generic
-    // validator failure.
+
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 #[test]
@@ -174,13 +166,12 @@ fn test_borrow_position_limit_exceeded() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market(wbtc_preset())
-        .with_position_limits(4, 1) // Only one borrow position allowed.
+        .with_position_limits(4, 1)
         .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 0.1);
 
-    // The second borrow position must exceed the limit.
     let result = t.try_borrow(ALICE, "WBTC", 0.001);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
@@ -197,8 +188,6 @@ fn test_borrow_spoke_enhanced_ltv() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Standard LTV = 75% caps the normal limit at $7500.
-    // Spoke LTV = 97%, so a $9500 borrow stays allowed.
     t.borrow(ALICE, "USDT", 9_500.0);
     t.assert_position_exists(ALICE, "USDT", PositionType::Borrow);
     t.assert_borrow_near(ALICE, "USDT", 9_500.0, 1.0);
@@ -220,12 +209,8 @@ fn test_borrow_at_ltv_limit_stays_healthy() {
         .with_market(usdt_stable_preset())
         .build();
 
-    // Supply $10k USDC. LTV = 75%, so max borrow = $7500.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Borrow at the LTV limit: $7500 USDT.
-    // HF = (10_000 * 0.80) / 7500 = 1.0667 -- healthy but tight.
-    // HF uses liquidation_threshold (80%), not LTV (75%).
     t.borrow(ALICE, "USDT", 7_500.0);
     t.assert_healthy(ALICE);
     let usdt_wallet = t.token_balance(ALICE, "USDT");
@@ -250,10 +235,8 @@ fn test_borrow_bulk_passes_cumulative_hf_check() {
         .with_market(wbtc_preset())
         .build();
 
-    // Supply enough collateral.
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Borrow small amounts of each in one batch through the harness.
     t.borrow_bulk(ALICE, &[("ETH", 0.5), ("WBTC", 0.005)]);
 
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
@@ -277,7 +260,6 @@ fn test_delegated_borrow_routes_funds_to_owner() {
         .with_market(eth_preset())
         .build();
 
-    // ALICE owns the account and the collateral; BOB is her delegate.
     t.supply(ALICE, "USDC", 10_000.0);
     let account_id = t.resolve_account_id(ALICE);
     t.enable_delegate(ALICE, BOB, account_id);
@@ -285,13 +267,11 @@ fn test_delegated_borrow_routes_funds_to_owner() {
     let alice_before = t.token_balance(ALICE, "ETH");
     let bob_before = t.token_balance(BOB, "ETH");
 
-    // BOB borrows on ALICE's account, routing the funds to ALICE via `to`.
     t.borrow_as_to(BOB, account_id, "ETH", 1.0, ALICE);
 
     let alice_gain = t.token_balance(ALICE, "ETH") - alice_before;
     let bob_gain = t.token_balance(BOB, "ETH") - bob_before;
 
-    // Funds land on the owner, not the delegate caller.
     assert!(
         alice_gain > 0.99,
         "owner should receive ~1 ETH, got {}",
@@ -303,7 +283,6 @@ fn test_delegated_borrow_routes_funds_to_owner() {
         bob_gain
     );
 
-    // Debt is recorded on the account regardless of destination.
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
     t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
     t.assert_healthy(ALICE);
@@ -322,7 +301,6 @@ fn test_delegated_borrow_to_none_routes_to_caller() {
     let alice_before = t.token_balance(ALICE, "ETH");
     let bob_before = t.token_balance(BOB, "ETH");
 
-    // `to = None` keeps today's behavior: funds go to the caller (BOB here).
     t.borrow_to(BOB, account_id, "ETH", 1.0);
 
     let alice_gain = t.token_balance(ALICE, "ETH") - alice_before;
@@ -339,7 +317,6 @@ fn test_delegated_borrow_to_none_routes_to_caller() {
         alice_gain
     );
 
-    // Debt still lands on the account, not the caller.
     t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
     t.assert_healthy(ALICE);
 }

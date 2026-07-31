@@ -1,9 +1,3 @@
-//! Strategy legs: wrappers over the borrow, withdraw, and repay position
-//! primitives, moving tokens through the controller rather than the caller.
-//!
-//! No leg runs `require_auth` and none re-runs the post-pool health gate: the
-//! calling strategy entrypoint owns both.
-
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
@@ -56,7 +50,6 @@ pub(crate) fn repay_debt_from_controller(
     let debt_pool_addr = cache.cached_pool_address();
     let debt_tok = token::Client::new(env, &req.debt.asset);
 
-    // D{debt_token.decimals}{Token(debt_token)} repay transfer and debt request use same token units.
     utils::transfer_amount(
         env,
         &req.debt.asset,
@@ -66,7 +59,6 @@ pub(crate) fn repay_debt_from_controller(
         GenericError::InternalError,
     );
 
-    // D{debt_token.decimals}{Token(debt_token)} post-repay positive delta is excess refund.
     let controller_balance_before_repay = debt_tok.balance(&env.current_contract_address());
 
     repay::execute_repayment(
@@ -96,7 +88,7 @@ pub(crate) fn withdraw_collateral_to_controller(
     req: StrategyWithdraw<'_>,
 ) -> i128 {
     let token = token::Client::new(env, &req.hub_asset.asset);
-    // D{asset.decimals}{Token(asset)} withdrawal result is measured from live balance delta.
+
     let balance_before = token.balance(&env.current_contract_address());
 
     withdraw::execute_withdrawal(
@@ -142,12 +134,6 @@ pub(crate) fn execute_withdraw_all(
     }
 }
 
-/// Nets a supply leg against a debt leg on the identical `HubAssetKey` with
-/// zero token transfer. Returns the real amount settled.
-///
-/// # Security Warning
-/// * Performs no `require_auth` and re-runs no post-pool solvency gate: the
-///   calling strategy entrypoint owns both.
 pub(crate) fn net_settle_collateral_against_debt(
     env: &Env,
     account: &mut Account,
@@ -156,8 +142,6 @@ pub(crate) fn net_settle_collateral_against_debt(
     amount: i128,
     action: events::PositionAction,
 ) -> i128 {
-    // Strategy chokepoint: paused blocks the settle, frozen still allows it,
-    // matching the withdraw/repay primitives this replaces.
     enforce_spoke_asset_flags(
         env,
         cache,
@@ -182,18 +166,12 @@ pub(crate) fn net_settle_collateral_against_debt(
     };
     let result = pool_net_settle_call(env, &pool_addr, &entry);
 
-    // Both sides settle through the same merge primitives the withdraw and
-    // repay batch paths use, so spoke usage, the position maps, the index memo
-    // and the event buffer stay in step across all three entry points.
     let supply_outcome = LegOutcome {
         new_scaled: Ray::from(result.supply_position.scaled_amount),
         market_index: result.market_index.clone(),
         amount: result.settled_amount,
     };
-    // A delisted asset resolves to `Frozen`, matching the net-settle contract
-    // that a settle never blocks on a listing that governance has since pulled.
-    // `Normal` because a net settle is not a seizure: a still-listed leg that
-    // keeps shares restamps exactly as a plain withdraw would.
+
     let refresh_spoke = withdraw::spoke_refresh_for_leg(
         withdraw::WithdrawKind::Normal,
         cache,
@@ -229,7 +207,6 @@ pub(crate) fn net_settle_collateral_against_debt(
     result.settled_amount
 }
 
-/// Transfers any positive balance delta of `asset` back to `refund_to`.
 fn refund_controller_balance_delta(
     env: &Env,
     asset: &Address,
@@ -237,7 +214,7 @@ fn refund_controller_balance_delta(
     refund_to: &Address,
 ) {
     let token = token::Client::new(env, asset);
-    // D{asset.decimals}{Token(asset)} refund only the excess balance delta in same asset.
+
     let excess = balance_delta(env, &token, balance_before);
     if excess > 0 {
         token.transfer(&env.current_contract_address(), refund_to, &excess);

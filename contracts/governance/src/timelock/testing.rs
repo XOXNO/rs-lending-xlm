@@ -1,5 +1,3 @@
-//! Test-only immediate executor. Excluded from production WASM.
-
 use soroban_sdk::{contractimpl, Address, BytesN, Env, IntoVal, Symbol, Val};
 
 use crate::op::apply_self_op;
@@ -9,8 +7,6 @@ use crate::{storage, Governance, GovernanceArgs, GovernanceClient};
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl Governance {
-    /// Runs an `AdminOperation` with no delay. Oracle config ops require
-    /// `ORACLE`; all others require the owner.
     pub fn execute_immediate(env: Env, caller: Address, op: crate::op::AdminOperation) -> Val {
         storage::renew_governance_instance(&env);
         caller.require_auth();

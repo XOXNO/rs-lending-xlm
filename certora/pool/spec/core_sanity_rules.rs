@@ -1,5 +1,3 @@
-//! Concrete reachability witnesses. No universal property lives in this module.
-
 use cvlr::cvlr_satisfy;
 use cvlr::macros::rule;
 use soroban_sdk::{Address, Env};
@@ -130,8 +128,6 @@ fn seize_settle_domain_reachable(e: Env, admin: Address, asset: Address) {
     );
 }
 
-/// The production floor boundary is reachable and leaves a positive legacy
-/// claim; `supply_one` must therefore keep its under-backed-market guard.
 #[rule]
 fn seize_floor_residual_reachable(e: Env, admin: Address, asset: Address) {
     seed(

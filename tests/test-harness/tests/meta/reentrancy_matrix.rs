@@ -7,10 +7,6 @@ use test_harness::{
 fn setup() -> LendingTest {
     let mut t = LendingTest::new().standard_two_asset().build();
 
-    // Seed positions so the entries actually have something to act on; the
-    // reentrancy guard fires before any business logic, so the assertions
-    // pass regardless of input shape — but we want each entry to make it
-    // past `caller.require_auth` so the flag check is what reverts.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.supply(BOB, "USDC", 5_000.0);
@@ -36,7 +32,6 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
         errors::FLASH_LOAN_ONGOING,
     );
 
-    // Router / keeper / revenue (ADR-0006 + router.rs).
     assert_contract_error(
         t.try_update_indexes_for(&["USDC", "ETH"]),
         errors::FLASH_LOAN_ONGOING,
@@ -52,7 +47,6 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
         errors::FLASH_LOAN_ONGOING,
     );
 
-    // Strategy entrypoints (each calls `require_not_flash_loaning` at the top).
     let empty_swap = Bytes::new(&t.env);
     assert_contract_error(
         t.try_multiply(
@@ -78,7 +72,6 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
         errors::FLASH_LOAN_ONGOING,
     );
 
-    // Nested flash loan while the guard is already held.
     let receiver = t.deploy_flash_loan_receiver();
     assert_contract_error(
         t.try_flash_loan(BOB, "USDC", 1.0, &receiver),
@@ -87,7 +80,6 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
 
     t.set_flash_loan_ongoing(false);
 
-    // Sanity: a real multiply still works once the guard is cleared.
     t.fund_router("USDC", 3_000.0);
     let steps = build_aggregator_swap(
         &t,

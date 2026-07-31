@@ -1,5 +1,3 @@
-//! Protocol dependency setters: aggregators and accumulator.
-
 use soroban_sdk::{Address, Env};
 
 use crate::events::{

@@ -1,4 +1,3 @@
-//! Read-only TTL inspector for keeper-discovered entries.
 
 use anyhow::Result;
 use clap::Parser;
@@ -18,7 +17,7 @@ use stellar_xdr::curr::{ContractId, Hash, LedgerKey, ScAddress, ScMapEntry, ScSy
     about = "Read-only TTL inspector for the XOXNO Lending keeper set"
 )]
 struct Args {
-    /// YAML config path.
+
     #[arg(
         short,
         long,
@@ -135,7 +134,6 @@ impl KeyClass {
     }
 }
 
-/// Bucket by variant name + target contract.
 fn classify_persistent(
     row: &LedgerEntryQuery,
     controller_id: &[u8; 32],
@@ -217,7 +215,7 @@ fn status_of(row: &LedgerEntryQuery, current: u32, safety: u32) -> (&'static str
     let label = match decision {
         Decision::Restore => "EXPIRED (restore)",
         Decision::Extend => "IN-MARGIN (extend)",
-        // RPC omits never-written / evicted entries.
+
         Decision::Skip if row.value.is_none() => "ABSENT / ARCHIVED",
         Decision::Skip if row.live_until_ledger.is_none() => "no-ttl",
         Decision::Skip => "OK",

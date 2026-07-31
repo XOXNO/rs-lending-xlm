@@ -50,7 +50,7 @@ fn test_reflector_primary_redstone_anchor_market_works() {
         .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
-    // Both feeds agree at $1, so the in-band blend is the midpoint $1.
+
     assert_eq!(view.price_wad, usd(1));
 }
 
@@ -86,13 +86,10 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
         .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
-    // Anchor is within its source-specific 86_400s window, so the read
-    // succeeds and the in-band blend is the midpoint $1.
+
     assert_eq!(view.price_wad, usd(1));
 }
 
-// Soft view: a required RedStone anchor that cannot be read marks the row
-// invalid (no primary-only fallback). Write-path `prices()` still fail-closed.
 #[test]
 fn test_redstone_anchor_read_failure_marks_view_invalid() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -141,8 +138,6 @@ fn test_redstone_anchor_read_failure_marks_view_invalid() {
     assert!(row.deviation, "missing dual-source anchor is deviation");
 }
 
-// Soft view: primary $1 and anchor $2 are 100% apart → deviation=true,
-// valid=false. Write-path still reverts UnsafePriceNotAllowed (#205).
 #[test]
 fn test_redstone_anchor_outside_tolerance_marks_view_deviation() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -158,10 +153,7 @@ fn test_redstone_anchor_outside_tolerance_marks_view_deviation() {
         &feed_id,
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    // Seeded, not configured: the write path resolves the config first and
-    // would reject two sources that already disagree (#205). Reaching the soft
-    // read path requires the disagreement to appear *after* the config stored,
-    // which is exactly the case this covers.
+
     t.price_agg_client()
         .seed_oracle(&controller::types::PriceKey::Token(asset.clone()), &cfg);
 
@@ -178,9 +170,6 @@ fn test_redstone_anchor_outside_tolerance_marks_view_deviation() {
     assert!(row.anchor_price_wad > 0);
 }
 
-// Runtime path: configure-time succeeds (price is set), then the feed is
-// removed before a price read, exercising the `Err` branch in
-// `try_read_price_data_for_feed` at price-aggregator multi-feed provider.
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
 fn test_redstone_runtime_missing_price_panics_with_invalid_ticker() {
@@ -190,14 +179,11 @@ fn test_redstone_runtime_missing_price_panics_with_invalid_ticker() {
 
     configure_usdc_with_redstone_single(&t, &redstone, &feed_id);
 
-    // Wipe the price entry out of the mock's temporary storage so the next
-    // `read_price_data_for_feed` returns Err.
     t.env.as_contract(&redstone, || {
         let key = test_harness::mock_redstone::MockKey::PriceData(feed_id.clone());
         t.env.storage().temporary().remove(&key);
     });
 
-    // Supply skips dust pricing; borrow prices (RiskIncreasing LTV/HF).
     t.supply(BOB, "USDC", 100_000.0);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDC", 100.0);

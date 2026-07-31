@@ -1,7 +1,3 @@
-//! Read-only contract views via `simulateTransaction`.
-//!
-//! Builds op/envelope, simulates, decodes `sim.results()[0].xdr` as the return
-//! ScVal. No signing or submit — throwaway all-zero source account.
 
 use anyhow::{anyhow, Context};
 use stellar_xdr::curr::{
@@ -15,10 +11,9 @@ use thiserror::Error;
 
 use crate::stellar::client::RpcClient;
 
-/// View failure: contract revert (bucketable code) vs transport vs empty result.
 #[derive(Debug, Error)]
 pub enum ViewError {
-    /// Contract panic during sim; string is RPC diagnostic for code bucketing.
+
     #[error("contract reverted: {0}")]
     Reverted(String),
     #[error("rpc error: {0}")]
@@ -27,7 +22,6 @@ pub enum ViewError {
     NoResult,
 }
 
-/// Simulate `contract.function(args)` read-only → return ScVal.
 pub async fn simulate_view(
     client: &RpcClient,
     contract_id: &[u8; 32],
@@ -76,7 +70,6 @@ fn invoke_op(contract_id: &[u8; 32], function: &str, args: Vec<ScVal>) -> Result
     })
 }
 
-/// Single-op envelope from all-zero source; simulated only, never submitted.
 fn read_only_envelope(op: Operation) -> Result<TransactionEnvelope, ViewError> {
     let ops: VecM<Operation, 100> = vec![op]
         .try_into()

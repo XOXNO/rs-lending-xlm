@@ -1,11 +1,3 @@
-//! Transaction-local pricing state: ledger clock, cycle stack, multi-feed
-//! payload cache, and per-key price / status memos.
-//!
-//! Bulk `prices` / `quotes` call [`Session::warm`] once, then resolve each key.
-//! Multi-feed adapters may be bulk-fetched by contract address when a call
-//! needs two or more distinct feed ids; Reflector has no bulk path. The feed
-//! cache also stores lazy single multi-feed reads within the same session.
-
 use common::errors::OracleError;
 use common::oracle::providers::redstone::RedStonePriceData;
 use common::types::{PriceFeedRaw, PriceKey, PriceStatus};
@@ -14,10 +6,9 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 #[cfg(not(feature = "certora"))]
 use common::types::{PriceSource, ProviderRef, MAX_RESOLUTION_DEPTH};
 
-/// Transaction-local state for one pricing call.
 pub(crate) struct Session {
     env: Env,
-    /// Multi-feed payloads filled by [`Self::warm`] and by lazy single reads.
+
     feed_cache: Map<(Address, String), RedStonePriceData>,
     resolving_keys: Vec<PriceKey>,
     key_prices: Map<PriceKey, PriceFeedRaw>,
@@ -27,7 +18,6 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Snapshot the ledger timestamp and empty caches / stacks.
     pub(crate) fn new(env: &Env) -> Self {
         Session {
             env: env.clone(),
@@ -44,7 +34,6 @@ impl Session {
         &self.env
     }
 
-    /// Ledger timestamp captured at [`Self::new`].
     pub(crate) fn now_secs(&self) -> u64 {
         self.now_secs
     }
@@ -67,15 +56,10 @@ impl Session {
             .set((adapter.clone(), feed_id.clone()), data);
     }
 
-    /// Whether `key` is already on the resolve stack.
     pub(crate) fn is_resolving(&self, key: &PriceKey) -> bool {
         self.resolving_keys.iter().any(|k| k == *key)
     }
 
-    /// Push `key` onto the cycle stack.
-    ///
-    /// # Errors
-    /// * [`OracleError::OracleCycleDetected`] — `key` is already resolving.
     pub(crate) fn push_key(&mut self, key: &PriceKey) {
         if self.is_resolving(key) {
             panic_with_error!(&self.env, OracleError::OracleCycleDetected);
@@ -111,11 +95,6 @@ impl Session {
         self.key_statuses.set(key.clone(), status);
     }
 
-    /// Bulk-fetch multi-feed payloads for MultiFeed leaves under `keys`
-    /// (including nested Scaled quotes). Best-effort: never reverts.
-    ///
-    /// Adapters with fewer than two distinct feed ids in this call are left
-    /// for lazy single reads. Under `certora`, this is a no-op.
     #[cfg(feature = "certora")]
     pub(crate) fn warm(&mut self, _keys: &Vec<PriceKey>) {}
 
@@ -173,7 +152,7 @@ fn collect_key(
                 collect_provider(env, by_adapter, &scaled.factor.provider);
                 collect_key(env, by_adapter, visited, &scaled.quote, depth + 1);
             }
-            // Refused at config validate; never stored successfully.
+
             PriceSource::LpShare(_) => {}
         }
     }

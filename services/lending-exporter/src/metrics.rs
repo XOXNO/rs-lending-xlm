@@ -1,6 +1,3 @@
-//! Prometheus registry, metric families, `/metrics` + `/health`.
-//!
-//! Every family has a `network` label (one Grafana, multiple scrape jobs).
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -12,12 +9,11 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-/// One `(hub, asset)` reserve; `hub` display, `hub_id` stable.
 const MARKET_LABELS: &[&str] = &["network", "hub_id", "hub", "asset", "symbol"];
 const ORACLE_LABELS: &[&str] = &["network", "asset", "symbol"];
-/// Spoke-level labels (liquidation curve, deprecation).
+
 const SPOKE_LABELS: &[&str] = &["network", "spoke_id", "spoke"];
-/// Spoke-asset labels; `spoke`/`hub` display, `*_id` stable.
+
 const SPOKE_ASSET_LABELS: &[&str] = &["network", "spoke_id", "spoke", "hub_id", "hub", "asset", "symbol"];
 
 pub struct Metrics {
@@ -37,35 +33,34 @@ pub struct Metrics {
     pub market_supply_index_ray: GaugeVec,
     pub market_borrow_index_ray: GaugeVec,
     pub market_last_accrual_timestamp: GaugeVec,
-    /// Seconds since pool `last_timestamp` (`get_delta_time`).
+
     pub market_delta_time_seconds: GaugeVec,
-    /// IRM curve params (`param` label).
+
     pub market_param: GaugeVec,
 
-    /// Final composed USD WAD (`MarketIndexView.price_wad`).
     pub oracle_price_usd: GaugeVec,
-    /// Primary oracle leg (`primary_price_wad`).
+
     pub oracle_primary_price_usd: GaugeVec,
-    /// Anchor (second) oracle leg (`anchor_price_wad`).
+
     pub oracle_anchor_price_usd: GaugeVec,
     pub oracle_deviation_bps: GaugeVec,
-    /// Soft status `valid` (1 = usable for solvency).
+
     pub oracle_healthy: GaugeVec,
-    /// Soft status `stale` flag (0/1).
+
     pub oracle_stale: GaugeVec,
-    /// Soft status `deviation` flag (0/1).
+
     pub oracle_deviation_flag: GaugeVec,
-    /// Soft status blend timestamp (`MarketIndexView.price_timestamp`).
+
     pub oracle_status_timestamp: GaugeVec,
     pub oracle_max_stale_seconds: GaugeVec,
-    /// Max-stale of the soonest-to-stale provider leg (for freshness fraction).
+
     pub oracle_effective_max_stale_seconds: GaugeVec,
     pub oracle_tolerance_upper_bps: GaugeVec,
     pub oracle_tolerance_lower_bps: GaugeVec,
     pub oracle_sanity_min_usd: GaugeVec,
     pub oracle_sanity_max_usd: GaugeVec,
     pub oracle_strategy: GaugeVec,
-    /// Provider-probe feed timestamp (worst leg).
+
     pub oracle_price_timestamp: GaugeVec,
     pub oracle_seconds_until_stale: GaugeVec,
 

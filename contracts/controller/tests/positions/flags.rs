@@ -1,5 +1,3 @@
-//! Spoke asset pause/freeze gate tests.
-
 use super::*;
 use crate::Controller;
 use common::types::SpokeAssetConfig;
@@ -38,41 +36,35 @@ fn run_gate(paused: bool, frozen: bool, freeze: FreezePolicy) {
     });
 }
 
-// Paused rejects new supply/borrow.
 #[test]
 #[should_panic(expected = "Error(Contract, #315)")]
 fn paused_blocks_supply_borrow() {
     run_gate(true, false, FreezePolicy::BlockOnEntry);
 }
 
-// Paused also rejects withdraw/repay.
 #[test]
 #[should_panic(expected = "Error(Contract, #315)")]
 fn paused_blocks_withdraw_repay() {
     run_gate(true, false, FreezePolicy::AllowOnExit);
 }
 
-// Frozen rejects new supply/borrow.
 #[test]
 #[should_panic(expected = "Error(Contract, #316)")]
 fn frozen_blocks_supply_borrow() {
     run_gate(false, true, FreezePolicy::BlockOnEntry);
 }
 
-// Frozen allows withdraw/repay.
 #[test]
 fn frozen_allows_withdraw_repay() {
     run_gate(false, true, FreezePolicy::AllowOnExit);
 }
 
-// An unpaused, unfrozen asset passes every verb.
 #[test]
 fn clean_asset_allows_all_verbs() {
     run_gate(false, false, FreezePolicy::BlockOnEntry);
     run_gate(false, false, FreezePolicy::AllowOnExit);
 }
 
-// No spoke-asset entry for the asset is a no-op for any flag.
 #[test]
 fn missing_spoke_asset_is_noop() {
     let env = Env::default();
@@ -84,7 +76,7 @@ fn missing_spoke_asset_is_noop() {
             asset: Address::generate(&env),
         };
         let mut cache = Cache::new_view(&env);
-        // Spoke without an entry for this asset: no-op.
+
         enforce_spoke_asset_flags(
             &env,
             &mut cache,

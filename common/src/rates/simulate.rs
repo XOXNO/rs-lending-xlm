@@ -1,6 +1,3 @@
-//! Read-path index accrual: same arithmetic as the pool's mutating accrual,
-//! without touching storage.
-
 use soroban_sdk::Env;
 
 use crate::math::fp::Ray;
@@ -14,16 +11,6 @@ use crate::rates::index::{
 };
 use crate::rates::scaling::scaled_to_original;
 
-/// Simulates index accrual without mutating pool storage.
-/// Recomputes utilization and protocol revenue for each accrual chunk.
-///
-/// Three functions implement this one operation, and the split is a
-/// verification seam: `simulate_update_indexes` is the stable public name,
-/// `simulate_update_indexes_dispatch` is swapped by `cfg` for a Certora
-/// summary, and `simulate_update_indexes_body` holds the real accrual loop.
-/// The prover cannot expand the full Taylor series across an unbounded chunk
-/// count, so under `--features certora` the dispatch is replaced by a monotone
-/// nondeterministic summary.
 pub fn simulate_update_indexes(
     env: &Env,
     current_timestamp: u64,
@@ -105,12 +92,8 @@ pub(crate) fn simulate_update_indexes_body(
         );
         borrow_index = new_borrow_index;
 
-        // Reserve fee plus virtual-offset shortfall mint scaled supply and feed
-        // the next chunk's utilization exactly like mutating pool accrual.
         let protocol_reward = protocol_fee.checked_add(env, supplier_shortfall);
         if protocol_reward != Ray::ZERO {
-            // Overflow-safe: a floored supply index can push the share count past
-            // i128; `protocol_fee_shares` saturates and caps to remaining headroom.
             let fee_scaled = protocol_fee_shares(env, protocol_reward, supply_index, supplied);
             supplied = supplied.checked_add(env, fee_scaled);
         }

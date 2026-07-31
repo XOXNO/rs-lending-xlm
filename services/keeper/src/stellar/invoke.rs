@@ -1,7 +1,3 @@
-//! Controller invoke builders used by the keeper.
-//!
-//! Only `update_indexes` (advances pool accrual). Caller signs; no on-chain role.
-//! TTL bumps are permissionless — see `ttl.rs`.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
@@ -14,7 +10,6 @@ use crate::stellar::client::account_id_from_strkey;
 use crate::stellar::tx::TxKind;
 use crate::stellar::TxJob;
 
-/// `controller.update_indexes(caller, hub_assets)`.
 pub fn update_indexes(
     controller_id: &[u8; 32],
     caller_strkey: &str,

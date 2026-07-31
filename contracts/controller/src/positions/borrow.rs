@@ -1,9 +1,3 @@
-//! User and strategy borrow: pool pays proceeds out; no pre-transfer.
-//!
-//! User path re-checks LTV/HF after pool indexes return. Strategy helpers share
-//! entry gates and merge logic but defer post-pool risk gates to
-//! `strategy_finalize`.
-
 use common::types::{
     Account, AccountPositionType, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
 };
@@ -21,10 +15,6 @@ use crate::positions::{
 };
 use crate::storage;
 
-/// Auth, load account, entry gates, pool borrow, post-pool solvency, then persist.
-///
-/// `remove_if_empty` is false: this path only increases debt, so account cleanup
-/// is never needed here.
 pub(crate) fn process_borrow(
     env: &Env,
     caller: &Address,
@@ -59,7 +49,6 @@ pub(crate) fn process_borrow(
     finalize_position_flow(env, account_id, &account, &mut cache, sides, false);
 }
 
-/// Snapshot the debt legs, then the bulk pool borrow to `recipient`.
 fn settle_borrow(
     env: &Env,
     recipient: &Address,
@@ -71,7 +60,6 @@ fn settle_borrow(
     apply_borrow_batch(env, account, recipient, &entries, cache);
 }
 
-/// Snapshots each debt leg for the pool action (in-memory; merge persists).
 fn build_borrow_entries(
     env: &Env,
     account: &Account,
@@ -87,7 +75,6 @@ fn build_borrow_entries(
     entries
 }
 
-/// One batch `pool.borrow`, then merge results input-ordered.
 fn apply_borrow_batch(
     env: &Env,
     account: &mut Account,
@@ -112,15 +99,6 @@ fn apply_borrow_batch(
     });
 }
 
-/// Borrows `amount` of `hub_debt` against `account` for a strategy flow
-/// and returns the asset amount received by the controller.
-///
-/// Used by multiply and swap-debt. Charges the market's configured flash-loan fee.
-///
-/// # Security Warning
-/// * Performs no `require_auth`: authorization is enforced by the strategy
-///   entrypoint that invokes it. Post-borrow solvency is deferred to
-///   `strategy_finalize`. Never call from an un-authorized context.
 pub(crate) fn borrow_for_strategy(
     env: &Env,
     account: &mut Account,
@@ -138,11 +116,6 @@ pub(crate) fn borrow_for_strategy(
     )
 }
 
-/// Zero-fee strategy borrow for Blend migration. Proceeds go to the controller.
-///
-/// # Security Warning
-/// * Performs no `require_auth`: authorization is enforced by the migration
-///   entrypoint that invokes it. Solvency is deferred to `strategy_finalize`.
 pub(crate) fn borrow_for_migration(
     env: &Env,
     account: &mut Account,
@@ -160,13 +133,10 @@ pub(crate) fn borrow_for_migration(
     )
 }
 
-/// Which strategy is borrowing. Binds the flash-loan fee to the emitted event so
-/// the two cannot drift: a fee-free borrow can only ever report as `Migrate`.
 #[derive(Clone, Copy)]
 enum StrategyBorrowKind {
-    /// Leveraged open. Pays the market's configured flash-loan fee.
     Multiply,
-    /// Blend migration. Fee-free, since the debt already exists elsewhere.
+
     Migration,
 }
 
@@ -183,10 +153,6 @@ impl StrategyBorrowKind {
     }
 }
 
-/// Shared strategy-borrow body.
-///
-/// The fee amount is computed pool-side from the market's `flashloan_fee` bps.
-/// Entry gates run; post-pool HF does not.
 fn borrow_strategy_inner(
     env: &Env,
     account: &mut Account,

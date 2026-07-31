@@ -1,7 +1,3 @@
-//! Owner-gated protocol configuration: registries, hub/spoke listings, limits,
-//! and allowlists. Auth is `#[only_owner]` (governance after execute; GUARDIAN
-//! immediate for hub/spoke create and tighten-only flags).
-
 pub(crate) mod approvals;
 pub(crate) mod asset;
 pub(crate) mod hub;

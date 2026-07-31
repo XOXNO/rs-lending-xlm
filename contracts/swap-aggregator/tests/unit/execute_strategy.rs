@@ -1,9 +1,3 @@
-//! `execute_strategy` surface: decode, validation, and measurement guards.
-//!
-//! These cases pin fail-closed behaviour that is independent of any single
-//! venue: empty/broken payloads, aggregate slippage, same-token routes, and
-//! balance-delta accounting when a pool lies about its output.
-
 use crate::errors::Error;
 use crate::types::{SwapHop, SwapPath, SwapVenue};
 use crate::{Router, RouterClient};
@@ -54,9 +48,6 @@ fn execute_strategy_route_bytes_decode_and_execute() {
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 500);
 }
 
-// A route pool that reports output it never delivered must not let the caller
-// drain the router's own `token_out` balance (e.g. accrued fees). The per-hop
-// balance-delta check credits zero and reverts.
 #[test]
 fn execute_strategy_rejects_fake_venue_output() {
     let env = Env::default();
@@ -68,12 +59,10 @@ fn execute_strategy_rejects_fake_venue_output() {
     let (token_a, sac_a) = new_asset(&env, &admin);
     let (token_b, sac_b) = new_asset(&env, &admin);
 
-    // Pool claims 700 out but transfers nothing.
     let pool = env.register(malicious_aquarius_mock::MaliciousAqPool, ());
     malicious_aquarius_mock::MaliciousAqPoolClient::new(&env, &pool)
         .init(&token_a, &token_b, &700u128, &0i128);
 
-    // Attacker holds 1 token_a; the router holds 700 token_b of accrued fees.
     sac_a.mint(&sender, &1);
     sac_b.mint(&router_addr, &700);
 
@@ -99,7 +88,7 @@ fn execute_strategy_rejects_fake_venue_output() {
         .try_execute_strategy(&sender, &1, &swap_xdr)
         .unwrap_err();
     assert_eq!(err.unwrap(), Error::ZeroOutput.into());
-    // Router fees untouched, attacker gained nothing.
+
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 0);
     assert_eq!(
         token::Client::new(&env, &token_b).balance(&router_addr),
@@ -107,7 +96,6 @@ fn execute_strategy_rejects_fake_venue_output() {
     );
 }
 
-// When a pool over-reports, the router credits only what actually arrived.
 #[test]
 fn execute_strategy_credits_only_delivered_output_not_reported() {
     let env = Env::default();
@@ -119,7 +107,6 @@ fn execute_strategy_credits_only_delivered_output_not_reported() {
     let (token_a, sac_a) = new_asset(&env, &admin);
     let (token_b, sac_b) = new_asset(&env, &admin);
 
-    // Pool reports 700 but only delivers 500.
     let pool = env.register(malicious_aquarius_mock::MaliciousAqPool, ());
     malicious_aquarius_mock::MaliciousAqPoolClient::new(&env, &pool)
         .init_with_pull(&token_a, &token_b, &700u128, &500i128, &true);

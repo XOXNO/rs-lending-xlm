@@ -1,5 +1,3 @@
-//! Controller storage accessors and TTL renewal.
-
 mod account;
 mod hub;
 mod protocol;
@@ -34,8 +32,6 @@ pub(crate) use ttl::{
     get_shared, get_user, renew_controller_instance, renew_user_key, set_shared, set_user,
 };
 
-// Reads and writes that only the testing and verification harnesses reach;
-// production flows go through the guarded helpers above.
 #[cfg(any(feature = "testing", feature = "certora"))]
 pub(crate) use session::set_flash_loan_ongoing;
 #[cfg(feature = "certora")]

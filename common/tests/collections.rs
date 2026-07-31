@@ -1,7 +1,6 @@
 use super::*;
 use soroban_sdk::testutils::Address as _;
 
-// Dedup is first-seen-wins so batch results stay aligned with caller order.
 #[test]
 fn push_unique_dedups_preserving_order() {
     let env = Env::default();
@@ -16,7 +15,6 @@ fn push_unique_dedups_preserving_order() {
     assert_eq!(out.get_unchecked(1), b);
 }
 
-// The same token listed on two hubs is priced once, at its first position.
 #[test]
 fn unique_hub_tokens_collapses_same_token_across_hubs() {
     let env = Env::default();

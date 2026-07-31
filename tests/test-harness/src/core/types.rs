@@ -34,8 +34,7 @@ pub(crate) struct PendingMarket {
     pub config: AssetConfigPreset,
     pub params: MarketParamsPreset,
     pub configure_oracle: bool,
-    /// Registers a mock freezable token (transfers trap to a blocked recipient)
-    /// instead of a Stellar Asset Contract, for un-liquidatable-collateral PoCs.
+
     pub freezable: bool,
 }
 

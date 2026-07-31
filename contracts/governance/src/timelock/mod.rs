@@ -1,14 +1,3 @@
-//! Timelock lifecycle, immediate incident entrypoints, and Recovery reset.
-//!
-//! Submodules: `lifecycle` (propose / execute / cancel), `immediate` (role-gated
-//! bypasses), `recovery` (non-vetoable canceller reset), `views` (read-only),
-//! `testing` (test-only immediate execute).
-//!
-//! Delay tiers: `Standard` (min delay), `Sensitive` (min of configured delay and
-//! sensitive floor), `Recovery` (min of configured delay and recovery floor).
-//! After execute or cancel, the OZ `OperationLedger` entry and local sidecars
-//! are removed. Propose always uses predecessor `0`.
-
 mod immediate;
 mod lifecycle;
 mod recovery;
@@ -35,14 +24,12 @@ use crate::{constants, storage};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DelayTier {
     Standard,
-    /// Wasm upgrades, ownership transfers, aggregator re-point, role
-    /// grant/revoke, force bad-debt socialization.
+
     Sensitive,
-    /// Non-vetoable canceller-council reset.
+
     Recovery,
 }
 
-/// Delay in ledgers for `tier`: configured minimum raised to the tier floor.
 pub(crate) fn operation_delay(env: &Env, tier: DelayTier) -> u32 {
     let min = get_min_delay(env);
     match tier {
@@ -52,19 +39,10 @@ pub(crate) fn operation_delay(env: &Env, tier: DelayTier) -> u32 {
     }
 }
 
-/// Rejects a zero delay.
-///
-/// # Errors
-/// * [`GenericError::InvalidTimelockDelay`] — delay is zero.
 pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
     assert_with_error!(env, delay != 0, GenericError::InvalidTimelockDelay);
 }
 
-/// Accepts a delay update only when non-decreasing and within the cap.
-///
-/// # Errors
-/// * [`GenericError::InvalidTimelockDelay`] — zero, below current, or above
-///   [`constants::TIMELOCK_MAX_DELAY_LEDGERS`].
 pub(crate) fn validate_delay_update(env: &Env, new_delay: u32) {
     require_nonzero_delay(env, new_delay);
     let current = get_min_delay(env);
@@ -75,14 +53,11 @@ pub(crate) fn validate_delay_update(env: &Env, new_delay: u32) {
     );
 }
 
-/// Validates and writes the new minimum delay.
 pub(crate) fn apply_update_delay(env: &Env, new_delay: u32) {
     validate_delay_update(env, new_delay);
     stellar_governance::timelock::set_min_delay(env, new_delay);
 }
 
-/// When `executor` is `Some`, requires auth and the `EXECUTOR` role. `None`
-/// leaves execution open to any caller once ready.
 pub(crate) fn authorize_executor(env: &Env, executor: Option<&Address>) {
     if let Some(exec) = executor {
         exec.require_auth();
@@ -90,10 +65,6 @@ pub(crate) fn authorize_executor(env: &Env, executor: Option<&Address>) {
     }
 }
 
-/// Rejects an operation past ready ledger + grace.
-///
-/// # Errors
-/// * [`GenericError::TimelockOperationExpired`] — past the grace window.
 pub(crate) fn require_operation_not_expired(env: &Env, operation_id: &BytesN<32>) {
     let ready_ledger = get_operation_ledger(env, operation_id);
     if ready_ledger <= 1 {
@@ -108,7 +79,6 @@ pub(crate) fn require_operation_not_expired(env: &Env, operation_id: &BytesN<32>
     );
 }
 
-/// Builds a timelock [`Operation`] for `op` with predecessor `0`.
 fn operation_for_admin_op(
     env: &Env,
     op: &crate::op::AdminOperation,
@@ -155,8 +125,6 @@ fn begin_immediate(env: &Env, caller: &Address, role: &str) {
     access_control::ensure_role(env, &Symbol::new(env, role), caller);
 }
 
-/// Shared execute prep: renew instance TTL, authorize executor, enforce grace.
-/// Returns the operation id.
 fn prepare_execute(env: &Env, executor: Option<&Address>, operation: &Operation) -> BytesN<32> {
     storage::renew_governance_instance(env);
     authorize_executor(env, executor);
@@ -165,7 +133,6 @@ fn prepare_execute(env: &Env, executor: Option<&Address>, operation: &Operation)
     operation_id
 }
 
-/// Removes the OZ ledger entry and local sidecars after execute or cancel.
 fn finish_execute(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()

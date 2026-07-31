@@ -1,5 +1,3 @@
-//! RedStone multi-feed client and call wrappers.
-
 use soroban_sdk::{contractclient, contracttype, Address, Env, Error, String, Vec, U256};
 
 #[contracttype]
@@ -12,19 +10,13 @@ pub struct RedStonePriceData {
 
 pub const REDSTONE_DECIMALS: u32 = 8;
 
-/// Wire ABI of the deployed RedStone adapter: `read_price_data` is the BULK
-/// endpoint, `read_price_data_for_feed` the single-feed one. The local
-/// wrapper names below do not mirror the wire names.
 #[contractclient(name = "RedStonePriceFeedClient")]
-#[allow(dead_code)] // Required: trait exists only for the macro to generate the client proxy.
+#[allow(dead_code)]
 pub trait RedStoneMultiFeed {
     fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error>;
     fn read_price_data(env: Env, feed_ids: Vec<String>) -> Result<Vec<RedStonePriceData>, Error>;
 }
 
-/// Single-feed read without cache. Called directly by market-config
-/// validation flows (no transaction cache); the production read path also
-/// calls this on a transaction-cache miss to populate its own cache.
 pub fn read_price_data_uncached(
     env: &Env,
     contract: &Address,
@@ -36,7 +28,6 @@ pub fn read_price_data_uncached(
     }
 }
 
-/// `xoxno-oracle` admin/read surface beyond the shared RedStone wire ABI.
 #[contractclient(name = "XoxnoOracleAdapterClient")]
 #[allow(dead_code)]
 pub trait XoxnoOracleAdapter {

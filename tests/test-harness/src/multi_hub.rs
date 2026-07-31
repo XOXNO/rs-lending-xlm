@@ -1,10 +1,3 @@
-//! Multi-hub test helpers.
-//!
-//! Existing single-hub helpers operate on the base harness hub; these add the
-//! `hub_id`-parameterized variants used by the isolation suite: creating a hub,
-//! listing an already-registered asset on a second hub, supplying/borrowing on a
-//! specific `(hub_id, asset)`, and reading a hub-scoped pool `State`.
-
 use common::types::HubAssetKey;
 use controller::types::{MarketParamsRaw, PoolKey, PoolStateRaw, PositionMode, SpokeAssetConfig};
 use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs};
@@ -21,10 +14,6 @@ impl LendingTest {
         u32::try_from_val(&self.env, &id_val).expect("create_hub returns a hub id")
     }
 
-    /// Lists an already-registered market's asset on `hub_id` (distinct from the
-    /// base harness hub), reusing the base hub's params/config and seeding
-    /// `initial_liquidity` of cash. The asset oracle is token-rooted, so the base
-    /// hub listing already configured it.
     pub fn list_market_on_hub(&mut self, hub_id: u32, asset_name: &str, initial_liquidity: f64) {
         let market = self.resolve_market(asset_name);
         let asset = market.asset.clone();
@@ -71,10 +60,6 @@ impl LendingTest {
         });
     }
 
-    /// Lists an already-registered market on `hub_id` (distinct from the base
-    /// harness hub) with an explicit `liquidation_fees`, overriding the base
-    /// hub config. Used to prove the liquidation seizure resolves the protocol
-    /// fee from the position's own hub.
     pub fn list_market_on_hub_with_fees(
         &mut self,
         hub_id: u32,
@@ -157,9 +142,6 @@ impl LendingTest {
         returned_id
     }
 
-    /// Lists the `(hub_id, asset)` market on the base harness spoke with the
-    /// supplied risk params and protocol `liquidation_fees`. The pool for the
-    /// market must already exist.
     fn list_hub_asset_on_base_spoke(
         &self,
         hub_id: u32,
@@ -219,7 +201,6 @@ impl LendingTest {
         ctrl.borrow(&addr, &account_id, &borrows, &None);
     }
 
-    /// Try-borrow on `hub_id`; returns the contract error instead of panicking.
     pub fn try_borrow_on_hub(
         &mut self,
         hub_id: u32,

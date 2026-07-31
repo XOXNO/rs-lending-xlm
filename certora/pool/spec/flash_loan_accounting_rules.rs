@@ -1,9 +1,3 @@
-//! Flash-loan arithmetic used by the production balance checks and fee booking.
-//!
-//! The SAC transfer, allowance, callback, and rollback semantics are external
-//! host boundaries; these rules prove the exact targets and persisted pool math
-//! that the production endpoint uses around those calls.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
@@ -20,7 +14,6 @@ use super::fixture::{
 };
 use crate::ops::flash::FlashTerms;
 
-/// The exact post-payout and post-repayment balances recover principal plus fee.
 #[rule]
 fn flash_repayment_terms_recover_principal_and_fee(
     e: Env,
@@ -53,8 +46,6 @@ fn flash_repayment_terms_recover_principal_and_fee(
     cvlr_assert!(after_repayment - after_payout == total);
 }
 
-/// On a successful flash loan, fee booking changes cash by the native fee and
-/// mints the same scaled shares into protocol revenue and aggregate supply.
 #[rule]
 fn flash_fee_booking_is_exact(
     e: Env,

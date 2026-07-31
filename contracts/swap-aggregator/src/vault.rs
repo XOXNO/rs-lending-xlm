@@ -1,5 +1,3 @@
-//! Invocation-local token accounting.
-
 use soroban_sdk::{panic_with_error, Address, Env, Map};
 
 use crate::errors::Error;

@@ -8,8 +8,6 @@ fn new_controller(env: &Env) -> Address {
     env.register(Controller, (admin,))
 }
 
-// `create_hub` ids start at 1 (the constructor seeds no hub) and each created
-// hub is active on return.
 #[test]
 fn create_hub_assigns_increasing_ids_and_marks_active() {
     let env = Env::default();
@@ -24,7 +22,6 @@ fn create_hub_assigns_increasing_ids_and_marks_active() {
     });
 }
 
-// Hub 0 is uncreated and reverts like any inactive hub.
 #[test]
 #[should_panic(expected = "Error(Contract, #43)")]
 fn require_hub_active_rejects_unseeded_hub_zero() {
@@ -68,8 +65,6 @@ fn require_hub_active_rejects_deactivated_hub() {
     });
 }
 
-// The setter overrides the defaults stamped at `add_spoke` and the change is
-// visible on the next `storage::get_spoke` read.
 #[test]
 fn set_spoke_liquidation_curve_overrides_defaults() {
     let env = Env::default();
@@ -98,7 +93,7 @@ fn set_spoke_liquidation_curve_overrides_defaults() {
         assert_eq!(after.liquidation_target_hf_wad, 1_010_000_000_000_000_000);
         assert_eq!(after.hf_for_max_bonus_wad, 995_000_000_000_000_000);
         assert_eq!(after.liquidation_bonus_factor_bps, 8_000);
-        // Deprecation flag is untouched by the curve setter.
+
         assert!(!after.is_deprecated);
     });
 }
@@ -170,8 +165,6 @@ fn set_spoke_liquidation_curve_panics_for_bonus_factor_above_bps() {
     });
 }
 
-// The owner-gated entrypoints must round-trip through the contract ABI —
-// wrapper-level coverage, distinct from the internal-helper tests below.
 #[test]
 fn min_borrow_floor_entrypoints_round_trip() {
     let env = Env::default();
@@ -199,9 +192,6 @@ fn blend_pool_approval_entrypoints_round_trip() {
     assert!(!client.is_blend_pool_approved(&pool));
 }
 
-// `upgrade_pool` must reach the pool lookup rather than failing earlier: with
-// no pool deployed it reverts `PoolNotInitialized` specifically, so an auth or
-// argument failure short-circuiting the call cannot satisfy this test.
 #[test]
 fn upgrade_pool_reverts_pool_not_initialized_without_deployed_pool() {
     let env = Env::default();
@@ -218,13 +208,6 @@ fn upgrade_pool_reverts_pool_not_initialized_without_deployed_pool() {
     );
 }
 
-// `remove_delegate` reaches the account lookup rather than failing earlier: a
-// caller that owns no such account reverts `AccountNotInMarket` specifically.
-//
-// The constructor leaves the contract paused and `remove_delegate` is pause-exempt
-// (revoking a delegate is risk-reducing, like withdraw/repay), so this reaches the
-// owner/account check WITHOUT any unpause: the revert is the account lookup, not a
-// pause guard. Keeping it paused is the point — revocation must work mid-incident.
 #[test]
 fn remove_delegate_reverts_account_not_in_market_for_non_owner() {
     let env = Env::default();
@@ -242,10 +225,6 @@ fn remove_delegate_reverts_account_not_in_market_for_non_owner() {
     );
 }
 
-// `recapitalize` is permissionless and pause-exempt: a non-owner reaches the pool
-// call while the contract is still paused rather than bouncing off an owner gate or
-// the pause guard. With no pool deployed it reverts `PoolNotInitialized`, proving the
-// flow is reached (F4: it was `#[only_owner]` with no governance path, so unreachable).
 #[test]
 fn recapitalize_is_permissionless_and_pause_exempt() {
     let env = Env::default();
@@ -266,8 +245,6 @@ fn recapitalize_is_permissionless_and_pause_exempt() {
     );
 }
 
-// An unset floor reads back as the default constant rather than zero, so a
-// fresh deployment still enforces a minimum borrow collateral.
 #[test]
 fn min_borrow_floor_reads_the_default_when_unset() {
     let env = Env::default();
@@ -280,8 +257,6 @@ fn min_borrow_floor_reads_the_default_when_unset() {
     });
 }
 
-// Helper-level view of the allowlist, one layer under the ABI round-trip above:
-// absence reads as not-approved, and an approval write is visible on read back.
 #[test]
 fn blend_pool_approval_helper_reflects_storage() {
     let env = Env::default();

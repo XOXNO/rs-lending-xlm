@@ -1,6 +1,3 @@
-//! Contract-surface tests: ownership, config setters, fail-closed pricing,
-//! soft status flags, and end-to-end reads through a RedStone mock.
-
 use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
@@ -44,24 +41,18 @@ fn public_entrypoint_renews_instance_ttl() {
     assert_eq!(renewed, TTL_BUMP_INSTANCE);
 }
 
-/// One RedStone feed. Declared [`FeedNature::Fundamental`] so a lone source
-/// satisfies the smoothing rule: a published price is not moved by trading, so
-/// it needs no window to defend it.
 fn redstone_single(env: &Env, feed: &Address, feed_id: &str, max_stale: u64) -> AssetOracle {
     AssetOracle {
         asset_decimals: 7,
         max_price_stale_seconds: max_stale,
         sources: soroban_sdk::vec![env, redstone_feed(env, feed, feed_id, max_stale)],
-        // Inert on a single source, but still validated on write: a stored
-        // `10_000/10_000` would read as "±0% tolerance", an assertion the
-        // config has no business making. `set_tolerance` holds the same rule,
-        // so accepting it here would leave the two write paths disagreeing.
+
         tolerance: OracleTolerance {
             upper_ratio_bps: 10_500,
             lower_ratio_bps: 9_524,
         },
         independence: IndependencePolicy::RequireDisjoint,
-        // Single-source band must stay within ±10% midpoint-relative.
+
         min_sanity_price_wad: WAD - WAD / 20,
         max_sanity_price_wad: WAD + WAD / 20,
     }
@@ -80,12 +71,6 @@ fn redstone_feed(env: &Env, feed: &Address, feed_id: &str, max_stale: u64) -> Pr
     })
 }
 
-/// Two RedStone feeds on **one** adapter.
-///
-/// That is shared trust, so it is declared rather than hidden: `RequireDisjoint`
-/// would (correctly) reject it, since whoever controls that adapter controls
-/// both legs and the agreement band would compare a value against itself. The
-/// waiver is what makes the sharing visible to a reviewer.
 fn redstone_dual(
     env: &Env,
     feed: &Address,
@@ -114,7 +99,7 @@ fn redstone_dual(
                 contract: feed.clone(),
             }
         ]),
-        // Anchored configs allow a wider sanity window.
+
         min_sanity_price_wad: WAD / 2,
         max_sanity_price_wad: WAD * 2,
     }
@@ -127,13 +112,12 @@ fn set_oracle_roundtrips_through_storage() {
     let (_owner, client) = register_agg(&env);
     let asset = Address::generate(&env);
     let (feed, feed_client) = register_feed(&env);
-    // The write path resolves the config before storing it, so the feed has to
-    // be live for a successful round trip.
+
     feed_client.set_price(&String::from_str(&env, "BTC/USD"), &WAD);
     let cfg = redstone_single(&env, &feed, "BTC/USD", 900);
 
     client.set_oracle(&PriceKey::Token(asset.clone()), &cfg);
-    // Every config write publishes exactly one UpdateAssetOracleEvent.
+
     assert_eq!(env.events().all().events().len(), 1);
     assert_eq!(client.oracle(&PriceKey::Token(asset.clone())), Some(cfg));
 }
@@ -190,8 +174,6 @@ fn child_reconfiguration_cannot_invalidate_parent_independence() {
     assert_eq!(client.price(&parent_key).price_wad, WAD);
 }
 
-// Exactly one stale leg must mark the whole dual read stale (primary written
-// far in the past, anchor fresh).
 #[test]
 fn quote_dual_one_stale_leg_marks_stale() {
     let env = Env::default();
@@ -303,9 +285,6 @@ fn quote_unconfigured_is_unusable() {
 
 #[test]
 fn quote_unconfigured_key_is_unusable() {
-    // v1 stored a `pending_for` placeholder for a market awaiting its oracle.
-    // The composable model has no placeholder: the key simply has no entry, and
-    // the soft path must report that as unusable rather than revert.
     let env = Env::default();
     env.mock_all_auths();
     let (_owner, client) = register_agg(&env);
@@ -316,8 +295,6 @@ fn quote_unconfigured_key_is_unusable() {
     assert_eq!(status.final_wad, 0);
 }
 
-// A present-but-invalid payload (non-positive price) must soften to unusable
-// on the status path, not revert. The hard `price` path still reverts.
 #[test]
 fn quote_non_positive_payload_is_unusable_without_revert() {
     let env = Env::default();
@@ -329,7 +306,7 @@ fn quote_non_positive_payload_is_unusable_without_revert() {
     let asset = Address::generate(&env);
     let (feed, feed_client) = register_feed(&env);
     let feed_id = String::from_str(&env, "BTC/USD");
-    feed_client.set_price(&feed_id, &0); // present feed, non-positive price
+    feed_client.set_price(&feed_id, &0);
     client.seed_oracle(
         &PriceKey::Token(asset.clone()),
         &redstone_single(&env, &feed, "BTC/USD", 900),
@@ -339,11 +316,9 @@ fn quote_non_positive_payload_is_unusable_without_revert() {
     assert!(!status.valid);
     assert_eq!(status.final_wad, 0);
 
-    // Hard path fails closed on the same payload.
     assert!(client.try_price(&PriceKey::Token(asset.clone())).is_err());
 }
 
-// A future-timestamped payload also softens to unusable rather than reverting.
 #[test]
 fn quote_future_timestamp_is_unusable_without_revert() {
     let env = Env::default();
@@ -356,7 +331,7 @@ fn quote_future_timestamp_is_unusable_without_revert() {
     let asset = Address::generate(&env);
     let (feed, feed_client) = register_feed(&env);
     let feed_id = String::from_str(&env, "BTC/USD");
-    // Package/write timestamps far beyond now + skew (ms).
+
     let future_ms = (now + 100_000) * 1_000;
     feed_client.set_price_data(&feed_id, &WAD, &future_ms, &future_ms);
     client.seed_oracle(
@@ -371,9 +346,6 @@ fn quote_future_timestamp_is_unusable_without_revert() {
     assert!(client.try_price(&PriceKey::Token(asset.clone())).is_err());
 }
 
-// Exactly ONE of the two multi-feed timestamps in the future is enough to
-// mark the read unusable — pins the `package_future || write_future` guard
-// (an `&&` would wrongly accept a payload with one future leg).
 #[test]
 fn quote_single_future_multi_feed_timestamp_is_unusable() {
     let env = Env::default();
@@ -388,7 +360,7 @@ fn quote_single_future_multi_feed_timestamp_is_unusable() {
     let feed_id = String::from_str(&env, "BTC/USD");
     let valid_ms = now * 1_000;
     let future_ms = (now + 100_000) * 1_000;
-    // package_timestamp future, write_timestamp valid.
+
     feed_client.set_price_data(&feed_id, &WAD, &future_ms, &valid_ms);
     client.seed_oracle(
         &PriceKey::Token(asset.clone()),
@@ -407,7 +379,7 @@ fn quote_missing_primary_feed_is_unusable() {
     let (_owner, client) = register_agg(&env);
     let asset = Address::generate(&env);
     let (feed, _) = register_feed(&env);
-    // Config points at a feed that was never set.
+
     client.seed_oracle(
         &PriceKey::Token(asset.clone()),
         &redstone_single(&env, &feed, "MISSING", 900),
@@ -434,7 +406,6 @@ fn quote_marks_stale_single_source() {
         &redstone_single(&env, &feed, "BTC/USD", 60),
     );
 
-    // Advance well past max_stale_seconds.
     env.ledger().with_mut(|li| {
         li.timestamp = 1_000 + 10_000;
     });
@@ -458,9 +429,6 @@ fn quote_sourceless_config_is_unusable() {
     let (feed, feed_client) = register_feed(&env);
     feed_client.set_price(&String::from_str(&env, "BTC/USD"), &WAD);
 
-    // Arity is enforced at configure time (`SourceCountOutOfRange`), so this
-    // shape can only exist if it were written past validation. Seeded directly
-    // to prove the read path softens rather than panicking on it.
     let mut cfg = redstone_single(&env, &feed, "BTC/USD", 900);
     cfg.sources = Vec::new(&env);
     client.seed_oracle(&PriceKey::Token(asset.clone()), &cfg);
@@ -483,7 +451,7 @@ fn quote_dual_missing_anchor_feed_marks_deviation() {
     let asset = Address::generate(&env);
     let (feed, feed_client) = register_feed(&env);
     feed_client.set_price(&String::from_str(&env, "PRIMARY"), &WAD);
-    // Anchor feed never set.
+
     client.seed_oracle(
         &PriceKey::Token(asset.clone()),
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
@@ -507,7 +475,7 @@ fn quote_dual_in_band_is_valid_midpoint() {
     let asset = Address::generate(&env);
     let (feed, feed_client) = register_feed(&env);
     feed_client.set_price(&String::from_str(&env, "PRIMARY"), &WAD);
-    feed_client.set_price(&String::from_str(&env, "ANCHOR"), &(WAD + WAD / 100)); // +1%
+    feed_client.set_price(&String::from_str(&env, "ANCHOR"), &(WAD + WAD / 100));
     client.set_oracle(
         &PriceKey::Token(asset.clone()),
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
@@ -541,7 +509,7 @@ fn quote_dual_out_of_band_marks_deviation() {
     assert!(!status.valid);
     assert!(status.deviation);
     assert!(!status.stale);
-    // Midpoint still surfaced for diagnostics.
+
     assert_eq!(status.final_wad, (WAD + WAD * 2) / 2);
 }
 
@@ -558,7 +526,7 @@ fn quote_outside_sanity_band_is_invalid() {
     feed_client.set_price(&String::from_str(&env, "BTC/USD"), &WAD);
 
     let mut cfg = redstone_single(&env, &feed, "BTC/USD", 900);
-    // Live price is WAD; band is far above it.
+
     cfg.min_sanity_price_wad = WAD * 10;
     cfg.max_sanity_price_wad = WAD * 20;
     client.seed_oracle(&PriceKey::Token(asset.clone()), &cfg);
@@ -586,7 +554,6 @@ fn set_sanity_band_and_tolerance_update_live_config() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    // Walk band while still containing live price (±5% stays Single-safe).
     client.set_sanity_band(
         &PriceKey::Token(asset.clone()),
         &(WAD - WAD / 20),
@@ -596,7 +563,6 @@ fn set_sanity_band_and_tolerance_update_live_config() {
     assert_eq!(after_band.min_sanity_price_wad, WAD - WAD / 20);
     assert_eq!(after_band.max_sanity_price_wad, WAD + WAD / 20);
 
-    // Reciprocal of 10_200 BPS: half-up(10_000² / 10_200) = 9_804.
     let tol = OracleTolerance {
         upper_ratio_bps: 10_200,
         lower_ratio_bps: 9_804,
@@ -646,7 +612,6 @@ fn set_tolerance_rejects_non_reciprocal_band() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    // Additive ±5% is envelope-valid but not reciprocal of upper.
     assert_eq!(
         client.try_set_tolerance(
             &PriceKey::Token(asset),
@@ -663,8 +628,6 @@ fn set_tolerance_rejects_non_reciprocal_band() {
 
 #[test]
 fn set_tolerance_live_probe_rejects_dual_out_of_new_band() {
-    // Widen/tighten with live probe: disagreeing legs under the *new* band
-    // must not commit (same containment discipline as set_sanity_band).
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().with_mut(|li| {
@@ -673,16 +636,15 @@ fn set_tolerance_live_probe_rejects_dual_out_of_new_band() {
     let (_owner, client) = register_agg(&env);
     let asset = Address::generate(&env);
     let (feed, feed_client) = register_feed(&env);
-    // ~10% apart: inside max ±25% band, outside ±2% band.
+
     feed_client.set_price(&String::from_str(&env, "PRIMARY"), &WAD);
     feed_client.set_price(&String::from_str(&env, "ANCHOR"), &(WAD + WAD / 10));
-    // Max envelope reciprocal: upper 12_500 → lower 8_000.
+
     client.set_oracle(
         &PriceKey::Token(asset.clone()),
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 12_500, 8_000),
     );
 
-    // Tighten to ±2% reciprocal (10_200 / 9_804): live midpoint fails deviation.
     assert_eq!(
         client.try_set_tolerance(
             &PriceKey::Token(asset),
@@ -742,17 +704,8 @@ fn constructor_sets_owner_and_ownership_is_not_exported() {
     env.mock_all_auths();
     let (owner, client) = register_agg(&env);
     assert_eq!(client.get_owner(), Some(owner));
-    // transfer_ownership / accept_ownership / renounce_ownership are intentionally
-    // not on the ABI — governance is the permanent owner.
 }
 
-// ---------------------------------------------------------------------------
-// Security audit extensions (hard path vs soft status, staleness ownership,
-// live-price containment on set_sanity_band, dual hard revert).
-// ---------------------------------------------------------------------------
-
-/// H-ORC-SOFT: soft `quote` reports stale without reverting; hard `price`
-/// reverts `PriceFeedStale` so write-path consumers cannot soft-accept.
 #[test]
 fn audit_hard_price_reverts_stale_while_status_soft_flags() {
     let env = Env::default();
@@ -778,7 +731,6 @@ fn audit_hard_price_reverts_stale_while_status_soft_flags() {
     assert!(!status.valid);
     assert_eq!(status.final_wad, WAD);
 
-    // Hard path must fail closed (not return the stale WAD).
     let hard = client.try_price(&PriceKey::Token(asset.clone()));
     assert!(
         hard.is_err(),
@@ -786,8 +738,6 @@ fn audit_hard_price_reverts_stale_while_status_soft_flags() {
     );
 }
 
-/// H-ORC-DUAL-HARD: dual-source out-of-band reverts hard `price` with
-/// `UnsafePriceNotAllowed` while soft status only sets deviation.
 #[test]
 fn audit_hard_price_reverts_dual_out_of_band() {
     let env = Env::default();
@@ -816,16 +766,6 @@ fn audit_hard_price_reverts_dual_out_of_band() {
     );
 }
 
-/// H-ORC-STALE-OWNERSHIP, closed: freshness is gated by **both** the source
-/// `max_stale_seconds` and the asset-level `max_price_stale_seconds`.
-///
-/// v1 keyed multi-feed freshness on the source window alone, so a short asset
-/// ceiling was silently overridden by a long source window — an operator who
-/// tightened only the asset field got none of the protection they asked for.
-/// Two things changed: the read path now dates every leg against the ceiling as
-/// well, and `validate_staleness_envelope` rejects a config whose ceiling does
-/// not cover its loosest leg, so this shape can no longer be configured at all.
-/// Seeded directly here to pin the read-path rule regardless.
 #[test]
 fn audit_multi_feed_stale_gated_by_both_source_and_asset_windows() {
     let env = Env::default();
@@ -838,14 +778,12 @@ fn audit_multi_feed_stale_gated_by_both_source_and_asset_windows() {
     let (feed, feed_client) = register_feed(&env);
     feed_client.set_price(&String::from_str(&env, "BTC/USD"), &WAD);
 
-    // Market default 30s, source allows 900s.
     let mut cfg = redstone_single(&env, &feed, "BTC/USD", 900);
     cfg.max_price_stale_seconds = 30;
     cfg.sources
         .set(0, redstone_feed(&env, &feed, "BTC/USD", 900));
     client.seed_oracle(&PriceKey::Token(asset.clone()), &cfg);
 
-    // Age 100s: past the 30s asset ceiling, inside the 900s source window.
     env.ledger().with_mut(|li| {
         li.timestamp = 1_000 + 100;
     });
@@ -855,16 +793,12 @@ fn audit_multi_feed_stale_gated_by_both_source_and_asset_windows() {
         "the asset ceiling must gate a leg its own window would have accepted; got {hard:?}"
     );
 
-    // Inside both windows, the same observation reads fine — the ceiling is an
-    // additional gate, not a replacement for the per-source window.
     env.ledger().with_mut(|li| {
         li.timestamp = 1_000 + 10;
     });
     assert_eq!(client.price(&PriceKey::Token(asset.clone())).price_wad, WAD);
 }
 
-/// H-ORC-SANITY-CONTAIN: `set_sanity_band` rejects a band that excludes the live
-/// price (live-price containment probe via `resolve_with_config`).
 #[test]
 fn audit_set_sanity_band_rejects_band_excluding_live_price() {
     let env = Env::default();
@@ -876,13 +810,12 @@ fn audit_set_sanity_band_rejects_band_excluding_live_price() {
     let asset = Address::generate(&env);
     let (feed, feed_client) = register_feed(&env);
     feed_client.set_price(&String::from_str(&env, "BTC/USD"), &WAD);
-    // Single source with a band that still contains live WAD (±5%).
+
     client.set_oracle(
         &PriceKey::Token(asset.clone()),
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
-    // Overlap old band but exclude live WAD entirely above the print.
-    // Containment probe must fail closed before storage write.
+
     let result = client.try_set_sanity_band(
         &PriceKey::Token(asset.clone()),
         &(WAD + WAD / 100),
@@ -892,13 +825,12 @@ fn audit_set_sanity_band_rejects_band_excluding_live_price() {
         result.is_err(),
         "set_sanity_band must reject a band that excludes live price; got {result:?}"
     );
-    // Config must remain the pre-call band (no partial write).
+
     let cfg = client.oracle(&PriceKey::Token(asset.clone())).unwrap();
     assert_eq!(cfg.min_sanity_price_wad, WAD - WAD / 20);
     assert_eq!(cfg.max_sanity_price_wad, WAD + WAD / 20);
 }
 
-/// H-ORC-MIDPOINT: in-band dual hard path returns integer midpoint (not primary alone).
 #[test]
 fn audit_hard_price_dual_in_band_is_midpoint() {
     let env = Env::default();
@@ -910,7 +842,7 @@ fn audit_hard_price_dual_in_band_is_midpoint() {
     let asset = Address::generate(&env);
     let (feed, feed_client) = register_feed(&env);
     let primary = WAD;
-    let anchor = WAD + WAD / 50; // +2%
+    let anchor = WAD + WAD / 50;
     feed_client.set_price(&String::from_str(&env, "PRIMARY"), &primary);
     feed_client.set_price(&String::from_str(&env, "ANCHOR"), &anchor);
     client.set_oracle(
@@ -922,7 +854,6 @@ fn audit_hard_price_dual_in_band_is_midpoint() {
     assert_eq!(hard.price_wad, (primary + anchor) / 2);
 }
 
-/// H-ORC-ZERO: zero primary price fails closed on hard path.
 #[test]
 fn audit_hard_price_rejects_zero_primary() {
     let env = Env::default();
@@ -933,7 +864,7 @@ fn audit_hard_price_rejects_zero_primary() {
     let (_owner, client) = register_agg(&env);
     let asset = Address::generate(&env);
     let (feed, feed_client) = register_feed(&env);
-    // set_price scales WAD; use set_price_data with raw zero.
+
     feed_client.set_price_data(
         &String::from_str(&env, "BTC/USD"),
         &0i128,
@@ -949,13 +880,6 @@ fn audit_hard_price_rejects_zero_primary() {
     assert!(hard.is_err(), "zero price must fail closed; got {hard:?}");
 }
 
-/// H-ORC-CFG-NO-PROBE, closed: `set_oracle` now resolves the config
-/// before storing it, so a feed that cannot be read is a rejection rather than
-/// a stored config that fails closed on every subsequent `price`.
-///
-/// The v1 behaviour this replaces was not merely an ops annoyance: a market
-/// listed against an unreadable feed is a market whose borrows, withdrawals and
-/// liquidations all revert, recoverable only by another governance round.
 #[test]
 fn set_oracle_rejects_a_config_whose_feed_cannot_be_read() {
     let env = Env::default();
@@ -967,7 +891,6 @@ fn set_oracle_rejects_a_config_whose_feed_cannot_be_read() {
     let asset = Address::generate(&env);
     let (feed, _) = register_feed(&env);
 
-    // Feed never set, so the containment probe has nothing to resolve.
     let stored = client.try_set_oracle(
         &PriceKey::Token(asset.clone()),
         &redstone_single(&env, &feed, "MISSING", 900),
@@ -982,8 +905,6 @@ fn set_oracle_rejects_a_config_whose_feed_cannot_be_read() {
     );
 }
 
-/// H-ORC-SANITY-HARD: hard `price` reverts when final is outside sanity band
-/// (status only soft-flags invalid).
 #[test]
 fn audit_hard_price_reverts_outside_sanity_band() {
     let env = Env::default();
@@ -1011,14 +932,6 @@ fn audit_hard_price_reverts_outside_sanity_band() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// price_spread
-// ---------------------------------------------------------------------------
-//
-// A public endpoint with no caller anywhere in the tree. Integrators size
-// liquidation buffers off the returned interval, so both the width and the
-// orientation of that interval are load-bearing.
-
 #[test]
 fn price_spread_of_a_single_source_is_the_degenerate_interval() {
     let env = Env::default();
@@ -1035,8 +948,6 @@ fn price_spread_of_a_single_source_is_the_degenerate_interval() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    // One leg spans nothing, so low and high are the same price — and that
-    // price is the one `price` reports, not a placeholder.
     assert_eq!(
         client.price_spread(&PriceKey::Token(asset.clone())),
         (WAD, WAD)
@@ -1054,7 +965,7 @@ fn price_spread_of_dual_legs_brackets_the_reported_price() {
     let (_owner, client) = register_agg(&env);
     let asset = Address::generate(&env);
     let (feed, feed_client) = register_feed(&env);
-    let anchor = WAD + WAD / 100; // +1%, inside the tolerance band
+    let anchor = WAD + WAD / 100;
     feed_client.set_price(&String::from_str(&env, "PRIMARY"), &WAD);
     feed_client.set_price(&String::from_str(&env, "ANCHOR"), &anchor);
     client.set_oracle(
@@ -1066,9 +977,6 @@ fn price_spread_of_dual_legs_brackets_the_reported_price() {
     assert_eq!((low, high), (WAD, anchor));
     assert!(low < high, "two disagreeing legs span a real interval");
 
-    // The hard price is the midpoint, so the interval must contain it. This is
-    // the property integrators actually rely on; the equalities above only pin
-    // which leg landed on which end.
     let price = client.price(&PriceKey::Token(asset.clone())).price_wad;
     assert_eq!(price, (WAD + anchor) / 2);
     assert!(low <= price && price <= high);
@@ -1076,8 +984,6 @@ fn price_spread_of_dual_legs_brackets_the_reported_price() {
 
 #[test]
 fn price_spread_orders_its_interval_regardless_of_leg_order() {
-    // Same two prices, swapped between primary and anchor. `low` must still be
-    // the smaller: the endpoint sorts by value, it does not echo leg position.
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().with_mut(|li| {
@@ -1102,10 +1008,6 @@ fn price_spread_orders_its_interval_regardless_of_leg_order() {
 
 #[test]
 fn hard_price_accepts_the_inclusive_edges_of_the_sanity_band() {
-    // The band is inclusive at both ends, and only a price sitting exactly on an
-    // edge separates that from an exclusive one. An exclusive band would reject
-    // a perfectly good price at the boundary and brick the market until someone
-    // widened the config.
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().with_mut(|li| {

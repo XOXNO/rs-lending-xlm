@@ -1,5 +1,3 @@
-//! Controller Certora rules (`certora` feature only). One module per verification domain.
-
 #[cfg(any(
     not(feature = "certora-focused"),
     feature = "certora-account-isolation-rules"

@@ -1,5 +1,3 @@
-//! Reward, liquidation-fee, strategy, and protocol-revenue accounting.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
@@ -23,9 +21,6 @@ use super::fixture::{
 };
 use crate::ops::strategy::StrategyOutcome;
 
-/// Recapitalization retains exactly the lesser of the offered amount and the
-/// independently valued backing shortfall. It refunds every other unit and
-/// creates no shares, revenue, debt, or index movement.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn recapitalize_caps_cash_to_shortfall_and_refunds_excess(
@@ -102,8 +97,6 @@ fn recapitalize_caps_cash_to_shortfall_and_refunds_excess(
     cvlr_assert!(offered < shortfall || post.cash + debt_backing >= supply_claim);
 }
 
-/// Reward cash is split between supplier index growth and shortfall revenue;
-/// the shortfall mints identical deltas into revenue and aggregate supply.
 #[rule]
 fn add_rewards_accounts_cash_index_and_shortfall(
     e: Env,
@@ -169,9 +162,6 @@ fn add_rewards_accounts_cash_index_and_shortfall(
     cvlr_assert!(post.borrowed == pre.borrowed && post.borrow_index == pre.borrow_index);
 }
 
-/// A positive one-chunk `global_sync` grows neither index backwards, mints
-/// identical protocol-fee shares into revenue and aggregate supply, leaves
-/// cash fixed, and advances the synchronization timestamp to the ledger time.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn one_chunk_global_sync_preserves_accounting_and_advances_time(
@@ -272,8 +262,6 @@ fn one_chunk_global_sync_preserves_accounting_and_advances_time(
     cvlr_assert!(cache.last_timestamp() == current_timestamp);
 }
 
-/// Liquidation withdrawal retains the fee in cash and books exactly the same
-/// fee shares into revenue and aggregate supply before burning user shares.
 #[rule]
 fn liquidation_withdraw_books_protocol_fee(
     e: Env,
@@ -340,8 +328,6 @@ fn liquidation_withdraw_books_protocol_fee(
     cvlr_assert!(post.borrowed == pre.borrowed);
 }
 
-/// Strategy borrow records gross debt, sends the net amount, and books the
-/// configured optional fee into revenue and aggregate supply in lockstep.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn create_strategy_accounts_debt_cash_and_fee(
@@ -420,8 +406,6 @@ fn create_strategy_accounts_debt_cash_and_fee(
     cvlr_assert!(pre.cash - post.cash == amount - expected_fee);
 }
 
-/// Revenue claim burns identical revenue/supply shares and debits exactly the
-/// returned claim, bounded by both cash and the floor-valued treasury claim.
 #[rule]
 fn claim_revenue_burns_equal_shares_and_cash(
     e: Env,
@@ -478,9 +462,6 @@ fn claim_revenue_burns_equal_shares_and_cash(
     cvlr_assert!(treasury_actual == 0 || expected_claim != treasury_actual || post.revenue == 0);
 }
 
-/// A positive cash payout can never succeed when the proportional revenue-share
-/// burn rounds to zero. This pins the extreme 18-decimal boundary that is well
-/// outside the bounded successful-claim fixture above.
 #[rule]
 fn positive_revenue_claim_with_zero_share_burn_reverts(e: Env, admin: Address, asset: Address) {
     let extreme_revenue = 3 * 10i128.pow(36);
@@ -502,13 +483,9 @@ fn positive_revenue_claim_with_zero_share_burn_reverts(e: Env, admin: Address, a
 
     crate::ops::revenue::accounting(&e, hub(asset));
 
-    // The production zero-burn guard must revert before this point.
     cvlr_assert!(false);
 }
 
-/// Repeated reward legs can never ratchet the supply index past its ceiling.
-/// The `SupplyIndexRewardCeiling` assert in `interest::distribute_reward` was
-/// unreachable while the assumed index band sat below the cap.
 #[rule]
 fn distribute_reward_respects_ceiling(
     e: Env,

@@ -1,10 +1,3 @@
-//! Solvency and utilization guards on the SAC-free accounting halves.
-//!
-//! These guards are invisible to the accounting-domain suites: `fixture::params`
-//! sets the `RAY` sentinel that disables the utilization cap, and those rules
-//! seed `cash: i128::MAX` so the reserve gate can never bind. Every rule here
-//! exists to make one guard actually reachable.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
@@ -18,8 +11,6 @@ use super::fixture::{
     ONE_TOKEN,
 };
 
-/// Utilization after a leg, recomputed from persisted state the way
-/// `Cache::calculate_utilization` does.
 fn utilization_after(e: &Env, supplied: i128, borrowed: i128, s_idx: i128, b_idx: i128) -> Ray {
     if supplied == 0 {
         return Ray::ZERO;
@@ -29,9 +20,6 @@ fn utilization_after(e: &Env, supplied: i128, borrowed: i128, s_idx: i128, b_idx
     common::rates::utilization(e, debt_value, supply_value)
 }
 
-/// A borrow can never persist a state above the market's utilization cap.
-/// Requires the cap to be genuinely enabled — with the `RAY` sentinel the guard
-/// early-returns and this property is vacuous.
 #[rule]
 fn borrow_respects_utilization_cap(
     e: Env,
@@ -83,8 +71,6 @@ fn borrow_respects_utilization_cap(
     );
 }
 
-/// A non-liquidation withdrawal is subject to the same cap. Liquidation
-/// seizures are exempt by design (`ops::withdraw::accounting`).
 #[rule]
 fn user_withdraw_respects_utilization_cap(
     e: Env,
@@ -137,9 +123,6 @@ fn user_withdraw_respects_utilization_cap(
     );
 }
 
-/// A withdrawal never pays out more than tracked cash, and never drives cash
-/// negative. Exercises `Cache::require_reserves`, which the position rules
-/// disable by seeding `cash: i128::MAX`.
 #[rule]
 fn withdraw_never_overdraws_cash(
     e: Env,
@@ -184,8 +167,6 @@ fn withdraw_never_overdraws_cash(
     cvlr_assert!(post.cash >= 0);
 }
 
-/// Burning supply shares can never leave protocol revenue exceeding the shares
-/// outstanding. Withdraw is one of only two paths that shrink `supplied`.
 #[rule]
 fn withdraw_keeps_revenue_backed(
     e: Env,
@@ -228,7 +209,6 @@ fn withdraw_keeps_revenue_backed(
     cvlr_assert!(post.revenue <= post.supplied);
 }
 
-/// The other shrinking path: net settlement burns supply and debt together.
 #[rule]
 fn net_settle_keeps_revenue_backed(
     e: Env,
@@ -273,8 +253,6 @@ fn net_settle_keeps_revenue_backed(
     cvlr_assert!(post.revenue <= post.supplied);
 }
 
-/// A withdrawal never persists supply drained to zero while debt remains —
-/// the same terminal-state guard `net_settle` already proves.
 #[rule]
 fn withdraw_leaves_no_orphan_debt(
     e: Env,
@@ -304,7 +282,6 @@ fn withdraw_leaves_no_orphan_debt(
         ),
     );
 
-    // Full-close sentinel: burn the entire position.
     let entry = PoolWithdrawEntry {
         action: action(asset.clone(), position_before, i128::MAX),
         protocol_fee: 0,
@@ -315,7 +292,6 @@ fn withdraw_leaves_no_orphan_debt(
     cvlr_assert!(!(post.supplied == 0 && post.borrowed != 0));
 }
 
-/// Claiming protocol revenue cannot drain supply to zero under live debt.
 #[rule]
 fn claim_revenue_leaves_no_orphan_debt(
     e: Env,
@@ -334,7 +310,6 @@ fn claim_revenue_leaves_no_orphan_debt(
         admin,
         asset.clone(),
         params(asset.clone(), 0, false),
-        // Every outstanding share is protocol-owned: the worst case for the guard.
         state(
             revenue_before,
             borrowed,

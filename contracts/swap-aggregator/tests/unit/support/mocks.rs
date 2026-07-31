@@ -1,11 +1,5 @@
-//! Mock contracts for router unit tests.
-//!
-//! Each mock is a minimal on-chain stand-in for a venue (or a hostile variant)
-//! so tests can exercise adapter dispatch without deploying real AMMs.
-
 use soroban_sdk::{contract, contractimpl, contracttype, token, vec, Address, Env, Val, Vec, U256};
 
-/// Uniswap-v2-style pair: live reserves + k-invariant `swap`.
 pub mod soroswap_mock {
     use super::*;
 
@@ -41,8 +35,6 @@ pub mod soroswap_mock {
             env.storage().instance().get(&SoroswapKey::Token1).unwrap()
         }
 
-        /// Live reserves, mirroring Soroswap's `get_reserves`. The router reads
-        /// these at execution time and sizes the honored output from them.
         pub fn get_reserves(env: Env) -> (i128, i128) {
             (
                 env.storage()
@@ -56,12 +48,6 @@ pub mod soroswap_mock {
             )
         }
 
-        /// Uniswap-v2 `swap`: the caller transfers the input BEFORE calling, the
-        /// pair sends the requested output, then enforces the constant-product
-        /// k-invariant against the 0.3%-fee-adjusted balances. An output larger
-        /// than the live reserves permit fails the check here — exactly the
-        /// `Error(Contract, #114)` the router avoids by sizing the output from
-        /// `get_reserves` rather than trusting a stale quote.
         pub fn swap(env: Env, amount_0_out: i128, amount_1_out: i128, to: Address) {
             let token0: Address = env.storage().instance().get(&SoroswapKey::Token0).unwrap();
             let token1: Address = env.storage().instance().get(&SoroswapKey::Token1).unwrap();
@@ -108,7 +94,6 @@ pub mod soroswap_mock {
     }
 }
 
-/// Happy-path Aquarius pool: 1:1 swap after pulling input.
 pub mod aquarius_mock {
     use super::*;
 
@@ -160,8 +145,6 @@ pub mod aquarius_mock {
     }
 }
 
-/// Aquarius-ABI pool with configurable report / delivery / input pull.
-/// Used to prove the router trusts balance deltas, not pool return values.
 pub mod malicious_aquarius_mock {
     use super::*;
 
@@ -240,7 +223,6 @@ pub mod malicious_aquarius_mock {
     }
 }
 
-/// Sushi CL-style pool: direction from token0/token1 pair.
 pub mod sushi_mock {
     use super::*;
 
@@ -302,7 +284,6 @@ pub mod sushi_mock {
     }
 }
 
-/// Comet pull-via-allowance pool, plus a no-pull variant.
 pub mod comet_mock {
     use super::*;
 
@@ -348,7 +329,6 @@ pub mod comet_mock {
     }
 }
 
-/// Phoenix pool: offer-asset swap mirror of the live adapter ABI.
 pub mod phoenix_mock {
     use super::*;
 
@@ -365,8 +345,8 @@ pub mod phoenix_mock {
             env.storage().instance().set(&PhKey::TokenA, &token_a);
             env.storage().instance().set(&PhKey::TokenB, &token_b);
         }
-        // Adapter calls: swap(router, token_in, amount_in, None, None, None, None) -> i128
-        #[allow(clippy::too_many_arguments)] // mirrors the real Phoenix pool ABI
+
+        #[allow(clippy::too_many_arguments)]
         pub fn swap(
             env: Env,
             sender: Address,
@@ -392,7 +372,6 @@ pub mod phoenix_mock {
     }
 }
 
-/// Comet pool that pulls input but reports zero output.
 pub mod comet_zero_mock {
     use super::*;
 
@@ -416,7 +395,6 @@ pub mod comet_zero_mock {
     }
 }
 
-/// Token that panics on any `transfer` — proves a path performs no transfer.
 pub mod no_transfer_token_mock {
     use super::*;
 
@@ -444,8 +422,6 @@ pub mod no_transfer_token_mock {
     }
 }
 
-/// SEP-41-shaped token whose allowance does not auto-decrement on
-/// `transfer_from` (infinite-approval style).
 pub mod sticky_allowance_token_mock {
     use super::*;
 

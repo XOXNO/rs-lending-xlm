@@ -1,10 +1,3 @@
-//! Direct tests for the write-time aggregation primitives.
-//!
-//! `sorted_copy` and `median_of` are private and unreachable from the
-//! integration tests, so their edge cases — even counts, duplicates, negatives,
-//! single elements — were only ever exercised incidentally through a full
-//! submit round-trip. These pin them directly.
-
 extern crate std;
 
 use super::*;
@@ -45,8 +38,6 @@ fn median_of_odd_count_is_the_middle_element() {
     assert_eq!(median_of(&vec![&env, 30i128, 10, 20]), 20);
 }
 
-/// The lower median is deliberate: averaging an even pair would let one extreme
-/// peer half-pull the reported price.
 #[test]
 fn median_of_even_count_takes_the_lower_middle_not_the_average() {
     let env = Env::default();
@@ -59,8 +50,6 @@ fn median_of_single_element_is_that_element() {
     assert_eq!(median_of(&vec![&env, 42i128]), 42);
 }
 
-/// One extreme outlier must not move the median away from the honest cluster —
-/// this is the property the median is chosen for.
 #[test]
 fn median_of_ignores_a_single_extreme_outlier() {
     let env = Env::default();

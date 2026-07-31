@@ -1,8 +1,3 @@
-//! Extended security harness: novel hypotheses beyond `security_audit.rs`.
-//!
-//! Each test drives **shipped** controller entrypoints. Status labels match the
-//! audit report (proven / refuted / design residual).
-
 use controller::types::{ControllerKey, SpokeAssetArgs};
 use soroban_sdk::testutils::Ledger as _;
 use test_harness::{
@@ -66,12 +61,6 @@ fn set_can_collateral(t: &LendingTest, asset_name: &str, can_collateral: bool) {
     });
 }
 
-// ---------------------------------------------------------------------------
-// H-PAUSE-GLOBAL — global pause circuit breaker matrix
-// ---------------------------------------------------------------------------
-
-/// Global pause blocks risk-increasing paths (supply / borrow / flash) while
-/// exit and keeper paths (withdraw debt-free, repay, liquidate) stay open.
 #[test]
 fn poc_global_pause_blocks_risk_increasing_allows_exit_and_liq() {
     let mut t = LendingTest::new()
@@ -81,36 +70,33 @@ fn poc_global_pause_blocks_risk_increasing_allows_exit_and_liq() {
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 3.0); // $6k debt against $10k coll
-                                 // Second account: debt-free withdraw under pause.
+    t.borrow(ALICE, "ETH", 3.0);
+
     t.supply(BOB, "USDC", 1_000.0);
 
     t.pause();
 
     assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::CONTRACT_PAUSED);
     assert_contract_error(t.try_borrow(ALICE, "ETH", 0.1), errors::CONTRACT_PAUSED);
-    // Pause is `#[when_not_paused]` on the entrypoint (before body validation).
+
     let receiver = t.controller_address();
     assert_contract_error(
         t.try_flash_loan(ALICE, "USDC", 1.0, &receiver),
         errors::CONTRACT_PAUSED,
     );
 
-    // Debt-free exit still works under global pause.
     let w = t.try_withdraw(BOB, "USDC", 10.0);
     assert!(
         w.is_ok(),
         "H-PAUSE-GLOBAL: debt-free withdraw must remain open while paused; got {w:?}"
     );
 
-    // Owner-gated repay still works under global pause (exit path).
     let r = t.try_repay(ALICE, "ETH", 0.1);
     assert!(
         r.is_ok(),
         "H-PAUSE-GLOBAL: repay must remain open while paused; got {r:?}"
     );
 
-    // Crash coll so Alice is liquidatable (~$4k coll / $5.8k debt, HF < 1).
     t.set_price("USDC", test_harness::usd_cents(40));
     assert!(
         t.can_be_liquidated(ALICE),
@@ -123,7 +109,6 @@ fn poc_global_pause_blocks_risk_increasing_allows_exit_and_liq() {
     );
 }
 
-/// Global pause does not disable post-pool HF gates on debt-bearing withdraw.
 #[test]
 fn refutation_global_pause_withdraw_still_enforces_hf() {
     let mut t = LendingTest::new()
@@ -136,18 +121,10 @@ fn refutation_global_pause_withdraw_still_enforces_hf() {
     t.borrow(ALICE, "ETH", 3.0);
     t.pause();
 
-    // Full withdraw would leave debt unbacked → must fail HF/LTV gate, not succeed.
     let drained = t.try_withdraw(ALICE, "USDC", 0.0);
     assert_contract_error(drained, errors::INSUFFICIENT_COLLATERAL);
 }
 
-// ---------------------------------------------------------------------------
-// H-RISK-02 — multi-collateral LTV restamp on debt open
-// ---------------------------------------------------------------------------
-
-/// Supply-path restamp is still per-leg, but `borrow` re-stamps **all listed**
-/// supply LTV/bonus/fees before gates so multi-coll capacity cannot ride a
-/// stale high LTV on an untouched leg.
 #[test]
 fn regression_borrow_restamps_all_listed_ltv_multi_coll() {
     let mut t = LendingTest::new()
@@ -158,14 +135,13 @@ fn regression_borrow_restamps_all_listed_ltv_multi_coll() {
         .build();
 
     t.supply(ALICE, "USDC", 5_000.0);
-    t.supply(ALICE, "ETH", 2.0); // ~$4k
+    t.supply(ALICE, "ETH", 2.0);
     let id = t.resolve_account_id(ALICE);
     let (usdc_ltv0, _) = supply_ltv_and_lt(&t, id, "USDC");
     let (eth_ltv0, _) = supply_ltv_and_lt(&t, id, "ETH");
     assert_eq!(usdc_ltv0, 7_500);
     assert_eq!(eth_ltv0, 7_500);
 
-    // Cut both listing LTVs to 50%.
     t.edit_asset_config("USDC", |c| {
         c.loan_to_value = 5_000;
         c.liquidation_threshold = 5_500;
@@ -175,7 +151,6 @@ fn regression_borrow_restamps_all_listed_ltv_multi_coll() {
         c.liquidation_threshold = 5_500;
     });
 
-    // Touch only USDC via third-party top-up (supply path is still per-leg).
     t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
         .expect("top-up existing USDC leg");
     let (usdc_ltv1, _) = supply_ltv_and_lt(&t, id, "USDC");
@@ -186,24 +161,15 @@ fn regression_borrow_restamps_all_listed_ltv_multi_coll() {
         "untouched ETH keeps LTV until debt-increasing restamp"
     );
 
-    // Live dual-50% capacity ≈ $4.5k. Pre-fix multi stamp ≈ $5.5k would allow
-    // ~$4.8k (0.08 WBTC). Debt-path restamp binds both legs → reject.
     let over = t.try_borrow(ALICE, "WBTC", 0.08);
     assert_contract_error(over, errors::INSUFFICIENT_COLLATERAL);
 
-    // Small borrow within live capacity succeeds and restamps ETH LTV; LT stays.
-    t.borrow(ALICE, "WBTC", 0.05); // $3k
+    t.borrow(ALICE, "WBTC", 0.05);
     let (eth_ltv2, eth_lt2) = supply_ltv_and_lt(&t, id, "ETH");
     assert_eq!(eth_ltv2, 5_000, "borrow restamps untouched ETH LTV");
     assert_eq!(eth_lt2, eth_lt1, "borrow must not restamp ETH LT");
 }
 
-// ---------------------------------------------------------------------------
-// H-USER-18 — delisted collateral flag still backs debt
-// ---------------------------------------------------------------------------
-
-/// Setting `can_collateral=false` blocks new supply but existing stamped supply
-/// still backs new borrows (same design family as freeze / sticky LTV).
 #[test]
 fn poc_delisted_collateral_flag_still_backs_new_borrows() {
     let mut t = LendingTest::new()
@@ -221,17 +187,10 @@ fn poc_delisted_collateral_flag_still_backs_new_borrows() {
         borrowed.is_ok(),
         "H-USER-18: delisting can_collateral must not strip existing stamp from HF/LTV; got {borrowed:?}"
     );
-    // `is_ok` alone would also hold for a borrow that moved nothing. Pin the
-    // debt and the resulting health, which is what shows the delisted USDC
-    // stamp still counted toward LTV rather than the borrow slipping through
-    // on some other collateral.
+
     t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
-// H-LIQ-21 — frozen collateral remains seizable
-// ---------------------------------------------------------------------------
 
 #[test]
 fn poc_liquidation_seizes_frozen_collateral() {
@@ -260,10 +219,6 @@ fn poc_liquidation_seizes_frozen_collateral() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// H-REPAY-FLAGS — freeze vs pause on debt repay
-// ---------------------------------------------------------------------------
-
 #[test]
 fn poc_frozen_debt_still_repayable_paused_debt_blocked() {
     let mut t = LendingTest::new()
@@ -285,10 +240,6 @@ fn poc_frozen_debt_still_repayable_paused_debt_blocked() {
     assert_contract_error(t.try_repay(ALICE, "ETH", 0.1), errors::SPOKE_ASSET_PAUSED);
 }
 
-// ---------------------------------------------------------------------------
-// H-FLASH-CLEAN — flash guard covers clean_bad_debt
-// ---------------------------------------------------------------------------
-
 #[test]
 fn refutation_flash_guard_blocks_clean_bad_debt() {
     let mut t = LendingTest::new()
@@ -304,10 +255,6 @@ fn refutation_flash_guard_blocks_clean_bad_debt() {
     assert_contract_error(t.try_clean_bad_debt_by_id(id), errors::FLASH_LOAN_ONGOING);
     t.set_flash_loan_ongoing(false);
 }
-
-// ---------------------------------------------------------------------------
-// H-LIQ-SELF — self-liquidation blocked
-// ---------------------------------------------------------------------------
 
 #[test]
 fn refutation_owner_cannot_self_liquidate() {
@@ -328,10 +275,6 @@ fn refutation_owner_cannot_self_liquidate() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// H-LIQ-EMPTY — empty / healthy liquidate reverts
-// ---------------------------------------------------------------------------
-
 #[test]
 fn refutation_liquidate_healthy_and_empty_payments() {
     let mut t = LendingTest::new()
@@ -348,10 +291,6 @@ fn refutation_liquidate_healthy_and_empty_payments() {
         errors::HEALTH_FACTOR_TOO_HIGH,
     );
 }
-
-// ---------------------------------------------------------------------------
-// H-BAD-DEBT-GATE — clean_bad_debt refuses healthy residual
-// ---------------------------------------------------------------------------
 
 #[test]
 fn refutation_clean_bad_debt_rejects_non_residual() {
@@ -370,12 +309,6 @@ fn refutation_clean_bad_debt_rejects_non_residual() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// H-ORC-CTRL-HARD — controller write path uses hard prices (fail-closed stale)
-// ---------------------------------------------------------------------------
-
-/// Borrow (write path) reverts on stale oracle the same way liquidate does —
-/// proves controller does not soft-accept via `prices_status` on mutators.
 #[test]
 fn poc_stale_oracle_blocks_borrow_write_path() {
     let mut t = LendingTest::new()
@@ -384,15 +317,11 @@ fn poc_stale_oracle_blocks_borrow_write_path() {
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
-    // Age every feed past the default ~900s window.
+
     t.env.ledger().with_mut(|ledger| ledger.timestamp += 1_000);
 
     assert_contract_error(t.try_borrow(ALICE, "ETH", 0.1), errors::PRICE_FEED_STALE);
 }
-
-// ---------------------------------------------------------------------------
-// H-WITHDRAW-PAUSED-ASSET — spoke pause blocks user withdraw (not freeze)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn poc_spoke_pause_blocks_withdraw_freeze_allows() {
@@ -417,10 +346,6 @@ fn poc_spoke_pause_blocks_withdraw_freeze_allows() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// H-SUPPLY-SLOT — position already exists check (revalidation of patch)
-// ---------------------------------------------------------------------------
-
 #[test]
 fn revalidation_third_party_can_top_up_only_existing_leg() {
     let mut t = LendingTest::new()
@@ -438,22 +363,6 @@ fn revalidation_third_party_can_top_up_only_existing_leg() {
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
 }
 
-// ---------------------------------------------------------------------------
-// H-DEBT-THIRD-PARTY-BORROW — only owner/delegate may borrow
-// ---------------------------------------------------------------------------
-
-/// H-ORC-INBAND: dual-source in-band midpoint is used on the controller write
-/// path (not primary alone, not anchor alone).
-///
-/// `set_oracle_primary_anchor` wires primary=TWAP and anchor=Spot. We set
-/// primary (TWAP) **lower** than spot so the three valuations diverge:
-/// - primary $1.00 → LTV capacity $7_500
-/// - midpoint $1.015 → capacity ≈ $7_612.5
-/// - anchor $1.03 → capacity $7_725
-///
-/// Discriminators:
-/// 1. Borrow in (primary_cap, midpoint_cap] must **pass** (fails if primary-only).
-/// 2. Borrow in (midpoint_cap, anchor_cap) must **fail** (passes if anchor-only).
 #[test]
 fn poc_dual_in_band_midpoint_used_on_borrow_path() {
     use test_harness::{usd, usd_cents};
@@ -466,15 +375,12 @@ fn poc_dual_in_band_midpoint_used_on_borrow_path() {
 
     t.set_oracle_primary_anchor("USDC");
     t.set_oracle_primary_anchor("ETH");
-    // set_price writes spot+TWAP; set_safe_price overwrites TWAP only.
-    // primary(TWAP)=$1.00, anchor(spot)=$1.03 → midpoint ≈ $1.015.
+
     t.set_price("USDC", usd_cents(103));
     t.set_safe_price("USDC", usd(1));
     t.set_price("ETH", usd(2000));
     t.set_safe_price("ETH", usd(2000));
 
-    // Alice: $7_510 debt (3.755 ETH) sits above primary-only $7_500 and under
-    // midpoint ≈ $7_612.5.
     t.supply(ALICE, "USDC", 10_000.0);
     let mid_ok = t.try_borrow(ALICE, "ETH", 3.755);
     assert!(
@@ -482,7 +388,6 @@ fn poc_dual_in_band_midpoint_used_on_borrow_path() {
         "H-ORC-INBAND: borrow in (primary_cap, midpoint_cap] must pass under midpoint; got {mid_ok:?}"
     );
 
-    // Bob: $7_650 debt (3.825 ETH) sits above midpoint and under pure-anchor $7_725.
     t.supply(BOB, "USDC", 10_000.0);
     let above_mid = t.try_borrow(BOB, "ETH", 3.825);
     assert_contract_error(above_mid, errors::INSUFFICIENT_COLLATERAL);

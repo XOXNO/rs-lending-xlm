@@ -42,14 +42,11 @@ fn config(lt: i128, bonus: i128, fees: i128) -> AssetConfig {
     }
 }
 
-// The gate constant the liquidation tuple is held to; pinned so a config edit
-// cannot silently widen the window in which adverse params can be forced on.
 #[test]
 fn threshold_update_min_hf_is_one_point_zero_five_wad() {
     assert_eq!(THRESHOLD_UPDATE_MIN_HF_RAW, 1_050_000_000_000_000_000);
 }
 
-// A cut threshold hands the liquidator a cheaper trigger.
 #[test]
 fn favors_liquidator_on_threshold_cut() {
     let position = stamped_position();
@@ -59,7 +56,6 @@ fn favors_liquidator_on_threshold_cut() {
     ));
 }
 
-// A raised bonus enlarges the seizure multiplier.
 #[test]
 fn favors_liquidator_on_bonus_raise() {
     let position = stamped_position();
@@ -69,8 +65,6 @@ fn favors_liquidator_on_bonus_raise() {
     ));
 }
 
-// Fees are carved out of the bonus, so the adverse direction is downward — the
-// inverse of the threshold and bonus rules.
 #[test]
 fn favors_liquidator_on_fee_cut() {
     let position = stamped_position();
@@ -85,7 +79,6 @@ fn favors_liquidator_on_fee_cut() {
     ));
 }
 
-// A tuple that moves wholly against the liquidator carries no gate.
 #[test]
 fn favors_liquidator_false_when_every_field_is_borrower_favorable() {
     let position = stamped_position();
@@ -95,8 +88,6 @@ fn favors_liquidator_false_when_every_field_is_borrower_favorable() {
     ));
 }
 
-// An unchanged tuple is not adverse, so a bonus-only listing edit is the only
-// thing that can pull an otherwise-idle restamp through the gate.
 #[test]
 fn favors_liquidator_false_when_tuple_is_unchanged() {
     let position = stamped_position();
@@ -106,8 +97,6 @@ fn favors_liquidator_false_when_tuple_is_unchanged() {
     ));
 }
 
-// Debt-free accounts skip the HF walk: the whole tuple lands even when every
-// field is liquidator-favorable, since there is nothing to liquidate.
 #[test]
 fn refresh_writes_full_tuple_for_debt_free_account() {
     let env = Env::default();
@@ -138,11 +127,6 @@ fn refresh_writes_full_tuple_for_debt_free_account() {
     });
 }
 
-// LTV rides outside the gate entirely: it bounds borrow capacity and never
-// feeds the liquidation planner, so it lands even when the gate rejects the
-// liquidation tuple. Exercises the rejecting branch: an indebted account whose
-// HF sits below `THRESHOLD_UPDATE_MIN_HF_RAW` and a listing that has moved
-// every tuple field the liquidator's way.
 #[test]
 fn refresh_writes_ltv_but_holds_tuple_when_gate_rejects() {
     let env = Env::default();
@@ -152,8 +136,7 @@ fn refresh_writes_ltv_but_holds_tuple_when_gate_rejects() {
             hub_id: 0,
             asset: Address::generate(&env),
         };
-        // Live debt against a zero-value supply leg: HF is 0, far under the
-        // 1.05 gate, so the tuple must be held back.
+
         let mut borrow_positions = Map::new(&env);
         borrow_positions.set(
             hub.clone(),
@@ -195,7 +178,6 @@ fn refresh_writes_ltv_but_holds_tuple_when_gate_rejects() {
             &account,
             &hub,
             &mut position,
-            // Every field adverse: threshold cut, bonus raised, fees cut.
             &config(7_000, STAMPED_BONUS + 400, STAMPED_FEES - 50),
             RiskRefreshScope::FullTuple,
         );
@@ -223,8 +205,6 @@ fn refresh_writes_ltv_but_holds_tuple_when_gate_rejects() {
     });
 }
 
-// `LtvOnly` is the keeper's no-risk scope: LTV lands, the liquidation tuple
-// stays at its stamped vintage even when the listing has moved.
 #[test]
 fn refresh_ltv_only_leaves_liquidation_tuple_stamped() {
     let env = Env::default();

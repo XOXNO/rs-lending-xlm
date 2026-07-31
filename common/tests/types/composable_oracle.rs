@@ -48,10 +48,6 @@ fn multi_feed_of(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Smoothing is a feed property, not a provider property.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_twap_reflector_is_smoothed_spot_is_not() {
     let env = Env::default();
@@ -73,10 +69,6 @@ fn test_multi_feed_is_not_smoothed() {
     assert!(!feed.provider.is_smoothed());
 }
 
-// ---------------------------------------------------------------------------
-// Trust domains: same ABI at the same address, different operator.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_redstone_and_xoxno_are_distinct_domains_at_one_address() {
     let env = Env::default();
@@ -93,8 +85,7 @@ fn test_redstone_and_xoxno_are_distinct_domains_at_one_address() {
 fn test_two_feeds_on_one_adapter_share_a_domain() {
     let env = Env::default();
     let contract = Address::generate(&env);
-    // Distinct feed ids, same operator and deployment: one compromise moves
-    // both, so they must NOT read as independent.
+
     let a = multi_feed(
         &env,
         &contract,
@@ -113,10 +104,6 @@ fn test_two_feeds_on_one_adapter_share_a_domain() {
     let pb = SourceProperties::of_feed(&env, &b);
     assert_eq!(pa.shared_contracts_with(&env, &pb).len(), 1);
 }
-
-// ---------------------------------------------------------------------------
-// Property join.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_join_propagates_defect_unions_trust_and_takes_max_depth() {
@@ -142,10 +129,6 @@ fn test_join_propagates_defect_unions_trust_and_takes_max_depth() {
 
 #[test]
 fn test_join_takes_the_deeper_branch_in_either_order() {
-    // The case above only ever joins depth 0 with depth 1, in that order, which
-    // every comparison shape agrees on. Depth drives MAX_RESOLUTION_DEPTH, so
-    // the direction has to be pinned from both sides — and equal depths must
-    // stay put rather than pick up a level.
     let env = Env::default();
     let reflector = Address::generate(&env);
     let base = SourceProperties::of_feed(&env, &reflector_twap(&env, &reflector, 3));
@@ -195,10 +178,6 @@ fn test_join_is_symmetric_in_smoothing_and_trust() {
     assert!(ab.trust.iter().all(|d| contains_domain(&ba.trust, &d)));
 }
 
-// ---------------------------------------------------------------------------
-// local_properties: what recursion the engine is told to do.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_feed_source_has_no_dependencies() {
     let env = Env::default();
@@ -230,7 +209,7 @@ fn test_scaled_source_depends_on_its_quote_only() {
     let props = local_properties(&env, &source);
     assert_eq!(props.dependencies.len(), 1);
     assert_eq!(props.dependencies.get(0).unwrap(), quote);
-    // The factor's own provider is local; the quote's is folded in by the caller.
+
     assert_eq!(props.local.trust.len(), 1);
     assert!(
         !props.local.has_unsmoothed_market_leg,
@@ -256,7 +235,7 @@ fn test_lp_source_contributes_no_provider_and_two_dependencies() {
     });
 
     let props = local_properties(&env, &source);
-    // A pool publishes reserves, not an opinion: no trust domain of its own.
+
     assert_eq!(props.local.trust.len(), 0);
     assert!(
         props.local.has_unsmoothed_market_leg,
@@ -266,10 +245,6 @@ fn test_lp_source_contributes_no_provider_and_two_dependencies() {
     assert_eq!(props.dependencies.get(0).unwrap(), token_a);
     assert_eq!(props.dependencies.get(1).unwrap(), token_b);
 }
-
-// ---------------------------------------------------------------------------
-// Config shape.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_is_dual_tracks_source_count() {
@@ -303,27 +278,20 @@ fn test_is_dual_tracks_source_count() {
     assert!(oracle.is_dual());
 }
 
-// ---------------------------------------------------------------------------
-// FeedNature: smoothing only protects what trading can move.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_unsmoothed_market_leg_is_the_defect_smoothing_guards() {
     let env = Env::default();
     let reflector = Address::generate(&env);
     let adapter = Address::generate(&env);
 
-    // Reflector aggregates traded venues, so a spot read is the classic defect.
     assert!(reflector_spot(&env, &reflector)
         .provider
         .is_unsmoothed_market_leg());
-    // A window removes it.
+
     assert!(!reflector_twap(&env, &reflector, 3)
         .provider
         .is_unsmoothed_market_leg());
 
-    // A market-derived push feed with no window is equally defective, even
-    // though v1 would have judged it purely by provider variant.
     let market_push = multi_feed_of(
         &env,
         &adapter,
@@ -333,7 +301,6 @@ fn test_unsmoothed_market_leg_is_the_defect_smoothing_guards() {
     );
     assert!(market_push.provider.is_unsmoothed_market_leg());
 
-    // A fundamental is exempt: no amount of trading moves a published NAV.
     let nav = multi_feed_of(
         &env,
         &adapter,
@@ -362,14 +329,9 @@ fn test_defect_taints_the_whole_source_through_join() {
         ),
     );
 
-    // OR over a defect is the correct combination; OR over a virtue was not.
     assert!(clean.join(&defective).has_unsmoothed_market_leg);
     assert!(defective.join(&clean).has_unsmoothed_market_leg);
 }
-
-// ---------------------------------------------------------------------------
-// Composite freshness takes the tightest component bound.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_join_reports_the_loosest_staleness_bound() {
@@ -377,14 +339,12 @@ fn test_join_reports_the_loosest_staleness_bound() {
     let reflector = Address::generate(&env);
     let adapter = Address::generate(&env);
 
-    let fast = SourceProperties::of_feed(&env, &reflector_twap(&env, &reflector, 3)); // 3600
+    let fast = SourceProperties::of_feed(&env, &reflector_twap(&env, &reflector, 3));
     let slow = SourceProperties::of_feed(
         &env,
         &multi_feed(&env, &adapter, "X", ProviderKind::RedStone),
-    ); // 43200
+    );
 
-    // The config rule needs the worst component, so it can be compared against
-    // the asset-level ceiling.
     assert_eq!(fast.join(&slow).loosest_max_stale_seconds, 43200);
     assert_eq!(slow.join(&fast).loosest_max_stale_seconds, 43200);
 }
@@ -397,12 +357,7 @@ fn test_empty_properties_do_not_loosen_freshness() {
         &env,
         &multi_feed(&env, &adapter, "X", ProviderKind::RedStone),
     );
-    // An LP node contributes no feed of its own; joining it must not invent a
-    // looser bound than any real component carries.
+
     let joined = SourceProperties::empty(&env).join(&feed);
     assert_eq!(joined.loosest_max_stale_seconds, 43200);
 }
-
-// ---------------------------------------------------------------------------
-// Provider-kind floor under the trust-domain rule.
-// ---------------------------------------------------------------------------

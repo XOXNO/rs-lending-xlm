@@ -1,11 +1,3 @@
-//! Flash loan: pays out, calls back, pulls back principal plus fee.
-//!
-//! CEI is inverted on purpose — the callback *is* the entrypoint. Repayment is
-//! enforced by exact SAC balance checks bracketing the callback, so the market
-//! asset must be a well-behaved SAC.
-//!
-//! Flow: terms → payout → callback → collect → book fee → commit.
-
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::{Bps, Ray};
 use common::types::HubAssetKey;
@@ -18,7 +10,6 @@ use soroban_sdk::{
 use crate::cache::Cache;
 use crate::{events, interest, ops};
 
-/// Exact balance targets the production checks compare against.
 pub(crate) struct FlashTerms {
     pub(crate) fee: i128,
     pub(crate) total_repayment: i128,
@@ -26,8 +17,6 @@ pub(crate) struct FlashTerms {
     pub(crate) balance_after_repayment: i128,
 }
 
-/// Lends `amount` to `receiver`, invokes `execute_flash_loan`, pulls back
-/// `amount + fee`, and books the fee as protocol revenue. Returns the fee.
 pub(crate) fn apply(
     env: &Env,
     hub_asset: HubAssetKey,
@@ -44,7 +33,7 @@ pub(crate) fn apply(
         cache.params().is_flashloanable,
         FlashLoanError::FlashloanNotEnabled
     );
-    // Tracked cash only — donated SAC tokens are never loanable.
+
     cache.require_reserves(amount);
     require_wasm_receiver(env, &receiver);
 
@@ -68,17 +57,16 @@ pub(crate) fn apply(
     invoke_receiver(
         env, &cache, &receiver, initiator, amount, terms.fee, &pool, data,
     );
-    // Callback must not change the pool's loaned-token balance.
+
     require_balance(env, &asset, &pool, terms.balance_after_payout);
     collect_repayment(env, &asset, &pool, &receiver, &terms);
-    // Net effect: sent `amount`, got `amount + fee` — only the fee hits tracked cash.
+
     book_fee(&mut cache, terms.fee);
 
     events::emit_market_state(env, cache.commit());
     terms.fee
 }
 
-/// Derives the fee and the three balances the loan must hit.
 pub(crate) fn terms(env: &Env, amount: i128, fee_bps: u32, pre_balance: i128) -> FlashTerms {
     let fee = Bps::from(i128::from(fee_bps)).flash_loan_fee_on(env, amount);
     FlashTerms {
@@ -95,7 +83,6 @@ pub(crate) fn terms(env: &Env, amount: i128, fee_bps: u32, pre_balance: i128) ->
     }
 }
 
-/// Books a settled flash-loan fee as protocol revenue and credits the cash.
 pub(crate) fn book_fee(cache: &mut Cache, fee: i128) {
     let protocol_fee = Ray::from_asset(fee, cache.params().asset_decimals);
     interest::add_protocol_revenue(cache, protocol_fee);

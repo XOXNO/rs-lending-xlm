@@ -1,13 +1,8 @@
-//! Dense swap-remove indexes for assets and known feeds.
-//!
-//! Add/remove cost O(1) persistent writes instead of rewriting a growing list.
-
 use common::oracle::providers::reflector::ReflectorAsset;
 use soroban_sdk::{Env, String};
 
 use crate::storage::{ttl::renew_persistent_key, DataKey};
 
-/// Number of occupied asset slots; also the next free index.
 pub(in crate::storage) fn asset_count(env: &Env) -> u32 {
     env.storage()
         .persistent()
@@ -15,7 +10,6 @@ pub(in crate::storage) fn asset_count(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-/// Number of occupied feed slots; also the next free index.
 pub(in crate::storage) fn feed_count(env: &Env) -> u32 {
     env.storage()
         .persistent()
@@ -23,14 +17,12 @@ pub(in crate::storage) fn feed_count(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-/// True when `feed_id` is on the known-feed allowlist.
 pub(crate) fn feed_index_contains(env: &Env, feed_id: &String) -> bool {
     env.storage()
         .persistent()
         .has(&DataKey::FeedIndex(feed_id.clone()))
 }
 
-/// Appends an asset to the dense index. Caller must check it is absent first.
 pub(crate) fn asset_index_insert(env: &Env, asset: ReflectorAsset) {
     let count = asset_count(env);
     let at_key = DataKey::AssetAt(count);
@@ -46,8 +38,6 @@ pub(crate) fn asset_index_insert(env: &Env, asset: ReflectorAsset) {
     renew_persistent_key(env, &count_key);
 }
 
-/// Swap-removes an asset: the tail slot moves into the hole and the count
-/// shrinks so the index stays dense.
 pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
     let index_key = DataKey::AssetIndex(asset.clone());
     let Some(removed_at): Option<u32> = env.storage().persistent().get(&index_key) else {
@@ -61,7 +51,7 @@ pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
         .expect("asset index count must cover indexed asset");
     if removed_at != last_at {
         let last_key = DataKey::AssetAt(last_at);
-        // If the last slot archived, shrink without swap rather than panic.
+
         if let Some(moved) = env
             .storage()
             .persistent()
@@ -87,7 +77,6 @@ pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
     renew_persistent_key(env, &count_key);
 }
 
-/// Appends a feed to the dense index. Caller must check it is absent first.
 pub(in crate::storage) fn feed_index_insert(env: &Env, feed_id: String) {
     let count = feed_count(env);
     let at_key = DataKey::FeedAt(count);
@@ -103,7 +92,6 @@ pub(in crate::storage) fn feed_index_insert(env: &Env, feed_id: String) {
     renew_persistent_key(env, &count_key);
 }
 
-/// Swap-removes a feed from the dense index; mirrors `asset_index_remove`.
 pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
     let index_key = DataKey::FeedIndex(feed_id.clone());
     let Some(removed_at): Option<u32> = env.storage().persistent().get(&index_key) else {
@@ -117,7 +105,7 @@ pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
         .expect("feed index count must cover indexed feed");
     if removed_at != last_at {
         let last_key = DataKey::FeedAt(last_at);
-        // If the last slot archived, shrink without swap rather than panic.
+
         if let Some(moved) = env.storage().persistent().get::<DataKey, String>(&last_key) {
             let moved_at_key = DataKey::FeedAt(removed_at);
             env.storage().persistent().set(&moved_at_key, &moved);

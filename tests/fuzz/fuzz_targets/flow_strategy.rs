@@ -1,6 +1,4 @@
 #![no_main]
-//! Strategy entrypoints: multiply, swap debt/collateral, repay-with-collateral.
-//! Asserts HF floor, reserve non-negativity, router allowance cleanup, and rollback.
 
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::token;
@@ -143,11 +141,6 @@ fn bootstrap(t: &mut LendingTest) {
     t.borrow(ALICE, "XLM", 1_000.0);
 }
 
-/// The controller must never hold residual tokens: strategy flows pull from
-/// the pool, route through the aggregator (which pulls via
-/// `authorize_as_current_contract` + `transfer`, never token allowances), and
-/// deposit/refund everything before returning. Any balance left on the
-/// controller is stuck value.
 fn assert_controller_residual_zero(t: &LendingTest) {
     for a in ASSETS {
         let addr = t.resolve_asset(a);
@@ -238,7 +231,7 @@ fuzz_target!(|data: &[u8]| {
             for a in ASSETS {
                 assert!(t.pool_reserves(a) >= 0.0, "{} reserves negative", a);
             }
-            // AdvanceAndSync does not touch the router.
+
             if !matches!(op, Op::AdvanceAndSync { .. }) {
                 assert_controller_residual_zero(&t);
             }

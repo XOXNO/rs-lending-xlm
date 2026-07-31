@@ -1,5 +1,3 @@
-//! Production tolerance-band checks through `crate::tolerance`.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{panic_with_error, Env};
@@ -10,9 +8,6 @@ use common::math::fp_core;
 
 use common::types::OracleTolerance;
 
-/// Panics out of band, else the blended price — mirrors the composition of
-/// `crate::tolerance::within_tolerance_band` + `midpoint_price_or_zero` that
-/// the engine applies on the live blend path.
 fn midpoint_if_in_band(e: &Env, anchor: i128, primary: i128, tolerance: &OracleTolerance) -> i128 {
     if !crate::tolerance::within_tolerance_band(e, anchor, primary, tolerance) {
         panic_with_error!(e, OracleError::UnsafePriceNotAllowed);

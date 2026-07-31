@@ -1,6 +1,3 @@
-//! Shared black-box test helpers for the `xoxno-oracle` integration tests.
-//! Every test binary under `tests/` pulls this in via `mod common;`.
-
 extern crate std;
 
 use xoxno_oracle::{Error, XoxnoOracle, XoxnoOracleClient};
@@ -9,13 +6,6 @@ use common::oracle::providers::reflector::ReflectorAsset;
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{contracttype, Address, ConversionError, Env, InvokeError, String, Symbol};
 
-/// Mirror of the crate-private `DataKey` variants that tests assert on
-/// directly (storage-invariant and TTL checks). `#[contracttype]` enum keys
-/// serialize as `[variant-name, payload...]`, so a variant with the same name
-/// and payload produces the identical storage key regardless of the enum's
-/// Rust-side name.
-///
-/// Shared across integration binaries; not every binary uses every variant.
 #[allow(dead_code)]
 #[contracttype]
 pub enum MirrorKey {
@@ -33,8 +23,6 @@ pub fn setup(
     signer_count: u32,
     threshold: u32,
 ) -> (XoxnoOracleClient<'static>, Address, std::vec::Vec<Address>) {
-    // Owner-gated `register_feed` for the default allowlist entry needs auth;
-    // tests that tighten mocks (e.g. only-owner checks) overwrite this after setup.
     env.mock_all_auths();
     let admin = Address::generate(env);
     let signers: std::vec::Vec<Address> =
@@ -48,8 +36,7 @@ pub fn setup(
         (admin.clone(), signers_vec, threshold, TEST_RESOLUTION),
     );
     let client = XoxnoOracleClient::new(env, &contract_id);
-    // Default allowlist entry so RedStone-path tests can submit without an
-    // extra admin step. Custom feed ids still need `register_feed` / `add_feed`.
+
     client.register_feed(&feed_id(env));
     (client, admin, signers)
 }
@@ -58,13 +45,11 @@ pub fn feed_id(env: &Env) -> String {
     String::from_str(env, FEED)
 }
 
-/// Used by SEP-40 / admin feed-mapping tests; unused in narrower binaries.
 #[allow(dead_code)]
 pub fn xlm_asset(env: &Env) -> ReflectorAsset {
     ReflectorAsset::Other(Symbol::new(env, "XLM"))
 }
 
-/// Used by multi-feed submit/aggregate tests; unused in narrower binaries.
 #[allow(dead_code)]
 pub fn register_extra_feeds(client: &XoxnoOracleClient<'static>, env: &Env, feeds: &[&str]) {
     for feed in feeds {
@@ -72,7 +57,6 @@ pub fn register_extra_feeds(client: &XoxnoOracleClient<'static>, env: &Env, feed
     }
 }
 
-/// Used by staleness / SEP-40 time-travel tests; unused in narrower binaries.
 #[allow(dead_code)]
 pub fn advance_ledger_seconds(env: &Env, seconds: u64) {
     let current = env.ledger().timestamp();
@@ -89,8 +73,6 @@ pub fn advance_ledger_seconds(env: &Env, seconds: u64) {
     });
 }
 
-/// Advances the ledger sequence so persistent-entry TTLs decay by `ledgers`,
-/// letting a test observe a later renewal re-arm a partially-aged key.
 #[allow(dead_code)]
 pub fn advance_ledger_sequence(env: &Env, ledgers: u32) {
     let timestamp = env.ledger().timestamp();
@@ -107,10 +89,6 @@ pub fn advance_ledger_sequence(env: &Env, ledgers: u32) {
     });
 }
 
-/// `RedStonePriceData` (defined in the `common` crate) does not implement
-/// `PartialEq`, so `try_read_price_data_for_feed`/`try_read_price_data`
-/// results can't be compared with `assert_eq!` directly. This extracts just
-/// the contract error variant for assertions.
 #[allow(dead_code)]
 pub fn expect_error<T>(
     result: Result<Result<T, ConversionError>, Result<Error, InvokeError>>,

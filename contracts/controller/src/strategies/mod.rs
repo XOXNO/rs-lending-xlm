@@ -1,9 +1,3 @@
-//! Account strategies and user flash loans.
-//!
-//! Account strategies: Auth → Reentrancy → Preflight → Account → Prices →
-//! Actions → Finalize (post-pool LTV/HF). Flash loan skips Account/Prices/Finalize
-//! (pool callback repayment only).
-
 pub(crate) mod flash_loan;
 pub(crate) mod legs;
 pub(crate) mod migrate_blend;
@@ -27,7 +21,6 @@ use crate::context::Cache;
 use crate::positions::{finalize_position_flow, PositionSides};
 use crate::risk::{self, account_price_assets, validation};
 
-/// Bulk-fetch price-aggregator USD feeds for an account's positions plus strategy legs.
 pub(crate) fn prefetch_strategy_prices(
     cache: &mut Cache,
     account: &Account,
@@ -37,7 +30,6 @@ pub(crate) fn prefetch_strategy_prices(
     cache.fetch_prices(&account_price_assets(&env, account, extra_assets));
 }
 
-/// Safe-param restamp, post-pool HF, then persist both sides (remove if empty).
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,

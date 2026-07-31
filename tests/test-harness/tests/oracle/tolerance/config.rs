@@ -7,7 +7,6 @@ fn test_tolerance_config_valid_update() {
 
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // 600 BPS band as governance computes it in-path (reciprocal lower).
     let tolerance = controller::types::OracleTolerance {
         upper_ratio_bps: 10_600,
         lower_ratio_bps: 9_434,
@@ -24,7 +23,6 @@ fn test_tolerance_config_rejects_non_reciprocal_lower() {
     let t = setup();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // Envelope-valid additive band; on-chain reciprocal gate rejects it.
     let result = t.price_agg_client().try_set_tolerance(
         &controller::types::PriceKey::Token(asset),
         &controller::types::OracleTolerance {
@@ -40,7 +38,6 @@ fn test_tolerance_config_rejects_non_reciprocal_lower() {
 
 #[test]
 fn test_dual_source_prices_and_risk_gates_still_resolve() {
-    // Integration: dual oracle + controller hard prices after reciprocal bands.
     let mut t = setup();
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
@@ -61,10 +58,8 @@ fn test_set_accumulator() {
         .env
         .register(test_harness::mock_reflector::MockReflector, ());
 
-    // Must not panic: admin has permission.
     ctrl.set_accumulator(&accumulator);
 
-    // Verify storage by reading directly.
     let stored: soroban_sdk::Address = t.env.as_contract(&t.controller, || {
         t.env
             .storage()
@@ -85,12 +80,8 @@ fn test_edit_asset_in_spoke_category() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // Initially: can_collateral=true, can_borrow=true.
-    // Edit: set can_borrow=false.
     t.edit_asset_in_spoke("USDC", 2, true, false, 9700, 9800, 200);
 
-    // Verify the update by reading storage. Spoke asset configs are discrete
-    // `SpokeAsset(spoke_id, hub_asset)` keys in the spoke model.
     let usdc_asset = t.resolve_market("USDC").asset.clone();
     let config: Option<controller::types::SpokeAssetConfig> =
         t.env.as_contract(&t.controller, || {

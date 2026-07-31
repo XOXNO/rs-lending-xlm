@@ -1,12 +1,5 @@
-//! `MockAuth` argument builders for nested C2C auth (e.g. receiver `token.mint()`)
-//! that `env.mock_all_auths()` cannot reach in recording mode.
-//!
-//! Returns owned arg `Vec`s; callers own them, assemble `MockAuthInvoke` refs,
-//! and pass `&[MockAuth]` to `mock_auths`.
-
 use soroban_sdk::{Address, Env, IntoVal, Val, Vec};
 
-/// Args for `Controller::flash_loan(caller, asset, amount, receiver, data)`.
 pub fn flash_loan_args(
     env: &Env,
     caller: &Address,
@@ -24,7 +17,6 @@ pub fn flash_loan_args(
         .into_val(env)
 }
 
-/// Args for `Controller::multiply` (initial_payment/convert_steps = None).
 #[allow(clippy::too_many_arguments)]
 pub fn multiply_args(
     env: &Env,
@@ -52,8 +44,6 @@ pub fn multiply_args(
         .into_val(env)
 }
 
-/// Arguments for `Controller::swap_collateral(caller, account_id,
-/// current_collateral, from_amount, new_collateral, steps)`.
 pub fn swap_collateral_args(
     env: &Env,
     caller: &Address,
@@ -74,7 +64,6 @@ pub fn swap_collateral_args(
         .into_val(env)
 }
 
-/// Arguments for `Controller::swap_debt`.
 pub fn swap_debt_args(
     env: &Env,
     caller: &Address,
@@ -95,7 +84,6 @@ pub fn swap_debt_args(
         .into_val(env)
 }
 
-/// Arguments for `Controller::repay_debt_with_collateral`.
 #[allow(clippy::too_many_arguments)]
 pub fn repay_debt_with_collateral_args(
     env: &Env,

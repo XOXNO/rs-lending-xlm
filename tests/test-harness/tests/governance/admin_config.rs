@@ -1,6 +1,3 @@
-//! Risk-bound, position-limit, IRM-cap, and tolerance validation on the
-//! governance forwarders.
-
 use controller::constants::RAY;
 use controller::types::InterestRateModel;
 use governance::op::{
@@ -10,7 +7,6 @@ use test_harness::{
     assert_contract_error, errors, hub_asset, usdc_preset, LendingTest, HARNESS_HUB, HARNESS_SPOKE,
 };
 
-// `validate_risk_bounds` rejects threshold == LTV (#113).
 #[test]
 fn test_edit_asset_in_spoke_rejects_threshold_lte_ltv() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -30,7 +26,7 @@ fn test_edit_asset_in_spoke_rejects_threshold_lte_ltv() {
         paused: false,
         frozen: false,
         ltv: 8000,
-        threshold: 8000, // Equal to LTV.
+        threshold: 8000,
         bonus: config.liquidation_bonus,
         liquidation_fees: config.liquidation_fees,
         supply_cap: config.supply_cap,
@@ -45,7 +41,6 @@ fn test_edit_asset_in_spoke_rejects_threshold_lte_ltv() {
     assert_contract_error(mapped, errors::INVALID_LIQ_THRESHOLD);
 }
 
-// Hard cap is 10/10 (matches bench_liquidate_max_positions); above-cap and zero rejected.
 #[test]
 fn test_set_position_limits_rejects_above_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -61,7 +56,7 @@ fn test_set_position_limits_rejects_above_cap() {
 
     assert_invalid_position_limits(&t, 11, 10);
     assert_invalid_position_limits(&t, 10, 11);
-    // Former soft ceiling 32 is above hard cap.
+
     assert_invalid_position_limits(&t, 32, 32);
     assert_invalid_position_limits(&t, 0, 5);
     assert_invalid_position_limits(&t, 5, 0);
@@ -94,9 +89,6 @@ fn assert_invalid_position_limits(t: &LendingTest, supply: u32, borrow: u32) {
     }
 }
 
-// End-to-end: propose (via `execute_immediate`) -> governance validates ->
-// controller re-validates and mutates storage -> `get_spoke` view reflects
-// the override, replacing the defaults `add_spoke` stamped.
 #[test]
 fn test_set_spoke_liquidation_curve_overrides_defaults_end_to_end() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -121,9 +113,6 @@ fn test_set_spoke_liquidation_curve_overrides_defaults_end_to_end() {
     assert_eq!(after.liquidation_bonus_factor_bps, 8_000);
 }
 
-// The governance-side `validate::spoke::validate_liquidation_curve` gate
-// (bonus_factor_bps > BPS) rejects at propose time, before the controller is
-// ever invoked.
 #[test]
 fn test_set_spoke_liquidation_curve_rejects_bonus_factor_above_bps() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -145,8 +134,6 @@ fn test_set_spoke_liquidation_curve_rejects_bonus_factor_above_bps() {
     assert_contract_error(mapped, errors::INVALID_LIQUIDATION_CURVE);
 }
 
-// Unknown spoke ids revert `SpokeNotFound` at the controller, past governance
-// validation (which has no spoke-existence check of its own).
 #[test]
 fn test_set_spoke_liquidation_curve_rejects_unknown_spoke() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -168,12 +155,6 @@ fn test_set_spoke_liquidation_curve_rejects_unknown_spoke() {
     assert_contract_error(mapped, errors::SPOKE_NOT_FOUND);
 }
 
-// Regression: `max_borrow_rate` cap (Taylor envelope).
-//
-// `InterestRateModel::verify` (run by governance before forwarding, and again
-// by `pool::update_params`) rejects any `max_borrow_rate > 2 * RAY` to
-// keep `compound_interest`'s 8-term Taylor approximation inside its
-// documented `< 0.01 %` accuracy envelope. See `architecture/MATH_REVIEW.md §0`.
 #[test]
 fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -181,7 +162,6 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
     let gov = t.gov_client();
     let admin = t.admin();
 
-    // `2 * RAY + 1` exceeds MAX_BORROW_RATE_RAY → MAX_BORROW_RATE_TOO_HIGH (#131).
     let result = gov.try_execute_immediate(
         &admin,
         &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {

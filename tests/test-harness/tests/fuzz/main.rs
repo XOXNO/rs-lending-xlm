@@ -1,5 +1,3 @@
-//! Property-based contract tests.
-
 extern crate std;
 
 mod accounting_conservation;

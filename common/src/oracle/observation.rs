@@ -1,11 +1,8 @@
-//! Oracle price normalization, staleness, and future-timestamp guards.
-
 use crate::constants::{MS_PER_SECOND, WAD_DECIMALS};
 use crate::errors::{GenericError, OracleError};
 use crate::math::fp::Wad;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, U256};
 
-/// Max ledger vs publication clock skew (seconds); writers and readers share it.
 pub const MAX_FUTURE_SKEW_SECONDS: u64 = 60;
 
 pub const MAX_TWAP_RECORDS: u32 = 12;
@@ -18,7 +15,6 @@ pub const MIN_ORACLE_RESOLUTION_SECONDS: u32 = 60;
 pub const MIN_ORACLE_DECIMALS: u32 = 1;
 pub const MAX_ORACLE_DECIMALS: u32 = 18;
 
-/// Max Single-strategy midpoint half-width (BPS, 10%). Wider bands need an anchor.
 pub const MAX_SINGLE_SOURCE_SANITY_BAND_BPS: i128 = 1_000;
 
 pub fn normalize_positive_price(env: &Env, price: i128, decimals: u32) -> i128 {
@@ -26,9 +22,6 @@ pub fn normalize_positive_price(env: &Env, price: i128, decimals: u32) -> i128 {
     Wad::from_token(price, decimals).raw()
 }
 
-/// Non-panicking [`normalize_positive_price`]: `None` for a non-positive price
-/// or a WAD upscale that would overflow `i128`. Oracle decimals are bounded to
-/// `[1, WAD_DECIMALS]`, so normalization is always a pure upscale here.
 pub fn try_normalize_positive_price(price: i128, decimals: u32) -> Option<i128> {
     if price <= 0 || decimals > WAD_DECIMALS {
         return None;
@@ -48,8 +41,6 @@ pub fn check_not_future_at(env: &Env, now_secs: u64, feed_ts: u64) {
     assert_with_error!(env, feed_ts <= max_future_ts, OracleError::PriceFeedStale);
 }
 
-/// Non-panicking [`check_not_future_at`]: true when `feed_ts` sits beyond the
-/// ledger clock plus the allowed skew.
 pub fn is_future_at(now_secs: u64, feed_ts: u64) -> bool {
     match now_secs.checked_add(MAX_FUTURE_SKEW_SECONDS) {
         Some(max_future_ts) => feed_ts > max_future_ts,
@@ -89,7 +80,6 @@ pub fn u256_to_i128(env: &Env, value: &U256) -> i128 {
     raw as i128
 }
 
-/// Non-panicking [`u256_to_i128`]: `None` when the value exceeds `i128::MAX`.
 pub fn try_u256_to_i128(value: &U256) -> Option<i128> {
     let raw = value.to_u128()?;
     (raw <= i128::MAX as u128).then_some(raw as i128)

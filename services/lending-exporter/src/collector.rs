@@ -1,8 +1,3 @@
-//! One scrape cycle: RPC views → gauges.
-//!
-//! Reads are isolated: one market/spoke failure counts and leaves the rest live.
-//! Bulk `get_market_indexes_detailed` traps the whole batch on any bad key — on
-//! failure retry each key alone.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -25,7 +20,6 @@ pub async fn resolve_pool_id(client: &RpcClient, controller: &[u8; 32]) -> Resul
     scval::as_contract_id(&scv).ok_or_else(|| anyhow!("get_pool_address did not return a contract address"))
 }
 
-/// Live controller `price_aggregator()` view; falls back to YAML override.
 pub async fn resolve_price_aggregator(
     client: &RpcClient,
     controller: &[u8; 32],
@@ -45,7 +39,6 @@ pub async fn resolve_price_aggregator(
     config_fallback.copied()
 }
 
-/// Full scrape. Never errors: partial failures are counted; successes still publish.
 pub async fn scrape_once(
     client: &RpcClient,
     metrics: &Metrics,
@@ -58,7 +51,6 @@ pub async fn scrape_once(
     let now_secs = read_ledger_now(client, metrics, net).await;
     let index_rows = read_market_indexes(client, metrics, net, contracts).await;
 
-    // Resolve pool / aggregator each cycle so a re-point or transient RPC miss self-heals.
     let pool_id = match resolve_pool_id(client, &contracts.controller).await {
         Ok(p) => Some(p),
         Err(e) => {
@@ -81,7 +73,7 @@ pub async fn scrape_once(
     }
 
     let mut agg = Aggregates::default();
-    // Token decimals for spoke cap/usage denomination.
+
     let mut decimals: Vec<Option<u32>> = vec![None; contracts.markets.len()];
 
     for (i, (market, row)) in contracts.markets.iter().zip(index_rows.iter()).enumerate() {
@@ -96,7 +88,7 @@ pub async fn scrape_once(
                 let dec = sync.params.asset_decimals;
                 decimals[i] = Some(dec);
                 publish_market_params(metrics, &lref, &sync);
-                // Pool `last_timestamp` / `get_delta_time` are milliseconds.
+
                 metrics
                     .market_last_accrual_timestamp
                     .with_label_values(&lref)
@@ -169,7 +161,6 @@ async fn read_ledger_now(client: &RpcClient, metrics: &Metrics, net: &str) -> i6
     }
 }
 
-/// Bulk indexes; on batch failure retry per key so one bad feed cannot zero the board.
 async fn read_market_indexes(
     client: &RpcClient,
     metrics: &Metrics,
@@ -220,7 +211,6 @@ async fn try_index_batch(
     }
 }
 
-/// Full `MarketIndexView`: indexes + soft oracle status flags/prices.
 fn publish_market_index_view(
     metrics: &Metrics,
     net: &str,
@@ -411,7 +401,6 @@ async fn read_view(
     }
 }
 
-/// Price-aggregator `AssetOracle` config + provider-probe freshness (ops early-warning).
 async fn publish_oracle_config_and_freshness(
     client: &RpcClient,
     metrics: &Metrics,
@@ -432,9 +421,6 @@ async fn publish_oracle_config_and_freshness(
     metrics.oracle_sanity_max_usd.with_label_values(&olabels).set(model::wad_to_f64(config.max_sanity_price_wad));
     metrics.oracle_strategy.with_label_values(&olabels).set(config.source_count.saturating_sub(1) as f64);
 
-    // Report the source with least headroom (stales first); publish that leg's max_stale.
-    // LpShare legs contribute no pollable feed, so `config.sources` can be
-    // shorter than `config.source_count`.
     let mut worst: Option<(f64, u64, u64)> = None;
     for source in &config.sources {
         if let Some(feed_ts) = read_feed_timestamp(client, metrics, net, market, source).await {
@@ -559,7 +545,7 @@ async fn publish_spoke_asset(
     let Ok(hub_arg) = hub_asset_key_sc_val(&key) else {
         return;
     };
-    // Unlisted (spoke, market) reverts are expected — skip, do not count as failure.
+
     let cfg_scv = match simulate_view(client, &contracts.controller, "get_spoke_asset", vec![ScVal::U32(spoke_id), hub_arg.clone()]).await {
         Ok(s) => s,
         Err(_) => return,
@@ -582,7 +568,6 @@ async fn publish_spoke_asset(
     metrics.spoke_liq_bonus_bps.with_label_values(&labels).set(cfg.liquidation_bonus_bps as f64);
     metrics.spoke_liq_fees_bps.with_label_values(&labels).set(cfg.liquidation_fees_bps as f64);
 
-    // Skip token-space metrics when decimals are missing (sync read failed).
     let Some(dec) = decimals else {
         return;
     };
@@ -612,7 +597,6 @@ async fn publish_spoke_asset(
     }
 }
 
-/// `Error(Contract, #210)` → `"210"`.
 fn bucket_error_code(msg: &str) -> String {
     if let Some(pos) = msg.find('#') {
         let digits: String = msg[pos + 1..].chars().take_while(|c| c.is_ascii_digit()).collect();

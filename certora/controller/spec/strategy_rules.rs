@@ -1,5 +1,3 @@
-//! Strategy and admin operation verification rules.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
@@ -7,7 +5,6 @@ use soroban_sdk::{Address, Env};
 use crate::types::{AccountPositionType, HubAssetKey, StrategySwap};
 use controller_interface::ControllerInterface;
 
-/// Primary-hub coordinate for `asset`.
 fn hub0(asset: Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: crate::spec::fixture::HUB_ID,
@@ -15,8 +12,6 @@ fn hub0(asset: Address) -> HubAssetKey {
     }
 }
 
-/// Strategy routes are opaque to the controller; locally only non-emptiness is
-/// observed, so one valid symbolic byte represents the complete non-empty class.
 fn nonempty_strategy_swap() -> StrategySwap {
     cvlr_soroban::nondet_bytes1()
 }
@@ -274,11 +269,6 @@ fn swap_collateral_rejects_same_token(
     cvlr_assert!(false);
 }
 
-/// Repay-with-collateral (no close) never grows either leg: the flow only
-/// withdraws collateral and repays debt. Bounds are the summary-contract
-/// envelope (`withdraw_summary` / `repay_summary` permit rounding no-ops, so
-/// strict decrease is not expressible here); a removed position counts as
-/// reduced.
 #[rule]
 fn repay_with_collateral_never_increases_positions(
     e: Env,
@@ -339,9 +329,6 @@ fn repay_with_collateral_never_increases_positions(
     }
 }
 
-/// Full close clears all debt: `close_position = true` asserts the account's
-/// borrow map is empty before withdrawing collateral, so post-state has no
-/// debt position for the repaid asset and an empty borrow map.
 #[rule]
 fn repay_with_collateral_full_close_clears_debt(
     e: Env,

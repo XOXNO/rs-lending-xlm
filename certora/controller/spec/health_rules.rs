@@ -1,4 +1,3 @@
-/// Health factor invariant rules via inline unsummarised helper math.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
@@ -8,7 +7,6 @@ use crate::spec::health_ghost;
 use crate::types::HubAssetKey;
 use common::math::fp::{Bps, Ray, Wad};
 
-/// Primary-hub coordinate for `asset`.
 fn hub0(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: crate::spec::fixture::HUB_ID,
@@ -16,13 +14,10 @@ fn hub0(asset: &Address) -> HubAssetKey {
     }
 }
 
-/// Primes prices and pool indexes for the inline valuation helpers. This
-/// mirrors production risk entry points and prevents missing-cache vacuity.
 fn prime_position_inputs(cache: &mut crate::context::Cache, keys: &Vec<HubAssetKey>) {
     cache.load_markets(keys);
 }
 
-/// Sums borrow-side USD WAD by iterating `borrow_positions` without the summarised aggregate.
 fn inline_total_borrow_wad(env: &Env, cache: &mut crate::context::Cache, account_id: u64) -> Wad {
     let account = crate::storage::get_account(env, account_id);
     let keys = account.borrow_positions.keys();
@@ -43,7 +38,6 @@ fn inline_total_borrow_wad(env: &Env, cache: &mut crate::context::Cache, account
     total
 }
 
-/// Sums liquidation-threshold-weighted collateral USD WAD from `supply_positions`.
 fn inline_weighted_collateral_wad(
     env: &Env,
     cache: &mut crate::context::Cache,
@@ -92,8 +86,6 @@ fn supply_preserves_frozen_valuation_health_components(
 
     crate::spec::compat::supply_single(e.clone(), caller, account_id, asset, amount);
 
-    // Reuse the pre-state price/index cache. This proves the position mutation
-    // direction at one valuation snapshot, not temporal oracle/index behavior.
     let post_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let post_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
 
@@ -133,7 +125,6 @@ fn hf_withdraw_sanity(e: Env, caller: Address, asset: Address) {
     cvlr_satisfy!(true);
 }
 
-/// Scaled supply balance at `asset`, or 0 when absent.
 fn scaled_supply_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
     let account = crate::storage::get_account(env, account_id);
     account
@@ -143,7 +134,6 @@ fn scaled_supply_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
         .unwrap_or(0)
 }
 
-/// Scaled borrow balance at `asset`, or 0 when absent.
 fn scaled_borrow_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
     let account = crate::storage::get_account(env, account_id);
     account
@@ -163,7 +153,6 @@ fn borrow_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount: 
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
-    // Skolem reserve must be held or be the operated asset (empty addr trivializes).
     let reserve = cvlr_soroban::nondet_address();
     cvlr_assume!(
         reserve == asset
@@ -198,7 +187,6 @@ fn withdraw_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
-    // Skolem reserve must be held or be the operated asset (empty addr trivializes).
     let reserve = cvlr_soroban::nondet_address();
     cvlr_assume!(
         reserve == asset
@@ -278,7 +266,7 @@ fn unhealthy_repay_improves_frozen_valuation_components(
     let mut cache = crate::context::Cache::new(&e);
     let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let pre_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
-    cvlr_assume!(pre_weighted.raw() < pre_debt.raw()); // account is unhealthy
+    cvlr_assume!(pre_weighted.raw() < pre_debt.raw());
 
     crate::spec::compat::repay_single(e.clone(), caller, account_id, asset, amount);
 

@@ -1,8 +1,3 @@
-//! Repay debt from collateral: withdraw → (swap) → repay; optional full close.
-//!
-//! Owner/delegate auth. Same hub-asset nets in-pool; distinct assets swap via
-//! aggregator. `strategy_finalize` re-checks LTV/HF.
-
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, HubAssetKey, StrategySwap};
 use common::validation::require_positive_amount;
@@ -29,7 +24,6 @@ pub(crate) struct RepayWithCollateralParams<'a> {
     pub close_position: bool,
 }
 
-/// Withdraw collateral → (swap to debt token) → repay; optional full close.
 pub(crate) fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
@@ -58,7 +52,6 @@ pub(crate) fn process_repay_debt_with_collateral(
     let extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
     prefetch_strategy_prices(&mut cache, &account, &extra_assets);
 
-    // Same hub-asset: in-pool net; else withdraw → swap → repay.
     if collateral == debt {
         repay_same_asset_net(
             env,
@@ -81,13 +74,11 @@ pub(crate) fn process_repay_debt_with_collateral(
         );
     }
 
-    // Full collateral exit only if debt is already zero.
     close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
-/// Same (hub, asset): net collat against debt in-pool (no token round-trip).
 fn repay_same_asset_net(
     env: &Env,
     account: &mut Account,
@@ -107,7 +98,6 @@ fn repay_same_asset_net(
     );
 }
 
-/// Distinct assets: withdraw collat → swap to debt token → repay from controller.
 fn repay_via_collateral_swap(
     env: &Env,
     caller: &Address,
@@ -155,7 +145,6 @@ fn repay_via_collateral_swap(
     );
 }
 
-/// Full collateral exit; requires zero remaining debt.
 fn close_remaining_collateral_if_requested(
     env: &Env,
     account: &mut Account,

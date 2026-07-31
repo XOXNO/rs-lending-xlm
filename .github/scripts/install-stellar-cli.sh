@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Install or verify pinned stellar-cli (idempotent).
-# STELLAR_VERSION defaults to the CI pin. Appends $HOME/.local/bin to GITHUB_PATH in Actions.
+
 set -euo pipefail
 
 STELLAR_VERSION="${STELLAR_VERSION:-27.0.0}"

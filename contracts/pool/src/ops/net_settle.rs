@@ -1,7 +1,3 @@
-//! Net-settle leg: cancels a supply position against a debt position on the
-//! same market. Cash is invariant — the amount withdrawn and the amount repaid
-//! are the same number, so no tokens move.
-
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
@@ -13,8 +9,6 @@ use soroban_sdk::{assert_with_error, Env};
 
 use crate::{guards, ops};
 
-/// Settles the lesser of `entry.amount`, the supply balance, and the debt owed.
-/// Leftover collateral stays as supply.
 pub(crate) fn apply(
     env: &Env,
     entry: &PoolNetSettleEntry,
@@ -25,8 +19,6 @@ pub(crate) fn apply(
     let supply_position = Ray::from(entry.supply_position.scaled_amount);
     let debt_position = Ray::from(entry.debt_position.scaled_amount);
 
-    // Cap to the debt before resolving the withdrawal so a full close feeds the
-    // actual gross — not the request — into the repay leg and never overpays.
     let max_debt = cache.unscale_borrow_ceil(debt_position);
     let capped_amount = entry.amount.min(max_debt);
 
@@ -42,11 +34,6 @@ pub(crate) fn apply(
     cache.burn_supply(burned_supply);
     cache.burn_debt(burned_debt);
 
-    // No utilization or backing guard here: both legs burn the same token value
-    // and no cash moves, so every remaining supplier's withdrawable cash is
-    // unchanged. Utilization does rise, which is exactly why the cap must not
-    // apply — blocking a settle would leave the debt outstanding and utilization
-    // higher still. The terminal-state guard still runs.
     guards::require_solvent_withdraw_state(env, &cache);
 
     let snapshot = cache.commit();

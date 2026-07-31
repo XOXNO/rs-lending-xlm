@@ -1,15 +1,5 @@
 #![no_std]
 
-//! Timelocked admin of the lending controller and price-aggregator.
-//!
-//! Ownable root with access-control operational roles. Scheduled changes use
-//! OpenZeppelin-style delay tiers (`Standard`, `Sensitive`, `Recovery`).
-//! Guardian and oracle incident entrypoints bypass delay.
-//!
-//! Modules: `access` (owner/roles), `deploy` (one-shot wiring), `op`
-//! (AdminOperation resolution), `storage`, `timelock` (lifecycle + immediate
-//! + recovery), `validate` (proposal shape checks).
-
 mod access;
 mod constants;
 mod deploy;

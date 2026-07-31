@@ -1,7 +1,3 @@
-//! Certora harness for `controller::external::pool`.
-//! Production ABI; each entry summarized independently via shared pool summaries.
-//! Bulk returns are length-preserving and input-ordered.
-
 use crate::spec::summaries::bulk_index_summary;
 use crate::spec::summaries::pool::{
     add_rewards_summary, borrow_summary, claim_revenue_summary, create_strategy_summary,
@@ -17,7 +13,6 @@ use crate::types::{
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 
-/// No-op privileged-config call (resolves production import under certora).
 pub(crate) fn pool_create_market_call(
     _env: &Env,
     _pool_addr: &Address,
@@ -189,7 +184,6 @@ pub(crate) fn fetch_pool_sync_data(
     get_sync_data_summary(env, &hub_asset.asset)
 }
 
-// Index-cache miss: nondet indexes bounded by production floors.
 pub(crate) fn fetch_pool_bulk_indexes(
     env: &Env,
     _pool_addr: &Address,
@@ -201,8 +195,6 @@ pub(crate) fn fetch_pool_bulk_indexes(
     }
     out
 }
-
-// No-op privileged-config calls (resolve production imports under certora).
 
 pub(crate) fn pool_update_params_call(
     _env: &Env,

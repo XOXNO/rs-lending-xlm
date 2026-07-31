@@ -1,8 +1,3 @@
-//! Market lifecycle: creation and on-demand accrual.
-//!
-//! Neither writer had a rule, yet `market::create` writes all seven state
-//! fields and `market::accrue` decides whether any of them persist.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
@@ -13,8 +8,6 @@ use common::constants::{
 
 use super::fixture::{hub, params, params_with_decimals, read_state, seed, state, ONE_TOKEN};
 
-/// A fresh market starts fully zeroed with both indexes at `RAY` and its clock
-/// stamped to the current ledger time.
 #[rule]
 fn market_create_writes_zeroed_state(e: Env, asset: Address, asset_decimals: u32) {
     cvlr_assume!(asset_decimals <= RAY_DECIMALS);
@@ -33,8 +26,6 @@ fn market_create_writes_zeroed_state(e: Env, asset: Address, asset_decimals: u32
     cvlr_assert!(post.last_timestamp == crate::time::now_ms(&e));
 }
 
-/// With no elapsed time, accrual persists nothing at all — including the
-/// accrual checkpoint, which no other rule reads.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn accrue_is_noop_when_no_time_elapsed(

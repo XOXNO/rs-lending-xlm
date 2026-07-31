@@ -1,4 +1,3 @@
-//! Scheduler tick loop and submitter.
 
 pub mod budget;
 pub mod tasks;
@@ -71,7 +70,7 @@ fn spawn_ttl_loop(
     tokio::spawn(async move {
         let mut tick = interval(Duration::from_secs(cfg.schedule.ttl_tick_seconds.max(1)));
         tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        // Skip the immediate tick so boot (metrics surface) can settle first.
+
         tick.tick().await;
         loop {
             tokio::select! {
@@ -135,21 +134,17 @@ async fn run_ttl_tick(
     let restore_jobs = plan_restores(&snap, safety)?;
     let extend_jobs = plan_extends(&snap, safety)?;
 
-    // Restored entries return at network-min TTL; extend to cap same tick after
-    // restores land (extend on still-archived entries is rejected).
     let restored = restored_keys(&restore_jobs);
     metrics.entries_archived.set(restored.len() as i64);
     let post_restore_extends = plan_extends_for_keys(&restored)?;
 
-    // Shared tick budget: restores + extends ≤ `max_txs_per_tick`; overflow → next tick.
     let mut budget = TickBudget::new(cfg.schedule.max_txs_per_tick);
     let ctx = tx_context(cfg, client, signer);
 
-    // Restores first (unblock protocol), then in-margin extends.
     drive_jobs(&ctx, metrics, restore_jobs, dry_run, "ttl", &mut budget).await?;
     let mut extends = extend_jobs;
     if dry_run {
-        // Post-restore extends would fail sim while still archived — report only.
+
         if !post_restore_extends.is_empty() {
             info!(
                 target: "keeper.scheduler",

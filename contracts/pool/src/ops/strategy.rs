@@ -1,8 +1,3 @@
-//! Strategy leg: a borrow that withholds the market's flash-loan fee as
-//! protocol revenue and pays out the remainder.
-//!
-//! Flow: fee → mint_debt (gross) → book revenue → debit net cash → commit → transfer.
-
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::{Bps, Ray};
 use common::types::{PoolAction, PoolStrategyMutation};
@@ -14,15 +9,12 @@ use crate::cache::Cache;
 use crate::ops::borrow;
 use crate::{events, interest, ops};
 
-/// Persisted result of the strategy accounting, before any token moves.
-/// `fee` is the withheld flash-loan fee, already booked as protocol revenue.
 pub(crate) struct StrategyOutcome {
     pub(crate) cache: Cache,
     pub(crate) mutation: PoolStrategyMutation,
     pub(crate) fee: i128,
 }
 
-/// Opens a strategy borrow and transfers `amount - fee` to `receiver`.
 pub(crate) fn apply(
     env: &Env,
     receiver: &Address,
@@ -42,14 +34,11 @@ pub(crate) fn apply(
         outcome.fee,
         outcome.mutation.amount_received,
     );
-    // Snapshot, not commit: `accounting` already persisted this exact state, and
-    // the event must not publish before the payout above can fail.
+
     events::emit_market_state(env, outcome.cache.snapshot());
     outcome.mutation
 }
 
-/// Strategy accounting without the token transfer. `charge_fee = false`
-/// (migration) borrows fee-free.
 pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> StrategyOutcome {
     let PoolAction {
         position,
@@ -70,8 +59,7 @@ pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> Str
     let amount_to_send = amount
         .checked_sub(fee)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    // Debt is minted on the gross; only the net leaves. The withheld fee stays
-    // as cash backing the revenue shares minted above.
+
     cache.debit_cash(amount_to_send);
 
     cache.commit();
@@ -83,7 +71,6 @@ pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> Str
     }
 }
 
-/// Flash-loan fee in asset units, or zero when `charge_fee` is false.
 fn compute_fee(env: &Env, cache: &Cache, amount: i128, charge_fee: bool) -> i128 {
     if !charge_fee {
         return 0;

@@ -1,9 +1,3 @@
-//! Write-path guards, per-signer submission storage, and write-time median.
-//!
-//! Absolute age filter, then relative cluster against the freshest peer. Below
-//! threshold: clear aggregate and history (raw submissions stay). Aggregation
-//! at write keeps reads O(1) in signer count.
-
 use common::constants::MS_PER_SECOND;
 use common::oracle::observation::{MAX_FUTURE_SKEW_SECONDS, MAX_TWAP_RECORDS};
 use common::oracle::providers::redstone::RedStonePriceData;
@@ -16,14 +10,10 @@ use crate::storage::{
 };
 use crate::Error;
 
-/// Bounded FIFO cap on `History(feed_id)`. Matches the shared TWAP record cap
-/// so retained history depth and the caller's TWAP window stay aligned.
 pub(crate) const MAX_HISTORY_LEN: u32 = MAX_TWAP_RECORDS;
 
-/// Submit-time ceiling on any single signer price (`1e24`).
 pub(crate) const MAX_SUBMITTED_PRICE: i128 = 1_000_000_000_000_000_000_000_000;
 
-/// Rejects package timestamps more than `MAX_FUTURE_SKEW_SECONDS` ahead of ledger time.
 pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     let ts_secs = package_timestamp / MS_PER_SECOND;
     let max_future = env
@@ -36,7 +26,6 @@ pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<()
     Ok(())
 }
 
-/// Rejects package timestamps older than `MaxSubmissionAgeSeconds`.
 pub(crate) fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     let ts_secs = package_timestamp / MS_PER_SECOND;
     let now = env.ledger().timestamp();
@@ -46,8 +35,6 @@ pub(crate) fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Res
     Ok(())
 }
 
-/// Rejects a package timestamp older than this signer's stored observation so
-/// a signer cannot re-pin observation time by overwriting a fresher value.
 pub(crate) fn require_monotonic_package(
     env: &Env,
     feed_id: &String,
@@ -67,7 +54,6 @@ pub(crate) fn require_monotonic_package(
     Ok(())
 }
 
-/// Persists the signer's latest observation and renews allowlist TTL for the feed.
 pub(crate) fn store_submission(
     env: &Env,
     feed_id: &String,
@@ -76,8 +62,7 @@ pub(crate) fn store_submission(
     package_timestamp: u64,
 ) {
     record_signer_feed(env, signer, feed_id);
-    // Submit renews submission/aggregate keys; renew the allowlist gate too so
-    // an active feed does not lose its admission entry under TTL alone.
+
     renew_known_feed(env, feed_id);
     let submission = SignerSubmission {
         price,
@@ -88,9 +73,6 @@ pub(crate) fn store_submission(
     renew_persistent_key(env, &key);
 }
 
-/// Rebuilds `CurrentAggregate` and `History` for `feed_id` from absolute-fresh
-/// submissions that also pass the relative cluster filter. Below threshold,
-/// clears aggregate and history; raw submissions remain.
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let signers = load_signers(env);
     let max_submission_age = load_max_submission_age(env);
@@ -110,7 +92,6 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
             continue;
         };
 
-        // `package_timestamp` is milliseconds; ledger clock is seconds.
         let age_seconds = now.saturating_sub(submission.package_timestamp / MS_PER_SECOND);
         if age_seconds > max_submission_age {
             continue;
@@ -126,8 +107,6 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
         return;
     }
 
-    // Drop peers too far behind the freshest absolute-fresh submission so a
-    // lagging-but-in-window signer cannot pin `package_timestamp`.
     let mut newest_ts: u64 = 0;
     for i in 0..kept_ts.len() {
         let ts = kept_ts.get_unchecked(i);
@@ -166,8 +145,6 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
 }
 
 fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
-    // `price` / `prices` read history without re-checking quorum, so history
-    // must leave with the aggregate when below threshold.
     env.storage()
         .persistent()
         .remove(&DataKey::CurrentAggregate(feed_id.clone()));
@@ -176,7 +153,6 @@ fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
         .remove(&DataKey::History(feed_id.clone()));
 }
 
-/// Insertion sort on a clone. Signer counts are small (single digits).
 fn sorted_copy(prices: &Vec<i128>) -> Vec<i128> {
     let mut sorted = prices.clone();
     let len = sorted.len();
@@ -196,19 +172,13 @@ fn sorted_copy(prices: &Vec<i128>) -> Vec<i128> {
     sorted
 }
 
-/// Lower median at index `(len - 1) / 2`. No even-count average — an extreme
-/// peer cannot half-pull the reported price.
 fn median_of(prices: &Vec<i128>) -> i128 {
     let sorted = sorted_copy(prices);
     let len = sorted.len();
-    // Callers gate on `len >= threshold >= 1`.
+
     sorted.get_unchecked((len - 1) / 2)
 }
 
-/// Appends `aggregate` to `History(feed_id)` as a `resolution`-spaced sample.
-/// A sample inside the newest sample's resolution window overwrites it in
-/// place so the bounded FIFO spans ~`MAX_HISTORY_LEN` buckets. `resolution == 0`
-/// appends every submission.
 fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePriceData) {
     let key = DataKey::History(feed_id.clone());
     let mut history: Vec<RedStonePriceData> = env

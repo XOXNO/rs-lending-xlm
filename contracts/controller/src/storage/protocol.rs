@@ -1,6 +1,3 @@
-//! Protocol-global storage: instance-tier dependencies and risk floors, plus
-//! persistent-tier entries (account-id nonce and the governance allowlists).
-
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits, PositionManagerConfig};
 
@@ -9,10 +6,6 @@ use soroban_sdk::{panic_with_error, Address, Env};
 use crate::constants;
 use crate::storage::set_shared;
 
-// Governance allowlists (Blend pools, position managers) are unbounded-set
-// registries: one persistent key per entry, loaded on demand. Persistent (not
-// instance) keeps them off the per-call instance envelope, so no cap counter is
-// needed. `absent == not-approved`; each write extends the protocol-shared TTL.
 pub(crate) fn is_blend_pool_approved(env: &Env, pool: &Address) -> bool {
     env.storage()
         .persistent()
@@ -77,8 +70,6 @@ pub(crate) fn set_accumulator(env: &Env, addr: &Address) {
         .set(&ControllerKey::Accumulator, addr);
 }
 
-// Persistent, not instance: the nonce changes on every account creation, and
-// an instance write rewrites (and re-rents) the whole instance envelope.
 pub(crate) fn get_account_nonce(env: &Env) -> u64 {
     env.storage()
         .persistent()
@@ -86,7 +77,6 @@ pub(crate) fn get_account_nonce(env: &Env) -> u64 {
         .unwrap_or(0u64)
 }
 
-/// Increments and returns the next account-id nonce, panicking on overflow.
 pub(crate) fn increment_account_nonce(env: &Env) -> u64 {
     let current = get_account_nonce(env);
     let next = current
@@ -109,7 +99,6 @@ pub(crate) fn set_position_limits(env: &Env, limits: &PositionLimits) {
         .set(&ControllerKey::PositionLimits, limits);
 }
 
-/// Min borrow-collateral USD floor; defaults to constant when unset.
 pub(crate) fn get_min_borrow_collateral_usd_wad(env: &Env) -> i128 {
     env.storage()
         .instance()
@@ -117,7 +106,6 @@ pub(crate) fn get_min_borrow_collateral_usd_wad(env: &Env) -> i128 {
         .unwrap_or(constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD)
 }
 
-/// Stores the minimum borrow-collateral USD floor.
 pub(crate) fn set_min_borrow_collateral_usd_wad(env: &Env, floor_wad: i128) {
     env.storage()
         .instance()
@@ -130,8 +118,6 @@ pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<Position
         .get(&ControllerKey::PositionManager(addr.clone()))
 }
 
-/// Persistent registry of active managers; deactivation removes the entry
-/// (absence == inactive for the delegate-auth check).
 pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionManagerConfig) {
     let key = ControllerKey::PositionManager(addr.clone());
     if config.is_active {

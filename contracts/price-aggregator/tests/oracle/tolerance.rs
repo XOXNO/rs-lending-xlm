@@ -2,9 +2,7 @@ use super::*;
 use common::constants;
 use soroban_sdk::Env;
 
-/// ±5% band.
 fn sample_tolerance() -> OracleTolerance {
-    // ±5% upper: reciprocal lower = half-up(10_000² / 10_500) = 9_524.
     OracleTolerance {
         upper_ratio_bps: 10_500,
         lower_ratio_bps: 9_524,
@@ -62,8 +60,6 @@ fn zero_anchor_is_out_of_band() {
 
 #[test]
 fn degenerate_anchor_overflow_is_out_of_band() {
-    // Near-zero anchor vs near-max primary overflows fixed-point narrowing →
-    // short-circuit to out of band (not MathOverflow).
     let env = Env::default();
     assert!(!within_tolerance_band(
         &env,

@@ -1,12 +1,6 @@
-//! Strategy wrappers must enforce_spoke_asset_flags; liquidation uses settle_* and stays reachable under pause (ADR 0011).
-
 use super::*;
 use test_harness::{liquidatable_usdc_eth, LIQUIDATOR};
 
-// swap_collateral withdraws the source collateral through the strategy
-// `execute_withdrawal` wrapper. Pausing that asset must block the swap even
-// though the direct-withdraw sibling (`test_swap_collateral_no_borrows_skip_hf`)
-// shows the same call succeeds when unpaused.
 #[test]
 fn test_swap_collateral_paused_collateral_reverts() {
     let mut t = LendingTest::new()
@@ -20,7 +14,6 @@ fn test_swap_collateral_paused_collateral_reverts() {
 
     t.set_spoke_asset_paused("USDC", true);
 
-    // Direct and strategy paths both reject the paused asset.
     assert_contract_error(
         t.try_withdraw(ALICE, "USDC", 100.0),
         errors::SPOKE_ASSET_PAUSED,
@@ -29,8 +22,6 @@ fn test_swap_collateral_paused_collateral_reverts() {
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
-// repay_debt_with_collateral repays the target debt through the strategy
-// `execute_repayment` wrapper. Pausing the debt asset must block the repay leg.
 #[test]
 fn test_repay_debt_with_collateral_paused_debt_reverts() {
     let mut t = LendingTest::new()
@@ -45,16 +36,11 @@ fn test_repay_debt_with_collateral_paused_debt_reverts() {
 
     t.set_spoke_asset_paused("ETH", true);
 
-    // Direct and strategy repay paths must both reject the paused debt asset.
     assert_contract_error(t.try_repay(ALICE, "ETH", 0.5), errors::SPOKE_ASSET_PAUSED);
     let result = t.try_repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps, false);
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
-// close_position drains every remaining collateral through the
-// `execute_withdraw_all` wrapper. Here only the residual-drain asset (WBTC) is
-// paused: the primary withdraw (USDC) and repay (ETH) legs pass, so the revert
-// can only originate in the close-time `execute_withdraw_all` guard.
 #[test]
 fn test_close_position_paused_residual_collateral_reverts() {
     let mut t = LendingTest::new()
@@ -75,9 +61,6 @@ fn test_close_position_paused_residual_collateral_reverts() {
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
-// Paused collateral is not seizable: pause blocks liquidation symmetrically
-// with the borrower's repay/deposit defenses. Frozen collateral remains
-// seizable (covered by H-LIQ-21).
 #[test]
 fn test_liquidation_of_paused_collateral_reverts() {
     let mut t = liquidatable_usdc_eth();
@@ -90,10 +73,6 @@ fn test_liquidation_of_paused_collateral_reverts() {
     );
 }
 
-// Tainted-debt gate (ADR 0011 addendum): a paused DEBT listing accepts no
-// inbound tokens from anyone — user repay and the liquidation repay leg must
-// agree, otherwise a compromised paused token could extinguish real debt with
-// fake value and become withdrawable pool cash.
 #[test]
 fn test_liquidation_of_paused_debt_reverts() {
     let mut t = liquidatable_usdc_eth();

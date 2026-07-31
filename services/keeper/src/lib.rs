@@ -1,4 +1,3 @@
-//! Off-chain TTL keepalive and index-refresh service.
 
 pub mod config;
 pub mod discovery;

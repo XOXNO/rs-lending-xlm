@@ -1,7 +1,3 @@
-//! Minimal ScVal readers.
-//!
-//! Structs → `Map` by field symbol; enums → `Vec[Symbol(tag), payload...]`.
-//! Returns `Option` so shape mismatch is "missing", not a panic.
 
 use stellar_xdr::curr::{ScAddress, ScVal};
 
@@ -95,7 +91,7 @@ pub fn as_contract_id(value: &ScVal) -> Option<[u8; 32]> {
 }
 
 pub fn address_strkey(value: &ScVal) -> Option<String> {
-    // Display → std::String (inherent to_string is heapless).
+
     match value {
         ScVal::Address(ScAddress::Contract(c)) => Some(format!("{}", stellar_strkey::Contract(c.0 .0))),
         ScVal::Address(ScAddress::Account(a)) => {

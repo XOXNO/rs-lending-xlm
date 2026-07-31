@@ -1,7 +1,3 @@
-//! Read-only views and liquidation estimation.
-//! Views use `Cache::new_view`, so non-pricing views can inspect stored/index
-//! state without renewing the controller instance TTL.
-
 use crate::constants::{MAX_VIEW_INPUTS, WAD};
 use common::collections::unique_hub_tokens;
 
@@ -35,10 +31,6 @@ fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
 pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     match storage::try_get_account(env, account_id) {
-        // A debt-free account has an infinite health factor regardless of collateral,
-        // so short-circuit before pricing: calculate_account_risk_totals would
-        // otherwise read every supplied asset's oracle only to saturate to MAX,
-        // making a debt-free view fail on missing/broken collateral feeds.
         Some(account) if !account.debt_free() => risk::calculate_account_risk_totals(
             env,
             &mut cache,
@@ -52,7 +44,6 @@ pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
 }
 
 pub(crate) fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
-    // dimensional: raw WAD HealthFactor is compared to WAD-scaled 1.0.
     health_factor(env, account_id) < WAD
 }
 
@@ -125,7 +116,7 @@ pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i1
         return 0;
     };
     let mut cache = Cache::new_view(env);
-    // dimensional: return is Wad<USD> raw (1e18) liquidation collateral.
+
     risk::calculate_account_risk_totals(
         env,
         &mut cache,
@@ -140,7 +131,6 @@ pub(crate) fn get_pool_address(env: &Env) -> Address {
     storage::get_pool(env)
 }
 
-/// Pool indexes + soft oracle status (one `prices_status` call).
 pub(crate) fn get_all_market_indexes_detailed(
     env: &Env,
     hub_assets: &Vec<HubAssetKey>,
@@ -179,8 +169,6 @@ pub(crate) fn get_all_market_indexes_detailed(
     result
 }
 
-/// Simulates liquidating `account_id` with `debt_payments` and returns the seize,
-/// fee, refund, and bonus estimate.
 pub(crate) fn liquidation_estimations_detailed(
     env: &Env,
     account_id: u64,
@@ -189,7 +177,7 @@ pub(crate) fn liquidation_estimations_detailed(
     require_view_inputs_bound(env, debt_payments);
     let mut cache = Cache::new_view(env);
     let account = storage::get_account(env, account_id);
-    // dimensional: debt_payments are Token(debt_asset); result carries Token, Wad<USD>, and Bps.
+
     let result = execute_liquidation(env, &account, debt_payments, &mut cache);
 
     let mut seized_collaterals = Vec::new(env);

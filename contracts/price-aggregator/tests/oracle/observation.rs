@@ -1,5 +1,3 @@
-//! Normalization is always soft: rejected payloads become `None`.
-
 extern crate std;
 
 use super::*;
@@ -37,7 +35,7 @@ fn reflector_rejects_non_positive_price() {
 #[test]
 fn multi_feed_accepts_fresh_positive_price() {
     let env = Env::default();
-    // Distinct package/write timestamps so a swap would be caught.
+
     let data = multi_feed_data(&env, 12_345, 900_000, 950_000);
     let obs = OracleObservation::from_multi_feed(&env, 1_000, &data, 8)
         .expect("fresh positive price is acceptable");

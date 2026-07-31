@@ -1,5 +1,3 @@
-//! Pool contract integration tests.
-
 extern crate std;
 
 mod interest;

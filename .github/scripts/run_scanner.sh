@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Run soroban-scanner with retries, then filter to deployable crates.
-#
-# The XOXNO fork uses a large stack, but pathological HashMap iteration can
-# still overflow on the Linux self-hosted runner; retrying reorders and usually
-# completes. SOROBAN_SCANNER_MAX_ATTEMPTS (default 5).
+
 set -o pipefail
 
 max_attempts="${SOROBAN_SCANNER_MAX_ATTEMPTS:-5}"

@@ -1,10 +1,4 @@
-# Custom labels carried by the self-hosted runners. actionlint rejects any
-# `runs-on` label it does not know, so a pinned job fails lint until its label
-# is declared here.
-#
-# `rs-lending-xlm` and `ci` are on the three repo-level runner services that sit
-# on the dedicated mutation box. The org-level pool carries neither, which is
-# what makes the label usable to pin a job to one host.
+
 self-hosted-runner:
   labels:
     - rs-lending-xlm

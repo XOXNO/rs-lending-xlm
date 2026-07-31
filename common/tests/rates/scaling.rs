@@ -1,5 +1,3 @@
-//! Scaled-share conversions and settlement resolution.
-
 use super::*;
 use crate::constants::RAY;
 use soroban_sdk::Env;

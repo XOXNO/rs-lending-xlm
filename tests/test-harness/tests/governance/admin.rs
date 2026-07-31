@@ -1,5 +1,3 @@
-//! Token-shape probing and asset-config bounds on the governance forwarders.
-
 use governance::op::{AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
@@ -7,7 +5,6 @@ use test_harness::{
     assert_contract_error, errors, hub_asset, usdc_preset, LendingTest, HARNESS_HUB, HARNESS_SPOKE,
 };
 
-// `validate_and_fetch_token_decimals` rejects SACs without a `symbol` (#6).
 #[test]
 fn test_create_liquidity_pool_rejects_token_without_symbol() {
     let t = LendingTest::new().build();
@@ -29,7 +26,6 @@ fn test_create_liquidity_pool_rejects_token_without_symbol() {
     assert_contract_error(result, errors::INVALID_ASSET);
 }
 
-// `validate_and_fetch_token_decimals` rejects unregistered token contracts (#6).
 #[test]
 fn test_create_liquidity_pool_rejects_unregistered_token() {
     let t = LendingTest::new().build();
@@ -51,7 +47,6 @@ fn test_create_liquidity_pool_rejects_unregistered_token() {
     assert_contract_error(result, errors::INVALID_ASSET);
 }
 
-// `validate_market_creation` rejects params.asset_decimals != live SAC decimals (#6).
 #[test]
 fn test_create_liquidity_pool_rejects_asset_decimals_mismatch() {
     use soroban_sdk::token;
@@ -82,7 +77,6 @@ fn test_create_liquidity_pool_rejects_asset_decimals_mismatch() {
     assert_contract_error(result, errors::INVALID_ASSET);
 }
 
-// `set_min_borrow_collateral_usd` rejects negative floors (#116).
 #[test]
 #[should_panic(expected = "Error(Contract, #116)")]
 fn test_set_min_borrow_collateral_rejects_negative_floor() {
@@ -92,7 +86,6 @@ fn test_set_min_borrow_collateral_rejects_negative_floor() {
         .execute_immediate(&admin, &AdminOperation::SetMinBorrowCollateralUsd(-1));
 }
 
-// `validate_risk_bounds` threshold above 100% (#113).
 #[test]
 #[should_panic(expected = "Error(Contract, #113)")]
 fn test_edit_asset_in_spoke_rejects_threshold_above_bps() {
@@ -121,7 +114,6 @@ fn test_edit_asset_in_spoke_rejects_threshold_above_bps() {
         .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
 }
 
-// Configure-time tolerance below the minimum (#208).
 #[test]
 #[should_panic(expected = "Error(Contract, #208)")]
 fn test_configure_market_oracle_rejects_tolerance_below_min() {

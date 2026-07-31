@@ -1,8 +1,3 @@
-//! Seed libFuzzer corpora from `*/test_snapshots/**/*.json`.
-//!
-//!   cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
-//!
-//! Snapshots that fail to parse are logged and skipped.
 
 use common::constants::{BPS, MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY};
 use serde_json::Value;
@@ -11,14 +6,12 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Numeric entropy from one snapshot; packers take a bounded subset.
 #[derive(Debug, Default)]
 struct ExtractedFields {
     i128s: Vec<i128>,
     u64s: Vec<u64>,
     u32s: Vec<u32>,
 
-    // Structured per-market fields beat a shapeless i128 heap for rate seeds.
     market_params: Vec<MarketParamsFields>,
     market_states: Vec<MarketStateFields>,
     position_amounts: Vec<i128>,
@@ -62,12 +55,12 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        // Skip target dirs, node_modules, .git, etc.
+
         if name.starts_with('.') || name == "target" || name == "node_modules" {
             continue;
         }
         if path.is_dir() {
-            // Recurse into nested directories; the file-name filter is applied below.
+
             walk_dir(&path, out);
         } else if path
             .extension()
@@ -75,7 +68,7 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
             .map(|e| e == "json")
             .unwrap_or(false)
         {
-            // Only pick up files under a `test_snapshots` ancestor.
+
             if path.components().any(|c| c.as_os_str() == "test_snapshots") {
                 out.push(path);
             }
@@ -91,9 +84,6 @@ fn parse_u64_str(s: &str) -> Option<u64> {
     s.parse::<u64>().ok()
 }
 
-/// Extract an i128 value from a Soroban tagged-union JSON node.
-/// Accepts forms: `{"i128": "123"}`, `{"i128": {"lo": "123", "hi": "0"}}`,
-/// `{"i128": 123}`.
 fn extract_i128(val: &Value) -> Option<i128> {
     let inner = val.get("i128")?;
     match inner {
@@ -136,11 +126,10 @@ fn extract_u32(val: &Value) -> Option<u32> {
     }
 }
 
-/// Walks the JSON tree and harvests every i128, u32, and u64 value.
 fn harvest_numeric_rec(val: &Value, out: &mut ExtractedFields) {
     match val {
         Value::Object(map) => {
-            // Grab leaf tagged-union values.
+
             if let Some(v) = extract_i128(val) {
                 out.i128s.push(v);
             }
@@ -163,8 +152,6 @@ fn harvest_numeric_rec(val: &Value, out: &mut ExtractedFields) {
     }
 }
 
-/// If a `val` is a `{"map": [{"key":..., "val":...}, ...]}` node, return a
-/// flat list of `(symbol_name, val_node)` pairs for keys that are symbols.
 fn soroban_map_entries(val: &Value) -> Vec<(String, &Value)> {
     let mut out = Vec::new();
     let Some(map_arr) = val.get("map").and_then(|v| v.as_array()) else {
@@ -193,14 +180,10 @@ fn is_symbol_key(key_val: &Value, symbol: &str) -> bool {
     false
 }
 
-/// Walk contract_instance storage looking for Params / State maps, and any
-/// position-like maps (amount/scaled_amount/debt fields).
 fn harvest_structured(val: &Value, out: &mut ExtractedFields) {
     match val {
         Value::Object(map) => {
-            // Persistent pool records are contract-data entries whose typed
-            // key starts with `Params` or `State` and whose value is the
-            // corresponding contracttype map.
+
             if let (Some(key), Some(value)) = (map.get("key"), map.get("val")) {
                 if is_symbol_key(key, "Params") {
                     out.market_params.push(extract_market_params(value));
@@ -209,7 +192,6 @@ fn harvest_structured(val: &Value, out: &mut ExtractedFields) {
                 }
             }
 
-            // Contract instance storage?
             if let Some(ci) = map.get("contract_instance") {
                 if let Some(storage) = ci.get("storage").and_then(|v| v.as_array()) {
                     for kv in storage {
@@ -226,7 +208,6 @@ fn harvest_structured(val: &Value, out: &mut ExtractedFields) {
                 }
             }
 
-            // Any map with `amount` or `scaled_amount` or `borrowed`/`supplied` -- treat as position.
             let entries = soroban_map_entries(val);
             for (sym, v) in &entries {
                 if matches!(
@@ -241,7 +222,6 @@ fn harvest_structured(val: &Value, out: &mut ExtractedFields) {
                 }
             }
 
-            // Recurse everywhere.
             for (_, v) in map.iter() {
                 harvest_structured(v, out);
             }
@@ -328,8 +308,6 @@ fn push_i64_le(buf: &mut Vec<u8>, v: i64) {
     buf.extend_from_slice(&v.to_le_bytes());
 }
 
-/// Pack `fp_math` seeds for the MulDiv, DivByInt, and Rescale arms.
-/// Layout: kind, a, b, choice, extra in little-endian order.
 fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
 
@@ -343,7 +321,6 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
         out.push(buf);
     };
 
-    // MulDiv (kind=0): pair i128s; all 3 divisors. Index pairs hit RAY*RAY/RAY.
     let mut pairs: Vec<(i128, i128)> = Vec::new();
     for s in &f.market_states {
         if let (Some(a), Some(b)) = (s.supply_index, s.borrow_index) {
@@ -361,7 +338,6 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
         }
     }
 
-    // DivByInt (kind=1): i128 pairs with b > 0.
     for chunk in f.i128s.chunks(2).take(128) {
         if chunk.len() < 2 {
             continue;
@@ -373,7 +349,6 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
         push(&mut out, 1, a, b, 0, 0);
     }
 
-    // Rescale (kind=2): common precision transitions (RAY↔WAD, WAD↔asset).
     let transitions: [(u8, u8); 8] = [
         (27, 18),
         (18, 27),
@@ -393,7 +368,6 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
     out
 }
 
-/// `fp_ops`: 29 bytes matching `fuzz_targets/fp_ops.rs::In`.
 fn pack_fp_ops(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     let mut mags: BTreeSet<u64> = BTreeSet::new();
@@ -425,15 +399,10 @@ fn pack_fp_ops(f: &ExtractedFields) -> Vec<Vec<u8>> {
     out
 }
 
-/// `rates_and_index`: 61 bytes matching the `In` struct in
-/// `fuzz_targets/rates_and_index.rs`. The seed layout combines rate-model
-/// geometry with accrual, borrow, and starting-index fields so mutations can
-/// cross related inputs in one target.
 fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     const MS_PER_YEAR: i128 = MILLISECONDS_PER_YEAR as i128;
 
-    // Extract realistic time deltas from market states + fixed ladder.
     let mut deltas: BTreeSet<u64> = BTreeSet::new();
     for s in &f.market_states {
         if let Some(t) = s.last_timestamp {
@@ -458,7 +427,6 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     }
     let delta_samples: Vec<u64> = deltas.iter().copied().take(4).collect();
 
-    // Extract realistic borrowed amounts from position_amounts.
     let mut borroweds: BTreeSet<u64> = BTreeSet::new();
     for &a in &f.position_amounts {
         let v = a.clamp(0, u64::MAX as i128) as u64;
@@ -469,7 +437,6 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     }
     let borrowed_samples: Vec<u64> = borroweds.iter().copied().take(4).collect();
 
-    // Cap matches make_params (the decoder): the rate model is verified ≤ 2·RAY.
     const CAP: i128 = MAX_BORROW_RATE_RAY;
     let fallback = MarketParamsFields {
         base_borrow_rate: Some(RAY / 100),
@@ -489,10 +456,7 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     };
 
     for p in params.iter().take(12) {
-        // Inverse of make_params' decode: pick the byte each field will decode
-        // back to (≈) its snapshot value, so seeds replay real high-rate curves
-        // instead of collapsing to the low end. Cumulative slopes mirror the
-        // decoder step by step using the decoded (not raw) running value.
+
         let pick = |v: Option<i128>| v.unwrap_or(0).max(0);
 
         let base_r = pick(p.base_borrow_rate).min(CAP);
@@ -514,8 +478,6 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
         let max_r = pick(p.max_borrow_rate).clamp(ds3, CAP);
         let max_pct = ((max_r - ds3) * 65_536 / (CAP - ds3).max(1)).clamp(0, 65_535) as u16;
 
-        // Breakpoints: the decoder recovers the percentage via `% N + 1`, so
-        // write (percentage − 1).
         let mid_p = (pick(p.mid_utilization) * 100 / RAY).clamp(1, 98);
         let mid_pct = (mid_p - 1) as u8;
         let dmid = RAY * mid_p / 100;
@@ -526,9 +488,6 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
         let reserve_pct =
             (pick(p.reserve_factor).clamp(0, BPS - 1) * 255 / (BPS - 1)).clamp(0, 255) as u8;
 
-        // Keep seed count per market param bounded: 4 utils × 2 max-utils × 4
-        // deltas × 4 borroweds = 128. Times ~1.4k snapshots → ~180k total seeds.
-        // max_util has no snapshot source; seed two high-utilization variants.
         for util in [0u16, 5000, 9500, 10000] {
             for max_util_pct in [128u8, 230u8] {
                 for &delta_ms in &delta_samples {
@@ -546,12 +505,11 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
                         buf.push(reserve_pct);
                         push_u64_le(&mut buf, delta_ms);
                         push_u64_le(&mut buf, borrowed_units);
-                        // Appended In fields. Seeds use representative values;
-                        // the fuzzer mutates and decorrelates from here.
-                        push_u64_le(&mut buf, borrowed_units); // supplied_units → supplied ≈ 2× borrowed
-                        push_u64_le(&mut buf, delta_ms); // chunk_units (decorrelated by mutation)
-                        push_u64_le(&mut buf, 0); // borrow_index_units → start at RAY
-                        push_u64_le(&mut buf, u64::MAX); // supply_index_units → supply ≈ borrow
+
+                        push_u64_le(&mut buf, borrowed_units);
+                        push_u64_le(&mut buf, delta_ms);
+                        push_u64_le(&mut buf, 0);
+                        push_u64_le(&mut buf, u64::MAX);
                         out.push(buf);
                     }
                 }
@@ -561,7 +519,6 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     out
 }
 
-/// `pool_native`: 82 bytes matching `fuzz_targets/pool_native.rs::In`.
 fn pack_pool_native(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     let mut params = Vec::new();
@@ -594,20 +551,20 @@ fn pack_pool_native(f: &ExtractedFields) -> Vec<Vec<u8>> {
 
     let op_sets: [[(u32, u32, u8); 8]; 4] = [
         [
-            (2_000, 0, 0),      // supply
-            (3_000, 1, 1),      // borrow
-            (4_000, 60, 2),     // withdraw
-            (5_000, 3_600, 3),  // repay
-            (6_000, 3_600, 4),  // update indexes
-            (7_000, 86_400, 5), // add rewards
-            (8_000, 86_400, 6), // update params
-            (9_000, 0, 7),      // claim revenue
+            (2_000, 0, 0),
+            (3_000, 1, 1),
+            (4_000, 60, 2),
+            (5_000, 3_600, 3),
+            (6_000, 3_600, 4),
+            (7_000, 86_400, 5),
+            (8_000, 86_400, 6),
+            (9_000, 0, 7),
         ],
         [
-            (1_000, 0, 8),        // seize borrow position
-            (1_000, 3_600, 8),    // seize deposit position
-            (1_000, 7_200, 9),    // create strategy
-            (1_000, 604_800, 10), // views
+            (1_000, 0, 8),
+            (1_000, 3_600, 8),
+            (1_000, 7_200, 9),
+            (1_000, 604_800, 10),
             (1_000, 1, 0),
             (1_000, 1, 1),
             (1_000, 1, 2),
@@ -665,44 +622,40 @@ fn flow_seq(ops: &[[u8; 5]]) -> Vec<u8> {
     ops.iter().flatten().copied().collect()
 }
 
-/// `flow_e2e`: 5-byte ops: `[op, user/debtor, asset, size/frac/hours, mode]`.
-/// The target derives amounts from live positions, so these seeds are mostly
-/// path selectors.
 fn pack_flow_e2e(_f: &ExtractedFields) -> Vec<Vec<u8>> {
     vec![
-        flow_seq(&[flow_op(0, 0, 0, 128, 0)]), // supply
-        flow_seq(&[flow_op(1, 0, 2, 96, 0)]),  // borrow
-        flow_seq(&[flow_op(3, 0, 2, 128, 0)]), // repay existing debt
-        flow_seq(&[flow_op(2, 0, 0, 96, 0)]),  // partial withdraw
-        flow_seq(&[flow_op(2, 1, 1, 0, 1)]),   // withdraw-all sentinel
+        flow_seq(&[flow_op(0, 0, 0, 128, 0)]),
+        flow_seq(&[flow_op(1, 0, 2, 96, 0)]),
+        flow_seq(&[flow_op(3, 0, 2, 128, 0)]),
+        flow_seq(&[flow_op(2, 0, 0, 96, 0)]),
+        flow_seq(&[flow_op(2, 1, 1, 0, 1)]),
         flow_seq(&[
-            flow_op(1, 0, 2, 220, 0), // borrow near boundary
-            flow_op(4, 0, 2, 192, 1), // stress prices, liquidate
+            flow_op(1, 0, 2, 220, 0),
+            flow_op(4, 0, 2, 192, 1),
         ]),
-        flow_seq(&[flow_op(5, 0, 0, 96, 0)]), // good flash loan
-        flow_seq(&[flow_op(5, 0, 0, 96, 1)]), // bad flash loan
+        flow_seq(&[flow_op(5, 0, 0, 96, 0)]),
+        flow_seq(&[flow_op(5, 0, 0, 96, 1)]),
         flow_seq(&[
-            flow_op(8, 0, 0, 192, 0), // add rewards
-            flow_op(7, 0, 0, 12, 0),  // accrue
-            flow_op(9, 0, 0, 0, 0),   // claim revenue
+            flow_op(8, 0, 0, 192, 0),
+            flow_op(7, 0, 0, 12, 0),
+            flow_op(9, 0, 0, 0, 0),
         ]),
         flow_seq(&[
-            flow_op(6, 0, 0, 200, 0), // oracle deviation
-            flow_op(1, 0, 2, 64, 0),  // borrow under shifted oracle
+            flow_op(6, 0, 0, 200, 0),
+            flow_op(1, 0, 2, 64, 0),
         ]),
-        flow_seq(&[flow_op(10, 1, 0, 0, 0)]), // clean bad debt attempt
+        flow_seq(&[flow_op(10, 1, 0, 0, 0)]),
     ]
 }
 
-/// `flow_strategy`: 5-byte ops: `[op, asset_a, asset_b, size/hours, mode]`.
 fn pack_flow_strategy(_f: &ExtractedFields) -> Vec<Vec<u8>> {
     vec![
-        flow_seq(&[flow_op(0, 0, 1, 96, 0)]),  // multiply
-        flow_seq(&[flow_op(1, 2, 0, 96, 0)]),  // swap debt
-        flow_seq(&[flow_op(2, 0, 1, 96, 0)]),  // swap collateral
-        flow_seq(&[flow_op(3, 0, 2, 96, 0)]),  // repay with collateral
-        flow_seq(&[flow_op(3, 0, 2, 255, 1)]), // close through collateral
-        flow_seq(&[flow_op(4, 0, 0, 8, 0)]),   // accrue
+        flow_seq(&[flow_op(0, 0, 1, 96, 0)]),
+        flow_seq(&[flow_op(1, 2, 0, 96, 0)]),
+        flow_seq(&[flow_op(2, 0, 1, 96, 0)]),
+        flow_seq(&[flow_op(3, 0, 2, 96, 0)]),
+        flow_seq(&[flow_op(3, 0, 2, 255, 1)]),
+        flow_seq(&[flow_op(4, 0, 0, 8, 0)]),
         flow_seq(&[
             flow_op(0, 0, 1, 64, 1),
             flow_op(1, 2, 0, 128, 0),
@@ -759,8 +712,6 @@ fn main() -> std::io::Result<()> {
     let out_dir = parse_args();
     fs::create_dir_all(&out_dir)?;
 
-    // Find the repo root from tests/fuzz/ (where cargo runs), unless
-    // the binary is launched manually from repo root.
     let cwd = std::env::current_dir()?;
     let search_root = if cwd.ends_with("fuzz") {
         cwd.parent()
@@ -794,7 +745,6 @@ fn main() -> std::io::Result<()> {
         }
     }
 
-    // De-duplicate numeric vectors to keep pack sizes sane.
     merged.i128s.sort_unstable();
     merged.i128s.dedup();
     merged.u64s.sort_unstable();
@@ -815,7 +765,6 @@ fn main() -> std::io::Result<()> {
         merged.position_amounts.len(),
     );
 
-    // Per-target packing.
     let targets: Vec<(&str, Vec<Vec<u8>>)> = vec![
         ("fp_math", pack_fp_math(&merged)),
         ("fp_ops", pack_fp_ops(&merged)),

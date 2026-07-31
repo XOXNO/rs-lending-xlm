@@ -1,12 +1,6 @@
-//! Shared builders for router unit tests.
-//!
-//! Keeps token registration and `StrategyPayload` XDR encoding in one place so
-//! venue and surface tests stay focused on the behaviour under test.
-
 use crate::types::{StrategyPayload, SwapHop, SwapPath, SwapVenue};
 use soroban_sdk::{token, vec, xdr::ToXdr, Address, Env, Vec};
 
-/// Register a Stellar Asset Contract (SAC) and return its address + mint client.
 pub(crate) fn new_asset<'a>(
     env: &'a Env,
     admin: &Address,
@@ -17,8 +11,6 @@ pub(crate) fn new_asset<'a>(
     (addr, sac_admin)
 }
 
-/// One-hop path with `amount_out = 0` (venues that size from live state ignore
-/// the quoted field; malicious-report tests set their own hops when needed).
 pub(crate) fn one_hop_path(
     env: &Env,
     venue: SwapVenue,
@@ -42,7 +34,6 @@ pub(crate) fn one_hop_path(
     }
 }
 
-/// Encode a strategy with no referral (`referral_id = 0`).
 pub(crate) fn strategy_xdr(
     env: &Env,
     token_in: Address,
@@ -53,7 +44,6 @@ pub(crate) fn strategy_xdr(
     strategy_xdr_with_referral(env, token_in, token_out, total_min_out, paths, 0)
 }
 
-/// Encode a strategy that may attach a referral id for fee attribution.
 pub(crate) fn strategy_xdr_with_referral(
     env: &Env,
     token_in: Address,

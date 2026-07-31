@@ -2,8 +2,6 @@ use crate::context::LendingTest;
 use crate::helpers::{f64_to_i128, hub_asset};
 
 impl LendingTest {
-    /// Claim protocol revenue on the base harness hub. Admin is the signed caller
-    /// (permissionless; no REVENUE role).
     pub fn claim_revenue(&self, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
         let assets = soroban_sdk::vec![&self.env, hub_asset(asset)];
@@ -23,7 +21,6 @@ impl LendingTest {
         }
     }
 
-    /// Add external rewards on the base hub (raises supply index). Mints to admin first.
     pub fn add_rewards(&self, asset_name: &str, amount: f64) {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw = f64_to_i128(amount, decimals);

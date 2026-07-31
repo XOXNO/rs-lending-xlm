@@ -1,8 +1,3 @@
-//! Withdraw leg: burns supply shares, takes the liquidation fee when one
-//! applies, then pays the net amount out.
-//!
-//! Flow: resolve → withhold fee → burn → gate → debit → commit → transfer.
-
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
 use common::types::{MarketStateSnapshot, PoolPositionMutation, PoolWithdrawEntry};
@@ -13,9 +8,6 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 use crate::cache::Cache;
 use crate::{guards, interest, ops};
 
-/// Persisted result of the withdraw accounting, before any token moves.
-/// `mutation.actual_amount` is the gross withdrawal; `net_transfer` is what
-/// actually leaves the pool once the liquidation fee is withheld.
 pub(crate) struct WithdrawOutcome {
     pub(crate) cache: Cache,
     pub(crate) mutation: PoolPositionMutation,
@@ -23,7 +15,6 @@ pub(crate) struct WithdrawOutcome {
     pub(crate) net_transfer: i128,
 }
 
-/// Burns shares for `entry` and transfers the net amount to `receiver`.
 pub(crate) fn apply(
     env: &Env,
     receiver: &Address,
@@ -36,7 +27,6 @@ pub(crate) fn apply(
     (outcome.mutation, outcome.snapshot)
 }
 
-/// Withdraw accounting without the token transfer.
 pub(crate) fn accounting(
     env: &Env,
     is_liquidation: bool,
@@ -53,8 +43,7 @@ pub(crate) fn accounting(
         is_liquidation,
         entry.protocol_fee,
     );
-    // Mint the fee before burning: the share cap inside `add_protocol_revenue`
-    // must see pre-burn supply, and `burn_supply` re-asserts backing over both.
+
     let remaining = burn_position(env, &mut cache, position, burned);
     gate_and_debit(env, &mut cache, net_transfer, is_liquidation);
 
@@ -68,8 +57,6 @@ pub(crate) fn accounting(
     }
 }
 
-/// Shares to burn and gross payout. Controller full-withdraw sentinel (amount ≥
-/// half-up balance) closes the position and pays the floor value.
 fn resolve_close_or_partial(cache: &Cache, amount: i128, position: Ray) -> (Ray, i128) {
     let (burned, gross_amount) = cache.resolve_withdrawal(amount, position);
     assert_with_error!(
@@ -80,18 +67,14 @@ fn resolve_close_or_partial(cache: &Cache, amount: i128, position: Ray) -> (Ray,
     (burned, gross_amount)
 }
 
-/// Burns `burned` from market supply and the caller's position.
 fn burn_position(env: &Env, cache: &mut Cache, position: Ray, burned: Ray) -> Ray {
     cache.burn_supply(burned);
     position.checked_sub(env, burned)
 }
 
-/// Cash, utilization, and solvency gates, then debit tracked cash for the net.
 fn gate_and_debit(env: &Env, cache: &mut Cache, net_transfer: i128, is_liquidation: bool) {
-    // Gate the net, not the gross: the withheld fee never leaves the pool.
     cache.require_reserves(net_transfer);
-    // Liquidations are exempt: a market cap must never block winding down an
-    // underwater position, or utilization keeps climbing as the bad debt grows.
+
     if !is_liquidation {
         guards::require_utilization_below_max(env, cache);
     }
@@ -99,9 +82,6 @@ fn gate_and_debit(env: &Env, cache: &mut Cache, net_transfer: i128, is_liquidati
     cache.debit_cash(net_transfer);
 }
 
-/// Withholds the liquidation fee from `gross_amount` and books it as protocol
-/// revenue. The fee stays in the pool as cash, so supplier shares and the supply
-/// index are untouched.
 pub(crate) fn withhold_liquidation_fee(
     env: &Env,
     cache: &mut Cache,

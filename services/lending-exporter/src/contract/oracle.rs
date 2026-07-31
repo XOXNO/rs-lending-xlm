@@ -1,4 +1,3 @@
-//! `AssetOracle` (composable model) + provider price payloads for staleness/deviation metrics.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{ScString, ScVal, StringM};
@@ -15,14 +14,13 @@ pub enum OracleKind {
     Xoxno,
 }
 
-/// Resolved source for polling a price timestamp.
 #[derive(Debug, Clone)]
 pub struct OracleSource {
     pub kind: OracleKind,
     pub contract: String,
-    /// Reflector: raw `OracleAssetRef` for `lastprice`.
+
     pub asset_ref: Option<ScVal>,
-    /// RedStone/Xoxno: feed id for `read_price_data_for_feed`.
+
     pub feed_id: Option<String>,
     pub max_stale_seconds: u64,
 }
@@ -32,16 +30,11 @@ pub struct OracleConfig {
     pub max_price_stale_seconds: u64,
     pub tolerance_upper_bps: u32,
     pub tolerance_lower_bps: u32,
-    /// `sources.len()` on-chain: 1 (single opinion) or 2 (dual, tolerance-blended).
+
     pub source_count: u32,
     pub min_sanity_price_wad: i128,
     pub max_sanity_price_wad: i128,
-    /// One entry per `PriceSource` that names a directly pollable provider feed.
-    /// A `Feed` contributes itself; a `Scaled` contributes its `factor` leg
-    /// (the quote it multiplies against is a separate `PriceKey`, resolved
-    /// through its own `AssetOracle`, not polled here). An `LpShare` contributes
-    /// nothing — its value comes from the pool invariant, not a provider feed —
-    /// so `sources.len()` here can be less than `source_count`.
+
     pub sources: Vec<OracleSource>,
 }
 
@@ -50,7 +43,6 @@ pub struct PriceObservation {
     pub feed_ts_secs: u64,
 }
 
-/// Decode `AssetOracle` from the price-aggregator's `Oracle(PriceKey)` ledger entry.
 pub fn decode_oracle_config(value: &ScVal) -> Result<OracleConfig> {
     let max_price_stale_seconds =
         field_u64(value, "max_price_stale_seconds").ok_or_else(|| anyhow!("max_price_stale_seconds missing"))?;
@@ -85,8 +77,6 @@ pub fn decode_oracle_config(value: &ScVal) -> Result<OracleConfig> {
     })
 }
 
-/// `PriceSource::Feed`/`Scaled`/`LpShare` → a pollable [`OracleSource`], or
-/// `None` for `LpShare` (pool-derived, no provider feed).
 fn decode_price_source(value: &ScVal, market_default_max_stale: u64) -> Result<Option<OracleSource>> {
     let (tag, payload) = enum_variant(value).ok_or_else(|| anyhow!("price source not enum-tagged"))?;
     let inner = payload.first().ok_or_else(|| anyhow!("price source has no payload"))?;
@@ -102,7 +92,6 @@ fn decode_price_source(value: &ScVal, market_default_max_stale: u64) -> Result<O
     }
 }
 
-/// `FeedSource { provider, decimals, max_stale_seconds }` → [`OracleSource`].
 fn decode_feed_source(value: &ScVal, market_default_max_stale: u64) -> Result<OracleSource> {
     let provider = map_field(value, "provider").ok_or_else(|| anyhow!("feed source missing provider"))?;
     let max_stale_seconds = field_u64(value, "max_stale_seconds").unwrap_or(market_default_max_stale);
@@ -140,8 +129,6 @@ fn decode_feed_source(value: &ScVal, market_default_max_stale: u64) -> Result<Or
     }
 }
 
-/// `OracleAssetRef` → Reflector `lastprice` arg. `Stellar` wire-identical;
-/// `Symbol` → `Other`; `String` unsupported.
 pub fn oracle_asset_ref_to_reflector_arg(asset_ref: &ScVal) -> Result<ScVal> {
     let (tag, payload) = enum_variant(asset_ref).ok_or_else(|| anyhow!("asset ref not enum-tagged"))?;
     match tag.as_str() {
@@ -167,7 +154,6 @@ pub fn feed_id_arg(feed_id: &str) -> Result<ScVal> {
     Ok(ScVal::String(ScString(s)))
 }
 
-/// Reflector `lastprice` → `Option`; Void is no observation.
 pub fn decode_reflector_price(value: &ScVal) -> Result<Option<PriceObservation>> {
     if matches!(value, ScVal::Void) {
         return Ok(None);
@@ -176,7 +162,6 @@ pub fn decode_reflector_price(value: &ScVal) -> Result<Option<PriceObservation>>
     Ok(Some(PriceObservation { feed_ts_secs: ts }))
 }
 
-/// RedStone/Xoxno price payload; freshness = `min(package_ms, write_ms) / 1000`.
 pub fn decode_redstone_price(value: &ScVal) -> Result<PriceObservation> {
     let package_ms = field_u64(value, "package_timestamp")
         .ok_or_else(|| anyhow!("RedStonePriceData.package_timestamp missing"))?;

@@ -1,5 +1,3 @@
-// Throwaway measurement harness: prints exact XDR-serialized on-chain sizes for
-// account position storage entries. Run: cargo test -p test-harness --test zz_storage_sizing -- --nocapture
 use controller::types::{
     AccountMeta, AccountPositionRaw, ControllerKey, DebtPositionRaw, PositionMode,
 };
@@ -16,8 +14,6 @@ fn scval_of<T: IntoVal<Env, Val>>(env: &Env, v: T) -> ScVal {
 }
 
 fn dummy_contract() -> ScAddress {
-    // ScVal/LedgerEntry size is value-independent for the contract address;
-    // a dummy contract id is fine for sizing.
     use soroban_sdk::xdr::{ContractId, Hash};
     ScAddress::Contract(ContractId(Hash([7u8; 32])))
 }
@@ -77,7 +73,6 @@ fn print_storage_sizes() {
 
     println!("\n================ ACCOUNT STORAGE ENTRY SIZES (XDR bytes) ================");
 
-    // --- AccountMeta ---
     let meta = AccountMeta {
         owner: Address::generate(&env),
         spoke_id: 0,

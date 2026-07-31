@@ -21,7 +21,6 @@ fn test_create_liquidity_pool_rejects_asset_id_mismatch() {
         .params
         .to_market_params(&wrong_asset, decimals);
 
-    // The controller's asset/params.asset_id equality check is what rejects.
     let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(err) => Err(err.expect("expected contract error")),

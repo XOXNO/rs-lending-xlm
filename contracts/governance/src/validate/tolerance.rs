@@ -1,5 +1,3 @@
-//! Tolerance BPS → [`OracleTolerance`] band for oracle config proposals.
-
 use common::constants::{BPS, MAX_TOLERANCE, MIN_TOLERANCE};
 use common::errors::{GenericError, OracleError};
 use common::math::fp_core;
@@ -7,18 +5,10 @@ use common::types::OracleTolerance;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
-/// Checked i128 → u32 for tolerance band fields.
-///
-/// # Errors
-/// * [`GenericError::MathOverflow`] — value does not fit `u32`.
 pub(crate) fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
     u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-/// Maps tolerance BPS to upper/lower ratio bounds (BPS space).
-///
-/// # Errors
-/// * [`GenericError::MathOverflow`] — addition or half-up division overflows.
 pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128, i128) {
     let tolerance = i128::from(tolerance_bps);
     let upper_bound = BPS
@@ -28,11 +18,6 @@ pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128,
     (upper_bound, lower_bound)
 }
 
-/// Validates BPS range and returns the stored [`OracleTolerance`].
-///
-/// # Errors
-/// * [`OracleError::BadLastTolerance`] — outside `MIN_TOLERANCE..=MAX_TOLERANCE`.
-/// * [`GenericError::MathOverflow`] — band math overflows.
 pub(crate) fn validate_and_calculate_tolerances(env: &Env, tolerance: u32) -> OracleTolerance {
     assert_with_error!(
         env,
