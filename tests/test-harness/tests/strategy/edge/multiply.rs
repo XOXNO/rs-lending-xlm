@@ -73,6 +73,7 @@ fn test_multiply_rejects_unlisted_third_token_payment_before_transfer() {
     let sac = t.env.register_stellar_asset_contract_v2(t.admin());
     let unlisted = sac.address().clone();
     token::StellarAssetClient::new(&t.env, &unlisted).mint(&alice, &1_0000000i128);
+    let balance_before = token::TokenClient::new(&t.env, &unlisted).balance(&alice);
 
     let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
     let result = t.ctrl_client().try_multiply(
@@ -84,18 +85,27 @@ fn test_multiply_rejects_unlisted_third_token_payment_before_transfer() {
         &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
-        &Some((hub_asset(unlisted), 1_0000000i128)),
+        &Some((hub_asset(unlisted.clone()), 1_0000000i128)),
         &None,
     );
 
+    // The transit asset is no longer priced, so an unlisted payment token is
+    // caught by the convert-steps guard rather than by the oracle. The property
+    // this test exists for is unchanged: it is rejected before any funds move.
     match result {
         Err(Ok(err)) => assert_eq!(
             err,
-            soroban_sdk::Error::from_contract_error(errors::ORACLE_NOT_CONFIGURED),
-            "unlisted payment token must fail OracleNotConfigured before transfer"
+            soroban_sdk::Error::from_contract_error(errors::CONVERT_STEPS_REQUIRED),
+            "unlisted payment token must be rejected before transfer"
         ),
-        other => panic!("expected OracleNotConfigured, got {:?}", other),
+        other => panic!("expected ConvertStepsRequired, got {:?}", other),
     }
+
+    assert_eq!(
+        token::TokenClient::new(&t.env, &unlisted).balance(&alice),
+        balance_before,
+        "a rejected multiply must not move the payment token"
+    );
 }
 
 #[test]
