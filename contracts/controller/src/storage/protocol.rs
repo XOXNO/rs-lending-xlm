@@ -4,13 +4,10 @@ use common::types::{ControllerKey, PositionLimits, PositionManagerConfig};
 use soroban_sdk::{panic_with_error, Address, Env};
 
 use crate::constants;
-use crate::storage::set_shared;
+use crate::storage::{get_shared, set_shared};
 
 pub(crate) fn is_blend_pool_approved(env: &Env, pool: &Address) -> bool {
-    env.storage()
-        .persistent()
-        .get(&ControllerKey::BlendPoolAllowed(pool.clone()))
-        .unwrap_or(false)
+    get_shared(env, &ControllerKey::BlendPoolAllowed(pool.clone())).unwrap_or(false)
 }
 
 pub(crate) fn set_blend_pool_approved(env: &Env, pool: &Address, approved: bool) {
@@ -113,9 +110,7 @@ pub(crate) fn set_min_borrow_collateral_usd_wad(env: &Env, floor_wad: i128) {
 }
 
 pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<PositionManagerConfig> {
-    env.storage()
-        .persistent()
-        .get(&ControllerKey::PositionManager(addr.clone()))
+    get_shared(env, &ControllerKey::PositionManager(addr.clone()))
 }
 
 pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionManagerConfig) {
