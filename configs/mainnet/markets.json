@@ -961,8 +961,8 @@
           }
         ],
         "tolerance": {
-          "upper_ratio_bps": 11000,
-          "lower_ratio_bps": 9091
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
         },
         "independence": "RequireDisjoint",
         "min_sanity_price_wad": "450000000000000000",

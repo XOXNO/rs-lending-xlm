@@ -520,3 +520,49 @@ fn test_set_oracle_rejects_a_non_standard_pool() {
         );
     });
 }
+
+// An LpShare is always the sole source, so no primary/anchor band is ever read:
+// a zero tolerance must list, and set_tolerance must refuse rather than store a
+// band that implies a cross-check the oracle does not perform.
+#[test]
+fn test_lp_oracle_needs_no_tolerance_band() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (key_a, key_b) = dollar_underlyings(&env);
+        let (pool, plane, share) =
+            lp_fixture(&env, "standard", 10_000_000_000, 10_000_000_000, 10_000_000_000);
+        let key = PriceKey::Token(share);
+        let mut oracle = lp_oracle(&env, &pool, &plane, key_a, key_b, 7);
+        oracle.tolerance = OracleTolerance {
+            upper_ratio_bps: 0,
+            lower_ratio_bps: 0,
+        };
+        set_oracle(&env, key.clone(), oracle);
+
+        let mut session = Session::new(&env);
+        assert_eq!(crate::engine::resolve(&mut session, &key, 0).price_wad, 2 * WAD);
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_set_tolerance_refuses_an_lp_oracle() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (key_a, key_b) = dollar_underlyings(&env);
+        let (pool, plane, share) =
+            lp_fixture(&env, "standard", 10_000_000_000, 10_000_000_000, 10_000_000_000);
+        let key = PriceKey::Token(share);
+        set_oracle(&env, key.clone(), lp_oracle(&env, &pool, &plane, key_a, key_b, 7));
+        set_tolerance(
+            &env,
+            key,
+            OracleTolerance {
+                upper_ratio_bps: 10_500,
+                lower_ratio_bps: 9_524,
+            },
+        );
+    });
+}

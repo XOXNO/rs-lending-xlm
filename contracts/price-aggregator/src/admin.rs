@@ -348,7 +348,13 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         policy::validate_smoothing(env, &derived.first, derived.second.as_ref());
     }
 
-    validate_oracle_tolerance(env, &oracle.tolerance);
+    // The tolerance band is the primary/anchor agreement check, read only on the
+    // two-leg blend path. An LpShare is always the sole source, so no band exists
+    // to honour and requiring a valid one would force config authors to invent a
+    // number that implies a cross-check the oracle does not perform.
+    if !oracle.has_lp_source() {
+        validate_oracle_tolerance(env, &oracle.tolerance);
+    }
     if let Some(second) = derived.second.as_ref() {
         policy::validate_independence(env, &derived.first, second, &oracle.independence);
     }
@@ -376,6 +382,12 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
 pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance) {
     let mut oracle = get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
+    // Refuse rather than silently store a band an LP oracle will never read.
+    assert_with_error!(
+        env,
+        !oracle.has_lp_source(),
+        OracleError::SourceCountOutOfRange
+    );
     validate_oracle_tolerance(env, &tolerance);
     oracle.tolerance = tolerance;
     let mut session = Session::new(env);
