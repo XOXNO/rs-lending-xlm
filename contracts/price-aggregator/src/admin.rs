@@ -223,7 +223,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
     );
     validate_single_source_sanity_band(
         env,
-        oracle.is_dual(),
+        oracle.is_dual() || oracle.has_lp_source(),
         oracle.min_sanity_price_wad,
         oracle.max_sanity_price_wad,
     );
@@ -231,6 +231,17 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
 
     for source in oracle.sources.iter() {
         policy::validate_source_shape(env, &source);
+    }
+
+    // An LP share is priced standalone from pool reserves; blending it with a
+    // second leg through the tolerance band is meaningless, so an LP source must
+    // be the oracle's only source.
+    let has_lp = oracle
+        .sources
+        .iter()
+        .any(|source| matches!(source, PriceSource::LpShare(_)));
+    if has_lp && oracle.sources.len() != 1 {
+        panic_with_error!(env, OracleError::SourceCountOutOfRange);
     }
 
     let mut session = Session::new(env);
@@ -256,7 +267,7 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
 
     validate_sanity_bounds(env, min_wad, max_wad);
-    validate_single_source_sanity_band(env, oracle.is_dual(), min_wad, max_wad);
+    validate_single_source_sanity_band(env, oracle.is_dual() || oracle.has_lp_source(), min_wad, max_wad);
     assert_with_error!(
         env,
         min_wad < oracle.max_sanity_price_wad && max_wad > oracle.min_sanity_price_wad,

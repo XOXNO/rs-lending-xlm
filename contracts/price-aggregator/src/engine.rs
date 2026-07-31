@@ -1,9 +1,13 @@
 use common::errors::OracleError;
 use common::math::fp::Wad;
+use common::oracle::lp::fair_lp_price_wad;
 use common::oracle::observation::is_stale;
+use common::oracle::providers::aquarius::{
+    aquarius_plane_reserves_call, aquarius_total_shares_call,
+};
 use common::types::{
-    AssetOracle, FeedSource, PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef,
-    ScaledSource, MAX_RESOLUTION_DEPTH,
+    AssetOracle, FeedSource, LpShareSource, PoolKind, PriceFeedRaw, PriceKey, PriceSource,
+    PriceStatus, ProviderRef, ScaledSource, MAX_RESOLUTION_DEPTH,
 };
 use soroban_sdk::{panic_with_error, Env};
 
@@ -424,9 +428,54 @@ fn evaluate_source(
     match source {
         PriceSource::Feed(feed) => Ok(read_feed(session, feed)),
         PriceSource::Scaled(scaled) => read_scaled(session, scaled, depth),
-
-        PriceSource::LpShare(_) => Err(OracleError::UnsupportedPoolKind),
+        PriceSource::LpShare(lp) => read_lp_share(session, lp, depth),
     }
+}
+
+/// Prices a constant-product LP share from pool reserves and the two underlying
+/// oracle prices, using the manipulation-resistant fair-value formula. The
+/// reserves come from the pool's read-only plane mirror; the underlyings are
+/// resolved through the normal nested path (depth/cycle/sanity guarded).
+fn read_lp_share(
+    session: &mut Session,
+    lp: &LpShareSource,
+    depth: u32,
+) -> Result<Option<(OracleObservation, bool)>, OracleError> {
+    match lp.kind {
+        PoolKind::ConstantProduct => {}
+    }
+    let env = session.env().clone();
+
+    let price_a = resolve_nested(session, &lp.key_a, depth + 1)?;
+    let price_b = resolve_nested(session, &lp.key_b, depth + 1)?;
+
+    let (reserve_a, reserve_b) = aquarius_plane_reserves_call(&env, &lp.plane, &lp.pool)
+        .ok_or(OracleError::NoLastPrice)?;
+    let total_shares =
+        aquarius_total_shares_call(&env, &lp.pool).ok_or(OracleError::NoLastPrice)?;
+
+    let price_wad = fair_lp_price_wad(
+        &env,
+        reserve_a,
+        lp.reserve_a_decimals,
+        price_a.price_wad,
+        reserve_b,
+        lp.reserve_b_decimals,
+        price_b.price_wad,
+        total_shares,
+        lp.share_decimals,
+    )?;
+
+    // The share is only as fresh as its underlyings (already staleness-checked
+    // by resolve_nested); carry the older leg's timestamp.
+    Ok(Some((
+        OracleObservation {
+            price_wad,
+            observed_at: price_a.timestamp.min(price_b.timestamp),
+            published_at: None,
+        },
+        false,
+    )))
 }
 
 fn read_feed(session: &mut Session, feed: &FeedSource) -> Option<(OracleObservation, bool)> {

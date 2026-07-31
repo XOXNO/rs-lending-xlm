@@ -562,7 +562,7 @@ fn test_an_unconfigured_key_reverts_rather_than_pricing_zero() {
 
 #[test]
 #[should_panic]
-fn test_lp_shares_are_not_priceable_yet() {
+fn test_lp_reverts_when_underlyings_missing() {
     let env = Env::default();
     at_now(&env);
     in_contract(&env, || {
@@ -576,6 +576,7 @@ fn test_lp_shares_are_not_priceable_yet() {
                     &env,
                     &[PriceSource::LpShare(LpShareSource {
                         pool: Address::generate(&env),
+                        plane: Address::generate(&env),
                         kind: PoolKind::ConstantProduct,
                         key_a: PriceKey::Ref(Symbol::new(&env, "A")),
                         key_b: PriceKey::Ref(Symbol::new(&env, "B")),

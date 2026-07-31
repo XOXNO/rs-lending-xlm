@@ -437,6 +437,7 @@ fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {
         let mut sources = one(&env, PriceSource::Feed(twap_feed(&env, &reflector)));
         sources.push_back(PriceSource::LpShare(common::types::LpShareSource {
             pool: Address::generate(&env),
+            plane: Address::generate(&env),
             kind: common::types::PoolKind::ConstantProduct,
             key_a: PriceKey::Ref(Symbol::new(&env, "A")),
             key_b: PriceKey::Ref(Symbol::new(&env, "B")),

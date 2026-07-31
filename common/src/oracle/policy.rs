@@ -5,8 +5,8 @@ use crate::oracle::observation::{
     MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
 };
 use crate::types::composable_oracle::{
-    FeedSource, IndependencePolicy, PriceKey, PriceSource, ProviderKind, ProviderRef, ScaledSource,
-    SourceProperties, MAX_RESOLUTION_DEPTH, MAX_SOURCES, MIN_SOURCES,
+    FeedSource, IndependencePolicy, LpShareSource, PoolKind, PriceKey, PriceSource, ProviderKind,
+    ProviderRef, ScaledSource, SourceProperties, MAX_RESOLUTION_DEPTH, MAX_SOURCES, MIN_SOURCES,
 };
 use crate::types::oracle::OracleReadMode;
 use crate::validation::validate_twap_records;
@@ -94,9 +94,22 @@ pub fn validate_source_shape(env: &Env, source: &PriceSource) {
             validate_feed_shape(env, &scaled.factor);
             validate_factor_bounds(env, scaled);
         }
-        PriceSource::LpShare(_) => {
-            panic_with_error!(env, OracleError::UnsupportedPoolKind)
+        PriceSource::LpShare(lp) => validate_lp_share_shape(env, lp),
+    }
+}
+
+fn validate_lp_share_shape(env: &Env, lp: &LpShareSource) {
+    match lp.kind {
+        PoolKind::ConstantProduct => {}
+    }
+    for decimals in [lp.reserve_a_decimals, lp.reserve_b_decimals, lp.share_decimals] {
+        if !(MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&decimals) {
+            panic_with_error!(env, OracleError::InvalidOracleDecimals);
         }
+    }
+    // The two legs must be distinct price keys, else the pair collapses.
+    if lp.key_a == lp.key_b {
+        panic_with_error!(env, OracleError::InvalidOracleBase);
     }
 }
 
