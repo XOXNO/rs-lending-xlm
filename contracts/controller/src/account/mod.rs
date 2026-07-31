@@ -172,10 +172,20 @@ fn set_account_delegate(
     let meta = storage::get_account_meta(env, account_id);
     assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
 
-    if add {
-        storage::add_delegate(env, account_id, delegate);
+    let changed = if add {
+        storage::add_delegate(env, account_id, delegate)
     } else {
-        storage::remove_delegate(env, account_id, delegate);
+        storage::remove_delegate(env, account_id, delegate)
+    };
+
+    if changed {
+        crate::events::AccountDelegateEvent {
+            account_id,
+            owner: meta.owner,
+            delegate: delegate.clone(),
+            granted: add,
+        }
+        .publish(env);
     }
 }
 

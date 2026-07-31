@@ -131,12 +131,14 @@ impl EventBorrowDelta {
     }
 }
 
+mod account;
 mod config;
 mod debt;
 mod market;
 mod position;
 mod strategy;
 
+pub use account::*;
 pub use config::*;
 pub use debt::*;
 pub use market::*;
