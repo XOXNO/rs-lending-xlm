@@ -566,3 +566,21 @@ fn test_set_tolerance_refuses_an_lp_oracle() {
         );
     });
 }
+
+// A pool that cannot report a positive supply is unpriceable by construction,
+// so it must be refused at listing rather than stored as a dead market.
+#[test]
+#[should_panic]
+fn test_set_oracle_rejects_a_pool_with_zero_total_shares() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (key_a, key_b) = dollar_underlyings(&env);
+        let (pool, plane, share) = lp_fixture(&env, "standard", 10_000_000_000, 10_000_000_000, 0);
+        set_oracle(
+            &env,
+            PriceKey::Token(share),
+            lp_oracle(&env, &pool, &plane, key_a, key_b, 7),
+        );
+    });
+}

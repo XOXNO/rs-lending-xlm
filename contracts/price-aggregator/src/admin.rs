@@ -4,7 +4,7 @@ use common::oracle::observation::MIN_ORACLE_RESOLUTION_SECONDS;
 use common::oracle::policy;
 use common::oracle::providers::aquarius::{
     aquarius_get_tokens_call, aquarius_plane_of_pool_call, aquarius_plane_reserves_call,
-    aquarius_share_id_call,
+    aquarius_share_id_call, aquarius_total_shares_call,
 };
 use common::oracle::providers::redstone::{xoxno_max_submission_age_call, REDSTONE_DECIMALS};
 use common::oracle::providers::reflector::{
@@ -136,6 +136,15 @@ fn attest_lp_binding(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
         assert_with_error!(
             env,
             aquarius_plane_reserves_call(env, &lp.plane, &lp.pool).is_some(),
+            OracleError::UnsupportedPoolKind
+        );
+        // Supply is the divisor of the fair value and is read from the pool, not
+        // the plane. A pool that cannot report a positive supply can never be
+        // priced, so prove it here rather than storing a market that is dead on
+        // its first read - the reserve read above is already held to that bar.
+        assert_with_error!(
+            env,
+            aquarius_total_shares_call(env, &lp.pool).is_some_and(|shares| shares > 0),
             OracleError::UnsupportedPoolKind
         );
         let share = aquarius_share_id_call(env, &lp.pool)
