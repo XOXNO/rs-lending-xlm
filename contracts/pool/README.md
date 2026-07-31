@@ -153,11 +153,19 @@ favor of the protocol**. Changing a `floor` to a `ceil` is never cosmetic.
 | debt readout | `to_asset_ceil` | more owed |
 | revenue claim | `mul_ratio_ceil` | burns more treasury shares than proportional |
 
-Dust defences: `SUPPLY_VIRTUAL_VALUE_RAY` (`+1 RAY` in the supply-index
-denominator) blocks first-depositor share inflation; the `*RoundsToZeroShares`
-errors reject amounts that move value without moving shares;
-`Bps::flash_loan_fee_on` floors a fee at `1`. Undistributed dust is not lost —
-`supply_index_reward_shortfall` measures it and routes it to revenue.
+Dust defences: the `*RoundsToZeroShares` errors reject amounts that move value
+without moving shares, and `Bps::flash_loan_fee_on` floors a fee at `1`.
+
+`SUPPLY_VIRTUAL_VALUE_RAY` (`+1 RAY` added to the denominator in
+`update_supply_index`) blocks first-depositor share inflation, but it is **not**
+a dust-scale cost. `Ray::from_asset` normalizes every asset to `1 token = 1 RAY`
+regardless of decimals, so the offset is exactly **one whole token**, and it
+diverts `1 / (N + 1)` of *all* accrued interest to protocol revenue, where `N`
+is the whole-token supply. That is 0.0001% for a 1,000,000-token USDC market and
+**9.1% for a 10-token WBTC market of the same dollar size**. The diverted share
+is measured by `supply_index_reward_shortfall` and booked as revenue, so no
+value is destroyed — but `calculate_deposit_rate` models only `reserve_factor`,
+so `get_deposit_rate` overstates realized supplier yield by this fraction.
 
 ## Interest
 
@@ -197,10 +205,18 @@ it means suppressing all activity on a 200%-APR market for a year.
 
 Two asymmetries are policy, not oversight:
 
-1. **You cannot supply into an under-backed market, but you can withdraw from
-   one.** Users must always be able to leave. `recapitalize` is the way back.
+1. **Backing shortfall blocks entry, not exit.** `require_backed_market` gates
+   only `supply`, so you cannot supply into an under-backed market but you can
+   withdraw from one. `recapitalize` is the way back.
 2. **Liquidation withdraws skip the utilization cap.** Liquidations must proceed
    at the ceiling.
+
+Exit is *not* unconditionally available. `require_utilization_below_max` still
+applies to non-liquidation withdrawals, and it is an absolute post-state test —
+burning supply shares raises utilization, so once utilization reaches the cap no
+withdrawal of any size passes, and interest accrual alone pushes it there. The
+reserved amount is the `1 - max_utilization` liquidation buffer; it is released
+by repayment, or consumed by liquidation, which bypasses the guard.
 
 `require_utilization_below_max` early-returns when `max_utilization >= RAY`, so
 setting it to exactly `RAY` disables the cap for that market.
