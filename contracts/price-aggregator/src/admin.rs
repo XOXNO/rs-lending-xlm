@@ -142,8 +142,18 @@ fn attest_lp_binding(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
             .unwrap_or_else(|| panic_with_error!(env, OracleError::InvalidOracleBase));
         assert_with_error!(
             env,
-            *key == PriceKey::Token(share),
+            *key == PriceKey::Token(share.clone()),
             OracleError::InvalidOracleBase
+        );
+        // Both decimals fields describe the same share token, and each scales the
+        // final price by a power of ten: `share_decimals` divides the supply in
+        // `fair_lp_price_wad`, `asset_decimals` is what consumers convert with.
+        // A typo in either is a silent 10^k misprice, so pin both to the token.
+        let share_decimals = TokenClient::new(env, &share).decimals();
+        assert_with_error!(
+            env,
+            share_decimals == lp.share_decimals && share_decimals == oracle.asset_decimals,
+            OracleError::InvalidOracleDecimals
         );
         let tokens = aquarius_get_tokens_call(env, &lp.pool)
             .filter(|tokens| tokens.len() == 2)
@@ -306,7 +316,15 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         policy::validate_composition_depth(env, second);
     }
     policy::validate_staleness_envelope(env, oracle.max_price_stale_seconds, &derived.combined());
-    policy::validate_smoothing(env, &derived.first, derived.second.as_ref());
+    // The spot-only gate asks for a time window over a manipulable market read.
+    // An LP share has no window of its own, but it does not need one: the reserve
+    // ratio — the only part a swap can move — cancels out of 2*sqrt(Va*Vb)/S, and
+    // both underlying prices come from oracles that passed this same gate when
+    // they were listed. An LpShare is also always the sole source, so applying the
+    // gate here would make every LP oracle unlistable.
+    if !oracle.has_lp_source() {
+        policy::validate_smoothing(env, &derived.first, derived.second.as_ref());
+    }
 
     validate_oracle_tolerance(env, &oracle.tolerance);
     if let Some(second) = derived.second.as_ref() {

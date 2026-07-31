@@ -353,3 +353,170 @@ fn test_probe_still_rejects_a_structurally_broken_config() {
         );
     });
 }
+
+/// Builds a listable Aquarius LP market: two 7-dp reserve SACs, a 7-dp share
+/// SAC, a plane mirroring `(reserve_a, reserve_b)` and a pool wired to them.
+fn lp_fixture(
+    env: &Env,
+    kind: &str,
+    reserve_a: u128,
+    reserve_b: u128,
+    total_shares: u128,
+) -> (Address, Address, Address) {
+    let issuer = Address::generate(env);
+    let token_a = env.register_stellar_asset_contract_v2(issuer.clone()).address();
+    let token_b = env.register_stellar_asset_contract_v2(issuer.clone()).address();
+    let share = env.register_stellar_asset_contract_v2(issuer).address();
+    let plane = env.register(
+        crate::test_support::MockAquariusPlane,
+        (Symbol::new(env, kind), reserve_a, reserve_b),
+    );
+    let pool = env.register(
+        crate::test_support::MockAquariusPool,
+        (
+            plane.clone(),
+            share.clone(),
+            token_a,
+            token_b,
+            total_shares,
+        ),
+    );
+    (pool, plane, share)
+}
+
+fn lp_oracle(
+    env: &Env,
+    pool: &Address,
+    plane: &Address,
+    key_a: PriceKey,
+    key_b: PriceKey,
+    share_decimals: u32,
+) -> AssetOracle {
+    let mut sources = Vec::new(env);
+    sources.push_back(PriceSource::LpShare(common::types::LpShareSource {
+        pool: pool.clone(),
+        plane: plane.clone(),
+        kind: common::types::PoolKind::ConstantProduct,
+        key_a,
+        key_b,
+        reserve_a_decimals: 7,
+        reserve_b_decimals: 7,
+        share_decimals,
+    }));
+    AssetOracle {
+        asset_decimals: 7,
+        max_price_stale_seconds: 43_200,
+        sources,
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence: IndependencePolicy::RequireDisjoint,
+        min_sanity_price_wad: WAD,
+        max_sanity_price_wad: 3 * WAD,
+    }
+}
+
+/// Lists both underlyings at $1 through the production path and returns their keys.
+fn dollar_underlyings(env: &Env) -> (PriceKey, PriceKey) {
+    let (adapter, client) = crate::test_support::register_redstone_feed(env);
+    let ts = env.ledger().timestamp() * 1_000;
+    let mut keys = Vec::new(env);
+    for feed in ["UA", "UB"] {
+        client.set_price_data(&String::from_str(env, feed), &WAD, &ts, &ts);
+        let key = PriceKey::Token(Address::generate(env));
+        let mut sources = Vec::new(env);
+        sources.push_back(PriceSource::Feed(FeedSource {
+            provider: ProviderRef::MultiFeed(MultiFeedRef {
+                contract: adapter.clone(),
+                feed_id: String::from_str(env, feed),
+                kind: ProviderKind::RedStone,
+                nature: FeedNature::Fundamental,
+            }),
+            decimals: 8,
+            max_stale_seconds: 43_200,
+        }));
+        set_oracle(
+            env,
+            key.clone(),
+            AssetOracle {
+                asset_decimals: 7,
+                max_price_stale_seconds: 43_200,
+                sources,
+                tolerance: OracleTolerance {
+                    upper_ratio_bps: 10_500,
+                    lower_ratio_bps: 9_524,
+                },
+                independence: IndependencePolicy::RequireDisjoint,
+                min_sanity_price_wad: WAD * 99 / 100,
+                max_sanity_price_wad: WAD * 101 / 100,
+            },
+        );
+        keys.push_back(key);
+    }
+    (keys.get_unchecked(0), keys.get_unchecked(1))
+}
+
+// The production listing path must accept a constant-product LP: an LpShare is
+// always a sole source and has no smoothing window of its own, so the spot-only
+// gate must not apply to it. Also proves attest_lp_binding is reachable.
+#[test]
+fn test_set_oracle_lists_a_constant_product_lp_and_prices_it() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (key_a, key_b) = dollar_underlyings(&env);
+        // 1000 + 1000 whole tokens at $1, 1000 whole shares => $2.00 per share.
+        let (pool, plane, share) =
+            lp_fixture(&env, "standard", 10_000_000_000, 10_000_000_000, 10_000_000_000);
+        let key = PriceKey::Token(share);
+        set_oracle(
+            &env,
+            key.clone(),
+            lp_oracle(&env, &pool, &plane, key_a, key_b, 7),
+        );
+
+        let mut session = Session::new(&env);
+        let feed = crate::engine::resolve(&mut session, &key, 0);
+        assert_eq!(feed.price_wad, 2 * WAD);
+        assert_eq!(feed.asset_decimals, 7);
+    });
+}
+
+// share_decimals is attested against the share token itself: a typo would
+// rescale the price by 10^k while still landing inside a generous band.
+#[test]
+#[should_panic]
+fn test_set_oracle_rejects_lp_share_decimals_that_disagree() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (key_a, key_b) = dollar_underlyings(&env);
+        let (pool, plane, share) =
+            lp_fixture(&env, "standard", 10_000_000_000, 10_000_000_000, 10_000_000_000);
+        set_oracle(
+            &env,
+            PriceKey::Token(share),
+            lp_oracle(&env, &pool, &plane, key_a, key_b, 11),
+        );
+    });
+}
+
+// A stable/concentrated pool mislisted as constant-product is structural: its
+// plane row is not [reserve0, reserve1], so listing must fail, not go dead.
+#[test]
+#[should_panic]
+fn test_set_oracle_rejects_a_non_standard_pool() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (key_a, key_b) = dollar_underlyings(&env);
+        let (pool, plane, share) =
+            lp_fixture(&env, "stable", 10_000_000_000, 10_000_000_000, 10_000_000_000);
+        set_oracle(
+            &env,
+            PriceKey::Token(share),
+            lp_oracle(&env, &pool, &plane, key_a, key_b, 7),
+        );
+    });
+}

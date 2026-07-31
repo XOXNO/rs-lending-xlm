@@ -933,6 +933,54 @@
         "is_flashloanable": true,
         "flashloan_fee": 9
       }
+    },
+    {
+      "_comment": "Aquarius XLM/USDC constant-product LP share token (share_id of pool CA6PUJLB...). Priced by the LpShare source: fair-value 2*sqrt(Va*Vb)/S from the pool's read-only plane reserves + get_total_shares, each leg valued by the listed XLM (key_a, reserve slot 0) and USDC (key_b, slot 1) oracles. set_oracle attests plane==pool.get_pools_plane(), key==Token(pool.share_id()), pool kind=='standard', and reserve/share decimals against the token SACs. Band is AUTO-DERIVED from the underlyings' own bands (XLM $0.05-$1.00, USDC $0.95-$1.05 at current reserves => $0.478-$2.249) then rounded out with upper headroom for swap-fee drift; it is a wide backstop against a compromised/degenerate pool, not a price-accuracy guard. Re-derive on a cadence (fee drift) or when an underlying band changes.",
+      "name": "XLMUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CAVKLYY4RWFQBRA2YI5GTGGXKUKJQI3JLAHDGXMS7L5RDH6X6A47NMOZ",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "LpShare": {
+              "pool": "CA6PUJLBYKZKUEKLZJMKBZLEKP2OTHANDEOWSFF44FTSYLKQPIICCJBE",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "kind": "ConstantProduct",
+              "key_a": {
+                "Token": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "share_decimals": 7
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 11000,
+          "lower_ratio_bps": 9091
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "450000000000000000",
+        "max_sanity_price_wad": "2500000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
     }
   ]
 }
