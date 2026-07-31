@@ -7,7 +7,7 @@ use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, String, Symbol, Vec};
 
 use crate::test_support::{
-    NonUsdReflector, StubXoxnoAdapter, TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
+    EmptyReflector, NonUsdReflector, StubXoxnoAdapter, TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
 };
 use crate::PriceAggregator;
 use common::constants::WAD;
@@ -274,6 +274,82 @@ fn test_revalidation_touches_only_the_keys_that_actually_depend_on_the_change() 
         assert!(
             get_oracle(&env, &stranded).is_some(),
             "the unrelated key is untouched, not repaired and not removed"
+        );
+    });
+}
+
+const REBAND_DELTA_WAD: i128 = TWAP_MEAN_WAD * 7 / 100;
+
+#[test]
+fn test_sanity_band_is_editable_while_the_price_is_unreadable() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(EmptyReflector, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        store_oracle(&env, &key, &reflector_oracle(&env, &reflector, 14));
+
+        set_sanity_band(
+            &env,
+            key.clone(),
+            TWAP_MEAN_WAD - REBAND_DELTA_WAD,
+            TWAP_MEAN_WAD + REBAND_DELTA_WAD,
+        );
+
+        let stored = get_oracle(&env, &key).unwrap();
+        assert_eq!(
+            stored.min_sanity_price_wad,
+            TWAP_MEAN_WAD - REBAND_DELTA_WAD
+        );
+        assert_eq!(
+            stored.max_sanity_price_wad,
+            TWAP_MEAN_WAD + REBAND_DELTA_WAD
+        );
+    });
+}
+
+#[test]
+fn test_tolerance_is_editable_while_the_price_is_unreadable() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(EmptyReflector, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        store_oracle(&env, &key, &reflector_oracle(&env, &reflector, 14));
+
+        set_tolerance(
+            &env,
+            key.clone(),
+            OracleTolerance {
+                upper_ratio_bps: 10_200,
+                lower_ratio_bps: 9_804,
+            },
+        );
+
+        assert_eq!(
+            get_oracle(&env, &key).unwrap().tolerance.upper_ratio_bps,
+            10_200
+        );
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #231)")]
+fn test_probe_still_rejects_a_structurally_broken_config() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(EmptyReflector, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        let mut broken = reflector_oracle(&env, &reflector, 14);
+        broken.sources = Vec::new(&env);
+        store_oracle(&env, &key, &broken);
+
+        set_sanity_band(
+            &env,
+            key,
+            TWAP_MEAN_WAD - REBAND_DELTA_WAD,
+            TWAP_MEAN_WAD + REBAND_DELTA_WAD,
         );
     });
 }

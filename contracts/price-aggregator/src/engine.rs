@@ -133,6 +133,19 @@ impl Outcome {
         None
     }
 
+    fn config_failure(&self) -> Option<OracleError> {
+        match self.err {
+            Some(
+                err @ (OracleError::OracleCycleDetected
+                | OracleError::OracleDepthExceeded
+                | OracleError::SourceCountOutOfRange
+                | OracleError::UnsupportedPoolKind
+                | OracleError::OracleNotConfigured),
+            ) => Some(err),
+            _ => None,
+        }
+    }
+
     fn usable(&self, oracle: Option<&AssetOracle>) -> bool {
         self.failure(oracle).is_none()
     }
@@ -189,8 +202,10 @@ pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) 
 
 pub(crate) fn probe(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
     let env = session.env().clone();
-    let (outcome, resolved) = resolve_outcome(session, key, 0, Some(oracle));
-    let _ = force(&env, &outcome, resolved.as_ref().or(Some(oracle)));
+    let (outcome, _) = resolve_outcome(session, key, 0, Some(oracle));
+    if let Some(err) = outcome.config_failure() {
+        panic_with_error!(&env, err);
+    }
 }
 
 pub(crate) fn resolve_detailed(
