@@ -481,6 +481,45 @@ mod tests {
         let fresh = account.get_or_create_debt_position(&hub_asset);
         assert_eq!(fresh.scaled_amount, Ray::ZERO);
     }
+
+    // `can_supply` / `can_borrow` are one-line field reads, so the only mutants
+    // available are the constant returns. Both survived every native pass and
+    // were killed only by the integration harness, because nothing in `common`
+    // read them with the flag `false` — and a config that always answers `true`
+    // is exactly the shape that silently re-enables a delisted asset.
+    fn asset_config(is_collateralizable: bool, is_borrowable: bool) -> AssetConfig {
+        AssetConfig {
+            loan_to_value: Bps::from(8_000i128),
+            liquidation_threshold: Bps::from(8_500i128),
+            liquidation_bonus: Bps::from(500i128),
+            liquidation_fees: Bps::from(100i128),
+            is_collateralizable,
+            is_borrowable,
+        }
+    }
+
+    #[test]
+    fn can_supply_tracks_is_collateralizable() {
+        assert!(asset_config(true, false).can_supply());
+        assert!(!asset_config(false, false).can_supply());
+        assert!(!asset_config(false, true).can_supply());
+    }
+
+    #[test]
+    fn can_borrow_tracks_is_borrowable() {
+        assert!(asset_config(false, true).can_borrow());
+        assert!(!asset_config(false, false).can_borrow());
+        assert!(!asset_config(true, false).can_borrow());
+    }
+
+    #[test]
+    fn supply_and_borrow_permissions_are_independent() {
+        let supply_only = asset_config(true, false);
+        assert!(supply_only.can_supply() && !supply_only.can_borrow());
+
+        let borrow_only = asset_config(false, true);
+        assert!(!borrow_only.can_supply() && borrow_only.can_borrow());
+    }
 }
 
 #[contracttype]

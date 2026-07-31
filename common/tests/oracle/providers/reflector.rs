@@ -66,3 +66,41 @@ fn try_twap_mean_price_softens_overflow_and_empty() {
     let empty: soroban_sdk::Vec<ReflectorPriceData> = soroban_sdk::Vec::new(&env);
     assert_eq!(try_twap_mean_price(&empty), None);
 }
+
+// The hard `twap_mean_price` had no direct coverage, so its mutants survived
+// every native pass and were only killed by the integration harness three
+// passes later. The samples below are chosen so the arithmetic itself is
+// pinned, not merely the happy path: 600/3 = 200 is distinct from 600%3 = 0
+// and 600*3 = 1800, and from the constant returns 0, 1 and -1.
+#[test]
+fn twap_mean_price_divides_the_sum_by_the_sample_count() {
+    let env = Env::default();
+    let history = soroban_sdk::vec![&env, pd(&env, 100), pd(&env, 200), pd(&env, 300)];
+    assert_eq!(twap_mean_price(&env, &history), 200);
+}
+
+#[test]
+fn twap_mean_price_matches_the_soft_variant() {
+    let env = Env::default();
+    let history = soroban_sdk::vec![&env, pd(&env, 7), pd(&env, 11)];
+    assert_eq!(
+        twap_mean_price(&env, &history),
+        try_twap_mean_price(&history).unwrap()
+    );
+}
+
+#[test]
+#[should_panic(expected = "#217")]
+fn twap_mean_price_rejects_non_positive_sample() {
+    let env = Env::default();
+    let history = soroban_sdk::vec![&env, pd(&env, 100), pd(&env, 0)];
+    let _ = twap_mean_price(&env, &history);
+}
+
+#[test]
+#[should_panic(expected = "#33")]
+fn twap_mean_price_panics_on_overflow() {
+    let env = Env::default();
+    let history = soroban_sdk::vec![&env, pd(&env, i128::MAX), pd(&env, i128::MAX)];
+    let _ = twap_mean_price(&env, &history);
+}

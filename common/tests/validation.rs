@@ -363,3 +363,23 @@ fn test_validate_twap_records_rejects_above_max() {
     let env = Env::default();
     validate_twap_records(&env, MAX_TWAP_RECORDS + 1);
 }
+
+// `require_non_empty_payments` is a single `assert_with_error!`, so the only
+// mutant cargo-mutants can form is deleting the whole body. Nothing in
+// `common` called it before, so that mutant survived every native pass — a
+// batch verb that accepts an empty payment vector reaches the pool with
+// nothing to settle.
+#[test]
+fn require_non_empty_payments_accepts_a_populated_batch() {
+    let env = Env::default();
+    let payments = soroban_sdk::vec![&env, 1i128];
+    require_non_empty_payments(&env, &payments);
+}
+
+#[test]
+#[should_panic(expected = "#16")]
+fn require_non_empty_payments_rejects_an_empty_batch() {
+    let env = Env::default();
+    let payments: soroban_sdk::Vec<i128> = soroban_sdk::Vec::new(&env);
+    require_non_empty_payments(&env, &payments);
+}
