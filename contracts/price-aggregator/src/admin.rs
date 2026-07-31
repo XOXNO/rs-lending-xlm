@@ -3,7 +3,8 @@ use common::errors::{GenericError, OracleError};
 use common::oracle::observation::MIN_ORACLE_RESOLUTION_SECONDS;
 use common::oracle::policy;
 use common::oracle::providers::aquarius::{
-    aquarius_get_tokens_call, aquarius_plane_of_pool_call, aquarius_share_id_call,
+    aquarius_get_tokens_call, aquarius_plane_of_pool_call, aquarius_plane_reserves_call,
+    aquarius_share_id_call,
 };
 use common::oracle::providers::redstone::{xoxno_max_submission_age_call, REDSTONE_DECIMALS};
 use common::oracle::providers::reflector::{
@@ -112,10 +113,11 @@ fn attest_sources(env: &Env, oracle: &AssetOracle) {
 }
 
 /// Binds an LpShare source to its real pool at listing time (config trust is the
-/// only attack surface once the math is sound): the `plane` must be the pool's
-/// own reserve mirror, the priced key must be the pool's LP share token, and the
-/// configured reserve decimals must match the pool's actual reserve tokens.
-/// Cross-contract reads run once, at governance listing.
+/// only attack surface once the math is sound): the pool must be a constant-product
+/// ("standard") pool, the `plane` must be the pool's own reserve mirror, the priced
+/// key must be the pool's LP share token, and the configured reserve decimals must
+/// match the pool's actual reserve tokens. Cross-contract reads run once, at
+/// governance listing.
 fn attest_lp_binding(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     for source in oracle.sources.iter() {
         let PriceSource::LpShare(lp) = &source else {
@@ -125,6 +127,16 @@ fn attest_lp_binding(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
             env,
             aquarius_plane_of_pool_call(env, &lp.pool).as_ref() == Some(&lp.plane),
             OracleError::InvalidOracleBase
+        );
+        // Structural, not transient: a non-"standard" pool exposes bucketed or
+        // otherwise differently-shaped reserves that this formula must never
+        // price, and no later read can fix it. Rejecting here (rather than only
+        // at read time) keeps a mislisted pool from being stored as a market
+        // that is silently dead on first price.
+        assert_with_error!(
+            env,
+            aquarius_plane_reserves_call(env, &lp.plane, &lp.pool).is_some(),
+            OracleError::UnsupportedPoolKind
         );
         let share = aquarius_share_id_call(env, &lp.pool)
             .unwrap_or_else(|| panic_with_error!(env, OracleError::InvalidOracleBase));
