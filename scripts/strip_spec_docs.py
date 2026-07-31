@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python3
 """Strip doc strings and informational meta from a deploy WASM.
 
 Rustdoc on entrypoints/types embeds into the on-chain spec and counts against
