@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v0.1.0)'
+        description: "Release tag (e.g. v0.1.0)"
         required: true
 
 permissions:
@@ -15,7 +15,7 @@ permissions:
   attestations: write
 
 env:
-  STELLAR_VERSION: '27.0.0'
+  STELLAR_VERSION: "27.0.0"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -31,7 +31,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.95'
+          toolchain: "1.95"
           targets: wasm32v1-none
 
       - name: Cache cargo
@@ -144,7 +144,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.95'
+          toolchain: "1.95"
           targets: wasm32v1-none
 
       - name: Cache cargo

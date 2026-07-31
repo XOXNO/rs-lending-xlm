@@ -4,19 +4,19 @@ on:
   push:
     branches: [main]
     paths:
-      - '**/*.rs'
-      - '**/Cargo.*'
-      - 'Makefile'
-      - 'scripts/coverage_report.py'
-      - '!services/**'
+      - "**/*.rs"
+      - "**/Cargo.*"
+      - "Makefile"
+      - "scripts/coverage_report.py"
+      - "!services/**"
   pull_request:
     branches: [main]
     paths:
-      - '**/*.rs'
-      - '**/Cargo.*'
-      - 'Makefile'
-      - 'scripts/coverage_report.py'
-      - '!services/**'
+      - "**/*.rs"
+      - "**/Cargo.*"
+      - "Makefile"
+      - "scripts/coverage_report.py"
+      - "!services/**"
   workflow_dispatch:
 
 permissions:
@@ -24,8 +24,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  STELLAR_VERSION: '27.0.0'
-
+  STELLAR_VERSION: "27.0.0"
   COV_CACHE_PREFIX: cov-baseline-main
 
 concurrency:
@@ -41,12 +40,11 @@ jobs:
 
     env:
       RUSTC_WRAPPER: sccache
-      CARGO_INCREMENTAL: '0'
+      CARGO_INCREMENTAL: "0"
       SCCACHE_CACHE_SIZE: 20G
     steps:
       - uses: actions/checkout@v7
         with:
-
           clean: false
 
       - name: Reset workspace, preserve target/ build cache
@@ -57,7 +55,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.95'
+          toolchain: "1.95"
           targets: wasm32v1-none
           components: llvm-tools-preview
 
@@ -82,7 +80,6 @@ jobs:
         run: make coverage-merged
 
       - name: Stage baseline lcov
-
         run: |
           mkdir -p coverage-baseline
           cp target/coverage/merged.lcov.info coverage-baseline/merged.lcov.info
@@ -104,14 +101,14 @@ jobs:
 
     env:
       RUSTC_WRAPPER: sccache
-      CARGO_INCREMENTAL: '0'
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.95'
+          toolchain: "1.95"
           targets: wasm32v1-none
           components: llvm-tools-preview
 

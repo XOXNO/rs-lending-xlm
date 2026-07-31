@@ -247,6 +247,9 @@
       },
       {
         "conf": "certora/pool/confs/pool-lifecycle.conf"
+      },
+      {
+        "conf": "certora/pool/confs/pool-state-invariant.conf"
       }
     ],
     "heavy": [

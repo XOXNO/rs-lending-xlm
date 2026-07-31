@@ -5,20 +5,19 @@ on:
     branches: [master, main, feat/*, rc/*]
 
     paths:
-      - 'contracts/**'
-      - 'common/**'
-      - 'interfaces/**'
-      - 'tests/**'
-      - 'certora/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
-      - 'Makefile'
-      - '.github/workflows/**'
+      - "contracts/**"
+      - "common/**"
+      - "interfaces/**"
+      - "tests/**"
+      - "certora/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "Makefile"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
-
   contents: read
 
 env:
@@ -35,7 +34,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-
           clean: false
 
       - name: Isolate rustup toolchain dir

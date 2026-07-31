@@ -3,27 +3,25 @@ name: Tests
 on:
   pull_request:
     branches: [master, main, feat/*, rc/*]
-
     paths:
-      - 'contracts/**'
-      - 'common/**'
-      - 'interfaces/**'
-      - 'tests/**'
-      - 'certora/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
-      - 'Makefile'
-      - '.github/workflows/**'
+      - "contracts/**"
+      - "common/**"
+      - "interfaces/**"
+      - "tests/**"
+      - "certora/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "Makefile"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
-
   contents: read
 
 env:
   CARGO_TERM_COLOR: always
-  STELLAR_VERSION: '27.0.0'
+  STELLAR_VERSION: "27.0.0"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -33,15 +31,13 @@ jobs:
   build-and-test:
     name: Build & Test
     runs-on: self-hosted
-
     env:
       RUSTC_WRAPPER: sccache
-      CARGO_INCREMENTAL: '0'
+      CARGO_INCREMENTAL: "0"
       SCCACHE_CACHE_SIZE: 20G
     steps:
       - uses: actions/checkout@v7
         with:
-
           clean: false
 
       - name: Reset workspace
@@ -52,12 +48,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.95'
+          toolchain: "1.95"
           targets: wasm32v1-none
           components: clippy, rustfmt
 
       - name: Install stellar-cli
-
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install sccache (prebuilt)

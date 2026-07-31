@@ -1,35 +1,301 @@
 # Liquidity Pool
 
-Owner-gated market engine: interest, scaled shares, tracked cash per
-`(hub_id, asset)`. Controller owns risk; this contract moves liquidity under
-its own math.
+Market engine for the lending protocol: interest accrual, scaled-share
+accounting, and tracked cash per `(hub_id, asset)`. The controller owns risk and
+policy; this contract owns arithmetic and liquidity.
 
-| Entrypoint | Role |
+Nothing here is callable by users — every mutator is `#[only_owner]` and the
+owner is the controller. Integrators go through
+[`contracts/controller`](../controller); this file is for auditors and for
+anyone reading the accounting.
+
+## Model
+
+Two persistent keys per market, and **no per-user storage anywhere**:
+
+```text
+PoolKey::Params(HubAssetKey)   # rate curve, asset id, decimals
+PoolKey::State(HubAssetKey)    # supplied, borrowed, revenue, indexes, ts, cash
+```
+
+Balances are **scaled shares**, not amounts. A share is multiplied by a market
+index to get present value, so interest accrues to every holder at once
+without touching per-user state:
+
+```text
+supply value = supplied * supply_index      debt value = borrowed * borrow_index
+```
+
+Positions arrive as arguments (`ScaledPositionRaw`) and leave as return values
+(`PoolPositionMutation`). The controller holds the ledger; the pool holds the
+aggregates.
+
+## Trust
+
+The controller deploys this contract with itself as constructor argument
+(`deploy_v2(wasm_hash, (env.current_contract_address(),))`), so the owner is
+fixed at deploy. There is no transfer, accept, or renounce on the ABI —
+migration goes through `upgrade`.
+
+Because the controller is the sole caller, the pool does not re-validate what is
+already guaranteed upstream:
+
+| Guarantee | Enforced in |
 | --- | --- |
-| `create_market` | Init params + zeroed state |
-| `supply` / `borrow` / `withdraw` / `repay` | Mint/burn scaled shares; cash ± |
-| `net_settle` | Same-market supply vs debt, no transfer |
-| `seize_positions` | Bad-debt index write-down or deposit → revenue |
-| `add_rewards` / `claim_revenue` | Supply-index rewards; burn revenue shares |
-| `flash_loan` / `create_strategy` | Callback lend / strategy borrow + fee |
-| `update_indexes` / `update_params` | Accrue; optional IRM replace |
-| `upgrade` | Replace contract Wasm |
-| Views | Checkpoint util, cash, rates, amounts; `get_bulk_indexes` simulates live |
+| `asset_decimals` matches the token's real `decimals()`, in `[3,18]` | `governance/validate/asset.rs::validate_market_creation` |
+| Asset contract is live (`try_decimals` + `try_symbol`) | `governance/validate/asset.rs` |
+| Rate-model params are timelocked before reaching the pool | `governance/op.rs` |
+| Flash-loan reentrancy | `controller/storage/session.rs::with_flash_guard` |
+| `scaled_amount` maps to a real position | controller position ledger |
+| Tokens arrived before any cash-crediting call | controller payment path |
 
-## Source map
+The flash guard covers six strategy entrypoints. The last row is the
+load-bearing one: `supply`, `repay`, `recapitalize` and `add_rewards` all
+credit `cash` on the controller's word, without verifying the transfer. `cash`
+is a bookkeeping number. The only reconciliation against a real
+`token.balance()` is in `flash_loan`, which checks it three times with strict
+equality.
 
-| Path | Owns |
-| --- | --- |
-| `src/lib.rs` | Module declarations and the ABI; every entrypoint delegates |
-| `src/ops/` | One module per entrypoint, end to end |
-| `src/cache/` | `Cache`: load a market, mutate by named transition, commit |
-| `src/interest.rs` | Every index movement: accrual, revenue, rewards, bad debt |
-| `src/guards.rs` | Utilization and solvency checks before a mutation persists |
-| `src/storage.rs` | The only place `PoolKey` is constructed, read, written, renewed |
-| `src/views.rs` | Checkpoint reads behind the view ABI |
-| `src/events.rs` | Batched market-state and params events |
-| `src/time.rs` | Ledger clock in milliseconds |
+## Surface
 
-Full semantics: rustdoc on the `LiquidityPoolInterface` impl in `src/lib.rs`.
-Invariants live next to the checks that enforce them (`guards`, `cache` cash
-comments, `interest` bad-debt floor).
+| Entrypoint | Role | Tokens |
+| --- | --- | --- |
+| `create_market` | Verify params, write state, indexes at `RAY` | — |
+| `update_params` | Accrue on the **old** curve, then replace the rate model | — |
+| `update_indexes` | Accrue to now; commit only if time elapsed | — |
+| `supply` | Mint supply shares, credit cash | in |
+| `borrow` | Mint debt shares, debit cash, transfer | out |
+| `withdraw` | Burn supply shares, withhold liquidation fee, transfer net | out |
+| `repay` | Burn debt shares, credit net, refund overpayment | in/out |
+| `net_settle` | Offset a user's own supply against their own debt | — |
+| `seize_positions` | Bad-debt write-down, or deposit → revenue | — |
+| `add_rewards` | Raise supply index, credit cash | in |
+| `claim_revenue` | Burn revenue shares, transfer to owner | out |
+| `recapitalize` | Credit cash up to the backing shortfall, refund excess | in/out |
+| `flash_loan` | Payout → callback → collect principal + fee | out/in |
+| `create_strategy` | Borrow for a strategy, net of fee | out |
+| `upgrade` | Replace contract Wasm | — |
+
+Tokens column: `in` means the controller transferred to the pool before the
+call and the pool only credits `cash`; `out` means the pool transfers. `in/out`
+is an inbound amount with an outbound refund leg — `repay` returns
+overpayment, `recapitalize` returns whatever exceeded the shortfall.
+`flash_loan` is `out/in`: principal leaves, then principal plus fee returns.
+
+## Flow
+
+Every operation is the same five beats:
+
+```text
+entrypoint (#[only_owner])
+  → Cache::load             # read params + state, bump TTL
+  → interest::global_sync   # accrue to now, in ≤1yr chunks
+  → mutate                  # cache/shares.rs, cache/cash.rs
+  → guards::*               # post-state checks
+  → commit → transfer_out → emit
+```
+
+Checks-effects-interactions holds everywhere except `flash_loan`, which inverts
+by nature and compensates with balance reconciliation.
+
+`ops::run_batch` gives each entry its own `Cache::load`, so two entries hitting
+the same market in one batch compose correctly — the second reads the first's
+committed state. Indexers: a market touched twice emits two snapshots in one
+`PoolMarketStateBatchEvent`; take the last. An empty batch emits nothing.
+
+## State
+
+```text
+supplied, borrowed, revenue : Ray, scaled shares
+borrow_index                : Ray, monotone non-decreasing
+supply_index                : Ray, grows on interest, falls on bad debt
+cash                        : i128, token-native, bookkeeping
+```
+
+`borrow_index` only ever grows — `update_borrow_index` is its sole writer.
+`supply_index` is **not** monotone: `apply_bad_debt_to_supply_index` scales it
+down to socialize a loss across suppliers, floored at `SUPPLY_INDEX_FLOOR_RAW`
+(`RAY/1000`). Anything caching an index must tolerate a decrease.
+
+**`revenue <= supplied`** — asserted in
+`cache/shares.rs::require_revenue_backed`.
+
+Protocol revenue is not a side pot; it is supply shares the protocol owns. Two
+paths exist and the distinction is load-bearing:
+
+| Path | Effect | Used by |
+| --- | --- | --- |
+| `accrue_revenue` | `revenue += s` **and** `supplied += s` — **mints** shares | interest, flash, liquidation and strategy fees |
+| `absorb_supply_as_revenue` | `revenue += s` only — **reassigns** existing shares | `seize_positions`, deposit side |
+
+Seizing a deposit moves ownership of shares already counted in `supplied`, so
+`supplied` must not change. Minting for interest creates new claims, so it must.
+Swapping these corrupts the accounting silently.
+
+Backing health is `guards::backing_shortfall`:
+
+```text
+supplied_claim(floor) − (cash + outstanding_debt(ceil)), clamped ≥ 0
+```
+
+## Rounding
+
+Rounding direction is a security property: **round against the user, in
+favor of the protocol**. Changing a `floor` to a `ceil` is never cosmetic.
+
+| Operation | Direction | Effect |
+| --- | --- | --- |
+| supply mint | `div_floor` | fewer shares to depositor |
+| borrow mint | `div_ceil` | more debt shares to borrower |
+| withdraw burn (partial) | `div_ceil` | more shares burned |
+| repay burn (partial) | `div_floor` | fewer debt shares forgiven |
+| supply readout | `to_asset_floor` | less claimed |
+| debt readout | `to_asset_ceil` | more owed |
+| revenue claim | `mul_ratio_ceil` | burns more treasury shares than proportional |
+
+Dust defences: `SUPPLY_VIRTUAL_VALUE_RAY` (`+1 RAY` in the supply-index
+denominator) blocks first-depositor share inflation; the `*RoundsToZeroShares`
+errors reject amounts that move value without moving shares;
+`Bps::flash_loan_fee_on` floors a fee at `1`. Undistributed dust is not lost —
+`supply_index_reward_shortfall` measures it and routes it to revenue.
+
+## Interest
+
+`interest::global_sync` accrues from `last_timestamp` to now in chunks of at
+most `MAX_COMPOUND_DELTA_MS` (one year), recomputing utilization **per chunk**
+so a stale market tracks rate drift instead of freezing one rate across the gap.
+
+```text
+util → borrow rate (curve) → e^x (compound) → borrow index
+     → supplier rewards / protocol fee (reserve_factor split)
+     → supply index → shortfall → revenue
+```
+
+Bounds: `MAX_BORROW_INDEX_RAY` and `MAX_SUPPLY_INDEX_RAY` at `1e36`;
+`SUPPLY_INDEX_REWARD_CEILING_RAY` at `1e5 × RAY`; `SUPPLY_INDEX_FLOOR_RAW` at
+`RAY/1000` floors bad-debt write-down.
+
+**`compound_interest` is an unrolled 8-term series, deliberately.**
+Straight-line code with no data-dependent branch is what Certora's SMT backend
+needs; an
+early-exit loop would be cheaper per call but multiplies paths and forces a loop
+bound or hand-written invariant. Gas is also constant regardless of staleness.
+The cost is a bounded one-directional truncation: at `x = 2` (`max_borrow_rate`
+at its `2 × RAY` cap, a full untouched year) the series gives `7.387302` against
+`e² = 7.389056` — a **0.024% under-estimate**, never an over-estimate. Reaching
+it means suppressing all activity on a 200%-APR market for a year.
+**Do not refactor this into a loop.**
+
+## Guards
+
+| Guard | Fires on | Not on |
+| --- | --- | --- |
+| `require_backed_market` | `supply` | everything else |
+| `require_utilization_below_max` | `borrow`, `create_strategy`, `withdraw` (non-liq), `claim_revenue` | `net_settle`, `seize`, liquidation |
+| `require_solvent_withdraw_state` | `withdraw`, `net_settle`, `claim_revenue` | — |
+| `require_reserves` | `borrow`, `withdraw`, `flash_loan` | — |
+
+Two asymmetries are policy, not oversight:
+
+1. **You cannot supply into an under-backed market, but you can withdraw from
+   one.** Users must always be able to leave. `recapitalize` is the way back.
+2. **Liquidation withdraws skip the utilization cap.** Liquidations must proceed
+   at the ceiling.
+
+`require_utilization_below_max` early-returns when `max_utilization >= RAY`, so
+setting it to exactly `RAY` disables the cap for that market.
+
+## Notes
+
+**`update_params`** accrues and commits on the old curve before swapping, so the
+new rate is never applied retroactively. `asset_id` and `asset_decimals` are
+immutable after creation.
+
+**`withdraw`** returns `actual_amount = gross`, while the receiver gets
+`gross − protocol_fee`. The fee is re-minted as protocol shares and the cash
+stays. Do not read `actual_amount` as tokens received.
+
+**`net_settle`** moves no tokens and cannot raise utilization in a healthy
+market:
+
+```text
+(B−x)/(S−x) − B/S  =  x·(B−S) / [S·(S−x)]
+```
+
+The denominator is positive, so the sign follows `(B−S)`. With `B < S`
+(utilization below 1) settling strictly lowers it; it rises only when `B > S`,
+a market already past every cap. Hence no utilization gate here.
+
+**`create_strategy`** computes its fee before minting debt, so `amount == 0`
+fails with `StrategyFeeExceeds` rather than `AmountMustBePositive`.
+
+**`repay`** and **`recapitalize`** refund from pool cash without debiting it,
+correct only because the controller transferred the full amount in first.
+
+## Views
+
+| View | Consumer | Interest-synced |
+| --- | --- | --- |
+| `get_bulk_indexes` | controller (`context/market_index.rs`) | **yes**, forward-simulated |
+| `get_sync_data` | controller (`context/pool.rs`) | raw; caller simulates |
+
+`get_bulk_indexes` exists so the controller can get forward-accurate indexes
+for an unsynced market without paying for a state write. That is its whole
+purpose.
+
+The scalar getters — `get_utilisation`, `get_reserves`, `get_deposit_rate`,
+`get_borrow_rate`, `get_revenue`, `get_supplied_amount`, `get_borrowed_amount`,
+`get_delta_time` — are consumed by no controller code. They return checkpoint
+values as of `last_timestamp` and lag by the accrual gap. For live figures use
+`get_sync_data` plus `simulate_update_indexes`.
+
+**Views are not read-only** — each renews market TTL, so on-chain polling incurs
+write cost.
+
+## Layout
+
+```text
+lib.rs        # ABI; every entrypoint delegates to ops/
+ops/          # one module per entrypoint, end to end
+cache/        # Cache: load a market, mutate by named transition, commit
+  scale.rs    #   share ⇄ asset conversion
+  shares.rs   #   mint/burn supply and debt, revenue mechanics
+  cash.rs     #   credit/debit, require_reserves, transfer_out
+  report.rs   #   index setters, snapshot, controller-facing mutations
+interest.rs   # every index movement: accrual, revenue, rewards, bad debt
+guards.rs     # utilization, backing, solvency
+storage.rs    # the only place PoolKey is built, read, written, renewed
+views.rs      # checkpoint reads behind the view ABI
+events.rs     # batched market-state and params events
+time.rs       # ledger clock in milliseconds
+```
+
+Shared math lives in [`common`](../../common): `math/fp.rs` (`Ray`, `Wad`,
+`Bps`), `math/fp_core.rs` (`I256`-backed mul-div), `rates/` (curve, compound,
+index, scaling, simulate), `types/pool.rs` (ABI types and `verify`).
+
+Persistent entries renew on every read; the instance renews at the top of each
+mutator. `TTL_THRESHOLD_SHARED` is 5 days, `TTL_BUMP_SHARED` 180 days.
+
+Events are batched: `PoolMarketStateBatchEvent` on state change,
+`PoolMarketParamsBatchEvent` on create and rate-model replace, and
+`StrategyFeeEvent` only when a strategy fee is non-zero.
+
+## Verification
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+
+make test-pool        # pool unit tests
+make test             # full harness (serialized)
+make certora-wasm     # then the profiles below
+make miri-common      # for changes under common/src/math or rates
+```
+
+Certora profiles: `certora-position-accounting-rules`,
+`certora-seize-settle-accounting-rules`,
+`certora-fee-strategy-accounting-rules`,
+`certora-flash-loan-accounting-rules`, `certora-core-sanity-rules`,
+`certora-guard-rules`, `certora-lifecycle-rules`.

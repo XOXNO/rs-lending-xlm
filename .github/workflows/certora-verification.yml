@@ -1,12 +1,11 @@
 name: Certora Verification
 
 on:
-
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  STELLAR_VERSION: '27.0.0'
+  STELLAR_VERSION: "27.0.0"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

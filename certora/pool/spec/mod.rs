@@ -29,3 +29,8 @@ pub mod position_accounting_rules;
     feature = "certora-seize-settle-accounting-rules"
 ))]
 pub mod seize_settle_accounting_rules;
+#[cfg(any(
+    not(feature = "certora-focused"),
+    feature = "certora-state-invariant-rules"
+))]
+pub mod state_invariant_rules;

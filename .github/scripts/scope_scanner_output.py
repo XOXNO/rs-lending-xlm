@@ -4,6 +4,7 @@
 The scanner walks the whole workspace so the symbol resolver can follow
 cross-crate refs; test/fuzz findings are noise for the audit gate.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,8 +23,10 @@ IN_SCOPE = (
     "/interfaces/price-aggregator/",
 )
 
+
 def in_scope(path: str) -> bool:
     return any(m in path for m in IN_SCOPE)
+
 
 def main() -> None:
     data = json.load(sys.stdin)
@@ -45,6 +48,7 @@ def main() -> None:
     data["detector_responses"] = narrowed
     json.dump(data, sys.stdout, indent=2)
     sys.stdout.write("\n")
+
 
 if __name__ == "__main__":
     main()

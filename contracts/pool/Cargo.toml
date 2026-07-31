@@ -32,6 +32,7 @@ certora-flash-loan-accounting-rules = ["certora", "certora-focused"]
 certora-core-sanity-rules = ["certora", "certora-focused"]
 certora-guard-rules = ["certora", "certora-focused"]
 certora-lifecycle-rules = ["certora", "certora-focused"]
+certora-state-invariant-rules = ["certora", "certora-focused"]
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

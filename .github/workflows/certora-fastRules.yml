@@ -1,7 +1,6 @@
 name: Certora Prover Fast Rules
 
 on:
-
   workflow_dispatch:
     inputs:
       profile:
@@ -22,7 +21,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  STELLAR_VERSION: '27.0.0'
+  STELLAR_VERSION: "27.0.0"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -56,7 +55,6 @@ jobs:
             ${{ runner.os }}-cargo-certora-
 
       - name: Install stellar-cli
-
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Compile Certora feature paths
@@ -74,7 +72,6 @@ jobs:
           fi
 
       - name: Install Python
-
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
