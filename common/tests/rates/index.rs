@@ -547,3 +547,113 @@ fn test_supply_index_shortfall_requires_index_within_cap() {
 
     let _ = supply_index_reward_shortfall(&env, supplied, old_index, new_index, rewards);
 }
+
+// ---------------------------------------------------------------------------
+// Virtual-offset dilution.
+//
+// `Ray::from_asset` rescales every asset to RAY_DECIMALS, so one whole token is
+// worth exactly RAY of internal value for ANY `asset_decimals`. That makes
+// `SUPPLY_VIRTUAL_VALUE_RAY` (= RAY) an offset of exactly one whole token, and
+// its economic weight is therefore the token's market price.
+//
+// Consequence: the share of accrued interest that never reaches suppliers is
+// `1 / (N + 1)`, where N is the whole-token supply. It depends on the TOKEN
+// COUNT, not on the market's dollar size -- so two markets of identical value
+// divert wildly different fractions of interest to protocol revenue.
+//
+// No value is destroyed (the shortfall is booked as revenue), but
+// `calculate_deposit_rate` models only `reserve_factor`, so `get_deposit_rate`
+// overstates realized supplier yield by exactly this fraction.
+// ---------------------------------------------------------------------------
+
+/// One whole token expressed in internal RAY value units.
+fn one_token_value(decimals: u32) -> Ray {
+    Ray::from_asset(10i128.pow(decimals), decimals)
+}
+
+/// Splits `rewards` for a market holding `n_tokens` at `supply_index == RAY`,
+/// returning `(distributed_to_suppliers, diverted_to_revenue)`.
+fn split_interest(env: &Env, n_tokens: i128, decimals: u32, rewards: Ray) -> (Ray, Ray) {
+    let supplied = Ray::from_asset(n_tokens * 10i128.pow(decimals), decimals);
+    let old_index = Ray::ONE;
+    let new_index = update_supply_index(env, supplied, old_index, rewards);
+    let distributed = supplied
+        .mul(env, new_index)
+        .checked_sub(env, supplied.mul(env, old_index));
+    let shortfall = supply_index_reward_shortfall(env, supplied, old_index, new_index, rewards);
+    (distributed, shortfall)
+}
+
+#[test]
+fn test_one_whole_token_normalizes_to_one_ray_at_every_decimals() {
+    for decimals in [0u32, 6, 7, 8, 18] {
+        assert_eq!(
+            one_token_value(decimals).raw(),
+            RAY,
+            "one whole token must be exactly RAY of value at {decimals} decimals, \
+             which is what makes SUPPLY_VIRTUAL_VALUE_RAY a one-token offset",
+        );
+    }
+}
+
+#[test]
+fn test_virtual_offset_diverts_one_over_n_plus_one_of_all_interest() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+
+    for (n_tokens, decimals) in [(1i128, 8u32), (10, 8), (100, 8), (1_000, 8), (1_000_000, 7)] {
+        let rewards = Ray::from(n_tokens * RAY / 20);
+        let (distributed, shortfall) = split_interest(&env, n_tokens, decimals, rewards);
+
+        assert_eq!(
+            distributed.raw() + shortfall.raw(),
+            rewards.raw(),
+            "interest must stay conserved at N={n_tokens}",
+        );
+
+        let expected = rewards.raw() / (n_tokens + 1);
+        let slack = (expected / 1_000_000).max(2);
+        assert!(
+            (shortfall.raw() - expected).abs() <= slack,
+            "N={n_tokens}: diverted {} but 1/(N+1) predicts {}",
+            shortfall.raw(),
+            expected,
+        );
+    }
+}
+
+#[test]
+fn test_equal_value_markets_divert_unequal_interest_by_token_count() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+
+    // Two markets of the same dollar size (~$1,000,000):
+    //   WBTC-like: 10 tokens at $100,000, 8 decimals
+    //   USDC-like: 1,000,000 tokens at $1, 7 decimals
+    let (btc_dist, btc_short) = split_interest(&env, 10, 8, Ray::from(10 * RAY / 20));
+    let (usd_dist, usd_short) = split_interest(&env, 1_000_000, 7, Ray::from(1_000_000 * RAY / 20));
+
+    let btc_total = btc_dist.raw() + btc_short.raw();
+    let usd_total = usd_dist.raw() + usd_short.raw();
+
+    assert_eq!(
+        btc_short.raw() * 10_000 / btc_total,
+        909,
+        "a 10-token market must divert ~9.09% (1/11) of interest",
+    );
+    assert_eq!(
+        usd_short.raw() * 10_000 / usd_total,
+        0,
+        "a 1,000,000-token market diverts under 0.01% of interest",
+    );
+
+    // The point: identical value, orders of magnitude apart in dilution.
+    // Compared in parts-per-million so neither side overflows i128.
+    let btc_ppm = btc_short.raw() * 1_000_000 / btc_total;
+    let usd_ppm = usd_short.raw() * 1_000_000 / usd_total;
+    assert!(
+        btc_ppm > usd_ppm * 1_000,
+        "token-count denomination makes the low-count market divert >1000x more: \
+         {btc_ppm} ppm vs {usd_ppm} ppm",
+    );
+}
