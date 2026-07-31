@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile every Certora feature path and verify conf/profile rule coverage.
+
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

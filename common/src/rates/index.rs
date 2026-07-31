@@ -13,26 +13,6 @@ pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> R
     new_index
 }
 
-/// Grows the supply index so `rewards_increase` accrues to suppliers, diluted by
-/// the `SUPPLY_VIRTUAL_VALUE_RAY` offset that keeps a dust-sized market from
-/// inflating the index without bound.
-///
-/// Both roundings are **floor** (`div_floor`, then `mul_div_floor_saturating`),
-/// so the index is never moved further than the reward actually pays for; the
-/// residue is recovered by [`supply_index_reward_shortfall`] and booked as
-/// protocol revenue. The result is clamped into
-/// `[min(old_index, MAX_SUPPLY_INDEX_RAY), MAX_SUPPLY_INDEX_RAY]`.
-///
-/// # Preconditions
-///
-/// `old_index <= MAX_SUPPLY_INDEX_RAY`. Above the cap the clamp moves the index
-/// *down*, which [`supply_index_reward_shortfall`] rejects. The pool upholds
-/// this: markets open at `RAY`, every write either passes through this clamp or
-/// through the bad-debt path, which only reduces the index.
-///
-/// Panics with [`GenericError::MathOverflow`](crate::errors::GenericError) if
-/// `supplied * old_index / RAY` does not fit in `i128` — that is, if the
-/// market's total value exceeds the `i128` ceiling.
 pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_increase: Ray) -> Ray {
     if supplied == Ray::ZERO || rewards_increase == Ray::ZERO {
         return old_index;
@@ -56,30 +36,6 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     Ray::from(grown.min(MAX_SUPPLY_INDEX_RAY).max(bounded_old))
 }
 
-/// Returns the part of `rewards_increase` that the index move did *not* hand to
-/// suppliers, so callers can book it as protocol revenue instead of letting it
-/// vanish. `distributed + shortfall == rewards_increase` exactly.
-///
-/// `new_index` must come from [`update_supply_index`] called with the same
-/// `supplied`, `old_index` and `rewards_increase`.
-///
-/// The measurement rounds **half-up** on both legs while `update_supply_index`
-/// derived the index by flooring twice, so the two disagree by up to 1 ulp. That
-/// is safe: writing `V = round_half_up(supplied * old_index / RAY)` and
-/// `inc = floor(old_index * floor(R * RAY / (V + RAY)) / RAY)`, we have
-/// `supplied * inc / RAY <= R * (V + 0.5) / (V + RAY) < R`, so
-/// `floor(supplied * inc / RAY) <= R - 1`, and the half-up pair can add at most
-/// one more unit — leaving `distributed <= R`. The slack is `~R * RAY /
-/// (V + RAY)` and it does reach zero, so the bound is tight but never violated.
-/// Pinned by the sweeps in `common/tests/rates/index.rs`.
-///
-/// # Preconditions
-///
-/// `new_index >= old_index`, which holds for any `old_index <=
-/// MAX_SUPPLY_INDEX_RAY`. Otherwise the `MAX_SUPPLY_INDEX_RAY` clamp inside
-/// `update_supply_index` moves the index down, `distributed` goes negative and
-/// this panics with
-/// [`GenericError::MathOverflow`](crate::errors::GenericError).
 pub fn supply_index_reward_shortfall(
     env: &Env,
     supplied: Ray,

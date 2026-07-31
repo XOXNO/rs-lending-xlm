@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Derive one focused Certora WASM target per rule-source module."""
 
 from __future__ import annotations

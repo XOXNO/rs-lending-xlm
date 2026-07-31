@@ -1,6 +1,6 @@
-# macOS fuzz coverage uses TSAN with instrumentation coverage.
-# profiler_builtins builds without sanitizer flags; allow that ABI mismatch here.
-# Scope: cargo reads this config only under tests/fuzz/.
+
+
+
 
 [target.aarch64-apple-darwin]
 rustflags = ["-Cunsafe-allow-abi-mismatch=sanitizer"]

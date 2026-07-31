@@ -2850,9 +2850,6 @@ fn test_bad_debt_wipeout_leaves_market_usable_at_realistic_scale() {
     assert!(opened.get(0).unwrap().position.scaled_amount > 0);
 }
 
-/// A market opened through `create_market` and then driven *only* by public
-/// entrypoints — no `edit_state`, no pre-seeded `cash`. Every number the market
-/// ends up holding is produced by production accounting.
 struct CleanMarket {
     env: Env,
     asset: Address,
@@ -2860,7 +2857,6 @@ struct CleanMarket {
 }
 
 impl CleanMarket {
-    /// Opens a market whose utilization cap is `max_utilization`.
     fn open(max_utilization: i128) -> Self {
         let env = Env::default();
         env.mock_all_auths();
@@ -2886,8 +2882,6 @@ impl CleanMarket {
         LiquidityPoolClient::new(&self.env, &self.pool)
     }
 
-    /// Mirrors the inbound transfer the controller performs before it calls the
-    /// pool. The pool only *tracks* `cash`; it never pulls the tokens itself.
     fn fund(&self, amount: i128) {
         token::StellarAssetClient::new(&self.env, &self.asset).mint(&self.pool, &amount);
     }
@@ -2939,29 +2933,10 @@ impl CleanMarket {
     }
 }
 
-/// `borrowed <= supplied` compared over **scaled shares** is NOT an invariant of
-/// the persisted market state.
-///
-/// `add_rewards` is the lever. It raises `supply_index` (`interest::
-/// distribute_reward`) while leaving `borrow_index` alone, and credits the whole
-/// reward to `cash`. Afterwards each borrowed token still mints ~1 debt share,
-/// each supplied token mints only `1 / supply_index` supply shares, and the
-/// reward cash is what funds the borrow — so `require_reserves` is satisfied by
-/// the very deposit that skewed the indexes.
-///
-/// No guard objects, because none of them is denominated in shares:
-/// `require_utilization_below_max` compares *values*, and value-utilization here
-/// is 50% against a hard 80% cap. Written out, the share ordering flips exactly
-/// when `utilization > borrow_index / supply_index`, and `add_rewards` can drive
-/// that ratio arbitrarily far below 1.
 #[test]
 fn test_borrowed_shares_exceed_supplied_shares_after_add_rewards() {
-    const ONE_TOKEN: i128 = 10_000_000; // market_params uses asset_decimals = 7
+    const ONE_TOKEN: i128 = 10_000_000;
 
-    // The tightest cap `InterestRateModel::verify` accepts is
-    // `max_utilization == optimal_utilization`; anything lower is rejected. This
-    // keeps `require_utilization_below_max` from taking its `>= Ray::ONE`
-    // early return, so the cap is genuinely enforced below.
     let t = CleanMarket::open(RAY * 80 / 100);
     let client = t.client();
 
@@ -2974,16 +2949,11 @@ fn test_borrowed_shares_exceed_supplied_shares_after_add_rewards() {
     assert_eq!(opened.cash, 0);
     assert_eq!((opened.supply_index, opened.borrow_index), (RAY, RAY));
 
-    // 1. Supply 100 tokens at supply_index == RAY.
     t.supply(100 * ONE_TOKEN);
     let after_supply = t.state();
     assert_eq!(after_supply.cash, 100 * ONE_TOKEN);
     assert_eq!(after_supply.supply_index, RAY);
 
-    // 2. Reward the suppliers with 900 tokens. `distribute_reward` lifts
-    //    supply_index to ~9.911 RAY -- not a round 10x, because
-    //    `update_supply_index` dilutes by the SUPPLY_VIRTUAL_VALUE_RAY offset and
-    //    books the residue as revenue. The 900 tokens land in `cash`.
     t.add_rewards(900 * ONE_TOKEN);
     let after_rewards = t.state();
     assert_eq!(after_rewards.cash, 1_000 * ONE_TOKEN);
@@ -3004,13 +2974,9 @@ fn test_borrowed_shares_exceed_supplied_shares_after_add_rewards() {
         "the ordering is still intact before the borrow"
     );
 
-    // 3. Borrow 500 of the 1_000 tokens of cash. borrow_index is still RAY, so
-    //    this mints 500 tokens' worth of debt *shares*.
     t.borrow(500 * ONE_TOKEN);
     let post = t.state();
 
-    // The verdict: persisted state with ~4.96x more debt shares than supply
-    // shares, reached without a single storage poke.
     assert_eq!(post.borrowed, 500_000_000_000_000_000_000_000_000_000);
     assert_eq!(post.supplied, 100_899_100_899_100_899_100_899_100_908);
     assert!(
@@ -3020,8 +2986,6 @@ fn test_borrowed_shares_exceed_supplied_shares_after_add_rewards() {
         post.supplied
     );
 
-    // ... and every production guard was satisfied, not bypassed. Utilization is
-    // measured in value, so it reads a comfortable 50% against the 80% cap.
     assert_eq!(client.get_utilisation(&hub(&t.asset)), RAY / 2);
     assert_eq!(post.cash, 500 * ONE_TOKEN);
     assert!(

@@ -181,7 +181,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const marker = '<!-- coverage-report -->';
+            const marker = '<a name="coverage-report"></a>';
             const headPct = Number(process.env.HEAD_PCT);
             const hasBase = process.env.HAS_BASE === 'true';
             const basePct = hasBase ? Number(process.env.BASE_PCT) : null;
@@ -189,7 +189,7 @@ jobs:
             let headline;
             if (hasBase) {
               const delta = headPct - basePct;
-              const eps = 0.005; // below the report's 2-dp resolution
+              const eps = 0.005;
               const indicator = delta > eps ? '🟢 ▲' : (delta < -eps ? '🔴 ▼' : '⚪ —');
               const sign = delta >= 0 ? '+' : '';
               headline = `**${basePct.toFixed(2)}% → ${headPct.toFixed(2)}%**  (${sign}${delta.toFixed(2)} pp) ${indicator}`;

@@ -1,27 +1,27 @@
-# Mainnet config for the lending metrics exporter.
-#
-# Markets / hubs / spokes mirror configs/mainnet/{markets,hubs,spokes}.json.
-# Contract IDs mirror configs/networks.json when present.
-#
-# Controller (and optionally price_aggregator) must be filled from
-# configs/networks.json after mainnet deploy — the exporter refuses to
-# boot until contracts.controller is a valid C… address.
-# Pool + price-aggregator are also resolved each scrape from controller
-# views; YAML price_aggregator is only a fallback.
+
+
+
+
+
+
+
+
+
+
 network: mainnet
 rpc:
-  # Coolify shared-network alias (stellar-rpc-mainnet → :8080). Requires the
-  # exporter container to be attached to the `coolify` Docker network.
-  # Public fallback: https://stellar-gateway.xoxno.com
+
+
+
   url: http://stellar-rpc-mainnet:8080
   passphrase: "Public Global Stellar Network ; September 2015"
   timeout_seconds: 30
 contracts:
-  # From configs/networks.json — empty until mainnet controller is deployed.
+
   controller: ""
-  # Optional fallback if controller.price_aggregator view is unavailable.
+
   price_aggregator: ""
-  # Spiko / xoxno adapter (provider probes); RedStone legs resolve from oracle config.
+
   xoxno_oracle_adapter: "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM"
 markets:
   - { hub_id: 1, asset: CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA, symbol: XLM }
@@ -42,11 +42,11 @@ markets:
   - { hub_id: 2, asset: CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP, symbol: USDY }
   - { hub_id: 1, asset: CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN, symbol: SolvBTC }
 spokes: [1, 2, 3, 4, 5]
-# hub_id -> display name (configs/mainnet/hubs.json)
+
 hubs:
   1: Core
   2: RWA
-# spoke_id -> display name (configs/mainnet/spokes.json)
+
 spoke_names:
   1: Main
   2: Etherfuse

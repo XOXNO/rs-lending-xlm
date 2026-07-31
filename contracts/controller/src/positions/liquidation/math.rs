@@ -159,10 +159,11 @@ pub(crate) fn normalize_repayment_plan(
 
     if total_debt_payment_usd < ideal_repayment_usd {
         if let Some(cap) = max_hf_preserving_bonus_bps(snap) {
-            if cap >= 0 && cap < bonus_bounds.base.raw() {
-                if sum_repaid_usd_ceil(env, &repaid_tokens) < ideal_repayment_usd {
-                    panic_with_error!(env, CollateralError::FullCloseRequired);
-                }
+            if cap >= 0
+                && cap < bonus_bounds.base.raw()
+                && sum_repaid_usd_ceil(env, &repaid_tokens) < ideal_repayment_usd
+            {
+                panic_with_error!(env, CollateralError::FullCloseRequired);
             }
         }
     }

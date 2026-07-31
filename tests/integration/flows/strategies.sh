@@ -1,8 +1,8 @@
-# Strategy endpoints flash-loan from the pool and run user-selected DEX
-# instructions. The mock strategy rejects oracle-mismatched routes and enforces
-# min_out. Swap legs refresh quotes inside each callback.
-#
-# XDR-encodes FlashLoanRequest{mode} for the test receiver's `data` arg.
+
+
+
+
+
 flash_data_hex() {
     local mode="$1"
     jq -nc --argjson m "$mode" '{map:[{key:{symbol:"mode"},val:{u32:$m}}]}' \
@@ -11,23 +11,23 @@ flash_data_hex() {
 
 flow_flash_loans() {
     phase flash_loans
-    # Fund the receiver so it can cover the flash-loan fee.
+
     sac_transfer "$ALICE" "$USDC_SAC" "$ALICE_ADDR" "$FLASH_RECEIVER" 50000000 fund_flash_receiver
 
     inv flash_loan_success "$ALICE" "$CONTROLLER" -- flash_loan \
         --caller "$ALICE_ADDR" --asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount 100000000 \
         --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex 0)" >/dev/null
 
-    # Each malicious mode must REVERT the flash loan; the exact code varies by
-    # mechanism (the precise per-mode codes are pinned by the unit / Certora
-    # flash_loan rules). #402 = InvalidFlashloanRepay, #400 = FlashLoanOngoing.
-    #  - reenter_pool: the receiver re-enters pool.flash_loan while the pool is
-    #    already on the call stack; Soroban 26.x forbids contract re-entry at the
-    #    HOST level -> Error(Context, InvalidAction), not a #40x contract code.
-    #  - panic: the receiver panics with ReceiverError::CallbackPanic (#3), which
-    #    propagates as a contract error (or a host trap).
-    #  - reenter_supply: the receiver re-enters controller.supply; the repay
-    #    shortfall (#402) / FlashLoanOngoing (#400) / host re-entry block aborts it.
+
+
+
+
+
+
+
+
+
+
     local mode name pattern
     for mode in 1 2 3 4 5; do
         case $mode in
@@ -43,14 +43,14 @@ flow_flash_loans() {
     done
 }
 
-# Strategy legs run exclusively on the XLM↔USDC venue: the testnet EURC AMM
-# pool holds dust (1,500 XLM quotes to ~0.14 EURC), so EURC coverage stops at
-# market creation + oracle + the aggregator purchase leg in the funding flow.
-# Sizing accounts for the oracle/DEX divergence (Reflector XLM ≈ $0.19 vs DEX
-# rate ≈ $0.134): HF math uses ORACLE prices while swap legs fill at DEX rates.
+
+
+
+
+
 flow_strategies() {
     phase strategies
-    local flash_usdc=300000000   # 30 USDC
+    local flash_usdc=300000000
     local swap_hex
     swap_hex=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$flash_usdc") || return 1
     local macct
@@ -63,10 +63,10 @@ flow_strategies() {
     log "multiply account = $macct"
     assert_hf_at_least hf_multiply "$macct" "$WAD"
 
-    # swap_debt: convert part of the USDC debt into XLM debt (forward quote on
-    # the NEW debt; both remaining USDC debt and new XLM debt stay above the
-    # $10 dust floor).
-    local new_xlm_debt=1000000000   # 100 XLM ≈ $19 oracle
+
+
+
+    local new_xlm_debt=1000000000
     swap_hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" "$new_xlm_debt") || return 1
     inv swap_debt "$ALICE" "$CONTROLLER" -- swap_debt \
         --caller "$ALICE_ADDR" --account_id "$macct" \
@@ -84,12 +84,12 @@ flow_strategies() {
     }
     retry_leg leg_swap_collateral
 
-    # repay_debt_with_collateral: sell 500 XLM collateral toward the USDC
-    # debt. XLM→USDC at ≥500 XLM is the only quote shape the testnet router
-    # reliably serves 1-hop (small or reverse-direction quotes route through
-    # broken middle pools). Widen the account first: extra XLM collateral
-    # keeps LTV safe and a topped-up USDC debt keeps the post-repay residue
-    # above the $10 floor.
+
+
+
+
+
+
     inv supply_for_rdwc "$ALICE" "$CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id "$macct" --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 10000000000)" >/dev/null
@@ -108,15 +108,15 @@ flow_strategies() {
 
     assert_hf_at_least hf_post_strategies "$macct" "$WAD"
 
-    # repay_debt_with_collateral close_position=true full-close branch.
-    # CAROL opens a tiny USDC debt, sells all XLM collateral through the DEX,
-    # and exits with no borrow or collateral positions (account deregisters).
-    #
-    # Sizing: close_position requires zero residual debt (#114
-    # CannotCloseWithRemainingDebt). Testnet DEX XLM fills can run ~$0.13 while
-    # the oracle is ~$0.19, so a 30 USDC debt sold against 250 XLM often left
-    # residual debt. Keep debt at 10 USDC and sell the full 400 XLM collateral
-    # with 10% slippage so the swap clears the loan with wide headroom.
+
+
+
+
+
+
+
+
+
     local rdwc_acct
     rdwc_acct=$(inv rdwc_close_supply "$CAROL" "$CONTROLLER" -- supply \
         --caller "$CAROL_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
@@ -126,7 +126,7 @@ flow_strategies() {
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 100000000)" --to null >/dev/null
     leg_rdwc_close() {
         local hex
-        # Sell all 400 XLM collateral; 10% slippage keeps min_out loose.
+
         hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 4000000000 0.10) || return 1
         inv rdwc_close "$CAROL" "$CONTROLLER" -- repay_debt_with_collateral \
             --caller "$CAROL_ADDR" --account_id "$rdwc_acct" \
@@ -134,15 +134,15 @@ flow_strategies() {
             --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" --close_position true >/dev/null
     }
     retry_leg leg_rdwc_close
-    # Full close empties + deregisters the account.
+
     assert_bool_view rdwc_closed false account_exists --account_id "$rdwc_acct"
 
-    # multiply SHORT: flash-borrow XLM, swap to USDC collateral, keep HF ≥ 1.
-    # XLM→USDC below ~500 XLM quotes multi-hop through thin middle pools and
-    # reverts SlippageExceeded (#5) even at 5% — same shape as rdwc/repay legs.
-    # 500 XLM 1-hop + 100 USDC seed (Alice holds ~1/4 of the funding swap)
-    # keeps post-HF healthy when oracle XLM (~$0.19) is above the DEX fill
-    # (~$0.13): debt ≈ $95, coll ≈ 100 + ~65 swap-out.
+
+
+
+
+
+
     local flash_xlm=5000000000 sacct=""
     leg_multiply_short() {
         local hex

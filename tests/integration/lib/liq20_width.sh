@@ -1,5 +1,5 @@
-# 20-feed liquidation width research helpers (requires stress.sh, invoke.sh, core.sh).
-# Intentional frontier misses are recorded as status=research so assert_green ignores them.
+
+
 
 : "${LIQ20_TX_CAP:=400000000}"
 : "${LIQ20_DEFAULT_REPAY_EACH:=$((3000 * ${STRESS_UNIT:-10000000}))}"
@@ -42,7 +42,7 @@ liq20_liquidate_send() {
     return 1
 }
 
-# Walk widths on-chain until one lands; record research status on event-cap rejects.
+
 liq20_events_width_walk() {
     local state_key="$1"; shift
     local n repay_each label
@@ -61,7 +61,7 @@ liq20_events_width_walk() {
     return 1
 }
 
-# V2 walk: sim-first, dynamic leeway from declared instruction headroom.
+
 liq20_v2_walk_widths() {
     local state_key="$1"; shift
     local n repay_each headroom leeway label
@@ -94,7 +94,7 @@ liq20_v2_walk_widths() {
     return 1
 }
 
-# Bisect: sim must pass AND declared instructions must fit the tx cap before send.
+
 liq20_bisect_widths() {
     local state_key="$1"; shift
     local n repay_each
@@ -117,7 +117,7 @@ liq20_bisect_widths() {
     return 1
 }
 
-# Find widest n that simulates cleanly, then send one proof tx.
+
 liq20_fullrepay_probe() {
     local state_key="$1"; shift
     local best_n=0 n repay_each
@@ -140,7 +140,7 @@ liq20_fullrepay_probe() {
     save_state "$state_key" "$best_n"
 }
 
-# One-shot 9-debt send with fixed leeway.
+
 liq20_send_9debt_leeway() {
     local label=liq20_proof_9debt_leeway
     if liq20_liquidate_send "$label" "$LIQ20_DEFAULT_LEEWAY" 9; then

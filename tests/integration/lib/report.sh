@@ -1,10 +1,10 @@
-# Renders runs/<RUN_TS>/report.md from actions.tsv.
-#
-# Resource columns are the DECLARED Soroban resources from each signed
-# envelope (instructions = CPU meter, disk-read / write bytes) plus the
-# resource fee. Memory bytes are not exposed by RPC or the explorer API —
-# the linked explorer page shows the full resource breakdown per tx, and
-# local memory profiling lives in tests/test-harness budget tests.
+
+
+
+
+
+
+
 
 write_report() {
     local report="$RUN_DIR/report.md"

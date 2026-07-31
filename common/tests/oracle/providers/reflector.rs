@@ -67,11 +67,6 @@ fn try_twap_mean_price_softens_overflow_and_empty() {
     assert_eq!(try_twap_mean_price(&empty), None);
 }
 
-// The hard `twap_mean_price` had no direct coverage, so its mutants survived
-// every native pass and were only killed by the integration harness three
-// passes later. The samples below are chosen so the arithmetic itself is
-// pinned, not merely the happy path: 600/3 = 200 is distinct from 600%3 = 0
-// and 600*3 = 1800, and from the constant returns 0, 1 and -1.
 #[test]
 fn twap_mean_price_divides_the_sum_by_the_sample_count() {
     let env = Env::default();

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Summarize llvm-cov LCOV into a markdown table for one coverage mode."""
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ from pathlib import Path
 
 REPO_MARKER = "/rs-lending-xlm/"
 
-# path substring → included when mode matches
+
 MODE_PATHS: dict[str, tuple[str, ...]] = {
     "controller": ("/contracts/controller/", "/common/"),
     "pool": ("/contracts/pool/",),

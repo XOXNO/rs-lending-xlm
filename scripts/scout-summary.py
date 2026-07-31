@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Render Scout JSON reports as Markdown (stdout / $GITHUB_STEP_SUMMARY).
 
 Usage:

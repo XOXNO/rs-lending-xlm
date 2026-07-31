@@ -1,6 +1,6 @@
-# Fast-tick override of testnet.yaml for local dry-run testing.
-# Same contract IDs and RPC, but ticks every 15s so a 60s boot test
-# observes at least one TTL tick + one index tick.
+
+
+
 network: testnet
 
 rpc:
@@ -12,14 +12,14 @@ contracts:
   controller: CBSCWXCIAASFR2F2332D2I7C6VWUJZKUW4ONOZR2LZ32KOZ5UZVNJ3LA
   pool_wasm_hash: a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa
   markets: []
-  market_assets: [] # Legacy hub_id=1 shorthand; prefer markets.
+  market_assets: []
   flash_loan_receiver: CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ
   governance: CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH
-  # Self-hosted price oracle (networks.json: xoxno_oracle_adapter).
+
   xoxno_oracle_adapter: CBC36EELLDMEPKSJLHEQTKUXWKS27TC3TFMTMMB22CZBIU72E7KPIRJS
-  # Price aggregator (oracle authority; networks.json: price_aggregator).
-  # REQUIRED when markets are configured: the keeper renews its AssetOracle
-  # rows and instance/code. Fill after the price-aggregator deploy.
+
+
+
   price_aggregator: ""
 
 keyvault:

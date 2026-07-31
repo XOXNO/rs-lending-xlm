@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Narrow soroban-scanner JSON to deployable crates.
 
 The scanner walks the whole workspace so the symbol resolver can follow

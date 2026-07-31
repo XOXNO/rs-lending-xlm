@@ -144,16 +144,6 @@ fn validate_multiply_request(
     require_positive_amount(env, debt_to_flash_loan);
 }
 
-/// Collects the caller's optional up-front payment.
-///
-/// The payment asset is **transit-only** — it is either already the collateral
-/// or the debt asset, or it is swapped into the collateral asset before any
-/// position is touched. It never becomes a position, so it is deliberately not
-/// priced and not gated against the spoke: the listing, pause, freeze and
-/// `can_supply` checks all apply to the resulting collateral in
-/// `supply::process_deposit`, and the swap itself is bounded by
-/// `settle_router_input` (no router overspend) and `verify_router_output`
-/// (non-zero output).
 fn collect_initial_multiply_payment(
     env: &Env,
     caller: &Address,

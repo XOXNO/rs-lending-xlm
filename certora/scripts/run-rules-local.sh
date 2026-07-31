@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Run every rule of a conf as its own local prover invocation.
-# Default sequential; -j N runs N rules in isolated temporary work directories.
-#
-# Soundness note: Verified verdicts are final regardless of machine load;
-# only Timeout verdicts are load-sensitive — retry those solo (-j 1).
-#
-# Usage: run-rules-local.sh [-j N] <path/to/conf> [rule ...]
+
+
+
+
+
+
+
 set -euo pipefail
 jobs=1
 if [ "${1:-}" = "-j" ]; then jobs="$2"; shift 2; fi
@@ -15,17 +15,17 @@ conf="$conf_dir/$(basename "$conf_input")"
 name=$(basename "$conf")
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 
-# Bound each job's JVM heap so local preprocessing cannot exhaust the box.
-# Raise this explicitly for a solo heavy rule when the machine has headroom.
+
+
 heap="${CERTORA_JAVA_HEAP:--Xmx8g}"
 
-# Cloud keeps per-assert checking for diagnostics. Locally, one rule with many
-# assertions can fan out enough concurrent Z3 workers to exhaust a 48 GiB host.
-# Aggregate assertions by default; opt back in only with measured headroom.
+
+
+
 local_multi_assert="${CERTORA_LOCAL_MULTI_ASSERT:-false}"
 
-# Local prover invocation (see README "Local prover"): CLI script + emv.jar.
-# Override CERTORA_LOCAL with a full command prefix if the install moves.
+
+
 install_dir="${CERTORA_INSTALL:-$HOME/certora-install}"
 if [ -n "${CERTORA_LOCAL:-}" ]; then
   read -r -a local_cmd <<< "$CERTORA_LOCAL"
@@ -36,7 +36,7 @@ else
     if [ -n "$cli_path" ]; then
       cli_shebang=$(head -1 "$cli_path" 2>/dev/null || true)
       case "$cli_shebang" in
-        '#!'/*) certora_python=${cli_shebang#\#!} ;;
+        '#!'/*) certora_python=${cli_shebang
       esac
     fi
   fi
@@ -57,10 +57,10 @@ else
   local_cmd=("$certora_python" "$install_dir/certoraSorobanProver.py")
 fi
 
-# Every invocation gets a private working directory. Certora resets
-# .certora_internal at startup, so sharing the conf directory makes parallel
-# invocations delete each other's active build state. Absolute WASM paths keep
-# the temporary config independent of its location.
+
+
+
+
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/certora-local.XXXXXX")
 local_conf="$work_dir/local.conf"
 python3 - "$conf" "$local_conf" "${CERTORA_LOCAL_SPLIT_PARALLEL:-false}" "$local_multi_assert" <<'PY'
@@ -133,15 +133,15 @@ on_signal() {
 trap cleanup EXIT
 trap on_signal HUP INT TERM
 
-if [ $# -gt 0 ]; then rules=("$@"); else
+if [ $
   rules=()
   while IFS= read -r rule; do
     rules+=("$rule")
   done < <(python3 -c "import json,sys; [print(r) for r in json.load(open(sys.argv[1]))['rule']]" "$conf")
 fi
 
-# Homebrew Java can occasionally be rejected by macOS library-signature
-# policy. Prefer an installed Temurin/JDK 21 unless the caller pins Java.
+
+
 java_home="${CERTORA_JAVA_HOME:-${JAVA_HOME:-}}"
 if [ -z "$java_home" ] && [ -x /usr/libexec/java_home ]; then
   java_home=$(/usr/libexec/java_home -v 21 2>/dev/null || true)

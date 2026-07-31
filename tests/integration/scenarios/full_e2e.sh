@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Full release e2e against live testnet.
-#
-#   RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/full_e2e.sh
-#
-# Re-running with the SAME RUN_TS resumes: deployed contracts, wallets, and
-# completed setup blocks are restored from runs/<RUN_TS>/state.env.
-# PHASES selects a subset (space-separated), e.g.:
-#   PHASES="deploy lifecycle" RUN_TS=... bash scenarios/full_e2e.sh
+
+
+
+
+
+
+
+
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,7 +25,7 @@ else
     log "NOTE: no $INTEG_DIR/appendix.md (run 'make integration-appendix' to (re)generate)"
 fi
 
-# Preflight guards (non-fatal; CI may enforce).
+
 check_tools 2>/dev/null || log "WARNING: some required tools missing (see check_tools)"
 check_stellar_version 2>/dev/null || log "WARNING: stellar CLI version check failed or not met"
 
@@ -60,13 +60,13 @@ if want strategies; then
 fi
 
 if want liquidation; then
-    # Under heavy testnet read-after-write lag a flow op can revert on state the
-    # immediately-prior op wrote but the replica hasn't synced yet — a borrow
-    # racing the account its supply just opened (#24 AccountNotFound), or a
-    # liquidate reading a price crash that hasn't landed (#101 HealthFactorTooHigh).
-    # These flows are validated and must-succeed, so let inv re-simulate contract
-    # errors with backoff. The xfail revert guards use a separate path (they do
-    # not read INV_TRANSIENT_CONTRACT_RE), so their expected reverts are unaffected.
+
+
+
+
+
+
+
     INV_TRANSIENT_CONTRACT_RE='Error\(Contract, #'
     flow_liq_setup
     flow_liq_single
@@ -76,8 +76,8 @@ if want liquidation; then
     unset INV_TRANSIENT_CONTRACT_RE
 fi
 
-# DeFindex strategy adapter on its own dedicated mock market; venue-free, so it
-# rides the mock liquidation lane.
+
+
 if want defindex; then
     flow_defindex_strategy
 fi
@@ -86,8 +86,8 @@ if want admin; then
     flow_admin
 fi
 
-# Governance timelock e2e on the governance-owned controller (independent of the
-# EOA controller state); runs before admin_upgrade pauses the EOA controller.
+
+
 if want governance; then
     flow_governance
 fi

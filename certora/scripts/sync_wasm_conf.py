@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Point Certora conf files at prebuilt WASM under artifacts/wasm/certora/."""
 
 from __future__ import annotations

@@ -601,12 +601,12 @@ jobs:
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=cc" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-C link-arg=-fuse-ld=$linker" >> "$GITHUB_ENV"
 
-      # Workers per lane must be sized per host: lanes land wherever a service
-      # is free, and the hosts are not alike (24 cores / 4 services vs 8 cores
-      # / 3 services). One global constant over-commits the small box by 3x.
-      # The invariant is services_on_host x workers <= cores_on_host, so the
-      # service count is the only thing that cannot be probed and has to be
-      # listed here. Update it when a host gains or loses runner services.
+
+
+
+
+
+
       - name: Size the worker budget to this host
         run: |
           case "$(hostname)" in
@@ -630,10 +630,10 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
           CARGO_TARGET_DIR: target-mutants
-          # MUTANTS_JOBS / MUTANTS_JOBSERVER_TASKS come from $GITHUB_ENV, set by
-          # "Size the worker budget to this host". Do not restate them here — a
-          # step-level env entry wins over $GITHUB_ENV and would pin every host
-          # back to one value.
+
+
+
+
           MUTANTS_FIXTURES_PREBUILT: "1"
           RUST_TEST_THREADS: "1"
           RUSTC_WRAPPER: sccache

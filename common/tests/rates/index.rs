@@ -276,33 +276,10 @@ fn test_iterated_reward_legs_pin_supply_index_and_yield_zero() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Reward-conservation sweep.
-//
-// `update_supply_index` derives the new index with two *floor* roundings
-// (`div_floor` then `mul_div_floor_saturating`), while
-// `supply_index_reward_shortfall` re-measures what that index actually handed
-// out with two *half-up* roundings (`Ray::mul` on both legs). The two
-// measurements can disagree by up to 1 ulp, and `Ray::checked_sub` panics with
-// `MathOverflow` on a negative result -- so an over-measurement is not a
-// rounding nit, it bricks the market: every pool entrypoint runs
-// `interest::global_sync` first, and the same call sits in the read-only
-// `simulate_update_indexes_body`.
-//
-// The margin that makes this safe is `rewards * RAY / (total_supplied_value +
-// RAY)` -- the same order as the 1-ulp error -- so it is pinned here by sweep
-// rather than left to inspection.
-// ---------------------------------------------------------------------------
-
-/// Largest `supplied` that keeps `supplied * MAX_SUPPLY_INDEX_RAY / RAY` inside
-/// `i128`, so the sweeps exercise the shortfall algebra rather than tripping the
-/// unrelated fixed-point overflow ceiling.
 const SWEEP_SUPPLIED_MAX: i128 = i128::MAX / (2 * (MAX_SUPPLY_INDEX_RAY / RAY));
 
 const LADDER_MAX: usize = 128;
 
-/// Geometric ladder over `1..=max` stepping by `mul / div`, carrying the `-1`
-/// and `+1` neighbours of every rung so ulp boundaries are covered.
 fn ladder(max: i128, mul: i128, div: i128) -> ([i128; LADDER_MAX], usize) {
     let mut out = [0i128; LADDER_MAX];
     let mut len = 0usize;
@@ -333,10 +310,6 @@ fn ladder(max: i128, mul: i128, div: i128) -> ([i128; LADDER_MAX], usize) {
     (out, len)
 }
 
-/// The single property under test: the index move can never hand suppliers more
-/// than `rewards`, and whatever it withholds is returned as the shortfall so the
-/// reward is conserved (undistributed dust becomes protocol revenue, it does not
-/// vanish).
 fn assert_reward_is_conserved(env: &Env, supplied_raw: i128, old_raw: i128, rewards_raw: i128) {
     let supplied = Ray::from(supplied_raw);
     let old_index = Ray::from(old_raw);
@@ -391,8 +364,6 @@ fn test_supply_index_reward_is_conserved_across_structured_grid() {
 
     for &supplied in &supplied_vals[..supplied_len] {
         for old_index in index_vals[..index_len].iter().chain(index_specials.iter()) {
-            // Dust rewards are where `rewards_ratio` and `increment` both sit on
-            // their 0 -> 1 transition, so sweep them densely.
             for rewards in 0..40i128 {
                 assert_reward_is_conserved(&env, supplied, *old_index, rewards);
             }
@@ -422,9 +393,6 @@ fn test_supply_index_reward_is_conserved_at_rounding_knife_edges() {
             }
             let denom = total_supplied_value + SUPPLY_VIRTUAL_VALUE_RAY;
 
-            // Smallest `rewards` that drives `rewards_ratio` to k, and the
-            // smallest that drives `increment` to m -- the exact points where
-            // the floor roundings inside `update_supply_index` step.
             let mut edges = [0i128; 12];
             let mut edges_len = 0usize;
             let push_edge = |edges: &mut [i128; 12], len: &mut usize, ratio: i128| {
@@ -445,8 +413,7 @@ fn test_supply_index_reward_is_conserved_at_rounding_knife_edges() {
                 let ratio = fp_core::mul_div_floor_saturating(&env, increment, RAY, old_raw);
                 push_edge(&mut edges, &mut edges_len, ratio);
             }
-            // The reward that walks `grown` onto the MAX_SUPPLY_INDEX_RAY clamp,
-            // where `new_index` stops tracking the floor-derived `grown`.
+
             if old_raw < MAX_SUPPLY_INDEX_RAY {
                 let ratio = fp_core::mul_div_floor_saturating(
                     &env,
@@ -474,8 +441,6 @@ fn test_supply_index_reward_is_conserved_under_pseudorandom_sweep() {
     let env = Env::default();
     env.cost_estimate().budget().reset_unlimited();
 
-    // xorshift64, fixed seed: a failure reproduces exactly and the assertion
-    // messages print the offending triple.
     let mut state: u64 = 0x0BAD_C0FF_EE0D_D00D;
     let mut next = move || {
         state ^= state << 13;
@@ -483,7 +448,7 @@ fn test_supply_index_reward_is_conserved_under_pseudorandom_sweep() {
         state ^= state << 17;
         state
     };
-    // Log-uniform draw in `1..=max`, so dust magnitudes stay well represented.
+
     let mut log_uniform = |max: i128| -> i128 {
         let bits = (next() % 126) as u32 + 1;
         let span = ((1i128 << bits) - 1).min(max);
@@ -516,9 +481,6 @@ fn test_supply_index_reward_is_conserved_in_realistic_band() {
         lo + (wide % ((hi - lo + 1) as u128)) as i128
     };
 
-    // Indexes between the storage floor and the `distribute_reward` ceiling,
-    // rewards at token scale, supply spanning the full range that keeps the
-    // market's value inside `i128`.
     for _ in 0..60_000 {
         let supplied = between(1, SWEEP_SUPPLIED_MAX);
         let old_index = between(SUPPLY_INDEX_FLOOR_RAW, SUPPLY_INDEX_REWARD_CEILING_RAY);
@@ -530,12 +492,6 @@ fn test_supply_index_reward_is_conserved_in_realistic_band() {
 #[test]
 #[should_panic(expected = "#33")]
 fn test_supply_index_shortfall_requires_index_within_cap() {
-    // Documented precondition: `old_index` must already satisfy the
-    // MAX_SUPPLY_INDEX_RAY cap. Above it the cap clamps `new_index` *down*,
-    // `distributed` goes negative and `Ray::checked_sub` panics. The pool never
-    // reaches this state (markets open at RAY, every write goes through
-    // `update_supply_index`'s clamp or the bad-debt path, which only reduces),
-    // so this pins the boundary rather than describing reachable behaviour.
     let env = Env::default();
 
     let supplied = Ray::from(RAY);
@@ -548,31 +504,10 @@ fn test_supply_index_shortfall_requires_index_within_cap() {
     let _ = supply_index_reward_shortfall(&env, supplied, old_index, new_index, rewards);
 }
 
-// ---------------------------------------------------------------------------
-// Virtual-offset dilution.
-//
-// `Ray::from_asset` rescales every asset to RAY_DECIMALS, so one whole token is
-// worth exactly RAY of internal value for ANY `asset_decimals`. That makes
-// `SUPPLY_VIRTUAL_VALUE_RAY` (= RAY) an offset of exactly one whole token, and
-// its economic weight is therefore the token's market price.
-//
-// Consequence: the share of accrued interest that never reaches suppliers is
-// `1 / (N + 1)`, where N is the whole-token supply. It depends on the TOKEN
-// COUNT, not on the market's dollar size -- so two markets of identical value
-// divert wildly different fractions of interest to protocol revenue.
-//
-// No value is destroyed (the shortfall is booked as revenue), but
-// `calculate_deposit_rate` models only `reserve_factor`, so `get_deposit_rate`
-// overstates realized supplier yield by exactly this fraction.
-// ---------------------------------------------------------------------------
-
-/// One whole token expressed in internal RAY value units.
 fn one_token_value(decimals: u32) -> Ray {
     Ray::from_asset(10i128.pow(decimals), decimals)
 }
 
-/// Splits `rewards` for a market holding `n_tokens` at `supply_index == RAY`,
-/// returning `(distributed_to_suppliers, diverted_to_revenue)`.
 fn split_interest(env: &Env, n_tokens: i128, decimals: u32, rewards: Ray) -> (Ray, Ray) {
     let supplied = Ray::from_asset(n_tokens * 10i128.pow(decimals), decimals);
     let old_index = Ray::ONE;
@@ -627,9 +562,6 @@ fn test_equal_value_markets_divert_unequal_interest_by_token_count() {
     let env = Env::default();
     env.cost_estimate().budget().reset_unlimited();
 
-    // Two markets of the same dollar size (~$1,000,000):
-    //   WBTC-like: 10 tokens at $100,000, 8 decimals
-    //   USDC-like: 1,000,000 tokens at $1, 7 decimals
     let (btc_dist, btc_short) = split_interest(&env, 10, 8, Ray::from(10 * RAY / 20));
     let (usd_dist, usd_short) = split_interest(&env, 1_000_000, 7, Ray::from(1_000_000 * RAY / 20));
 
@@ -647,8 +579,6 @@ fn test_equal_value_markets_divert_unequal_interest_by_token_count() {
         "a 1,000,000-token market diverts under 0.01% of interest",
     );
 
-    // The point: identical value, orders of magnitude apart in dilution.
-    // Compared in parts-per-million so neither side overflows i128.
     let btc_ppm = btc_short.raw() * 1_000_000 / btc_total;
     let usd_ppm = usd_short.raw() * 1_000_000 / usd_total;
     assert!(

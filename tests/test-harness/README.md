@@ -37,7 +37,7 @@ src/
 use test_harness::prelude::*;
 
 let mut t = LendingTest::new()
-    .standard_two_asset()   // builder extension from fixtures
+    .standard_two_asset()
     .build();
 
 t.supply(ALICE, "USDC", 10_000.0);

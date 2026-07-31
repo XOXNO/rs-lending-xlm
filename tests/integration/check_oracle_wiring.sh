@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Structural gate: oracle wiring uses PriceKey/AssetOracle ABI only.
-# Run from repo root: bash tests/integration/check_oracle_wiring.sh
+
+
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -47,7 +47,7 @@ for net in testnet mainnet; do
 done
 
 echo "== protocol.sh builders emit sources =="
-# Extract builder functions without sourcing the full harness (needs RUN_TS).
+
 builder_snip=$(mktemp)
 awk '
   /^price_key_token\(\)/ {p=1}
@@ -58,7 +58,7 @@ awk '
   p {print}
   /^}$/ && p {print ""; p=0}
 ' tests/integration/lib/protocol.sh > "$builder_snip"
-# shellcheck source=/dev/null
+
 source "$builder_snip"
 rm -f "$builder_snip"
 export MOCK="${MOCK:-CMOCKREFLECTORXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX}"

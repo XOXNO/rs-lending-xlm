@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# Fast fuzz coverage: replays existing corpus through instrumented binary and
-# emits llvm-cov HTML + text summary. No active fuzzing is performed.
-#
-# Usage:
-#   tests/fuzz/coverage.sh                         # default targets
-#   tests/fuzz/coverage.sh fp_math flow_e2e        # explicit target list
-#   FUZZ_COV_TIME=30 tests/fuzz/coverage.sh ...    # optional corpus growth
-#   SANITIZER=thread tests/fuzz/coverage.sh flow_e2e
-#
-# Env:
-#   FUZZ_COV_TIME   If >0, run `cargo fuzz run` for N seconds to grow the corpus
-#                   before collecting coverage. Default: 0 (corpus replay only).
-#   FUZZ_MAX_LEN    Maximum generated input length. Default: 82 bytes, matching
-#                   the largest target layout.
-#   FUZZ_LEN_CONTROL libFuzzer length ramp. Default: 0, so short CI runs reach
-#                    multi-operation inputs immediately.
-#   SANITIZER       Passed through as `--sanitizer=$SANITIZER`. On macOS contract-level
-#                   targets require `thread`. Default: "" (no sanitizer) — function-level.
-#   BUILD_STD       If set, adds `-Zbuild-std` (needed with --sanitizer=thread).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 set -euo pipefail
 
@@ -27,7 +27,7 @@ COV_OUT="$REPO_ROOT/target/coverage/fuzz"
 
 DEFAULT_TARGETS=("fp_math" "rates_and_index")
 TARGETS=("$@")
-if [ ${#TARGETS[@]} -eq 0 ]; then
+if [ ${
     TARGETS=("${DEFAULT_TARGETS[@]}")
 fi
 
@@ -45,9 +45,9 @@ if [ -n "$BUILD_STD" ]; then
     EXTRA_FLAGS+=("-Zbuild-std")
 fi
 
-# Locate llvm-cov. Prefer the nightly sysroot (llvm-tools-preview) because it
-# matches the rustc that produced the profile data; fall back to system llvm-cov
-# (homebrew `llvm` package on macOS) if the component isn't installed.
+
+
+
 SYSROOT="$(rustc +nightly --print sysroot)"
 HOST_TRIPLE="$(rustc +nightly -vV | sed -n 's|host: ||p')"
 SYSROOT_LLVM_COV="$SYSROOT/lib/rustlib/$HOST_TRIPLE/bin/llvm-cov"
@@ -65,15 +65,15 @@ else
     exit 1
 fi
 
-# Optional demangler — prettier function names in HTML. Skip if missing.
+
 DEMANGLER_ARGS=()
 if command -v rustfilt >/dev/null 2>&1; then
     DEMANGLER_ARGS=(-Xdemangler=rustfilt)
 fi
 
-# Source files to exclude. Keep protocol/product surface and hide toolchain,
-# dependencies, fuzz harness code, test harness code, generated types, events,
-# and controller governance/views noise when focusing on runtime flows.
+
+
+
 IGNORE_REGEX='(\.rustup/|/\.cargo/|/rustc/|rs-lending-xlm/tests/fuzz/|tests/test-harness/|/types/|events\.rs|contracts/controller/src/(governance|views)/)'
 
 focus_regex() {
@@ -90,7 +90,7 @@ focus_regex() {
 
 mkdir -p "$COV_OUT"
 
-if [ ${#EXTRA_FLAGS[@]} -eq 0 ]; then
+if [ ${
     FLAGS_DISPLAY="<none>"
 else
     FLAGS_DISPLAY="${EXTRA_FLAGS[*]}"
@@ -121,12 +121,12 @@ for target in "${TARGETS[@]}"; do
     fi
 
     echo "  [2/3] coverage build + corpus replay"
-    # macOS + TSAN + coverage: `-Cinstrument-coverage` pulls in `profiler_builtins`,
-    # which cargo-fuzz rebuilds under `-Zbuild-std` WITHOUT the sanitizer flag
-    # (its internal RUSTFLAGS list is fixed). rustc then refuses the mix. This
-    # env var tells rustc the mismatch is safe (profiler_builtins has no TSAN
-    # runtime dependency). cargo-fuzz appends its own flags to user RUSTFLAGS,
-    # so ours lands first and applies to sysroot crates.
+
+
+
+
+
+
     RUSTFLAGS="-Cunsafe-allow-abi-mismatch=sanitizer${RUSTFLAGS:+ }${RUSTFLAGS:-}" \
         cargo +nightly fuzz coverage --fuzz-dir . "$target" "corpus/$target" "seeds/$target" \
             ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}

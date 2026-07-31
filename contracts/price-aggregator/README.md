@@ -6,9 +6,9 @@ Single oracle entry for the lending protocol. All pricing uses `PriceKey`.
 
 ```text
 prices(keys) / quotes(keys)
-  → Session::new · warm(keys)   // multi-feed bulk by adapter (≥2 feeds)
-  → for each key: resolve → Outcome   // one evaluator; providers always soft
-  → force (hard) | to_status (soft)   // only edge that diverges
+  → Session::new · warm(keys)
+  → for each key: resolve → Outcome
+  → force (hard) | to_status (soft)
 ```
 
 ## Three gates

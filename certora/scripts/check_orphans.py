@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Check conf ↔ spec rule alignment in both directions.
 
 - Orphan conf entries: rule listed in a conf with no matching #[rule] in spec.
@@ -31,9 +31,9 @@ SOROBAN_CONF_KEYS = {
     "smt_use_bv",
 }
 
-# Soroban host-value encoding contains fixed loops longer than ten iterations
-# (the pool fixture currently needs 28).  New controller/oracle jobs default to
-# the sound host-state bound unless they are explicitly classified as pure math.
+
+
+
 MIN_HOST_STATE_LOOP_ITER = 28
 PURE_CONTROLLER_CONFS = {
     "boundary-compound-sanity.conf",

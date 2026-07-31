@@ -1,12 +1,12 @@
-# Prometheus alerting rules for rs-lending keeper.
-# Keeper liveness preserves protocol TTLs and exposes metrics on :9090/metrics.
-# Load via Prometheus `rule_files:`; rules expect job="keeper".
+
+
+
 groups:
   - name: keeper.liveness
     rules:
-      # Process unreachable: no /metrics scrape. With no keeper, no TTL is
-      # extended. TTL safety margins are hours/days, so a 5m down alert fires
-      # well before any entry can archive — this is the key early warning.
+
+
+
       - alert: KeeperDown
         expr: up{job="keeper"} == 0
         for: 5m
@@ -20,9 +20,9 @@ groups:
             freezes the contract. Restart the keeper and verify it boots
             (GET :9090/health == ok).
 
-      # Storage already archived: the keeper fell behind / was down past the
-      # safety margin and TTL lapsed. Calls touching these entries fail until
-      # restored. This is the "it already failed" incident signal.
+
+
+
       - alert: KeeperEntriesArchived
         expr: keeper_entries_archived > 0
         for: 10m
@@ -35,15 +35,15 @@ groups:
             storage. Run the keeper restore path (it auto-restores archived keys)
             and investigate why extension did not happen in time.
 
-      # Alive but not making progress: work was planned but nothing landed
-      # (RPC outage, unfunded/again-wrong-role signer, bad config). Caught early,
-      # before it becomes KeeperEntriesArchived.
+
+
+
       - alert: KeeperNotProgressing
-        # `keeper_jobs_planned_total` is labelled `loop`; `keeper_txs_total` is
-        # labelled `kind`+`status`. A bare `and` matches on identical label sets,
-        # so the two never join and the alert can never fire. Aggregate both sides
-        # to a scalar with `sum(...)`, and `or vector(0)` so a total absence of
-        # success series still reads as 0 rather than an empty vector.
+
+
+
+
+
         expr: |
           sum(increase(keeper_jobs_planned_total[15m])) > 0
           and (sum(increase(keeper_txs_total{status="success"}[15m])) or vector(0)) == 0
@@ -57,7 +57,7 @@ groups:
             RPC connectivity, signer XLM balance and KEEPER role, and recent
             keeper_txs_total{status=~"failed|error"} / keeper_sim_failures_total.
 
-      # The planning/submit loop itself is erroring each tick.
+
       - alert: KeeperTickFailing
         expr: increase(keeper_tick_failed_total[15m]) > 0
         for: 15m
@@ -70,7 +70,7 @@ groups:
             increasing for 15m. Recurring tick failures stop TTL extension;
             escalate toward critical if it persists past ~1h.
 
-      # Submitted transactions are failing/erroring on-chain.
+
       - alert: KeeperTxFailures
         expr: increase(keeper_txs_total{status=~"failed|error"}[15m]) > 0
         for: 15m

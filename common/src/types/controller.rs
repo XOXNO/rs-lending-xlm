@@ -482,11 +482,6 @@ mod tests {
         assert_eq!(fresh.scaled_amount, Ray::ZERO);
     }
 
-    // `can_supply` / `can_borrow` are one-line field reads, so the only mutants
-    // available are the constant returns. Both survived every native pass and
-    // were killed only by the integration harness, because nothing in `common`
-    // read them with the flag `false` — and a config that always answers `true`
-    // is exactly the shape that silently re-enables a delisted asset.
     fn asset_config(is_collateralizable: bool, is_borrowable: bool) -> AssetConfig {
         AssetConfig {
             loan_to_value: Bps::from(8_000i128),

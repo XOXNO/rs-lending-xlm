@@ -329,18 +329,6 @@ fn test_shared_nested_quote_is_composed_once_per_session() {
     });
 }
 
-/// Failure-path twin of the test above: a quote that fails is memoized as an
-/// error, so a second parent sharing that quote must reuse the verdict instead
-/// of re-reading the provider.
-///
-/// The assertion is behavioural rather than a read counter. `CountingReflector`
-/// returns `reads * 1 WAD`, so read 1 (1 WAD) sits below the quote's sanity
-/// floor while read 2 (2 WAD) sits inside the band. Recomputing therefore does
-/// not merely cost a call — it *changes the verdict*, and the second parent
-/// resolves successfully. That is what lets this test kill a no-op
-/// `Session::store_error` and a `Session::cached_error` stubbed to `None`,
-/// which are otherwise equivalent mutants: on a deterministic provider,
-/// recomputation returns the same error and nothing observable differs.
 #[test]
 fn test_failed_nested_quote_is_memoized_per_session() {
     let env = Env::default();
@@ -370,7 +358,6 @@ fn test_failed_nested_quote_is_memoized_per_session() {
                     })],
                 ),
                 ASSET_CEILING,
-                // Straddles the two reads: 1 WAD is out of band, 2 WAD is in.
                 3 * WAD / 2,
                 10 * WAD,
             ),
@@ -407,8 +394,7 @@ fn test_failed_nested_quote_is_memoized_per_session() {
             resolve_nested(&mut session, &first, 0),
             Err(common::errors::OracleError::SanityBoundViolated)
         ));
-        // Served from the error memo. Without it the quote is read a second
-        // time, clears the band, and this resolves to Ok(2 WAD).
+
         assert!(matches!(
             resolve_nested(&mut session, &second, 0),
             Err(common::errors::OracleError::SanityBoundViolated)

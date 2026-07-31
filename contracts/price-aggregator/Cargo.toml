@@ -28,7 +28,7 @@ certora-tolerance-math-rules = ["certora", "certora-focused"]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 mock-redstone = { path = "../../mock/mock-redstone" }
 
-# Integration tests exercise seed_oracle_config / remove_oracle_config.
+
 [[test]]
 name = "surface"
 path = "tests/surface.rs"

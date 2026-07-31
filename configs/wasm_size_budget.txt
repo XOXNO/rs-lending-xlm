@@ -1,12 +1,12 @@
-# WASM size budget, in bytes, per deploy artifact under
-# artifacts/wasm/deploy/ (optimized + spec-doc stripped via make deploy-artifacts).
-# Format: <wasm filename> <max bytes>
+
+
+
 
 controller.wasm 140000
 pool.wasm 42000
 common.wasm 21000
 flash_loan_receiver.wasm 27000
 defindex_strategy.wasm 45000
-# Governance embeds the OZ timelock + resolve_* oracle helper views.
+
 governance.wasm 58000
 price_aggregator.wasm 42000

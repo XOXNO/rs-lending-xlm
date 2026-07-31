@@ -145,8 +145,6 @@ pub(crate) fn set_delegates(env: &Env, account_id: u64, delegates: &Vec<Address>
     }
 }
 
-/// Returns `true` when the delegate set actually changed, so callers can emit an
-/// event only on a real grant. Re-granting an existing delegate is a no-op.
 pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) -> bool {
     let mut delegates = get_delegates(env, account_id);
     if delegates.contains(delegate) {
@@ -162,8 +160,6 @@ pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) -> bo
     true
 }
 
-/// Returns `true` when the delegate set actually changed, so callers can emit an
-/// event only on a real revocation. Revoking an absent delegate is a no-op.
 pub(crate) fn remove_delegate(env: &Env, account_id: u64, delegate: &Address) -> bool {
     let mut delegates = get_delegates(env, account_id);
     let Some(index) = delegates.first_index_of(delegate) else {

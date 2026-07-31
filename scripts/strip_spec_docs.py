@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Strip doc strings and informational meta from a deploy WASM.
 
 Rustdoc on entrypoints/types embeds into the on-chain spec and counts against
@@ -58,7 +58,7 @@ def main() -> None:
     src, dst = sys.argv[1], sys.argv[2]
     wasm = open(src, "rb").read()
 
-    sections = []  # (id, header_offset, body, name)
+    sections = []
     i = 8
     while i < len(wasm):
         start = i

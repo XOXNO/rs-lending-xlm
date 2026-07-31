@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Ensure Certora conf files point at existing prebuilt WASM artifacts."""
 
 from __future__ import annotations

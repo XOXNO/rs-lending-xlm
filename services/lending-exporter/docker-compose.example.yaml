@@ -1,5 +1,5 @@
-# One exporter instance per network. Both publish on :9110 inside their own
-# container; Prometheus scrapes them by service name (see ops/prometheus.example.yml).
+
+
 services:
   lending-exporter-testnet:
     build: .
@@ -9,27 +9,27 @@ services:
     environment:
       EXPORTER_CONFIG: /etc/lending-exporter/testnet.yaml
       RUST_LOG: info
-    # Mount an override config if you keep it outside the image:
-    # volumes:
-    #   - ./config/testnet.yaml:/etc/lending-exporter/testnet.yaml:ro
+
+
+
     networks: [monitoring]
 
-  # Enable once configs/networks.json mainnet.controller is set (mainnet.yaml
-  # already has markets / hubs / spokes / xoxno adapter).
-  # RPC uses Coolify alias http://stellar-rpc-mainnet:8080 — join `coolify`.
-  # lending-exporter-mainnet:
-  #   build: .
-  #   image: xoxno/lending-exporter:latest
-  #   container_name: lending-exporter-mainnet
-  #   restart: unless-stopped
-  #   environment:
-  #     EXPORTER_CONFIG: /etc/lending-exporter/mainnet.yaml
-  #     RUST_LOG: info
-  #   networks: [monitoring, coolify]
+
+
+
+
+
+
+
+
+
+
+
+
 
 networks:
   monitoring:
     external: true
-  # Shared Coolify network (stellar-rpc-mainnet alias lives here).
+
   coolify:
     external: true
