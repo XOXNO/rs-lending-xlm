@@ -1,4 +1,6 @@
 pub mod harness;
+#[cfg(any(not(feature = "certora-focused"), feature = "certora-lp-math-rules"))]
+pub mod lp_math_rules;
 #[cfg(any(not(feature = "certora-focused"), feature = "certora-math-rules"))]
 pub mod math_rules;
 #[cfg(any(

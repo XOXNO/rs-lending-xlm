@@ -11,16 +11,27 @@ use crate::math::fp_core::try_mul_div_half_up;
 use crate::oracle::observation::try_u256_to_i128;
 use soroban_sdk::{Env, U256};
 
-/// Integer square root of a `U256` via Newton's method. Converges in a handful
-/// of iterations; each step is a few host arithmetic calls.
-pub fn isqrt_u256(env: &Env, n: &U256) -> U256 {
+/// Integer square root of `a·b`, where both factors fit `u128`.
+///
+/// Soroban has no sqrt host function and `U256` exposes none, so the root is
+/// computed here. Only the product needs 256 bits — the seed does not, so the
+/// factors' own `u128::isqrt` gives `(√a+1)·(√b+1)`, an over-estimate within a
+/// hair of the true root. Newton then lands in one or two steps.
+///
+/// Seeding is the whole game: from `x0 = n` each step merely halves, so a real
+/// LP product (~2^161) took ~86 U256 divisions and the worst case ~132.
+pub fn isqrt_of_product(env: &Env, a: u128, b: u128) -> U256 {
+    let n = U256::from_u128(env, a).mul(&U256::from_u128(env, b));
     let one = U256::from_u32(env, 1);
-    if n <= &one {
-        return n.clone();
+    if n <= one {
+        return n;
     }
     let two = U256::from_u32(env, 2);
-    let mut x = n.clone();
-    let mut y = n.add(&one).div(&two);
+    let seed = U256::from_u128(env, a.isqrt().saturating_add(1))
+        .mul(&U256::from_u128(env, b.isqrt().saturating_add(1)));
+
+    let mut x = seed;
+    let mut y = x.add(&n.div(&x)).div(&two);
     while y < x {
         x = y.clone();
         y = x.add(&n.div(&x)).div(&two);
@@ -64,9 +75,9 @@ pub fn fair_lp_price_wad(
     let value_a = reserve_value_wad(env, reserve_a, reserve_a_decimals, price_a_wad)?;
     let value_b = reserve_value_wad(env, reserve_b, reserve_b_decimals, price_b_wad)?;
 
-    // 2·sqrt(V_a·V_b): the product is up to ~1e52, past i128, so accumulate in U256.
-    let product = U256::from_u128(env, value_a as u128).mul(&U256::from_u128(env, value_b as u128));
-    let total_value = isqrt_u256(env, &product).mul(&U256::from_u32(env, 2)); // WAD USD
+    // 2·sqrt(V_a·V_b): the product is up to ~1e52, past i128, so it is rooted in U256.
+    let total_value =
+        isqrt_of_product(env, value_a as u128, value_b as u128).mul(&U256::from_u32(env, 2));
 
     // Per whole LP share (WAD) = total_value · WAD / share_supply_whole_wad.
     let share_supply_wad = amount_to_wad(env, total_shares, share_decimals)?;
@@ -188,6 +199,41 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err, OracleError::InvalidPrice);
+    }
+
+    // The seeded Newton must agree with a reference root across magnitudes, and
+    // must land on the floor exactly at perfect squares and one either side.
+    #[test]
+    fn isqrt_matches_a_reference_root() {
+        let env = Env::default();
+        let check = |n: u128| {
+            let got = isqrt_of_product(&env, n, 1);
+            // checked_mul, not saturating: at n = u128::MAX a saturated square
+            // still compares <= n, so the reference would climb forever.
+            let exceeds = |v: u128| v.checked_mul(v).is_none_or(|square| square > n);
+            let mut want = (n as f64).sqrt() as u128;
+            while want > 0 && exceeds(want) {
+                want -= 1;
+            }
+            while !exceeds(want + 1) {
+                want += 1;
+            }
+            assert_eq!(
+                got,
+                U256::from_u128(&env, want),
+                "isqrt({n}) should be {want}"
+            );
+        };
+        for n in [0u128, 1, 2, 3, 4, 5, 8, 9, 15, 16, 17, 24, 25, 26, 99, 100, 101] {
+            check(n);
+        }
+        for shift in [16u32, 32, 64, 96, 126] {
+            let base = 1u128 << shift;
+            check(base - 1);
+            check(base);
+            check(base + 1);
+        }
+        check(u128::MAX);
     }
 
     #[test]

@@ -21,6 +21,7 @@ cvlr-soroban-derive = { workspace = true, optional = true }
 certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive"]
 certora-focused = []
 certora-math-rules = ["certora", "certora-focused"]
+certora-lp-math-rules = ["certora", "certora-focused"]
 certora-rates-rules = ["certora", "certora-focused"]
 certora-rate-index-accounting-rules = ["certora", "certora-focused"]
 
