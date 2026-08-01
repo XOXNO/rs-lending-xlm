@@ -49,26 +49,6 @@ pub struct LpLeg {
     pub price_wad: i128,
 }
 
-/// A leg whose price is only known within a band, used to derive the share's own
-/// band from its underlyings'.
-#[derive(Clone, Debug)]
-pub struct LpLegBand {
-    pub reserve: i128,
-    pub decimals: u32,
-    pub min_price_wad: i128,
-    pub max_price_wad: i128,
-}
-
-impl LpLegBand {
-    fn at(&self, price_wad: i128) -> LpLeg {
-        LpLeg {
-            reserve: self.reserve,
-            decimals: self.decimals,
-            price_wad,
-        }
-    }
-}
-
 /// The pool's share token: supply in base units, plus its decimals.
 #[derive(Clone, Debug)]
 pub struct LpSupply {
@@ -137,28 +117,6 @@ fn amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128, OracleE
     try_mul_div_half_up(env, amount, scale, 1).ok_or(OracleError::InvalidPrice)
 }
 
-/// Derives an LP-share sanity band from the two underlyings' own sanity bands.
-///
-/// The fair value is monotonic in each underlying price, so the LP band is
-/// `[fair(a_min, b_min), fair(a_max, b_max)]` at the current reserves/shares.
-/// The pool factor `2·√k/S` is ~invariant to swaps and unchanged by
-/// proportional deposits/withdraws, so the derived band stays valid as the pool
-/// trades — no manual re-banding, and it only rejects prices the underlyings'
-/// own bands already couldn't have produced (i.e. a compromised/degenerate pool).
-///
-/// # Errors
-/// * [`OracleError::InvalidPrice`] - a non-positive reserve, band edge, or supply.
-pub fn lp_sanity_band(
-    env: &Env,
-    a: &LpLegBand,
-    b: &LpLegBand,
-    supply: &LpSupply,
-) -> Result<(i128, i128), OracleError> {
-    let lo = fair_lp_price_wad(env, &a.at(a.min_price_wad), &b.at(b.min_price_wad), supply)?;
-    let hi = fair_lp_price_wad(env, &a.at(a.max_price_wad), &b.at(b.max_price_wad), supply)?;
-    Ok((lo, hi))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,15 +127,6 @@ mod tests {
             reserve,
             decimals: 7,
             price_wad,
-        }
-    }
-
-    fn band(reserve: i128, min_price_wad: i128, max_price_wad: i128) -> LpLegBand {
-        LpLegBand {
-            reserve,
-            decimals: 7,
-            min_price_wad,
-            max_price_wad,
         }
     }
 
@@ -266,26 +215,6 @@ mod tests {
         let err =
             fair_lp_price_wad(&env, &leg(1, WAD), &leg(1, WAD), &supply(0)).unwrap_err();
         assert_eq!(err, OracleError::InvalidPrice);
-    }
-
-    // Auto-derived band for the real testnet XLM/USDC pool from the config
-    // underlying bands (USDC $0.90-$1.10, XLM $0.045-$0.50). The current fair
-    // price ($0.8319) must sit strictly inside, and the edges land near the
-    // hand-computed $0.404 / $1.490.
-    #[test]
-    fn derived_band_brackets_current_fair_price() {
-        let env = Env::default();
-        let (lo, hi) = lp_sanity_band(
-            &env,
-            &band(13_712_481_487, 900_000_000_000_000_000, 1_100_000_000_000_000_000),
-            &band(1_054_452_914_606, 45_000_000_000_000_000, 500_000_000_000_000_000),
-            &supply(119_720_030_506),
-        )
-        .unwrap();
-        let current = 831_864_415_970_608_854;
-        assert!(lo < current && current < hi, "band [{lo}, {hi}] must bracket {current}");
-        assert!(lo > 400_000_000_000_000_000 && lo < 408_000_000_000_000_000, "lo={lo}");
-        assert!(hi > 1_485_000_000_000_000_000 && hi < 1_495_000_000_000_000_000, "hi={hi}");
     }
 
     #[test]

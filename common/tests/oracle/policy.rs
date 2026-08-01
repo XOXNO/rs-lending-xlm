@@ -659,33 +659,6 @@ fn test_factor_bounds_accept_max_at_reasonable_price_cap() {
     );
 }
 
-#[test]
-fn test_factor_in_bounds_accepts_the_inclusive_edges() {
-    let env = Env::default();
-    let wad = 10i128.pow(18);
-    let scaled = scaled_with_bounds(&env, wad, 2 * wad);
-    require_factor_in_bounds(&env, wad, &scaled);
-    require_factor_in_bounds(&env, 2 * wad, &scaled);
-}
-
-#[test]
-#[should_panic]
-fn test_factor_below_bounds_reverts() {
-    let env = Env::default();
-    let wad = 10i128.pow(18);
-    let scaled = scaled_with_bounds(&env, wad, 2 * wad);
-    require_factor_in_bounds(&env, wad / 2, &scaled);
-}
-
-#[test]
-#[should_panic]
-fn test_factor_above_bounds_reverts() {
-    let env = Env::default();
-    let wad = 10i128.pow(18);
-    let scaled = scaled_with_bounds(&env, wad, 2 * wad);
-    require_factor_in_bounds(&env, 3 * wad, &scaled);
-}
-
 fn spot_feed(env: &Env, decimals: u32, max_stale: u64) -> FeedSource {
     let mut feed = reflector(
         env,

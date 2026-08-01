@@ -159,12 +159,6 @@ pub fn validate_factor_bounds(env: &Env, scaled: &ScaledSource) {
     }
 }
 
-pub fn require_factor_in_bounds(env: &Env, factor_wad: i128, scaled: &ScaledSource) {
-    if factor_wad < scaled.min_factor_wad || factor_wad > scaled.max_factor_wad {
-        panic_with_error!(env, OracleError::FactorOutOfBounds);
-    }
-}
-
 #[cfg(test)]
 #[path = "../../tests/oracle/policy.rs"]
 mod tests;

@@ -1,6 +1,5 @@
 use crate::constants::{MS_PER_SECOND, WAD_DECIMALS};
 use crate::errors::{GenericError, OracleError};
-use crate::math::fp::Wad;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, U256};
 
 pub const MAX_FUTURE_SKEW_SECONDS: u64 = 60;
@@ -16,11 +15,6 @@ pub const MIN_ORACLE_DECIMALS: u32 = 1;
 pub const MAX_ORACLE_DECIMALS: u32 = 18;
 
 pub const MAX_SINGLE_SOURCE_SANITY_BAND_BPS: i128 = 1_000;
-
-pub fn normalize_positive_price(env: &Env, price: i128, decimals: u32) -> i128 {
-    assert_with_error!(env, price > 0, OracleError::InvalidPrice);
-    Wad::from_token(price, decimals).raw()
-}
 
 pub fn try_normalize_positive_price(price: i128, decimals: u32) -> Option<i128> {
     if price <= 0 || decimals > WAD_DECIMALS {
@@ -46,30 +40,6 @@ pub fn is_future_at(now_secs: u64, feed_ts: u64) -> bool {
         Some(max_future_ts) => feed_ts > max_future_ts,
         None => false,
     }
-}
-
-fn validate_timestamp(env: &Env, now_secs: u64, feed_ts: u64, max_stale: u64) {
-    check_not_future_at(env, now_secs, feed_ts);
-    assert_with_error!(
-        env,
-        !is_stale(now_secs, feed_ts, max_stale),
-        OracleError::PriceFeedStale
-    );
-}
-
-pub fn validate_positive_price_timestamps(
-    env: &Env,
-    raw_price: i128,
-    decimals: u32,
-    now_secs: u64,
-    feed_timestamps: &[u64],
-    max_stale: u64,
-) -> i128 {
-    let price_wad = normalize_positive_price(env, raw_price, decimals);
-    for ts in feed_timestamps {
-        validate_timestamp(env, now_secs, *ts, max_stale);
-    }
-    price_wad
 }
 
 pub fn u256_to_i128(env: &Env, value: &U256) -> i128 {

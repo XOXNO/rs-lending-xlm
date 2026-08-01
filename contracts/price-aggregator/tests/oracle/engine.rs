@@ -791,3 +791,22 @@ fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
         ));
     });
 }
+
+// The factor band is enforced on the read path, and a factor outside it is a
+// typed error rather than a trap. This used to be covered only against a
+// panicking helper that production never called.
+#[test]
+fn test_a_scaled_factor_outside_its_band_is_rejected() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "BTC", 50_000 * WAD, 0);
+    publish(&client, &env, "RATIO", 3 * WAD, 0);
+
+    in_contract(&env, || {
+        // The live ratio is 3 WAD; the configured band tops out at 2 WAD.
+        let token = scaled_setup(&env, &adapter, RATIO_BOUND, WAD, 2 * WAD);
+        let mut cache = Session::new(&env);
+        assert!(!resolve_status(&mut cache, &token, 0).valid);
+    });
+}
