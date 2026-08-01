@@ -206,16 +206,22 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 args.spoke_id.into_val(env),
             ],
         ),
-        AdminOperation::ApproveBlendPool(pool) => controller_operation(
-            env,
-            "approve_blend_pool",
-            vec![env, pool.clone().into_val(env)],
-        ),
-        AdminOperation::RevokeBlendPool(pool) => controller_operation(
-            env,
-            "revoke_blend_pool",
-            vec![env, pool.clone().into_val(env)],
-        ),
+        AdminOperation::ApproveBlendPool(pool) => {
+            validate::require_contract_address(env, pool, GenericError::NotSmartContract);
+            controller_operation(
+                env,
+                "approve_blend_pool",
+                vec![env, pool.clone().into_val(env)],
+            )
+        }
+        AdminOperation::RevokeBlendPool(pool) => {
+            validate::require_contract_address(env, pool, GenericError::NotSmartContract);
+            controller_operation(
+                env,
+                "revoke_blend_pool",
+                vec![env, pool.clone().into_val(env)],
+            )
+        }
         AdminOperation::CreateLiquidityPool(args) => {
             let token_decimals =
                 validate::asset::validate_and_fetch_token_decimals(env, &args.asset);

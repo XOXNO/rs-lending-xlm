@@ -480,7 +480,7 @@ fn propose_resolves_all_controller_and_self_variants() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, gov_id, gov) = register_governance(&env);
-    let _controller = register_native_controller(&env, &gov_id, &gov);
+    let controller = register_native_controller(&env, &gov_id, &gov);
 
     let asset = Address::generate(&env);
     let mut n: u8 = 0;
@@ -511,7 +511,7 @@ fn propose_resolves_all_controller_and_self_variants() {
     );
     gov.propose(
         &admin,
-        &AdminOperation::RevokeBlendPool(Address::generate(&env)),
+        &AdminOperation::RevokeBlendPool(controller.clone()),
         &salt(),
     );
     gov.propose(
