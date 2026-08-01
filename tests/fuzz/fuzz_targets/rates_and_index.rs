@@ -1,11 +1,15 @@
 
 #![no_main]
 use arbitrary::Arbitrary;
-use common::constants::{BPS, MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY};
+use common::constants::{
+    BPS, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR, RAY,
+    SUPPLY_INDEX_FLOOR_RAW,
+};
 use common::math::fp::Ray;
 use common::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
-    simulate_update_indexes, MAX_COMPOUND_DELTA_MS,
+    simulate_update_indexes, supply_index_reward_shortfall, update_supply_index,
+    MAX_COMPOUND_DELTA_MS,
 };
 use common::types::{MarketParams, MarketParamsRaw, PoolStateRaw, PoolSyncData};
 use libfuzzer_sys::fuzz_target;
@@ -21,6 +25,13 @@ const START_BORROW_INDEX_GROWTH: i128 = 9 * RAY;
 const BI_SCALE: i128 = START_BORROW_INDEX_GROWTH / (u64::MAX as i128);
 
 const SUPPLY_INDEX_MIN_DIVISOR: i128 = 16;
+
+// Largest scaled supply for which `supplied * MAX_SUPPLY_INDEX_RAY` stays under
+// i128::MAX/2, so `total_supplied_value + rewards` (rewards <= i128::MAX/4)
+// never overflows the checked_add inside update_supply_index.
+const SWEEP_SUPPLIED_MAX: i128 = i128::MAX / (2 * (MAX_SUPPLY_INDEX_RAY / RAY));
+const REWARD_CAP_RAW: i128 = i128::MAX / 4;
+const INDEX_SPAN_PER_UNIT: i128 = (MAX_SUPPLY_INDEX_RAY - SUPPLY_INDEX_FLOOR_RAW) / (u64::MAX as i128);
 
 #[derive(Debug, Arbitrary)]
 struct In {
@@ -41,6 +52,11 @@ struct In {
     chunk_units: u64,
     borrow_index_units: u64,
     supply_index_units: u64,
+
+    dust_supplied_units: u64,
+    dust_old_index_units: u64,
+    dust_reward_hi: u64,
+    dust_reward_lo: u64,
 }
 
 fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
@@ -191,6 +207,58 @@ fn assert_interest_split(
     }
 }
 
+// update_supply_index is the ONLY primitive that grows the supply index now that
+// add_rewards is gone. This proves it cannot be dust-inflated: for any supplied
+// down to a single scaled unit and any adversarial reward, the value credited to
+// suppliers never exceeds the reward that backs it, growth is capped, and the
+// index never moves backwards. So a dust supplier can manufacture no unbacked
+// claim, and even an (impossible) arbitrary reward creates no free value.
+fn assert_no_dust_inflation(env: &Env, supplied: Ray, old_index: Ray, rewards: Ray) {
+    let new_index = update_supply_index(env, supplied, old_index, rewards);
+
+    assert!(
+        new_index.raw() >= old_index.raw(),
+        "index regressed: supplied={} old={} rewards={} new={}",
+        supplied.raw(),
+        old_index.raw(),
+        rewards.raw(),
+        new_index.raw()
+    );
+
+    assert!(
+        new_index.raw() <= MAX_SUPPLY_INDEX_RAY,
+        "index above cap: supplied={} old={} rewards={} new={}",
+        supplied.raw(),
+        old_index.raw(),
+        rewards.raw(),
+        new_index.raw()
+    );
+
+    let distributed = supplied
+        .mul(env, new_index)
+        .checked_sub(env, supplied.mul(env, old_index));
+    assert!(
+        distributed.raw() <= rewards.raw(),
+        "dust inflation: supplied={} old={} rewards={} distributed={}",
+        supplied.raw(),
+        old_index.raw(),
+        rewards.raw(),
+        distributed.raw()
+    );
+
+    let shortfall = supply_index_reward_shortfall(env, supplied, old_index, new_index, rewards);
+    assert_eq!(
+        distributed.raw() + shortfall.raw(),
+        rewards.raw(),
+        "reward not conserved: supplied={} old={} rewards={} distributed={} shortfall={}",
+        supplied.raw(),
+        old_index.raw(),
+        rewards.raw(),
+        distributed.raw(),
+        shortfall.raw()
+    );
+}
+
 fuzz_target!(|i: In| {
     let env = Env::default();
 
@@ -277,4 +345,14 @@ fuzz_target!(|i: In| {
         assert_eq!(new_idx.borrow_index.raw(), start_borrow_index);
         assert_eq!(new_idx.supply_index.raw(), start_supply_index);
     }
+
+    // Anti dust-inflation: worst case is the smallest supply against the largest
+    // reward. Drive supplied down to 1 scaled unit and rewards across the full
+    // [0, i128::MAX/4] band the accrual math is proven safe over.
+    let dust_supplied = Ray::from(1 + (i.dust_supplied_units as i128 % SWEEP_SUPPLIED_MAX));
+    let dust_old_index =
+        Ray::from(SUPPLY_INDEX_FLOOR_RAW + i.dust_old_index_units as i128 * INDEX_SPAN_PER_UNIT);
+    let reward_wide = ((i.dust_reward_hi as u128) << 64) | i.dust_reward_lo as u128;
+    let dust_reward = Ray::from((reward_wide % (REWARD_CAP_RAW as u128)) as i128);
+    assert_no_dust_inflation(&env, dust_supplied, dust_old_index, dust_reward);
 });

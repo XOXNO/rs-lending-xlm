@@ -881,7 +881,7 @@ install-stellar-cli:
 FUZZ_TARGETS := fp_math rates_and_index fp_ops
 FUZZ_CONTRACT_TARGETS := flow_e2e flow_strategy pool_native
 FUZZ_TIME ?= 60
-FUZZ_MAX_LEN ?= 82
+FUZZ_MAX_LEN ?= 256
 FUZZ_LEN_CONTROL ?= 0
 
 
