@@ -1,6 +1,10 @@
 #![no_std]
 
-use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus};
+pub use common::types::{
+    AquariusLpSource, AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
+    OracleTolerance, PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef,
+    ReflectorFeedRef, ScaledSource,
+};
 use soroban_sdk::{contractclient, Address, Env, Map, Vec};
 
 #[contractclient(name = "PriceAggregatorClient")]

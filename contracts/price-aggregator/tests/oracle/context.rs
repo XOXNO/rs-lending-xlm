@@ -3,7 +3,7 @@ use crate::test_support::{in_contract, CountingRedStoneAdapter, CountingRedStone
 use common::constants::WAD;
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
-    ProviderKind, ScaledSource,
+    ScaledSource,
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, Symbol};
@@ -72,10 +72,9 @@ const CEILING: u64 = 3_600;
 
 fn multi_feed(env: &Env, adapter: &Address, feed_id: &str) -> FeedSource {
     FeedSource {
-        provider: ProviderRef::MultiFeed(MultiFeedRef {
+        provider: ProviderRef::RedStone(MultiFeedRef {
             contract: adapter.clone(),
             feed_id: String::from_str(env, feed_id),
-            kind: ProviderKind::RedStone,
             nature: FeedNature::Fundamental,
         }),
         decimals: 8,
@@ -114,7 +113,7 @@ fn counting_adapter<'a>(
 
 fn feed_key(env: &Env, adapter: &Address, feed_id: &str) -> PriceKey {
     let key = PriceKey::Token(Address::generate(env));
-    crate::admin::store_oracle(
+    crate::registry::store_oracle(
         env,
         &key,
         &oracle_of(env, PriceSource::Feed(multi_feed(env, adapter, feed_id))),
@@ -152,6 +151,44 @@ fn test_one_bulk_read_serves_every_leg_and_no_lazy_read_follows() {
 }
 
 #[test]
+fn test_lp_underlyings_are_included_in_bulk_prefetch() {
+    let env = Env::default();
+    env.ledger().set_timestamp(NOW);
+    let (adapter, client) = counting_adapter(&env, &["A", "B"]);
+
+    in_contract(&env, || {
+        let first = feed_key(&env, &adapter, "A");
+        let second = feed_key(&env, &adapter, "B");
+        let lp = PriceKey::Token(Address::generate(&env));
+        crate::registry::store_oracle(
+            &env,
+            &lp,
+            &oracle_of(
+                &env,
+                PriceSource::AquariusLp(common::types::AquariusLpSource {
+                    pool: Address::generate(&env),
+                    plane: Address::generate(&env),
+                    token_a: Address::generate(&env),
+                    token_b: Address::generate(&env),
+                    key_a: first,
+                    key_b: second,
+                    reserve_a_decimals: 7,
+                    reserve_b_decimals: 7,
+                    min_pool_value_wad: WAD,
+                }),
+            ),
+        );
+
+        Session::new(&env).warm(&Vec::from_array(&env, [lp]));
+    });
+
+    let (single, bulk, batch) = client.counts();
+    assert_eq!(bulk, 1);
+    assert_eq!(batch, 2);
+    assert_eq!(single, 0);
+}
+
+#[test]
 fn test_a_lone_feed_is_read_lazily_rather_than_bulked() {
     let env = Env::default();
     env.ledger().set_timestamp(NOW);
@@ -180,7 +217,7 @@ fn test_the_prefetch_walk_stops_at_the_composition_cap() {
 
     in_contract(&env, || {
         let mut current = PriceKey::Ref(Symbol::new(&env, "LEAF"));
-        crate::admin::store_oracle(
+        crate::registry::store_oracle(
             &env,
             &current,
             &oracle_of(&env, PriceSource::Feed(multi_feed(&env, &adapter, "LEAF"))),
@@ -188,7 +225,7 @@ fn test_the_prefetch_walk_stops_at_the_composition_cap() {
 
         for (name, factor) in [("L4", "F4"), ("L3", "F3"), ("L2", "F2"), ("L1", "F1")] {
             let key = PriceKey::Ref(Symbol::new(&env, name));
-            crate::admin::store_oracle(
+            crate::registry::store_oracle(
                 &env,
                 &key,
                 &oracle_of(

@@ -24,7 +24,7 @@ fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
     validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
 }
 
-pub(crate) fn resolve_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) -> AssetOracle {
+pub(crate) fn resolve_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) -> AssetOracle {
     let mut resolved = oracle.clone();
     resolved.asset_decimals = match key {
         PriceKey::Token(asset) => validate::asset::validate_and_fetch_token_decimals(env, asset),
@@ -289,7 +289,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             )
         }
         AdminOperation::ConfigureAssetOracle(args) => {
-            let oracle = resolve_asset_oracle(env, &args.key, &args.oracle);
+            let oracle = resolve_oracle(env, &args.key, &args.oracle);
             price_aggregator_operation(
                 env,
                 "set_oracle",

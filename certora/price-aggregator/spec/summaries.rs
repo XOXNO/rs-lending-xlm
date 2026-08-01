@@ -9,23 +9,14 @@ use common::types::{MultiFeedRef, ReflectorFeedRef};
 fn read_source_summary(session: &mut Session) -> Option<OracleObservation> {
     nondet_option(|| {
         let price_wad: i128 = nondet();
-        let observed_at: u64 = nondet();
+        let timestamp: u64 = nondet();
         let now = session.now_secs();
         cvlr_assume!(price_wad > 0);
-        cvlr_assume!(observed_at <= now.saturating_add(60));
-
-        let published_at = if nondet::<bool>() {
-            let timestamp: u64 = nondet();
-            cvlr_assume!(timestamp <= now.saturating_add(MAX_FUTURE_SKEW_SECONDS));
-            Some(timestamp)
-        } else {
-            None
-        };
+        cvlr_assume!(timestamp <= now.saturating_add(MAX_FUTURE_SKEW_SECONDS));
 
         OracleObservation {
             price_wad,
-            observed_at,
-            published_at,
+            timestamp,
         }
     })
 }

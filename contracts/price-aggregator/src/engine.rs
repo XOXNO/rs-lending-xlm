@@ -1,19 +1,15 @@
 use common::errors::OracleError;
 use common::math::fp::Wad;
-use common::oracle::lp::{fair_lp_price_wad, LpLeg, LpSupply};
 use common::oracle::observation::is_stale;
-use common::oracle::providers::aquarius::{
-    aquarius_plane_reserves_call, aquarius_total_shares_call,
-};
 use common::types::{
-    AssetOracle, FeedSource, LpShareSource, PoolKind, PriceFeedRaw, PriceKey, PriceSource,
-    PriceStatus, ProviderRef, ScaledSource, MAX_RESOLUTION_DEPTH,
+    AssetOracle, FeedSource, PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef,
+    ScaledSource, MAX_RESOLUTION_DEPTH,
 };
 use soroban_sdk::{panic_with_error, Env};
 
-use crate::admin;
 use crate::observation::OracleObservation;
-use crate::providers::{multi_feed, reflector};
+use crate::providers::{aquarius, redstone, reflector, xoxno};
+use crate::registry;
 use crate::session::Session;
 use crate::tolerance::{midpoint_price_or_zero, within_tolerance_band};
 
@@ -42,9 +38,6 @@ pub(crate) struct Outcome {
     pub timestamp: u64,
     pub first_wad: i128,
     pub second_wad: i128,
-    pub low_wad: i128,
-    pub high_wad: i128,
-    pub asset_decimals: u32,
     pub stale: bool,
     pub deviation: bool,
 
@@ -58,9 +51,6 @@ impl Outcome {
             timestamp: 0,
             first_wad: 0,
             second_wad: 0,
-            low_wad: 0,
-            high_wad: 0,
-            asset_decimals: 0,
             stale: false,
             deviation: false,
             err: None,
@@ -78,22 +68,19 @@ impl Outcome {
         Self::with_err(OracleError::NoLastPrice)
     }
 
-    fn one(r: Reading, asset_decimals: u32) -> Self {
+    fn one(r: Reading) -> Self {
         Outcome {
             price_wad: r.price_wad,
             timestamp: r.timestamp,
             first_wad: r.price_wad,
             second_wad: r.price_wad,
-            low_wad: r.price_wad,
-            high_wad: r.price_wad,
-            asset_decimals,
             stale: r.stale,
             deviation: false,
             err: None,
         }
     }
 
-    fn partial(reading: Reading, slot: LegSlot, asset_decimals: u32) -> Self {
+    fn partial(reading: Reading, slot: LegSlot) -> Self {
         let (first_wad, second_wad) = match slot {
             LegSlot::Primary => (reading.price_wad, 0),
             LegSlot::Secondary => (0, reading.price_wad),
@@ -103,9 +90,6 @@ impl Outcome {
             timestamp: reading.timestamp,
             first_wad,
             second_wad,
-            low_wad: 0,
-            high_wad: 0,
-            asset_decimals,
             stale: reading.stale,
 
             deviation: true,
@@ -143,7 +127,7 @@ impl Outcome {
                 err @ (OracleError::OracleCycleDetected
                 | OracleError::OracleDepthExceeded
                 | OracleError::SourceCountOutOfRange
-                | OracleError::UnsupportedPoolKind
+                | OracleError::UnsupportedAquariusPool
                 | OracleError::OracleNotConfigured),
             ) => Some(err),
             _ => None,
@@ -154,10 +138,10 @@ impl Outcome {
         self.failure(oracle).is_none()
     }
 
-    fn to_feed(&self) -> PriceFeedRaw {
+    fn to_feed(&self, asset_decimals: u32) -> PriceFeedRaw {
         PriceFeedRaw {
             price_wad: self.price_wad,
-            asset_decimals: self.asset_decimals,
+            asset_decimals,
             timestamp: self.timestamp,
         }
     }
@@ -167,7 +151,10 @@ pub(crate) fn force(env: &Env, outcome: &Outcome, oracle: Option<&AssetOracle>) 
     if let Some(err) = outcome.failure(oracle) {
         panic_with_error!(env, err);
     }
-    outcome.to_feed()
+    let Some(oracle) = oracle else {
+        panic_with_error!(env, OracleError::OracleNotConfigured)
+    };
+    outcome.to_feed(oracle.asset_decimals)
 }
 
 pub(crate) fn to_status(outcome: &Outcome, oracle: Option<&AssetOracle>) -> PriceStatus {
@@ -244,7 +231,7 @@ fn compute_hard(
     (feed, outcome)
 }
 
-fn resolve_nested(
+pub(crate) fn resolve_nested(
     session: &mut Session,
     key: &PriceKey,
     depth: u32,
@@ -262,7 +249,8 @@ fn resolve_nested(
         session.store_error(key, err);
         return Err(err);
     }
-    let feed = outcome.to_feed();
+    let oracle = oracle.ok_or(OracleError::OracleNotConfigured)?;
+    let feed = outcome.to_feed(oracle.asset_decimals);
     session.store_price(key, feed.clone());
     Ok(feed)
 }
@@ -280,14 +268,25 @@ fn validate_cached_path(
     }
 
     let env = session.env().clone();
-    let oracle = admin::get_oracle(&env, key).ok_or(OracleError::OracleNotConfigured)?;
+    let oracle = registry::get_oracle(&env, key).ok_or(OracleError::OracleNotConfigured)?;
     session.push_key(key);
     let mut result = Ok(());
-    for source in oracle.sources.iter() {
-        if let PriceSource::Scaled(scaled) = source {
-            if let Err(err) = validate_cached_path(session, &scaled.quote, depth + 1) {
-                result = Err(err);
-                break;
+    'sources: for source in oracle.sources.iter() {
+        match source {
+            PriceSource::Feed(_) => {}
+            PriceSource::Scaled(scaled) => {
+                if let Err(err) = validate_cached_path(session, &scaled.quote, depth + 1) {
+                    result = Err(err);
+                    break;
+                }
+            }
+            PriceSource::AquariusLp(lp) => {
+                for dependency in [&lp.key_a, &lp.key_b] {
+                    if let Err(err) = validate_cached_path(session, dependency, depth + 1) {
+                        result = Err(err);
+                        break 'sources;
+                    }
+                }
             }
         }
     }
@@ -315,7 +314,7 @@ fn resolve_outcome(
     let oracle = if let Some(o) = override_oracle {
         o.clone()
     } else {
-        match admin::get_oracle(&env, key) {
+        match registry::get_oracle(&env, key) {
             Some(o) => o,
             None => {
                 session.pop_key();
@@ -324,7 +323,7 @@ fn resolve_outcome(
         }
     };
 
-    let outcome = match compose(session, &oracle, depth) {
+    let outcome = match compose(session, key, &oracle, depth) {
         Ok(legs) => blend(&env, &oracle, legs),
         Err(err) => Outcome::with_err(err),
     };
@@ -335,8 +334,8 @@ fn resolve_outcome(
 fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
     match legs {
         Legs::Empty => Outcome::unreadable(),
-        Legs::One(r) => Outcome::one(r, oracle.asset_decimals),
-        Legs::Partial { reading, slot } => Outcome::partial(reading, slot, oracle.asset_decimals),
+        Legs::One(r) => Outcome::one(r),
+        Legs::Partial { reading, slot } => Outcome::partial(reading, slot),
         Legs::Two { primary, anchor } => {
             let stale = primary.stale || anchor.stale;
             let ts = primary.timestamp.min(anchor.timestamp);
@@ -349,9 +348,6 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
                 timestamp: ts,
                 first_wad: primary.price_wad,
                 second_wad: anchor.price_wad,
-                low_wad: primary.price_wad.min(anchor.price_wad),
-                high_wad: primary.price_wad.max(anchor.price_wad),
-                asset_decimals: oracle.asset_decimals,
                 stale,
                 deviation,
                 err: None,
@@ -393,13 +389,24 @@ pub(crate) fn blend_partial(
     )
 }
 
-fn compose(session: &mut Session, oracle: &AssetOracle, depth: u32) -> Result<Legs, OracleError> {
+fn compose(
+    session: &mut Session,
+    key: &PriceKey,
+    oracle: &AssetOracle,
+    depth: u32,
+) -> Result<Legs, OracleError> {
     let count = oracle.sources.len();
     if count == 0 || count > 2 {
         return Err(OracleError::SourceCountOutOfRange);
     }
 
-    let first = read_source(session, oracle, &oracle.sources.get_unchecked(0), depth)?;
+    let first = read_source(
+        session,
+        key,
+        oracle,
+        &oracle.sources.get_unchecked(0),
+        depth,
+    )?;
     if count == 1 {
         return Ok(match first {
             Some(r) => Legs::One(r),
@@ -407,7 +414,13 @@ fn compose(session: &mut Session, oracle: &AssetOracle, depth: u32) -> Result<Le
         });
     }
 
-    let second = read_source(session, oracle, &oracle.sources.get_unchecked(1), depth)?;
+    let second = read_source(
+        session,
+        key,
+        oracle,
+        &oracle.sources.get_unchecked(1),
+        depth,
+    )?;
     Ok(match (first, second) {
         (Some(primary), Some(anchor)) => Legs::Two { primary, anchor },
         (Some(reading), None) => Legs::Partial {
@@ -424,14 +437,17 @@ fn compose(session: &mut Session, oracle: &AssetOracle, depth: u32) -> Result<Le
 
 fn read_source(
     session: &mut Session,
+    key: &PriceKey,
     oracle: &AssetOracle,
     source: &PriceSource,
     depth: u32,
 ) -> Result<Option<Reading>, OracleError> {
-    let Some((observation, component_stale)) = evaluate_source(session, source, depth)? else {
+    let Some((observation, component_stale)) =
+        evaluate_source(session, key, source, oracle.asset_decimals, depth)?
+    else {
         return Ok(None);
     };
-    let timestamp = observation.timestamp();
+    let timestamp = observation.timestamp;
     let stale = component_stale
         || is_stale(
             session.now_secs(),
@@ -447,77 +463,28 @@ fn read_source(
 
 fn evaluate_source(
     session: &mut Session,
+    key: &PriceKey,
     source: &PriceSource,
+    asset_decimals: u32,
     depth: u32,
 ) -> Result<Option<(OracleObservation, bool)>, OracleError> {
     match source {
         PriceSource::Feed(feed) => Ok(read_feed(session, feed)),
         PriceSource::Scaled(scaled) => read_scaled(session, scaled, depth),
-        PriceSource::LpShare(lp) => read_lp_share(session, lp, depth),
+        PriceSource::AquariusLp(lp) => aquarius::read(session, key, lp, asset_decimals, depth),
     }
-}
-
-/// Prices a constant-product LP share from pool reserves and the two underlying
-/// oracle prices, using the manipulation-resistant fair-value formula. The
-/// reserves come from the pool's read-only plane mirror; the underlyings are
-/// resolved through the normal nested path (depth/cycle/sanity guarded).
-fn read_lp_share(
-    session: &mut Session,
-    lp: &LpShareSource,
-    depth: u32,
-) -> Result<Option<(OracleObservation, bool)>, OracleError> {
-    match lp.kind {
-        PoolKind::ConstantProduct => {}
-    }
-    let env = session.env().clone();
-
-    let price_a = resolve_nested(session, &lp.key_a, depth + 1)?;
-    let price_b = resolve_nested(session, &lp.key_b, depth + 1)?;
-
-    let (reserve_a, reserve_b) = aquarius_plane_reserves_call(&env, &lp.plane, &lp.pool)
-        .ok_or(OracleError::NoLastPrice)?;
-    let total_shares =
-        aquarius_total_shares_call(&env, &lp.pool).ok_or(OracleError::NoLastPrice)?;
-
-    let price_wad = fair_lp_price_wad(
-        &env,
-        &LpLeg {
-            reserve: reserve_a,
-            decimals: lp.reserve_a_decimals,
-            price_wad: price_a.price_wad,
-        },
-        &LpLeg {
-            reserve: reserve_b,
-            decimals: lp.reserve_b_decimals,
-            price_wad: price_b.price_wad,
-        },
-        &LpSupply {
-            total_shares,
-            decimals: lp.share_decimals,
-        },
-    )?;
-
-    // The share is only as fresh as its underlyings (already staleness-checked
-    // by resolve_nested); carry the older leg's timestamp.
-    Ok(Some((
-        OracleObservation {
-            price_wad,
-            observed_at: price_a.timestamp.min(price_b.timestamp),
-            published_at: None,
-        },
-        false,
-    )))
 }
 
 fn read_feed(session: &mut Session, feed: &FeedSource) -> Option<(OracleObservation, bool)> {
     let observation = match &feed.provider {
         ProviderRef::Reflector(r) => reflector::read_reflector_source(session, r, feed.decimals),
-        ProviderRef::MultiFeed(m) => multi_feed::read_multi_feed_source(session, m, feed.decimals),
+        ProviderRef::RedStone(r) => redstone::read(session, r, feed.decimals),
+        ProviderRef::Xoxno(x) => xoxno::read(session, x, feed.decimals),
     }?;
 
     let stale = is_stale(
         session.now_secs(),
-        observation.timestamp(),
+        observation.timestamp,
         feed.max_stale_seconds,
     );
     Some((observation, stale))
@@ -547,8 +514,7 @@ fn read_scaled(
     Ok(Some((
         OracleObservation {
             price_wad: price_wad.raw(),
-            observed_at: factor.timestamp().min(quote.timestamp),
-            published_at: None,
+            timestamp: factor.timestamp.min(quote.timestamp),
         },
         factor_stale,
     )))

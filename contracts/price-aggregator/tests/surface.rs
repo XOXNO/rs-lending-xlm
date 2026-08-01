@@ -1,7 +1,7 @@
 use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
-    PriceKey, PriceSource, ProviderKind, ProviderRef, ScaledSource, TrustDomain,
+    PriceKey, PriceSource, ProviderRef, ScaledSource,
 };
 use mock_redstone::{MockRedStonePriceFeed, MockRedStonePriceFeedClient};
 use price_aggregator::{Error, PriceAggregator, PriceAggregatorClient};
@@ -60,10 +60,9 @@ fn redstone_single(env: &Env, feed: &Address, feed_id: &str, max_stale: u64) -> 
 
 fn redstone_feed(env: &Env, feed: &Address, feed_id: &str, max_stale: u64) -> PriceSource {
     PriceSource::Feed(FeedSource {
-        provider: ProviderRef::MultiFeed(MultiFeedRef {
+        provider: ProviderRef::RedStone(MultiFeedRef {
             contract: feed.clone(),
             feed_id: String::from_str(env, feed_id),
-            kind: ProviderKind::RedStone,
             nature: FeedNature::Fundamental,
         }),
         decimals: 8,
@@ -92,13 +91,7 @@ fn redstone_dual(
             upper_ratio_bps: upper_bps,
             lower_ratio_bps: lower_bps,
         },
-        independence: IndependencePolicy::AllowShared(soroban_sdk::vec![
-            env,
-            TrustDomain {
-                kind: ProviderKind::RedStone,
-                contract: feed.clone(),
-            }
-        ]),
+        independence: IndependencePolicy::AllowShared(soroban_sdk::vec![env, feed.clone()]),
 
         // Both legs read the same adapter, so this config earns no wide-band
         // exemption: it is held to the single-source width cap.
@@ -576,6 +569,29 @@ fn set_sanity_band_and_tolerance_update_live_config() {
             .unwrap()
             .tolerance,
         tol
+    );
+}
+
+#[test]
+fn shared_trust_dual_cannot_gain_a_wide_band_through_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| li.timestamp = 1_700_000_000);
+    let (_owner, client) = register_agg(&env);
+    let asset = Address::generate(&env);
+    let (feed, feed_client) = register_feed(&env);
+    feed_client.set_price(&String::from_str(&env, "PRIMARY"), &WAD);
+    feed_client.set_price(&String::from_str(&env, "ANCHOR"), &WAD);
+    client.set_oracle(
+        &PriceKey::Token(asset.clone()),
+        &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
+    );
+
+    assert_eq!(
+        client.try_set_sanity_band(&PriceKey::Token(asset), &(WAD / 2), &(WAD * 3 / 2),),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            Error::SanityBandTooWideForSingleSource as u32,
+        )))
     );
 }
 

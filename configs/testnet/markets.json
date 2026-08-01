@@ -1,5 +1,57 @@
 {
   "network": "testnet",
+  "references": [
+    {
+      "_note": "USD oracle for the Aquarius pool's distinct USDC reserve token. The LP source binds this explicit Ref proxy to token_a.",
+      "name": "AQ_USDC",
+      "key": {
+        "Ref": "AQ_USDC"
+      },
+      "oracle": {
+        "asset_decimals": 0,
+        "max_price_stale_seconds": 86400,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
+                  "asset": {
+                    "Symbol": "USDC"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
+              },
+              "decimals": 14,
+              "max_stale_seconds": 3600
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                  "feed_id": "USDC",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 86400
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "900000000000000000",
+        "max_sanity_price_wad": "1100000000000000000"
+      }
+    }
+  ],
   "markets": [
     {
       "name": "USDC",
@@ -29,10 +81,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
                   "feed_id": "USDC",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -91,10 +142,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
                   "feed_id": "XLM",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -201,10 +251,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
                   "feed_id": "BTC",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -263,10 +312,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
                   "feed_id": "ETH",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -325,10 +373,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
                   "feed_id": "USDC",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -360,7 +407,7 @@
       }
     },
     {
-      "_comment": "Aquarius XLM/USDC constant-product LP token (share_id of pool CD3LFMML...). Priced by the LpShare source: fair-value 2*sqrt(Va*Vb)/S from the pool's plane reserves + get_total_shares, each leg valued via the listed USDC (key_a) and XLM (key_b) oracles. The pool's USDC reserve token (CAZRY5GS...) is a distinct USDC contract priced ~$1, so key_a reuses the config USDC oracle. set_oracle attests plane==pool.get_pools_plane(), key==Token(pool.share_id()) and reserve decimals vs pool.get_tokens(); read-time rejects non-'standard' pool types. LpShare is exempt from the single-source band-width cap; the band is a wide backstop against a compromised/degenerate pool, not a price-accuracy guard (the underlyings' own bands/tolerance/staleness do that). DERIVED off-chain from the underlyings' bands as [fair(a_min,b_min), fair(a_max,b_max)] (USDC $0.90-$1.10, XLM $0.045-$0.50 => ~$0.404-$1.490) with upper headroom to $2.00 for swap-fee drift (per-share fair value rises as fees grow k). Re-derive on a cadence (fee drift) or if an underlying band changes, not only the latter.",
+      "_comment": "Aquarius XLM/USDC constant-product LP token (share_id of pool CD3LFMML...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; token_a uses the explicit AQ_USDC reference because this pool has a distinct USDC contract. It rejects non-standard rows and fair pool value below $2,500. The price band remains a separate wide backstop.",
       "name": "XLMUSDC_LP",
       "hub_id": 3,
       "asset_address": "CDZ3L5A7DY6OSJPTWCACOMEA4H6RC7B5CTFRHSPUUAHMEL2MAKY37JMG",
@@ -369,19 +416,20 @@
         "max_price_stale_seconds": 86400,
         "sources": [
           {
-            "LpShare": {
+            "AquariusLp": {
               "pool": "CD3LFMMLBQ6RBJUD3Z2LFDFE6544WDRMWHEZYPI5YDVESYRSO2TT32BX",
               "plane": "CDHD3X5EYKYCN42HHMOJPNYP62USQ7Q5KM5X6DXHIRAG73FZH2MDWIXI",
-              "kind": "ConstantProduct",
+              "token_a": "CAZRY5GSFBFXD7H6GAFBA5YGYQTDXU4QKWKMYFWBAZFUCURN3WKX6LF5",
+              "token_b": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
               "key_a": {
-                "Token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+                "Ref": "AQ_USDC"
               },
               "key_b": {
                 "Token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
               },
               "reserve_a_decimals": 7,
               "reserve_b_decimals": 7,
-              "share_decimals": 7
+              "min_pool_value_wad": "2500000000000000000000"
             }
           }
         ],

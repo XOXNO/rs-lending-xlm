@@ -115,7 +115,7 @@ fn single_price_respects_configured_sanity_bounds(e: Env, asset: Address, oracle
     cvlr_assume!(asset != oracle);
     let config = pinned_oracle(&e, &asset, oracle);
     let key = PriceKey::Token(asset.clone());
-    crate::admin::store_oracle(&e, &key, &config);
+    crate::registry::store_oracle(&e, &key, &config);
 
     let feed = crate::PriceAggregator::price(e, key);
     cvlr_assert!(feed.price_wad >= config.min_sanity_price_wad);
@@ -128,7 +128,7 @@ fn price_endpoint_sanity(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);
     let config = pinned_oracle(&e, &asset, oracle);
     let key = PriceKey::Token(asset);
-    crate::admin::store_oracle(&e, &key, &config);
+    crate::registry::store_oracle(&e, &key, &config);
 
     let feed = crate::PriceAggregator::price(e, key);
     cvlr_satisfy!(feed.price_wad > 0);
@@ -145,8 +145,8 @@ fn bulk_prices_contains_each_requested_asset(
     cvlr_assume!(first != oracle && second != oracle);
     let k1 = PriceKey::Token(first.clone());
     let k2 = PriceKey::Token(second.clone());
-    crate::admin::store_oracle(&e, &k1, &pinned_oracle(&e, &first, oracle.clone()));
-    crate::admin::store_oracle(&e, &k2, &pinned_oracle(&e, &second, oracle));
+    crate::registry::store_oracle(&e, &k1, &pinned_oracle(&e, &first, oracle.clone()));
+    crate::registry::store_oracle(&e, &k2, &pinned_oracle(&e, &second, oracle));
 
     let requested = soroban_sdk::vec![&e, k1.clone(), k2.clone()];
     let prices = crate::PriceAggregator::prices(e, requested);
@@ -204,7 +204,7 @@ fn partial_legs_soft_deviation(e: Env, asset: Address, oracle: Address, reading_
 #[rule]
 fn missing_oracle_config_reverts(e: Env, asset: Address) {
     let key = PriceKey::Token(asset);
-    cvlr_assume!(crate::admin::get_oracle(&e, &key).is_none());
+    cvlr_assume!(crate::registry::get_oracle(&e, &key).is_none());
     let _ = crate::PriceAggregator::price(e, key);
     cvlr_assert!(false);
 }

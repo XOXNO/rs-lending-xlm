@@ -197,7 +197,9 @@ mod tests {
                 "isqrt({n}) should be {want}"
             );
         };
-        for n in [0u128, 1, 2, 3, 4, 5, 8, 9, 15, 16, 17, 24, 25, 26, 99, 100, 101] {
+        for n in [
+            0u128, 1, 2, 3, 4, 5, 8, 9, 15, 16, 17, 24, 25, 26, 99, 100, 101,
+        ] {
             check(n);
         }
         for shift in [16u32, 32, 64, 96, 126] {
@@ -212,8 +214,7 @@ mod tests {
     #[test]
     fn rejects_zero_supply() {
         let env = Env::default();
-        let err =
-            fair_lp_price_wad(&env, &leg(1, WAD), &leg(1, WAD), &supply(0)).unwrap_err();
+        let err = fair_lp_price_wad(&env, &leg(1, WAD), &leg(1, WAD), &supply(0)).unwrap_err();
         assert_eq!(err, OracleError::InvalidPrice);
     }
 

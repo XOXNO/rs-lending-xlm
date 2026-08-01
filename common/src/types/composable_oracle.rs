@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, String, Symbol, Vec};
 
 use super::oracle::{OracleAssetRef, OracleReadMode, OracleTolerance};
 
@@ -13,14 +13,6 @@ pub enum PriceKey {
     Token(Address),
 
     Ref(Symbol),
-}
-
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProviderKind {
-    Reflector,
-    RedStone,
-    Xoxno,
 }
 
 #[contracttype]
@@ -44,8 +36,6 @@ pub enum FeedNature {
 pub struct MultiFeedRef {
     pub contract: Address,
     pub feed_id: String,
-
-    pub kind: ProviderKind,
     pub nature: FeedNature,
 }
 
@@ -53,56 +43,34 @@ pub struct MultiFeedRef {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProviderRef {
     Reflector(ReflectorFeedRef),
-    MultiFeed(MultiFeedRef),
+    RedStone(MultiFeedRef),
+    Xoxno(MultiFeedRef),
 }
 
 impl ProviderRef {
     pub fn contract(&self) -> &Address {
         match self {
             ProviderRef::Reflector(r) => &r.contract,
-            ProviderRef::MultiFeed(m) => &m.contract,
-        }
-    }
-
-    pub fn kind(&self) -> ProviderKind {
-        match self {
-            ProviderRef::Reflector(_) => ProviderKind::Reflector,
-            ProviderRef::MultiFeed(m) => m.kind,
+            ProviderRef::RedStone(r) | ProviderRef::Xoxno(r) => &r.contract,
         }
     }
 
     pub fn is_smoothed(&self) -> bool {
         match self {
             ProviderRef::Reflector(r) => matches!(r.read_mode, OracleReadMode::Twap(_)),
-            ProviderRef::MultiFeed(_) => false,
+            ProviderRef::RedStone(_) | ProviderRef::Xoxno(_) => false,
         }
     }
 
     pub fn nature(&self) -> FeedNature {
         match self {
             ProviderRef::Reflector(_) => FeedNature::Market,
-            ProviderRef::MultiFeed(m) => m.nature,
+            ProviderRef::RedStone(r) | ProviderRef::Xoxno(r) => r.nature,
         }
     }
 
     pub fn is_unsmoothed_market_leg(&self) -> bool {
         self.nature() == FeedNature::Market && !self.is_smoothed()
-    }
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TrustDomain {
-    pub kind: ProviderKind,
-    pub contract: Address,
-}
-
-impl TrustDomain {
-    pub fn of(provider: &ProviderRef) -> Self {
-        TrustDomain {
-            kind: provider.kind(),
-            contract: provider.contract().clone(),
-        }
     }
 }
 
@@ -126,19 +94,15 @@ pub struct ScaledSource {
 }
 
 #[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PoolKind {
-    ConstantProduct,
-}
-
-#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LpShareSource {
+pub struct AquariusLpSource {
     pub pool: Address,
     /// The pool's reserve-mirror plane (`pool.get_pools_plane()`), captured at
     /// listing; reserves are read from here so the pricing path stays read-only.
     pub plane: Address,
-    pub kind: PoolKind,
+    /// Reserve-token identities in the exact order returned by `pool.get_tokens()`.
+    pub token_a: Address,
+    pub token_b: Address,
     pub key_a: PriceKey,
     pub key_b: PriceKey,
 
@@ -146,15 +110,19 @@ pub struct LpShareSource {
 
     pub reserve_b_decimals: u32,
 
-    pub share_decimals: u32,
+    /// Minimum manipulation-resistant pool value, in USD WAD.
+    pub min_pool_value_wad: i128,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+// These are ABI payloads backed by Soroban host values. Boxing would change the
+// contract representation and is not a useful size optimization in `no_std`.
+#[allow(clippy::large_enum_variant)]
 pub enum PriceSource {
     Feed(FeedSource),
     Scaled(ScaledSource),
-    LpShare(LpShareSource),
+    AquariusLp(AquariusLpSource),
 }
 
 #[contracttype]
@@ -162,7 +130,7 @@ pub enum PriceSource {
 pub enum IndependencePolicy {
     RequireDisjoint,
 
-    AllowShared(Vec<TrustDomain>),
+    AllowShared(Vec<Address>),
 }
 
 #[contracttype]
@@ -190,125 +158,8 @@ impl AssetOracle {
     /// LP-share pricing derives from two independently-banded underlyings, so —
     /// like a dual-source oracle — its own sanity band is a wide backstop, not a
     /// tight single-feed guard, and is exempt from the single-source width cap.
-    pub fn has_lp_source(&self) -> bool {
-        matches!(self.sources.get(0), Some(PriceSource::LpShare(_)))
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SourceProperties {
-    pub has_unsmoothed_market_leg: bool,
-
-    pub trust: Vec<TrustDomain>,
-
-    pub loosest_max_stale_seconds: u64,
-
-    pub depth: u32,
-}
-
-impl SourceProperties {
-    pub fn empty(env: &Env) -> Self {
-        SourceProperties {
-            has_unsmoothed_market_leg: false,
-            trust: Vec::new(env),
-            loosest_max_stale_seconds: 0,
-            depth: 0,
-        }
-    }
-
-    pub fn of_feed(env: &Env, feed: &FeedSource) -> Self {
-        let mut trust = Vec::new(env);
-        trust.push_back(TrustDomain::of(&feed.provider));
-        SourceProperties {
-            has_unsmoothed_market_leg: feed.provider.is_unsmoothed_market_leg(),
-            trust,
-            loosest_max_stale_seconds: feed.max_stale_seconds,
-            depth: 0,
-        }
-    }
-
-    pub fn join(&self, other: &SourceProperties) -> Self {
-        let mut trust = self.trust.clone();
-        for domain in other.trust.iter() {
-            if !contains_domain(&trust, &domain) {
-                trust.push_back(domain);
-            }
-        }
-        SourceProperties {
-            has_unsmoothed_market_leg: self.has_unsmoothed_market_leg
-                || other.has_unsmoothed_market_leg,
-            trust,
-            loosest_max_stale_seconds: self
-                .loosest_max_stale_seconds
-                .max(other.loosest_max_stale_seconds),
-            depth: self.depth.max(other.depth),
-        }
-    }
-
-    pub fn nest(mut self) -> Self {
-        self.depth += 1;
-        self
-    }
-
-    /// True when neither leg trusts a contract the other does not, i.e. the two
-    /// legs carry no independent signal: one compromised contract set moves both
-    /// together, so the deviation band cross-checks nothing.
-    pub fn trusts_exactly_as(&self, other: &SourceProperties) -> bool {
-        let covered = |a: &Vec<TrustDomain>, b: &Vec<TrustDomain>| {
-            a.iter()
-                .all(|d| b.iter().any(|o| o.contract == d.contract))
-        };
-        covered(&self.trust, &other.trust) && covered(&other.trust, &self.trust)
-    }
-
-    pub fn shared_contracts_with(&self, env: &Env, other: &SourceProperties) -> Vec<Address> {
-        let mut shared = Vec::new(env);
-        for domain in self.trust.iter() {
-            let in_other = other.trust.iter().any(|d| d.contract == domain.contract);
-            let already = shared.iter().any(|c| c == domain.contract);
-            if in_other && !already {
-                shared.push_back(domain.contract.clone());
-            }
-        }
-        shared
-    }
-}
-
-pub fn contains_domain(haystack: &Vec<TrustDomain>, needle: &TrustDomain) -> bool {
-    haystack.iter().any(|d| &d == needle)
-}
-
-pub struct LocalProperties {
-    pub local: SourceProperties,
-    pub dependencies: Vec<PriceKey>,
-}
-
-pub fn local_properties(env: &Env, source: &PriceSource) -> LocalProperties {
-    match source {
-        PriceSource::Feed(feed) => LocalProperties {
-            local: SourceProperties::of_feed(env, feed),
-            dependencies: Vec::new(env),
-        },
-        PriceSource::Scaled(scaled) => {
-            let mut dependencies = Vec::new(env);
-            dependencies.push_back(scaled.quote.clone());
-            LocalProperties {
-                local: SourceProperties::of_feed(env, &scaled.factor),
-                dependencies,
-            }
-        }
-        PriceSource::LpShare(lp) => {
-            let mut dependencies = Vec::new(env);
-            dependencies.push_back(lp.key_a.clone());
-            dependencies.push_back(lp.key_b.clone());
-            let mut local = SourceProperties::empty(env);
-
-            local.has_unsmoothed_market_leg = true;
-            LocalProperties {
-                local,
-                dependencies,
-            }
-        }
+    pub fn has_aquarius_lp_source(&self) -> bool {
+        matches!(self.sources.get(0), Some(PriceSource::AquariusLp(_)))
     }
 }
 

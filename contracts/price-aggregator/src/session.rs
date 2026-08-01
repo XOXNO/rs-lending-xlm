@@ -141,7 +141,7 @@ fn collect_key(
     }
     visited.push_back(key.clone());
 
-    let Some(oracle) = crate::admin::get_oracle(env, key) else {
+    let Some(oracle) = crate::registry::get_oracle(env, key) else {
         return;
     };
 
@@ -153,15 +153,19 @@ fn collect_key(
                 collect_key(env, by_adapter, visited, &scaled.quote, depth + 1);
             }
 
-            PriceSource::LpShare(_) => {}
+            PriceSource::AquariusLp(lp) => {
+                collect_key(env, by_adapter, visited, &lp.key_a, depth + 1);
+                collect_key(env, by_adapter, visited, &lp.key_b, depth + 1);
+            }
         }
     }
 }
 
 #[cfg(not(feature = "certora"))]
 fn collect_provider(env: &Env, by_adapter: &mut Map<Address, Vec<String>>, provider: &ProviderRef) {
-    let ProviderRef::MultiFeed(multi_feed) = provider else {
-        return;
+    let multi_feed = match provider {
+        ProviderRef::RedStone(feed) | ProviderRef::Xoxno(feed) => feed,
+        ProviderRef::Reflector(_) => return,
     };
     let mut feeds = by_adapter
         .get(multi_feed.contract.clone())

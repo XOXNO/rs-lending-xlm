@@ -21,7 +21,6 @@ pub(crate) struct Cache {
     revenue: Ray,
     borrow_index: Ray,
     supply_index: Ray,
-
     cash: i128,
 }
 

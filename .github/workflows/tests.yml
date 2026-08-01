@@ -64,10 +64,10 @@ jobs:
         run: make wasm-size-check
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --features price-aggregator/testing
 
       - name: Clippy (workspace)
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --features price-aggregator/testing -- -D warnings
 
       - name: Clippy (fuzz crate, workspace-excluded)
         run: make clippy-fuzz

@@ -1,6 +1,6 @@
 use controller::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, PriceKey, PriceSource,
-    ProviderKind, ProviderRef, ScaledSource,
+    ProviderRef, ScaledSource,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, String, Symbol, Vec};
@@ -104,10 +104,9 @@ fn test_scaled_source_rejected_when_quote_key_is_self() {
 
 fn scaled_config(t: &LendingTest, adapter: &Address, quote: PriceKey) -> AssetOracle {
     let factor = FeedSource {
-        provider: ProviderRef::MultiFeed(MultiFeedRef {
+        provider: ProviderRef::RedStone(MultiFeedRef {
             contract: adapter.clone(),
             feed_id: String::from_str(&t.env, "RATIO"),
-            kind: ProviderKind::RedStone,
             nature: FeedNature::Fundamental,
         }),
         decimals: 8,

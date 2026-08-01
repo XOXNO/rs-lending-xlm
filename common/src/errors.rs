@@ -198,7 +198,9 @@ pub enum OracleError {
 
     IndependenceNotDeclared = 232,
 
-    UnsupportedPoolKind = 234,
+    UnsupportedAquariusPool = 234,
+
+    InsufficientAquariusLiquidity = 235,
 }
 
 #[contracterror]

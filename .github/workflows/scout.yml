@@ -58,6 +58,7 @@ jobs:
             contracts/pool
             contracts/controller
             contracts/governance
+            contracts/price-aggregator
             contracts/defindex-strategy
           exclude: dos-unexpected-revert-with-storage
           output-format: json

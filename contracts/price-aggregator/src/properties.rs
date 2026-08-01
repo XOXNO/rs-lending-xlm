@@ -1,9 +1,95 @@
 use common::errors::OracleError;
-use common::types::{local_properties, PriceKey, PriceSource, SourceProperties};
-use soroban_sdk::{panic_with_error, Env, Vec};
+use common::types::{FeedSource, PriceKey, PriceSource};
+use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
-use crate::admin;
+use crate::registry;
 use crate::session::Session;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SourceProperties {
+    pub has_unsmoothed_market_leg: bool,
+    pub trust: Vec<Address>,
+    pub loosest_max_stale_seconds: u64,
+    pub depth: u32,
+}
+
+impl SourceProperties {
+    fn empty(env: &Env) -> Self {
+        Self {
+            has_unsmoothed_market_leg: false,
+            trust: Vec::new(env),
+            loosest_max_stale_seconds: 0,
+            depth: 0,
+        }
+    }
+
+    fn of_feed(env: &Env, feed: &FeedSource) -> Self {
+        Self {
+            has_unsmoothed_market_leg: feed.provider.is_unsmoothed_market_leg(),
+            trust: Vec::from_array(env, [feed.provider.contract().clone()]),
+            loosest_max_stale_seconds: feed.max_stale_seconds,
+            depth: 0,
+        }
+    }
+
+    fn join(&self, other: &Self) -> Self {
+        let mut trust = self.trust.clone();
+        for contract in other.trust.iter() {
+            if !trust.contains(&contract) {
+                trust.push_back(contract);
+            }
+        }
+        Self {
+            has_unsmoothed_market_leg: self.has_unsmoothed_market_leg
+                || other.has_unsmoothed_market_leg,
+            trust,
+            loosest_max_stale_seconds: self
+                .loosest_max_stale_seconds
+                .max(other.loosest_max_stale_seconds),
+            depth: self.depth.max(other.depth),
+        }
+    }
+
+    pub(crate) fn trusts_exactly_as(&self, other: &Self) -> bool {
+        let covered = |a: &Vec<Address>, b: &Vec<Address>| a.iter().all(|d| b.contains(&d));
+        covered(&self.trust, &other.trust) && covered(&other.trust, &self.trust)
+    }
+
+    pub(crate) fn shared_contracts_with(&self, env: &Env, other: &Self) -> Vec<Address> {
+        let mut shared = Vec::new(env);
+        for contract in self.trust.iter() {
+            if other.trust.contains(&contract) && !shared.contains(&contract) {
+                shared.push_back(contract);
+            }
+        }
+        shared
+    }
+}
+
+pub(crate) struct LocalProperties {
+    pub local: SourceProperties,
+    pub dependencies: Vec<PriceKey>,
+}
+
+pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> LocalProperties {
+    match source {
+        PriceSource::Feed(feed) => LocalProperties {
+            local: SourceProperties::of_feed(env, feed),
+            dependencies: Vec::new(env),
+        },
+        PriceSource::Scaled(scaled) => LocalProperties {
+            local: SourceProperties::of_feed(env, &scaled.factor),
+            dependencies: Vec::from_array(env, [scaled.quote.clone()]),
+        },
+        PriceSource::AquariusLp(lp) => LocalProperties {
+            local: SourceProperties {
+                has_unsmoothed_market_leg: true,
+                ..SourceProperties::empty(env)
+            },
+            dependencies: Vec::from_array(env, [lp.key_a.clone(), lp.key_b.clone()]),
+        },
+    }
+}
 
 pub(crate) fn properties_of_source(
     session: &mut Session,
@@ -35,7 +121,7 @@ pub(crate) fn properties_of_key(
 
     session.push_key(key);
 
-    let Some(oracle) = admin::get_oracle(&env, key) else {
+    let Some(oracle) = registry::get_oracle(&env, key) else {
         panic_with_error!(&env, OracleError::OracleNotConfigured)
     };
 
@@ -68,7 +154,7 @@ pub(crate) fn properties_of_config(
     sources: &Vec<PriceSource>,
 ) -> ConfigProperties {
     let env = session.env().clone();
-    common::oracle::policy::validate_source_count(&env, sources.len());
+    crate::validation::source_count(&env, sources.len());
 
     let first = properties_of_source(session, &sources.get_unchecked(0), 0);
     let second = if sources.len() == 2 {

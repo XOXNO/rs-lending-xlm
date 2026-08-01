@@ -1,8 +1,6 @@
-use crate::errors::{GenericError, OracleError};
+use crate::errors::OracleError;
 use crate::types::OracleAssetRef;
-use soroban_sdk::{
-    assert_with_error, contractclient, contracttype, panic_with_error, Address, Env, Symbol, Vec,
-};
+use soroban_sdk::{contractclient, contracttype, panic_with_error, Address, Env, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -32,11 +30,11 @@ pub trait ReflectorOracle {
     fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }
 
-pub fn reflector_base_call(env: &Env, oracle: &Address) -> ReflectorAsset {
+pub fn reflector_base(env: &Env, oracle: &Address) -> ReflectorAsset {
     ReflectorClient::new(env, oracle).base()
 }
 
-pub fn reflector_lastprice_call(
+pub fn reflector_last_price(
     env: &Env,
     oracle: &Address,
     asset: &ReflectorAsset,
@@ -47,7 +45,7 @@ pub fn reflector_lastprice_call(
     }
 }
 
-pub fn reflector_prices_call(
+pub fn reflector_prices(
     env: &Env,
     oracle: &Address,
     asset: &ReflectorAsset,
@@ -59,15 +57,15 @@ pub fn reflector_prices_call(
     }
 }
 
-pub fn reflector_decimals_call(env: &Env, oracle: &Address) -> u32 {
+pub fn reflector_decimals(env: &Env, oracle: &Address) -> u32 {
     ReflectorClient::new(env, oracle).decimals()
 }
 
-pub fn reflector_resolution_call(env: &Env, oracle: &Address) -> u32 {
+pub fn reflector_resolution(env: &Env, oracle: &Address) -> u32 {
     ReflectorClient::new(env, oracle).resolution()
 }
 
-pub fn try_reflector_resolution_call(env: &Env, oracle: &Address) -> Option<u32> {
+pub fn try_reflector_resolution(env: &Env, oracle: &Address) -> Option<u32> {
     match ReflectorClient::new(env, oracle).try_resolution() {
         Ok(Ok(resolution)) => Some(resolution),
         _ => None,
@@ -84,17 +82,6 @@ pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
 
 pub fn min_twap_observations(records: u32) -> u32 {
     core::cmp::max(2, records.div_ceil(2))
-}
-
-pub fn twap_mean_price(env: &Env, history: &Vec<ReflectorPriceData>) -> i128 {
-    let mut sum: i128 = 0;
-    for pd in history.iter() {
-        assert_with_error!(env, pd.price > 0, OracleError::InvalidPrice);
-        sum = sum
-            .checked_add(pd.price)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    }
-    sum / (history.len() as i128)
 }
 
 pub fn try_twap_mean_price(history: &Vec<ReflectorPriceData>) -> Option<i128> {

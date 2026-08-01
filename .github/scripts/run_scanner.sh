@@ -9,7 +9,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 for ((attempts = 1; attempts <= max_attempts; attempts++)); do
   if soroban-scanner scan . --project-root . \
-      --exclude vendor/ target/ .certora_internal \
+      --exclude .claude/ vendor/ target/ .certora_internal \
       >"$tmp/scan.json" 2>"$tmp/scan.err"; then
     python3 "$script_dir/scope_scanner_output.py" <"$tmp/scan.json"
     exit 0

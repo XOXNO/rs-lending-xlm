@@ -20,5 +20,4 @@ impl LendingTest {
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
     }
-
 }

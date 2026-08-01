@@ -114,9 +114,9 @@ fn test_redstone_anchor_read_failure_marks_view_invalid() {
     let anchor = match oracle.sources.get_unchecked(1) {
         PriceSource::Feed(mut feed) => {
             match feed.provider {
-                ProviderRef::MultiFeed(mut multi_feed) => {
+                ProviderRef::RedStone(mut multi_feed) => {
                     multi_feed.feed_id = String::from_str(&t.env, "MISSING");
-                    feed.provider = ProviderRef::MultiFeed(multi_feed);
+                    feed.provider = ProviderRef::RedStone(multi_feed);
                 }
                 _ => panic!("expected redstone anchor"),
             }

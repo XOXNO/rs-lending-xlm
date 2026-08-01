@@ -1401,9 +1401,11 @@ validate_configs() {
             vc_err "market ${m}: oracle still uses legacy primary/anchor/strategy/tolerance_bps fields"
         fi
         if ! printf '%s' "$o" | jq -e '
-            (.tolerance.upper_ratio_bps // 0) > 10000 and
-            (.tolerance.lower_ratio_bps // 99999) < 10000 and
-            (.tolerance.lower_ratio_bps // 0) >= 1' >/dev/null; then
+            any(.sources[]?; has("AquariusLp")) or (
+                (.tolerance.upper_ratio_bps // 0) > 10000 and
+                (.tolerance.lower_ratio_bps // 99999) < 10000 and
+                (.tolerance.lower_ratio_bps // 0) >= 1
+            )' >/dev/null; then
             vc_err "market ${m}: oracle.tolerance must be a reciprocal band around 10000 bps"
         fi
         if ! printf '%s' "$o" | jq -e '
@@ -1441,21 +1443,25 @@ validate_configs() {
                 fstale=$(printf '%s' "$sjson" | jq -r '.Feed.max_stale_seconds // "missing"')
                 pkind=$(printf '%s' "$sjson" | jq -r '
                     if .Feed.provider | has("Reflector") then "Reflector"
-                    elif .Feed.provider | has("MultiFeed") then (.Feed.provider.MultiFeed.kind // "MultiFeed")
+                    elif .Feed.provider | has("RedStone") then "RedStone"
+                    elif .Feed.provider | has("Xoxno") then "Xoxno"
                     else "unknown" end')
                 pcontract=$(printf '%s' "$sjson" | jq -r '
                     if .Feed.provider | has("Reflector") then .Feed.provider.Reflector.contract
-                    elif .Feed.provider | has("MultiFeed") then .Feed.provider.MultiFeed.contract
+                    elif .Feed.provider | has("RedStone") then .Feed.provider.RedStone.contract
+                    elif .Feed.provider | has("Xoxno") then .Feed.provider.Xoxno.contract
                     else "" end')
             elif printf '%s' "$sjson" | jq -e 'has("Scaled")' >/dev/null; then
                 fstale=$(printf '%s' "$sjson" | jq -r '.Scaled.factor.max_stale_seconds // "missing"')
                 pkind=$(printf '%s' "$sjson" | jq -r '
                     if .Scaled.factor.provider | has("Reflector") then "Reflector"
-                    elif .Scaled.factor.provider | has("MultiFeed") then (.Scaled.factor.provider.MultiFeed.kind // "MultiFeed")
+                    elif .Scaled.factor.provider | has("RedStone") then "RedStone"
+                    elif .Scaled.factor.provider | has("Xoxno") then "Xoxno"
                     else "unknown" end')
                 pcontract=$(printf '%s' "$sjson" | jq -r '
                     if .Scaled.factor.provider | has("Reflector") then .Scaled.factor.provider.Reflector.contract
-                    elif .Scaled.factor.provider | has("MultiFeed") then .Scaled.factor.provider.MultiFeed.contract
+                    elif .Scaled.factor.provider | has("RedStone") then .Scaled.factor.provider.RedStone.contract
+                    elif .Scaled.factor.provider | has("Xoxno") then .Scaled.factor.provider.Xoxno.contract
                     else "" end')
                 local quote_ref quote_token
                 quote_ref=$(printf '%s' "$sjson" | jq -r '.Scaled.quote.Ref // empty')
@@ -1481,8 +1487,27 @@ validate_configs() {
                 ' >/dev/null; then
                     vc_err "market ${m}: sources[$i] Scaled min/max_factor_wad invalid"
                 fi
+            elif printf '%s' "$sjson" | jq -e 'has("AquariusLp")' >/dev/null; then
+                if ! printf '%s' "$sjson" | jq -e '
+                    .AquariusLp.pool and .AquariusLp.plane and
+                    (.AquariusLp.token_a | type == "string") and
+                    (.AquariusLp.token_b | type == "string") and
+                    (.AquariusLp.token_a != .AquariusLp.token_b) and
+                    (.AquariusLp.key_a != .AquariusLp.key_b) and
+                    ((.AquariusLp.key_a.Ref != null) or
+                     (.AquariusLp.key_a.Token == .AquariusLp.token_a)) and
+                    ((.AquariusLp.key_b.Ref != null) or
+                     (.AquariusLp.key_b.Token == .AquariusLp.token_b)) and
+                    (.AquariusLp.reserve_a_decimals | type == "number") and
+                    (.AquariusLp.reserve_b_decimals | type == "number") and
+                    (.AquariusLp.min_pool_value_wad | tonumber) > 0
+                ' >/dev/null; then
+                    vc_err "market ${m}: sources[$i] AquariusLp has invalid token bindings or liquidity floor"
+                fi
+                i=$((i + 1))
+                continue
             else
-                vc_err "market ${m}: sources[$i] must be PriceSource::Feed or Scaled"
+                vc_err "market ${m}: sources[$i] must be Feed, Scaled, or AquariusLp"
                 i=$((i + 1))
                 continue
             fi
@@ -1534,16 +1559,19 @@ validate_configs() {
             vc_err "reference ${rname}: missing min/max_sanity_price_wad"
         fi
     done
-    for needed in $(all_scaled_ref_quotes); do
+    for needed in $(all_oracle_ref_dependencies); do
         if ! jq -e --arg n "$needed" '
             any(.references[]?; (.name == $n) or (.key.Ref == $n))
         ' "$MARKET_CONFIG_FILE" >/dev/null; then
-            vc_err "Scaled markets quote Ref ${needed} but it is not listed under .references[]"
+            vc_err "oracle dependency Ref ${needed} is not listed under .references[]"
         fi
     done
     for rname in $(jq -r '(.references // [])[].name // empty' "$MARKET_CONFIG_FILE"); do
         if ! jq -e --arg n "$rname" '
-            any(.markets[]?; any(.oracle.sources[]?; (.Scaled.quote.Ref // "") == $n))
+            any(.markets[]?; any(.oracle.sources[]?;
+                (.Scaled.quote.Ref // "") == $n or
+                (.AquariusLp.key_a.Ref // "") == $n or
+                (.AquariusLp.key_b.Ref // "") == $n))
         ' "$MARKET_CONFIG_FILE" >/dev/null; then
             vc_warn "reference ${rname} is listed but no market Scaled source quotes it"
         fi
@@ -2388,7 +2416,7 @@ update_market_params() {
 }
 
 update_indexes() {
-    if [ $
+    if [ $# -eq 0 ]; then
         echo "Usage: $0 updateIndexes <market_name> [market_name...]" >&2
         list_markets >&2
         exit 1
@@ -2415,7 +2443,7 @@ update_indexes() {
 
 claim_revenue() {
 
-    if [ $
+    if [ $# -eq 0 ]; then
         echo "Usage: $0 claimRevenue <market_name> [market_name...]" >&2
         list_markets >&2
         exit 1
@@ -2777,19 +2805,21 @@ withdraw_position() {
 }
 
 
-market_scaled_ref_quotes() {
+market_oracle_ref_dependencies() {
     local market_name=$1
     jq -r --arg m "$market_name" '
         .markets[] | select(.name == $m) | (.oracle.sources // [])[] |
-        select(has("Scaled")) | .Scaled.quote.Ref // empty
+        (.Scaled.quote.Ref // .AquariusLp.key_a.Ref // empty),
+        (.AquariusLp.key_b.Ref // empty)
     ' "$MARKET_CONFIG_FILE" | sort -u
 }
 
 
-all_scaled_ref_quotes() {
+all_oracle_ref_dependencies() {
     jq -r '
         [.markets[] | (.oracle.sources // [])[] |
-         select(has("Scaled")) | .Scaled.quote.Ref // empty] | unique | .[]
+         (.Scaled.quote.Ref // .AquariusLp.key_a.Ref // empty),
+         (.AquariusLp.key_b.Ref // empty)] | unique | .[]
     ' "$MARKET_CONFIG_FILE"
 }
 
@@ -2939,9 +2969,9 @@ configure_reference_oracle() {
 ensure_reference_oracles_for_market() {
     local market_name=$1
     local ref
-    for ref in $(market_scaled_ref_quotes "$market_name"); do
+    for ref in $(market_oracle_ref_dependencies "$market_name"); do
         [ -z "$ref" ] && continue
-        echo "Market ${market_name} Scaled quote requires reference ${ref}; ensuring it is configured..." >&2
+        echo "Market ${market_name} requires oracle reference ${ref}; ensuring it is configured..." >&2
         configure_reference_oracle "$ref"
     done
 }
@@ -2949,9 +2979,9 @@ ensure_reference_oracles_for_market() {
 
 setup_all_reference_oracles() {
     local refs ref
-    refs=$(all_scaled_ref_quotes)
+    refs=$(all_oracle_ref_dependencies)
     if [ -z "$refs" ]; then
-        echo "=== No Scaled Ref quotes in markets; skipping reference oracles ==="
+        echo "=== No oracle Ref dependencies in markets; skipping reference oracles ==="
         return 0
     fi
     echo "=== Configuring reference oracles required by Scaled markets ==="
@@ -2971,7 +3001,9 @@ list_references() {
     for r in $(jq -r '.references[].name' "$MARKET_CONFIG_FILE"); do
         used_by=$(jq -r --arg r "$r" '
             [.markets[] | select(any(.oracle.sources[]?;
-                (.Scaled.quote.Ref // "") == $r)) | .name] | join(", ")
+                (.Scaled.quote.Ref // "") == $r or
+                (.AquariusLp.key_a.Ref // "") == $r or
+                (.AquariusLp.key_b.Ref // "") == $r)) | .name] | join(", ")
         ' "$MARKET_CONFIG_FILE")
         [ -z "$used_by" ] && used_by="(unused by markets)"
         jq -r --arg r "$r" --arg u "$used_by" '
@@ -3628,7 +3660,7 @@ show_info() {
         echo "Oracle adapter owner (chain-verified): $(invoke_view "$adapter_addr" get_owner 2>/dev/null | tail -n1 || echo 'read failed')"
     fi
 
-    echo "RedStone markets: $(jq -r '[.markets[] | select(any(.oracle.sources[]?; (.Feed.provider.MultiFeed.kind // "") == "RedStone")) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
+    echo "RedStone markets: $(jq -r '[.markets[] | select(any(.oracle.sources[]?; .Feed.provider.RedStone? != null)) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
 }
 
 
@@ -3680,7 +3712,7 @@ list_oracles() {
     echo "=== Configured market oracles (${NETWORK}) ===" >&2
     local m i n src refs
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
-        refs=$(market_scaled_ref_quotes "$m" | tr '\n' ',' | sed 's/,$//')
+        refs=$(market_oracle_ref_dependencies "$m" | tr '\n' ',' | sed 's/,$//')
         [ -z "$refs" ] && refs="-"
         jq -r --arg m "$m" --arg refs "$refs" 'first(.markets[] | select(.name == $m)) |
             "\(.name) (hub \(.hub_id // "?")): sources=\((.oracle.sources // [])|length) scaled_refs=\($refs) stale=\(.oracle.max_price_stale_seconds // "?")s tolerance=[\(.oracle.tolerance.upper_ratio_bps // "?")/\(.oracle.tolerance.lower_ratio_bps // "?")] sanity=[\(.oracle.min_sanity_price_wad // "?") .. \(.oracle.max_sanity_price_wad // "?")] independence=\(.oracle.independence // "?")"' \
@@ -4540,7 +4572,7 @@ describe_oracle_source() {
             body=$(printf '%s' "$factor_json" | jq -c '.provider' | oracle_union_value)
             echo "[${label}] Scaled quote=${quote} factor_provider=${provider_tag}" >&2
             ;;
-        Reflector|RedStone|MultiFeed|Xoxno)
+        Reflector|RedStone|Xoxno)
 
             provider_tag="$shape"
             body=$(printf '%s' "$source_json" | oracle_union_value)
@@ -4561,20 +4593,13 @@ describe_oracle_source() {
             read_mode=$(printf '%s' "$body" | jq -c '.read_mode' | describe_read_mode)
             echo "[${label}] Reflector contract=${contract} asset=${asset} read_mode=${read_mode} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
             ;;
-        MultiFeed)
-            local contract feed_id kind nature
-            contract=$(printf '%s' "$body" | jq -r '.contract // empty')
-            feed_id=$(printf '%s' "$body" | jq -r '.feed_id // empty')
-            kind=$(printf '%s' "$body" | jq -r '.kind // empty')
-            nature=$(printf '%s' "$body" | jq -r '.nature // empty')
-            echo "[${label}] MultiFeed kind=${kind} nature=${nature} contract=${contract} feed_id=${feed_id} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
-            ;;
-        RedStone)
+        RedStone|Xoxno)
 
-            local contract feed_id
+            local contract feed_id nature
             contract=$(printf '%s' "$body" | jq -r '.contract // empty')
             feed_id=$(printf '%s' "$body" | jq -r '.feed_id // empty')
-            echo "[${label}] RedStone contract=${contract} feed_id=${feed_id} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
+            nature=$(printf '%s' "$body" | jq -r '.nature // empty')
+            echo "[${label}] ${provider_tag} nature=${nature} contract=${contract} feed_id=${feed_id} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
             ;;
         *)
             echo "[${label}] unknown provider ${provider_tag}: ${source_json}" >&2
@@ -5189,7 +5214,7 @@ case "$1" in
         echo "  listMarkets                     List configured markets"
         echo "  createMarket <name>             Deploy market from config"
         echo "  configureMarketOracle <name>    Configure full market oracle from config"
-        echo "                                  (auto-configures Scaled Ref quotes first)"
+        echo "                                  (auto-configures oracle Ref dependencies first)"
         echo "  configureReferenceOracle <name> set_oracle(PriceKey::Ref) from .references[]"
         echo "  setupAllReferenceOracles        All Refs required by Scaled markets"
         echo "  listReferences                  Reference oracles from markets.json"

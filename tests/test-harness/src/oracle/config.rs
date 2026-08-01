@@ -1,7 +1,7 @@
 use controller::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
-    OracleReadMode, OracleTolerance, PriceKey, PriceSource, ProviderKind, ProviderRef,
-    ReflectorFeedRef, ScaledSource,
+    OracleReadMode, OracleTolerance, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef,
+    ScaledSource,
 };
 use soroban_sdk::{Address, Env, String, Vec};
 
@@ -40,7 +40,10 @@ pub fn redstone_source_with_max_stale(
     feed_id: &String,
     max_stale_seconds: u64,
 ) -> PriceSource {
-    multi_feed_source(contract, feed_id, ProviderKind::RedStone, max_stale_seconds)
+    multi_feed_source(
+        ProviderRef::RedStone(multi_feed_ref(contract, feed_id)),
+        max_stale_seconds,
+    )
 }
 
 pub fn xoxno_source(contract: &Address, feed_id: &String) -> PriceSource {
@@ -53,9 +56,7 @@ pub fn xoxno_source_with_decimals(
     decimals: u32,
 ) -> PriceSource {
     let mut source = multi_feed_source(
-        contract,
-        feed_id,
-        ProviderKind::Xoxno,
+        ProviderRef::Xoxno(multi_feed_ref(contract, feed_id)),
         DEFAULT_REDSTONE_MAX_STALE_SECONDS,
     );
     if let PriceSource::Feed(feed) = &mut source {
@@ -64,22 +65,20 @@ pub fn xoxno_source_with_decimals(
     source
 }
 
-fn multi_feed_source(
-    contract: &Address,
-    feed_id: &String,
-    kind: ProviderKind,
-    max_stale_seconds: u64,
-) -> PriceSource {
+fn multi_feed_source(provider: ProviderRef, max_stale_seconds: u64) -> PriceSource {
     PriceSource::Feed(FeedSource {
-        provider: ProviderRef::MultiFeed(MultiFeedRef {
-            contract: contract.clone(),
-            feed_id: feed_id.clone(),
-            kind,
-            nature: FeedNature::Fundamental,
-        }),
+        provider,
         decimals: MULTI_FEED_DECIMALS,
         max_stale_seconds,
     })
+}
+
+fn multi_feed_ref(contract: &Address, feed_id: &String) -> MultiFeedRef {
+    MultiFeedRef {
+        contract: contract.clone(),
+        feed_id: feed_id.clone(),
+        nature: FeedNature::Fundamental,
+    }
 }
 
 pub fn tolerance_band(env: &Env, tolerance_bps: u32) -> OracleTolerance {

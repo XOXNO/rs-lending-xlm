@@ -38,10 +38,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
                   "feed_id": "XLM",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },

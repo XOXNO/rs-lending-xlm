@@ -15,14 +15,17 @@ pub trait AquariusPlane {
     fn get(env: Env, pools: Vec<Address>) -> Vec<(Symbol, Vec<u128>, Vec<u128>)>;
 }
 
-/// Read surface of a constant-product pool. `get_total_shares` is a pure view;
-/// `get_pools_plane`/`get_tokens` are used once at listing time.
+/// Read surface of a constant-product pool. Bindings and the read-only methods
+/// are rechecked while pricing; `get_reserves` is reserved for listing-time
+/// attestation because Aquarius may synchronize state during that call.
 #[contractclient(name = "AquariusPoolClient")]
 #[allow(dead_code)]
 pub trait AquariusPool {
     fn get_total_shares(env: Env) -> u128;
     fn get_pools_plane(env: Env) -> Address;
+    fn get_reserves(env: Env) -> Vec<u128>;
     fn get_tokens(env: Env) -> Vec<Address>;
+    fn pool_type(env: Env) -> Symbol;
     fn share_id(env: Env) -> Address;
 }
 
@@ -51,6 +54,31 @@ pub fn aquarius_plane_reserves_call(
     Some((a, b))
 }
 
+/// Reserves read directly from the pool. Aquarius may synchronize state during
+/// this call, so it is deliberately used only while listing/relisting a pool,
+/// never on the hot price-read path.
+pub fn aquarius_pool_reserves_call(env: &Env, pool: &Address) -> Option<(i128, i128)> {
+    let reserves = match AquariusPoolClient::new(env, pool).try_get_reserves() {
+        Ok(Ok(reserves)) => reserves,
+        _ => return None,
+    };
+    if reserves.len() != 2 {
+        return None;
+    }
+    Some((
+        i128::try_from(reserves.get_unchecked(0)).ok()?,
+        i128::try_from(reserves.get_unchecked(1)).ok()?,
+    ))
+}
+
+/// Direct pool-type attestation, independent of the plane's row label.
+pub fn aquarius_is_constant_product_call(env: &Env, pool: &Address) -> bool {
+    matches!(
+        AquariusPoolClient::new(env, pool).try_pool_type(),
+        Ok(Ok(kind)) if kind == Symbol::new(env, "constant_product")
+    )
+}
+
 /// The pool's two reserve-token addresses, in reserve order. `None` on failure.
 pub fn aquarius_get_tokens_call(env: &Env, pool: &Address) -> Option<Vec<Address>> {
     match AquariusPoolClient::new(env, pool).try_get_tokens() {
@@ -75,7 +103,7 @@ pub fn aquarius_total_shares_call(env: &Env, pool: &Address) -> Option<i128> {
     }
 }
 
-/// The `plane` address a pool reports; capture once at listing time.
+/// The `plane` address a pool currently reports.
 pub fn aquarius_plane_of_pool_call(env: &Env, pool: &Address) -> Option<Address> {
     match AquariusPoolClient::new(env, pool).try_get_pools_plane() {
         Ok(Ok(plane)) => Some(plane),

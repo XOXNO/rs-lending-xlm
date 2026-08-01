@@ -1,7 +1,11 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
-use common::types::{AssetOracle, HubAssetKey, OracleTolerance, PositionLimits, PriceKey};
+pub use common::types::{
+    AquariusLpSource, AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
+    OracleTolerance, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef, ScaledSource,
+};
+use common::types::{HubAssetKey, PositionLimits};
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
 pub use stellar_governance::timelock::OperationState;

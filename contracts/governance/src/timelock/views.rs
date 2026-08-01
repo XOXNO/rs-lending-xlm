@@ -46,6 +46,6 @@ impl Governance {
     }
 
     pub fn resolve_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) -> AssetOracle {
-        crate::op::resolve_asset_oracle(&env, &key, &oracle)
+        crate::op::resolve_oracle(&env, &key, &oracle)
     }
 }

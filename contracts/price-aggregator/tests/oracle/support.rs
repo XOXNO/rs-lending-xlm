@@ -487,7 +487,7 @@ enum AquaKey {
     ReserveB,
 }
 
-/// Minimal Aquarius constant-product pool: the four views the oracle binds to.
+/// Minimal Aquarius pool exposing the views the oracle binds to.
 #[contract]
 pub(crate) struct MockAquariusPool;
 
@@ -517,6 +517,21 @@ impl MockAquariusPool {
         env.storage().instance().get(&AquaKey::Plane).unwrap()
     }
 
+    pub fn get_reserves(env: Env) -> Vec<u128> {
+        let store = env.storage().instance();
+        Vec::from_array(
+            &env,
+            [
+                store.get(&AquaKey::ReserveA).unwrap(),
+                store.get(&AquaKey::ReserveB).unwrap(),
+            ],
+        )
+    }
+
+    pub fn pool_type(env: Env) -> Symbol {
+        env.storage().instance().get(&AquaKey::Kind).unwrap()
+    }
+
     pub fn share_id(env: Env) -> Address {
         env.storage().instance().get(&AquaKey::Share).unwrap()
     }
@@ -526,6 +541,30 @@ impl MockAquariusPool {
         let a: Address = store.get(&AquaKey::TokenA).unwrap();
         let b: Address = store.get(&AquaKey::TokenB).unwrap();
         Vec::from_array(&env, [a, b])
+    }
+
+    pub fn set_plane(env: Env, plane: Address) {
+        env.storage().instance().set(&AquaKey::Plane, &plane);
+    }
+
+    pub fn set_share(env: Env, share: Address) {
+        env.storage().instance().set(&AquaKey::Share, &share);
+    }
+
+    pub fn set_tokens(env: Env, token_a: Address, token_b: Address) {
+        let store = env.storage().instance();
+        store.set(&AquaKey::TokenA, &token_a);
+        store.set(&AquaKey::TokenB, &token_b);
+    }
+
+    pub fn set_reserves(env: Env, reserve_a: u128, reserve_b: u128) {
+        let store = env.storage().instance();
+        store.set(&AquaKey::ReserveA, &reserve_a);
+        store.set(&AquaKey::ReserveB, &reserve_b);
+    }
+
+    pub fn set_pool_type(env: Env, pool_type: Symbol) {
+        env.storage().instance().set(&AquaKey::Kind, &pool_type);
     }
 }
 
@@ -556,6 +595,12 @@ impl MockAquariusPlane {
             ));
         }
         out
+    }
+
+    pub fn set_reserves(env: Env, reserve_a: u128, reserve_b: u128) {
+        let store = env.storage().instance();
+        store.set(&AquaKey::ReserveA, &reserve_a);
+        store.set(&AquaKey::ReserveB, &reserve_b);
     }
 }
 

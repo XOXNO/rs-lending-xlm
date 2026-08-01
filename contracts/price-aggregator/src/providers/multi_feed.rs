@@ -35,10 +35,9 @@ pub(crate) fn read_multi_feed_source_impl(
     feed: &MultiFeedRef,
     decimals: u32,
 ) -> Option<OracleObservation> {
-    let env = session.env().clone();
     let now_secs = session.now_secs();
     let price_data = read_price_data(session, &feed.contract, &feed.feed_id)?;
-    OracleObservation::from_multi_feed(&env, now_secs, &price_data, decimals)
+    OracleObservation::from_multi_feed(now_secs, &price_data, decimals)
 }
 
 fn read_price_data(

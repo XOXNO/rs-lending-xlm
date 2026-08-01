@@ -1,5 +1,5 @@
 use super::*;
-use crate::admin;
+use crate::registry;
 use crate::session::Session;
 use crate::test_support::{
     in_contract, register_redstone_feed, CountingReflector, LongHistoryReflector,
@@ -7,9 +7,8 @@ use crate::test_support::{
 };
 use common::constants::WAD;
 use common::types::{
-    AssetOracle, FeedNature, FeedSource, IndependencePolicy, LpShareSource, MultiFeedRef,
-    OracleAssetRef, OracleReadMode, OracleTolerance, PoolKind, ProviderKind, ProviderRef,
-    ReflectorFeedRef, ScaledSource,
+    AquariusLpSource, AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
+    OracleAssetRef, OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef, ScaledSource,
 };
 use mock_redstone::MockRedStonePriceFeedClient;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
@@ -25,10 +24,9 @@ fn at_now(env: &Env) {
 
 fn multi_feed(env: &Env, adapter: &Address, feed: &str, max_stale: u64) -> FeedSource {
     FeedSource {
-        provider: ProviderRef::MultiFeed(MultiFeedRef {
+        provider: ProviderRef::RedStone(MultiFeedRef {
             contract: adapter.clone(),
             feed_id: String::from_str(env, feed),
-            kind: ProviderKind::RedStone,
             nature: FeedNature::Fundamental,
         }),
         decimals: 8,
@@ -73,7 +71,7 @@ fn publish(client: &MockRedStonePriceFeedClient, env: &Env, feed_id: &str, price
 
 fn single_feed_key(env: &Env, adapter: &Address, feed: &str, ceiling: u64) -> PriceKey {
     let key = PriceKey::Token(Address::generate(env));
-    admin::store_oracle(
+    registry::store_oracle(
         env,
         &key,
         &oracle(
@@ -141,7 +139,7 @@ fn dual_key(env: &Env, adapter: &Address, reversed: bool) -> PriceKey {
     let a = PriceSource::Feed(multi_feed(env, adapter, "A", ASSET_CEILING));
     let b = PriceSource::Feed(multi_feed(env, adapter, "B", ASSET_CEILING));
     let ordered = if reversed { [b, a] } else { [a, b] };
-    admin::store_oracle(
+    registry::store_oracle(
         env,
         &key,
         &oracle(env, sources(env, &ordered), ASSET_CEILING, WAD / 2, 2 * WAD),
@@ -208,7 +206,7 @@ fn scaled_setup(
     max_factor: i128,
 ) -> PriceKey {
     let btc = PriceKey::Ref(Symbol::new(env, "BTC"));
-    admin::store_oracle(
+    registry::store_oracle(
         env,
         &btc,
         &oracle(
@@ -224,7 +222,7 @@ fn scaled_setup(
     );
 
     let token = PriceKey::Token(Address::generate(env));
-    admin::store_oracle(
+    registry::store_oracle(
         env,
         &token,
         &oracle(
@@ -273,7 +271,7 @@ fn test_shared_nested_quote_is_composed_once_per_session() {
 
     in_contract(&env, || {
         let quote = PriceKey::Ref(Symbol::new(&env, "QUOTE"));
-        admin::store_oracle(
+        registry::store_oracle(
             &env,
             &quote,
             &oracle(
@@ -298,7 +296,7 @@ fn test_shared_nested_quote_is_composed_once_per_session() {
 
         let parent = |feed_id: &str| {
             let key = PriceKey::Token(Address::generate(&env));
-            admin::store_oracle(
+            registry::store_oracle(
                 &env,
                 &key,
                 &oracle(
@@ -340,7 +338,7 @@ fn test_failed_nested_quote_is_memoized_per_session() {
 
     in_contract(&env, || {
         let quote = PriceKey::Ref(Symbol::new(&env, "QUOTE"));
-        admin::store_oracle(
+        registry::store_oracle(
             &env,
             &quote,
             &oracle(
@@ -365,7 +363,7 @@ fn test_failed_nested_quote_is_memoized_per_session() {
 
         let parent = |feed_id: &str| {
             let key = PriceKey::Token(Address::generate(&env));
-            admin::store_oracle(
+            registry::store_oracle(
                 &env,
                 &key,
                 &oracle(
@@ -450,7 +448,7 @@ fn test_scaled_product_overflow_is_typed_invalid_price_not_host_trap() {
 
     in_contract(&env, || {
         let btc = PriceKey::Ref(Symbol::new(&env, "BTC"));
-        admin::store_oracle(
+        registry::store_oracle(
             &env,
             &btc,
             &oracle(
@@ -465,7 +463,7 @@ fn test_scaled_product_overflow_is_typed_invalid_price_not_host_trap() {
             ),
         );
         let token = PriceKey::Token(Address::generate(&env));
-        admin::store_oracle(
+        registry::store_oracle(
             &env,
             &token,
             &oracle(
@@ -553,22 +551,23 @@ fn test_lp_reverts_when_underlyings_missing() {
     at_now(&env);
     in_contract(&env, || {
         let key = PriceKey::Token(Address::generate(&env));
-        admin::store_oracle(
+        registry::store_oracle(
             &env,
             &key,
             &oracle(
                 &env,
                 sources(
                     &env,
-                    &[PriceSource::LpShare(LpShareSource {
+                    &[PriceSource::AquariusLp(AquariusLpSource {
                         pool: Address::generate(&env),
                         plane: Address::generate(&env),
-                        kind: PoolKind::ConstantProduct,
+                        token_a: Address::generate(&env),
+                        token_b: Address::generate(&env),
                         key_a: PriceKey::Ref(Symbol::new(&env, "A")),
                         key_b: PriceKey::Ref(Symbol::new(&env, "B")),
                         reserve_a_decimals: 7,
                         reserve_b_decimals: 7,
-                        share_decimals: 7,
+                        min_pool_value_wad: 1,
                     })],
                 ),
                 ASSET_CEILING,
@@ -590,7 +589,7 @@ fn test_a_scaled_cycle_reverts_at_read_time_too() {
 
     in_contract(&env, || {
         let key = PriceKey::Ref(Symbol::new(&env, "LOOP"));
-        admin::store_oracle(
+        registry::store_oracle(
             &env,
             &key,
             &oracle(
@@ -616,7 +615,7 @@ fn test_a_scaled_cycle_reverts_at_read_time_too() {
 
 fn resolve_twap(env: &Env, contract: &Address, records: u32) -> PriceFeedRaw {
     let key = PriceKey::Token(Address::generate(env));
-    admin::store_oracle(
+    registry::store_oracle(
         env,
         &key,
         &oracle(
@@ -726,6 +725,54 @@ fn test_the_depth_backstop_admits_the_cap_and_rejects_everything_past_it() {
 }
 
 #[test]
+fn test_cached_lp_price_still_checks_both_dependency_depths() {
+    let env = Env::default();
+    at_now(&env);
+
+    in_contract(&env, || {
+        let key = PriceKey::Token(Address::generate(&env));
+        registry::store_oracle(
+            &env,
+            &key,
+            &oracle(
+                &env,
+                sources(
+                    &env,
+                    &[PriceSource::AquariusLp(AquariusLpSource {
+                        pool: Address::generate(&env),
+                        plane: Address::generate(&env),
+                        token_a: Address::generate(&env),
+                        token_b: Address::generate(&env),
+                        key_a: PriceKey::Ref(Symbol::new(&env, "A")),
+                        key_b: PriceKey::Ref(Symbol::new(&env, "B")),
+                        reserve_a_decimals: 7,
+                        reserve_b_decimals: 7,
+                        min_pool_value_wad: 1,
+                    })],
+                ),
+                ASSET_CEILING,
+                1,
+                2 * WAD,
+            ),
+        );
+        let mut session = Session::new(&env);
+        session.store_price(
+            &key,
+            PriceFeedRaw {
+                price_wad: WAD,
+                asset_decimals: 7,
+                timestamp: NOW,
+            },
+        );
+
+        assert!(matches!(
+            resolve_nested(&mut session, &key, MAX_RESOLUTION_DEPTH),
+            Err(common::errors::OracleError::OracleDepthExceeded)
+        ));
+    });
+}
+
+#[test]
 fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
     let env = Env::default();
     at_now(&env);
@@ -735,7 +782,7 @@ fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
 
     in_contract(&env, || {
         let mut current = PriceKey::Ref(Symbol::new(&env, "L0"));
-        admin::store_oracle(
+        registry::store_oracle(
             &env,
             &current,
             &oracle(
@@ -762,7 +809,7 @@ fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
         );
         for name in level_names {
             let key = PriceKey::Ref(Symbol::new(&env, name));
-            admin::store_oracle(
+            registry::store_oracle(
                 &env,
                 &key,
                 &oracle(

@@ -526,7 +526,7 @@ wasm-size-check: deploy-artifacts wasm-testing-abi-check
 	fi
 	@status=0; \
 	while IFS=' ' read -r rel_path budget; do \
-		case "$$rel_path" in ''|\
+		case "$$rel_path" in ''|\#*) continue ;; esac; \
 		path="$(DEPLOY_DIR)/$$rel_path"; \
 		if [ ! -f "$$path" ]; then \
 			echo "WASM not built: $$path"; status=1; continue; \
@@ -2113,4 +2113,3 @@ cbm-reindex:
 	rm -f .codebase-memory/graph.db.zst .codebase-memory/artifact.json
 	codebase-memory-mcp cli index_repository '{"repo_path":"$(CBM_ROOT)","mode":"fast","persistence":true}'
 	@echo "Graph rebuilt."
-

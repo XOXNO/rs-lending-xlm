@@ -1,5 +1,5 @@
 {
-  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live on market_params (flat MarketParamsRaw). Per-asset risk (LTV, caps, pause/freeze) is spoke-scoped via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA: production enforces a \u00b110% midpoint-relative sanity band (validate_single_source_sanity_band). references are PriceKey::Ref oracles (no market/spoke); configure before any Scaled market that quotes them.",
+  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live on market_params (flat MarketParamsRaw). Per-asset risk (LTV, caps, pause/freeze) is spoke-scoped via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA: production enforces a ±10% midpoint-relative sanity band (validate_single_source_sanity_band). references are PriceKey::Ref oracles (no market/spoke); configure before any Scaled market that quotes them.",
   "network": "mainnet",
   "references": [
     {
@@ -32,10 +32,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "BTC",
-                  "kind": "RedStone",
                   "nature": "Market"
                 }
               },
@@ -83,10 +82,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "XLM",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -145,10 +143,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "USDC",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -207,10 +204,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "EUROC",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -252,10 +248,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "PYUSD",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -297,10 +292,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "USST_FUNDAMENTAL",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -342,10 +336,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOEUTBL",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -387,10 +380,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOUSTBL",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -432,10 +424,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOUKTBL",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -477,10 +468,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOSAFO",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -522,10 +512,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOEURSAFO",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -567,10 +556,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOGBPSAFO",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -612,10 +600,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "deJTRSY_FUNDAMENTAL/USD",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -657,10 +644,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "deJAAA_FUNDAMENTAL/USD",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -719,10 +705,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "USTRY",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -781,10 +766,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "CETES",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -826,10 +810,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "USDY_FUNDAMENTAL/USD",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -861,7 +844,7 @@
       }
     },
     {
-      "_note": "SolvBTC (SAC CBIJBD\u2026, 8 decimals). Dual: Scaled RedStone SolvBTC_FUNDAMENTAL \u00d7 Reflector BTC Ref, plus RedStone SolvBTC_FUNDAMENTAL/USD. Shared RedStone domain declared. Configure references.BTC before this market.",
+      "_note": "SolvBTC (SAC CBIJBD…, 8 decimals). Dual: Scaled RedStone SolvBTC_FUNDAMENTAL × Reflector BTC Ref, plus RedStone SolvBTC_FUNDAMENTAL/USD. Shared RedStone domain declared. Configure references.BTC before this market.",
       "name": "SolvBTC",
       "hub_id": 1,
       "asset_address": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
@@ -873,10 +856,9 @@
             "Scaled": {
               "factor": {
                 "provider": {
-                  "MultiFeed": {
+                  "RedStone": {
                     "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                     "feed_id": "SolvBTC_FUNDAMENTAL",
-                    "kind": "RedStone",
                     "nature": "Fundamental"
                   }
                 },
@@ -893,10 +875,9 @@
           {
             "Feed": {
               "provider": {
-                "MultiFeed": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "SolvBTC_FUNDAMENTAL/USD",
-                  "kind": "RedStone",
                   "nature": "Fundamental"
                 }
               },
@@ -911,10 +892,7 @@
         },
         "independence": {
           "AllowShared": [
-            {
-              "kind": "RedStone",
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
-            }
+            "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
           ]
         },
         "min_sanity_price_wad": "40000000000000000000000",
@@ -935,7 +913,7 @@
       }
     },
     {
-      "_comment": "Aquarius XLM/USDC constant-product LP share token (share_id of pool CA6PUJLB...). Priced by the LpShare source: fair-value 2*sqrt(Va*Vb)/S from the pool's read-only plane reserves + get_total_shares, each leg valued by the listed XLM (key_a, reserve slot 0) and USDC (key_b, slot 1) oracles. set_oracle attests plane==pool.get_pools_plane(), key==Token(pool.share_id()), pool kind=='standard', and reserve/share decimals against the token SACs. Band is AUTO-DERIVED from the underlyings' own bands (XLM $0.05-$1.00, USDC $0.95-$1.05 at current reserves => $0.478-$2.249) then rounded out with upper headroom for swap-fee drift; it is a wide backstop against a compromised/degenerate pool, not a price-accuracy guard. Re-derive on a cadence (fee drift) or when an underlying band changes.",
+      "_comment": "Aquarius XLM/USDC constant-product LP share token (share_id of pool CA6PUJLB...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. The price band remains a separate wide backstop. Re-derive the band and liquidity floor when underlying bands or market depth materially change.",
       "name": "XLMUSDC_LP",
       "hub_id": 3,
       "asset_address": "CAVKLYY4RWFQBRA2YI5GTGGXKUKJQI3JLAHDGXMS7L5RDH6X6A47NMOZ",
@@ -944,10 +922,11 @@
         "max_price_stale_seconds": 57600,
         "sources": [
           {
-            "LpShare": {
+            "AquariusLp": {
               "pool": "CA6PUJLBYKZKUEKLZJMKBZLEKP2OTHANDEOWSFF44FTSYLKQPIICCJBE",
               "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
-              "kind": "ConstantProduct",
+              "token_a": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
               "key_a": {
                 "Token": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
               },
@@ -956,7 +935,7 @@
               },
               "reserve_a_decimals": 7,
               "reserve_b_decimals": 7,
-              "share_decimals": 7
+              "min_pool_value_wad": "1000000000000000000000000"
             }
           }
         ],

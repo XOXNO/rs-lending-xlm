@@ -1,9 +1,9 @@
 use super::*;
-use crate::admin;
+use crate::registry;
 use crate::session::Session;
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
-    OracleReadMode, OracleTolerance, ProviderKind, ProviderRef, ReflectorFeedRef, ScaledSource,
+    OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef, ScaledSource,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, String, Symbol};
@@ -36,10 +36,9 @@ fn spot_feed(env: &Env, contract: &Address) -> FeedSource {
 
 fn nav_feed(env: &Env, contract: &Address, feed: &str) -> FeedSource {
     FeedSource {
-        provider: ProviderRef::MultiFeed(MultiFeedRef {
+        provider: ProviderRef::RedStone(MultiFeedRef {
             contract: contract.clone(),
             feed_id: String::from_str(env, feed),
-            kind: ProviderKind::RedStone,
             nature: FeedNature::Fundamental,
         }),
         decimals: 8,
@@ -106,7 +105,7 @@ fn test_scaled_source_folds_in_its_quote() {
 
     with_contract(&env, || {
         let btc = PriceKey::Ref(Symbol::new(&env, "BTC"));
-        admin::store_oracle(
+        registry::store_oracle(
             &env,
             &btc,
             &oracle_of(
@@ -142,7 +141,7 @@ fn test_market_quote_taints_a_fundamental_factor() {
 
     with_contract(&env, || {
         let btc = PriceKey::Ref(Symbol::new(&env, "BTC"));
-        admin::store_oracle(
+        registry::store_oracle(
             &env,
             &btc,
             &oracle_of(
@@ -166,7 +165,7 @@ fn test_a_self_quoting_scaled_source_is_caught_as_a_cycle() {
     with_contract(&env, || {
         let key = PriceKey::Ref(Symbol::new(&env, "LOOP"));
         let source = scaled_onto(&env, &adapter, key.clone());
-        admin::store_oracle(&env, &key, &oracle_of(&env, one(&env, source)));
+        registry::store_oracle(&env, &key, &oracle_of(&env, one(&env, source)));
 
         let mut cache = Session::new(&env);
         let _ = properties_of_key(&mut cache, &key, 0);
@@ -185,8 +184,8 @@ fn test_a_two_key_cycle_is_caught() {
 
         let a_source = scaled_onto(&env, &adapter, b.clone());
         let b_source = scaled_onto(&env, &adapter, a.clone());
-        admin::store_oracle(&env, &a, &oracle_of(&env, one(&env, a_source)));
-        admin::store_oracle(&env, &b, &oracle_of(&env, one(&env, b_source)));
+        registry::store_oracle(&env, &a, &oracle_of(&env, one(&env, a_source)));
+        registry::store_oracle(&env, &b, &oracle_of(&env, one(&env, b_source)));
 
         let mut cache = Session::new(&env);
         let _ = properties_of_key(&mut cache, &a, 0);
@@ -279,7 +278,7 @@ fn solvbtc_oracle(
 
 fn register_btc_reference(env: &Env, reflector: &Address) -> PriceKey {
     let btc = PriceKey::Ref(Symbol::new(env, "BTC"));
-    admin::store_oracle(
+    registry::store_oracle(
         env,
         &btc,
         &oracle_of(env, one(env, PriceSource::Feed(twap_feed(env, reflector)))),
@@ -298,10 +297,7 @@ fn test_solvbtc_config_validates_with_its_shared_adapter_declared() {
         let btc = register_btc_reference(&env, &reflector);
 
         let mut declared = Vec::new(&env);
-        declared.push_back(common::types::TrustDomain {
-            kind: ProviderKind::RedStone,
-            contract: adapter.clone(),
-        });
+        declared.push_back(adapter.clone());
 
         let oracle = solvbtc_oracle(
             &env,
@@ -311,9 +307,9 @@ fn test_solvbtc_config_validates_with_its_shared_adapter_declared() {
         );
 
         crate::admin::validate_asset_oracle(&env, &solvbtc, &oracle);
-        admin::store_oracle(&env, &solvbtc, &oracle);
+        registry::store_oracle(&env, &solvbtc, &oracle);
 
-        let stored = admin::get_oracle(&env, &solvbtc).expect("solvbtc must be configured");
+        let stored = registry::get_oracle(&env, &solvbtc).expect("solvbtc must be configured");
         assert!(stored.is_dual());
     });
 }
@@ -344,10 +340,7 @@ fn test_a_ratio_leg_outliving_the_asset_ceiling_is_rejected() {
     with_contract(&env, || {
         let btc = register_btc_reference(&env, &reflector);
         let mut declared = Vec::new(&env);
-        declared.push_back(common::types::TrustDomain {
-            kind: ProviderKind::RedStone,
-            contract: adapter.clone(),
-        });
+        declared.push_back(adapter.clone());
         let mut oracle = solvbtc_oracle(
             &env,
             &adapter,
@@ -366,7 +359,7 @@ fn store_single(env: &Env, key: PriceKey, source: PriceSource, asset_decimals: u
     oracle.min_sanity_price_wad = 95 * 10i128.pow(16);
     oracle.max_sanity_price_wad = 105 * 10i128.pow(16);
     crate::admin::validate_asset_oracle(env, &key, &oracle);
-    admin::store_oracle(env, &key, &oracle);
+    registry::store_oracle(env, &key, &oracle);
 }
 
 #[test]
@@ -435,15 +428,16 @@ fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {
     let reflector = Address::generate(&env);
     with_contract(&env, || {
         let mut sources = one(&env, PriceSource::Feed(twap_feed(&env, &reflector)));
-        sources.push_back(PriceSource::LpShare(common::types::LpShareSource {
+        sources.push_back(PriceSource::AquariusLp(common::types::AquariusLpSource {
             pool: Address::generate(&env),
             plane: Address::generate(&env),
-            kind: common::types::PoolKind::ConstantProduct,
+            token_a: Address::generate(&env),
+            token_b: Address::generate(&env),
             key_a: PriceKey::Ref(Symbol::new(&env, "A")),
             key_b: PriceKey::Ref(Symbol::new(&env, "B")),
             reserve_a_decimals: 7,
             reserve_b_decimals: 7,
-            share_decimals: 7,
+            min_pool_value_wad: 1,
         }));
         let oracle = oracle_of(&env, sources);
         crate::admin::set_oracle(&env, PriceKey::Token(Address::generate(&env)), oracle);

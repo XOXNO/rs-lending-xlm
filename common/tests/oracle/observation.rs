@@ -52,7 +52,10 @@ fn try_normalize_positive_price_softens_invalid() {
     assert_eq!(try_normalize_positive_price(0, 7), None);
     assert_eq!(try_normalize_positive_price(-1, 7), None);
 
-    assert_eq!(try_normalize_positive_price(1_000, 7), Some(100_000_000_000_000));
+    assert_eq!(
+        try_normalize_positive_price(1_000, 7),
+        Some(100_000_000_000_000)
+    );
 
     assert_eq!(try_normalize_positive_price(i128::MAX, 7), None);
 

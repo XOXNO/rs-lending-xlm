@@ -6,6 +6,7 @@ contracts=(
   contracts/pool/Cargo.toml
   contracts/controller/Cargo.toml
   contracts/governance/Cargo.toml
+  contracts/price-aggregator/Cargo.toml
   contracts/defindex-strategy/Cargo.toml
   mock/flash-loan-receiver/Cargo.toml
   mock/mock-oracle/Cargo.toml
@@ -32,16 +33,31 @@ mkdir -p "$out_dir_abs" "$HOME/.scout-audit/telemetry"
 printf DONOTTRACK >"$HOME/.scout-audit/telemetry/user_id.txt"
 export SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2=1
 
-tar --exclude './.git' --exclude './target' -cf - . | (cd "$work_dir" && tar -xf -)
+tar \
+  --exclude './.git' \
+  --exclude './.claude' \
+  --exclude './.certora_internal' \
+  --exclude '*/target' \
+  -cf - . | (cd "$work_dir" && tar -xf -)
 
 find "$work_dir/contracts" "$work_dir/common" -name Cargo.toml -print0 |
   xargs -0 perl -0pi -e 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/g'
 
 scout_exclude="dos-unexpected-revert-with-storage"
-scout_local_flags=()
-if [ -n "${SCOUT_SOURCE_DIR:-}" ]; then
-  scout_local_flags=(--scout-source "$SCOUT_SOURCE_DIR" --local-detectors "$SCOUT_SOURCE_DIR/nightly")
+scout_source_dir="${SCOUT_SOURCE_DIR:-}"
+if [ -z "$scout_source_dir" ]; then
+  scout_source_dir="$repo_root/target/scout-audit-source"
+  if [ ! -d "$scout_source_dir/.git" ]; then
+    git clone -q --no-checkout https://github.com/mihaieremia/scout-audit.git "$scout_source_dir"
+  fi
+  git -C "$scout_source_dir" fetch -q --depth 1 origin 26779da2e72880ba77ab796ee7f71a785ba315f3
+  git -C "$scout_source_dir" checkout -q --detach FETCH_HEAD
 fi
+if [ ! -d "$scout_source_dir/nightly" ]; then
+  echo "Scout detector tree not found: $scout_source_dir/nightly" >&2
+  exit 1
+fi
+scout_local_flags=(--scout-source "$scout_source_dir" --local-detectors "$scout_source_dir/nightly")
 
 incomplete=0
 for manifest in "${contracts[@]}"; do

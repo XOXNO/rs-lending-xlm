@@ -28,7 +28,6 @@ impl Cache {
             timestamp: self.current_timestamp,
             supply_index: self.supply_index.raw(),
             borrow_index: self.borrow_index.raw(),
-
             cash: self.cash,
             supplied: self.supplied.raw(),
             borrowed: self.borrowed.raw(),

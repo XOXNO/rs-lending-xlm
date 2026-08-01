@@ -1,14 +1,43 @@
 use common::errors::OracleError;
 use common::oracle::observation::{is_future_at, MIN_ORACLE_RESOLUTION_SECONDS};
 use common::oracle::providers::reflector::{
-    min_twap_observations, reflector_lastprice_call, reflector_prices_call, to_reflector_asset,
-    try_reflector_resolution_call, try_twap_mean_price,
+    min_twap_observations, reflector_base, reflector_decimals, reflector_last_price,
+    reflector_prices, reflector_resolution, to_reflector_asset, try_reflector_resolution,
+    try_twap_mean_price, ReflectorAsset,
 };
 use common::types::{OracleReadMode, ReflectorFeedRef};
 use common::validation::validate_twap_records;
+use soroban_sdk::{assert_with_error, panic_with_error, Env, Symbol};
 
 use crate::observation::OracleObservation;
 use crate::session::Session;
+
+pub(crate) fn attest(env: &Env, feed: &ReflectorFeedRef, decimals: u32, max_stale: u64) {
+    match reflector_base(env, &feed.contract) {
+        ReflectorAsset::Other(symbol) if symbol == Symbol::new(env, "USD") => {}
+        _ => panic_with_error!(env, OracleError::InvalidOracleBase),
+    }
+    assert_with_error!(
+        env,
+        reflector_decimals(env, &feed.contract) == decimals,
+        OracleError::InvalidOracleDecimals
+    );
+    let resolution = reflector_resolution(env, &feed.contract);
+    assert_with_error!(
+        env,
+        resolution >= MIN_ORACLE_RESOLUTION_SECONDS && u64::from(resolution) <= max_stale,
+        OracleError::InvalidOracleResolution
+    );
+    if let OracleReadMode::Twap(records) = feed.read_mode {
+        let required_span =
+            u64::from(records.saturating_sub(1)).saturating_mul(u64::from(resolution));
+        assert_with_error!(
+            env,
+            required_span <= max_stale,
+            OracleError::InvalidOracleResolution
+        );
+    }
+}
 
 #[cfg(feature = "certora")]
 pub(crate) use certora_read::read_reflector_source;
@@ -51,8 +80,8 @@ fn read_spot(
     let env = session.env();
     let now_secs = session.now_secs();
     let asset = to_reflector_asset(env, &feed.asset);
-    let price_data = reflector_lastprice_call(env, &feed.contract, &asset)?;
-    OracleObservation::from_reflector(env, now_secs, &price_data, decimals)
+    let price_data = reflector_last_price(env, &feed.contract, &asset)?;
+    OracleObservation::from_reflector(now_secs, &price_data, decimals)
 }
 
 fn read_twap(
@@ -67,7 +96,7 @@ fn read_twap(
     validate_twap_records(env, records);
 
     let asset = to_reflector_asset(env, &feed.asset);
-    let Some(history) = reflector_prices_call(env, &feed.contract, &asset, records) else {
+    let Some(history) = reflector_prices(env, &feed.contract, &asset, records) else {
         return Err(OracleError::ReflectorHistoryEmpty);
     };
     if history.is_empty() {
@@ -85,7 +114,7 @@ fn read_twap(
         return Err(OracleError::TwapInsufficientObservations);
     }
 
-    let resolution = try_reflector_resolution_call(env, &feed.contract)
+    let resolution = try_reflector_resolution(env, &feed.contract)
         .filter(|resolution| *resolution >= MIN_ORACLE_RESOLUTION_SECONDS)
         .ok_or(OracleError::InvalidOracleResolution)?;
 
@@ -111,7 +140,6 @@ fn read_twap(
         .ok_or(OracleError::InvalidPrice)?;
     Ok(OracleObservation {
         price_wad,
-        observed_at: oldest_ts,
-        published_at: None,
+        timestamp: oldest_ts,
     })
 }
