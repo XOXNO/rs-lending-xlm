@@ -3,21 +3,6 @@ use test_harness::{
 };
 
 #[test]
-#[should_panic(expected = "Error(Contract, #37)")]
-fn test_add_rewards_rejects_after_full_withdrawal() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_dust_disabled_all_markets()
-        .with_max_utilization_disabled_all_markets()
-        .build();
-
-    t.supply(ALICE, "USDC", 10_000.0);
-    t.withdraw_all(ALICE, "USDC");
-
-    t.add_rewards("USDC", 500.0);
-}
-
-#[test]
 fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())

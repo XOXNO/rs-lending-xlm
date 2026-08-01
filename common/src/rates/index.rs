@@ -1,6 +1,6 @@
 use soroban_sdk::Env;
 
-use crate::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_VIRTUAL_VALUE_RAY};
+use crate::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY};
 use crate::math::fp::Ray;
 use crate::math::fp_core;
 use crate::types::MarketParams;
@@ -24,13 +24,8 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
         return old_index;
     }
 
-    let denom = total_supplied_value.checked_add(env, Ray::from(SUPPLY_VIRTUAL_VALUE_RAY));
-
-    let rewards_ratio = rewards_increase.div_floor(env, denom);
-
-    let increment =
-        fp_core::mul_div_floor_saturating(env, old_index.raw(), rewards_ratio.raw(), RAY);
-    let grown = old_index.raw().saturating_add(increment);
+    let new_value = total_supplied_value.checked_add(env, rewards_increase);
+    let grown = fp_core::mul_div_floor_saturating(env, new_value.raw(), RAY, supplied.raw());
 
     let bounded_old = old_index.raw().min(MAX_SUPPLY_INDEX_RAY);
     Ray::from(grown.min(MAX_SUPPLY_INDEX_RAY).max(bounded_old))

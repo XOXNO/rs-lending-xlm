@@ -4,16 +4,15 @@ use soroban_sdk::{Address, Env};
 
 use common::constants::{
     BPS, MAX_BORROW_INDEX_RAY, MAX_FLASHLOAN_FEE_BPS, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR,
-    RAY, SUPPLY_INDEX_FLOOR_RAW, SUPPLY_INDEX_REWARD_CEILING_RAY,
+    RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
 use common::math::fp::Ray;
 use common::math::fp_core;
 use common::rates::{
-    calculate_borrow_rate, compound_interest, supply_index_reward_shortfall, unscale_borrow_ceil,
-    unscale_supply_floor, update_borrow_index, update_supply_index,
+    calculate_borrow_rate, compound_interest, unscale_borrow_ceil, unscale_supply_floor,
+    update_borrow_index, update_supply_index,
 };
 use common::types::PoolWithdrawEntry;
-use pool_interface::LiquidityPoolInterface;
 
 use super::fixture::{
     action, expected_protocol_fee_shares, hub, params, params_with_decimals, read_state, seed,
@@ -95,71 +94,6 @@ fn recapitalize_caps_cash_to_shortfall_and_refunds_excess(
     cvlr_assert!(post.borrow_index == pre.borrow_index);
     cvlr_assert!(shortfall != 0 || outcome.mutation.actual_amount == 0);
     cvlr_assert!(offered < shortfall || post.cash + debt_backing >= supply_claim);
-}
-
-#[rule]
-fn add_rewards_accounts_cash_index_and_shortfall(
-    e: Env,
-    admin: Address,
-    asset: Address,
-    reward_amount: i128,
-    supply_index: i128,
-) {
-    cvlr_assume!(reward_amount >= 0 && reward_amount <= MAX_FLOW_AMOUNT);
-    cvlr_assume!(
-        supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= SUPPLY_INDEX_REWARD_CEILING_RAY
-    );
-    let reward = Ray::from_asset(reward_amount, ASSET_DECIMALS);
-    seed(
-        &e,
-        admin,
-        asset.clone(),
-        params(asset.clone(), 0, false),
-        state(
-            100 * RAY,
-            0,
-            0,
-            RAY,
-            supply_index,
-            80 * ONE_TOKEN,
-            e.ledger().timestamp(),
-        ),
-    );
-
-    let pre = read_state(&e, &asset);
-    let expected_index = update_supply_index(
-        &e,
-        Ray::from(pre.supplied),
-        Ray::from(pre.supply_index),
-        reward,
-    );
-    cvlr_assert!(expected_index.raw() >= pre.supply_index);
-    let old_value = Ray::from(pre.supplied).mul(&e, Ray::from(pre.supply_index));
-    let new_value = Ray::from(pre.supplied).mul(&e, expected_index);
-    let distributed = new_value.checked_sub(&e, old_value);
-    cvlr_assert!(distributed.raw() <= reward.raw());
-    let shortfall = supply_index_reward_shortfall(
-        &e,
-        Ray::from(pre.supplied),
-        Ray::from(pre.supply_index),
-        expected_index,
-        reward,
-    );
-    let fee_shares =
-        expected_protocol_fee_shares(&e, shortfall, expected_index, Ray::from(pre.supplied));
-    cvlr_assert!(fee_shares.mul_floor(&e, expected_index).raw() <= shortfall.raw());
-
-    crate::LiquidityPool::add_rewards(e.clone(), hub(asset.clone()), reward_amount);
-    let post = read_state(&e, &asset);
-
-    cvlr_assert!(post.supply_index == expected_index.raw());
-    cvlr_assert!(post.supply_index >= pre.supply_index);
-    cvlr_assert!(post.supply_index <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assert!(distributed.raw() + shortfall.raw() == reward.raw());
-    cvlr_assert!(post.revenue - pre.revenue == fee_shares.raw());
-    cvlr_assert!(post.supplied - pre.supplied == fee_shares.raw());
-    cvlr_assert!(post.cash - pre.cash == reward_amount);
-    cvlr_assert!(post.borrowed == pre.borrowed && post.borrow_index == pre.borrow_index);
 }
 
 #[rule]
@@ -484,41 +418,4 @@ fn positive_revenue_claim_with_zero_share_burn_reverts(e: Env, admin: Address, a
     crate::ops::revenue::accounting(&e, hub(asset));
 
     cvlr_assert!(false);
-}
-
-#[rule]
-fn distribute_reward_respects_ceiling(
-    e: Env,
-    admin: Address,
-    asset: Address,
-    reward_amount: i128,
-    supply_index: i128,
-) {
-    cvlr_assume!(reward_amount > 0 && reward_amount <= MAX_FLOW_AMOUNT);
-    cvlr_assume!(
-        supply_index >= SUPPLY_INDEX_REWARD_CEILING_RAY / 2
-            && supply_index <= SUPPLY_INDEX_REWARD_CEILING_RAY
-    );
-
-    seed(
-        &e,
-        admin,
-        asset.clone(),
-        params(asset.clone(), 0, false),
-        state(
-            100 * RAY,
-            0,
-            0,
-            RAY,
-            supply_index,
-            1_000 * ONE_TOKEN,
-            e.ledger().timestamp(),
-        ),
-    );
-
-    crate::ops::rewards::apply(&e, hub(asset.clone()), reward_amount);
-    let post = read_state(&e, &asset);
-
-    cvlr_assert!(post.supply_index <= SUPPLY_INDEX_REWARD_CEILING_RAY);
-    cvlr_assert!(post.supply_index >= supply_index);
 }

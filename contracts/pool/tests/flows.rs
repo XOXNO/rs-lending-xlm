@@ -4,8 +4,8 @@ use super::*;
 use crate::cache::Cache;
 use crate::test_support::hub;
 use common::constants::{
-    BPS, MS_PER_SECOND, RAY, SUPPLY_INDEX_REWARD_CEILING_RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED,
-    TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
+    BPS, MS_PER_SECOND, RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE,
+    TTL_THRESHOLD_SHARED,
 };
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
@@ -1830,20 +1830,6 @@ fn test_repay_zero_amount_is_no_op() {
 }
 
 #[test]
-fn test_add_rewards_zero_amount_is_no_op() {
-    let t = TestSetup::new();
-    let client = t.client();
-
-    client.supply(&t.sup(0, 10_000_000_000i128));
-
-    let snapshot_before = t.state_snapshot();
-    client.add_rewards(&hub(&t.asset), &0i128);
-    let result = client.get_sync_data(&hub(&t.asset)).state;
-
-    assert_eq!(result.supply_index, snapshot_before.supply_index);
-}
-
-#[test]
 fn test_ray_checked_sub_happy_path() {
     let env = Env::default();
     let a = Ray::from(5 * RAY);
@@ -1884,26 +1870,6 @@ fn test_repay_partial_amount() {
     assert!(
         final_pos.position.scaled_amount < updated_borrow.position.scaled_amount,
         "scaled debt should decrease after partial repay"
-    );
-}
-
-#[test]
-fn test_add_rewards_increases_supply_index() {
-    let t = TestSetup::new();
-    let client = t.client();
-
-    client.supply(&t.sup(0, 50_000_000_000i128));
-
-    client.update_indexes(&hub(&t.asset));
-    let idx_before = client.get_sync_data(&hub(&t.asset)).state;
-
-    client.add_rewards(&hub(&t.asset), &1_000_000_000i128);
-
-    client.update_indexes(&hub(&t.asset));
-    let idx_after = client.get_sync_data(&hub(&t.asset)).state;
-    assert!(
-        idx_after.supply_index > idx_before.supply_index,
-        "supply index should increase after add_rewards"
     );
 }
 
@@ -2570,109 +2536,6 @@ fn test_cash_conservation_across_supply_borrow_overpaid_repay_withdraw() {
 }
 
 #[test]
-fn test_dust_supply_plus_reward_no_longer_bricks_a_fresh_market() {
-    let t = TestSetup::new();
-    let asset = t.add_funded_market();
-    let client = t.client();
-
-    let attacker = Address::generate(&t.env);
-    let opened = client.supply(&t.sup_for(&asset, 0, 1));
-    let attacker_scaled = opened.get(0).unwrap().position.scaled_amount;
-
-    let reward = 170_141_183_459i128;
-    client.add_rewards(&hub(&asset), &reward);
-
-    let grown = t.state_of(&asset).supply_index;
-    assert!(grown < common::constants::MAX_SUPPLY_INDEX_RAY);
-    assert!(grown < RAY * 1_000_000);
-
-    let exit = vec![
-        &t.env,
-        PoolWithdrawEntry {
-            action: t.action_for(&asset, attacker_scaled, reward + 1),
-            protocol_fee: 0,
-        },
-    ];
-    let recovered = client.withdraw(&attacker, &false, &exit);
-    assert!(recovered.get(0).unwrap().actual_amount < reward / 1_000);
-
-    let victim = client.supply(&t.sup_for(&asset, 0, 10_000_000_000i128));
-    let victim_scaled = victim.get(0).unwrap().position.scaled_amount;
-    let borrower = Address::generate(&t.env);
-    client.borrow(
-        &borrower,
-        &vec![
-            &t.env,
-            PoolBorrowEntry {
-                action: t.action_for(&asset, 0, 5_000_000_000i128),
-            },
-        ],
-    );
-
-    t.advance_time(86_400);
-
-    client.update_indexes(&hub(&asset));
-    let _ = client.get_bulk_indexes(&vec![&t.env, hub(&asset), hub(&t.asset)]);
-    let rescued = client.withdraw(
-        &attacker,
-        &false,
-        &vec![
-            &t.env,
-            PoolWithdrawEntry {
-                action: t.action_for(&asset, victim_scaled, 10_000_000_000i128),
-                protocol_fee: 0,
-            },
-        ],
-    );
-    assert!(rescued.get(0).unwrap().actual_amount > 0);
-}
-
-#[test]
-fn test_add_rewards_rejects_reward_above_supply_index_ceiling() {
-    let t = TestSetup::new();
-    let asset = t.add_funded_market();
-    let client = t.client();
-
-    client.supply(&t.sup_for(&asset, 0, 1));
-
-    let huge = 1_000_000_000_000_000i128;
-    let result = flatten_contract_result(client.try_add_rewards(&hub(&asset), &huge));
-    assert_contract_error(result, GenericError::SupplyIndexRewardCeiling as u32);
-    assert_eq!(t.state_of(&asset).supply_index, RAY);
-}
-
-#[test]
-fn test_iterated_add_rewards_cannot_pin_supply_index_at_max() {
-    let t = TestSetup::new();
-    let asset = t.add_funded_market();
-    let client = t.client();
-
-    client.supply(&t.sup_for(&asset, 0, 1));
-
-    let mut legs_applied = 0u32;
-    let mut reverted = false;
-    for _ in 0..80 {
-        let reward = client.get_supplied_amount(&hub(&asset)) + 10_000_000i128;
-        let result = flatten_contract_result(client.try_add_rewards(&hub(&asset), &reward));
-        if result.is_err() {
-            assert_contract_error(result, GenericError::SupplyIndexRewardCeiling as u32);
-            reverted = true;
-            break;
-        }
-        legs_applied += 1;
-    }
-
-    assert!(reverted, "ceiling guard must reject a pinning reward leg");
-    assert!(legs_applied >= 1, "earlier legs still grow the index");
-    let index = t.state_of(&asset).supply_index;
-    assert!(
-        index <= SUPPLY_INDEX_REWARD_CEILING_RAY,
-        "index stays at or below the reward ceiling"
-    );
-    assert!(index < common::constants::MAX_SUPPLY_INDEX_RAY);
-}
-
-#[test]
 fn test_revenue_conversion_floor_never_exceeds_entitlement_but_half_up_does() {
     let t = TestSetup::new();
     let client = t.client();
@@ -2848,149 +2711,4 @@ fn test_bad_debt_wipeout_leaves_market_usable_at_realistic_scale() {
 
     let opened = client.supply(&t.sup(0, 10_000_000_000_000i128));
     assert!(opened.get(0).unwrap().position.scaled_amount > 0);
-}
-
-struct CleanMarket {
-    env: Env,
-    asset: Address,
-    pool: Address,
-}
-
-impl CleanMarket {
-    fn open(max_utilization: i128) -> Self {
-        let env = Env::default();
-        env.mock_all_auths();
-        test_support::init_ledger(&env);
-
-        let admin = Address::generate(&env);
-        let asset = env
-            .register_stellar_asset_contract_v2(admin.clone())
-            .address()
-            .clone();
-        let pool = env.register(LiquidityPool, (admin,));
-
-        let params = MarketParamsRaw {
-            max_utilization,
-            ..market_params(&asset)
-        };
-        LiquidityPoolClient::new(&env, &pool).create_market(&0u32, &params);
-
-        Self { env, asset, pool }
-    }
-
-    fn client(&self) -> LiquidityPoolClient<'_> {
-        LiquidityPoolClient::new(&self.env, &self.pool)
-    }
-
-    fn fund(&self, amount: i128) {
-        token::StellarAssetClient::new(&self.env, &self.asset).mint(&self.pool, &amount);
-    }
-
-    fn state(&self) -> PoolStateRaw {
-        self.env.as_contract(&self.pool, || {
-            self.env
-                .storage()
-                .persistent()
-                .get(&PoolKey::State(hub(&self.asset)))
-                .unwrap()
-        })
-    }
-
-    fn supply(&self, amount: i128) {
-        self.fund(amount);
-        self.client().supply(&vec![
-            &self.env,
-            PoolSupplyEntry {
-                action: PoolAction {
-                    position: ScaledPositionRaw { scaled_amount: 0 },
-                    amount,
-                    hub_asset: hub(&self.asset),
-                },
-            },
-        ]);
-    }
-
-    fn add_rewards(&self, amount: i128) {
-        self.fund(amount);
-        self.client().add_rewards(&hub(&self.asset), &amount);
-    }
-
-    fn borrow(&self, amount: i128) {
-        let receiver = Address::generate(&self.env);
-        self.client().borrow(
-            &receiver,
-            &vec![
-                &self.env,
-                PoolBorrowEntry {
-                    action: PoolAction {
-                        position: ScaledPositionRaw { scaled_amount: 0 },
-                        amount,
-                        hub_asset: hub(&self.asset),
-                    },
-                },
-            ],
-        );
-    }
-}
-
-#[test]
-fn test_borrowed_shares_exceed_supplied_shares_after_add_rewards() {
-    const ONE_TOKEN: i128 = 10_000_000;
-
-    let t = CleanMarket::open(RAY * 80 / 100);
-    let client = t.client();
-
-    let opened = t.state();
-    assert_eq!(
-        (opened.supplied, opened.borrowed, opened.revenue),
-        (0, 0, 0),
-        "counterexample must start from a genuinely fresh market"
-    );
-    assert_eq!(opened.cash, 0);
-    assert_eq!((opened.supply_index, opened.borrow_index), (RAY, RAY));
-
-    t.supply(100 * ONE_TOKEN);
-    let after_supply = t.state();
-    assert_eq!(after_supply.cash, 100 * ONE_TOKEN);
-    assert_eq!(after_supply.supply_index, RAY);
-
-    t.add_rewards(900 * ONE_TOKEN);
-    let after_rewards = t.state();
-    assert_eq!(after_rewards.cash, 1_000 * ONE_TOKEN);
-    assert_eq!(
-        after_rewards.supply_index, 9_910_891_089_108_910_891_089_108_910,
-        "supply_index after the reward"
-    );
-    assert_eq!(
-        after_rewards.borrow_index, RAY,
-        "add_rewards must not touch borrow_index"
-    );
-    assert_eq!(
-        after_rewards.supplied, 100_899_100_899_100_899_100_899_100_908,
-        "the reward residue accrues to revenue, which mints supply shares"
-    );
-    assert!(
-        after_rewards.borrowed <= after_rewards.supplied,
-        "the ordering is still intact before the borrow"
-    );
-
-    t.borrow(500 * ONE_TOKEN);
-    let post = t.state();
-
-    assert_eq!(post.borrowed, 500_000_000_000_000_000_000_000_000_000);
-    assert_eq!(post.supplied, 100_899_100_899_100_899_100_899_100_908);
-    assert!(
-        post.borrowed > post.supplied,
-        "borrowed shares must exceed supplied shares: borrowed={} supplied={}",
-        post.borrowed,
-        post.supplied
-    );
-
-    assert_eq!(client.get_utilisation(&hub(&t.asset)), RAY / 2);
-    assert_eq!(post.cash, 500 * ONE_TOKEN);
-    assert!(
-        client.get_supplied_amount(&hub(&t.asset))
-            <= post.cash + client.get_borrowed_amount(&hub(&t.asset)),
-        "the market is still fully backed in value terms"
-    );
 }

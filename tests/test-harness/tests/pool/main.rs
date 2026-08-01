@@ -6,4 +6,3 @@ mod math_rates;
 mod pool_coverage;
 mod pool_revenue_edge;
 mod revenue;
-mod rewards;

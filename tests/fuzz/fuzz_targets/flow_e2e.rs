@@ -59,10 +59,6 @@ enum Op {
     AdvanceAndSync {
         hours: u8,
     },
-    AddRewards {
-        asset: u8,
-        size: u8,
-    },
     ClaimRevenue {
         asset: u8,
     },
@@ -71,7 +67,7 @@ enum Op {
 
 impl Op {
     fn decode(chunk: [u8; OP_WIDTH]) -> Self {
-        match chunk[0] % 11 {
+        match chunk[0] % 10 {
             0 => Op::Supply {
                 user: chunk[1],
                 asset: chunk[2],
@@ -114,11 +110,7 @@ impl Op {
                 direction_up: chunk[4] & 1 == 1,
             },
             7 => Op::AdvanceAndSync { hours: chunk[3] },
-            8 => Op::AddRewards {
-                asset: chunk[2],
-                size: chunk[3],
-            },
-            9 => Op::ClaimRevenue { asset: chunk[2] },
+            8 => Op::ClaimRevenue { asset: chunk[2] },
             _ => Op::CleanBadDebt,
         }
     }
@@ -493,12 +485,6 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
                 t.advance_and_sync(secs);
             }
             (true, vec![(ALICE, 0.0), (BOB, 0.0)])
-        }
-        Op::AddRewards { asset, size } => {
-            let a = pick_asset(asset);
-            let amt = amount_for_value(size, a, 1.0, 10_000.0);
-            let ok = t.try_add_rewards(a, amt).is_ok();
-            (ok, vec![])
         }
         Op::ClaimRevenue { asset } => {
             let a = pick_asset(asset);

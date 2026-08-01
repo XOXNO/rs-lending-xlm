@@ -103,15 +103,6 @@ pub(crate) fn pool_claim_revenue_call(
     LiquidityPoolClient::new(env, pool_addr).claim_revenue(hub_asset)
 }
 
-pub(crate) fn pool_add_rewards_call(
-    env: &Env,
-    pool_addr: &Address,
-    hub_asset: &HubAssetKey,
-    amount: i128,
-) {
-    LiquidityPoolClient::new(env, pool_addr).add_rewards(hub_asset, &amount)
-}
-
 pub(crate) fn pool_recapitalize_call(
     env: &Env,
     pool_addr: &Address,

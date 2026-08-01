@@ -281,7 +281,7 @@ fuzz_target!(|i: In| {
         env.ledger().set_timestamp(cur_ts_s);
 
         let before = pool_state(&pool, &market);
-        match op_kind % 11 {
+        match op_kind % 10 {
             0 => {
                 let amount = amount_from_raw(*price_raw, 1_000_000, 10_000_000_000);
                 mint_to_pool(&env, &asset, &pool_addr, amount);
@@ -420,21 +420,6 @@ fuzz_target!(|i: In| {
                 }
             }
             5 => {
-
-                let amount = amount_from_raw(*price_raw, 1_000_000, 10_000_000_000);
-                mint_to_pool(&env, &asset, &pool_addr, amount);
-                let result = flatten_contract_result(pool.try_add_rewards(&market, &amount));
-                match result {
-                    Ok(()) => {
-                        let after = pool_state(&pool, &market);
-                        assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
-                        assert!(after.revenue >= before.revenue);
-                        assert!(after.supply_index >= before.supply_index);
-                    }
-                    Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
-                }
-            }
-            6 => {
                 let model = rate_model_from_input(&i, *price_raw);
                 let result = flatten_contract_result(pool.try_update_params(&market, &model));
                 match result {
@@ -447,7 +432,7 @@ fuzz_target!(|i: In| {
                     Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
-            7 => {
+            6 => {
                 let result = flatten_contract_result(pool.try_claim_revenue(&market));
                 match result {
                     Ok(amount_mut) => {
@@ -461,7 +446,7 @@ fuzz_target!(|i: In| {
                     Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
-            8 => {
+            7 => {
                 let side = if op_kind & 1 == 0 {
                     common::types::AccountPositionType::Borrow
                 } else {
@@ -509,7 +494,7 @@ fuzz_target!(|i: In| {
                     Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
-            9 => {
+            8 => {
                 let amount = amount_from_raw(*price_raw, 1_000_000, 10_000_000_000);
 
                 let charge_fee = amount % 2 == 0;
@@ -536,7 +521,7 @@ fuzz_target!(|i: In| {
                     Err(_) => assert_state_eq(&before, &pool_state(&pool, &market)),
                 }
             }
-            10 => {
+            9 => {
 
                 let math_overflow =
                     soroban_sdk::Error::from_contract_error(GenericError::MathOverflow as u32);

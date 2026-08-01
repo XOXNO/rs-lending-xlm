@@ -7,8 +7,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Vec};
 use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Cache;
 use crate::external::pool::{
-    pool_add_rewards_call, pool_claim_revenue_call, pool_recapitalize_call,
-    pool_update_indexes_call,
+    pool_claim_revenue_call, pool_recapitalize_call, pool_update_indexes_call,
 };
 use crate::external::sac::sac_transfer_call;
 use crate::risk::validation;
@@ -35,18 +34,6 @@ pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>
         results.push_back(amount);
     }
     results
-}
-
-pub(crate) fn add_rewards(env: &Env, caller: Address, rewards: Vec<(HubAssetKey, i128)>) {
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
-
-    let aggregated = payments::aggregate_positive_payments(env, &rewards);
-
-    let mut cache = Cache::new(env);
-    for (hub_asset, amount) in aggregated {
-        add_reward(env, &caller, &hub_asset, amount, &mut cache);
-    }
 }
 
 pub(crate) fn recapitalize(
@@ -114,29 +101,6 @@ fn claim_revenue_for_asset_with_cache(
     }
 
     amount
-}
-
-pub(crate) fn add_reward(
-    env: &Env,
-    caller: &Address,
-    hub_asset: &HubAssetKey,
-    amount: i128,
-    cache: &mut Cache,
-) {
-    require_positive_amount(env, amount);
-
-    let pool_addr = cache.cached_pool_address();
-
-    payments::transfer_amount(
-        env,
-        &hub_asset.asset,
-        caller,
-        &pool_addr,
-        amount,
-        GenericError::AmountMustBePositive,
-    );
-
-    pool_add_rewards_call(env, &pool_addr, hub_asset, amount);
 }
 
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {

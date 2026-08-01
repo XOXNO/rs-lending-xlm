@@ -527,7 +527,7 @@ fn test_global_sync_books_supplier_shortfall_as_protocol_revenue() {
         );
         assert!(
             shortfall.raw() > 0,
-            "thin market must exercise offset shortfall"
+            "floor-rounding leaves a residual shortfall booked to revenue"
         );
         let total_protocol_reward = reserve_fee.checked_add(&t.env, shortfall);
         let expected_revenue = protocol_fee_shares(

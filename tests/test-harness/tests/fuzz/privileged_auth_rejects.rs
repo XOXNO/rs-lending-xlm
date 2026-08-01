@@ -206,12 +206,6 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
             .try_claim_revenue(&random_addr, &empty_assets)
     })
     .unwrap();
-    expect_rejected("add_rewards (caller auth)", || {
-        let rewards: SVec<(HubAssetKey, i128)> = SVec::new(&env);
-        ctrl.set_auths(&no_auths)
-            .try_add_rewards(&random_addr, &rewards)
-    })
-    .unwrap();
 }
 
 #[test]

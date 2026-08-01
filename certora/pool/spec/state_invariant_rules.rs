@@ -368,38 +368,6 @@ fn invariant_preserved_by_seize_deposit(
 
 #[rule]
 #[allow(clippy::too_many_arguments)]
-fn invariant_preserved_by_add_rewards(
-    e: Env,
-    admin: Address,
-    asset: Address,
-    amount: i128,
-    supplied: i128,
-    borrowed: i128,
-    revenue: i128,
-    supply_index: i128,
-    borrow_index: i128,
-    cash: i128,
-) {
-    cvlr_assume!(amount >= 0 && amount <= MAX_FLOW_AMOUNT);
-    seed_invariant_market(
-        &e,
-        admin,
-        asset.clone(),
-        supplied,
-        borrowed,
-        revenue,
-        supply_index,
-        borrow_index,
-        cash,
-    );
-
-    crate::ops::rewards::apply(&e, hub(asset.clone()), amount);
-
-    assert_invariant(&read_state(&e, &asset));
-}
-
-#[rule]
-#[allow(clippy::too_many_arguments)]
 fn invariant_preserved_by_claim_revenue(
     e: Env,
     admin: Address,

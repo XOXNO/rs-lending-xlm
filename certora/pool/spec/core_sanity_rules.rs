@@ -9,7 +9,6 @@ use common::types::{
     AccountPositionType, MarketParams, PoolBorrowEntry, PoolNetSettleEntry, PoolSeizeEntry,
     PoolSupplyEntry, PoolWithdrawEntry,
 };
-use pool_interface::LiquidityPoolInterface;
 
 use super::fixture::{action, hub, params, position, read_state, seed, state, ONE_TOKEN};
 use crate::ops::flash::FlashTerms;
@@ -171,7 +170,6 @@ fn fee_strategy_claim_domain_reachable(e: Env, admin: Address, asset: Address) {
             e.ledger().timestamp(),
         ),
     );
-    crate::LiquidityPool::add_rewards(e.clone(), hub(asset.clone()), ONE_TOKEN);
     let StrategyOutcome {
         mutation: strategy,
         fee,

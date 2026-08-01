@@ -5,7 +5,6 @@ pub(crate) mod net_settle;
 pub(crate) mod recapitalize;
 pub(crate) mod repay;
 pub(crate) mod revenue;
-pub(crate) mod rewards;
 pub(crate) mod seize;
 pub(crate) mod strategy;
 pub(crate) mod supply;

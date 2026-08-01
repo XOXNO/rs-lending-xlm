@@ -1,5 +1,5 @@
 use crate::context::LendingTest;
-use crate::helpers::{f64_to_i128, hub_asset};
+use crate::helpers::hub_asset;
 
 impl LendingTest {
     pub fn claim_revenue(&self, asset_name: &str) -> i128 {
@@ -21,42 +21,4 @@ impl LendingTest {
         }
     }
 
-    pub fn add_rewards(&self, asset_name: &str, amount: f64) {
-        let decimals = self.resolve_market(asset_name).decimals;
-        let raw = f64_to_i128(amount, decimals);
-        let asset = self.resolve_asset(asset_name);
-        let market = self.resolve_market(asset_name);
-
-        market.token_admin.mint(&self.admin, &raw);
-        let rewards = soroban_sdk::vec![&self.env, (hub_asset(asset), raw)];
-        self.ctrl_client().add_rewards(&self.admin, &rewards);
-    }
-
-    pub fn add_rewards_raw(&self, asset_name: &str, amount: i128) {
-        let asset = self.resolve_asset(asset_name);
-        let market = self.resolve_market(asset_name);
-
-        market.token_admin.mint(&self.admin, &amount);
-        let rewards = soroban_sdk::vec![&self.env, (hub_asset(asset), amount)];
-        self.ctrl_client().add_rewards(&self.admin, &rewards);
-    }
-
-    pub fn try_add_rewards(&self, asset_name: &str, amount: f64) -> Result<(), soroban_sdk::Error> {
-        let decimals = self.resolve_market(asset_name).decimals;
-        let raw = f64_to_i128(amount, decimals);
-        let asset = self.resolve_asset(asset_name);
-        let market = self.resolve_market(asset_name);
-
-        market.token_admin.mint(&self.admin, &raw);
-        let rewards = soroban_sdk::vec![&self.env, (hub_asset(asset.clone()), raw)];
-        let res = match self.ctrl_client().try_add_rewards(&self.admin, &rewards) {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(err)) => Err(err.into()),
-            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-        };
-        if res.is_err() {
-            crate::ops::internal::burn_prefund(&self.env, &asset, &self.admin, raw);
-        }
-        res
-    }
 }

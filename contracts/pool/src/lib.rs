@@ -108,11 +108,6 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn add_rewards(env: Env, hub_asset: HubAssetKey, amount: i128) {
-        ops::rewards::apply(&env, hub_asset, amount);
-    }
-
-    #[only_owner]
     fn recapitalize(
         env: Env,
         hub_asset: HubAssetKey,

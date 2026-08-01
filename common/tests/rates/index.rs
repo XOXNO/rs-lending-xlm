@@ -1,5 +1,5 @@
 use super::*;
-use crate::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW, SUPPLY_INDEX_REWARD_CEILING_RAY};
+use crate::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use crate::rates::test_support::*;
 use soroban_sdk::Env;
 
@@ -39,7 +39,7 @@ fn test_update_supply_index() {
     let rewards = Ray::from(5 * RAY);
     let new_index = update_supply_index(&env, supplied, old_index, rewards);
 
-    let expected = RAY * 106 / 101;
+    let expected = RAY * 105 / 100;
     assert!((new_index.raw() - expected).abs() <= 1);
 }
 
@@ -56,36 +56,6 @@ fn test_update_supply_index_rounds_supplied_value_to_zero_returns_old_index() {
 
     let out = update_supply_index(&env, Ray::from(1), Ray::from(1), Ray::from(5 * RAY));
     assert_eq!(out, Ray::from(1));
-}
-
-#[test]
-fn test_supply_index_shortfall_accounts_full_reward() {
-    let env = Env::default();
-
-    let supplied = Ray::from_asset(1_000, 7);
-    let old_index = Ray::from(RAY);
-    let reward = Ray::from_asset(100, 7);
-
-    let new_index = update_supply_index(&env, supplied, old_index, reward);
-    let shortfall = supply_index_reward_shortfall(&env, supplied, old_index, new_index, reward);
-    let distributed = supplied
-        .mul(&env, new_index)
-        .checked_sub(&env, supplied.mul(&env, old_index));
-
-    assert_eq!(
-        distributed.checked_add(&env, shortfall),
-        reward,
-        "distributed + shortfall must equal the full reward (no dead reserve)"
-    );
-
-    assert!(
-        shortfall.raw() > 0,
-        "offset must leave a positive shortfall"
-    );
-    assert!(
-        distributed.raw() > 0 && distributed.raw() < reward.raw(),
-        "suppliers receive the diluted share, strictly less than the full reward"
-    );
 }
 
 #[test]
@@ -134,43 +104,6 @@ fn test_calculate_supplier_rewards() {
 }
 
 #[test]
-fn test_virtual_offset_bounds_dust_reward_growth() {
-    let env = Env::default();
-
-    let supplied = Ray::from_asset(1, 7);
-    let reward = Ray::from_asset(170_141_183_459, 7);
-
-    let grown = update_supply_index(&env, supplied, Ray::from(RAY), reward);
-
-    assert!(grown.raw() > RAY, "reward must still grow the index");
-    assert!(
-        grown.raw() < MAX_SUPPLY_INDEX_RAY,
-        "offset must keep growth below the cap"
-    );
-    assert!(
-        grown.raw() < RAY * 1_000_000,
-        "growth is bounded to ~1.7e31"
-    );
-}
-
-#[test]
-fn test_offset_supply_index_survives_ordinary_accrual() {
-    let env = Env::default();
-
-    let grown = update_supply_index(
-        &env,
-        Ray::from_asset(1, 7),
-        Ray::from(RAY),
-        Ray::from_asset(170_141_183_459, 7),
-    );
-    assert!(grown.raw() < MAX_SUPPLY_INDEX_RAY);
-
-    let next = update_supply_index(&env, Ray::from(1), grown, Ray::from(170_000));
-    assert!(next.raw() >= grown.raw());
-    assert!(next.raw() < MAX_SUPPLY_INDEX_RAY);
-}
-
-#[test]
 fn test_cap_still_backstops_extreme_reward() {
     let env = Env::default();
 
@@ -183,22 +116,15 @@ fn test_cap_still_backstops_extreme_reward() {
 }
 
 #[test]
-fn test_virtual_offset_negligible_for_funded_market() {
+fn test_supply_index_reward_distributes_full_reward_without_offset() {
     let env = Env::default();
     let supplied = Ray::from(1_000 * RAY);
     let rewards = Ray::from(10 * RAY);
 
     let grown = update_supply_index(&env, supplied, Ray::from(RAY), rewards);
 
-    let with_offset = RAY + RAY * 10 / 1001;
-    let offset_free = RAY + RAY * 10 / 1000;
-    assert!((grown.raw() - with_offset).abs() <= 1);
-
-    let drift = offset_free - grown.raw();
-    assert!(
-        drift * 100 < offset_free - RAY,
-        "dilution < 1% of reward growth"
-    );
+    let expected = RAY + RAY * 10 / 1000;
+    assert!((grown.raw() - expected).abs() <= 1);
 }
 
 #[test]
@@ -235,45 +161,6 @@ fn test_protocol_fee_shares_saturates_and_caps_at_floored_index() {
     let supplied = Ray::from(1_000 * RAY);
     let shares = protocol_fee_shares(&env, fee, supply_index, supplied);
     assert_eq!(shares.raw(), i128::MAX - supplied.raw());
-}
-
-#[test]
-fn test_iterated_reward_legs_pin_supply_index_and_yield_zero() {
-    let env = Env::default();
-
-    let supplied = Ray::from_asset(1, 7);
-    let mut index = Ray::from(RAY);
-
-    let mut total_reward_raw: i128 = 0;
-    let mut legs = 0u32;
-    while index.raw() < MAX_SUPPLY_INDEX_RAY && legs < 40 {
-        let tsv = supplied.mul(&env, index).raw();
-        let reward_raw = tsv + SUPPLY_VIRTUAL_VALUE_RAY;
-        total_reward_raw = total_reward_raw.saturating_add(reward_raw);
-        index = update_supply_index(&env, supplied, index, Ray::from(reward_raw));
-        legs += 1;
-    }
-
-    assert_eq!(
-        index.raw(),
-        MAX_SUPPLY_INDEX_RAY,
-        "iterated add_rewards legs must pin supply_index at MAX",
-    );
-    assert!(legs <= 31, "cap reached in ~30 modest legs, got {legs}");
-
-    let total_reward_tokens = total_reward_raw / RAY;
-    assert!(
-        total_reward_tokens < 1_000,
-        "total reward outlay to pin the market is modest ({total_reward_tokens} tokens)",
-    );
-
-    let ordinary_reward = Ray::from_asset(1_000, 7);
-    let after = update_supply_index(&env, supplied, index, ordinary_reward);
-    assert_eq!(
-        after.raw(),
-        MAX_SUPPLY_INDEX_RAY,
-        "post-pin, real supplier interest is clamped away: index unchanged (0% yield)",
-    );
 }
 
 const SWEEP_SUPPLIED_MAX: i128 = i128::MAX / (2 * (MAX_SUPPLY_INDEX_RAY / RAY));
@@ -357,7 +244,6 @@ fn test_supply_index_reward_is_conserved_across_structured_grid() {
         SUPPLY_INDEX_FLOOR_RAW - 1,
         SUPPLY_INDEX_FLOOR_RAW + 1,
         RAY,
-        SUPPLY_INDEX_REWARD_CEILING_RAY,
         MAX_SUPPLY_INDEX_RAY - 1,
         MAX_SUPPLY_INDEX_RAY,
     ];
@@ -391,7 +277,7 @@ fn test_supply_index_reward_is_conserved_at_rounding_knife_edges() {
             if total_supplied_value == 0 {
                 continue;
             }
-            let denom = total_supplied_value + SUPPLY_VIRTUAL_VALUE_RAY;
+            let denom = total_supplied_value;
 
             let mut edges = [0i128; 12];
             let mut edges_len = 0usize;
@@ -483,7 +369,7 @@ fn test_supply_index_reward_is_conserved_in_realistic_band() {
 
     for _ in 0..60_000 {
         let supplied = between(1, SWEEP_SUPPLIED_MAX);
-        let old_index = between(SUPPLY_INDEX_FLOOR_RAW, SUPPLY_INDEX_REWARD_CEILING_RAY);
+        let old_index = between(SUPPLY_INDEX_FLOOR_RAW, 100_000 * RAY);
         let rewards = between(0, 1_000_000 * RAY);
         assert_reward_is_conserved(&env, supplied, old_index, rewards);
     }
@@ -508,82 +394,13 @@ fn one_token_value(decimals: u32) -> Ray {
     Ray::from_asset(10i128.pow(decimals), decimals)
 }
 
-fn split_interest(env: &Env, n_tokens: i128, decimals: u32, rewards: Ray) -> (Ray, Ray) {
-    let supplied = Ray::from_asset(n_tokens * 10i128.pow(decimals), decimals);
-    let old_index = Ray::ONE;
-    let new_index = update_supply_index(env, supplied, old_index, rewards);
-    let distributed = supplied
-        .mul(env, new_index)
-        .checked_sub(env, supplied.mul(env, old_index));
-    let shortfall = supply_index_reward_shortfall(env, supplied, old_index, new_index, rewards);
-    (distributed, shortfall)
-}
-
 #[test]
 fn test_one_whole_token_normalizes_to_one_ray_at_every_decimals() {
     for decimals in [0u32, 6, 7, 8, 18] {
         assert_eq!(
             one_token_value(decimals).raw(),
             RAY,
-            "one whole token must be exactly RAY of value at {decimals} decimals, \
-             which is what makes SUPPLY_VIRTUAL_VALUE_RAY a one-token offset",
+            "one whole token must be exactly RAY of value at {decimals} decimals",
         );
     }
-}
-
-#[test]
-fn test_virtual_offset_diverts_one_over_n_plus_one_of_all_interest() {
-    let env = Env::default();
-    env.cost_estimate().budget().reset_unlimited();
-
-    for (n_tokens, decimals) in [(1i128, 8u32), (10, 8), (100, 8), (1_000, 8), (1_000_000, 7)] {
-        let rewards = Ray::from(n_tokens * RAY / 20);
-        let (distributed, shortfall) = split_interest(&env, n_tokens, decimals, rewards);
-
-        assert_eq!(
-            distributed.raw() + shortfall.raw(),
-            rewards.raw(),
-            "interest must stay conserved at N={n_tokens}",
-        );
-
-        let expected = rewards.raw() / (n_tokens + 1);
-        let slack = (expected / 1_000_000).max(2);
-        assert!(
-            (shortfall.raw() - expected).abs() <= slack,
-            "N={n_tokens}: diverted {} but 1/(N+1) predicts {}",
-            shortfall.raw(),
-            expected,
-        );
-    }
-}
-
-#[test]
-fn test_equal_value_markets_divert_unequal_interest_by_token_count() {
-    let env = Env::default();
-    env.cost_estimate().budget().reset_unlimited();
-
-    let (btc_dist, btc_short) = split_interest(&env, 10, 8, Ray::from(10 * RAY / 20));
-    let (usd_dist, usd_short) = split_interest(&env, 1_000_000, 7, Ray::from(1_000_000 * RAY / 20));
-
-    let btc_total = btc_dist.raw() + btc_short.raw();
-    let usd_total = usd_dist.raw() + usd_short.raw();
-
-    assert_eq!(
-        btc_short.raw() * 10_000 / btc_total,
-        909,
-        "a 10-token market must divert ~9.09% (1/11) of interest",
-    );
-    assert_eq!(
-        usd_short.raw() * 10_000 / usd_total,
-        0,
-        "a 1,000,000-token market diverts under 0.01% of interest",
-    );
-
-    let btc_ppm = btc_short.raw() * 1_000_000 / btc_total;
-    let usd_ppm = usd_short.raw() * 1_000_000 / usd_total;
-    assert!(
-        btc_ppm > usd_ppm * 1_000,
-        "token-count denomination makes the low-count market divert >1000x more: \
-         {btc_ppm} ppm vs {usd_ppm} ppm",
-    );
 }

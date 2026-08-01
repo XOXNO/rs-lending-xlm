@@ -1,6 +1,5 @@
 use test_harness::{
-    days, errors, eth_preset, hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, BOB,
-    LIQUIDATOR,
+    days, eth_preset, hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
 };
 
 fn setup_accumulator(t: &LendingTest) {
@@ -168,77 +167,20 @@ fn test_claim_revenue_zero_when_no_activity() {
     assert_eq!(claimed, 0, "claimed revenue should be 0 with no activity");
 }
 #[test]
-fn test_add_rewards_increases_supply_index() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
-
-    t.supply(ALICE, "USDC", 10_000.0);
-
-    let supply_before = t.supply_balance(ALICE, "USDC");
-
-    t.add_rewards("USDC", 1_000.0);
-
-    let supply_after = t.supply_balance(ALICE, "USDC");
-    assert!(
-        supply_after > supply_before,
-        "supply balance should increase after rewards: before={}, after={}",
-        supply_before,
-        supply_after
-    );
-
-    let increase = supply_after - supply_before;
-    assert!(
-        increase > 900.0 && increase < 1100.0,
-        "increase should be ~1000, got {}",
-        increase
-    );
-}
-#[test]
-fn test_add_rewards_rejects_zero() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-
-    let ctrl = t.ctrl_client();
-    let admin = t.admin();
-    let asset = t.resolve_market("USDC").asset.clone();
-
-    let rewards = soroban_sdk::vec![&t.env, (hub_asset(asset.clone()), 0i128)];
-    let result = ctrl.try_add_rewards(&admin, &rewards);
-    match result {
-        Err(Ok(err)) => assert_eq!(
-            err,
-            soroban_sdk::Error::from_contract_error(errors::AMOUNT_MUST_BE_POSITIVE),
-            "expected AMOUNT_MUST_BE_POSITIVE but got {:?}",
-            err
-        ),
-        Err(Err(invoke_err)) => {
-            panic!("expected contract error, got InvokeError: {:?}", invoke_err)
-        }
-        _ => panic!("add_rewards with 0 amount should fail"),
-    }
-}
-#[test]
 fn test_permissionless_revenue_endpoints() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     let bob_addr = t.get_or_create_user(BOB);
 
     t.supply(ALICE, "USDC", 10_000.0);
-    t.resolve_market("USDC")
-        .token_admin
-        .mint(&bob_addr, &100i128);
 
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
 
     t.env.mock_all_auths();
-    let assets = soroban_sdk::vec![&t.env, hub_asset(asset.clone())];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(asset)];
     assert!(
         ctrl.try_claim_revenue(&bob_addr, &assets).is_ok(),
         "any signed caller may claim_revenue"
-    );
-
-    let rewards = soroban_sdk::vec![&t.env, (hub_asset(asset), 100i128)];
-    assert!(
-        ctrl.try_add_rewards(&bob_addr, &rewards).is_ok(),
-        "any signed caller may add_rewards"
     );
 }

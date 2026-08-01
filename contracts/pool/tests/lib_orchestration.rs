@@ -82,18 +82,3 @@ fn test_bulk_supply_returns_input_ordered_mutations() {
     assert_eq!(results.get(0).unwrap().actual_amount, 100_000_000);
     assert_eq!(results.get(1).unwrap().actual_amount, 50_000_000);
 }
-
-#[test]
-fn test_add_rewards_increases_supply_index() {
-    let t = TestSetup::new();
-    let client = t.client();
-
-    let sup = PoolSupplyEntry {
-        action: make_action(0, 100_000_000, &t.asset),
-    };
-    let _ = client.supply(&vec![&t.env, sup]);
-
-    client.add_rewards(&hub(&t.asset), &10_000_000);
-    let snap = client.get_sync_data(&hub(&t.asset)).state;
-    assert!(snap.supply_index > RAY);
-}

@@ -454,15 +454,6 @@ fn test_chaos_keeper_revenue_lifecycle() {
         claimed_eth
     );
 
-    t.add_rewards("USDC", 1_000.0);
-
-    let alice_supply = t.supply_balance(ALICE, "USDC");
-    assert!(
-        alice_supply > 100_000.0,
-        "Alice supply should exceed initial after rewards: {}",
-        alice_supply
-    );
-
     t.advance_and_sync(days(60));
 
     t.repay(ALICE, "ETH", 999.0);

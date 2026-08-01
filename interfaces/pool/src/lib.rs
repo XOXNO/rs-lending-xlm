@@ -54,8 +54,6 @@ pub trait LiquidityPoolInterface {
         charge_fee: bool,
     ) -> PoolStrategyMutation;
 
-    fn add_rewards(env: Env, hub_asset: HubAssetKey, amount: i128);
-
     fn recapitalize(
         env: Env,
         hub_asset: HubAssetKey,

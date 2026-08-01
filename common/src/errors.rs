@@ -50,8 +50,6 @@ pub enum GenericError {
 
     InvalidPositionLimits = 36,
 
-    NoSuppliersToReward = 37,
-
     SpotOnlyNotProductionSafe = 38,
 
     InvalidTimelockDelay = 39,
@@ -81,8 +79,6 @@ pub enum GenericError {
     SupplyRoundsToZeroShares = 51,
 
     RepayRoundsToZeroShares = 52,
-
-    SupplyIndexRewardCeiling = 53,
 }
 
 #[contracterror]

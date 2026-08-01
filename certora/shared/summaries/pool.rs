@@ -161,8 +161,6 @@ pub fn net_settle_summary(
 
 pub fn update_indexes_summary(_env: &Env, _asset: &Address) {}
 
-pub fn add_rewards_summary(_env: &Env, _asset: &Address, _amount: i128) {}
-
 pub fn recapitalize_summary(_env: &Env, _asset: &Address, amount: i128) -> PoolAmountMutation {
     let actual_amount: i128 = nondet();
     cvlr_assume!(actual_amount >= 0);

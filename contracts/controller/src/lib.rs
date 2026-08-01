@@ -272,11 +272,6 @@ impl ControllerInterface for Controller {
     }
 
     #[when_not_paused]
-    fn add_rewards(env: Env, caller: Address, rewards: Vec<(HubAssetKey, i128)>) {
-        keepers::add_rewards(&env, caller, rewards);
-    }
-
-    #[when_not_paused]
     fn update_account_threshold(env: Env, caller: Address, has_risks: bool, account_ids: Vec<u64>) {
         keepers::update_account_threshold(&env, caller, has_risks, account_ids);
     }

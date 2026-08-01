@@ -232,7 +232,7 @@ fn test_supply_index_update_with_rewards() {
     let env = Env::default();
     let new_index = update_supply_index(&env, Ray::from(100 * RAY), Ray::ONE, Ray::from(5 * RAY));
 
-    let expected = RAY * 106 / 101;
+    let expected = RAY * 105 / 100;
     assert!((new_index.raw() - expected).abs() <= 1);
 }
 #[test]

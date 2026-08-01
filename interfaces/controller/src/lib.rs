@@ -116,8 +116,6 @@ pub trait ControllerInterface {
 
     fn claim_revenue(env: Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128>;
 
-    fn add_rewards(env: Env, caller: Address, rewards: Vec<(HubAssetKey, i128)>);
-
     fn update_account_threshold(env: Env, caller: Address, has_risks: bool, account_ids: Vec<u64>);
 
     fn recapitalize(env: Env, payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128;
