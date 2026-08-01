@@ -16,6 +16,8 @@ pub struct ReflectorPriceData {
     pub timestamp: u64,
 }
 
+/// SEP-40 price-oracle interface. Implemented by Reflector and by the Xoxno
+/// oracle adapter, so the `reflector_*` readers below work against either.
 #[contractclient(name = "ReflectorClient")]
 #[allow(dead_code)]
 pub trait ReflectorOracle {

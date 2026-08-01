@@ -10,9 +10,7 @@ use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
 enum GovernanceKey {
     Controller,
     PriceAggregator,
-
     RoleRevocationTarget(BytesN<32>),
-
     RecoveryOp(BytesN<32>),
 }
 

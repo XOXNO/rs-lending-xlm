@@ -8,7 +8,6 @@ use common::types::{PriceSource, ProviderRef, MAX_RESOLUTION_DEPTH};
 
 pub(crate) struct Session {
     env: Env,
-
     feed_cache: Map<(Address, String), RedStonePriceData>,
     resolving_keys: Vec<PriceKey>,
     key_prices: Map<PriceKey, PriceFeedRaw>,

@@ -28,7 +28,6 @@ enum LegSlot {
 enum Legs {
     One(Reading),
     Two { primary: Reading, anchor: Reading },
-
     Partial { reading: Reading, slot: LegSlot },
     Empty,
 }
@@ -40,7 +39,6 @@ pub(crate) struct Outcome {
     pub second_wad: i128,
     pub stale: bool,
     pub deviation: bool,
-
     pub err: Option<OracleError>,
 }
 
