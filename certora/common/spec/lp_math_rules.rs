@@ -3,11 +3,26 @@ use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Env, U256};
 
 use crate::constants::WAD;
-use crate::oracle::lp::{fair_lp_price_wad, isqrt_of_product};
+use crate::oracle::lp::{fair_lp_price_wad, isqrt_of_product, LpLeg, LpSupply};
 
 /// Stellar assets are 7 decimals; the rules below fix that so the prover reasons
 /// about the arithmetic rather than the decimals ladder, which `policy` bounds.
 const DEC: u32 = 7;
+
+fn leg(reserve: i128, price_wad: i128) -> LpLeg {
+    LpLeg {
+        reserve,
+        decimals: DEC,
+        price_wad,
+    }
+}
+
+fn supply(total_shares: i128) -> LpSupply {
+    LpSupply {
+        total_shares,
+        decimals: DEC,
+    }
+}
 
 /// The share price divides by supply and is fed to a collateral valuation, so
 /// every degenerate input has to fail closed rather than produce a number or
@@ -28,14 +43,9 @@ fn lp_price_rejects_degenerate_inputs(
 
     let priced = fair_lp_price_wad(
         &e,
-        reserve_a,
-        DEC,
-        price_a,
-        reserve_b,
-        DEC,
-        price_b,
-        total_shares,
-        DEC,
+        &leg(reserve_a, price_a),
+        &leg(reserve_b, price_b),
+        &supply(total_shares),
     );
 
     cvlr_assert!(priced.is_err());
@@ -49,14 +59,12 @@ fn lp_price_rejects_share_decimals_past_wad(e: Env, share_decimals: u32) {
 
     let priced = fair_lp_price_wad(
         &e,
-        1_000_000,
-        DEC,
-        WAD,
-        1_000_000,
-        DEC,
-        WAD,
-        1_000_000,
-        share_decimals,
+        &leg(1_000_000, WAD),
+        &leg(1_000_000, WAD),
+        &LpSupply {
+            total_shares: 1_000_000,
+            decimals: share_decimals,
+        },
     );
 
     cvlr_assert!(priced.is_err());
@@ -82,25 +90,15 @@ fn lp_price_is_symmetric_under_leg_swap(
 
     let forward = fair_lp_price_wad(
         &e,
-        reserve_a,
-        DEC,
-        price_a,
-        reserve_b,
-        DEC,
-        price_b,
-        total_shares,
-        DEC,
+        &leg(reserve_a, price_a),
+        &leg(reserve_b, price_b),
+        &supply(total_shares),
     );
     let swapped = fair_lp_price_wad(
         &e,
-        reserve_b,
-        DEC,
-        price_b,
-        reserve_a,
-        DEC,
-        price_a,
-        total_shares,
-        DEC,
+        &leg(reserve_b, price_b),
+        &leg(reserve_a, price_a),
+        &supply(total_shares),
     );
 
     cvlr_assert!(forward.is_ok() == swapped.is_ok());

@@ -1,6 +1,6 @@
 use common::errors::OracleError;
 use common::math::fp::Wad;
-use common::oracle::lp::fair_lp_price_wad;
+use common::oracle::lp::{fair_lp_price_wad, LpLeg, LpSupply};
 use common::oracle::observation::is_stale;
 use common::oracle::providers::aquarius::{
     aquarius_plane_reserves_call, aquarius_total_shares_call,
@@ -481,14 +481,20 @@ fn read_lp_share(
 
     let price_wad = fair_lp_price_wad(
         &env,
-        reserve_a,
-        lp.reserve_a_decimals,
-        price_a.price_wad,
-        reserve_b,
-        lp.reserve_b_decimals,
-        price_b.price_wad,
-        total_shares,
-        lp.share_decimals,
+        &LpLeg {
+            reserve: reserve_a,
+            decimals: lp.reserve_a_decimals,
+            price_wad: price_a.price_wad,
+        },
+        &LpLeg {
+            reserve: reserve_b,
+            decimals: lp.reserve_b_decimals,
+            price_wad: price_b.price_wad,
+        },
+        &LpSupply {
+            total_shares,
+            decimals: lp.share_decimals,
+        },
     )?;
 
     // The share is only as fresh as its underlyings (already staleness-checked
