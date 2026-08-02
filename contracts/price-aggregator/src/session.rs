@@ -152,7 +152,7 @@ fn collect_key(
                 collect_key(env, by_adapter, visited, &scaled.quote, depth + 1);
             }
 
-            PriceSource::AquariusLp(lp) => {
+            PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
                 collect_key(env, by_adapter, visited, &lp.key_a, depth + 1);
                 collect_key(env, by_adapter, visited, &lp.key_b, depth + 1);
             }

@@ -81,7 +81,7 @@ pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> LocalProperti
             local: SourceProperties::of_feed(env, &scaled.factor),
             dependencies: Vec::from_array(env, [scaled.quote.clone()]),
         },
-        PriceSource::AquariusLp(lp) => LocalProperties {
+        PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => LocalProperties {
             local: SourceProperties {
                 has_unsmoothed_market_leg: true,
                 ..SourceProperties::empty(env)

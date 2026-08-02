@@ -960,6 +960,251 @@
         "is_flashloanable": false,
         "flashloan_fee": 0
       }
+    },
+    {
+      "_comment": "Aquarius XLM/SolvBTC constant-product LP share token (share_id of pool CD2O2B6P...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
+      "name": "XLMSolvBTC_LP",
+      "hub_id": 3,
+      "asset_address": "CAPPL34NF6X7M3EQFIPDXZHQX2PT3EOE2LYCDORH3PF2LTRDSFGWV6NL",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CD2O2B6PWKXDVFXMHXHQMF25C4TWOSQAENA7DNFR5G27F5CHJ7AJP5F6",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+              "token_b": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
+              "key_a": {
+                "Token": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+              },
+              "key_b": {
+                "Token": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 8,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "25000000000000000000",
+        "max_sanity_price_wad": "250000000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "_comment": "Aquarius CETES/USDC constant-product LP share token (share_id of pool CCKGQSQG...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
+      "name": "CETESUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CB2WUVUP2SKZVFZFNU33EZCISH65DKHQP4WBEHJ4WE3BF7QOABYGCQMS",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CCKGQSQG5JLZBMYMB4HT6M4H7FUC3NK5C75MIHN6627LRAY5B2SYL2AD",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "430000000000000000",
+        "max_sanity_price_wad": "610000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "_comment": "Aquarius USTRY/USDC constant-product LP share token (share_id of pool CCX2TYR4...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
+      "name": "USTRYUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CCLJBNY2KMUOSAW7URIZHREO5ORQREDX7NIHLFRAT6KAZ5GO7652OA4I",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CCX2TYR4AQTPPMTZOIMP3YIBHAYLLSTXVP47PAGTL753PCQFSKV32MIA",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "1740000000000000000",
+        "max_sanity_price_wad": "2440000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "_comment": "Aquarius USDY/USDC constant-product LP share token (share_id of pool CAFHLHGZ...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
+      "name": "USDYUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CCYD4C2WFWIIDF235SCDXEWL5RT6S53WQWLDHUTQ5USZ5VNF5NHJGVW7",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CAFHLHGZXOVNCGFJ7DOXL7JDNMBCEZKDI3LS5NRQH3GXC7CSIMQZHUSM",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "1790000000000000000",
+        "max_sanity_price_wad": "2510000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "_comment": "Aquarius PYUSD/USDC stableswap LP share token (share_id of pool CDMH535J...). Priced as (D/S)*min(Pa,Pb) with D the swap-invariant Curve invariant and A read live from the pool; both legs bind directly to their token markets. Rejects non-stable rows and fair pool value below $1m. Sanity band brackets virtual_price (fee-growth headroom) times each leg's own sanity floor/ceiling; re-derive when underlying bands or market depth materially change.",
+      "name": "PYUSDUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CD3EQXQGRYUKM7LZ6MZVTXSW74ROXU6YI2SXHJ6KTB5BQ425E5KXRDBC",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusStableLp": {
+              "pool": "CDMH535JSD224YXPET3B4SJOLXTQQ24GRSCWACGYBKSH2DKFJYWI7SUW",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "900000000000000000",
+        "max_sanity_price_wad": "1200000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
     }
   ]
 }

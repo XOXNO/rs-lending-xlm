@@ -69,5 +69,27 @@ fn asset_oracle_identifies_aquarius_lp() {
         max_sanity_price_wad: i128::MAX / 2,
     };
     assert!(oracle.has_aquarius_lp_source());
+    assert!(oracle.sources.get_unchecked(0).is_aquarius_lp());
     assert!(!oracle.is_dual());
+
+    // The stableswap variant carries the same payload and is recognised the same
+    // way, so every LP-only exemption (band cap, sole-source, no smoothing) fires
+    // for it too.
+    let stable = PriceSource::AquariusStableLp(AquariusLpSource {
+        pool: Address::generate(&env),
+        plane: Address::generate(&env),
+        token_a: Address::generate(&env),
+        token_b: Address::generate(&env),
+        key_a: PriceKey::Ref(Symbol::new(&env, "A")),
+        key_b: PriceKey::Ref(Symbol::new(&env, "B")),
+        reserve_a_decimals: 7,
+        reserve_b_decimals: 7,
+        min_pool_value_wad: 1,
+    });
+    assert!(stable.is_aquarius_lp());
+    let stable_oracle = AssetOracle {
+        sources: Vec::from_array(&env, [stable]),
+        ..oracle
+    };
+    assert!(stable_oracle.has_aquarius_lp_source());
 }

@@ -1401,7 +1401,7 @@ validate_configs() {
             vc_err "market ${m}: oracle still uses legacy primary/anchor/strategy/tolerance_bps fields"
         fi
         if ! printf '%s' "$o" | jq -e '
-            any(.sources[]?; has("AquariusLp")) or (
+            any(.sources[]?; has("AquariusLp") or has("AquariusStableLp")) or (
                 (.tolerance.upper_ratio_bps // 0) > 10000 and
                 (.tolerance.lower_ratio_bps // 99999) < 10000 and
                 (.tolerance.lower_ratio_bps // 0) >= 1
@@ -1487,27 +1487,28 @@ validate_configs() {
                 ' >/dev/null; then
                     vc_err "market ${m}: sources[$i] Scaled min/max_factor_wad invalid"
                 fi
-            elif printf '%s' "$sjson" | jq -e 'has("AquariusLp")' >/dev/null; then
+            elif printf '%s' "$sjson" | jq -e 'has("AquariusLp") or has("AquariusStableLp")' >/dev/null; then
                 if ! printf '%s' "$sjson" | jq -e '
-                    .AquariusLp.pool and .AquariusLp.plane and
-                    (.AquariusLp.token_a | type == "string") and
-                    (.AquariusLp.token_b | type == "string") and
-                    (.AquariusLp.token_a != .AquariusLp.token_b) and
-                    (.AquariusLp.key_a != .AquariusLp.key_b) and
-                    ((.AquariusLp.key_a.Ref != null) or
-                     (.AquariusLp.key_a.Token == .AquariusLp.token_a)) and
-                    ((.AquariusLp.key_b.Ref != null) or
-                     (.AquariusLp.key_b.Token == .AquariusLp.token_b)) and
-                    (.AquariusLp.reserve_a_decimals | type == "number") and
-                    (.AquariusLp.reserve_b_decimals | type == "number") and
-                    (.AquariusLp.min_pool_value_wad | tonumber) > 0
+                    (.AquariusLp // .AquariusStableLp) as $lp |
+                    $lp.pool and $lp.plane and
+                    ($lp.token_a | type == "string") and
+                    ($lp.token_b | type == "string") and
+                    ($lp.token_a != $lp.token_b) and
+                    ($lp.key_a != $lp.key_b) and
+                    (($lp.key_a.Ref != null) or
+                     ($lp.key_a.Token == $lp.token_a)) and
+                    (($lp.key_b.Ref != null) or
+                     ($lp.key_b.Token == $lp.token_b)) and
+                    ($lp.reserve_a_decimals | type == "number") and
+                    ($lp.reserve_b_decimals | type == "number") and
+                    ($lp.min_pool_value_wad | tonumber) > 0
                 ' >/dev/null; then
-                    vc_err "market ${m}: sources[$i] AquariusLp has invalid token bindings or liquidity floor"
+                    vc_err "market ${m}: sources[$i] Aquarius LP has invalid token bindings or liquidity floor"
                 fi
                 i=$((i + 1))
                 continue
             else
-                vc_err "market ${m}: sources[$i] must be Feed, Scaled, or AquariusLp"
+                vc_err "market ${m}: sources[$i] must be Feed, Scaled, AquariusLp, or AquariusStableLp"
                 i=$((i + 1))
                 continue
             fi
@@ -1570,8 +1571,8 @@ validate_configs() {
         if ! jq -e --arg n "$rname" '
             any(.markets[]?; any(.oracle.sources[]?;
                 (.Scaled.quote.Ref // "") == $n or
-                (.AquariusLp.key_a.Ref // "") == $n or
-                (.AquariusLp.key_b.Ref // "") == $n))
+                ((.AquariusLp // .AquariusStableLp).key_a.Ref // "") == $n or
+                ((.AquariusLp // .AquariusStableLp).key_b.Ref // "") == $n))
         ' "$MARKET_CONFIG_FILE" >/dev/null; then
             vc_warn "reference ${rname} is listed but no market Scaled source quotes it"
         fi
@@ -2809,8 +2810,8 @@ market_oracle_ref_dependencies() {
     local market_name=$1
     jq -r --arg m "$market_name" '
         .markets[] | select(.name == $m) | (.oracle.sources // [])[] |
-        (.Scaled.quote.Ref // .AquariusLp.key_a.Ref // empty),
-        (.AquariusLp.key_b.Ref // empty)
+        (.Scaled.quote.Ref // (.AquariusLp // .AquariusStableLp).key_a.Ref // empty),
+        ((.AquariusLp // .AquariusStableLp).key_b.Ref // empty)
     ' "$MARKET_CONFIG_FILE" | sort -u
 }
 
@@ -2818,8 +2819,8 @@ market_oracle_ref_dependencies() {
 all_oracle_ref_dependencies() {
     jq -r '
         [.markets[] | (.oracle.sources // [])[] |
-         (.Scaled.quote.Ref // .AquariusLp.key_a.Ref // empty),
-         (.AquariusLp.key_b.Ref // empty)] | unique | .[]
+         (.Scaled.quote.Ref // (.AquariusLp // .AquariusStableLp).key_a.Ref // empty),
+         ((.AquariusLp // .AquariusStableLp).key_b.Ref // empty)] | unique | .[]
     ' "$MARKET_CONFIG_FILE"
 }
 
@@ -3002,8 +3003,8 @@ list_references() {
         used_by=$(jq -r --arg r "$r" '
             [.markets[] | select(any(.oracle.sources[]?;
                 (.Scaled.quote.Ref // "") == $r or
-                (.AquariusLp.key_a.Ref // "") == $r or
-                (.AquariusLp.key_b.Ref // "") == $r)) | .name] | join(", ")
+                ((.AquariusLp // .AquariusStableLp).key_a.Ref // "") == $r or
+                ((.AquariusLp // .AquariusStableLp).key_b.Ref // "") == $r)) | .name] | join(", ")
         ' "$MARKET_CONFIG_FILE")
         [ -z "$used_by" ] && used_by="(unused by markets)"
         jq -r --arg r "$r" --arg u "$used_by" '

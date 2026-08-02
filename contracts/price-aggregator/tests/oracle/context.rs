@@ -254,6 +254,66 @@ fn test_the_prefetch_walk_stops_at_the_composition_cap() {
     );
 }
 
+// An LP's underlyings sit one level below the LP itself, exactly like a scaled
+// source's quote. An LP parked at the cap therefore contributes nothing to the
+// batch: its legs are past the depth the resolver will walk at read time, so
+// prefetching them would buy feeds no read can use.
+#[test]
+fn test_the_prefetch_walk_leaves_out_the_legs_of_an_lp_sitting_at_the_cap() {
+    let env = Env::default();
+    env.ledger().set_timestamp(NOW);
+    let (adapter, client) = counting_adapter(&env, &["F1", "F2", "F3", "LA", "LB"]);
+
+    in_contract(&env, || {
+        let mut current = PriceKey::Ref(Symbol::new(&env, "LP"));
+        crate::registry::store_oracle(
+            &env,
+            &current,
+            &oracle_of(
+                &env,
+                PriceSource::AquariusLp(common::types::AquariusLpSource {
+                    pool: Address::generate(&env),
+                    plane: Address::generate(&env),
+                    token_a: Address::generate(&env),
+                    token_b: Address::generate(&env),
+                    key_a: feed_key(&env, &adapter, "LA"),
+                    key_b: feed_key(&env, &adapter, "LB"),
+                    reserve_a_decimals: 7,
+                    reserve_b_decimals: 7,
+                    min_pool_value_wad: WAD,
+                }),
+            ),
+        );
+
+        for (name, factor) in [("L3", "F3"), ("L2", "F2"), ("L1", "F1")] {
+            let key = PriceKey::Ref(Symbol::new(&env, name));
+            crate::registry::store_oracle(
+                &env,
+                &key,
+                &oracle_of(
+                    &env,
+                    PriceSource::Scaled(ScaledSource {
+                        factor: multi_feed(&env, &adapter, factor),
+                        quote: current.clone(),
+                        min_factor_wad: WAD,
+                        max_factor_wad: WAD,
+                    }),
+                ),
+            );
+            current = key;
+        }
+
+        Session::new(&env).warm(&Vec::from_array(&env, [current]));
+    });
+
+    let (_, bulk, batch) = client.counts();
+    assert_eq!(bulk, 1);
+    assert_eq!(
+        batch, MAX_RESOLUTION_DEPTH,
+        "the three factor legs the cap admits, and neither LP underlying"
+    );
+}
+
 #[test]
 fn test_a_short_bulk_response_is_discarded_rather_than_misaligned() {
     let env = Env::default();

@@ -27,6 +27,9 @@ pub trait AquariusPool {
     fn get_tokens(env: Env) -> Vec<Address>;
     fn pool_type(env: Env) -> Symbol;
     fn share_id(env: Env) -> Address;
+    /// Current amplification `A` of a stableswap pool (interpolated across an
+    /// active ramp). View-only, so it is safe on the pricing path.
+    fn a(env: Env) -> u128;
 }
 
 /// Reserves `(a, b)` for `pool`, read from its `plane` mirror. `None` when the
@@ -36,22 +39,60 @@ pub fn aquarius_plane_reserves_call(
     plane: &Address,
     pool: &Address,
 ) -> Option<(i128, i128)> {
+    plane_reserves_of_kind(env, plane, pool, "standard")
+}
+
+/// Reserves `(a, b)` for a stableswap `pool`, read from its `plane` mirror.
+/// `None` unless the row is a two-coin `"stable"` row within `i128`.
+pub fn aquarius_stable_plane_reserves_call(
+    env: &Env,
+    plane: &Address,
+    pool: &Address,
+) -> Option<(i128, i128)> {
+    plane_reserves_of_kind(env, plane, pool, "stable")
+}
+
+/// Shared plane-row reader. Both `"standard"` (constant-product) and `"stable"`
+/// rows expose exactly `[reserve0, reserve1]`; a `"concentrated"` (or otherwise
+/// bucketed) row carries a layout whose first two entries are NOT the pool's
+/// total reserves. Requiring the exact `kind` stops a mislisted or type-changed
+/// pool from ever being priced by the wrong invariant.
+fn plane_reserves_of_kind(
+    env: &Env,
+    plane: &Address,
+    pool: &Address,
+    kind: &str,
+) -> Option<(i128, i128)> {
     let pools = Vec::from_array(env, [pool.clone()]);
     let rows = match AquariusPlaneClient::new(env, plane).try_get(&pools) {
         Ok(Ok(rows)) => rows,
         _ => return None,
     };
-    let (kind, _params, reserves) = rows.get(0)?;
-    // Only "standard" (constant-product) pools expose exactly [reserve0, reserve1];
-    // "stable"/"concentrated" rows carry a different or bucketed layout whose
-    // first two entries are NOT the pool's total reserves. Reject anything else
-    // so a mislisted (or type-changed) pool can never be priced as constant-product.
-    if kind != Symbol::new(env, "standard") || reserves.len() != 2 {
+    let (row_kind, _params, reserves) = rows.get(0)?;
+    if row_kind != Symbol::new(env, kind) || reserves.len() != 2 {
         return None;
     }
     let a = i128::try_from(reserves.get_unchecked(0)).ok()?;
     let b = i128::try_from(reserves.get_unchecked(1)).ok()?;
     Some((a, b))
+}
+
+/// Current amplification `A` of a stableswap `pool`. `None` on a failed call or
+/// a zero `A` (an unusable invariant parameter).
+pub fn aquarius_amp_call(env: &Env, pool: &Address) -> Option<u128> {
+    match AquariusPoolClient::new(env, pool).try_a() {
+        Ok(Ok(amp)) if amp > 0 => Some(amp),
+        _ => None,
+    }
+}
+
+/// Direct pool-type attestation for a stableswap pool, independent of the
+/// plane's row label.
+pub fn aquarius_is_stable_call(env: &Env, pool: &Address) -> bool {
+    matches!(
+        AquariusPoolClient::new(env, pool).try_pool_type(),
+        Ok(Ok(kind)) if kind == Symbol::new(env, "stable")
+    )
 }
 
 /// Reserves read directly from the pool. Aquarius may synchronize state during

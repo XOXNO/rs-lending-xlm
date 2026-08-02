@@ -19,6 +19,7 @@ fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
             PriceSource::Scaled(scaled) => attest_feed(env, &scaled.factor),
 
             PriceSource::AquariusLp(lp) => aquarius::attest(env, key, oracle, lp),
+            PriceSource::AquariusStableLp(lp) => aquarius::attest_stable(env, key, oracle, lp),
         }
     }
 }
@@ -123,10 +124,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
     // An LP share is priced standalone from pool reserves; blending it with a
     // second leg through the tolerance band is meaningless, so an LP source must
     // be the oracle's only source.
-    let has_lp = oracle
-        .sources
-        .iter()
-        .any(|source| matches!(source, PriceSource::AquariusLp(_)));
+    let has_lp = oracle.sources.iter().any(|source| source.is_aquarius_lp());
     if has_lp && oracle.sources.len() != 1 {
         panic_with_error!(env, OracleError::SourceCountOutOfRange);
     }

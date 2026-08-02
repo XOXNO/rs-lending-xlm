@@ -460,6 +460,61 @@
         "liquidation_fees": 100,
         "supply_cap": "5000000000",
         "borrow_cap": "0"
+      },
+      "XLMSolvBTC_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 100,
+        "supply_cap": "5000000000",
+        "borrow_cap": "0"
+      },
+      "CETESUSDC_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 100,
+        "supply_cap": "5000000000",
+        "borrow_cap": "0"
+      },
+      "USTRYUSDC_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 100,
+        "supply_cap": "5000000000",
+        "borrow_cap": "0"
+      },
+      "USDYUSDC_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 100,
+        "supply_cap": "5000000000",
+        "borrow_cap": "0"
+      },
+      "PYUSDUSDC_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 100,
+        "supply_cap": "5000000000",
+        "borrow_cap": "0"
       }
     }
   }

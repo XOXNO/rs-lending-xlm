@@ -1,9 +1,12 @@
 use super::*;
 use crate::admin::{set_oracle, set_sanity_band, set_tolerance};
 use crate::session::Session;
+use common::errors::OracleError;
+use common::oracle::providers::redstone::REDSTONE_DECIMALS;
 use common::types::{
-    FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef, OracleReadMode,
-    OracleTolerance, PriceSource, ProviderRef, ReflectorFeedRef, ScaledSource,
+    AquariusLpSource, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
+    OracleReadMode, OracleTolerance, PriceSource, ProviderRef, ReflectorFeedRef, ScaledSource,
+    MAX_RESOLUTION_DEPTH,
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, String, Symbol, Vec};
@@ -486,12 +489,21 @@ fn listable_lp(
     (pool, plane, share, oracle)
 }
 
-fn set_lp_min_pool_value(oracle: &mut AssetOracle, min_pool_value_wad: i128) {
-    let PriceSource::AquariusLp(mut lp) = oracle.sources.get_unchecked(0) else {
+fn lp_of(oracle: &AssetOracle) -> AquariusLpSource {
+    let PriceSource::AquariusLp(lp) = oracle.sources.get_unchecked(0) else {
         unreachable!()
     };
-    lp.min_pool_value_wad = min_pool_value_wad;
+    lp
+}
+
+fn set_lp(oracle: &mut AssetOracle, lp: AquariusLpSource) {
     oracle.sources.set(0, PriceSource::AquariusLp(lp));
+}
+
+fn set_lp_min_pool_value(oracle: &mut AssetOracle, min_pool_value_wad: i128) {
+    let mut lp = lp_of(oracle);
+    lp.min_pool_value_wad = min_pool_value_wad;
+    set_lp(oracle, lp);
 }
 
 // The production listing path must accept a constant-product LP: an LpShare is
@@ -517,6 +529,66 @@ fn test_set_oracle_lists_a_constant_product_lp_and_prices_it() {
         let feed = crate::engine::resolve(&mut session, &key, 0);
         assert_eq!(feed.price_wad, 2 * WAD);
         assert_eq!(feed.asset_decimals, 7);
+    });
+}
+
+fn stable_lp_oracle(
+    env: &Env,
+    pool: &Address,
+    plane: &Address,
+    token_a: &Address,
+    token_b: &Address,
+    key_a: PriceKey,
+    key_b: PriceKey,
+) -> AssetOracle {
+    let mut oracle = lp_oracle(env, pool, plane, token_a, token_b, key_a, key_b);
+    let lp = lp_of(&oracle);
+    oracle.sources.set(0, PriceSource::AquariusStableLp(lp));
+    oracle
+}
+
+// A stableswap LP lists and prices through the production path exactly like the
+// constant-product one. Balanced 1000/1000 whole tokens at $1 with 1000 whole
+// shares and A=1500 fair-values at ~$2.00 per share (D/S · min).
+#[test]
+fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (pool, plane, share, token_a, token_b) =
+            lp_fixture(&env, "stable", 10_000_000_000, 10_000_000_000, 10_000_000_000);
+        crate::test_support::MockAquariusPoolClient::new(&env, &pool).set_amp(&1500);
+        let (key_a, key_b) = dollar_underlyings(&env, &token_a, &token_b);
+        let oracle = stable_lp_oracle(&env, &pool, &plane, &token_a, &token_b, key_a, key_b);
+        let key = PriceKey::Token(share);
+        set_oracle(&env, key.clone(), oracle);
+
+        let mut session = Session::new(&env);
+        let feed = crate::engine::resolve(&mut session, &key, 0);
+        assert!(
+            (feed.price_wad - 2 * WAD).abs() < WAD / 1_000,
+            "stable fair price off $2: {}",
+            feed.price_wad
+        );
+        assert_eq!(feed.asset_decimals, 7);
+    });
+}
+
+// The stableswap source binds to the stableswap invariant: a constant-product
+// pool (pool_type "constant_product", "standard" plane row) must be rejected at
+// listing, so a pool can never be priced by the wrong invariant.
+#[test]
+#[should_panic]
+fn test_stable_lp_rejects_a_constant_product_pool() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (pool, plane, share, token_a, token_b) =
+            lp_fixture(&env, "standard", 10_000_000_000, 10_000_000_000, 10_000_000_000);
+        crate::test_support::MockAquariusPoolClient::new(&env, &pool).set_amp(&1500);
+        let (key_a, key_b) = dollar_underlyings(&env, &token_a, &token_b);
+        let oracle = stable_lp_oracle(&env, &pool, &plane, &token_a, &token_b, key_a, key_b);
+        set_oracle(&env, PriceKey::Token(share), oracle);
     });
 }
 
@@ -860,4 +932,237 @@ fn test_a_non_lp_config_still_lands_when_its_price_is_out_of_band() {
         );
         assert!(get_oracle(&env, &key).is_some(), "config must be stored");
     });
+}
+
+// `set_tolerance` deliberately skips the full config validation so a band can be
+// retuned mid-incident, which leaves the probe as the only thing between a
+// structurally broken stored config and a committed write.
+#[test]
+#[should_panic(expected = "Error(Contract, #231)")]
+fn test_set_tolerance_probes_the_stored_config_before_committing() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(EmptyReflector, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        let mut broken = reflector_oracle(&env, &reflector, 14);
+        broken.sources = Vec::new(&env);
+        store_oracle(&env, &key, &broken);
+
+        set_tolerance(
+            &env,
+            key,
+            OracleTolerance {
+                upper_ratio_bps: 10_200,
+                lower_ratio_bps: 9_804,
+            },
+        );
+    });
+}
+
+// RedStone payloads are fixed at 8 decimals, so any other declaration silently
+// rescales every price the feed ever reports.
+#[test]
+#[should_panic(expected = "Error(Contract, #221)")]
+fn test_set_oracle_rejects_a_redstone_leg_that_is_not_eight_decimals() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (adapter, client) = crate::test_support::register_redstone_feed(&env);
+        let ts = env.ledger().timestamp() * 1_000;
+        client.set_price_data(&String::from_str(&env, "RS"), &WAD, &ts, &ts);
+
+        let mut sources = Vec::new(&env);
+        sources.push_back(PriceSource::Feed(FeedSource {
+            provider: ProviderRef::RedStone(MultiFeedRef {
+                contract: adapter,
+                feed_id: String::from_str(&env, "RS"),
+                nature: FeedNature::Fundamental,
+            }),
+            decimals: REDSTONE_DECIMALS + 1,
+            max_stale_seconds: 43_200,
+        }));
+
+        set_oracle(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            AssetOracle {
+                asset_decimals: 7,
+                max_price_stale_seconds: 43_200,
+                sources,
+                tolerance: OracleTolerance {
+                    upper_ratio_bps: 10_500,
+                    lower_ratio_bps: 9_524,
+                },
+                independence: IndependencePolicy::RequireDisjoint,
+                min_sanity_price_wad: WAD * 99 / 100,
+                max_sanity_price_wad: WAD * 101 / 100,
+            },
+        );
+    });
+}
+
+#[test]
+fn test_a_xoxno_leg_prices_through_the_shared_multi_feed_reader() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let adapter = env.register(StubXoxnoAdapter, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        set_oracle(
+            &env,
+            key.clone(),
+            xoxno_oracle(&env, &adapter, XOXNO_SUBMISSION_WINDOW_SECS),
+        );
+
+        let mut session = Session::new(&env);
+        assert_eq!(crate::engine::resolve(&mut session, &key, 0).price_wad, WAD);
+    });
+}
+
+// The pool's own token order is the binding, not the config's copy of it: a pool
+// that reports a different reserve in slot A is a different market.
+#[test]
+#[should_panic(expected = "Error(Contract, #220)")]
+fn test_set_oracle_rejects_a_pool_reporting_another_token_in_the_first_slot() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (pool, _plane, share, oracle) = listable_lp(
+            &env,
+            "standard",
+            10_000_000_000,
+            10_000_000_000,
+            10_000_000_000,
+        );
+        let impostor = env
+            .register_stellar_asset_contract_v2(Address::generate(&env))
+            .address();
+        crate::test_support::MockAquariusPoolClient::new(&env, &pool)
+            .set_tokens(&impostor, &lp_of(&oracle).token_b);
+
+        set_oracle(&env, PriceKey::Token(share), oracle);
+    });
+}
+
+// Reserve decimals are what turn raw reserves into value, so a declaration the
+// token itself contradicts misprices the share by whole orders of magnitude.
+#[test]
+#[should_panic(expected = "Error(Contract, #221)")]
+fn test_set_oracle_rejects_reserve_decimals_the_token_does_not_report() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (_pool, _plane, share, mut oracle) = listable_lp(
+            &env,
+            "standard",
+            10_000_000_000,
+            10_000_000_000,
+            10_000_000_000,
+        );
+        let mut lp = lp_of(&oracle);
+        lp.reserve_a_decimals -= 1;
+        set_lp(&mut oracle, lp);
+
+        set_oracle(&env, PriceKey::Token(share), oracle);
+    });
+}
+
+// sqrt(k) is undefined for an empty leg, so a half-drained pool has no invariant
+// to compare against the plane and must be refused rather than read as a match.
+#[test]
+#[should_panic(expected = "Error(Contract, #234)")]
+fn test_set_oracle_rejects_a_pool_with_one_empty_reserve() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (_pool, _plane, share, oracle) =
+            listable_lp(&env, "standard", 0, 10_000_000_000, 10_000_000_000);
+        set_oracle(&env, PriceKey::Token(share), oracle);
+    });
+}
+
+// The liquidity floor is inclusive: a pool worth exactly the configured minimum
+// is listable, otherwise the floor a config author writes is off by one wei.
+#[test]
+fn test_set_oracle_accepts_a_pool_worth_exactly_its_liquidity_floor() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        // 1000 + 1000 whole tokens at $1 over 1000 whole shares is $2000 of pool.
+        let (_pool, _plane, share, mut oracle) = listable_lp(
+            &env,
+            "standard",
+            10_000_000_000,
+            10_000_000_000,
+            10_000_000_000,
+        );
+        set_lp_min_pool_value(&mut oracle, 2_000 * WAD);
+        let key = PriceKey::Token(share);
+        set_oracle(&env, key.clone(), oracle);
+
+        assert!(get_oracle(&env, &key).is_some());
+    });
+}
+
+/// Re-lists `leg` as a scaled source over a copy of its own feed: one extra
+/// composition level below it, reporting the same price it did before.
+fn deepen_leg(env: &Env, leg: &PriceKey, leaf: &str) {
+    let original = get_oracle(env, leg).unwrap();
+    let PriceSource::Feed(feed) = original.sources.get_unchecked(0) else {
+        unreachable!()
+    };
+    let leaf = PriceKey::Ref(Symbol::new(env, leaf));
+    store_oracle(env, &leaf, &original);
+
+    let mut sources = Vec::new(env);
+    sources.push_back(PriceSource::Scaled(ScaledSource {
+        factor: feed,
+        quote: leaf,
+        min_factor_wad: 1,
+        max_factor_wad: 10 * WAD,
+    }));
+    let mut nested = original.clone();
+    nested.sources = sources;
+    store_oracle(env, leg, &nested);
+}
+
+/// An LP parked at `MAX_RESOLUTION_DEPTH - 1` still resolves, but each of its
+/// underlyings is walked one level below it, so a leg needing a level of its own
+/// lands exactly on the cap and must be refused.
+fn assert_deepened_leg_exhausts_the_cap(deepen_key_a: bool) {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (_pool, _plane, share, oracle) = listable_lp(
+            &env,
+            "standard",
+            10_000_000_000,
+            10_000_000_000,
+            10_000_000_000,
+        );
+        let lp = lp_of(&oracle);
+        let key = PriceKey::Token(share);
+        store_oracle(&env, &key, &oracle);
+
+        let leg = if deepen_key_a { &lp.key_a } else { &lp.key_b };
+        deepen_leg(&env, leg, "LEAF");
+
+        let mut session = Session::new(&env);
+        assert_eq!(
+            crate::providers::aquarius::read(&mut session, &key, &lp, 7, MAX_RESOLUTION_DEPTH - 1)
+                .err(),
+            Some(OracleError::OracleDepthExceeded)
+        );
+    });
+}
+
+#[test]
+fn test_the_first_lp_leg_is_resolved_one_level_below_the_lp() {
+    assert_deepened_leg_exhausts_the_cap(true);
+}
+
+#[test]
+fn test_the_second_lp_leg_is_resolved_one_level_below_the_lp() {
+    assert_deepened_leg_exhausts_the_cap(false);
 }

@@ -485,6 +485,7 @@ enum AquaKey {
     Kind,
     ReserveA,
     ReserveB,
+    Amp,
 }
 
 /// Minimal Aquarius pool exposing the views the oracle binds to.
@@ -507,6 +508,7 @@ impl MockAquariusPool {
         store.set(&AquaKey::TokenA, &token_a);
         store.set(&AquaKey::TokenB, &token_b);
         store.set(&AquaKey::Shares, &total_shares);
+        store.set(&AquaKey::Amp, &1500u128);
     }
 
     pub fn get_total_shares(env: Env) -> u128 {
@@ -565,6 +567,14 @@ impl MockAquariusPool {
 
     pub fn set_pool_type(env: Env, pool_type: Symbol) {
         env.storage().instance().set(&AquaKey::Kind, &pool_type);
+    }
+
+    pub fn a(env: Env) -> u128 {
+        env.storage().instance().get(&AquaKey::Amp).unwrap()
+    }
+
+    pub fn set_amp(env: Env, amp: u128) {
+        env.storage().instance().set(&AquaKey::Amp, &amp);
     }
 }
 

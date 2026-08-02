@@ -421,6 +421,39 @@ fn test_a_one_sample_twap_does_not_count_as_smoothing() {
     });
 }
 
+// Pool reserves are whatever the last swap left behind, so an LP leg is a market
+// read with no window of its own. The smoothing gate reads this flag, so losing
+// it would let an LP pair with a spot leg and call the result production safe.
+#[test]
+fn test_an_lp_source_is_an_unsmoothed_market_leg_naming_both_underlyings() {
+    let env = Env::default();
+    with_contract(&env, || {
+        let key_a = PriceKey::Ref(Symbol::new(&env, "A"));
+        let key_b = PriceKey::Ref(Symbol::new(&env, "B"));
+        let described = local_properties(
+            &env,
+            &PriceSource::AquariusLp(common::types::AquariusLpSource {
+                pool: Address::generate(&env),
+                plane: Address::generate(&env),
+                token_a: Address::generate(&env),
+                token_b: Address::generate(&env),
+                key_a: key_a.clone(),
+                key_b: key_b.clone(),
+                reserve_a_decimals: 7,
+                reserve_b_decimals: 7,
+                min_pool_value_wad: 1,
+            }),
+        );
+
+        assert!(described.local.has_unsmoothed_market_leg);
+        assert_eq!(
+            described.dependencies,
+            Vec::from_array(&env, [key_a, key_b]),
+            "both underlyings must reach the prefetch and independence walks"
+        );
+    });
+}
+
 #[test]
 #[should_panic]
 fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {

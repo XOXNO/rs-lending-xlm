@@ -1,57 +1,6 @@
 {
   "network": "testnet",
-  "references": [
-    {
-      "_note": "USD oracle for the Aquarius pool's distinct USDC reserve token. The LP source binds this explicit Ref proxy to token_a.",
-      "name": "AQ_USDC",
-      "key": {
-        "Ref": "AQ_USDC"
-      },
-      "oracle": {
-        "asset_decimals": 0,
-        "max_price_stale_seconds": 86400,
-        "sources": [
-          {
-            "Feed": {
-              "provider": {
-                "Reflector": {
-                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
-                  "asset": {
-                    "Symbol": "USDC"
-                  },
-                  "read_mode": {
-                    "Twap": 3
-                  }
-                }
-              },
-              "decimals": 14,
-              "max_stale_seconds": 3600
-            }
-          },
-          {
-            "Feed": {
-              "provider": {
-                "RedStone": {
-                  "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
-                  "feed_id": "USDC",
-                  "nature": "Fundamental"
-                }
-              },
-              "decimals": 8,
-              "max_stale_seconds": 86400
-            }
-          }
-        ],
-        "tolerance": {
-          "upper_ratio_bps": 10500,
-          "lower_ratio_bps": 9524
-        },
-        "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "900000000000000000",
-        "max_sanity_price_wad": "1100000000000000000"
-      }
-    }
-  ],
+  "references": [],
   "markets": [
     {
       "name": "USDC",
@@ -407,22 +356,22 @@
       }
     },
     {
-      "_comment": "Aquarius XLM/USDC constant-product LP token (share_id of pool CD3LFMML...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; token_a uses the explicit AQ_USDC reference because this pool has a distinct USDC contract. It rejects non-standard rows and fair pool value below $2,500. The price band remains a separate wide backstop.",
+      "_comment": "Aquarius XLM/USDC constant-product LP token (share_id of pool CAYBMZYJ...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; both legs bind directly to their token markets (this pool's USDC reserve is the canonical USDC contract). It rejects non-standard rows and fair pool value below $2,500. The price band remains a separate wide backstop.",
       "name": "XLMUSDC_LP",
       "hub_id": 3,
-      "asset_address": "CDZ3L5A7DY6OSJPTWCACOMEA4H6RC7B5CTFRHSPUUAHMEL2MAKY37JMG",
+      "asset_address": "CDEUHPEUQAQNLCHFVBX3ZOSIR2FUWD2COYTSHUPQPJWK2BCLLQCW66FY",
       "oracle": {
         "asset_decimals": 7,
         "max_price_stale_seconds": 86400,
         "sources": [
           {
             "AquariusLp": {
-              "pool": "CD3LFMMLBQ6RBJUD3Z2LFDFE6544WDRMWHEZYPI5YDVESYRSO2TT32BX",
+              "pool": "CAYBMZYJCOMMOHOGOGBK7ANIKF3JPZAL4D7SWAPVPHC4WBMOUT5DJN5B",
               "plane": "CDHD3X5EYKYCN42HHMOJPNYP62USQ7Q5KM5X6DXHIRAG73FZH2MDWIXI",
-              "token_a": "CAZRY5GSFBFXD7H6GAFBA5YGYQTDXU4QKWKMYFWBAZFUCURN3WKX6LF5",
+              "token_a": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
               "token_b": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
               "key_a": {
-                "Ref": "AQ_USDC"
+                "Token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
               },
               "key_b": {
                 "Token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
@@ -439,7 +388,7 @@
         },
         "independence": "RequireDisjoint",
         "min_sanity_price_wad": "400000000000000000",
-        "max_sanity_price_wad": "2000000000000000000"
+        "max_sanity_price_wad": "3000000000000000000"
       },
       "market_params": {
         "max_borrow_rate": "2000000000000000000000000000",

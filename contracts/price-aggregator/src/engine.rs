@@ -278,7 +278,7 @@ fn validate_cached_path(
                     break;
                 }
             }
-            PriceSource::AquariusLp(lp) => {
+            PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
                 for dependency in [&lp.key_a, &lp.key_b] {
                     if let Err(err) = validate_cached_path(session, dependency, depth + 1) {
                         result = Err(err);
@@ -470,6 +470,9 @@ fn evaluate_source(
         PriceSource::Feed(feed) => Ok(read_feed(session, feed)),
         PriceSource::Scaled(scaled) => read_scaled(session, scaled, depth),
         PriceSource::AquariusLp(lp) => aquarius::read(session, key, lp, asset_decimals, depth),
+        PriceSource::AquariusStableLp(lp) => {
+            aquarius::read_stable(session, key, lp, asset_decimals, depth)
+        }
     }
 }
 

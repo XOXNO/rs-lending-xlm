@@ -123,6 +123,22 @@ pub enum PriceSource {
     Feed(FeedSource),
     Scaled(ScaledSource),
     AquariusLp(AquariusLpSource),
+    /// Stableswap (Curve-style) LP share. Same binding payload as
+    /// [`PriceSource::AquariusLp`]; the variant selects the invariant-`D`
+    /// pricing path, and the amplification is read live from the pool.
+    AquariusStableLp(AquariusLpSource),
+}
+
+impl PriceSource {
+    /// Either Aquarius LP-share pricing path (constant-product or stableswap).
+    /// Both are sole-source oracles priced from pool reserves against two
+    /// independently-banded underlyings.
+    pub fn is_aquarius_lp(&self) -> bool {
+        matches!(
+            self,
+            PriceSource::AquariusLp(_) | PriceSource::AquariusStableLp(_)
+        )
+    }
 }
 
 #[contracttype]
@@ -159,7 +175,7 @@ impl AssetOracle {
     /// like a dual-source oracle — its own sanity band is a wide backstop, not a
     /// tight single-feed guard, and is exempt from the single-source width cap.
     pub fn has_aquarius_lp_source(&self) -> bool {
-        matches!(self.sources.get(0), Some(PriceSource::AquariusLp(_)))
+        self.sources.get(0).is_some_and(|source| source.is_aquarius_lp())
     }
 }
 

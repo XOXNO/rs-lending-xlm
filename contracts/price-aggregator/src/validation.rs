@@ -79,7 +79,9 @@ pub(crate) fn source_shape(env: &Env, source: &PriceSource) {
             feed_shape(env, &scaled.factor);
             factor_bounds(env, scaled);
         }
-        PriceSource::AquariusLp(lp) => aquarius_lp_shape(env, lp),
+        PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
+            aquarius_lp_shape(env, lp)
+        }
     }
 }
 
@@ -142,3 +144,7 @@ fn factor_bounds(env: &Env, scaled: &ScaledSource) {
         panic_with_error!(env, OracleError::InvalidSanityBounds);
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/oracle/validation.rs"]
+mod tests;
