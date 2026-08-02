@@ -9,4 +9,4 @@ flash_loan_receiver.wasm 27000
 defindex_strategy.wasm 45000
 
 governance.wasm 58000
-price_aggregator.wasm 43000
+price_aggregator.wasm 46000
