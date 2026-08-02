@@ -73,7 +73,7 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install sccache (prebuilt)
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.3
         with:
           tool: sccache
 

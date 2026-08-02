@@ -76,7 +76,7 @@ jobs:
       - name: Install cargo-fuzz (prebuilt)
         # Was `cargo install cargo-fuzz --locked` (compiled from source every
         # run). install-action fetches a prebuilt binary in seconds.
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-fuzz
 
@@ -175,7 +175,7 @@ jobs:
       # bottleneck), applied to the HOST target only (see RUSTFLAGS below) so
       # the wasm32v1-none fixture build keeps its own linker.
       - name: Install cargo-mutants + nextest
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }},cargo-nextest
 
@@ -294,7 +294,7 @@ jobs:
           toolchain: '1.95'
 
       - name: Install cargo-mutants
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
 
@@ -356,7 +356,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
 
       - name: Install cargo-fuzz (prebuilt)
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-fuzz
 
