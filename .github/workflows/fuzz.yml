@@ -18,14 +18,15 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: "Long-running suite to execute (one at a time — see schedule)"
+        description: "Long-running suite(s) to execute (all runs fuzz + proptest + mutants together)"
         type: choice
 
         options:
+          - all
           - fuzz
           - proptest
           - mutants
-        default: mutants
+        default: all
       fuzz_time:
         description: "Seconds per function-level target"
         required: false
@@ -246,7 +247,7 @@ jobs:
       (github.event_name == 'schedule' &&
       startsWith(github.event.schedule, '0 2 ')) ||
       (github.event_name == 'workflow_dispatch' &&
-      inputs.suite == 'mutants')
+      (inputs.suite == 'mutants' || inputs.suite == 'all'))
     name: Prepare cargo-mutants
     runs-on: self-hosted
     steps:
@@ -287,7 +288,7 @@ jobs:
       (github.event_name == 'schedule' &&
       startsWith(github.event.schedule, '0 2 ')) ||
       (github.event_name == 'workflow_dispatch' &&
-      inputs.suite == 'mutants')
+      (inputs.suite == 'mutants' || inputs.suite == 'all'))
     name: Prepare wasm fixtures
     runs-on: self-hosted
     needs: stellar-tool
@@ -347,7 +348,7 @@ jobs:
       (github.event_name == 'schedule' &&
       startsWith(github.event.schedule, '0 14 ')) ||
       (github.event_name == 'workflow_dispatch' &&
-      inputs.suite == 'fuzz')
+      (inputs.suite == 'fuzz' || inputs.suite == 'all'))
     name: Fuzz long (${{ matrix.target }})
     runs-on: self-hosted
     needs: stellar-tool
@@ -437,7 +438,7 @@ jobs:
       (github.event_name == 'schedule' &&
       startsWith(github.event.schedule, '0 14 ')) ||
       (github.event_name == 'workflow_dispatch' &&
-      inputs.suite == 'proptest')
+      (inputs.suite == 'proptest' || inputs.suite == 'all'))
     name: Proptest (${{ matrix.test }})
     runs-on: self-hosted
     needs: stellar-tool
@@ -504,7 +505,7 @@ jobs:
       (github.event_name == 'schedule' &&
       startsWith(github.event.schedule, '0 2 ')) ||
       (github.event_name == 'workflow_dispatch' &&
-      inputs.suite == 'mutants')
+      (inputs.suite == 'mutants' || inputs.suite == 'all'))
     name: Mutants (${{ matrix.target }}${{ matrix.suffix || '' }})
 
     runs-on: self-hosted
