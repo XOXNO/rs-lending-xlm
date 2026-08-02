@@ -462,9 +462,14 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             } else {
                 (10_000 - dev).max(1)
             };
-            let spot = default_spot(a);
+            // Jitter the anchor leg around the price this market currently holds,
+            // not the asset's default spot. A single-source sanity band is
+            // re-centred on whatever the harness last pushed, and a stress op may
+            // have moved this market 50% away from its default: writing a
+            // default-spot pair straight into the mock would strand both legs
+            // outside that band and every later read would fail closed.
+            let spot = t.resolve_market(a).price_wad;
             let twap = spot * mult / 10_000;
-            let reflector = t.mock_reflector_client();
             let addr = t.resolve_asset(a);
             let key = controller::types::PriceKey::Token(addr.clone());
             let oracle = t
@@ -475,8 +480,7 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
                 twap >= oracle.min_sanity_price_wad && twap <= oracle.max_sanity_price_wad,
                 "oracle jitter escaped configured sanity band"
             );
-            reflector.set_price(&addr, &spot);
-            reflector.set_twap_price(&addr, &twap);
+            t.mock_reflector_client().set_twap_price(&addr, &twap);
             (true, vec![])
         }
         Op::AdvanceAndSync { hours } => {
