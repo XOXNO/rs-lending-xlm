@@ -490,10 +490,10 @@ fn listable_lp(
 }
 
 fn lp_of(oracle: &AssetOracle) -> AquariusLpSource {
-    let PriceSource::AquariusLp(lp) = oracle.sources.get_unchecked(0) else {
-        unreachable!()
-    };
-    lp
+    match oracle.sources.get_unchecked(0) {
+        PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => lp,
+        _ => unreachable!(),
+    }
 }
 
 fn set_lp(oracle: &mut AssetOracle, lp: AquariusLpSource) {
@@ -547,6 +547,31 @@ fn stable_lp_oracle(
     oracle
 }
 
+const STABLE_AMP: u128 = 1_500;
+
+/// Whole tokens per reserve leg and whole shares outstanding, both 7-dp: a
+/// balanced $1/$1 stableswap pool worth $2000 at ~$2.00 per share.
+const BALANCED_STABLE_UNITS: u128 = 10_000_000_000;
+
+/// `BALANCED_STABLE_UNITS / 10^7` — the share count the pool value scales by.
+const BALANCED_STABLE_SHARES: i128 = 1_000;
+
+/// A listable balanced stableswap LP: `lp_fixture` with a live amplification,
+/// dollar-priced underlyings and an `AquariusStableLp` source.
+fn balanced_stable_lp(env: &Env) -> (Address, Address, Address, AssetOracle) {
+    let (pool, plane, share, token_a, token_b) = lp_fixture(
+        env,
+        "stable",
+        BALANCED_STABLE_UNITS,
+        BALANCED_STABLE_UNITS,
+        BALANCED_STABLE_UNITS,
+    );
+    crate::test_support::MockAquariusPoolClient::new(env, &pool).set_amp(&STABLE_AMP);
+    let (key_a, key_b) = dollar_underlyings(env, &token_a, &token_b);
+    let oracle = stable_lp_oracle(env, &pool, &plane, &token_a, &token_b, key_a, key_b);
+    (pool, plane, share, oracle)
+}
+
 // A stableswap LP lists and prices through the production path exactly like the
 // constant-product one. Balanced 1000/1000 whole tokens at $1 with 1000 whole
 // shares and A=1500 fair-values at ~$2.00 per share (D/S · min).
@@ -555,8 +580,13 @@ fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (pool, plane, share, token_a, token_b) =
-            lp_fixture(&env, "stable", 10_000_000_000, 10_000_000_000, 10_000_000_000);
+        let (pool, plane, share, token_a, token_b) = lp_fixture(
+            &env,
+            "stable",
+            10_000_000_000,
+            10_000_000_000,
+            10_000_000_000,
+        );
         crate::test_support::MockAquariusPoolClient::new(&env, &pool).set_amp(&1500);
         let (key_a, key_b) = dollar_underlyings(&env, &token_a, &token_b);
         let oracle = stable_lp_oracle(&env, &pool, &plane, &token_a, &token_b, key_a, key_b);
@@ -583,8 +613,13 @@ fn test_stable_lp_rejects_a_constant_product_pool() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (pool, plane, share, token_a, token_b) =
-            lp_fixture(&env, "standard", 10_000_000_000, 10_000_000_000, 10_000_000_000);
+        let (pool, plane, share, token_a, token_b) = lp_fixture(
+            &env,
+            "standard",
+            10_000_000_000,
+            10_000_000_000,
+            10_000_000_000,
+        );
         crate::test_support::MockAquariusPoolClient::new(&env, &pool).set_amp(&1500);
         let (key_a, key_b) = dollar_underlyings(&env, &token_a, &token_b);
         let oracle = stable_lp_oracle(&env, &pool, &plane, &token_a, &token_b, key_a, key_b);
@@ -1165,4 +1200,106 @@ fn test_the_first_lp_leg_is_resolved_one_level_below_the_lp() {
 #[test]
 fn test_the_second_lp_leg_is_resolved_one_level_below_the_lp() {
     assert_deepened_leg_exhausts_the_cap(false);
+}
+
+// The plane may lag a swap, and a swap preserves D, so listing tolerates a hair
+// of drift in the invariant itself. A plane whose D sits half a percent off the
+// pool's own is not lag: it describes a different curve, and a share priced from
+// it would not be the share the pool would redeem.
+#[test]
+#[should_panic(expected = "Error(Contract, #234)")]
+fn test_set_oracle_rejects_a_stable_plane_whose_invariant_drifts_past_the_cap() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (_pool, plane, share, oracle) = balanced_stable_lp(&env);
+        crate::test_support::MockAquariusPlaneClient::new(&env, &plane)
+            .set_reserves(&BALANCED_STABLE_UNITS, &(BALANCED_STABLE_UNITS * 101 / 100));
+
+        set_oracle(&env, PriceKey::Token(share), oracle);
+    });
+}
+
+/// Prices a balanced stableswap LP and returns its share key, its source and the
+/// pool value that price implies. Supply is a round 1000 whole shares, so the
+/// value is exactly a thousand times the share price with nothing rounded away.
+fn priced_stable_lp(env: &Env) -> (PriceKey, AquariusLpSource, i128) {
+    let (_pool, _plane, share, oracle) = balanced_stable_lp(env);
+    let key = PriceKey::Token(share);
+    let lp = lp_of(&oracle);
+
+    let mut session = Session::new(env);
+    let (observation, _) = crate::providers::aquarius::read_stable(&mut session, &key, &lp, 7, 0)
+        .expect("a balanced stable pool must price")
+        .expect("a balanced stable pool must report an observation");
+    let pool_value_wad = observation.price_wad * BALANCED_STABLE_SHARES;
+    (key, lp, pool_value_wad)
+}
+
+// The liquidity floor is inclusive: a pool worth exactly the configured minimum
+// is priceable, otherwise the floor a config author writes is off by one wei.
+#[test]
+fn test_a_stable_pool_worth_exactly_its_liquidity_floor_still_prices() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (key, mut lp, pool_value_wad) = priced_stable_lp(&env);
+        lp.min_pool_value_wad = pool_value_wad;
+
+        let mut session = Session::new(&env);
+        assert!(crate::providers::aquarius::read_stable(&mut session, &key, &lp, 7, 0).is_ok());
+    });
+}
+
+#[test]
+fn test_a_stable_pool_one_wei_under_its_liquidity_floor_is_refused() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (key, mut lp, pool_value_wad) = priced_stable_lp(&env);
+        lp.min_pool_value_wad = pool_value_wad + 1;
+
+        let mut session = Session::new(&env);
+        assert_eq!(
+            crate::providers::aquarius::read_stable(&mut session, &key, &lp, 7, 0).err(),
+            Some(OracleError::InsufficientAquariusLiquidity)
+        );
+    });
+}
+
+/// The stableswap twin of [`assert_deepened_leg_exhausts_the_cap`].
+fn assert_deepened_stable_leg_exhausts_the_cap(deepen_key_a: bool) {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (_pool, _plane, share, oracle) = balanced_stable_lp(&env);
+        let lp = lp_of(&oracle);
+        let key = PriceKey::Token(share);
+
+        let leg = if deepen_key_a { &lp.key_a } else { &lp.key_b };
+        deepen_leg(&env, leg, "LEAF");
+
+        let mut session = Session::new(&env);
+        assert_eq!(
+            crate::providers::aquarius::read_stable(
+                &mut session,
+                &key,
+                &lp,
+                7,
+                MAX_RESOLUTION_DEPTH - 1
+            )
+            .err(),
+            Some(OracleError::OracleDepthExceeded)
+        );
+    });
+}
+
+#[test]
+fn test_the_first_stable_lp_leg_is_resolved_one_level_below_the_lp() {
+    assert_deepened_stable_leg_exhausts_the_cap(true);
+}
+
+#[test]
+fn test_the_second_stable_lp_leg_is_resolved_one_level_below_the_lp() {
+    assert_deepened_stable_leg_exhausts_the_cap(false);
 }

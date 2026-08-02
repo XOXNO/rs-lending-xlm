@@ -73,8 +73,11 @@ pub fn solve_stable_d(
     let xb = U256::from_u128(env, xb_wad as u128);
 
     let sum = xa.add(&xb);
-    // Ann = A · nⁿ (n = 2 → A · 4).
-    let ann = U256::from_u128(env, amp).mul(&U256::from_u32(env, N_COINS.pow(N_COINS)));
+    // Ann = A · n. Aquarius' `a()` returns the Curve *code* amplification (which
+    // already folds in the whitepaper's n^(n-1) factor), so `get_D` multiplies it
+    // by n, not nⁿ. Using nⁿ would model ~2x the pool's real amplification, over-
+    // valuing shares under imbalance and breaking swap-invariance vs the pool.
+    let ann = U256::from_u128(env, amp).mul(&n);
 
     let mut d = sum.clone();
     for _ in 0..MAX_D_ITERATIONS {
@@ -200,7 +203,7 @@ mod tests {
         let n = U256::from_u32(env, N_COINS);
         let one = U256::from_u32(env, 1);
         let x = U256::from_u128(env, x_wad as u128);
-        let ann = U256::from_u128(env, amp).mul(&U256::from_u32(env, N_COINS.pow(N_COINS)));
+        let ann = U256::from_u128(env, amp).mul(&n);
 
         // c = D^(n+1) / (nⁿ · x · Ann); b = x + D/Ann
         let mut c = d.mul(d).div(&x.mul(&n));
@@ -241,9 +244,14 @@ mod tests {
             1500,
         )
         .unwrap();
-        assert!(
-            price > 1_001_000_000_000_000_000 && price < 1_001_500_000_000_000_000,
-            "fair price off virtual_price: {price}"
+        // Both legs at exactly $1.00, so fair = D/S. Pin the amplification
+        // convention: floored to the pool's 7-dp scale it must equal the pool's
+        // own get_virtual_price = 1.0012514. The wrong Ann = A·nⁿ yields
+        // 1.0012515 here and fails this, which the old ±5e-4 window let through.
+        assert_eq!(
+            price / 100_000_000_000,
+            10_012_514,
+            "fair price must floor to the pool's virtual_price 1.0012514: {price}"
         );
     }
 
