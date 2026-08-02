@@ -73,23 +73,26 @@ Use `try_*` helpers plus `assert_contract_error` for expected failures.
 
 ```bash
 # All integration + property tests
-cargo test -p test-harness -- --test-threads=1
+cargo test -p test-harness
 
 # One binary
-cargo test -p test-harness --test controller -- --test-threads=1
-cargo test -p test-harness --test oracle   -- --test-threads=1
-cargo test -p test-harness --test pool     -- --test-threads=1
-cargo test -p test-harness --test strategy -- --test-threads=1
-cargo test -p test-harness --test fuzz     -- --test-threads=1
-cargo test -p test-harness --test meta     -- --test-threads=1
+cargo test -p test-harness --test controller
+cargo test -p test-harness --test oracle
+cargo test -p test-harness --test pool
+cargo test -p test-harness --test strategy
+cargo test -p test-harness --test fuzz
+cargo test -p test-harness --test meta
 
 # Fast gate
-cargo test -p test-harness --test smoke_test -- --test-threads=1
+cargo test -p test-harness --test smoke_test
 
 # Filter by test name (works across binaries when unscoped)
-cargo test -p test-harness smoke -- --test-threads=1
-cargo test -p test-harness --test controller test_supply_rejects_zero -- --test-threads=1
-cargo test -p test-harness --test fuzz prop_accounting_conservation -- --test-threads=1
+cargo test -p test-harness smoke
+cargo test -p test-harness --test controller test_supply_rejects_zero
+cargo test -p test-harness --test fuzz prop_accounting_conservation
+
+# Serialise while bisecting a suspected cross-test interaction
+cargo test -p test-harness -- --test-threads=1
 
 # Makefile
 make test-one FILE=controller

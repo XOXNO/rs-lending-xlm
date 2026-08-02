@@ -320,20 +320,29 @@ _wasm-manifest:
 
 
 
+# Each test owns its own Soroban Env and its own `test_snapshots` file, so the
+# suite parallelises; empty means libtest's default of one thread per core.
+# Set TEST_THREADS=1 to serialise while bisecting a cross-test interaction.
+TEST_THREADS ?=
+TEST_THREAD_FLAG = $(if $(strip $(TEST_THREADS)),--test-threads=$(TEST_THREADS),)
+
+
 test:
-	cargo test -p test-harness -- --test-threads=1
+	cargo test -p test-harness -- $(TEST_THREAD_FLAG)
 
 
+# Serial by default: interleaved output from parallel threads defeats the point.
+test-verbose: TEST_THREADS := 1
 test-verbose:
-	cargo test -p test-harness -- --test-threads=1 --nocapture
+	cargo test -p test-harness -- $(TEST_THREAD_FLAG) --nocapture
 
 
 test-one:
-	cargo test -p test-harness --test $(FILE) -- --test-threads=1
+	cargo test -p test-harness --test $(FILE) -- $(TEST_THREAD_FLAG)
 
 
 test-match:
-	cargo test -p test-harness $(PATTERN) -- --test-threads=1
+	cargo test -p test-harness $(PATTERN) -- $(TEST_THREAD_FLAG)
 
 
 test-pool:
@@ -377,7 +386,7 @@ define COV_RUN_HARNESS
 	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
 	trap 'restore_snapshots' EXIT; \
 	set -o pipefail; \
-	cargo llvm-cov test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- --test-threads=1 2>&1 | tee $(COV_DIR)/harness.log | tail -20
+	cargo llvm-cov test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- $(TEST_THREAD_FLAG) 2>&1 | tee $(COV_DIR)/harness.log | tail -20
 endef
 
 coverage-controller:
