@@ -314,10 +314,9 @@ oracle_cfg_mock_dual() {
                 max_stale_seconds: 3600
             }},
             {Feed: {
-                provider: {MultiFeed: {
+                provider: {RedStone: {
                     contract: $mockrs,
                     feed_id: $feed,
-                    kind: "RedStone",
                     nature: "Fundamental"
                 }},
                 decimals: 8,

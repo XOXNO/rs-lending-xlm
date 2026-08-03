@@ -75,11 +75,8 @@ flow_admin() {
 
 
 
-    sac_transfer "$CAROL" "$USDC_SAC" "$CAROL_ADDR" "$ADMIN_ADDR" 20000000 fund_admin_rewards
     local pool_rev_before
     pool_rev_before=$(_view_pool_int pool_revenue_pre get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
-    inv add_rewards "$ADMIN" "$CONTROLLER" -- add_rewards \
-        --caller "$ADMIN_ADDR" --rewards "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 10000000)" >/dev/null
     inv claim_revenue "$ADMIN" "$CONTROLLER" -- claim_revenue \
         --caller "$ADMIN_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
     assert_pool_revenue_decreased pool_revenue_post "$USDC_SAC" "${pool_rev_before:-0}"
