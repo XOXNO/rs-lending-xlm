@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python3
 """Check conf ↔ spec rule alignment in both directions.
 
 - Orphan conf entries: rule listed in a conf with no matching #[rule] in spec.
