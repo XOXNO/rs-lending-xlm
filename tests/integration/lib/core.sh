@@ -88,9 +88,9 @@ check_stellar_version() {
     [ -z "$ver" ] && { echo "cannot determine stellar version" >&2; return 1; }
     min="${STELLAR_CLI_MIN_VERSION:-22.0}"
 
-    major=${ver%%.*}; minor=${ver
+    major=${ver%%.*}; minor=${ver#*.}; minor=${minor%%.*}
     local min_major min_minor
-    min_major=${min%%.*}; min_minor=${min
+    min_major=${min%%.*}; min_minor=${min#*.}; min_minor=${min_minor%%.*}
     if [ "$major" -lt "$min_major" ] || { [ "$major" -eq "$min_major" ] && [ "$minor" -lt "$min_minor" ]; }; then
         echo "stellar CLI $ver < required min $min" >&2
         return 1

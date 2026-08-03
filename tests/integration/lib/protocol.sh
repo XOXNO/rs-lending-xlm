@@ -444,7 +444,7 @@ hub_vec() {
     local hub_id="$1"
     shift
     local out="[" first=1
-    while [ $
+    while [ $# -gt 0 ]; do
         [ $first -eq 0 ] && out+=","
         out+="{\"hub_id\":$hub_id,\"asset\":\"$1\"}"
         first=0
@@ -459,7 +459,7 @@ pay_vec() {
     local hub_id="$1"
     shift
     local out="[" first=1
-    while [ $
+    while [ $# -gt 0 ]; do
         [ $first -eq 0 ] && out+=","
         out+="[{\"hub_id\":$hub_id,\"asset\":\"$1\"},\"$2\"]"
         first=0

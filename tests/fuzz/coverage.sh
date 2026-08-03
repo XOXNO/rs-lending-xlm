@@ -27,7 +27,7 @@ COV_OUT="$REPO_ROOT/target/coverage/fuzz"
 
 DEFAULT_TARGETS=("fp_math" "rates_and_index")
 TARGETS=("$@")
-if [ ${
+if [ ${#TARGETS[@]} -eq 0 ]; then
     TARGETS=("${DEFAULT_TARGETS[@]}")
 fi
 
@@ -90,7 +90,7 @@ focus_regex() {
 
 mkdir -p "$COV_OUT"
 
-if [ ${
+if [ ${#EXTRA_FLAGS[@]} -eq 0 ]; then
     FLAGS_DISPLAY="<none>"
 else
     FLAGS_DISPLAY="${EXTRA_FLAGS[*]}"

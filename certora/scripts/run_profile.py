@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python3
 """Run Certora Soroban configs from the centralized profile manifest."""
 
 from __future__ import annotations

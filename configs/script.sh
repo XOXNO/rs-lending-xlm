@@ -4084,7 +4084,7 @@ set_aggregator_referral_owner() {
 claim_aggregator_admin_fees() {
     local recipient=$1
     shift || true
-    [ -n "$recipient" ] && [ $
+    [ -n "$recipient" ] && [ $# -ge 1 ] || die "Usage: $0 claimAggregatorAdminFees <recipient> <token> [token...]"
     local router tokens_json
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     tokens_json=$(_json_addr_vec "$@")
@@ -4096,7 +4096,7 @@ claim_aggregator_admin_fees() {
 sweep_aggregator_balance() {
     local recipient=$1
     shift || true
-    [ -n "$recipient" ] && [ $
+    [ -n "$recipient" ] && [ $# -ge 1 ] || die "Usage: $0 sweepAggregatorBalance <recipient> <token> [token...]"
     local router tokens_json
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     tokens_json=$(_json_addr_vec "$@")
