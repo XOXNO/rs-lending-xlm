@@ -173,7 +173,9 @@ impl AssetOracle {
     /// like a dual-source oracle — its own sanity band is a wide backstop, not a
     /// tight single-feed guard, and is exempt from the single-source width cap.
     pub fn has_aquarius_lp_source(&self) -> bool {
-        self.sources.get(0).is_some_and(|source| source.is_aquarius_lp())
+        self.sources
+            .get(0)
+            .is_some_and(|source| source.is_aquarius_lp())
     }
 }
 

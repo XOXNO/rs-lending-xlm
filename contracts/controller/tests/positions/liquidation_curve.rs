@@ -1151,7 +1151,7 @@ fn slicing_at_the_neutral_rate_seizes_the_same_total_as_one_full_close() {
         (start.total_debt.raw() * (10_000 + cap) / 10_000).min(start.total_collateral.raw());
 
     for slices in [2i128, 3, 6] {
-        let mut s = start.clone();
+        let mut s = start;
         let mut total_seized = 0i128;
         let per_slice = start.total_debt.raw() / slices;
 

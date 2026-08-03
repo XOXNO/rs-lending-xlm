@@ -36,7 +36,7 @@ else
     if [ -n "$cli_path" ]; then
       cli_shebang=$(head -1 "$cli_path" 2>/dev/null || true)
       case "$cli_shebang" in
-        '#!'/*) certora_python=${cli_shebang
+        '#!'/*) certora_python=${cli_shebang#\#!} ;;
       esac
     fi
   fi
@@ -133,7 +133,7 @@ on_signal() {
 trap cleanup EXIT
 trap on_signal HUP INT TERM
 
-if [ $
+if [ $# -gt 0 ]; then rules=("$@"); else
   rules=()
   while IFS= read -r rule; do
     rules+=("$rule")

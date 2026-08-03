@@ -94,6 +94,9 @@
         "conf": "certora/common/confs/lp-math.conf"
       },
       {
+        "conf": "certora/common/confs/lp-math-stable.conf"
+      },
+      {
         "conf": "certora/common/confs/rates.conf"
       },
       {
