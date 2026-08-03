@@ -1,11 +1,7 @@
-//! Certora harness for `controller::external::pool`.
-//! Production ABI; each entry summarized independently via shared pool summaries.
-//! Bulk returns are length-preserving and input-ordered.
-
 use crate::spec::summaries::bulk_index_summary;
 use crate::spec::summaries::pool::{
-    add_rewards_summary, borrow_summary, claim_revenue_summary, create_strategy_summary,
-    flash_loan_summary, get_sync_data_summary, net_settle_summary, repay_summary,
+    borrow_summary, claim_revenue_summary, create_strategy_summary, flash_loan_summary,
+    get_sync_data_summary, net_settle_summary, recapitalize_summary, repay_summary,
     seize_positions_summary, supply_summary, update_indexes_summary, withdraw_summary,
 };
 use crate::types::{
@@ -16,7 +12,6 @@ use crate::types::{
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 
-/// No-op privileged-config call (resolves production import under certora).
 pub(crate) fn pool_create_market_call(
     _env: &Env,
     _pool_addr: &Address,
@@ -161,13 +156,14 @@ pub(crate) fn pool_claim_revenue_call(
     claim_revenue_summary(env, &hub_asset.asset)
 }
 
-pub(crate) fn pool_add_rewards_call(
+pub(crate) fn pool_recapitalize_call(
     env: &Env,
     _pool_addr: &Address,
     hub_asset: &HubAssetKey,
+    _payer: &Address,
     amount: i128,
-) {
-    add_rewards_summary(env, &hub_asset.asset, amount)
+) -> PoolAmountMutation {
+    recapitalize_summary(env, &hub_asset.asset, amount)
 }
 
 pub(crate) fn fetch_pool_sync_data(
@@ -178,7 +174,6 @@ pub(crate) fn fetch_pool_sync_data(
     get_sync_data_summary(env, &hub_asset.asset)
 }
 
-// Index-cache miss: nondet indexes bounded by production floors.
 pub(crate) fn fetch_pool_bulk_indexes(
     env: &Env,
     _pool_addr: &Address,
@@ -190,8 +185,6 @@ pub(crate) fn fetch_pool_bulk_indexes(
     }
     out
 }
-
-// No-op privileged-config calls (resolve production imports under certora).
 
 pub(crate) fn pool_update_params_call(
     _env: &Env,

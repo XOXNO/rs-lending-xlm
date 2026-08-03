@@ -1,5 +1,3 @@
-//! Tolerance-BPS → `OracleTolerance` band for oracle config proposals.
-
 use common::constants::{BPS, MAX_TOLERANCE, MIN_TOLERANCE};
 use common::errors::{GenericError, OracleError};
 use common::math::fp_core;
@@ -7,7 +5,6 @@ use common::types::OracleTolerance;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
-/// Checked i128-to-u32 conversion for tolerance band fields.
 pub(crate) fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
     u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
 }

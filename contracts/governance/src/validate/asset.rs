@@ -1,14 +1,8 @@
-//! Asset, risk, limit, and SAC token-shape checks for admin proposals.
-
 use common::constants::POSITION_LIMIT_MAX;
 use common::errors::{CollateralError, GenericError};
 use common::types::{MarketParamsRaw, PositionLimits};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
-// SAC decimal range for RAY/WAD conversions. Assets below 6 decimals can
-// truncate small collateral toward zero in fixed-point valuation; floor
-// lowered to 3 to admit lower-decimal RWA tokens (e.g. 5-decimal Spiko money
-// market funds) at the cost of coarser dust-level precision for those assets.
 const MIN_ASSET_DECIMALS: u32 = 3;
 const MAX_ASSET_DECIMALS: u32 = 18;
 
@@ -42,7 +36,6 @@ pub(crate) fn validate_market_creation(
     token_decimals: u32,
 ) {
     assert_with_error!(env, params.asset_id == *asset, GenericError::WrongToken);
-    // Live SAC decimals must match market params.
     assert_with_error!(
         env,
         params.asset_decimals == token_decimals,

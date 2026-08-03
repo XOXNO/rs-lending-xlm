@@ -1,13 +1,7 @@
-//! Market-state and params batch events; empty batches and zero-fee strategy
-//! events are suppressed.
-
 use common::types::{MarketParamsRaw, MarketStateSnapshot};
 
 use soroban_sdk::{contractevent, contracttype, vec, Address, Env, Vec};
 
-/// Pool market accounting snapshot. Field order is wire ABI:
-/// `[hub_id, asset, timestamp, supply_index, borrow_index, cash,
-///   supplied, borrowed, revenue]`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PoolMarketStateEvent(
@@ -68,11 +62,6 @@ pub struct StrategyFeeEvent {
     pub amount_sent: i128,
 }
 
-/// Empty batch suppressed.
-///
-/// # Events
-/// * topics - `["market", "batch_state_update"]`
-/// * data - `[updates: Vec<PoolMarketStateEvent>]`
 pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnapshot>) {
     if snapshots.is_empty() {
         return;
@@ -85,16 +74,10 @@ pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnaps
     PoolMarketStateBatchEvent { updates }.publish(env);
 }
 
-/// # Events
-/// * topics - `["market", "batch_state_update"]`
-/// * data - `[updates: Vec<PoolMarketStateEvent>]`
 pub(crate) fn emit_market_state(env: &Env, snapshot: MarketStateSnapshot) {
     emit_market_state_batch(env, vec![env, snapshot]);
 }
 
-/// # Events
-/// * topics - `["market", "batch_params_update"]`
-/// * data - `[updates: Vec<PoolMarketParamsEvent>]`
 pub(crate) fn emit_market_params(env: &Env, hub_id: u32, asset: Address, params: MarketParamsRaw) {
     let updates = vec![
         env,
@@ -107,11 +90,6 @@ pub(crate) fn emit_market_params(env: &Env, hub_id: u32, asset: Address, params:
     PoolMarketParamsBatchEvent { updates }.publish(env);
 }
 
-/// Zero-fee suppressed.
-///
-/// # Events
-/// * topics - `["strategy", "fee"]`
-/// * data - `[hub_id: u32, asset: Address, amount: i128, fee: i128, amount_sent: i128]`
 pub(crate) fn emit_strategy_fee(
     env: &Env,
     hub_id: u32,
@@ -120,7 +98,6 @@ pub(crate) fn emit_strategy_fee(
     fee: i128,
     amount_sent: i128,
 ) {
-    // Zero-fee strategy borrows have nothing to report.
     if fee == 0 {
         return;
     }

@@ -1,4 +1,3 @@
-//! Stellar / Soroban transaction plumbing.
 
 pub mod client;
 pub mod invoke;

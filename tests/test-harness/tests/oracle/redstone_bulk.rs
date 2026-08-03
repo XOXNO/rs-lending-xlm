@@ -11,46 +11,26 @@ use test_harness::{
 
 #[test]
 fn test_borrow_tx_fires_one_bulk_redstone_call() {
-    // Two RedStone-anchored markets on the SAME adapter; a borrow's HF check
-    // prices both feeds and must dispatch exactly one bulk call.
-    //
-    // The borrow tx contains three internal prefetch call sites:
-    //   1. contracts/controller/src/positions/borrow.rs entrypoint: explicit
-    //      prefetch with [supply_assets + borrow_assets] before the HF check.
-    //   2. helpers/math.rs risk-totals body (calculate_account_risk_totals_body):
-    //      a second warm_multi_feed_adapters call for the same feed set.
-    //   3. helpers/math.rs min-borrow-collateral body: a third prefetch site.
-    // All three deduplicate to exactly one bulk adapter call because the
-    // tx-local Cache is populated by site 1 and the subsequent sites find all
-    // feeds already resolved — this is the idempotency property the assertions
-    // below pin.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // One adapter, two feeds (USDC=$1, ETH=$2000).
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
 
-    // Anchor both markets to the single adapter.
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
-    // BOB provides ETH liquidity so ALICE can borrow it.
     t.supply(BOB, "ETH", 100.0);
 
-    // ALICE supplies USDC as collateral.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Measure counters BEFORE the borrow (each client call is its own tx).
     let rs = redstone_counters(&t, &redstone);
     let single_before = rs.single_calls();
     let bulk_before = rs.bulk_calls();
 
-    // Borrow triggers an HF check that must price BOTH feeds.
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Re-read counters AFTER the borrow.
     let rs = redstone_counters(&t, &redstone);
     assert_eq!(
         rs.bulk_calls() - bulk_before,
@@ -66,7 +46,6 @@ fn test_borrow_tx_fires_one_bulk_redstone_call() {
 
 #[test]
 fn test_multi_asset_supply_fires_zero_redstone_calls() {
-    // Debt-free multi-asset supply must not touch RedStone.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -97,51 +76,29 @@ fn test_multi_asset_supply_fires_zero_redstone_calls() {
 
 #[test]
 fn test_bulk_failure_falls_back_to_per_feed_reads() {
-    // Two markets anchored to the same adapter.  Both feeds are priced at
-    // configure time (oracle config validation requires a live price read),
-    // then the ETH entry is removed from mock storage before any runtime
-    // reads.  At runtime the bulk call [USDC, ETH] fails whole-call because
-    // ETH is absent; the prefetch map stays empty and the lazy per-feed path
-    // takes over.
-    //
-    // Supply is oracle-free, so the missing ETH anchor never blocks the setup
-    // supplies. Fail-closed borrow requires the RedStone anchor: the per-feed
-    // path finds the ETH feed absent and reverts InvalidTicker (#3); there is
-    // no fallback to the Reflector primary.
-    //
-    // Counter deltas are asserted on committed txs only: try_borrow rolls
-    // back its own storage changes, so the failed tx leaves no bumps.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // Both feeds required at configure time for oracle validation.
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
-    // Remove the ETH feed so it is absent at runtime while having passed the
-    // configure-time validation that requires a live price read.
     let eth_feed_id = String::from_str(&t.env, "ETH");
     t.env.as_contract(&redstone, || {
         let key = test_harness::mock_redstone::MockKey::PriceData(eth_feed_id);
         t.env.storage().temporary().remove(&key);
     });
 
-    // Snapshot counters before setup supplies.
     let rs = redstone_counters(&t, &redstone);
     let single_before_setup = rs.single_calls();
     let bulk_before_setup = rs.bulk_calls();
 
-    // BOB supplies ETH liquidity (RiskDecreasing: missing ETH anchor is
-    // tolerated; compose falls back to Reflector primary — supply succeeds).
     t.supply(BOB, "ETH", 100.0);
 
-    // ALICE supplies USDC collateral (USDC anchor present — succeeds).
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Debt-free setup supplies skip pricing; counters stay flat.
     let rs = redstone_counters(&t, &redstone);
     assert_eq!(
         rs.single_calls(),
@@ -154,14 +111,8 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
         "supply must not bulk-fetch RedStone feeds"
     );
 
-    // Borrow: HF check collects [USDC, ETH] → two feeds → bulk attempted →
-    // ETH absent → bulk fails → prefetch map empty → per-feed lazy: USDC
-    // anchor found, ETH anchor missing → required RedStone read reverts
-    // InvalidTicker (#3).  try_borrow catches the panic and rolls back all
-    // storage changes from that transaction, so the counter increments from
-    // the failed borrow are NOT visible after this call.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::GenericError::InvalidTicker as u32);
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 #[test]
@@ -190,10 +141,6 @@ fn test_bulk_length_mismatch_falls_back_to_per_feed_reads() {
 
 #[test]
 fn test_prefetched_prices_resolve_to_expected_values() {
-    // Both feeds priced; ALICE supplies USDC and borrows ETH so the bulk path
-    // is exercised inside both txs.  Assert the resulting account is healthy
-    // (HF > 1.0), which can only hold if the prefetched prices resolve to the
-    // same values the lazy per-feed path would produce from the same mock data.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -203,20 +150,13 @@ fn test_prefetched_prices_resolve_to_expected_values() {
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
-    // BOB provides ETH liquidity.
     t.supply(BOB, "ETH", 100.0);
 
-    // ALICE supplies USDC collateral and borrows a small amount of ETH.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // If the prefetch had corrupted or misaligned price data the position
-    // values would be wrong and HF could fall below 1.0 for a safe position.
     t.assert_healthy(ALICE);
 
-    // Sanity-check the resolved position values using the known mock prices.
-    // 1 ETH @ $2000, 10 000 USDC @ $1 → debt ≈ $2000, collateral ≈ $10 000.
-    // Allow ~1% accrual epsilon on deterministic mock prices.
     let total_coll = t.total_collateral(ALICE);
     let total_debt = t.total_debt(ALICE);
     assert!(
@@ -233,43 +173,25 @@ fn test_prefetched_prices_resolve_to_expected_values() {
 
 #[test]
 fn test_withdraw_with_debt_uses_one_bulk_redstone_call() {
-    // Two RedStone-anchored markets on the SAME adapter; a withdraw with an
-    // outstanding borrow must price the withdrawn asset AND every remaining
-    // position before the LTV/HF check, so the entrypoint prefetch must cover
-    // the full position set.
-    //
-    // Without an entrypoint prefetch the withdrawal loop single-resolves the
-    // withdrawn asset BEFORE any prefetch site runs with the full set, leaving
-    // the remaining position feeds to be lazily resolved one-at-a-time.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // One adapter, two feeds (USDC=$1, ETH=$2000).
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
 
-    // Anchor both markets to the single adapter.
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
-    // BOB supplies ETH liquidity so ALICE can borrow it.
     t.supply(BOB, "ETH", 100.0);
 
-    // ALICE supplies USDC as collateral and borrows ETH.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Snapshot counters after setup (each operation above is its own tx).
     let rs = redstone_counters(&t, &redstone);
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
 
-    // ALICE withdraws a small portion of her USDC — small enough to stay healthy.
-    // This triggers: withdrawal loop (prices USDC), then require_within_ltv
-    // (prices all supply+borrow), then require_healthy_account.  Without an
-    // entrypoint prefetch the USDC feed is single-resolved before the bulk
-    // opportunity and ETH is resolved lazily too.
     t.withdraw(ALICE, "USDC", 100.0);
 
     let rs = redstone_counters(&t, &redstone);
@@ -285,7 +207,6 @@ fn test_withdraw_with_debt_uses_one_bulk_redstone_call() {
     );
 }
 
-// Full repay: price=Wad::ZERO per asset; dust gate skips closed positions → zero RedStone reads.
 #[test]
 fn test_full_repay_fires_zero_redstone_calls() {
     let mut t = LendingTest::new()
@@ -294,7 +215,6 @@ fn test_full_repay_fires_zero_redstone_calls() {
         .with_market(wbtc_preset())
         .build();
 
-    // One adapter, three feeds.
     let redstone = register_redstone_adapter(
         &t,
         &[("USDC", usd(1)), ("ETH", usd(2000)), ("WBTC", usd(60_000))],
@@ -303,21 +223,17 @@ fn test_full_repay_fires_zero_redstone_calls() {
     anchor_market_with_redstone(&t, &redstone, "ETH");
     anchor_market_with_redstone(&t, &redstone, "WBTC");
 
-    // BOB provides ETH and WBTC liquidity.
     t.supply(BOB, "ETH", 100.0);
     t.supply(BOB, "WBTC", 10.0);
 
-    // ALICE has a standard account.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.borrow(ALICE, "WBTC", 0.1);
 
-    // Snapshot counters before the repay.
     let rs = redstone_counters(&t, &redstone);
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
 
-    // Overpay both debts to force full closure (pool clamps to actual debt).
     t.repay_bulk(ALICE, &[("ETH", 2.0), ("WBTC", 0.5)]);
 
     let rs = redstone_counters(&t, &redstone);
@@ -333,7 +249,6 @@ fn test_full_repay_fires_zero_redstone_calls() {
     );
 }
 
-// Debt-free withdraw skips LTV/HF/prefetch → zero RedStone reads.
 #[test]
 fn test_no_debt_withdraw_fires_zero_redstone_calls() {
     let mut t = LendingTest::new()
@@ -369,8 +284,6 @@ fn test_no_debt_withdraw_fires_zero_redstone_calls() {
 
 #[test]
 fn test_no_debt_bulk_full_close_fires_zero_redstone_calls() {
-    // Multi-asset full close in one tx: enough feeds to cross MIN_BULK_FEEDS (2)
-    // on a single adapter, but debt-free exits must still avoid oracle reads.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -403,7 +316,6 @@ fn test_no_debt_bulk_full_close_fires_zero_redstone_calls() {
     assert_eq!(t.get_active_accounts(ALICE).len(), 0);
 }
 
-// ≥2 feeds per adapter in the position set → one bulk call per adapter, zero singles.
 #[test]
 fn test_two_adapters_bulk_once_each() {
     let mut t = LendingTest::new()
@@ -413,7 +325,6 @@ fn test_two_adapters_bulk_once_each() {
         .with_market(xlm_preset())
         .build();
 
-    // Two separate mock adapters.
     let adapter_a = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     let adapter_b = register_redstone_adapter(&t, &[("WBTC", usd(60_000)), ("XLM", usd(1) / 10)]);
 
@@ -422,21 +333,15 @@ fn test_two_adapters_bulk_once_each() {
     anchor_market_with_redstone(&t, &adapter_b, "WBTC");
     anchor_market_with_redstone(&t, &adapter_b, "XLM");
 
-    // BOB provides liquidity for the borrowable assets.
     t.supply(BOB, "ETH", 100.0);
     t.supply(BOB, "WBTC", 10.0);
     t.supply(BOB, "XLM", 1_000_000.0);
 
-    // ALICE supplies USDC as collateral; build up ETH + WBTC + XLM debt first
-    // so the fourth borrow tx starts with all four assets in the position set.
     t.supply(ALICE, "USDC", 1_000_000.0);
     t.borrow(ALICE, "ETH", 0.1);
     t.borrow(ALICE, "WBTC", 0.001);
     t.borrow(ALICE, "XLM", 100.0);
 
-    // From here: supply=USDC(A), borrows=ETH(A)+WBTC(B)+XLM(B) → adapter A
-    // has 2 feeds, adapter B has 2 feeds.  The next borrow will fire one bulk
-    // per adapter and zero single calls on each.
     let rs_a = redstone_counters(&t, &adapter_a);
     let rs_b = redstone_counters(&t, &adapter_b);
     let bulk_a_before = rs_a.bulk_calls();
@@ -444,7 +349,6 @@ fn test_two_adapters_bulk_once_each() {
     let bulk_b_before = rs_b.bulk_calls();
     let single_b_before = rs_b.single_calls();
 
-    // Additional small borrow: position set is now fully 4-asset, 2 per adapter.
     t.borrow(ALICE, "ETH", 0.01);
 
     let rs_a = redstone_counters(&t, &adapter_a);
@@ -472,7 +376,6 @@ fn test_two_adapters_bulk_once_each() {
     );
 }
 
-// Unlisted asset in prefetch list is skipped (no panic); listed prices still resolve.
 #[test]
 fn test_prefetch_skips_unlisted_asset_without_panic() {
     let mut t = LendingTest::new()
@@ -482,47 +385,42 @@ fn test_prefetch_skips_unlisted_asset_without_panic() {
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
 
-    // Use the feed-id-explicit variant to anchor USDC with a custom feed id.
     anchor_market_with_redstone_feed(&t, &redstone, "USDC", "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
-    // Normal supply and borrow — verifies end-to-end correctness despite the
-    // unlisted-asset-skip path being exercised by the prefetch module.
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.assert_healthy(ALICE);
 }
 
-// Shared (adapter, feed_id) across two markets dedupes below MIN_BULK_FEEDS → one single read.
 #[test]
 fn test_shared_feed_two_assets_single_redstone_call() {
-    // Two markets share primary oracle (adapter, feed_id) via RedStone Single.
-    // Collector dedupes to a 1-feed group below MIN_BULK_FEEDS, so no bulk fires; the first lazy
-    // read warms the prefetch map and the second consumer is a cache hit:
-    // total RedStone calls == 1.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // One adapter, one price feed "SHARED" priced at $1.
     let redstone = register_redstone_adapter(&t, &[("SHARED", usd(1))]);
     let feed_id = String::from_str(&t.env, "SHARED");
 
-    // Configure both USDC and ETH with RedStone Single strategy on "SHARED".
-    // Both markets now resolve to the same (adapter, feed_id) — the degenerate
-    // shared-feed case that exposes the 2-call bug.
-    let usdc_cfg =
-        redstone_single_config(&redstone, &feed_id, usd(1), DEFAULT_TOLERANCE.tolerance_bps);
-    let eth_cfg =
-        redstone_single_config(&redstone, &feed_id, usd(1), DEFAULT_TOLERANCE.tolerance_bps);
+    let usdc_cfg = redstone_single_config(
+        &t.env,
+        &redstone,
+        &feed_id,
+        usd(1),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
+    let eth_cfg = redstone_single_config(
+        &t.env,
+        &redstone,
+        &feed_id,
+        usd(1),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
     t.configure_market_oracle(&t.resolve_asset("USDC"), &usdc_cfg);
     t.configure_market_oracle(&t.resolve_asset("ETH"), &eth_cfg);
 
-    // BOB supplies ETH so ALICE can borrow.
-    // With SHARED=$1 and ETH having 8 decimals, borrow at least $10 to clear
-    // the dust floor (MIN_DUST_FLOOR_WAD = $10).
     t.supply(BOB, "ETH", 10_000.0);
     t.supply(ALICE, "USDC", 1_000_000.0);
 
@@ -530,8 +428,6 @@ fn test_shared_feed_two_assets_single_redstone_call() {
     let single_before = rs.single_calls();
     let bulk_before = rs.bulk_calls();
 
-    // The borrow's HF check prices both USDC and ETH, which share one
-    // (adapter, feed_id): exactly 1 single call total.
     t.borrow(ALICE, "ETH", 100.0);
 
     let rs = redstone_counters(&t, &redstone);
@@ -549,11 +445,6 @@ fn test_shared_feed_two_assets_single_redstone_call() {
 
 #[test]
 fn test_liquidation_fires_one_bulk_redstone_call() {
-    // Two RedStone-anchored markets on one adapter; ALICE is made liquidatable
-    // by raising ETH price so her debt value exceeds her collateral weight.
-    // Liquidation has no entrypoint prefetch: the risk-totals pass inside
-    // calculate_account_risk_totals_body is its only bulk site, and this test
-    // pins it.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -563,27 +454,21 @@ fn test_liquidation_fires_one_bulk_redstone_call() {
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
-    // ALICE supplies USDC and borrows ETH near max LTV.
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
     t.assert_healthy(ALICE);
 
-    // Move ETH price UP on both sources so HF < 1.  Both prices must stay
-    // within DEFAULT_TOLERANCE of each other (5% max).  Raising to $4000 makes
-    // the ETH debt worth $12 000 against $10 000 collateral.
     let rs_client = redstone_counters(&t, &redstone);
     rs_client.set_price(&String::from_str(&t.env, "ETH"), &usd(4000));
     t.set_price("ETH", usd(4000));
 
     t.assert_liquidatable(ALICE);
 
-    // Snapshot before the liquidation tx.
     let rs = redstone_counters(&t, &redstone);
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
 
-    // Liquidate part of ALICE's ETH debt.
     t.liquidate("liquidator", ALICE, "ETH", 1.0);
 
     let rs = redstone_counters(&t, &redstone);
@@ -601,27 +486,24 @@ fn test_liquidation_fires_one_bulk_redstone_call() {
 
 #[test]
 fn test_redstone_primary_markets_fire_one_bulk() {
-    // Two markets with RedStone as the sole/primary source
-    // (OracleStrategy::Single) — the production BTC/ETH shape. Pins the
-    // collector's primary-source branch.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // One adapter, two feeds.
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     let usdc_feed = String::from_str(&t.env, "USDC");
     let eth_feed = String::from_str(&t.env, "ETH");
 
-    // Both markets use RedStone Single strategy (primary = RedStone, no anchor).
     let usdc_cfg = redstone_single_config(
+        &t.env,
         &redstone,
         &usdc_feed,
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
     let eth_cfg = redstone_single_config(
+        &t.env,
         &redstone,
         &eth_feed,
         usd(2_000),
@@ -630,11 +512,9 @@ fn test_redstone_primary_markets_fire_one_bulk() {
     t.configure_market_oracle(&t.resolve_asset("USDC"), &usdc_cfg);
     t.configure_market_oracle(&t.resolve_asset("ETH"), &eth_cfg);
 
-    // BOB provides ETH liquidity.
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Snapshot counters before the borrow.
     let rs = redstone_counters(&t, &redstone);
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
@@ -653,8 +533,6 @@ fn test_redstone_primary_markets_fire_one_bulk() {
         "no per-feed calls when bulk prefetch covers both primary feeds"
     );
 
-    // Value assertions: Single strategy uses feed price directly.
-    // USDC collateral ≈ $10 000, ETH debt ≈ $2 000 — allow 1% accrual epsilon.
     let total_coll = t.total_collateral(ALICE);
     let total_debt = t.total_debt(ALICE);
     assert!(
@@ -671,17 +549,11 @@ fn test_redstone_primary_markets_fire_one_bulk() {
 
 #[test]
 fn test_same_asset_supplied_and_borrowed_one_call() {
-    // One RedStone-anchored market; ALICE supplies asset X and borrows the
-    // same X, so both position sides share one (adapter, feed_id). The
-    // collector dedupes to a 1-feed group below MIN_BULK_FEEDS — no bulk —
-    // and the first lazy read warms the prefetch map, so the second side is
-    // a cache hit: total RedStone calls == 1.
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
 
-    // BOB supplies USDC liquidity so ALICE can borrow.
     t.supply(BOB, "USDC", 100_000.0);
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -689,7 +561,6 @@ fn test_same_asset_supplied_and_borrowed_one_call() {
     let single_before = rs.single_calls();
     let bulk_before = rs.bulk_calls();
 
-    // Borrow USDC against USDC: one distinct feed, one consumer.
     t.borrow(ALICE, "USDC", 100.0);
 
     let rs = redstone_counters(&t, &redstone);
@@ -707,9 +578,6 @@ fn test_same_asset_supplied_and_borrowed_one_call() {
 
 #[test]
 fn test_mixed_adapter_groups() {
-    // Adapter A: 2 anchored feeds.  Adapter B: 1 anchored feed.
-    // A flow pricing all three asserts: A fires bulk+0single; B fires 0bulk+1single.
-    // Invariant: each adapter fires ≤1 call total, regardless of feed count.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -723,15 +591,12 @@ fn test_mixed_adapter_groups() {
     anchor_market_with_redstone(&t, &adapter_a, "ETH");
     anchor_market_with_redstone(&t, &adapter_b, "WBTC");
 
-    // BOB provides ETH and WBTC liquidity.
     t.supply(BOB, "ETH", 100.0);
     t.supply(BOB, "WBTC", 10.0);
 
-    // ALICE supplies USDC and borrows ETH + WBTC — prices all three assets.
     t.supply(ALICE, "USDC", 1_000_000.0);
     t.borrow(ALICE, "ETH", 0.1);
 
-    // Snapshot before the second borrow which will price USDC+ETH+WBTC.
     let rs_a = redstone_counters(&t, &adapter_a);
     let rs_b = redstone_counters(&t, &adapter_b);
     let bulk_a_before = rs_a.bulk_calls();
@@ -744,7 +609,6 @@ fn test_mixed_adapter_groups() {
     let rs_a = redstone_counters(&t, &adapter_a);
     let rs_b = redstone_counters(&t, &adapter_b);
 
-    // Adapter A: 2 feeds → bulk fires once, zero single.
     assert_eq!(
         rs_a.bulk_calls() - bulk_a_before,
         1,
@@ -756,7 +620,6 @@ fn test_mixed_adapter_groups() {
         "adapter A: no single calls when bulk covers both feeds"
     );
 
-    // Adapter B: 1 feed < MIN_BULK_FEEDS → no bulk, one single (lazy-warmed).
     assert_eq!(
         rs_b.bulk_calls() - bulk_b_before,
         0,
@@ -769,11 +632,6 @@ fn test_mixed_adapter_groups() {
     );
 }
 
-// Fail-closed: a committed view cannot degrade past a missing required anchor.
-// The ETH feed is removed after configure-time validation; the bulk prefetch
-// finds it absent and the lazy per-feed read finds it absent too, so the
-// required RedStone read reverts InvalidTicker (#3) — even on the view path.
-// There is no fallback to the Reflector primary.
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
 fn test_committed_bulk_failure_reverts_on_missing_anchor() {
@@ -798,16 +656,6 @@ fn test_committed_bulk_failure_reverts_on_missing_anchor() {
 
 #[test]
 fn test_stale_payload_through_bulk_is_still_rejected() {
-    // Two anchored markets on one adapter.  ONE feed (ETH) has stale timestamps
-    // (older than DEFAULT_REDSTONE_MAX_STALE_SECONDS=900s).  The bulk prefetch
-    // SUCCEEDS (the mock returns data for both feeds regardless of age) and
-    // caches the stale payload, but freshness is enforced at compose time on
-    // every consume.
-    //
-    // Fail-closed: supply is oracle-free, so the stale ETH anchor never blocks
-    // the setup supplies. A borrow prices ETH and the required anchor's
-    // staleness check reverts PriceFeedStale (#206); the bulk cache does NOT
-    // bypass the freshness check.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -817,7 +665,6 @@ fn test_stale_payload_through_bulk_is_still_rejected() {
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
-    // Set ETH's timestamps to 950 seconds in the past — stale for the 900s window.
     let stale_ms = t.env.ledger().timestamp().saturating_sub(950) * 1000;
     let rs_client = redstone_counters(&t, &redstone);
     rs_client.set_price_data(
@@ -830,18 +677,12 @@ fn test_stale_payload_through_bulk_is_still_rejected() {
     t.supply(BOB, "ETH", 100.0);
     t.supply_bulk(ALICE, &[("USDC", 10_000.0), ("ETH", 1.0)]);
 
-    // Borrow prices ETH; the stale required anchor reverts PriceFeedStale.
     let result = t.try_borrow(ALICE, "ETH", 0.001);
     assert_contract_error(result, errors::OracleError::PriceFeedStale as u32);
 }
 
 #[test]
 fn test_disabled_market_panics_same_through_prefetch() {
-    // One of two RedStone-anchored markets gets disabled.  A borrow that
-    // touches the disabled market must revert OracleNotConfigured — the
-    // aggregator's single "no oracle for this asset" signal, surfaced by the
-    // priced HF check.  This pins that prefetching a disabled market's feed does
-    // NOT bypass the status check in token_price.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -855,24 +696,15 @@ fn test_disabled_market_panics_same_through_prefetch() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Disable the ETH market by removing its `AssetOracle` entry, which is the
-    // "active" signal price resolution reads.
     t.price_agg_client()
-        .remove_oracle_config(&t.resolve_asset("ETH"));
+        .remove_oracle(&controller::types::PriceKey::Token(t.resolve_asset("ETH")));
 
-    // Attempt a borrow: the post-pool HF check prices both assets including
-    // disabled ETH → token_price reverts OracleNotConfigured.
     let result = t.try_borrow(ALICE, "ETH", 0.001);
     assert_contract_error(result, errors::OracleError::OracleNotConfigured as u32);
 }
 
 #[test]
 fn test_multiply_fires_one_bulk_redstone_call() {
-    // USDC (collateral) and ETH (debt) anchored on the same adapter.
-    // A multiply tx borrows ETH, swaps to USDC, and deposits — the strategy
-    // prices both tokens and runs the LTV/HF check. The entrypoint prefetch
-    // (positions + collateral + debt) runs before the first price read, so
-    // both feeds resolve from the bulk cache.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -882,8 +714,6 @@ fn test_multiply_fires_one_bulk_redstone_call() {
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
-    // Fund the mock router with USDC so the ETH→USDC swap succeeds.
-    // 1 ETH (7 decimals) after 9bps flash fee.
     t.fund_router("USDC", 3_000.0);
     let steps = build_aggregator_swap(
         &t,
@@ -897,7 +727,6 @@ fn test_multiply_fires_one_bulk_redstone_call() {
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
 
-    // Multiply: borrows 1 ETH, swaps to USDC collateral.
     t.multiply(
         ALICE,
         "USDC",
@@ -922,9 +751,6 @@ fn test_multiply_fires_one_bulk_redstone_call() {
 
 #[test]
 fn test_aggregate_views_fire_one_bulk_redstone_call() {
-    // Three RedStone-anchored markets on one adapter.  ALICE has supply positions
-    // for all three.  total_collateral_in_usd loops over 3 markets and must fire
-    // exactly one bulk call rather than 3 single reads.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -939,7 +765,6 @@ fn test_aggregate_views_fire_one_bulk_redstone_call() {
     anchor_market_with_redstone(&t, &redstone, "ETH");
     anchor_market_with_redstone(&t, &redstone, "WBTC");
 
-    // ALICE supplies all three so the view iterates a 3-asset map.
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
     t.supply(ALICE, "WBTC", 0.1);
@@ -948,7 +773,6 @@ fn test_aggregate_views_fire_one_bulk_redstone_call() {
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
 
-    // Call total_collateral_in_usd: should bulk-fetch the 3 feeds once.
     t.total_collateral(ALICE);
 
     let rs = redstone_counters(&t, &redstone);
@@ -963,8 +787,6 @@ fn test_aggregate_views_fire_one_bulk_redstone_call() {
         "no per-feed calls when bulk prefetch covers all supply positions"
     );
 
-    // Same invariant for total_borrow_in_usd: ALICE borrows two RedStone-anchored
-    // assets so the view iterates a 2-entry debt map and fires one bulk call.
     t.supply(BOB, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
     t.borrow(ALICE, "USDC", 100.0);

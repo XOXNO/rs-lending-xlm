@@ -1,5 +1,3 @@
-//! Pure HF-layer lemmas over `risk` helpers (no entry points).
-//! Weighted-collateral bps lemmas live in common/spec/math_rules.rs (math-hard).
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
@@ -20,7 +18,6 @@ fn position_value_monotone_in_scaled(e: Env, s1: i128, s2: i128, index: i128, pr
     cvlr_assert!(v2.raw() >= v1.raw());
 }
 
-/// Debt ceil valuation >= collateral floor valuation of the same position.
 #[rule]
 fn position_value_ceil_ge_floor(e: Env, scaled: i128, index: i128, price: i128) {
     cvlr_assume!((0..=100 * RAY).contains(&scaled));
@@ -38,7 +35,6 @@ fn position_value_ceil_ge_floor(e: Env, scaled: i128, index: i128, price: i128) 
     cvlr_assert!(ceil.raw() >= floor.raw());
 }
 
-/// HF uses div_floor: never overstates safety vs half-up rounding.
 #[rule]
 fn hf_division_rounds_against_borrower(e: Env, weighted: i128, debt: i128) {
     cvlr_assume!((0..=1_000_000 * WAD).contains(&weighted));
@@ -49,8 +45,6 @@ fn hf_division_rounds_against_borrower(e: Env, weighted: i128, debt: i128) {
     cvlr_assert!(floor.raw() <= half_up.raw());
 }
 
-/// Weighted collateral covering debt implies the production floor-HF is at
-/// least one. This is an arithmetic lemma, not a liquidation transition rule.
 #[rule]
 fn hf_floor_at_least_one_when_collateral_covers_debt(e: Env, weighted: i128, debt: i128) {
     cvlr_assume!((1..=1_000_000 * WAD).contains(&debt));

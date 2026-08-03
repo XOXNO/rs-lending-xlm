@@ -1,5 +1,3 @@
-//! Strategy edge-case and rejection tests.
-
 mod multiply;
 mod pause_bypass;
 mod rejections;
@@ -27,10 +25,6 @@ fn dai_preset() -> MarketPreset {
     }
 }
 
-/// Flatten the nested result returned by the raw `ctrl_client().try_*` calls
-/// into `Result<T, soroban_sdk::Error>` so it can feed `assert_contract_error`.
-/// A host-level InvokeError (pre-contract host check) is escalated via
-/// `.expect()` so host-level failures surface clearly.
 fn flatten<T>(
     r: Result<Result<T, soroban_sdk::Error>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
 ) -> Result<T, soroban_sdk::Error> {

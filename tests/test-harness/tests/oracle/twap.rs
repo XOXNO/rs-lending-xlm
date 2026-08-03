@@ -1,4 +1,4 @@
-use controller::types::{AssetOracleConfig, OracleReadMode, OracleSourceConfig};
+use controller::types::OracleReadMode;
 use soroban_sdk::vec;
 use test_harness::{
     assert_contract_error, errors, hub_asset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
@@ -9,58 +9,67 @@ fn setup() -> LendingTest {
 }
 
 #[test]
-fn configure_accepts_minimum_resolution_equal_to_max_stale() {
+#[should_panic(expected = "Error(Contract, #222)")]
+fn configure_rejects_twap_window_larger_than_max_stale() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_asset("USDC");
     t.mock_reflector_client().set_resolution(&60);
-    let mut cfg = test_harness::reflector_single_spot_config(
+    let mut cfg = test_harness::reflector_primary_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &usdc,
         usd(1),
         test_harness::DEFAULT_TOLERANCE.tolerance_bps,
     );
+
     cfg.max_price_stale_seconds = 60;
+    if let controller::types::PriceSource::Feed(mut feed) = cfg.sources.get_unchecked(0) {
+        feed.max_stale_seconds = 60;
+        cfg.sources
+            .set(0, controller::types::PriceSource::Feed(feed));
+    }
 
     t.configure_market_oracle(&usdc, &cfg);
-
-    let stored: AssetOracleConfig = t
-        .price_agg_client()
-        .oracle_config(&usdc)
-        .expect("configured oracle");
-    assert_eq!(stored.max_price_stale_seconds, 60);
 }
 
-// The propose-time containment probe must price a TWAP leg with the same mean
-// the controller composes at read time, not the spot lastprice. A config whose
-// spot sits in-band but whose TWAP mean is out-of-band would otherwise pass
-// propose and then brick every later read (`SanityBoundViolated`). Regression
-// for that gap: spot $1 (in band), TWAP mean $3 (out of the ~$1 band) → #223.
+/// Reads `asset` through the aggregator, flattening to a contract error.
+fn try_price(t: &LendingTest, asset: &soroban_sdk::Address) -> Result<(), soroban_sdk::Error> {
+    t.price_agg_client()
+        .try_price(&controller::types::PriceKey::Token(asset.clone()))
+        .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
+        .unwrap_or_else(|e| Err(e.expect("expected contract error")))
+}
+
 #[test]
-#[should_panic(expected = "Error(Contract, #223)")]
-fn configure_twap_rejects_out_of_band_mean_when_spot_in_band() {
+fn configure_twap_defers_out_of_band_mean_to_read_time() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_asset("USDC");
     t.mock_reflector_client().set_price(&usdc, &usd(1));
     t.mock_reflector_client().set_twap_price(&usdc, &usd(3));
 
     let mut cfg = test_harness::reflector_single_spot_config(
+        &t.env,
         &t.mock_reflector,
         &usdc,
         usd(1),
         test_harness::DEFAULT_TOLERANCE.tolerance_bps,
     );
-    cfg.primary = test_harness::reflector_source(&t.mock_reflector, &usdc, OracleReadMode::Twap(3));
+    test_harness::set_reflector_read_mode(&mut cfg, 0, OracleReadMode::Twap(3));
 
     t.configure_market_oracle(&usdc, &cfg);
+    test_harness::assert_contract_error(
+        try_price(&t, &usdc),
+        test_harness::errors::SANITY_BOUND_VIOLATED,
+    );
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #217)")]
-fn configure_rejects_nonpositive_live_reflector_price() {
+fn configure_defers_nonpositive_live_reflector_price_to_read_time() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_asset("USDC");
     t.mock_reflector_client().set_price(&usdc, &0);
-    let cfg = test_harness::reflector_single_spot_config(
+    let cfg = test_harness::reflector_primary_anchor_config(
+        &t.env,
         &t.mock_reflector,
         &usdc,
         usd(1),
@@ -68,9 +77,9 @@ fn configure_rejects_nonpositive_live_reflector_price() {
     );
 
     t.configure_market_oracle(&usdc, &cfg);
+    test_harness::assert_contract_error(try_price(&t, &usdc), test_harness::errors::NO_LAST_PRICE);
 }
 
-// `prices()` returns an empty Vec — drives `history.is_empty()` branch.
 #[test]
 fn test_empty_twap_history_blocks_strict_borrow() {
     let mut t = setup();
@@ -80,11 +89,9 @@ fn test_empty_twap_history_blocks_strict_borrow() {
 
     t.supply(ALICE, "USDC", 100_000.0);
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::REFLECTOR_HISTORY_EMPTY);
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
-// `prices()` returns fewer records than `min_twap_observations(records)` —
-// drives the `history.len() < min_twap_observations(...)` branch.
 #[test]
 fn test_insufficient_twap_history_blocks_strict_borrow() {
     let mut t = setup();
@@ -94,7 +101,7 @@ fn test_insufficient_twap_history_blocks_strict_borrow() {
 
     t.supply(ALICE, "USDC", 100_000.0);
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::TWAP_INSUFFICIENT_OBSERVATIONS);
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 #[test]
@@ -110,10 +117,39 @@ fn test_exact_minimum_twap_history_is_accepted() {
     assert!(t.health_factor(ALICE) > 1.0);
 }
 
-// Round-trip the `set_price` / `set_safe_price` plumbing so the
-// `to_reflector_asset` / `read_spot` / observation-from-pricedata helpers
-// see live data. `usd_cents` import is the only way to exercise the
-// rounding path inside the spot reader for non-round numbers.
+#[test]
+fn test_duplicate_timestamp_twap_blocks_strict_borrow() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &7);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    assert_contract_error(t.try_borrow(ALICE, "ETH", 1.0), errors::UNSAFE_PRICE);
+}
+
+#[test]
+fn test_insufficient_span_twap_blocks_strict_borrow() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &8);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    assert_contract_error(t.try_borrow(ALICE, "ETH", 1.0), errors::UNSAFE_PRICE);
+}
+
+#[test]
+fn test_clustered_adjacent_twap_sample_blocks_strict_borrow() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &9);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    assert_contract_error(t.try_borrow(ALICE, "ETH", 1.0), errors::UNSAFE_PRICE);
+}
+
 #[test]
 fn test_spot_with_cents_price_supplies_cleanly() {
     let mut t = setup();
@@ -122,10 +158,6 @@ fn test_spot_with_cents_price_supplies_cleanly() {
     t.assert_supply_near(ALICE, "USDC", 5_000.0, 1.0);
 }
 
-// Mode 4: one entry in the TWAP window has a non-positive price → the
-// reader's `pd.price <= 0` branch fires and `has_invalid_price` flips,
-// routing through the `InvalidPrice`-tagged `twap_fallback_or_panic`.
-// Under strict policy this panics with `InvalidPrice`.
 #[test]
 fn test_twap_invalid_price_blocks_strict_borrow() {
     let mut t = setup();
@@ -135,11 +167,9 @@ fn test_twap_invalid_price_blocks_strict_borrow() {
 
     t.supply(ALICE, "USDC", 100_000.0);
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::INVALID_PRICE);
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
-// Mode 5: oldest TWAP timestamp is far in the past → the staleness check
-// against `oldest_ts` rejects under strict policy.
 #[test]
 fn test_twap_stale_history_blocks_strict_borrow() {
     let mut t = setup();
@@ -152,9 +182,6 @@ fn test_twap_stale_history_blocks_strict_borrow() {
     assert_contract_error(result, errors::PRICE_FEED_STALE);
 }
 
-// Soft view: empty TWAP history must NOT revert the diagnostic view — the
-// row reports an unusable status (price 0, not valid) while the hard borrow
-// path still reverts `ReflectorHistoryEmpty` (covered above).
 #[test]
 fn test_twap_degradation_on_view_reports_unusable() {
     let t = setup();
@@ -170,11 +197,6 @@ fn test_twap_degradation_on_view_reports_unusable() {
     assert_eq!(row.price_wad, 0);
 }
 
-// `OracleReadMode::Spot` primary + missing `lastprice` → `read_spot` panics
-// with `NoLastPrice` when `required=true`. Reconfigures the ETH market to
-// `Single + Spot` so the read goes straight through `spot::read_spot`,
-// then wipes the mock's spot entry. The borrow path is strict
-// (`RiskIncreasing`) so `required=true`.
 #[test]
 #[should_panic(expected = "Error(Contract, #210)")]
 fn test_reflector_spot_missing_lastprice_panics_under_strict() {
@@ -182,21 +204,21 @@ fn test_reflector_spot_missing_lastprice_panics_under_strict() {
     let usdc_asset = t.resolve_asset("USDC");
     let eth_asset = t.resolve_asset("ETH");
 
-    // Switch ETH to Single+Spot so the price path is `read_spot` only.
     let spot_cfg = test_harness::reflector_single_spot_config(
+        &t.env,
         &t.mock_reflector,
         &eth_asset,
-        usd(2_000), // dual_source_two_asset's ETH default (WAD * 2_000).
+        usd(2_000),
         test_harness::DEFAULT_TOLERANCE.tolerance_bps,
     );
-    t.configure_market_oracle(&eth_asset, &spot_cfg);
+    t.price_agg_client().seed_oracle(
+        &controller::types::PriceKey::Token(eth_asset.clone()),
+        &spot_cfg,
+    );
 
-    // Establish USDC collateral so the borrow path can reach the ETH price.
     let _ = usdc_asset;
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Wipe the ETH spot from the mock reflector's temporary storage so the
-    // next `lastprice` for ETH returns None.
     let reflector_addr = t.mock_reflector.clone();
     let eth_clone = eth_asset.clone();
     t.env.as_contract(&reflector_addr, || {
@@ -204,45 +226,43 @@ fn test_reflector_spot_missing_lastprice_panics_under_strict() {
         t.env.storage().temporary().remove(&key);
     });
 
-    // Borrow ETH — strict (RiskIncreasing) policy → `required=true`.
     t.borrow(ALICE, "ETH", 1.0);
 }
 
-// Fail-closed: `read_twap` with `records == 0` reverts
-// `TwapInsufficientObservations` (#219); there is no anchor-spot fallback.
 #[test]
 #[should_panic(expected = "Error(Contract, #219)")]
 fn test_twap_zero_records_reverts_on_view() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
-    let mut oracle = t.price_agg_client().oracle_config(&usdc).unwrap();
-    if let OracleSourceConfig::Reflector(ref mut source) = oracle.primary {
-        source.read_mode = OracleReadMode::Twap(0);
-    }
-    t.price_agg_client().seed_oracle_config(&usdc, &oracle);
+    let mut oracle = t
+        .price_agg_client()
+        .oracle(&controller::types::PriceKey::Token(usdc.clone()))
+        .unwrap();
+    test_harness::set_reflector_read_mode(&mut oracle, 0, OracleReadMode::Twap(0));
+    t.price_agg_client()
+        .seed_oracle(&controller::types::PriceKey::Token(usdc.clone()), &oracle);
 
     let assets = vec![&t.env, hub_asset(usdc)];
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
-// TWAP requests above the protocol record cap are rejected.
 #[test]
 #[should_panic(expected = "Error(Contract, #228)")]
 fn test_twap_records_above_max_rejects_on_view() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
-    let mut oracle = t.price_agg_client().oracle_config(&usdc).unwrap();
-    if let OracleSourceConfig::Reflector(ref mut source) = oracle.primary {
-        source.read_mode = OracleReadMode::Twap(13);
-    }
-    t.price_agg_client().seed_oracle_config(&usdc, &oracle);
+    let mut oracle = t
+        .price_agg_client()
+        .oracle(&controller::types::PriceKey::Token(usdc.clone()))
+        .unwrap();
+    test_harness::set_reflector_read_mode(&mut oracle, 0, OracleReadMode::Twap(13));
+    t.price_agg_client()
+        .seed_oracle(&controller::types::PriceKey::Token(usdc.clone()), &oracle);
 
     let assets = vec![&t.env, hub_asset(usdc)];
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
-// Soft view: missing anchor spot marks invalid/deviation (no primary-only
-// fallback). Write-path still reverts NoLastPrice (#210).
 #[test]
 fn test_dual_anchor_missing_spot_marks_view_invalid() {
     let t = LendingTest::new().dual_source_two_asset();

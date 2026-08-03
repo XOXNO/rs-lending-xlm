@@ -1,10 +1,9 @@
-//! Flash-loan reentrancy guard rules.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Bytes, Env};
 
 use crate::types::HubAssetKey;
+use controller_interface::ControllerInterface;
 
 #[rule]
 fn flash_loan_guard_blocks_callers(e: Env) {
@@ -24,8 +23,6 @@ fn flash_loan_guard_allows_when_clear(e: Env) {
     cvlr_satisfy!(true);
 }
 
-/// The production supply entrypoint reaches the flash-loan guard before any
-/// account or pool mutation, modeling a representative callback reentry.
 #[rule]
 fn flash_loan_guard_blocks_supply_entrypoint(e: Env, caller: Address, asset: Address) {
     crate::storage::set_flash_loan_ongoing(&e, true);
@@ -41,8 +38,6 @@ fn flash_loan_guard_blocks_supply_entrypoint(e: Env, caller: Address, asset: Add
     cvlr_assert!(false);
 }
 
-/// The production liquidation entrypoint also rejects callback reentry while
-/// the outer flash loan owns the guard.
 #[rule]
 fn flash_loan_guard_blocks_liquidation_entrypoint(
     e: Env,
@@ -87,8 +82,7 @@ fn flash_loan_guard_cleared_after_summarized_pool_return(
         asset: asset.clone(),
     };
     let mut cache = crate::context::Cache::new(&e);
-    // Flash-loanable on pool `MarketParamsRaw`; oracle priceability is modeled
-    // by the external price-aggregator harness.
+
     let sync = cache.cached_pool_sync_data(&hub_asset);
     cvlr_assume!(sync.params.is_flashloanable);
     cvlr_assume!(

@@ -48,4 +48,8 @@ src/
   vault.rs   Invocation-local balance ledger
   venues/    Per-DEX hop adapters
   errors.rs  Error codes
+tests/unit/  Unit tests (wired via `#[path]` from lib.rs)
+  support/   Shared helpers + mock pools/tokens
+  venues/    Per-venue adapter cases
+  execute_strategy.rs · splits.rs · admin.rs · fees.rs · sweep.rs · vault.rs
 ```

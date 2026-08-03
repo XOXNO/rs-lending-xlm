@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# Parallel release e2e: independent lanes split along the aggregator boundary,
-# run concurrently, then gated together. The harness is network-wait bound, so
-# overlapping the lanes' waits cuts wall-clock to ~max(lane) instead of the sum.
-#
-#   RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/parallel_e2e.sh
-#
-# Lanes — each a self-contained full_e2e world (own controller / pool / governance
-# / wallets / markets, keyed by RUN_TS=<base>-<lane>, so no shared state):
-#   agg     lifecycle + strategies + admin + governance  (uses the XOXNO
-#           aggregator/DEX venue → serial WITHIN this one lane to avoid swap races)
-#   liq     liquidation + defindex strategy               (mock oracles, venue-free)
-#   stress  stress                                        (mock oracles, venue-free)
-# The two mock lanes are fully independent of agg and of each other, so all three
-# run in parallel. Gating is per-lane; the run is green only if every lane is.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../env.sh"   # requires RUN_TS; provides INTEG_DIR
+source "$HERE/../env.sh"
 
 BASE="$RUN_TS"
 LANE_TIMEOUT="${LANE_TIMEOUT:-95m}"
@@ -38,7 +38,7 @@ log_orch() { printf '[%s] [orchestrator] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 
 mkdir -p "$INTEG_DIR/runs"
 
-# Fan out: each lane is its own full_e2e process with a distinct RUN_TS.
+
 pids=()
 for lane in "${LANES[@]}"; do
     lane_ts="${BASE}-${lane}"
@@ -51,10 +51,10 @@ for lane in "${LANES[@]}"; do
     pids+=("$!")
 done
 
-# Capture each lane's process exit. A non-zero exit (crash) or a timeout kill
-# means the lane did not finish — regardless of what actions.tsv contains, so
-# this must fail the run on its own. full_e2e exits 0 even when actions FAILed,
-# so the exit code is necessary but not sufficient; assert_green covers that.
+
+
+
+
 declare -a lane_exit
 for i in "${!LANES[@]}"; do
     if wait "${pids[$i]}"; then
@@ -66,12 +66,12 @@ for i in "${!LANES[@]}"; do
     fi
 done
 
-# Gate each lane; overall green requires every lane to satisfy ALL of:
-#   1. its process exited 0 (not killed by timeout / did not crash),
-#   2. its log shows the terminal 'run complete' marker — every phase ran to the
-#      end (catches a lane killed after actions.tsv init but before any FAIL row,
-#      which assert_green alone would pass), and
-#   3. assert_green finds no unresolved failure rows.
+
+
+
+
+
+
 overall=0
 for i in "${!LANES[@]}"; do
     lane="${LANES[$i]}"
@@ -96,7 +96,7 @@ for i in "${!LANES[@]}"; do
     fi
 done
 
-# Combined report for the release artifact (per-lane reports concatenated).
+
 combined="$INTEG_DIR/runs/${BASE}-combined.md"
 {
     echo "# Parallel testnet e2e — $BASE"

@@ -104,7 +104,9 @@ let paid = client.withdraw(&me, &account_id,
 client.borrow(&me, &account_id, &vec![env, (hub_asset.clone(), amount)], &None);
 
 // repay pulls tokens from caller -> pool: same authorize_as_current_contract
-// pattern as supply, immediately before the call
+// pattern as supply, immediately before the call. Also requires account-owner
+// auth (not owner-or-delegate); when `me` owns the account that co-auth is
+// automatic as the direct invoker.
 client.repay(&me, &account_id, &vec![env, (hub_asset, amount)]);
 ```
 

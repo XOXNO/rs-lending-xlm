@@ -1,6 +1,3 @@
-//! Pool calls exchange `ScaledPositionRaw` only.
-//! The controller owns collateral risk parameters and merges them after pool mutations.
-
 use common::types::{
     HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
     PoolAmountMutation, PoolBorrowEntry, PoolNetSettleEntry, PoolNetSettleResult,
@@ -65,7 +62,6 @@ pub(crate) fn pool_repay_call(
     LiquidityPoolClient::new(env, pool_addr).repay(payer, actions)
 }
 
-/// Nets a supply leg against a debt leg on the same hub-asset with zero token transfer.
 pub(crate) fn pool_net_settle_call(
     env: &Env,
     pool_addr: &Address,
@@ -107,13 +103,14 @@ pub(crate) fn pool_claim_revenue_call(
     LiquidityPoolClient::new(env, pool_addr).claim_revenue(hub_asset)
 }
 
-pub(crate) fn pool_add_rewards_call(
+pub(crate) fn pool_recapitalize_call(
     env: &Env,
     pool_addr: &Address,
     hub_asset: &HubAssetKey,
+    payer: &Address,
     amount: i128,
-) {
-    LiquidityPoolClient::new(env, pool_addr).add_rewards(hub_asset, &amount)
+) -> PoolAmountMutation {
+    LiquidityPoolClient::new(env, pool_addr).recapitalize(hub_asset, payer, &amount)
 }
 
 pub(crate) fn fetch_pool_sync_data(

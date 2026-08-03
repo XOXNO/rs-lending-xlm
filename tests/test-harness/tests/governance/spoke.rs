@@ -1,8 +1,3 @@
-//! Spoke risk-bound validation on the governance forwarder.
-//!
-//! Risk parameters are per-asset, so bound validation happens when an asset
-//! joins a category, not at category creation.
-
 use governance::op::{AdminOperation, SpokeAssetArgs};
 use soroban_sdk::TryFromVal;
 use test_harness::{
@@ -50,7 +45,6 @@ fn try_add_asset(
     }
 }
 
-// threshold (8000) <= ltv (9000) must reject with InvalidLiqThreshold (113).
 #[test]
 fn test_spoke_rejects_threshold_lte_ltv() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -114,8 +108,6 @@ fn test_spoke_add_asset_via_gov_forwarder() {
 
 const UNIT: i128 = 10_000_000;
 
-// Spoke caps are the only cap layer: a spoke cap of any size is accepted at
-// add time (no hub-cap coupling) and enforced against spoke usage.
 #[test]
 fn test_spoke_accepts_spoke_caps_without_hub_coupling() {
     let t = LendingTest::new().with_market(usdc_preset()).build();

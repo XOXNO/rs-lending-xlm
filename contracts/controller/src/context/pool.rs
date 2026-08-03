@@ -1,5 +1,3 @@
-//! Central pool address and per-market sync-data memos.
-
 use common::types::{HubAssetKey, PoolSyncData};
 use soroban_sdk::Address;
 
@@ -8,7 +6,6 @@ use crate::external::pool::fetch_pool_sync_data;
 use crate::storage;
 
 impl Cache {
-    /// Central liquidity pool address, memoized for the transaction.
     pub(crate) fn cached_pool_address(&mut self) -> Address {
         if let Some(addr) = &self.pool_address {
             return addr.clone();
@@ -18,7 +15,6 @@ impl Cache {
         addr
     }
 
-    /// Pool sync data for `hub_asset` (e.g. flash-loan fee), memoized for the tx.
     pub(crate) fn cached_pool_sync_data(&mut self, hub_asset: &HubAssetKey) -> PoolSyncData {
         if let Some(data) = self.pool_sync_data.get(hub_asset.clone()) {
             return data;

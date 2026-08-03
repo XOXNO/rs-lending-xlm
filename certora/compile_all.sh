@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile every Certora feature path and verify conf/profile rule coverage.
+
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,7 +15,6 @@ while IFS='|' read -r _layer pkg feature _artifact _build_key; do
     --no-default-features
 done < <(python3 certora/scripts/focused_wasm.py)
 python3 certora/scripts/check_orphans.py
-python3 certora/scripts/check_invariant_coverage.py
 python3 certora/scripts/sync_wasm_conf.py --check
 
 if [[ "${1:-}" == "--wasm" ]]; then

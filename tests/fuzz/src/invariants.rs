@@ -1,4 +1,3 @@
-//! Post-operation invariant checks shared by protocol fuzz targets.
 
 use crate::context::LendingTest;
 use test_harness::hub_asset;
@@ -6,7 +5,11 @@ use test_harness::hub_asset;
 const ACCOUNTING_TOLERANCE_UNITS: i128 = 4;
 
 pub fn assert_user_health(t: &LendingTest, user: &str, min_hf: f64) {
-    let hf = t.health_factor(user);
+
+    let Some(hf_raw) = t.try_health_factor_raw(user) else {
+        return;
+    };
+    let hf = test_harness::wad_to_f64(hf_raw);
     assert!(
         hf + 1e-9 >= min_hf && hf > 0.0,
         "health factor {} < floor {} for {}",
@@ -58,7 +61,8 @@ pub fn assert_flash_guard_cleared(t: &LendingTest) {
 
 #[derive(Clone, Debug)]
 pub struct StateSnapshot {
-    pub health_raw: i128,
+
+    pub health_raw: Option<i128>,
     pub token_raw: Vec<i128>,
     pub pool_state: Vec<PoolStateSnapshot>,
     pub supply_raw: Vec<i128>,
@@ -93,7 +97,7 @@ impl From<common::types::PoolStateRaw> for PoolStateSnapshot {
 
 pub fn snapshot(t: &LendingTest, user: &str, assets: &[&str]) -> StateSnapshot {
     StateSnapshot {
-        health_raw: t.health_factor_raw(user),
+        health_raw: t.try_health_factor_raw(user),
         token_raw: assets
             .iter()
             .map(|a| t.token_balance_raw(user, a))
@@ -142,4 +146,46 @@ pub fn assert_state_preserved_on_failure(before: &StateSnapshot, after: &StateSn
         before.active_accounts, after.active_accounts,
         "active account count drifted on failed op"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::build_wide_context;
+    use test_harness::ALICE;
+
+    #[test]
+    fn stale_oracle_snapshot_and_health_do_not_panic() {
+        let assets = ["USDC", "XLM", "ETH"];
+        let mut t = build_wide_context();
+        t.supply(ALICE, "USDC", 50_000.0);
+        t.borrow(ALICE, "XLM", 10_000.0);
+
+        assert!(t.try_health_factor_raw(ALICE).is_some());
+
+        t.advance_time_no_refresh(30 * 24 * 60 * 60);
+
+        assert!(
+            t.try_health_factor_raw(ALICE).is_none(),
+            "expected fail-closed health on a stale feed"
+        );
+
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(std::boxed::Box::new(|_| {}));
+        let eager_trapped =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t.health_factor_raw(ALICE)))
+                .is_err();
+        std::panic::set_hook(prev_hook);
+        assert!(eager_trapped, "eager health read must trap on a stale feed");
+
+        let snap = snapshot(&t, ALICE, &assets);
+        assert!(
+            snap.health_raw.is_none(),
+            "stale health must snapshot as None"
+        );
+        assert_user_health(&t, ALICE, 1.0);
+
+        let snap_again = snapshot(&t, ALICE, &assets);
+        assert_state_preserved_on_failure(&snap, &snap_again);
+    }
 }

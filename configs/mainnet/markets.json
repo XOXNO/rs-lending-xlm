@@ -1,50 +1,103 @@
 {
-  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live on market_params (flat MarketParamsRaw). Per-asset risk (LTV, caps, pause/freeze) is spoke-scoped via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA: production enforces a \u00b110% midpoint-relative sanity band (validate_single_source_sanity_band).",
+  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live on market_params (flat MarketParamsRaw). Per-asset risk (LTV, caps, pause/freeze) is spoke-scoped via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA: production enforces a ±10% midpoint-relative sanity band (validate_single_source_sanity_band). references are PriceKey::Ref oracles (no market/spoke); configure before any Scaled market that quotes them.",
   "network": "mainnet",
+  "references": [
+    {
+      "_note": "Pure BTC/USD reference for Scaled quotes (e.g. SolvBTC). Not listable as a market.",
+      "name": "BTC",
+      "key": {
+        "Ref": "BTC"
+      },
+      "oracle": {
+        "asset_decimals": 0,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "BTC"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
+              },
+              "decimals": 14,
+              "max_stale_seconds": 3600
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "BTC",
+                  "nature": "Market"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 11000,
+          "lower_ratio_bps": 9091
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "40000000000000000000000",
+        "max_sanity_price_wad": "120000000000000000000000"
+      }
+    }
+  ],
   "markets": [
     {
       "name": "XLM",
       "hub_id": 1,
       "asset_address": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
       "oracle": {
-        "max_price_stale_seconds": 3600,
-        "tolerance_bps": 1000,
-        "strategy": 1,
-        "primary": {
-          "tag": "Reflector",
-          "values": [
-            {
-              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-              "asset": {
-                "tag": "Symbol",
-                "values": [
-                  "XLM"
-                ]
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "XLM"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
               },
-              "read_mode": {
-                "tag": "Twap",
-                "values": [
-                  3
-                ]
-              }
+              "decimals": 14,
+              "max_stale_seconds": 3600
             }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "RedStone",
-              "values": [
-                {
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "XLM",
-                  "max_stale_seconds": 43200
+                  "nature": "Fundamental"
                 }
-              ]
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 11000,
+          "lower_ratio_bps": 9091
         },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "50000000000000000",
         "max_sanity_price_wad": "1000000000000000000"
       },
@@ -67,44 +120,45 @@
       "hub_id": 1,
       "asset_address": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
       "oracle": {
-        "max_price_stale_seconds": 3600,
-        "tolerance_bps": 500,
-        "strategy": 1,
-        "primary": {
-          "tag": "Reflector",
-          "values": [
-            {
-              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-              "asset": {
-                "tag": "Symbol",
-                "values": [
-                  "USDC"
-                ]
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "USDC"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
               },
-              "read_mode": {
-                "tag": "Twap",
-                "values": [
-                  3
-                ]
-              }
+              "decimals": 14,
+              "max_stale_seconds": 3600
             }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "RedStone",
-              "values": [
-                {
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "USDC",
-                  "max_stale_seconds": 43200
+                  "nature": "Fundamental"
                 }
-              ]
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "950000000000000000",
         "max_sanity_price_wad": "1050000000000000000"
       },
@@ -127,44 +181,45 @@
       "hub_id": 1,
       "asset_address": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
       "oracle": {
-        "max_price_stale_seconds": 3600,
-        "tolerance_bps": 500,
-        "strategy": 1,
-        "primary": {
-          "tag": "Reflector",
-          "values": [
-            {
-              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-              "asset": {
-                "tag": "Symbol",
-                "values": [
-                  "EURC"
-                ]
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "EURC"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
               },
-              "read_mode": {
-                "tag": "Twap",
-                "values": [
-                  3
-                ]
-              }
+              "decimals": 14,
+              "max_stale_seconds": 3600
             }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "RedStone",
-              "values": [
-                {
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "EUROC",
-                  "max_stale_seconds": 43200
+                  "nature": "Fundamental"
                 }
-              ]
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1060000000000000000",
         "max_sanity_price_wad": "1220000000000000000"
       },
@@ -187,23 +242,28 @@
       "hub_id": 1,
       "asset_address": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "PYUSD",
-              "max_stale_seconds": 43200
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "PYUSD",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "950000000000000000",
         "max_sanity_price_wad": "1050000000000000000"
       },
@@ -226,23 +286,28 @@
       "hub_id": 2,
       "asset_address": "CBZ4DCE7PYMUTOAKKUTRSUPT3FJFVOWCSKWUM5A72D6SAVMUJE5JN2PJ",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "USST_FUNDAMENTAL",
-              "max_stale_seconds": 43200
+        "asset_decimals": 18,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USST_FUNDAMENTAL",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "928300000000000000",
         "max_sanity_price_wad": "1089700000000000000"
       },
@@ -265,23 +330,28 @@
       "hub_id": 2,
       "asset_address": "CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOEUTBL",
-              "max_stale_seconds": 43200
+        "asset_decimals": 5,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOEUTBL",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1110546720000000000",
         "max_sanity_price_wad": "1303685280000000000"
       },
@@ -304,23 +374,28 @@
       "hub_id": 2,
       "asset_address": "CARUUX2FZNPH6DGJOEUFSIUQWYHNL5AVDV7PMVSHWL7OBYIBFC76F4TO",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOUSTBL",
-              "max_stale_seconds": 43200
+        "asset_decimals": 5,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOUSTBL",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1001653680000000000",
         "max_sanity_price_wad": "1175854320000000000"
       },
@@ -343,23 +418,28 @@
       "hub_id": 2,
       "asset_address": "CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOUKTBL",
-              "max_stale_seconds": 43200
+        "asset_decimals": 5,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOUKTBL",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1261045840000000000",
         "max_sanity_price_wad": "1480358160000000000"
       },
@@ -382,23 +462,28 @@
       "hub_id": 2,
       "asset_address": "CDGSC6BA4TCAOVSFQCUEHDMOIIHYYVNYBT6YEARS4MX3ITAHUINVGQHX",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOSAFO",
-              "max_stale_seconds": 43200
+        "asset_decimals": 5,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOSAFO",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "931885480000000000",
         "max_sanity_price_wad": "1093952520000000000"
       },
@@ -421,23 +506,28 @@
       "hub_id": 2,
       "asset_address": "CBOOCGZSVRSZFRE4U2NWR2B4RXYVJWRCBTGOUD2JPI2TDJPWMTJX7FZP",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOEURSAFO",
-              "max_stale_seconds": 43200
+        "asset_decimals": 5,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOEURSAFO",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1061177680000000000",
         "max_sanity_price_wad": "1245730320000000000"
       },
@@ -460,23 +550,28 @@
       "hub_id": 2,
       "asset_address": "CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "SPIKOGBPSAFO",
-              "max_stale_seconds": 43200
+        "asset_decimals": 5,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "SPIKOGBPSAFO",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1248319480000000000",
         "max_sanity_price_wad": "1465418520000000000"
       },
@@ -499,25 +594,30 @@
       "hub_id": 2,
       "asset_address": "CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "DEJTRSY",
-              "max_stale_seconds": 43200
+        "asset_decimals": 18,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "deJTRSY_FUNDAMENTAL/USD",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
-        "min_sanity_price_wad": "1020015960000000000",
-        "max_sanity_price_wad": "1197410040000000000"
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "995690261700000000",
+        "max_sanity_price_wad": "1067916498300000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -538,25 +638,30 @@
       "hub_id": 2,
       "asset_address": "CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
-              "feed_id": "DEJAAA",
-              "max_stale_seconds": 43200
+        "asset_decimals": 18,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "deJAAA_FUNDAMENTAL/USD",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
-        "min_sanity_price_wad": "957002400000000000",
-        "max_sanity_price_wad": "1123437600000000000"
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "1004395710050000000",
+        "max_sanity_price_wad": "1077253429950000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -577,44 +682,45 @@
       "hub_id": 2,
       "asset_address": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
       "oracle": {
-        "max_price_stale_seconds": 7200,
-        "tolerance_bps": 500,
-        "strategy": 1,
-        "primary": {
-          "tag": "Reflector",
-          "values": [
-            {
-              "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
-              "asset": {
-                "tag": "Stellar",
-                "values": [
-                  "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
-                ]
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+                  "asset": {
+                    "Stellar": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
               },
-              "read_mode": {
-                "tag": "Twap",
-                "values": [
-                  3
-                ]
-              }
+              "decimals": 14,
+              "max_stale_seconds": 7200
             }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "RedStone",
-              "values": [
-                {
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "USTRY",
-                  "max_stale_seconds": 43200
+                  "nature": "Fundamental"
                 }
-              ]
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "984400000000000000",
         "max_sanity_price_wad": "1155600000000000000"
       },
@@ -637,44 +743,45 @@
       "hub_id": 2,
       "asset_address": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
       "oracle": {
-        "max_price_stale_seconds": 7200,
-        "tolerance_bps": 500,
-        "strategy": 1,
-        "primary": {
-          "tag": "Reflector",
-          "values": [
-            {
-              "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
-              "asset": {
-                "tag": "Stellar",
-                "values": [
-                  "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
-                ]
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+                  "asset": {
+                    "Stellar": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
               },
-              "read_mode": {
-                "tag": "Twap",
-                "values": [
-                  3
-                ]
-              }
+              "decimals": 14,
+              "max_stale_seconds": 7200
             }
-          ]
-        },
-        "anchor": {
-          "tag": "Some",
-          "values": [
-            {
-              "tag": "RedStone",
-              "values": [
-                {
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "CETES",
-                  "max_stale_seconds": 43200
+                  "nature": "Fundamental"
                 }
-              ]
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "61548000000000000",
         "max_sanity_price_wad": "72252000000000000"
       },
@@ -697,23 +804,28 @@
       "hub_id": 2,
       "asset_address": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP",
       "oracle": {
-        "max_price_stale_seconds": 43200,
-        "tolerance_bps": 500,
-        "strategy": 0,
-        "primary": {
-          "tag": "RedStone",
-          "values": [
-            {
-              "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
-              "feed_id": "USDY_FUNDAMENTAL/USD",
-              "max_stale_seconds": 43200
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USDY_FUNDAMENTAL/USD",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
             }
-          ]
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
         },
-        "anchor": {
-          "tag": "None",
-          "values": null
-        },
+        "independence": "RequireDisjoint",
         "min_sanity_price_wad": "1048800000000000000",
         "max_sanity_price_wad": "1231200000000000000"
       },
@@ -727,6 +839,369 @@
         "optimal_utilization": "750000000000000000000000000",
         "max_utilization": "900000000000000000000000000",
         "reserve_factor": 2500,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "_note": "SolvBTC (SAC CBIJBD…, 8 decimals). Dual: Scaled RedStone SolvBTC_FUNDAMENTAL × Reflector BTC Ref, plus RedStone SolvBTC_FUNDAMENTAL/USD. Shared RedStone domain declared. Configure references.BTC before this market.",
+      "name": "SolvBTC",
+      "hub_id": 1,
+      "asset_address": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
+      "oracle": {
+        "asset_decimals": 8,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Scaled": {
+              "factor": {
+                "provider": {
+                  "RedStone": {
+                    "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                    "feed_id": "SolvBTC_FUNDAMENTAL",
+                    "nature": "Fundamental"
+                  }
+                },
+                "decimals": 8,
+                "max_stale_seconds": 57600
+              },
+              "quote": {
+                "Ref": "BTC"
+              },
+              "min_factor_wad": "1000000000000000000",
+              "max_factor_wad": "1050000000000000000"
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "SolvBTC_FUNDAMENTAL/USD",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": {
+          "AllowShared": [
+            "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
+          ]
+        },
+        "min_sanity_price_wad": "40000000000000000000000",
+        "max_sanity_price_wad": "120000000000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    {
+      "_comment": "Aquarius XLM/USDC constant-product LP share token (share_id of pool CA6PUJLB...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. The price band remains a separate wide backstop. Re-derive the band and liquidity floor when underlying bands or market depth materially change.",
+      "name": "XLMUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CAVKLYY4RWFQBRA2YI5GTGGXKUKJQI3JLAHDGXMS7L5RDH6X6A47NMOZ",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CA6PUJLBYKZKUEKLZJMKBZLEKP2OTHANDEOWSFF44FTSYLKQPIICCJBE",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "450000000000000000",
+        "max_sanity_price_wad": "2500000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "_comment": "Aquarius XLM/SolvBTC constant-product LP share token (share_id of pool CD2O2B6P...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
+      "name": "XLMSolvBTC_LP",
+      "hub_id": 3,
+      "asset_address": "CAPPL34NF6X7M3EQFIPDXZHQX2PT3EOE2LYCDORH3PF2LTRDSFGWV6NL",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CD2O2B6PWKXDVFXMHXHQMF25C4TWOSQAENA7DNFR5G27F5CHJ7AJP5F6",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+              "token_b": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
+              "key_a": {
+                "Token": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+              },
+              "key_b": {
+                "Token": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 8,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "25000000000000000000",
+        "max_sanity_price_wad": "250000000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "_comment": "Aquarius CETES/USDC constant-product LP share token (share_id of pool CCKGQSQG...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
+      "name": "CETESUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CB2WUVUP2SKZVFZFNU33EZCISH65DKHQP4WBEHJ4WE3BF7QOABYGCQMS",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CCKGQSQG5JLZBMYMB4HT6M4H7FUC3NK5C75MIHN6627LRAY5B2SYL2AD",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "430000000000000000",
+        "max_sanity_price_wad": "610000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "_comment": "Aquarius USTRY/USDC constant-product LP share token (share_id of pool CCX2TYR4...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
+      "name": "USTRYUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CCLJBNY2KMUOSAW7URIZHREO5ORQREDX7NIHLFRAT6KAZ5GO7652OA4I",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CCX2TYR4AQTPPMTZOIMP3YIBHAYLLSTXVP47PAGTL753PCQFSKV32MIA",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "1740000000000000000",
+        "max_sanity_price_wad": "2440000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "_comment": "Aquarius USDY/USDC constant-product LP share token (share_id of pool CAFHLHGZ...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
+      "name": "USDYUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CCYD4C2WFWIIDF235SCDXEWL5RT6S53WQWLDHUTQ5USZ5VNF5NHJGVW7",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CAFHLHGZXOVNCGFJ7DOXL7JDNMBCEZKDI3LS5NRQH3GXC7CSIMQZHUSM",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "1790000000000000000",
+        "max_sanity_price_wad": "2510000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "_comment": "Aquarius PYUSD/USDC stableswap LP share token (share_id of pool CDMH535J...). Priced as (D/S)*min(Pa,Pb) with D the swap-invariant Curve invariant and A read live from the pool; both legs bind directly to their token markets. Rejects non-stable rows and fair pool value below $1m. Sanity band brackets virtual_price (fee-growth headroom) times each leg's own sanity floor/ceiling; re-derive when underlying bands or market depth materially change.",
+      "name": "PYUSDUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CD3EQXQGRYUKM7LZ6MZVTXSW74ROXU6YI2SXHJ6KTB5BQ425E5KXRDBC",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusStableLp": {
+              "pool": "CDMH535JSD224YXPET3B4SJOLXTQQ24GRSCWACGYBKSH2DKFJYWI7SUW",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "900000000000000000",
+        "max_sanity_price_wad": "1200000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
         "is_flashloanable": false,
         "flashloan_fee": 0
       }

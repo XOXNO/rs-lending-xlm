@@ -53,26 +53,22 @@ macro_rules! cvlr_log {
         $crate::log_loc($crate::cvlr_log_core_file!(), $crate::cvlr_log_core_line!());
     };
 
-    // log with a specified logger
     ($v:expr => $t:expr ; $logger:ident) => {
         $crate::cvlr_log_with($t, &($v), &mut $logger)
     };
 
-    // multiple values with explicit tags
     ($v:expr => $t:expr, $( $vs:expr => $ts:expr ),+ $(,)?) => {
         $crate::cvlr_log! { $v => $t }
         $crate::cvlr_log! { $( $vs => $ts ),+ }
     };
 
-    // first labeled, rest can be mixed (labeled or unlabeled)
     ($v:expr => $t:expr, $( $rest:tt )+) => {
         $crate::cvlr_log! { $v => $t }
         $crate::cvlr_log! { $( $rest )+ }
     };
 
     ($v:expr => $t:expr) => {
-        // TODO: enable when this becomes stable
-        // $crate::add_loc(core::file!(), core::line!());
+
         $crate::cvlr_log($t, &($v));
     };
 
@@ -80,7 +76,6 @@ macro_rules! cvlr_log {
         $crate::cvlr_log! { $v => stringify!($v) }
     };
 
-    // first unlabeled, rest can be mixed (labeled or unlabeled)
     ($v:expr, $( $rest:tt )+) => {
         $crate::cvlr_log! { $v }
         $crate::cvlr_log! { $( $rest )+ }
@@ -193,17 +188,6 @@ impl CvlrLog for cvlr_mathint::NativeInt {
     }
 }
 
-/// Implements CvlrLog trait given a struct and a list of fields
-///
-/// Example usage
-/// ```
-/// use cvlr_log::impl_cvlr_log_for_struct;
-/// struct Foo {
-///     x: u64,
-///     y: u64,
-/// }
-/// impl_cvlr_log_for_struct!(Foo, x, y,);
-/// ```
 #[macro_export]
 macro_rules! impl_cvlr_log_for_struct {
     ($prop:path $(, $field:ident)* $(,)?) => {

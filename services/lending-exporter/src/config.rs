@@ -1,6 +1,3 @@
-//! YAML config for the lending exporter (one file per network).
-//!
-//! Addresses mirror `configs/networks.json`. Read-only: no signer/fees.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -11,24 +8,23 @@ use serde::Deserialize;
 
 use crate::keys::contract_id_from_strkey;
 
-/// Floor on scrape interval (tighter only burns RPC).
 const MIN_SCRAPE_INTERVAL_SECONDS: u64 = 5;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExporterConfig {
-    /// `network` metric label.
+
     pub network: String,
     pub rpc: RpcConfig,
     pub contracts: ContractsConfig,
     #[serde(default)]
     pub markets: Vec<MarketConfig>,
-    /// Spoke ids to scrape for flags/caps/usage.
+
     #[serde(default)]
     pub spokes: Vec<u32>,
-    /// Optional hub display names (`hub` label); missing → `Hub {id}`.
+
     #[serde(default)]
     pub hubs: BTreeMap<u32, String>,
-    /// Optional spoke display names (`spoke` label); missing → `Spoke {id}`.
+
     #[serde(default)]
     pub spoke_names: BTreeMap<u32, String>,
     #[serde(default = "default_scrape_interval")]
@@ -48,12 +44,12 @@ pub struct RpcConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ContractsConfig {
-    /// Lending controller (`C...`).
+
     pub controller: String,
-    /// Price-aggregator (`C...`); owns token-rooted `AssetOracle` configs.
+
     #[serde(default)]
     pub price_aggregator: Option<String>,
-    /// Oracle adapter (`C...`); needed for Xoxno/RedStone staleness reads.
+
     #[serde(default)]
     pub xoxno_oracle_adapter: Option<String>,
 }
@@ -61,9 +57,9 @@ pub struct ContractsConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct MarketConfig {
     pub hub_id: u32,
-    /// Asset SAC (`C...`).
+
     pub asset: String,
-    /// `symbol` metric label (e.g. `USDC`).
+
     pub symbol: String,
 }
 
@@ -133,7 +129,7 @@ impl ExporterConfig {
         if self.rpc.passphrase.trim().is_empty() {
             bail!("rpc.passphrase is empty");
         }
-        // Fail bad `C...` at boot, not mid-scrape.
+
         contract_id_from_strkey(&self.contracts.controller)
             .context("contracts.controller is not a valid C... address")?;
         if let Some(agg) = &self.contracts.price_aggregator {

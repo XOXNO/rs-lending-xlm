@@ -9,9 +9,6 @@ use xoxno_oracle::{Error, XoxnoOracle, XoxnoOracleClient};
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{vec, Address, BytesN, Env, IntoVal};
 
-// Constructor failures surface via `env.register` panic (no `try_*` path).
-// `#3` == `Error::InvalidThreshold` (threshold 0 / too high / duplicate signers).
-
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
 fn constructor_rejects_threshold_of_zero() {
@@ -39,7 +36,7 @@ fn constructor_rejects_duplicate_signers() {
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let dup = Address::generate(&env);
-    // Same address twice -> has_duplicate -> InvalidThreshold.
+
     let signers = vec![&env, dup.clone(), dup];
     env.register(XoxnoOracle, (admin, signers, 1u32, TEST_RESOLUTION));
 }
@@ -62,15 +59,12 @@ fn added_signer_can_submit_and_duplicate_add_is_rejected() {
     let (client, _admin, signers) = setup(&env, 1, 1);
     let feed = feed_id(&env);
 
-    // An address outside the signer set cannot submit.
     let newcomer = Address::generate(&env);
     assert_eq!(
         client.try_submit_price(&newcomer, &feed, &100i128, &1_000u64),
         Err(Ok(Error::NotAuthorizedSigner))
     );
 
-    // After add_signer it is a fully functional signer: its submission is
-    // accepted and (threshold 1) produces a readable aggregate.
     client.add_signer(&newcomer);
     client.submit_price(&newcomer, &feed, &100i128, &1_000u64);
     assert_eq!(
@@ -78,8 +72,6 @@ fn added_signer_can_submit_and_duplicate_add_is_rejected() {
         Some(100u128)
     );
 
-    // Registration is recorded, not just acknowledged: re-adding either the
-    // newcomer or an original signer is rejected as a duplicate.
     assert_eq!(
         client.try_add_signer(&newcomer),
         Err(Ok(Error::SignerAlreadyRegistered))
@@ -96,17 +88,16 @@ fn set_threshold_boundary_validation() {
     env.mock_all_auths();
     let (client, _admin, _signers) = setup(&env, 2, 1);
 
-    // Zero is rejected even though it does not exceed the signer count.
     assert_eq!(
         client.try_set_threshold(&0u32),
         Err(Ok(Error::InvalidThreshold))
     );
-    // Strictly above the signer count (2) is rejected.
+
     assert_eq!(
         client.try_set_threshold(&3u32),
         Err(Ok(Error::InvalidThreshold))
     );
-    // Exactly the signer count is the maximum valid threshold.
+
     client.set_threshold(&2u32);
 }
 
@@ -116,9 +107,6 @@ fn upgrade_rejects_unknown_wasm_hash() {
     env.mock_all_auths();
     let (client, _admin, _signers) = setup(&env, 1, 1);
 
-    // `upgrade` must actually attempt the executable swap: a wasm hash that
-    // was never uploaded has to fail closed at the host, never succeed as a
-    // silent no-op that leaves the old code running while reporting success.
     let bogus = BytesN::from_array(&env, &[7u8; 32]);
     assert!(client.try_upgrade(&bogus).is_err());
 }
@@ -140,7 +128,7 @@ fn remove_signer_succeeds_above_threshold() {
     let (client, _admin, signers) = setup(&env, 3, 2);
 
     client.remove_signer(&signers[0]);
-    // Removing a second one would now drop below threshold.
+
     let result = client.try_remove_signer(&signers[1]);
     assert_eq!(result, Err(Ok(Error::CannotRemoveBelowThreshold)));
 }
@@ -148,18 +136,13 @@ fn remove_signer_succeeds_above_threshold() {
 #[test]
 fn only_owner_can_initiate_ownership_transfer() {
     let env = Env::default();
-    // The constructor itself does not call `require_auth`, so registering
-    // the contract needs no mocked auths at all.
+
     let admin = Address::generate(&env);
     let signer = Address::generate(&env);
     let signers = vec![&env, signer.clone()];
     let contract_id = env.register(XoxnoOracle, (admin.clone(), signers, 1u32, TEST_RESOLUTION));
     let client = XoxnoOracleClient::new(&env, &contract_id);
 
-    // Mock auth as `non_owner` invoking `transfer_ownership` — OZ's
-    // `enforce_owner_auth` calls `require_auth` on the STORED owner, which
-    // does not match the authorized address `non_owner`, so the host must
-    // reject this invocation.
     let non_owner = Address::generate(&env);
     let new_owner = Address::generate(&env);
     let live_until_ledger = 1000u32;
@@ -175,8 +158,6 @@ fn only_owner_can_initiate_ownership_transfer() {
     let result = client.try_transfer_ownership(&new_owner, &live_until_ledger);
     assert!(result.is_err());
 
-    // The real owner succeeds in initiating the transfer, but ownership does
-    // not move until `new_owner` calls `accept_ownership` (2-step handshake).
     env.mock_auths(&[MockAuth {
         address: &admin,
         invoke: &MockAuthInvoke {
@@ -208,17 +189,16 @@ fn set_max_submission_age_enforces_floor_and_ttl_ceiling() {
     env.mock_all_auths();
     let (client, _admin, _signers) = setup(&env, 1, 1);
 
-    // Below the 60s floor is rejected.
     assert_eq!(
         client.try_set_max_submission_age_seconds(&59u64),
         Err(Ok(Error::InvalidSubmissionAge))
     );
-    // Above the cache TTL (default 86_400s) is rejected.
+
     assert_eq!(
         client.try_set_max_submission_age_seconds(&86_401u64),
         Err(Ok(Error::InvalidSubmissionAge))
     );
-    // The floor and the ceiling themselves are accepted.
+
     client.set_max_submission_age_seconds(&60u64);
     client.set_max_submission_age_seconds(&86_400u64);
 }
@@ -229,13 +209,31 @@ fn set_max_stale_cannot_drop_below_submission_age() {
     env.mock_all_auths();
     let (client, _admin, _signers) = setup(&env, 1, 1);
 
-    // Default submission-age window is 900s; the cache TTL cannot go tighter.
     assert_eq!(
         client.try_set_max_stale_seconds(&899u64),
         Err(Ok(Error::InvalidSubmissionAge))
     );
-    // Equal to the window is accepted.
+
     client.set_max_stale_seconds(&900u64);
+}
+
+#[test]
+fn timing_configuration_getters_and_relative_skew_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _signers) = setup(&env, 1, 1);
+
+    client.set_max_stale_seconds(&1_234u64);
+    client.set_max_submission_age_seconds(&321u64);
+
+    assert_eq!(client.max_stale_seconds(), 1_234);
+    assert_eq!(client.max_submission_age_seconds(), 321);
+    assert_eq!(
+        client.try_set_max_relative_skew_seconds(&322u64),
+        Err(Ok(Error::InvalidRelativeSkew))
+    );
+    client.set_max_relative_skew_seconds(&321u64);
+    assert_eq!(client.max_relative_skew_seconds(), 321);
 }
 
 #[test]
@@ -257,7 +255,6 @@ fn only_admin_can_call_add_feed() {
     let result = client.try_add_feed(&feed_id(&env), &asset);
     assert!(result.is_err());
 
-    // The real admin succeeds.
     env.mock_all_auths();
     let _ = admin;
     client.add_feed(&feed_id(&env), &asset);

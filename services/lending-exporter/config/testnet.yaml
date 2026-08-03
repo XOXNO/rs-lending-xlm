@@ -1,11 +1,11 @@
-# Testnet config for the lending metrics exporter.
-#
-# Addresses mirror configs/networks.json (the canonical deploy artifact / latest
-# testnet deployment). The exporter is per-market resilient: an address that no
-# longer resolves surfaces as a view failure, not a crash.
-#
-# Pool and price-aggregator are also resolved each scrape from controller views
-# (`get_pool_address`, `price_aggregator`); YAML overrides are fallbacks.
+
+
+
+
+
+
+
+
 network: testnet
 rpc:
   url: https://stellar-testnet-gateway.xoxno.com
@@ -13,10 +13,10 @@ rpc:
   timeout_seconds: 30
 contracts:
   controller: CDBAQ67PCS7XXMBGIRCQ2EPRYKV7QKYPIYZBW7IAAWEE5NKMYNYQ4UYU
-  # Fallback if the controller view is unavailable this cycle.
+
   price_aggregator: CCQXGZSQWK2ZBA6L5UPZHGSGBE6AZEKAU65I7RWAQGVOMUGICZE4MK4F
-  # Informational: self-hosted price oracle adapter. Provider contracts for
-  # staleness reads are resolved from each asset's on-chain oracle config.
+
+
   xoxno_oracle_adapter: CB46MOUCOPA5TGDKKCY5OC2FEXGCBQ5KXR53RGOYY7XD7LN6JOE7OPRF
 markets:
   - { hub_id: 1, asset: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA, symbol: USDC }
@@ -26,11 +26,11 @@ markets:
   - { hub_id: 1, asset: CBFNIHC2B7WMAH2CKNKQJOB3CWBUXXNNRQXYISJ7VZONM77YBMHCOULJ, symbol: ETH }
   - { hub_id: 2, asset: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA, symbol: USDC }
 spokes: [1, 2, 3]
-# hub_id -> display name (configs/testnet/hubs.json)
+
 hubs:
   1: Main
   2: Secondary
-# spoke_id -> display name (configs/testnet/spokes.json)
+
 spoke_names:
   1: Stablecoins
   2: XLM + USDC

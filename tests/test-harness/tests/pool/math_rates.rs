@@ -12,7 +12,6 @@ fn test_rescale_same_decimals() {
 
 #[test]
 fn test_rescale_upscale() {
-    // 100 at 7 decimals -> 18 decimals = 100 * 10^11.
     let result = rescale_half_up(100, 7, 18);
     assert_eq!(result, 100 * 100_000_000_000i128);
 }
@@ -40,11 +39,10 @@ fn test_mul_div_half_up_zero() {
 #[test]
 fn test_mul_div_half_up_precision_boundary() {
     let env = Env::default();
-    // 3 * (WAD/2) / WAD: 3 * 0.5 = 1.5, rounds up to 2.
+
     let result = mul_div_half_up(&env, 3, WAD / 2, WAD);
     assert_eq!(result, 2);
 
-    // 1 * (WAD/2) / WAD: 0.5, rounds up to 1.
     let result = mul_div_half_up(&env, 1, WAD / 2, WAD);
     assert_eq!(result, 1);
 }
@@ -52,7 +50,7 @@ fn test_mul_div_half_up_precision_boundary() {
 #[test]
 fn test_div_half_up_exact() {
     let env = Env::default();
-    // 10 / 2 = 5 exactly (no rounding needed).
+
     let result = mul_div_half_up(&env, 10 * WAD, WAD, 2 * WAD);
     assert_eq!(result, 5 * WAD);
 }
@@ -60,18 +58,17 @@ fn test_div_half_up_exact() {
 #[test]
 fn test_div_half_up_rounds_up() {
     let env = Env::default();
-    // 2/3 in WAD: 0.666... rounds up.
+
     let result = mul_div_half_up(&env, 2 * WAD, WAD, 3 * WAD);
     assert_eq!(result, 666_666_666_666_666_667);
 }
 
 #[test]
 fn test_div_by_int_half_up() {
-    // 7 / 2 = 3.5, rounds up to 4.
     assert_eq!(div_by_int_half_up(7, 2), 4);
-    // 6 / 2 = 3 exactly.
+
     assert_eq!(div_by_int_half_up(6, 2), 3);
-    // 5 / 3 = 1.666..., half_b=1, (5+1)/3 = 2.
+
     assert_eq!(div_by_int_half_up(5, 3), 2);
 }
 
@@ -92,15 +89,15 @@ fn test_wad_min_max() {
 fn make_test_params() -> controller::types::MarketParams {
     use common::math::fp::{Bps, Ray};
     controller::types::MarketParams {
-        base_borrow_rate: Ray::from(RAY / 100),         // 1%.
-        slope1: Ray::from(RAY * 4 / 100),               // 4%.
-        slope2: Ray::from(RAY * 10 / 100),              // 10%.
-        slope3: Ray::from(RAY * 300 / 100),             // 300%.
-        mid_utilization: Ray::from(RAY * 50 / 100),     // 50%.
-        optimal_utilization: Ray::from(RAY * 80 / 100), // 80%.
-        max_utilization: Ray::from(RAY * 95 / 100),     // 95%.
-        max_borrow_rate: Ray::from(RAY),                // 100%.
-        reserve_factor: Bps::from(1000),                // 10%.
+        base_borrow_rate: Ray::from(RAY / 100),
+        slope1: Ray::from(RAY * 4 / 100),
+        slope2: Ray::from(RAY * 10 / 100),
+        slope3: Ray::from(RAY * 300 / 100),
+        mid_utilization: Ray::from(RAY * 50 / 100),
+        optimal_utilization: Ray::from(RAY * 80 / 100),
+        max_utilization: Ray::from(RAY * 95 / 100),
+        max_borrow_rate: Ray::from(RAY),
+        reserve_factor: Bps::from(1000),
         is_flashloanable: false,
         flashloan_fee: 0,
         asset_id: soroban_sdk::Address::from_str(
@@ -234,8 +231,8 @@ fn test_supply_index_update_zero_rewards() {
 fn test_supply_index_update_with_rewards() {
     let env = Env::default();
     let new_index = update_supply_index(&env, Ray::from(100 * RAY), Ray::ONE, Ray::from(5 * RAY));
-    // Growth = rewards / (supplied_value + virtual offset) = 5 / 101.
-    let expected = RAY * 106 / 101;
+
+    let expected = RAY * 105 / 100;
     assert!((new_index.raw() - expected).abs() <= 1);
 }
 #[test]

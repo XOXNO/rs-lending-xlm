@@ -1,5 +1,5 @@
-use super::setup;
-use test_harness::{eth_preset, usdc_preset, LendingTest, HARNESS_HUB};
+use super::{enable_dual_source, setup};
+use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, HARNESS_HUB};
 
 #[test]
 fn test_tolerance_config_valid_update() {
@@ -7,13 +7,46 @@ fn test_tolerance_config_valid_update() {
 
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // 600 BPS band as governance computes it in-path.
     let tolerance = controller::types::OracleTolerance {
         upper_ratio_bps: 10_600,
         lower_ratio_bps: 9_434,
     };
-    let result = t.price_agg_client().try_set_tolerance(&asset, &tolerance);
+    let result = t.price_agg_client().try_set_tolerance(
+        &controller::types::PriceKey::Token(asset.clone()),
+        &tolerance,
+    );
     assert!(result.is_ok(), "valid tolerance update should succeed");
+}
+
+#[test]
+fn test_tolerance_config_rejects_non_reciprocal_lower() {
+    let t = setup();
+    let asset = t.resolve_market("USDC").asset.clone();
+
+    let result = t.price_agg_client().try_set_tolerance(
+        &controller::types::PriceKey::Token(asset),
+        &controller::types::OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_500,
+        },
+    );
+    assert!(
+        result.is_err(),
+        "non-reciprocal tolerance must fail BadLastTolerance"
+    );
+}
+
+#[test]
+fn test_dual_source_prices_and_risk_gates_still_resolve() {
+    let mut t = setup();
+    enable_dual_source(&t, "USDC");
+    enable_dual_source(&t, "ETH");
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 10.0);
+
+    let hf = t.health_factor(ALICE);
+    assert!(hf > 0.0, "dual-source portfolio must still hard-price");
 }
 
 #[test]
@@ -25,10 +58,8 @@ fn test_set_accumulator() {
         .env
         .register(test_harness::mock_reflector::MockReflector, ());
 
-    // Must not panic: admin has permission.
     ctrl.set_accumulator(&accumulator);
 
-    // Verify storage by reading directly.
     let stored: soroban_sdk::Address = t.env.as_contract(&t.controller, || {
         t.env
             .storage()
@@ -49,12 +80,8 @@ fn test_edit_asset_in_spoke_category() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // Initially: can_collateral=true, can_borrow=true.
-    // Edit: set can_borrow=false.
     t.edit_asset_in_spoke("USDC", 2, true, false, 9700, 9800, 200);
 
-    // Verify the update by reading storage. Spoke asset configs are discrete
-    // `SpokeAsset(spoke_id, hub_asset)` keys in the spoke model.
     let usdc_asset = t.resolve_market("USDC").asset.clone();
     let config: Option<controller::types::SpokeAssetConfig> =
         t.env.as_contract(&t.controller, || {

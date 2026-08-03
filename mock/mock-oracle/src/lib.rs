@@ -1,6 +1,3 @@
-//! Reflector SEP-40 mock for live testnet runs.
-//! Stores 14-decimal prices; setters accept USD WAD.
-
 #![no_std]
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
@@ -49,7 +46,6 @@ impl MockReflectorOracle {
         Self::set_price_at(env, asset, price_wad, now);
     }
 
-    /// Explicit timestamp for stale-price tests.
     pub fn set_price_at(env: Env, asset: ReflectorAsset, price_wad: i128, timestamp: u64) {
         let price_14 = price_wad / WAD_TO_14_DECIMALS;
         env.storage()
@@ -60,7 +56,6 @@ impl MockReflectorOracle {
             .set(&MockKey::Ts(asset), &timestamp);
     }
 
-    /// Overrides only the stored timestamp.
     pub fn set_ts(env: Env, asset: ReflectorAsset, timestamp: u64) {
         env.storage()
             .persistent()
@@ -88,7 +83,6 @@ impl MockReflectorOracle {
         Some(PriceData { price, timestamp })
     }
 
-    /// Repeated samples for deterministic TWAP.
     pub fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<PriceData>> {
         let entry = Self::lastprice(env.clone(), asset)?;
         let mut out = Vec::new(&env);

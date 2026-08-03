@@ -1,5 +1,3 @@
-//! Concrete reachability witnesses. No universal property lives in this module.
-
 use cvlr::cvlr_satisfy;
 use cvlr::macros::rule;
 use soroban_sdk::{Address, Env};
@@ -11,9 +9,10 @@ use common::types::{
     AccountPositionType, MarketParams, PoolBorrowEntry, PoolNetSettleEntry, PoolSeizeEntry,
     PoolSupplyEntry, PoolWithdrawEntry,
 };
-use pool_interface::LiquidityPoolInterface;
 
 use super::fixture::{action, hub, params, position, read_state, seed, state, ONE_TOKEN};
+use crate::ops::flash::FlashTerms;
+use crate::ops::strategy::StrategyOutcome;
 
 #[rule]
 fn rate_index_domain_reachable(e: Env, asset: Address) {
@@ -44,11 +43,11 @@ fn supply_borrow_domain_reachable(e: Env, admin: Address, asset: Address) {
     let supply_entry = PoolSupplyEntry {
         action: action(asset.clone(), 0, ONE_TOKEN),
     };
-    let (supplied, _) = crate::supply_one(&e, &supply_entry);
+    let (supplied, _) = crate::ops::supply::apply(&e, &supply_entry);
     let borrow_entry = PoolBorrowEntry {
         action: action(asset, 0, ONE_TOKEN),
     };
-    let (_, borrowed, _) = crate::borrow_accounting(&e, &borrow_entry);
+    let borrowed = crate::ops::borrow::accounting(&e, &borrow_entry).mutation;
     cvlr_satisfy!(
         supplied.position.scaled_amount > 0
             && borrowed.position.scaled_amount > 0
@@ -78,9 +77,9 @@ fn withdraw_repay_domain_reachable(e: Env, admin: Address, asset: Address) {
         action: action(asset.clone(), 10 * RAY, ONE_TOKEN),
         protocol_fee: 0,
     };
-    let (_, withdrawn, _, _) = crate::withdraw_accounting(&e, false, &withdraw);
+    let withdrawn = crate::ops::withdraw::accounting(&e, false, &withdraw).mutation;
     let repay = action(asset, 10 * RAY, ONE_TOKEN);
-    let (_, repaid, _, _) = crate::repay_accounting(&e, &repay);
+    let repaid = crate::ops::repay::accounting(&e, &repay).mutation;
     cvlr_satisfy!(
         withdrawn.position.scaled_amount < 10 * RAY
             && repaid.position.scaled_amount < 10 * RAY
@@ -112,14 +111,14 @@ fn seize_settle_domain_reachable(e: Env, admin: Address, asset: Address) {
         side: AccountPositionType::Borrow,
         position: position(RAY),
     };
-    crate::seize_one(&e, &seized);
+    crate::ops::seize::apply(&e, &seized);
     let settle = PoolNetSettleEntry {
         hub_asset: hub(asset.clone()),
         amount: ONE_TOKEN,
         supply_position: position(5 * RAY),
         debt_position: position(5 * RAY),
     };
-    let (settled, _) = crate::net_settle_one(&e, &settle);
+    let (settled, _) = crate::ops::net_settle::apply(&e, &settle);
     let after = read_state(&e, &asset);
     cvlr_satisfy!(
         after.borrowed < before.borrowed
@@ -128,8 +127,6 @@ fn seize_settle_domain_reachable(e: Env, admin: Address, asset: Address) {
     );
 }
 
-/// The production floor boundary is reachable and leaves a positive legacy
-/// claim; `supply_one` must therefore keep its under-backed-market guard.
 #[rule]
 fn seize_floor_residual_reachable(e: Env, admin: Address, asset: Address) {
     seed(
@@ -144,7 +141,7 @@ fn seize_floor_residual_reachable(e: Env, admin: Address, asset: Address) {
         side: AccountPositionType::Borrow,
         position: position(100 * RAY),
     };
-    crate::seize_one(&e, &seized);
+    crate::ops::seize::apply(&e, &seized);
     let post = read_state(&e, &asset);
     let legacy_claim = Ray::from(post.supplied).mul_floor(&e, Ray::from(post.supply_index));
 
@@ -173,10 +170,12 @@ fn fee_strategy_claim_domain_reachable(e: Env, admin: Address, asset: Address) {
             e.ledger().timestamp(),
         ),
     );
-    crate::LiquidityPool::add_rewards(e.clone(), hub(asset.clone()), ONE_TOKEN);
-    let (_, strategy, fee) =
-        crate::create_strategy_accounting(&e, action(asset.clone(), 0, ONE_TOKEN), true);
-    let (_, claim) = crate::claim_revenue_accounting(&e, hub(asset));
+    let StrategyOutcome {
+        mutation: strategy,
+        fee,
+        ..
+    } = crate::ops::strategy::accounting(&e, action(asset.clone(), 0, ONE_TOKEN), true);
+    let claim = crate::ops::revenue::accounting(&e, hub(asset)).mutation;
     cvlr_satisfy!(
         fee > 0
             && strategy.position.scaled_amount > 0
@@ -202,14 +201,18 @@ fn flash_accounting_domain_reachable(e: Env, admin: Address, asset: Address) {
             e.ledger().timestamp(),
         ),
     );
-    let (fee, total, after_payout, after_repayment) =
-        crate::flash_repayment_terms(&e, ONE_TOKEN, 50, 100 * ONE_TOKEN);
+    let FlashTerms {
+        fee,
+        total_repayment: total,
+        balance_after_payout: after_payout,
+        balance_after_repayment: after_repayment,
+    } = crate::ops::flash::terms(&e, ONE_TOKEN, 50, 100 * ONE_TOKEN);
     let mut cache = crate::cache::Cache::load(&e, &hub(asset));
-    crate::book_flash_fee(&mut cache, fee);
+    crate::ops::flash::book_fee(&mut cache, fee);
     cvlr_satisfy!(
         fee > 0
             && total == ONE_TOKEN + fee
             && after_repayment - after_payout == total
-            && cache.cash == 100 * ONE_TOKEN + fee
+            && cache.cash() == 100 * ONE_TOKEN + fee
     );
 }

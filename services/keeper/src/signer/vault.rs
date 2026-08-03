@@ -1,4 +1,3 @@
-//! Mnemonic resolution from Azure Key Vault via mx-keyvault.
 
 use anyhow::{anyhow, Context, Result};
 use mx_keyvault::KeyVaultClient;

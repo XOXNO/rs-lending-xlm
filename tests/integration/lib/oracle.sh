@@ -1,11 +1,11 @@
-# Mock oracle deployment and price control.
-#
-# Liquidation cannot be force-triggered against real Reflector feeds (HF reads
-# live prices; the cached per-account threshold refuses to re-sync into
-# liquidation range). Mock-priced markets are the only way to crash a price.
-# Deploy a FRESH mock per run — reused mocks go stale across sessions (#206).
 
-# Deploys the Reflector-shaped mock; sets/persists MOCK.
+
+
+
+
+
+
+
 deploy_mock_reflector() {
     if [ -n "${MOCK:-}" ]; then return 0; fi
     local out_f="$LOG_DIR/deploy_mock.out" err_f="$LOG_DIR/deploy_mock.err"
@@ -20,7 +20,7 @@ deploy_mock_reflector() {
     log "mock reflector = $mock"
 }
 
-# Deploys the RedStone-shaped mock; sets/persists MOCKRS.
+
 deploy_mock_redstone() {
     if [ -n "${MOCKRS:-}" ]; then return 0; fi
     local out_f="$LOG_DIR/deploy_mockrs.out" err_f="$LOG_DIR/deploy_mockrs.err"
@@ -35,25 +35,25 @@ deploy_mock_redstone() {
     log "mock redstone = $mock"
 }
 
-# Sets the Reflector-mock price for a SAC, in USD WAD.
-#   set_mock_price <sac-id> <price-wad> [label]
+
+
 set_mock_price() {
     local sac="$1" price="$2" label="${3:-set_px_${sac:0:6}}"
     inv "$label" "$ADMIN" "$MOCK" -- set_price \
         --asset "{\"Stellar\":\"$sac\"}" --price_wad "$price" >/dev/null
 }
 
-# Sets the RedStone-mock price for a feed id, in USD WAD.
-#   set_rs_price <feed-id> <price-wad> [label]
+
+
 set_rs_price() {
     local feed="$1" price="$2" label="${3:-set_rs_${feed}}"
     inv "$label" "$ADMIN" "$MOCKRS" -- set_price \
         --feed_id "$feed" --price_wad "$price" >/dev/null
 }
 
-# Moves primary (Reflector mock) and anchor (RedStone mock) in lock-step so
-# tolerance checks keep passing while the price moves.
-#   dual_px <sac-id> <feed-id> <price-wad> [label]
+
+
+
 dual_px() {
     local sac="$1" feed="$2" price="$3" label="${4:-dual_px_${feed}}"
     set_mock_price "$sac" "$price" "${label}_p"

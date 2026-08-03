@@ -29,8 +29,8 @@ Per asset (oracle labels: `network`, `asset`, `symbol`):
 | Metric | On-chain field |
 |---|---|
 | `lending_oracle_price_usd` | `price_wad` (final blend) |
-| `lending_oracle_primary_price_usd` | `safe_price_wad` (primary leg) |
-| `lending_oracle_anchor_price_usd` | `aggregator_price_wad` (secondary/anchor leg — historical ABI name) |
+| `lending_oracle_primary_price_usd` | `primary_price_wad` (primary leg) |
+| `lending_oracle_anchor_price_usd` | `anchor_price_wad` (second independent oracle leg) |
 | `lending_oracle_deviation_bps` | derived \|primary−anchor\| |
 | `lending_oracle_status_timestamp_seconds` | `price_timestamp` (blend freshness) |
 | `lending_oracle_stale` | `stale` (0/1) |
@@ -83,11 +83,15 @@ controller and `(hub_id, asset, symbol)` markets + `spokes` to scan.
 
 - **Pool** and **price-aggregator** are resolved each scrape from the controller
   (`get_pool_address`, `price_aggregator`). YAML `price_aggregator` is a fallback.
-- Addresses in `config/testnet.yaml` mirror `configs/networks.json`.
+- Addresses in `config/*.yaml` mirror `configs/networks.json` when present.
+- Markets / hubs / spokes labels mirror `configs/{network}/{markets,hubs,spokes}.json`.
 - `symbol`, `hubs`, `spoke_names` are display labels only.
 
-Mainnet contracts are not deployed yet; `config/mainnet.yaml` is a stub and the
-exporter refuses to boot until `contracts.controller` is a valid `C…` address.
+`config/mainnet.yaml` lists all mainnet markets (17), hubs (`Core` / `RWA`), and
+spokes (`Main` / `Etherfuse` / `Spiko` / `Centrifuge` / `Forex`), plus RPC and the
+xoxno oracle adapter. Controller is still empty in `configs/networks.json` —
+fill `contracts.controller` after deploy; the exporter refuses to boot until it
+is a valid `C…` address.
 
 ## Deploy (two networks)
 

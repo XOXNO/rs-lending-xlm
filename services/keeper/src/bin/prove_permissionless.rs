@@ -1,4 +1,3 @@
-//! One-shot permissionless `ExtendFootprintTtl` probe.
 
 use anyhow::{anyhow, Result};
 use clap::Parser;

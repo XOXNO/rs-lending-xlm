@@ -25,7 +25,6 @@ fn print_res(env: &soroban_sdk::Env, label: &str) {
 fn measure_footprints() {
     std::println!("\n=== FOOTPRINT ANALYSIS (mainnet limits: entries=100, writes=50, read=200KB, write=132KB) ===\n");
 
-    // 1. Supply
     {
         let mut t = LendingTest::new()
             .with_market(mk("USDC", 6, usd(1), 1_000_000.0))
@@ -34,7 +33,6 @@ fn measure_footprints() {
         print_res(&t.env, "Supply (1 market)");
     }
 
-    // 2. Borrow
     {
         let mut t = LendingTest::new()
             .with_market(mk("USDC", 6, usd(1), 1_000_000.0))
@@ -45,7 +43,6 @@ fn measure_footprints() {
         print_res(&t.env, "Borrow + HF check (2 markets)");
     }
 
-    // 3. Liquidation 1+1
     {
         let mut t = LendingTest::new()
             .with_market(mk("USDC", 6, usd(1), 1_000_000.0))
@@ -59,7 +56,6 @@ fn measure_footprints() {
         print_res(&t.env, "Liquidation 1C+1D (2 markets)");
     }
 
-    // 4. Liquidation 2+1
     {
         let mut t = LendingTest::new()
             .with_market(mk("USDC", 6, usd(1), 1_000_000.0))
@@ -77,7 +73,6 @@ fn measure_footprints() {
         print_res(&t.env, "Liquidation 2C+1D (3 markets)");
     }
 
-    // 5. Liquidation 2+2
     {
         let mut t = LendingTest::new()
             .with_market(mk("A", 6, usd(1), 1_000_000.0))

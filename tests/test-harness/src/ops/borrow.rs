@@ -75,8 +75,6 @@ impl LendingTest {
         }
     }
 
-    /// Borrow multiple assets in a single controller call.
-    /// HF check runs once AFTER all borrows (cumulative).
     pub fn borrow_bulk(&mut self, user: &str, assets: &[(&str, f64)]) {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();

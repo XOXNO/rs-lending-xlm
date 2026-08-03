@@ -1,36 +1,38 @@
-//! Sound over-approximation of successful external provider observations.
-//! Freshness is owned by compose `require_fresh`, not this summary.
-
 use cvlr::cvlr_assume;
-use cvlr::nondet::nondet;
+use cvlr::nondet::{nondet, nondet_option};
 
-use crate::context::ResolutionContext;
 use crate::observation::OracleObservation;
+use crate::session::Session;
 use common::oracle::observation::MAX_FUTURE_SKEW_SECONDS;
-use common::types::OracleSourceConfig;
+use common::types::{MultiFeedRef, ReflectorFeedRef};
 
-pub(crate) fn read_required_source_summary(
-    cache: &mut ResolutionContext,
-    _source: &OracleSourceConfig,
-) -> OracleObservation {
-    let price_wad: i128 = nondet();
-    let observed_at: u64 = nondet();
-    let now = cache.ledger_timestamp_secs();
-    cvlr_assume!(price_wad > 0);
-    // Production accepts bounded future skew from external providers.
-    cvlr_assume!(observed_at <= now.saturating_add(60));
-
-    let published_at = if nondet::<bool>() {
+fn read_source_summary(session: &mut Session) -> Option<OracleObservation> {
+    nondet_option(|| {
+        let price_wad: i128 = nondet();
         let timestamp: u64 = nondet();
+        let now = session.now_secs();
+        cvlr_assume!(price_wad > 0);
         cvlr_assume!(timestamp <= now.saturating_add(MAX_FUTURE_SKEW_SECONDS));
-        Some(timestamp)
-    } else {
-        None
-    };
 
-    OracleObservation {
-        price_wad,
-        observed_at,
-        published_at,
-    }
+        OracleObservation {
+            price_wad,
+            timestamp,
+        }
+    })
+}
+
+pub(crate) fn read_reflector_source_summary(
+    session: &mut Session,
+    _feed: &ReflectorFeedRef,
+    _decimals: u32,
+) -> Option<OracleObservation> {
+    read_source_summary(session)
+}
+
+pub(crate) fn read_multi_feed_source_summary(
+    session: &mut Session,
+    _feed: &MultiFeedRef,
+    _decimals: u32,
+) -> Option<OracleObservation> {
+    read_source_summary(session)
 }

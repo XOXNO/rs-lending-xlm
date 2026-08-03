@@ -3,12 +3,7 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
     LIQUIDATOR,
 };
-// HF boundary off-by-ones (Blend V2 L-05 class)
 
-// At HF == 1.0 (against the *liquidation threshold*) the account is
-// healthy: `process_liquidation` rejects via `HealthFactorTooHigh`. The
-// position is built by first borrowing while healthy at the LTV gate,
-// then dropping the USDC price so HF lands at the threshold boundary.
 #[test]
 fn test_hf_exactly_one_is_healthy() {
     let mut t = LendingTest::new()
@@ -16,19 +11,13 @@ fn test_hf_exactly_one_is_healthy() {
         .with_market(eth_preset())
         .build();
 
-    // USDC liquidation_threshold = 0.80, LTV = 0.75.
-    // Supply $10k, borrow 3.5 ETH ($7000). HF (threshold) = 1.143; HF
-    // (LTV) = 1.071 — borrow allowed.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.5);
 
-    // Drop USDC to $0.875: threshold-weighted = $10k * 0.875 * 0.80 =
-    // $7000, debt = $7000 → HF = 1.0 exactly.
     t.set_price("USDC", usd(1) * 875 / 1000);
 
     let hf_raw = t.health_factor_raw(ALICE);
-    // The threshold/price math is exact enough that HF lands within a
-    // few ulps of WAD; widen tolerance modestly for arithmetic slop.
+
     let drift = (hf_raw - WAD).abs();
     assert!(
         drift < 1_000,
@@ -37,16 +26,10 @@ fn test_hf_exactly_one_is_healthy() {
         drift
     );
 
-    // Liquidation must be rejected — boundary is healthy.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_HIGH);
 }
 
-// `is_liquidatable` uses strict `<`: an account sitting exactly on
-// HF = 1.0 is healthy, and the view flips only strictly below it. The
-// construction is rounding-free: $10k USDC (threshold 0.80) → weighted
-// $8000 exactly; 2 ETH borrowed at $1000 and repriced to $4000 → debt
-// $8000 exactly under unit indexes.
 #[test]
 fn test_is_liquidatable_flips_strictly_below_hf_one() {
     let mut t = LendingTest::new()
@@ -67,14 +50,11 @@ fn test_is_liquidatable_flips_strictly_below_hf_one() {
         "HF exactly 1.0 is healthy"
     );
 
-    // One ETH cent deeper flips the strict inequality.
     t.set_price("ETH", usd(4_000) + usd(1) / 100);
     assert!(t.health_factor_raw(ALICE) < WAD);
     assert!(t.ctrl_client().is_liquidatable(&account_id));
 }
 
-// One step below the boundary triggers liquidation. Same setup but
-// price nudged to $0.874 → HF ≈ 0.999.
 #[test]
 fn test_hf_just_below_one_is_liquidatable() {
     let mut t = LendingTest::new()
@@ -84,7 +64,7 @@ fn test_hf_just_below_one_is_liquidatable() {
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.5);
-    t.set_price("USDC", usd(1) * 874 / 1000); // HF ≈ 0.9989
+    t.set_price("USDC", usd(1) * 874 / 1000);
 
     let hf_raw = t.health_factor_raw(ALICE);
     assert!(hf_raw < WAD, "HF must be < 1.0, got {}", hf_raw);
@@ -97,10 +77,6 @@ fn test_hf_just_below_one_is_liquidatable() {
     );
 }
 
-// After a successful partial liquidation, HF must improve. For a mild
-// crash the partial liquidation may restore HF to ≥ 1.0; for deeper
-// crashes the position is in bad-debt territory and partial seizure
-// can't restore HF. Both branches are exercised: HF *strictly* increases.
 #[test]
 fn test_liquidation_strictly_improves_hf() {
     let mut t = LendingTest::new()
@@ -110,13 +86,13 @@ fn test_liquidation_strictly_improves_hf() {
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 3.0); // $6000 debt
-                                 // Mild crash: HF ≈ 0.987, well inside the partial-liquidation band.
+    t.borrow(ALICE, "ETH", 3.0);
+
     t.set_price("USDC", usd_cents(74));
     t.assert_liquidatable(ALICE);
 
     let hf_before = t.health_factor(ALICE);
-    t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.5); // $1000 partial repay
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
     let hf_after = t.health_factor(ALICE);
 
     assert!(
@@ -126,20 +102,11 @@ fn test_liquidation_strictly_improves_hf() {
         hf_after
     );
 }
-// Bonus curve monotonicity + boundaries
 
-// Sweeps liquidatable HF levels in the mild-underwater band where the
-// realized bonus follows min(HF-scaled curve, HF-neutral cap hf/p - 1).
-// Asserts the guard invariants at every level: the bonus stays under the
-// HF-neutral cap and a partial liquidation never reduces the account's HF.
-// (At very deep underwater the engine clamps seize to feasible payment,
-// which is its own invariant tested by `test_liquidation_bonus_clamped_at_max`
-// and the bad-debt branch.)
 #[test]
 fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
     let mut bonuses: std::vec::Vec<(u32, f64, f64, f64)> = std::vec::Vec::new();
-    // USDC threshold = 80 %. $10k supply, $6k debt → HF = 1.0 at
-    // cents=75. Band: 73 → 0.97, 71 → 0.95, 69 → 0.92, 67 → 0.89.
+
     for cents_per_dollar in [73u32, 71, 69, 67] {
         let mut t = LendingTest::new()
             .with_market(usdc_preset())
@@ -157,7 +124,7 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
         t.get_or_create_user(LIQUIDATOR);
         let hf_before = t.health_factor(ALICE);
         let liq_usdc_before = t.token_balance(LIQUIDATOR, "USDC");
-        t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.1); // $200 repay
+        t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.1);
         let hf_after = t.health_factor(ALICE);
         let liq_usdc_after = t.token_balance(LIQUIDATOR, "USDC");
 
@@ -173,11 +140,7 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
         bonuses.len(),
         bonuses
     );
-    // The realized bonus follows min(HF-scaled curve, HF-neutral cap
-    // hf/p - 1), so it is single-peaked rather than monotone across the
-    // band. Assert the two guard invariants per sample instead: the bonus
-    // never exceeds the HF-neutral cap, and the partial never leaves the
-    // account less healthy.
+
     for (cents, bonus, hf_before, hf_after) in &bonuses {
         let neutral_cap = hf_before / 0.80 - 1.0;
         assert!(
@@ -189,9 +152,7 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
             "partial reduced HF at cents={cents}: {hf_before:.6} -> {hf_after:.6}, full={bonuses:?}"
         );
     }
-    // Also verify the lowest realized bonus is at or above base (5 %)
-    // and the highest stays below the seizure cap (25 % at the 80 %
-    // threshold): we're inside the interpolation band.
+
     let min_bonus = bonuses
         .iter()
         .map(|(_, b, _, _)| *b)
@@ -212,9 +173,6 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
     );
 }
 
-// Even at the deepest liquidatable level, the bonus is bounded by the
-// per-account ceiling derived from the effective threshold
-// (threshold*(1+bonus) <= 100%), so seizure never exceeds collateral.
 #[test]
 fn test_liquidation_bonus_clamped_at_max() {
     let mut t = LendingTest::new()
@@ -224,32 +182,26 @@ fn test_liquidation_bonus_clamped_at_max() {
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 3.5); // $7000 debt
-    t.set_price("USDC", usd_cents(50)); // deep crash, HF ≈ 0.57
+    t.borrow(ALICE, "ETH", 3.5);
+    t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
     t.get_or_create_user(LIQUIDATOR);
     let liq_usdc_before = t.token_balance(LIQUIDATOR, "USDC");
-    t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.1); // $200 repay
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.1);
     let liq_usdc_after = t.token_balance(LIQUIDATOR, "USDC");
 
     let usdc_received = liq_usdc_after - liq_usdc_before;
     let usd_received = usdc_received * 0.50;
     let realized_bonus = (usd_received / 200.0) - 1.0;
 
-    // USDC's 80% effective threshold caps the bonus at (1-T)/T = 25%, so seizure
-    // never exceeds collateral. Allow small arithmetic slop.
     assert!(
         realized_bonus <= 0.26,
         "realized bonus must stay under the per-account ceiling, got {:.4}",
         realized_bonus
     );
 }
-// Bad-debt threshold boundary ($5)
 
-// Position with collateral well within the $5 bad-debt threshold AND
-// debt greater than collateral triggers socialization on liquidation.
-// Pins the inequality `total_collateral_usd <= BAD_DEBT_USD_THRESHOLD`.
 #[test]
 fn test_bad_debt_socialization_triggers_under_threshold() {
     let mut t = LendingTest::new()
@@ -258,15 +210,11 @@ fn test_bad_debt_socialization_triggers_under_threshold() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // Tight setup: $30 USDC supply, ~0.011 ETH ($22) debt. After USDC
-    // crashes to $0.10, collateral = $3 (below $5 threshold), debt
-    // remains ~$22 → bad-debt path eligible.
     t.supply(ALICE, "USDC", 30.0);
     t.borrow(ALICE, "ETH", 0.011);
     t.set_price("USDC", usd_cents(10));
     t.assert_liquidatable(ALICE);
 
-    // Liquidator pays the full debt; bad-debt path zeros the position.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.011);
 
     let debt_after = t.borrow_balance(ALICE, "ETH");

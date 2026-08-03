@@ -1,10 +1,3 @@
-//! Role-gated immediate (timelock-bypassing) governance operations: guardian
-//! spoke-listing flags, oracle sanity-band moves, instant hub/spoke creation,
-//! and the owner's emergency role revocation.
-//!
-//! The harness admin holds every operational role (constructor grant), so it
-//! doubles as GUARDIAN/ORACLE here; strangers prove the role gates.
-
 use governance::op::{AdminOperation, RoleArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Symbol};
@@ -23,8 +16,6 @@ fn flatten<T, C>(
     }
 }
 
-// GUARDIAN flips a listing's flags instantly; the flags bind and every other
-// listing field survives untouched.
 #[test]
 fn guardian_sets_spoke_asset_flags_immediately() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -57,8 +48,6 @@ fn guardian_sets_spoke_asset_flags_immediately() {
         errors::SPOKE_ASSET_PAUSED,
     );
 
-    // Re-asserting the same tightened state stays allowed (idempotent brake),
-    // and tightening the remaining flag on top works.
     t.gov_iface_client().set_spoke_asset_flags(
         &admin,
         &HARNESS_SPOKE,
@@ -67,7 +56,6 @@ fn guardian_sets_spoke_asset_flags_immediately() {
         &true,
     );
 
-    // Clearing a set flag is risk-loosening and must ride the timelock.
     let relax = t.gov_iface_client().try_set_spoke_asset_flags(
         &admin,
         &HARNESS_SPOKE,
@@ -76,7 +64,7 @@ fn guardian_sets_spoke_asset_flags_immediately() {
         &false,
     );
     assert_contract_error(flatten(relax), errors::SPOKE_ASSET_FLAG_RELAXATION);
-    // Partial relaxation (keep paused, clear frozen) is rejected too.
+
     let relax_frozen = t.gov_iface_client().try_set_spoke_asset_flags(
         &admin,
         &HARNESS_SPOKE,
@@ -90,8 +78,6 @@ fn guardian_sets_spoke_asset_flags_immediately() {
         errors::SPOKE_ASSET_PAUSED,
     );
 
-    // The timelocked `EditAssetInSpoke` path clears the flags and reopens
-    // supply (the harness forwarder stands in for a matured proposal).
     let cfg = t
         .ctrl_client()
         .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(usdc.clone()));
@@ -119,7 +105,6 @@ fn guardian_sets_spoke_asset_flags_immediately() {
     );
 }
 
-// A caller without GUARDIAN is rejected with the OZ AccessControl error.
 #[test]
 fn non_guardian_flags_rejected() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -132,8 +117,6 @@ fn non_guardian_flags_rejected() {
     assert_contract_error(flatten(result), errors::UNAUTHORIZED);
 }
 
-// ORACLE moves the sanity band instantly when the new band contains the live
-// price; the stored config carries only the new bounds.
 #[test]
 fn oracle_role_moves_sanity_band_containing_price() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -142,11 +125,15 @@ fn oracle_role_moves_sanity_band_containing_price() {
     let usdc = t.resolve_asset("USDC");
 
     let before = t.market_oracle_config(&usdc);
-    // Live price is $1; the new band contains it and stays inside the
-    // single-source width cap.
+
     let min = usd(1) * 95 / 100;
     let max = usd(1) * 105 / 100;
-    gov.set_sanity_band(&admin, &usdc, &min, &max);
+    gov.set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &min,
+        &max,
+    );
 
     let after = t.market_oracle_config(&usdc);
     assert_eq!(after.min_sanity_price_wad, min);
@@ -158,36 +145,34 @@ fn oracle_role_moves_sanity_band_containing_price() {
     assert_eq!(after.tolerance, before.tolerance);
 }
 
-// A band that does not contain the live price is rejected in both directions.
 #[test]
-fn sanity_band_not_containing_price_rejected() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let gov = t.gov_iface_client();
-    let admin = t.admin();
-    let usdc = t.resolve_asset("USDC");
+fn sanity_band_not_containing_price_fails_closed_at_read() {
+    for (min_wad, max_wad) in [
+        (usd(1) * 1005 / 1000, usd(1) * 105 / 100),
+        (usd(1) * 95 / 100, usd(1) * 995 / 1000),
+    ] {
+        let t = LendingTest::new().with_market(usdc_preset()).build();
+        let gov = t.gov_iface_client();
+        let admin = t.admin();
+        let usdc = t.resolve_asset("USDC");
 
-    // Entirely above the $1 live price, but overlapping the seeded ±1% band
-    // so the overlap gate does not fire first.
-    let result = gov.try_set_sanity_band(
-        &admin,
-        &usdc,
-        &(usd(1) * 1005 / 1000),
-        &(usd(1) * 105 / 100),
-    );
-    assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
+        flatten(gov.try_set_sanity_band(
+            &admin,
+            &controller::types::PriceKey::Token(usdc.clone()),
+            &min_wad,
+            &max_wad,
+        ))
+        .expect("an out-of-band live price must not block the band write");
 
-    // Entirely below the $1 live price, still overlapping the seeded band.
-    let result = gov.try_set_sanity_band(
-        &admin,
-        &usdc,
-        &(usd(1) * 95 / 100),
-        &(usd(1) * 995 / 1000),
-    );
-    assert_contract_error(flatten(result), errors::SANITY_BOUND_VIOLATED);
+        let read = t
+            .price_agg_client()
+            .try_price(&controller::types::PriceKey::Token(usdc.clone()))
+            .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
+            .unwrap_or_else(|e| Err(e.expect("expected contract error")));
+        assert_contract_error(read, errors::SANITY_BOUND_VIOLATED);
+    }
 }
 
-// The new band must overlap the old one: bands are walked, never teleported
-// to a disjoint range on one call.
 #[test]
 fn sanity_band_disjoint_from_old_band_rejected() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -195,31 +180,36 @@ fn sanity_band_disjoint_from_old_band_rejected() {
     let admin = t.admin();
     let usdc = t.resolve_asset("USDC");
 
-    // Narrow the band around the live $1 price first.
     let narrow_min = usd(1) * 97 / 100;
     let narrow_max = usd(1) * 103 / 100;
-    gov.set_sanity_band(&admin, &usdc, &narrow_min, &narrow_max);
+    gov.set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &narrow_min,
+        &narrow_max,
+    );
 
-    // A new band disjoint from the narrow window is rejected even before pricing
-    // (containment would also fail here; the overlap rule fires first).
     let result = gov.try_set_sanity_band(
         &admin,
-        &usdc,
+        &controller::types::PriceKey::Token(usdc.clone()),
         &(usd(1) * 110 / 100),
         &(usd(1) * 115 / 100),
     );
     assert_contract_error(flatten(result), errors::INVALID_SANITY_BOUNDS);
 
-    // An overlapping widening that still contains the live price passes.
     let wide_min = usd(1) * 94 / 100;
     let wide_max = usd(1) * 106 / 100;
-    gov.set_sanity_band(&admin, &usdc, &wide_min, &wide_max);
+    gov.set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &wide_min,
+        &wide_max,
+    );
     let after = t.market_oracle_config(&usdc);
     assert_eq!(after.min_sanity_price_wad, wide_min);
     assert_eq!(after.max_sanity_price_wad, wide_max);
 }
 
-// Malformed bounds and missing roles are rejected before any oracle read.
 #[test]
 fn sanity_band_input_and_role_gates() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -228,20 +218,23 @@ fn sanity_band_input_and_role_gates() {
     let stranger = Address::generate(&t.env);
     let usdc = t.resolve_asset("USDC");
 
-    let result = gov.try_set_sanity_band(&admin, &usdc, &usd(2), &usd(1));
+    let result = gov.try_set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &usd(2),
+        &usd(1),
+    );
     assert_contract_error(flatten(result), errors::INVALID_SANITY_BOUNDS);
 
     let result = gov.try_set_sanity_band(
         &stranger,
-        &usdc,
+        &controller::types::PriceKey::Token(usdc.clone()),
         &(usd(1) * 95 / 100),
         &(usd(1) * 105 / 100),
     );
     assert_contract_error(flatten(result), errors::UNAUTHORIZED);
 }
 
-// GUARDIAN creates hubs and spokes instantly; both registries are inert until
-// assets are listed through the timelocked path.
 #[test]
 fn guardian_creates_hub_and_spoke_immediately() {
     let t = LendingTest::new().build();
@@ -253,16 +246,13 @@ fn guardian_creates_hub_and_spoke_immediately() {
     assert!(hub_id >= 1);
     let spoke_id = gov.add_spoke(&admin);
     assert!(spoke_id >= 1);
-    // Fresh spoke exists and is active.
+
     assert!(!t.ctrl_client().get_spoke(&spoke_id).is_deprecated);
 
     assert_contract_error(flatten(gov.try_create_hub(&stranger)), errors::UNAUTHORIZED);
     assert_contract_error(flatten(gov.try_add_spoke(&stranger)), errors::UNAUTHORIZED);
 }
 
-// The owner strips an immediate role from a non-owner key instantly; the
-// stripped key loses its powers in the same ledger. The owner's own roles are
-// never revocable, and no-op/unknown revokes are rejected.
 #[test]
 fn owner_revokes_role_immediately() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -273,7 +263,6 @@ fn owner_revokes_role_immediately() {
     let canceller_role = Symbol::new(&t.env, "CANCELLER");
     let holder = Address::generate(&t.env);
 
-    // Grant GUARDIAN to a fresh non-owner key, then the owner strips it instantly.
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::GrantGovRole(RoleArgs {
@@ -289,19 +278,15 @@ fn owner_revokes_role_immediately() {
         gov.try_set_spoke_asset_flags(&holder, &HARNESS_SPOKE, &hub_asset(usdc), &true, &false);
     assert_contract_error(flatten(result), errors::UNAUTHORIZED);
 
-    // The owner's own roles are never revocable.
     let result = gov.try_revoke_role_immediate(&admin, &guardian_role);
     assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
 
-    // Revoking a role the account does not hold is a no-op reject.
     let result = gov.try_revoke_role_immediate(&holder, &guardian_role);
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
-    // Unknown roles are rejected outright.
     let result = gov.try_revoke_role_immediate(&holder, &Symbol::new(&t.env, "NOPE"));
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
-    // CANCELLER revoke is timelock-only; immediate revoke is GUARDIAN/ORACLE only.
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::GrantGovRole(RoleArgs {
@@ -312,8 +297,6 @@ fn owner_revokes_role_immediately() {
     let result = gov.try_revoke_role_immediate(&holder, &canceller_role);
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
-    // PROPOSER/EXECUTOR stay timelock-only for revocation (rejected before any
-    // holder/owner check by the immediate-role allow-list).
     for role in ["PROPOSER", "EXECUTOR"] {
         let result = gov.try_revoke_role_immediate(&admin, &Symbol::new(&t.env, role));
         assert_contract_error(flatten(result), errors::INVALID_ROLE);

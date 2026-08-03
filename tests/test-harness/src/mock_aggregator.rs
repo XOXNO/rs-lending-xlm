@@ -3,11 +3,6 @@ use soroban_sdk::{
 };
 
 use crate::strategy::MockSwapPayload;
-// MockAggregator
-//
-// Minimal stand-in for the strategy router. The controller treats strategy
-// bytes as opaque; this mock decodes a test-only payload so harness scenarios
-// can choose output token and amount.
 
 #[contract]
 pub struct MockAggregator;
@@ -33,21 +28,6 @@ impl MockAggregator {
         payload.min_out
     }
 }
-
-// Adversarial aggregator for controller-side router validation.
-//
-// Three misbehaviors are supported via a simple mode enum stored in instance
-// storage so tests can flip the behavior between runs:
-//
-//   1. Refund: send extra `token_in` BACK to `sender` after the swap —
-//      the controller must detect `balance_in_after > balance_in_before`
-//      and panic with InternalError.
-//   2. OverPull: pull MORE than `total_in` from `sender` —
-//      the controller's `actual_in_spent > amount_in` guard must fire.
-//   3. UnderPull: pull less than `total_in` while still returning output —
-//      the controller must refund leftover input instead of stranding it.
-//   4. OutputShortfall: pull input but skip the output transfer —
-//      the controller's positive-output balance-delta guard must fire.
 
 #[contracttype]
 #[derive(Clone, Copy)]

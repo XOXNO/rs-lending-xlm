@@ -1,4 +1,3 @@
-//! Converts discovery snapshots into transaction jobs.
 
 use anyhow::Result;
 use stellar_xdr::curr::LedgerKey;
@@ -13,16 +12,12 @@ use crate::stellar::restore::restore_footprint;
 use crate::stellar::ttl::{extend_footprint_ttl, MAX_LEDGERS_TO_EXTEND};
 use crate::stellar::TxJob;
 
-/// Max ledger keys per footprint op.
 const MAX_KEYS_PER_EXTEND_OP: usize = 60;
 
-/// TTL-extend jobs for entries inside the safety margin.
 pub fn plan_extends(snapshot: &DiscoverySnapshot, safety_ledgers: u32) -> Result<Vec<TxJob>> {
     plan_extends_with_chunk(snapshot, safety_ledgers, MAX_KEYS_PER_EXTEND_OP)
 }
 
-/// Like `plan_extends` with an explicit per-tx key cap. Smaller chunks keep
-/// month-scale rent (incl. large wasm code) under the classic envelope u32 fee cap.
 pub fn plan_extends_with_chunk(
     snapshot: &DiscoverySnapshot,
     safety_ledgers: u32,
@@ -33,7 +28,6 @@ pub fn plan_extends_with_chunk(
     })
 }
 
-/// Restore jobs for archived entries with data still present.
 pub fn plan_restores(snapshot: &DiscoverySnapshot, safety_ledgers: u32) -> Result<Vec<TxJob>> {
     plan(
         snapshot,
@@ -101,7 +95,6 @@ fn plan_with_chunk(
     Ok(jobs)
 }
 
-/// Read-write keys from restore jobs.
 pub fn restored_keys(jobs: &[TxJob]) -> Vec<LedgerKey> {
     jobs.iter()
         .filter(|j| matches!(j.kind, crate::stellar::tx::TxKind::RestoreFootprint))
@@ -110,7 +103,6 @@ pub fn restored_keys(jobs: &[TxJob]) -> Vec<LedgerKey> {
         .collect()
 }
 
-/// Extend jobs for an explicit key set.
 pub fn plan_extends_for_keys(keys: &[LedgerKey]) -> Result<Vec<TxJob>> {
     let mut jobs = Vec::with_capacity(keys.len().div_ceil(MAX_KEYS_PER_EXTEND_OP));
     for chunk in keys.chunks(MAX_KEYS_PER_EXTEND_OP) {
@@ -119,7 +111,6 @@ pub fn plan_extends_for_keys(keys: &[LedgerKey]) -> Result<Vec<TxJob>> {
     Ok(jobs)
 }
 
-/// `update_indexes(hub_assets)` jobs.
 pub fn plan_index_refresh(
     controller_id: &[u8; 32],
     caller_strkey: &str,
@@ -220,7 +211,7 @@ mod tests {
             snap.persistent_entries.push(present(Some(100 + 1_000)));
         }
         let jobs = plan_extends(&snap, 14 * LEDGERS_PER_DAY).unwrap();
-        assert_eq!(jobs.len(), 3); // 125 keys @ 60/op
+        assert_eq!(jobs.len(), 3);
     }
 
     #[test]
@@ -229,8 +220,8 @@ mod tests {
             current_ledger: 100,
             ..Default::default()
         };
-        snap.persistent_entries.push(present(Some(50))); // archived
-        snap.persistent_entries.push(absent(Some(50))); // evicted
+        snap.persistent_entries.push(present(Some(50)));
+        snap.persistent_entries.push(absent(Some(50)));
         let jobs = plan_extends(&snap, 14 * LEDGERS_PER_DAY).unwrap();
         assert_eq!(jobs.len(), 0);
     }
@@ -255,7 +246,7 @@ mod tests {
             current_ledger: 1_000,
             ..Default::default()
         };
-        snap.persistent_entries.push(present(Some(1_010))); // live, in margin
+        snap.persistent_entries.push(present(Some(1_010)));
         snap.persistent_entries.push(absent(Some(0)));
         let jobs = plan_restores(&snap, 14 * LEDGERS_PER_DAY).unwrap();
         assert_eq!(jobs.len(), 0);
@@ -284,6 +275,6 @@ mod tests {
             })
             .collect();
         let jobs = plan_index_refresh(&[0u8; 32], TEST_PUBKEY, &assets, 20).unwrap();
-        assert_eq!(jobs.len(), 3); // 45 assets @ 20/op
+        assert_eq!(jobs.len(), 3);
     }
 }

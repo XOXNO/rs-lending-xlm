@@ -1,5 +1,3 @@
-// Env::default TTL (4095) is below TTL_THRESHOLD_*; renew must lift to TTL_BUMP_*.
-
 #![cfg(test)]
 extern crate std;
 
@@ -18,8 +16,7 @@ use xoxno_oracle::{XoxnoOracle, XoxnoOracleClient};
 fn entrypoint_renews_oracle_instance_ttl() {
     let env = Env::default();
     env.mock_all_auths();
-    // Register without `setup`'s default `register_feed` so the instance TTL
-    // is still the host default (below the renewal threshold).
+
     let admin = Address::generate(&env);
     let signer = Address::generate(&env);
     let contract_id = env.register(
@@ -34,7 +31,6 @@ fn entrypoint_renews_oracle_instance_ttl() {
         "precondition: fresh instance TTL ({initial}) must sit below the renewal threshold"
     );
 
-    // Any entrypoint renews the instance; `set_resolution` is the simplest.
     client.set_resolution(&TEST_RESOLUTION);
 
     let renewed = env.as_contract(&client.address, || env.storage().instance().get_ttl());
@@ -67,19 +63,11 @@ fn submit_price_arms_shared_ttl_on_submission_key() {
 
 #[test]
 fn submit_price_renews_known_feed_allowlist_ttl() {
-    // A feed actively receiving submissions must keep its allowlist gate
-    // (`FeedIndex` + paired `FeedAt`) alive on-chain, not only its submission
-    // and aggregate keys. Otherwise the gate can archive under a live feed and
-    // `require_known_feed` starts rejecting valid signer updates with
-    // `FeedNotKnown`.
     let env = Env::default();
     env.mock_all_auths();
     let (client, _admin, signers) = setup(&env, 1, 1);
     let feed = feed_id(&env);
 
-    // Age the allowlist keys set by `register_feed` below the renewal threshold
-    // (`extend_ttl` is a no-op while a key still sits above it) so a re-arm on
-    // the submit path is observable.
     let decay: u32 = TTL_BUMP_SHARED - 20_000;
     advance_ledger_sequence(&env, decay);
 

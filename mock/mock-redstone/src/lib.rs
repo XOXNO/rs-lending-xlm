@@ -1,6 +1,3 @@
-//! RedStone price-feed mock for live testnet runs.
-//! Stores 8-decimal prices; setters accept USD WAD.
-
 #![no_std]
 
 use soroban_sdk::{
@@ -37,7 +34,6 @@ pub struct MockRedStonePriceFeed;
 
 #[contractimpl]
 impl MockRedStonePriceFeed {
-    /// Feed price at current ledger time.
     pub fn set_price(env: Env, feed_id: String, price_wad: i128) {
         let now_ms = env
             .ledger()
@@ -49,7 +45,6 @@ impl MockRedStonePriceFeed {
         Self::set_price_data(env, feed_id, price_wad, now_ms, now_ms);
     }
 
-    /// Explicit millisecond timestamps for package/write.
     pub fn set_price_data(
         env: Env,
         feed_id: String,

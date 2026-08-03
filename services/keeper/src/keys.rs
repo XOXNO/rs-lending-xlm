@@ -1,7 +1,3 @@
-//! XDR encoding for protocol storage keys.
-//!
-//! `#[contracttype]` enums wire as `Vec[Symbol("Variant"), args...]` — built
-//! here without `soroban-sdk` in the host binary.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
@@ -9,7 +5,6 @@ use stellar_xdr::curr::{
     ScMapEntry, ScSymbol, ScVal, ScVec, StringM, VecM,
 };
 
-/// Controller persistent keys the keeper renews.
 #[derive(Debug, Clone)]
 pub enum ControllerPersistentKey {
     AccountNonce,
@@ -35,7 +30,6 @@ impl ControllerPersistentKey {
     }
 }
 
-/// Price-aggregator persistent keys (`AggregatorKey` on the oracle authority).
 #[derive(Debug, Clone)]
 pub enum PriceAggregatorPersistentKey {
     AssetOracle([u8; 32]),
@@ -57,9 +51,6 @@ impl PriceAggregatorPersistentKey {
     }
 }
 
-/// Per-user persistent keys (`AccountMeta` / positions / `Delegates`).
-///
-/// `Delegates` exists only when set; missing rows are skipped on batch read.
 #[derive(Debug, Clone)]
 pub enum ControllerUserKey {
     AccountMeta(u64),
@@ -87,18 +78,17 @@ impl ControllerUserKey {
     }
 }
 
-/// Persistent `stellar_access` role keys.
 #[derive(Debug, Clone)]
 pub enum AccessControlPersistentKey {
-    /// `Vec<Symbol>` of role names.
+
     ExistingRoles,
-    /// `role ->` holder count.
+
     RoleAccountsCount(String),
-    /// `(role, index) ->` holder address.
+
     RoleAccounts(String, u32),
-    /// `(account, role) ->` enum index; absence means no role.
+
     HasRole(ScAddress, String),
-    /// `role ->` admin role.
+
     RoleAdmin(String),
 }
 
@@ -133,7 +123,6 @@ pub struct HubAssetKey {
     pub asset: [u8; 32],
 }
 
-/// Central pool persistent keys, keyed by hub asset.
 #[derive(Debug, Clone)]
 pub enum PoolPersistentKey {
     Params(HubAssetKey),
@@ -157,30 +146,24 @@ impl PoolPersistentKey {
     }
 }
 
-/// Persistent `xoxno-oracle-adapter` keys (`DataKey` persistent variants).
-///
-/// Enumerable args carry raw `ReflectorAsset` / feed-id ScVals from
-/// `AssetAt`/`FeedAt` slots (passed through, not re-modeled). INSTANCE fields
-/// (`Signers`, `Threshold`, `MaxStaleSeconds`, `Resolution`) are covered by the
-/// adapter instance bump, not listed here.
 #[derive(Debug, Clone)]
 pub enum OracleAdapterKey {
     AssetCount,
     FeedCount,
     AssetAt(u32),
     FeedAt(u32),
-    /// Raw asset ScVal from the index slot.
+
     AssetIndex(ScVal),
     FeedMapping(ScVal),
-    /// Reverse mapping feed_id → asset; idle reverse keys must not archive.
+
     FeedOwner(ScVal),
-    /// Raw feed-id ScVal.
+
     FeedIndex(ScVal),
     CurrentAggregate(ScVal),
     History(ScVal),
-    /// `(feed ScVal, signer)` field order.
+
     LatestSubmission(ScVal, ScAddress),
-    /// Per-signer feed index; `remove_signer` reads it — idle indexes must not archive.
+
     SignerFeeds(ScAddress),
 }
 
@@ -218,19 +201,6 @@ impl OracleAdapterKey {
     }
 }
 
-// Governance: almost all state is INSTANCE — one instance bump covers
-// Controller/Owner/Admin/RoleAdmin and timelock MinDelay.
-//
-// MinDelay is INSTANCE (stellar-governance timelock uses `storage().instance()`).
-// A persistent MinDelay key would silently miss; rely on the instance bump.
-//
-// Role-holder keys ARE persistent; reuse `discover_role_keys` on the governance id.
-//
-// Timelock `OperationLedger(BytesN<32>)` is persistent but not enumerable
-// (pending ops only; execute/cancel remove the entry).
-// (keccak256 op id from schedule events). Transient within `min_delay` ≪ TTL — skipped.
-
-/// Controller instance-storage keys.
 #[derive(Debug, Clone, Copy)]
 pub enum ControllerInstanceKey {
     Pool,
@@ -295,7 +265,6 @@ fn symbol_val(text: &str) -> Result<ScVal> {
     Ok(ScVal::Symbol(symbol(text)?))
 }
 
-/// `RoleAccountKey { role, index }` with map fields sorted by symbol.
 pub fn hub_asset_key_sc_val(hub_asset: &HubAssetKey) -> Result<ScVal> {
     let entries = vec![
         ScMapEntry {
@@ -449,7 +418,7 @@ mod tests {
         };
         assert_eq!(items.len(), 2);
         assert_eq!(sym_text(&items[0]), "RoleAccounts");
-        // #[contracttype] map fields sorted by symbol: "index" before "role".
+
         let ScVal::Map(Some(map)) = &items[1] else {
             panic!("expected Map arg, got {:?}", items[1]);
         };

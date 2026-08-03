@@ -1,7 +1,5 @@
-//! Account storage layout.
-
 use crate::constants::MAX_DELEGATES;
-use crate::storage::renew_user_key;
+use crate::storage::{get_user, renew_user_key, set_user};
 use common::errors::GenericError;
 use common::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,
@@ -9,7 +7,6 @@ use common::types::{
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
-/// Assembles an `Account` from its metadata and position maps.
 pub(crate) fn account_from_parts(
     meta: AccountMeta,
     supply_positions: Map<HubAssetKey, AccountPositionRaw>,
@@ -25,13 +22,7 @@ pub(crate) fn account_from_parts(
 }
 
 pub(crate) fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
-    let key = ControllerKey::AccountMeta(account_id);
-    env.storage()
-        .persistent()
-        .get::<_, AccountMeta>(&key)
-        .inspect(|_| {
-            renew_user_key(env, &key);
-        })
+    get_user(env, &ControllerKey::AccountMeta(account_id))
 }
 
 pub(crate) fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
@@ -40,45 +31,20 @@ pub(crate) fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
 }
 
 pub(crate) fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
-    let key = ControllerKey::AccountMeta(account_id);
-    env.storage().persistent().set(&key, meta);
-    renew_user_key(env, &key);
+    set_user(env, &ControllerKey::AccountMeta(account_id), meta);
 }
 
 pub(crate) fn get_supply_positions(
     env: &Env,
     account_id: u64,
 ) -> Map<HubAssetKey, AccountPositionRaw> {
-    let key = ControllerKey::SupplyPositions(account_id);
-    match env
-        .storage()
-        .persistent()
-        .get::<_, Map<HubAssetKey, AccountPositionRaw>>(&key)
-    {
-        Some(map) => {
-            renew_user_key(env, &key);
-            map
-        }
-        None => Map::new(env),
-    }
+    get_user(env, &ControllerKey::SupplyPositions(account_id)).unwrap_or_else(|| Map::new(env))
 }
 
 pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<HubAssetKey, DebtPositionRaw> {
-    let key = ControllerKey::BorrowPositions(account_id);
-    match env
-        .storage()
-        .persistent()
-        .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&key)
-    {
-        Some(map) => {
-            renew_user_key(env, &key);
-            map
-        }
-        None => Map::new(env),
-    }
+    get_user(env, &ControllerKey::BorrowPositions(account_id)).unwrap_or_else(|| Map::new(env))
 }
 
-/// Persists the supply-position map and renews the account's TTL.
 pub(crate) fn set_supply_positions(
     env: &Env,
     account_id: u64,
@@ -88,7 +54,6 @@ pub(crate) fn set_supply_positions(
     renew_user_account(env, account_id);
 }
 
-/// Persists the debt-position map and renews the account's TTL.
 pub(crate) fn set_debt_positions(
     env: &Env,
     account_id: u64,
@@ -133,8 +98,6 @@ pub(crate) fn try_get_debt_position(
         .map(|raw| DebtPosition::from(&raw))
 }
 
-/// Lifts each entry to `AccountPosition` so call sites read typed fields
-/// instead of `Ray::from(position.scaled_amount)`.
 pub(crate) fn iter_typed_positions(
     map: &Map<HubAssetKey, AccountPositionRaw>,
 ) -> impl Iterator<Item = (HubAssetKey, AccountPosition)> + '_ {
@@ -142,8 +105,6 @@ pub(crate) fn iter_typed_positions(
         .map(|(key, raw)| (key, AccountPosition::from(&raw)))
 }
 
-/// Debt-side counterpart of `iter_typed_positions`; debt positions carry only
-/// the scaled share.
 pub(crate) fn iter_debt_positions(
     map: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> impl Iterator<Item = (HubAssetKey, DebtPosition)> + '_ {
@@ -171,34 +132,23 @@ pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     account_from_parts(meta, Map::new(env), borrow_positions)
 }
 
-/// Opt-in delegate list for an account; empty when none are set.
 pub(crate) fn get_delegates(env: &Env, account_id: u64) -> Vec<Address> {
-    let key = ControllerKey::Delegates(account_id);
-    match env.storage().persistent().get(&key) {
-        Some(vec) => {
-            renew_user_key(env, &key);
-            vec
-        }
-        None => Vec::new(env),
-    }
+    get_user(env, &ControllerKey::Delegates(account_id)).unwrap_or_else(|| Vec::new(env))
 }
 
-/// Persists the delegate list, removing the entry when it becomes empty so a
-/// fully-revoked account leaves no residual storage.
 pub(crate) fn set_delegates(env: &Env, account_id: u64, delegates: &Vec<Address>) {
     let key = ControllerKey::Delegates(account_id);
     if delegates.is_empty() {
         env.storage().persistent().remove(&key);
     } else {
-        env.storage().persistent().set(&key, delegates);
-        renew_user_key(env, &key);
+        set_user(env, &key, delegates);
     }
 }
 
-pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) {
+pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) -> bool {
     let mut delegates = get_delegates(env, account_id);
     if delegates.contains(delegate) {
-        return;
+        return false;
     }
     assert_with_error!(
         env,
@@ -207,14 +157,17 @@ pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) {
     );
     delegates.push_back(delegate.clone());
     set_delegates(env, account_id, &delegates);
+    true
 }
 
-pub(crate) fn remove_delegate(env: &Env, account_id: u64, delegate: &Address) {
+pub(crate) fn remove_delegate(env: &Env, account_id: u64, delegate: &Address) -> bool {
     let mut delegates = get_delegates(env, account_id);
-    if let Some(index) = delegates.first_index_of(delegate) {
-        delegates.remove(index);
-        set_delegates(env, account_id, &delegates);
-    }
+    let Some(index) = delegates.first_index_of(delegate) else {
+        return false;
+    };
+    delegates.remove(index);
+    set_delegates(env, account_id, &delegates);
+    true
 }
 
 pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
@@ -225,15 +178,12 @@ pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&ControllerKey::Delegates(account_id));
 }
 
-// Extends TTL on each existing account key. The `has()` guard is required:
-// soroban-sdk 26.x panics on `extend_ttl` against a missing key.
 pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     let keys = [
         ControllerKey::AccountMeta(account_id),
         ControllerKey::SupplyPositions(account_id),
         ControllerKey::BorrowPositions(account_id),
-        // `Delegates` is renewed here so delegate-only accounts keep access.
         ControllerKey::Delegates(account_id),
     ];
     for key in &keys {

@@ -1,14 +1,9 @@
-//! Supply and borrow index floor and monotonicity rules.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
-
-// Index floor/monotonicity via `get_market_index` is vacuous under
-// `get_sync_data_summary` nondet; proved in pool integrity + common rates rules.
 
 #[rule]
 fn indexes_unchanged_when_no_time_elapsed(e: Env) {

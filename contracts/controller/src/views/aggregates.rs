@@ -1,5 +1,3 @@
-//! USD-aggregate views.
-
 use crate::risk;
 use crate::storage;
 use soroban_sdk::Env;
@@ -16,7 +14,7 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Cache::new_view(env);
-    risk::sum_supply_usd(env, &mut cache, &supply, risk::PositionValueMode::Neutral).raw()
+    risk::sum_supply_usd(env, &mut cache, &supply).raw()
 }
 
 pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
@@ -29,7 +27,7 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Cache::new_view(env);
-    risk::sum_debt_usd(env, &mut cache, &borrow, risk::PositionValueMode::Neutral).raw()
+    risk::sum_debt_usd(env, &mut cache, &borrow).raw()
 }
 
 pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
@@ -37,7 +35,6 @@ pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
         return 0;
     };
     let mut cache = Cache::new_view(env);
-    let _ = risk::restamp_listed_supply_safe_params(&mut cache, &mut account);
-    risk::calculate_ltv_collateral_wad(env, &mut cache, account.spoke_id, &account.supply_positions)
-        .raw()
+    let _ = risk::restamp_listed_supply_ltv(&mut cache, &mut account);
+    risk::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw()
 }

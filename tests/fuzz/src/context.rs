@@ -1,4 +1,3 @@
-//! LendingTest context builders for libFuzzer protocol targets.
 
 pub use test_harness::{eth_preset, usdc_preset, xlm_preset, LendingTest};
 

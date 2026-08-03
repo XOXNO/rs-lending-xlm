@@ -1,5 +1,3 @@
-//! Spoke-asset listing helpers: add, edit, remove, and tighten-only flags.
-
 use common::errors::{CollateralError, SpokeError};
 use common::types::{HubAssetKey, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig};
 use common::validation::{
@@ -14,8 +12,6 @@ use crate::{
     storage,
 };
 
-/// Lists a hub-asset on a spoke after validating risk bounds, caps, and any oracle override.
-/// New listings are refused on a deprecated spoke; edits stay allowed.
 pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
     let spoke = storage::get_spoke(env, args.spoke_id);
@@ -65,16 +61,13 @@ fn load_market_and_validate_caps(
     args: &SpokeAssetArgs,
     hub_asset: &HubAssetKey,
 ) -> PoolSyncData {
-    // The pool owns the market record; this reverts `PoolNotInitialized` when
-    // `(hub, asset)` was never created.
     let market = fetch_pool_sync_data(env, &storage::get_pool(env), hub_asset);
-    // These caps feed `Ray::from_asset`; reject overflow-prone configs here.
+
     require_cap_within_asset_domain(env, args.supply_cap, market.params.asset_decimals);
     require_cap_within_asset_domain(env, args.borrow_cap, market.params.asset_decimals);
     market
 }
 
-/// Resolves the stored listing from validated arguments.
 fn build_spoke_asset_config(args: &SpokeAssetArgs) -> SpokeAssetConfig {
     SpokeAssetConfig {
         is_collateralizable: args.can_collateral,
@@ -90,7 +83,6 @@ fn build_spoke_asset_config(args: &SpokeAssetArgs) -> SpokeAssetConfig {
     }
 }
 
-/// Persists the listing and publishes its resolved snapshot.
 fn store_spoke_asset(
     env: &Env,
     args: &SpokeAssetArgs,
@@ -108,9 +100,6 @@ fn store_spoke_asset(
     .publish(env);
 }
 
-/// Tightens only `paused`/`frozen` on an existing listing (works on deprecated
-/// spokes). Clearing a flag reverts `SpokeAssetFlagRelaxation`; reopen via
-/// timelocked `edit_asset_in_spoke`.
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     spoke_id: u32,
@@ -138,8 +127,6 @@ pub(crate) fn set_spoke_asset_flags(
     .publish(env);
 }
 
-/// Unlists a hub-asset from a spoke. Requires zero usage so a live position's
-/// listing always exists; wind a listing down with `frozen` first.
 pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
     assert_with_error!(
         env,

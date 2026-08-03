@@ -1,5 +1,3 @@
-//! Oracle tolerance bounds on the `edit_oracle_tolerance` forwarder.
-
 use common::errors::OracleError;
 use governance::op::{AdminOperation, EditToleranceArgs};
 use soroban_sdk::Address;
@@ -13,7 +11,7 @@ fn try_tolerance(
     match t.gov_client().try_execute_immediate(
         &t.admin(),
         &AdminOperation::EditOracleTolerance(EditToleranceArgs {
-            asset: asset.clone(),
+            key: controller::types::PriceKey::Token(asset.clone()),
             tolerance,
         }),
     ) {
@@ -22,7 +20,6 @@ fn try_tolerance(
     }
 }
 
-// MIN_TOLERANCE = 150 BPS.
 #[test]
 fn test_tolerance_config_rejects_below_min() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -31,7 +28,6 @@ fn test_tolerance_config_rejects_below_min() {
     assert_contract_error(result, OracleError::BadLastTolerance as u32);
 }
 
-// MAX_TOLERANCE = 5000 BPS.
 #[test]
 fn test_tolerance_config_rejects_above_max() {
     let t = LendingTest::new().with_market(usdc_preset()).build();

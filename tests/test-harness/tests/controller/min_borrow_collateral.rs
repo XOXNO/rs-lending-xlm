@@ -6,7 +6,7 @@ use test_harness::{
 fn test_small_supply_succeeds_when_debt_free() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 5.0);
-    t.assert_supply_near(ALICE, "USDC", 5.0, 1.0);
+    t.assert_supply_near(ALICE, "USDC", 5.0, 0.01);
 }
 
 #[test]
@@ -16,7 +16,6 @@ fn test_borrow_rejected_when_ltv_collateral_below_instance_floor() {
         .with_market(eth_preset())
         .build();
 
-    // $4 LTV-weighted collateral (0.75 × $4 = $3) with $3 debt.
     t.supply(ALICE, "USDC", 4.0);
     let res = t.try_borrow(ALICE, "ETH", 0.0015);
     assert_contract_error(res, errors::MIN_BORROW_COLLATERAL_NOT_MET);
@@ -31,7 +30,7 @@ fn test_borrow_succeeds_when_ltv_collateral_meets_instance_floor() {
 
     t.supply(ALICE, "USDC", 100.0);
     t.borrow(ALICE, "ETH", 0.01);
-    t.assert_borrow_near(ALICE, "ETH", 0.01, 0.005);
+    t.assert_borrow_near(ALICE, "ETH", 0.01, 0.0001);
     t.assert_healthy(ALICE);
 }
 
@@ -42,8 +41,6 @@ fn test_withdraw_while_in_debt_rejected_when_ltv_collateral_falls_below_floor() 
         .with_market(eth_preset())
         .build();
 
-    // Keep debt small so LTV still passes while LTV-weighted collateral drops
-    // below the $5 instance floor.
     t.supply(ALICE, "USDC", 12.0);
     t.borrow(ALICE, "ETH", 0.001);
     let res = t.try_withdraw(ALICE, "USDC", 9.0);
@@ -55,7 +52,7 @@ fn test_withdraw_while_debt_free_allows_small_residue() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 100.0);
     t.withdraw(ALICE, "USDC", 95.0);
-    t.assert_supply_near(ALICE, "USDC", 5.0, 1.0);
+    t.assert_supply_near(ALICE, "USDC", 5.0, 0.01);
 }
 
 #[test]
@@ -68,7 +65,7 @@ fn test_partial_repay_leaving_small_debt_succeeds() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 0.025);
     t.repay(ALICE, "ETH", 0.024);
-    t.assert_borrow_near(ALICE, "ETH", 0.001, 0.0005);
+    t.assert_borrow_near(ALICE, "ETH", 0.001, 0.00005);
 }
 
 #[test]
@@ -81,7 +78,7 @@ fn test_min_borrow_collateral_gate_disabled_when_floor_zero() {
 
     t.supply(ALICE, "USDC", 4.0);
     t.borrow(ALICE, "ETH", 0.0015);
-    t.assert_borrow_near(ALICE, "ETH", 0.0015, 0.0005);
+    t.assert_borrow_near(ALICE, "ETH", 0.0015, 0.00005);
     t.assert_healthy(ALICE);
 }
 
@@ -100,4 +97,7 @@ fn test_borrow_not_blocked_by_unrelated_supply_price_crash() {
         result.is_ok(),
         "borrow should use aggregate LTV collateral: {result:?}"
     );
+
+    t.assert_borrow_near(ALICE, "USDT", 50.0, 0.01);
+    t.assert_healthy(ALICE);
 }

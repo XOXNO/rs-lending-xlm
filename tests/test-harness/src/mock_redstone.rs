@@ -1,5 +1,3 @@
-//! Minimal RedStone multi-feed adapter mock for oracle V2 integration tests.
-
 use common::errors::GenericError;
 use soroban_sdk::{contract, contractimpl, contracttype, Env, Error, String, Vec, U256};
 
@@ -55,7 +53,6 @@ impl MockRedStonePriceFeed {
         package_timestamp: u64,
         write_timestamp: u64,
     ) {
-        // Scale the WAD input down to the mock's advertised decimals.
         let decimals = Self::decimals(env.clone());
         let price_raw = (price_wad / 10i128.pow(18 - decimals)) as u128;
         let data = RedStonePriceData {
@@ -68,8 +65,6 @@ impl MockRedStonePriceFeed {
             .set(&MockKey::PriceData(feed_id), &data);
     }
 
-    /// Overrides the advertised feed decimals (default 8, the RedStone width).
-    /// Set before `set_price*`: prices are scaled at write time.
     pub fn set_decimals(env: Env, decimals: u32) {
         env.storage().temporary().set(&MockKey::Decimals, &decimals);
     }
@@ -80,7 +75,6 @@ impl MockRedStonePriceFeed {
             .set(&MockKey::TruncateBulk, &truncate);
     }
 
-    /// SEP-40-style decimals probe, as served by the XOXNO adapter.
     pub fn decimals(env: Env) -> u32 {
         env.storage()
             .temporary()
@@ -88,15 +82,12 @@ impl MockRedStonePriceFeed {
             .unwrap_or(DEFAULT_DECIMALS)
     }
 
-    /// Overrides the advertised aggregation inclusion window (default 60s).
     pub fn set_max_submission_age_seconds(env: Env, seconds: u64) {
         env.storage()
             .temporary()
             .set(&MockKey::MaxSubmissionAge, &seconds);
     }
 
-    /// XOXNO adapter inclusion-window probe; listing asserts the consumer's
-    /// `max_stale_seconds` is not tighter than this.
     pub fn max_submission_age_seconds(env: Env) -> u64 {
         env.storage()
             .temporary()

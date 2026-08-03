@@ -1,6 +1,5 @@
 use super::*;
 
-// Direct coverage for `OracleAssetRef::Symbol` mapping in `to_reflector_asset`.
 #[test]
 fn test_to_reflector_asset_symbol_maps_to_other() {
     let env = Env::default();
@@ -13,8 +12,6 @@ fn test_to_reflector_asset_symbol_maps_to_other() {
     }
 }
 
-// `OracleAssetRef::String` is unsupported on Reflector and panics with
-// `InvalidOracleTokenType`.
 #[test]
 #[should_panic]
 fn test_to_reflector_asset_string_panics() {
@@ -36,7 +33,10 @@ fn test_min_twap_observations_clamps_and_rounds_up() {
 
 fn pd(env: &soroban_sdk::Env, price: i128) -> ReflectorPriceData {
     let _ = env;
-    ReflectorPriceData { price, timestamp: 0 }
+    ReflectorPriceData {
+        price,
+        timestamp: 0,
+    }
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn try_twap_mean_price_averages_positive_samples() {
 #[test]
 fn try_twap_mean_price_rejects_non_positive_sample() {
     let env = Env::default();
-    // Boundary: a zero sample is rejected (pins the `<= 0` guard, not `< 0`).
+
     let zero = soroban_sdk::vec![&env, pd(&env, 100), pd(&env, 0)];
     assert_eq!(try_twap_mean_price(&zero), None);
     let negative = soroban_sdk::vec![&env, pd(&env, 100), pd(&env, -1)];
@@ -59,10 +59,10 @@ fn try_twap_mean_price_rejects_non_positive_sample() {
 #[test]
 fn try_twap_mean_price_softens_overflow_and_empty() {
     let env = Env::default();
-    // Sum overflow → None (not a panic).
+
     let overflow = soroban_sdk::vec![&env, pd(&env, i128::MAX), pd(&env, i128::MAX)];
     assert_eq!(try_twap_mean_price(&overflow), None);
-    // Empty history → None.
+
     let empty: soroban_sdk::Vec<ReflectorPriceData> = soroban_sdk::Vec::new(&env);
     assert_eq!(try_twap_mean_price(&empty), None);
 }

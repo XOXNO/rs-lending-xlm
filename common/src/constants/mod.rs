@@ -1,5 +1,3 @@
-//! Protocol numeric constants (pool + shared), re-exported flat.
-
 pub mod pool;
 pub mod shared;
 

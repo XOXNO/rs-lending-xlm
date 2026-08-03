@@ -1,4 +1,3 @@
-//! Shared synchronized market fixture for pool-core accounting rules.
 #![allow(dead_code)]
 
 use common::constants::RAY;
@@ -35,14 +34,20 @@ pub fn params_with_decimals(
         mid_utilization: RAY / 2,
         optimal_utilization: RAY * 8 / 10,
         max_borrow_rate: 2 * RAY,
-        // RAY is the validated sentinel that disables the operation-level cap;
-        // the rate/index rules verify the utilization curve separately.
+
         max_utilization: RAY,
         reserve_factor: 1_000,
         is_flashloanable,
         flashloan_fee,
         asset_id: asset,
         asset_decimals,
+    }
+}
+
+pub fn params_with_max_util(asset: Address, max_utilization: i128) -> MarketParamsRaw {
+    MarketParamsRaw {
+        max_utilization,
+        ..params(asset, 0, false)
     }
 }
 
@@ -101,7 +106,6 @@ pub fn action(asset: Address, scaled_amount: i128, amount: i128) -> PoolAction {
     }
 }
 
-/// Independent expansion of `protocol_fee_shares` for pool-transition oracles.
 pub fn expected_protocol_fee_shares(env: &Env, fee: Ray, supply_index: Ray, supplied: Ray) -> Ray {
     let raw = fp_core::mul_div_floor_saturating(env, fee.raw(), RAY, supply_index.raw());
     Ray::from(raw.min(i128::MAX - supplied.raw()))

@@ -4,8 +4,6 @@ use crate::errors::Error;
 use crate::venues::HopContext;
 
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
-    // `Option<T>` in Soroban is represented at the `Val` boundary via the
-    // SDK's `IntoVal`. An explicit `None` is `Option::<i128>::None.into_val`.
     let args: Vec<Val> = vec![
         ctx.env,
         ctx.router.into_val(ctx.env),

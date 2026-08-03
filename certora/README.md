@@ -15,7 +15,7 @@ certora/
 │   ├── confs/
 │   └── spec/        # README.txt — domain invariant + conf map
 ├── shared/          # cross-contract summaries
-├── scripts/         # Python entrypoints, wasm helpers, run-all.sh wrapper
+├── scripts/         # Python entrypoints, wasm helpers, local runner
 ├── profiles.json    # sanity | fast | core | heavy | manual | all
 └── compile_all.sh
 ```
@@ -81,8 +81,8 @@ artifacts are not destroyed.
 ```
 
 Runs `cargo check` for all `certora` feature paths, then `check_orphans.py`
-(conf ↔ `#[rule]` alignment) and `check_invariant_coverage.py` (INVARIANTS.md
-↔ spec modules).
+(conf ↔ `#[rule]` alignment, profile coverage, conf integrity) and
+`sync_wasm_conf.py --check` (focused WASM path/features).
 
 ## Local prover (no cloud)
 
@@ -156,7 +156,7 @@ their source fingerprints before submission. Requires the `CERTORAKEY` secret.
 
 ```bash
 ./certora/scripts/run_profile.py --list
-./certora/scripts/run-all.sh sanity
+./certora/scripts/run_profile.py sanity
 ./certora/scripts/run_profile.py fast
 ./certora/scripts/run_profile.py core
 ./certora/scripts/run_profile.py heavy
@@ -197,6 +197,24 @@ before token transfers. They do not prove arbitrary SAC/callback behavior,
 unbounded batches, or controller persistence of returned account positions. A
 controller verdict that reaches a summarized pool call remains conditional on
 that summary; keep pool accounting and controller summary proofs separate.
+
+**Oracle modeling notes (price-aggregator + controller):**
+- Aggregator provider summaries (`read_*_source_summary`) use `nondet_option` so
+  `None` / Empty / Partial are reachable. Endpoint rules in
+  `feed-endpoints.conf` / `price-sanity.conf` are **success-path** lemmas
+  (assertions hold when a feed is returned). Fail-closed Empty/Partial gates
+  are proved separately in `fail-closed-miss.conf`.
+- Those fail-closed rules build their outcomes with `engine::blend_{empty,
+  partial}`, cfg-gated shims over the live `blend`, so they bind to the real
+  `Outcome` constructors. What they do **not** cover is `compose`'s
+  `(None, None) → Empty` / `(Some, None) → Partial` match: forcing a provider
+  summary to miss needs ghost state shared between rule and summary. That match
+  is driven end to end by the integration suite instead — see
+  `tests/test-harness/tests/oracle/tolerance/staleness.rs` and `twap.rs`.
+- Controller hard `fetch_prices` harness still always returns a positive feed
+  (solvency / health / liquidation remain **oracle-success-conditional**). Soft
+  `fetch_prices_status` draws nondet `stale` / `deviation` / `valid`, assumed
+  consistent with `Outcome::failure`'s gate order (`valid` implies neither flag).
 
 ## Cloud readiness (Certora hosted prover)
 

@@ -1,0 +1,46 @@
+# codebase-memory-mcp scope — production protocol graph only.
+# Does not affect git. Discovery-time only (see DeusData/codebase-memory-mcp docs).
+#
+# Allowlist: contracts + common + interfaces (+ workspace manifests).
+# Deny tests, test-only receivers, examples, docs-as-code, and non-protocol trees.
+
+/*
+!/contracts/
+!/common/
+!/interfaces/
+!/Cargo.toml
+!/Cargo.lock
+
+# Examples under allowlisted trees
+**/examples/
+
+# In-crate and package tests
+**/tests/
+**/test_snapshots/
+**/*_test.rs
+**/test.rs
+**/tests.rs
+**/testing.rs
+
+# Non-code under allowlisted trees (Cargo.toml pseudo-nodes, READMEs)
+**/*.md
+**/Cargo.toml
+!/Cargo.toml
+
+# Belt-and-suspenders if discovery ever sees other trees
+/tests/
+/services/
+/mock/
+/certora/
+/docs/
+/skills/
+/scripts/
+/configs/
+/artifacts/
+/vendor/
+/.cursor/
+/.claude/
+/.github/
+/mutants.out/
+/mutants.out.old/
+/target-mutants/

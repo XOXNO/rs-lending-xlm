@@ -1,5 +1,5 @@
-//! Certora harness for the controller's price-aggregator client.
-//! Every requested asset receives one positive, bounded price feed.
+use cvlr::cvlr_assume;
+use cvlr::nondet::nondet;
 
 use crate::spec::summaries::price_feed_summary;
 use crate::types::{PriceFeedRaw, PriceStatus};
@@ -17,6 +17,11 @@ pub(crate) fn fetch_prices_status(env: &Env, assets: &Vec<Address>) -> Map<Addre
     let mut statuses = Map::new(env);
     for asset in assets.iter() {
         let feed = price_feed_summary(env, &asset);
+        let stale: bool = nondet();
+        let deviation: bool = nondet();
+        let valid: bool = nondet();
+
+        cvlr_assume!(!valid || (!stale && !deviation));
         statuses.set(
             asset.clone(),
             PriceStatus {
@@ -24,9 +29,9 @@ pub(crate) fn fetch_prices_status(env: &Env, assets: &Vec<Address>) -> Map<Addre
                 primary_wad: feed.price_wad,
                 secondary_wad: feed.price_wad,
                 price_timestamp: feed.timestamp,
-                stale: false,
-                deviation: false,
-                valid: true,
+                stale,
+                deviation,
+                valid,
             },
         );
     }

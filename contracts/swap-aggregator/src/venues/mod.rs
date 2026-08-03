@@ -1,8 +1,3 @@
-//! Venue dispatch and balance checks.
-//!
-//! Route pools are untrusted. A hop must spend exactly its input and deliver
-//! real output; venue return values are advisory.
-
 pub(crate) mod aquarius;
 pub(crate) mod comet;
 pub(crate) mod phoenix;
@@ -17,7 +12,6 @@ use soroban_sdk::{
 use crate::errors::Error;
 use crate::types::{SwapHop, SwapVenue};
 
-/// Executes one hop and returns measured output.
 pub(crate) fn dispatch_hop(env: &Env, router: &Address, hop: &SwapHop, amount_in: i128) -> i128 {
     let ctx = HopContext::new(env, router, hop, amount_in);
     let before_in = ctx.input_balance();
@@ -50,7 +44,6 @@ pub(crate) fn dispatch_hop(env: &Env, router: &Address, hop: &SwapHop, amount_in
     received
 }
 
-/// Shared hop context.
 pub(crate) struct HopContext<'a> {
     pub env: &'a Env,
     pub router: &'a Address,
@@ -74,7 +67,6 @@ impl<'a> HopContext<'a> {
         }
     }
 
-    /// Authorizes a pool pull for this hop.
     pub fn authorize_pool_pull(&self) {
         authorize_token_transfer(
             self.env,
@@ -85,17 +77,14 @@ impl<'a> HopContext<'a> {
         );
     }
 
-    /// Router balance for this hop's input token.
     pub fn input_balance(&self) -> i128 {
         token::Client::new(self.env, &self.hop.token_in).balance(self.router)
     }
 
-    /// Router balance for this hop's output token.
     pub fn output_balance(&self) -> i128 {
         token::Client::new(self.env, &self.hop.token_out).balance(self.router)
     }
 
-    /// Infers pair direction.
     pub fn direction_for_pair(&self, token0: &Address, token1: &Address) -> bool {
         if self.hop.token_in == *token0 && self.hop.token_out == *token1 {
             true
@@ -107,7 +96,6 @@ impl<'a> HopContext<'a> {
     }
 }
 
-/// Authorizes one SAC transfer from the router.
 pub(crate) fn authorize_token_transfer(
     env: &Env,
     token: &Address,
@@ -128,7 +116,6 @@ pub(crate) fn authorize_token_transfer(
     );
 }
 
-/// Authorizes one SAC approval from the router.
 pub(crate) fn authorize_token_approve(
     env: &Env,
     token: &Address,
@@ -151,7 +138,6 @@ pub(crate) fn authorize_token_approve(
     );
 }
 
-/// Builds a Soroban auth entry.
 pub(crate) fn auth_entry(
     env: &Env,
     contract: &Address,
@@ -169,7 +155,6 @@ pub(crate) fn auth_entry(
     })
 }
 
-/// Authorizes a current-contract invocation.
 pub(crate) fn authorize_as_current(
     env: &Env,
     contract: &Address,

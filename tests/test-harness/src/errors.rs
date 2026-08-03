@@ -1,10 +1,7 @@
-//! Contract error codes for test assertions — sourced from `common::errors`.
-
 pub use common::errors::{
     CollateralError, FlashLoanError, GenericError, OracleError, SpokeError, StrategyError,
 };
 
-/// Stable `u32` aliases used by `assert_contract_error` and integration tests.
 pub mod codes {
     use super::*;
 
@@ -64,6 +61,7 @@ pub mod codes {
     pub const INVALID_PRICE: u32 = OracleError::InvalidPrice as u32;
     pub const UNSAFE_PRICE: u32 = OracleError::UnsafePriceNotAllowed as u32;
     pub const PRICE_FEED_STALE: u32 = OracleError::PriceFeedStale as u32;
+    pub const NO_LAST_PRICE: u32 = OracleError::NoLastPrice as u32;
     pub const BAD_LAST_TOLERANCE: u32 = OracleError::BadLastTolerance as u32;
     pub const REFLECTOR_HISTORY_EMPTY: u32 = OracleError::ReflectorHistoryEmpty as u32;
     pub const TWAP_INSUFFICIENT_OBSERVATIONS: u32 =
@@ -93,18 +91,12 @@ pub mod codes {
     pub const ROUTER_OVERSPEND: u32 = StrategyError::RouterOverspend as u32;
     pub const NO_SWAP_OUTPUT: u32 = StrategyError::NoSwapOutput as u32;
 
-    // OpenZeppelin Pausable (not in common::errors)
     pub const CONTRACT_PAUSED: u32 = 1000;
 
-    // OpenZeppelin AccessControl (not in common::errors): raised by `ensure_role`
-    // when a caller lacks a timelock role (PROPOSER/EXECUTOR/CANCELLER).
     pub const UNAUTHORIZED: u32 = 2000;
 
-    // Stellar Access role transfer (not in common::errors): raised when an
-    // ownership/admin transfer has no pending candidate to accept.
     pub const NO_PENDING_TRANSFER: u32 = 2200;
 
-    // Compatibility aliases for renumbered/removed common::errors codes.
     pub const REFLECTOR_NOT_CONFIGURED: u32 = 215;
     pub const SWAP_DEBT_NOT_SUPPORTED: u32 = 406;
     pub const NO_DEBT_PAYMENTS: u32 = 407;

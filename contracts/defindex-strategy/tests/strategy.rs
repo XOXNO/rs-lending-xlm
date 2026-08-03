@@ -1,5 +1,3 @@
-//! DeFindex strategy tests with synthetic vault addresses.
-
 extern crate std;
 
 use defindex_strategy::{DataKey, DeFindexStrategyError, Strategy, StrategyClient};
@@ -11,11 +9,10 @@ use test_harness::{
     eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB, HARNESS_HUB, HARNESS_SPOKE,
 };
 
-const UNIT: i128 = 10_000_000; // 1.0 at the presets' 7 decimals
+const UNIT: i128 = 10_000_000;
 const PPS_SCALAR: i128 = 1_000_000_000_000;
 const RAY: i128 = 1_000_000_000_000_000_000_000_000_000;
 
-// Mirror of the contract's vault-mapping TTL policy (lib.rs constants).
 const LEDGERS_PER_DAY: u32 = 17_280;
 const VAULT_TTL_THRESHOLD: u32 = LEDGERS_PER_DAY * 30;
 
@@ -104,7 +101,6 @@ impl StrategyTest {
     fn new() -> Self {
         let mut t = LendingTest::new()
             .with_market(usdc_preset())
-            // ETH market lets Bob post borrow collateral for the USDC borrow below.
             .with_market(eth_preset())
             .build();
 
@@ -160,8 +156,6 @@ impl StrategyTest {
         token::Client::new(&self.t.env, &self.asset).balance(of)
     }
 
-    /// Live controller account id for `vault`, mirroring the strategy's read
-    /// path: the stored mapping only counts while the controller account exists.
     fn live_account_id(&self, vault: &Address) -> u64 {
         let env = &self.t.env;
         let stored: u64 = env.as_contract(&self.client_address, || {
@@ -177,7 +171,6 @@ impl StrategyTest {
         }
     }
 
-    /// Remaining TTL (in ledgers) of the vault->account mapping entry.
     fn vault_mapping_ttl(&self, vault: &Address) -> u32 {
         let env = &self.t.env;
         env.as_contract(&self.client_address, || {
@@ -308,11 +301,9 @@ fn test_supply_clears_stale_vault_mapping_after_full_withdraw() {
     let sink = Address::generate(&s.t.env);
     s.client().withdraw(&balance, &s.vault, &sink);
 
-    // Read paths return 0 after controller account closure.
     assert_eq!(s.client().balance(&s.vault), 0);
     assert_eq!(s.live_account_id(&s.vault), 0);
 
-    // Supply clears the stale mapping and opens a new controller account.
     s.client().deposit(&(500 * UNIT), &s.vault);
     let account_after = s.live_account_id(&s.vault);
     assert!(account_after > account_before);
@@ -320,10 +311,6 @@ fn test_supply_clears_stale_vault_mapping_after_full_withdraw() {
     assert!(s.live_account_id(&s.vault) != 0);
 }
 
-// Full withdraw clears the vault->account mapping immediately. A deferred
-// clear would let dust of another asset keep the controller account alive,
-// allowing an attacker to hit PositionLimitExceeded on redeposit.
-// Assert raw storage (live_account_id also checks existence).
 #[test]
 fn test_full_withdraw_clears_stored_vault_mapping_immediately() {
     let mut s = StrategyTest::new();
@@ -347,11 +334,6 @@ fn test_full_withdraw_clears_stored_vault_mapping_immediately() {
     );
 }
 
-// Vault mapping TTL: fresh entries extend to ~180d; live-account reads
-// re-extend below the ~30d threshold (518_400 ledgers).
-//
-// Deposit-time extension starts below every candidate threshold, so age into
-// the gap (17_310, 518_400) and assert re-extension on read.
 #[test]
 fn test_read_path_reextends_vault_mapping_ttl_below_threshold() {
     let mut s = StrategyTest::new();
@@ -363,8 +345,6 @@ fn test_read_path_reextends_vault_mapping_ttl_below_threshold() {
         "deposit must extend the fresh mapping well past the threshold, got {initial}"
     );
 
-    // Age ~174 days: remaining = 3_110_400 - 3_006_720 = 103_680 ledgers,
-    // inside (17_310, 518_400).
     s.t.advance_time(60 * 60 * 24 * 174);
     let aged = s.vault_mapping_ttl(&s.vault);
     assert!(
@@ -372,7 +352,6 @@ fn test_read_path_reextends_vault_mapping_ttl_below_threshold() {
         "aged TTL must sit between the mutant thresholds and the real one, got {aged}"
     );
 
-    // Any resolving read (balance) must re-extend the mapping to ~180 days.
     assert!(s.client().balance(&s.vault) > 0);
     let renewed = s.vault_mapping_ttl(&s.vault);
     assert!(
@@ -381,11 +360,6 @@ fn test_read_path_reextends_vault_mapping_ttl_below_threshold() {
     );
 }
 
-// Deposit must explicitly authorize the strategy->pool token transfer via
-// `authorize_as_current_contract`: the controller (not the strategy) invokes
-// `transfer(strategy, pool, amount)`, so invoker auth does not cover it.
-// Mock only the vault's signature tree — the strategy's contract auth must
-// come from the contract itself for the supply to settle.
 #[test]
 fn test_deposit_authorizes_pool_transfer_without_global_auth_mock() {
     let s = StrategyTest::new();
@@ -471,32 +445,23 @@ fn test_harvest_price_per_share_independent_of_vault_balance() {
     assert_eq!(pps_large, expected);
 }
 
-// Harvest requires `from` auth.
 #[test]
 fn test_harvest_requires_from_auth() {
     let s = StrategyTest::new();
-    // Seed valid state before auth check.
+
     s.client().deposit(&(1_000 * UNIT), &s.vault);
 
-    // Attacker-selected `from`.
     let attacker_chosen_from = Address::generate(&s.t.env);
 
-    // Disable mocked auth.
     s.t.env.set_auths(&[]);
 
-    // Harvest fails without `from` auth.
     let blocked_harvest = s.client().try_harvest(&attacker_chosen_from, &None);
-    assert!(
-        blocked_harvest.is_err(),
-        "harvest must require `from` auth"
-    );
+    assert!(blocked_harvest.is_err(), "harvest must require `from` auth");
 
-    // Deposit also fails without auth.
     let blocked_deposit = s.client().try_deposit(&UNIT, &attacker_chosen_from);
     assert!(blocked_deposit.is_err(), "deposit must require `from` auth");
 }
 
-// Direct controller supply increases vault NAV without `Strategy::deposit`.
 #[test]
 fn test_donation_via_controller_supply_inflates_nav() {
     let s = StrategyTest::new();
@@ -507,7 +472,6 @@ fn test_donation_via_controller_supply_inflates_nav() {
     assert!(account_id > 0);
     let before = client.balance(&s.vault);
 
-    // Bypass `Strategy::deposit` through controller supply.
     let attacker = Address::generate(&s.t.env);
     s.t.resolve_market("USDC")
         .token_admin
@@ -519,7 +483,6 @@ fn test_donation_via_controller_supply_inflates_nav() {
         &vec![&s.t.env, (hub_asset(s.asset.clone()), 500 * UNIT)],
     );
 
-    // Donation appears in vault NAV.
     let after = client.balance(&s.vault);
     assert!(
         after >= before + 499 * UNIT,

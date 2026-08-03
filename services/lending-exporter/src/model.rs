@@ -1,11 +1,8 @@
-//! On-chain integer → Prometheus `f64` gauge math.
-//!
-//! APY: per-ms RAY rate, daily-compounded over 365 days (matches api-v2 accrual).
 
 pub const RAY_F64: f64 = 1e27;
 pub const WAD_F64: f64 = 1e18;
 pub const BPS_F64: f64 = 1e4;
-/// ms/day — per-ms rate compounds over this to a daily rate.
+
 pub const MS_PER_DAY: f64 = 86_400_000.0;
 pub const DAYS_PER_YEAR: i32 = 365;
 
@@ -17,7 +14,6 @@ pub fn wad_to_f64(value: i128) -> f64 {
     value as f64 / WAD_F64
 }
 
-/// 200 bps → 0.02.
 pub fn bps_to_ratio(value: u32) -> f64 {
     f64::from(value) / BPS_F64
 }
@@ -30,13 +26,11 @@ pub fn token_usd(base_units: i128, decimals: u32, price_wad: i128) -> f64 {
     token_to_f64(base_units, decimals) * wad_to_f64(price_wad)
 }
 
-/// `(1 + rate_per_ms/RAY * ms_per_day)^365 - 1`.
 pub fn apy_from_per_ms_ray(rate_per_ms_ray: i128) -> f64 {
     let daily = (rate_per_ms_ray as f64 / RAY_F64) * MS_PER_DAY;
     (1.0 + daily).powi(DAYS_PER_YEAR) - 1.0
 }
 
-/// |primary−anchor| in bps; `None` if anchor is 0.
 pub fn deviation_bps(primary_wad: i128, anchor_wad: i128) -> Option<f64> {
     if anchor_wad == 0 {
         return None;
@@ -45,22 +39,15 @@ pub fn deviation_bps(primary_wad: i128, anchor_wad: i128) -> Option<f64> {
     Some(dev * BPS_F64)
 }
 
-/// Whole tokens from RAY-scaled share × live index.
-///
-/// On-chain: `scaled * index / 1e(54-dec)` base units; divide by `10^dec` cancels
-/// decimals → `ray(scaled) * ray(index)`.
 pub fn scaled_usage_to_token(scaled_ray: i128, index_ray: i128) -> f64 {
     ray_to_f64(scaled_ray) * ray_to_f64(index_ray)
 }
 
-/// Headroom until stale: `max_stale - (now - feed_ts)`. Negative if already stale.
-/// Matches on-chain `stale iff now > feed_ts && (now - feed_ts) > max_stale`.
 pub fn seconds_until_stale(now_secs: i64, feed_ts_secs: u64, max_stale_secs: u64) -> f64 {
     let age = now_secs - feed_ts_secs as i64;
     max_stale_secs as f64 - age as f64
 }
 
-/// `usage / cap`; `None` when uncapped (`cap <= 0`).
 pub fn cap_utilization(usage_token: f64, cap_base_units: i128, decimals: u32) -> Option<f64> {
     if cap_base_units <= 0 {
         return None;

@@ -1,5 +1,3 @@
-//! Blend migration allowlist helpers.
-
 use soroban_sdk::{Address, Env};
 
 use crate::events::ApproveBlendPoolEvent;

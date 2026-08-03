@@ -1,190 +1,131 @@
-//! Price aggregator: the lending protocol's single oracle entry point.
-//!
-//! Owns token-rooted `AssetOracle` configs and every oracle interaction
-//! (source reads, composition, primary/anchor tolerance, staleness, sanity
-//! bounds, recursive quote resolution). Risk paths use `price`/`prices`
-//! (fail-closed). Views use `price_status`/`prices_status` (soft flags).
-//! See `docs/reference/invariants.md` §4.3 and ADR 0003.
-
 #![no_std]
 
-mod compose;
-mod config;
-mod context;
-mod events;
+mod admin;
+mod engine;
 mod observation;
-mod prefetch;
-mod price;
+mod properties;
 mod providers;
-mod status;
-mod storage;
+mod registry;
+mod session;
 mod tolerance;
+mod validation;
 
 #[cfg(feature = "certora")]
 #[path = "../../../certora/price-aggregator/spec/mod.rs"]
 pub mod spec;
 
+#[cfg(test)]
+#[path = "../tests/oracle/support.rs"]
+mod test_support;
+
 use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
-use stellar_access::ownable::{self, Ownable};
+use stellar_access::ownable;
 use stellar_macros::only_owner;
 
-use common::types::{AssetOracleConfig, OracleTolerance, PriceFeedRaw, PriceStatus};
+use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
+use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus};
 
 pub use common::errors::OracleError as Error;
+
+fn renew_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+}
+
+fn warmed_session(env: &Env, keys: &Vec<PriceKey>) -> session::Session {
+    renew_instance(env);
+    let mut sess = session::Session::new(env);
+    sess.warm(keys);
+    sess
+}
 
 #[contract]
 pub struct PriceAggregator;
 
 #[contractimpl]
 impl PriceAggregator {
-    /// Registers `owner` (the governance contract) as the OZ `Ownable` owner.
     pub fn __constructor(env: Env, owner: Address) {
         ownable::set_owner(&env, &owner);
+        renew_instance(&env);
     }
 
-    /// Bulk token-rooted USD prices for `assets`. Fail-closed: any unsafe,
-    /// stale, or unconfigured asset reverts the whole call. Public; risk-path
-    /// consumers (controller) rely on the revert.
-    ///
-    /// # Errors
-    /// * `OracleNotConfigured` — missing or pending `AssetOracle`.
-    /// * `OracleCycleDetected` — quote/anchor cycle while resolving.
-    /// * `PriceFeedStale` — observation past max stale or beyond future skew.
-    /// * `NoLastPrice` — Reflector spot missing, or dual strategy without anchor.
-    /// * `InvalidTicker` — RedStone/Xoxno feed missing.
-    /// * `UnsafePriceNotAllowed` — primary/anchor outside tolerance band.
-    /// * `SanityBoundViolated` — final price outside sanity band.
-    /// * `InvalidPrice` — non-positive final or invalid provider payload.
-    /// * `ReflectorHistoryEmpty` / `TwapInsufficientObservations` — TWAP gaps.
-    /// * `InvalidOracleBase` — quoted base not USD-rooted.
-    /// * `MathOverflow` — midpoint or normalize overflow.
-    pub fn prices(env: Env, assets: Vec<Address>) -> Map<Address, PriceFeedRaw> {
-        let mut cache = context::ResolutionContext::new(&env);
-        prefetch::warm_multi_feed_adapters(&mut cache, &assets);
+    pub fn get_owner(env: Env) -> Option<Address> {
+        renew_instance(&env);
+        ownable::get_owner(&env)
+    }
+
+    pub fn prices(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceFeedRaw> {
         let mut out = Map::new(&env);
-        for asset in assets.iter() {
-            let feed = price::resolve_usd_price(&mut cache, &asset);
-            out.set(asset, feed);
+        let mut session = warmed_session(&env, &keys);
+        for key in keys.iter() {
+            out.set(key.clone(), engine::resolve(&mut session, &key, 0));
         }
         out
     }
 
-    /// Single token-rooted USD price. Fail-closed (same checks as `prices`).
-    ///
-    /// # Errors
-    /// Same named variants as [`Self::prices`].
-    pub fn price(env: Env, asset: Address) -> PriceFeedRaw {
-        let mut cache = context::ResolutionContext::new(&env);
-        price::resolve_usd_price(&mut cache, &asset)
+    pub fn price(env: Env, key: PriceKey) -> PriceFeedRaw {
+        let keys = Vec::from_array(&env, [key.clone()]);
+        engine::resolve(&mut warmed_session(&env, &keys), &key, 0)
     }
 
-    /// Soft diagnostic status for one asset. Public; never reverts on stale,
-    /// dual-source deviation, or unreadable feeds — those set flags / yield
-    /// [`PriceStatus::unusable`].
-    pub fn price_status(env: Env, asset: Address) -> PriceStatus {
-        let mut cache = context::ResolutionContext::new(&env);
-        status::resolve_price_status(&mut cache, &asset)
+    pub fn quote(env: Env, key: PriceKey) -> PriceStatus {
+        let keys = Vec::from_array(&env, [key.clone()]);
+        engine::resolve_status(&mut warmed_session(&env, &keys), &key, 0)
     }
 
-    /// Bulk soft diagnostic statuses (one context + multi-feed prefetch).
-    /// Never reverts for stale feeds or dual-source deviation; those set flags
-    /// on each [`PriceStatus`]. Unreadable feeds yield [`PriceStatus::unusable`].
-    pub fn prices_status(env: Env, assets: Vec<Address>) -> Map<Address, PriceStatus> {
-        let mut cache = context::ResolutionContext::new(&env);
-        prefetch::warm_multi_feed_adapters(&mut cache, &assets);
+    pub fn quotes(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus> {
         let mut out = Map::new(&env);
-        for asset in assets.iter() {
-            out.set(
-                asset.clone(),
-                status::resolve_price_status(&mut cache, &asset),
-            );
+        let mut session = warmed_session(&env, &keys);
+        for key in keys.iter() {
+            out.set(key.clone(), engine::resolve_status(&mut session, &key, 0));
         }
         out
     }
 
-    /// Token-rooted oracle config for `asset`, if configured. Public view.
-    pub fn oracle_config(env: Env, asset: Address) -> Option<AssetOracleConfig> {
-        storage::get_oracle_config(&env, &asset)
+    pub fn price_spread(env: Env, key: PriceKey) -> (i128, i128) {
+        let keys = Vec::from_array(&env, [key.clone()]);
+        let (_, outcome) = engine::resolve_detailed(&mut warmed_session(&env, &keys), &key, 0);
+        (
+            outcome.first_wad.min(outcome.second_wad),
+            outcome.first_wad.max(outcome.second_wad),
+        )
     }
 
-    /// Registers or replaces the token-rooted oracle config for `asset`.
-    /// Owner (governance) only. Does not require a live feed at write time.
-    ///
-    /// # Errors
-    /// * `InvalidSanityBounds` — non-positive or inverted band, or above cap.
-    /// * `SanityBandTooWideForSingleSource` — Single band exceeds midpoint width.
-    /// * `BadLastTolerance` — anchored tolerance outside envelope.
-    /// * `InvalidOracleBase` — Reflector quote not USD-rooted or self-quote.
-    ///
-    /// # Events
-    /// * topics — `["config", "oracle"]`
-    #[only_owner]
-    pub fn set_oracle_config(env: Env, asset: Address, config: AssetOracleConfig) {
-        config::set_oracle_config(&env, asset, config);
+    pub fn oracle(env: Env, key: PriceKey) -> Option<AssetOracle> {
+        renew_instance(&env);
+        registry::get_oracle(&env, &key)
     }
 
-    /// Walks the sanity band on an active oracle. Owner only. New band must
-    /// overlap the old one and contain the current live hard-path price.
-    ///
-    /// # Errors
-    /// * `OracleNotConfigured` — no stored config for `asset`.
-    /// * `InvalidSanityBounds` / `SanityBandTooWideForSingleSource` — band checks.
-    /// * Plus every fail-closed variant from [`Self::price`] on the containment probe.
-    ///
-    /// # Events
-    /// * topics — `["config", "oracle"]`
     #[only_owner]
-    pub fn set_sanity_band(env: Env, asset: Address, min_wad: i128, max_wad: i128) {
-        config::set_sanity_band(&env, asset, min_wad, max_wad);
+    pub fn set_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
+        renew_instance(&env);
+        admin::set_oracle(&env, key, oracle);
     }
 
-    /// Updates the primary/anchor tolerance band on an active oracle. Owner only.
-    ///
-    /// # Errors
-    /// * `OracleNotConfigured` — no stored config for `asset`.
-    /// * `BadLastTolerance` — tolerance outside envelope.
-    ///
-    /// # Events
-    /// * topics — `["config", "oracle"]`
     #[only_owner]
-    pub fn set_tolerance(env: Env, asset: Address, tolerance: OracleTolerance) {
-        config::set_tolerance(&env, asset, tolerance);
+    pub fn set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128) {
+        renew_instance(&env);
+        admin::set_sanity_band(&env, key, min_wad, max_wad);
+    }
+
+    #[only_owner]
+    pub fn set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance) {
+        renew_instance(&env);
+        admin::set_tolerance(&env, key, tolerance);
     }
 }
 
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl PriceAggregator {
-    /// Test-only: seed a resolved oracle config directly, bypassing owner auth
-    /// and validation, so consumer tests can wire a priceable asset cheaply.
-    pub fn seed_oracle_config(env: Env, asset: Address, config: AssetOracleConfig) {
-        storage::set_oracle_config(&env, &asset, &config);
+    pub fn seed_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
+        renew_instance(&env);
+        registry::store_oracle(&env, &key, &oracle);
     }
 
-    /// Test-only: remove an asset's oracle (disables pricing for it).
-    pub fn remove_oracle_config(env: Env, asset: Address) {
-        storage::remove_oracle_config(&env, &asset);
-    }
-}
-
-/// `#[contractimpl]` can't see through to `Ownable`'s trait defaults, so each
-/// body is written out. `transfer_ownership`/`renounce_ownership` gate on owner
-/// auth internally — no `#[only_owner]` here.
-#[contractimpl]
-impl Ownable for PriceAggregator {
-    fn get_owner(e: &Env) -> Option<Address> {
-        ownable::get_owner(e)
-    }
-
-    fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32) {
-        ownable::transfer_ownership(e, &new_owner, live_until_ledger);
-    }
-
-    fn accept_ownership(e: &Env) {
-        ownable::accept_ownership(e);
-    }
-
-    fn renounce_ownership(e: &Env) {
-        ownable::renounce_ownership(e);
+    pub fn remove_oracle(env: Env, key: PriceKey) {
+        renew_instance(&env);
+        registry::remove_oracle(&env, &key);
     }
 }

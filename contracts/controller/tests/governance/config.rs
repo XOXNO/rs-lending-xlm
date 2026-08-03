@@ -1,5 +1,6 @@
 use super::*;
 use common::constants::WAD;
+use common::errors::GenericError;
 use soroban_sdk::testutils::Address as _;
 
 fn new_controller(env: &Env) -> Address {
@@ -7,8 +8,6 @@ fn new_controller(env: &Env) -> Address {
     env.register(Controller, (admin,))
 }
 
-// `create_hub` ids start at 1 (the constructor seeds no hub) and each created
-// hub is active on return.
 #[test]
 fn create_hub_assigns_increasing_ids_and_marks_active() {
     let env = Env::default();
@@ -23,7 +22,6 @@ fn create_hub_assigns_increasing_ids_and_marks_active() {
     });
 }
 
-// Hub 0 is uncreated and reverts like any inactive hub.
 #[test]
 #[should_panic(expected = "Error(Contract, #43)")]
 fn require_hub_active_rejects_unseeded_hub_zero() {
@@ -67,8 +65,6 @@ fn require_hub_active_rejects_deactivated_hub() {
     });
 }
 
-// The setter overrides the defaults stamped at `add_spoke` and the change is
-// visible on the next `storage::get_spoke` read.
 #[test]
 fn set_spoke_liquidation_curve_overrides_defaults() {
     let env = Env::default();
@@ -97,7 +93,7 @@ fn set_spoke_liquidation_curve_overrides_defaults() {
         assert_eq!(after.liquidation_target_hf_wad, 1_010_000_000_000_000_000);
         assert_eq!(after.hf_for_max_bonus_wad, 995_000_000_000_000_000);
         assert_eq!(after.liquidation_bonus_factor_bps, 8_000);
-        // Deprecation flag is untouched by the curve setter.
+
         assert!(!after.is_deprecated);
     });
 }
@@ -169,8 +165,6 @@ fn set_spoke_liquidation_curve_panics_for_bonus_factor_above_bps() {
     });
 }
 
-// The owner-gated entrypoints must round-trip through the contract ABI —
-// wrapper-level coverage, distinct from the internal-helper tests below.
 #[test]
 fn min_borrow_floor_entrypoints_round_trip() {
     let env = Env::default();
@@ -198,23 +192,24 @@ fn blend_pool_approval_entrypoints_round_trip() {
     assert!(!client.is_blend_pool_approved(&pool));
 }
 
-// `upgrade_pool` must reach the pool lookup: with no pool deployed the
-// entrypoint reverts instead of silently returning.
 #[test]
-fn upgrade_pool_reverts_without_deployed_pool() {
+fn upgrade_pool_reverts_pool_not_initialized_without_deployed_pool() {
     let env = Env::default();
     env.mock_all_auths();
     let contract = new_controller(&env);
     let client = crate::ControllerClient::new(&env, &contract);
 
     let bogus = soroban_sdk::BytesN::from_array(&env, &[7u8; 32]);
-    assert!(client.try_upgrade_pool(&bogus).is_err());
+    assert_eq!(
+        client.try_upgrade_pool(&bogus),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            GenericError::PoolNotInitialized as u32
+        )))
+    );
 }
 
-// `remove_delegate` must reach the owner check: a caller that owns no such
-// account reverts instead of silently returning.
 #[test]
-fn remove_delegate_reverts_for_non_owner() {
+fn remove_delegate_reverts_account_not_in_market_for_non_owner() {
     let env = Env::default();
     env.mock_all_auths();
     let contract = new_controller(&env);
@@ -222,24 +217,56 @@ fn remove_delegate_reverts_for_non_owner() {
 
     let stranger = Address::generate(&env);
     let delegate = Address::generate(&env);
-    assert!(client
-        .try_remove_delegate(&stranger, &1u64, &delegate)
-        .is_err());
+    assert_eq!(
+        client.try_remove_delegate(&stranger, &1u64, &delegate),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            GenericError::AccountNotInMarket as u32
+        )))
+    );
 }
 
 #[test]
-fn min_borrow_floor_defaults_and_blend_wrapper_reflects_storage() {
+fn recapitalize_is_permissionless_and_pause_exempt() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract = new_controller(&env);
+    let client = crate::ControllerClient::new(&env, &contract);
+
+    let payer = Address::generate(&env);
+    let hub_asset = common::types::HubAssetKey {
+        hub_id: 1,
+        asset: Address::generate(&env),
+    };
+    assert_eq!(
+        client.try_recapitalize(&payer, &hub_asset, &1i128),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            GenericError::PoolNotInitialized as u32
+        )))
+    );
+}
+
+#[test]
+fn min_borrow_floor_reads_the_default_when_unset() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        // Unset floor returns the default constant.
         assert_eq!(
             storage::get_min_borrow_collateral_usd_wad(&env),
             crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD
         );
-        // Blend-pool wrapper reflects storage both ways.
+    });
+}
+
+#[test]
+fn blend_pool_approval_helper_reflects_storage() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    env.as_contract(&contract, || {
         let pool = Address::generate(&env);
-        assert!(!approvals::is_blend_pool_approved(&env, pool.clone()));
+        assert!(
+            !approvals::is_blend_pool_approved(&env, pool.clone()),
+            "an unwritten pool must read as not approved"
+        );
         approvals::set_blend_pool_approval(&env, pool.clone(), true);
         assert!(approvals::is_blend_pool_approved(&env, pool));
     });

@@ -1,29 +1,30 @@
-# Governance timelock e2e against the governance-owned controller (GOV_CONTROLLER,
-# deployed by deploy_protocol). Covers the production trust model the EOA fast
-# path bypasses: deploy_controller ownership, the resolver views, and the full
-# propose -> await -> execute lifecycle plus cancel and a non-PROPOSER guard.
-#
-# Short timelock (INTEG_MIN_DELAY ledgers, ~5s/ledger) keeps the await a real but
-# fast delay. The execute args are the EXACT ScVal Vec<Val> the proposer scheduled:
-# derived by encoding the controller's typed setter with --build-only and
-# decoding invoke_contract.args (same method as configs/script.sh executeOp).
+
+
+
+
+
+
+
+
+
 
 GOV_ZERO32="0000000000000000000000000000000000000000000000000000000000000000"
 GOV_SALT_CANCEL="1111111111111111111111111111111111111111111111111111111111111111"
 GOV_SALT_EXEC="2222222222222222222222222222222222222222222222222222222222222222"
 GOV_SALT_DENY="3333333333333333333333333333333333333333333333333333333333333333"
 GOV_SALT_BADLIMITS="4444444444444444444444444444444444444444444444444444444444444444"
-GOV_SALT_SELF_GRANT="5555555555555555555555555555555555555555555555555555555555555555"
+GOV_SALT_SELF_DELAY="5555555555555555555555555555555555555555555555555555555555555555"
 GOV_SALT_BADCURVE="6666666666666666666666666666666666666666666666666666666666666666"
 GOV_SALT_UNPAUSE="7777777777777777777777777777777777777777777777777777777777777777"
+GOV_SALT_SELF_SENSITIVE="8888888888888888888888888888888888888888888888888888888888888888"
 
-# Raw operation state (Unset|Waiting|Ready|Done) for an op id.
+
 gov_state() {
     stellar contract invoke --id "$GOVERNANCE" --source "$ADMIN" --network "$NETWORK" --send=no \
         -- get_operation_state --operation_id "$1" 2>/dev/null | tr -d '"[:space:]'
 }
 
-# Asserts the timelock op state, recording a gate-visible row either way.
+
 gov_assert_state() {
     local label="$1" op_id="$2" want="$3" got
     got=$(gov_state "$op_id")
@@ -34,7 +35,7 @@ gov_assert_state() {
     fi
 }
 
-# Polls get_operation_state until Ready/Done (or times out). Echoes the final state.
+
 gov_await_ready() {
     local op_id="$1" tries="${2:-30}" st i
     for ((i = 0; i < tries; i++)); do
@@ -46,8 +47,8 @@ gov_await_ready() {
     return 1
 }
 
-# Derives the scheduled ScVal Vec<Val> args for a GOV_CONTROLLER setter by
-# encoding the typed invoke (--build-only) and decoding invoke_contract.args.
+
+
 gov_scval_args() {
     local fn="$1"; shift
     local txb
@@ -60,7 +61,7 @@ gov_scval_args() {
 flow_governance() {
     phase governance
 
-    # deploy_controller: governance owns GOV_CONTROLLER; a second deploy reverts (#5).
+
     local gov_ctrl
     gov_ctrl=$(view gov_controller_view "$GOVERNANCE" -- controller | tr -d '"[:space:]')
     if [ "$gov_ctrl" != "$GOV_CONTROLLER" ]; then
@@ -69,11 +70,11 @@ flow_governance() {
     xfail gov_deploy_twice 'Error\(Contract, #5\)' "$ADMIN" "$GOVERNANCE" -- deploy_controller \
         --wasm_hash "$CTRL_HASH"
 
-    # Unpause the fresh (paused-by-default) governance-owned controller so the
-    # timelocked setter is not pause-gated; then exercise the resolver views.
-    # The direct `unpause` entrypoint was removed in the PR #89 role model:
-    # unpause is now the timelocked AdminOperation::Unpause (unit variant, empty
-    # controller args). Run the full propose -> await -> execute lifecycle.
+
+
+
+
+
     local op_unpause st_unpause unpause_args_f
     op_unpause=$(inv gov_propose_unpause "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" \
@@ -94,10 +95,10 @@ view gov_has_role_admin_executor "$GOVERNANCE" -- has_role \
 view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
 --tolerance 200 >/dev/null
 
-    # Propose then cancel: state moves from Waiting to Unset. Scheduled via the
-    # generic `propose(proposer, op: AdminOperation, salt)`. SetPositionLimits is a
-    # single-field variant, so the friendly enum form is
-    # {"SetPositionLimits": <PositionLimits>}.
+
+
+
+
     local op_cancel
     op_cancel=$(inv gov_propose_cancel "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" \
@@ -108,7 +109,7 @@ view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
         --canceller "$ADMIN_ADDR" --operation_id "$op_cancel" >/dev/null
     gov_assert_state gov_state_unset "$op_cancel" Unset
 
-    # Full lifecycle: propose -> await real delay -> execute (open, executor=None).
+
     local op_exec st args_f
     op_exec=$(inv gov_propose_exec "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" \
@@ -130,51 +131,72 @@ inv gov_execute "$ADMIN" "$GOVERNANCE" -- execute \
 --executor null --target "$GOV_CONTROLLER" --function set_position_limits \
 --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC" >/dev/null
     gov_assert_state gov_state_unset_after_exec "$op_exec" Unset
-    # A post-execution replay of the same op reverts (no longer pending, #4002).
+
     xfail gov_execute_replay 'Error\(' "$ADMIN" "$GOVERNANCE" -- execute \
         --executor null --target "$GOV_CONTROLLER" --function set_position_limits \
         --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC"
 
-    # Non-PROPOSER cannot schedule (#2000 before anything is queued).
+
     xfail gov_propose_non_proposer 'Error\(Contract, #2000\)' "$ALICE" "$GOVERNANCE" -- propose \
         --proposer "$ALICE_ADDR" \
         --op '{"SetPositionLimits":{"max_supply_positions":5,"max_borrow_positions":5}}' \
         --salt "$GOV_SALT_DENY"
 
-    # Operation validation runs at propose time: limits above POSITION_LIMIT_MAX=10
-    # are rejected (#36) before anything is scheduled. This bound lives on the
-    # governance path (controller's direct setter is a thin owner-only writer).
+
+
+
 xfail gov_propose_bad_limits 'Error\(Contract, #36\)' "$ADMIN" "$GOVERNANCE" -- propose \
 --proposer "$ADMIN_ADDR" \
 --op '{"SetPositionLimits":{"max_supply_positions":11,"max_borrow_positions":11}}' \
 --salt "$GOV_SALT_BADLIMITS"
 
-# SetSpokeLiquidationCurve: bonus_factor_bps > BPS rejects at propose (#134).
-# CLI friendly-JSON path for the struct-payload op (not harness execute_immediate).
+
+
 xfail gov_propose_bad_liquidation_curve 'Error\(Contract, #134\)' "$ADMIN" "$GOVERNANCE" -- propose \
 --proposer "$ADMIN_ADDR" \
 --op '{"SetSpokeLiquidationCurve":{"spoke_id":1,"target_hf_wad":"1020000000000000000","hf_for_max_bonus_wad":"510000000000000000","liquidation_bonus_factor_bps":10001}}' \
 --salt "$GOV_SALT_BADCURVE"
 
-# Governance-self timelock path: grant a role to DAVE through execute_self.
-local op_self
-op_self=$(inv gov_self_propose_grant "$ADMIN" "$GOVERNANCE" -- propose \
---proposer "$ADMIN_ADDR" \
---op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
---salt "$GOV_SALT_SELF_GRANT" | tr -d '"[:space:]')
+
+
+
+
+
+local delay_now delay_next op_self delay_got
+delay_now=$(view gov_min_delay_pre_self "$GOVERNANCE" -- get_min_delay | tr -d '"[:space:]')
+delay_next=$((delay_now + 1))
+op_self=$(inv gov_self_propose_delay "$ADMIN" "$GOVERNANCE" -- propose \
+    --proposer "$ADMIN_ADDR" \
+    --op "{\"UpdateGovDelay\":$delay_next}" \
+    --salt "$GOV_SALT_SELF_DELAY" | tr -d '"[:space:]')
 gov_assert_state gov_self_state_waiting "$op_self" Waiting
 st=$(gov_await_ready "$op_self")
 if [ "$st" != "Ready" ] && [ "$st" != "Done" ]; then
-_assert_fail gov_self_await_ready "op $op_self never reached Ready (state=$st)"
+    _assert_fail gov_self_await_ready "op $op_self never reached Ready (state=$st)"
 fi
-inv gov_self_execute_grant "$ADMIN" "$GOVERNANCE" -- execute_self \
---executor null \
---op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
---salt "$GOV_SALT_SELF_GRANT" >/dev/null
-view gov_has_role_dave_executor "$GOVERNANCE" -- has_role \
---account "$DAVE_ADDR" --role EXECUTOR >/dev/null
+inv gov_self_execute_delay "$ADMIN" "$GOVERNANCE" -- execute_self \
+    --executor null \
+    --op "{\"UpdateGovDelay\":$delay_next}" \
+    --salt "$GOV_SALT_SELF_DELAY" >/dev/null
 
-# Production WASM excludes testing-only entrypoints.
+
+delay_got=$(view gov_min_delay_post_self "$GOVERNANCE" -- get_min_delay | tr -d '"[:space:]')
+if [ "$delay_got" != "$delay_next" ]; then
+    _assert_fail gov_min_delay_post_self "got '$delay_got', want '$delay_next'"
+fi
+
+
+local op_sensitive
+op_sensitive=$(inv gov_self_propose_grant "$ADMIN" "$GOVERNANCE" -- propose \
+    --proposer "$ADMIN_ADDR" \
+    --op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
+    --salt "$GOV_SALT_SELF_SENSITIVE" | tr -d '"[:space:]')
+gov_assert_state gov_self_sensitive_waiting "$op_sensitive" Waiting
+inv gov_self_cancel_grant "$ADMIN" "$GOVERNANCE" -- cancel \
+    --canceller "$ADMIN_ADDR" --operation_id "$op_sensitive" >/dev/null
+gov_assert_state gov_self_sensitive_unset "$op_sensitive" Unset
+
+
 xfail gov_execute_immediate_absent 'execute_immediate|unknown|not found|No such' \
 "$ADMIN" "$GOVERNANCE" -- execute_immediate \
 --caller "$ADMIN_ADDR" \
@@ -182,7 +204,7 @@ xfail gov_execute_immediate_absent 'execute_immediate|unknown|not found|No such'
 xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
 "$ADMIN" "$GOVERNANCE" -- set_controller --addr "$CONTROLLER"
 
-    # Owner-immediate emergency brake forwards to the governance-owned controller.
-    # GUARDIAN-model pause takes an explicit caller (see PR #89 role model).
+
+
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause --caller "$ADMIN_ADDR" >/dev/null
 }

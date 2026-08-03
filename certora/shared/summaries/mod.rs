@@ -1,5 +1,3 @@
-//! Certora summaries for expensive production functions.
-
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Env};
@@ -14,8 +12,6 @@ pub mod pool;
 pub mod reflector;
 pub mod sac;
 
-/// Token price: positive WAD price, decimals <= 27, timestamp not materially
-/// ahead of the current ledger. Shared by cache and external-call summaries.
 pub(crate) fn price_feed_summary(env: &Env, _asset: &Address) -> PriceFeedRaw {
     let price_wad: i128 = nondet();
     let asset_decimals: u32 = nondet();
@@ -34,8 +30,6 @@ pub(crate) fn token_price_summary(cache: &mut Cache, asset: &Address) -> PriceFe
     price_feed_summary(cache.env(), asset)
 }
 
-/// Pool market index inside the production band: floor from bad-debt
-/// write-down, caps from the `update_*_index` clamps (models `bulk_get_indexes`).
 pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
     let supply_index: i128 = nondet();
     let borrow_index: i128 = nondet();
@@ -49,12 +43,9 @@ pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
     }
 }
 
-/// Account risk totals: non-neg aggregates; weighted/LTV coll <= neutral coll;
-/// HF from abstracted weighted coll and debt (gate relation preserved).
 pub(crate) fn calculate_account_risk_totals_summary(
     env: &Env,
     _cache: &mut Cache,
-    _spoke_id: u32,
     supply_positions: &soroban_sdk::Map<
         common::types::HubAssetKey,
         common::types::AccountPositionRaw,
@@ -97,21 +88,18 @@ pub(crate) fn calculate_account_risk_totals_summary(
     }
 }
 
-/// Total collateral in USD, non-negative.
 pub fn total_collateral_in_usd_summary(_env: &Env, _account_id: u64) -> i128 {
     let total: i128 = nondet();
     cvlr_assume!(total >= 0);
     total
 }
 
-/// Total borrow in USD, non-negative.
 pub fn total_borrow_in_usd_summary(_env: &Env, _account_id: u64) -> i128 {
     let total: i128 = nondet();
     cvlr_assume!(total >= 0);
     total
 }
 
-/// LTV-weighted collateral in USD, non-negative.
 pub fn ltv_collateral_in_usd_summary(_env: &Env, _account_id: u64) -> i128 {
     let total: i128 = nondet();
     cvlr_assume!(total >= 0);

@@ -22,7 +22,7 @@ use tracing_subscriber::EnvFilter;
     about = "XOXNO Lending off-chain TTL keeper"
 )]
 struct Args {
-    /// YAML config path.
+
     #[arg(
         short,
         long,
@@ -31,15 +31,12 @@ struct Args {
     )]
     config: PathBuf,
 
-    /// Simulate planned transactions without submitting.
     #[arg(long, env = "KEEPER_DRY_RUN", default_value_t = false)]
     dry_run: bool,
 
-    /// BIP-39 mnemonic override instead of KeyVault.
     #[arg(long, env = "KEEPER_MNEMONIC", hide_env_values = true)]
     mnemonic: Option<String>,
 
-    /// Skip the boot-time update_indexes simulation preflight.
     #[arg(long, env = "KEEPER_SKIP_ROLE_CHECK", default_value_t = false)]
     skip_role_check: bool,
 }
@@ -116,7 +113,6 @@ async fn main() -> Result<()> {
     info!(target: "keeper.boot", "shutdown signal received, cancelling loops");
     cancel.cancel();
 
-    // Best-effort join; do not hang forever on stuck loops.
     let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
         let _ = scheduler.ttl_task.await;
         if let Some(index) = scheduler.index_task {

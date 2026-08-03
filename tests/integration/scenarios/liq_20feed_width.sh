@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Narrow event-cap probe (4..2 debts). Research-only — failures are status=research.
+
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../env.sh"

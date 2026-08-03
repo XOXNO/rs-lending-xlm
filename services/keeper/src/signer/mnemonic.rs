@@ -1,4 +1,3 @@
-//! SLIP-0010 Ed25519 hardened-only derivation.
 
 use anyhow::{anyhow, bail, Result};
 use hmac::{Hmac, Mac};

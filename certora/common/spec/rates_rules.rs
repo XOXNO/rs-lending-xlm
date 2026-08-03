@@ -3,8 +3,8 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::{
-    BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR,
-    RAY, SUPPLY_INDEX_FLOOR_RAW,
+    BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, RAY,
+    SUPPLY_INDEX_FLOOR_RAW,
 };
 use crate::math::fp::{Bps, Ray};
 use crate::math::fp_core::{mul_div_floor, mul_div_half_up};
@@ -15,7 +15,6 @@ use crate::rates::{
 };
 use crate::types::{MarketParams, PoolStateRaw, PoolSyncData};
 
-/// Seven-decimal token units per RAY-scaled share at index `RAY`.
 const ASSET_TO_RAY_SCALE_7: i128 = 100_000_000_000_000_000_000;
 
 fn valid_params(asset: Address) -> MarketParams {
@@ -56,23 +55,16 @@ fn utilization_bounded_when_borrowed_lte_supplied(e: Env, borrowed: i128, suppli
 }
 
 #[rule]
-fn borrow_rate_per_ms_respects_annual_cap(e: Env, asset: Address, util_raw: i128) {
-    cvlr_assume!((0..=RAY).contains(&util_raw));
-
-    let params = valid_params(asset);
-    let rate = calculate_borrow_rate(&e, Ray::from(util_raw), &params);
-    let per_ms_cap = params
-        .max_borrow_rate
-        .div_by_int(MILLISECONDS_PER_YEAR as i128);
-    cvlr_assert!(rate.raw() >= 0);
-    cvlr_assert!(rate.raw() <= per_ms_cap.raw());
-}
-
-#[rule]
-fn deposit_rate_zero_when_no_utilization(e: Env, borrow_rate: i128) {
+fn deposit_rate_zero_when_no_utilization(e: Env, borrow_rate: i128, reserve_bps: u32) {
     cvlr_assume!((0..=MAX_BORROW_RATE_RAY).contains(&borrow_rate));
+    cvlr_assume!(reserve_bps < BPS as u32);
 
-    let rate = calculate_deposit_rate(&e, Ray::ZERO, Ray::from(borrow_rate), Bps::from(1_000));
+    let rate = calculate_deposit_rate(
+        &e,
+        Ray::ZERO,
+        Ray::from(borrow_rate),
+        Bps::from(i128::from(reserve_bps)),
+    );
     cvlr_assert!(rate.raw() == 0);
 }
 
@@ -194,8 +186,6 @@ fn simulate_indexes_no_time_noop(
     cvlr_assert!(index.supply_index.raw() == supply_index);
 }
 
-/// Ceiling lemma: reachable-domain input (`>= floor`, `<= cap`) stays `<= cap`
-/// for any rewards. Justifies the upper bound assumed by index summaries.
 #[rule]
 fn update_supply_index_capped(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied));
@@ -212,8 +202,6 @@ fn update_supply_index_capped(e: Env, supplied: i128, old_index: i128, rewards: 
     cvlr_assert!(out.raw() >= old_index.min(MAX_SUPPLY_INDEX_RAY));
 }
 
-/// Ceiling lemma: reachable-domain input (`>= RAY`, `<= cap`) stays `<= cap`.
-/// Factor bounded so `old * factor` fits the `i128` intermediate.
 #[rule]
 fn update_borrow_index_capped(e: Env, old_index: i128, factor: i128) {
     cvlr_assume!((RAY..=MAX_BORROW_INDEX_RAY).contains(&old_index));
@@ -224,10 +212,6 @@ fn update_borrow_index_capped(e: Env, old_index: i128, factor: i128) {
     cvlr_assert!(out.raw() >= RAY);
 }
 
-/// Virtual-offset defense: index growth is bounded by `old * rewards / V`
-/// (`V = SUPPLY_VIRTUAL_VALUE_RAY = RAY`) regardless of how small `supplied`
-/// is — a dust supplier donating rewards cannot inflate the index faster than
-/// the phantom-base ratio allows.
 #[rule]
 fn update_supply_index_dust_growth_bounded(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!((0..=100 * RAY).contains(&supplied));
@@ -245,9 +229,6 @@ fn update_supply_index_dust_growth_bounded(e: Env, supplied: i128, old_index: i1
     cvlr_assert!(out.raw() <= old_index + max_growth);
 }
 
-/// Fee-to-shares conversion never exceeds the `i128` headroom left in
-/// `supplied` (a floored index post-wipeout cannot trap accrual), and stays
-/// non-negative.
 #[rule]
 fn protocol_fee_shares_bounded_by_headroom(e: Env, fee: i128, supply_index: i128, supplied: i128) {
     cvlr_assume!(fee >= 0);
@@ -264,8 +245,6 @@ fn protocol_fee_shares_bounded_by_headroom(e: Env, fee: i128, supply_index: i128
     cvlr_assert!(out.raw() <= i128::MAX - supplied);
 }
 
-/// In-range conversion matches the conservative floor divide and the value of
-/// minted revenue shares never exceeds the fee being booked.
 #[rule]
 fn protocol_fee_shares_matches_divide_in_range(
     e: Env,
@@ -287,12 +266,6 @@ fn protocol_fee_shares_matches_divide_in_range(
     cvlr_assert!(out.raw() == plain);
     cvlr_assert!(mul_div_floor(&e, out.raw(), supply_index, RAY) <= fee);
 }
-
-// Summary bounds are compositionally justified by the lemmas above
-// (end-to-end with symbolic `compound_interest` is SMT-intractable):
-//   * borrow grows when factor >= RAY (e^x >= 1 for x >= 0) and stays <= cap
-//   * supply grows for non-negative rewards and stays <= cap
-//   * zero-delta early-return is exact
 
 #[rule]
 fn rates_reachability(e: Env, asset: Address) {

@@ -1,5 +1,3 @@
-//! Account lifecycle, owner/delegate auth, and position-map helpers.
-
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::types::{
@@ -41,13 +39,11 @@ pub(crate) fn create_account(
     (account_id, account)
 }
 
-/// Existing-account guard for `load_or_create_account`.
 pub(crate) enum AccountGuard {
-    /// Third-party supply; spoke arg must match stored spoke.
     Supply,
-    /// Blend migration; caller must be owner or an active delegate, and spoke must match.
+
     Migrate,
-    /// Multiply strategy; caller must be owner or an active delegate, and mode must match.
+
     Multiply,
 }
 
@@ -72,13 +68,13 @@ pub(crate) fn load_or_create_account(
         }
         AccountGuard::Multiply => {
             require_owner_or_delegate(env, account_id, caller, &account.owner);
+            require_spoke_match(env, &account, spoke_id);
             assert_with_error!(env, account.mode == mode, GenericError::AccountModeMismatch);
         }
     }
     (account_id, account)
 }
 
-/// True when `caller` is the account owner or an active registered delegate.
 pub(crate) fn is_owner_or_delegate(
     env: &Env,
     account_id: u64,
@@ -117,51 +113,55 @@ pub(crate) fn cleanup_account_if_empty(env: &Env, account: &Account, account_id:
     }
 }
 
-/// Upserts collateral position or removes it when the scaled supply share is zero.
 pub(crate) fn update_or_remove_supply_position(
     account: &mut Account,
     hub_asset: &HubAssetKey,
     position: &AccountPosition,
-) -> bool {
+) {
     if position.scaled_amount == Ray::ZERO {
         account.supply_positions.remove(hub_asset.clone());
-        true
     } else {
         account
             .supply_positions
             .set(hub_asset.clone(), position.into());
-        false
     }
 }
 
-/// Upserts debt position or removes it when the scaled debt share is zero.
 pub(crate) fn update_or_remove_debt_position(
     account: &mut Account,
     hub_asset: &HubAssetKey,
     position: &DebtPosition,
-) -> bool {
+) {
     if position.scaled_amount == Ray::ZERO {
         account.borrow_positions.remove(hub_asset.clone());
-        true
     } else {
         account
             .borrow_positions
             .set(hub_asset.clone(), position.into());
-        false
     }
 }
 
-/// Extends the account's storage TTL. Caller must be the account owner.
-pub(crate) fn renew_account(env: &Env, caller: &Address, account_id: u64) {
+pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
+    storage::renew_controller_instance(env);
+
     caller.require_auth();
     let meta = storage::get_account_meta(env, account_id);
-    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
+    assert_with_error!(env, meta.owner == caller, GenericError::AccountNotInMarket);
 
     storage::renew_user_account(env, account_id);
 }
 
-/// Adds or removes a delegate for `account_id`. Caller must be the owner.
-pub(crate) fn set_account_delegate(
+pub(crate) fn add_delegate(env: &Env, caller: Address, account_id: u64, delegate: Address) {
+    storage::renew_controller_instance(env);
+    set_account_delegate(env, &caller, account_id, &delegate, true);
+}
+
+pub(crate) fn remove_delegate(env: &Env, caller: Address, account_id: u64, delegate: Address) {
+    storage::renew_controller_instance(env);
+    set_account_delegate(env, &caller, account_id, &delegate, false);
+}
+
+fn set_account_delegate(
     env: &Env,
     caller: &Address,
     account_id: u64,
@@ -172,10 +172,20 @@ pub(crate) fn set_account_delegate(
     let meta = storage::get_account_meta(env, account_id);
     assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
 
-    if add {
-        storage::add_delegate(env, account_id, delegate);
+    let changed = if add {
+        storage::add_delegate(env, account_id, delegate)
     } else {
-        storage::remove_delegate(env, account_id, delegate);
+        storage::remove_delegate(env, account_id, delegate)
+    };
+
+    if changed {
+        crate::events::AccountDelegateEvent {
+            account_id,
+            owner: meta.owner,
+            delegate: delegate.clone(),
+            granted: add,
+        }
+        .publish(env);
     }
 }
 

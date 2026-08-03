@@ -22,7 +22,6 @@ fn constructor_grants_oracle_role_to_admin() {
     });
 }
 
-// Delegates cannot hold both EXECUTOR and CANCELLER.
 #[test]
 #[should_panic(expected = "Error(Contract, #41)")]
 fn grant_role_enforces_executor_canceller_separation() {
@@ -47,7 +46,6 @@ fn grant_role_enforces_canceller_executor_separation() {
     });
 }
 
-// Separate EXECUTOR and CANCELLER delegates are allowed.
 #[test]
 fn grant_role_allows_separated_executor_and_canceller() {
     let env = Env::default();
@@ -67,7 +65,6 @@ fn grant_role_allows_separated_executor_and_canceller() {
     });
 }
 
-// Owner is exempt from EXECUTOR/CANCELLER separation and may hold both roles.
 #[test]
 fn grant_role_allows_owner_to_hold_executor_and_canceller() {
     let env = Env::default();
@@ -77,8 +74,6 @@ fn grant_role_allows_owner_to_hold_executor_and_canceller() {
         (owner.clone(), constants::TIMELOCK_MIN_DELAY_LEDGERS),
     );
     env.as_contract(&id, || {
-        // Owner already holds EXECUTOR from the constructor; granting the
-        // conflicting CANCELLER (and vice versa) must not panic for the owner.
         apply_grant_role(&env, &owner, &Symbol::new(&env, CANCELLER_ROLE));
         apply_grant_role(&env, &owner, &Symbol::new(&env, EXECUTOR_ROLE));
         assert!(
@@ -109,7 +104,6 @@ fn accepting_self_transfer_preserves_all_owner_roles() {
     }
 }
 
-// Revoke requires the account to hold the role.
 #[test]
 #[should_panic(expected = "Error(Contract, #41)")]
 fn revoke_role_rejects_unheld() {
@@ -121,10 +115,6 @@ fn revoke_role_rejects_unheld() {
     });
 }
 
-// `apply_canceller_reset` grants CANCELLER to each fresh council member exactly
-// once. A duplicated entry must not double-grant: after the first grant the
-// address already holds the role, and the `&&` guard's `has_role(..).is_none()`
-// arm skips the second. Owner's CANCELLER is preserved throughout.
 #[test]
 fn canceller_reset_grants_each_member_once() {
     let env = Env::default();

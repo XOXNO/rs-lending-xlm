@@ -1,4 +1,3 @@
-//! Account isolation: action on one account never mutates another's positions.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
@@ -7,7 +6,6 @@ use crate::constants::WAD;
 use crate::types::HubAssetKey;
 use common::types::Payment;
 
-/// Primary-hub coordinate for `asset`.
 fn hub0(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: crate::spec::fixture::HUB_ID,
@@ -94,7 +92,6 @@ fn repay_only_changes_target_account_debt(e: Env, caller: Address, asset: Addres
     cvlr_assert!(scaled_borrow_at(&e, other_account, &asset) == other_borrow_before);
 }
 
-/// Liquidating one account never mutates another's positions (repaid debt asset).
 #[rule]
 fn liquidation_does_not_change_other_account_positions(
     e: Env,

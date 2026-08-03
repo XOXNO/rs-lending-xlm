@@ -1,13 +1,9 @@
-//! Spoke constraints: listing, deprecation, and effective risk-config resolution.
-//! Rules use the production-valid primary hub.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::types::{AccountPositionType, HubAssetKey, SpokeAssetArgs};
 
-/// Primary-hub coordinate for `asset`.
 fn hub0(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: crate::spec::fixture::HUB_ID,
@@ -15,7 +11,6 @@ fn hub0(asset: &Address) -> HubAssetKey {
     }
 }
 
-/// Supply of an asset not listed on the account's spoke must revert.
 #[rule]
 fn spoke_only_registered_assets(
     e: Env,
@@ -41,7 +36,6 @@ fn spoke_only_registered_assets(
     cvlr_assert!(false);
 }
 
-/// Borrow of an asset not listed on the account's spoke must revert.
 #[rule]
 fn spoke_borrow_only_registered_assets(
     e: Env,
@@ -67,7 +61,6 @@ fn spoke_borrow_only_registered_assets(
     cvlr_assert!(false);
 }
 
-/// Borrow of a listed asset with `is_borrowable = false` must revert.
 #[rule]
 fn spoke_only_borrowable_assets(
     e: Env,
@@ -99,7 +92,6 @@ fn spoke_only_borrowable_assets(
     cvlr_assert!(false);
 }
 
-/// Supply of a listed asset with `is_collateralizable = false` must revert.
 #[rule]
 fn spoke_only_collateralizable_assets(
     e: Env,
@@ -131,7 +123,6 @@ fn spoke_only_collateralizable_assets(
     cvlr_assert!(false);
 }
 
-/// New supply into a deprecated spoke must revert.
 #[rule]
 fn deprecated_spoke_blocks_new_supply(
     e: Env,
@@ -159,7 +150,6 @@ fn deprecated_spoke_blocks_new_supply(
     cvlr_assert!(false);
 }
 
-/// New borrow from a deprecated spoke must revert.
 #[rule]
 fn deprecated_spoke_blocks_new_borrow(
     e: Env,
@@ -236,7 +226,7 @@ fn spoke_overrides_asset_params(e: Env, asset: Address) {
     crate::spec::fixture::seed_market(&e, &asset);
 
     let spoke = crate::storage::get_spoke(&e, category_id);
-    // Active-spoke branch only.
+
     cvlr_assume!(!spoke.is_deprecated);
 
     let hub_asset = hub0(&asset);
@@ -244,7 +234,6 @@ fn spoke_overrides_asset_params(e: Env, asset: Address) {
     cvlr_assume!(spoke_asset.is_some());
     let cfg = spoke_asset.unwrap();
 
-    // Listed config projected to `AssetConfig`.
     let mut cache = crate::context::Cache::new(&e);
     let asset_config: common::types::AssetConfig =
         (&cache.require_spoke_asset(category_id, &hub_asset)).into();
@@ -257,7 +246,6 @@ fn spoke_overrides_asset_params(e: Env, asset: Address) {
     cvlr_assert!(asset_config.is_borrowable == cfg.is_borrowable);
 }
 
-/// `add_asset_to_spoke` persists only assets with threshold > LTV.
 #[rule]
 fn add_asset_enforces_valid_bounds(e: Env, asset: Address, ltv: u32, threshold: u32, bonus: u32) {
     let category_id = crate::spec::fixture::SPOKE_ID;
@@ -319,7 +307,6 @@ fn spoke_remove_category(e: Env) {
     let category_id = crate::spec::fixture::SPOKE_ID;
     crate::spec::fixture::seed_protocol(&e);
 
-    // Spoke must exist and be active for `remove_spoke` to run.
     let before = crate::storage::try_get_spoke(&e, category_id);
     cvlr_assume!(matches!(&before, Some(spoke) if !spoke.is_deprecated));
 
@@ -329,7 +316,6 @@ fn spoke_remove_category(e: Env) {
     cvlr_assert!(spoke.is_deprecated);
 }
 
-/// Adding an asset to a deprecated spoke must revert.
 #[rule]
 fn spoke_add_asset_to_deprecated_category(e: Env, asset: Address) {
     let category_id = crate::spec::fixture::SPOKE_ID;

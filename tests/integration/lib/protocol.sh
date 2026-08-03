@@ -1,22 +1,22 @@
-# Protocol deployment and market administration against a fresh controller.
-#
-# deploy_protocol() is a **fast-path integration harness**: EOA-owned controller,
-# immediate admin calls (no governance timelock). Production / operator deploys
-# use the governance-owned path instead:
-#   make testnet setup   (or make mainnet setup with AGGREGATOR_CONTRACT=...)
-# See configs/script.sh + Makefile _deploy / configure-controller.
-#
-# Market creation follows the production sequence on an explicit created hub:
-# create_liquidity_pool (pending primary spoke listing: not
-# collateralizable/borrowable) → resolve_market_oracle_config (governance view) →
-# set_oracle_config on PRICE_AGGREGATOR → add_asset_to_spoke on the primary spoke.
-# Oracle configs for mock markets must use Twap (Spot-only primaries reject with
-# SpotOnlyNotProductionSafe #38) and market params must include max_utilization.
 
-# Uploads pool wasm, deploys controller + price-aggregator + central pool + flash
-# receiver, wires aggregator/accumulator/price-aggregator, unpauses. Persists:
-# CONTROLLER, PRICE_AGGREGATOR, POOL, POOL_HASH, FLASH_RECEIVER, XLM_SAC,
-# PRIMARY_HUB_ID, SECONDARY_HUB_ID.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 deploy_protocol() {
     if [ -z "${XLM_SAC:-}" ]; then
         save_state XLM_SAC "$(stellar contract id asset --asset native --network "$NETWORK")"
@@ -51,8 +51,8 @@ deploy_protocol() {
         save_state POOL "$pool"
         log "central pool = $pool"
     fi
-    # Price-aggregator is the oracle authority (owner = EOA admin on this
-    # fast-path harness). Production uses governance-owned deploy instead.
+
+
     if [ -z "${PRICE_AGGREGATOR:-}" ]; then
         local out_f="$LOG_DIR/deploy_price_agg.out" err_f="$LOG_DIR/deploy_price_agg.err"
         local pa_wasm=""
@@ -72,8 +72,8 @@ deploy_protocol() {
     fi
     if [ -z "${WIRED:-}" ]; then
         inv set_swap_aggregator "$ADMIN" "$CONTROLLER" -- set_swap_aggregator --addr "$AGGREGATOR" >/dev/null
-        # Revenue treasury (wallet ok). Not the swap aggregator — claim_revenue
-        # forwards SAC balances here and fails with NoAccumulator (#211) if unset.
+
+
         inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
         inv set_price_aggregator "$ADMIN" "$CONTROLLER" -- set_price_aggregator --addr "$PRICE_AGGREGATOR" >/dev/null
         save_state WIRED 1
@@ -105,10 +105,10 @@ deploy_protocol() {
         inv unpause "$ADMIN" "$CONTROLLER" -- unpause >/dev/null
         save_state UNPAUSED 1
     fi
-    # Governance contract: drives the timelock e2e (flows/governance.sh) and
-    # resolves oracle configs (input -> resolved AssetOracleConfig) for the
-    # EOA controller's markets via its read-only resolver views. Owner is the
-    # EOA admin so propose/execute/cancel/pause run without a separate signer.
+
+
+
+
     if [ -z "${GOVERNANCE:-}" ]; then
         local out_f="$LOG_DIR/deploy_governance.out" err_f="$LOG_DIR/deploy_governance.err"
         run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/governance.wasm" \
@@ -122,8 +122,8 @@ deploy_protocol() {
         record deploy_governance ok deploy "$txh" "" "" "" "" "$gov"
         log "governance = $gov"
     fi
-    # Controller WASM hash for the governance-owned controller below. Uploading
-    # the same bytes the EOA controller runs keeps the resolver probe faithful.
+
+
     if [ -z "${CTRL_HASH:-}" ]; then
         local out_f="$LOG_DIR/upload_controller.out" err_f="$LOG_DIR/upload_controller.err"
         run_deploy "$out_f" "$err_f" -- stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
@@ -135,8 +135,8 @@ deploy_protocol() {
         save_state CTRL_HASH "$chash"
         record upload_controller_wasm ok upload "$txh" "" "" "" "" "$chash"
     fi
-    # Governance-owned controller: required so resolve_market_oracle_config has a
-    # controller to read (get_controller); also the target of the timelock e2e.
+
+
     if [ -z "${GOV_CONTROLLER:-}" ]; then
         local gc
         gc=$(inv deploy_controller "$ADMIN" "$GOVERNANCE" -- deploy_controller \
@@ -147,9 +147,9 @@ deploy_protocol() {
     fi
 }
 
-# create_test_hub <LABEL>
-# Creates a controller hub and saves HUB_<LABEL>_ID. PRIMARY and SECONDARY also
-# populate PRIMARY_HUB_ID / SECONDARY_HUB_ID for existing flows.
+
+
+
 create_test_hub() {
     local label="$1" id var
     var="HUB_${label}_ID"
@@ -182,9 +182,9 @@ primary_spoke_id() {
     echo "${PRIMARY_SPOKE_ID:?PRIMARY_SPOKE_ID missing; deploy_protocol must create spoke first}"
 }
 
-# Standard interest-rate model + caps for a market. Flash-loan eligibility and
-# fee live on MarketParamsRaw (moved off the per-asset spoke config).
-#   market_params_json <sac-id> <decimals>
+
+
+
 market_params_json() {
     local sac="$1" decimals="$2"
     jq -nc --arg sac "$sac" --argjson dec "$decimals" '{
@@ -206,9 +206,9 @@ market_params_json() {
     }'
 }
 
-# Per-asset spoke risk config (SpokeAssetConfig) for the primary spoke listing
-# passed to create_liquidity_pool. Extra jq filter applied last.
-#   asset_config_json <ltv-bps> <threshold-bps> <bonus-bps> [jq-overrides]
+
+
+
 asset_config_json() {
     local ltv="$1" thr="$2" bonus="$3" overrides="${4:-.}"
     jq -nc --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" '{
@@ -225,11 +225,11 @@ asset_config_json() {
     }' | jq -c "$overrides"
 }
 
-# Spoke asset input struct (SpokeAssetArgs) add_asset_to_spoke /
-# edit_asset_in_spoke (single argument). spoke_id 0 base listing.
-# `paused`/`frozen` default to false: a freshly listed asset is fully active.
-# spoke_args <hub_id> <asset> <spoke_id> <can_collateral> <can_borrow> \
-# <ltv> <threshold> <bonus> [supply_cap] [borrow_cap]
+
+
+
+
+
 spoke_args() {
     jq -nc --argjson hub "$1" --arg asset "$2" --argjson spoke "$3" --argjson cc "$4" --argjson cb "$5" \
         --argjson ltv "$6" --argjson thr "$7" --argjson bonus "$8" \
@@ -250,68 +250,126 @@ spoke_args() {
     }'
 }
 
-# Single-source oracle config: Reflector-shaped mock, Twap(3). The sanity band
-# is a tight +/-10% around $1 (the mock's fixed price), the widest a `Single`
-# strategy may use. Flows that crash the mock price below this band must use the
-# anchored (`oracle_cfg_mock_dual`) shape, which is exempt from the cap.
-#   oracle_cfg_mock_single <sac-id>
+
+
+price_key_token() {
+    jq -nc --arg a "$1" '{Token:$a}'
+}
+
+
+
+
+oracle_tolerance_band() {
+    local bps="$1"
+    jq -nc --argjson t "$bps" '
+        def half_up(n; d): ((n + (d/2|floor)) / d | floor);
+        {upper_ratio_bps: (10000 + $t),
+         lower_ratio_bps: half_up(10000 * 10000; 10000 + $t)}'
+}
+
+
+
+
+
 oracle_cfg_mock_single() {
     local sac="$1"
-    jq -nc --arg mock "$MOCK" --arg sac "$sac" '{
+    jq -nc --arg mock "$MOCK" --arg sac "$sac" --argjson tol "$(oracle_tolerance_band 500)" '{
+        asset_decimals: 7,
         max_price_stale_seconds: 3600,
-        tolerance_bps: 500,
-        strategy: 0,
-        primary: {Reflector: {contract: $mock, asset: {Stellar: $sac}, read_mode: {Twap: 3}}},
-        anchor: "None",
+        sources: [{
+            Feed: {
+                provider: {Reflector: {
+                    contract: $mock,
+                    asset: {Stellar: $sac},
+                    read_mode: {Twap: 3}
+                }},
+                decimals: 14,
+                max_stale_seconds: 3600
+            }
+        }],
+        tolerance: $tol,
+        independence: "RequireDisjoint",
         min_sanity_price_wad: "900000000000000000",
         max_sanity_price_wad: "1100000000000000000"
     }'
 }
 
-# Dual-source (mainnet-faithful) oracle config: mock Reflector primary +
-# mock RedStone anchor. Anchor MUST be a different provider kind.
-#   oracle_cfg_mock_dual <sac-id> <feed-id>
+
+
+
 oracle_cfg_mock_dual() {
     local sac="$1" feed="$2"
-    jq -nc --arg mock "$MOCK" --arg mockrs "$MOCKRS" --arg sac "$sac" --arg feed "$feed" '{
+    jq -nc --arg mock "$MOCK" --arg mockrs "$MOCKRS" --arg sac "$sac" --arg feed "$feed" \
+        --argjson tol "$(oracle_tolerance_band 500)" '{
+        asset_decimals: 7,
         max_price_stale_seconds: 3600,
-        tolerance_bps: 500,
-        strategy: 1,
-        primary: {Reflector: {contract: $mock, asset: {Stellar: $sac}, read_mode: {Twap: 3}}},
-        anchor: {Some: {RedStone: {contract: $mockrs, feed_id: $feed, max_stale_seconds: 3600}}},
+        sources: [
+            {Feed: {
+                provider: {Reflector: {
+                    contract: $mock,
+                    asset: {Stellar: $sac},
+                    read_mode: {Twap: 3}
+                }},
+                decimals: 14,
+                max_stale_seconds: 3600
+            }},
+            {Feed: {
+                provider: {MultiFeed: {
+                    contract: $mockrs,
+                    feed_id: $feed,
+                    kind: "RedStone",
+                    nature: "Fundamental"
+                }},
+                decimals: 8,
+                max_stale_seconds: 3600
+            }}
+        ],
+        tolerance: $tol,
+        independence: "RequireDisjoint",
         min_sanity_price_wad: "1000000000000000",
         max_sanity_price_wad: "1000000000000000000000"
     }'
 }
 
-# Real Reflector CEX feed by symbol, Twap(3), with sanity bounds.
-#   oracle_cfg_reflector <SYMBOL> <min-sanity-wad> <max-sanity-wad>
+
+
 oracle_cfg_reflector() {
     local sym="$1" min_wad="$2" max_wad="$3"
-    jq -nc --arg orc "$REFLECTOR_CEX" --arg sym "$sym" --arg min "$min_wad" --arg max "$max_wad" '{
+    jq -nc --arg orc "$REFLECTOR_CEX" --arg sym "$sym" --arg min "$min_wad" --arg max "$max_wad" \
+        --argjson tol "$(oracle_tolerance_band 500)" '{
+        asset_decimals: 7,
         max_price_stale_seconds: 3600,
-        tolerance_bps: 500,
-        strategy: 0,
-        primary: {Reflector: {contract: $orc, asset: {Symbol: $sym}, read_mode: {Twap: 3}}},
-        anchor: "None",
+        sources: [{
+            Feed: {
+                provider: {Reflector: {
+                    contract: $orc,
+                    asset: {Symbol: $sym},
+                    read_mode: {Twap: 3}
+                }},
+                decimals: 14,
+                max_stale_seconds: 3600
+            }
+        }],
+        tolerance: $tol,
+        independence: "RequireDisjoint",
         min_sanity_price_wad: $min,
         max_sanity_price_wad: $max
     }'
 }
 
-# True when asset already has a primary spoke listing on the created hub - i.e.
-# create_liquidity_pool already ran (it writes last step and duplicate calls
-# panic AssetAlreadySupported). Lets create_market skip the non-idempotent
-# create step when resuming a run interrupted before activation.
-# market_listing_exists <hub-id> <sac-id>
+
+
+
+
+
 market_listing_exists() {
     local hub_id="$1" sac="$2"
     stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" --network "$NETWORK" \
         --send=no -- get_spoke_asset --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$hub_id" "$sac")" >/dev/null 2>&1
 }
 
-# Confirms just-created market's primary spoke listing is visible AND active.
-# market_wait_listed <hub-id> <sac-id>
+
+
 market_wait_listed() {
     local hub_id="$1" sac="$2" probe got
     for probe in $(seq 1 8); do
@@ -324,10 +382,10 @@ market_wait_listed() {
     return 1
 }
 
-# Full market bring-up on explicit created hub. Active flags come from asset_config_json.
-# The pool market is created first, then oracle config is resolved and the
-# primary spoke is activated.
-# create_market <name> <hub-id> <sac-id> <decimals> <oracle-json> <active-config-json>
+
+
+
+
 create_market() {
     local name="$1" hub_id="$2" sac="$3" decimals="$4" oracle_json="$5" active_cfg="$6"
     local done_var="MKT_${name}_DONE"
@@ -344,11 +402,25 @@ create_market() {
             --hub_id "$hub_id" --asset "$sac" --params "$params" >/dev/null || return 1
     fi
 
-    resolved_oracle=$(view "resolve_oracle_$name" "$GOVERNANCE" -- resolve_market_oracle_config \
-        --asset "$sac" --cfg "$oracle_json" | jq -c '.') || return 1
-    # Oracle authority is the price-aggregator (token-rooted config, bare asset).
-    inv "set_oracle_$name" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle_config \
-        --asset "$sac" --config "$resolved_oracle" >/dev/null || return 1
+    local key_json oracle_file resolved_file
+    key_json=$(price_key_token "$sac")
+    oracle_file=$(mktemp)
+    resolved_file=$(mktemp)
+    printf '%s' "$oracle_json" > "$oracle_file"
+
+    resolved_oracle=$(view "resolve_oracle_$name" "$GOVERNANCE" -- resolve_asset_oracle \
+        --key "$key_json" --oracle-file-path "$oracle_file" | jq -c '.') || {
+        rm -f "$oracle_file" "$resolved_file"
+        return 1
+    }
+    printf '%s' "$resolved_oracle" > "$resolved_file"
+
+    inv "set_oracle_$name" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle \
+        --key "$key_json" --oracle-file-path "$resolved_file" >/dev/null || {
+        rm -f "$oracle_file" "$resolved_file"
+        return 1
+    }
+    rm -f "$oracle_file" "$resolved_file"
 
     ltv=$(jq -r '.loan_to_value' <<<"$active_cfg")
     thr=$(jq -r '.liquidation_threshold' <<<"$active_cfg")
@@ -360,19 +432,19 @@ create_market() {
     save_state "$done_var" 1
 }
 
-# Explicit hub asset coordinate (HubAssetKey) scalar asset args.
-# hub_key <hub-id> <sac-id>
+
+
 hub_key() {
     jq -nc --argjson h "$1" --arg a "$2" '{hub_id:$h, asset:$a}'
 }
 
-# Vec<HubAssetKey> for update_indexes / claim_revenue.
-# hub_vec <hub-id> <sac1> [<sac2> ...]
+
+
 hub_vec() {
     local hub_id="$1"
     shift
     local out="[" first=1
-    while [ $# -gt 0 ]; do
+    while [ $
         [ $first -eq 0 ] && out+=","
         out+="{\"hub_id\":$hub_id,\"asset\":\"$1\"}"
         first=0
@@ -381,13 +453,13 @@ hub_vec() {
     echo "$out]"
 }
 
-# Payments vector JSON Vec<(HubAssetKey, i128)>; amounts are quoted strings.
-# pay_vec <hub-id> <sac1> <amt1> [<sac2> <amt2> ...]
+
+
 pay_vec() {
     local hub_id="$1"
     shift
     local out="[" first=1
-    while [ $# -gt 0 ]; do
+    while [ $
         [ $first -eq 0 ] && out+=","
         out+="[{\"hub_id\":$hub_id,\"asset\":\"$1\"},\"$2\"]"
         first=0

@@ -6,21 +6,21 @@ rpc:
   timeout_seconds: 30
 
 contracts:
-  # Populate before running the keeper on mainnet.
+
   controller: ""
   pool_wasm_hash: ""
   markets: []
-  market_assets: [] # Legacy hub_id=1 shorthand; prefer markets.
+  market_assets: []
   flash_loan_receiver: ""
-  # Optional governance owner for controller access checks.
-  # Populate alongside other mainnet ids.
+
+
   governance: ""
-  # Self-hosted price oracle (networks.json: xoxno_oracle_adapter).
-  # Populate before running the keeper on mainnet.
+
+
   xoxno_oracle_adapter: ""
-  # Price aggregator (oracle authority; networks.json: price_aggregator).
-  # REQUIRED when markets are configured: the keeper renews its AssetOracle
-  # rows and instance/code. Fill after the price-aggregator deploy.
+
+
+
   price_aggregator: ""
 
 keyvault:

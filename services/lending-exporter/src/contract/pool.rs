@@ -1,11 +1,9 @@
-//! Typed decoders for the central pool's view return values.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::ScVal;
 
 use crate::scval::{field_bool, field_i128, field_u32, field_u64, map_field};
 
-/// IRM params (RAY rates/slopes/util + BPS fees) and asset decimals.
 #[derive(Debug, Clone)]
 pub struct MarketParams {
     pub asset_decimals: u32,

@@ -1,5 +1,3 @@
-//! White-box hooks for the verification harness.
-//! Routes through real storage helpers so tests exercise production guards.
 use crate::storage;
 use soroban_sdk::Env;
 

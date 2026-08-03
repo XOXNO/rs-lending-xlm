@@ -1,5 +1,3 @@
-//! Half-up rounding, rescaling, and signed-mul precision rules.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::Env;
@@ -62,8 +60,6 @@ fn div_half_up_roundtrip_error_bounded(e: Env) {
     let product = mul_div_half_up(&e, a, b, RAY);
     let recovered = mul_div_half_up(&e, product, RAY, b);
 
-    // The first half-up error is magnified by at most RAY / b <= 1000;
-    // the second half-up contributes at most one additional raw unit.
     cvlr_assert!(recovered >= a.saturating_sub(501));
     cvlr_assert!(recovered <= a + 501);
 }
@@ -79,7 +75,6 @@ fn div_half_up_zero_numerator(e: Env) {
     cvlr_assert!(result == 0);
 }
 
-/// Half-up multiply never rounds below the mathematical floor.
 #[rule]
 fn mul_half_up_rounding_direction(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
@@ -93,7 +88,6 @@ fn mul_half_up_rounding_direction(e: Env) {
     cvlr_assert!(result * WAD >= a * b - (WAD - 1));
 }
 
-/// Half-up divide stays within one unit of the integer floor.
 #[rule]
 fn div_half_up_rounding_direction(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
@@ -136,7 +130,6 @@ fn rescale_roundtrip() {
     cvlr_assert!(recovered == x);
 }
 
-/// Realistic `RAY`-scale products do not overflow the conversion path.
 #[rule]
 fn i256_no_overflow(e: Env) {
     let a: i128 = cvlr::nondet::nondet();

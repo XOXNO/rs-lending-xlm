@@ -1,11 +1,5 @@
 #![cfg(feature = "reference-math")]
 
-//! Exact-arithmetic liquidation reference for tests.
-//!
-//! Covers pre-liquidation HF, dynamic bonus, repayment, seizure, and protocol
-//! fee split. Excludes rate accrual and bad-debt
-//! socialization.
-
 extern crate std;
 
 use std::vec::Vec;
@@ -21,7 +15,6 @@ use crate::helpers::{hub_asset, HARNESS_SPOKE};
 
 #[derive(Clone, Debug)]
 pub struct RefCollateralPosition {
-    /// Stable identifier mapping reference outputs back to asset snapshots.
     pub asset_id: u32,
     pub supply_scaled_ray: BigRational,
     pub supply_index: BigRational,
@@ -43,22 +36,20 @@ pub struct RefDebtPosition {
 
 #[derive(Clone, Debug)]
 pub struct RefLiquidationResult {
-    /// Pre-liquidation health factor in WAD.
     pub health_factor_pre_wad: BigRational,
-    /// Final liquidation bonus in BPS.
+
     pub final_bonus_bps: BigRational,
-    /// Seized collateral per asset in token units.
+
     pub seized_per_collateral: Vec<(u32, BigRational)>,
-    /// Debt repaid per asset in token units.
+
     pub repaid_per_debt: Vec<(u32, BigRational)>,
-    /// Protocol fee slice of each seizure (token units).
+
     pub protocol_fee_per_collateral: Vec<(u32, BigRational)>,
-    /// Total debt repaid in USD WAD.
+
     pub total_repaid_usd_wad: BigRational,
-    /// Mirror of the solvent-toxic full-close gate: payments below the full
-    /// debt are rejected by the production plan when this is set.
+
     pub requires_full_close: bool,
-    /// Total collateral seized in USD WAD.
+
     pub total_seized_usd_wad: BigRational,
 }
 
@@ -94,13 +85,11 @@ fn bps_scale() -> BigRational {
     br_from_i128(BPS)
 }
 
-/// Half-up division of two BigInts (rounds .5 away from zero). Returns the
-/// quotient.
 pub fn half_up_div(num: BigInt, denom: BigInt) -> BigInt {
     assert!(!denom.is_zero(), "half_up_div: zero denominator");
     let denom_abs = denom.clone().abs();
     let half = &denom_abs / 2;
-    // Sign of the final quotient.
+
     let neg = num.is_negative() ^ denom.is_negative();
     let num_abs = num.abs();
     let adjusted = num_abs + half;
@@ -111,9 +100,6 @@ pub fn half_up_div(num: BigInt, denom: BigInt) -> BigInt {
     q
 }
 
-/// Convert a BigRational to an i128 using half-up rounding (half away from
-/// zero). Saturates on overflow (never panics) so a reference overflow cannot
-/// mask a production comparison failure.
 pub fn bigrational_to_i128_half_up(x: &BigRational) -> i128 {
     let num = x.numer().clone();
     let denom = x.denom().clone();
@@ -127,47 +113,36 @@ pub fn bigrational_to_i128_half_up(x: &BigRational) -> i128 {
     })
 }
 
-/// Convert a BigRational WAD value (so `1.0 = 10^18`) to an i128.
 pub fn bigrational_to_i128_wad(x: &BigRational) -> i128 {
     bigrational_to_i128_half_up(x)
 }
 
-/// Interpret an f64 amount at `decimals` precision as an exact BigRational
-/// of token units. Uses the f64 representation as input (not exact bits) --
-/// this is what the harness does when it calls `try_liquidate(..., amount_f64)`.
 pub fn float_to_bigrational(x: f64, decimals: u32) -> BigRational {
-    // Route through the same i128 conversion the harness uses to avoid
-    // introducing artificial drift.
     let raw = (x * 10f64.powi(decimals as i32)) as i128;
     br_from_i128(raw)
 }
 
-/// `position_value` in exact rationals, output scale = WAD.
-/// Matches `helpers::position_value`: actual = scaled * index / RAY, then
-/// multiplied by price (WAD).
 fn position_value_wad(
     scaled_ray: &BigRational,
     index_ray: &BigRational,
     price_wad: &BigRational,
 ) -> BigRational {
-    // actual_ray = scaled_ray * index_ray / RAY
     let actual_ray = scaled_ray * index_ray / ray_scale();
-    // actual_wad = actual_ray / 10^9 (RAY 27 decimals -> WAD 18 decimals)
+
     let actual_wad = &actual_ray / br_ten_pow(9);
-    // value_wad = actual_wad * price_wad / WAD
+
     actual_wad * price_wad / wad_scale()
 }
 
 fn compute_hf_wad(supplies: &[RefCollateralPosition], debts: &[RefDebtPosition]) -> BigRational {
     if debts.is_empty() {
-        // Sentinel for non-liquidatable debt-free accounts.
         return BigRational::from_integer(BigInt::from(i128::MAX));
     }
 
     let mut weighted = br_zero();
     for c in supplies {
         let value = position_value_wad(&c.supply_scaled_ray, &c.supply_index, &c.price_wad);
-        // weighted = value * threshold_bps / BPS
+
         let w = &value * br_from_i128(c.liq_threshold_bps) / bps_scale();
         weighted += w;
     }
@@ -182,7 +157,6 @@ fn compute_hf_wad(supplies: &[RefCollateralPosition], debts: &[RefDebtPosition])
         return BigRational::from_integer(BigInt::from(i128::MAX));
     }
 
-    // HF = weighted / total_debt, scaled to WAD (so 1.0 -> WAD).
     weighted * wad_scale() / total_debt
 }
 
@@ -211,8 +185,6 @@ fn total_debt_wad(debts: &[RefDebtPosition]) -> BigRational {
     t
 }
 
-/// Mirror of prod `max_bonus_for_threshold`: ceil the effective threshold to BPS
-/// and floor the derived max so effective_threshold * (1 + bonus) <= 1.
 fn max_bonus_for_threshold(proportion_seized: &BigRational) -> BigRational {
     if !proportion_seized.is_positive() {
         return br_zero();
@@ -229,8 +201,6 @@ fn max_bonus_for_threshold(proportion_seized: &BigRational) -> BigRational {
     (&bps * (&bps - &eff) / &eff).floor()
 }
 
-/// Average bonus params: weighted avg of per-asset bonus_bps by value share, and
-/// the per-account max bonus derived from the effective threshold.
 fn get_account_bonus_params(
     supplies: &[RefCollateralPosition],
     proportion_seized: &BigRational,
@@ -256,10 +226,6 @@ fn get_account_bonus_params(
     (base, max)
 }
 
-/// Dynamic bonus with a given target HF (in WAD scale).
-///
-/// `hf_wad`, `target_wad` are BigRational in WAD scale (i.e. 1.0 -> 10^18).
-/// Output is in BPS scale (0..=10000).
 fn calculate_linear_bonus_with_target(
     hf_wad: &BigRational,
     base_bps: &BigRational,
@@ -278,8 +244,6 @@ fn calculate_linear_bonus_with_target(
     base_bps + &bonus_range * &scale
 }
 
-/// Default `hf_for_max_bonus` (WAD scale, 0.80), mirroring
-/// `controller::constants::DEFAULT_HF_FOR_MAX_BONUS_WAD`.
 fn hf_for_max_bonus_wad() -> BigRational {
     &wad_scale() * BigRational::from_integer(BigInt::from(80))
         / BigRational::from_integer(BigInt::from(100))
@@ -293,11 +257,9 @@ fn try_liquidation_at_target(
     total_collateral_wad: &BigRational,
     target_wad: &BigRational,
 ) -> Option<BigRational> {
-    // bonus_wad = bonus_bps * WAD / BPS
     let bonus_wad = bonus_bps * &wad_scale() / bps_scale();
     let one_plus_bonus = &wad_scale() + &bonus_wad;
 
-    // d_max = total_collateral / one_plus_bonus (both WAD scale; result is WAD)
     let d_max = total_collateral_wad * &wad_scale() / &one_plus_bonus;
 
     let denom_term = proportion_seized * &one_plus_bonus / wad_scale();
@@ -318,7 +280,7 @@ fn try_liquidation_at_target(
     }
     let numerator = target_debt - weighted_coll_wad;
     let d_ideal = &numerator * &wad_scale() / &denominator;
-    // min(d_ideal, d_max, total_debt)
+
     let mut out = d_ideal;
     if out > d_max {
         out = d_max;
@@ -329,9 +291,6 @@ fn try_liquidation_at_target(
     Some(out)
 }
 
-/// Mirror of `max_hf_preserving_bonus_bps`: largest HF-neutral bonus in BPS
-/// (floored like the production i128 division), `None` when no finite cap
-/// applies (zero seizable proportion or `hf >= 1`).
 fn max_hf_preserving_bonus_bps(
     hf_wad: &BigRational,
     proportion_seized: &BigRational,
@@ -343,11 +302,6 @@ fn max_hf_preserving_bonus_bps(
     Some(floored - bps_scale())
 }
 
-/// Mirror of the single HF-scaled bonus and the target-HF repayment (or the
-/// collateral-capped maximum when the bonus makes the target unreachable),
-/// with the HF-preservation guard: the bonus is capped at the largest
-/// HF-neutral value, and when even the base bonus would shrink HF the
-/// estimate escalates to a full close at the base bonus.
 fn select_liquidation_tier(
     total_debt_wad: &BigRational,
     weighted_coll_wad: &BigRational,
@@ -394,7 +348,6 @@ fn select_liquidation_tier(
     (ideal, bonus)
 }
 
-/// Mirror of `estimate_liquidation_amount`: tier selection + dust-leftover guard.
 fn estimate_liquidation_amount(
     total_debt_wad: &BigRational,
     weighted_coll_wad: &BigRational,
@@ -414,8 +367,6 @@ fn estimate_liquidation_amount(
         total_collateral_wad,
     );
 
-    // Dust-leftover guard: escalate a sub-floor debt remainder to a full close.
-    // Mirrors BAD_DEBT_USD_THRESHOLD = 5 * WAD.
     let remaining = total_debt_wad - &ideal;
     let floor = &wad_scale() * BigRational::from_integer(BigInt::from(5));
     if remaining > br_zero() && remaining < floor {
@@ -425,12 +376,6 @@ fn estimate_liquidation_amount(
     (ideal, bonus)
 }
 
-/// Compute liquidation outputs from a snapshot using exact rational math.
-/// Takes the debt payments as *token units* (pre-scaling); the reference
-/// reproduces production's conversion to USD and solves the auction.
-///
-/// The returned `seized_per_collateral` / `repaid_per_debt` are in *token
-/// units* (asset decimals), matching what the protocol actually transfers.
 pub fn compute_liquidation(
     collateral: &[RefCollateralPosition],
     debt: &[RefDebtPosition],
@@ -443,7 +388,6 @@ pub fn compute_liquidation(
     let total_debt = total_debt_wad(debt);
     let weighted_coll = weighted_collateral_total(collateral);
 
-    // proportion_seized = weighted / total (both WAD); in WAD scale.
     let proportion_seized = if total_coll.is_zero() {
         br_zero()
     } else {
@@ -452,8 +396,6 @@ pub fn compute_liquidation(
 
     let (base_bonus_bps, max_bonus_bps) = get_account_bonus_params(collateral, &proportion_seized);
 
-    // 1. Convert per-asset debt payments (token units) into USD WAD,
-    //    clamped to each asset's actual debt (like production does).
     let mut total_payment_usd = br_zero();
     let mut per_debt_payments_usd: Vec<(u32, BigRational, u32)> = Vec::new();
     for (asset_id, amt_tokens) in debt_payments {
@@ -461,8 +403,7 @@ pub fn compute_liquidation(
             .iter()
             .find(|d| d.asset_id == *asset_id)
             .expect("debt payment references unknown asset_id");
-        // Actual debt in token units:
-        // actual_ray = scaled * index / RAY; token = actual_ray / 10^(27-dec)
+
         let actual_ray = &d.borrow_scaled_ray * &d.borrow_index / ray_scale();
         let scale_diff = 27 - d.decimals;
         let actual_tokens = actual_ray / br_ten_pow(scale_diff);
@@ -471,19 +412,18 @@ pub fn compute_liquidation(
         } else {
             amt_tokens.clone()
         };
-        // payment_wad = payment_tokens * 10^(18-dec)
+
         let payment_wad = if d.decimals <= 18 {
             &payment_tokens * br_ten_pow(18 - d.decimals)
         } else {
             &payment_tokens / br_ten_pow(d.decimals - 18)
         };
-        // payment_usd = payment_wad * price_wad / WAD
+
         let payment_usd = &payment_wad * &d.price_wad / wad_scale();
         total_payment_usd += &payment_usd;
         per_debt_payments_usd.push((*asset_id, payment_tokens, d.decimals));
     }
 
-    // 2. Solve auction.
     let (ideal_repayment, bonus_bps) = estimate_liquidation_amount(
         &total_debt,
         &weighted_coll,
@@ -502,7 +442,6 @@ pub fn compute_liquidation(
     let one_plus_bonus_wad = &wad_scale() + &bonus_bps * &wad_scale() / bps_scale();
     let total_seizure_usd = &final_repayment_usd * &one_plus_bonus_wad / wad_scale();
 
-    // 3. Distribute seizure proportionally.
     let mut seized: Vec<(u32, BigRational)> = Vec::new();
     let mut fees: Vec<(u32, BigRational)> = Vec::new();
     if !total_coll.is_zero() {
@@ -516,7 +455,7 @@ pub fn compute_liquidation(
             let share = &asset_value / &total_coll;
             let seizure_usd_for_asset = &total_seizure_usd * &share;
             let seizure_wad = &seizure_usd_for_asset * &wad_scale() / &c.price_wad;
-            // Convert WAD -> asset tokens.
+
             let seizure_tokens = if c.decimals <= 18 {
                 &seizure_wad / br_ten_pow(18 - c.decimals)
             } else {
@@ -532,7 +471,7 @@ pub fn compute_liquidation(
             } else {
                 seizure_tokens
             };
-            // base_amount = capped / one_plus_bonus_wad * WAD
+
             let base_amount = &capped * &wad_scale() / &one_plus_bonus_wad;
             let bonus_portion = &capped - &base_amount;
             let fee = &bonus_portion * br_from_i128(c.liq_fees_bps) / bps_scale();
@@ -541,14 +480,11 @@ pub fn compute_liquidation(
         }
     }
 
-    // 4. Record raw per-asset debt payments. Differential assertions compare
-    //    aggregate USD debt reduction against production output.
     let repaid_per_debt: Vec<(u32, BigRational)> = per_debt_payments_usd
         .iter()
         .map(|(id, tokens, _dec)| (*id, tokens.clone()))
         .collect();
 
-    // Mirror of the production solvent-toxic full-close gate.
     let requires_full_close = match max_hf_preserving_bonus_bps(&hf_wad, &proportion_seized) {
         Some(cap) => cap >= BigRational::from_integer(BigInt::from(0)) && cap < base_bonus_bps,
         None => false,
@@ -570,9 +506,6 @@ fn account_id_for(t: &LendingTest, user: &str) -> Option<u64> {
     t.find_account_id(user)
 }
 
-/// Resolve collateral positions for a user into reference form.
-/// Uses the controller's view plus per-pool sync data, so this matches the
-/// same "current" indexes the liquidation path will see.
 pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosition> {
     let account_id = match account_id_for(t, user) {
         Some(id) => id,
@@ -587,9 +520,7 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
         let market = t.resolve_market_by_asset(&asset);
         let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool)
             .get_sync_data(&hub_asset(asset.clone()));
-        // Liquidation fee is a spoke-level parameter sourced from the base
-        // harness spoke listing (mirrors production, which reads the account
-        // spoke's `SpokeAsset` config), not a per-position field.
+
         let liq_fees_bps = t
             .ctrl_client()
             .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()))
@@ -608,7 +539,6 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
     out
 }
 
-/// Same as `snapshot_collateral` but for debt positions.
 pub fn snapshot_debt(t: &LendingTest, user: &str) -> Vec<RefDebtPosition> {
     let account_id = match account_id_for(t, user) {
         Some(id) => id,
@@ -660,15 +590,13 @@ mod tests {
 
     #[test]
     fn bonus_formula_baseline() {
-        // HF = 1.0 WAD, target 1.10, knee 0.80, base 500, max 1500
         let hf = br_from_i128(WAD);
         let target = &wad_scale() * BigRational::from_integer(BigInt::from(110))
             / BigRational::from_integer(BigInt::from(100));
         let base = br_from_i128(500);
         let max = br_from_i128(1500);
         let bonus = calculate_linear_bonus_with_target(&hf, &base, &max, &target);
-        // scale = (1.10 - 1.0) / (1.10 - 0.80) = 1/3
-        // bonus = 500 + 1000 / 3 = 833.33...
+
         let expected = br_from_i128(500)
             + (br_from_i128(1000) * (&target - &br_from_i128(WAD))
                 / (&target - &hf_for_max_bonus_wad()));

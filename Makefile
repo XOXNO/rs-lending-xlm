@@ -1,40 +1,40 @@
-# ===========================================================================
-# Stellar Lending Protocol — Makefile
-#
-# Usage:
-#   make build              Build all contracts (WASM)
-#   make test               Run all tests
-#   make coverage           Run coverage + generate report
-#   make fmt                Format all code
-#   make clippy             Lint all code
-#   make clean              Clean build artifacts
-#   make install-stellar-cli  Install pinned stellar-cli (matches CI version)
-#
-# Deployment (requires stellar CLI + funded account):
-#   make testnet deploy             Deploy all contracts to testnet
-#   make mainnet deploy             Deploy all contracts to mainnet
-#   make testnet upgradeController  Upgrade controller in-place on testnet
-#   make testnet upgradeGovernance  Upgrade governance in-place on testnet
-#   make testnet upgradePool        Upload + upgrade central pool
-#   make testnet upgradeAll         upgradePool + upgradeController, then unpause
-#   make testnet setup              Deploy + configure markets/spokes, then unpause
-#   make mainnet setup              Deploy + configure markets/spokes (LEFT PAUSED)
-#   make testnet resume             Re-run configure/markets/spokes/unpause (skips deploy)
-#
-# Mainnet bootstrap (avoid 48h-per-op waits): deploy + configure at a short delay
-# while the protocol is PAUSED, then raise to the production delay (increase-only)
-# and go live. `make mainnet setup` never auto-unpauses, and `make mainnet unpause`
-# refuses until the on-chain timelock delay >= timelock_min_delay_ledgers, so the
-# protocol can never be live below the production floor:
-#   DEPLOY_MIN_DELAY=1 make mainnet setup     # deploys + configures, stays paused
-#   make mainnet updateDelay 34560            # raise to the 48h production floor
-#   make mainnet unpause                      # go live (gated on delay >= floor)
-#
-# Full runbook (markets / oracles / spokes / roles / recovery): docs/how-to/deploy-and-operate.md
-#
-# Ledger signing:
-#   SIGNER=ledger make testnet deploy
-# ===========================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 SHELL := /bin/bash
 .PHONY: \
@@ -44,7 +44,8 @@ SHELL := /bin/bash
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
-        wasm-size-check wasm-testing-abi-check act-ci act-ci-dryrun clean install-stellar-cli \
+        wasm-size-check wasm-testing-abi-check clean install-stellar-cli \
+        cbm-reindex cbm-index \
         _mutants-check _mutants-harness-prepare \
         mutants mutants-math mutants-rates mutants-pool-interest mutants-common mutants-pool \
         mutants-governance mutants-governance-oracle-probe mutants-diff \
@@ -64,46 +65,46 @@ SHELL := /bin/bash
         testnet mainnet \
         usage help
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+
+
+
 
 WASM_TARGET  := wasm32v1-none
-# Honor CARGO_TARGET_DIR so callers that isolate their build dir (the CI
-# mutation jobs) find the wasm fixtures where cargo actually wrote them.
+
+
 CARGO_TARGET_DIR ?= target
 RELEASE_DIR  := $(CARGO_TARGET_DIR)/$(WASM_TARGET)/release
-# Wasm shadow-stack size. Smaller stacks reduce Soroban memory budget charged
-# on cross-contract calls while preserving trap-on-overflow behavior.
+
+
 WASM_STACK_SIZE ?= 16384
 WASM_RUSTFLAGS := -C link-arg=-zstack-size=$(WASM_STACK_SIZE)
 OPTIMIZED_DIR := target/optimized
-# Canonical WASM output: deploy/ for mainnet, certora/ for hosted prover (prebuilt).
+
 WASM_ARTIFACTS_DIR := artifacts/wasm
 DEPLOY_DIR := $(WASM_ARTIFACTS_DIR)/deploy
 CERTORA_WASM_DIR := $(WASM_ARTIFACTS_DIR)/certora
 CERTORA_BUILD_DIR := target/certora-build
-# Certora modules are large; parallel rustc jobs can starve the local Prover's
-# Java/Z3 processes on developer workstations. Override only with measured RAM.
+
+
 CERTORA_BUILD_JOBS ?= 1
 COV_DIR := target/coverage
 TEST_HARNESS_DIR := tests/test-harness
 FUZZ_DIR := tests/fuzz
 
-# Contract crates (order matters for deployment)
+
 CONTRACTS := pool controller governance
 
-# WASM artifacts gated by `wasm-size-check` (optimized + spec-doc stripped).
+
 WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy price_aggregator
 
-# Coverage exclusions (no executable code / stubs only).
-# Exclude test scaffolding (tests/test-harness internals, the Certora
-# spec layer, the vendored cvlr-log patch) and trivial type-alias files that
-# have no executable lines. Protocol code in `common/`, `contracts/`, and
-# `interfaces/` stays in scope.
+
+
+
+
+
 COV_IGNORE := --ignore-filename-regex='(^|/)(tests/test-harness|tests/fuzz|certora|vendor|target)/|common/src/types/(shared|aggregator)\.rs$$'
 
-# Network config (override via env or CLI, for example `make SIGNER=ledger mainnet setupAll`)
+
 NETWORK     ?= testnet
 SIGNER      ?= deployer
 CONTRACT    ?= controller
@@ -111,11 +112,11 @@ CONFIG_DIR  ?= configs
 FLASH_MARKET ?= XLM
 FLASH_LOAN_AMOUNT ?= 10000000
 FLASH_RECEIVER_FUND ?= 10000000
-# Aggregator constructor admin; empty means "use the deploying signer".
+
 AGGREGATOR_ADMIN ?=
-# xoxno-oracle-adapter constructor args; admin/signers default to the deploying
-# signer alone (fine for a first testnet smoke-deploy, not for production —
-# override with the bot wallets' real derived addresses before real use).
+
+
+
 ORACLE_ADAPTER_ADMIN ?=
 ORACLE_ADAPTER_SIGNERS ?=
 ORACLE_ADAPTER_THRESHOLD ?= 1
@@ -127,28 +128,28 @@ PRICE_AGGREGATOR_WASM_HASH_FILE ?= target/price_aggregator_wasm_hash.txt
 GOVERNANCE_WASM_HASH_FILE ?= target/governance_wasm_hash.txt
 SIGNER_ADDRESS = $$(stellar keys public-key $(SIGNER) 2>/dev/null || stellar keys address $(SIGNER) 2>/dev/null || echo $(SIGNER))
 
-# Pin the stellar CLI to the RPC + passphrase from networks.json. These env vars
-# take precedence over the endpoint the CLI resolves from --network (the network
-# name is still used for contract-alias resolution), so the reliable RPC set in
-# config drives uploads/deploys instead of the public default. Recipes inherit
-# them via `export`; configs/script.sh applies the same vars for its own calls.
+
+
+
+
+
 STELLAR_RPC_URL = $(shell jq -r '.["$(NETWORK)"].rpc_url // empty' $(CONFIG_DIR)/networks.json 2>/dev/null)
 STELLAR_NETWORK_PASSPHRASE = $(shell jq -r '.["$(NETWORK)"].network_passphrase // empty' $(CONFIG_DIR)/networks.json 2>/dev/null)
 export STELLAR_RPC_URL
 export STELLAR_NETWORK_PASSPHRASE
 
-# Stellar CLI source account flag
+
 ifeq ($(SIGNER),ledger)
   SOURCE_FLAG = --source-account $(SIGNER_ADDRESS) --sign-with-ledger
 else
   SOURCE_FLAG = --source $(SIGNER)
 endif
 
-# ---------------------------------------------------------------------------
-# Build
-# ---------------------------------------------------------------------------
 
-## Build all contracts (WASM release)
+
+
+
+
 build:
 	@echo "Building all contracts (stack-size $(WASM_STACK_SIZE))..."
 	CARGO_BUILD_RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build
@@ -156,12 +157,12 @@ build:
 	@echo "WASM artifacts:"
 	@ls -lh $(RELEASE_DIR)/*.wasm 2>/dev/null || ls -lh target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null || echo "  (none found)"
 
-## Build a single contract: make build-one CRATE=controller
+
 build-one:
 	@echo "Building $(CRATE) (stack-size $(WASM_STACK_SIZE))..."
 	CARGO_BUILD_RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build --package $(CRATE)
 
-## Optimize WASM binaries for local tooling and inspection.
+
 optimize: build
 	@mkdir -p $(OPTIMIZED_DIR)
 	@for contract in $(WASM_SIZE_CONTRACTS); do \
@@ -182,9 +183,9 @@ optimize: build
 	@echo "Optimized WASM:"
 	@ls -lh $(OPTIMIZED_DIR)/*.wasm 2>/dev/null
 
-## Create stripped deploy artifacts from optimized WASM. Spec doc strings
-## are removed (scripts/strip_spec_docs.py): they count against the network's
-## contractMaxSizeBytes and the reference docs live in the interface crates.
+
+
+
 deploy-artifacts: optimize
 	@mkdir -p $(DEPLOY_DIR)
 	@for contract in $(WASM_SIZE_CONTRACTS); do \
@@ -197,9 +198,9 @@ deploy-artifacts: optimize
 	@echo "Deploy WASM ($(DEPLOY_DIR)):"
 	@ls -lh $(DEPLOY_DIR)/*.wasm 2>/dev/null
 
-## Build certora-feature WASM for hosted prover (no stellar optimize; spec hooks preserved).
-## Stellar's post-build optimizer can produce WASM that passes wasm-validate but crashes
-## Certora's GC stack checker on large controller binaries (FunctionIndex_* ref stack errors).
+
+
+
 certora-wasm:
 	@set -euo pipefail; \
 	mkdir -p $(CERTORA_WASM_DIR) $(CERTORA_BUILD_DIR); \
@@ -227,7 +228,7 @@ certora-wasm:
 	echo "Certora WASM ($(CERTORA_WASM_DIR)):"; \
 	ls -lh $(CERTORA_WASM_DIR)/*.wasm 2>/dev/null
 
-## WASM for live testnet harness: deploy-sized main contracts + optimized mocks.
+
 integration-wasm: deploy-artifacts
 	@mkdir -p $(OPTIMIZED_DIR)
 	@for wasm in controller pool governance flash_loan_receiver defindex_strategy price_aggregator; do \
@@ -248,8 +249,8 @@ integration-wasm: deploy-artifacts
 	@echo "Integration WASM ($(OPTIMIZED_DIR)):"
 	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,defindex_strategy,price_aggregator,mock_oracle,mock_redstone}.wasm 2>/dev/null
 
-## Generate fresh appendix.md for the integration harness from test-harness
-## budget/footprint tests (addresses stale appendix weakness).
+
+
 integration-appendix:
 	@echo "Generating tests/integration/appendix.md from test-harness budget data..."
 	@mkdir -p tests/integration
@@ -264,7 +265,7 @@ integration-appendix:
 	) > tests/integration/appendix.md
 	@echo "Wrote tests/integration/appendix.md (update with real numbers from harness when budgets change)."
 
-## Quality targets for the live testnet integration harness (address audit weaknesses)
+
 .PHONY: integration-preflight integration-validate integration-shellcheck
 
 integration-preflight: integration-wasm
@@ -288,83 +289,92 @@ integration-shellcheck:
 	@echo "Running shellcheck on harness sources (non-blocking)..."
 	@shellcheck -x -s bash tests/integration/env.sh tests/integration/lib/*.sh tests/integration/scenarios/*.sh tests/integration/flows/*.sh 2>&1 | head -30 || true
 
-## Production deploy WASM + certora prover WASM (local build once, cloud proves).
+
 wasm-artifacts: deploy-artifacts certora-wasm
 	@echo ""
 	@echo "All WASM artifacts under $(WASM_ARTIFACTS_DIR)/"
 
-# Certora hosted prover (requires CERTORAKEY, certora-cli, and certora WASM).
+
 CERTORA_PROFILE ?= sanity
 
-## List Certora verification profiles.
+
 certora-list:
 	@./certora/scripts/run_profile.py --list
 
-## Submit profile to Certora cloud: make certora [CERTORA_PROFILE=fast]
+
 certora: certora-wasm
 	@test -n "$$CERTORAKEY" || { echo "CERTORAKEY is not set"; exit 1; }
 	@command -v certoraSorobanProver >/dev/null 2>&1 || { \
 		echo "certoraSorobanProver not found; install with: pip install certora-cli"; \
 		exit 1; \
 	}
-	@./certora/scripts/run-all.sh $(CERTORA_PROFILE) $(CERTORA_ARGS)
+	@./certora/scripts/run_profile.py $(CERTORA_PROFILE) $(CERTORA_ARGS)
 
 _wasm-manifest:
 	@python3 certora/scripts/write_wasm_manifest.py \
 		$(if $(DEPLOY),--deploy,) \
 		$(if $(CERTORA),--certora,)
 
-# ---------------------------------------------------------------------------
-# Test
-# ---------------------------------------------------------------------------
 
-## Run all tests
+
+
+
+
+# Each test owns its own Soroban Env and its own `test_snapshots` file, so the
+# suite parallelises; empty means libtest's default of one thread per core.
+# Set TEST_THREADS=1 to serialise while bisecting a cross-test interaction.
+TEST_THREADS ?=
+TEST_THREAD_FLAG = $(if $(strip $(TEST_THREADS)),--test-threads=$(TEST_THREADS),)
+
+
 test:
-	cargo test -p test-harness -- --test-threads=1
+	cargo test -p test-harness -- $(TEST_THREAD_FLAG)
 
-## Run all tests with output
+
+# Serial by default: interleaved output from parallel threads defeats the point.
+test-verbose: TEST_THREADS := 1
 test-verbose:
-	cargo test -p test-harness -- --test-threads=1 --nocapture
+	cargo test -p test-harness -- $(TEST_THREAD_FLAG) --nocapture
 
-## Run a specific test file: make test-one FILE=liquidation_tests
+
 test-one:
-	cargo test -p test-harness --test $(FILE) -- --test-threads=1
+	cargo test -p test-harness --test $(FILE) -- $(TEST_THREAD_FLAG)
 
-## Run tests matching a pattern: make test-match PATTERN=interest
+
 test-match:
-	cargo test -p test-harness $(PATTERN) -- --test-threads=1
+	cargo test -p test-harness $(PATTERN) -- $(TEST_THREAD_FLAG)
 
-## Run pool unit tests
+
 test-pool:
 	cargo test -p pool
 
-## Run Miri on pure-i128 subset of common crate (rescale_half_up, div_by_int_half_up).
-## Requires: rustup +nightly + miri + rust-src components.
+
+
 miri-common:
 	@cd common && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation" \
 		cargo +nightly miri test --lib -- \
 		fp_core::tests::test_rescale \
 		fp_core::tests::test_div_by_int
 
-## Run all Miri checks. Scope is the pure fp_core arithmetic only: the former
-## pool::interest and controller::helpers scopes now run on a full Soroban
-## host (Env + registered contract + storage), which Miri interprets ~1000x
-## slower — a single such test exceeds the 6h CI job timeout. Host-bound
-## tests add no Miri-checkable UB surface beyond the pure math they call.
+
+
+
+
+
 miri-all: miri-common
 
-# ---------------------------------------------------------------------------
-# Coverage
-# ---------------------------------------------------------------------------
-# Canonical IDE path (Coverage Gutters, etc.): repo-root `lcov.info` (gitignored).
-# Written after each coverage target so tools that only look for `lcov.info` work.
 
-## Run coverage and print summary to CLI
+
+
+
+
+
+
 coverage: coverage-merged
 
-# `--no-fail-fast`: one failing harness binary must not skip later ones
-# (e.g. `controller` before `strategy`); otherwise strategy modules report 0%.
-# `set -o pipefail` + tee: preserve cargo exit status when summarizing with tail.
+
+
+
 define COV_RUN_HARNESS
 	backup="$(COV_DIR)/snapshots-backup"; \
 	restore_snapshots() { \
@@ -376,7 +386,7 @@ define COV_RUN_HARNESS
 	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
 	trap 'restore_snapshots' EXIT; \
 	set -o pipefail; \
-	cargo llvm-cov test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- --test-threads=1 2>&1 | tee $(COV_DIR)/harness.log | tail -20
+	cargo llvm-cov test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- $(TEST_THREAD_FLAG) 2>&1 | tee $(COV_DIR)/harness.log | tail -20
 endef
 
 coverage-controller:
@@ -451,54 +461,53 @@ coverage-merged:
 	echo "  lcov.info  (IDE default; copy of $(COV_DIR)/merged.lcov.info)"; \
 	exit $$harness_status
 
-# ---------------------------------------------------------------------------
-# Code quality
-# ---------------------------------------------------------------------------
 
-## Format all code
+
+
+
+
 fmt:
 	cargo fmt --all
 
-## Check formatting (CI mode)
+
 fmt-check:
 	cargo fmt --all -- --check
 
-## Lint all code
+
 clippy:
 	cargo clippy --all-targets -- -D warnings
 
-## Lint contracts only (no test-harness)
+
 clippy-contracts:
 	cargo clippy -p controller -p pool -p common -- -D warnings
 
-## Lint the fuzz crate (excluded from the workspace).
+
 clippy-fuzz:
 	cargo clippy --manifest-path $(FUZZ_DIR)/Cargo.toml --all-targets -- -D warnings
 
-## Run the scout.yml workflow in Docker via nektos/act (same action + gate as CI).
-scout:
-	bash .github/scripts/act-local.sh scout
 
-## Run Scout directly on the host (no Docker).
-scout-host:
+scout:
 	.github/scripts/run_scout.sh
 
-## Run Scout on the host and fail if any report is incomplete.
+
+scout-host: scout
+
+
 scout-strict:
 	SCOUT_STRICT=1 .github/scripts/run_scout.sh
 
-# ---------------------------------------------------------------------------
-# WASM size budget
-# ---------------------------------------------------------------------------
-# Thresholds live in `configs/wasm_size_budget.txt`.
+
+
+
+
 
 WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
 
-## Fail if a deploy WASM exports a test-only ABI. `set_controller` is gated by
-## `#[cfg(any(test, feature = "testing"))]` in governance and is unauthenticated;
-## it must never reach a deployable artifact. Cargo's resolver keeps the dev-only
-## `governance/testing` feature out of the cdylib build today — this guard fails
-## loudly if a future workspace/feature change ever leaks it.
+
+
+
+
+
 wasm-testing-abi-check: deploy-artifacts
 	@gov="$(DEPLOY_DIR)/governance.wasm"; \
 	if [ ! -f "$$gov" ]; then echo "governance deploy WASM missing: $$gov"; exit 1; fi; \
@@ -510,14 +519,14 @@ wasm-testing-abi-check: deploy-artifacts
 	echo "OK   governance.wasm exports no test-only ABI"
 	@pa="$(DEPLOY_DIR)/price_aggregator.wasm"; \
 	if [ ! -f "$$pa" ]; then echo "price-aggregator deploy WASM missing: $$pa"; exit 1; fi; \
-	if strings "$$pa" | grep -q "seed_oracle_config"; then \
-		echo "FAIL: price_aggregator.wasm exports test-only ABI 'seed_oracle_config'"; \
+	if strings "$$pa" | grep -Eq 'seed_oracle(_config)?'; then \
+		echo "FAIL: price_aggregator.wasm exports test-only ABI 'seed_oracle' (or legacy seed_oracle_config)"; \
 		echo "  The price-aggregator/testing feature leaked into the deployable build."; \
 		exit 1; \
 	fi; \
 	echo "OK   price_aggregator.wasm exports no test-only ABI"
 
-## Fail if any deploy WASM exceeds the committed budget.
+
 wasm-size-check: deploy-artifacts wasm-testing-abi-check
 	@if [ ! -f $(WASM_BUDGET_FILE) ]; then \
 		echo "WASM budget file missing: $(WASM_BUDGET_FILE)"; \
@@ -541,55 +550,97 @@ wasm-size-check: deploy-artifacts wasm-testing-abi-check
 	done <$(WASM_BUDGET_FILE); \
 	exit $$status
 
-## Dry-run ci.yml build-and-test in Docker via nektos/act (requires Docker + act).
-act-ci-dryrun:
-	bash .github/scripts/act-local.sh -n ci
 
-## Run ci.yml build-and-test job in Docker via nektos/act (requires Docker + act).
-act-ci:
-	bash .github/scripts/act-local.sh ci
 
-# ---------------------------------------------------------------------------
-# Mutation testing
-# ---------------------------------------------------------------------------
-# Requires: cargo install --version 27.1.0 --locked cargo-mutants
-# Config:   .cargo/mutants.toml (workspace-wide excludes)
-# Output:   mutants.out/ (gitignored)
-#
-# `mutants` runs the non-overlapping production scopes below. The focused
-# math/rates/pool-interest targets are local diagnostics and are intentionally
-# omitted from CI because their mutants are already covered by common/pool.
+
+
+
+
+
+
+
+
 
 MUTANTS_JOBS ?= 4
 CARGO_MUTANTS_VERSION ?= 27.1.0
-# Mutants can make later integration binaries fail while Cargo still finishes
-# the remaining targets. Keep the in-place default floor so those assertion
-# kills are not misclassified as timeouts on a busy self-hosted runner.
-MUTANTS_TIMEOUT ?= 300
-# Empty by default for safe scratch-tree mutation. CI passes --in-place because
-# every matrix job owns a disposable checkout and can reuse its cached target.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+MUTANTS_TIMEOUT ?= 600
+
+
 MUTANTS_RUN_MODE ?=
-# Filters must be repeated during the non-empty scope preflight.
+
 MUTANTS_FILTER ?=
-# Execution-only flags such as --list, --check, or --iterate.
+
 MUTANTS_EXTRA_ARGS ?=
-# Optional deterministic shard (e.g. 0/2) so CI can split one scope across
-# runners. The preflight counts the whole scope; the shard only splits runs.
+
+
 MUTANTS_SHARD ?=
-# Diff file consumed by the `mutants-diff` PR gate.
+
 MUTANTS_DIFF_FILE ?= pr.diff
+
+
+
+
+
+
 MUTANTS_JOB_ARGS = $(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j $(MUTANTS_JOBS))
 MUTANTS_SHARD_ARGS = $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
-# Alternate test runner (e.g. `nextest`). Empty keeps the default `cargo test`.
+
+
+
+MUTANTS_JOBSERVER_TASKS ?=
+MUTANTS_JOBSERVER_ARGS = $(if $(MUTANTS_JOBSERVER_TASKS),--jobserver-tasks $(MUTANTS_JOBSERVER_TASKS))
+
 MUTANTS_TEST_TOOL ?=
 MUTANTS_TEST_TOOL_ARGS = $(if $(MUTANTS_TEST_TOOL),--test-tool=$(MUTANTS_TEST_TOOL),)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+MUTANTS_RUN_ARGS_UNSHARDED = $(MUTANTS_JOB_ARGS) \
+	$(MUTANTS_JOBSERVER_ARGS) $(MUTANTS_TEST_TOOL_ARGS) \
+	$(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+MUTANTS_RUN_ARGS = $(MUTANTS_SHARD_ARGS) $(MUTANTS_RUN_ARGS_UNSHARDED)
 MUTANTS_POOL_WASM := $(abspath $(RELEASE_DIR)/pool.wasm)
 MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
 MUTANTS_PRICE_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/price_aggregator.wasm)
-# Keep Proptest deterministic and cheap when cargo-mutants runs the whole
-# test-harness for each mutant. Every wasm-fixture loader must be pointed at
-# $(RELEASE_DIR) here — a loader left on its default `target/...` path reads
-# nothing when CI isolates the build under CARGO_TARGET_DIR=target-mutants.
+
+
+
+
 MUTANTS_ENV = PROPTEST_CASES=1 PROPTEST_RNG_SEED=0 \
 	POOL_WASM_PATH="$(MUTANTS_POOL_WASM)" \
 	CONTROLLER_WASM_PATH="$(MUTANTS_CONTROLLER_WASM)" \
@@ -600,28 +651,65 @@ define run_mutants
 		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
 		echo "Mutation scope: $$count mutants"
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) $(1) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
-# Two-pass execution for scopes whose kill criteria include the integration
-# harness. Pass 1 runs only the cheap native suites in $(2), killing the
-# large majority of mutants in seconds each; its exit code is ignored (the
-# `-` prefix) and its GitHub annotations are suppressed (GITHUB_ACTIONS=false)
-# because survivors are expected there — only pass 2 misses are real. Pass 2 re-tests ONLY the
-# survivors (`--iterate` skips mutants already caught or unviable) against
-# the full test set in $(3), which is byte-identical to the single-pass
-# configuration — so the final verdict set is the same, just reached faster.
+
+
+
+
+
+
+
+
+
+
+
+
+
 define run_mutants_two_pass
 	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
 		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
 		echo "Mutation scope: $$count mutants (two-pass)"
-	-$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+	@status=0; \
+		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_UNSHARDED) \
+			|| status=$$?; \
+		case $$status in 0|2|3) ;; *) exit $$status;; esac
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
+endef
+
+
+
+
+
+
+
+define run_mutants_three_pass
+	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
+		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
+		echo "Mutation scope: $$count mutants (three-pass)"
+	@status=0; \
+		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_UNSHARDED) \
+			|| status=$$?; \
+		case $$status in 0|2|3) ;; *) exit $$status;; esac
+	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
+		status=0; \
+		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_UNSHARDED) \
+			|| status=$$?; \
+		case $$status in 0|2|3) ;; *) exit $$status;; esac; \
+	else \
+		echo "Native-consumer pass skipped: package tests resolved every mutant"; \
+	fi
+	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
+		$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(4) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS); \
+	else \
+		echo "Integration pass skipped: native tests resolved every mutant"; \
+	fi
 endef
 
 _mutants-check:
@@ -637,80 +725,96 @@ _mutants-check:
 		exit 1; \
 	fi
 
-# Rebuild the wasm fixtures from source every run, in the same
-# $(CARGO_TARGET_DIR) tree that MUTANTS_ENV points the test loaders at.
-# The tree is removed first: restored CI caches can carry artifacts from an
-# older commit. The grep guard fails loudly on a stale controller fixture
-# instead of surfacing as a cryptic mutants-baseline test failure.
+
+
+
+
+
+
+
+
+
+
+
+
+MUTANTS_FIXTURES_PREBUILT ?=
+
 _mutants-harness-prepare: _mutants-check
+ifeq ($(MUTANTS_FIXTURES_PREBUILT),)
 	rm -rf $(CARGO_TARGET_DIR)/$(WASM_TARGET)
 	$(MAKE) build
+else
+	@for w in "$(MUTANTS_POOL_WASM)" "$(MUTANTS_CONTROLLER_WASM)" "$(MUTANTS_PRICE_AGGREGATOR_WASM)"; do \
+		[ -s "$$w" ] || { echo "prebuilt fixture missing or empty: $$w"; exit 1; }; \
+	done
+	@[ -s "$(RELEASE_DIR)/SHA256SUMS" ] \
+		|| { echo "prebuilt fixtures have no SHA256SUMS manifest in $(RELEASE_DIR)"; exit 1; }
+	@cd $(RELEASE_DIR) && { \
+		if command -v sha256sum >/dev/null 2>&1; then sha256sum -c SHA256SUMS; \
+		else shasum -a 256 -c SHA256SUMS; fi; } >/dev/null \
+		|| { echo "prebuilt fixture checksums do not match SHA256SUMS"; exit 1; }
+	@echo "Using prebuilt wasm fixtures from $(RELEASE_DIR) (checksums verified)"
+endif
 	@grep -aq set_swap_aggregator "$(MUTANTS_CONTROLLER_WASM)" \
 		|| { echo "controller.wasm fixture is stale (missing set_swap_aggregator export)"; exit 1; }
 
-## Run every non-overlapping production mutation scope.
-mutants: mutants-common mutants-pool mutants-governance mutants-governance-oracle-probe \
+
+mutants: mutants-common mutants-pool mutants-governance \
 		 mutants-controller-core \
          mutants-controller-oracle mutants-controller-positions \
          mutants-controller-strategies mutants-controller-views \
          mutants-aggregator mutants-oracle-adapter mutants-defindex-strategy
 
-## Focused local diagnostics (already covered by mutants-common/pool).
+
 mutants-math: _mutants-check
 	$(call run_mutants,--package common --file 'common/src/math/**')
 
 mutants-rates: _mutants-check
-	$(call run_mutants,--package common --file 'common/src/rates.rs')
+	$(call run_mutants,--package common --file 'common/src/rates/**')
 
 mutants-pool-interest: _mutants-check
 	$(call run_mutants,--package pool --file 'contracts/pool/src/interest.rs')
 
-## Shared math, rates, oracle primitives, validation, and ABI data behavior.
-# Run every native consumer plus the integration harness so shared-code mutants
-# cannot survive merely because their only exercising contract was omitted.
-# Pass 1 = the native consumers; pass 2 adds the harness for the survivors.
+
+
+
+
 mutants-common: _mutants-harness-prepare
-	$(call run_mutants_two_pass,--package common,\
+	$(call run_mutants_three_pass,--package common,\
+		--test-package common,\
 		--test-package common --test-package controller --test-package pool \
 		--test-package governance,\
 		--test-package common --test-package controller --test-package pool \
 		--test-package governance --test-package test-harness)
 
-## Native pool tests exercise the mutated Rust directly. The harness deploys a
-## prebuilt, unmutated pool WASM, so including it here would add no signal.
+
+
 mutants-pool: _mutants-check
 	$(call run_mutants,--package pool --test-package pool)
 
 mutants-governance: _mutants-harness-prepare
-	# Do not combine this with test-harness: that dependency enables the
-	# governance `testing` feature and compiles out production-only validators.
+
+
 	$(call run_mutants,--package governance \
-		--exclude 'contracts/governance/src/validate/oracle_probe.rs' \
 		--test-package governance)
 
-## Live oracle probes need the integration harness's deployed provider mocks.
-mutants-governance-oracle-probe: _mutants-harness-prepare
-	$(call run_mutants,--package governance \
-		--file 'contracts/governance/src/validate/oracle_probe.rs' \
-		--test-package governance --test-package test-harness)
 
-# Controller scopes run two-pass: the native controller suite kills the bulk
-# of mutants in seconds; governance + harness only re-test the survivors.
+
 CONTROLLER_FAST_TESTS = --test-package controller
 CONTROLLER_FULL_TESTS = --test-package controller --test-package governance \
 	--test-package test-harness
 
-## Everything outside the separately sharded oracle/position/strategy/view trees.
+
 mutants-controller-core: _mutants-harness-prepare
 	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/**' \
-		--exclude 'contracts/controller/src/oracle/**' \
+		--exclude 'contracts/controller/src/context/oracle.rs' \
 		--exclude 'contracts/controller/src/positions/**' \
 		--exclude 'contracts/controller/src/strategies/**' \
 		--exclude 'contracts/controller/src/views/**',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-oracle: _mutants-harness-prepare
-	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/oracle/**',\
+	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/context/oracle.rs',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-positions: _mutants-harness-prepare
@@ -725,33 +829,43 @@ mutants-controller-views: _mutants-harness-prepare
 	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/views/**',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
-## PR-diff mutation gate: mutates only the lines changed in
-## $(MUTANTS_DIFF_FILE) and runs the whole workspace test suite per mutant.
-# Early signal only — the nightly per-scope jobs stay authoritative: this
-# gate feature-unifies with the harness (`testing` on), so governance
-# validators behind cfg(not(feature = "testing")) are not exercised here.
+
+
+
+
+
 mutants-diff: _mutants-harness-prepare
 	@[ -s "$(MUTANTS_DIFF_FILE)" ] || { echo "Empty diff; nothing to mutate."; exit 0; }
+
+
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --in-diff "$(MUTANTS_DIFF_FILE)" \
 		--test-workspace true \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_TEST_TOOL_ARGS) $(MUTANTS_EXTRA_ARGS)
+		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_JOBSERVER_ARGS) \
+		$(MUTANTS_TEST_TOOL_ARGS) $(MUTANTS_EXTRA_ARGS)
 
-## Standalone contracts: each has its own native test suite, no harness needed.
+
+
+
+
 mutants-aggregator: _mutants-check
-	$(call run_mutants,--package swap-aggregator --test-package swap-aggregator)
+	$(call run_mutants,--package price-aggregator --test-package price-aggregator --features testing)
 
 mutants-oracle-adapter: _mutants-check
 	$(call run_mutants,--package xoxno-oracle --test-package xoxno-oracle)
 
-mutants-defindex-strategy: _mutants-check
+
+
+
+
+mutants-defindex-strategy: _mutants-harness-prepare
 	$(call run_mutants,--package defindex-strategy --test-package defindex-strategy)
 
-# ---------------------------------------------------------------------------
-# Clean
-# ---------------------------------------------------------------------------
 
-## Clean all build artifacts
+
+
+
+
 clean:
 	cargo clean
 	rm -rf $(OPTIMIZED_DIR)
@@ -759,42 +873,42 @@ clean:
 	rm -rf $(CERTORA_BUILD_DIR)
 	rm -rf $(COV_DIR)
 
-# ---------------------------------------------------------------------------
-# Tools (CI parity for local development)
-# ---------------------------------------------------------------------------
 
-## Install the exact stellar-cli version used across CI, fuzz, Certora, and release
-## workflows.
-## The helper script is platform-aware (Linux + macOS darwin) and idempotent.
+
+
+
+
+
+
 install-stellar-cli:
 	STELLAR_VERSION=27.0.0 bash .github/scripts/install-stellar-cli.sh
 
-# ---------------------------------------------------------------------------
-# Fuzzing (function-level math primitives)
-# ---------------------------------------------------------------------------
+
+
+
 
 FUZZ_TARGETS := fp_math rates_and_index fp_ops
-FUZZ_CONTRACT_TARGETS := flow_e2e flow_strategy pool_native
+FUZZ_CONTRACT_TARGETS := flow_e2e flow_strategy pool_native aggregator
 FUZZ_TIME ?= 60
-FUZZ_MAX_LEN ?= 82
+FUZZ_MAX_LEN ?= 256
 FUZZ_LEN_CONTROL ?= 0
 
-# macOS requires `--sanitizer=thread -Zbuild-std` to link the contract-level
-# targets (stellar-access cdylib + libFuzzer sancov conflict). Linux builds
-# fine with the default sanitizer; detect and only opt-in on Darwin.
+
+
+
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
   FUZZ_FLAGS := --sanitizer=thread -Zbuild-std
 else
-  # Static cargo-fuzz binaries default to musl, which cannot link ASan.
-  # Pin the Rust host target so the sanitizer links.
-  # Lazy (`=`, not `:=`): `rustc` is invoked only when a fuzz recipe expands
-  # FUZZ_FLAGS, not at parse time on every `make` invocation (e.g. help/clean).
+
+
+
+
   FUZZ_HOST = $(shell rustc -vV | sed -n 's/^host: //p')
   FUZZ_FLAGS = --target $(FUZZ_HOST)
 endif
 
-## Run all fuzz targets for $(FUZZ_TIME) seconds each (default: 60s)
+
 fuzz:
 	@set -o pipefail; for t in $(FUZZ_TARGETS); do \
 		echo "=== $$t ==="; \
@@ -802,7 +916,7 @@ fuzz:
 		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t $(FUZZ_DIR)/corpus/$$t $(FUZZ_DIR)/seeds/$$t -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
 	done
 
-## Run all contract-level libFuzzer targets for $(FUZZ_TIME) seconds each.
+
 fuzz-contract:
 	@set -o pipefail; for t in $(FUZZ_CONTRACT_TARGETS); do \
 		echo "=== $$t ==="; \
@@ -810,30 +924,30 @@ fuzz-contract:
 		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t $(FUZZ_DIR)/corpus/$$t $(FUZZ_DIR)/seeds/$$t -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
 	done
 
-## Run a single fuzz target: make fuzz-one TARGET=fp_math FUZZ_TIME=300
+
 fuzz-one:
 	@mkdir -p $(FUZZ_DIR)/corpus/$(TARGET)
 	@cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $(TARGET) $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET) -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL)
 
-## Build all fuzz targets (compile-only)
+
 fuzz-build:
 	@cargo +nightly fuzz build --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS)
 
-## Seed tests/fuzz/corpus/<target>/ from */test_snapshots/**/*.json.
-## Run before fuzz campaigns to provide numeric entropy at start.
+
+
 fuzz-seed-corpus:
 	@cd $(FUZZ_DIR) && cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
 
-# ---------------------------------------------------------------------------
-# Fuzz coverage (fast: corpus replay only, no active fuzzing)
-# ---------------------------------------------------------------------------
-# `cargo fuzz coverage` builds profile instrumentation and replays the corpus.
-# HTML reports land in $(COV_DIR)/fuzz/<target>/. Set FUZZ_COV_TIME=<seconds>
-# to grow the corpus before measuring.
-#
-# macOS targets need --sanitizer=thread -Zbuild-std because the default
-# sancov+ASAN build cannot link the stellar-access cdylib. Cached replay and
-# report runs complete faster after the first build.
+
+
+
+
+
+
+
+
+
+
 
 FUZZ_COV_TIME ?= 0
 ifeq ($(UNAME_S),Darwin)
@@ -842,17 +956,17 @@ else
   FUZZ_COV_ENV :=
 endif
 
-## Fast: coverage for function-level targets (fp_math, rates_and_index)
+
 fuzz-coverage:
 	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) FUZZ_MAX_LEN=$(FUZZ_MAX_LEN) FUZZ_LEN_CONTROL=$(FUZZ_LEN_CONTROL) \
 		./$(FUZZ_DIR)/coverage.sh $(FUZZ_TARGETS)
 
-## All: adds contract-level targets — same flags, same cache, just more targets
+
 fuzz-coverage-all:
 	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) FUZZ_MAX_LEN=$(FUZZ_MAX_LEN) FUZZ_LEN_CONTROL=$(FUZZ_LEN_CONTROL) \
 		./$(FUZZ_DIR)/coverage.sh $(FUZZ_TARGETS) $(FUZZ_CONTRACT_TARGETS)
 
-## Single target: make fuzz-coverage-one TARGET=flow_e2e [FUZZ_COV_TIME=30]
+
 fuzz-coverage-one:
 	@if [ -z "$(TARGET)" ]; then \
 		echo "Usage: make fuzz-coverage-one TARGET=<name> [FUZZ_COV_TIME=30]"; \
@@ -861,36 +975,36 @@ fuzz-coverage-one:
 	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) FUZZ_MAX_LEN=$(FUZZ_MAX_LEN) FUZZ_LEN_CONTROL=$(FUZZ_LEN_CONTROL) \
 		./$(FUZZ_DIR)/coverage.sh $(TARGET)
 
-## Remove fuzz coverage artifacts (keeps the corpus)
+
 fuzz-coverage-clean:
 	@rm -rf $(COV_DIR)/fuzz $(FUZZ_DIR)/coverage
 
-# ---------------------------------------------------------------------------
-# Contract-level property tests (proptest inside test-harness)
-# ---------------------------------------------------------------------------
+
+
+
 
 PROPTEST_CASES ?=
 PROPTEST_ENV = $(if $(strip $(PROPTEST_CASES)),PROPTEST_CASES=$(PROPTEST_CASES),)
 
-## Run all contract-level property tests (`tests/test-harness/tests/fuzz/`).
-## Set PROPTEST_CASES=10000 (or higher) for longer runs on dedicated hardware.
+
+
 proptest:
 	@echo "=== fuzz (proptest) ==="
 	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz -- --test-threads=1
 
-## Run a single property: make proptest-one TEST=prop_accounting_conservation PROPTEST_CASES=10000
+
 proptest-one:
 	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz $(TEST) -- --test-threads=1
 
-## Build property tests without running
+
 proptest-build:
 	@cargo build --release --tests -p test-harness
 
-# ---------------------------------------------------------------------------
-# Deployment
-# ---------------------------------------------------------------------------
 
-## Generate deployer key (one-time setup)
+
+
+
+
 keygen:
 	@echo "Generating deployer key for $(NETWORK)..."
 	stellar keys generate deployer --network $(NETWORK) --fund
@@ -910,9 +1024,9 @@ _preflight-network-config: _preflight-tools
 	@test -f $(CONFIG_DIR)/$(NETWORK)/spokes.json || { echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)/spokes.json"; exit 1; }
 	@jq -e 'type == "object"' $(CONFIG_DIR)/$(NETWORK)/spokes.json >/dev/null || { echo "Spoke config in $(CONFIG_DIR)/$(NETWORK)/spokes.json is not a JSON object"; exit 1; }
 
-# Setup must not go live without the aggregator (swap router) and accumulator
-# (revenue treasury). ALLOW_MISSING_AGGREGATOR=1 / ALLOW_MISSING_ACCUMULATOR=1
-# are explicit escape hatches for bootstrap runs that will not be unpaused.
+
+
+
 _preflight-setup: _preflight-network-config _preflight-validate-configs
 	@AGG=$$(jq -r '.["$(NETWORK)"].aggregator // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$${AGGREGATOR_CONTRACT:-}" ]; then AGG="$$AGGREGATOR_CONTRACT"; fi; \
@@ -965,8 +1079,8 @@ _preflight-pool-hash: _preflight-network-config
 		exit 1; \
 	fi
 
-# Validate the JSON configs BEFORE anything touches the chain: a misconfig must
-# fail here, not after a deploy or a timelock wait.
+
+
 _preflight-validate-configs: _preflight-network-config
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh validateConfigs
 
@@ -982,14 +1096,14 @@ _post-setup-status:
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh listSpokes
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh checkDelay
 
-## Deploy all contracts to a network
+
 deploy-testnet: NETWORK=testnet
 deploy-testnet: _deploy
 
 deploy-mainnet: NETWORK=mainnet
 deploy-mainnet: _deploy
 
-## Upgrade the deployed controller contract in-place via governance.
+
 upgrade-controller: _preflight-controller _preflight-governance deploy-artifacts
 	@echo "=== Upgrading controller on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1010,14 +1124,14 @@ upgrade-controller: _preflight-controller _preflight-governance deploy-artifacts
 	echo "New controller WASM hash: $$HASH"
 	@HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeControllerHash $$HASH
-	@# Record the hash only after the timelocked upgrade landed, so networks.json
-	@# never claims a WASM that is not live.
+	@
+	@
 	@HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].controller_wasm_hash = "'$$HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
-## Upgrade the deployed governance contract in-place via its self-timelock.
+
 upgrade-governance: _preflight-governance deploy-artifacts
 	@echo "=== Upgrading governance on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1038,15 +1152,15 @@ upgrade-governance: _preflight-governance deploy-artifacts
 	echo "New governance WASM hash: $$HASH"
 	@HASH=$$(cat $(GOVERNANCE_WASM_HASH_FILE)); \
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeGovernanceHash $$HASH
-	@# Record the hash only after the timelocked upgrade landed, so networks.json
-	@# never claims a WASM that is not live.
+	@
+	@
 	@HASH=$$(cat $(GOVERNANCE_WASM_HASH_FILE)); \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].governance_wasm_hash = "'$$HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
-## Upload pool WASM and upgrade the central pool in one timelocked op.
-## Same shape as upgrade-controller.
+
+
 upgrade-pool: _preflight-controller _preflight-governance deploy-artifacts
 	@echo "=== Upgrading central pool on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1067,20 +1181,20 @@ upgrade-pool: _preflight-controller _preflight-governance deploy-artifacts
 	echo "New pool WASM hash: $$HASH"
 	@HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePoolHash $$HASH
-	@# Record the hash only after the timelocked upgrade landed.
+	@
 	@HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].pool_wasm_hash = "'$$HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
-## Upgrade pool + controller, then unpause.
+
 upgrade-all: upgrade-pool upgrade-controller _unpause-after-setup _post-setup-status
 
-## Prepay protocol storage rent: extend every keeper-discovered entry
-## (instances, wasm code, spoke/hub registries, oracle configs, pool rows)
-## by the keeper's ~31-day bump, funded by SIGNER. Runs at the end of
-## setup/resume; the keeper daemon rolls it forward each tick, so users
-## never hit the contracts' inline 5-day shared-rent safety net.
+
+
+
+
+
 prepay-rent:
 	@echo "=== Prepaying protocol rent on $(NETWORK) ==="
 	@mkdir -p target
@@ -1133,7 +1247,7 @@ prepay-rent:
 	export PREPAY_SECRET; \
 	cargo run --manifest-path services/keeper/Cargo.toml --bin prepay_rent -- --config $$CFG
 
-## Build the swap aggregator (router) contract.
+
 build-aggregator:
 	@echo "Building aggregator..."
 	@stellar contract build --package swap-aggregator
@@ -1148,9 +1262,9 @@ build-aggregator:
 	fi
 	@ls -lh $(DEPLOY_DIR)/aggregator.wasm
 
-## Deploy the swap aggregator (router) contract and record its address in
-## networks.json. Constructor admin defaults to the deploying signer;
-## override with AGGREGATOR_ADMIN=<address>.
+
+
+
 deploy-aggregator: build-aggregator
 	@echo "=== Deploying aggregator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1168,7 +1282,7 @@ deploy-aggregator: build-aggregator
 	jq '.["$(NETWORK)"].aggregator = "'$$AGG'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
-## Build the self-hosted multi-signer oracle / SEP-40 reader contract.
+
 build-oracle-adapter:
 	@echo "Building xoxno-oracle-adapter..."
 	@stellar contract build --package xoxno-oracle
@@ -1183,13 +1297,13 @@ build-oracle-adapter:
 	fi
 	@ls -lh $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm
 
-## Deploy xoxno-oracle-adapter and record its address in networks.json.
-## Admin/signers default to the deploying signer alone if unset — override
-## with the bot wallets' real derived Stellar addresses before real use:
-##   make testnet deployOracleAdapter \
-##     ORACLE_ADAPTER_ADMIN=<address> \
-##     ORACLE_ADAPTER_SIGNERS='["<addr1>","<addr2>","<addr3>"]' \
-##     ORACLE_ADAPTER_THRESHOLD=2
+
+
+
+
+
+
+
 deploy-oracle-adapter: build-oracle-adapter
 	@echo "=== Deploying xoxno-oracle-adapter on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1211,9 +1325,9 @@ deploy-oracle-adapter: build-oracle-adapter
 	jq '.["$(NETWORK)"].xoxno_oracle_adapter = "'$$ORA'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
-## Upgrade the deployed aggregator in-place. Standalone contract (not
-## governance-owned): direct owner-gated call, no timelock — SIGNER must be
-## the current aggregator owner.
+
+
+
 upgrade-aggregator: build-aggregator
 	@echo "=== Upgrading aggregator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1225,12 +1339,12 @@ upgrade-aggregator: build-aggregator
 	echo "New aggregator WASM hash: $$HASH"; \
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeAggregatorHash $$HASH
 
-## Upgrade the deployed xoxno-oracle-adapter in-place. Standalone contract
-## (not governance-owned): direct owner-gated call, no timelock — SIGNER
-## must be the current oracle adapter owner.
-##
-## Wasm only. For a full mainnet cutover (windows + remove/re-add feeds) use
-## `upgradeOracleAdapterFull` (or run finalize after this target).
+
+
+
+
+
+
 upgrade-oracle-adapter: build-oracle-adapter
 	@echo "=== Upgrading xoxno-oracle-adapter on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1242,22 +1356,22 @@ upgrade-oracle-adapter: build-oracle-adapter
 	echo "New oracle adapter WASM hash: $$HASH"; \
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeOracleAdapterHash $$HASH
 
-## Full oracle-adapter cutover: build + upload + upgrade Wasm, then apply
-## windows (age / stale / relative skew from oracle_feeds.json) and
-## remove_feed+add_feed for every feed. SIGNER must be the adapter owner.
-##
-## Mainnet (Ledger):
-##   SIGNER=ledger make mainnet upgradeOracleAdapterFull
-## Testnet:
-##   SIGNER=ledger make testnet upgradeOracleAdapterFull
-##
-## Expect one Ledger prompt per owner tx (upload, upgrade, up to 3 window
-## setters, 2×N feed remove/add). Feeds have no price until bots re-quorum.
+
+
+
+
+
+
+
+
+
+
+
 upgrade-oracle-adapter-full: upgrade-oracle-adapter
 	@echo "=== Finalizing oracle adapter upgrade on $(NETWORK) (signer=$(SIGNER)) ==="
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh finalizeOracleAdapterUpgrade
 
-## Build the flash-loan receiver test contract for network smoke testing.
+
 build-flash-loan-receiver:
 	@echo "Building flash-loan receiver..."
 	@stellar contract build --package flash-loan-receiver
@@ -1272,7 +1386,7 @@ build-flash-loan-receiver:
 	fi
 	@ls -lh $(DEPLOY_DIR)/flash-loan-receiver.wasm
 
-## Deploy the latest flash-loan receiver test contract and record its address.
+
 deploy-flash-loan-receiver: build-flash-loan-receiver
 	@echo "=== Deploying flash-loan receiver on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1287,7 +1401,7 @@ deploy-flash-loan-receiver: build-flash-loan-receiver
 	jq '.["$(NETWORK)"].flash_loan_receiver = "'$$RECEIVER'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
-## Fund the deployed flash-loan receiver with the selected market asset.
+
 fund-flash-loan-receiver:
 	@echo "=== Funding flash-loan receiver on $(NETWORK) ==="
 	@ASSET=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .asset_address' $(CONFIG_DIR)/$(NETWORK)/markets.json); \
@@ -1309,7 +1423,7 @@ fund-flash-loan-receiver:
 	stellar contract invoke --id $$ASSET $(SOURCE_FLAG) --network $(NETWORK) \
 		-- transfer --from $(SIGNER_ADDRESS) --to $$RECEIVER --amount $(FLASH_RECEIVER_FUND)
 
-## Run testnet flash-loan smoke cases against the deployed receiver.
+
 test-flash-loan-receiver:
 	@echo "=== Flash-loan receiver smoke test on $(NETWORK) ==="
 	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
@@ -1406,7 +1520,7 @@ _deploy: deploy-artifacts
 		echo "Skipping Aggregator alias (set networks.json aggregator or AGGREGATOR_CONTRACT before configure-controller)"; \
 	fi
 	@echo ""
-	@# 2. Upload Pool WASM (template, not deployed directly)
+	@
 	@echo "2/7 Uploading pool WASM..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/pool.wasm \
@@ -1418,7 +1532,7 @@ _deploy: deploy-artifacts
 	jq '.["$(NETWORK)"].pool_wasm_hash = "'$$POOL_HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@# 3. Upload controller WASM so governance deploys a network-installed hash.
+	@
 	@echo "3/7 Uploading Controller WASM..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/controller.wasm \
@@ -1430,7 +1544,7 @@ _deploy: deploy-artifacts
 	jq '.["$(NETWORK)"].controller_wasm_hash = "'$$CTRL_HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@# 4. Deploy Governance with the deployer EOA as admin/owner.
+	@
 	@echo "4/7 Deploying Governance..."
 	@MIN_DELAY=$$(jq -r '.["$(NETWORK)"].timelock_min_delay_ledgers // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$$DEPLOY_MIN_DELAY" ]; then \
@@ -1454,8 +1568,8 @@ _deploy: deploy-artifacts
 	jq '.["$(NETWORK)"].governance = "'$$GOV_ID'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@# 5. Deploy Controller through governance — governance becomes its owner.
-	@# The CLI prints the returned address as a quoted strkey on the last line.
+	@
+	@
 	@echo "5/7 Deploying Controller via governance..."
 	@GOV_ID=$$(stellar contract alias show governance --network $(NETWORK) | tail -n1); \
 	CTRL_ID=$$(stellar contract invoke --id $$GOV_ID $(SOURCE_FLAG) --network $(NETWORK) \
@@ -1467,8 +1581,8 @@ _deploy: deploy-artifacts
 	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'" | .["$(NETWORK)"].hub_ids = {} | .["$(NETWORK)"].spoke_ids = {} | .["$(NETWORK)"].pool = ""' \
 	$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@# 6. Upload + deploy the price-aggregator through governance (owner call),
-	@# so the oracle authority exists before markets are configured.
+	@
+	@
 	@echo "6/7 Deploying Price Aggregator via governance..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/price_aggregator.wasm \
@@ -1485,8 +1599,8 @@ _deploy: deploy-artifacts
 	jq '.["$(NETWORK)"].price_aggregator = "'$$PA_ID'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@# 7. Deploy the central pool through the timelock (upload hash already
-	@# recorded; schedule -> await min_delay -> execute).
+	@
+	@
 	@echo "7/7 Deploying central pool via governance timelock..."
 	@POOL=$$(NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh deployPool $$(cat $(POOL_WASM_HASH_FILE)) | tail -n1 | tr -d '"'); \
 	if [ -z "$$POOL" ]; then echo "deployPool returned no address"; exit 1; fi; \
@@ -1503,7 +1617,7 @@ _deploy: deploy-artifacts
 	@echo "Pool WASM Hash: $$(cat $(POOL_WASM_HASH_FILE))"
 	@echo "Controller WASM Hash: $$(cat $(CONTROLLER_WASM_HASH_FILE))"
 
-## Configure controller after deployment (all admin calls route via governance)
+
 configure-controller: _preflight-configure-controller
 	@echo "=== Configuring Controller via governance on $(NETWORK) ==="
 	@AGG=$$(jq -r '.["$(NETWORK)"].aggregator // empty' $(CONFIG_DIR)/networks.json); \
@@ -1539,14 +1653,14 @@ configure-controller: _preflight-configure-controller
 	@echo "Controller role grants skipped: controller uses owner-gated admin and caller-auth operational flows."
 	@echo "Controller configured."
 
-## Full setup: deploy + configure + create/configure markets and spokes, then unpause.
-## Constructor pauses the controller; the final unpause turns the protocol live.
+
+
 setup-testnet: NETWORK=testnet
 setup-testnet: _preflight-setup deploy-testnet configure-controller _setup-markets _unpause-after-setup _post-setup-status
 
-# Mainnet is left PAUSED after setup — going live is a separate, gated step
-# (raise the timelock to the production floor, then `make mainnet unpause`, which
-# refuses below the floor). Consistent with the `make mainnet setup` dispatcher.
+
+
+
 setup-mainnet: NETWORK=mainnet
 setup-mainnet: _preflight-setup deploy-mainnet configure-controller _setup-markets _post-setup-status
 
@@ -1563,35 +1677,35 @@ _setup-markets:
 	fi
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setupAll
 
-# ---------------------------------------------------------------------------
-# Config-driven operations (via configs/script.sh)
-#
-# Single unified dispatcher: `make <network> <action> [positional args]`.
-# Values read JSON configs by name; positional args reference markets,
-# categories, accounts, or operation ids.
-#
-# Examples:
-# make testnet addSpoke 1
-# make testnet addAssetToSpoke 1 USDC
-# make testnet createMarket USDC
-# make testnet updateIndexes USDC XLM
-# make testnet setupAll
-# make testnet pause
-# make testnet unpause
-# make testnet grantGovRole GAB...XYZ ORACLE
-# make testnet getPrice USDC
-# make testnet getHealth 1
-# make testnet getCollateral 1 XLM
-# SIGNER=ledger make mainnet setupAll
-# ---------------------------------------------------------------------------
 
-# Action classification - dispatcher routes action to script.sh,
-# passing positional args verbatim. Adding a new verb means add here + script.sh.
-SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listOps executeReady \
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listReferences listOps executeReady \
 	configureOracleFeeds reconfigureOracleFeeds listOracleFeeds configureOracleWindows \
 	verifyOracleAdapterWindows finalizeOracleAdapterUpgrade \
 	validateConfigs checkDelay \
-	setupAll setupAllMarkets setupAllSpokes \
+	setupAll setupAllMarkets setupAllSpokes setupAllReferenceOracles \
 	whitelistBlendPools approveBlendPools configureSpokeCurves \
 	setAggregator setAccumulator pause unpause info \
 	getAllMarkets getAllIndexes getMinBorrowCollateralUsd getBulkIndexes \
@@ -1610,6 +1724,7 @@ POSITIONAL_ID_ACTIONS := addSpoke getSpoke createHub removeSpoke \
 	transferCtrlOwnership migrateController accountExists isBlendPoolApproved \
 	addOracleSigner setOracleSubmissionAge setOracleMaxStale setOracleRelativeSkew \
 	setSpokeLiquidationCurve \
+	configureReferenceOracle \
 	setAggregatorFee addAggregatorWhitelist removeAggregatorWhitelist \
 	addAggregatorReferral setAggregatorReferralFee setAggregatorReferralActive \
 	setAggregatorReferralOwner upgradeAggregatorHash upgradeOracleAdapterHash \
@@ -1623,8 +1738,8 @@ REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap
 VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidationEstimate \
 	claimAggregatorAdminFees sweepAggregatorBalance
 
-# Makefile-internal actions — handled directly by make targets, not forwarded
-# to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
+
+
 MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradeAll \
                     deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume \
                     upgradeAggregator upgradeOracleAdapter upgradeOracleAdapterFull
@@ -1636,10 +1751,10 @@ ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_AC
 
 .PHONY: $(ALL_ACTIONS)
 
-# Network dispatcher — routes each action either to an internal Makefile
-# target (MAKEFILE_ACTIONS) or forwards it verbatim to configs/script.sh.
-# All action targets below are no-ops so Make accepts the remaining words
-# on the command line.
+
+
+
+
 define NETWORK_DISPATCH
 	@action="$(word 2,$(MAKECMDGOALS))"; \
 	if [ -z "$$action" ]; then \
@@ -1699,49 +1814,49 @@ testnet:
 mainnet:
 	$(call NETWORK_DISPATCH,mainnet)
 
-# All action verbs are no-op targets so Make accepts them as positional words
-# after `testnet` / `mainnet`. Invoking them directly (e.g. `make getPrice`)
-# is intentionally unsupported — always go through a network target.
+
+
+
 $(ALL_ACTIONS):
 	@:
 
-# Catch-all for the remaining positional args (market names, ids, addresses)
-# after a `make testnet|mainnet <action> ...` invocation. Any other unknown
-# target is a hard error — without the guard a typo like `make bulid` would
-# silently succeed.
+
+
+
+
 %:
 	@if [ "$(word 1,$(MAKECMDGOALS))" != "testnet" ] && [ "$(word 1,$(MAKECMDGOALS))" != "mainnet" ]; then \
 		echo "Error: unknown target '$@' (run 'make help')"; \
 		exit 1; \
 	fi
 
-# ---------------------------------------------------------------------------
-# Contract inspection (named-parameter escape hatches for ad-hoc calls)
-# ---------------------------------------------------------------------------
 
-## Invoke a controller function: make invoke FN=get_health_factor ARGS="--account_id 1"
+
+
+
+
 invoke:
 	@CTRL=$$(stellar contract alias show $(CONTRACT) --network $(NETWORK) | tail -n1); \
 	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) -- $(FN) $(ARGS)
 
-## Invoke a function on an explicit contract id/alias: make invoke-id CONTRACT_ID=C... FN=reserves
+
 invoke-id:
 	@stellar contract invoke --id $(CONTRACT_ID) $(SOURCE_FLAG) --network $(NETWORK) -- $(FN) $(ARGS)
 
-## Invoke a view function: make view FN=get_health_factor ARGS="--account_id 1"
+
 view:
 	@CTRL=$$(stellar contract alias show $(CONTRACT) --network $(NETWORK) | tail -n1); \
 	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) --send=no -- $(FN) $(ARGS)
 
-## Invoke a view function on an explicit contract id/alias: make view-id CONTRACT_ID=C... FN=reserves
+
 view-id:
 	@stellar contract invoke --id $(CONTRACT_ID) $(SOURCE_FLAG) --network $(NETWORK) --send=no -- $(FN) $(ARGS)
 
-# ---------------------------------------------------------------------------
-# Help
-# ---------------------------------------------------------------------------
 
-## Compact overview (default goal). `make help` prints the full reference.
+
+
+
+
 usage:
 	@echo "Stellar Lending Protocol"
 	@echo ""
@@ -1761,7 +1876,7 @@ usage:
 	@echo ""
 	@echo "Docs: docs/how-to/deploy-and-operate.md (runbook) - 'make help' lists every action."
 
-## Show the full command reference
+
 help:
 	@echo "Stellar Lending Protocol Makefile"
 	@echo ""
@@ -1771,8 +1886,6 @@ help:
 	@echo "  make deploy-artifacts   Optimized WASM for mainnet ($(DEPLOY_DIR))"
 	@echo "  make wasm-size-check    Build deploy artifacts + enforce size budget"
 	@echo "  make integration-wasm   Deploy-sized WASM + mocks for testnet harness"
-	@echo "  make act-ci-dryrun      Dry-run ci.yml in Docker via nektos/act"
-	@echo "  make act-ci             Run ci.yml build-and-test job via act"
 	@echo "  make certora-wasm       Certora-feature WASM for hosted prover"
 	@echo "  make wasm-artifacts     Build deploy + certora WASM ($(WASM_ARTIFACTS_DIR))"
 	@echo "  make certora            Submit Certora cloud jobs (CERTORA_PROFILE=sanity)"
@@ -1797,7 +1910,7 @@ help:
 	@echo "  make proptest           Contract properties (tuned defaults; override PROPTEST_CASES=N)"
 	@echo "  make mutants            Full non-overlapping mutation suite (common/pool/governance/controller)"
 	@echo "  make mutants-math       Focused local mutation run (also -rates and -pool-interest)"
-	@echo "  make scout              Scout audit workflow in Docker via act (scout-host runs on host; scout-strict gates incomplete reports)"
+	@echo "  make scout              Scout audit on host (scout-strict gates incomplete reports)"
 	@echo ""
 	@echo "Deployment (pattern: make <network> <action>, network = testnet | mainnet):"
 	@echo "  make keygen                         Generate deployer key (testnet: friendbot-funded)"
@@ -1881,12 +1994,15 @@ help:
 	@echo "  Markets (writes):"
 	@echo "    make testnet createMarket USDC"
 	@echo "    make testnet updateMarketParams USDC                       Push max_utilization/rate model from JSON"
-	@echo "    make testnet configureMarketOracle USDC"
+	@echo "    make testnet configureMarketOracle USDC   Auto-configures Scaled Ref quotes first"
+	@echo "    make testnet configureReferenceOracle BTC set_oracle(PriceKey::Ref) from .references[]"
+	@echo "    make testnet setupAllReferenceOracles     All Refs required by Scaled markets"
 	@echo "    make testnet editOracleTolerance USDC 500"
 	@echo "    make testnet updateIndexes USDC XLM"
-	@echo "    make testnet setupAllMarkets       Configure markets only; does not deploy or unpause"
+	@echo "    make testnet setupAllMarkets       Refs then markets; does not deploy or unpause"
 	@echo "    make testnet listMarkets"
-	@echo "    make testnet listOracles           Per-market oracle wiring from JSON"
+	@echo "    make testnet listReferences        PriceKey::Ref oracles from markets.json"
+	@echo "    make testnet listOracles           References + per-market oracle wiring from JSON"
 	@echo ""
 	@echo "  Hubs / Spokes (writes):"
 	@echo "    make testnet listHubs"
@@ -1985,3 +2101,24 @@ help:
 	@echo "    SIGNER=ledger make mainnet setupAll"
 
 .DEFAULT_GOAL := usage
+
+
+
+
+
+
+CBM_PROJECT := Users-mihaieremia-GitHub-rs-lending-xlm
+CBM_ROOT := $(CURDIR)
+
+.PHONY: cbm-reindex cbm-index
+
+
+cbm-index:
+	codebase-memory-mcp cli index_repository '{"repo_path":"$(CBM_ROOT)","mode":"fast","persistence":true}'
+
+
+cbm-reindex:
+	-codebase-memory-mcp cli delete_project '{"project":"$(CBM_PROJECT)"}'
+	rm -f .codebase-memory/graph.db.zst .codebase-memory/artifact.json
+	codebase-memory-mcp cli index_repository '{"repo_path":"$(CBM_ROOT)","mode":"fast","persistence":true}'
+	@echo "Graph rebuilt."

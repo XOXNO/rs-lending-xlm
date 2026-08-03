@@ -48,7 +48,6 @@ fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
         })
         .count()
 }
-// events().all() counts only the last top-level invocation, not a cumulative total.
 
 #[test]
 fn test_supply_emits_events() {
@@ -109,9 +108,6 @@ fn test_bulk_supply_emits_single_position_and_market_batch() {
 
 #[test]
 fn test_supply_position_event_restores_risk_fields() {
-    // V2 wire ABI: deposit entries are vec-encoded as
-    // [action, hub_id, asset, scaled_amount, index_ray, amount, lt_bps, lb_bps,
-    //  ltv_bps, liq_fees_bps].
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -124,7 +120,7 @@ fn test_supply_position_event_restores_risk_fields() {
     let entry = as_vec(&deposits[0]);
     assert_eq!(entry.len(), 10, "deposit delta arity is wire ABI");
     assert_eq!(entry[1], ScVal::U32(1), "hub_id");
-    // usdc_preset risk params: threshold 8000, bonus 500, ltv 7500, fees 100.
+
     assert_eq!(entry[6], ScVal::U32(8000), "liquidation_threshold");
     assert_eq!(entry[7], ScVal::U32(500), "liquidation_bonus");
     assert_eq!(entry[8], ScVal::U32(7500), "loan_to_value");
@@ -133,9 +129,6 @@ fn test_supply_position_event_restores_risk_fields() {
 
 #[test]
 fn test_position_and_market_batch_v2_wire_shape() {
-    // Locks the full v2 wire layout on a liquidation, which exercises both
-    // sides of the position batch (seize deposits + repay borrows) and the
-    // market batch in one transaction.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -147,7 +140,6 @@ fn test_position_and_market_batch_v2_wire_shape() {
 
     let events = t.env.events().all();
 
-    // position:batch_update data = [account_id, attrs, deposits, borrows].
     let batches = data_for_topic(&events, "position", "batch_update");
     assert_eq!(batches.len(), 1);
     let data = as_vec(&batches[0]);
@@ -165,7 +157,7 @@ fn test_position_and_market_batch_v2_wire_shape() {
     for d in deposits.iter() {
         let entry = as_vec(d);
         assert_eq!(entry.len(), 10, "deposit delta arity");
-        // PositionAction::LiqSeize = 5.
+
         assert_eq!(entry[0], ScVal::U32(5), "seize action discriminant");
         assert!(matches!(entry[1], ScVal::U32(_)), "hub_id");
         assert!(matches!(entry[2], ScVal::Address(_)), "asset");
@@ -174,17 +166,12 @@ fn test_position_and_market_batch_v2_wire_shape() {
     for b in borrows.iter() {
         let entry = as_vec(b);
         assert_eq!(entry.len(), 6, "borrow delta arity");
-        // PositionAction::LiqRepay = 4.
+
         assert_eq!(entry[0], ScVal::U32(4), "repay action discriminant");
         assert!(matches!(entry[1], ScVal::U32(_)), "hub_id");
         assert!(matches!(entry[2], ScVal::Address(_)), "asset");
     }
 
-    // market:batch_state_update is pool-emitted, once per pool mutation call. A
-    // liquidation makes separate repay and seize/withdraw pool calls, so the
-    // touched markets are snapshotted across multiple batches. Each entry is the
-    // pool's 9-field snapshot; it carries no oracle price (the pool cannot read
-    // prices).
     let market = data_for_topic(&events, "market", "batch_state_update");
     assert!(!market.is_empty(), "pool emits market snapshots");
     let mut market_entries = 0;
@@ -211,7 +198,7 @@ fn test_borrow_emits_events() {
         .build();
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
-    // After borrow, at least the borrow operation's events must be present.
+
     let count = t.env.events().all().events().len();
     assert!(count > 0, "borrow should emit events, got {}", count);
 }
@@ -248,9 +235,7 @@ fn test_liquidation_emits_many_events() {
     t.borrow(ALICE, "ETH", 3.0);
     t.set_price("USDC", usd_cents(50));
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
-    // Liquidation combines token transfers, position updates, and seizure.
-    // Even within Soroban's per-invocation event scope, the call itself
-    // must emit several events: debt repay, seizure, and position updates.
+
     let count = t.env.events().all().events().len();
     assert!(
         count >= 3,
@@ -258,12 +243,6 @@ fn test_liquidation_emits_many_events() {
         count
     );
 }
-
-// Skipped: flash_loan event test. mock_all_auths recording mode blocks
-// nested contract calls from the flash-loan receiver.
-
-// Skipped: edit_asset_config event test. The get_asset_config view call
-// triggers a host-level error in the test environment.
 
 #[test]
 fn test_add_spoke_emits_events() {

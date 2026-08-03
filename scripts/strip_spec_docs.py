@@ -58,7 +58,7 @@ def main() -> None:
     src, dst = sys.argv[1], sys.argv[2]
     wasm = open(src, "rb").read()
 
-    sections = []  # (id, header_offset, body, name)
+    sections = []
     i = 8
     while i < len(wasm):
         start = i

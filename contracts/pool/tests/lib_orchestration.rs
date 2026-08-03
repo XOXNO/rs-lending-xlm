@@ -41,7 +41,6 @@ impl TestSetup {
         let contract = env.register(LiquidityPool, (admin.clone(),));
         LiquidityPoolClient::new(&env, &contract).create_market(&0u32, &params);
 
-        // Seed liquidity for repay/overpay scenarios.
         let tok_admin = token::StellarAssetClient::new(&env, &asset);
         tok_admin.mint(&contract, &1_000_000_000);
 
@@ -71,7 +70,7 @@ fn make_action(position_scaled: i128, amount: i128, asset: &Address) -> PoolActi
 fn test_bulk_supply_returns_input_ordered_mutations() {
     let t = TestSetup::new();
     let client = t.client();
-    // Call through the client; output order follows the *_one path.
+
     let entry1 = PoolSupplyEntry {
         action: make_action(0, 100_000_000, &t.asset),
     };
@@ -82,19 +81,4 @@ fn test_bulk_supply_returns_input_ordered_mutations() {
     assert_eq!(results.len(), 2);
     assert_eq!(results.get(0).unwrap().actual_amount, 100_000_000);
     assert_eq!(results.get(1).unwrap().actual_amount, 50_000_000);
-}
-
-#[test]
-fn test_add_rewards_increases_supply_index() {
-    let t = TestSetup::new();
-    let client = t.client();
-    // Supply first so there are suppliers to reward.
-    let sup = PoolSupplyEntry {
-        action: make_action(0, 100_000_000, &t.asset),
-    };
-    let _ = client.supply(&vec![&t.env, sup]);
-
-    client.add_rewards(&hub(&t.asset), &10_000_000);
-    let snap = client.get_sync_data(&hub(&t.asset)).state;
-    assert!(snap.supply_index > RAY);
 }

@@ -3,9 +3,6 @@ use soroban_sdk::testutils::Ledger as _;
 use test_harness::{assert_contract_error, errors, usd, LendingTest, ALICE};
 
 fn age_oracle_observations(t: &LendingTest) {
-    // Advance only wall-clock time. Advancing the ledger sequence as well would
-    // expire the mock's temporary entries and test missing history (#212)
-    // instead of stale observations (#206).
     t.env.ledger().with_mut(|ledger| ledger.timestamp += 1_000);
 }
 
@@ -13,16 +10,10 @@ fn age_oracle_observations(t: &LendingTest) {
 fn test_stale_price_allows_supply_without_price_read() {
     let mut t = setup();
 
-    // Supply first while the price is fresh.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Advance time beyond the staleness window (900 seconds) without
-    // refreshing prices.
     age_oracle_observations(&t);
 
-    // Supply is a risk-decreasing path and V2 emits no per-position oracle
-    // price for pure supply analytics. Stale prices are still covered by the
-    // strict borrow/withdraw/liquidation tests below.
     t.try_supply(ALICE, "USDC", 1_000.0)
         .expect("supply should not require a fresh oracle price");
 }
@@ -33,10 +24,8 @@ fn test_stale_price_blocks_borrow() {
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Advance time beyond the staleness window without refreshing prices.
     age_oracle_observations(&t);
 
-    // Borrow fails: stale price blocked for risk-increasing ops.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert_contract_error(result, errors::PRICE_FEED_STALE);
 }
@@ -48,10 +37,8 @@ fn test_stale_price_blocks_withdraw_with_borrows() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    // Advance time beyond the staleness window without refreshing.
     age_oracle_observations(&t);
 
-    // Withdraw fails when borrows exist (risk-increasing).
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::PRICE_FEED_STALE);
 }
@@ -68,7 +55,7 @@ fn test_missing_twap_history_blocks_strict_borrow() {
         .set_twap_history_mode(&usdc_asset, &1);
 
     let result = t.try_borrow(ALICE, "ETH", 10.0);
-    assert_contract_error(result, errors::REFLECTOR_HISTORY_EMPTY);
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 #[test]
@@ -116,5 +103,5 @@ fn test_dual_oracle_future_dex_reverts() {
     set_dual_oracle_dex(&t, "USDC", dex_oracle);
 
     let result = t.try_borrow(ALICE, "ETH", 10.0);
-    assert_contract_error(result, errors::PRICE_FEED_STALE);
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }

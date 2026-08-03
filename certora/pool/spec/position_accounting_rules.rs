@@ -1,5 +1,3 @@
-//! Exact single-leg supply, borrow, withdraw, and repay accounting.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
@@ -15,7 +13,6 @@ use super::fixture::{
     action, params_with_decimals, read_state, seed, state, MAX_FLOW_AMOUNT, ONE_TOKEN,
 };
 
-/// Supply mints the index-scaled shares to both the account result and aggregate.
 #[rule]
 fn supply_scaled_balance_matches_index(
     e: Env,
@@ -53,7 +50,7 @@ fn supply_scaled_balance_matches_index(
     let entry = PoolSupplyEntry {
         action: action(asset.clone(), position_before, amount),
     };
-    let (result, _) = crate::supply_one(&e, &entry);
+    let (result, _) = crate::ops::supply::apply(&e, &entry);
     let post = read_state(&e, &asset);
     let pre_claim = Ray::from(pre.supplied)
         .mul_floor(&e, Ray::from(pre.supply_index))
@@ -78,7 +75,6 @@ fn supply_scaled_balance_matches_index(
     cvlr_assert!(post_claim <= post.cash.saturating_add(post_debt));
 }
 
-/// Borrow mints index-scaled debt and debits exactly the borrowed cash amount.
 #[rule]
 fn borrow_scaled_debt_matches_index(
     e: Env,
@@ -116,7 +112,7 @@ fn borrow_scaled_debt_matches_index(
     let entry = PoolBorrowEntry {
         action: action(asset.clone(), debt_before, amount),
     };
-    let (_, result, _) = crate::borrow_accounting(&e, &entry);
+    let result = crate::ops::borrow::accounting(&e, &entry).mutation;
     let post = read_state(&e, &asset);
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount - debt_before == expected);
@@ -127,7 +123,6 @@ fn borrow_scaled_debt_matches_index(
     cvlr_assert!(post.supply_index == pre.supply_index && post.borrow_index == pre.borrow_index);
 }
 
-/// Partial withdrawal burns the index-scaled amount and transfers the gross amount.
 #[rule]
 fn partial_withdraw_burns_scaled_supply(
     e: Env,
@@ -170,7 +165,8 @@ fn partial_withdraw_burns_scaled_supply(
         action: action(asset.clone(), position_before, amount),
         protocol_fee: 0,
     };
-    let (_, result, _, net) = crate::withdraw_accounting(&e, false, &entry);
+    let outcome = crate::ops::withdraw::accounting(&e, false, &entry);
+    let (result, net) = (outcome.mutation, outcome.net_transfer);
     let post = read_state(&e, &asset);
     cvlr_assert!(result.actual_amount == amount && net == amount);
     cvlr_assert!(position_before - result.position.scaled_amount == expected_burn);
@@ -180,7 +176,6 @@ fn partial_withdraw_burns_scaled_supply(
     cvlr_assert!(post.borrowed == pre.borrowed && post.revenue == pre.revenue);
 }
 
-/// The full-withdraw sentinel burns every share and pays the conservative floor value.
 #[rule]
 fn full_withdraw_burns_entire_position(
     e: Env,
@@ -214,7 +209,8 @@ fn full_withdraw_burns_entire_position(
         action: action(asset.clone(), position_before, i128::MAX),
         protocol_fee: 0,
     };
-    let (_, result, _, net) = crate::withdraw_accounting(&e, false, &entry);
+    let outcome = crate::ops::withdraw::accounting(&e, false, &entry);
+    let (result, net) = (outcome.mutation, outcome.net_transfer);
     let post = read_state(&e, &asset);
     let expected_gross = Ray::from(position_before)
         .mul_floor(&e, Ray::from(supply_index))
@@ -226,7 +222,6 @@ fn full_withdraw_burns_entire_position(
     cvlr_assert!(pre.cash - post.cash == expected_gross);
 }
 
-/// Partial repay burns the borrow-index-scaled amount from debt and aggregate.
 #[rule]
 fn partial_repay_burns_scaled_debt(
     e: Env,
@@ -266,7 +261,8 @@ fn partial_repay_burns_scaled_debt(
 
     let pre = read_state(&e, &asset);
     let act = action(asset.clone(), debt_before, amount);
-    let (_, result, _, overpayment) = crate::repay_accounting(&e, &act);
+    let outcome = crate::ops::repay::accounting(&e, &act);
+    let (result, overpayment) = (outcome.mutation, outcome.overpayment);
     let post = read_state(&e, &asset);
     cvlr_assert!(overpayment == 0 && result.actual_amount == amount);
     cvlr_assert!(debt_before - result.position.scaled_amount == expected_burn);
@@ -276,7 +272,6 @@ fn partial_repay_burns_scaled_debt(
     cvlr_assert!(post.supplied == pre.supplied && post.revenue == pre.revenue);
 }
 
-/// Full repay burns all debt, credits only debt due, and identifies the refund exactly.
 #[rule]
 fn full_repay_refunds_overpayment(
     e: Env,
@@ -313,7 +308,8 @@ fn full_repay_refunds_overpayment(
 
     let pre = read_state(&e, &asset);
     let act = action(asset.clone(), debt_before, amount);
-    let (_, result, _, overpayment) = crate::repay_accounting(&e, &act);
+    let outcome = crate::ops::repay::accounting(&e, &act);
+    let (result, overpayment) = (outcome.mutation, outcome.overpayment);
     let post = read_state(&e, &asset);
 
     cvlr_assert!(result.position.scaled_amount == 0);

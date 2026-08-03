@@ -37,7 +37,7 @@ src/
 use test_harness::prelude::*;
 
 let mut t = LendingTest::new()
-    .standard_two_asset()   // builder extension from fixtures
+    .standard_two_asset()
     .build();
 
 t.supply(ALICE, "USDC", 10_000.0);
@@ -55,13 +55,18 @@ t.borrow(ALICE, "ETH", 1.0);
 
 ## Running tests
 
-Soroban env state is not thread-safe — always pass `--test-threads=1`.
+Each test builds its own `Env` and writes its own `test_snapshots` file, so the
+suite runs in parallel at libtest's default of one thread per core.
 
 ```bash
-cargo test -p test-harness -- --test-threads=1
-cargo test -p test-harness --test smoke_test -- --test-threads=1
-cargo test -p test-harness --test controller -- --test-threads=1
+cargo test -p test-harness
+cargo test -p test-harness --test smoke_test
+cargo test -p test-harness --test controller
 ```
+
+Pass `-- --test-threads=1` (or `make test TEST_THREADS=1`) to serialise while
+bisecting a suspected cross-test interaction, and for readable `--nocapture`
+output.
 
 Makefile shortcuts: `make test`, `make test-one FILE=controller`, `make test-match PATTERN=liquidation`, `make proptest`.
 

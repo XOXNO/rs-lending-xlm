@@ -18,7 +18,7 @@ name = "lending_exporter"
 path = "src/lib.rs"
 
 [dependencies]
-# --- Async runtime, errors, logging ---
+
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 anyhow = "1"
@@ -26,18 +26,18 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# --- Config + serde ---
+
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 clap = { version = "4", features = ["derive", "env"] }
 
-# --- Stellar / Soroban (SDF official stack, protocol 26) ---
+
 stellar-rpc-client = "=26.0.0"
 stellar-xdr = { version = "=26.0.1", features = ["curr", "std", "base64", "serde"] }
 stellar-strkey = "0.0.16"
 hex = "0.4"
 
-# --- HTTP for /metrics + /health ---
+
 axum = { version = "0.7", default-features = false, features = ["http1", "tokio"] }
 prometheus = { version = "0.13", default-features = false }
 

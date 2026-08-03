@@ -1,7 +1,3 @@
-//! Read entrypoints: RedStone `RedStoneMultiFeed` (fail-closed) and SEP-40
-//! `PriceFeedTrait` (soft `Option`). SEP-40 delegates to RedStone helpers via
-//! plain function calls (same contract, no cross-contract overhead).
-
 use common::constants::MS_PER_SECOND;
 use common::oracle::observation::{millis_to_seconds, u256_to_i128};
 use common::oracle::providers::redstone::{RedStonePriceData, REDSTONE_DECIMALS};
@@ -16,16 +12,8 @@ use crate::storage::{
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
-// RedStone ABI — mirrors `RedStoneMultiFeed` exactly.
 #[contractimpl]
 impl XoxnoOracle {
-    /// Returns the cached aggregate for `feed_id`. Fail-closed: missing or
-    /// past `MaxStaleSeconds` returns `Err` (price-aggregator hard path relies
-    /// on this).
-    ///
-    /// # Errors
-    /// * `NoDataForFeed` — no `CurrentAggregate` for `feed_id`.
-    /// * `StaleData` — aggregate age exceeds `MaxStaleSeconds`.
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
         let key = DataKey::CurrentAggregate(feed_id.clone());
         let aggregate: RedStonePriceData = env
@@ -37,8 +25,7 @@ impl XoxnoOracle {
         renew_persistent_key(&env, &key);
 
         let max_stale = load_max_stale_seconds(&env);
-        // `write_timestamp` is milliseconds, the ledger clock is seconds;
-        // saturate so a write at/after `now` reads as fresh.
+
         let age_seconds = env
             .ledger()
             .timestamp()
@@ -49,10 +36,6 @@ impl XoxnoOracle {
         Ok(aggregate)
     }
 
-    /// All-or-nothing bulk RedStone read; first missing/stale fails the whole call.
-    ///
-    /// # Errors
-    /// Same named variants as [`Self::read_price_data_for_feed`].
     pub fn read_price_data(
         env: Env,
         feed_ids: Vec<String>,
@@ -64,18 +47,11 @@ impl XoxnoOracle {
         Ok(results)
     }
 
-    /// Newest-first history capped by `limit`. Fail-closed: live aggregate must
-    /// be present and within `MaxStaleSeconds`, so history cannot outlive spot.
-    ///
-    /// # Errors
-    /// * `NoDataForFeed` — missing aggregate or empty history.
-    /// * `StaleData` — live aggregate past `MaxStaleSeconds`.
     pub fn read_price_history(
         env: Env,
         feed_id: String,
         limit: u32,
     ) -> Result<Vec<RedStonePriceData>, Error> {
-        // Spot TTL / presence gate first.
         Self::read_price_data_for_feed(env.clone(), feed_id.clone())?;
 
         let key = DataKey::History(feed_id.clone());
@@ -92,71 +68,52 @@ impl XoxnoOracle {
         let take = core::cmp::min(limit, history.len());
         let mut newest_first = Vec::new(&env);
         for i in 0..take {
-            newest_first.push_back(
-                history
-                    .get(history.len() - 1 - i)
-                    .expect("invariant: i < take <= history.len()"),
-            );
+            newest_first.push_back(history.get_unchecked(history.len() - 1 - i));
         }
         Ok(newest_first)
     }
 
-    /// Absolute inclusion window used by aggregation and submit gates.
     pub fn max_submission_age_seconds(env: Env) -> u64 {
         load_max_submission_age(&env)
     }
 
-    /// Cache TTL for `read_price_data_for_feed` / history gates.
     pub fn max_stale_seconds(env: Env) -> u64 {
         load_max_stale_seconds(&env)
     }
 
-    /// Effective relative cluster skew (capped by the absolute inclusion window).
     pub fn max_relative_skew_seconds(env: Env) -> u64 {
         load_max_relative_skew(&env)
     }
 }
 
-// SEP-40 / Reflector ABI.
 #[contractimpl]
 impl XoxnoOracle {
-    /// SEP-40 quote base: always USD.
     pub fn base(env: Env) -> ReflectorAsset {
         ReflectorAsset::Other(Symbol::new(&env, "USD"))
     }
 
-    /// SEP-40 decimals: fixed RedStone wire decimals (`REDSTONE_DECIMALS`).
     pub fn decimals(_env: Env) -> u32 {
         REDSTONE_DECIMALS
     }
 
-    /// SEP-40 resolution (seconds between history buckets).
     pub fn resolution(env: Env) -> u32 {
         load_resolution(&env)
     }
 
-    /// Enumerates SEP-40 assets that have a feed mapping.
     pub fn assets(env: Env) -> Vec<ReflectorAsset> {
         load_all_assets(&env)
     }
 
-    /// Latest spot for `asset`. Soft-fail: `None` when unmapped, missing, or
-    /// stale (maps RedStone `Err` to `None`).
     pub fn lastprice(env: Env, asset: ReflectorAsset) -> Option<ReflectorPriceData> {
         let feed_id = load_feed_id(&env, &asset)?;
         let data = Self::read_price_data_for_feed(env.clone(), feed_id).ok()?;
         Some(to_reflector_price_data(&env, &data))
     }
 
-    /// Closest history sample at or before `timestamp` (package time). Soft-fail:
-    /// `None` when unmapped, spot gate fails, or no qualifying sample.
     pub fn price(env: Env, asset: ReflectorAsset, timestamp: u64) -> Option<ReflectorPriceData> {
         let feed_id = load_feed_id(&env, &asset)?;
         let history = Self::read_price_history(env.clone(), feed_id, MAX_HISTORY_LEN).ok()?;
 
-        // Select on `package_timestamp` (the exposed observation time), which
-        // is non-monotonic across recomputes — scan the whole window for the
-        // greatest qualifying observation rather than trusting position.
         let mut best: Option<RedStonePriceData> = None;
         for entry in history.iter() {
             if millis_to_seconds(entry.package_timestamp) > timestamp {
@@ -173,8 +130,6 @@ impl XoxnoOracle {
         best.map(|entry| to_reflector_price_data(&env, &entry))
     }
 
-    /// Newest-first history as SEP-40 samples. Soft-fail: `None` when unmapped,
-    /// spot gate fails, or history is empty.
     pub fn prices(
         env: Env,
         asset: ReflectorAsset,
@@ -193,8 +148,6 @@ impl XoxnoOracle {
     }
 }
 
-// SEP-40 timestamp = observation (`package_timestamp`), never write time:
-// write time would accept stale aggregates the RedStone path rejects.
 fn to_reflector_price_data(env: &Env, data: &RedStonePriceData) -> ReflectorPriceData {
     let price = u256_to_i128(env, &data.price);
     let timestamp = millis_to_seconds(data.package_timestamp);

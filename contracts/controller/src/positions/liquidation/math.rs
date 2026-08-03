@@ -1,43 +1,28 @@
-//! Liquidation math: bonus curve, repay normalization, seizure, excess.
-//! Pure relative to pool transfers; `refunds` are informational only.
-
-use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use common::rates::{resolve_withdrawal, unscale_borrow_ceil};
 use common::types::{
-    Account, AccountPositionRaw, DebtPosition, HubAssetKey, LiquidationResult, PaymentTuple,
-    RepayEntry, SeizeEntry, SpokeConfig,
+    Account, AccountPositionRaw, DebtPosition, HubAssetKey, HubPayment, LiquidationResult,
+    PaymentTuple, RepayEntry, SeizeEntry,
 };
 use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
+use super::curve::{
+    estimate_liquidation_amount, max_bonus_for_threshold, max_hf_preserving_bonus_bps, BonusBounds,
+    LiquidationCurve, LiquidationSnapshot,
+};
 use crate::context::Cache;
 use crate::payments;
-use crate::positions::HubPayment;
 use crate::risk;
-use crate::risk::validation;
 use crate::storage::iter_typed_positions;
+use common::validation::expect_invariant;
 
-/// Pre-liq account metrics for ideal-repay and bonus math.
-#[derive(Clone, Copy)]
-pub(crate) struct LiquidationSnapshot {
-    // dimensional: debt/collateral/weighted_coll are Wad<USD>; proportion/hf are Wad<1>.
-    pub total_debt: Wad,
-    pub total_collateral: Wad,
-    pub weighted_coll: Wad,
-    pub proportion_seized: Wad,
-    pub hf: Wad,
+impl LiquidationCurve {
+    pub(crate) fn resolve(cache: &mut Cache, spoke_id: u32) -> Self {
+        Self::from_config(&cache.spoke_config(spoke_id))
+    }
 }
 
-/// Value-weighted base bonus and protocol max ceiling for the account mix.
-#[derive(Clone, Copy)]
-pub(crate) struct BonusBounds {
-    pub base: Bps,
-    pub max: Bps,
-}
-
-/// Repay legs after close-amount, USD ideal, and dust full-close caps.
-/// `refunds` are informational; apply never transfers them.
 pub(crate) struct NormalizedRepaymentPlan {
     pub repaid: Vec<RepayEntry>,
     pub refunds: Vec<PaymentTuple>,
@@ -46,7 +31,6 @@ pub(crate) struct NormalizedRepaymentPlan {
 }
 
 impl NormalizedRepaymentPlan {
-    /// Panics unless sum of leg USD equals `repay_usd`.
     fn validate(&self, env: &Env) {
         if sum_repaid_usd(env, &self.repaid) != self.repay_usd {
             panic_with_error!(env, GenericError::InternalError);
@@ -54,15 +38,12 @@ impl NormalizedRepaymentPlan {
     }
 }
 
-/// Fully priced plan: handoff from math to stateful pool execution.
 pub(crate) struct LiquidationPlan {
     pub repayment: NormalizedRepaymentPlan,
     pub seized: Vec<SeizeEntry>,
 }
 
 impl LiquidationPlan {
-    /// Panics unless repay sum matches and every seize has amount > 0 and
-    /// `0 <= protocol_fee <= amount`.
     pub(crate) fn validate(&self, env: &Env) {
         self.repayment.validate(env);
 
@@ -73,7 +54,6 @@ impl LiquidationPlan {
         }
     }
 
-    /// Convert to the ABI/result shape used by apply.
     pub(crate) fn into_result(self) -> LiquidationResult {
         LiquidationResult {
             seized: self.seized,
@@ -84,12 +64,6 @@ impl LiquidationPlan {
         }
     }
 }
-
-/// Residual bad debt: underwater and collateral USD at or below the threshold.
-pub(crate) fn is_socializable_bad_debt(total_debt: Wad, total_collateral: Wad) -> bool {
-    total_debt > total_collateral && total_collateral <= Wad::from(BAD_DEBT_USD_THRESHOLD)
-}
-
 pub(crate) fn calculate_seizure_proportions(
     env: &Env,
     account: &Account,
@@ -97,7 +71,6 @@ pub(crate) fn calculate_seizure_proportions(
     weighted_coll: Wad,
     cache: &mut Cache,
 ) -> (Wad, BonusBounds) {
-    // dimensional: weighted collateral Wad<USD> / collateral Wad<USD> -> Wad<1>.
     let proportion_seized = if total_collateral > Wad::ZERO {
         weighted_coll.div(env, total_collateral)
     } else {
@@ -107,15 +80,14 @@ pub(crate) fn calculate_seizure_proportions(
     let bounds = get_account_bonus_params(
         env,
         cache,
-        account.spoke_id,
         &account.supply_positions,
+        total_collateral,
         proportion_seized,
     );
 
     (proportion_seized, bounds)
 }
 
-/// Price each debt leg; cap amount to full-close (ceil); excess → refunds.
 pub(crate) fn calculate_repayment_amounts(
     env: &Env,
     raw_payments: &Vec<HubPayment>,
@@ -157,7 +129,7 @@ pub(crate) fn calculate_repayment_amounts(
 
         let payment_usd = feed.usd_value_wad(env, payment_amount);
 
-        total_repaid_usd.checked_add_assign(env, payment_usd);
+        total_repaid_usd = total_repaid_usd.checked_add(env, payment_usd);
         repaid_tokens.push_back(RepayEntry {
             hub_asset,
             amount: payment_amount,
@@ -170,7 +142,6 @@ pub(crate) fn calculate_repayment_amounts(
     (total_repaid_usd, repaid_tokens)
 }
 
-/// Price legs, cap to ideal USD (bonus curve + dust full-close), validate plan.
 pub(crate) fn normalize_repayment_plan(
     env: &Env,
     account: &Account,
@@ -186,10 +157,12 @@ pub(crate) fn normalize_repayment_plan(
 
     let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
 
-    // Solvent-toxic (0 <= cap < base): full close only; insolvent keeps partial.
     if total_debt_payment_usd < ideal_repayment_usd {
         if let Some(cap) = max_hf_preserving_bonus_bps(snap) {
-            if cap >= 0 && cap < bonus_bounds.base.raw() {
+            if cap >= 0
+                && cap < bonus_bounds.base.raw()
+                && sum_repaid_usd_ceil(env, &repaid_tokens) < ideal_repayment_usd
+            {
                 panic_with_error!(env, CollateralError::FullCloseRequired);
             }
         }
@@ -219,20 +192,27 @@ fn debt_close_amount(
     borrow_index: Ray,
     asset_decimals: u32,
 ) -> i128 {
-    // dimensional: debt share/index -> Ray<Token(asset)>; to_asset_ceil returns Token(asset).
     unscale_borrow_ceil(env, position.scaled_amount, borrow_index, asset_decimals)
 }
 
-/// Sums the USD value across the repaid legs.
 pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
-        total.checked_add_assign(env, Wad::from(entry.usd_wad));
+        total = total.checked_add(env, Wad::from(entry.usd_wad));
     }
     total
 }
 
-/// Pro-rata bonused seizure across supply, per-asset caps, and protocol fees.
+fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
+    let mut total = Wad::ZERO;
+    for entry in repaid_tokens.iter() {
+        let value = Wad::from_token(entry.amount, entry.feed.asset_decimals)
+            .mul_ceil(env, Wad::from(entry.feed.price_wad));
+        total = total.checked_add(env, value);
+    }
+    total
+}
+
 pub(crate) fn calculate_seized_collateral(
     env: &Env,
     account: &Account,
@@ -246,22 +226,24 @@ pub(crate) fn calculate_seized_collateral(
     }
 
     let one_plus_bonus = Wad::ONE.checked_add(env, repayment.bonus.to_wad(env));
-    // dimensional: DebtRepaid<Wad<USD>> * (1 + bonus Bps) -> Seize<Wad<USD>>.
+
     let total_seizure_usd = repayment.repay_usd.mul(env, one_plus_bonus);
 
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
-        // dimensional: supply share/index -> Token(asset) -> Wad<USD>; share is Wad<1>.
         let actual_ray = position.scaled_amount.mul(env, market_index.supply_index);
-        let actual_amount_wad = actual_ray.to_wad();
-        let asset_value = actual_amount_wad.mul(env, feed.price);
+        let asset_value = risk::position_value(
+            env,
+            position.scaled_amount,
+            market_index.supply_index,
+            feed.price,
+        );
 
         let share = asset_value.div(env, total_collateral);
         let seizure_for_asset_usd = total_seizure_usd.mul(env, share);
 
-        // dimensional: Seize<Wad<USD>> / Price<Wad<USD/token>> -> Token Wad, then Ray.
         let seizure_amount_wad = seizure_for_asset_usd.div(env, feed.price);
         let seizure_ray = seizure_amount_wad.to_ray();
 
@@ -274,12 +256,10 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        // Floor base; bonus absorbs remainder. Fee is position-snapshotted (Frozen-safe).
         let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
         let bonus_ray = capped_ray.checked_sub(env, base_ray);
         let protocol_fee_ray = position.liquidation_fees.apply_to_ray(env, bonus_ray);
-        // Full close: half-up request triggers pool full-close (floor gross).
-        // Partial: floor request so the pool does not expand the burn.
+
         let capped_amount = if capped_ray == actual_ray {
             capped_ray.to_asset(feed.asset_decimals)
         } else {
@@ -289,8 +269,6 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        // Fee can never exceed the gross the pool actually pays out. Share
-        // `resolve_withdrawal` so full-close floor / partial request cannot drift.
         let (_, pool_gross) = resolve_withdrawal(
             env,
             capped_amount,
@@ -318,7 +296,6 @@ pub(crate) fn calculate_seized_collateral(
     seized
 }
 
-/// Trim over-repayment USD from the tail of repay legs (floor split on boundary).
 pub(crate) fn process_excess_payment(
     env: &Env,
     repaid_tokens: &mut Vec<RepayEntry>,
@@ -330,7 +307,7 @@ pub(crate) fn process_excess_payment(
     let mut current_index = repaid_tokens.len();
     while remaining_excess_usd > Wad::ZERO && current_index > 0 {
         current_index -= 1;
-        let entry = validation::expect_invariant(env, repaid_tokens.get(current_index));
+        let entry = expect_invariant(env, repaid_tokens.get(current_index));
         if entry.amount <= 0 {
             continue;
         }
@@ -341,15 +318,13 @@ pub(crate) fn process_excess_payment(
         }
 
         if usd > remaining_excess_usd {
-            // Floor pro-rata refund; sub-ulp remainder stays as repayment.
-            // dimensional: excess Wad<USD> / entry Wad<USD> -> Wad<1>.
             let ratio = remaining_excess_usd.div_floor(env, usd);
             let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)
                 .mul_floor(env, ratio)
                 .to_token_floor(entry.feed.asset_decimals);
 
             let new_amount = entry.amount - refund_amount;
-            // Recompute USD from amount*price so the RepayEntry pair stays synced.
+
             let new_amount_wad = Wad::from_token(new_amount, entry.feed.asset_decimals);
             let new_usd = new_amount_wad.mul(env, Wad::from(entry.feed.price_wad));
 
@@ -374,222 +349,28 @@ pub(crate) fn process_excess_payment(
                 amount: entry.amount,
             });
             repaid_tokens.remove(current_index);
-            remaining_excess_usd.checked_sub_assign(env, usd);
+            remaining_excess_usd = remaining_excess_usd.checked_sub(env, usd);
         }
     }
 }
 
-/// Spoke-stamped liquidation curve (target HF, max-bonus HF, bonus factor).
-pub(crate) struct LiquidationCurve {
-    target_hf: Wad,
-    hf_for_max_bonus: Wad,
-    bonus_factor: Bps,
-}
-
-impl LiquidationCurve {
-    /// Resolves the curve from the account's spoke.
-    pub(crate) fn resolve(cache: &mut Cache, spoke_id: u32) -> Self {
-        Self::from_config(&cache.spoke_config(spoke_id))
-    }
-
-    pub(crate) fn from_config(cfg: &SpokeConfig) -> Self {
-        Self {
-            target_hf: Wad::from(cfg.liquidation_target_hf_wad),
-            hf_for_max_bonus: Wad::from(cfg.hf_for_max_bonus_wad),
-            bonus_factor: Bps::from(i128::from(cfg.liquidation_bonus_factor_bps)),
-        }
-    }
-
-    /// Linear bonus scale in `[0, 1]` as `hf` falls below `target`; the scale
-    /// reaches 1 once `hf <= hf_for_max_bonus`. The caller guarantees
-    /// `hf < target`.
-    fn bonus_scale(&self, env: &Env, hf: Wad, target: Wad) -> Wad {
-        let gap = target.checked_sub(env, hf);
-        if target <= self.hf_for_max_bonus {
-            Wad::ONE
-        } else {
-            gap.div(env, target.checked_sub(env, self.hf_for_max_bonus))
-                .min(Wad::ONE)
-        }
-    }
-
-    /// Scales a raw bonus increment by the configured factor. The default
-    /// factor (1.0x) returns the increment unchanged for byte-identical output.
-    fn apply_bonus_factor(&self, env: &Env, increment: i128) -> i128 {
-        if self.bonus_factor == Bps::ONE {
-            increment
-        } else {
-            self.bonus_factor.apply_to(env, increment)
-        }
-    }
-}
-
-/// Interpolates liquidation bonus from base to max as HF falls below target,
-/// following the account's resolved liquidation curve.
-pub(crate) fn calculate_linear_bonus_with_target(
-    env: &Env,
-    hf: Wad,
-    base: Bps,
-    max: Bps,
-    curve: &LiquidationCurve,
-    target: Wad,
-) -> Bps {
-    if hf >= target {
-        return base;
-    }
-    let scale = curve.bonus_scale(env, hf, target);
-
-    let bonus_range = max.checked_sub(env, base);
-    let bonus_increment = Wad::from(bonus_range.raw()).mul(env, scale).raw();
-    let scaled_increment = curve.apply_bonus_factor(env, bonus_increment);
-    Bps::from(
-        base.raw()
-            .checked_add(scaled_increment)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
-    )
-}
-
-/// Max HF-preserving bonus (BPS, floored), or `None` when no finite cap applies.
-/// Cap is `hf / proportion_seized - 1`; negative means no safe partial.
-/// `None` when proportion ≤ 0 or `hf >= 1`.
-fn max_hf_preserving_bonus_bps(snap: &LiquidationSnapshot) -> Option<i128> {
-    let proportion = snap.proportion_seized.raw();
-    if proportion <= 0 || snap.hf.raw() >= WAD {
-        return None;
-    }
-    // hf < WAD here, so hf * BPS <= 1e22 cannot overflow. Floor division
-    // rounds the cap down (stricter direction).
-    Some(snap.hf.raw() * BPS / proportion - BPS)
-}
-
-/// Ideal repay + bonus: HF-scaled, HF-preserving cap, target restore, dust full-close.
-pub(crate) fn estimate_liquidation_amount(
-    env: &Env,
-    snap: &LiquidationSnapshot,
-    bounds: BonusBounds,
-    curve: &LiquidationCurve,
-) -> (Wad, Bps) {
-    let scaled_bonus = calculate_linear_bonus_with_target(
-        env,
-        snap.hf,
-        bounds.base,
-        bounds.max,
-        curve,
-        curve.target_hf,
-    );
-
-    let bonus = match max_hf_preserving_bonus_bps(snap) {
-        None => scaled_bonus,
-        Some(cap) if scaled_bonus.raw() <= cap => scaled_bonus,
-        // HF-neutral cap when scaled bonus would ratchet HF down.
-        Some(cap) if cap >= bounds.base.raw() => Bps::from(cap),
-        // Base bonus shrinks HF: full close at base (`FullCloseRequired` if solvent-toxic).
-        Some(_) => return (snap.total_debt, bounds.base),
-    };
-
-    let ideal = try_liquidation_at_target(env, snap, bonus, curve.target_hf).unwrap_or_else(|| {
-        snap.total_collateral
-            .div(env, Wad::ONE.checked_add(env, bonus.to_wad(env)))
-            .min(snap.total_debt)
-    });
-
-    // Dust: sub-floor remainder → full close (no un-liquidatable dust).
-    let remaining_debt = snap.total_debt.checked_sub(env, ideal);
-    if remaining_debt > Wad::ZERO && remaining_debt < Wad::from(BAD_DEBT_USD_THRESHOLD) {
-        return (snap.total_debt, bonus);
-    }
-
-    (ideal, bonus)
-}
-
-#[cfg(test)]
-fn calculate_post_liquidation_hf(
-    env: &Env,
-    snap: &LiquidationSnapshot,
-    debt_to_repay: Wad,
-    bonus: Bps,
-) -> Wad {
-    // dimensional: post HF = weighted collateral Wad<USD> / debt Wad<USD>.
-    let one_plus_bonus = Bps::ONE.checked_add(env, bonus);
-
-    // dimensional: Wad<1> * debt Wad<USD>, then Bps multiplier, stays Wad<USD>.
-    let seized_proportion = snap.proportion_seized.mul(env, debt_to_repay);
-    let seized_weighted_raw = one_plus_bonus.apply_to(env, seized_proportion.raw());
-    let seized_weighted = Wad::from(seized_weighted_raw).min(snap.weighted_coll);
-
-    let new_weighted = snap.weighted_coll.checked_sub(env, seized_weighted);
-    let new_debt = if debt_to_repay >= snap.total_debt {
-        Wad::ZERO
-    } else {
-        snap.total_debt.checked_sub(env, debt_to_repay)
-    };
-
-    if new_debt == Wad::ZERO {
-        return Wad::from(i128::MAX);
-    }
-    new_weighted.div(env, new_debt)
-}
-
-fn try_liquidation_at_target(
-    env: &Env,
-    snap: &LiquidationSnapshot,
-    bonus: Bps,
-    target_hf: Wad,
-) -> Option<Wad> {
-    let bonus_wad = bonus.to_wad(env);
-    let one_plus_bonus = Wad::ONE.checked_add(env, bonus_wad);
-
-    let d_max = snap.total_collateral.div(env, one_plus_bonus);
-
-    // dimensional: denominator terms are Wad<1>; numerator below is Wad<USD>.
-    let denom_term = snap.proportion_seized.mul(env, one_plus_bonus);
-    if target_hf <= denom_term {
-        return None;
-    }
-    let denominator = target_hf.checked_sub(env, denom_term);
-
-    let target_debt = target_hf.mul(env, snap.total_debt);
-    if target_debt <= snap.weighted_coll {
-        return Some(d_max.min(snap.total_debt));
-    }
-    let numerator = target_debt.checked_sub(env, snap.weighted_coll);
-    let d_ideal = numerator.div(env, denominator);
-
-    Some(d_ideal.min(d_max).min(snap.total_debt))
-}
-
-/// Max bonus such that effective_threshold × (1 + bonus) stays ≤ 1.
-pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps {
-    if proportion_seized <= Wad::ZERO {
-        return Bps::from(0);
-    }
-    // Ceil the threshold and floor the derived max so the realized
-    // effective_threshold * (1 + bonus) stays <= 1.
-    let scaled = proportion_seized
-        .raw()
-        .checked_mul(BPS)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    let eff_thr_bps = ((scaled + (WAD - 1)) / WAD).clamp(1, BPS);
-    let numerator = BPS
-        .checked_mul(BPS - eff_thr_bps)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    Bps::from(numerator / eff_thr_bps)
-}
-
-/// Value-weighted base bonus and max ceiling for the account's supply mix.
 pub(crate) fn get_account_bonus_params(
     env: &Env,
     cache: &mut Cache,
-    _spoke_id: u32,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
+    total_collateral: Wad,
     proportion_seized: Wad,
 ) -> BonusBounds {
     let max = max_bonus_for_threshold(env, proportion_seized);
 
-    let mut total_collateral = Wad::ZERO;
-    let mut asset_values: Vec<(i128, i128)> = Vec::new(env);
+    if total_collateral == Wad::ZERO {
+        return BonusBounds {
+            base: Bps::from(0),
+            max,
+        };
+    }
 
-    // dimensional: stores (collateral Wad<USD>.raw, bonus Bps.raw).
+    let mut weighted_bonus_sum: i128 = 0;
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
@@ -601,27 +382,16 @@ pub(crate) fn get_account_bonus_params(
             feed.price,
         );
 
-        total_collateral.checked_add_assign(env, value);
-        asset_values.push_back((value.raw(), position.liquidation_bonus.raw()));
-    }
-
-    if total_collateral == Wad::ZERO {
-        return BonusBounds {
-            base: Bps::from(0),
-            max,
-        };
-    }
-
-    let mut weighted_bonus_sum: i128 = 0;
-    for (value_raw, bonus_bps) in asset_values.iter() {
-        let weight = Wad::from(value_raw).div(env, total_collateral);
+        let weight = value.div(env, total_collateral);
         weighted_bonus_sum = weighted_bonus_sum
-            .checked_add(weight.mul(env, Wad::from(bonus_bps)).raw())
+            .checked_add(
+                weight
+                    .mul(env, Wad::from(position.liquidation_bonus.raw()))
+                    .raw(),
+            )
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     }
 
-    // Clamp base to the account ceiling so the bonus interpolation range
-    // (max - base) stays non-negative for high-threshold accounts.
     let base = Bps::from(weighted_bonus_sum.min(max.raw()));
     BonusBounds { base, max }
 }

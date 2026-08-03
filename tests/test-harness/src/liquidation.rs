@@ -6,8 +6,6 @@ use crate::helpers::hub_asset;
 use crate::ops::internal::{amount_raw, asset_payment_vec, burn_prefund, map_try_ok_unit};
 
 impl LendingTest {
-    /// Liquidate: proportional seizure across all collateral.
-    /// Auto-mints debt tokens to the liquidator.
     pub fn liquidate(
         &mut self,
         liquidator: &str,
@@ -22,7 +20,6 @@ impl LendingTest {
         let liquidator_addr = self.get_or_create_user(liquidator);
         let account_id = self.resolve_account_id(target_user);
 
-        // Auto-mint debt tokens to liquidator
         self.resolve_market(debt_asset)
             .token_admin
             .mint(&liquidator_addr, &raw_amount);
@@ -32,9 +29,6 @@ impl LendingTest {
         ctrl.liquidate(&liquidator_addr, &account_id, &payments);
     }
 
-    /// Liquidate on a specific hub: mints the debt token to the liquidator and
-    /// repays `amount` of `debt_asset` keyed to `hub_id`, exercising the hub>0
-    /// liquidation plan path.
     pub fn liquidate_on_hub(
         &mut self,
         hub_id: u32,
@@ -66,7 +60,6 @@ impl LendingTest {
         ctrl.liquidate(&liquidator_addr, &account_id, &payments);
     }
 
-    /// Try liquidate -- returns Result.
     pub fn try_liquidate(
         &mut self,
         liquidator: &str,
@@ -94,8 +87,6 @@ impl LendingTest {
         res
     }
 
-    /// Liquidate with multiple debt payments (different tokens).
-    /// Auto-mints each debt token to the liquidator.
     pub fn liquidate_multi(&mut self, liquidator: &str, target_user: &str, debts: &[(&str, f64)]) {
         let liquidator_addr = self.get_or_create_user(liquidator);
         let account_id = self.resolve_account_id(target_user);

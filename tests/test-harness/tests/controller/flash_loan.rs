@@ -58,7 +58,7 @@ fn strict_flash_loan(
         address: caller,
         invoke: &invoke,
     }];
-    // Soroban `try_*` returns `Result<Result<T, ConversionError>, Result<Error, InvokeError>>`.
+
     match t
         .ctrl_client()
         .mock_auths(&auths)
@@ -74,7 +74,7 @@ fn strict_flash_loan(
 fn prefund_receiver_fee(t: &LendingTest, receiver: &Address, asset: &Address, fee: i128) {
     token::StellarAssetClient::new(&t.env, asset).mint(receiver, &fee);
 }
-// Harness default auth: receiver approves repayment; pool pulls amount + fee.
+
 #[test]
 fn test_flash_loan_success_under_non_root_auth() {
     let mut t = LendingTest::new()
@@ -82,11 +82,9 @@ fn test_flash_loan_success_under_non_root_auth() {
         .with_market(eth_preset())
         .build();
 
-    // Supply liquidity so the pool has funds.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Advance and sync to generate baseline revenue.
     t.advance_and_sync(days(30));
 
     let receiver = t.deploy_flash_loan_receiver();
@@ -108,14 +106,17 @@ fn test_flash_loan_rejects_bad_repayment() {
 
     t.supply(ALICE, "USDC", 100_000.0);
 
+    let reserves_before = pool_reserves(&t, "USDC");
     let bad_receiver = t.deploy_bad_flash_loan_receiver();
     let result = t.try_flash_loan(BOB, "USDC", 10_000.0, &bad_receiver);
-    // The bad receiver triggers a cross-contract failure that surfaces as
-    // a host error, not a specific contract error code.
+
     assert!(
         result.is_err(),
         "flash loan should fail when receiver doesn't repay"
     );
+
+    assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
+    assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
 #[test]
 fn test_flash_loan_rejects_disabled() {
@@ -123,7 +124,6 @@ fn test_flash_loan_rejects_disabled() {
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Disable flash loans for USDC.
     t.edit_asset_config("USDC", |cfg| {
         cfg.is_flashloanable = false;
     });
@@ -140,7 +140,7 @@ fn test_flash_loan_rejects_zero_amount() {
 
     let receiver = t.deploy_flash_loan_receiver();
     let result = t.try_flash_loan(BOB, "USDC", 0.0, &receiver);
-    // Must reject with the precise AMOUNT_MUST_BE_POSITIVE (14).
+
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 #[test]
@@ -219,10 +219,6 @@ fn test_flash_loan_reentrancy_blocks_liquidation() {
 }
 #[test]
 fn test_flash_loan_fee_config_matches_default_preset() {
-    // Pin the default preset config values so any change to
-    // `usdc_preset()` surfaces in CI. The end-to-end fee transfer runs in
-    // the inline `test_flash_loan` in pool/src/lib.rs, which uses the admin
-    // (covered by mock_all_auths) as receiver.
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let config = t.get_asset_config("USDC");
@@ -365,8 +361,7 @@ fn test_flash_loan_strict_receiver_rejects_success_without_fee_prefund() {
         result.is_err(),
         "receiver cannot repay fee it was not prefunded with"
     );
-    // Host/token trap: transfer_from fails on insufficient receiver balance — not a
-    // controller/pool contract error code.
+
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
@@ -382,7 +377,6 @@ fn test_flash_loan_adversarial_receiver_no_repay_rejects() {
     let amount = raw_units(&t, "USDC", 10_000);
     let reserves_before = pool_reserves(&t, "USDC");
 
-    // No approve → pool allowance gate returns InvalidFlashloanRepay (#402).
     let result = t.try_flash_loan_with_data(BOB, "USDC", amount, &receiver, &data);
     assert_contract_error(result, errors::INVALID_FLASHLOAN_REPAY);
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
@@ -404,8 +398,6 @@ fn test_flash_loan_adversarial_receiver_under_repay_rejects() {
 
     let reserves_before = pool_reserves(&t, "USDC");
 
-    // Default harness auth mock lets the receiver approve repayment; pool CEI must
-    // still reject the under-repay with InvalidFlashloanRepay (#402).
     let result = t.try_flash_loan_with_data(BOB, "USDC", amount, &receiver, &data);
     assert_contract_error(result, errors::INVALID_FLASHLOAN_REPAY);
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
@@ -439,8 +431,7 @@ fn test_flash_loan_adversarial_receiver_reenter_pool_flash_loan_rejects() {
     );
 
     assert!(result.is_err(), "receiver pool reentry must fail");
-    // Host/auth trap: nested pool.flash_loan is only_owner and fails under the
-    // empty-auth strict path — not a stable controller error code.
+
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
@@ -469,8 +460,7 @@ fn test_flash_loan_adversarial_receiver_callback_panic_rolls_back() {
     );
 
     assert!(result.is_err(), "callback panic must fail");
-    // Host trap: receiver deliberately panic_with_error(CallbackPanic) — not a
-    // pool/controller error code.
+
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
@@ -485,8 +475,7 @@ fn test_flash_loan_non_contract_receiver_rejects_and_rolls_back() {
     let reserves_before = pool_reserves(&t, "USDC");
     let data = receiver_data(&t, FlashLoanMode::Success);
 
-    let result =
-        t.try_flash_loan_with_data(BOB, "USDC", amount, &non_contract_receiver, &data);
+    let result = t.try_flash_loan_with_data(BOB, "USDC", amount, &non_contract_receiver, &data);
     assert_contract_error(result, errors::INVALID_FLASHLOAN_RECEIVER);
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
@@ -515,11 +504,11 @@ fn test_flash_loan_adversarial_receiver_rejects_invalid_data() {
     );
 
     assert!(result.is_err(), "malformed receiver data must fail");
-    // Host trap: receiver decode panics with InvalidData — not a pool error code.
+
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
-// FlashLoanMode::ReenterControllerSupply: require_not_flash_loaning rejects and rolls back.
+
 #[test]
 fn test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -551,8 +540,7 @@ fn test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects() {
         result.is_err(),
         "receiver controller-reentry must fail under flash-loan guard"
     );
-    // Host trap: test receiver targets a hardcoded testnet controller address that
-    // is not deployed here — not FLASH_LOAN_ONGOING on this harness.
+
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }

@@ -1,12 +1,9 @@
-//! Hub config storage and hub-id allocation.
-
 use common::errors::GenericError;
 use common::types::{ControllerKey, HubConfig};
 use soroban_sdk::{panic_with_error, Env};
 
-use crate::storage::renew_protocol_shared_key;
+use crate::storage::{get_shared, set_shared};
 
-/// Allocates and returns the next hub id, panicking on overflow.
 pub(crate) fn increment_hub_id(env: &Env) -> u32 {
     let key = ControllerKey::LastHubId;
     let current: u32 = env.storage().instance().get(&key).unwrap_or(0);
@@ -18,17 +15,9 @@ pub(crate) fn increment_hub_id(env: &Env) -> u32 {
 }
 
 pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
-    let key = ControllerKey::Hub(hub_id);
-    let hub: Option<HubConfig> = env.storage().persistent().get(&key);
-    // Read-renewal policy: active hubs must not archive while markets use them.
-    if hub.is_some() {
-        renew_protocol_shared_key(env, &key);
-    }
-    hub
+    get_shared(env, &ControllerKey::Hub(hub_id))
 }
 
 pub(crate) fn set_hub(env: &Env, hub_id: u32, config: &HubConfig) {
-    let key = ControllerKey::Hub(hub_id);
-    env.storage().persistent().set(&key, config);
-    renew_protocol_shared_key(env, &key);
+    set_shared(env, &ControllerKey::Hub(hub_id), config);
 }

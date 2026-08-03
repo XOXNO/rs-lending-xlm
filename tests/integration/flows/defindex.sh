@@ -1,17 +1,17 @@
-# DeFindex strategy adapter (contracts/defindex-strategy) e2e on top of the
-# controller. One strategy WASM is deployed per underlying asset; each vault
-# (an EOA here, standing in for a DeFindex vault) maps to one controller
-# account the strategy owns. Flows: deposit -> controller.supply, withdraw ->
-# controller.withdraw, balance -> get_collateral_amount, harvest ->
-# price_per_share from the supply index.
-#
-# Venue-free (no aggregator/oracle pricing): the position is debt-free, so
-# supply/withdraw are oracle-independent. Runs on its own dedicated, stable
-# mock market (DFX) so it is isolated from the liquidation price crashes.
 
-DFX_UNIT=10000000   # 1.0 token at 7 decimals
 
-# Strategy-targeted view helpers (the shared assert.sh helpers target $CONTROLLER).
+
+
+
+
+
+
+
+
+
+DFX_UNIT=10000000
+
+
 _dfx_view() { view "$1" "$STRATEGY" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'; }
 
 assert_dfx_eq() {
@@ -32,8 +32,8 @@ assert_dfx_uint_lt() {
     _uint_lt "$got" "$max" || _assert_fail "$label" "got '$got' want < $max"
 }
 
-# Deploys the strategy bound to SAC_DFX. init_args is a Vec<Val> = [controller];
-# the CLI takes a Vec<Val> as a JSON array of ScVal elements (address form).
+
+
 deploy_dfx_strategy() {
     [ -n "${STRATEGY:-}" ] && return 0
     local out_f="$LOG_DIR/deploy_strategy.out" err_f="$LOG_DIR/deploy_strategy.err"
@@ -52,8 +52,8 @@ deploy_dfx_strategy() {
 
 flow_defindex_strategy() {
     phase defindex
-    # Dedicated stable ($1) mock market + funded vault (DAVE is otherwise unused
-    # in this lane). The strategy only supplies/withdraws, so no debt-side seed.
+
+
     if [ -z "${DFX_SETUP_DONE:-}" ]; then
         deploy_mock_reflector
         issue_sac SAC_DFX DFX
@@ -66,11 +66,11 @@ flow_defindex_strategy() {
     fi
     deploy_dfx_strategy || return 1
 
-    # Configured underlying. The vault's lending-account lifecycle is not exposed
-    # by public strategy views, so the checks below are balance-based.
+
+
     assert_dfx_eq dfx_asset "$SAC_DFX" asset
 
-    # #460 AmountNotPositive.
+
     xfail dfx_deposit_zero 'Error\(Contract, #460\)' "$DAVE" "$STRATEGY" -- deposit \
         --amount 0 --from "$DAVE_ADDR"
 
@@ -80,10 +80,10 @@ flow_defindex_strategy() {
     log "deposit reported balance = $reported"
     assert_dfx_uint_ge dfx_balance_post_deposit "$reported" balance --from "$DAVE_ADDR"
 
-    # Harvest publishes price_per_share from the supply index (no auth, no debt).
+
     inv dfx_harvest "$DAVE" "$STRATEGY" -- harvest --from "$DAVE_ADDR" >/dev/null || return 1
 
-    # #460 zero; #461 over-balance / no position.
+
     xfail dfx_withdraw_zero 'Error\(Contract, #460\)' "$DAVE" "$STRATEGY" -- withdraw \
         --amount 0 --from "$DAVE_ADDR" --to "$DAVE_ADDR"
     xfail dfx_withdraw_over 'Error\(Contract, #461\)' "$DAVE" "$STRATEGY" -- withdraw \
@@ -96,7 +96,7 @@ flow_defindex_strategy() {
         --amount "$part" --from "$DAVE_ADDR" --to "$DAVE_ADDR" >/dev/null || return 1
     assert_dfx_uint_lt dfx_balance_post_partial "$reported" balance --from "$DAVE_ADDR"
 
-    # amount == balance → controller withdraw-all (0); closes + deregisters.
+
     local remaining
     remaining=$(_dfx_view dfx_balance_pre_full balance --from "$DAVE_ADDR")
     inv dfx_withdraw_full "$DAVE" "$STRATEGY" -- withdraw \

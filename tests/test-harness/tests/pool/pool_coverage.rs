@@ -4,54 +4,40 @@ use test_harness::{eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB};
 fn test_pool_claim_revenue_burns_supplied_ray_coverage() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Set up the accumulator for revenue claims.
     let accumulator = t
         .env
         .register(test_harness::mock_reflector::MockReflector, ());
     t.set_accumulator(&accumulator);
 
-    // Bypass TWAP to avoid #211 (OracleError::NoAccumulator).
-    t.set_oracle_single_spot("USDC"); // 0 = SPOT ONLY
+    t.set_oracle_single_spot("USDC");
 
-    // 1. Supply some liquidity.
     t.supply(ALICE, "USDC", 1000.0);
     t.supply(BOB, "USDC", 1000.0);
 
-    // 2. Borrow to generate interest.
     t.borrow(ALICE, "USDC", 500.0);
 
-    // 3. Jump forward 1 year.
-    t.advance_time(31_536_000); // 1 year
+    t.advance_time(31_536_000);
 
-    // 4. Update indexes to accrue revenue.
     t.update_indexes_for(&["USDC"]);
 
-    // Check that revenue exists (snapshot_revenue reads the pool's internal
-    // state).
     let rev = t.snapshot_revenue("USDC");
     assert!(rev > 0, "Expected some revenue after 1 year");
 
-    // Snapshot pool and accumulator balances before the claim to verify token
-    // flow, not only accumulator state.
     let asset = t.resolve_market("USDC").asset.clone();
     let pool_addr = t.resolve_market("USDC").pool.clone();
     let tok = soroban_sdk::token::Client::new(&t.env, &asset);
     let pool_before = tok.balance(&pool_addr);
     let acc_before = tok.balance(&accumulator);
 
-    // Claim the full accrued revenue.
     let claimed = t.claim_revenue("USDC");
     assert_eq!(
         claimed, rev,
         "full-burn branch must claim the entire accrued revenue"
     );
 
-    // Verify the pool burned the revenue.
     let rev_after = t.snapshot_revenue("USDC");
     assert_eq!(rev_after, 0);
 
-    // Verify the token flow: pool released exactly `claimed`, and the
-    // accumulator received exactly `claimed`.
     let pool_after = tok.balance(&pool_addr);
     let acc_after = tok.balance(&accumulator);
     assert_eq!(
@@ -86,14 +72,11 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
     t.advance_time(31_536_000);
     t.update_indexes_for(&["USDC"]);
 
-    // 6. Force the pool's reserves low.
-    // Bob supplies ETH so he can borrow USDC without raising USDC reserves.
-    t.supply(BOB, "ETH", 1000.0); // $2M collateral
+    t.supply(BOB, "ETH", 1000.0);
 
     let res = t.pool_reserves("USDC");
     t.borrow(BOB, "USDC", res - 1.0);
 
-    // Reserves are near zero. Ensure accrued revenue exceeds reserves.
     let rev = t.snapshot_revenue("USDC");
     let usdc = t.resolve_asset("USDC");
     let res_raw = t.pool_client("USDC").get_reserves(&hub_asset(usdc));
@@ -104,8 +87,6 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
         res_raw
     );
 
-    // Snapshot pool and accumulator balances after the reserve drain and before
-    // the claim to verify token flow on this branch.
     let asset = t.resolve_market("USDC").asset.clone();
     let pool_addr = t.resolve_market("USDC").pool.clone();
     let tok = soroban_sdk::token::Client::new(&t.env, &asset);
@@ -120,8 +101,6 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
     );
     assert_eq!(claimed, res_raw, "claim must be capped at pool reserves");
 
-    // Verify the token flow on the proportional-burn branch: pool released
-    // exactly `claimed`, and the accumulator received exactly `claimed`.
     let pool_after = tok.balance(&pool_addr);
     let acc_after = tok.balance(&accumulator);
     assert_eq!(
@@ -135,7 +114,6 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
         "accumulator must receive exactly the claimed amount"
     );
 
-    // Verify the proportional burn reduced but did not clear the revenue.
     let rev_remaining = t.snapshot_revenue("USDC");
     assert!(rev_remaining > 0);
 }

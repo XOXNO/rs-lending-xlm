@@ -1,4 +1,3 @@
-//! Single-key Ed25519 signer used to authorize all keeper transactions.
 
 pub mod mnemonic;
 pub mod vault;
@@ -33,7 +32,7 @@ impl Ed25519Signer {
     }
 
     pub fn public_key_strkey(&self) -> String {
-        // Display → std::String (inherent to_string is heapless).
+
         format!("{}", StrKeyPublicKey(self.public_key_bytes()))
     }
 

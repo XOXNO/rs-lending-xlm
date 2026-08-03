@@ -1,19 +1,19 @@
-# Resource-frontier stress: how many DISTINCT oracle-priced positions fit in
-# one HF-checked transaction before Soroban's per-tx budget rejects the
-# simulation (Error(Budget,ExceededLimit)).
-#
-# Probes are simulation-only (sim_probe) so the frontier search burns no fees;
-# the largest passing step is then SENT for an on-chain proof tx. Measured for
-# single-source oracles first, then markets are reconfigured to the
-# mainnet-faithful dual-source (Reflector primary + RedStone anchor) shape and
-# re-probed: per-asset cost rises, frontier drops. Liquidation is probed last
-# (it reads ALL position feeds, then seizes) — the binding op.
+
+
+
+
+
+
+
+
+
+
 
 stress_code() { printf 'ST%02d' "$1"; }
 stress_sac()  { local v="SAC_ST$(printf '%02d' "$1")"; echo "${!v}"; }
 
-# Issues 20 SACs, creates 20 single-source mock markets at $1, mints to the
-# stress + liquidator wallets, seeds debt-side liquidity (two accounts of 10).
+
+
 flow_stress_setup() {
     phase stress_setup
     [ -n "${STRESS_SETUP_DONE:-}" ] && return 0
@@ -32,7 +32,7 @@ flow_stress_setup() {
         set_mock_price "$sac" "$WAD" "px_init_$code"
         create_market "$code" "$PRIMARY_HUB_ID" "$sac" 7 "$(oracle_cfg_mock_single "$sac")" "$(asset_config_json 7000 7500 800)"
     done
-    # Carol seeds liquidity for the debt-side markets (ST10..ST19), 5 per tx.
+
     local args1="" args2=""
     for i in 10 11 12 13 14; do args1+=" $(stress_sac $i) $((200000 * STRESS_UNIT))"; done
     for i in 15 16 17 18 19; do args2+=" $(stress_sac $i) $((200000 * STRESS_UNIT))"; done
@@ -45,8 +45,8 @@ flow_stress_setup() {
     save_state STRESS_SETUP_DONE 1
 }
 
-# Bulk-supply frontier: how many distinct assets fit in ONE supply tx.
-# Probes a fresh-account supply of k = 2..10 distinct collaterals.
+
+
 flow_stress_supply_frontier() {
     phase stress_supply_frontier
     local k args i
@@ -60,12 +60,12 @@ flow_stress_supply_frontier() {
     done
 }
 
-# Probes borrow txs that add 1..10 distinct debt assets on top of a
-# `colls`-collateral account — each probe recomputes HF over (colls + k)
-# distinct oracle feeds. Single-source uses a 10-collateral account (wall
-# expected in the teens); dual-source uses 4 collaterals so the lower wall
-# still brackets inside the probe range.
-#   flow_stress_borrow_frontier <single|dual>
+
+
+
+
+
+
 flow_stress_borrow_frontier() {
     local mode="${1:-single}" colls acct_var
     phase stress_borrow_frontier
@@ -103,8 +103,8 @@ flow_stress_borrow_frontier() {
     local mode_key
     mode_key=$(printf '%s' "$mode" | tr '[:lower:]' '[:upper:]')
     save_state "BORROW_FRONTIER_${mode_key}" "$((colls + best_k))"
-    # On-chain proof: send the largest passing borrow, then a withdraw probe
-    # at max position count, then repay in full to reset debt to zero.
+
+
     if [ "$best_k" -gt 0 ]; then
         args=""
         for i in $(seq 10 $((9 + best_k))); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
@@ -122,7 +122,7 @@ flow_stress_borrow_frontier() {
     fi
 }
 
-# Reconfigures every stress market to dual-source (mock RedStone anchor).
+
 flow_stress_dualify() {
     phase stress_dualify
     [ -n "${STRESS_DUAL_DONE:-}" ] && return 0
@@ -132,16 +132,29 @@ flow_stress_dualify() {
         sac=$(stress_sac "$i")
         set_rs_price "$code" "$WAD" "rs_px_$code"
         local resolved_dual
-        resolved_dual=$(view "dualify_resolve_$code" "$GOVERNANCE" -- resolve_market_oracle_config \
-            --asset "$sac" --cfg "$(oracle_cfg_mock_dual "$sac" "$code")") || continue
-        inv "dualify_$code" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle_config \
-            --asset "$sac" --config "$resolved_dual" >/dev/null
+        local dual_key dual_oracle_file dual_resolved_file
+        dual_key=$(price_key_token "$sac")
+        dual_oracle_file=$(mktemp)
+        dual_resolved_file=$(mktemp)
+        printf '%s' "$(oracle_cfg_mock_dual "$sac" "$code")" > "$dual_oracle_file"
+        resolved_dual=$(view "dualify_resolve_$code" "$GOVERNANCE" -- resolve_asset_oracle \
+            --key "$dual_key" --oracle-file-path "$dual_oracle_file" | jq -c '.') || {
+            rm -f "$dual_oracle_file" "$dual_resolved_file"
+            continue
+        }
+        printf '%s' "$resolved_dual" > "$dual_resolved_file"
+        inv "dualify_$code" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle \
+            --key "$dual_key" --oracle-file-path "$dual_resolved_file" >/dev/null || {
+            rm -f "$dual_oracle_file" "$dual_resolved_file"
+            continue
+        }
+        rm -f "$dual_oracle_file" "$dual_resolved_file"
     done
     save_state STRESS_DUAL_DONE 1
 }
 
-# Liquidation frontier under dual-source: k collaterals + 1 or k debt assets,
-# crash, then probe partial liquidations for growing collateral and debt width.
+
+
 flow_stress_liq_frontier() {
     phase stress_liq_frontier
 local k i args acct var debt_args repay_args full_args
@@ -185,7 +198,7 @@ inv liqf_borrow_10coll_10debt "$DAVE" "$CONTROLLER" -- borrow \
 --borrows "$(pay_vec "$PRIMARY_HUB_ID" $debt_args)" --to null >/dev/null || return 1
 save_state LIQF_ACCT_10C10D "$acct"
 fi
-# Crash all collateral-side prices 40% (primary + anchor in lock-step).
+
     for i in $(seq 0 9); do
         dual_px "$(stress_sac $i)" "$(stress_code $i)" $((WAD / 10 * 6)) "crash_$(stress_code $i)"
     done
@@ -200,7 +213,7 @@ fi
         [ "$PROBE_STATUS" = ok ] && best_k=$k
     done
     save_state LIQ_FRONTIER_COLL "$best_k"
-    # On-chain proof at the largest liquidatable width.
+
     if [ "$best_k" -gt 0 ]; then
         var="LIQF_ACCT_$best_k"
         inv "stress_liquidate_proof_${best_k}coll" "$CAROL" "$CONTROLLER" -- liquidate \

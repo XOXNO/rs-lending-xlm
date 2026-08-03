@@ -5,8 +5,8 @@ services:
     environment:
       KEEPER_CONFIG: /etc/keeper/testnet.yaml
       RUST_LOG: info
-      # Azure SP credentials — required because mx-keyvault has no real
-      # Managed Identity path. Inject from your secret store.
+
+
       AZURE_TENANT_ID: ${AZURE_TENANT_ID}
       AZURE_CLIENT_ID: ${AZURE_CLIENT_ID}
       AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET}

@@ -11,7 +11,6 @@ pub enum PositionType {
     Borrow,
 }
 
-/// Risk params from base spoke listing; flash-loan/decimals from pool `MarketParamsRaw`.
 pub struct AssetConfigView {
     pub loan_to_value: u32,
     pub liquidation_threshold: u32,
@@ -29,6 +28,10 @@ impl LendingTest {
         wad_to_f64(self.health_factor_raw(user))
     }
 
+    pub fn try_health_factor(&self, user: &str) -> Option<f64> {
+        self.try_health_factor_raw(user).map(wad_to_f64)
+    }
+
     pub fn health_factor_for(&self, _user: &str, account_id: u64) -> f64 {
         wad_to_f64(self.health_factor_for_raw(_user, account_id))
     }
@@ -37,6 +40,17 @@ impl LendingTest {
         self.find_account_id(user)
             .map(|account_id| self.ctrl_client().get_health_factor(&account_id))
             .unwrap_or(i128::MAX)
+    }
+
+    pub fn try_health_factor_raw(&self, user: &str) -> Option<i128> {
+        match self.find_account_id(user) {
+            None => Some(i128::MAX),
+            Some(account_id) => self
+                .ctrl_client()
+                .try_get_health_factor(&account_id)
+                .ok()
+                .and_then(Result::ok),
+        }
     }
 
     pub fn health_factor_for_raw(&self, _user: &str, account_id: u64) -> i128 {
@@ -111,8 +125,7 @@ impl LendingTest {
         position_type: AccountPositionType,
     ) -> i128 {
         let (supplies, borrows) = self.ctrl_client().get_account_positions(&account_id);
-        // Supply and debt maps hold different value types; extract the
-        // scaled share each carries.
+
         let scaled_ray = match position_type {
             AccountPositionType::Deposit => supplies
                 .get(hub_asset(asset.clone()))
@@ -248,18 +261,18 @@ impl LendingTest {
         self.ctrl_client().get_pool_address()
     }
 
-    /// True when the price-aggregator holds a token-rooted oracle for `asset`
-    /// (absence = pending/disabled).
     pub fn market_is_active(&self, asset: &soroban_sdk::Address) -> bool {
-        self.price_agg_client().oracle_config(asset).is_some()
+        self.price_agg_client()
+            .oracle(&controller::types::PriceKey::Token(asset.clone()))
+            .is_some()
     }
 
     pub fn market_oracle_config(
         &self,
         asset: &soroban_sdk::Address,
-    ) -> controller::types::AssetOracleConfig {
+    ) -> controller::types::AssetOracle {
         self.price_agg_client()
-            .oracle_config(asset)
+            .oracle(&controller::types::PriceKey::Token(asset.clone()))
             .expect("market oracle config must exist")
     }
 

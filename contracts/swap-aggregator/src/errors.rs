@@ -1,5 +1,3 @@
-//! Router error codes.
-
 use soroban_sdk::contracterror;
 
 #[contracterror]

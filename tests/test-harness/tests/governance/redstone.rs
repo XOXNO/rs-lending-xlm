@@ -1,32 +1,37 @@
-//! RedStone source probing on the `configure_market_oracle` forwarder.
-
-use governance::op::{AdminOperation, ConfigureOracleArgs};
+use governance::op::{AdminOperation, ConfigureAssetOracleArgs};
 use soroban_sdk::String;
 use test_harness::oracle::redstone::register_redstone_adapter;
 use test_harness::{
-    assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, DEFAULT_TOLERANCE,
+    assert_contract_error, errors, usd, usdc_preset, LendingTest, DEFAULT_TOLERANCE,
 };
 
 fn try_configure_usdc(
     t: &LendingTest,
-    cfg: &controller::types::AssetOracleConfigInput,
+    cfg: &controller::types::AssetOracle,
 ) -> Result<(), soroban_sdk::Error> {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     t.gov_client()
         .try_execute_immediate(
             &admin,
-            &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-                hub_asset: hub_asset(asset),
-                cfg: cfg.clone(),
+            &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+                key: controller::types::PriceKey::Token(asset),
+                oracle: cfg.clone(),
             }),
         )
         .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
         .unwrap_or_else(|e| Err(e.expect("expected contract error")))
 }
 
-// A RedStone anchor stale window below the 60-second floor rejects
-// InvalidStalenessConfig (#218).
+/// Reads the USDC price through the aggregator, flattening to a contract error.
+fn try_price_usdc(t: &LendingTest) -> Result<(), soroban_sdk::Error> {
+    let asset = t.resolve_market("USDC").asset.clone();
+    t.price_agg_client()
+        .try_price(&controller::types::PriceKey::Token(asset))
+        .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
+        .unwrap_or_else(|e| Err(e.expect("expected contract error")))
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #218)")]
 fn test_redstone_source_stale_window_rejects_invalid_config() {
@@ -37,6 +42,7 @@ fn test_redstone_source_stale_window_rejects_invalid_config() {
     let admin = t.admin();
 
     let cfg = test_harness::reflector_primary_redstone_anchor_config_with_anchor_stale(
+        &t.env,
         &t.mock_reflector,
         &asset,
         &redstone,
@@ -46,15 +52,15 @@ fn test_redstone_source_stale_window_rejects_invalid_config() {
     );
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            hub_asset: hub_asset(asset),
-            cfg,
+        &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+            key: controller::types::PriceKey::Token(asset),
+            oracle: cfg,
         }),
     );
 }
 
 #[test]
-fn test_redstone_stale_package_timestamp_rejects_config() {
+fn test_redstone_stale_package_timestamp_fails_closed_at_read() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let feed_id = String::from_str(&t.env, "USDC");
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1))]);
@@ -64,16 +70,18 @@ fn test_redstone_stale_package_timestamp_rejects_config() {
     client.set_price_data(&feed_id, &usd(1), &stale_package, &now_ms);
 
     let cfg = test_harness::redstone_single_config(
+        &t.env,
         &redstone,
         &feed_id,
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    assert_contract_error(try_configure_usdc(&t, &cfg), errors::PRICE_FEED_STALE);
+    try_configure_usdc(&t, &cfg).expect("transient feed data must not block the config write");
+    assert_contract_error(try_price_usdc(&t), errors::PRICE_FEED_STALE);
 }
 
 #[test]
-fn test_redstone_stale_write_timestamp_rejects_config() {
+fn test_redstone_stale_write_timestamp_fails_closed_at_read() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let feed_id = String::from_str(&t.env, "USDC");
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1))]);
@@ -83,16 +91,18 @@ fn test_redstone_stale_write_timestamp_rejects_config() {
     client.set_price_data(&feed_id, &usd(1), &now_ms, &stale_write);
 
     let cfg = test_harness::redstone_single_config(
+        &t.env,
         &redstone,
         &feed_id,
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    assert_contract_error(try_configure_usdc(&t, &cfg), errors::PRICE_FEED_STALE);
+    try_configure_usdc(&t, &cfg).expect("transient feed data must not block the config write");
+    assert_contract_error(try_price_usdc(&t), errors::PRICE_FEED_STALE);
 }
 
 #[test]
-fn test_redstone_future_timestamps_reject_config() {
+fn test_redstone_future_timestamps_fail_closed_at_read() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let feed_id = String::from_str(&t.env, "USDC");
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1))]);
@@ -101,25 +111,29 @@ fn test_redstone_future_timestamps_reject_config() {
     client.set_price_data(&feed_id, &usd(1), &future_ms, &future_ms);
 
     let cfg = test_harness::redstone_single_config(
+        &t.env,
         &redstone,
         &feed_id,
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    assert_contract_error(try_configure_usdc(&t, &cfg), errors::PRICE_FEED_STALE);
+    try_configure_usdc(&t, &cfg).expect("transient feed data must not block the config write");
+    assert_contract_error(try_price_usdc(&t), errors::NO_LAST_PRICE);
 }
 
 #[test]
-fn test_redstone_missing_feed_id_rejects_config() {
+fn test_redstone_missing_feed_id_fails_closed_at_read() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let configured_feed_id = String::from_str(&t.env, "ETH");
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1))]);
 
     let cfg = test_harness::redstone_single_config(
+        &t.env,
         &redstone,
         &configured_feed_id,
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    assert_contract_error(try_configure_usdc(&t, &cfg), errors::INVALID_TICKER);
+    try_configure_usdc(&t, &cfg).expect("transient feed data must not block the config write");
+    assert_contract_error(try_price_usdc(&t), errors::NO_LAST_PRICE);
 }

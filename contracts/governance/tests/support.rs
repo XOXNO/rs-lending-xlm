@@ -1,5 +1,3 @@
-//! Shared governance test fixtures.
-
 extern crate std;
 
 use soroban_sdk::testutils::Address as _;
@@ -14,7 +12,6 @@ pub fn zero_salt(env: &Env) -> BytesN<32> {
     BytesN::from_array(env, &ZERO_SALT)
 }
 
-/// Registers governance with `min_delay` and returns `(admin, gov_id, client)`.
 pub fn register(env: &Env, min_delay: u32) -> (Address, Address, GovernanceClient<'_>) {
     let admin = Address::generate(env);
     let gov_id = env.register(Governance, (admin.clone(), min_delay));
@@ -22,12 +19,10 @@ pub fn register(env: &Env, min_delay: u32) -> (Address, Address, GovernanceClien
     (admin, gov_id, gov)
 }
 
-/// Registers governance at the protocol minimum delay.
 pub fn register_governance(env: &Env) -> (Address, Address, GovernanceClient<'_>) {
     register(env, TIMELOCK_MIN_DELAY_LEDGERS)
 }
 
-/// Like [`register`], then attaches a native controller owned by governance.
 pub fn register_with_controller(
     env: &Env,
     min_delay: u32,
@@ -38,7 +33,6 @@ pub fn register_with_controller(
     (admin, controller_id, gov)
 }
 
-/// Contract id only — for `env.as_contract` unit tests that do not need a client.
 pub fn fresh_governance(env: &Env) -> Address {
     let (_admin, gov_id, _gov) = register_governance(env);
     gov_id

@@ -1,11 +1,3 @@
-//! Bulk market-index prefetch invariants.
-//!
-//! Controller flows seed the tx-local index cache through the pool's
-//! `bulk_get_indexes` endpoint (the pool simulates accrual). These tests pin
-//! that the bulk path returns exactly the indexes a per-asset `get_sync_data` +
-//! `simulate_update_indexes` derives, and that unlisted assets keep their
-//! pre-prefetch panic semantics.
-
 use common::rates::simulate_update_indexes;
 use controller::constants::MS_PER_SECOND;
 use controller::types::MarketIndexRaw;
@@ -16,15 +8,11 @@ use test_harness::{
 
 #[test]
 fn test_detailed_indexes_view_matches_pool_simulation() {
-    // Two utilized markets accrue for a day; the controller view (which seeds
-    // its cache via one bulk_get_indexes call) must report exactly the
-    // indexes a native simulation over the raw pool state produces.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // Cross-utilize both markets so both accrue supplier rewards.
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "USDC", 1_000.0);
@@ -65,9 +53,6 @@ fn test_detailed_indexes_view_matches_pool_simulation() {
 
 #[test]
 fn test_index_view_with_unlisted_asset_still_fails() {
-    // The prefetch skips assets without a market config, so an unlisted asset
-    // reaches the lazy per-asset path and fails there exactly as it did
-    // before the bulk endpoint existed.
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let unlisted = soroban_sdk::Address::generate(&t.env);

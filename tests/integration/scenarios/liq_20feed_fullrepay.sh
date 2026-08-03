@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Maximal liquidation shape: sim-probe widest n-debt repay at full 10-coll seize.
-#
-#   RUN_TS=<existing> bash tests/integration/scenarios/liq_20feed_fullrepay.sh
+
+
+
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -57,11 +57,11 @@ token::Client::new(&env, &asset)
 ```
 
 A reference implementation exercising all success/failure modes lives at
-`contracts/flash-loan-receiver/src/lib.rs` in the protocol repo.
+`mock/flash-loan-receiver/src/lib.rs` in the protocol repo.
 
 ## Security requirements for production receivers
 
-- **Gate the caller.** The reference receiver (`contracts/flash-loan-receiver/`) is test-only/adversarial harness (multi-mode XDR for smoke/fuzz); a
+- **Gate the caller.** The reference receiver (`mock/flash-loan-receiver/`) is test-only/adversarial harness (multi-mode XDR for smoke/fuzz); a
   production receiver MUST verify the invoker is the trusted pool (or
   controller) before acting on `data`.
 - **Reentrancy is blocked protocol-side** (shared `FlashLoanOngoing` guard with strategies; see INVARIANTS §2.5, ADR 0006) — re-entering `flash_loan` or

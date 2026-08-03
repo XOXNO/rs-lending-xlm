@@ -1,5 +1,3 @@
-//! Position-domain events: batch updates, liquidation, and flash loans.
-
 use soroban_sdk::{contractevent, Address, Vec};
 
 use super::{EventAccountAttributes, EventBorrowDelta, EventDepositDelta};
@@ -7,19 +5,14 @@ use super::{EventAccountAttributes, EventBorrowDelta, EventDepositDelta};
 #[contractevent(topics = ["position", "batch_update"], data_format = "vec")]
 #[derive(Clone, Debug)]
 pub struct UpdatePositionBatchEvent {
-    /// Account whose positions changed.
     pub account_id: u64,
     pub account_attributes: EventAccountAttributes,
-    /// Collateral-side deltas recorded during the successful transaction.
+
     pub deposits: Vec<EventDepositDelta>,
-    /// Debt-side deltas recorded during the successful transaction.
+
     pub borrows: Vec<EventBorrowDelta>,
 }
 
-/// Attributes a liquidation to its caller and carries the aggregate USD repaid
-/// and the applied bonus rate. Per-asset repaid/seized token amounts ride the
-/// position batch legs; total seized USD is
-/// `repaid_usd_wad * (1 + bonus_bps / 10_000)`.
 #[contractevent(topics = ["position", "liquidation"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LiquidationEvent {

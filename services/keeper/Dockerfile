@@ -1,9 +1,9 @@
-# syntax=docker/dockerfile:1.7
 
-# ------------------------------------------------------------------------
-# Build stage
-# ------------------------------------------------------------------------
-# Pinned to rust-toolchain.toml (channel 1.95); the Soroban stack needs >= 1.93.
+
+
+
+
+
 FROM rust:1.95-bookworm AS builder
 
 RUN apt-get update \
@@ -13,20 +13,20 @@ RUN apt-get update \
 
 WORKDIR /build
 
-# Copy the lockfile so the build uses the pinned, tested dependency versions.
+
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY config ./config
 
-# Build with BuildKit cache mounts.
+
 RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
     --mount=type=cache,target=/build/target,sharing=locked \
     cargo build --release --locked --bin keeper-bot \
     && cp target/release/keeper-bot /keeper-bot
 
-# ------------------------------------------------------------------------
-# Runtime stage — distroless cc (provides libgcc, libstdc++, openssl).
-# ------------------------------------------------------------------------
+
+
+
 FROM gcr.io/distroless/cc-debian12:nonroot
 
 COPY --from=builder /keeper-bot /usr/local/bin/keeper-bot

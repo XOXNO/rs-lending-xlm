@@ -1,16 +1,9 @@
-//! Blend V2 `submit` mock for migration: real per-user balances (no shares/index).
-//! Field names match production `#[contracttype]` maps. Auth: spender always;
-//! `from` iff `from != spender`. Repay full pull + refund; withdraw min(amt, bal)
-//! (`i128::MAX` = all). Post-batch: any withdraw while liability remains reverts.
-//! Seed via `seed` + mint underlyings to the mock for payouts.
-
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Map, Vec};
 
 const REQ_WITHDRAW: u32 = 1;
 const REQ_WITHDRAW_COLLATERAL: u32 = 3;
 const REQ_REPAY: u32 = 5;
 
-/// `kind` values for [`MockBlend::seed`].
 pub const KIND_COLLATERAL: u32 = 0;
 pub const KIND_SUPPLY: u32 = 1;
 pub const KIND_LIABILITY: u32 = 2;
@@ -44,7 +37,7 @@ enum Key {
     Collateral(Address, Address),
     Supply(Address, Address),
     Liability(Address, Address),
-    /// Per-user list of assets the user has a liability in (append-only).
+
     LiabAssets(Address),
 }
 
@@ -129,11 +122,6 @@ impl MockBlend {
             }
         }
 
-        // Blend reverts when collateral is withdrawn while the user still owes ANY
-        // liability (the post-action health check). Checking every tracked
-        // liability asset — not just assets repaid in this batch — keeps the check
-        // valid when the withdrawal is in a different submit from the repay (the
-        // two-phase migration path).
         if withdrew_collateral {
             let liab_assets: Vec<Address> = env
                 .storage()
@@ -149,7 +137,6 @@ impl MockBlend {
             }
         }
 
-        // Discarded by the controller; an empty value is sufficient.
         Ok(BlendPositions {
             liabilities: Map::new(&env),
             collateral: Map::new(&env),
@@ -166,8 +153,6 @@ fn key(kind: u32, user: &Address, asset: &Address) -> Key {
     }
 }
 
-/// Records `asset` in `user`'s liability-asset list (append-only, deduplicated)
-/// so the post-action health check can enumerate the user's debts.
 fn track_liability_asset(env: &Env, user: &Address, asset: &Address) {
     let k = Key::LiabAssets(user.clone());
     let mut list: Vec<Address> = env

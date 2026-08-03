@@ -6,9 +6,6 @@ use test_harness::{
     DEFAULT_MARKET_PARAMS, HARNESS_HUB, HARNESS_SPOKE, STABLECOIN_SPOKE,
 };
 
-/// USDC market with no seeded liquidity, so cash is driven purely by the
-/// test's own supplies and borrows — lets a test drain cash to an exact,
-/// predictable tight-market level.
 fn usdc_zero_seed() -> MarketPreset {
     MarketPreset {
         name: "USDC",
@@ -20,14 +17,6 @@ fn usdc_zero_seed() -> MarketPreset {
     }
 }
 
-// Multiply happy paths
-//
-// Full multiply flow:
-//   1. Flash-borrow 1 ETH ($2000).
-//   2. Swap ETH -> USDC (mock returns 3000 USDC).
-//   3. Deposit 3000 USDC as collateral.
-//   4. HF = 3000 * 0.8 / 2000 = 1.2.
-
 #[test]
 fn test_multiply_creates_leveraged_position() {
     let mut t = LendingTest::new()
@@ -35,9 +24,8 @@ fn test_multiply_creates_leveraged_position() {
         .with_market(eth_preset())
         .build();
 
-    // Flash-borrow 1 ETH, swap to 3000 USDC (favorable mock rate).
     t.fund_router("USDC", 3000.0);
-    // 1 ETH (7 decimals) flash-borrowed; controller receives `1 ETH - 9bps fee`.
+
     let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
     let account_id = t.multiply(
         ALICE,
@@ -50,7 +38,6 @@ fn test_multiply_creates_leveraged_position() {
 
     assert!(account_id > 0, "account should be created");
 
-    // Supply position: 3000 USDC.
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
     assert!(
         (2999.0..=3001.0).contains(&supply),
@@ -58,7 +45,6 @@ fn test_multiply_creates_leveraged_position() {
         supply
     );
 
-    // Borrow position: 1 ETH.
     let borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
     assert!(
         (0.99..=1.01).contains(&borrow),
@@ -66,12 +52,10 @@ fn test_multiply_creates_leveraged_position() {
         borrow
     );
 
-    // HF = 3000 * 0.8 / 2000 = 1.2.
     let hf = t.health_factor_for(ALICE, account_id);
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
     assert!(hf < 2.0, "HF should be reasonable, got {}", hf);
 }
-// Mode=2 (Long): same flow, with a different mode stored on the account.
 
 #[test]
 fn test_multiply_mode_long() {
@@ -81,7 +65,7 @@ fn test_multiply_mode_long() {
         .build();
 
     t.fund_router("USDC", 3000.0);
-    // 1 ETH (7 decimals) flash-borrowed; controller receives `1 ETH - 9bps fee`.
+
     let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
     let account_id = t.multiply(
         ALICE,
@@ -101,9 +85,6 @@ fn test_multiply_mode_long() {
         "mode should be Long"
     );
 
-    // An empty position trivially satisfies HF >= 1.0 (controller returns
-    // i128::MAX). Pin the supply and borrow magnitudes to verify the Long
-    // mode deposit branch.
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
     assert!(
         (2999.0..=3001.0).contains(&supply),
@@ -120,7 +101,6 @@ fn test_multiply_mode_long() {
     let hf = t.health_factor_for(ALICE, account_id);
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
-// Mode=3 (Short).
 
 #[test]
 fn test_multiply_mode_short() {
@@ -130,7 +110,7 @@ fn test_multiply_mode_short() {
         .build();
 
     t.fund_router("USDC", 3000.0);
-    // 1 ETH (7 decimals) flash-borrowed; controller receives `1 ETH - 9bps fee`.
+
     let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
     let account_id = t.multiply(
         ALICE,
@@ -150,9 +130,6 @@ fn test_multiply_mode_short() {
         "mode should be Short"
     );
 
-    // An empty position trivially satisfies HF >= 1.0 (controller returns
-    // i128::MAX). Pin the supply and borrow magnitudes to verify the Short
-    // mode deposit branch.
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
     assert!(
         (2999.0..=3001.0).contains(&supply),
@@ -169,7 +146,6 @@ fn test_multiply_mode_short() {
     let hf = t.health_factor_for(ALICE, account_id);
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
-// Different asset pair: borrow USDC with WBTC collateral.
 
 #[test]
 fn test_multiply_wbtc_collateral() {
@@ -178,12 +154,8 @@ fn test_multiply_wbtc_collateral() {
         .with_market(wbtc_preset())
         .build();
 
-    // Borrow 1000 USDC, swap to 0.02 WBTC (at $60000, $1200 worth).
-    // WBTC 8 decimals: 0.02 WBTC = 2_000_000 raw.
-    // HF = 1200 * 0.8 / 1000 = 0.96: too low.
-    // Need more: 0.03 WBTC = $1800. HF = 1800*0.8/1000 = 1.44.
     t.fund_router_raw("WBTC", 3_000_000);
-    // 1000 USDC (7 decimals) flash-borrowed minus 9bps flash fee.
+
     let steps = build_aggregator_swap(
         &t,
         "USDC",
@@ -211,11 +183,6 @@ fn test_multiply_wbtc_collateral() {
     let hf = t.health_factor_for(ALICE, account_id);
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
-// Swap debt happy paths
-//
-// Setup: supply USDC, borrow ETH.
-// Swap debt: ETH -> WBTC (borrow WBTC, swap to ETH, repay ETH).
-// Verify: ETH borrow shrinks or disappears, WBTC borrow exists.
 
 #[test]
 fn test_swap_debt_replaces_borrow() {
@@ -231,14 +198,11 @@ fn test_swap_debt_replaces_borrow() {
     let initial_eth = t.borrow_balance(ALICE, "ETH");
     assert!(initial_eth > 0.9, "should have ~1 ETH borrow");
 
-    // Swap ETH debt -> WBTC debt. Borrow 1 WBTC ($60000), swap to ETH (need
-    // enough to repay 1 ETH). min_out = 1_0000000 raw ETH (1 ETH).
     t.fund_router("ETH", 1.0);
-    // swap_debt borrows 1.0 WBTC (7 decimals = 10_000_000 raw) minus 9bps flash fee.
+
     let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(10_000_000), 1_0000000);
     t.swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
 
-    // The WBTC borrow must exist after the debt swap.
     let wbtc_borrow = t.borrow_balance(ALICE, "WBTC");
     assert!(
         wbtc_borrow > 0.0,
@@ -246,12 +210,9 @@ fn test_swap_debt_replaces_borrow() {
         wbtc_borrow
     );
 
-    // HF must remain valid.
     let hf = t.health_factor(ALICE);
     assert!(hf >= 1.0, "HF should be >= 1.0 after swap_debt, got {}", hf);
 }
-//
-// Swap only part of the debt: source and target borrows coexist.
 
 #[test]
 fn test_swap_debt_partial() {
@@ -264,15 +225,11 @@ fn test_swap_debt_partial() {
     t.supply(ALICE, "USDC", 200_000.0);
     t.borrow(ALICE, "ETH", 2.0);
 
-    // Swap only part of the ETH debt: borrow 0.5 WBTC, swap to ~0.5 ETH.
-    // 0.5 WBTC = 50_000_000 raw (8 decimals).
-    // Swap output = 0.5 ETH = 5_000_000 raw (7 decimals): partial repay.
     t.fund_router_raw("ETH", 5_000_000);
-    // swap_debt borrows 0.5 WBTC (7 decimals = 5_000_000 raw) minus 9bps flash fee.
+
     let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(5_000_000), 5_000_000);
     t.swap_debt(ALICE, "ETH", 0.5, "WBTC", &steps);
 
-    // Both borrows must exist.
     let eth_borrow = t.borrow_balance(ALICE, "ETH");
     assert!(
         eth_borrow > 0.0 && eth_borrow < 2.0,
@@ -290,11 +247,6 @@ fn test_swap_debt_partial() {
     let hf = t.health_factor(ALICE);
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
-// Swap collateral happy paths
-//
-// Setup: supply USDC, borrow ETH.
-// Swap collateral: USDC -> ETH (withdraw USDC, swap to ETH, deposit ETH).
-// Verify: USDC supply shrinks, ETH supply is created.
 
 #[test]
 fn test_swap_collateral_replaces_supply() {
@@ -309,13 +261,11 @@ fn test_swap_collateral_replaces_supply() {
     let initial_usdc = t.supply_balance(ALICE, "USDC");
     assert!(initial_usdc >= 99_999.0, "should have ~100K USDC supply");
 
-    // Swap 20,000 USDC -> 10 ETH (mock rate $2000/ETH).
     t.fund_router("ETH", 10.0);
-    // swap_collateral withdraws 20_000 USDC (7 decimals) → 200_000_000_000 raw.
+
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 200_000_000_000, 10_0000000);
     t.swap_collateral(ALICE, "USDC", 20_000.0, "ETH", &steps);
 
-    // USDC supply must shrink.
     let usdc_after = t.supply_balance(ALICE, "USDC");
     assert!(
         usdc_after < initial_usdc,
@@ -324,7 +274,6 @@ fn test_swap_collateral_replaces_supply() {
         usdc_after
     );
 
-    // ETH supply must be created.
     let eth_supply = t.supply_balance(ALICE, "ETH");
     assert!(
         (9.99..=10.01).contains(&eth_supply),
@@ -339,7 +288,6 @@ fn test_swap_collateral_replaces_supply() {
         hf
     );
 }
-// Swap collateral with no borrows: the HF check is skipped.
 
 #[test]
 fn test_swap_collateral_no_borrows() {
@@ -350,9 +298,8 @@ fn test_swap_collateral_no_borrows() {
 
     t.supply(ALICE, "USDC", 50_000.0);
 
-    // Swap some USDC to ETH: no borrows, so no HF check.
     t.fund_router("ETH", 5.0);
-    // swap_collateral withdraws 10_000 USDC → 100_000_000_000 raw.
+
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 100_000_000_000, 5_0000000);
     t.swap_collateral(ALICE, "USDC", 10_000.0, "ETH", &steps);
 
@@ -370,11 +317,6 @@ fn test_swap_collateral_no_borrows() {
         usdc_supply
     );
 }
-//
-// Setup: supply USDC, borrow ETH.
-// Repay with collateral: USDC -> ETH (withdraw USDC, swap to ETH, repay
-// ETH).
-// Verify: USDC collateral and ETH debt both decrease.
 
 #[test]
 fn test_repay_debt_with_collateral_reduces_positions() {
@@ -390,7 +332,7 @@ fn test_repay_debt_with_collateral_reduces_positions() {
     let debt_before = t.borrow_balance(ALICE, "ETH");
 
     t.fund_router("ETH", 0.5);
-    // repay_debt_with_collateral withdraws 1_000 USDC → 10_000_000_000 raw.
+
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_000000);
     t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps, false);
 
@@ -415,10 +357,6 @@ fn test_repay_debt_with_collateral_reduces_positions() {
     );
 }
 
-// Same-hub same-asset repay_debt_with_collateral nets the two legs in the
-// pool with zero token transfer, so it succeeds even when the market has far
-// less idle cash than the settled amount — the withdraw+repay round trip
-// this replaces would have reverted `InsufficientLiquidity` here.
 #[test]
 fn test_repay_debt_with_collateral_same_token_succeeds_at_zero_cash() {
     let mut t = LendingTest::new()
@@ -426,15 +364,10 @@ fn test_repay_debt_with_collateral_same_token_succeeds_at_zero_cash() {
         .with_market(eth_preset())
         .build();
 
-    // Alice: USDC collateral + USDC debt (self-collateralized), plus ETH so
-    // the position is borrowable past 100% USDC-only LTV.
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(ALICE, "ETH", 20.0);
     t.borrow(ALICE, "USDC", 30_000.0);
 
-    // Bob drains the market's cash toward the 95%-utilization ceiling
-    // (100k supplied, 95k max borrowed), backed by ample ETH collateral of
-    // his own — leaves ~7k cash, below the 10k Alice is about to settle.
     t.supply(BOB, "ETH", 1_000.0);
     t.borrow(BOB, "USDC", 63_000.0);
 
@@ -476,9 +409,6 @@ fn test_repay_debt_with_collateral_same_token_succeeds_at_zero_cash() {
     );
 }
 
-// Requesting more collateral than the outstanding debt leaves the excess
-// untouched as supply — there is no transfer to refund it through, unlike
-// the cross-asset path's excess-payment refund.
 #[test]
 fn test_repay_debt_with_collateral_same_token_leaves_excess_as_supply() {
     let mut t = LendingTest::new()
@@ -493,8 +423,6 @@ fn test_repay_debt_with_collateral_same_token_leaves_excess_as_supply() {
     let debt_before = t.borrow_balance(ALICE, "USDC");
     let supply_before = t.supply_balance(ALICE, "USDC");
 
-    // Request 30k against a ~10k debt: only the debt-owed amount settles,
-    // the rest of the requested collateral is simply never touched.
     let empty_steps = Bytes::new(&t.env);
     t.repay_debt_with_collateral(ALICE, "USDC", 30_000.0, "USDC", &empty_steps, false);
 
@@ -513,7 +441,7 @@ fn test_repay_debt_with_collateral_same_token_leaves_excess_as_supply() {
 }
 
 #[test]
-fn test_same_token_net_settle_restores_spoke_cap_headroom() {
+fn test_same_token_net_settle_reduces_both_position_sides() {
     const UNIT: i128 = 10_000_000;
 
     let mut t = LendingTest::new()
@@ -538,29 +466,24 @@ fn test_same_token_net_settle_restores_spoke_cap_headroom() {
 
     let account_id = t.resolve_account_id(ALICE);
     let usdc = hub_asset(t.resolve_asset("USDC"));
-    let supply_headroom_before = t.ctrl_client().max_supply(&account_id, &usdc);
-    let borrow_headroom_before = t.ctrl_client().max_borrow(&account_id, &usdc);
+    let collateral_before = t.ctrl_client().get_collateral_amount(&account_id, &usdc);
+    let debt_before = t.ctrl_client().get_borrow_amount(&account_id, &usdc);
 
     t.repay_debt_with_collateral(ALICE, "USDC", 10_000.0, "USDC", &Bytes::new(&t.env), false);
 
-    let supply_headroom_after = t.ctrl_client().max_supply(&account_id, &usdc);
-    let borrow_headroom_after = t.ctrl_client().max_borrow(&account_id, &usdc);
-    let restored_supply = supply_headroom_after - supply_headroom_before;
-    let restored_borrow = borrow_headroom_after - borrow_headroom_before;
+    let collateral_drop =
+        collateral_before - t.ctrl_client().get_collateral_amount(&account_id, &usdc);
+    let debt_drop = debt_before - t.ctrl_client().get_borrow_amount(&account_id, &usdc);
     assert!(
-        (9_900 * UNIT..=10_000 * UNIT).contains(&restored_supply),
-        "net settlement should restore about 10,000 USDC of supply headroom, restored {restored_supply}"
+        (9_900 * UNIT..=10_000 * UNIT).contains(&collateral_drop),
+        "net settlement should burn about 10,000 USDC of collateral, burned {collateral_drop}"
     );
     assert!(
-        (9_900 * UNIT..=10_000 * UNIT).contains(&restored_borrow),
-        "net settlement should restore about 10,000 USDC of borrow headroom, restored {restored_borrow}"
+        (9_900 * UNIT..=10_000 * UNIT).contains(&debt_drop),
+        "net settlement should retire about 10,000 USDC of debt, retired {debt_drop}"
     );
 }
 
-// The net-settle path must re-stamp risk params from the current effective
-// spoke-asset config, same as a plain withdraw does via `finish_withdraw_leg`
-// — otherwise a position that only ever touches this path could keep an
-// old LTV/threshold snapshot indefinitely even after governance tightens it.
 #[test]
 fn test_repay_debt_with_collateral_same_token_refreshes_risk_params() {
     let mut t = LendingTest::new()
@@ -580,7 +503,6 @@ fn test_repay_debt_with_collateral_same_token_refreshes_risk_params() {
         .expect("USDC position")
         .loan_to_value;
 
-    // Tighten USDC's LTV/threshold on the harness spoke while the account is open.
     let new_ltv = ltv_before - 500;
     t.edit_asset_in_spoke(
         "USDC",
@@ -605,10 +527,6 @@ fn test_repay_debt_with_collateral_same_token_refreshes_risk_params() {
         "net-settle must refresh risk params from current config, not keep the stale snapshot"
     );
 }
-// Spoke strategy tests
-//
-// Spoke multiply with stablecoins: borrow USDT, deposit USDC.
-// Spoke parameters: LTV=97%, LT=98%, bonus=2%.
 
 #[test]
 fn test_multiply_spoke_stablecoin() {
@@ -620,14 +538,11 @@ fn test_multiply_spoke_stablecoin() {
         .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    // Spoke multiply: borrow USDT, collateral USDC.
-    // Borrow 1000 USDT, swap to 1050 USDC (favorable mock rate).
-    // With spoke LT=98%: HF = 1050 * 0.98 / 1000 = 1.029.
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("USDC");
     let debt_addr = t.resolve_asset("USDT");
     t.fund_router("USDC", 1050.0);
-    // Spoke multiply borrows 1000 USDT minus 9bps flash fee.
+
     let steps = build_aggregator_swap(
         &t,
         "USDT",
@@ -639,33 +554,29 @@ fn test_multiply_spoke_stablecoin() {
     let ctrl = t.ctrl_client();
     let account_id = ctrl.multiply(
         &caller,
-        &0u64, // create new account
-        &2u32, // spoke_id = 2
+        &0u64,
+        &2u32,
         &hub_asset(collateral_addr.clone()),
-        &1000_0000000i128, // borrow 1000 USDT
+        &1000_0000000i128,
         &hub_asset(debt_addr.clone()),
-        &controller::types::PositionMode::Multiply, // mode = Multiply
+        &controller::types::PositionMode::Multiply,
         &steps,
-        &None, // initial_payment
-        &None, // convert_steps
+        &None,
+        &None,
     );
 
     assert!(account_id > 0, "spoke account should be created");
 
-    // Verify positions.
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
     assert!(supply > 0.0, "should have USDC supply in spoke");
 
     let borrow = t.borrow_balance_for(ALICE, account_id, "USDT");
     assert!(borrow > 0.0, "should have USDT borrow in spoke");
 
-    // HF must be healthy with spoke parameters.
     let hf = ctrl.get_health_factor(&account_id);
     let hf_f64 = hf as f64 / (WAD as f64);
     assert!(hf_f64 >= 1.0, "spoke HF should be >= 1.0, got {}", hf_f64);
 }
-// Strategy with large amounts (stress)
-// Multiply with large borrow amounts to verify no overflow occurs.
 
 #[test]
 fn test_multiply_large_amounts() {
@@ -674,10 +585,8 @@ fn test_multiply_large_amounts() {
         .with_market(eth_preset())
         .build();
 
-    // Borrow 100 ETH ($200,000), swap to $300,000 USDC.
-    // HF = 300000 * 0.8 / 200000 = 1.2.
     t.fund_router("USDC", 300_000.0);
-    // 100 ETH (7 decimals) flash-borrowed minus 9bps flash fee.
+
     let steps = build_aggregator_swap(
         &t,
         "ETH",
@@ -711,8 +620,6 @@ fn test_multiply_large_amounts() {
     let hf = t.health_factor_for(ALICE, account_id);
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
-// Multiple users
-// Two users multiply independently.
 
 #[test]
 fn test_multiply_two_users() {
@@ -721,13 +628,10 @@ fn test_multiply_two_users() {
         .with_market(eth_preset())
         .build();
 
-    // Seed supplier-side ETH liquidity so the second strategy borrow is
-    // checked against real supplied liquidity, not only the first flash fee.
     t.supply("liquidity_provider", "ETH", 10.0);
 
-    // Alice: borrow 1 ETH, receive 3000 USDC.
     t.fund_router("USDC", 3000.0);
-    // Alice borrows 1.0 ETH minus 9bps flash fee.
+
     let steps_alice =
         build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
     let alice_id = t.multiply(
@@ -739,9 +643,8 @@ fn test_multiply_two_users() {
         &steps_alice,
     );
 
-    // Bob: borrow 2 ETH, receive 6000 USDC.
     t.fund_router("USDC", 6000.0);
-    // Bob borrows 2.0 ETH minus 9bps flash fee.
+
     let steps_bob =
         build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(20_000_000), 6000_0000000);
     let bob_id = t.multiply(
@@ -794,10 +697,6 @@ fn test_multiply_two_users() {
     );
     assert!(bob_hf >= 1.0, "Bob HF should be >= 1.0, got {}", bob_hf);
 }
-// Swap debt preserves health
-// Swap 10 ETH ($20k) debt -> 0.5 WBTC ($30k) debt: USD debt grows, so HF
-// shrinks but must stay >= 1.0. Pinning the strict direction verifies that
-// new debt is recorded and source debt is reduced.
 
 #[test]
 fn test_swap_debt_to_costlier_debt_preserves_minimum_hf() {
@@ -808,15 +707,13 @@ fn test_swap_debt_to_costlier_debt_preserves_minimum_hf() {
         .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 10.0); // $20,000 debt
+    t.borrow(ALICE, "ETH", 10.0);
 
     let hf_before = t.health_factor(ALICE);
     assert!(hf_before >= 1.0);
 
-    // Swap 10 ETH debt into 0.5 WBTC debt ($30,000 at $60k each). The swap
-    // output must cover 10 ETH of repayment, so `min_out` is 10 ETH.
     t.fund_router("ETH", 10.0);
-    // swap_debt borrows 0.5 WBTC (7 decimals = 5_000_000 raw) minus 9bps flash fee.
+
     let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(5_000_000), 10_0000000);
     t.swap_debt(ALICE, "ETH", 0.5, "WBTC", &steps);
 

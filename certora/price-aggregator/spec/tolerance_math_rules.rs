@@ -1,13 +1,19 @@
-//! Production tolerance-band checks through `crate::tolerance`.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
-use soroban_sdk::Env;
+use soroban_sdk::{panic_with_error, Env};
 
 use common::constants::{BPS, RAY, WAD};
+use common::errors::OracleError;
 use common::math::fp_core;
 
 use common::types::OracleTolerance;
+
+fn midpoint_if_in_band(e: &Env, anchor: i128, primary: i128, tolerance: &OracleTolerance) -> i128 {
+    if !crate::tolerance::within_tolerance_band(e, anchor, primary, tolerance) {
+        panic_with_error!(e, OracleError::UnsafePriceNotAllowed);
+    }
+    crate::tolerance::midpoint_price_or_zero(anchor, primary)
+}
 
 #[rule]
 fn zero_anchor_reverts(e: Env, anchor: i128, primary: i128) {
@@ -17,7 +23,7 @@ fn zero_anchor_reverts(e: Env, anchor: i128, primary: i128) {
         upper_ratio_bps: 20_000,
         lower_ratio_bps: 1,
     };
-    let _ = crate::tolerance::midpoint_if_in_band(&e, anchor, primary, &tolerance);
+    let _ = midpoint_if_in_band(&e, anchor, primary, &tolerance);
     cvlr_assert!(false);
 }
 
@@ -29,7 +35,7 @@ fn equal_prices_within_symmetric_band(e: Env, price: i128) {
         upper_ratio_bps: 10_200,
         lower_ratio_bps: 9_800,
     };
-    let final_price = crate::tolerance::midpoint_if_in_band(&e, price, price, &tolerance);
+    let final_price = midpoint_if_in_band(&e, price, price, &tolerance);
     cvlr_assert!(final_price == price);
 }
 
@@ -51,6 +57,6 @@ fn divergent_prices_revert(e: Env, anchor: i128, primary: i128) {
         upper_ratio_bps: 10_010,
         lower_ratio_bps: 9_990,
     };
-    let _ = crate::tolerance::midpoint_if_in_band(&e, anchor, primary, &tolerance);
+    let _ = midpoint_if_in_band(&e, anchor, primary, &tolerance);
     cvlr_assert!(false);
 }

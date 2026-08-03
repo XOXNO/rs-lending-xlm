@@ -1,58 +1,59 @@
-//! Multi-feed adapter provider (RedStone + Xoxno wire ABI): reads an adapter
-//! feed (transaction-cache warmed) into an `OracleObservation`. Feeds are USD
-//! by construction.
-
 #[cfg(not(feature = "certora"))]
 use common::oracle::providers::redstone::RedStonePriceFeedClient;
 use common::oracle::providers::redstone::{read_price_data_uncached, RedStonePriceData};
-use common::types::RedStoneSourceConfig;
+use common::types::MultiFeedRef;
 use soroban_sdk::{Address, String};
 #[cfg(not(feature = "certora"))]
 use soroban_sdk::{Env, Vec};
 
-use crate::context::ResolutionContext;
 use crate::observation::OracleObservation;
+use crate::session::Session;
 
-/// `soft = false`: present-but-invalid payloads (future timestamp,
-/// non-positive/overflowing price) revert via the panicking normalizers.
-/// `soft = true`: they yield `None` for the status path.
-pub(crate) fn read_multi_feed_source(
-    cache: &mut ResolutionContext,
-    config: &RedStoneSourceConfig,
-    soft: bool,
+#[cfg(feature = "certora")]
+pub(crate) use certora_read::read_multi_feed_source;
+
+#[cfg(feature = "certora")]
+mod certora_read {
+    use super::*;
+    cvlr_soroban_macros::apply_summary!(
+        crate::spec::summaries::read_multi_feed_source_summary,
+        pub(crate) fn read_multi_feed_source(
+            session: &mut Session,
+            feed: &MultiFeedRef,
+            decimals: u32,
+        ) -> Option<OracleObservation> {
+            super::read_multi_feed_source_impl(session, feed, decimals)
+        }
+    );
+}
+
+#[cfg(not(feature = "certora"))]
+pub(crate) use read_multi_feed_source_impl as read_multi_feed_source;
+
+pub(crate) fn read_multi_feed_source_impl(
+    session: &mut Session,
+    feed: &MultiFeedRef,
+    decimals: u32,
 ) -> Option<OracleObservation> {
-    let env = cache.env().clone();
-    let now_secs = cache.ledger_timestamp_secs();
-    let price_data = read_price_data(cache, &config.contract, &config.feed_id)?;
-    if soft {
-        OracleObservation::try_from_multi_feed(now_secs, &price_data, config.decimals)
-    } else {
-        Some(OracleObservation::from_multi_feed(
-            &env,
-            now_secs,
-            &price_data,
-            config.decimals,
-        ))
-    }
+    let now_secs = session.now_secs();
+    let price_data = read_price_data(session, &feed.contract, &feed.feed_id)?;
+    OracleObservation::from_multi_feed(now_secs, &price_data, decimals)
 }
 
 fn read_price_data(
-    cache: &mut ResolutionContext,
+    session: &mut Session,
     contract: &Address,
     feed_id: &String,
 ) -> Option<RedStonePriceData> {
-    if let Some(data) = cache.get_bulk_feed(contract, feed_id) {
+    if let Some(data) = session.get_feed(contract, feed_id) {
         return Some(data);
     }
-    let env = cache.env().clone();
+    let env = session.env().clone();
     let data = read_price_data_uncached(&env, contract, feed_id)?;
-    cache.set_bulk_feed(contract, feed_id, data.clone());
+    session.set_feed(contract, feed_id, data.clone());
     Some(data)
 }
 
-/// One cross-contract call for all multi-feed adapter feeds. `None` on any
-/// failure or length mismatch; callers fall back to per-feed reads. Used by
-/// `warm_multi_feed_adapters`.
 #[cfg(not(feature = "certora"))]
 pub(crate) fn read_price_data_bulk(
     env: &Env,

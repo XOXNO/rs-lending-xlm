@@ -1,13 +1,10 @@
-//! Collateral refinance: withdraw → aggregator swap → deposit replacement.
-//!
-//! Owner/delegate auth. Debt-neutral until `strategy_finalize` re-checks LTV/HF.
-
 use common::errors::{CollateralError, GenericError};
-use common::types::{Account, AccountPosition, AccountPositionType, HubAssetKey, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, vec, Address, Bytes, Env};
-use stellar_macros::when_not_paused;
+use common::types::{Account, AccountPosition, HubAssetKey, StrategySwap};
+use common::validation::require_positive_amount;
+use soroban_sdk::{assert_with_error, vec, Address, Env};
 
 use crate::account;
+use crate::config;
 use crate::context::Cache;
 use crate::events;
 use crate::positions::get_supply_position_or_panic;
@@ -15,10 +12,7 @@ use crate::strategies::{
     prefetch_strategy_prices, strategy_finalize, swap_tokens_or_passthrough,
     withdraw_collateral_to_controller, StrategyWithdraw,
 };
-use crate::{
-    positions::supply, risk::validation, spoke, storage, Controller, ControllerArgs,
-    ControllerClient,
-};
+use crate::{positions::supply, risk::validation, storage};
 
 pub(crate) struct SwapCollateralParams<'a> {
     pub account_id: u64,
@@ -28,49 +22,6 @@ pub(crate) struct SwapCollateralParams<'a> {
     pub swap: &'a StrategySwap,
 }
 
-#[contractimpl]
-impl Controller {
-    /// Swaps `amount` of supplied `current` into `new` via aggregator route.
-    /// Owner or active delegate. Finalizes with post-pool LTV/HF gates.
-    ///
-    /// # Errors
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `AssetsAreTheSame` — identical `(hub, asset)` pair.
-    /// * `AmountMustBePositive` / `HubNotActive` — preflight.
-    /// * `NotAuthorized` — caller is neither owner nor active delegate.
-    /// * `NotCollateral` / `PositionLimitExceeded` — destination preflight.
-    /// * `CollateralPositionNotFound` — no supply position for `current`.
-    /// * Swap/deposit errors (`NoSwapOutput`, `RouterOverspend`, entry gates).
-    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — finalize risk gates.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
-    ///
-    /// # Events
-    /// * topics — `["position", "batch_update"]`
-    #[when_not_paused]
-    pub fn swap_collateral(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        current: HubAssetKey,
-        amount: i128,
-        new: HubAssetKey,
-        swap: Bytes,
-    ) {
-        process_swap_collateral(
-            &env,
-            &caller,
-            SwapCollateralParams {
-                account_id,
-                current: &current,
-                from_amount: amount,
-                new: &new,
-                swap: &swap,
-            },
-        );
-    }
-}
-
-/// Withdraw collateral → swap → deposit replacement (debt-neutral until finalize).
 pub(crate) fn process_swap_collateral(
     env: &Env,
     caller: &Address,
@@ -87,10 +38,9 @@ pub(crate) fn process_swap_collateral(
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Reject identical (hub, asset); same token across hubs is passthrough.
     assert_with_error!(env, current != new, GenericError::AssetsAreTheSame);
-    validation::require_hub_active(env, current.hub_id);
-    validation::require_positive_amount(env, from_amount);
+    config::require_hub_active(env, current.hub_id);
+    require_positive_amount(env, from_amount);
 
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
@@ -114,7 +64,6 @@ pub(crate) fn process_swap_collateral(
         },
     );
 
-    // Passthrough when same asset (cross-hub).
     let swapped_amount = swap_tokens_or_passthrough(
         env,
         caller,
@@ -142,17 +91,7 @@ pub(crate) fn validate_swap_new_collateral_preflight(
     account: &Account,
     new: &HubAssetKey,
 ) {
-    let config = spoke::require_listed_active_config(env, cache, account.spoke_id, new);
+    let config = cache.require_listed_active_config(account.spoke_id, new);
 
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
-
-    if !account.supply_positions.contains_key(new.clone()) {
-        let new_assets = vec![env, (new.clone(), 0i128)];
-        validation::validate_bulk_position_limits(
-            env,
-            account,
-            AccountPositionType::Deposit,
-            &new_assets,
-        );
-    }
 }

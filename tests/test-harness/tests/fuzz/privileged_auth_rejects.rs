@@ -177,7 +177,7 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
             asset_id: usdc.clone(),
             asset_decimals: 7,
         };
-        // Auth is rejected before any params are read; any shape suffices.
+
         ctrl.set_auths(&no_auths)
             .try_create_liquidity_pool(&HARNESS_HUB, &usdc, &params)
     })
@@ -206,18 +206,8 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
             .try_claim_revenue(&random_addr, &empty_assets)
     })
     .unwrap();
-    expect_rejected("add_rewards (caller auth)", || {
-        let rewards: SVec<(HubAssetKey, i128)> = SVec::new(&env);
-        ctrl.set_auths(&no_auths)
-            .try_add_rewards(&random_addr, &rewards)
-    })
-    .unwrap();
 }
 
-// Governance timelock proposers + immediate emergency/meta entrypoints: every
-// privileged surface must reject when no auth is presented, before any
-// validation or scheduling. Protocol and governance-self admin both route
-// through `propose` (PROPOSER auth); `pause`/`unpause` stay owner-immediate.
 #[test]
 fn governance_endpoints_reject_unauthed_before_validation() {
     let seed = 0;
@@ -229,7 +219,6 @@ fn governance_endpoints_reject_unauthed_before_validation() {
     let random_addr = Address::generate(&env);
     let salt = dummy_bytes_n(&env, seed);
 
-    // Test the unified `propose` endpoint with representative operations to prove PROPOSER role check is enforced.
     expect_rejected("gov.propose(SetPositionLimits)", || {
         gov.set_auths(&no_auths).try_propose(
             &random_addr,
@@ -248,7 +237,6 @@ fn governance_endpoints_reject_unauthed_before_validation() {
     })
     .unwrap();
 
-    // Immediate admin actions
     expect_rejected("gov.deploy_controller", || {
         gov.set_auths(&no_auths)
             .try_deploy_controller(&dummy_bytes_n(&env, seed))
@@ -258,5 +246,4 @@ fn governance_endpoints_reject_unauthed_before_validation() {
         gov.set_auths(&no_auths).try_pause(&random_addr)
     })
     .unwrap();
-    // Unpause is timelocked `AdminOperation::Unpause` (covered by propose auth above).
 }

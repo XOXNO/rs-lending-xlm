@@ -1,5 +1,4 @@
-//! `fp_core` primitives: `mul_div_half_up`, `div_by_int_half_up`, `rescale_half_up`.
-//! Inputs clamped to protocol-realistic magnitudes; overflow paths are out-of-domain.
+
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY, WAD};
@@ -7,19 +6,10 @@ use common::math::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::Env;
 
-/// One RAY of headroom. Protocol amounts are WAD-scaled (10^18) or smaller;
-/// scaled indexes are RAY (10^27). Products like (amount * index / RAY) stay
-/// within this envelope after the final division.
 const MAX_OP: i128 = 10i128.pow(27);
 
-/// Protocol-realistic bound on the magnitude of a fixed-point value.
-/// i128::MIN triggers (a - half) underflow in the rescale impl -- unreachable
-/// in real flows where values originate from token amounts <= 10^27.
 const MAX_A: i128 = 10i128.pow(30);
 
-/// 35-byte structure-aware layout: `kind % 3` chooses the arm, then each arm
-/// interprets the shared `a`/`b`/`choice`/`extra` fields as needed. Keeps the
-/// corpus stable under format changes and lets libFuzzer mutate across arms.
 #[derive(Debug, Arbitrary)]
 struct In {
     kind: u8,
@@ -29,9 +19,6 @@ struct In {
     extra: u8,
 }
 
-/// `mul_div_half_up` requires non-negative operands (debug-asserted). In the
-/// protocol it is always called with non-negative values because Ray/Wad/Bps
-/// are always >= 0. The fuzzer honours this contract via `clamp_nonneg`.
 fn clamp_nonneg(v: i128) -> i128 {
     let a = v.saturating_abs();
     if a > MAX_OP {
@@ -48,23 +35,18 @@ fn fuzz_mul_div(i: &In) {
         _ => BPS,
     };
 
-    // Final-result domain: a*b/d must fit in i128; overflow is outside this
-    // target's arithmetic-invariant domain.
-    // Constrain a,b so that a*b/d <= 10^36 (well under i128::MAX = 1.7e38).
     let per_operand_cap = match d {
-        RAY => 10i128.pow(27), // a*b <= 10^54, a*b/RAY <= 10^27
-        WAD => 10i128.pow(27), // a*b <= 10^54, a*b/WAD <= 10^36
-        _ => 10i128.pow(20),   // BPS: a*b <= 10^40, a*b/BPS <= 10^36
+        RAY => 10i128.pow(27),
+        WAD => 10i128.pow(27),
+        _ => 10i128.pow(20),
     };
     let a = clamp_nonneg(i.a).min(per_operand_cap);
     let b = clamp_nonneg(i.b).min(per_operand_cap);
 
-    // Identity: mul_div(a, d, d) == a
     let env = Env::default();
     let id = mul_div_half_up(&env, a, d, d);
     assert_eq!(id, a, "identity violated: {}*{}/{} != {}", a, d, d, a);
 
-    // Commutativity: mul_div(a,b,d) == mul_div(b,a,d)
     let env2 = Env::default();
     let r1 = mul_div_half_up(&env2, a, b, d);
     let env3 = Env::default();
@@ -75,14 +57,11 @@ fn fuzz_mul_div(i: &In) {
         a, b, d, b, a, d
     );
 
-    // Zero absorbing
     let env4 = Env::default();
     assert_eq!(mul_div_half_up(&env4, 0, b, d), 0);
     let env5 = Env::default();
     assert_eq!(mul_div_half_up(&env5, a, 0, d), 0);
 
-    // Half-up error bound: |r*d - a*b| <= d/2 + 1 (reconstructable via u256).
-    // Skip if a*b overflows i128 (relies on I256 inside the impl).
     if let Some(ab) = a.checked_mul(b) {
         let rd = r1.checked_mul(d).unwrap_or(i128::MAX);
         let err = (rd - ab).abs();
@@ -99,14 +78,12 @@ fn fuzz_mul_div(i: &In) {
 }
 
 fn fuzz_div_by_int(i: &In) {
-    // Map every input into the production magnitude domain instead of dropping
-    // almost every arbitrary i128 before it reaches the implementation.
+
     let a = i.a % (MAX_A + 1);
     let b = (i.b % MAX_A).saturating_abs() + 1;
 
     let r = div_by_int_half_up(a, b);
 
-    // Reconstruct and check error bound: |r*b - a| <= b/2 + 1
     if let Some(rb) = r.checked_mul(b) {
         let err = (rb - a).abs();
         assert!(
@@ -120,7 +97,6 @@ fn fuzz_div_by_int(i: &In) {
         );
     }
 
-    // Away-from-zero: sign(r) == sign(a) when |a| >= b
     if a.abs() >= b {
         if a > 0 {
             assert!(r > 0, "sign lost for positive: {} / {} = {}", a, b, r);
@@ -129,9 +105,6 @@ fn fuzz_div_by_int(i: &In) {
         }
     }
 
-    // Differential reference check: for magnitudes within f64's exact-integer
-    // range (|x| < 2^53 ≈ 9.007e15), compute half-up-away-from-zero via f64
-    // and compare. Catches off-by-one defects the sign/error-bound checks miss.
     const F64_EXACT_MAX: i128 = 1i128 << 53;
     if a.abs() < F64_EXACT_MAX && b < F64_EXACT_MAX {
         let q = a as f64 / b as f64;
@@ -154,13 +127,12 @@ fn fuzz_div_by_int(i: &In) {
 }
 
 fn fuzz_rescale(i: &In) {
-    // Bound decimals to realistic precision range [0, 27]
+
     let from = (i.choice % 28) as u32;
     let to = (i.extra % 28) as u32;
 
     let a = i.a % (MAX_A + 1);
 
-    // Same-precision is identity
     if from == to {
         assert_eq!(rescale_half_up(a, from, to), a);
         return;
@@ -169,7 +141,7 @@ fn fuzz_rescale(i: &In) {
     if to > from {
         let diff = to - from;
         let factor: i128 = 10i128.pow(diff);
-        // Bound |a| such that |a * factor| < i128::MAX / 2
+
         let bound = (i128::MAX / 2) / factor;
         let bounded = a % (bound + 1);
         let up = rescale_half_up(bounded, from, to);
@@ -210,7 +182,7 @@ fn fuzz_rescale(i: &In) {
                 factor
             );
         }
-        // Strict away-from-zero: |a| >= factor/2 must produce non-zero w/ sign(a)
+
         if a.abs() >= factor / 2 && a != 0 {
             assert!(
                 down != 0,
@@ -237,7 +209,7 @@ fn fuzz_rescale(i: &In) {
                 );
             }
         }
-        // Tighter magnitude bound than the half-up check.
+
         if let Some(reconstructed) = down.checked_mul(factor) {
             let abs_recon = reconstructed.abs();
             let abs_a = a.abs();

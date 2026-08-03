@@ -1,36 +1,25 @@
-//! Blend V2 → controller migration in one transaction.
-//!
-//! Caller auth; approved Blend pool only. Zero-fee strategy borrow clears Blend
-//! debt; swept assets deposit as controller collateral. Finalizes with LTV/HF.
-
 use crate::account;
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, DebtPosition, HubAssetKey, PositionMode};
-use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
-use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, token, Address, Env, IntoVal,
-    Map, Vec,
-};
-use stellar_macros::when_not_paused;
+use common::validation::require_positive_amount;
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Map, Vec};
 
+use crate::config;
 use crate::context::Cache;
 use crate::events::{self, BlendMigrationEvent};
-use crate::external::blend::{
-    blend_submit_call, BlendRequest, REQ_REPAY, REQ_WITHDRAW, REQ_WITHDRAW_COLLATERAL,
-};
-use crate::positions::{enforce_spoke_asset_flags, supply};
-use crate::spoke::require_listed_active_config;
-use crate::strategies::swap::balance_delta;
+use crate::external::blend::{blend_repay_all, blend_sweep_all};
+use crate::payments::balance_delta;
+use crate::positions::{enforce_spoke_asset_flags, supply, FreezePolicy};
 use crate::strategies::{
     borrow_for_migration, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
     StrategyRepay,
 };
-use crate::{risk::validation, storage, Controller, ControllerArgs, ControllerClient};
+use crate::{risk::validation, storage};
 
 pub(crate) struct MigrateBlendParams {
     pub account_id: u64,
     pub spoke_id: u32,
-    /// Hub on which every controller-side position (debt and supply) is opened.
+
     pub hub_id: u32,
     pub blend_pool: Address,
     pub collateral_assets: Vec<Address>,
@@ -38,53 +27,6 @@ pub(crate) struct MigrateBlendParams {
     pub debt_caps: Vec<(Address, i128)>,
 }
 
-#[contractimpl]
-impl Controller {
-    /// Migrates Blend V2 positions into the controller on `hub_id`.
-    /// Caller auth; `account_id == 0` creates on `spoke_id`. Each debt cap
-    /// bounds the zero-fee borrow that clears that Blend debt. Returns account id.
-    ///
-    /// # Errors
-    /// * `FlashLoanOngoing` — a flash loan or strategy is mid-execution.
-    /// * `HubNotActive` / `InvalidPayments` / `BlendPoolNotApproved` — preflight.
-    /// * `AssetsAreTheSame` — duplicate debt asset in `debt_caps`.
-    /// * `NotCollateral` / spoke pause-freeze — destination withdraw assets.
-    /// * Borrow/repay/deposit errors from nested legs; Blend submit failures.
-    /// * `InsufficientCollateral` / `MinBorrowCollateralNotMet` — finalize risk gates.
-    /// * The `#[when_not_paused]` guard reverts while the contract is paused.
-    ///
-    /// # Events
-    /// * topics — `["position", "batch_update"]`
-    /// * topics — `["strategy", "blend_migration"]`
-    #[when_not_paused]
-    pub fn migrate_from_blend(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        spoke_id: u32,
-        hub_id: u32,
-        blend_pool: Address,
-        collateral_assets: Vec<Address>,
-        supply_assets: Vec<Address>,
-        debt_caps: Vec<(Address, i128)>,
-    ) -> u64 {
-        process_migrate_blend(
-            &env,
-            &caller,
-            MigrateBlendParams {
-                account_id,
-                spoke_id,
-                hub_id,
-                blend_pool,
-                collateral_assets,
-                supply_assets,
-                debt_caps,
-            },
-        )
-    }
-}
-
-/// Migrate Blend V2 → controller: clear Blend debt, sweep assets, open positions.
 pub(crate) fn process_migrate_blend(
     env: &Env,
     caller: &Address,
@@ -103,7 +45,7 @@ pub(crate) fn process_migrate_blend(
         debt_caps,
     } = params;
 
-    validation::require_hub_active(env, hub_id);
+    config::require_hub_active(env, hub_id);
     validate_migration_request(
         env,
         &blend_pool,
@@ -123,14 +65,8 @@ pub(crate) fn process_migrate_blend(
             &debt_caps,
         );
 
-    // Debt-opening flow: prices must be risk-increasing. Unconfigured assets
-    // fail closed on the price-aggregator bulk read (`OracleNotConfigured`).
     prefetch_strategy_prices(&mut cache, &account, &all_assets);
 
-    // Fail fast before any Blend call: a priced-but-unlisted (or non-supplyable)
-    // withdraw asset would otherwise only be rejected by `process_deposit`
-    // AFTER the external `guarded_submit`. Debt assets are gated by the borrow
-    // entry gates inside the debt leg, which also runs before the submit.
     require_withdraw_assets_supplyable(env, &mut cache, spoke_id, hub_id, &withdraw_assets);
 
     execute_migration_debt_leg(
@@ -145,8 +81,7 @@ pub(crate) fn process_migrate_blend(
 
     if !withdraw_assets.is_empty() {
         let before_withdraw = snapshot_balances(env, &withdraw_assets);
-        let withdraw_requests = build_withdraw_requests(env, &collateral_assets, &supply_assets);
-        guarded_submit(env, &blend_pool, caller, &withdraw_requests);
+        blend_sweep_all(env, &blend_pool, caller, &collateral_assets, &supply_assets);
         deposit_withdrawn(
             env,
             &mut account,
@@ -171,7 +106,6 @@ pub(crate) fn process_migrate_blend(
     account_id
 }
 
-/// Borrows and repays each Blend debt asset, reconciling Blend's over-repay refunds.
 fn execute_migration_debt_leg(
     env: &Env,
     caller: &Address,
@@ -184,19 +118,17 @@ fn execute_migration_debt_leg(
     if debt_caps.is_empty() {
         return;
     }
-    // Borrow before submit so post-submit delta is only Blend's over-repay refund.
+
     let before_debt = snapshot_balances(env, &debt_asset_list(env, debt_caps));
     for (debt_asset, max) in debt_caps.iter() {
-        validation::require_positive_amount(env, max);
+        require_positive_amount(env, max);
         let hub_debt = HubAssetKey {
             hub_id,
             asset: debt_asset,
         };
         borrow_for_migration(env, account, &hub_debt, max, cache);
     }
-    let repay_requests = build_repay_requests(env, debt_caps);
-    authorize_repay_pulls(env, blend_pool, debt_caps);
-    guarded_submit(env, blend_pool, caller, &repay_requests);
+    blend_repay_all(env, blend_pool, caller, debt_caps);
     reconcile_debt_refunds(env, account, cache, caller, hub_id, debt_caps, &before_debt);
 }
 
@@ -224,10 +156,6 @@ fn prepare_migration_account(
     (account_id, account, cache, withdraw_assets, all_assets)
 }
 
-/// Every migrated withdraw asset must be listed, unpaused/unfrozen, and
-/// supply-enabled on the destination spoke — the same gates
-/// `validate_position_entry_gates` applies to the eventual deposit, pulled
-/// forward so unsupported assets are rejected before any Blend interaction.
 fn require_withdraw_assets_supplyable(
     env: &Env,
     cache: &mut Cache,
@@ -237,9 +165,13 @@ fn require_withdraw_assets_supplyable(
 ) {
     for asset in withdraw_assets.iter() {
         let hub_asset = HubAssetKey { hub_id, asset };
-        let asset_config = require_listed_active_config(env, cache, spoke_id, &hub_asset);
-        enforce_spoke_asset_flags(env, cache, spoke_id, &hub_asset, true);
-        assert_with_error!(env, asset_config.can_supply(), CollateralError::NotCollateral);
+        let asset_config = cache.require_listed_active_config(spoke_id, &hub_asset);
+        enforce_spoke_asset_flags(env, cache, spoke_id, &hub_asset, FreezePolicy::BlockOnEntry);
+        assert_with_error!(
+            env,
+            asset_config.can_supply(),
+            CollateralError::NotCollateral
+        );
     }
 }
 
@@ -255,7 +187,7 @@ fn validate_migration_request(
         !collateral_assets.is_empty() || !supply_assets.is_empty() || !debt_caps.is_empty(),
         GenericError::InvalidPayments
     );
-    // Allowlist: only governance-approved Blend pools.
+
     assert_with_error!(
         env,
         storage::is_blend_pool_approved(env, blend_pool),
@@ -290,7 +222,6 @@ fn require_unique_debt_assets(env: &Env, debt_caps: &Vec<(Address, i128)>) {
     }
 }
 
-/// The debt assets, in input order, as an address list (for snapshotting).
 fn debt_asset_list(env: &Env, debt_caps: &Vec<(Address, i128)>) -> Vec<Address> {
     let mut out: Vec<Address> = Vec::new(env);
     for (asset, _) in debt_caps.iter() {
@@ -299,7 +230,6 @@ fn debt_asset_list(env: &Env, debt_caps: &Vec<(Address, i128)>) -> Vec<Address> 
     out
 }
 
-/// Deduplicated `collateral ∪ supply`, preserving first-seen order.
 fn unique_withdraw_assets(
     env: &Env,
     collateral_assets: &Vec<Address>,
@@ -316,7 +246,6 @@ fn unique_withdraw_assets(
     out
 }
 
-/// Snapshots the controller's token balance for each asset.
 fn snapshot_balances(env: &Env, assets: &Vec<Address>) -> Map<Address, i128> {
     let controller = env.current_contract_address();
     let mut before: Map<Address, i128> = Map::new(env);
@@ -327,76 +256,6 @@ fn snapshot_balances(env: &Env, assets: &Vec<Address>) -> Map<Address, i128> {
     before
 }
 
-/// Repay requests, one per debt asset (`Repay(asset, cap)`).
-fn build_repay_requests(env: &Env, debt_caps: &Vec<(Address, i128)>) -> Vec<BlendRequest> {
-    let mut requests: Vec<BlendRequest> = Vec::new(env);
-    for (asset, max) in debt_caps.iter() {
-        requests.push_back(BlendRequest {
-            request_type: REQ_REPAY,
-            address: asset,
-            amount: max,
-        });
-    }
-    requests
-}
-
-/// Withdraw-all requests: collateral (`WithdrawCollateral`) then non-collateral
-/// supply (`Withdraw`), each with `i128::MAX` to sweep the full balance.
-fn build_withdraw_requests(
-    env: &Env,
-    collateral_assets: &Vec<Address>,
-    supply_assets: &Vec<Address>,
-) -> Vec<BlendRequest> {
-    let mut requests: Vec<BlendRequest> = Vec::new(env);
-    for asset in collateral_assets.iter() {
-        requests.push_back(BlendRequest {
-            request_type: REQ_WITHDRAW_COLLATERAL,
-            address: asset,
-            amount: i128::MAX,
-        });
-    }
-    for asset in supply_assets.iter() {
-        requests.push_back(BlendRequest {
-            request_type: REQ_WITHDRAW,
-            address: asset,
-            amount: i128::MAX,
-        });
-    }
-    requests
-}
-
-/// pull controller-held tokens must set up that authorization immediately
-/// before this call (see `authorize_repay_pulls`); withdraw-only submits need
-/// no such authorization.
-fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
-    storage::with_flash_guard(env, || {
-        let controller = env.current_contract_address();
-        let _ = blend_submit_call(env, blend_pool, from, &controller, &controller, requests);
-    });
-}
-
-/// Authorizes Blend debt-token pulls from the controller.
-/// Withdraw-only submits have no debt caps and need no pull authorization.
-fn authorize_repay_pulls(env: &Env, blend_pool: &Address, debt_caps: &Vec<(Address, i128)>) {
-    if debt_caps.is_empty() {
-        return;
-    }
-    let controller = env.current_contract_address();
-    let mut entries: Vec<InvokerContractAuthEntry> = Vec::new(env);
-    for (debt_asset, max) in debt_caps.iter() {
-        entries.push_back(InvokerContractAuthEntry::Contract(SubContractInvocation {
-            context: ContractContext {
-                contract: debt_asset,
-                fn_name: symbol_short!("transfer"),
-                args: (controller.clone(), blend_pool.clone(), max).into_val(env),
-            },
-            sub_invocations: Vec::new(env),
-        }));
-    }
-    env.authorize_as_current_contract(entries);
-}
-
-/// Deposits the positive balance delta of each swept asset as controller collateral.
 fn deposit_withdrawn(
     env: &Env,
     account: &mut Account,
@@ -409,11 +268,9 @@ fn deposit_withdrawn(
     for asset in withdraw_assets.iter() {
         let token = token::Client::new(env, &asset);
         let prev = before.get(asset.clone()).unwrap_or(0);
-        // D{asset.decimals}{Token(asset)} positive delta becomes controller supply deposit.
+
         let received = balance_delta(env, &token, prev);
         if received > 0 {
-            // Migration opens controller positions on the caller-supplied `hub_id`;
-            // the source asset list names Blend-side tokens, not hub coordinates.
             deposits.push_back((HubAssetKey { hub_id, asset }, received));
         }
     }
@@ -428,7 +285,6 @@ fn deposit_withdrawn(
     }
 }
 
-/// Repays controller debt with any Blend over-repay refund for each debt asset.
 fn reconcile_debt_refunds(
     env: &Env,
     account: &mut Account,
@@ -441,7 +297,7 @@ fn reconcile_debt_refunds(
     for (debt_asset, _max) in debt_caps.iter() {
         let token = token::Client::new(env, &debt_asset);
         let prev = before.get(debt_asset.clone()).unwrap_or(0);
-        // D{debt_asset.decimals}{Token(debt_asset)} Blend over-repay refund repays controller debt.
+
         let refund = balance_delta(env, &token, prev);
         if refund > 0 {
             let hub_debt = HubAssetKey {

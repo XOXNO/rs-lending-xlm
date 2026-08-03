@@ -1,4 +1,3 @@
-//! Entrypoint: config → RPC → `/metrics` + timed scrapes until shutdown.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,7 +18,7 @@ use lending_exporter::stellar::RpcClient;
 #[derive(Debug, Parser)]
 #[command(name = "lending-exporter", about = "Read-only Prometheus exporter for XOXNO Lending")]
 struct Args {
-    /// Path to the per-network YAML config.
+
     #[arg(long, env = "EXPORTER_CONFIG", default_value = "/etc/lending-exporter/testnet.yaml")]
     config: PathBuf,
 }

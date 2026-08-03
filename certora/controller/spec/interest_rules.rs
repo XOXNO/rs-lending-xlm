@@ -1,5 +1,3 @@
-//! Interest rate model rules: borrow/deposit rates, compound interest, rewards, and index updates.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::Env;
@@ -95,7 +93,6 @@ fn borrow_rate_monotonic(e: Env) {
     cvlr_assert!(rate_a <= rate_b);
 }
 
-/// Borrow rate never exceeds max_borrow_rate per millisecond and stays non-negative.
 #[rule]
 fn borrow_rate_capped(e: Env) {
     let params = nondet_valid_params(&e);
@@ -120,9 +117,6 @@ fn borrow_rate_non_decreasing_at_mid_boundary(e: Env) {
         calculate_borrow_rate(&e, Ray::from(params.mid_utilization.raw() - 1), &params);
     let rate_at = calculate_borrow_rate(&e, params.mid_utilization, &params);
 
-    // A one-raw-unit utilization step can produce a larger rate step when the
-    // configured kink interval is tiny. The sound boundary property is
-    // monotonicity, not a one-raw-unit Lipschitz bound.
     cvlr_assert!(rate_below <= rate_at);
 }
 

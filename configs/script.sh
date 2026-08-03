@@ -1,29 +1,29 @@
 #!/bin/bash
-# ===========================================================================
-# Stellar Lending Protocol — Deployment & Configuration Script
-#
-# Shared deployment helper layout:
-#   - All values pre-configured in JSON files
-#   - CLI references by name/ID, not raw values
-#   - Ledger signing via SIGNER=ledger
-#
-# Usage:
-#   NETWORK=testnet ./configs/script.sh <command> [args...]
-#
-# Config files:
-#   configs/networks.json              — RPC URLs, contract addresses (shared, both networks)
-#   configs/${NETWORK}/hubs.json        — Hub id -> display name registry
-#   configs/${NETWORK}/spokes.json      — Spoke categories
-#   configs/${NETWORK}/markets.json     — Market configs
-#   configs/${NETWORK}/blend.json       — Approved Blend V2 pools
-#   configs/${NETWORK}/oracle_feeds.json — xoxno-oracle-adapter feed_id -> asset mapping
-# ===========================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 set -e
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+
+
+
 
 NETWORK=${NETWORK:-testnet}
 SIGNER=${SIGNER:-deployer}
@@ -43,9 +43,9 @@ require_tool() {
     fi
 }
 
-# Fail fast with a message on stderr. Used for mandatory-field guards (e.g. a
-# market or spoke asset missing its hub_id) so a misconfig aborts the deploy
-# instead of silently defaulting.
+
+
+
 die() {
     echo "ERROR: $*" >&2
     exit 1
@@ -54,7 +54,7 @@ die() {
 require_tool stellar
 require_tool jq
 
-# Source account flag
+
 SIGNER_ADDRESS=$(stellar keys public-key "$SIGNER" 2>/dev/null || stellar keys address "$SIGNER" 2>/dev/null || echo "$SIGNER")
 if [ "$SIGNER" = "ledger" ]; then
     SOURCE_FLAG="--source-account $SIGNER_ADDRESS --sign-with-ledger"
@@ -62,20 +62,20 @@ else
     SOURCE_FLAG="--source $SIGNER"
 fi
 
-# Pin every stellar call to the RPC + passphrase from networks.json. These env
-# vars take precedence over the RPC the CLI would resolve from `--network`, so
-# the network name is still used for contract-alias resolution while the actual
-# endpoint comes from config. Point rpc_url at a reliable provider to avoid the
-# public RPC's transient TxBadSeq / read-after-write lag on long deploys. Falls
-# back to the CLI's built-in endpoint when rpc_url is absent.
+
+
+
+
+
+
 _cfg_rpc=$(jq -r ".\"$NETWORK\".rpc_url // empty" "$NETWORKS_FILE" 2>/dev/null)
 _cfg_pass=$(jq -r ".\"$NETWORK\".network_passphrase // empty" "$NETWORKS_FILE" 2>/dev/null)
 if [ -n "$_cfg_rpc" ]; then export STELLAR_RPC_URL="$_cfg_rpc"; fi
 if [ -n "$_cfg_pass" ]; then export STELLAR_NETWORK_PASSPHRASE="$_cfg_pass"; fi
 
-# ---------------------------------------------------------------------------
-# Config readers (using jq)
-# ---------------------------------------------------------------------------
+
+
+
 
 get_network_value() {
     jq -r ".\"$NETWORK\".\"$1\"" "$NETWORKS_FILE"
@@ -128,15 +128,15 @@ get_controller() {
     stellar contract alias show controller --network "$NETWORK" 2>/dev/null || get_network_value "controller"
 }
 
-# Governance owns the controller: all admin writes (markets, oracles, spokes,
-# pause, roles) route through it. Views and operational role-gated calls
-# (update_indexes, claim_revenue) stay controller-direct.
+
+
+
 get_governance() {
     stellar contract alias show governance --network "$NETWORK" 2>/dev/null || get_network_value "governance"
 }
 
-# Price-aggregator (oracle authority). Prefer governance view (authoritative
-# after deploy_price_aggregator); fall back to networks.json / alias.
+
+
 get_price_aggregator() {
     local gov addr
     gov=$(get_governance 2>/dev/null) || gov=""
@@ -154,14 +154,14 @@ get_price_aggregator() {
         || get_network_value "price-aggregator"
 }
 
-# Central liquidity pool: holds the hub-level utilization/reserves/rates views
-# (`get_utilisation`, `get_supplied_amount`, ...). No local alias is set at
-# deploy time, so this reads networks.json directly.
+
+
+
 get_pool() {
     get_network_value "pool"
 }
 
-# Aggregator router (WASM contract): networks.json first, then AGGREGATOR_CONTRACT.
+
 get_aggregator_address() {
     local addr
     addr=$(jq -r ".\"$NETWORK\".aggregator // empty" "$NETWORKS_FILE")
@@ -175,8 +175,8 @@ get_aggregator_address() {
     echo "$addr"
 }
 
-# Revenue treasury (G-account wallet or contract). Required for claimRevenue (#211
-# NoAccumulator if unset). Never falls back to the swap aggregator.
+
+
 get_accumulator_address() {
     local addr
     addr=$(jq -r ".\"$NETWORK\".accumulator // empty" "$NETWORKS_FILE")
@@ -190,16 +190,16 @@ get_accumulator_address() {
     echo "$addr"
 }
 
-# Reflector oracle addresses sourced from networks.json per network.
-# Three classes per Reflector's V3 deployment:
-#   - CEX: External CEX/FX aggregator, keyed by Other(symbol) e.g. "USDC"
-#   - DEX: Stellar Pubnet DEX, keyed by Stellar(SAC) e.g. XLM native SAC
-#   - FX:  Fiat exchange rates (forex pairs)
+
+
+
+
+
 get_cex_oracle() { get_network_value "reflector_cex_oracle"; }
 get_dex_oracle() { get_network_value "reflector_dex_oracle"; }
 get_fx_oracle()  { get_network_value "reflector_fx_oracle"; }
 
-# Backward-compat alias for existing call sites — defaults to CEX oracle.
+
 get_oracle() { get_cex_oracle; }
 
 get_redstone_adapter() {
@@ -215,8 +215,8 @@ get_signer_address() {
 }
 
 invoke_view() {
-    # Capture raw stellar output, then pretty-print JSON via jq when available.
-    # `local` is declared separately so set -e still propagates stellar failures.
+
+
     local output
     output=$(stellar contract invoke --id "$1" $SOURCE_FLAG --network "$NETWORK" --send=no -- "${@:2}")
     if command -v jq >/dev/null 2>&1 && printf '%s' "$output" | jq . >/dev/null 2>&1; then
@@ -230,51 +230,49 @@ get_contract_decimals() {
     invoke_view "$1" decimals | tail -n1
 }
 
-# ---------------------------------------------------------------------------
-# Timelock (OpenZeppelin governance) schedule / execute / cancel tooling
-#
-# Governance timelocks every controller-targeted admin op. Each op is queued via
-# the generic `propose(proposer, op: AdminOperation, salt)` (validates inputs,
-# schedules at min_delay) which returns an operation id. The `AdminOperation` is
-# encoded as an explicit ScVal vec `{vec:[{symbol:Variant}, ...payload]}` (see
-# admin_op) and passed via `--op-file-path`. After the delay the op is replayed
-# through the generic `execute(executor, target=controller, function, args,
-# predecessor=0, salt)`; governance-self ops replay through `execute_self`.
-#
-# To execute later we must replay the EXACT scheduled args (a `Vec<Val>`). We
-# persist each scheduled op's (target, function, ScVal args, salt) to a record
-# file keyed by op-id under tmp/ops/<network>/, so `executeOp <op-id>` can
-# reconstruct the Operation without re-deriving anything.
-#
-# Oracle ops (configureMarketOracle / editOracleTolerance) schedule the
-# governance-RESOLVED struct (AssetOracleConfig / OracleTolerance) against the
-# price-aggregator (`set_oracle_config` / `set_tolerance`), not the raw input.
-# The CLI renders a struct view as friendly JSON, which is not the ScVal
-# `Vec<Val>` form `execute` needs, so we cannot capture the resolved args
-# directly from the view. Instead each oracle op record stores a `resolve` block
-# (the governance resolve_* view + its friendly inputs); at execute time
-# `resolve_oracle_op_args` runs the view, feeds the friendly result back through
-# the price-aggregator's typed setter with `--build-only`, and decodes the
-# CLI-encoded ScVal args. Those match the proposer's scheduled args byte-for-byte
-# because both encode the same `#[contracttype]` struct (canonical sorted map).
-# Every other op (primitives and the plain field-map structs: PositionLimits /
-# AssetConfigRaw / MarketParamsRaw / InterestRateModel) stores its ScVal args
-# directly. All ops are CLI-executable.
-# ---------------------------------------------------------------------------
 
-# 32-byte zero predecessor (no dependency), hex form for ScVal/record use.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ZERO_PREDECESSOR_HEX="0000000000000000000000000000000000000000000000000000000000000000"
 
-# Op records live under configs/ops/ (TRACKED, not tmp/): on mainnet an op can
-# sit Waiting for days between schedule and execute, and losing the record
-# means hand-reconstructing the replay args. Records hold no secrets.
+
+
+
 OPS_DIR="$ROOT_DIR/configs/ops/$NETWORK"
 
-# Ledger-aware await: poll until the chain sequence reaches the op's ready
-# ledger (from get_operation_ledger), then confirm Ready/Done. AWAIT_MAX_WAIT_
-# SECONDS caps total wall time (default scales with governance min_delay).
+
+
+
 AWAIT_POLL_SECONDS=${AWAIT_POLL_SECONDS:-5}
-# ~6s/ledger close + 2h headroom when unset; override for soak runs.
+
 AWAIT_MAX_WAIT_SECONDS=${AWAIT_MAX_WAIT_SECONDS:-0}
 
 ops_dir() {
@@ -286,17 +284,17 @@ op_record_path() {
     echo "$(ops_dir)/$1.json"
 }
 
-# Deterministic, unique salt: sha256 over network|function|args-json, truncated
-# to 32 bytes (64 hex). Same op + same args ⇒ same salt ⇒ same op-id (idempotent
-# re-schedule); different args ⇒ different salt.
-#
-# The timelock keeps only pending ops on-chain. After execute the ledger entry
-# is removed (`Unset`). Local op records under configs/ops/ mark `executed:true`
-# so re-runs can treat that id as applied (synthetic Done for salt probing /
-# converge mode). SALT_NONCE mints a fresh generation when re-applying a
-# previously executed setting:
-#   SALT_NONCE=2 make <net> editAssetInSpoke 1 USDC
-# Unset/empty SALT_NONCE keeps salts byte-identical to historical ops.
+
+
+
+
+
+
+
+
+
+
+
 gen_salt() {
     local function=$1
     local args_json=$2
@@ -314,8 +312,8 @@ gen_salt() {
     echo "$hash"
 }
 
-# ScVal JSON element builders (validated against `stellar xdr encode --type
-# ScVal`). i128 uses the decimal-string form so large RAY/WAD values stay exact.
+
+
 scval_address() { jq -nc --arg v "$1" '{address:$v}'; }
 scval_symbol()  { jq -nc --arg v "$1" '{symbol:$v}'; }
 scval_bytes()   { jq -nc --arg v "$1" '{bytes:$v}'; }
@@ -324,14 +322,14 @@ scval_u64()     { jq -nc --arg v "$1" '{u64:$v}'; }
 scval_bool()    { jq -nc --argjson v "$1" '{bool:$v}'; }
 scval_i128()    { jq -nc --arg v "$1" '{i128:$v}'; }
 scval_vec_u32() {
-    # $1 = friendly JSON array of integers (e.g. "[]" or "[1,2]")
+
     jq -nc --argjson a "$1" '{vec: ($a | map({u32: .}))}'
 }
 
-# Struct → ScVal map. ScMap keys MUST be sorted; `--sort-keys`/explicit ordering
-# below keeps the symbol keys in canonical order so the host decodes the UDT.
+
+
 scval_position_limits() {
-    # $1 = {"max_supply_positions":N,"max_borrow_positions":M}
+
     local j=$1
     jq -nc \
         --argjson mb "$(printf '%s' "$j" | jq '.max_borrow_positions')" \
@@ -342,9 +340,9 @@ scval_position_limits() {
         ]}'
 }
 
-# Build an InterestRateModel ScVal map from a friendly params object carrying the
-# 11 ABI fields (RAY rates as i128 decimal strings; reserve_factor/flashloan_fee
-# as u32; is_flashloanable as bool). Keys sorted (canonical ScMap order).
+
+
+
 scval_interest_rate_model() {
     local j=$1
     jq -nc --argjson p "$j" '
@@ -364,10 +362,10 @@ scval_interest_rate_model() {
         ]}'
 }
 
-# MarketParamsRaw = InterestRateModel fields + flash-loan eligibility
-# (is_flashloanable / flashloan_fee) + asset_id (address) + asset_decimals
-# (u32). Friendly object must already carry asset_id, asset_decimals, and the
-# flash-loan fields. Keys sorted (canonical ScMap order).
+
+
+
+
 scval_market_params() {
     local j=$1
     jq -nc --argjson p "$j" '
@@ -389,8 +387,8 @@ scval_market_params() {
         ]}'
 }
 
-# HubAssetKey ScVal map (sorted keys: asset, hub_id). hub_id is mandatory —
-# there is no implicit hub 0.
+
+
 scval_hub_asset() {
     local asset=$1 hub_id=$2
     if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
@@ -403,10 +401,10 @@ scval_hub_asset() {
         ]}'
 }
 
-# SpokeAssetArgs ScVal map (sorted keys), used for the REPLAY args_json only.
-# resolve_op schedules a single SpokeAssetArgs struct, so the stored replay args
-# are `[<this map>]`. supply_cap / borrow_cap are i128 decimal strings. (The
-# propose `--op` payload uses the friendly form below.)
+
+
+
+
 scval_spoke_args() {
     local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
     local paused=${12:-false} frozen=${13:-false}
@@ -433,8 +431,8 @@ scval_spoke_args() {
         ]}'
 }
 
-# Friendly SpokeAssetArgs object for the propose `--op` payload (plain JSON, Rust
-# field names). Address is a bare strkey; i128 caps are decimal strings.
+
+
 friendly_spoke_args() {
     local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
     local paused=${12:-false} frozen=${13:-false}
@@ -450,18 +448,18 @@ friendly_spoke_args() {
           supply_cap:$sc, borrow_cap:$bc}'
 }
 
-# Build an AdminOperation enum value in stellar-cli FRIENDLY-JSON form. The
-# `propose`/`execute_self` `op` argument is a TYPED `AdminOperation` enum, so the
-# CLI expects friendly JSON (like the typed `--asset "{\"Stellar\":\"...\"}"`
-# enum arg in tests/integration/lib/oracle.sh), NOT the explicit `{vec:[...]}`
-# ScVal form (that form is only for untyped `Vec<Val>` args such as execute's
-# --args).
-#   - unit variant (0 fields)   -> the bare string "Variant"
-#   - single-field variant      -> {"Variant": <friendly-payload>}
-#   - multi-field TUPLE variant   -> {"Variant": [<field0>, <field1>, ...]}
-# Payloads are PLAIN friendly JSON (objects/strings/numbers), NOT scval forms:
-# Address fields are bare strkey strings, Symbols are bare strings, struct fields
-# carry the Rust struct field names, i128 values are decimal strings.
+
+
+
+
+
+
+
+
+
+
+
+
 admin_op() {
     local variant=$1
     shift
@@ -476,8 +474,8 @@ admin_op() {
     fi
 }
 
-# Persist an op record so executeOp/cancelOp can replay it. args_json is the full
-# ScVal `Vec<Val>` array (JSON); cli_executable gates executeOp.
+
+
 write_op_record() {
     local op_id=$1
     local controller_fn=$2
@@ -508,10 +506,10 @@ write_op_record() {
     echo "  Recorded op $op_id -> $path" >&2
 }
 
-# Governance-self ops replay through the generic `execute_self(executor, op,
-# salt)`, re-passing the same AdminOperation. The record stores the admin_op
-# ScVal JSON; executeOp writes it to a temp file and invokes execute_self with
-# `--op-file-path`.
+
+
+
+
 write_gov_self_op_record() {
     local op_id=$1
     local execute_label=$2
@@ -537,13 +535,13 @@ write_gov_self_op_record() {
     echo "  Recorded governance-self op $op_id -> $path" >&2
 }
 
-# Persist an oracle op record whose scheduled args are a governance-RESOLVED
-# struct (AssetOracleConfig / OracleTolerance) targeting the price-aggregator.
-# The CLI cannot capture that struct as ScVal JSON from the friendly view
-# output, so instead of storing `args` we store a `resolve` block (the
-# governance view + its friendly inputs). At execute time
-# `resolve_oracle_op_args` replays the view through the aggregator's typed
-# setter (`--build-only`) and decodes the ScVal args the CLI itself encoded.
+
+
+
+
+
+
+
 write_oracle_op_record() {
     local op_id=$1
     local aggregator_fn=$2
@@ -574,8 +572,41 @@ write_oracle_op_record() {
     echo "  Recorded oracle op $op_id -> $path" >&2
 }
 
-# Mark a local op record as executed. On-chain ledger is cleared after execute;
-# this flag is the CLI's synthetic Done for salt probing and converge skips.
+
+price_key_token() {
+    jq -nc --arg a "$1" '{Token:$a}'
+}
+
+
+price_key_ref() {
+    jq -nc --arg s "$1" '{Ref:$s}'
+}
+
+
+oracle_cfg_cli_union() {
+    jq -c '
+        def cli_union:
+            if type == "object" and has("tag") and has("values") then
+                if .values == null or .values == [] then
+                    .tag
+                elif (.values | type) == "array" and (.values | length) == 1 then
+                    {(.tag): (.values[0] | cli_union)}
+                else
+                    {(.tag): (.values | map(cli_union))}
+                end
+            elif type == "object" then
+                with_entries(.value |= cli_union)
+            elif type == "array" then
+                map(cli_union)
+            else
+                .
+            end;
+        cli_union
+    '
+}
+
+
+
 mark_op_executed() {
     local op_id=$1
     local path
@@ -588,77 +619,85 @@ mark_op_executed() {
     jq '.executed = true' "$path" > "$tmp" && mv "$tmp" "$path"
 }
 
-# Resolve an oracle op's scheduled ScVal `Vec<Val>` args at execute time.
-#
-# Reads the record's `resolve` block, invokes the matching governance view under
-# simulation to get the resolved struct (friendly JSON), feeds it back through
-# the price-aggregator's typed setter with `--build-only` so the CLI re-encodes
-# it to ScVal exactly as the proposer scheduled, then decodes that transaction
-# and extracts the InvokeContract args. Prints the ScVal `Vec<Val>` JSON array.
-#   $1 view_fn   resolve_market_oracle_config | resolve_oracle_tolerance
-#   $2 target    price-aggregator address (op target)
-#   $3 function  aggregator setter (set_oracle_config | set_tolerance)
-#   $4 asset     asset address
-#   $5 hub_id    unused for aggregator ABI (kept for resolve-record compatibility)
-#   $6 payload   cfg JSON (market-oracle) | tolerance bps (tolerance)
+
+
+
+
+
+
+
+
+
+
+
+
 resolve_oracle_args_for() {
-    local view_fn=$1 target=$2 function=$3 asset=$4 hub_id=$5 payload=$6
-    local gov resolved tx_xdr
+    local view_fn=$1 target=$2 function=$3 key_json=$4 payload=$5
+    local gov resolved tx_xdr key_file
     gov=$(get_governance)
+    key_file=$(mktemp)
+    printf '%s' "$key_json" > "$key_file"
     case "$view_fn" in
-        resolve_market_oracle_config)
-            local cfg_file
-            cfg_file=$(mktemp)
-            printf '%s' "$payload" > "$cfg_file"
+        resolve_asset_oracle)
+            local oracle_file oracle_file2
+            oracle_file=$(mktemp)
+            printf '%s' "$payload" > "$oracle_file"
             resolved=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-                --send=no -- "$view_fn" --asset "$asset" --cfg-file-path "$cfg_file")
-            rm -f "$cfg_file"
-            local cfg_file2
-            cfg_file2=$(mktemp)
-            printf '%s' "$resolved" > "$cfg_file2"
-            # set_oracle_config takes a bare asset + AssetOracleConfig.
+                --send=no -- resolve_asset_oracle \
+                --key-file-path "$key_file" --oracle-file-path "$oracle_file")
+            rm -f "$oracle_file"
+            oracle_file2=$(mktemp)
+            printf '%s' "$resolved" > "$oracle_file2"
+
             tx_xdr=$(stellar contract invoke --id "$target" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
-                --asset "$asset" --config-file-path "$cfg_file2")
-            rm -f "$cfg_file2"
+                --key-file-path "$key_file" --oracle-file-path "$oracle_file2")
+            rm -f "$oracle_file2"
             printf '%s' "$tx_xdr" | stellar tx decode \
                 | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
             ;;
         resolve_oracle_tolerance)
             resolved=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-                --send=no -- "$view_fn" --tolerance "$payload")
+                --send=no -- resolve_oracle_tolerance --tolerance "$payload")
             local tol_file
             tol_file=$(mktemp)
             printf '%s' "$resolved" > "$tol_file"
             tx_xdr=$(stellar contract invoke --id "$target" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
-                --asset "$asset" --tolerance-file-path "$tol_file")
+                --key-file-path "$key_file" --tolerance-file-path "$tol_file")
             rm -f "$tol_file"
             printf '%s' "$tx_xdr" | stellar tx decode \
                 | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
             ;;
         *)
+            rm -f "$key_file"
             echo "ERROR: unknown oracle resolve view '${view_fn}'." >&2
             exit 1
             ;;
     esac
+    rm -f "$key_file"
 }
 
 resolve_oracle_op_args() {
     local path=$1
-    local target function view_fn asset
+    local target function view_fn key_json
     target=$(jq -r '.target' "$path")
     function=$(jq -r '.function' "$path")
     view_fn=$(jq -r '.resolve.view_fn' "$path")
-    asset=$(jq -r '.resolve.args.asset' "$path")
+
+    key_json=$(jq -c '.resolve.args.key // (if .resolve.args.asset then {Token:.resolve.args.asset} else empty end)' "$path")
+    if [ -z "$key_json" ] || [ "$key_json" = "null" ]; then
+        echo "ERROR: oracle op record ${path} missing resolve.args.key (and asset)." >&2
+        exit 1
+    fi
     case "$view_fn" in
-        resolve_market_oracle_config)
-            resolve_oracle_args_for "$view_fn" "$target" "$function" "$asset" \
-                "$(jq -r '.resolve.args.hub_id // empty' "$path")" "$(jq -c '.resolve.args.cfg' "$path")"
+        resolve_asset_oracle)
+            resolve_oracle_args_for "$view_fn" "$target" "$function" "$key_json" \
+                "$(jq -c '.resolve.args.oracle // .resolve.args.cfg' "$path")"
             ;;
         resolve_oracle_tolerance)
-            resolve_oracle_args_for "$view_fn" "$target" "$function" "$asset" \
-                "" "$(jq -r '.resolve.args.tolerance' "$path")"
+            resolve_oracle_args_for "$view_fn" "$target" "$function" "$key_json" \
+                "$(jq -r '.resolve.args.tolerance' "$path")"
             ;;
         *)
             echo "ERROR: unknown oracle resolve view '${view_fn}' in ${path}." >&2
@@ -667,38 +706,38 @@ resolve_oracle_op_args() {
     esac
 }
 
-# Parse the operation id (quoted BytesN hex on the proposer's last output line).
+
 parse_op_id() {
     printf '%s' "$1" | tail -n1 | tr -d '"' | tr -d '[:space:]'
 }
 
-# Parse a returned u32 (spoke/hub id) from the generic execute's last output
-# line. Extracts the full number — an anchored sed like `.*([0-9]+)` would
-# greedily eat leading digits and truncate "12" to "2".
+
+
+
 parse_returned_u32() {
     printf '%s\n' "$1" | tail -n1 | tr -d '"' | grep -oE '[0-9]+' | tail -n1
 }
 
-# Errors that guarantee the transaction never reached or was rejected by the
-# network BEFORE any state change — safe to retry without risking a double
-# submit. TxBadSeq is a stale-sequence rejection (the CLI refetches on retry);
-# the rest are pre-send connection failures. Ambiguous post-submission timeouts
-# are deliberately NOT listed so a tx that may have landed is never re-sent.
+
+
+
+
+
 RPC_RETRYABLE_RE='TxBadSeq|error sending request|tcp connect error|client error \(Connect\)|Connection refused|connection closed before message completed|dns error'
 STELLAR_TX_MAX_RETRIES=${STELLAR_TX_MAX_RETRIES:-4}
 STELLAR_TX_RETRY_DELAY=${STELLAR_TX_RETRY_DELAY:-4}
 
-# Run a stellar tx command, retrying only on safe-to-retry transient errors so a
-# flaky endpoint or a stale-sequence read does not abort a long deploy. The
-# underlying command's stdout is preserved verbatim (callers parse op ids and
-# returned addresses from it); diagnostics and errors are forwarded to stderr.
+
+
+
+
 retry_tx() {
     local attempt=1 out rc errfile
     errfile=$(mktemp)
     while :; do
-        # `&& rc=0 || rc=$?` captures the command's real exit status while
-        # staying exempt from `set -e` (a bare assignment of a failing command
-        # substitution would abort the script before the error is inspected).
+
+
+
         out=$("$@" 2>"$errfile") && rc=0 || rc=$?
         if [ "$rc" -eq 0 ]; then
             cat "$errfile" >&2
@@ -719,12 +758,12 @@ retry_tx() {
     done
 }
 
-# Pre-compute the deterministic operation id for (target, function, args, salt)
-# via the governance `hash_operation` view. Salts are deterministic, so an op's
-# id is knowable BEFORE proposing — this is what makes every schedule path
-# idempotent: a re-run (e.g. `make <net> resume`) skips already-executed ops
-# (local `executed:true`) and reuses Waiting/Ready ones instead of tripping the
-# timelock's already-scheduled error.
+
+
+
+
+
+
 precomputed_op_id() {
     local target=$1
     local function=$2
@@ -745,10 +784,10 @@ precomputed_op_id() {
     echo "$op_id"
 }
 
-# Derive the generation-n salt from a base salt (hash chain; generation 0 = the
-# base itself). After execute the on-chain id is Unset again; local records with
-# `executed:true` act as synthetic Done so re-applying a previous setting needs
-# a fresh salt generation (or SALT_NONCE) without colliding with pending ops.
+
+
+
+
 salt_generation() {
     local base=$1
     local n=$2
@@ -765,12 +804,12 @@ salt_generation() {
 
 MAX_SALT_GENERATIONS=${MAX_SALT_GENERATIONS:-16}
 
-# Probe salt generations until the first op id that is NOT Done. Prints
-# "<salt> <op_id> <state> <n>". State meanings for the caller:
-#   Unset     free to propose at this generation (n>0 ⇒ earlier gens executed)
-#   Waiting|Ready  an identical op is already scheduled ⇒ reuse it
-#   Unknown   hash view / state read unavailable ⇒ fall back to plain propose
-#   Exhausted all generations Done ⇒ manual SALT_NONCE required
+
+
+
+
+
+
 probe_salt_generations() {
     local target=$1
     local fn=$2
@@ -794,25 +833,25 @@ probe_salt_generations() {
     printf '%s %s %s %s\n' "$base" "-" "Exhausted" "$n"
 }
 
-# Core scheduler: invoke the generic `propose(proposer, op, salt)` on governance
-# and record the controller op for replay through the generic `execute`.
-#
-# Idempotent AND re-apply-aware: the op id is pre-computed per salt generation
-# (probe_salt_generations). An op already Waiting/Ready is reused; when an
-# earlier generation is already executed (local `executed:true` / synthetic
-# Done), behavior depends on the re-apply policy:
-#   - policy "never" ($6): skip — id-returning creators (add_spoke, create_hub,
-#     deploy_pool) must never re-execute, that would mint a duplicate entity.
-#   - REAPPLY_ON_DONE=0 (converge mode, set by setupAll*): skip — the setting
-#     is treated as already applied.
-#   - otherwise (direct operator verbs): auto re-apply at the next free
-#     generation, so toggling back to a previous setting just works.
-#   $1 controller_fn       controller thin-setter the op targets (for the record)
-#   $2 admin_op_json       AdminOperation friendly JSON ("Variant" | {"Variant":payload})
-#   $3 args_json           ScVal Vec<Val> array (JSON) for replay (resolve_op args)
-#   $4 cli_executable      true|false (false ⇒ executeOp refuses; oracle ops)
-#   $5 salt_hex            deterministic base salt (64 hex)
-#   $6 reapply (optional)  "never" to forbid auto re-apply (creators)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 schedule_via_proposer() {
     local controller_fn=$1; shift
     local admin_op_json=$1; shift
@@ -831,8 +870,8 @@ schedule_via_proposer() {
     case "$state" in
         Ready|Waiting)
             echo "Op ${known_id} (${controller_fn}) already ${state}; reusing it instead of re-proposing." >&2
-            # Refresh the local record so executeOp / listOps stay usable
-            # even when the original record was lost.
+
+
             write_op_record "$known_id" "$controller_fn" "$args_json" "$salt_use" "$cli_executable"
             echo "$known_id"
             return 0
@@ -856,8 +895,8 @@ schedule_via_proposer() {
             fi
             ;;
         *)
-            # Unknown: hash/state views unavailable — fall through to a plain
-            # propose with the base salt (pre-idempotency behavior).
+
+
             ;;
     esac
 
@@ -884,16 +923,16 @@ schedule_via_proposer() {
     echo "$op_id"
 }
 
-# Schedule a governance-self admin op (target = governance contract). Replay
-# uses the same AdminOperation through `execute_self`, so the op record stores
-# the admin_op JSON itself. When the resolved (function, args) pair is supplied,
-# the op id is pre-computed via hash_operation (target = governance) and an
-# already-scheduled/executed op is reused instead of re-proposed.
-#   $1 execute_label       human label for the record/log (e.g. update_delay)
-#   $2 admin_op_json       AdminOperation friendly JSON ("Variant" | {"Variant":payload})
-#   $3 salt_hex            deterministic salt (64 hex)
-#   $4 gov_fn (optional)   governance function the op resolves to (for hash pre-check)
-#   $5 gov_args (optional) ScVal Vec<Val> array the op resolves to (for hash pre-check)
+
+
+
+
+
+
+
+
+
+
 schedule_via_gov_self_proposer() {
     local execute_label=$1; shift
     local admin_op_json=$1; shift
@@ -984,7 +1023,7 @@ await_max_wait_seconds() {
     fi
     local delay
     delay=$(min_delay_ledgers)
-    # ~6s/ledger + 2h buffer for mainnet-scale delays.
+
     echo $(( delay * 6 + 7200 ))
 }
 
@@ -996,9 +1035,9 @@ op_ready_ledger() {
         -- get_operation_ledger --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]'
 }
 
-# Read an operation's lifecycle state as a bare string (Unset|Waiting|Ready|Done).
-# On-chain Unset plus a local record with `executed:true` reports Done so salt
-# probing / converge mode stay idempotent after ledger erase on execute.
+
+
+
 op_state() {
     local op_id=$1
     local gov state
@@ -1016,8 +1055,8 @@ op_state() {
     echo "$state"
 }
 
-# Poll until the op is Ready (Done short-circuits as already executed). Uses
-# ledger sequence + get_operation_ledger so mainnet-scale delays are supported.
+
+
 await_op_ready() {
     local op_id=$1
     local started_at ready_ledger current state max_wait waited unset_seen sleep_s
@@ -1047,9 +1086,9 @@ await_op_ready() {
                     echo "       Re-run: NETWORK=$NETWORK $0 awaitOp ${op_id} && $0 executeOp ${op_id}" >&2
                     exit 1
                 fi
-                # Scale the sleep to half the remaining delay (~6s/ledger),
-                # clamped to [AWAIT_POLL_SECONDS, 600] so a multi-day mainnet
-                # timelock doesn't hammer the RPC every few seconds.
+
+
+
                 sleep_s=$AWAIT_POLL_SECONDS
                 if [ -n "$ready_ledger" ] && [ -n "$current" ] && [ "$ready_ledger" -gt "$current" ] 2>/dev/null; then
                     sleep_s=$(( (ready_ledger - current) * 6 / 2 ))
@@ -1060,9 +1099,9 @@ await_op_ready() {
                 sleep "$sleep_s"
                 ;;
             Unset)
-                # A just-confirmed schedule can briefly read back Unset on a
-                # lagging RPC (read-after-write). Tolerate a few polls before
-                # treating it as a genuine never-scheduled / cancelled op.
+
+
+
                 unset_seen=$(( unset_seen + 1 ))
                 if [ "$unset_seen" -ge "${UNSET_MAX_POLLS:-6}" ]; then
                     echo "ERROR: op ${op_id} is Unset (never scheduled or cancelled) after ${unset_seen} polls." >&2
@@ -1076,9 +1115,9 @@ await_op_ready() {
     done
 }
 
-# Execute a governance-self op via the generic execute_self(executor, op, salt),
-# re-passing the stored AdminOperation. Self-target ops cannot use the generic
-# execute (the timelock rejects target == governance to avoid self-reentry).
+
+
+
 execute_gov_self_op() {
     local op_id=$1
     local path
@@ -1091,8 +1130,8 @@ execute_gov_self_op() {
     local op_file
     op_file=$(mktemp)
     jq -c '.op' "$path" > "$op_file"
-    # Open execution: a ready op already waited the full delay. Option<Address>
-    # executor is passed as JSON null (None).
+
+
     retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute_self \
         --executor null \
@@ -1103,8 +1142,8 @@ execute_gov_self_op() {
     echo "Executed governance-self op ${op_id}." >&2
 }
 
-# Execute a recorded op. Controller ops replay through generic execute;
-# governance-self ops use typed execute_* entrypoints.
+
+
 execute_op() {
     local op_id=$1
     local path
@@ -1135,9 +1174,9 @@ execute_op() {
     function=$(jq -r '.function' "$path")
     predecessor=$(jq -r '.predecessor' "$path")
     salt=$(jq -r '.salt' "$path")
-    # Oracle ops carry a `resolve` block instead of stored args: the scheduled
-    # struct is re-derived through the governance view at execute time so it
-    # matches byte-for-byte. Every other op stores its ScVal args directly.
+
+
+
     if [ "$(jq -r 'has("resolve")' "$path")" = "true" ]; then
         args_json=$(resolve_oracle_op_args "$path")
         if [ -z "$args_json" ] || [ "$args_json" = "null" ]; then
@@ -1151,9 +1190,9 @@ execute_op() {
     local args_file
     args_file=$(mktemp)
     printf '%s' "$args_json" > "$args_file"
-    # Open execution: a ready op was already proposed, validated, and waited the
-    # full delay, so triggering it is unprivileged. `Option<Address>` is passed
-    # as JSON `null` (None); a bare address is not valid JSON for this arg.
+
+
+
     retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute \
         --executor null \
@@ -1167,7 +1206,7 @@ execute_op() {
     echo "Executed op ${op_id}." >&2
 }
 
-# Cancel a pending op (CANCELLER role). Drops the local record on success.
+
 cancel_op() {
     local op_id=$1
     local gov
@@ -1182,9 +1221,9 @@ cancel_op() {
     echo "Cancelled op ${op_id}." >&2
 }
 
-# List every recorded governance op with its live on-chain state. Pending ops
-# (Waiting/Ready) still need executeOp; Done is synthetic from local
-# `executed:true` after ledger erase (or rare on-chain Done).
+
+
+
 list_ops() {
     local dir="$OPS_DIR"
     if [ ! -d "$dir" ] || ! ls "$dir"/*.json >/dev/null 2>&1; then
@@ -1214,8 +1253,8 @@ list_ops() {
     fi
 }
 
-# Execute every recorded op that is currently Ready. Waiting/Done ops are left
-# alone; a failing execute aborts (set -e) so partial failures are visible.
+
+
 execute_ready_ops() {
     local dir="$OPS_DIR"
     if [ ! -d "$dir" ] || ! ls "$dir"/*.json >/dev/null 2>&1; then
@@ -1236,9 +1275,9 @@ execute_ready_ops() {
     fi
 }
 
-# Schedule, await the delay, then execute — the one-shot setup path. Honors
-# AUTO_EXECUTE=0 to schedule-only (record op-id for a later executeOp). An op
-# already executed (synthetic Done via local record) is skipped, not re-executed.
+
+
+
 schedule_and_maybe_execute() {
     local op_id=$1
     if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
@@ -1255,14 +1294,14 @@ schedule_and_maybe_execute() {
 
 require_static_config
 
-# ---------------------------------------------------------------------------
-# Config validation (pure jq, no chain calls)
-#
-# `validateConfigs` is the pre-deploy gate: it cross-checks the markets file,
-# spokes file, and networks.json so a misconfig fails HERE instead of after a
-# timelock delay (or worse, lands on-chain). Run automatically by setupAll /
-# setupAllMarkets / setupAllSpokes and by `make <net> validateConfigs`.
-# ---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
 
 validate_configs() {
     local errors=0 warnings=0
@@ -1271,7 +1310,7 @@ validate_configs() {
 
     echo "=== Validating ${NETWORK} configs ===" >&2
 
-    # networks.json basics
+
     local f v
     for f in rpc_url network_passphrase timelock_min_delay_ledgers; do
         v=$(get_network_value "$f")
@@ -1280,7 +1319,7 @@ validate_configs() {
         fi
     done
 
-    # Known oracle contracts for cross-checks.
+
     local cex dex fx redstone xoxno_adapter
     cex=$(get_cex_oracle)
     dex=$(get_dex_oracle)
@@ -1288,7 +1327,7 @@ validate_configs() {
     redstone=$(get_redstone_adapter)
     xoxno_adapter=$(get_xoxno_oracle_adapter)
 
-    # Markets: duplicates
+
     local dup
     dup=$(jq -r '[.markets[].name] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")' "$MARKET_CONFIG_FILE")
     if [ -n "$dup" ]; then
@@ -1299,10 +1338,10 @@ validate_configs() {
         vc_err "duplicate (hub_id, asset_address) pairs: ${dup}"
     fi
 
-    # Per-market checks
-    # Keep in sync with xoxno-lending-functions config.{network}.yaml
-    # stellarOracle.heartbeatSeconds: the bot re-submits every feed at least
-    # once per heartbeat even when the price has not moved.
+
+
+
+
     local oracle_bot_heartbeat_seconds=3600
     local m mj hub addr missing o strat anchor_tag minw maxw ptag pcontract atag acontract pstale astale
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
@@ -1319,7 +1358,7 @@ validate_configs() {
             vc_err "market ${m}: asset_address '${addr}' is not a contract strkey"
         fi
 
-        # market_params completeness + utilization/reserve-factor relations
+
         missing=$(printf '%s' "$mj" | jq -r '[(.market_params // {}) |
             {max_borrow_rate, base_borrow_rate, slope1, slope2, slope3, mid_utilization,
              optimal_utilization, max_utilization, reserve_factor}
@@ -1338,13 +1377,13 @@ validate_configs() {
             vc_err "market ${m}: reserve_factor out of [0, 10000] bps"
         fi
 
-        # is_flashloanable/flashloan_fee live directly on market_params
-        # (MarketParamsRaw is one flat struct on-chain, no separate
-        # asset-config type). Real per-asset risk config (ltv/threshold/
-        # bonus/collateralizable/borrowable) is spoke-scoped only
-        # (spokes.json, effective_asset_config on-chain) — not validated
-        # here, since create_market() never reads it off this file.
-        # On-chain bound is MAX_FLASHLOAN_FEE_BPS (500), not full BPS range.
+
+
+
+
+
+
+
         if ! printf '%s' "$mj" | jq -e '(.market_params.flashloan_fee // 0) <= 500' >/dev/null; then
             vc_err "market ${m}: flashloan_fee > 500 bps (MAX_FLASHLOAN_FEE_BPS)"
         fi
@@ -1353,29 +1392,31 @@ validate_configs() {
             vc_err "market ${m}: market_params.is_flashloanable must be a boolean"
         fi
 
-        # Oracle config
+
         o=$(printf '%s' "$mj" | jq -c '.oracle // {}')
-        if ! printf '%s' "$o" | jq -e '(.tolerance_bps // 0) >= 1 and (.tolerance_bps // 99999) <= 10000' >/dev/null; then
-            vc_err "market ${m}: oracle tolerance_bps out of [1, 10000]"
+        if ! printf '%s' "$o" | jq -e '(.sources | type) == "array" and ((.sources | length) == 1 or (.sources | length) == 2)' >/dev/null; then
+            vc_err "market ${m}: oracle.sources must be an array of length 1 or 2"
         fi
-        strat=$(printf '%s' "$o" | jq -r '.strategy // "missing"')
-        anchor_tag=$(printf '%s' "$o" | jq -r '
-            if (.anchor | type) == "object" then (.anchor.tag // "Some")
-            elif (.anchor | type) == "string" then .anchor
-            else "None" end')
-        case "$strat" in
-            0)
-                if [ "$anchor_tag" = "Some" ]; then
-                    vc_warn "market ${m}: anchor configured but strategy Single(0) ignores it"
-                fi
-                ;;
-            1)
-                if [ "$anchor_tag" != "Some" ]; then
-                    vc_err "market ${m}: strategy PrimaryWithAnchor(1) requires an anchor"
-                fi
-                ;;
-            *) vc_err "market ${m}: oracle strategy must be 0 (Single) or 1 (PrimaryWithAnchor)" ;;
-        esac
+        if printf '%s' "$o" | jq -e 'has("primary") or has("anchor") or has("strategy") or has("tolerance_bps")' >/dev/null; then
+            vc_err "market ${m}: oracle still uses legacy primary/anchor/strategy/tolerance_bps fields"
+        fi
+        if ! printf '%s' "$o" | jq -e '
+            any(.sources[]?; has("AquariusLp") or has("AquariusStableLp")) or (
+                (.tolerance.upper_ratio_bps // 0) > 10000 and
+                (.tolerance.lower_ratio_bps // 99999) < 10000 and
+                (.tolerance.lower_ratio_bps // 0) >= 1
+            )' >/dev/null; then
+            vc_err "market ${m}: oracle.tolerance must be a reciprocal band around 10000 bps"
+        fi
+        if ! printf '%s' "$o" | jq -e '
+            .independence == "RequireDisjoint" or
+            (.independence | type) == "object"' >/dev/null; then
+            vc_err "market ${m}: oracle.independence missing or invalid"
+        fi
+        ceiling=$(printf '%s' "$o" | jq -r '.max_price_stale_seconds // "missing"')
+        if [ "$ceiling" = "missing" ]; then
+            vc_err "market ${m}: oracle.max_price_stale_seconds missing"
+        fi
         minw=$(printf '%s' "$o" | jq -r '.min_sanity_price_wad // "missing"')
         maxw=$(printf '%s' "$o" | jq -r '.max_sanity_price_wad // "missing"')
         if [ "$minw" = "missing" ] || [ "$maxw" = "missing" ]; then
@@ -1390,67 +1431,169 @@ validate_configs() {
             vc_err "market ${m}: min_sanity_price_wad >= max_sanity_price_wad"
         fi
 
-        # Cross-check oracle contract addresses against networks.json
-        ptag=$(printf '%s' "$o" | jq -r '.primary.tag // "missing"')
-        pcontract=$(printf '%s' "$o" | jq -r '.primary.values[0].contract // ""')
-        if [ "$ptag" = "Reflector" ] && [ -n "$pcontract" ]; then
-            case "$pcontract" in
-                "$cex"|"$dex"|"$fx") ;;
-                *) vc_warn "market ${m}: primary Reflector contract ${pcontract} is none of networks.json cex/dex/fx oracles" ;;
-            esac
-        fi
-        if [ "$ptag" = "RedStone" ] && [ -n "$pcontract" ] && [ "$pcontract" != "$redstone" ]; then
-            vc_warn "market ${m}: primary RedStone contract differs from networks.json redstone_adapter_contract"
-        fi
-        if [ "$ptag" = "Xoxno" ] && [ -n "$pcontract" ] && [ "$pcontract" != "$xoxno_adapter" ]; then
-            vc_warn "market ${m}: primary Xoxno contract differs from networks.json xoxno_oracle_adapter"
-        fi
-        atag=$(printf '%s' "$o" | jq -r '.anchor.values[0].tag // ""')
-        acontract=$(printf '%s' "$o" | jq -r '.anchor.values[0].values[0].contract // ""')
-        if [ "$atag" = "RedStone" ] && [ -n "$acontract" ] && [ "$acontract" != "$redstone" ]; then
-            vc_warn "market ${m}: anchor RedStone contract differs from networks.json redstone_adapter_contract"
-        fi
-        if [ "$atag" = "Xoxno" ] && [ -n "$acontract" ] && [ "$acontract" != "$xoxno_adapter" ]; then
-            vc_warn "market ${m}: anchor Xoxno contract differs from networks.json xoxno_oracle_adapter"
-        fi
 
-        # RedStone/Xoxno staleness limits must dominate the bot heartbeat, or
-        # a brief bot outage makes the controller revert PriceFeedStale for
-        # the market. Require >= 4 heartbeats of slack.
-        if [ "$ptag" = "RedStone" ] || [ "$ptag" = "Xoxno" ]; then
-            pstale=$(printf '%s' "$o" | jq -r '.primary.values[0].max_stale_seconds // "missing"')
-            if [ "$pstale" = "missing" ]; then
-                vc_err "market ${m}: primary ${ptag} missing max_stale_seconds"
-            elif [ "$pstale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
-                vc_err "market ${m}: primary ${ptag} max_stale_seconds ${pstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
+
+
+        local nsrc i sjson pkind pcontract fstale
+        nsrc=$(printf '%s' "$o" | jq -r '.sources | length')
+        i=0
+        while [ "$i" -lt "$nsrc" ]; do
+            sjson=$(printf '%s' "$o" | jq -c --argjson i "$i" '.sources[$i]')
+            if printf '%s' "$sjson" | jq -e 'has("Feed")' >/dev/null; then
+                fstale=$(printf '%s' "$sjson" | jq -r '.Feed.max_stale_seconds // "missing"')
+                pkind=$(printf '%s' "$sjson" | jq -r '
+                    if .Feed.provider | has("Reflector") then "Reflector"
+                    elif .Feed.provider | has("RedStone") then "RedStone"
+                    elif .Feed.provider | has("Xoxno") then "Xoxno"
+                    else "unknown" end')
+                pcontract=$(printf '%s' "$sjson" | jq -r '
+                    if .Feed.provider | has("Reflector") then .Feed.provider.Reflector.contract
+                    elif .Feed.provider | has("RedStone") then .Feed.provider.RedStone.contract
+                    elif .Feed.provider | has("Xoxno") then .Feed.provider.Xoxno.contract
+                    else "" end')
+            elif printf '%s' "$sjson" | jq -e 'has("Scaled")' >/dev/null; then
+                fstale=$(printf '%s' "$sjson" | jq -r '.Scaled.factor.max_stale_seconds // "missing"')
+                pkind=$(printf '%s' "$sjson" | jq -r '
+                    if .Scaled.factor.provider | has("Reflector") then "Reflector"
+                    elif .Scaled.factor.provider | has("RedStone") then "RedStone"
+                    elif .Scaled.factor.provider | has("Xoxno") then "Xoxno"
+                    else "unknown" end')
+                pcontract=$(printf '%s' "$sjson" | jq -r '
+                    if .Scaled.factor.provider | has("Reflector") then .Scaled.factor.provider.Reflector.contract
+                    elif .Scaled.factor.provider | has("RedStone") then .Scaled.factor.provider.RedStone.contract
+                    elif .Scaled.factor.provider | has("Xoxno") then .Scaled.factor.provider.Xoxno.contract
+                    else "" end')
+                local quote_ref quote_token
+                quote_ref=$(printf '%s' "$sjson" | jq -r '.Scaled.quote.Ref // empty')
+                quote_token=$(printf '%s' "$sjson" | jq -r '.Scaled.quote.Token // empty')
+                if [ -n "$quote_ref" ]; then
+                    if ! jq -e --arg n "$quote_ref" '
+                        any(.references[]?; (.name == $n) or (.key.Ref == $n))
+                    ' "$MARKET_CONFIG_FILE" >/dev/null; then
+                        vc_err "market ${m}: sources[$i] Scaled quote Ref ${quote_ref} not in markets.json references"
+                    fi
+                elif [ -n "$quote_token" ]; then
+                    if ! jq -e --arg a "$quote_token" '
+                        any(.markets[]?; .asset_address == $a)
+                    ' "$MARKET_CONFIG_FILE" >/dev/null; then
+                        vc_err "market ${m}: sources[$i] Scaled quote Token ${quote_token} not in markets.json"
+                    fi
+                else
+                    vc_err "market ${m}: sources[$i] Scaled missing quote Ref or Token"
+                fi
+                if ! printf '%s' "$sjson" | jq -e '
+                    (.Scaled.min_factor_wad | tonumber) > 0 and
+                    (.Scaled.max_factor_wad | tonumber) > (.Scaled.min_factor_wad | tonumber)
+                ' >/dev/null; then
+                    vc_err "market ${m}: sources[$i] Scaled min/max_factor_wad invalid"
+                fi
+            elif printf '%s' "$sjson" | jq -e 'has("AquariusLp") or has("AquariusStableLp")' >/dev/null; then
+                if ! printf '%s' "$sjson" | jq -e '
+                    (.AquariusLp // .AquariusStableLp) as $lp |
+                    $lp.pool and $lp.plane and
+                    ($lp.token_a | type == "string") and
+                    ($lp.token_b | type == "string") and
+                    ($lp.token_a != $lp.token_b) and
+                    ($lp.key_a != $lp.key_b) and
+                    (($lp.key_a.Ref != null) or
+                     ($lp.key_a.Token == $lp.token_a)) and
+                    (($lp.key_b.Ref != null) or
+                     ($lp.key_b.Token == $lp.token_b)) and
+                    ($lp.reserve_a_decimals | type == "number") and
+                    ($lp.reserve_b_decimals | type == "number") and
+                    ($lp.min_pool_value_wad | tonumber) > 0
+                ' >/dev/null; then
+                    vc_err "market ${m}: sources[$i] Aquarius LP has invalid token bindings or liquidity floor"
+                fi
+                i=$((i + 1))
+                continue
+            else
+                vc_err "market ${m}: sources[$i] must be Feed, Scaled, AquariusLp, or AquariusStableLp"
+                i=$((i + 1))
+                continue
             fi
+            if [ "$fstale" = "missing" ]; then
+                vc_err "market ${m}: sources[$i] missing max_stale_seconds"
+            elif [ "$fstale" -gt "$ceiling" ]; then
+                vc_err "market ${m}: sources[$i] max_stale_seconds ${fstale} > asset ceiling ${ceiling}"
+            fi
+            case "$pkind" in
+                Reflector)
+                    case "$pcontract" in
+                        "$cex"|"$dex"|"$fx"|"") ;;
+                        *) vc_warn "market ${m}: sources[$i] Reflector ${pcontract} is none of networks.json cex/dex/fx oracles" ;;
+                    esac
+                    ;;
+                RedStone)
+                    if [ -n "$pcontract" ] && [ "$pcontract" != "$redstone" ]; then
+                        vc_warn "market ${m}: sources[$i] RedStone contract differs from networks.json redstone_adapter_contract"
+                    fi
+                    if [ "$fstale" != "missing" ] && [ "$fstale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
+                        vc_err "market ${m}: sources[$i] RedStone max_stale_seconds ${fstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
+                    fi
+                    ;;
+                Xoxno)
+                    if [ -n "$pcontract" ] && [ "$pcontract" != "$xoxno_adapter" ]; then
+                        vc_warn "market ${m}: sources[$i] Xoxno contract differs from networks.json xoxno_oracle_adapter"
+                    fi
+                    if [ "$fstale" != "missing" ] && [ "$fstale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
+                        vc_err "market ${m}: sources[$i] Xoxno max_stale_seconds ${fstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
+                    fi
+                    ;;
+            esac
+            i=$((i + 1))
+        done
+    done
+
+
+
+    local rname ro needed
+    for rname in $(jq -r '(.references // [])[].name // empty' "$MARKET_CONFIG_FILE"); do
+        ro=$(jq -c --arg n "$rname" '.references[] | select(.name == $n) | .oracle' "$MARKET_CONFIG_FILE")
+        if ! printf '%s' "$ro" | jq -e '(.sources | type) == "array" and ((.sources | length) == 1 or (.sources | length) == 2)' >/dev/null; then
+            vc_err "reference ${rname}: oracle.sources must be length 1 or 2"
         fi
-        if [ "$atag" = "RedStone" ] || [ "$atag" = "Xoxno" ]; then
-            astale=$(printf '%s' "$o" | jq -r '.anchor.values[0].values[0].max_stale_seconds // "missing"')
-            if [ "$astale" = "missing" ]; then
-                vc_err "market ${m}: anchor ${atag} missing max_stale_seconds"
-            elif [ "$astale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
-                vc_err "market ${m}: anchor ${atag} max_stale_seconds ${astale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
-            fi
+        if ! printf '%s' "$ro" | jq -e '(.asset_decimals // -1) == 0' >/dev/null; then
+            vc_err "reference ${rname}: asset_decimals must be 0 for PriceKey::Ref"
+        fi
+        if ! printf '%s' "$ro" | jq -e 'has("min_sanity_price_wad") and has("max_sanity_price_wad")' >/dev/null; then
+            vc_err "reference ${rname}: missing min/max_sanity_price_wad"
+        fi
+    done
+    for needed in $(all_oracle_ref_dependencies); do
+        if ! jq -e --arg n "$needed" '
+            any(.references[]?; (.name == $n) or (.key.Ref == $n))
+        ' "$MARKET_CONFIG_FILE" >/dev/null; then
+            vc_err "oracle dependency Ref ${needed} is not listed under .references[]"
+        fi
+    done
+    for rname in $(jq -r '(.references // [])[].name // empty' "$MARKET_CONFIG_FILE"); do
+        if ! jq -e --arg n "$rname" '
+            any(.markets[]?; any(.oracle.sources[]?;
+                (.Scaled.quote.Ref // "") == $n or
+                ((.AquariusLp // .AquariusStableLp).key_a.Ref // "") == $n or
+                ((.AquariusLp // .AquariusStableLp).key_b.Ref // "") == $n))
+        ' "$MARKET_CONFIG_FILE" >/dev/null; then
+            vc_warn "reference ${rname} is listed but no market Scaled source quotes it"
         fi
     done
 
-    # DEX-primary markets reprice through their quote asset's oracle
-    # (ReflectorBase::Quoted): the quote market must be configured FIRST, and
-    # setupAllMarkets configures in file order. Fail when the very first market
-    # is DEX-primary; otherwise remind that ordering is load-bearing.
+
+
     local first_dex
-    first_dex=$(jq -r --arg dex "$dex" 'first(.markets | to_entries[] |
-        select(.value.oracle.primary.tag == "Reflector" and .value.oracle.primary.values[0].contract == $dex) | .key) // ""' \
-        "$MARKET_CONFIG_FILE")
+    first_dex=$(jq -r --arg dex "$dex" '
+        first(.markets | to_entries[] |
+            select(any(.value.oracle.sources[]?;
+                (.Feed.provider.Reflector.contract // "") == $dex)) | .key) // empty
+        ' "$MARKET_CONFIG_FILE")
     if [ "$first_dex" = "0" ]; then
-        vc_err "first market in ${MARKET_CONFIG_FILE} is DEX-oracle-primary; its USD quote market must come before it (file order = setup order)"
+        vc_err "first market in ${MARKET_CONFIG_FILE} uses DEX Reflector; its USD quote market must come before it (file order = setup order)"
     elif [ -n "$first_dex" ]; then
         vc_warn "DEX-oracle markets present: each one's USD quote market must appear EARLIER in ${MARKET_CONFIG_FILE} (file order = setup order)"
     fi
 
-    # Spokes: every asset must resolve to a market on the SAME hub, with sane
-    # risk params.
+
+
     local cat a sj maddr mhub
     for cat in $(jq -r 'keys[]' "$SPOKES_FILE"); do
         for a in $(jq -r --arg c "$cat" '.[$c].assets | keys[]' "$SPOKES_FILE"); do
@@ -1475,8 +1618,8 @@ validate_configs() {
         done
     done
 
-    # A market in no spoke deploys pending (base spoke-0 listing stays
-    # non-collateralizable/borrowable) and is unusable until listed.
+
+
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
         if ! jq -e --arg m "$m" '[.[].assets | keys[]] | index($m) != null' "$SPOKES_FILE" >/dev/null; then
             vc_warn "market ${m} is not referenced by any spoke (deploys pending; unusable until listed)"
@@ -1490,9 +1633,9 @@ validate_configs() {
     return 0
 }
 
-# ---------------------------------------------------------------------------
-# List functions
-# ---------------------------------------------------------------------------
+
+
+
 
 list_markets() {
     echo "Available markets (${NETWORK}):"
@@ -1517,9 +1660,9 @@ list_spokes() {
     fi
 }
 
-# Pair each market's configured hub_id with its asset_address, producing the
-# Vec<HubAssetKey> JSON (`[{"hub_id":<n>,"asset":"<addr>"}, ...]`) the controller
-# expects. There is no implicit hub 0: a market missing its hub_id aborts.
+
+
+
 build_hub_assets_json() {
     local assets_json="["
     local first=1
@@ -1550,9 +1693,9 @@ build_hub_assets_json() {
     echo "$assets_json"
 }
 
-# ---------------------------------------------------------------------------
-# Spoke functions
-# ---------------------------------------------------------------------------
+
+
+
 
 add_spoke() {
     local category_id=$1
@@ -1562,16 +1705,16 @@ add_spoke() {
 
     echo "Adding Spoke category ${category_id}: ${name}" >&2
 
-    # Timelocked AdminOperation::AddSpoke (no on-chain args; risk params are
-    # per-asset). Salt is seeded with the config category id so multi-spoke
-    # setup runs get distinct op ids (args stay []; a shared salt collides).
-    # GUARDIAN-immediate add_spoke also exists on governance; this path is
-    # timelocked.
+
+
+
+
+
     local args_json='[]'
     local salt
     salt=$(gen_salt "add_spoke:${category_id}" "$args_json")
 
-    # "never": re-executing a spoke create would mint a duplicate spoke.
+
     local op_id
     op_id=$(schedule_via_proposer \
         add_spoke "$(admin_op AddSpoke)" "$args_json" true "$salt" never)
@@ -1586,8 +1729,8 @@ add_spoke() {
         die "spoke-create op ${op_id} already executed; its returned id cannot be re-read. Record the on-chain id in ${NETWORKS_FILE} spoke_ids manually."
     fi
     await_op_ready "$op_id"
-    # The controller's add_spoke returns the new on-chain id; the
-    # generic execute prints that returned Val on its last line.
+
+
     local result errf
     errf=$(mktemp)
     result=$(execute_op "$op_id" 2>"$errf") || {
@@ -1625,7 +1768,7 @@ persist_spoke_id() {
 }
 
 fetch_spoke_json() {
-    # Spoke reads stay on the controller; only writes route through governance.
+
     local onchain_id=$1
     local ctrl
     ctrl=$(get_controller)
@@ -1638,23 +1781,23 @@ spoke_is_deprecated() {
     printf '%s' "$category_json" | jq -e '.is_deprecated == true' >/dev/null
 }
 
-# Content guard for category reuse. Returns 0 when every asset already
-# configured on-chain in `category_json` also appears in config category
-# `config_category_id`; returns 1 when the on-chain category holds any asset
-# this config does not list. An on-chain category with no assets is compatible
-# (setup will populate it). On-chain categories carry no name, so a foreign
-# category whose assets are a strict subset of this config's assets cannot be
-# distinguished here — closing that residual needs an on-chain identity field.
+
+
+
+
+
+
+
 spoke_assets_match_config() {
     local config_category_id=$1
     local category_json=$2
 
-    # Current get_spoke returns SpokeConfig (no embedded `.assets` map; assets
-    # live under separate SpokeAsset keys). If the response lacks a readable
-    # assets object we cannot enumerate foreign assets, so we allow reuse of
-    # the mapped id. Per-asset reconciliation in ensure_asset_in_spoke uses
-    # direct get_spoke_asset probes (and on-chain add/edit will enforce
-    # presence).
+
+
+
+
+
+
     if ! printf '%s' "$category_json" | jq -e '.assets | type == "object"' >/dev/null 2>&1; then
         echo "WARN: on-chain Spoke category for config ${config_category_id} has no readable .assets map (current contract); cannot fully verify. Proceeding." >&2
         return 0
@@ -1662,16 +1805,16 @@ spoke_assets_match_config() {
 
     local onchain_assets
     onchain_assets=$(printf '%s' "$category_json" | jq -r '.assets | keys[]')
-    # An empty on-chain category is compatible — setup will populate it.
+
     [ -z "$onchain_assets" ] && return 0
 
     local expected_addrs=" "
     local asset_name asset_addr
     for asset_name in $(jq -r ".\"$config_category_id\".assets | keys[]" "$SPOKES_FILE"); do
         asset_addr=$(get_market_value "$asset_name" "asset_address")
-        # An unresolved asset means the config references something the markets
-        # file lacks; fail with that specific reason rather than silently
-        # dropping it (which would later mislabel an on-chain asset as foreign).
+
+
+
         if [ -z "$asset_addr" ] || [ "$asset_addr" = "null" ]; then
             echo "ERROR: spoke config ${config_category_id} lists asset '${asset_name}' missing from the markets file; cannot verify category reuse." >&2
             return 1
@@ -1689,11 +1832,11 @@ spoke_assets_match_config() {
     return 0
 }
 
-# A category only groups assets and tracks deprecation; risk params live on the
-# per-asset configs (ensured by `ensure_asset_in_spoke`). Reuse therefore
-# requires two checks: the category must not be deprecated, and every asset it
-# already holds on-chain must belong to this config category — otherwise we
-# would silently rewrite a different category's (possibly live) risk params.
+
+
+
+
+
 ensure_spoke() {
     local config_category_id=$1
     local mapped_id
@@ -1766,17 +1909,17 @@ add_asset_to_spoke() {
     borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
-    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else
-    # fall back to the market's own top-level liquidation_fees (config-file-only
-    # convenience default — MarketParamsRaw has no such field on-chain), else 0.
+
+
+
     local liquidation_fees
     liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
         liquidation_fees=$(get_market_value "$asset_name" "liquidation_fees")
     fi
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
-    # SpokeAssetArgs.paused / .frozen: per-listing incident flags; optional in
-    # spokes.json, defaulting to an active (false/false) listing.
+
+
     local paused frozen
     paused=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".paused")
     frozen=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".frozen")
@@ -1801,8 +1944,8 @@ add_asset_to_spoke() {
         die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
     fi
 
-    # add_asset_to_spoke(SpokeAssetArgs). resolve_op schedules a single
-    # SpokeAssetArgs struct, so the replay args_json is one struct element.
+
+
     local args_json
     args_json=$(jq -nc \
         --argjson arg "$(scval_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" \
@@ -1811,7 +1954,7 @@ add_asset_to_spoke() {
     local salt
     salt=$(gen_salt "add_asset_to_spoke" "$args_json")
 
-    # The propose `--op` payload is the single SpokeAssetArgs in friendly form.
+
     local admin_op_json
     admin_op_json=$(admin_op AddAssetToSpoke \
         "$(friendly_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
@@ -1848,17 +1991,17 @@ edit_asset_in_spoke() {
     borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
-    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else
-    # fall back to the market's own top-level liquidation_fees (config-file-only
-    # convenience default — MarketParamsRaw has no such field on-chain), else 0.
+
+
+
     local liquidation_fees
     liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
         liquidation_fees=$(get_market_value "$asset_name" "liquidation_fees")
     fi
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
-    # SpokeAssetArgs.paused / .frozen: per-listing incident flags; optional in
-    # spokes.json, defaulting to an active (false/false) listing.
+
+
     local paused frozen
     paused=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".paused")
     frozen=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".frozen")
@@ -1873,8 +2016,8 @@ edit_asset_in_spoke() {
         die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
     fi
 
-    # edit_asset_in_spoke(SpokeAssetArgs). resolve_op schedules a single
-    # SpokeAssetArgs struct, so the replay args_json is one struct element.
+
+
     local args_json
     args_json=$(jq -nc \
         --argjson arg "$(scval_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" \
@@ -1883,7 +2026,7 @@ edit_asset_in_spoke() {
     local salt
     salt=$(gen_salt "edit_asset_in_spoke" "$args_json")
 
-    # The propose `--op` payload is the single SpokeAssetArgs in friendly form.
+
     local admin_op_json
     admin_op_json=$(admin_op EditAssetInSpoke \
         "$(friendly_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
@@ -1918,9 +2061,9 @@ ensure_asset_in_spoke() {
     borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
     if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
     if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
-    # SpokeAssetArgs.liquidation_fees: per-spoke value from spokes.json, else
-    # fall back to the market's own top-level liquidation_fees (config-file-only
-    # convenience default — MarketParamsRaw has no such field on-chain), else 0.
+
+
+
     local liquidation_fees
     liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
@@ -1935,8 +2078,8 @@ ensure_asset_in_spoke() {
     fi
 
     category_json=$(fetch_spoke_json "$category_id")
-    # Bridge for current contract (get_spoke has no .assets; SpokeAsset is separate).
-    # Probe the specific asset and synthesize the shape the decision/compare code expects.
+
+
     local _hub _ha _probe
     _hub=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
     if [ -n "$_hub" ] && [ "$_hub" != "null" ]; then
@@ -1968,14 +2111,14 @@ ensure_asset_in_spoke() {
              (.assets[$asset].borrow_cap | tostring) == $borrow_cap' >/dev/null; then
             echo "Asset ${asset_name} already configured in Spoke category ${category_id}."
         else
-            # Drift proven by the on-chain compare: force re-apply even in
-            # converge mode, else a toggle back to an earlier setting would hit
-            # its executed local record and be skipped forever.
+
+
+
             REAPPLY_ON_DONE=1 edit_asset_in_spoke "$category_id" "$asset_name" "$config_category_id"
         fi
     else
-        # Absence proven by the on-chain probe: a re-add after a removal must
-        # re-apply even if an identical add executed before.
+
+
         REAPPLY_ON_DONE=1 add_asset_to_spoke "$category_id" "$asset_name" "$config_category_id"
     fi
 }
@@ -1987,13 +2130,13 @@ setup_all_spokes() {
 
     for cat_id in $categories; do
         local onchain_id
-        # Bare assignment (declared separately so `local` doesn't mask the
-        # status): a command substitution inside an `if` condition would suppress
-        # `set -e` within ensure_spoke and its callees, silently
-        # continuing on an inner failure or the content guard's `return 1`. With
-        # a plain assignment, `set -e` stays active inside the function and
-        # aborts the deploy on any non-zero exit; the guard prints the specific
-        # reason to stderr before returning.
+
+
+
+
+
+
+
         onchain_id=$(ensure_spoke "$cat_id")
         onchain_id=$(printf '%s\n' "$onchain_id" | tail -n1)
 
@@ -2007,19 +2150,19 @@ setup_all_spokes() {
     echo "=== All Spoke categories configured ==="
 }
 
-# ---------------------------------------------------------------------------
-# Hub functions
-#
-# Hubs are the top-level market containers. There is no implicit hub 0:
-# `create_hub` is the only way to mint one and it returns ids 1, 2, … in
-# creation order. Every market (`create_liquidity_pool`) and spoke-asset listing
-# carries an explicit hub_id, so the hubs referenced by the market config must
-# exist on-chain before any market is listed.
-# This script schedules AdminOperation::CreateHub through the timelock (no
-# on-chain args) and reads the returned u32 id on execute — same pattern as
-# add_spoke. Governance also exposes GUARDIAN-immediate create_hub / add_spoke
-# for incident registry creation; tooling uses the timelocked path by default.
-# ---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 get_mapped_hub_id() {
     local config_hub_id=$1
@@ -2038,9 +2181,9 @@ persist_hub_id() {
         "$NETWORKS_FILE" > "$tmp" && mv "$tmp" "$NETWORKS_FILE"
 }
 
-# Create the hub with config id `expected` unless it is already recorded for this
-# network. Hubs mint sequentially, so the on-chain id must equal `expected`
-# (distinct hub_ids are processed in ascending order); a mismatch is a hard error.
+
+
+
 ensure_hub() {
     local expected=$1
     case "$expected" in
@@ -2057,13 +2200,13 @@ ensure_hub() {
         return 0
     fi
 
-    # Timelocked AdminOperation::CreateHub (no on-chain args); controller
-    # returns the new hub id on execute.
+
+
     local args_json='[]'
     local salt
     salt=$(gen_salt "create_hub:${expected}" "$args_json")
 
-    # "never": re-executing a hub create would mint a duplicate hub.
+
     local op_id
     op_id=$(schedule_via_proposer \
         create_hub "$(admin_op CreateHub)" "$args_json" true "$salt" never)
@@ -2077,7 +2220,7 @@ ensure_hub() {
         die "hub-create op ${op_id} already executed; its returned id cannot be re-read. Record the on-chain id in ${NETWORKS_FILE} hub_ids manually."
     fi
     await_op_ready "$op_id"
-    # The generic execute prints the controller's returned hub id on its last line.
+
     local result onchain_id errf
     errf=$(mktemp)
     result=$(execute_op "$op_id" 2>"$errf") || {
@@ -2097,9 +2240,9 @@ ensure_hub() {
     echo "Hub ${expected} created with on-chain id ${onchain_id}." >&2
 }
 
-# Create every distinct hub referenced by the market config (ascending order)
-# before any market is listed. Idempotent: hubs already recorded in
-# networks.json are skipped.
+
+
+
 ensure_hubs() {
     echo "=== Ensuring hubs for ${NETWORK} ===" >&2
     local hub_ids
@@ -2114,9 +2257,9 @@ ensure_hubs() {
     echo "=== Hubs ready ===" >&2
 }
 
-# ---------------------------------------------------------------------------
-# Market functions
-# ---------------------------------------------------------------------------
+
+
+
 
 create_market() {
     local market_name=$1
@@ -2149,8 +2292,8 @@ create_market() {
     local ctrl
     ctrl=$(get_controller)
 
-    # Existence probe is a controller view; creation writes go via governance.
-    # The base spoke-0 listing exists once the market is created.
+
+
     local hub_asset
     hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     if stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_spoke_asset --spoke_id 0 --hub_asset "$hub_asset" &>/dev/null; then
@@ -2158,10 +2301,10 @@ create_market() {
         return 0
     fi
 
-    # Build MarketParamsRaw JSON: rate model + is_flashloanable/flashloan_fee
-    # (both live directly on market_params — MarketParamsRaw is one flat
-    # struct, there is no separate on-chain asset-config type) + asset_id +
-    # asset_decimals.
+
+
+
+
     local params
     params=$(jq -c --arg decimals "$decimals" \
         ".markets[] | select(.name == \"$market_name\") | .market_params + {
@@ -2171,14 +2314,14 @@ create_market() {
             flashloan_fee: (.market_params.flashloan_fee // 0)
         }" \
         "$MARKET_CONFIG_FILE")
-    # The controller deploys markets in a pending state (base spoke-0 listing
-    # not collateralizable/borrowable); activation happens via spoke listings.
 
-    # create_liquidity_pool(hub_id, asset, params) — u32 + Address + one field-map
-    # struct. The governance handler resolves CreateLiquidityPool to exactly these
-    # three call args; per-asset risk config is applied separately via
-    # add_asset_to_spoke, not here. The scheduled args equal these inputs
-    # (governance validates but does not transform), so they are CLI-replayable.
+
+
+
+
+
+
+
     local params_scval
     params_scval=$(scval_market_params "$params")
     local args_json
@@ -2190,8 +2333,8 @@ create_market() {
     local salt
     salt=$(gen_salt "create_liquidity_pool" "$args_json")
 
-    # The propose `--op` payload wraps hub_id + asset + the friendly params/config
-    # objects (Rust field names) in CreatePoolArgs.
+
+
     local admin_op_json
     admin_op_json=$(admin_op CreateLiquidityPool \
         "$(jq -nc --argjson hub_id "$hub_id" --arg asset "$asset_address" --argjson params "$params" \
@@ -2205,10 +2348,10 @@ create_market() {
     echo "Market ${market_name} scheduled/created."
 }
 
-# Push the JSON's `market_params` InterestRateModel slice (rates +
-# max_utilization + reserve_factor + is_flashloanable/flashloan_fee) onto the
-# pool via the controller's `upgrade_liquidity_pool_params` route. Use after
-# changing any rate / utilization-ceiling / flash-loan field in markets JSON.
+
+
+
+
 update_market_params() {
     local market_name=$1
 
@@ -2216,8 +2359,8 @@ update_market_params() {
 
     local asset_address
     asset_address=$(get_market_value "$market_name" "asset_address")
-    # `asset_id` / `asset_decimals` may appear on market_params for create_market
-    # but InterestRateModel does not carry them — helpers select IRM keys only.
+
+
     local params
     params=$(jq -c \
         ".markets[] | select(.name == \"$market_name\") | .market_params" \
@@ -2234,8 +2377,8 @@ update_market_params() {
         die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
     fi
 
-    # upgrade_liquidity_pool_params(hub_asset, InterestRateModel) — HubAssetKey +
-    # struct. The replay args_json stays explicit ScVal (HubAssetKey + IRM map).
+
+
     local args_json
     args_json=$(jq -nc \
         --argjson hub_asset "$(scval_hub_asset "$asset_address" "$hub_id")" \
@@ -2244,8 +2387,8 @@ update_market_params() {
     local salt
     salt=$(gen_salt "upgrade_liquidity_pool_params" "$args_json")
 
-    # The propose `--op` payload wraps hub_asset + the friendly InterestRateModel
-    # (all 11 IRM fields) in UpgradePoolParamsArgs.
+
+
     local irm_friendly
     irm_friendly=$(jq -nc --argjson p "$params" '{
         base_borrow_rate: ($p.base_borrow_rate|tostring),
@@ -2289,8 +2432,8 @@ update_indexes() {
     local assets_json
     assets_json=$(build_hub_assets_json "$@")
 
-    # update_indexes takes Vec<HubAssetKey>; each asset is paired with its
-    # configured hub_id.
+
+
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- update_indexes \
         --caller "$caller" \
@@ -2300,7 +2443,7 @@ update_indexes() {
 }
 
 claim_revenue() {
-    # claim_revenue is operational, not admin: it stays controller-direct.
+
     if [ $# -eq 0 ]; then
         echo "Usage: $0 claimRevenue <market_name> [market_name...]" >&2
         list_markets >&2
@@ -2316,8 +2459,8 @@ claim_revenue() {
     local assets_json
     assets_json=$(build_hub_assets_json "$@")
 
-    # claim_revenue takes Vec<HubAssetKey>; each asset is paired with its
-    # configured hub_id.
+
+
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- claim_revenue \
         --caller "$caller" \
@@ -2342,8 +2485,8 @@ claim_revenue_all() {
     local caller
     caller=$(get_signer_address)
 
-    # claim_revenue takes Vec<HubAssetKey>; each asset is paired with its
-    # configured hub_id.
+
+
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- claim_revenue \
         --caller "$caller" \
@@ -2352,16 +2495,16 @@ claim_revenue_all() {
     echo "Revenue claimed for all markets."
 }
 
-# ---------------------------------------------------------------------------
-# Blend V2 migration source allow-list
-#
-# `migrate_from_blend` only accepts a governance-approved Blend pool as its
-# source. `whitelistBlendPools` reads configs/${NETWORK}/blend.json for the current
-# network, checks each pool against the controller view `is_blend_pool_approved`,
-# and schedules a timelocked `approve_blend_pool` for any that are missing.
-# Already-approved pools are skipped, so re-runs cost no redundant timelock op
-# (important on mainnet's multi-day delay).
-# ---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
 
 is_blend_pool_whitelisted() {
     local pool=$1
@@ -2380,8 +2523,8 @@ approve_blend_pool() {
     fi
 
     echo "Whitelisting Blend pool ${pool} (timelocked approve_blend_pool)..." >&2
-    # approve_blend_pool(pool) — single Address arg; scheduled args equal the
-    # input, so the op is fully CLI-replayable through generic execute.
+
+
     local args_json
     args_json=$(jq -nc --arg p "$pool" '[{address:$p}]')
     local salt
@@ -2416,17 +2559,17 @@ whitelist_blend_pools() {
     echo "=== Blend pool whitelist complete (${NETWORK}) ===" >&2
 }
 
-# ---------------------------------------------------------------------------
-# Spoke liquidation-curve overrides
-#
-# Spokes are stamped with the contract's default liquidation curve at
-# creation. `configureSpokeCurves` reads the optional `liquidation_curve`
-# block per spoke from configs/${NETWORK}/spokes.json, compares it against the
-# live `get_spoke` view, and schedules a timelocked
-# `set_spoke_liquidation_curve` only where they differ. Curve-less spokes and
-# already-matching spokes are skipped, so re-runs cost no redundant timelock
-# op (important on mainnet's multi-day delay).
-# ---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
 
 configure_spoke_curves() {
     if [ ! -f "$SPOKES_FILE" ]; then
@@ -2485,7 +2628,7 @@ set_aggregator() {
 
     echo "  Swap Aggregator Address: ${router}" >&2
 
-    # set_swap_aggregator(addr) — single Address arg.
+
     local args_json
     args_json=$(jq -nc --arg a "$router" '[{address:$a}]')
     local salt
@@ -2500,9 +2643,9 @@ set_aggregator() {
     echo "Swap aggregator scheduled via governance."
 }
 
-# Wire the controller to the governance-deployed price aggregator via the
-# timelocked SetPriceAggregator governance-self op (updates governance's own
-# stored oracle authority AND the controller in one execution).
+
+
+
 set_price_aggregator() {
     echo "Wiring Price Aggregator (oracle authority) for ${NETWORK}..."
     local agg
@@ -2537,7 +2680,7 @@ set_accumulator() {
 
     echo "  Accumulator Address: ${accumulator}" >&2
 
-    # set_accumulator(addr) — single Address arg.
+
     local args_json
     args_json=$(jq -nc --arg a "$accumulator" '[{address:$a}]')
     local salt
@@ -2552,18 +2695,18 @@ set_accumulator() {
     echo "Accumulator scheduled via governance."
 }
 
-# ---------------------------------------------------------------------------
-# Position helpers (supply / borrow)
-#
-# Strategy entry points (multiply, swap_debt, swap_collateral,
-# repay_debt_with_collateral) are still defined on the controller but require
-# an AggregatorSwap JSON sourced from the off-chain quote server backing the
-# in-house swap aggregator. Invoke them via `make invoke` with a swap JSON
-# produced by that quote server.
-# ---------------------------------------------------------------------------
 
-# `supply` — deposit collateral.
-# Args: <market> <amount_raw> [<account_id:0>] [<spoke_id:0>]
+
+
+
+
+
+
+
+
+
+
+
 supply_position() {
     local market=$1
     local amount_raw=$2
@@ -2588,7 +2731,7 @@ supply_position() {
     echo "  Amount:   $amount_raw"
     echo
 
-    # i128 amounts are decimal strings so large raw values stay exact.
+
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- supply \
         --caller "$caller" \
@@ -2597,8 +2740,8 @@ supply_position() {
         --assets "[[{\"hub_id\":$hub_id,\"asset\":\"$asset_addr\"}, \"$amount_raw\"]]"
 }
 
-# `borrow` — open a borrow position against existing collateral.
-# Args: <market> <amount_raw> <account_id>
+
+
 borrow_position() {
     local market=$1
     local amount_raw=$2
@@ -2621,7 +2764,7 @@ borrow_position() {
     echo "  Amount:  $amount_raw"
     echo
 
-    # i128 amounts are decimal strings so large raw values stay exact.
+
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- borrow \
         --caller "$caller" \
@@ -2630,8 +2773,8 @@ borrow_position() {
         --to null
 }
 
-# `withdraw` — withdraw supplied collateral from an account.
-# Args: <market> <amount_raw> <account_id>   (amount 0 = withdraw all / close position)
+
+
 withdraw_position() {
     local market=$1
     local amount_raw=$2
@@ -2662,125 +2805,108 @@ withdraw_position() {
         --to null
 }
 
-configure_market_oracle() {
+
+market_oracle_ref_dependencies() {
     local market_name=$1
+    jq -r --arg m "$market_name" '
+        .markets[] | select(.name == $m) | (.oracle.sources // [])[] |
+        (.Scaled.quote.Ref // (.AquariusLp // .AquariusStableLp).key_a.Ref // empty),
+        ((.AquariusLp // .AquariusStableLp).key_b.Ref // empty)
+    ' "$MARKET_CONFIG_FILE" | sort -u
+}
 
-    echo "Configuring market oracle for ${market_name}..."
 
-    # Preflight: every oracle config must carry sanity bounds. On mainnet
-    # the `(0, 0)` disabled-sentinel is rejected — that combination is for
-    # test setups only. (Codex adversarial-review #4.)
-    local missing
-    missing=$(jq -r --arg m "$market_name" '
-        .markets[] | select(.name == $m) | .oracle |
-        (if has("min_sanity_price_wad") and has("max_sanity_price_wad")
-            then "" else "missing min_sanity_price_wad / max_sanity_price_wad" end)
+all_oracle_ref_dependencies() {
+    jq -r '
+        [.markets[] | (.oracle.sources // [])[] |
+         (.Scaled.quote.Ref // (.AquariusLp // .AquariusStableLp).key_a.Ref // empty),
+         ((.AquariusLp // .AquariusStableLp).key_b.Ref // empty)] | unique | .[]
+    ' "$MARKET_CONFIG_FILE"
+}
+
+require_reference_entry() {
+    local ref_name=$1
+    local entry
+    entry=$(jq -c --arg n "$ref_name" '
+        first(.references[]? | select(.name == $n or .key.Ref == $n)) // empty
     ' "$MARKET_CONFIG_FILE")
-    if [ -n "$missing" ]; then
-        echo "ERROR: $market_name oracle config $missing" >&2
+    if [ -z "$entry" ] || [ "$entry" = "null" ]; then
+        echo "ERROR: reference oracle '${ref_name}' not listed in ${MARKET_CONFIG_FILE} .references[]" >&2
+        echo "       Scaled quotes need a PriceKey::Ref entry with name/key matching '${ref_name}'." >&2
+        exit 1
+    fi
+    printf '%s' "$entry"
+}
+
+preflight_oracle_sanity() {
+    local label=$1
+    local oracle_json=$2
+    if ! printf '%s' "$oracle_json" | jq -e 'has("min_sanity_price_wad") and has("max_sanity_price_wad")' >/dev/null; then
+        echo "ERROR: ${label} oracle config missing min_sanity_price_wad / max_sanity_price_wad" >&2
         exit 1
     fi
     if [ "$NETWORK" = "mainnet" ]; then
-        local zero
-        zero=$(jq -r --arg m "$market_name" '
-            .markets[] | select(.name == $m) | .oracle |
-            (if (.min_sanity_price_wad == "0" and .max_sanity_price_wad == "0")
-                then "yes" else "no" end)
-        ' "$MARKET_CONFIG_FILE")
-        if [ "$zero" = "yes" ]; then
-            echo "ERROR: $market_name uses (0, 0) sanity-bound sentinel on mainnet" >&2
+        if printf '%s' "$oracle_json" | jq -e '
+            (.min_sanity_price_wad | tostring) == "0" and
+            (.max_sanity_price_wad | tostring) == "0"
+        ' >/dev/null; then
+            echo "ERROR: ${label} uses (0, 0) sanity-bound sentinel on mainnet" >&2
             exit 1
         fi
     fi
+}
 
-    local asset_address
-    asset_address=$(require_market_address "$market_name")
-    # Token-rooted oracle config; hub_id still required for ConfigureMarketOracle
-    # admin-op shape / resolve-record metadata.
-    local hub_id
-    hub_id=$(get_market_value "$market_name" "hub_id")
-    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
-        die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
-    fi
-    local cfg_file
-    cfg_file=$(mktemp)
-    jq -c --arg market "$market_name" '
-        def cli_union:
-            if type == "object" and has("tag") and has("values") then
-                if .values == null or .values == [] then
-                    .tag
-                elif (.values | type) == "array" and (.values | length) == 1 then
-                    {(.tag): (.values[0] | cli_union)}
-                else
-                    {(.tag): (.values | map(cli_union))}
-                end
-            elif type == "object" then
-                with_entries(.value |= cli_union)
-            elif type == "array" then
-                map(cli_union)
-            else
-                .
-            end;
-        .markets[] | select(.name == $market) | .oracle | cli_union
-    ' "$MARKET_CONFIG_FILE" > "$cfg_file"
 
-    # propose(ConfigureMarketOracle{asset, cfg}) validates+probes the INPUT cfg,
-    # then schedules price-aggregator set_oracle_config with the
-    # governance-RESOLVED AssetOracleConfig. The CLI can't capture that struct
-    # as ScVal from the friendly view output, so the op record stores a `resolve`
-    # block (the resolve_market_oracle_config view + the input cfg); executeOp
-    # replays the view through the aggregator's typed setter (`--build-only`) to
-    # reconstruct byte-identical args. See resolve_oracle_op_args.
-    local gov
+
+
+
+
+schedule_configure_asset_oracle() {
+    local label=$1
+    local key_json=$2
+    local cfg_json=$3
+
+    local gov proposer
     gov=$(get_governance)
-    local proposer
     proposer=$(get_signer_address)
 
-    local cfg_json
-    cfg_json=$(jq -c . "$cfg_file")
-    rm -f "$cfg_file"
-    local salt
-    local salt_input
-    salt_input=$(jq -nc --argjson cfg "$cfg_json" --arg asset "$asset_address" \
-        '{asset:$asset, cfg:$cfg}')
-    salt=$(gen_salt "set_oracle_config" "$salt_input")
-    local resolve_args
-    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" --argjson hub_id "$hub_id" \
-        '{hub_id:$hub_id, asset:$asset, cfg:$cfg}')
+    local salt_input salt resolve_args
+    salt_input=$(jq -nc --argjson oracle "$cfg_json" --argjson key "$key_json" \
+        '{key:$key, oracle:$oracle}')
+    salt=$(gen_salt "set_oracle" "$salt_input")
+    resolve_args=$(jq -nc --argjson key "$key_json" --argjson oracle "$cfg_json" \
+        '{key:$key, oracle:$oracle}')
 
-    # Idempotency pre-check: derive the scheduled (resolved) args now, compute
-    # the deterministic op id, and reuse an op that already exists on-chain
-    # instead of re-proposing (which the timelock rejects). A resolve failure
-    # falls through to propose, whose validation reports the authoritative error.
+
     local agg resolved_args salt_use known_id state gen
     agg=$(get_price_aggregator)
-    resolved_args=$(resolve_oracle_args_for resolve_market_oracle_config "$agg" \
-        set_oracle_config "$asset_address" "$hub_id" "$cfg_json" 2>/dev/null) || resolved_args=""
+    resolved_args=$(resolve_oracle_args_for resolve_asset_oracle "$agg" \
+        set_oracle "$key_json" "$cfg_json" 2>/dev/null) || resolved_args=""
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
-        read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle_config "$resolved_args" "$salt")
+        read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle "$resolved_args" "$salt")
         case "$state" in
             Ready|Waiting)
-                echo "Oracle config op ${known_id} for ${market_name} already ${state}; reusing it instead of re-proposing." >&2
-                write_oracle_op_record "$known_id" "set_oracle_config" \
-                    "resolve_market_oracle_config" "$resolve_args" "$salt_use"
+                echo "Oracle config op ${known_id} for ${label} already ${state}; reusing it instead of re-proposing." >&2
+                write_oracle_op_record "$known_id" "set_oracle" \
+                    "resolve_asset_oracle" "$resolve_args" "$salt_use"
                 schedule_and_maybe_execute "$known_id"
                 return 0
                 ;;
             Exhausted)
-                die "configureMarketOracle ${market_name}: all ${MAX_SALT_GENERATIONS} salt generations already executed; re-run with a fresh SALT_NONCE=<n>"
+                die "configure oracle ${label}: all ${MAX_SALT_GENERATIONS} salt generations already executed; re-run with a fresh SALT_NONCE=<n>"
                 ;;
             Unset)
                 if [ "$gen" -gt 0 ]; then
                     if [ "${REAPPLY_ON_DONE:-1}" != "1" ]; then
                         local done_id
-                        done_id=$(precomputed_op_id "$agg" set_oracle_config "$resolved_args" "$salt")
-                        echo "Oracle config for ${market_name} already executed with this exact config; skipping propose (converge mode)." >&2
-                        write_oracle_op_record "$done_id" "set_oracle_config" \
-                            "resolve_market_oracle_config" "$resolve_args" "$salt"
+                        done_id=$(precomputed_op_id "$agg" set_oracle "$resolved_args" "$salt")
+                        echo "Oracle config for ${label} already executed with this exact config; skipping propose (converge mode)." >&2
+                        write_oracle_op_record "$done_id" "set_oracle" \
+                            "resolve_asset_oracle" "$resolve_args" "$salt"
                         mark_op_executed "$done_id"
                         return 0
                     fi
-                    echo "Oracle config for ${market_name} already executed with this exact config; RE-APPLYING as generation ${gen}." >&2
+                    echo "Oracle config for ${label} already executed with this exact config; RE-APPLYING as generation ${gen}." >&2
                     salt=$salt_use
                 fi
                 ;;
@@ -2788,20 +2914,12 @@ configure_market_oracle() {
         esac
     fi
 
-    # Generic propose takes the typed AdminOperation. ConfigureMarketOracle wraps
-    # ConfigureOracleArgs { hub_asset, cfg: AssetOracleConfigInput }. cfg is the
-    # nested friendly cli_union JSON (built above); rather than hand-encode that
-    # deep union tree to explicit ScVal, pass the AdminOperation in friendly-enum
-    # form via --op-file-path (propose's `op` arg is typed, so the CLI's friendly
-    # decoder applies — exactly as the old --cfg-file-path consumed it). The
-    # execute/replay side is unaffected: it re-derives the RESOLVED config through
-    # the resolve_market_oracle_config view (write_oracle_op_record below).
     local op_file
     op_file=$(mktemp)
-    jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" --argjson hub_id "$hub_id" \
-        '{ConfigureMarketOracle: {hub_asset:{hub_id:$hub_id, asset:$asset}, cfg:$cfg}}' > "$op_file"
+    jq -nc --argjson key "$key_json" --argjson oracle "$cfg_json" \
+        '{ConfigureAssetOracle: {key:$key, oracle:$oracle}}' > "$op_file"
 
-    echo "Scheduling market oracle config for ${market_name}..." >&2
+    echo "Scheduling oracle config for ${label}..." >&2
     local out
     out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
@@ -2814,19 +2932,125 @@ configure_market_oracle() {
     local op_id
     op_id=$(parse_op_id "$out")
     if [ -z "$op_id" ]; then
-        echo "ERROR: propose ConfigureMarketOracle returned no operation id (output: $out)" >&2
+        echo "ERROR: propose ConfigureAssetOracle for ${label} returned no operation id (output: $out)" >&2
         exit 1
     fi
-    write_oracle_op_record "$op_id" "set_oracle_config" \
-        "resolve_market_oracle_config" "$resolve_args" "$salt"
+    write_oracle_op_record "$op_id" "set_oracle" \
+        "resolve_asset_oracle" "$resolve_args" "$salt"
 
-    echo "Market oracle scheduled for ${market_name} as op ${op_id}." >&2
+    echo "Oracle scheduled for ${label} as op ${op_id}." >&2
     schedule_and_maybe_execute "$op_id"
 }
 
-# Edit only a market's oracle tolerance bands. propose(EditOracleTolerance{...})
-# schedules price-aggregator set_tolerance with the governance-RESOLVED
-# OracleTolerance; executeOp re-derives it via resolve_oracle_tolerance.
+
+configure_reference_oracle() {
+    local ref_name=$1
+    if [ -z "$ref_name" ]; then
+        echo "Usage: $0 configureReferenceOracle <ref_name>" >&2
+        exit 1
+    fi
+
+    echo "Configuring reference oracle for ${ref_name}..."
+    local entry key_json cfg_json
+    entry=$(require_reference_entry "$ref_name")
+    key_json=$(printf '%s' "$entry" | jq -c '.key')
+    cfg_json=$(printf '%s' "$entry" | jq -c '.oracle' | oracle_cfg_cli_union)
+    preflight_oracle_sanity "reference ${ref_name}" "$cfg_json"
+
+    if ! printf '%s' "$cfg_json" | jq -e '(.asset_decimals // -1) == 0' >/dev/null; then
+        echo "ERROR: reference ${ref_name}: asset_decimals must be 0 for PriceKey::Ref" >&2
+        exit 1
+    fi
+
+    schedule_configure_asset_oracle "reference ${ref_name}" "$key_json" "$cfg_json"
+}
+
+
+
+ensure_reference_oracles_for_market() {
+    local market_name=$1
+    local ref
+    for ref in $(market_oracle_ref_dependencies "$market_name"); do
+        [ -z "$ref" ] && continue
+        echo "Market ${market_name} requires oracle reference ${ref}; ensuring it is configured..." >&2
+        configure_reference_oracle "$ref"
+    done
+}
+
+
+setup_all_reference_oracles() {
+    local refs ref
+    refs=$(all_oracle_ref_dependencies)
+    if [ -z "$refs" ]; then
+        echo "=== No oracle Ref dependencies in markets; skipping reference oracles ==="
+        return 0
+    fi
+    echo "=== Configuring reference oracles required by Scaled markets ==="
+    for ref in $refs; do
+        configure_reference_oracle "$ref"
+    done
+    echo "=== Reference oracles configured ==="
+}
+
+list_references() {
+    echo "=== Reference oracles (${NETWORK}) from ${MARKET_CONFIG_FILE} ===" >&2
+    if ! jq -e '(.references // []) | length > 0' "$MARKET_CONFIG_FILE" >/dev/null; then
+        echo "(none)" >&2
+        return 0
+    fi
+    local r i n src used_by
+    for r in $(jq -r '.references[].name' "$MARKET_CONFIG_FILE"); do
+        used_by=$(jq -r --arg r "$r" '
+            [.markets[] | select(any(.oracle.sources[]?;
+                (.Scaled.quote.Ref // "") == $r or
+                ((.AquariusLp // .AquariusStableLp).key_a.Ref // "") == $r or
+                ((.AquariusLp // .AquariusStableLp).key_b.Ref // "") == $r)) | .name] | join(", ")
+        ' "$MARKET_CONFIG_FILE")
+        [ -z "$used_by" ] && used_by="(unused by markets)"
+        jq -r --arg r "$r" --arg u "$used_by" '
+            first(.references[] | select(.name == $r)) |
+            "\(.name) key=\(.key|tostring) used_by=\($u): sources=\((.oracle.sources // [])|length) stale=\(.oracle.max_price_stale_seconds // "?")s independence=\(.oracle.independence // "?")"
+        ' "$MARKET_CONFIG_FILE" >&2
+        n=$(jq -r --arg r "$r" 'first(.references[] | select(.name == $r)) | (.oracle.sources // []) | length' "$MARKET_CONFIG_FILE")
+        i=0
+        while [ "$i" -lt "$n" ]; do
+            src=$(jq -c --arg r "$r" --argjson i "$i" \
+                'first(.references[] | select(.name == $r)) | .oracle.sources[$i]' "$MARKET_CONFIG_FILE")
+            describe_oracle_source "  source[$i]" "$src"
+            i=$((i + 1))
+        done
+    done
+}
+
+configure_market_oracle() {
+    local market_name=$1
+
+    echo "Configuring market oracle for ${market_name}..."
+
+
+    ensure_reference_oracles_for_market "$market_name"
+
+    local cfg_json
+    cfg_json=$(jq -c --arg market "$market_name" '
+        first(.markets[] | select(.name == $market) | .oracle) // empty
+    ' "$MARKET_CONFIG_FILE")
+    if [ -z "$cfg_json" ] || [ "$cfg_json" = "null" ]; then
+        echo "ERROR: market ${market_name} has no oracle config in ${MARKET_CONFIG_FILE}" >&2
+        exit 1
+    fi
+    cfg_json=$(printf '%s' "$cfg_json" | oracle_cfg_cli_union)
+    preflight_oracle_sanity "market ${market_name}" "$cfg_json"
+
+    local asset_address key_json
+    asset_address=$(require_market_address "$market_name")
+    key_json=$(price_key_token "$asset_address")
+
+    schedule_configure_asset_oracle "market ${market_name}" "$key_json" "$cfg_json"
+}
+
+
+
+
 edit_oracle_tolerance() {
     local market_name=$1
     local tolerance=$2
@@ -2837,26 +3061,28 @@ edit_oracle_tolerance() {
 
     local asset_address
     asset_address=$(require_market_address "$market_name")
+    local key_json
+    key_json=$(price_key_token "$asset_address")
     local gov
     gov=$(get_governance)
     local proposer
     proposer=$(get_signer_address)
 
     local salt_input
-    salt_input=$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
-        '{asset:$asset, tolerance:$t}')
+    salt_input=$(jq -nc --argjson key "$key_json" --argjson t "$tolerance" \
+        '{key:$key, tolerance:$t}')
     local salt
     salt=$(gen_salt "set_tolerance" "$salt_input")
     local resolve_args
-    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
-        '{asset:$asset, tolerance:$t}')
+    resolve_args=$(jq -nc --argjson key "$key_json" --argjson t "$tolerance" \
+        '{key:$key, tolerance:$t}')
 
-    # Idempotency pre-check (see configure_market_oracle): reuse an op that is
-    # already scheduled or executed instead of re-proposing.
+
+
     local agg resolved_args salt_use known_id state gen
     agg=$(get_price_aggregator)
     resolved_args=$(resolve_oracle_args_for resolve_oracle_tolerance "$agg" \
-        set_tolerance "$asset_address" "" "$tolerance" 2>/dev/null) || resolved_args=""
+        set_tolerance "$key_json" "$tolerance" 2>/dev/null) || resolved_args=""
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
         read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_tolerance "$resolved_args" "$salt")
         case "$state" in
@@ -2889,14 +3115,13 @@ edit_oracle_tolerance() {
         esac
     fi
 
-    # EditOracleTolerance wraps friendly EditToleranceArgs { asset,
-    # tolerance(u32) }. The `--op` payload carries the INPUT tolerance; the
-    # aggregator's RESOLVED OracleTolerance is re-derived at execute time via
-    # the resolve_oracle_tolerance block below.
+
+
+
     local admin_op_json
     admin_op_json=$(admin_op EditOracleTolerance \
-        "$(jq -nc --arg asset "$asset_address" --argjson t "$tolerance" \
-            '{asset:$asset, tolerance:$t}')")
+        "$(jq -nc --argjson key "$key_json" --argjson t "$tolerance" \
+            '{key:$key, tolerance:$t}')")
     local op_file
     op_file=$(mktemp)
     printf '%s' "$admin_op_json" > "$op_file"
@@ -2926,9 +3151,12 @@ edit_oracle_tolerance() {
 
 setup_all_markets() {
     echo "=== Setting up all markets for ${NETWORK} ==="
-    # Hubs must exist before any market is listed: create_liquidity_pool reverts
-    # HubNotActive for an uncreated hub (there is no implicit hub 0).
+
+
     ensure_hubs
+
+
+    setup_all_reference_oracles
     local markets
     markets=$(jq -r '.markets[].name' "$MARKET_CONFIG_FILE")
 
@@ -2939,9 +3167,9 @@ setup_all_markets() {
     echo "=== All markets configured ==="
 }
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+
+
+
 
 require_market_address() {
     local market_name=$1
@@ -2963,14 +3191,14 @@ all_configured_hub_assets() {
     jq -c '[.markets[] | select(.asset_address != null and .asset_address != "") | {hub_id, asset: .asset_address}]' "$MARKET_CONFIG_FILE"
 }
 
-# ---------------------------------------------------------------------------
-# Upgrade / deploy ops (WASM hash inputs) — scheduled through governance.
-#
-# The Makefile uploads the WASM and passes the resulting hash here; we schedule
-# the matching proposer then await+execute (AUTO_EXECUTE=1) so the upgrade lands
-# after the delay. Hashes are BytesN<32>; their scheduled args are fully
-# CLI-replayable.
-# ---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
 
 schedule_upgrade_controller() {
     local hash=$1
@@ -2978,7 +3206,7 @@ schedule_upgrade_controller() {
         echo "Usage: $0 upgradeControllerHash <wasm_hash_hex>" >&2
         exit 1
     fi
-    # upgrade(new_wasm_hash) — single BytesN<32> arg.
+
     local args_json
     args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
     local salt
@@ -3043,8 +3271,8 @@ schedule_transfer_gov_ownership() {
     echo "Governance ownership transfer scheduled to ${new_owner}."
 }
 
-# Schedule deploy_pool(hash), await, execute, and print the deployed pool
-# Address parsed from the execute result's last line.
+
+
 schedule_deploy_pool() {
     local hash=$1
     if [ -z "$hash" ]; then
@@ -3055,7 +3283,7 @@ schedule_deploy_pool() {
     args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
     local salt
     salt=$(gen_salt "deploy_pool" "$args_json")
-    # "never": re-executing deploy_pool would deploy a second central pool.
+
     local op_id
     op_id=$(schedule_via_proposer \
         deploy_pool "$(admin_op DeployPool "$(jq -nc --arg h "$hash" '$h')")" \
@@ -3092,8 +3320,8 @@ schedule_upgrade_pool() {
         echo "Usage: $0 upgradePoolHash <wasm_hash_hex>" >&2
         exit 1
     fi
-    # Single Sensitive op: controller upgrade_pool(hash) upgrades the live
-    # central pool Wasm.
+
+
     local args_json
     args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
     local salt
@@ -3106,30 +3334,30 @@ schedule_upgrade_pool() {
     echo "Pool upgrade scheduled (hash ${hash})."
 }
 
-# ---------------------------------------------------------------------------
-# Pause / unpause
-#
-# Pause: GUARDIAN-gated immediate entrypoint governance.pause(caller).
-# Unpause: risk-loosening — only timelocked AdminOperation::Unpause
-# (propose → await → execute). There is no governance unpause entrypoint.
-# ---------------------------------------------------------------------------
+
+
+
+
+
+
+
 
 pause_protocol() {
     local gov caller
     gov=$(get_governance)
     caller=$(get_signer_address)
-    # Signer must hold GUARDIAN (or be the owner who was granted GUARDIAN at deploy).
+
     stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- \
         pause --caller "$caller"
     echo "Protocol paused on ${NETWORK} (GUARDIAN immediate)."
 }
 
 unpause_protocol() {
-    # Mainnet safety floor: never take the protocol live while the timelock delay
-    # is below the configured production floor. A bootstrap deploy may run its
-    # market/spoke config at a short DEPLOY_MIN_DELAY while the controller is
-    # still paused; unpausing stays blocked until the delay has been raised to
-    # timelock_min_delay_ledgers (e.g. `make mainnet updateDelay <floor>`).
+
+
+
+
+
     if [ "$NETWORK" = "mainnet" ]; then
         local floor current
         floor=$(jq -r '.["mainnet"].timelock_min_delay_ledgers // empty' "$NETWORKS_FILE")
@@ -3145,7 +3373,7 @@ unpause_protocol() {
         fi
         echo "Mainnet timelock delay ${current} >= floor ${floor}: unpause permitted."
     fi
-    # Unit-variant AdminOperation::Unpause → controller unpause (empty args).
+
     local args_json='[]'
     local salt op_id
     salt=$(gen_salt "unpause" "$args_json")
@@ -3155,14 +3383,14 @@ unpause_protocol() {
     echo "Protocol unpause scheduled/executed on ${NETWORK} (timelocked AdminOperation::Unpause, op ${op_id})."
 }
 
-# ---------------------------------------------------------------------------
-# Remaining AdminOperation verbs (incident response + controller admin).
-# Each schedules through the generic proposer; args mirror governance op.rs's
-# resolve_op mapping so the recorded replay args match byte-for-byte.
-# ---------------------------------------------------------------------------
 
-# Schedule a single-Address controller op (shared shape for revoke/approve-style
-# verbs): $1 variant, $2 controller_fn, $3 address.
+
+
+
+
+
+
+
 schedule_address_op() {
     local variant=$1
     local controller_fn=$2
@@ -3207,7 +3435,7 @@ remove_asset_from_spoke_cmd() {
     if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
         die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
     fi
-    # remove_asset_from_spoke(hub_asset, spoke_id) per governance op.rs.
+
     local args_json
     args_json=$(jq -nc \
         --argjson hub_asset "$(scval_hub_asset "$asset_address" "$hub_id")" \
@@ -3231,8 +3459,8 @@ set_spoke_liquidation_curve_cmd() {
     local target_hf_wad=$2
     local hf_for_max_bonus_wad=$3
     local bonus_factor_bps=$4
-    # set_spoke_liquidation_curve(spoke_id, target_hf_wad, hf_for_max_bonus_wad,
-    # liquidation_bonus_factor_bps) per governance op.rs.
+
+
     local args_json
     args_json=$(jq -nc \
         --argjson spoke "$spoke_id" \
@@ -3297,7 +3525,7 @@ set_position_manager_cmd() {
     args_json=$(jq -nc --arg a "$manager" --argjson b "$is_active" '[{address:$a},{bool:$b}]')
     local salt
     salt=$(gen_salt "set_position_manager" "$args_json")
-    # Multi-field tuple variant: payload is the field array.
+
     local op_id
     op_id=$(schedule_via_proposer \
         set_position_manager \
@@ -3348,8 +3576,8 @@ validate_governance_role() {
     esac
 }
 
-# Governance operational roles (ORACLE / PROPOSER / EXECUTOR / CANCELLER) are
-# timelocked via propose(GrantGovRole{...}) / propose(RevokeGovRole{...}).
+
+
 grant_gov_role_cmd() {
     local account=$1
     local role=$2
@@ -3390,9 +3618,9 @@ has_role_cmd() {
     invoke_view "$gov" has_role --account "$account" --role "$role"
 }
 
-# ---------------------------------------------------------------------------
-# Info
-# ---------------------------------------------------------------------------
+
+
+
 
 show_info() {
     echo "=== Deployment info (${NETWORK}) ==="
@@ -3406,10 +3634,10 @@ show_info() {
     echo "Governance: ${gov_alias} (controller owner; all admin ops route through it)"
     echo "Controller: ${ctrl_alias}"
     echo "Pool:       $(get_pool)"
-    # NOT chain-verified: the controller stores its aggregator/accumulator/
-    # position-limits/hub-active flags without a view function, so these are
-    # inference from the local CLI alias + networks.json, not on-chain reads.
-    # They can silently diverge from what governance actually last set.
+
+
+
+
     echo "Aggregator (local alias, NOT chain-verified): ${agg_alias}"
     echo "Aggregator (networks.json, NOT chain-verified): $(get_aggregator_address 2>/dev/null || echo 'not set (set networks.json or AGGREGATOR_CONTRACT)')"
     echo "Accumulator (networks.json, NOT chain-verified): $(get_accumulator_address 2>/dev/null || echo 'not set (required for claimRevenue)')"
@@ -3423,8 +3651,8 @@ show_info() {
     echo "Reflector FX:  $(get_fx_oracle)"
     echo "RedStone adapter: $(get_redstone_adapter)"
     echo "XOXNO oracle adapter (networks.json, NOT chain-verified): $(get_oracle_adapter_address 2>/dev/null || echo 'not set (make <network> deployOracleAdapter)')"
-    # Aggregator/oracle-adapter both expose their owner directly (unlike the
-    # controller fields above), so these two ARE chain-verified.
+
+
     local agg_addr adapter_addr
     if agg_addr=$(get_aggregator_address 2>/dev/null); then
         echo "Aggregator owner (chain-verified): $(invoke_view "$agg_addr" admin 2>/dev/null | tail -n1 || echo 'read failed')"
@@ -3432,16 +3660,13 @@ show_info() {
     if adapter_addr=$(get_oracle_adapter_address 2>/dev/null); then
         echo "Oracle adapter owner (chain-verified): $(invoke_view "$adapter_addr" get_owner 2>/dev/null | tail -n1 || echo 'read failed')"
     fi
-    # Markets that actually reference RedStone (as primary or anchor) in the
-    # market config, read through the single shared redstone_adapter_contract
-    # + feed_id string (RedStone has no separate per-feed contract; every feed
-    # is read via that one adapter's read_price_data_for_feed(feed_id)).
-    echo "RedStone markets: $(jq -r '[.markets[] | select((.oracle.primary.tag == "RedStone") or (.oracle.anchor.tag == "Some" and (.oracle.anchor.values[0].tag // "") == "RedStone")) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
+
+    echo "RedStone markets: $(jq -r '[.markets[] | select(any(.oracle.sources[]?; .Feed.provider.RedStone? != null)) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
 }
 
-# Compare the LIVE governance min-delay against the configured production value.
-# Catches the classic bootstrap footgun: deploying with DEPLOY_MIN_DELAY=1 and
-# forgetting to raise the delay afterwards.
+
+
+
 check_delay() {
     local live cfg
     live=$(min_delay_ledgers)
@@ -3449,18 +3674,18 @@ check_delay() {
     echo "Timelock min delay: live=${live} ledgers, configured target=${cfg} ledgers" >&2
     if [ -n "$cfg" ] && [ "$cfg" != "null" ] && [ "$live" -lt "$cfg" ] 2>/dev/null; then
         cat >&2 <<EOF
-################################################################################
-# WARNING: the LIVE timelock min-delay (${live} ledgers) is BELOW the configured
-# production value (${cfg} ledgers). If this deploy is past bootstrap, raise it
-# now (increase-only):
-#     make ${NETWORK} updateDelay ${cfg}
-################################################################################
+
+
+
+
+
+
 EOF
     fi
     return 0
 }
 
-# Hubs referenced by the market config, with their on-chain mapping state.
+
 list_hubs() {
     echo "Hubs (${NETWORK}) referenced by ${MARKET_CONFIG_FILE}:"
     echo "  NOTE: the controller has no get_hub view; this reads the LOCAL id map in"
@@ -3480,33 +3705,39 @@ list_hubs() {
     done
 }
 
-# Per-market oracle wiring as configured in the markets JSON. The stored
-# on-chain config is write-only (no view), so the JSON is the source of truth
-# for wiring; use getPrice/getOracle for live price components.
+
+
+
 list_oracles() {
+    list_references
     echo "=== Configured market oracles (${NETWORK}) ===" >&2
-    local m src anchor
+    local m i n src refs
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
-        jq -r --arg m "$m" 'first(.markets[] | select(.name == $m)) |
-            "\(.name) (hub \(.hub_id // "?")): strategy=\(.oracle.strategy // "?") stale=\(.oracle.max_price_stale_seconds // "?")s tolerance=\(.oracle.tolerance_bps // "?")bps sanity=[\(.oracle.min_sanity_price_wad // "?") .. \(.oracle.max_sanity_price_wad // "?")]"' \
+        refs=$(market_oracle_ref_dependencies "$m" | tr '\n' ',' | sed 's/,$//')
+        [ -z "$refs" ] && refs="-"
+        jq -r --arg m "$m" --arg refs "$refs" 'first(.markets[] | select(.name == $m)) |
+            "\(.name) (hub \(.hub_id // "?")): sources=\((.oracle.sources // [])|length) scaled_refs=\($refs) stale=\(.oracle.max_price_stale_seconds // "?")s tolerance=[\(.oracle.tolerance.upper_ratio_bps // "?")/\(.oracle.tolerance.lower_ratio_bps // "?")] sanity=[\(.oracle.min_sanity_price_wad // "?") .. \(.oracle.max_sanity_price_wad // "?")] independence=\(.oracle.independence // "?")"' \
             "$MARKET_CONFIG_FILE" >&2
-        src=$(jq -c --arg m "$m" 'first(.markets[] | select(.name == $m)) | .oracle.primary // null' "$MARKET_CONFIG_FILE")
-        anchor=$(jq -c --arg m "$m" 'first(.markets[] | select(.name == $m)) | .oracle.anchor |
-            if type == "object" and .tag == "Some" then .values[0] else null end' "$MARKET_CONFIG_FILE")
-        describe_oracle_source "  primary" "$src"
-        describe_oracle_source "  anchor " "$anchor"
+        n=$(jq -r --arg m "$m" 'first(.markets[] | select(.name == $m)) | (.oracle.sources // []) | length' "$MARKET_CONFIG_FILE")
+        i=0
+        while [ "$i" -lt "$n" ]; do
+            src=$(jq -c --arg m "$m" --argjson i "$i" \
+                'first(.markets[] | select(.name == $m)) | .oracle.sources[$i]' "$MARKET_CONFIG_FILE")
+            describe_oracle_source "  source[$i]" "$src"
+            i=$((i + 1))
+        done
     done
 }
 
-# ---------------------------------------------------------------------------
-# XOXNO self-hosted oracle adapter (contracts/xoxno-oracle)
-#
-# Not governance-owned: a standalone contract, OZ `Ownable` owner (two-step
-# transfer/accept, see the ownership-handoff section below) plus its own bot
-# signer set. `add_feed` is a direct `stellar contract invoke`, not a
-# timelocked governance proposal — there is no op record/replay machinery
-# here, unlike the controller-targeted actions above.
-# ---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
 
 ORACLE_FEEDS_FILE="$SCRIPT_DIR/${NETWORK}/oracle_feeds.json"
 
@@ -3520,9 +3751,9 @@ get_oracle_adapter_address() {
     echo "$addr"
 }
 
-# Maps a feeds-file `{tag, value}` asset descriptor to the CLI's JSON encoding
-# of `ReflectorAsset` (`{"Stellar":"<address>"}` or `{"Other":"<symbol>"}`) —
-# same convention `describe_oracle_source` already decodes for market oracles.
+
+
+
 _oracle_asset_json() {
     local tag=$1 value=$2
     case "$tag" in
@@ -3532,9 +3763,9 @@ _oracle_asset_json() {
     esac
 }
 
-# Lists every feed_id -> asset mapping configured in ${NETWORK}/oracle_feeds.json
-# and calls add_feed for each. Tolerates FeedAlreadyMapped (already configured
-# from a prior run) instead of aborting, so this is safe to re-run.
+
+
+
 configure_oracle_feeds() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}. Run: make ${NETWORK} deployOracleAdapter"
@@ -3554,9 +3785,9 @@ configure_oracle_feeds() {
         out=$(stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
             -- add_feed --feed_id "$feed_id" --asset "$asset_json" 2>"$errfile") && rc=0 || rc=$?
         if [ "$rc" -ne 0 ]; then
-            # The CLI may print only the numeric contract error ("Error(Contract,
-            # #12)", DebugInfo unavailable) instead of the enum name — match
-            # both. FeedAlreadyMapped = 12 in xoxno-oracle-adapter's Error enum.
+
+
+
             if grep -qiE 'FeedAlreadyMapped|Error\(Contract, #12\)' "$errfile"; then
                 echo "    already mapped, skipping" >&2
             else
@@ -3570,9 +3801,9 @@ configure_oracle_feeds() {
     echo "=== Oracle feeds configured (${NETWORK}) ===" >&2
 }
 
-# remove_feed then add_feed for every entry in oracle_feeds.json. Rebuilds
-# FeedOwner reverse maps and wipes legacy price state. Expect downtime until
-# bots re-quorum. SIGNER must be the adapter owner (use SIGNER=ledger).
+
+
+
 reconfigure_oracle_feeds() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}. Run: make ${NETWORK} deployOracleAdapter"
@@ -3593,7 +3824,7 @@ reconfigure_oracle_feeds() {
         stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
             -- remove_feed --asset "$asset_json" 2>"$errfile" && rc=0 || rc=$?
         if [ "$rc" -ne 0 ]; then
-            # FeedNotMapped = 13 — first-time or already cleaned.
+
             if grep -qiE 'FeedNotMapped|Error\(Contract, #13\)' "$errfile"; then
                 echo "    not mapped, skip remove" >&2
             else
@@ -3622,7 +3853,7 @@ reconfigure_oracle_feeds() {
     echo "=== Oracle feeds reconfigured (${NETWORK}); wait for bot quorum ===" >&2
 }
 
-# Read-only: dumps the adapter's live enumerable asset index.
+
 list_oracle_feeds() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
@@ -3630,8 +3861,8 @@ list_oracle_feeds() {
     invoke_view "$adapter" assets
 }
 
-# Registers a bot wallet's Stellar public key as a signer (admin-gated direct
-# call, tolerates SignerAlreadyRegistered so this is safe to re-run).
+
+
 add_oracle_signer() {
     local signer=$1
     [ -n "$signer" ] || die "Usage: $0 addOracleSigner <signer_address>"
@@ -3644,9 +3875,9 @@ add_oracle_signer() {
     stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- add_signer --signer "$signer" 2>"$errfile" && rc=0 || rc=$?
     if [ "$rc" -ne 0 ]; then
-        # The CLI may print only the numeric contract error ("Error(Contract,
-        # #4)", DebugInfo unavailable) instead of the enum name — match both.
-        # SignerAlreadyRegistered = 4 in xoxno-oracle-adapter's Error enum.
+
+
+
         if grep -qiE 'SignerAlreadyRegistered|Error\(Contract, #4\)' "$errfile"; then
             echo "  already registered, skipping" >&2
         else
@@ -3659,18 +3890,18 @@ add_oracle_signer() {
     echo "=== Signer added (${NETWORK}) ===" >&2
 }
 
-# Invokes one window setter; returns its rc without dying (used for the
-# order-retry in configure_oracle_windows).
+
+
 _invoke_set_window() {
     local fn=$1 seconds=$2 adapter=$3
     stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- "$fn" --seconds "$seconds" >/dev/null 2>&1
 }
 
-# Applies staleness / cluster windows from ${NETWORK}/oracle_feeds.json:
-# `max_submission_age_seconds`, `max_stale_seconds`, `max_relative_skew_seconds`.
-# Contract: 60 <= submission_age <= max_stale; relative_skew <= submission_age.
-# Order: widen max_stale first when both age+stale set, then age, then skew.
+
+
+
+
 configure_oracle_windows() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}. Run: make ${NETWORK} deployOracleAdapter"
@@ -3698,7 +3929,7 @@ configure_oracle_windows() {
     fi
 
     if [ -n "$skew" ]; then
-        # Skew must be set after submission age when both change (skew <= age).
+
         stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
             -- set_max_relative_skew_seconds --seconds "$skew" \
             || die "set_max_relative_skew_seconds failed (must be <= MaxSubmissionAgeSeconds)"
@@ -3706,7 +3937,7 @@ configure_oracle_windows() {
     echo "=== Oracle windows configured (${NETWORK}) ===" >&2
 }
 
-# One-off setter for the tight aggregation inclusion window.
+
 set_oracle_submission_age() {
     local seconds=$1
     [ -n "$seconds" ] || die "Usage: $0 setOracleSubmissionAge <seconds>"
@@ -3717,7 +3948,7 @@ set_oracle_submission_age() {
         -- set_max_submission_age_seconds --seconds "$seconds"
 }
 
-# One-off setter for the cache TTL.
+
 set_oracle_max_stale() {
     local seconds=$1
     [ -n "$seconds" ] || die "Usage: $0 setOracleMaxStale <seconds>"
@@ -3728,7 +3959,7 @@ set_oracle_max_stale() {
         -- set_max_stale_seconds --seconds "$seconds"
 }
 
-# One-off setter for relative cluster skew.
+
 set_oracle_relative_skew() {
     local seconds=$1
     [ -n "$seconds" ] || die "Usage: $0 setOracleRelativeSkew <seconds>"
@@ -3739,7 +3970,7 @@ set_oracle_relative_skew() {
         -- set_max_relative_skew_seconds --seconds "$seconds"
 }
 
-# Read-only smoke: print live window getters after upgrade.
+
 verify_oracle_adapter_windows() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
@@ -3752,8 +3983,8 @@ verify_oracle_adapter_windows() {
     invoke_view "$adapter" max_relative_skew_seconds
 }
 
-# Post-Wasm steps only (windows + feed remove/re-add + verify). Used by
-# `make <net> upgradeOracleAdapterFull` after upload/upgrade.
+
+
 finalize_oracle_adapter_upgrade() {
     echo "=== Finalizing oracle adapter upgrade on ${NETWORK} (signer=${SIGNER}) ===" >&2
     configure_oracle_windows
@@ -3766,16 +3997,16 @@ finalize_oracle_adapter_upgrade() {
     echo "=== Oracle adapter upgrade finalize complete (${NETWORK}) ===" >&2
 }
 
-# ---------------------------------------------------------------------------
-# Swap aggregator (contracts/swap-aggregator)
-#
-# Not governance-owned: a standalone contract, OZ `Ownable` owner (two-step
-# transfer/accept) with `#[only_owner]`-gated admin fns. Direct
-# `stellar contract invoke`, no timelock.
-# ---------------------------------------------------------------------------
 
-# Friendly-JSON-encodes its positional args as a `Vec<Address>` (e.g.
-# `["C...","C..."]`) for aggregator admin fns that take a token list.
+
+
+
+
+
+
+
+
+
 _json_addr_vec() {
     jq -nc '$ARGS.positional' --args "$@"
 }
@@ -3853,7 +4084,7 @@ set_aggregator_referral_owner() {
 claim_aggregator_admin_fees() {
     local recipient=$1
     shift || true
-    [ -n "$recipient" ] && [ $# -ge 1 ] || die "Usage: $0 claimAggregatorAdminFees <recipient> <token> [token...]"
+    [ -n "$recipient" ] && [ $
     local router tokens_json
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     tokens_json=$(_json_addr_vec "$@")
@@ -3865,7 +4096,7 @@ claim_aggregator_admin_fees() {
 sweep_aggregator_balance() {
     local recipient=$1
     shift || true
-    [ -n "$recipient" ] && [ $# -ge 1 ] || die "Usage: $0 sweepAggregatorBalance <recipient> <token> [token...]"
+    [ -n "$recipient" ] && [ $
     local router tokens_json
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     tokens_json=$(_json_addr_vec "$@")
@@ -3894,13 +4125,13 @@ upgrade_oracle_adapter_hash() {
         -- upgrade --new_wasm_hash "$hash"
 }
 
-# ---------------------------------------------------------------------------
-# Standalone-contract ownership handoff (aggregator, xoxno-oracle-adapter)
-#
-# Both are OZ `Ownable`, two-step: `transfer_*` is signed by the CURRENT
-# owner (deployer); `accept_*` MUST be signed by the NEW owner (e.g.
-# `SIGNER=ledger`). Neither routes through governance — direct invoke only.
-# ---------------------------------------------------------------------------
+
+
+
+
+
+
+
 
 transfer_aggregator_ownership() {
     local new_owner=$1 live_until=$2
@@ -3938,9 +4169,9 @@ accept_oracle_adapter_ownership() {
         -- accept_ownership
 }
 
-# ---------------------------------------------------------------------------
-# Market-level views
-# ---------------------------------------------------------------------------
+
+
+
 
 get_price() {
     local market_name=$1
@@ -3962,8 +4193,8 @@ get_market_config_view_cmd() {
     hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     local ctrl
     ctrl=$(get_controller)
-    # get_market_config was removed; the asset's base spoke-0 listing
-    # (SpokeAssetConfig) is the per-asset config read-back.
+
+
     echo "=== Market config (base spoke 0) for ${market_name} (${asset_address}) ===" >&2
     invoke_view "$ctrl" get_spoke_asset --spoke_id 0 --hub_asset "$hub_asset"
 }
@@ -3988,7 +4219,7 @@ get_spoke_cmd() {
 }
 
 get_all_markets_cmd() {
-    # Alias: markets detailed was removed; indexes include soft oracle status.
+
     get_all_indexes_cmd
 }
 
@@ -4001,9 +4232,9 @@ get_all_indexes_cmd() {
     invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$assets_json"
 }
 
-# Live per-spoke-per-asset config for ANY spoke id (getMarket only reads the
-# base spoke-0 listing). This is the "spoke usage/config" read the operator
-# actually wants when checking a real spoke's live LTV/threshold/caps/paused.
+
+
+
 get_spoke_asset_cmd() {
     local spoke_id=$1
     local market_name=$2
@@ -4036,8 +4267,8 @@ is_blend_pool_approved_cmd() {
     invoke_view "$ctrl" is_blend_pool_approved --pool "$pool"
 }
 
-# Largest withdraw/supply/borrow currently executable for the account (0 while
-# paused or gated by caps/LTV/HF — useful for sizing before a write).
+
+
 max_withdraw_cmd() {
     local account_id=$1 market_name=$2
     local hub_asset
@@ -4059,9 +4290,9 @@ max_borrow_cmd() {
     invoke_view "$(get_controller)" max_borrow --account_id "$account_id" --hub_asset "$hub_asset"
 }
 
-# Estimate seize/repay/refund/bonus for a planned liquidation. debt_payments
-# are market/amount pairs (same [[{hub_id,asset},"amount"], ...] tuple-vec
-# shape as supply/borrow/withdraw); omit to estimate with no explicit payment.
+
+
+
 get_liquidation_estimate_cmd() {
     local account_id=$1; shift
     local payments_json="[]"
@@ -4086,13 +4317,13 @@ get_liquidation_estimate_cmd() {
         --account_id "$account_id" --debt_payments "$payments_json"
 }
 
-# ---------------------------------------------------------------------------
-# Pool-level views (hub utilization / reserves / rates / revenue).
-#
-# The central pool holds liquidity at HUB scope, not per-spoke — spokes are a
-# risk-config layer over shared hub liquidity, so there is no separate
-# per-spoke supplied/borrowed figure to read. These are the "usage" numbers.
-# ---------------------------------------------------------------------------
+
+
+
+
+
+
+
 
 pool_view_for_market() {
     local fn=$1 market_name=$2
@@ -4117,9 +4348,9 @@ get_bulk_indexes_cmd() {
     invoke_view "$(get_pool)" get_bulk_indexes --hub_assets "$assets_json"
 }
 
-# ---------------------------------------------------------------------------
-# Account-level views
-# ---------------------------------------------------------------------------
+
+
+
 
 get_health_cmd() {
     local account_id=$1
@@ -4197,26 +4428,26 @@ get_borrow_cmd() {
     invoke_view "$ctrl" get_borrow_amount --account_id "$account_id" --hub_asset "$hub_asset"
 }
 
-# ---------------------------------------------------------------------------
-# Raw Reflector oracle probes (SEP-40 ABI)
-#
-# Reflector exposes three independent oracle contracts per network:
-#   - External CEX/FX (API-sourced)   → pass kind=other + symbol (e.g. "USDC")
-#   - Stellar Pubnet DEX (on-chain)   → pass kind=stellar + SAC address
-#   - Foreign Exchange                → pass kind=other + symbol (e.g. "EUR")
-#
-# Use these probes when hunting for the correct DEX oracle address before
-# wiring it into a market's `reflector.dex_oracle`.
-# ---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
 
 build_reflector_asset_json() {
-    local kind=$1      # "stellar" (0) or "other" (1)
-    local value=$2     # SAC address or ticker
+    local kind=$1
+    local value=$2
     case "$kind" in
         stellar|Stellar|0)
-            # Stellar CLI accepts enum variants via the short form {"Variant":payload}.
-            # The tagged-union long form {"tag":...,"values":[...]} trips a panic
-            # inside soroban-spec-tools on newer CLI releases.
+
+
+
             printf '{"Stellar":"%s"}' "$value"
             ;;
         other|Other|1)
@@ -4321,38 +4552,64 @@ describe_oracle_source() {
         return
     fi
 
-    local tag body
-    tag=$(printf '%s' "$source_json" | oracle_union_tag)
-    body=$(printf '%s' "$source_json" | oracle_union_value)
 
-    case "$tag" in
+    local shape provider_tag body feed_decimals feed_stale
+    shape=$(printf '%s' "$source_json" | oracle_union_tag)
+    case "$shape" in
+        Feed)
+            body=$(printf '%s' "$source_json" | oracle_union_value)
+            feed_decimals=$(printf '%s' "$body" | jq -r '.decimals // "input"')
+            feed_stale=$(printf '%s' "$body" | jq -r '.max_stale_seconds // "input"')
+            provider_tag=$(printf '%s' "$body" | jq -c '.provider' | oracle_union_tag)
+            body=$(printf '%s' "$body" | jq -c '.provider' | oracle_union_value)
+            ;;
+        Scaled)
+            local quote factor_json
+            quote=$(printf '%s' "$source_json" | jq -c '.Scaled.quote // empty')
+            factor_json=$(printf '%s' "$source_json" | jq -c '.Scaled.factor // empty')
+            feed_decimals=$(printf '%s' "$factor_json" | jq -r '.decimals // "input"')
+            feed_stale=$(printf '%s' "$factor_json" | jq -r '.max_stale_seconds // "input"')
+            provider_tag=$(printf '%s' "$factor_json" | jq -c '.provider' | oracle_union_tag)
+            body=$(printf '%s' "$factor_json" | jq -c '.provider' | oracle_union_value)
+            echo "[${label}] Scaled quote=${quote} factor_provider=${provider_tag}" >&2
+            ;;
+        Reflector|RedStone|Xoxno)
+
+            provider_tag="$shape"
+            body=$(printf '%s' "$source_json" | oracle_union_value)
+            feed_decimals="input"
+            feed_stale="input"
+            ;;
+        *)
+            echo "[${label}] ${shape}: ${source_json}" >&2
+            return
+            ;;
+    esac
+
+    case "$provider_tag" in
         Reflector)
-            local contract asset read_mode decimals resolution
+            local contract asset read_mode
             contract=$(printf '%s' "$body" | jq -r '.contract // empty')
             asset=$(printf '%s' "$body" | jq -c '.asset' | describe_reflector_asset)
             read_mode=$(printf '%s' "$body" | jq -c '.read_mode' | describe_read_mode)
-            decimals=$(printf '%s' "$body" | jq -r '.decimals // "input"')
-            resolution=$(printf '%s' "$body" | jq -r '.resolution_seconds // "input"')
-            echo "[${label}] Reflector contract=${contract} asset=${asset} read_mode=${read_mode} decimals=${decimals} resolution=${resolution}" >&2
+            echo "[${label}] Reflector contract=${contract} asset=${asset} read_mode=${read_mode} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
             ;;
-        RedStone)
-            local contract feed_id decimals max_stale
+        RedStone|Xoxno)
+
+            local contract feed_id nature
             contract=$(printf '%s' "$body" | jq -r '.contract // empty')
             feed_id=$(printf '%s' "$body" | jq -r '.feed_id // empty')
-            decimals=$(printf '%s' "$body" | jq -r '.decimals // "input"')
-            max_stale=$(printf '%s' "$body" | jq -r '.max_stale_seconds // "input"')
-            echo "[${label}] RedStone contract=${contract} feed_id=${feed_id} decimals=${decimals} max_stale=${max_stale}" >&2
+            nature=$(printf '%s' "$body" | jq -r '.nature // empty')
+            echo "[${label}] ${provider_tag} nature=${nature} contract=${contract} feed_id=${feed_id} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
             ;;
         *)
-            echo "[${label}] unknown source: ${source_json}" >&2
+            echo "[${label}] unknown provider ${provider_tag}: ${source_json}" >&2
             ;;
     esac
 }
 
-# Live price components for a market. The raw stored Oracle V2 config is no
-# longer view-exposed (set_oracle_config is write-only on price-aggregator; get_market_config
-# was removed), so this prints the controller's resolved/safe/aggregator prices
-# via get_market_indexes_detailed instead of the provider wiring.
+
+
 get_oracle_cmd() {
     local market_name=$1
     local asset_address
@@ -4372,9 +4629,9 @@ get_reflector_cmd() {
     get_oracle_cmd "$1"
 }
 
-# ---------------------------------------------------------------------------
-# Command dispatch
-# ---------------------------------------------------------------------------
+
+
+
 
 case "$1" in
     "listMarkets")
@@ -4408,8 +4665,8 @@ case "$1" in
         edit_asset_in_spoke "$2" "$3"
         ;;
     "setupAllSpokes")
-        # Converge mode: bulk setup treats Done ops as applied. Drift-proven
-        # ensure_asset_in_spoke calls re-enable re-apply per call.
+
+
         export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
         validate_configs
         setup_all_spokes
@@ -4608,6 +4865,22 @@ case "$1" in
         fi
         configure_market_oracle "$2"
         ;;
+    "configureReferenceOracle")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 configureReferenceOracle <ref_name>"
+            list_references
+            exit 1
+        fi
+        configure_reference_oracle "$2"
+        ;;
+    "listReferences")
+        list_references
+        ;;
+    "setupAllReferenceOracles")
+        export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
+        validate_configs
+        setup_all_reference_oracles
+        ;;
     "editOracleTolerance")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 editOracleTolerance <market> <tolerance_bps>"
@@ -4640,11 +4913,13 @@ case "$1" in
     "setupAllMarkets")
         export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
         validate_configs
+
         setup_all_markets
         ;;
     "setupAll")
         export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
         validate_configs
+
         setup_all_markets
         setup_all_spokes
         echo "=== Full setup complete ==="
@@ -4940,6 +5215,10 @@ case "$1" in
         echo "  listMarkets                     List configured markets"
         echo "  createMarket <name>             Deploy market from config"
         echo "  configureMarketOracle <name>    Configure full market oracle from config"
+        echo "                                  (auto-configures oracle Ref dependencies first)"
+        echo "  configureReferenceOracle <name> set_oracle(PriceKey::Ref) from .references[]"
+        echo "  setupAllReferenceOracles        All Refs required by Scaled markets"
+        echo "  listReferences                  Reference oracles from markets.json"
         echo "  editOracleTolerance <m> <tol>   Edit a market's oracle tolerance band (bps)"
         echo "  updateIndexes <name> [...]      Sync indexes for one or more markets"
         echo "  setupAllMarkets                 Idempotently configure markets; no deploy/unpause"
@@ -4972,7 +5251,7 @@ case "$1" in
         echo "  cancelOp <op-id>                Cancel a pending op (CANCELLER)"
         echo "  opState <op-id>                 Unset | Waiting | Ready | Done"
         echo "  awaitOp <op-id>                 Poll until the op is Ready"
-        echo "  NOTE: oracle ops (configureMarketOracle, editOracleTolerance) schedule a"
+        echo "  NOTE: oracle ops (configureMarketOracle, configureReferenceOracle, editOracleTolerance) schedule a"
         echo "  governance-resolved struct; executeOp re-derives it via the resolve_* views"
         echo "  (build-only re-encode), so they are CLI-executable like every other op."
         echo ""
@@ -5003,7 +5282,7 @@ case "$1" in
         echo ""
         echo "Quick views (reads):"
         echo "  info                            Deployment addresses & signer"
-        echo "  listOracles                     Per-market oracle wiring from config"
+        echo "  listOracles                     Reference + per-market oracle wiring from config"
         echo "  configureOracleFeeds           Call add_feed on xoxno_oracle_adapter for every entry in \${NETWORK}/oracle_feeds.json"
         echo "  reconfigureOracleFeeds         remove_feed then add_feed for every entry (wipe + rebuild FeedOwner)"
         echo "  finalizeOracleAdapterUpgrade   windows + reconfigure feeds + verify (post-Wasm)"

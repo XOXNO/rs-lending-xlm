@@ -18,7 +18,7 @@ fn test_swap_debt_refund_only_uses_strategy_excess() {
         .mint(&t.controller_address(), &50_0000000i128);
 
     t.fund_router("ETH", 1.0);
-    // swap_debt borrows 0.005 WBTC (7 decimals = raw 50_000) minus 9bps fee.
+
     let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(50_000), 1_0000000);
 
     let alice_eth_before = t.token_balance(ALICE, "ETH");
@@ -37,8 +37,6 @@ fn test_swap_debt_refund_only_uses_strategy_excess() {
         "unrelated controller ETH balance must not be swept to the caller"
     );
 }
-// Mutate stored collateral params in test-only setup so the final HF guard is
-// stricter than the borrow-side LTV check.
 
 #[test]
 fn test_swap_debt_health_factor_guard_after_swap() {
@@ -66,7 +64,7 @@ fn test_swap_debt_health_factor_guard_after_swap() {
     t.borrow(ALICE, "ETH", 5.0);
 
     t.fund_router("ETH", 5.0);
-    // swap_debt borrows 1.0 WBTC (7 decimals = raw 10_000_000) minus 9bps fee.
+
     let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(10_000_000), 5_0000000);
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
 
@@ -141,7 +139,6 @@ fn test_swap_debt_closes_existing_debt_even_if_existing_asset_disabled() {
         "new WBTC debt should remain after the rotation"
     );
 }
-// Swap debt edge cases
 
 #[test]
 fn test_swap_debt_rejects_when_paused() {
@@ -178,8 +175,6 @@ fn test_swap_debt_rejects_during_flash_loan() {
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-// The destination collateral leg must inherit the account's active spoke
-// parameters, not the market's base parameters.
 
 #[test]
 fn test_swap_collateral_applies_spoke_params_to_destination_position() {
@@ -195,7 +190,7 @@ fn test_swap_collateral_applies_spoke_params_to_destination_position() {
     t.supply_to(ALICE, account_id, "USDC", 5_000.0);
 
     t.fund_router("USDT", 1_000.0);
-    // swap_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
+
     let steps = build_aggregator_swap(&t, "USDC", "USDT", 10_000_000_000, 10_000_000_000);
     t.swap_collateral(ALICE, "USDC", 1_000.0, "USDT", &steps);
 
@@ -234,7 +229,6 @@ fn test_swap_collateral_merges_existing_destination_and_removes_source() {
         "destination ETH collateral should merge with the existing position"
     );
 }
-// New debt asset is_borrowable=false: must reject before the swap.
 
 #[test]
 fn test_swap_debt_non_borrowable_new_debt() {
@@ -254,7 +248,6 @@ fn test_swap_debt_non_borrowable_new_debt() {
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
-// Spoke account; the new debt asset is not in the spoke category.
 
 #[test]
 fn test_swap_debt_spoke_wrong_category() {
@@ -265,21 +258,16 @@ fn test_swap_debt_spoke_wrong_category() {
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .with_spoke_asset(2, "USDT", true, true)
-        // ETH not in spoke
         .build();
 
-    // Create an spoke account, supply USDC, borrow USDT (both in spoke).
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 
-    // Try to swap USDT debt to ETH: ETH is not listed on the account's spoke,
-    // so the borrow gate rejects it with AssetNotInSpoke (307).
     let steps = build_swap_steps(&t, "ETH", "USDT", 5000_0000000);
     let result = t.try_swap_debt(ALICE, "USDT", 5_000.0, "ETH", &steps);
     assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
-// Swap collateral edge cases
 
 #[test]
 fn test_swap_collateral_rejects_when_paused() {
@@ -314,7 +302,6 @@ fn test_swap_collateral_rejects_during_flash_loan() {
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-// New collateral is_collateralizable=false.
 
 #[test]
 fn test_swap_collateral_non_collateralizable() {
@@ -330,7 +317,6 @@ fn test_swap_collateral_non_collateralizable() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Try to swap USDC collateral to non-collateralizable WBTC
     let steps = build_swap_steps(&t, "USDC", "WBTC", 1_00000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "WBTC", &steps);
     assert_contract_error(result, errors::NOT_COLLATERAL);

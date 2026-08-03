@@ -27,7 +27,7 @@ fn test_supply_and_borrow() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
-    // 1 ETH ~$2000; within 75% LTV of $10k = $7500.
+
     t.borrow(ALICE, "ETH", 1.0);
 
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
@@ -42,11 +42,10 @@ fn test_liquidation_after_price_drop() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
-    // 3 ETH ~$6000, near 75% LTV of $7500.
+
     t.borrow(ALICE, "ETH", 3.0);
     t.assert_healthy(ALICE);
 
-    // USDC @ $0.50 → coll $5000; LT 80% → weighted $4000; debt $6000 → HF ~0.67.
     t.set_price("USDC", usd_cents(50));
 
     t.assert_liquidatable(ALICE);
@@ -129,7 +128,7 @@ fn test_spoke_higher_ltv() {
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
-    // 95% LTV; spoke LTV 97% allows it.
+
     t.borrow(ALICE, "USDT", 9_500.0);
 
     t.assert_healthy(ALICE);
@@ -146,7 +145,6 @@ fn test_spoke_higher_ltv() {
 fn test_revenue_accrues_over_time() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
-    // Seed ETH supply so empty-pool guard in add_protocol_revenue does not skip.
     t.supply(BOB, "ETH", 50.0);
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);

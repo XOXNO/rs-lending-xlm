@@ -1,6 +1,3 @@
-//! Certora storage accessors for controller rules.
-//! Asset-keyed rule reads use the production-valid primary hub.
-
 #![allow(dead_code)]
 use super::*;
 use crate::types::{
@@ -10,7 +7,6 @@ use crate::types::{
 use pool_interface::LiquidityPoolClient;
 use soroban_sdk::{Address, Env, Vec};
 
-/// Primary-hub coordinate for `asset`.
 pub fn hub0(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: crate::spec::fixture::HUB_ID,
@@ -27,7 +23,7 @@ pub fn get_position(
     let hub_asset = hub0(asset);
     match position_type {
         AccountPositionType::Deposit => get_supply_positions(env, account_id).get(hub_asset),
-        // Debt has scaled share only; collateral risk fields are zero.
+
         AccountPositionType::Borrow => {
             get_debt_positions(env, account_id)
                 .get(hub_asset)
@@ -47,7 +43,6 @@ pub fn get_position_list(
     account_id: u64,
     position_type: AccountPositionType,
 ) -> Vec<Address> {
-    // Project primary-hub keys back to asset for asset-keyed rule callers.
     let keys: Vec<HubAssetKey> = match position_type {
         AccountPositionType::Deposit => get_supply_positions(env, account_id).keys(),
         AccountPositionType::Borrow => get_debt_positions(env, account_id).keys(),
@@ -71,7 +66,6 @@ pub fn get_account_attrs(env: &Env, account_id: u64) -> AccountAttributes {
 pub mod asset_pool {
     use super::*;
 
-    /// Central pool from instance storage; `_asset` kept for asset-keyed callers.
     pub fn get_asset_pool(env: &Env, _asset: &Address) -> Address {
         crate::storage::get_pool(env)
     }

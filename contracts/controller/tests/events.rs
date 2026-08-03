@@ -1,7 +1,7 @@
 use super::*;
 use common::types::{PositionMode, SpokeAssetConfig};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{contract, vec, Address, Env, Vec};
+use soroban_sdk::{contract, Address, Env, Vec};
 
 #[contract]
 struct TestContract;
@@ -53,8 +53,10 @@ fn event_account_attributes_from_account_meta_spoke() {
     assert_eq!(attrs.2, EventPositionMode::Long);
 }
 
+const PUBLISHED_EVENT_COUNT: usize = 10;
+
 #[test]
-fn all_event_helpers_publish_one_event() {
+fn every_event_helper_publishes_exactly_one_event() {
     use soroban_sdk::testutils::Events as _;
 
     let (env, contract) = setup();
@@ -178,15 +180,16 @@ fn all_event_helpers_publish_one_event() {
         InitialMultiplyPaymentEvent {
             token: asset.clone(),
             amount: 0,
-            usd_value_wad: 0,
             account_id: 1,
         }
         .publish(&env);
-
-        let _ignored: Vec<Address> = vec![&env];
     });
 
-    assert_eq!(env.events().all().events().len(), 10);
+    assert_eq!(
+        env.events().all().events().len(),
+        PUBLISHED_EVENT_COUNT,
+        "expected one event per helper; a mismatch means a helper emitted zero or two"
+    );
 }
 
 #[test]

@@ -11,7 +11,6 @@ fn test_supply_single_asset() {
 
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
 
-    // Wallet must be ~0.
     let wallet = t.token_balance(ALICE, "USDC");
     assert!(
         wallet < 0.01,
@@ -19,10 +18,8 @@ fn test_supply_single_asset() {
         wallet
     );
 
-    // Supply balance must be ~10_000.
     t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
 
-    // Total collateral in USD must be ~$10k.
     let coll = t.total_collateral(ALICE);
     assert!(
         coll > 9_999.0 && coll < 10_001.0,
@@ -43,7 +40,6 @@ fn test_supply_to_existing_account() {
         wallet_after_first
     );
 
-    // Supply more to the same account.
     t.supply(ALICE, "USDC", 3_000.0);
     t.assert_supply_near(ALICE, "USDC", 8_000.0, 1.0);
     let wallet_after_second = t.token_balance(ALICE, "USDC");
@@ -60,8 +56,6 @@ fn test_supply_multiple_assets_bulk() {
         .with_market(eth_preset())
         .build();
 
-    // Bulk supply via the harness method: a single controller call that
-    // auto-mints.
     t.supply_bulk(ALICE, &[("USDC", 10_000.0), ("ETH", 1.0)]);
 
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
@@ -105,7 +99,6 @@ fn test_supply_duplicate_asset_bulk_is_allowed() {
 fn test_supply_creates_account_on_first_call() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // No explicit create_account: supply auto-creates.
     t.supply(ALICE, "USDC", 1_000.0);
 
     let accounts = t.get_active_accounts(ALICE);
@@ -234,28 +227,8 @@ fn test_supply_position_limit_exceeded() {
     t.supply(ALICE, "USDC", 1_000.0);
     t.supply(ALICE, "ETH", 1.0);
 
-    // The third supply must reject with the specific PositionLimitExceeded
-    // error.
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
-}
-#[test]
-fn test_supply_spoke_rejects_non_category_asset() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        // ETH is NOT in the spoke category
-        .build();
-
-    t.create_spoke_account(ALICE, 2);
-
-    // Supplying ETH to an spoke stablecoin account must fail: ETH is not
-    // listed on the account's spoke, so the spoke model rejects it as
-    // AssetNotInSpoke.
-    let result = t.try_supply(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
 #[test]
 fn test_supply_raw_precision() {
@@ -264,18 +237,17 @@ fn test_supply_raw_precision() {
         .with_dust_disabled_all_markets()
         .build();
 
-    // Supply exactly 1 unit (smallest: 1 with 7 decimals = 0.0000001 USDC).
     let raw_amount = 1i128;
     t.supply_raw(ALICE, "USDC", raw_amount);
 
     let balance = t.supply_balance_raw(ALICE, "USDC");
-    // Must be at least 1 (could be exactly 1 or close due to the index).
+
     assert!(
         balance >= 1,
         "raw supply should preserve precision, got {}",
         balance
     );
-    // The 1 raw unit must have left Alice's wallet.
+
     let wallet_raw = t.token_balance_raw(ALICE, "USDC");
     assert_eq!(
         wallet_raw, 0,
@@ -284,7 +256,6 @@ fn test_supply_raw_precision() {
     );
 }
 
-// Supply is permissionless w.r.t. account owner; third parties may add collateral.
 #[test]
 fn test_third_party_supply_to_existing_account_succeeds() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -339,7 +310,6 @@ fn test_third_party_supply_cannot_force_low_threshold_update() {
     );
 }
 
-// Bulk supply dedupes duplicate assets in one payment vector.
 #[test]
 fn test_bulk_supply_duplicate_asset_counts_once() {
     let mut t = LendingTest::new()
@@ -362,14 +332,13 @@ fn test_bulk_supply_duplicate_asset_counts_once() {
     t.assert_supply_near(ALICE, "USDC", 75_000.0, 1.0);
 }
 
-// No min-deposit floor: supply(account_id=0) mints a fresh account per 1-raw-unit deposit.
 #[test]
 fn poc_single_actor_spams_unbounded_dust_accounts() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     let attacker = t.get_or_create_user("attacker");
     let usdc = t.resolve_market("USDC");
-    // Fund the attacker with just enough for N one-unit deposits.
+
     const N: u64 = 64;
     usdc.token_admin.mint(&attacker, &(N as i128));
     let asset = usdc.asset.clone();
@@ -378,11 +347,10 @@ fn poc_single_actor_spams_unbounded_dust_accounts() {
     let mut created: u64 = 0;
     let mut last_id: u64 = 0;
     for _ in 0..N {
-        // account_id = 0 forces a brand-new account every call.
         let dust = vec![&t.env, (hub_asset(asset.clone()), 1i128)];
         let id = ctrl.supply(&attacker, &0u64, &1u32, &dust);
         assert!(id > 0, "1-unit deposit must be accepted (no dust floor)");
-        // Strictly increasing => each call minted a fresh, distinct account.
+
         assert!(id > last_id, "each supply(id=0) must mint a new account id");
         assert!(
             ctrl.account_exists(&id),
@@ -392,15 +360,12 @@ fn poc_single_actor_spams_unbounded_dust_accounts() {
         created += 1;
     }
 
-    // One address created N distinct, persistent accounts from 1-unit deposits.
     assert_eq!(
         created, N,
         "one actor created {N} distinct accounts with dust deposits"
     );
 }
 
-// H-USER-03 patch: strangers may top up existing legs but cannot open new
-// supply slots on another account (slot-grief prevention).
 #[test]
 fn regression_non_owner_cannot_open_new_supply_slot_on_victim() {
     let mut t = LendingTest::new()
@@ -412,11 +377,9 @@ fn regression_non_owner_cannot_open_new_supply_slot_on_victim() {
     let alice_id = t.resolve_account_id(ALICE);
     let alice = t.get_or_create_user(ALICE);
 
-    // BOB — a stranger — cannot open a new ETH slot on ALICE's account.
     let new_slot = t.try_supply_to_account(BOB, ALICE, "ETH", 0.5);
     assert_contract_error(new_slot, errors::NOT_AUTHORIZED);
 
-    // Same-asset top-up remains allowed.
     let top_up = t.try_supply_to_account(BOB, ALICE, "USDC", 1.0);
     assert!(
         top_up.is_ok(),

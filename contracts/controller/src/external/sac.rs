@@ -1,8 +1,5 @@
-//! Soroban Asset Contract transfer wrapper used by controller flows.
-
 use soroban_sdk::{token, Address, Env};
 
-/// Transfers `amount` of `token` from `from` to `to` via the SAC client.
 pub(crate) fn sac_transfer_call(
     env: &Env,
     token: &Address,
@@ -10,5 +7,8 @@ pub(crate) fn sac_transfer_call(
     to: &Address,
     amount: &i128,
 ) {
+    if *amount == 0 {
+        return;
+    }
     token::Client::new(env, token).transfer(from, to, amount)
 }

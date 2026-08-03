@@ -1,4 +1,3 @@
-//! `RestoreFootprint` operation builder.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{

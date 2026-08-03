@@ -97,11 +97,19 @@ fn test_market_params_verify_accepts_valid_config() {
 }
 
 #[test]
-#[should_panic(expected = "#132")]
-fn test_market_params_verify_rejects_decimals_above_ray() {
+fn test_market_params_verify_accepts_decimals_at_wad() {
     let env = Env::default();
     let mut raw = sample_raw_params(&env);
-    raw.asset_decimals = RAY_DECIMALS + 1;
+    raw.asset_decimals = WAD_DECIMALS;
+    raw.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#132")]
+fn test_market_params_verify_rejects_decimals_above_wad() {
+    let env = Env::default();
+    let mut raw = sample_raw_params(&env);
+    raw.asset_decimals = WAD_DECIMALS + 1;
     raw.verify(&env);
 }
 
@@ -113,8 +121,6 @@ fn test_market_params_verify_accepts_flashloan_fee_at_cap() {
     raw.verify(&env);
 }
 
-// InvalidBorrowParams (#116): a fee above the cap would make strategy borrows
-// owe more than borrowed and brick `create_strategy` for the market.
 #[test]
 #[should_panic(expected = "#116")]
 fn test_market_params_verify_rejects_flashloan_fee_above_cap() {
@@ -170,13 +176,6 @@ fn test_pool_state_raw_typed_roundtrip() {
     assert_eq!(back.supply_index, raw.supply_index);
     assert_eq!(back.last_timestamp, raw.last_timestamp);
 }
-// InterestRateModel::verify boundary coverage.
-//
-// Slope-monotonicity and max-utilization guards use plain `if { panic }`
-// blocks, so comparison and `||` mutations are observable here. The
-// `assert_with_error!` checks (base >= 0, max > base, <= MAX_BORROW_RATE_RAY,
-// mid > 0, optimal > mid, optimal < RAY, reserve < BPS) hide their conditions
-// in macro arguments and are not targeted here.
 
 fn valid_rate_model() -> InterestRateModel {
     InterestRateModel {
@@ -200,26 +199,21 @@ fn test_rate_model_verify_accepts_valid() {
     valid_rate_model().verify(&env);
 }
 
-// `replace verify with ()`: invalid input must panic, catching a stubbed body.
 #[test]
 #[should_panic(expected = "#129")]
 fn test_rate_model_verify_body_is_not_a_noop() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    m.slope2 = m.slope1 - 1; // slope2 < slope1 → non-monotonic.
+    m.slope2 = m.slope1 - 1;
     m.verify(&env);
 }
-
-// Monotonic chain: `||` short-circuit.
-// Each test makes one disjunct true and the rest false: `||` panics,
-// while `&&` does not.
 
 #[test]
 #[should_panic(expected = "#129")]
 fn test_rate_model_monotonic_only_slope1_below_base_panics() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    // slope1 < base, but keep slope2/slope3/max above their predecessors.
+
     m.base_borrow_rate = RAY * 2 / 10;
     m.slope1 = RAY / 10;
     m.slope2 = RAY * 3 / 10;
@@ -233,7 +227,7 @@ fn test_rate_model_monotonic_only_slope1_below_base_panics() {
 fn test_rate_model_monotonic_only_slope2_below_slope1_panics() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    // slope2 < slope1 only.
+
     m.slope1 = RAY * 3 / 10;
     m.slope2 = RAY * 2 / 10;
     m.slope3 = RAY * 4 / 10;
@@ -246,7 +240,7 @@ fn test_rate_model_monotonic_only_slope2_below_slope1_panics() {
 fn test_rate_model_monotonic_only_slope3_below_slope2_panics() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    // slope3 < slope2 only.
+
     m.slope2 = RAY * 4 / 10;
     m.slope3 = RAY * 3 / 10;
     m.max_borrow_rate = RAY * 5 / 10;
@@ -258,20 +252,17 @@ fn test_rate_model_monotonic_only_slope3_below_slope2_panics() {
 fn test_rate_model_monotonic_only_max_below_slope3_panics() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    // max < slope3 only, while max still > base (avoids MaxRateBelowBase).
+
     m.slope3 = RAY * 5 / 10;
     m.max_borrow_rate = RAY * 3 / 10;
     m.verify(&env);
 }
 
-// Monotonic chain: `<` vs `<=`/`==` at exact equality.
-// At `a == b`, `<` is false. `<=` or `==` would panic.
-
 #[test]
 fn test_rate_model_monotonic_slope1_eq_base_does_not_panic() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    m.slope1 = m.base_borrow_rate; // slope1 == base.
+    m.slope1 = m.base_borrow_rate;
     m.verify(&env);
 }
 
@@ -279,7 +270,7 @@ fn test_rate_model_monotonic_slope1_eq_base_does_not_panic() {
 fn test_rate_model_monotonic_slope2_eq_slope1_does_not_panic() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    m.slope2 = m.slope1; // slope2 == slope1.
+    m.slope2 = m.slope1;
     m.verify(&env);
 }
 
@@ -287,7 +278,7 @@ fn test_rate_model_monotonic_slope2_eq_slope1_does_not_panic() {
 fn test_rate_model_monotonic_slope3_eq_slope2_does_not_panic() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    m.slope3 = m.slope2; // slope3 == slope2.
+    m.slope3 = m.slope2;
     m.verify(&env);
 }
 
@@ -295,13 +286,10 @@ fn test_rate_model_monotonic_slope3_eq_slope2_does_not_panic() {
 fn test_rate_model_monotonic_max_eq_slope3_does_not_panic() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    m.max_borrow_rate = m.slope3; // max == slope3.
+    m.max_borrow_rate = m.slope3;
     m.verify(&env);
 }
 
-// Max-utilization guard: `max_util < optimal || max_util > RAY`.
-
-// `||` vs `&&`: only the left disjunct is true.
 #[test]
 #[should_panic(expected = "#117")]
 fn test_rate_model_max_util_below_optimal_panics() {
@@ -311,7 +299,6 @@ fn test_rate_model_max_util_below_optimal_panics() {
     m.verify(&env);
 }
 
-// `||` vs `&&`: only the right disjunct is true.
 #[test]
 #[should_panic(expected = "#117")]
 fn test_rate_model_max_util_above_ray_panics() {
@@ -321,34 +308,28 @@ fn test_rate_model_max_util_above_ray_panics() {
     m.verify(&env);
 }
 
-// `max_util < optimal`, `<` vs `<=`/`==` at equality: at max_util == optimal,
-// `<` is false. Right disjunct is also false (optimal < RAY).
 #[test]
 fn test_rate_model_max_util_eq_optimal_does_not_panic() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    m.max_utilization = m.optimal_utilization; // == optimal.
+    m.max_utilization = m.optimal_utilization;
     m.verify(&env);
 }
 
-// `max_util > RAY`, `>` vs `>=`/`==` at equality: at max_util == RAY,
-// `>` is false and the left disjunct is false.
 #[test]
 fn test_rate_model_max_util_eq_ray_does_not_panic() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    m.max_utilization = RAY; // == RAY (upper edge of valid range).
+    m.max_utilization = RAY;
     m.verify(&env);
 }
 
-// `verify_rate_model with ()`: wrapper delegates to `rate_model_view().verify()`.
-// Non-monotonic slopes must panic.
 #[test]
 #[should_panic(expected = "#129")]
 fn test_market_params_verify_rate_model_delegates() {
     let env = Env::default();
     let mut raw = sample_raw_params(&env);
-    raw.slope2 = raw.slope1 - 1; // slope2 < slope1.
+    raw.slope2 = raw.slope1 - 1;
     raw.verify_rate_model(&env);
 }
 
@@ -382,7 +363,6 @@ fn test_debt_position_conversions_roundtrip() {
     assert_eq!(typed.scaled_amount.raw(), 5 * RAY);
     assert_eq!(DebtPositionRaw::from(&typed).scaled_amount, 5 * RAY);
 
-    // Pool returns a post-mutation ScaledPositionRaw that decodes to the debt position.
     let from_scaled = DebtPosition::from(&ScaledPositionRaw {
         scaled_amount: 9 * RAY,
     });
@@ -423,7 +403,7 @@ fn test_rate_model_verify_rejects_negative_base_rate() {
 fn test_rate_model_verify_rejects_max_equal_to_base() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    // Flatten the ladder: monotonic passes, but max == base.
+
     m.base_borrow_rate = RAY;
     m.slope1 = RAY;
     m.slope2 = RAY;

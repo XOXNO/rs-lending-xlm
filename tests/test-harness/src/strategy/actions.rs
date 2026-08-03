@@ -16,7 +16,6 @@ impl LendingTest {
         market.token_admin.mint(&self.aggregator, &amount);
     }
 
-    /// Minimal `StrategySwap` for error paths that panic before `swap_tokens`.
     pub fn mock_swap_steps(
         &self,
         _token_in: &str,

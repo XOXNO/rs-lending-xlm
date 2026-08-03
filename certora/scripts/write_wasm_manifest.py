@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Write SHA-256 manifest for artifacts/wasm deploy and certora binaries."""
 
 from __future__ import annotations

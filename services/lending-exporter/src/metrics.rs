@@ -1,6 +1,3 @@
-//! Prometheus registry, metric families, `/metrics` + `/health`.
-//!
-//! Every family has a `network` label (one Grafana, multiple scrape jobs).
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -12,12 +9,11 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-/// One `(hub, asset)` reserve; `hub` display, `hub_id` stable.
 const MARKET_LABELS: &[&str] = &["network", "hub_id", "hub", "asset", "symbol"];
 const ORACLE_LABELS: &[&str] = &["network", "asset", "symbol"];
-/// Spoke-level labels (liquidation curve, deprecation).
+
 const SPOKE_LABELS: &[&str] = &["network", "spoke_id", "spoke"];
-/// Spoke-asset labels; `spoke`/`hub` display, `*_id` stable.
+
 const SPOKE_ASSET_LABELS: &[&str] = &["network", "spoke_id", "spoke", "hub_id", "hub", "asset", "symbol"];
 
 pub struct Metrics {
@@ -37,35 +33,34 @@ pub struct Metrics {
     pub market_supply_index_ray: GaugeVec,
     pub market_borrow_index_ray: GaugeVec,
     pub market_last_accrual_timestamp: GaugeVec,
-    /// Seconds since pool `last_timestamp` (`get_delta_time`).
+
     pub market_delta_time_seconds: GaugeVec,
-    /// IRM curve params (`param` label).
+
     pub market_param: GaugeVec,
 
-    /// Final composed USD WAD (`MarketIndexView.price_wad`).
     pub oracle_price_usd: GaugeVec,
-    /// Primary leg (`safe_price_wad` historical ABI name).
+
     pub oracle_primary_price_usd: GaugeVec,
-    /// Secondary/anchor leg (`aggregator_price_wad` historical ABI name).
+
     pub oracle_anchor_price_usd: GaugeVec,
     pub oracle_deviation_bps: GaugeVec,
-    /// Soft status `valid` (1 = usable for solvency).
+
     pub oracle_healthy: GaugeVec,
-    /// Soft status `stale` flag (0/1).
+
     pub oracle_stale: GaugeVec,
-    /// Soft status `deviation` flag (0/1).
+
     pub oracle_deviation_flag: GaugeVec,
-    /// Soft status blend timestamp (`MarketIndexView.price_timestamp`).
+
     pub oracle_status_timestamp: GaugeVec,
     pub oracle_max_stale_seconds: GaugeVec,
-    /// Max-stale of the soonest-to-stale provider leg (for freshness fraction).
+
     pub oracle_effective_max_stale_seconds: GaugeVec,
     pub oracle_tolerance_upper_bps: GaugeVec,
     pub oracle_tolerance_lower_bps: GaugeVec,
     pub oracle_sanity_min_usd: GaugeVec,
     pub oracle_sanity_max_usd: GaugeVec,
     pub oracle_strategy: GaugeVec,
-    /// Provider-probe feed timestamp (worst leg).
+
     pub oracle_price_timestamp: GaugeVec,
     pub oracle_seconds_until_stale: GaugeVec,
 
@@ -142,8 +137,8 @@ impl Metrics {
             market_param: register_gauge_vec(&registry, "lending_market_param", "IRM curve params by `param` (rates/util as ratio, fees as ratio, bool as 0/1)", &["network", "hub_id", "hub", "asset", "symbol", "param"])?,
 
             oracle_price_usd: register_gauge_vec(&registry, "lending_oracle_price_usd", "Final blended USD price (MarketIndexView.price_wad)", ORACLE_LABELS)?,
-            oracle_primary_price_usd: register_gauge_vec(&registry, "lending_oracle_primary_price_usd", "Primary oracle leg USD (safe_price_wad)", ORACLE_LABELS)?,
-            oracle_anchor_price_usd: register_gauge_vec(&registry, "lending_oracle_anchor_price_usd", "Secondary/anchor oracle leg USD (aggregator_price_wad)", ORACLE_LABELS)?,
+            oracle_primary_price_usd: register_gauge_vec(&registry, "lending_oracle_primary_price_usd", "Primary oracle leg USD (primary_price_wad)", ORACLE_LABELS)?,
+            oracle_anchor_price_usd: register_gauge_vec(&registry, "lending_oracle_anchor_price_usd", "Secondary/anchor oracle leg USD (anchor_price_wad)", ORACLE_LABELS)?,
             oracle_deviation_bps: register_gauge_vec(&registry, "lending_oracle_deviation_bps", "Primary vs anchor deviation (bps)", ORACLE_LABELS)?,
             oracle_healthy: register_gauge_vec(&registry, "lending_oracle_healthy", "1 if soft status valid (fresh, in-band, in sanity)", ORACLE_LABELS)?,
             oracle_stale: register_gauge_vec(&registry, "lending_oracle_stale", "1 if soft status stale flag is set", ORACLE_LABELS)?,
@@ -155,7 +150,7 @@ impl Metrics {
             oracle_tolerance_lower_bps: register_gauge_vec(&registry, "lending_oracle_tolerance_lower_bps", "Configured lower deviation band (bps)", ORACLE_LABELS)?,
             oracle_sanity_min_usd: register_gauge_vec(&registry, "lending_oracle_sanity_min_usd", "Configured min sanity price (USD)", ORACLE_LABELS)?,
             oracle_sanity_max_usd: register_gauge_vec(&registry, "lending_oracle_sanity_max_usd", "Configured max sanity price (USD)", ORACLE_LABELS)?,
-            oracle_strategy: register_gauge_vec(&registry, "lending_oracle_strategy", "Oracle strategy (0 single, 1 primary+anchor)", ORACLE_LABELS)?,
+            oracle_strategy: register_gauge_vec(&registry, "lending_oracle_strategy", "Oracle source count code (0 single source, 1 dual source)", ORACLE_LABELS)?,
             oracle_price_timestamp: register_gauge_vec(&registry, "lending_oracle_price_timestamp_seconds", "Provider-probe feed timestamp of worst leg (Unix s)", ORACLE_LABELS)?,
             oracle_seconds_until_stale: register_gauge_vec(&registry, "lending_oracle_seconds_until_stale", "Seconds until the worst provider leg goes stale (negative if already stale)", ORACLE_LABELS)?,
 

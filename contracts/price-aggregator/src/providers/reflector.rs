@@ -1,150 +1,102 @@
-//! Reflector SEP-40 price provider: spot or TWAP read, repricing a quoted base
-//! into USD. The hard read path reverts on missing/short TWAP history; the
-//! soft (status) path maps every per-asset read problem to `None` so
-//! diagnostic views never revert. Staleness is owned by the callers (`compose`
-//! reverts, `status` flags), not by this reader.
-
 use common::errors::OracleError;
-use common::math::fp::Wad;
-use common::oracle::observation::is_future_at;
+use common::oracle::observation::{is_future_at, MIN_ORACLE_RESOLUTION_SECONDS};
 use common::oracle::providers::reflector::{
-    min_twap_observations, reflector_lastprice_call, reflector_prices_call, to_reflector_asset,
-    try_twap_mean_price,
+    min_twap_observations, reflector_base, reflector_decimals, reflector_last_price,
+    reflector_prices, reflector_resolution, to_reflector_asset, try_reflector_resolution,
+    try_twap_mean_price, ReflectorAsset,
 };
-use common::types::{OracleReadMode, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig};
+use common::types::{OracleReadMode, ReflectorFeedRef};
 use common::validation::validate_twap_records;
-use soroban_sdk::{panic_with_error, Address};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, Symbol};
 
-use crate::config::{is_usd_rooted, require_usd_rooted};
-use crate::context::ResolutionContext;
 use crate::observation::OracleObservation;
-use crate::price;
-use crate::status;
+use crate::session::Session;
 
-/// `soft = false` (hard path): missing/short TWAP history and quoted-base
-/// failures revert with their precise error. `soft = true` (status path):
-/// they yield `None` and the caller reports an unusable status.
-pub(crate) fn read_reflector_source(
-    cache: &mut ResolutionContext,
-    config: &ReflectorSourceConfig,
-    soft: bool,
-) -> Option<OracleObservation> {
-    let observation = match config.read_mode {
-        OracleReadMode::Spot => read_spot(cache, config, soft),
-        OracleReadMode::Twap(records) => match read_twap(cache, config, records) {
-            Ok(obs) => Some(obs),
-            Err(_) if soft => None,
-            Err(err) => panic_with_error!(cache.env(), err),
-        },
-    };
-    observation.and_then(|obs| reprice_to_usd(cache, &config.base, obs, soft))
-}
-
-/// `None` only in soft mode (unresolvable quote leg); hard mode reverts.
-fn reprice_to_usd(
-    cache: &mut ResolutionContext,
-    base: &ReflectorBase,
-    obs: OracleObservation,
-    soft: bool,
-) -> Option<OracleObservation> {
-    match base {
-        ReflectorBase::Usd => Some(obs),
-        ReflectorBase::Quoted(quote) => {
-            let env = cache.env().clone();
-            let quote_feed = if soft {
-                try_resolve_usd_quote_soft(cache, quote)?
-            } else {
-                resolve_usd_quote(cache, quote)
-            };
-            let price_usd = Wad::from(obs.price_wad)
-                .mul(&env, Wad::from(quote_feed.price_wad))
-                .raw();
-            Some(OracleObservation {
-                price_wad: price_usd,
-                // Freshness is the staler of token and quote legs.
-                observed_at: obs.observed_at.min(quote_feed.timestamp),
-                published_at: obs.published_at,
-            })
-        }
+pub(crate) fn attest(env: &Env, feed: &ReflectorFeedRef, decimals: u32, max_stale: u64) {
+    match reflector_base(env, &feed.contract) {
+        ReflectorAsset::Other(symbol) if symbol == Symbol::new(env, "USD") => {}
+        _ => panic_with_error!(env, OracleError::InvalidOracleBase),
     }
-}
-
-/// Resolves the USD price of a quote asset for repricing. Read-time backstop
-/// of the config-time rule: the quote needs its own USD-rooted `AssetOracle`.
-fn resolve_usd_quote(cache: &mut ResolutionContext, quote: &Address) -> PriceFeedRaw {
-    let env = cache.env().clone();
-    let Some(quote_oracle) = cache.cached_asset_oracle_opt(quote) else {
-        panic_with_error!(&env, OracleError::InvalidOracleBase)
-    };
-    require_usd_rooted(&env, &quote_oracle);
-    price::resolve_usd_price(cache, quote)
-}
-
-/// Soft quote resolution for the status path: any failure (missing config,
-/// non-USD root, quote cycle, or an invalid quote status) yields `None`
-/// instead of reverting the diagnostic view. The quote leg must be fully
-/// VALID — fresh, in band, inside its sanity bounds — to back a reprice.
-fn try_resolve_usd_quote_soft(
-    cache: &mut ResolutionContext,
-    quote: &Address,
-) -> Option<PriceFeedRaw> {
-    if cache.is_resolving(quote) {
-        return None;
-    }
-    let quote_oracle = cache.cached_asset_oracle_opt(quote)?;
-    if !is_usd_rooted(&quote_oracle) {
-        return None;
-    }
-    cache.push_resolution(quote);
-    let quote_status = status::resolve_price_status(cache, quote);
-    cache.pop_resolution();
-    if !quote_status.valid {
-        return None;
-    }
-    Some(PriceFeedRaw {
-        price_wad: quote_status.final_wad,
-        asset_decimals: quote_oracle.asset_decimals,
-        timestamp: quote_status.price_timestamp,
-    })
-}
-
-/// Spot read via Reflector `lastprice`. `None` when the feed has no price.
-fn read_spot(
-    cache: &ResolutionContext,
-    config: &ReflectorSourceConfig,
-    soft: bool,
-) -> Option<OracleObservation> {
-    let env = cache.env();
-    let now_secs = cache.ledger_timestamp_secs();
-    let asset = to_reflector_asset(env, &config.asset);
-    let price_data = reflector_lastprice_call(env, &config.contract, &asset)?;
-    if soft {
-        OracleObservation::try_from_reflector(now_secs, &price_data, config.decimals)
-    } else {
-        Some(OracleObservation::from_reflector(
+    assert_with_error!(
+        env,
+        reflector_decimals(env, &feed.contract) == decimals,
+        OracleError::InvalidOracleDecimals
+    );
+    let resolution = reflector_resolution(env, &feed.contract);
+    assert_with_error!(
+        env,
+        resolution >= MIN_ORACLE_RESOLUTION_SECONDS && u64::from(resolution) <= max_stale,
+        OracleError::InvalidOracleResolution
+    );
+    if let OracleReadMode::Twap(records) = feed.read_mode {
+        let required_span =
+            u64::from(records.saturating_sub(1)).saturating_mul(u64::from(resolution));
+        assert_with_error!(
             env,
-            now_secs,
-            &price_data,
-            config.decimals,
-        ))
+            required_span <= max_stale,
+            OracleError::InvalidOracleResolution
+        );
     }
 }
 
-/// TWAP over returned samples. Every present-but-invalid condition (missing or
-/// short history, a future timestamp, a non-positive/overflowing sample) is an
-/// `Err` for the caller to revert (hard path) or soften (status path). Only
-/// config-invariant violations (`validate_twap_records`) stay hard in both.
+#[cfg(feature = "certora")]
+pub(crate) use certora_read::read_reflector_source;
+
+#[cfg(feature = "certora")]
+mod certora_read {
+    use super::*;
+    cvlr_soroban_macros::apply_summary!(
+        crate::spec::summaries::read_reflector_source_summary,
+        pub(crate) fn read_reflector_source(
+            session: &mut Session,
+            feed: &ReflectorFeedRef,
+            decimals: u32,
+        ) -> Option<OracleObservation> {
+            super::read_reflector_source_impl(session, feed, decimals)
+        }
+    );
+}
+
+#[cfg(not(feature = "certora"))]
+pub(crate) use read_reflector_source_impl as read_reflector_source;
+
+pub(crate) fn read_reflector_source_impl(
+    session: &mut Session,
+    feed: &ReflectorFeedRef,
+    decimals: u32,
+) -> Option<OracleObservation> {
+    match feed.read_mode {
+        OracleReadMode::Spot => read_spot(session, feed, decimals),
+
+        OracleReadMode::Twap(records) => read_twap(session, feed, decimals, records).ok(),
+    }
+}
+
+fn read_spot(
+    session: &Session,
+    feed: &ReflectorFeedRef,
+    decimals: u32,
+) -> Option<OracleObservation> {
+    let env = session.env();
+    let now_secs = session.now_secs();
+    let asset = to_reflector_asset(env, &feed.asset);
+    let price_data = reflector_last_price(env, &feed.contract, &asset)?;
+    OracleObservation::from_reflector(now_secs, &price_data, decimals)
+}
+
 fn read_twap(
-    cache: &ResolutionContext,
-    config: &ReflectorSourceConfig,
+    session: &Session,
+    feed: &ReflectorFeedRef,
+    decimals: u32,
     records: u32,
 ) -> Result<OracleObservation, OracleError> {
-    let env = cache.env();
-    let now_secs = cache.ledger_timestamp_secs();
+    let env = session.env();
+    let now_secs = session.now_secs();
+
     validate_twap_records(env, records);
 
-    let asset = to_reflector_asset(env, &config.asset);
-    let Some(history) = reflector_prices_call(env, &config.contract, &asset, records) else {
+    let asset = to_reflector_asset(env, &feed.asset);
+    let Some(history) = reflector_prices(env, &feed.contract, &asset, records) else {
         return Err(OracleError::ReflectorHistoryEmpty);
     };
     if history.is_empty() {
@@ -153,28 +105,36 @@ fn read_twap(
     if history.len() < min_twap_observations(records) {
         return Err(OracleError::TwapInsufficientObservations);
     }
+    if history.len() > records.saturating_add(1) {
+        return Err(OracleError::TwapInsufficientObservations);
+    }
+
+    let resolution = try_reflector_resolution(env, &feed.contract)
+        .filter(|resolution| *resolution >= MIN_ORACLE_RESOLUTION_SECONDS)
+        .ok_or(OracleError::InvalidOracleResolution)?;
 
     let mut oldest_ts = u64::MAX;
+    let mut previous_ts = None;
     for price_data in history.iter() {
         if is_future_at(now_secs, price_data.timestamp) {
             return Err(OracleError::PriceFeedStale);
         }
-        if price_data.timestamp < oldest_ts {
-            oldest_ts = price_data.timestamp;
+        if previous_ts.is_some_and(|newer: u64| {
+            newer
+                .checked_sub(price_data.timestamp)
+                .is_none_or(|spacing| spacing < u64::from(resolution))
+        }) {
+            return Err(OracleError::TwapInsufficientObservations);
         }
+        previous_ts = Some(price_data.timestamp);
+        oldest_ts = price_data.timestamp;
     }
 
-    // Mean over returned samples (not requested count); shared with governance
-    // probe. Staleness of `oldest_ts` is judged by the caller.
     let raw_price = try_twap_mean_price(&history).ok_or(OracleError::InvalidPrice)?;
-    let price_wad = common::oracle::observation::try_normalize_positive_price(
-        raw_price,
-        config.decimals,
-    )
-    .ok_or(OracleError::InvalidPrice)?;
+    let price_wad = common::oracle::observation::try_normalize_positive_price(raw_price, decimals)
+        .ok_or(OracleError::InvalidPrice)?;
     Ok(OracleObservation {
         price_wad,
-        observed_at: oldest_ts,
-        published_at: None,
+        timestamp: oldest_ts,
     })
 }

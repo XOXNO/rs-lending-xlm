@@ -5,7 +5,7 @@ use stellar_access::ownable::OwnableStorageKey;
 
 #[test]
 #[should_panic(expected = "Error(Contract, #32)")]
-fn sync_pending_admin_transfer_requires_owner_or_admin() {
+fn sync_pending_admin_transfer_panics_when_no_owner_or_admin_configured() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
@@ -19,8 +19,6 @@ fn sync_pending_admin_transfer_requires_owner_or_admin() {
     });
 }
 
-// Accepting ownership must also promote the access-control admin so the new
-// owner controls both role systems.
 #[test]
 fn accept_ownership_promotes_access_control_admin() {
     let env = Env::default();

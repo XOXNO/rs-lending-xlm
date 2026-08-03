@@ -1,24 +1,19 @@
-//! Applies a liquidation plan: debt repayments, collateral seizures, then
-//! residual bad-debt check. Reuses repay/withdraw settle with `LiqRepay` /
-//! `LiqSeize` so usage maps stay aligned with user flows.
-
 use crate::account;
 use common::errors::SpokeError;
 use common::math::fp::Wad;
 use common::types::{
     Account, AccountPosition, DebtPosition, PoolAction, PoolWithdrawEntry, RepayEntry, SeizeEntry,
 };
+use common::validation::expect_invariant;
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 use crate::context::Cache;
 use crate::events;
 use crate::external::sac::sac_transfer_call;
 use crate::positions::liquidation::bad_debt;
-use crate::positions::liquidation::math::is_socializable_bad_debt;
+use crate::positions::liquidation::curve::is_socializable_bad_debt;
 use crate::positions::{make_pool_action, repay, withdraw};
-use crate::risk::validation;
 
-/// Transfer each planned repay leg from the liquidator, then one bulk pool repay.
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
@@ -29,7 +24,6 @@ pub(crate) fn apply_liquidation_repayments(
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
-        // Paused debt listing accepts no liquidator tokens (post-normalization legs).
         let debt_paused = cache
             .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
             .is_some_and(|c| c.paused);
@@ -43,14 +37,11 @@ pub(crate) fn apply_liquidation_repayments(
             &entry.amount,
         );
 
-        let position: DebtPosition = (&validation::expect_invariant(
-            env,
-            account.borrow_positions.get(entry.hub_asset.clone()),
-        ))
-            .into();
+        let position: DebtPosition =
+            (&expect_invariant(env, account.borrow_positions.get(entry.hub_asset.clone()))).into();
         actions.push_back(make_pool_action(&position, entry.amount, entry.hub_asset));
     }
-    repay::settle_repay_actions(
+    repay::apply_repay_batch(
         env,
         account,
         liquidator,
@@ -60,10 +51,6 @@ pub(crate) fn apply_liquidation_repayments(
     );
 }
 
-/// One bulk pool withdraw of planned seizures to the liquidator (with protocol fees).
-///
-/// Does not enforce spoke pause: paused collateral remains seizable. Risk params
-/// stay frozen via `LiqSeize` in withdraw settle.
 pub(crate) fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
@@ -73,27 +60,29 @@ pub(crate) fn apply_liquidation_seizures(
 ) {
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
-        let position: AccountPosition = (&validation::expect_invariant(
-            env,
-            account.supply_positions.get(entry.hub_asset.clone()),
-        ))
-            .into();
+        let collateral_paused = cache
+            .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
+            .is_some_and(|c| c.paused);
+        assert_with_error!(env, !collateral_paused, SpokeError::SpokeAssetPaused);
+
+        let position: AccountPosition =
+            (&expect_invariant(env, account.supply_positions.get(entry.hub_asset.clone()))).into();
         entries.push_back(PoolWithdrawEntry {
             action: make_pool_action(&position, entry.amount, entry.hub_asset),
             protocol_fee: entry.protocol_fee,
         });
     }
-    withdraw::settle_withdraw_entries(
+    withdraw::apply_withdraw_batch(
         env,
         account,
         liquidator,
+        withdraw::WithdrawKind::Liquidation,
         events::PositionAction::LiqSeize,
         &entries,
         cache,
     );
 }
 
-/// After liquidation: remove an emptied account, or socialize residual bad debt.
 pub(crate) fn check_bad_debt_after_liquidation(
     env: &Env,
     cache: &mut Cache,

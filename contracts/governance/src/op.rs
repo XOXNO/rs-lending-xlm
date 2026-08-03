@@ -1,8 +1,5 @@
-//! `AdminOperation` resolution and self-op application. `resolve_op` validates
-//! inputs and lowers to a named `ResolvedOperation`; `apply_self_op` runs
-//! governance-self variants once the timelock matures.
-
 use common::errors::{CollateralError, GenericError, OracleError};
+use common::types::{AssetOracle, PriceKey};
 use common::validation::{
     validate_liquidation_curve, validate_liquidation_fees, validate_risk_bounds,
 };
@@ -16,7 +13,7 @@ use crate::timelock::{apply_update_delay, validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
-    AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EditToleranceArgs,
+    AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, EditToleranceArgs,
     RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, SpokeLiquidationCurveArgs,
     TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
@@ -27,7 +24,15 @@ fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
     validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
 }
 
-/// Resolved call target for a proposed `AdminOperation`.
+pub(crate) fn resolve_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) -> AssetOracle {
+    let mut resolved = oracle.clone();
+    resolved.asset_decimals = match key {
+        PriceKey::Token(asset) => validate::asset::validate_and_fetch_token_decimals(env, asset),
+        PriceKey::Ref(_) => 0,
+    };
+    resolved
+}
+
 pub(crate) struct ResolvedOperation {
     pub target: Address,
     pub function: Symbol,
@@ -53,8 +58,6 @@ fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> 
     }
 }
 
-/// Oracle config ops target the price-aggregator (the oracle authority), not
-/// the controller.
 fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
     ResolvedOperation {
         target: storage::get_price_aggregator(env),
@@ -108,7 +111,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                     args.account.clone().into_val(env),
                     args.role.clone().into_val(env),
                 ],
-                DelayTier::Standard,
+                DelayTier::Sensitive,
             )
         }
         AdminOperation::RevokeGovRole(args) => {
@@ -121,7 +124,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                     args.account.clone().into_val(env),
                     args.role.clone().into_val(env),
                 ],
-                DelayTier::Standard,
+                DelayTier::Sensitive,
             )
         }
         AdminOperation::TransferGovOwnership(args) => self_operation(
@@ -144,10 +147,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             )
         }
         AdminOperation::SetPriceAggregator(addr) => {
-            // Re-pointing the oracle authority is solvency-critical (Sensitive
-            // tier). Self-targeted: governance must move its OWN stored
-            // aggregator (the target of every oracle-config op) in the same
-            // execution that re-points the controller, or the two diverge.
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
             self_operation(
                 env,
@@ -207,16 +206,22 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 args.spoke_id.into_val(env),
             ],
         ),
-        AdminOperation::ApproveBlendPool(pool) => controller_operation(
-            env,
-            "approve_blend_pool",
-            vec![env, pool.clone().into_val(env)],
-        ),
-        AdminOperation::RevokeBlendPool(pool) => controller_operation(
-            env,
-            "revoke_blend_pool",
-            vec![env, pool.clone().into_val(env)],
-        ),
+        AdminOperation::ApproveBlendPool(pool) => {
+            validate::require_contract_address(env, pool, GenericError::NotSmartContract);
+            controller_operation(
+                env,
+                "approve_blend_pool",
+                vec![env, pool.clone().into_val(env)],
+            )
+        }
+        AdminOperation::RevokeBlendPool(pool) => {
+            validate::require_contract_address(env, pool, GenericError::NotSmartContract);
+            controller_operation(
+                env,
+                "revoke_blend_pool",
+                vec![env, pool.clone().into_val(env)],
+            )
+        }
         AdminOperation::CreateLiquidityPool(args) => {
             let token_decimals =
                 validate::asset::validate_and_fetch_token_decimals(env, &args.asset);
@@ -251,11 +256,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
         }
         AdminOperation::DeployPool(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
-            controller_operation(
-                env,
-                "deploy_pool",
-                vec![env, hash.clone().into_val(env)],
-            )
+            controller_operation(env, "deploy_pool", vec![env, hash.clone().into_val(env)])
         }
         AdminOperation::UpgradePool(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
@@ -293,23 +294,12 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 ],
             )
         }
-        AdminOperation::ConfigureMarketOracle(args) => {
-            let tolerance =
-                validate::tolerance::validate_and_calculate_tolerances(env, args.cfg.tolerance_bps);
-            let resolved_config = validate::oracle_probe::validate_market_oracle_sources(
-                env,
-                &args.hub_asset.asset,
-                &args.cfg,
-                tolerance,
-            );
+        AdminOperation::ConfigureAssetOracle(args) => {
+            let oracle = resolve_oracle(env, &args.key, &args.oracle);
             price_aggregator_operation(
                 env,
-                "set_oracle_config",
-                vec![
-                    env,
-                    args.hub_asset.asset.clone().into_val(env),
-                    resolved_config.into_val(env),
-                ],
+                "set_oracle",
+                vec![env, args.key.clone().into_val(env), oracle.into_val(env)],
             )
         }
         AdminOperation::EditOracleTolerance(args) => {
@@ -318,14 +308,15 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             price_aggregator_operation(
                 env,
                 "set_tolerance",
-                vec![
-                    env,
-                    args.asset.clone().into_val(env),
-                    tolerance.into_val(env),
-                ],
+                vec![env, args.key.clone().into_val(env), tolerance.into_val(env)],
             )
         }
         AdminOperation::Unpause => controller_operation(env, "unpause", vec![env]),
+        AdminOperation::ForceSocializeBadDebt(account_id) => sensitive_controller_operation(
+            env,
+            "force_socialize_bad_debt",
+            vec![env, account_id.into_val(env)],
+        ),
         AdminOperation::SetSpokeLiquidationCurve(args) => {
             validate_liquidation_curve(
                 env,
@@ -362,9 +353,6 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
             access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger)
         }
         AdminOperation::SetPriceAggregator(addr) => {
-            // Re-validate at execution so a matured operation cannot install a
-            // non-contract address, then keep governance's own oracle-authority
-            // pointer and the controller's in lockstep.
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
             storage::set_price_aggregator(env, addr);
             env.invoke_contract::<Val>(
@@ -373,7 +361,6 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
                 vec![env, addr.clone().into_val(env)],
             );
         }
-        // External-target ops never reach `execute_self`.
         AdminOperation::SetSwapAggregator(_)
         | AdminOperation::SetAccumulator(_)
         | AdminOperation::SetPositionLimits(_)
@@ -394,9 +381,10 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::UpgradeController(_)
         | AdminOperation::MigrateController(_)
         | AdminOperation::TransferCtrlOwnership(_)
-        | AdminOperation::ConfigureMarketOracle(_)
+        | AdminOperation::ConfigureAssetOracle(_)
         | AdminOperation::EditOracleTolerance(_)
         | AdminOperation::SetSpokeLiquidationCurve(_)
+        | AdminOperation::ForceSocializeBadDebt(_)
         | AdminOperation::Unpause => panic_with_error!(env, GenericError::InternalError),
     }
 }

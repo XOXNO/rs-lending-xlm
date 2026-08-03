@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Canonical 20-feed width walk (V2 events): widest n-debt repay + 10-coll seize.
-# Requires liq_20feed.sh to have set LIQ20_ACCT on the same RUN_TS.
-#
-#   RUN_TS=<existing> bash tests/integration/scenarios/liq20_v2_walk.sh
+
+
+
+
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../env.sh"

@@ -1,20 +1,19 @@
-//! Core position money path: supply, borrow, withdraw, repay, liquidation.
-//!
-//! Auth and risk gates live on public entrypoints; pool settles shares/cash.
-//! Stages: process_* → build_* → settle_* → finish_*_leg → finalize_position_flow.
-//! See `docs/reference/invariants.md` §3.
-
-use common::errors::{CollateralError, SpokeError};
+use common::errors::{CollateralError, GenericError, SpokeError};
+use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, AccountPositionType, DebtPosition, HubAssetKey, PoolAction,
-    ScaledPositionRaw,
+    Account, AccountPosition, AccountPositionType, AggregatedPayments, DebtPosition, HubAssetKey,
+    HubPayment, MarketIndexRaw, PoolAction, PoolPositionMutation, ScaledPositionRaw,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
+use soroban_sdk::{
+    assert_with_error, panic_with_error, Address, Env, IntoVal, TryFromVal, Val, Vec,
+};
 
 use crate::account;
+use crate::config;
 use crate::context::Cache;
-use crate::risk::validation;
-use crate::spoke;
+use crate::events;
+use crate::risk::{self, validation};
+use crate::spoke::UsageSide;
 use crate::storage;
 
 pub(crate) mod borrow;
@@ -23,13 +22,139 @@ pub(crate) mod repay;
 pub(crate) mod supply;
 pub(crate) mod withdraw;
 
-/// Hub asset plus amount (one payment leg).
-pub(crate) type HubPayment = (HubAssetKey, i128);
+pub(crate) struct LegOutcome {
+    pub new_scaled: Ray,
+    pub market_index: MarketIndexRaw,
 
-/// Deduped payment rows after aggregation.
-pub(crate) type AggregatedPayments = Vec<HubPayment>;
+    pub amount: i128,
+}
 
-/// Which account position maps to write on finalize.
+impl From<&PoolPositionMutation> for LegOutcome {
+    fn from(mutation: &PoolPositionMutation) -> Self {
+        Self {
+            new_scaled: Ray::from(mutation.position.scaled_amount),
+            market_index: mutation.market_index.clone(),
+            amount: mutation.actual_amount,
+        }
+    }
+}
+
+pub(crate) fn for_each_leg<E, R>(
+    env: &Env,
+    entries: &Vec<E>,
+    results: &Vec<R>,
+    mut f: impl FnMut(E, R),
+) where
+    E: IntoVal<Env, Val> + TryFromVal<Env, Val> + Clone,
+    R: IntoVal<Env, Val> + TryFromVal<Env, Val> + Clone,
+{
+    assert_with_error!(
+        env,
+        results.len() == entries.len(),
+        GenericError::InternalError
+    );
+    for (entry, result) in entries.iter().zip(results.iter()) {
+        f(entry, result);
+    }
+}
+
+pub(crate) fn require_position_caller(env: &Env, caller: &Address) {
+    caller.require_auth();
+    validation::require_not_flash_loaning(env);
+}
+
+pub(crate) fn enforce_post_pool_solvency(
+    env: &Env,
+    cache: &mut Cache,
+    account: &mut Account,
+) -> bool {
+    let restamped = risk::restamp_listed_supply_ltv(cache, account);
+    validation::require_post_pool_risk_gates(env, cache, account);
+    restamped
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum LegDirection {
+    Entry { asset_decimals: u32 },
+    Exit,
+}
+
+pub(crate) fn apply_leg_usage(
+    env: &Env,
+    cache: &mut Cache,
+    spoke_id: u32,
+    side: UsageSide,
+    hub_asset: &HubAssetKey,
+    direction: LegDirection,
+    old_scaled: Ray,
+    outcome: &LegOutcome,
+) {
+    match direction {
+        LegDirection::Entry { asset_decimals } => cache.apply_spoke_entry(
+            spoke_id,
+            side,
+            hub_asset,
+            outcome.new_scaled.checked_sub(env, old_scaled),
+            &outcome.market_index,
+            asset_decimals,
+        ),
+        LegDirection::Exit => cache.apply_spoke_exit(
+            spoke_id,
+            side,
+            hub_asset,
+            old_scaled.checked_sub(env, outcome.new_scaled),
+        ),
+    }
+}
+
+pub(crate) fn merge_debt_leg(
+    env: &Env,
+    account: &mut Account,
+    action: events::PositionAction,
+    hub_asset: &HubAssetKey,
+    direction: LegDirection,
+    outcome: &LegOutcome,
+    cache: &mut Cache,
+) {
+    let old_scaled = match direction {
+        LegDirection::Entry { .. } => account
+            .borrow_positions
+            .get(hub_asset.clone())
+            .map_or(Ray::ZERO, |p| Ray::from(p.scaled_amount)),
+        LegDirection::Exit => get_debt_position_or_panic(env, account, hub_asset).scaled_amount,
+    };
+    let position = DebtPosition {
+        scaled_amount: outcome.new_scaled,
+    };
+
+    apply_leg_usage(
+        env,
+        cache,
+        account.spoke_id,
+        UsageSide::Borrow,
+        hub_asset,
+        direction,
+        old_scaled,
+        outcome,
+    );
+    cache.put_market_index(hub_asset, &outcome.market_index);
+    cache.record_debt_position_update(
+        action,
+        hub_asset,
+        outcome.market_index.borrow_index,
+        outcome.amount,
+        &position,
+    );
+    account::update_or_remove_debt_position(account, hub_asset, &position);
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum FreezePolicy {
+    BlockOnEntry,
+
+    AllowOnExit,
+}
+
 #[derive(Copy, Clone)]
 pub(crate) struct PositionSides {
     pub supply: bool,
@@ -69,11 +194,7 @@ pub(crate) fn persist_account_positions(
     }
 }
 
-/// Standard tail for user position flows: spoke usage, positions, then events.
-///
-/// `remove_if_empty` is true only on full-exit withdraw; supply/borrow/repay
-/// leave the account in place even if one side is empty.
-pub(crate) fn finalize_position_flow(
+pub(crate) fn persist_position_flow(
     env: &Env,
     account_id: u64,
     account: &Account,
@@ -83,11 +204,20 @@ pub(crate) fn finalize_position_flow(
 ) {
     cache.persist_spoke_usage();
     persist_account_positions(env, account_id, account, sides, remove_if_empty);
+}
+
+pub(crate) fn finalize_position_flow(
+    env: &Env,
+    account_id: u64,
+    account: &Account,
+    cache: &mut Cache,
+    sides: PositionSides,
+    remove_if_empty: bool,
+) {
+    persist_position_flow(env, account_id, account, cache, sides, remove_if_empty);
     cache.emit_position_batch(account_id, account);
 }
 
-/// Shared pre-pool entry gates for deposit and borrow batches: hub active,
-/// listing, pause/freeze flags, and side-specific supply/borrow capability.
 pub(crate) fn validate_position_entry_gates(
     env: &Env,
     account: &Account,
@@ -98,12 +228,17 @@ pub(crate) fn validate_position_entry_gates(
     validation::validate_bulk_position_limits(env, account, position_type, aggregated);
 
     for (hub_asset, _) in aggregated {
-        validation::require_hub_active(env, hub_asset.hub_id);
-        // Unlisted assets revert `AssetNotInSpoke`.
-        let asset_config =
-            spoke::require_listed_active_config(env, cache, account.spoke_id, &hub_asset);
-        // New entries: frozen blocks; paused blocks every verb.
-        enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
+        config::require_hub_active(env, hub_asset.hub_id);
+
+        let asset_config = cache.require_listed_active_config(account.spoke_id, &hub_asset);
+
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &hub_asset,
+            FreezePolicy::BlockOnEntry,
+        );
         match position_type {
             AccountPositionType::Deposit => assert_with_error!(
                 env,
@@ -119,22 +254,16 @@ pub(crate) fn validate_position_entry_gates(
     }
 }
 
-/// Enforces per-spoke paused/frozen flags when the asset is still listed.
-///
-/// Always reverts if paused. When `block_when_frozen` is true (new deposit/borrow),
-/// also reverts if frozen. Exit paths (withdraw/repay) pass false so freeze still
-/// allows reducing positions. Missing listing is a no-op here (callers that need
-/// a listing use `require_listed_active_config` first).
 pub(crate) fn enforce_spoke_asset_flags(
     env: &Env,
     cache: &mut Cache,
     spoke_id: u32,
     hub_asset: &HubAssetKey,
-    block_when_frozen: bool,
+    freeze: FreezePolicy,
 ) {
     if let Some(sa) = cache.cached_spoke_asset(spoke_id, hub_asset) {
         assert_with_error!(env, !sa.paused, SpokeError::SpokeAssetPaused);
-        if block_when_frozen {
+        if freeze == FreezePolicy::BlockOnEntry {
             assert_with_error!(env, !sa.frozen, SpokeError::SpokeAssetFrozen);
         }
     }
@@ -152,10 +281,6 @@ pub(crate) fn make_pool_action(
     }
 }
 
-/// Supply position lookup for withdraw and related paths.
-///
-/// Panics with `CollateralPositionNotFound` (distinct from liquidation's
-/// `expect_invariant` path so user errors stay stable).
 pub(crate) fn get_supply_position_or_panic(
     env: &Env,
     account: &Account,
@@ -168,9 +293,6 @@ pub(crate) fn get_supply_position_or_panic(
         .into()
 }
 
-/// Debt position lookup for repay and related paths.
-///
-/// Panics with `DebtPositionNotFound`.
 pub(crate) fn get_debt_position_or_panic(
     env: &Env,
     account: &Account,

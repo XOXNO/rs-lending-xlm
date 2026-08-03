@@ -1,43 +1,43 @@
-# Contract invocation wrappers: send, expect-revert, view, and budget probes.
-#
-# Testnet facts these encode:
-# - `stellar contract invoke` prints the return value on stdout and the tx
-#   hash on stderr as `Signing transaction: <64hex>`; failed simulations
-#   never reach signing, so a captured hash is a reliable success signal.
-# - Declared resources (instructions / disk-read / write bytes, resource fee)
-#   live in the signed envelope's SorobanTransactionData; fetched post-send
-#   via RPC getTransaction and decoded with `stellar xdr`.
 
-# Infra-level transients (gateway 5xx, request timeouts, connection resets,
-# sequence-number races), distinct from a contract revert which is
-# deterministic. Pre-send these have no on-ledger effect and are safe to
-# resubmit; a TxBadSeq is rejected before apply (the source account's sequence
-# read lagged a just-landed tx), so re-submitting re-fetches the sequence and
-# lands clean. Post-send (a signed tx whose response was lost) is NOT
-# unconditionally safe: `inv` resolves it against the ledger via `tx_status`
-# before resubmitting so a landed tx is never double-applied.
-# Shared by the inv / xfail / trustline retry loops.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transport\(Rejected|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq'
 
-# A just-deployed contract can lag the RPC read replica the next invoke
-# simulates against: the instance entry reads as missing ("Contract not found"
-# / "non-existing value for contract instance"). The deploy already committed,
-# so re-simulating with backoff lands once the replica catches up — a genuinely
-# absent contract recurs and falls through to FAIL on the final attempt.
+
+
+
+
+
 DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instance'
 
-# Retry budgets, env-overridable. Sized to outlast a sustained testnet
-# congestion window (each transient resubmit waits a capped linear backoff):
-# state-changing/read invokes get up to INV_MAX_ATTEMPTS, raw deploy/upload up
-# to DEPLOY_MAX_ATTEMPTS, expect-revert probes XFAIL_MAX_ATTEMPTS. The happy
-# path settles on attempt 1, so raising the ceiling only adds resilience.
+
+
+
+
+
 INV_MAX_ATTEMPTS="${INV_MAX_ATTEMPTS:-8}"
 DEPLOY_MAX_ATTEMPTS="${DEPLOY_MAX_ATTEMPTS:-8}"
 XFAIL_MAX_ATTEMPTS="${XFAIL_MAX_ATTEMPTS:-5}"
 
-# Capped linear backoff in seconds before retry attempt N (N>=1): (N-1)*step,
-# clamped to cap so a long retry chain stays bounded.
-#   backoff_sleep <attempt> [step=5] [cap=20]
+
+
+
 backoff_sleep() {
     local attempt="$1" step="${2:-5}" cap="${3:-20}" s
     s=$(( (attempt - 1) * step ))
@@ -46,13 +46,13 @@ backoff_sleep() {
     return 0
 }
 
-# Runs a raw `stellar contract deploy/upload` command up to 5x, retrying the
-# transients testnet throws around contract installation: a deploy racing its
-# own wasm upload (Storage,MissingValue / "Wasm does not exist"), TxBadSeq, and
-# RPC 5xx. The contract id / wasm hash lands on stdout (captured to out_f);
-# success requires a non-empty stdout. Re-running is safe — an already-uploaded
-# wasm re-uploads idempotently and a fresh deploy simply gets a new id.
-#   run_deploy <out_f> <err_f> -- <stellar ...>
+
+
+
+
+
+
+
 run_deploy() {
     local out_f="$1" err_f="$2"; shift 2
     [ "$1" = "--" ] && shift
@@ -67,12 +67,12 @@ run_deploy() {
     return 1
 }
 
-# Decide whether a signed tx landed on-ledger. Used before resubmitting a
-# state-changing invoke whose send/poll hit a transient (timeout, 5xx,
-# connection reset): the response was lost, but the tx may already be applied,
-# so a blind resubmit would double-execute. Polls getTransaction across a few
-# ledger closes to resolve the in-flight NOT_FOUND -> SUCCESS window.
-# Echoes SUCCESS | FAILED | NOT_FOUND.
+
+
+
+
+
+
 tx_status() {
     local hash="$1" resp st _
     for _ in 1 2 3 4 5; do
@@ -88,8 +88,8 @@ tx_status() {
     echo NOT_FOUND
 }
 
-# Fetch declared resource usage for a sent tx hash.
-# Sets: RES_INSTR RES_READ RES_WRITE RES_FEE
+
+
 fetch_resources() {
     local hash="$1"
     RES_INSTR="" RES_READ="" RES_WRITE="" RES_FEE=""
@@ -109,9 +109,9 @@ fetch_resources() {
     RES_FEE=$(jq -r '.resource_fee // empty' <<<"$sdata")
 }
 
-# State-changing invoke. Records the action; returns the contract's return
-# value on stdout. Fails the harness on unexpected revert.
-#   inv <label> <signer-alias> <contract-id> -- <fn> [args...]
+
+
+
 inv() {
     local label="$1" signer="$2" contract="$3"; shift 3
     [ "$1" = "--" ] && shift
@@ -129,75 +129,75 @@ inv() {
                 fetch_resources "$hash"
                 record "$label" ok "$fn" "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" ""
             else
-                # Read-only fn invoked via inv (no state change → no tx).
+
                 record "$label" read "$fn" "" "" "" "" "" ""
             fi
             cat "$out_f"
             return 0
         fi
-        # Opt-in: a contract error the CALLER marks as a state-propagation
-        # transient via INV_TRANSIENT_CONTRACT_RE (e.g. a just-established
-        # classic trustline not yet visible to the mint's simulate → SAC #13).
-        # The prerequisite tx already committed, so re-simulating with backoff
-        # lands once the read replica catches up. Unset by default → no effect.
+
+
+
+
+
         if [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
             && [ -n "${INV_TRANSIENT_CONTRACT_RE:-}" ] \
             && grep -qE "$INV_TRANSIENT_CONTRACT_RE" "$err_f"; then
             record "$label" retry "$fn" "" "" "" "" "" "transient contract state; resimulating"
             continue
         fi
-        # A freshly-deployed contract not yet visible to this invoke's simulate.
-        # The deploy committed; re-simulate with backoff until the replica syncs.
+
+
         if [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
             && grep -qE "$DEPLOY_PROPAGATION_RE" "$err_f" \
             && ! grep -q "Error(Contract" "$err_f"; then
             record "$label" retry "$fn" "" "" "" "" "" "freshly-deployed contract not yet visible; resimulating"
             continue
         fi
-        # Transient RPC/gateway failure (5xx, timeout, connection reset, bad
-        # sequence) at simulate or send. Pre-send it has no on-ledger effect and
-        # is safe to resubmit. Post-send (the tx was signed and submitted) the
-        # response was merely lost — the tx may already be applied, so a blind
-        # resubmit would double-execute (mint/supply/borrow twice). Resolve the
-        # ambiguity against the ledger using the signed hash before deciding.
+
+
+
+
+
+
         if [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
             && grep -qE "$RPC_TRANSIENT_RE" "$err_f" \
             && ! grep -q "Error(Contract" "$err_f"; then
             local thash
             thash=$(extract_signing_hash "$err_f")
             if [ -z "$thash" ]; then
-                # No signed hash: the transient hit simulate/pre-send, nothing
-                # was submitted. Safe to resubmit.
+
+
                 record "$label" retry "$fn" "" "" "" "" "" "transient rpc failure pre-send; retrying"
                 continue
             fi
             case "$(tx_status "$thash")" in
                 SUCCESS)
-                    # The tx landed despite the lost response — recover it as a
-                    # success instead of resubmitting.
+
+
                     fetch_resources "$thash"
                     record "$label" ok "$fn" "$thash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "recovered: tx landed despite transient response"
                     cat "$out_f"
                     return 0
                     ;;
                 NOT_FOUND)
-                    # Signed+submitted but never applied (dropped / TxBadSeq
-                    # rejected pre-apply). Safe to resubmit.
+
+
                     record "$label" retry "$fn" "" "" "" "" "" "transient after send; tx not on ledger, resubmitting"
                     continue
                     ;;
                 *)
-                    # FAILED on-ledger: deterministic failure, do not resubmit.
+
                     break
                     ;;
             esac
         fi
-        # Transient sim-vs-apply divergence: the tx simulated clean (it was
-        # signed) but the apply read keys outside the simulated footprint —
-        # live Reflector round rotation, DEX state movement, accrual drift.
-        # Shows as Trapped or ResourceLimitExceeded with no contract error.
-        # Re-simulate and resend; a deterministic failure recurs and falls
-        # through to FAIL on the final attempt.
+
+
+
+
+
+
         if [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
             && grep -q "Signing transaction" "$err_f" \
             && grep -qE "Trapped|ResourceLimitExceeded" "$err_f" \
@@ -207,17 +207,17 @@ inv() {
         fi
         break
     done
-    # INV_FAIL_STATUS=retry marks an attempt inside a retry loop so transient
-    # DEX-state races (sim-ok, apply-trapped) don't read as suite failures.
+
+
     record "$label" "${INV_FAIL_STATUS:-FAIL}" "$fn" "" "" "" "" "" "$(tail -c 300 "$err_f" | tr '\n\t' '  ')"
     log "${INV_FAIL_STATUS:-FAIL} [$label]: $(tail -3 "$err_f")"
     return 1
 }
 
-# Invoke that MUST revert with an error matching the given pattern.
-# Retries transient sim/apply infra failures (Trapped, ResourceLimitExceeded
-# without a contract error), same as `inv`.
-#   xfail <label> <grep-pattern> <signer> <contract> -- <fn> [args...]
+
+
+
+
 xfail() {
     local label="$1" pattern="$2" signer="$3" contract="$4"; shift 4
     [ "$1" = "--" ] && shift
@@ -250,21 +250,21 @@ xfail() {
     return 1
 }
 
-# Simulate-only expect-revert: like xfail but never sends (--send=no), so an
-# unexpectedly-successful guard cannot land a real tx and corrupt downstream
-# state. Use for pure pre-condition guards (LTV / health gates) whose revert is
-# already reached at simulation.
-#   xfail_sim <label> <grep-pattern> <signer> <contract> -- <fn> [args...]
+
+
+
+
+
 xfail_sim() {
     XFAIL_SEND_NO=1 xfail "$@"
 }
 
-# Read-only invoke (no signing; result on stdout). Recorded as a read. Views
-# are side-effect-free, so transient infra/propagation failures (RPC 5xx, bad
-# sequence, a freshly-written value the read replica hasn't synced — e.g. the
-# oracle-resolve probe reading a just-set mock price) are always safe to retry.
-# A deterministic failure (bad arg, real revert) recurs and falls through.
-#   view <label> <contract> -- <fn> [args...]
+
+
+
+
+
+
 view() {
     local label="$1" contract="$2"; shift 2
     [ "$1" = "--" ] && shift
@@ -279,11 +279,11 @@ view() {
             cat "$out_f"
             return 0
         fi
-        # Views are read-only and only called where success is expected (revert-
-        # expecting checks use `xfail`/`assert_*`). A failure here is transient:
-        # an rpc/propagation error, or a state-propagation revert where the
-        # queried node hasn't yet seen a just-submitted price/position change
-        # (cross-node lag). Retry any failure up to the attempt cap.
+
+
+
+
+
         [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] && continue
         break
     done
@@ -291,11 +291,11 @@ view() {
     return 1
 }
 
-# Runs an invoke-bearing callback up to 3 times with backoff. Testnet txs can
-# simulate clean and still trap at apply when chain state moves between sim
-# and submit (DEX pools, interest accrual). Non-final attempts record as
-# `retry`, the final one as a real FAIL.
-#   retry_leg <callback-fn> [args...]
+
+
+
+
+
 retry_leg() {
     local attempt
     for attempt in 1 2 3; do
@@ -307,11 +307,11 @@ retry_leg() {
     return 1
 }
 
-# Budget probe: build + simulate WITHOUT sending. Records simulated resources
-# on success, or the simulation error (e.g. Budget,ExceededLimit) on failure.
-# Sets PROBE_STATUS=ok|exceeded|error. Used by the stress flow to find the
-# per-tx resource frontier without burning fees.
-#   sim_probe <label> <signer> <contract> -- <fn> [args...]
+
+
+
+
+
 sim_probe() {
     local label="$1" signer="$2" contract="$3"; shift 3
     [ "$1" = "--" ] && shift

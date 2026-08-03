@@ -4,16 +4,11 @@ use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, Address, Bytes, Env, IntoVal, Symbol, Vec,
 };
 
-/// A mock flash loan receiver that correctly repays the borrowed amount + fee.
 #[contract]
 pub struct GoodFlashLoanReceiver;
 
 #[contractimpl]
 impl GoodFlashLoanReceiver {
-    /// Called by the controller during flash loan execution.
-    /// The pool sent `amount` tokens to this contract.
-    /// The pool will pull `amount + fee` after this callback.
-    /// Mints the `fee` portion so repayment succeeds.
     pub fn execute_flash_loan(
         env: Env,
         _initiator: Address,

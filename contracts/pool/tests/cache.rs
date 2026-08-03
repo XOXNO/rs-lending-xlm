@@ -4,6 +4,9 @@ use super::*;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
+use common::math::fp::Ray;
+use common::rates::{calculate_scaled_borrow_floor, calculate_scaled_supply_ceil};
+use common::types::{MarketParamsRaw, PoolKey};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 
@@ -115,6 +118,28 @@ fn cache_with(
 }
 
 #[test]
+fn test_cache_clock_tracks_zero_and_positive_elapsed_time() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
+        cache.last_timestamp = 42;
+        cache.current_timestamp = 42;
+
+        assert_eq!(cache.last_timestamp(), 42);
+        assert_eq!(cache.elapsed_ms(), 0);
+        assert!(!cache.needs_accrual());
+
+        cache.set_current_timestamp(43);
+        assert_eq!(cache.elapsed_ms(), 1);
+        assert!(cache.needs_accrual());
+
+        cache.mark_accrued();
+        assert_eq!(cache.last_timestamp(), 43);
+        assert!(!cache.needs_accrual());
+    });
+}
+
+#[test]
 fn test_calculate_utilization_returns_zero_when_supplied_is_zero() {
     let t = TestSetup::new();
     t.as_contract(|| {
@@ -127,16 +152,11 @@ fn test_calculate_utilization_returns_zero_when_supplied_is_zero() {
 fn test_calculate_utilization_returns_ratio_at_normal_state() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // 5 borrowed against 10 supplied at index 1 -> 50% utilization.
         let cache = cache_with(&t.env, &t.params, 10 * RAY, 5 * RAY, 0, RAY, RAY);
         assert_eq!(cache.calculate_utilization(), Ray::from(RAY / 2));
     });
 }
 
-// Across the pool's complete 0..=27 decimal domain, directed share rounding must
-// keep both roundtrips conservative: supply credits floor shares and withdrawals
-// pay at most their value; borrow debits ceil shares and full repayment charges at
-// least the amount borrowed.
 #[test]
 fn test_all_decimal_roundtrips_never_favor_user() {
     let t = TestSetup::new();
@@ -158,7 +178,6 @@ fn test_all_decimal_roundtrips_never_favor_user() {
                 for &a in &amounts {
                     let cache = cache_with(&t.env, &params, 0, 0, 0, index, index);
 
-                    // Supplier: supply `a` (mint shares down), withdraw all.
                     let shares = cache.calculate_scaled_supply(a);
                     let (_burned, paid) = cache.resolve_withdrawal(a, shares);
                     assert!(
@@ -167,7 +186,6 @@ fn test_all_decimal_roundtrips_never_favor_user() {
                          index={index} deposited={a} withdrew={paid}"
                     );
 
-                    // Borrower: borrow `a` (mint debt up), owe rounded up.
                     let debt = cache.calculate_scaled_borrow(a);
                     let owed = cache.unscale_borrow_ceil(debt);
                     assert!(
@@ -189,18 +207,19 @@ fn test_directed_partial_rounding_blocks_high_decimal_value_creation() {
         params.asset_decimals = 27;
         let cache = cache_with(&t.env, &params, 100 * RAY, 100 * RAY, 0, 3 * RAY, 3 * RAY);
 
-        // A two-raw-unit supply previously rounded 2/3 share up to one share
-        // worth three raw units. Floor credit now rejects it through the caller.
         assert_eq!(cache.calculate_scaled_supply(2), Ray::ZERO);
 
-        // Borrowing four raw units records two shares, covering six raw units.
         assert_eq!(cache.calculate_scaled_borrow(4).raw(), 2);
 
-        // Withdrawing four burns two shares; repaying two burns no share. The
-        // public callers respectively accept the conservative debit and reject
-        // the zero credit through their existing guards.
-        assert_eq!(cache.calculate_scaled_supply_ceil(4).raw(), 2);
-        assert_eq!(cache.calculate_scaled_borrow_floor(2), Ray::ZERO);
+        assert_eq!(
+            calculate_scaled_supply_ceil(&t.env, 4, params.asset_decimals, cache.supply_index())
+                .raw(),
+            2
+        );
+        assert_eq!(
+            calculate_scaled_borrow_floor(&t.env, 2, params.asset_decimals, cache.borrow_index()),
+            Ray::ZERO
+        );
     });
 }
 
@@ -208,7 +227,6 @@ fn test_directed_partial_rounding_blocks_high_decimal_value_creation() {
 fn test_resolve_repay_partial_returns_zero_overpayment() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // current_debt = 1 asset unit; partial repay of 0 (no debt cleared).
         let cache = cache_with(&t.env, &t.params, 0, 10i128.pow(20), 0, RAY, RAY);
         let pos_scaled = Ray::from(10i128.pow(20));
         let (scaled, overpayment) = cache.resolve_repay(0, pos_scaled);
@@ -221,39 +239,11 @@ fn test_resolve_repay_partial_returns_zero_overpayment() {
 fn test_resolve_repay_full_returns_positive_overpayment() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        // current_debt = 1; pay 5 -> overpayment = 4, burn full position.
         let cache = cache_with(&t.env, &t.params, 0, 10i128.pow(20), 0, RAY, RAY);
         let pos_scaled = Ray::from(10i128.pow(20));
         let (scaled, overpayment) = cache.resolve_repay(5, pos_scaled);
         assert_eq!(scaled, pos_scaled);
         assert_eq!(overpayment, 4);
-    });
-}
-
-#[test]
-fn test_resolve_withdrawal_full_when_amount_exceeds_position() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        // Position = 1 asset unit; request 100 -> full withdraw.
-        let cache = cache_with(&t.env, &t.params, 10i128.pow(20), 0, 0, RAY, RAY);
-        let pos_scaled = Ray::from(10i128.pow(20));
-        let (scaled, gross) = cache.resolve_withdrawal(100, pos_scaled);
-        assert_eq!(scaled, pos_scaled);
-        assert_eq!(gross, 1);
-    });
-}
-
-#[test]
-fn test_resolve_withdrawal_partial_returns_requested_amount() {
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        // Position = 5 asset units; request 2 -> partial.
-        let supplied = 5 * 10i128.pow(20);
-        let cache = cache_with(&t.env, &t.params, supplied, 0, 0, RAY, RAY);
-        let pos_scaled = Ray::from(supplied);
-        let (scaled, gross) = cache.resolve_withdrawal(2, pos_scaled);
-        assert_eq!(scaled.raw(), 2 * 10i128.pow(20));
-        assert_eq!(gross, 2);
     });
 }
 
@@ -273,7 +263,7 @@ fn test_burn_claimable_revenue_zero_revenue_returns_zero() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = cache_with(&t.env, &t.params, 100 * RAY, 0, 0, RAY, RAY);
-        cache.revenue = Ray::ZERO;
+        cache.set_revenue(Ray::ZERO);
         let amt = cache.burn_claimable_revenue();
         assert_eq!(amt, 0);
     });
@@ -284,8 +274,8 @@ fn test_burn_claimable_revenue_capped_by_reserves() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = cache_with(&t.env, &t.params, 100 * RAY, 0, 0, RAY, RAY);
-        cache.cash = 10_000_000;
-        cache.revenue = Ray::from(50 * RAY);
+        cache.set_cash(10_000_000);
+        cache.set_revenue(Ray::from(50 * RAY));
         let amount = cache.burn_claimable_revenue();
 
         assert_eq!(amount, 10_000_000);
@@ -299,13 +289,51 @@ fn test_burn_claimable_revenue_full_when_revenue_smaller_than_reserves() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = cache_with(&t.env, &t.params, 100 * RAY, 0, 0, RAY, RAY);
-        cache.cash = 100_000_000;
-        cache.revenue = Ray::from(5 * RAY);
+        cache.set_cash(100_000_000);
+        cache.set_revenue(Ray::from(5 * RAY));
         let amount = cache.burn_claimable_revenue();
 
         assert_eq!(amount, 50_000_000);
         assert_eq!(cache.revenue, Ray::ZERO);
         assert_eq!(cache.supplied, Ray::from(95 * RAY));
+    });
+}
+
+#[test]
+fn test_positive_revenue_payout_burns_positive_share_at_extreme_ratio() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut params = t.params.clone();
+        params.asset_decimals = 18;
+
+        let extreme_revenue = 3 * 10i128.pow(36);
+        let mut cache = cache_with(
+            &t.env,
+            &params,
+            extreme_revenue,
+            0,
+            extreme_revenue,
+            RAY,
+            RAY,
+        );
+        let claim_before = cache.unscale_supply_floor(cache.revenue());
+        cache.set_cash(1);
+
+        let paid = cache.burn_claimable_revenue();
+        let claim_after = cache.unscale_supply_floor(cache.revenue());
+
+        assert_eq!(paid, 1, "the single unit of cash must settle");
+
+        assert!(
+            cache.revenue() < Ray::from(extreme_revenue),
+            "a positive payout must retire a positive share"
+        );
+
+        assert!(claim_after + paid <= claim_before, "claim value created");
+        assert!(
+            cache.revenue() <= cache.supplied(),
+            "revenue escaped supply"
+        );
     });
 }
 
@@ -333,20 +361,140 @@ fn test_strategy_mutation_builder() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #33)")]
-fn test_ray_checked_sub_assign_panics_on_underflow() {
+fn test_ray_checked_sub_panics_on_underflow() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        let mut a = Ray::from(RAY);
-        a.checked_sub_assign(&t.env, Ray::from(2 * RAY));
+        let _ = Ray::from(RAY).checked_sub(&t.env, Ray::from(2 * RAY));
     });
 }
 
 #[test]
-fn test_ray_checked_sub_assign_normal_case() {
+fn test_ray_checked_sub_normal_case() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut a = Ray::from(5 * RAY);
-        a.checked_sub_assign(&t.env, Ray::from(2 * RAY));
+        a = a.checked_sub(&t.env, Ray::from(2 * RAY));
         assert_eq!(a, Ray::from(3 * RAY));
+    });
+}
+
+#[test]
+fn test_cash_short_revenue_claim_never_creates_claim_value() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        for &supply_index in &[RAY, 3 * RAY, RAY + 7, 1_000_000 * RAY] {
+            let half_ulp = 5 * 10i128.pow(19);
+            for &revenue in &[
+                RAY,
+                5 * RAY,
+                100 * RAY,
+                7 * RAY + 13,
+                RAY + half_ulp,
+                3 * RAY + half_ulp + 1,
+            ] {
+                for &cash in &[1i128, 2, 999, 1_000_000, 3_333_333, 1_000_000_000_000] {
+                    let supplied = revenue + 50 * RAY;
+                    let mut cache =
+                        cache_with(&t.env, &t.params, supplied, 0, revenue, supply_index, RAY);
+
+                    let claim_before = cache.unscale_supply_floor(cache.revenue());
+                    let supplied_before = cache.supplied();
+                    cache.set_cash(cash);
+
+                    let paid = cache.burn_claimable_revenue();
+                    let claim_after = cache.unscale_supply_floor(cache.revenue());
+
+                    assert!(
+                        claim_after + paid <= claim_before,
+                        "claim value created: before={claim_before} after={claim_after} \
+                         paid={paid} index={supply_index} revenue={revenue} cash={cash}"
+                    );
+
+                    assert!(paid <= cash, "paid {paid} exceeds cash {cash}");
+
+                    assert!(
+                        cache.revenue() <= cache.supplied(),
+                        "revenue escaped supply at index={supply_index}"
+                    );
+
+                    let burned_supply = supplied_before.checked_sub(&t.env, cache.supplied());
+                    let burned_revenue = Ray::from(revenue).checked_sub(&t.env, cache.revenue());
+                    assert_eq!(
+                        burned_supply, burned_revenue,
+                        "supply and revenue must burn by the same amount"
+                    );
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn test_cash_short_revenue_claim_no_underburn_at_extreme_18_decimal_index() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut params = t.params.clone();
+        params.asset_decimals = 18;
+
+        let revenue: i128 = 1_432_935_336_057_397_002_322_192_627;
+        let supply_index: i128 = 33_724_649_353_785_347_172_825_295_000_714_896_438;
+        let cash: i128 = 754_839_994_657_833_529;
+        let supplied = revenue + 50 * RAY;
+
+        let mut cache = cache_with(&t.env, &params, supplied, 0, revenue, supply_index, RAY);
+        let claim_before = cache.unscale_supply_floor(cache.revenue());
+        cache.set_cash(cash);
+
+        let paid = cache.burn_claimable_revenue();
+        let claim_after = cache.unscale_supply_floor(cache.revenue());
+
+        assert!(
+            paid < claim_before,
+            "expected cash-short branch: paid={paid}"
+        );
+
+        assert!(
+            claim_after + paid <= claim_before,
+            "claim value created: before={claim_before} after={claim_after} paid={paid}"
+        );
+        assert!(paid <= cash, "paid {paid} exceeds cash {cash}");
+        assert!(
+            cache.revenue() <= cache.supplied(),
+            "revenue escaped supply"
+        );
+    });
+}
+
+#[test]
+fn test_cache_resolve_withdrawal_feeds_supply_index_and_decimals() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let supply_index = 3 * RAY;
+        let borrow_index = 7 * RAY;
+        let supplied = 5 * 10i128.pow(20);
+        let cache = cache_with(
+            &t.env,
+            &t.params,
+            supplied,
+            0,
+            0,
+            supply_index,
+            borrow_index,
+        );
+        let pos_scaled = Ray::from(supplied);
+
+        for amount in [1i128, 2, 100, i128::MAX] {
+            assert_eq!(
+                cache.resolve_withdrawal(amount, pos_scaled),
+                common::rates::resolve_withdrawal(
+                    &t.env,
+                    amount,
+                    pos_scaled,
+                    Ray::from(supply_index),
+                    t.params.asset_decimals,
+                ),
+                "wrapper must feed the supply index and market decimals, amount={amount}"
+            );
+        }
     });
 }

@@ -11,7 +11,6 @@ fn test_validate_healthy_passes() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // HF must sit well above 1.0.
     t.assert_healthy(ALICE);
     let hf = t.health_factor(ALICE);
     assert!(hf > 1.0, "HF should be > 1.0, got {}", hf);
@@ -26,14 +25,12 @@ fn test_validate_healthy_fails() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
 
-    // Crash the USDC price to push HF below 1.0.
     t.set_price("USDC", usd_cents(50));
 
     t.assert_liquidatable(ALICE);
     let hf = t.health_factor(ALICE);
     assert!(hf < 1.0, "HF should be < 1.0 after price drop, got {}", hf);
 
-    // Attempting to withdraw must fail due to low HF.
     let result = t.try_withdraw(ALICE, "USDC", 1.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
@@ -43,7 +40,6 @@ fn test_health_factor_no_debt_is_max() {
 
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // No borrows: HF must be i128::MAX.
     let hf_raw = t.health_factor_raw(ALICE);
     assert_eq!(hf_raw, i128::MAX, "HF with no debt should be i128::MAX");
 }
@@ -59,7 +55,6 @@ fn test_health_factor_changes_with_price() {
 
     let hf_before = t.health_factor(ALICE);
 
-    // Raise the USDC price: more collateral value, higher HF.
     t.set_price("USDC", usd(2));
 
     let hf_after = t.health_factor(ALICE);
@@ -77,13 +72,11 @@ fn test_pool_borrow_rate_increases_with_borrows() {
         .with_market(eth_preset())
         .build();
 
-    // The borrow rate must start at the base rate (non-zero).
     let rate_before = t.pool_borrow_rate("ETH");
 
     t.supply(ALICE, "USDC", 500_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    // After the borrow, the rate must rise (more utilization, higher rate).
     let rate_after = t.pool_borrow_rate("ETH");
     assert!(
         rate_after >= rate_before,
@@ -99,10 +92,8 @@ fn test_borrow_exceeds_ltv_fails() {
         .with_market(eth_preset())
         .build();
 
-    // Supply $10k USDC, LTV=75% => max borrow = $7500.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Borrow 4 ETH = $8000 > $7500.
     let result = t.try_borrow(ALICE, "ETH", 4.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
@@ -119,7 +110,6 @@ fn test_total_debt_zero_after_full_repay() {
     let debt_during = t.total_debt(ALICE);
     assert!(debt_during > 0.0, "should have debt after borrow");
 
-    // Repay more than owed to cover potential rounding.
     t.repay(ALICE, "ETH", 1.1);
 
     let debt_after = t.total_debt(ALICE);

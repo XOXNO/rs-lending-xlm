@@ -53,7 +53,6 @@ pub struct SpokePreset {
 
 #[derive(Clone)]
 pub struct TolerancePreset {
-    /// Primary/anchor deviation tolerance in BPS.
     pub tolerance_bps: u32,
 }
 
@@ -69,8 +68,6 @@ pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
 };
 
 pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
-    // `max_borrow_rate` capped at `MAX_BORROW_RATE_RAY = 2 * RAY` (the
-    // compound-interest Taylor envelope). `slope3` must stay <= max.
     max_borrow_rate: 2 * RAY,
     base_borrow_rate: RAY / 100,
     slope1: RAY * 4 / 100,
@@ -78,8 +75,7 @@ pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
     slope3: RAY * 150 / 100,
     mid_utilization: RAY * 50 / 100,
     optimal_utilization: RAY * 80 / 100,
-    // 95 % utilization ceiling — sits at or above `optimal` and below
-    // `RAY`. Markets may tighten per asset class.
+
     max_utilization: RAY * 95 / 100,
     reserve_factor: 1000,
 };
@@ -137,7 +133,7 @@ pub fn xlm_preset() -> MarketPreset {
     MarketPreset {
         name: "XLM",
         decimals: 7,
-        price_wad: usd(1) / 10, // $0.10
+        price_wad: usd(1) / 10,
         initial_liquidity: 10_000_000.0,
         config: DEFAULT_ASSET_CONFIG,
         params: DEFAULT_MARKET_PARAMS,
@@ -159,11 +155,6 @@ pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
 };
 
 impl AssetConfigPreset {
-    /// Build the per-spoke risk-listing arguments for `add_asset_to_spoke` on
-    /// `spoke_id`, listing `asset` (already a created market on `hub_id`). The
-    /// risk ratios, collateral/borrow flags, and protocol `liquidation_fees`
-    /// come from the preset; spoke caps are disabled (hub caps live on
-    /// `MarketParamsRaw`) and the asset keeps its token-rooted oracle.
     pub fn to_spoke_args(
         &self,
         hub_id: u32,

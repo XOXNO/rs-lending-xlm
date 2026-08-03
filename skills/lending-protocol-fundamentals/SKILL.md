@@ -46,8 +46,9 @@ isolation.
 
   Halt controls are layered:
   - Global controller pause (immediate): blocks risk-increasing actions
-    (supply, borrow, most strategies, flash loans, update_indexes, etc.) but
-    leaves withdraw, repay, liquidate, and clean_bad_debt open.
+    (supply, borrow, strategies, flash loans, keepers, add/remove delegate,
+    etc.) but leaves withdraw, repay, liquidate, clean_bad_debt, and
+    renew_account open.
   - Per-spoke-asset `paused`: blocks supply/borrow/withdraw/repay for that
     listing (including exits).
   - Per-spoke-asset `frozen`: blocks only new supply/borrow; exits remain
@@ -77,7 +78,10 @@ whose ratio saturates.
 
 ## Payment semantics
 
-- `repay` is permissionless and refunds overpayment to the payer.
+- `repay` is permissionless: only caller auth (the caller funds the transfer).
+  Anyone may repay any account's debt without the owner's consent, since repay
+  only reduces debt. Overpayment refunds go to the caller/payer.
+  Global pause does not block repay; spoke pause on the debt listing does.
 - `liquidate` only pulls the accepted close amounts from the liquidator;
   amounts above the cap are never transferred. Protocol fee is taken on the
   bonus; bad debt may be socialized if collateral <= 5 WAD USD threshold.

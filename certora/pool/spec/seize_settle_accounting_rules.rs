@@ -1,5 +1,3 @@
-//! Bad-debt seizure, deposit seizure, and zero-cash net settlement.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
@@ -15,8 +13,6 @@ use super::fixture::{
     ONE_TOKEN,
 };
 
-/// Borrow seizure removes the exact debt shares and applies the production
-/// proportional write-down, saturated only by the supply-index floor.
 #[rule]
 fn seize_borrow_reduces_debt_and_writes_down_supply(
     e: Env,
@@ -60,7 +56,7 @@ fn seize_borrow_reduces_debt_and_writes_down_supply(
         side: AccountPositionType::Borrow,
         position: position(seized_scaled),
     };
-    crate::seize_one(&e, &entry);
+    crate::ops::seize::apply(&e, &entry);
     let post = read_state(&e, &asset);
     let post_value = Ray::from(post.supplied).mul(&e, Ray::from(post.supply_index));
     let floor_value = Ray::from(post.supplied).mul(&e, Ray::from(SUPPLY_INDEX_FLOOR_RAW));
@@ -80,8 +76,6 @@ fn seize_borrow_reduces_debt_and_writes_down_supply(
     );
 }
 
-/// Seizing an already-aggregated deposit transfers its shares to protocol
-/// revenue; aggregate supply itself must not change.
 #[rule]
 fn seize_deposit_moves_scaled_position_to_revenue(
     e: Env,
@@ -112,7 +106,7 @@ fn seize_deposit_moves_scaled_position_to_revenue(
         side: AccountPositionType::Deposit,
         position: position(seized_scaled),
     };
-    crate::seize_one(&e, &entry);
+    crate::ops::seize::apply(&e, &entry);
     let post = read_state(&e, &asset);
 
     cvlr_assert!(post.revenue - pre.revenue == seized_scaled);
@@ -122,8 +116,6 @@ fn seize_deposit_moves_scaled_position_to_revenue(
     cvlr_assert!(post.supply_index == pre.supply_index && post.borrow_index == pre.borrow_index);
 }
 
-/// Net settlement uses one common gross amount for both legs, changes both
-/// aggregates by their returned position deltas, and never moves cash.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn net_settle_conserves_cash_and_both_scaled_totals(
@@ -165,9 +157,6 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
     let supply_index_ray = Ray::from(supply_index);
     let borrow_index_ray = Ray::from(borrow_index);
 
-    // Independent expansion of the documented lesser-of semantics. Do not use
-    // Cache::resolve_withdrawal/resolve_repay here: those are the implementation
-    // under test and would make the oracle circular.
     let debt_due = debt_position
         .mul_ceil(&e, borrow_index_ray)
         .to_asset_ceil(asset_decimals);
@@ -205,7 +194,7 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
         supply_position: position(supply_before),
         debt_position: position(debt_before),
     };
-    let (result, _) = crate::net_settle_one(&e, &entry);
+    let (result, _) = crate::ops::net_settle::apply(&e, &entry);
     let post = read_state(&e, &asset);
 
     cvlr_assert!(expected_gross <= capped && capped <= requested);
@@ -224,4 +213,89 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
         result.settled_amount == 0
             || (expected_supply_burn.raw() > 0 && expected_debt_burn.raw() > 0)
     );
+}
+
+#[rule]
+fn net_settle_never_persists_supply_drained_with_debt(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    requested: i128,
+    supply_scaled: i128,
+    extra_debt: i128,
+) {
+    cvlr_assume!(supply_scaled > 0 && supply_scaled <= 20 * RAY);
+    cvlr_assume!(extra_debt > 0 && extra_debt <= 20 * RAY);
+    cvlr_assume!(requested >= 0 && requested <= MAX_FLOW_AMOUNT);
+
+    let debt_scaled = supply_scaled + extra_debt;
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            supply_scaled,
+            debt_scaled,
+            0,
+            RAY,
+            RAY,
+            50 * ONE_TOKEN,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let entry = PoolNetSettleEntry {
+        hub_asset: hub(asset.clone()),
+        amount: requested,
+        supply_position: position(supply_scaled),
+        debt_position: position(debt_scaled),
+    };
+    let (_result, _) = crate::ops::net_settle::apply(&e, &entry);
+    let post = read_state(&e, &asset);
+
+    cvlr_assert!(!(post.supplied == 0 && post.borrowed != 0));
+}
+
+#[rule]
+fn bad_debt_writedown_is_noop_on_empty_market(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    seized_scaled: i128,
+    borrowed: i128,
+    supply_index: i128,
+) {
+    cvlr_assume!(borrowed > 0 && borrowed <= 20 * RAY);
+    cvlr_assume!(seized_scaled >= 0 && seized_scaled <= borrowed);
+    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
+
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            0,
+            borrowed,
+            0,
+            RAY,
+            supply_index,
+            80 * ONE_TOKEN,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let pre = read_state(&e, &asset);
+    let entry = PoolSeizeEntry {
+        hub_asset: hub(asset.clone()),
+        side: AccountPositionType::Borrow,
+        position: position(seized_scaled),
+    };
+    crate::ops::seize::apply(&e, &entry);
+    let post = read_state(&e, &asset);
+
+    cvlr_assert!(post.supply_index == pre.supply_index);
+    cvlr_assert!(pre.borrowed - post.borrowed == seized_scaled);
+    cvlr_assert!(post.cash == pre.cash && post.supplied == 0);
 }

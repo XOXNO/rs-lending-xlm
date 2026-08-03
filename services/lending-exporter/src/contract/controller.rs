@@ -1,16 +1,9 @@
-//! Typed decoders for the controller's view return values.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::ScVal;
 
 use crate::scval::{field_bool, field_i128, field_u32, field_u64, vec_items};
 
-/// One `get_market_indexes_detailed` row: RAY indexes + soft oracle status.
-///
-/// Price field names keep historical on-chain ABI mapping:
-/// - `final_price_wad` ← `price_wad`
-/// - `primary_price_wad` ← `safe_price_wad`
-/// - `anchor_price_wad` ← `aggregator_price_wad` (secondary leg, not the contract)
 #[derive(Debug, Clone)]
 pub struct MarketIndexView {
     pub supply_index_ray: i128,
@@ -18,11 +11,11 @@ pub struct MarketIndexView {
     pub final_price_wad: i128,
     pub primary_price_wad: i128,
     pub anchor_price_wad: i128,
-    /// Soft-status blend freshness (seconds).
+
     pub price_timestamp: u64,
     pub stale: bool,
     pub deviation: bool,
-    /// True when price is fresh, in-band, positive, and within sanity.
+
     pub valid: bool,
 }
 
@@ -34,7 +27,6 @@ pub struct SpokeConfig {
     pub liquidation_bonus_factor_bps: u32,
 }
 
-/// Spoke-asset listing: flags, risk ratios, caps.
 #[derive(Debug, Clone)]
 pub struct SpokeAssetConfig {
     pub is_collateralizable: bool,
@@ -55,7 +47,6 @@ pub struct SpokeUsage {
     pub borrowed_scaled_ray: i128,
 }
 
-/// `get_market_indexes_detailed` rows, index-aligned to the request.
 pub fn decode_market_indexes(value: &ScVal) -> Result<Vec<MarketIndexView>> {
     let items = vec_items(value).ok_or_else(|| anyhow!("expected Vec<MarketIndexView>"))?;
     items.iter().map(decode_market_index_row).collect()
@@ -68,10 +59,10 @@ fn decode_market_index_row(value: &ScVal) -> Result<MarketIndexView> {
         borrow_index_ray: field_i128(value, "borrow_index")
             .ok_or_else(|| anyhow!("borrow_index missing"))?,
         final_price_wad: field_i128(value, "price_wad").ok_or_else(|| anyhow!("price_wad missing"))?,
-        primary_price_wad: field_i128(value, "safe_price_wad")
-            .ok_or_else(|| anyhow!("safe_price_wad missing"))?,
-        anchor_price_wad: field_i128(value, "aggregator_price_wad")
-            .ok_or_else(|| anyhow!("aggregator_price_wad missing"))?,
+        primary_price_wad: field_i128(value, "primary_price_wad")
+            .ok_or_else(|| anyhow!("primary_price_wad missing"))?,
+        anchor_price_wad: field_i128(value, "anchor_price_wad")
+            .ok_or_else(|| anyhow!("anchor_price_wad missing"))?,
         price_timestamp: field_u64(value, "price_timestamp").unwrap_or(0),
         stale: field_bool(value, "stale").unwrap_or(false),
         deviation: field_bool(value, "deviation").unwrap_or(false),
@@ -104,7 +95,7 @@ pub fn decode_spoke_asset(value: &ScVal) -> Result<SpokeAssetConfig> {
 }
 
 pub fn decode_spoke_usage(value: &ScVal) -> Result<SpokeUsage> {
-    // Missing fields → 0 (contract zero-default when no usage row).
+
     if !matches!(value, ScVal::Map(_)) {
         return Err(anyhow!("expected SpokeUsageRaw map"));
     }
@@ -139,12 +130,12 @@ mod tests {
     #[test]
     fn decodes_market_index_vec_in_order() {
         let row = map(vec![
-            ("asset", i128v(0)), // unused by decoder
+            ("asset", i128v(0)),
             ("supply_index", i128v(1_000_000)),
             ("borrow_index", i128v(2_000_000)),
             ("price_wad", i128v(100)),
-            ("safe_price_wad", i128v(101)),
-            ("aggregator_price_wad", i128v(99)),
+            ("primary_price_wad", i128v(101)),
+            ("anchor_price_wad", i128v(99)),
             ("price_timestamp", ScVal::U64(1_700_000_000)),
             ("stale", ScVal::Bool(false)),
             ("deviation", ScVal::Bool(true)),

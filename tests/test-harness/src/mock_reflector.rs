@@ -1,5 +1,3 @@
-//! SEP-40 mock; prices at 14 decimals so `rescale_to_wad` is exercised.
-
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
 
 #[contracttype]
@@ -31,21 +29,18 @@ pub struct MockReflector;
 
 #[contractimpl]
 impl MockReflector {
-    /// Test helper: set price (WAD input is converted to 14-decimal storage
-    /// so controller's rescale_to_wad() is fully exercised in tests).
     pub fn set_price(env: Env, asset: Address, price_wad: i128) {
         let timestamp = env.ledger().timestamp();
         Self::set_price_at(env, asset, price_wad, timestamp);
     }
 
     pub fn set_price_at(env: Env, asset: Address, price_wad: i128, timestamp: u64) {
-        let price_14 = price_wad / 10_000; // WAD(18) -> 14 decimals
+        let price_14 = price_wad / 10_000;
         env.storage()
             .temporary()
             .set(&MockKey::Spot(asset), &(price_14, timestamp));
     }
 
-    /// Test helper: set a separate TWAP ("safe") price for tolerance testing.
     pub fn set_twap_price(env: Env, asset: Address, price_wad: i128) {
         let timestamp = env.ledger().timestamp();
         Self::set_twap_price_at(env, asset, price_wad, timestamp);
@@ -80,10 +75,6 @@ impl MockReflector {
             .set(&MockKey::Resolution, &resolution);
     }
 
-    /// 0 = normal, 1 = None, 2 = empty, 3 = insufficient,
-    /// 4 = invalid-price (one entry has price <= 0),
-    /// 5 = stale (oldest timestamp is far in the past),
-    /// 6 = exactly the minimum accepted observation count.
     pub fn set_twap_history_mode(env: Env, asset: Address, mode: u32) {
         env.storage()
             .temporary()
@@ -149,14 +140,21 @@ impl MockReflector {
         };
         for i in 0..len {
             let mut entry = twap_pd.clone();
-            // Mode 4: poison the first entry with a non-positive price so
-            // the reader's `has_invalid_price` path fires.
+            let resolution = u64::from(Self::resolution(env.clone()));
+            entry.timestamp = match mode {
+                7 => twap_pd.timestamp,
+                8 => twap_pd.timestamp.saturating_sub(u64::from(i)),
+                9 if i == 1 => twap_pd.timestamp.saturating_sub(1),
+                _ => twap_pd
+                    .timestamp
+                    .saturating_sub(u64::from(i).saturating_mul(resolution)),
+            };
+
             if mode == 4 && i == 0 {
                 entry.price = 0;
             }
-            // Mode 5: backdate the oldest entry so the staleness check in
-            // `read_twap` rejects the whole window.
-            if mode == 5 && i == 0 {
+
+            if mode == 5 && i.saturating_add(1) == len {
                 entry.timestamp = 1;
             }
             out.push_back(entry);

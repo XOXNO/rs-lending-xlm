@@ -91,6 +91,9 @@
         "conf": "certora/common/confs/math.conf"
       },
       {
+        "conf": "certora/common/confs/lp-math.conf"
+      },
+      {
         "conf": "certora/common/confs/rates.conf"
       },
       {
@@ -103,7 +106,7 @@
         "conf": "certora/common/confs/rate-accounting.conf"
       },
       {
-        "conf": "certora/pool/confs/rate-index-accounting.conf"
+        "conf": "certora/common/confs/rate-index-accounting.conf"
       },
       {
         "conf": "certora/controller/confs/boundary-math.conf"
@@ -231,6 +234,9 @@
         "conf": "certora/price-aggregator/confs/config-rejections.conf"
       },
       {
+        "conf": "certora/price-aggregator/confs/fail-closed-miss.conf"
+      },
+      {
         "conf": "certora/price-aggregator/confs/feed-endpoints.conf"
       },
       {
@@ -238,6 +244,15 @@
       },
       {
         "conf": "certora/price-aggregator/confs/price-cache.conf"
+      },
+      {
+        "conf": "certora/pool/confs/pool-guards.conf"
+      },
+      {
+        "conf": "certora/pool/confs/pool-lifecycle.conf"
+      },
+      {
+        "conf": "certora/pool/confs/pool-state-invariant.conf"
       }
     ],
     "heavy": [

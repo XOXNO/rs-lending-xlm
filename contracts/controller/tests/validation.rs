@@ -10,7 +10,6 @@ fn new_controller(env: &Env) -> Address {
     env.register(Controller, (admin,))
 }
 
-/// Test-only `HubAssetKey` for limit-gate fixtures.
 fn hub(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: 0,
@@ -18,8 +17,6 @@ fn hub(asset: &Address) -> HubAssetKey {
     }
 }
 
-/// Account holding at most one existing supply and/or borrow position. Values
-/// are placeholders; the guard reads only key presence.
 fn account_with(env: &Env, supply: Option<&Address>, borrow: Option<&Address>) -> Account {
     let mut supply_positions = Map::new(env);
     if let Some(asset) = supply {
@@ -66,9 +63,8 @@ fn test_validate_bulk_position_limits_dedupes_duplicate_assets() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     let account = account_with(&env, None, None);
-    // Same asset twice is one new position (1 <= cap 2).
     let aggregated = Vec::from_array(&env, [(hub(&asset), 100i128), (hub(&asset), 200i128)]);
-    with_limits(&env, &contract, 2, 2, || {
+    with_limits(&env, &contract, 1, 1, || {
         validate_bulk_position_limits(&env, &account, AccountPositionType::Deposit, &aggregated);
     });
 }
@@ -80,7 +76,7 @@ fn test_validate_bulk_position_limits_deposit_at_cap_with_existing_passes() {
     let existing = Address::generate(&env);
     let fresh = Address::generate(&env);
     let account = account_with(&env, Some(&existing), None);
-    // `existing` is already supplied (not new); `fresh` is the 2nd -> 2 == cap.
+
     let aggregated = Vec::from_array(&env, [(hub(&existing), 100i128), (hub(&fresh), 100i128)]);
     with_limits(&env, &contract, 2, 0, || {
         validate_bulk_position_limits(&env, &account, AccountPositionType::Deposit, &aggregated);
@@ -96,7 +92,7 @@ fn test_validate_bulk_position_limits_deposit_over_cap_panics() {
     let a = Address::generate(&env);
     let b = Address::generate(&env);
     let account = account_with(&env, Some(&existing), None);
-    // 1 existing + 2 new = 3 > cap 2.
+
     let aggregated = Vec::from_array(&env, [(hub(&a), 100i128), (hub(&b), 100i128)]);
     with_limits(&env, &contract, 2, 0, || {
         validate_bulk_position_limits(&env, &account, AccountPositionType::Deposit, &aggregated);
@@ -109,7 +105,7 @@ fn test_validate_bulk_position_limits_borrow_at_cap_with_existing_passes() {
     let contract = new_controller(&env);
     let existing = Address::generate(&env);
     let account = account_with(&env, None, Some(&existing));
-    // Re-borrowing an existing asset adds no new position (1 == cap 1).
+
     let aggregated = Vec::from_array(&env, [(hub(&existing), 100i128)]);
     with_limits(&env, &contract, 0, 1, || {
         validate_bulk_position_limits(&env, &account, AccountPositionType::Borrow, &aggregated);
@@ -124,7 +120,7 @@ fn test_validate_bulk_position_limits_borrow_over_cap_panics() {
     let a = Address::generate(&env);
     let b = Address::generate(&env);
     let account = account_with(&env, None, None);
-    // 2 new borrows > cap 1; exercises the Borrow branch.
+
     let aggregated = Vec::from_array(&env, [(hub(&a), 100i128), (hub(&b), 100i128)]);
     with_limits(&env, &contract, 0, 1, || {
         validate_bulk_position_limits(&env, &account, AccountPositionType::Borrow, &aggregated);
@@ -137,7 +133,7 @@ fn test_validate_bulk_position_limits_empty_aggregated_is_noop_at_cap() {
     let contract = new_controller(&env);
     let existing = Address::generate(&env);
     let account = account_with(&env, Some(&existing), None);
-    // No new positions; current count (1) == cap (1) still passes.
+
     let aggregated: Vec<(HubAssetKey, i128)> = Vec::new(&env);
     with_limits(&env, &contract, 1, 1, || {
         validate_bulk_position_limits(&env, &account, AccountPositionType::Deposit, &aggregated);

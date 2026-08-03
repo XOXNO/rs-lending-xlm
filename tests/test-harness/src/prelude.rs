@@ -1,8 +1,6 @@
-//! Convenient re-exports for integration tests.
-
 pub use crate::assert::assert_contract_error;
 pub use crate::core::{AccountEntry, LendingTest, MarketState, UserState};
-/// Stable `u32` error constants (`INSUFFICIENT_COLLATERAL`, etc.).
+
 pub use crate::errors;
 pub use crate::fixtures::{
     liquidatable_usdc_eth, seed_fuzz_conservation_book, seed_liquidatable_usdc_eth,

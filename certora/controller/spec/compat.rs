@@ -1,9 +1,9 @@
 use crate::types::{HubAssetKey, Payment, PositionMode, StrategySwap};
+use controller_interface::ControllerInterface;
 use cvlr::nondet::nondet;
 use cvlr_soroban::nondet_address;
 use soroban_sdk::{vec, Address, Env, Vec};
 
-/// Production-valid primary-hub coordinate for `asset`.
 fn primary_hub(asset: Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: crate::spec::fixture::HUB_ID,
@@ -11,7 +11,6 @@ fn primary_hub(asset: Address) -> HubAssetKey {
     }
 }
 
-/// Single-asset supply shim for `Controller::supply`.
 pub fn supply_single(
     env: Env,
     caller: Address,
@@ -28,7 +27,6 @@ pub fn supply_single(
     )
 }
 
-/// Single-asset borrow shim. Havocs `to` (self vs recipient); debt/health identical either way.
 pub fn borrow_single(env: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
     let to: Option<Address> = if nondet() {
         Some(nondet_address())
@@ -44,7 +42,6 @@ pub fn borrow_single(env: Env, caller: Address, account_id: u64, asset: Address,
     );
 }
 
-/// Single-asset withdraw shim. Havocs `to` (self vs recipient); position/health identical either way.
 pub fn withdraw_single(env: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
     let to: Option<Address> = if nondet() {
         Some(nondet_address())
@@ -60,7 +57,6 @@ pub fn withdraw_single(env: Env, caller: Address, account_id: u64, asset: Addres
     );
 }
 
-/// Single-asset repay shim for `Controller::repay`.
 pub fn repay_single(env: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
     crate::Controller::repay(
         env.clone(),
@@ -70,7 +66,6 @@ pub fn repay_single(env: Env, caller: Address, account_id: u64, asset: Address, 
     );
 }
 
-/// Full `Controller::multiply` shim; havoced optional parameters explore all branches.
 pub fn multiply(
     env: Env,
     caller: Address,
@@ -120,7 +115,6 @@ pub fn multiply(
     )
 }
 
-/// Minimal `multiply` shim for early-exit negative-path rules.
 pub fn multiply_minimal(
     env: Env,
     caller: Address,
@@ -154,7 +148,6 @@ pub fn multiply_minimal(
     )
 }
 
-/// `repay_debt_with_collateral` shim with `close_position = false`.
 pub fn repay_debt_with_collateral_minimal(
     env: Env,
     caller: Address,
@@ -176,7 +169,6 @@ pub fn repay_debt_with_collateral_minimal(
     );
 }
 
-/// `repay_debt_with_collateral` shim with `close_position = true`.
 pub fn repay_debt_with_collateral_close(
     env: Env,
     caller: Address,
@@ -198,7 +190,6 @@ pub fn repay_debt_with_collateral_close(
     );
 }
 
-/// `Controller::liquidate` shim; lifts asset-keyed payments onto the primary hub.
 pub fn liquidate(env: Env, liquidator: Address, account_id: u64, debt_payments: Vec<Payment>) {
     let mut hub_payments: Vec<(HubAssetKey, i128)> = Vec::new(&env);
     for (asset, amount) in debt_payments.iter() {

@@ -1,5 +1,3 @@
-//! Controller contract integration tests.
-
 extern crate std;
 
 mod account;
@@ -17,7 +15,6 @@ mod decimal_diversity;
 mod events;
 mod flash_loan;
 mod keeper;
-mod limits;
 mod liquidation;
 mod liquidation_boundary;
 mod liquidation_coverage;

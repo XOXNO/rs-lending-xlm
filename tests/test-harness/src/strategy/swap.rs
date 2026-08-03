@@ -3,7 +3,6 @@ use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, Env};
 
 use crate::core::LendingTest;
 
-/// Default flash-loan fee in BPS for strategy presets.
 pub const DEFAULT_FLASHLOAN_FEE_BPS: i128 = 9;
 
 pub fn apply_flash_fee(requested_raw: i128) -> i128 {

@@ -28,5 +28,4 @@ time. RedStone-style reads fail closed; SEP-40 reads soft-fail with `None`.
 | Doc | Topic |
 | --- | --- |
 | Crate rustdoc (`//!`) | Semantics |
-| [`docs/reference/invariants.md`](../../docs/reference/invariants.md) §4.2 | Oracle setup |
 | `contracts/price-aggregator` | Fail-closed compose + soft status |

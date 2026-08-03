@@ -13,10 +13,6 @@ fn flatten_void(
     }
 }
 
-// The same-asset flow is intentionally supported (self-collateralized
-// unwinds): withdrawn collateral repays same-asset debt directly and skips
-// the router. This exercises the direct-payment short-circuit.
-
 #[test]
 fn test_repay_debt_with_collateral_same_token_nets_positions() {
     let mut t = LendingTest::new()
@@ -24,26 +20,20 @@ fn test_repay_debt_with_collateral_same_token_nets_positions() {
         .with_market(eth_preset())
         .build();
 
-    // Alice: USDC collateral + USDC debt (self-collateralized position).
-    // Needs a second asset to open the position because LTV < 100%.
     t.supply(ALICE, "USDC", 100_000.0);
-    t.supply(ALICE, "ETH", 20.0); // extra collateral so USDC debt is borrowable
+    t.supply(ALICE, "ETH", 20.0);
     t.borrow(ALICE, "USDC", 30_000.0);
 
     let debt_before = t.borrow_balance(ALICE, "USDC");
     let supply_before = t.supply_balance(ALICE, "USDC");
     assert!(debt_before > 29_000.0 && debt_before < 31_000.0);
 
-    // Net 10k USDC collateral against 10k USDC debt in one call. The
-    // same-asset path skips the router and requires empty swap bytes.
     let steps = Bytes::new(&t.env);
     t.repay_debt_with_collateral(ALICE, "USDC", 10_000.0, "USDC", &steps, false);
 
     let debt_after = t.borrow_balance(ALICE, "USDC");
     let supply_after = t.supply_balance(ALICE, "USDC");
 
-    // Debt reduces by ~10k, collateral reduces by ~10k. Allow 1% tolerance
-    // for accrued interest and rounding across the withdraw and repay chain.
     let debt_delta = debt_before - debt_after;
     let supply_delta = supply_before - supply_after;
     assert!(
@@ -105,7 +95,6 @@ fn test_repay_debt_with_collateral_non_same_token_empty_swap_rejects() {
         t.try_repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &empty_steps, false);
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
-// Favorable repay slippage must refund only the per-call excess.
 
 #[test]
 fn test_repay_debt_with_collateral_refund_only_uses_repay_excess() {
@@ -124,7 +113,7 @@ fn test_repay_debt_with_collateral_refund_only_uses_repay_excess() {
         .mint(&t.controller_address(), &50_0000000i128);
 
     t.fund_router("ETH", 1.0);
-    // repay_debt_with_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
+
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 1_0000000);
 
     let alice_eth_before = t.token_balance(ALICE, "ETH");
@@ -143,8 +132,6 @@ fn test_repay_debt_with_collateral_refund_only_uses_repay_excess() {
         "unrelated controller ETH balance must not be swept during repay refund"
     );
 }
-// Withdrawing too much collateral for too little debt repayment must fail the
-// final HF check.
 
 #[test]
 fn test_repay_debt_with_collateral_health_factor_guard() {
@@ -157,7 +144,7 @@ fn test_repay_debt_with_collateral_health_factor_guard() {
     t.borrow(ALICE, "ETH", 30.0);
 
     t.fund_router("ETH", 1.0);
-    // repay_debt_with_collateral withdraws 50_000 USDC (raw 500_000_000_000); no flash fee.
+
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 500_000_000_000, 1_0000000);
     let result = t.try_repay_debt_with_collateral(ALICE, "USDC", 50_000.0, "ETH", &steps, false);
 
@@ -200,8 +187,6 @@ fn test_repay_debt_with_collateral_rejects_zero_and_negative_collateral_amount()
     );
     assert_contract_error(flatten_void(negative), errors::AMOUNT_MUST_BE_POSITIVE);
 }
-// A full close must repay the debt, drain remaining collateral, and remove
-// the account.
 
 #[test]
 fn test_repay_debt_with_collateral_close_position_removes_account() {
@@ -216,7 +201,7 @@ fn test_repay_debt_with_collateral_close_position_removes_account() {
 
     let alice_usdc_before = t.token_balance(ALICE, "USDC");
     t.fund_router("ETH", 1.0);
-    // repay_debt_with_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
+
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 1_0000000);
     t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps, true);
 
@@ -224,8 +209,7 @@ fn test_repay_debt_with_collateral_close_position_removes_account() {
         !t.account_exists(account_id),
         "close_position should remove the fully closed account"
     );
-    // Close-position semantics: residual collateral must be returned to the
-    // caller's wallet, not swept inside the controller.
+
     let alice_usdc_after = t.token_balance(ALICE, "USDC");
     assert!(
         alice_usdc_after >= alice_usdc_before,
@@ -234,8 +218,6 @@ fn test_repay_debt_with_collateral_close_position_removes_account() {
         alice_usdc_after
     );
 }
-// Even without close_position=true, the account must be removed when the
-// flow zeroes every remaining position.
 
 #[test]
 fn test_repay_debt_with_collateral_removes_empty_account_without_close() {
@@ -249,7 +231,7 @@ fn test_repay_debt_with_collateral_removes_empty_account_without_close() {
     let account_id = t.resolve_account_id(ALICE);
 
     t.fund_router("ETH", 0.5);
-    // repay_debt_with_collateral withdraws 2_000 USDC (raw 20_000_000_000); no flash fee.
+
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 20_000_000_000, 5_000000);
     t.repay_debt_with_collateral(ALICE, "USDC", 2_000.0, "ETH", &steps, false);
 
@@ -258,7 +240,6 @@ fn test_repay_debt_with_collateral_removes_empty_account_without_close() {
         "repay-with-collateral should remove the account when both sides reach zero"
     );
 }
-// Partial swap into a new asset should respect the supply-position limit.
 
 #[test]
 fn test_swap_collateral_rejects_new_asset_when_supply_limit_reached() {
@@ -277,12 +258,46 @@ fn test_swap_collateral_rejects_new_asset_when_supply_limit_reached() {
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
     t.supply_to(ALICE, account_id, "USDT", 5_000.0);
 
-    // Invalid swap data proves the position limit is rejected in preflight,
-    // before the router payload is decoded or any external call is attempted.
-    let result = t.try_swap_collateral(ALICE, "USDC", 100.0, "DAI", &Bytes::new(&t.env));
+    t.fund_router("DAI", 100.0);
+    let steps = build_aggregator_swap(&t, "USDC", "DAI", 1_000_000_000, 1_000_000_000);
+    let result = t.try_swap_collateral(ALICE, "USDC", 100.0, "DAI", &steps);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// Spoke account; new collateral is not in the spoke category.
+
+#[test]
+fn test_swap_collateral_full_close_frees_slot_at_max_positions() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(wbtc_preset())
+        .with_market(usdt_stable_preset())
+        .with_market(dai_preset())
+        .with_position_limits(4, 10)
+        .build();
+
+    let account_id = t.create_account(ALICE);
+    t.supply_to(ALICE, account_id, "USDC", 10_000.0);
+    t.supply_to(ALICE, account_id, "ETH", 1.0);
+    t.supply_to(ALICE, account_id, "WBTC", 0.1);
+    t.supply_to(ALICE, account_id, "USDT", 5_000.0);
+
+    t.fund_router("DAI", 10_000.0);
+    let steps = build_aggregator_swap(&t, "USDC", "DAI", 100_000_000_000, 100_000_000_000);
+    let result = t.try_swap_collateral(ALICE, "USDC", 10_000.0, "DAI", &steps);
+    assert!(
+        result.is_ok(),
+        "a full same-slot swap at max positions must succeed: {result:?}"
+    );
+    assert!(
+        t.supply_balance(ALICE, "DAI") > 0.0,
+        "DAI leg must be created"
+    );
+    assert_eq!(
+        t.supply_balance(ALICE, "USDC"),
+        0.0,
+        "USDC leg must be fully closed"
+    );
+}
 
 #[test]
 fn test_swap_collateral_spoke_wrong_category() {
@@ -295,19 +310,14 @@ fn test_swap_collateral_spoke_wrong_category() {
         .with_spoke_asset(2, "USDT", true, true)
         .build();
 
-    // Create an spoke account, supply USDC, borrow USDT.
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 
-    // Try to swap USDC collateral to ETH: ETH is not listed on the account's
-    // spoke, so the swap-collateral preflight rejects it with AssetNotInSpoke.
     let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
-// Swap collateral with no borrows: the HF check is skipped. With the
-// working mock router, this succeeds.
 
 #[test]
 fn test_swap_collateral_no_borrows_skip_hf() {
@@ -316,13 +326,10 @@ fn test_swap_collateral_no_borrows_skip_hf() {
         .with_market(eth_preset())
         .build();
 
-    // Supply only, no borrows.
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Swap collateral: the HF check is skipped (no borrows). With the
-    // working mock router, this succeeds.
-    t.fund_router("ETH", 5.0); // Pre-fund the router with output tokens.
-                               // swap_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
+    t.fund_router("ETH", 5.0);
+
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert!(
@@ -330,15 +337,13 @@ fn test_swap_collateral_no_borrows_skip_hf() {
         "swap_collateral with no borrows should succeed"
     );
 
-    // Verify the ETH supply position was created.
     let eth_supply = t.supply_balance(ALICE, "ETH");
     assert!(
         eth_supply > 0.0,
         "should have ETH supply: got {}",
         eth_supply
     );
-    // The 1000 USDC of source collateral must be removed from the supply
-    // side; otherwise the swap leg silently regressed to "deposit only".
+
     let usdc_supply_after = t.supply_balance(ALICE, "USDC");
     assert!(
         (98_999.0..=99_001.0).contains(&usdc_supply_after),
@@ -363,7 +368,7 @@ fn test_strategy_empty_swap_payload_multiply() {
         controller::types::PositionMode::Multiply,
         &empty_steps,
     );
-    // The controller rejects empty opaque swap bytes before routing.
+
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 
@@ -398,8 +403,7 @@ fn test_swap_debt_zero_amount() {
     t.borrow(ALICE, "ETH", 1.0);
 
     let steps = build_swap_steps(&t, "WBTC", "ETH", 1_00000000);
-    // Note: try_swap_debt passes new_amount through f64_to_i128, so 0.0 -> 0.
-    // The validation require_amount_positive must catch this.
+
     let result = t.try_swap_debt(ALICE, "ETH", 0.0, "WBTC", &steps);
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
@@ -418,7 +422,6 @@ fn test_swap_collateral_zero_amount() {
     let result = t.try_swap_collateral(ALICE, "USDC", 0.0, "ETH", &steps);
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
-// Bob tries to swap Alice's debt: must be rejected.
 
 #[test]
 fn test_swap_debt_wrong_account_owner() {
@@ -431,7 +434,6 @@ fn test_swap_debt_wrong_account_owner() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Get Alice's account ID, then try to swap using Bob's address.
     let alice_account_id = t.resolve_account_id(ALICE);
     let bob_addr = t.get_or_create_user(BOB);
     let existing_addr = t.resolve_asset("ETH");
@@ -447,7 +449,7 @@ fn test_swap_debt_wrong_account_owner() {
         &hub_asset(new_addr.clone()),
         &steps,
     );
-    // Flatten Result<Result<(), Error>, InvokeError> so the code can assert.
+
     let flat: Result<(), soroban_sdk::Error> = match result {
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => Err(e.into()),
@@ -455,7 +457,6 @@ fn test_swap_debt_wrong_account_owner() {
     };
     assert_contract_error(flat, errors::NOT_AUTHORIZED);
 }
-// Strategy flows must authenticate the account owner address, not just compare it.
 
 #[test]
 fn test_strategy_entrypoints_reject_missing_owner_auth() {
@@ -568,7 +569,6 @@ fn test_repay_debt_with_collateral_nonexistent_account() {
         errors::GenericError::AccountNotFound as u32,
     );
 }
-// Bob tries to swap Alice's collateral: must be rejected.
 
 #[test]
 fn test_swap_collateral_wrong_account_owner() {
@@ -602,7 +602,6 @@ fn test_swap_collateral_wrong_account_owner() {
     };
     assert_contract_error(flat, errors::NOT_AUTHORIZED);
 }
-// Verify that collateral == debt is caught even when the amounts differ.
 
 #[test]
 fn test_multiply_same_asset_is_caught() {

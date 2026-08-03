@@ -1,5 +1,3 @@
-//! Position add/remove consistency rules.
-
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};

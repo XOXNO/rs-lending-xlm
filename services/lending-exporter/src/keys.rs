@@ -1,7 +1,3 @@
-//! XDR encoding for view args and storage keys.
-//!
-//! Structs → symbol-sorted `ScMap`; enums → `Vec[Symbol(tag), args...]`.
-//! Built without `soroban-sdk` (same layout as keeper keys).
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
@@ -15,7 +11,6 @@ pub struct HubAssetKey {
     pub asset: [u8; 32],
 }
 
-/// `HubAssetKey` as symbol-sorted ScMap (`asset` before `hub_id`).
 pub fn hub_asset_key_sc_val(hub_asset: &HubAssetKey) -> Result<ScVal> {
     let entries = vec![
         ScMapEntry {
@@ -33,7 +28,6 @@ pub fn hub_asset_key_sc_val(hub_asset: &HubAssetKey) -> Result<ScVal> {
     Ok(ScVal::Map(Some(ScMap(map))))
 }
 
-/// Arg for bulk `get_market_indexes_detailed`.
 pub fn hub_asset_vec_sc_val(keys: &[HubAssetKey]) -> Result<ScVal> {
     let items: Vec<ScVal> = keys
         .iter()
@@ -45,12 +39,12 @@ pub fn hub_asset_vec_sc_val(keys: &[HubAssetKey]) -> Result<ScVal> {
     Ok(ScVal::Vec(Some(ScVec(vec_m))))
 }
 
-/// Persistent `AssetOracle(asset)` key on the price-aggregator contract.
 pub fn asset_oracle_ledger_key(
     price_aggregator_id: &[u8; 32],
     asset_id: &[u8; 32],
 ) -> Result<LedgerKey> {
-    let key = sc_enum("AssetOracle", &[sc_address_contract(asset_id)])?;
+    let price_key = sc_enum("Token", &[sc_address_contract(asset_id)])?;
+    let key = sc_enum("Oracle", &[price_key])?;
     Ok(contract_data_key(
         price_aggregator_id,
         key,
@@ -65,7 +59,7 @@ pub fn contract_id_from_strkey(c_strkey: &str) -> Result<[u8; 32]> {
 }
 
 pub fn contract_strkey(contract_id: &[u8; 32]) -> String {
-    // Display → std::String (inherent to_string is heapless).
+
     format!("{}", stellar_strkey::Contract(*contract_id))
 }
 
@@ -133,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn asset_oracle_key_is_persistent_vec_tagged() {
+    fn asset_oracle_key_is_persistent_oracle_of_token_price_key() {
         let key = asset_oracle_ledger_key(&[8u8; 32], &[3u8; 32]).unwrap();
         let LedgerKey::ContractData(cd) = key else {
             panic!("expected ContractData");
@@ -142,9 +136,13 @@ mod tests {
         let ScVal::Vec(Some(ScVec(items))) = cd.key else {
             panic!("expected Vec key");
         };
-        assert_eq!(sym_text(&items[0]), "AssetOracle");
+        assert_eq!(sym_text(&items[0]), "Oracle");
+        let ScVal::Vec(Some(ScVec(price_key_items))) = &items[1] else {
+            panic!("expected nested PriceKey Vec");
+        };
+        assert_eq!(sym_text(&price_key_items[0]), "Token");
         assert!(matches!(
-            items[1],
+            price_key_items[1],
             ScVal::Address(ScAddress::Contract(ContractId(Hash(b)))) if b == [3u8; 32]
         ));
     }
