@@ -40,11 +40,6 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     validate_asset_oracle(env, &key, &oracle);
     attest_sources(env, &key, &oracle);
     let mut session = Session::new(env);
-    // An LP price is derived from the pool and its two underlyings, so listing one
-    // that cannot price is a configuration error, never a market condition worth
-    // preserving. Demand a real price here. `revalidate_dependents` and the band
-    // and tolerance levers below stay on the relaxed probe, so reconfiguring an
-    // underlying mid-incident is still possible.
     if oracle.has_aquarius_lp_source() {
         engine::probe_priceable(&mut session, &key, &oracle);
     } else {
@@ -99,11 +94,6 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         oracle.min_sanity_price_wad,
         oracle.max_sanity_price_wad,
     );
-    // The wide-band exemption is earned by an actual cross-check, not by arity:
-    // two legs that trust exactly the same contracts always move together, so
-    // their deviation band proves nothing and the sanity band is again the only
-    // guard. `derived` is computed below for the same oracle, so the exemption is
-    // decided from the resolved trust sets rather than `sources.len()`.
     let exempt_from_band_cap = oracle.has_aquarius_lp_source()
         || derived
             .second
@@ -121,9 +111,6 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         validation::source_shape(env, &source);
     }
 
-    // An LP share is priced standalone from pool reserves; blending it with a
-    // second leg through the tolerance band is meaningless, so an LP source must
-    // be the oracle's only source.
     let has_lp = oracle.sources.iter().any(|source| source.is_aquarius_lp());
     if has_lp && oracle.sources.len() != 1 {
         panic_with_error!(env, OracleError::SourceCountOutOfRange);
@@ -134,20 +121,10 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         validation::composition_depth(env, second);
     }
     validation::staleness_envelope(env, oracle.max_price_stale_seconds, &derived.combined());
-    // The spot-only gate asks for a time window over a manipulable market read.
-    // An LP share has no window of its own, but it does not need one: the reserve
-    // ratio — the only part a swap can move — cancels out of 2*sqrt(Va*Vb)/S, and
-    // both underlying prices come from oracles that passed this same gate when
-    // they were listed. An LpShare is also always the sole source, so applying the
-    // gate here would make every LP oracle unlistable.
     if !oracle.has_aquarius_lp_source() {
         validation::smoothing(env, &derived.first, derived.second.as_ref());
     }
 
-    // The tolerance band is the primary/anchor agreement check, read only on the
-    // two-leg blend path. An LpShare is always the sole source, so no band exists
-    // to honour and requiring a valid one would force config authors to invent a
-    // number that implies a cross-check the oracle does not perform.
     if !oracle.has_aquarius_lp_source() {
         validate_oracle_tolerance(env, &oracle.tolerance);
     }
@@ -177,7 +154,6 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
 pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
-    // Refuse rather than silently store a band an LP oracle will never read.
     assert_with_error!(
         env,
         !oracle.has_aquarius_lp_source(),

@@ -116,8 +116,6 @@ pub struct AquariusLpSource {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-// These are ABI payloads backed by Soroban host values. Boxing would change the
-// contract representation and is not a useful size optimization in `no_std`.
 #[allow(clippy::large_enum_variant)]
 pub enum PriceSource {
     Feed(FeedSource),

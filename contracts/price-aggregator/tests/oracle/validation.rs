@@ -110,8 +110,6 @@ fn test_one_smoothed_leg_carries_the_pair() {
     });
 }
 
-// An empty declaration is not a waiver: `AllowShared` must name the contracts it
-// forgives, otherwise it silently degrades to "independence unchecked".
 #[test]
 #[should_panic(expected = "Error(Contract, #232)")]
 fn test_an_empty_allow_shared_declaration_is_refused_even_when_nothing_is_shared() {
@@ -144,8 +142,6 @@ fn test_a_declaration_naming_a_different_contract_does_not_cover_the_overlap() {
     });
 }
 
-// The declaration must match the overlap exactly: naming more than is actually
-// shared is as wrong as naming less, since it waives a future overlap in advance.
 #[test]
 #[should_panic(expected = "Error(Contract, #232)")]
 fn test_a_declaration_wider_than_the_overlap_is_refused() {
@@ -199,8 +195,6 @@ fn test_an_lp_whose_two_reserves_are_the_same_token_is_refused() {
     });
 }
 
-// A token key bound to a different token would price the pool off the wrong
-// asset, so each key must name the reserve it stands for.
 #[test]
 #[should_panic(expected = "Error(Contract, #220)")]
 fn test_the_first_lp_leg_key_must_price_the_reserve_it_is_bound_to() {

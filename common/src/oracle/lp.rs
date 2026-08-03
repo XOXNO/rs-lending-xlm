@@ -77,17 +77,12 @@ pub fn fair_lp_price_wad(
         return Err(OracleError::InvalidPrice);
     }
 
-    // USD value of each reserve, WAD-scaled. Checked end-to-end: overflow or a
-    // decimals > 18 maps to InvalidPrice, never a panic (a compromised/absurd
-    // pool must not brick the price with an unrecoverable host error).
     let value_a = reserve_value_wad(env, a)?;
     let value_b = reserve_value_wad(env, b)?;
 
-    // 2·sqrt(V_a·V_b): the product is up to ~1e52, past i128, so it is rooted in U256.
     let total_value =
         isqrt_of_product(env, value_a as u128, value_b as u128).mul(&U256::from_u32(env, 2));
 
-    // Per whole LP share (WAD) = total_value · WAD / share_supply_whole_wad.
     let share_supply_wad = amount_to_wad(env, supply.total_shares, supply.decimals)?;
     if share_supply_wad <= 0 {
         return Err(OracleError::InvalidPrice);
@@ -137,10 +132,6 @@ mod tests {
         }
     }
 
-    // Real mainnet XLM/PYUSD constant-product pool snapshot: reserves
-    // 340673965 / 58315575 (7 dp), supply 140754159 (7 dp). At XLM=$0.11,
-    // PYUSD=$1.00 the fair share sits near $0.664 and BELOW the naive
-    // (Va+Vb)/S = $0.680, because fair value penalises the imbalance.
     #[test]
     fn fair_price_matches_reference_snapshot() {
         let env = Env::default();
@@ -155,12 +146,9 @@ mod tests {
             price > 660_000_000_000_000_000 && price < 668_000_000_000_000_000,
             "fair price out of expected band: {price}"
         );
-        // Fair value is strictly below the manipulable spot valuation.
         assert!(price < 680_000_000_000_000_000);
     }
 
-    // A pathologically large reserve/supply (e.g. a compromised plane) must map
-    // to InvalidPrice, not an unrecoverable panic that would brick the market.
     #[test]
     fn absurd_reserve_errors_not_panics() {
         let env = Env::default();
@@ -174,15 +162,11 @@ mod tests {
         assert_eq!(err, OracleError::InvalidPrice);
     }
 
-    // The seeded Newton must agree with a reference root across magnitudes, and
-    // must land on the floor exactly at perfect squares and one either side.
     #[test]
     fn isqrt_matches_a_reference_root() {
         let env = Env::default();
         let check = |n: u128| {
             let got = isqrt_of_product(&env, n, 1);
-            // checked_mul, not saturating: at n = u128::MAX a saturated square
-            // still compares <= n, so the reference would climb forever.
             let exceeds = |v: u128| v.checked_mul(v).is_none_or(|square| square > n);
             let mut want = (n as f64).sqrt() as u128;
             while want > 0 && exceeds(want) {
@@ -220,7 +204,6 @@ mod tests {
 
     #[test]
     fn balanced_pool_prices_at_reserve_value() {
-        // Balanced pool, both sides $1: 1000 + 1000 units, supply 1000 → $2/share.
         let env = Env::default();
         let price = fair_lp_price_wad(
             &env,

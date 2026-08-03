@@ -536,8 +536,27 @@ fn normalize_accepts_partial_when_cap_equals_base() {
     });
 }
 
+/// V = $100, D = $120, W = $80 => p = 0.8, hf = 2/3, cap = BPS*(V/D - 1) = -1667 (insolvent).
+fn insolvent_snap() -> LiquidationSnapshot {
+    snap(
+        120 * WAD,
+        100 * WAD,
+        80 * WAD,
+        800_000_000_000_000_000,
+        666_666_666_666_666_666,
+    )
+}
+
+/// Insolvent accounts are deliberately liquidatable in part. A full close on `V < D` can never be
+/// economic — the liquidator pays `D` and recovers at most `V` — so demanding one would make every
+/// insolvent position permanently unliquidatable and let bad debt grow unchecked. The protocol
+/// instead accepts that a partial grows the shortfall by `repaid * bonus`, which is the cost of
+/// keeping liquidators willing to retire the debt at all.
+///
+/// This is the behaviour the whole `test-harness` liquidation suite depends on: its canonical
+/// fixture (10k USDC at $0.50 backing 3 ETH at $2000) is itself insolvent, V=$5000 vs D=$6000.
 #[test]
-fn normalize_allows_partial_on_insolvent_account() {
+fn partial_liquidation_of_insolvent_account_is_permitted() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
@@ -545,10 +564,14 @@ fn normalize_allows_partial_on_insolvent_account() {
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
-        let s = snap(500 * WAD, 100 * WAD, 40 * WAD, WAD, 400_000_000_000_000_000);
+        let s = insolvent_snap();
+        assert!(
+            max_hf_preserving_bonus_bps(&s).is_some_and(|cap| cap < 0),
+            "fixture must be insolvent so the cap is negative"
+        );
         let bounds = BonusBounds {
-            base: Bps::from(0i128),
-            max: Bps::from(0i128),
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
         };
         let curve = LiquidationCurve::from_config(&default_spoke_config());
 
@@ -556,7 +579,46 @@ fn normalize_allows_partial_on_insolvent_account() {
         let plan =
             normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
         assert_eq!(plan.repay_usd.raw(), 100 * WAD, "partial accepted");
-        assert_eq!(plan.bonus.raw(), 0);
+        assert_eq!(
+            plan.bonus.raw(),
+            500,
+            "insolvent partial pays the base bonus"
+        );
+    });
+}
+
+/// The solvent-but-toxic band is the one that *is* gated: `0 <= cap < base` means a full close is
+/// economic, so an underfunded partial is rejected rather than allowed to ratchet HF down.
+#[test]
+#[should_panic(expected = "Error(Contract, #135)")]
+fn normalize_rejects_underfunded_partial_when_cap_is_below_base_but_solvent() {
+    let env = Env::default();
+    let (contract, hub_asset, account) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        let s = snap(
+            500 * WAD,
+            510 * WAD,
+            408 * WAD,
+            8 * WAD / 10,
+            816 * WAD / 1000,
+        );
+        let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists");
+        assert!(
+            (0..500).contains(&cap),
+            "fixture must sit in the solvent 0 <= cap < base band, got {cap}"
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
     });
 }
 
@@ -646,4 +708,131 @@ fn seizure_never_exceeds_collateral() {
         ceilings_checked > 0,
         "swept the HF range without reaching a single non-escalated estimate"
     );
+}
+
+/// The full-close escalation deliberately asks for `total_debt` even when the account cannot
+/// cover it at the bonus. `calculate_seized_collateral` is the component that makes this safe:
+/// every leg is clamped to the position actually held, so the borrower can never lose more than
+/// their collateral no matter what the planner requested.
+///
+/// Fixture holds 1000 tokens of collateral at $1. Asking to seize $1200 at a 500 bps bonus
+/// implies $1260 of collateral — 26% more than exists.
+#[test]
+fn escalated_full_close_over_asks_and_is_clamped_to_collateral() {
+    let env = Env::default();
+    let seized = run_seizure(&env, 0, 1_200 * WAD, 500);
+
+    assert_eq!(seized.len(), 1, "single collateral leg expected");
+    let entry = seized.get_unchecked(0);
+    assert_eq!(
+        entry.amount,
+        stroops(1_000),
+        "seizure must clamp to the whole position, never above it"
+    );
+}
+
+/// Sweeps the over-ask region: for any requested repayment at any bonus, the seized amount is
+/// `min(requested * (1 + bonus), position)` and never exceeds the position.
+#[test]
+fn seizure_is_clamped_to_position_across_requests() {
+    let env = Env::default();
+
+    for repay_usd in [100i128, 500, 900, 1_000, 1_500, 5_000] {
+        for bonus_bps in [0i128, 250, 500, 1_500] {
+            let seized = run_seizure(&env, 0, repay_usd * WAD, bonus_bps);
+            let got = seized.get_unchecked(0).amount;
+
+            let want_unclamped = stroops(repay_usd) * (10_000 + bonus_bps) / 10_000;
+            let want = want_unclamped.min(stroops(1_000));
+            assert!(
+                got <= stroops(1_000),
+                "seized {got} exceeds the 1000-token position (repay=${repay_usd}, bonus={bonus_bps})"
+            );
+            assert!(
+                (got - want).abs() <= 1,
+                "seized {got} != expected {want} (repay=${repay_usd}, bonus={bonus_bps})"
+            );
+        }
+    }
+}
+
+/// Value conservation on the repayment side: whatever the liquidator offers is either applied to
+/// debt or handed back as a refund — never silently absorbed. The fixture carries 500 tokens of
+/// debt, so paying 700 must produce 500 repaid and 200 refunded.
+#[test]
+fn over_payment_is_split_between_repaid_and_refunds_without_loss() {
+    let env = Env::default();
+    let (contract, hub_asset, account) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        let offered = stroops(700);
+        let mut refunds = Vec::new(&env);
+        let payments = vec![&env, (hub_asset.clone(), offered)];
+        let (repaid_usd, repaid) =
+            calculate_repayment_amounts(&env, &payments, &account, &mut refunds, &mut cache);
+
+        let repaid_amount: i128 = repaid.iter().map(|e| e.amount).sum();
+        let refunded: i128 = refunds.iter().map(|r| r.amount).sum();
+
+        assert_eq!(repaid_amount, stroops(500), "clamped to outstanding debt");
+        assert_eq!(refunded, stroops(200), "excess returned");
+        assert_eq!(
+            repaid_amount + refunded,
+            offered,
+            "repaid + refunded must equal what was offered"
+        );
+        assert_eq!(repaid_usd.raw(), 500 * WAD, "USD total tracks the clamp");
+    });
+}
+
+/// The same conservation must survive `normalize_repayment_plan`, which can shrink the repayment
+/// a second time when the offer exceeds the plan's ideal. Solvent-toxic account: cap >= base, so
+/// a partial is legitimate and the surplus is refunded rather than kept.
+#[test]
+fn normalize_conserves_value_when_offer_exceeds_ideal() {
+    let env = Env::default();
+    let (contract, hub_asset, account) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        let s = snap(
+            500 * WAD,
+            525 * WAD,
+            420 * WAD,
+            8 * WAD / 10,
+            84 * WAD / 100,
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        let offered = stroops(500);
+        let payments = vec![&env, (hub_asset.clone(), offered)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+
+        let repaid_amount: i128 = plan.repaid.iter().map(|e| e.amount).sum();
+        let refunded: i128 = plan.refunds.iter().map(|r| r.amount).sum();
+        assert_eq!(
+            repaid_amount + refunded,
+            offered,
+            "normalize must not absorb value: repaid {repaid_amount} + refunded {refunded} != offered {offered}"
+        );
+        assert!(
+            plan.repay_usd.raw() <= 500 * WAD,
+            "repayment never exceeds outstanding debt"
+        );
+        assert_eq!(
+            plan.repay_usd.raw(),
+            repaid_amount * WAD / stroops(1),
+            "repay_usd must equal the USD value of the repaid legs at $1"
+        );
+    });
 }

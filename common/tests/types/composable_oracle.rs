@@ -72,9 +72,6 @@ fn asset_oracle_identifies_aquarius_lp() {
     assert!(oracle.sources.get_unchecked(0).is_aquarius_lp());
     assert!(!oracle.is_dual());
 
-    // The stableswap variant carries the same payload and is recognised the same
-    // way, so every LP-only exemption (band cap, sole-source, no smoothing) fires
-    // for it too.
     let stable = PriceSource::AquariusStableLp(AquariusLpSource {
         pool: Address::generate(&env),
         plane: Address::generate(&env),

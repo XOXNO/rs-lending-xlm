@@ -421,9 +421,6 @@ fn test_a_one_sample_twap_does_not_count_as_smoothing() {
     });
 }
 
-// Pool reserves are whatever the last swap left behind, so an LP leg is a market
-// read with no window of its own. The smoothing gate reads this flag, so losing
-// it would let an LP pair with a spot leg and call the result production safe.
 #[test]
 fn test_an_lp_source_is_an_unsmoothed_market_leg_naming_both_underlyings() {
     let env = Env::default();

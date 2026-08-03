@@ -288,9 +288,6 @@ fn test_set_oracle_rejects_a_degenerate_tolerance() {
 
     let mut oracle_cfg = resolved_reflector_dual_source_config(&t.env, &t.mock_reflector, &asset);
 
-    // Both legs of this fixture read the same mock reflector, so the config has
-    // no independent cross-check and is held to the single-source band width.
-    // Narrow the band so the tolerance gate is what rejects it.
     oracle_cfg.min_sanity_price_wad = 990_000_000_000_000_000;
     oracle_cfg.max_sanity_price_wad = 1_010_000_000_000_000_000;
     oracle_cfg.tolerance = OracleTolerance {
@@ -483,9 +480,6 @@ fn test_market_initialization_cascade() {
     );
 }
 
-// An out-of-band live price is transient, not structural, so the config write
-// is allowed to land (the oracle levers must stay usable during an incident).
-// The band is still enforced on every read, so the asset fails closed instead.
 #[test]
 fn test_configure_market_oracle_defers_an_out_of_band_price_to_read_time() {
     let t = LendingTest::new().with_market(usdc_preset()).build();

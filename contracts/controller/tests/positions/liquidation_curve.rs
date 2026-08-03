@@ -569,3 +569,640 @@ fn bonus_within_base_and_max_bounds() {
         );
     }
 }
+
+/// Builds a consistent snapshot from (collateral, p, hf). Returns `None` when the
+/// derived debt would round to zero.
+fn grid_snap(collateral: i128, p_pct: i128, hf_pct: i128) -> Option<LiquidationSnapshot> {
+    let weighted = collateral * p_pct / 100;
+    if hf_pct == 0 {
+        return None;
+    }
+    let debt = weighted * 100 / hf_pct;
+    if debt == 0 {
+        return None;
+    }
+    Some(snap(
+        debt,
+        collateral,
+        weighted,
+        p_pct * WAD / 100,
+        hf_pct * WAD / 100,
+    ))
+}
+
+/// `max_hf_preserving_bonus_bps` must equal BPS*(V/D - 1) — the exact threshold at which a
+/// liquidation stops improving the health factor. This is the load-bearing identity behind
+/// every escalation decision, so it is asserted directly against the closed form.
+#[test]
+fn hf_preserving_cap_equals_collateral_over_debt_ratio() {
+    let collateral = 100 * WAD;
+    let mut checked = 0;
+
+    for p_pct in [30i128, 50, 65, 80, 90, 95] {
+        for hf_pct in (10..100).step_by(5) {
+            let Some(s) = grid_snap(collateral, p_pct, hf_pct) else {
+                continue;
+            };
+            let Some(cap) = max_hf_preserving_bonus_bps(&s) else {
+                continue;
+            };
+
+            let want = 10_000i128 * s.total_collateral.raw() / s.total_debt.raw() - 10_000;
+            assert!(
+                (cap - want).abs() <= 1,
+                "cap {cap} != BPS*(V/D-1) {want} at p={p_pct}% hf={hf_pct}%"
+            );
+
+            let insolvent = s.total_collateral.raw() < s.total_debt.raw();
+            assert_eq!(
+                cap < 0,
+                insolvent,
+                "cap sign disagrees with solvency at p={p_pct}% hf={hf_pct}% (cap={cap})"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 50, "grid too small: only {checked} points");
+}
+
+/// The structural ceiling: seizing collateral weighted at `p` to repay debt 1:1 can only stay
+/// solvency-neutral while `(1+b) <= 1/p`. `max_bonus_for_threshold` must be that closed form.
+#[test]
+fn max_bonus_for_threshold_matches_closed_form() {
+    let env = Env::default();
+
+    for p_pct in [10i128, 25, 40, 50, 75, 80, 90, 99] {
+        let p = Wad::from(p_pct * WAD / 100);
+        let got = max_bonus_for_threshold(&env, p).raw();
+        let eff_thr = p_pct * 100; // p in bps
+        let want = 10_000 * (10_000 - eff_thr) / eff_thr;
+        assert_eq!(got, want, "max bonus mismatch at p={p_pct}%");
+
+        assert!(
+            (10_000 + got) * eff_thr <= 10_000 * 10_000 + eff_thr,
+            "max bonus {got} breaks (1+b)*p <= 1 at p={p_pct}%"
+        );
+    }
+}
+
+/// The bonus actually returned must never exceed the HF-preserving cap whenever that cap is
+/// the binding constraint (i.e. whenever the plan is not escalated to a full close).
+#[test]
+fn returned_bonus_never_exceeds_the_hf_preserving_cap() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let collateral = 100 * WAD;
+    let mut partials = 0;
+
+    for p_pct in [30i128, 50, 65, 80, 90] {
+        for hf_pct in (10..100).step_by(5) {
+            let Some(s) = grid_snap(collateral, p_pct, hf_pct) else {
+                continue;
+            };
+            let bounds = BonusBounds {
+                base: Bps::from(500i128),
+                max: max_bonus_for_threshold(&env, s.proportion_seized),
+            };
+            let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+
+            if ideal.raw() >= s.total_debt.raw() {
+                continue;
+            }
+            partials += 1;
+            let cap = max_hf_preserving_bonus_bps(&s)
+                .expect("hf < 1 and p > 0 on this grid, so a cap must exist");
+            assert!(
+                bonus.raw() <= cap,
+                "partial bonus {} exceeds cap {cap} at p={p_pct}% hf={hf_pct}%",
+                bonus.raw()
+            );
+        }
+    }
+    assert!(partials > 0, "grid never produced a partial liquidation");
+}
+
+/// The escalation predicate must be exactly `cap < base`. This pins the boundary that
+/// `normalize_repayment_plan` relies on to decide whether a partial may be accepted.
+#[test]
+fn full_close_region_is_exactly_where_cap_is_below_base() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let collateral = 100 * WAD;
+    let base = Bps::from(500i128);
+    let (mut escalated, mut partial) = (0, 0);
+
+    for p_pct in [30i128, 50, 65, 80, 90] {
+        for hf_pct in (10..100).step_by(4) {
+            let Some(s) = grid_snap(collateral, p_pct, hf_pct) else {
+                continue;
+            };
+            let bounds = BonusBounds {
+                base,
+                max: max_bonus_for_threshold(&env, s.proportion_seized),
+            };
+            let (ideal, _) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+            let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists on this grid");
+
+            if cap < base.raw() {
+                escalated += 1;
+                assert!(
+                    ideal.raw() >= s.total_debt.raw(),
+                    "cap {cap} < base but plan did not escalate at p={p_pct}% hf={hf_pct}%"
+                );
+            } else {
+                partial += 1;
+                assert!(
+                    ideal.raw() <= s.total_debt.raw(),
+                    "ideal exceeded total debt at p={p_pct}% hf={hf_pct}%"
+                );
+            }
+        }
+    }
+    assert!(
+        escalated > 0 && partial > 0,
+        "grid must exercise both regions (escalated={escalated}, partial={partial})"
+    );
+}
+
+/// The central invariant, swept across the whole grid **including the insolvent region** that
+/// the older spot test skipped. Either the plan escalates to a full close (debt -> 0, so HF
+/// cannot fall), or every accepted partial repayment leaves HF non-decreasing.
+#[test]
+fn no_accepted_liquidation_reduces_health_factor() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let collateral = 100 * WAD;
+    let (mut partials, mut closes, mut insolvent_seen) = (0, 0, 0);
+
+    for p_pct in [30i128, 45, 60, 80, 92] {
+        for hf_pct in (10..100).step_by(3) {
+            let Some(s) = grid_snap(collateral, p_pct, hf_pct) else {
+                continue;
+            };
+            if s.total_collateral.raw() < s.total_debt.raw() {
+                insolvent_seen += 1;
+            }
+            let bounds = BonusBounds {
+                base: Bps::from(500i128),
+                max: max_bonus_for_threshold(&env, s.proportion_seized),
+            };
+            let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+
+            if ideal.raw() >= s.total_debt.raw() {
+                closes += 1;
+                let post = calculate_post_liquidation_hf(&env, &s, s.total_debt, bonus);
+                assert!(
+                    post.raw() >= s.hf.raw(),
+                    "full close reduced HF at p={p_pct}% hf={hf_pct}%"
+                );
+                continue;
+            }
+
+            partials += 1;
+            for num in [1i128, 2, 3, 4] {
+                let repay = Wad::from(ideal.raw() * num / 4);
+                if repay.raw() == 0 {
+                    continue;
+                }
+                let post = calculate_post_liquidation_hf(&env, &s, repay, bonus);
+                assert!(
+                    post.raw() + 10 >= s.hf.raw(),
+                    "partial at p={p_pct}% hf={hf_pct}% repay={} reduced HF: {} -> {}",
+                    repay.raw(),
+                    s.hf.raw(),
+                    post.raw()
+                );
+            }
+        }
+    }
+
+    assert!(partials > 0, "grid never exercised a partial liquidation");
+    assert!(closes > 0, "grid never exercised a full-close escalation");
+    assert!(
+        insolvent_seen > 0,
+        "grid never covered an insolvent account — the regression this guards is unreachable"
+    );
+}
+
+/// Partial plans must be self-limiting: the planner sizes them so the implied seizure fits
+/// inside the available collateral, via the `d_max = V/(1+b)` term in `try_liquidation_at_target`.
+///
+/// Full-close escalations are the deliberate exception — on an insolvent account the planner asks
+/// for the whole debt even though `D*(1+b) > V`, and relies on `calculate_seized_collateral` to
+/// clamp each leg to the position actually held. That clamp is proven separately in
+/// `escalated_full_close_over_asks_and_is_clamped_to_collateral` (liquidation_math.rs); asserting
+/// it here would be asserting the wrong contract, which is why this test partitions the two cases
+/// instead of skipping one.
+#[test]
+fn partial_plans_size_seizure_within_collateral() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let collateral = 100 * WAD;
+    let (mut partials, mut escalations) = (0, 0);
+
+    for p_pct in [30i128, 50, 70, 88] {
+        for hf_pct in (10..100).step_by(5) {
+            let Some(s) = grid_snap(collateral, p_pct, hf_pct) else {
+                continue;
+            };
+            let bounds = BonusBounds {
+                base: Bps::from(500i128),
+                max: max_bonus_for_threshold(&env, s.proportion_seized),
+            };
+            let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+
+            if ideal.raw() >= s.total_debt.raw() {
+                escalations += 1;
+                continue;
+            }
+
+            partials += 1;
+            let seized = ideal.raw() * (10_000 + bonus.raw()) / 10_000;
+            assert!(
+                seized <= s.total_collateral.raw() + WAD / 1_000,
+                "partial seizure {seized} exceeds collateral {} at p={p_pct}% hf={hf_pct}%",
+                s.total_collateral.raw()
+            );
+        }
+    }
+    assert!(
+        partials > 0 && escalations > 0,
+        "grid must cover both cases (partials={partials}, escalations={escalations})"
+    );
+}
+
+/// A full close is reached by three distinct routes, and they are worth naming because they carry
+/// very different consequences for the borrower:
+///
+///   1. `cap < base`  — no bonus-bearing partial can avoid worsening the position, so the plan
+///      demands the whole debt. Includes every insolvent account (`cap < 0`).
+///   2. `base <= cap < scaled_bonus` — the curve wants more bonus than HF-neutrality allows, so
+///      the bonus is clamped to `cap = V/D - 1`. Substituting `(1+b) = V/D` into
+///      `try_liquidation_at_target` yields `d_ideal = D`, i.e. a full close that seizes **all**
+///      collateral. This is the borrower-wipeout band.
+///   3. dust remainder — the partial would leave less than `BAD_DEBT_USD_THRESHOLD` outstanding,
+///      so it is rounded up to a full close.
+///
+/// This test asserts all three are reachable and that route 2 really does consume the entire
+/// collateral, so the behaviour is a recorded decision rather than an accident.
+#[test]
+fn full_close_escalation_causes() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let collateral = 100 * WAD;
+    let base = Bps::from(500i128);
+    let (mut cap_below_base, mut bonus_clamped, mut other) = (0, 0, 0);
+
+    for p_pct in [30i128, 45, 60, 80, 92] {
+        for hf_pct in (10..100).step_by(3) {
+            let Some(s) = grid_snap(collateral, p_pct, hf_pct) else {
+                continue;
+            };
+            let bounds = BonusBounds {
+                base,
+                max: max_bonus_for_threshold(&env, s.proportion_seized),
+            };
+            let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+            if ideal.raw() < s.total_debt.raw() {
+                continue;
+            }
+            let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists on this grid");
+
+            if cap < base.raw() {
+                cap_below_base += 1;
+                assert_eq!(
+                    bonus.raw(),
+                    base.raw(),
+                    "route 1 must fall back to the base bonus at p={p_pct}% hf={hf_pct}%"
+                );
+            } else if bonus.raw() == cap {
+                bonus_clamped += 1;
+                let seized = s.total_debt.raw() * (10_000 + bonus.raw()) / 10_000;
+                assert!(
+                    (seized - s.total_collateral.raw()).abs() <= s.total_collateral.raw() / 1_000,
+                    "route 2 should seize the whole collateral: seized {seized} vs V {} \
+                     at p={p_pct}% hf={hf_pct}%",
+                    s.total_collateral.raw()
+                );
+            } else {
+                other += 1;
+            }
+        }
+    }
+
+    assert!(
+        cap_below_base > 0,
+        "grid never hit the cap<base escalation (route 1)"
+    );
+    assert!(
+        bonus_clamped > 0,
+        "grid never hit the bonus-clamped wipeout escalation (route 2)"
+    );
+    let _ = other;
+}
+
+/// The bonus ramp must match its closed form exactly, not merely be monotone and in-bounds:
+///
+///     scale(hf) = clamp((target - hf) / (target - knee), 0, 1)
+///     bonus(hf) = base + (max - base) * scale(hf) * factor
+///
+/// Swept at 1% HF resolution across the whole ramp, including both clamped ends. A 1 bps
+/// tolerance covers the half-up rounding in the fixed-point multiply.
+#[test]
+fn bonus_ramp_matches_closed_form_exactly() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let base = Bps::from(500i128);
+    let max = Bps::from(2_500i128);
+    let target_raw = DEFAULT_LIQUIDATION_TARGET_HF_WAD;
+    let knee_raw = DEFAULT_HF_FOR_MAX_BONUS_WAD;
+    let target = Wad::from(target_raw);
+    let mut ramp_points = 0;
+
+    for hf_pct in 5..=130i128 {
+        let hf_raw = WAD * hf_pct / 100;
+        let got =
+            calculate_linear_bonus_with_target(&env, Wad::from(hf_raw), base, max, &curve, target)
+                .raw();
+
+        let want = if hf_raw >= target_raw {
+            base.raw()
+        } else if hf_raw <= knee_raw {
+            max.raw()
+        } else {
+            ramp_points += 1;
+            let scale_wad = (target_raw - hf_raw) * WAD / (target_raw - knee_raw);
+            base.raw() + (max.raw() - base.raw()) * scale_wad / WAD
+        };
+
+        assert!(
+            (got - want).abs() <= 1,
+            "bonus {got} != closed form {want} at hf={hf_pct}%"
+        );
+    }
+
+    assert!(
+        ramp_points > 10,
+        "sweep never landed strictly inside the ramp ({ramp_points} points)"
+    );
+}
+
+/// `max_bonus_for_threshold` must (a) match its specification exactly — ceil the effective
+/// threshold to whole bps, then floor the resulting bonus — and (b) as a consequence of those two
+/// rounding choices, never exceed the exact real-valued `(1-p)/p`.
+///
+/// Both roundings push the same way, so the returned ceiling is always conservative. The shortfall
+/// is not negligible at small `p`: ceiling the threshold by up to 1 bps moves the bonus by roughly
+/// `BPS²/thr²` bps, which is ~6 bps at p=1/3 and grows sharply as `p` falls. That is safe, but it
+/// is worth pinning so a future "optimisation" to round-to-nearest is caught.
+#[test]
+fn max_bonus_for_threshold_matches_spec_and_rounds_against_the_liquidator() {
+    let env = Env::default();
+
+    for p_raw in [
+        333_333_333_333_333_333i128,
+        666_666_666_666_666_666,
+        123_456_789_012_345_678,
+        987_654_321_098_765_432,
+        500_000_000_000_000_001,
+    ] {
+        let got = max_bonus_for_threshold(&env, Wad::from(p_raw)).raw();
+
+        let eff_thr = ((p_raw * 10_000 + (WAD - 1)) / WAD).clamp(1, 10_000);
+        let want = 10_000 * (10_000 - eff_thr) / eff_thr;
+        assert_eq!(got, want, "spec mismatch at p={p_raw} (eff_thr={eff_thr})");
+
+        let exact = (WAD - p_raw) * 10_000 / p_raw;
+        assert!(
+            got <= exact,
+            "max bonus {got} exceeds exact (1-p)/p = {exact} at p={p_raw}"
+        );
+    }
+}
+
+/// Why insolvent accounts are allowed to be liquidated in part rather than forced to a full close:
+/// a full close on `V < D` pays `D` and recovers at most `V`, so it is always loss-making and no
+/// liquidator would ever fund it. Demanding one would make every insolvent position permanently
+/// unliquidatable.
+///
+/// The accepted cost is that a partial at bonus `b` grows the shortfall `S = D - V` by `repaid * b`,
+/// which suppliers ultimately absorb. That trade-off is deliberate and matches the standard
+/// lending-protocol design; this test pins the economics so a future change that makes insolvent
+/// full-closes look profitable (and would therefore be arithmetically wrong) is caught.
+#[test]
+fn full_close_on_insolvent_account_would_never_be_profitable() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let collateral = 100 * WAD;
+    let mut checked = 0;
+
+    for p_pct in [30i128, 50, 80] {
+        for hf_pct in (10..100).step_by(5) {
+            let Some(s) = grid_snap(collateral, p_pct, hf_pct) else {
+                continue;
+            };
+            if s.total_collateral.raw() >= s.total_debt.raw() {
+                continue; // solvent: a full close can be profitable, and that is fine
+            }
+            let bounds = BonusBounds {
+                base: Bps::from(500i128),
+                max: max_bonus_for_threshold(&env, s.proportion_seized),
+            };
+            let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+            assert_eq!(
+                ideal.raw(),
+                s.total_debt.raw(),
+                "insolvent account should have its ideal set to the full debt at p={p_pct}% hf={hf_pct}%"
+            );
+
+            let recovered = (s.total_debt.raw() * (10_000 + bonus.raw()) / 10_000)
+                .min(s.total_collateral.raw());
+            assert!(
+                recovered < s.total_debt.raw(),
+                "full close on an insolvent account should be loss-making, but recovered \
+                 {recovered} >= debt {} at p={p_pct}% hf={hf_pct}%",
+                s.total_debt.raw()
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "grid never covered an insolvent account");
+}
+
+/// Evolves a snapshot through one liquidation of `repay` at `bonus`, mirroring the
+/// contract's own arithmetic: `calculate_seized_collateral` seizes
+/// `repay * (1 + bonus)` spread pro-rata, so every position — and therefore `W` —
+/// loses the same fraction of value.
+fn apply_liquidation(s: &LiquidationSnapshot, repay: i128, bonus_bps: i128) -> LiquidationSnapshot {
+    let (v, d, w) = (
+        s.total_collateral.raw(),
+        s.total_debt.raw(),
+        s.weighted_coll.raw(),
+    );
+    let seized = (repay * (10_000 + bonus_bps) / 10_000).min(v);
+    let p = s.proportion_seized.raw();
+
+    let v2 = v - seized;
+    let d2 = d - repay;
+    let w2 = w - p * seized / WAD; // pro-rata: W loses p * (seized value)
+
+    snap(
+        d2,
+        v2,
+        w2,
+        if v2 > 0 { w2 * WAD / v2 } else { 0 },
+        if d2 > 0 { w2 * WAD / d2 } else { 0 },
+    )
+}
+
+/// At the HF-neutral rate the post-liquidation health factor is unchanged, for any
+/// partial size. Uses the repo's own `calculate_post_liquidation_hf` as the oracle so
+/// the assertion is against contract arithmetic, not a re-derivation.
+#[test]
+fn hf_neutral_bonus_leaves_health_factor_invariant() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let collateral = 100 * WAD;
+    let mut checked = 0;
+
+    for p_pct in [45i128, 60, 80, 92] {
+        for hf_pct in (10..100).step_by(3) {
+            let Some(s) = grid_snap(collateral, p_pct, hf_pct) else {
+                continue;
+            };
+            let bounds = BonusBounds {
+                base: Bps::from(500i128),
+                max: max_bonus_for_threshold(&env, s.proportion_seized),
+            };
+            let (_ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+            let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists on this grid");
+
+            let scaled = calculate_linear_bonus_with_target(
+                &env,
+                s.hf,
+                bounds.base,
+                bounds.max,
+                &curve,
+                Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD),
+            );
+            if !(scaled.raw() > cap && cap >= bounds.base.raw()) {
+                continue;
+            }
+            checked += 1;
+            assert_eq!(
+                bonus.raw(),
+                cap,
+                "the clamped arm must pin the bonus to the neutral rate at p={p_pct}% hf={hf_pct}%"
+            );
+
+            for num in [1i128, 2, 3] {
+                let repay = Wad::from(s.total_debt.raw() * num / 4);
+                if repay.raw() == 0 {
+                    continue;
+                }
+                let post = calculate_post_liquidation_hf(&env, &s, repay, bonus);
+
+                assert!(
+                    post.raw() >= s.hf.raw(),
+                    "hf fell at the neutral rate: p={p_pct}% hf={hf_pct}% repay={}: {} -> {}",
+                    repay.raw(),
+                    s.hf.raw(),
+                    post.raw()
+                );
+
+                let remaining_debt = s.total_debt.raw() - repay.raw();
+                if remaining_debt > 0 {
+                    let bound =
+                        s.proportion_seized.raw() * repay.raw() / (10_000 * remaining_debt) + 1;
+                    let drift = post.raw() - s.hf.raw();
+                    assert!(
+                        drift <= 2 * bound,
+                        "hf drift {drift} exceeds the 1-bps quantisation bound {bound} \
+                         at p={p_pct}% hf={hf_pct}% repay={}",
+                        repay.raw()
+                    );
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "grid never reached the neutral-rate arm");
+}
+
+/// The economic statement of the same property: slicing a liquidation into N partials at
+/// the neutral rate seizes the same collateral in total as a single full close, so there is
+/// no fee loop to farm.
+#[test]
+fn slicing_at_the_neutral_rate_seizes_the_same_total_as_one_full_close() {
+    let env = Env::default();
+    let start = snap(
+        90 * WAD,
+        100 * WAD,
+        80 * WAD,
+        800_000_000_000_000_000,
+        888_888_888_888_888_888,
+    );
+    let cap = max_hf_preserving_bonus_bps(&start).expect("cap exists");
+    assert!(
+        cap > 0,
+        "fixture must be solvent so the neutral rate is positive"
+    );
+
+    let one_shot =
+        (start.total_debt.raw() * (10_000 + cap) / 10_000).min(start.total_collateral.raw());
+
+    for slices in [2i128, 3, 6] {
+        let mut s = start.clone();
+        let mut total_seized = 0i128;
+        let per_slice = start.total_debt.raw() / slices;
+
+        for _ in 0..slices {
+            let step_cap = max_hf_preserving_bonus_bps(&s).expect("cap exists mid-slice");
+            assert!(
+                (step_cap - cap).abs() <= 2,
+                "neutral rate drifted across slices: {cap} -> {step_cap}"
+            );
+            let repay = per_slice.min(s.total_debt.raw());
+            total_seized += (repay * (10_000 + step_cap) / 10_000).min(s.total_collateral.raw());
+            s = apply_liquidation(&s, repay, step_cap);
+        }
+
+        let drift = (total_seized - one_shot).abs();
+        assert!(
+            drift <= one_shot / 100_000,
+            "{slices} slices seized {total_seized}, one full close seizes {one_shot} \
+             (drift {drift}) — slicing must not be profitable"
+        );
+    }
+    let _ = env;
+}
+
+/// The complement: any bonus above the neutral rate breaks the fixed point and drives
+/// coverage down on every pass. This is the ratchet that `FullCloseRequired` blocks in the
+/// `0 <= cap < base` band, and it is why that band cannot simply allow partials.
+#[test]
+fn bonus_above_the_neutral_rate_ratchets_coverage_down() {
+    let mut s = snap(
+        96 * WAD,
+        100 * WAD,
+        80 * WAD,
+        800_000_000_000_000_000,
+        833_333_333_333_333_333,
+    );
+    let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists");
+    let base = 500i128;
+    assert!(
+        (0..base).contains(&cap),
+        "fixture must sit in the 0 <= cap < base band, got {cap}"
+    );
+
+    let mut coverage = s.total_collateral.raw() * WAD / s.total_debt.raw();
+    for i in 1..=4 {
+        s = apply_liquidation(&s, 10 * WAD, base);
+        let next = s.total_collateral.raw() * WAD / s.total_debt.raw();
+        assert!(
+            next < coverage,
+            "slice {i} at base bonus should erode coverage: {coverage} -> {next}"
+        );
+        coverage = next;
+    }
+}

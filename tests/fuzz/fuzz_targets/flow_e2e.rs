@@ -462,12 +462,6 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             } else {
                 (10_000 - dev).max(1)
             };
-            // Jitter the anchor leg around the price this market currently holds,
-            // not the asset's default spot. A single-source sanity band is
-            // re-centred on whatever the harness last pushed, and a stress op may
-            // have moved this market 50% away from its default: writing a
-            // default-spot pair straight into the mock would strand both legs
-            // outside that band and every later read would fail closed.
             let spot = t.resolve_market(a).price_wad;
             let twap = spot * mult / 10_000;
             let addr = t.resolve_asset(a);

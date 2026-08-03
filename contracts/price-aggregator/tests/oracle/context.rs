@@ -254,10 +254,6 @@ fn test_the_prefetch_walk_stops_at_the_composition_cap() {
     );
 }
 
-// An LP's underlyings sit one level below the LP itself, exactly like a scaled
-// source's quote. An LP parked at the cap therefore contributes nothing to the
-// batch: its legs are past the depth the resolver will walk at read time, so
-// prefetching them would buy feeds no read can use.
 #[test]
 fn test_the_prefetch_walk_leaves_out_the_legs_of_an_lp_sitting_at_the_cap() {
     let env = Env::default();

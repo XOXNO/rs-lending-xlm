@@ -665,8 +665,6 @@ fn test_twap_read_rejects_a_history_shorter_than_the_window_needs() {
     });
 }
 
-// The live Reflector answers `records` periods back with the current period plus
-// that many historical ones, so N+1 is its normal shape and must resolve.
 #[test]
 fn test_twap_read_accepts_the_current_period_plus_the_window() {
     let env = Env::default();
@@ -839,9 +837,6 @@ fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
     });
 }
 
-// The factor band is enforced on the read path, and a factor outside it is a
-// typed error rather than a trap. This used to be covered only against a
-// panicking helper that production never called.
 #[test]
 fn test_a_scaled_factor_outside_its_band_is_rejected() {
     let env = Env::default();
@@ -851,7 +846,6 @@ fn test_a_scaled_factor_outside_its_band_is_rejected() {
     publish(&client, &env, "RATIO", 3 * WAD, 0);
 
     in_contract(&env, || {
-        // The live ratio is 3 WAD; the configured band tops out at 2 WAD.
         let token = scaled_setup(&env, &adapter, RATIO_BOUND, WAD, 2 * WAD);
         let mut cache = Session::new(&env);
         assert!(!resolve_status(&mut cache, &token, 0).valid);

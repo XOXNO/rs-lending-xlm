@@ -93,8 +93,6 @@ fn redstone_dual(
         },
         independence: IndependencePolicy::AllowShared(soroban_sdk::vec![env, feed.clone()]),
 
-        // Both legs read the same adapter, so this config earns no wide-band
-        // exemption: it is held to the single-source width cap.
         min_sanity_price_wad: WAD * 95 / 100,
         max_sanity_price_wad: WAD * 105 / 100,
     }
@@ -663,8 +661,6 @@ fn set_tolerance_narrowing_past_the_legs_fails_closed_at_read() {
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 12_500, 8_000),
     );
 
-    // A deviation is transient: narrowing the band past the current legs is
-    // allowed to land, and the read then reports the deviation.
     client.set_tolerance(
         &PriceKey::Token(asset.clone()),
         &OracleTolerance {
@@ -835,8 +831,6 @@ fn audit_set_sanity_band_excluding_live_price_fails_closed_at_read() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    // Out-of-band is transient, so the band lever stays usable in an incident;
-    // the new band lands and the read enforces it.
     client.set_sanity_band(
         &PriceKey::Token(asset.clone()),
         &(WAD + WAD / 100),
@@ -912,8 +906,6 @@ fn set_oracle_defers_an_unreadable_feed_to_read_time() {
     let asset = Address::generate(&env);
     let (feed, _) = register_feed(&env);
 
-    // An unreadable feed is transient, not structural: the config lands so the
-    // asset stays reconfigurable, and pricing it fails closed.
     client.set_oracle(
         &PriceKey::Token(asset.clone()),
         &redstone_single(&env, &feed, "MISSING", 900),

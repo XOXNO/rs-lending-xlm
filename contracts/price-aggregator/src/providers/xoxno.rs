@@ -9,8 +9,6 @@ use crate::providers::multi_feed;
 use crate::session::Session;
 
 pub(crate) fn attest(env: &Env, feed: &MultiFeedRef, decimals: u32, max_stale: u64) {
-    // The Xoxno adapter implements the SEP-40 `decimals()` getter, so the shared
-    // reflector reader attests it here.
     assert_with_error!(
         env,
         reflector_decimals(env, &feed.contract) == decimals,

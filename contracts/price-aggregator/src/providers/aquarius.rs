@@ -177,8 +177,6 @@ pub(crate) fn read_stable(
         .ok_or(OracleError::NoLastPrice)?;
     let total_shares =
         aquarius_total_shares_call(&env, &lp.pool).ok_or(OracleError::NoLastPrice)?;
-    // Amplification enters the invariant, so it is read live rather than stored:
-    // a stale A would compute a D that does not match the pool's own curve.
     let amp = aquarius_amp_call(&env, &lp.pool).ok_or(OracleError::NoLastPrice)?;
 
     let price_wad = fair_stable_lp_price_wad(

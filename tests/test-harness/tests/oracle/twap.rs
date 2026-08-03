@@ -40,8 +40,6 @@ fn try_price(t: &LendingTest, asset: &soroban_sdk::Address) -> Result<(), soroba
         .unwrap_or_else(|e| Err(e.expect("expected contract error")))
 }
 
-// An out-of-band TWAP mean is transient, not structural: the config write lands
-// and the band is enforced at read.
 #[test]
 fn configure_twap_defers_out_of_band_mean_to_read_time() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -65,7 +63,6 @@ fn configure_twap_defers_out_of_band_mean_to_read_time() {
     );
 }
 
-// A non-positive live price is transient: the write lands, the read fails closed.
 #[test]
 fn configure_defers_nonpositive_live_reflector_price_to_read_time() {
     let t = LendingTest::new().with_market(usdc_preset()).build();

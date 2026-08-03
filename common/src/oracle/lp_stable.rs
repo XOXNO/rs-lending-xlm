@@ -73,22 +73,15 @@ pub fn solve_stable_d(
     let xb = U256::from_u128(env, xb_wad as u128);
 
     let sum = xa.add(&xb);
-    // Ann = A · n. Aquarius' `a()` returns the Curve *code* amplification (which
-    // already folds in the whitepaper's n^(n-1) factor), so `get_D` multiplies it
-    // by n, not nⁿ. Using nⁿ would model ~2x the pool's real amplification, over-
-    // valuing shares under imbalance and breaking swap-invariance vs the pool.
     let ann = U256::from_u128(env, amp).mul(&n);
 
     let mut d = sum.clone();
     for _ in 0..MAX_D_ITERATIONS {
-        // D_P = Dⁿ⁺¹ / (nⁿ · Πxᵢ), accumulated one coin at a time so the running
-        // value stays near D's magnitude instead of forming Dⁿ⁺¹ outright.
         let mut d_p = d.clone();
         d_p = d_p.mul(&d).div(&xa.mul(&n));
         d_p = d_p.mul(&d).div(&xb.mul(&n));
 
         let d_prev = d.clone();
-        // D = (Ann·S + n·D_P)·D / ((Ann-1)·D + (n+1)·D_P)
         let numerator = ann.mul(&sum).add(&n.mul(&d_p)).mul(&d);
         let denominator = ann.sub(&one).mul(&d).add(&n.add(&one).mul(&d_p));
         d = numerator.div(&denominator);
@@ -133,7 +126,6 @@ pub fn fair_stable_lp_price_wad(
     let xb_wad = amount_to_wad(env, b.reserve, b.decimals)?;
     let d = solve_stable_d(env, xa_wad, xb_wad, amp)?;
 
-    // Conservative unit price: the pool converges into whichever leg is cheaper.
     let min_price = a.price_wad.min(b.price_wad);
     let share_supply_wad = amount_to_wad(env, supply.total_shares, supply.decimals)?;
     if share_supply_wad <= 0 {
@@ -205,7 +197,6 @@ mod tests {
         let x = U256::from_u128(env, x_wad as u128);
         let ann = U256::from_u128(env, amp).mul(&n);
 
-        // c = D^(n+1) / (nⁿ · x · Ann); b = x + D/Ann
         let mut c = d.mul(d).div(&x.mul(&n));
         c = c.mul(d).div(&ann.mul(&n));
         let b = x.add(&d.div(&ann));
@@ -213,7 +204,6 @@ mod tests {
         let mut y = d.clone();
         for _ in 0..MAX_D_ITERATIONS {
             let y_prev = y.clone();
-            // y = (y² + c) / (2y + b - D)
             let numerator = y.mul(&y).add(&c);
             let denominator = n.mul(&y).add(&b).sub(d);
             y = numerator.div(&denominator);
@@ -229,10 +219,6 @@ mod tests {
         y
     }
 
-    // Real mainnet PYUSD/USDC Aquarius stableswap snapshot: reserves
-    // 40701828372545 / 39592003957960 (7 dp), supply 80193465649977 (7 dp),
-    // A = 1500. The pool's own get_virtual_price reads 1.0012514, so at both
-    // legs $1.00 the fair share must land on ~$1.00125.
     #[test]
     fn fair_price_matches_reference_snapshot() {
         let env = Env::default();
@@ -244,10 +230,6 @@ mod tests {
             1500,
         )
         .unwrap();
-        // Both legs at exactly $1.00, so fair = D/S. Pin the amplification
-        // convention: floored to the pool's 7-dp scale it must equal the pool's
-        // own get_virtual_price = 1.0012514. The wrong Ann = A·nⁿ yields
-        // 1.0012515 here and fails this, which the old ±5e-4 window let through.
         assert_eq!(
             price / 100_000_000_000,
             10_012_514,
@@ -255,10 +237,6 @@ mod tests {
         );
     }
 
-    // The core property: a swap preserves D, so the fair price must not move.
-    // Start from the real pool, swap a large amount (imbalancing the split),
-    // land the counter-reserve exactly on the same D via get_y, and assert the
-    // price is unchanged. This is the flash-loan manipulation an attacker runs.
     #[test]
     fn swap_cannot_move_the_price() {
         let env = Env::default();
@@ -268,8 +246,6 @@ mod tests {
         let before =
             fair_stable_lp_price_wad(&env, &leg(ra, 7, WAD), &leg(rb, 7, WAD), &s, amp).unwrap();
 
-        // Attacker dumps ~50% more of coin A into the pool; coin B falls to the
-        // y that keeps invariant D fixed.
         let d = solve_stable_d(&env, ra * 100_000_000_000, rb * 100_000_000_000, amp).unwrap();
         let ra2_wad = (ra + ra / 2) * 100_000_000_000;
         let rb2_wad = try_u256_to_i128(&solve_stable_y(&env, ra2_wad, &d, amp)).unwrap();
@@ -279,13 +255,10 @@ mod tests {
         let after =
             fair_stable_lp_price_wad(&env, &leg(ra2, 7, WAD), &leg(rb2, 7, WAD), &s, amp).unwrap();
 
-        // Equal to within rounding dust (sub-1e-6 of a cent).
         let drift = (before - after).abs();
         assert!(drift < 1_000_000_000, "swap moved price by {drift} wad");
     }
 
-    // A depeg on one leg must mark the whole share down to the cheaper price:
-    // min(), not an average. Coin B at $0.90 → share ~10% cheaper, not ~5%.
     #[test]
     fn depeg_marks_to_the_cheaper_leg() {
         let env = Env::default();
@@ -301,7 +274,6 @@ mod tests {
             1500,
         )
         .unwrap();
-        // ~10% markdown (min price), decisively more than a 5% average would give.
         let ratio = depegged * 10_000 / pegged;
         assert!(
             (8_900..=9_100).contains(&ratio),
@@ -325,7 +297,6 @@ mod tests {
         }
     }
 
-    // A pathological reserve (compromised plane) must error, never panic.
     #[test]
     fn absurd_reserve_errors_not_panics() {
         let env = Env::default();
@@ -361,7 +332,6 @@ mod tests {
         );
     }
 
-    // A balanced pool at $1 prices at ~$1/share regardless of A.
     #[test]
     fn balanced_pool_prices_near_unit() {
         let env = Env::default();

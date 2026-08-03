@@ -44,7 +44,6 @@ fn in_range(v: i128, hi: i128) -> i128 {
     v.rem_euclid(hi + 1)
 }
 
-// age in [-CEILING, 2*CEILING]: negative age places the sample in the future.
 fn ts_ms(age: i16) -> u64 {
     let span = 3 * CEILING as i64 + 1;
     let age = (age as i64).rem_euclid(span) - CEILING as i64;
@@ -117,13 +116,11 @@ fuzz_target!(|i: In| {
     let key1 = PriceKey::Token(Address::generate(&env));
     agg.seed_oracle(&key1, &config(&env, &adapter, ids_fwd, &i, min, max));
 
-    // (1) soft path never traps; (2) usability agrees with the hard path.
     let q1 = agg.quote(&key1);
     let r1 = try_price(&agg, &key1);
     assert_eq!(q1.valid, r1.is_some(), "quote.valid must match price resolvability");
 
     if let Some(f1) = &r1 {
-        // (3) resolved price is consistent, in-band, and bracketed by its spread.
         assert_eq!(f1.price_wad, q1.final_wad, "usable price != quote.final_wad");
         assert!(
             min <= f1.price_wad && f1.price_wad <= max,
@@ -143,7 +140,6 @@ fuzz_target!(|i: In| {
         );
     }
 
-    // (4) leg order is irrelevant to the outcome.
     if i.dual {
         let key2 = PriceKey::Token(Address::generate(&env));
         agg.seed_oracle(&key2, &config(&env, &adapter, &["B", "A"], &i, min, max));

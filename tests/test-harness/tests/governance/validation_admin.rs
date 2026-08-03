@@ -299,8 +299,6 @@ fn test_configure_market_oracle_rejects_bad_reflector_resolution() {
     configure_usdc(&t, &cfg);
 }
 
-// A TWAP window that cannot be read is transient, not structural: the config
-// write lands and the read fails closed.
 #[test]
 fn test_configure_market_oracle_defers_missing_twap_history_to_read_time() {
     let t = LendingTest::new().with_market(usdc_preset()).build();

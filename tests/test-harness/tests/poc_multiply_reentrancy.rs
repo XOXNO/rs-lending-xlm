@@ -27,8 +27,6 @@ impl EvilToken {
     }
 
     pub fn balance(env: Env, _id: Address) -> i128 {
-        // Report a huge, ever-present balance so every balance-delta check the
-        // caller performs on this token is satisfied.
         let _ = env;
         1_000_000_000_000i128
     }
@@ -46,9 +44,6 @@ impl EvilToken {
         let account_id: u64 = s.get(&Symbol::new(&env, "ACC")).unwrap();
         let usdc: Address = s.get(&Symbol::new(&env, "USDC")).unwrap();
 
-        // Even a READ-ONLY reentrant call into the controller is rejected by the
-        // Soroban host with Context/InvalidAction, proving native reentrancy
-        // protection is what blocks this vector.
         let ctrl = controller::ControllerClient::new(&env, &controller);
         let _ = ctrl.get_health_factor(&account_id);
         let _ = (victim, usdc, vec![&env, 0i128]);
@@ -59,7 +54,6 @@ impl EvilToken {
 fn poc_multiply_initial_payment_reentrancy_duplicates_collateral() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
-    // Deep liquidity so the reentrant withdraw and the later supply both work.
     t.supply(BOB, "USDC", 50_000.0);
     t.supply(BOB, "ETH", 50.0);
 
@@ -67,13 +61,12 @@ fn poc_multiply_initial_payment_reentrancy_duplicates_collateral() {
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
 
-    // Router pays out USDC for the debt legs.
     t.fund_router("USDC", 40_000.0);
 
-    // Fund Alice with USDC equity for the opening multiply.
-    t.resolve_market("USDC").token_admin.mint(&alice, &10000_0000000i128);
+    t.resolve_market("USDC")
+        .token_admin
+        .mint(&alice, &10000_0000000i128);
 
-    // Step 1: open a genuine Multiply-mode account with USDC collateral.
     let open_swap = mock_swap_payload_xdr(&t.env, eth.clone(), usdc.clone(), 2000_0000000);
     let alice_id = t.ctrl_client().multiply(
         &alice,
@@ -96,7 +89,6 @@ fn poc_multiply_initial_payment_reentrancy_duplicates_collateral() {
         .ctrl_client()
         .get_collateral_amount(&alice_id, &hub_asset(usdc.clone()));
 
-    // debt leg: ETH -> USDC ; convert leg: EVIL -> USDC
     let debt_swap = mock_swap_payload_xdr(&t.env, eth.clone(), usdc.clone(), 1000_0000000);
     let convert_swap = mock_swap_payload_xdr(&t.env, evil.clone(), usdc.clone(), 10_0000000);
 
@@ -120,10 +112,12 @@ fn poc_multiply_initial_payment_reentrancy_duplicates_collateral() {
 
     std::println!("multiply result       : {:?}", res);
     std::println!("alice wallet USDC     : {} -> {}", usdc_before, usdc_after);
-    std::println!("recorded collateral   : {} -> {}", recorded_before, recorded_after);
+    std::println!(
+        "recorded collateral   : {} -> {}",
+        recorded_before,
+        recorded_after
+    );
 
-    // Exploit succeeded if Alice pocketed her collateral AND the controller
-    // still credits her with (roughly) the same collateral.
     let drained = usdc_after - usdc_before;
     assert!(
         !(res.is_ok() && drained >= recorded_before && recorded_after >= recorded_before),

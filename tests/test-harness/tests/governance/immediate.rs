@@ -147,11 +147,6 @@ fn oracle_role_moves_sanity_band_containing_price() {
 
 #[test]
 fn sanity_band_not_containing_price_fails_closed_at_read() {
-    // A band that excludes the live price is transient, not structural: the write
-    // lands so the ORACLE-immediate lever stays usable during an incident, and the
-    // band is enforced on every read, so the asset fails closed instead. Each case
-    // gets a fresh protocol because the second band would otherwise be rejected by
-    // the overlap rule against the first one.
     for (min_wad, max_wad) in [
         (usd(1) * 1005 / 1000, usd(1) * 105 / 100),
         (usd(1) * 95 / 100, usd(1) * 995 / 1000),

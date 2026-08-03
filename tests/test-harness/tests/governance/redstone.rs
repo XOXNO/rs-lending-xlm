@@ -76,9 +76,6 @@ fn test_redstone_stale_package_timestamp_fails_closed_at_read() {
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    // Bad feed data is transient, not structural: the config write lands so the
-    // oracle stays reconfigurable during the incident, and the band is enforced
-    // on every read, so the asset fails closed instead.
     try_configure_usdc(&t, &cfg).expect("transient feed data must not block the config write");
     assert_contract_error(try_price_usdc(&t), errors::PRICE_FEED_STALE);
 }
@@ -100,9 +97,6 @@ fn test_redstone_stale_write_timestamp_fails_closed_at_read() {
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    // Bad feed data is transient, not structural: the config write lands so the
-    // oracle stays reconfigurable during the incident, and the band is enforced
-    // on every read, so the asset fails closed instead.
     try_configure_usdc(&t, &cfg).expect("transient feed data must not block the config write");
     assert_contract_error(try_price_usdc(&t), errors::PRICE_FEED_STALE);
 }
@@ -123,9 +117,6 @@ fn test_redstone_future_timestamps_fail_closed_at_read() {
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    // Bad feed data is transient, not structural: the config write lands so the
-    // oracle stays reconfigurable during the incident, and the band is enforced
-    // on every read, so the asset fails closed instead.
     try_configure_usdc(&t, &cfg).expect("transient feed data must not block the config write");
     assert_contract_error(try_price_usdc(&t), errors::NO_LAST_PRICE);
 }
@@ -143,9 +134,6 @@ fn test_redstone_missing_feed_id_fails_closed_at_read() {
         usd(1),
         DEFAULT_TOLERANCE.tolerance_bps,
     );
-    // Bad feed data is transient, not structural: the config write lands so the
-    // oracle stays reconfigurable during the incident, and the band is enforced
-    // on every read, so the asset fails closed instead.
     try_configure_usdc(&t, &cfg).expect("transient feed data must not block the config write");
     assert_contract_error(try_price_usdc(&t), errors::NO_LAST_PRICE);
 }

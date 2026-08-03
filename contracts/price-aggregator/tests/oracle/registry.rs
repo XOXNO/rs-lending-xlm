@@ -506,15 +506,11 @@ fn set_lp_min_pool_value(oracle: &mut AssetOracle, min_pool_value_wad: i128) {
     set_lp(oracle, lp);
 }
 
-// The production listing path must accept a constant-product LP: an LpShare is
-// always a sole source and has no smoothing window of its own, so the spot-only
-// gate must not apply to it. Also proves attest_lp_binding is reachable.
 #[test]
 fn test_set_oracle_lists_a_constant_product_lp_and_prices_it() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        // 1000 + 1000 whole tokens at $1, 1000 whole shares => $2.00 per share.
         let (_pool, _plane, share, oracle) = listable_lp(
             &env,
             "standard",
@@ -572,9 +568,6 @@ fn balanced_stable_lp(env: &Env) -> (Address, Address, Address, AssetOracle) {
     (pool, plane, share, oracle)
 }
 
-// A stableswap LP lists and prices through the production path exactly like the
-// constant-product one. Balanced 1000/1000 whole tokens at $1 with 1000 whole
-// shares and A=1500 fair-values at ~$2.00 per share (D/S · min).
 #[test]
 fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
     let env = Env::default();
@@ -604,9 +597,6 @@ fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
     });
 }
 
-// The stableswap source binds to the stableswap invariant: a constant-product
-// pool (pool_type "constant_product", "standard" plane row) must be rejected at
-// listing, so a pool can never be priced by the wrong invariant.
 #[test]
 #[should_panic]
 fn test_stable_lp_rejects_a_constant_product_pool() {
@@ -815,8 +805,6 @@ fn test_lp_read_rejects_liquidity_below_floor() {
     });
 }
 
-// A stable/concentrated pool mislisted as constant-product is structural: its
-// plane row is not [reserve0, reserve1], so listing must fail, not go dead.
 #[test]
 #[should_panic]
 fn test_set_oracle_rejects_a_non_standard_pool() {
@@ -834,9 +822,6 @@ fn test_set_oracle_rejects_a_non_standard_pool() {
     });
 }
 
-// An LpShare is always the sole source, so no primary/anchor band is ever read:
-// a zero tolerance must list, and set_tolerance must refuse rather than store a
-// band that implies a cross-check the oracle does not perform.
 #[test]
 fn test_lp_oracle_needs_no_tolerance_band() {
     let env = Env::default();
@@ -890,8 +875,6 @@ fn test_set_tolerance_refuses_an_lp_oracle() {
     });
 }
 
-// A pool that cannot report a positive supply is unpriceable by construction,
-// so it must be refused at listing rather than stored as a dead market.
 #[test]
 #[should_panic]
 fn test_set_oracle_rejects_a_pool_with_zero_total_shares() {
@@ -904,9 +887,6 @@ fn test_set_oracle_rejects_a_pool_with_zero_total_shares() {
     });
 }
 
-// Listing an LP whose price cannot be formed is a configuration error: there is
-// no incident to work around when adding a new asset, so the write is refused
-// rather than stored as a market that is dead on its first read.
 #[test]
 #[should_panic]
 fn test_set_oracle_refuses_an_lp_that_cannot_price_at_listing() {
@@ -920,15 +900,12 @@ fn test_set_oracle_refuses_an_lp_that_cannot_price_at_listing() {
             10_000_000_000,
             10_000_000_000,
         );
-        // The pool prices at $2.00/share; this band excludes it.
         oracle.min_sanity_price_wad = 5 * WAD;
         oracle.max_sanity_price_wad = 6 * WAD;
         set_oracle(&env, PriceKey::Token(share), oracle);
     });
 }
 
-// The strict listing probe must not leak into the incident levers: an ordinary
-// asset whose live price is out of band still lands, so it stays repairable.
 #[test]
 fn test_a_non_lp_config_still_lands_when_its_price_is_out_of_band() {
     let env = Env::default();
@@ -960,7 +937,6 @@ fn test_a_non_lp_config_still_lands_when_its_price_is_out_of_band() {
                     lower_ratio_bps: 9_524,
                 },
                 independence: IndependencePolicy::RequireDisjoint,
-                // Live price is $1.00, this band excludes it.
                 min_sanity_price_wad: 5 * WAD,
                 max_sanity_price_wad: 11 * WAD / 2,
             },
@@ -969,9 +945,6 @@ fn test_a_non_lp_config_still_lands_when_its_price_is_out_of_band() {
     });
 }
 
-// `set_tolerance` deliberately skips the full config validation so a band can be
-// retuned mid-incident, which leaves the probe as the only thing between a
-// structurally broken stored config and a committed write.
 #[test]
 #[should_panic(expected = "Error(Contract, #231)")]
 fn test_set_tolerance_probes_the_stored_config_before_committing() {
@@ -995,8 +968,6 @@ fn test_set_tolerance_probes_the_stored_config_before_committing() {
     });
 }
 
-// RedStone payloads are fixed at 8 decimals, so any other declaration silently
-// rescales every price the feed ever reports.
 #[test]
 #[should_panic(expected = "Error(Contract, #221)")]
 fn test_set_oracle_rejects_a_redstone_leg_that_is_not_eight_decimals() {
@@ -1055,8 +1026,6 @@ fn test_a_xoxno_leg_prices_through_the_shared_multi_feed_reader() {
     });
 }
 
-// The pool's own token order is the binding, not the config's copy of it: a pool
-// that reports a different reserve in slot A is a different market.
 #[test]
 #[should_panic(expected = "Error(Contract, #220)")]
 fn test_set_oracle_rejects_a_pool_reporting_another_token_in_the_first_slot() {
@@ -1080,8 +1049,6 @@ fn test_set_oracle_rejects_a_pool_reporting_another_token_in_the_first_slot() {
     });
 }
 
-// Reserve decimals are what turn raw reserves into value, so a declaration the
-// token itself contradicts misprices the share by whole orders of magnitude.
 #[test]
 #[should_panic(expected = "Error(Contract, #221)")]
 fn test_set_oracle_rejects_reserve_decimals_the_token_does_not_report() {
@@ -1103,8 +1070,6 @@ fn test_set_oracle_rejects_reserve_decimals_the_token_does_not_report() {
     });
 }
 
-// sqrt(k) is undefined for an empty leg, so a half-drained pool has no invariant
-// to compare against the plane and must be refused rather than read as a match.
 #[test]
 #[should_panic(expected = "Error(Contract, #234)")]
 fn test_set_oracle_rejects_a_pool_with_one_empty_reserve() {
@@ -1117,14 +1082,11 @@ fn test_set_oracle_rejects_a_pool_with_one_empty_reserve() {
     });
 }
 
-// The liquidity floor is inclusive: a pool worth exactly the configured minimum
-// is listable, otherwise the floor a config author writes is off by one wei.
 #[test]
 fn test_set_oracle_accepts_a_pool_worth_exactly_its_liquidity_floor() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        // 1000 + 1000 whole tokens at $1 over 1000 whole shares is $2000 of pool.
         let (_pool, _plane, share, mut oracle) = listable_lp(
             &env,
             "standard",
@@ -1202,10 +1164,6 @@ fn test_the_second_lp_leg_is_resolved_one_level_below_the_lp() {
     assert_deepened_leg_exhausts_the_cap(false);
 }
 
-// The plane may lag a swap, and a swap preserves D, so listing tolerates a hair
-// of drift in the invariant itself. A plane whose D sits half a percent off the
-// pool's own is not lag: it describes a different curve, and a share priced from
-// it would not be the share the pool would redeem.
 #[test]
 #[should_panic(expected = "Error(Contract, #234)")]
 fn test_set_oracle_rejects_a_stable_plane_whose_invariant_drifts_past_the_cap() {
@@ -1236,8 +1194,6 @@ fn priced_stable_lp(env: &Env) -> (PriceKey, AquariusLpSource, i128) {
     (key, lp, pool_value_wad)
 }
 
-// The liquidity floor is inclusive: a pool worth exactly the configured minimum
-// is priceable, otherwise the floor a config author writes is off by one wei.
 #[test]
 fn test_a_stable_pool_worth_exactly_its_liquidity_floor_still_prices() {
     let env = Env::default();

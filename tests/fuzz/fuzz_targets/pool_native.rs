@@ -433,11 +433,6 @@ fuzz_target!(|i: In| {
                 }
             }
             6 => {
-                // A claim accrues before it burns, and the reserve-factor share of
-                // that accrual grows the treasury book. Only cash on hand is
-                // burnable, so a claim against an illiquid pool legitimately leaves
-                // more revenue outstanding than the pre-accrual snapshot held.
-                // Accrue first, then the claim is the only thing moving revenue.
                 if flatten_contract_result(pool.try_update_indexes(&market)).is_err() {
                     assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
                     continue;

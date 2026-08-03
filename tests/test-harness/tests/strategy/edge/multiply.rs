@@ -89,9 +89,6 @@ fn test_multiply_rejects_unlisted_third_token_payment_before_transfer() {
         &None,
     );
 
-    // The transit asset is no longer priced, so an unlisted payment token is
-    // caught by the convert-steps guard rather than by the oracle. The property
-    // this test exists for is unchanged: it is rejected before any funds move.
     match result {
         Err(Ok(err)) => assert_eq!(
             err,
