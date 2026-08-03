@@ -38,6 +38,12 @@ jobs:
           git reset --hard
           git clean -ffdx -e target
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          targets: wasm32v1-none
+
       - name: Warm Scout detector build
         continue-on-error: true
         uses: mihaieremia/scout-audit@26779da2e72880ba77ab796ee7f71a785ba315f3
