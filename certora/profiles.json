@@ -263,6 +263,9 @@
         "conf": "certora/common/confs/math-hard.conf"
       },
       {
+        "conf": "certora/common/confs/rate-accounting-hard.conf"
+      },
+      {
         "conf": "certora/controller/confs/controller-pool-consistency.conf"
       },
       {
